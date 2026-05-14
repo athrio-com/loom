@@ -1,0 +1,7181 @@
+➜  literate git:(main) ✗ bun run ./src/loom-cli.ts parse ./corpus/Loom.md --pretty
+{
+  "type": "root",
+  "children": [
+    {
+      "type": "heading",
+      "depth": 1,
+      "children": [
+        {
+          "type": "text",
+          "value": "Chapter I",
+          "position": {
+            "start": {
+              "line": 1,
+              "column": 3,
+              "offset": 2
+            },
+            "end": {
+              "line": 1,
+              "column": 12,
+              "offset": 11
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 1,
+          "column": 1,
+          "offset": 0
+        },
+        "end": {
+          "line": 1,
+          "column": 12,
+          "offset": 11
+        }
+      }
+    },
+    {
+      "type": "heading",
+      "depth": 1,
+      "children": [
+        {
+          "type": "text",
+          "value": "[Loom] is written in {Loom}",
+          "position": {
+            "start": {
+              "line": 3,
+              "column": 3,
+              "offset": 15
+            },
+            "end": {
+              "line": 3,
+              "column": 30,
+              "offset": 42
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 3,
+          "column": 1,
+          "offset": 13
+        },
+        "end": {
+          "line": 3,
+          "column": 30,
+          "offset": 42
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "This document implements Loom literate programming framework.",
+          "position": {
+            "start": {
+              "line": 5,
+              "column": 1,
+              "offset": 44
+            },
+            "end": {
+              "line": 5,
+              "column": 62,
+              "offset": 105
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 5,
+          "column": 1,
+          "offset": 44
+        },
+        "end": {
+          "line": 5,
+          "column": 62,
+          "offset": 105
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "Markdown sections following ",
+          "position": {
+            "start": {
+              "line": 7,
+              "column": 1,
+              "offset": 107
+            },
+            "end": {
+              "line": 7,
+              "column": 29,
+              "offset": 135
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Chapter",
+              "position": {
+                "start": {
+                  "line": 7,
+                  "column": 30,
+                  "offset": 136
+                },
+                "end": {
+                  "line": 7,
+                  "column": 37,
+                  "offset": 143
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 7,
+              "column": 29,
+              "offset": 135
+            },
+            "end": {
+              "line": 7,
+              "column": 38,
+              "offset": 144
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " are ",
+          "position": {
+            "start": {
+              "line": 7,
+              "column": 38,
+              "offset": 144
+            },
+            "end": {
+              "line": 7,
+              "column": 43,
+              "offset": 149
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Sections",
+              "position": {
+                "start": {
+                  "line": 7,
+                  "column": 44,
+                  "offset": 150
+                },
+                "end": {
+                  "line": 7,
+                  "column": 52,
+                  "offset": 158
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 7,
+              "column": 43,
+              "offset": 149
+            },
+            "end": {
+              "line": 7,
+              "column": 53,
+              "offset": 159
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": ". Loom interprets Chapters as Effect Services. Sections map to parametrisable Effect Functions.",
+          "position": {
+            "start": {
+              "line": 7,
+              "column": 53,
+              "offset": 159
+            },
+            "end": {
+              "line": 7,
+              "column": 148,
+              "offset": 254
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 7,
+          "column": 1,
+          "offset": 107
+        },
+        "end": {
+          "line": 7,
+          "column": 148,
+          "offset": 254
+        }
+      }
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "start": 1,
+      "spread": true,
+      "children": [
+        {
+          "type": "listItem",
+          "spread": false,
+          "checked": null,
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "a ",
+                  "position": {
+                    "start": {
+                      "line": 9,
+                      "column": 4,
+                      "offset": 259
+                    },
+                    "end": {
+                      "line": 9,
+                      "column": 6,
+                      "offset": 261
+                    }
+                  }
+                },
+                {
+                  "type": "emphasis",
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "Chapters",
+                      "position": {
+                        "start": {
+                          "line": 9,
+                          "column": 7,
+                          "offset": 262
+                        },
+                        "end": {
+                          "line": 9,
+                          "column": 15,
+                          "offset": 270
+                        }
+                      }
+                    }
+                  ],
+                  "position": {
+                    "start": {
+                      "line": 9,
+                      "column": 6,
+                      "offset": 261
+                    },
+                    "end": {
+                      "line": 9,
+                      "column": 16,
+                      "offset": 271
+                    }
+                  }
+                },
+                {
+                  "type": "text",
+                  "value": " are the first markdown H1 section containing ",
+                  "position": {
+                    "start": {
+                      "line": 9,
+                      "column": 16,
+                      "offset": 271
+                    },
+                    "end": {
+                      "line": 9,
+                      "column": 62,
+                      "offset": 317
+                    }
+                  }
+                },
+                {
+                  "type": "emphasis",
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "Tag",
+                      "position": {
+                        "start": {
+                          "line": 9,
+                          "column": 63,
+                          "offset": 318
+                        },
+                        "end": {
+                          "line": 9,
+                          "column": 66,
+                          "offset": 321
+                        }
+                      }
+                    }
+                  ],
+                  "position": {
+                    "start": {
+                      "line": 9,
+                      "column": 62,
+                      "offset": 317
+                    },
+                    "end": {
+                      "line": 9,
+                      "column": 67,
+                      "offset": 322
+                    }
+                  }
+                },
+                {
+                  "type": "text",
+                  "value": " and ",
+                  "position": {
+                    "start": {
+                      "line": 9,
+                      "column": 67,
+                      "offset": 322
+                    },
+                    "end": {
+                      "line": 9,
+                      "column": 72,
+                      "offset": 327
+                    }
+                  }
+                },
+                {
+                  "type": "emphasis",
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "Specifier",
+                      "position": {
+                        "start": {
+                          "line": 9,
+                          "column": 73,
+                          "offset": 328
+                        },
+                        "end": {
+                          "line": 9,
+                          "column": 82,
+                          "offset": 337
+                        }
+                      }
+                    }
+                  ],
+                  "position": {
+                    "start": {
+                      "line": 9,
+                      "column": 72,
+                      "offset": 327
+                    },
+                    "end": {
+                      "line": 9,
+                      "column": 83,
+                      "offset": 338
+                    }
+                  }
+                },
+                {
+                  "type": "text",
+                  "value": " (e.g., ",
+                  "position": {
+                    "start": {
+                      "line": 9,
+                      "column": 83,
+                      "offset": 338
+                    },
+                    "end": {
+                      "line": 9,
+                      "column": 91,
+                      "offset": 346
+                    }
+                  }
+                },
+                {
+                  "type": "inlineCode",
+                  "value": "# Chapter name [MyApp]{TypeScript}",
+                  "position": {
+                    "start": {
+                      "line": 9,
+                      "column": 91,
+                      "offset": 346
+                    },
+                    "end": {
+                      "line": 9,
+                      "column": 127,
+                      "offset": 382
+                    }
+                  }
+                },
+                {
+                  "type": "text",
+                  "value": "). ",
+                  "position": {
+                    "start": {
+                      "line": 9,
+                      "column": 127,
+                      "offset": 382
+                    },
+                    "end": {
+                      "line": 9,
+                      "column": 130,
+                      "offset": 385
+                    }
+                  }
+                },
+                {
+                  "type": "emphasis",
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "Chapters",
+                      "position": {
+                        "start": {
+                          "line": 9,
+                          "column": 131,
+                          "offset": 386
+                        },
+                        "end": {
+                          "line": 9,
+                          "column": 139,
+                          "offset": 394
+                        }
+                      }
+                    }
+                  ],
+                  "position": {
+                    "start": {
+                      "line": 9,
+                      "column": 130,
+                      "offset": 385
+                    },
+                    "end": {
+                      "line": 9,
+                      "column": 140,
+                      "offset": 395
+                    }
+                  }
+                },
+                {
+                  "type": "text",
+                  "value": " must be Tagged and Specified.",
+                  "position": {
+                    "start": {
+                      "line": 9,
+                      "column": 140,
+                      "offset": 395
+                    },
+                    "end": {
+                      "line": 9,
+                      "column": 170,
+                      "offset": 425
+                    }
+                  }
+                }
+              ],
+              "position": {
+                "start": {
+                  "line": 9,
+                  "column": 4,
+                  "offset": 259
+                },
+                "end": {
+                  "line": 9,
+                  "column": 171,
+                  "offset": 426
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 9,
+              "column": 1,
+              "offset": 256
+            },
+            "end": {
+              "line": 9,
+              "column": 171,
+              "offset": 426
+            }
+          }
+        },
+        {
+          "type": "listItem",
+          "spread": false,
+          "checked": null,
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "emphasis",
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "Sections",
+                      "position": {
+                        "start": {
+                          "line": 11,
+                          "column": 5,
+                          "offset": 432
+                        },
+                        "end": {
+                          "line": 11,
+                          "column": 13,
+                          "offset": 440
+                        }
+                      }
+                    }
+                  ],
+                  "position": {
+                    "start": {
+                      "line": 11,
+                      "column": 4,
+                      "offset": 431
+                    },
+                    "end": {
+                      "line": 11,
+                      "column": 14,
+                      "offset": 441
+                    }
+                  }
+                },
+                {
+                  "type": "text",
+                  "value": " are markdown heading sections following ",
+                  "position": {
+                    "start": {
+                      "line": 11,
+                      "column": 14,
+                      "offset": 441
+                    },
+                    "end": {
+                      "line": 11,
+                      "column": 55,
+                      "offset": 482
+                    }
+                  }
+                },
+                {
+                  "type": "emphasis",
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "Chapter",
+                      "position": {
+                        "start": {
+                          "line": 11,
+                          "column": 56,
+                          "offset": 483
+                        },
+                        "end": {
+                          "line": 11,
+                          "column": 63,
+                          "offset": 490
+                        }
+                      }
+                    }
+                  ],
+                  "position": {
+                    "start": {
+                      "line": 11,
+                      "column": 55,
+                      "offset": 482
+                    },
+                    "end": {
+                      "line": 11,
+                      "column": 64,
+                      "offset": 491
+                    }
+                  }
+                },
+                {
+                  "type": "text",
+                  "value": ". Sections can have a Tag and/or Specifier, or neither.",
+                  "position": {
+                    "start": {
+                      "line": 11,
+                      "column": 64,
+                      "offset": 491
+                    },
+                    "end": {
+                      "line": 11,
+                      "column": 119,
+                      "offset": 546
+                    }
+                  }
+                }
+              ],
+              "position": {
+                "start": {
+                  "line": 11,
+                  "column": 4,
+                  "offset": 431
+                },
+                "end": {
+                  "line": 11,
+                  "column": 119,
+                  "offset": 546
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 11,
+              "column": 1,
+              "offset": 428
+            },
+            "end": {
+              "line": 11,
+              "column": 119,
+              "offset": 546
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 9,
+          "column": 1,
+          "offset": 256
+        },
+        "end": {
+          "line": 11,
+          "column": 119,
+          "offset": 546
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Tagged Sections",
+              "position": {
+                "start": {
+                  "line": 13,
+                  "column": 2,
+                  "offset": 549
+                },
+                "end": {
+                  "line": 13,
+                  "column": 17,
+                  "offset": 564
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 13,
+              "column": 1,
+              "offset": 548
+            },
+            "end": {
+              "line": 13,
+              "column": 18,
+              "offset": 565
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " (e.g., ",
+          "position": {
+            "start": {
+              "line": 13,
+              "column": 18,
+              "offset": 565
+            },
+            "end": {
+              "line": 13,
+              "column": 26,
+              "offset": 573
+            }
+          }
+        },
+        {
+          "type": "inlineCode",
+          "value": "# Section name [Greet]",
+          "position": {
+            "start": {
+              "line": 13,
+              "column": 26,
+              "offset": 573
+            },
+            "end": {
+              "line": 13,
+              "column": 50,
+              "offset": 597
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": ") are ",
+          "position": {
+            "start": {
+              "line": 13,
+              "column": 50,
+              "offset": 597
+            },
+            "end": {
+              "line": 13,
+              "column": 56,
+              "offset": 603
+            }
+          }
+        },
+        {
+          "type": "strong",
+          "children": [
+            {
+              "type": "text",
+              "value": "hoisted and exported members",
+              "position": {
+                "start": {
+                  "line": 13,
+                  "column": 58,
+                  "offset": 605
+                },
+                "end": {
+                  "line": 13,
+                  "column": 86,
+                  "offset": 633
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 13,
+              "column": 56,
+              "offset": 603
+            },
+            "end": {
+              "line": 13,
+              "column": 88,
+              "offset": 635
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " of Loom ",
+          "position": {
+            "start": {
+              "line": 13,
+              "column": 88,
+              "offset": 635
+            },
+            "end": {
+              "line": 13,
+              "column": 97,
+              "offset": 644
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Chapters",
+              "position": {
+                "start": {
+                  "line": 13,
+                  "column": 98,
+                  "offset": 645
+                },
+                "end": {
+                  "line": 13,
+                  "column": 106,
+                  "offset": 653
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 13,
+              "column": 97,
+              "offset": 644
+            },
+            "end": {
+              "line": 13,
+              "column": 107,
+              "offset": 654
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": ". Other Sections and ",
+          "position": {
+            "start": {
+              "line": 13,
+              "column": 107,
+              "offset": 654
+            },
+            "end": {
+              "line": 13,
+              "column": 128,
+              "offset": 675
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Looms",
+              "position": {
+                "start": {
+                  "line": 13,
+                  "column": 129,
+                  "offset": 676
+                },
+                "end": {
+                  "line": 13,
+                  "column": 134,
+                  "offset": 681
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 13,
+              "column": 128,
+              "offset": 675
+            },
+            "end": {
+              "line": 13,
+              "column": 135,
+              "offset": 682
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " can refer Tagged Sections by tags.",
+          "position": {
+            "start": {
+              "line": 13,
+              "column": 135,
+              "offset": 682
+            },
+            "end": {
+              "line": 13,
+              "column": 170,
+              "offset": 717
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 13,
+          "column": 1,
+          "offset": 548
+        },
+        "end": {
+          "line": 13,
+          "column": 170,
+          "offset": 717
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Untagged Sections",
+              "position": {
+                "start": {
+                  "line": 15,
+                  "column": 2,
+                  "offset": 720
+                },
+                "end": {
+                  "line": 15,
+                  "column": 19,
+                  "offset": 737
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 15,
+              "column": 1,
+              "offset": 719
+            },
+            "end": {
+              "line": 15,
+              "column": 20,
+              "offset": 738
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " are hoisted ",
+          "position": {
+            "start": {
+              "line": 15,
+              "column": 20,
+              "offset": 738
+            },
+            "end": {
+              "line": 15,
+              "column": 33,
+              "offset": 751
+            }
+          }
+        },
+        {
+          "type": "strong",
+          "children": [
+            {
+              "type": "text",
+              "value": "but not exported member",
+              "position": {
+                "start": {
+                  "line": 15,
+                  "column": 35,
+                  "offset": 753
+                },
+                "end": {
+                  "line": 15,
+                  "column": 58,
+                  "offset": 776
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 15,
+              "column": 33,
+              "offset": 751
+            },
+            "end": {
+              "line": 15,
+              "column": 60,
+              "offset": 778
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " of Chapters. Untagged Sections can be referred and used by any other section in the same Loom only. Untagged Sections do not have tags and hence can be referred only by their literal heading name.",
+          "position": {
+            "start": {
+              "line": 15,
+              "column": 60,
+              "offset": 778
+            },
+            "end": {
+              "line": 15,
+              "column": 257,
+              "offset": 975
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 15,
+          "column": 1,
+          "offset": 719
+        },
+        "end": {
+          "line": 15,
+          "column": 257,
+          "offset": 975
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Specified Sections",
+              "position": {
+                "start": {
+                  "line": 17,
+                  "column": 2,
+                  "offset": 978
+                },
+                "end": {
+                  "line": 17,
+                  "column": 20,
+                  "offset": 996
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 17,
+              "column": 1,
+              "offset": 977
+            },
+            "end": {
+              "line": 17,
+              "column": 21,
+              "offset": 997
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " are Tagged Sections with an curly brackets indetifier (",
+          "position": {
+            "start": {
+              "line": 17,
+              "column": 21,
+              "offset": 997
+            },
+            "end": {
+              "line": 17,
+              "column": 77,
+              "offset": 1053
+            }
+          }
+        },
+        {
+          "type": "inlineCode",
+          "value": "[SomeTag]{Specifier}",
+          "position": {
+            "start": {
+              "line": 17,
+              "column": 77,
+              "offset": 1053
+            },
+            "end": {
+              "line": 17,
+              "column": 99,
+              "offset": 1075
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": "). Specifiers act as markers defining a target language of a section or its ",
+          "position": {
+            "start": {
+              "line": 17,
+              "column": 99,
+              "offset": 1075
+            },
+            "end": {
+              "line": 17,
+              "column": 175,
+              "offset": 1151
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "disposition",
+              "position": {
+                "start": {
+                  "line": 17,
+                  "column": 176,
+                  "offset": 1152
+                },
+                "end": {
+                  "line": 17,
+                  "column": 187,
+                  "offset": 1163
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 17,
+              "column": 175,
+              "offset": 1151
+            },
+            "end": {
+              "line": 17,
+              "column": 188,
+              "offset": 1164
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": ". For example, ",
+          "position": {
+            "start": {
+              "line": 17,
+              "column": 188,
+              "offset": 1164
+            },
+            "end": {
+              "line": 17,
+              "column": 203,
+              "offset": 1179
+            }
+          }
+        },
+        {
+          "type": "inlineCode",
+          "value": "{Loom}",
+          "position": {
+            "start": {
+              "line": 17,
+              "column": 203,
+              "offset": 1179
+            },
+            "end": {
+              "line": 17,
+              "column": 211,
+              "offset": 1187
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " specifies that a section is written in Loom Language which is an extension of TypeScript with Effect.",
+          "position": {
+            "start": {
+              "line": 17,
+              "column": 211,
+              "offset": 1187
+            },
+            "end": {
+              "line": 17,
+              "column": 313,
+              "offset": 1289
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 17,
+          "column": 1,
+          "offset": 977
+        },
+        "end": {
+          "line": 17,
+          "column": 313,
+          "offset": 1289
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Unspecified Sections",
+              "position": {
+                "start": {
+                  "line": 19,
+                  "column": 2,
+                  "offset": 1292
+                },
+                "end": {
+                  "line": 19,
+                  "column": 22,
+                  "offset": 1312
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 19,
+              "column": 1,
+              "offset": 1291
+            },
+            "end": {
+              "line": 19,
+              "column": 23,
+              "offset": 1313
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " leave specification details like disposition or a target language to Loom defaults. By default, an unspecified section is disposed as ",
+          "position": {
+            "start": {
+              "line": 19,
+              "column": 23,
+              "offset": 1313
+            },
+            "end": {
+              "line": 19,
+              "column": 158,
+              "offset": 1448
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Product Source Code",
+              "position": {
+                "start": {
+                  "line": 19,
+                  "column": 159,
+                  "offset": 1449
+                },
+                "end": {
+                  "line": 19,
+                  "column": 178,
+                  "offset": 1468
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 19,
+              "column": 158,
+              "offset": 1448
+            },
+            "end": {
+              "line": 19,
+              "column": 179,
+              "offset": 1469
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " written and typechecked against the LSP given in the ",
+          "position": {
+            "start": {
+              "line": 19,
+              "column": 179,
+              "offset": 1469
+            },
+            "end": {
+              "line": 19,
+              "column": 233,
+              "offset": 1523
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Chapter Section",
+              "position": {
+                "start": {
+                  "line": 19,
+                  "column": 234,
+                  "offset": 1524
+                },
+                "end": {
+                  "line": 19,
+                  "column": 249,
+                  "offset": 1539
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 19,
+              "column": 233,
+              "offset": 1523
+            },
+            "end": {
+              "line": 19,
+              "column": 250,
+              "offset": 1540
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " heading specifier.",
+          "position": {
+            "start": {
+              "line": 19,
+              "column": 250,
+              "offset": 1540
+            },
+            "end": {
+              "line": 19,
+              "column": 269,
+              "offset": 1559
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 19,
+          "column": 1,
+          "offset": 1291
+        },
+        "end": {
+          "line": 19,
+          "column": 269,
+          "offset": 1559
+        }
+      }
+    },
+    {
+      "type": "heading",
+      "depth": 1,
+      "children": [
+        {
+          "type": "text",
+          "value": "First thing first: Syntax for Loom",
+          "position": {
+            "start": {
+              "line": 21,
+              "column": 3,
+              "offset": 1563
+            },
+            "end": {
+              "line": 21,
+              "column": 37,
+              "offset": 1597
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 21,
+          "column": 1,
+          "offset": 1561
+        },
+        "end": {
+          "line": 21,
+          "column": 37,
+          "offset": 1597
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "At this stage, we do not have any Loom specific syntax defined. This Loom is the genesis of its own. For its very existance, we must define Loom's foundational primitives and capabilties. Some of them described above but not yet implemented. Loom is written in TypeScript with Effect while following pure FP practices.",
+          "position": {
+            "start": {
+              "line": 23,
+              "column": 1,
+              "offset": 1599
+            },
+            "end": {
+              "line": 23,
+              "column": 319,
+              "offset": 1917
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 23,
+          "column": 1,
+          "offset": 1599
+        },
+        "end": {
+          "line": 23,
+          "column": 319,
+          "offset": 1917
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "The very first thing that will allow us materialise our first Loom program is ",
+          "position": {
+            "start": {
+              "line": 25,
+              "column": 1,
+              "offset": 1919
+            },
+            "end": {
+              "line": 25,
+              "column": 79,
+              "offset": 1997
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Arrow",
+              "position": {
+                "start": {
+                  "line": 25,
+                  "column": 80,
+                  "offset": 1998
+                },
+                "end": {
+                  "line": 25,
+                  "column": 85,
+                  "offset": 2003
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 25,
+              "column": 79,
+              "offset": 1997
+            },
+            "end": {
+              "line": 25,
+              "column": 86,
+              "offset": 2004
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": ". Arrows have simple and yet crucial role in Loom — they map ",
+          "position": {
+            "start": {
+              "line": 25,
+              "column": 86,
+              "offset": 2004
+            },
+            "end": {
+              "line": 25,
+              "column": 147,
+              "offset": 2065
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Prose",
+              "position": {
+                "start": {
+                  "line": 25,
+                  "column": 148,
+                  "offset": 2066
+                },
+                "end": {
+                  "line": 25,
+                  "column": 153,
+                  "offset": 2071
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 25,
+              "column": 147,
+              "offset": 2065
+            },
+            "end": {
+              "line": 25,
+              "column": 154,
+              "offset": 2072
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " to ",
+          "position": {
+            "start": {
+              "line": 25,
+              "column": 154,
+              "offset": 2072
+            },
+            "end": {
+              "line": 25,
+              "column": 158,
+              "offset": 2076
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Code",
+              "position": {
+                "start": {
+                  "line": 25,
+                  "column": 159,
+                  "offset": 2077
+                },
+                "end": {
+                  "line": 25,
+                  "column": 163,
+                  "offset": 2081
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 25,
+              "column": 158,
+              "offset": 2076
+            },
+            "end": {
+              "line": 25,
+              "column": 164,
+              "offset": 2082
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": ".",
+          "position": {
+            "start": {
+              "line": 25,
+              "column": 164,
+              "offset": 2082
+            },
+            "end": {
+              "line": 25,
+              "column": 165,
+              "offset": 2083
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 25,
+          "column": 1,
+          "offset": 1919
+        },
+        "end": {
+          "line": 25,
+          "column": 165,
+          "offset": 2083
+        }
+      }
+    },
+    {
+      "type": "Arrow",
+      "position": {
+        "start": {
+          "line": 27,
+          "column": 1,
+          "offset": 2085
+        },
+        "end": {
+          "line": 27,
+          "column": 3,
+          "offset": 2087
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "// Hello! This is the beginning of the Loom Language.",
+          "position": {
+            "start": {
+              "line": 29,
+              "column": 1,
+              "offset": 2089
+            },
+            "end": {
+              "line": 29,
+              "column": 54,
+              "offset": 2142
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 29,
+          "column": 1,
+          "offset": 2089
+        },
+        "end": {
+          "line": 29,
+          "column": 54,
+          "offset": 2142
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "~",
+          "position": {
+            "start": {
+              "line": 31,
+              "column": 1,
+              "offset": 2144
+            },
+            "end": {
+              "line": 31,
+              "column": 2,
+              "offset": 2145
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 31,
+          "column": 1,
+          "offset": 2144
+        },
+        "end": {
+          "line": 31,
+          "column": 3,
+          "offset": 2146
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "Our very first program in Loom does nothing but showcases the rythm of every Loom program.",
+          "position": {
+            "start": {
+              "line": 33,
+              "column": 1,
+              "offset": 2148
+            },
+            "end": {
+              "line": 33,
+              "column": 91,
+              "offset": 2238
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 33,
+          "column": 1,
+          "offset": 2148
+        },
+        "end": {
+          "line": 33,
+          "column": 91,
+          "offset": 2238
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "As you probably noticed, ",
+          "position": {
+            "start": {
+              "line": 35,
+              "column": 1,
+              "offset": 2240
+            },
+            "end": {
+              "line": 35,
+              "column": 26,
+              "offset": 2265
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Tildes",
+              "position": {
+                "start": {
+                  "line": 35,
+                  "column": 27,
+                  "offset": 2266
+                },
+                "end": {
+                  "line": 35,
+                  "column": 33,
+                  "offset": 2272
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 35,
+              "column": 26,
+              "offset": 2265
+            },
+            "end": {
+              "line": 35,
+              "column": 34,
+              "offset": 2273
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " ",
+          "position": {
+            "start": {
+              "line": 35,
+              "column": 34,
+              "offset": 2273
+            },
+            "end": {
+              "line": 35,
+              "column": 35,
+              "offset": 2274
+            }
+          }
+        },
+        {
+          "type": "inlineCode",
+          "value": "~",
+          "position": {
+            "start": {
+              "line": 35,
+              "column": 35,
+              "offset": 2274
+            },
+            "end": {
+              "line": 35,
+              "column": 38,
+              "offset": 2277
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " mark the transition back from Code to Prose. Sections can have arbitrary number of Code and Prose blocks devided by the Tildes and Arrows.",
+          "position": {
+            "start": {
+              "line": 35,
+              "column": 38,
+              "offset": 2277
+            },
+            "end": {
+              "line": 35,
+              "column": 177,
+              "offset": 2416
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 35,
+          "column": 1,
+          "offset": 2240
+        },
+        "end": {
+          "line": 35,
+          "column": 177,
+          "offset": 2416
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "Let's think how to implement this minimal syntax. We already defined:",
+          "position": {
+            "start": {
+              "line": 37,
+              "column": 1,
+              "offset": 2418
+            },
+            "end": {
+              "line": 37,
+              "column": 70,
+              "offset": 2487
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 37,
+          "column": 1,
+          "offset": 2418
+        },
+        "end": {
+          "line": 37,
+          "column": 70,
+          "offset": 2487
+        }
+      }
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "start": 1,
+      "spread": false,
+      "children": [
+        {
+          "type": "listItem",
+          "spread": false,
+          "checked": null,
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Chapters ",
+                  "position": {
+                    "start": {
+                      "line": 39,
+                      "column": 4,
+                      "offset": 2492
+                    },
+                    "end": {
+                      "line": 39,
+                      "column": 13,
+                      "offset": 2501
+                    }
+                  }
+                },
+                {
+                  "type": "inlineCode",
+                  "value": "# ... []{}",
+                  "position": {
+                    "start": {
+                      "line": 39,
+                      "column": 13,
+                      "offset": 2501
+                    },
+                    "end": {
+                      "line": 39,
+                      "column": 25,
+                      "offset": 2513
+                    }
+                  }
+                }
+              ],
+              "position": {
+                "start": {
+                  "line": 39,
+                  "column": 4,
+                  "offset": 2492
+                },
+                "end": {
+                  "line": 39,
+                  "column": 25,
+                  "offset": 2513
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 39,
+              "column": 1,
+              "offset": 2489
+            },
+            "end": {
+              "line": 39,
+              "column": 25,
+              "offset": 2513
+            }
+          }
+        },
+        {
+          "type": "listItem",
+          "spread": false,
+          "checked": null,
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Sections ",
+                  "position": {
+                    "start": {
+                      "line": 40,
+                      "column": 4,
+                      "offset": 2517
+                    },
+                    "end": {
+                      "line": 40,
+                      "column": 13,
+                      "offset": 2526
+                    }
+                  }
+                },
+                {
+                  "type": "inlineCode",
+                  "value": "#, ##",
+                  "position": {
+                    "start": {
+                      "line": 40,
+                      "column": 13,
+                      "offset": 2526
+                    },
+                    "end": {
+                      "line": 40,
+                      "column": 20,
+                      "offset": 2533
+                    }
+                  }
+                }
+              ],
+              "position": {
+                "start": {
+                  "line": 40,
+                  "column": 4,
+                  "offset": 2517
+                },
+                "end": {
+                  "line": 40,
+                  "column": 20,
+                  "offset": 2533
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 40,
+              "column": 1,
+              "offset": 2514
+            },
+            "end": {
+              "line": 40,
+              "column": 20,
+              "offset": 2533
+            }
+          }
+        },
+        {
+          "type": "listItem",
+          "spread": false,
+          "checked": null,
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Prose",
+                  "position": {
+                    "start": {
+                      "line": 41,
+                      "column": 4,
+                      "offset": 2537
+                    },
+                    "end": {
+                      "line": 41,
+                      "column": 9,
+                      "offset": 2542
+                    }
+                  }
+                }
+              ],
+              "position": {
+                "start": {
+                  "line": 41,
+                  "column": 4,
+                  "offset": 2537
+                },
+                "end": {
+                  "line": 41,
+                  "column": 9,
+                  "offset": 2542
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 41,
+              "column": 1,
+              "offset": 2534
+            },
+            "end": {
+              "line": 41,
+              "column": 9,
+              "offset": 2542
+            }
+          }
+        },
+        {
+          "type": "listItem",
+          "spread": false,
+          "checked": null,
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Code",
+                  "position": {
+                    "start": {
+                      "line": 42,
+                      "column": 4,
+                      "offset": 2546
+                    },
+                    "end": {
+                      "line": 42,
+                      "column": 8,
+                      "offset": 2550
+                    }
+                  }
+                }
+              ],
+              "position": {
+                "start": {
+                  "line": 42,
+                  "column": 4,
+                  "offset": 2546
+                },
+                "end": {
+                  "line": 42,
+                  "column": 8,
+                  "offset": 2550
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 42,
+              "column": 1,
+              "offset": 2543
+            },
+            "end": {
+              "line": 42,
+              "column": 8,
+              "offset": 2550
+            }
+          }
+        },
+        {
+          "type": "listItem",
+          "spread": false,
+          "checked": null,
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Arrows ",
+                  "position": {
+                    "start": {
+                      "line": 43,
+                      "column": 4,
+                      "offset": 2554
+                    },
+                    "end": {
+                      "line": 43,
+                      "column": 11,
+                      "offset": 2561
+                    }
+                  }
+                },
+                {
+                  "type": "inlineCode",
+                  "value": "=>",
+                  "position": {
+                    "start": {
+                      "line": 43,
+                      "column": 11,
+                      "offset": 2561
+                    },
+                    "end": {
+                      "line": 43,
+                      "column": 15,
+                      "offset": 2565
+                    }
+                  }
+                }
+              ],
+              "position": {
+                "start": {
+                  "line": 43,
+                  "column": 4,
+                  "offset": 2554
+                },
+                "end": {
+                  "line": 43,
+                  "column": 15,
+                  "offset": 2565
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 43,
+              "column": 1,
+              "offset": 2551
+            },
+            "end": {
+              "line": 43,
+              "column": 15,
+              "offset": 2565
+            }
+          }
+        },
+        {
+          "type": "listItem",
+          "spread": false,
+          "checked": null,
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Tildes ",
+                  "position": {
+                    "start": {
+                      "line": 44,
+                      "column": 4,
+                      "offset": 2569
+                    },
+                    "end": {
+                      "line": 44,
+                      "column": 11,
+                      "offset": 2576
+                    }
+                  }
+                },
+                {
+                  "type": "inlineCode",
+                  "value": "~",
+                  "position": {
+                    "start": {
+                      "line": 44,
+                      "column": 11,
+                      "offset": 2576
+                    },
+                    "end": {
+                      "line": 44,
+                      "column": 14,
+                      "offset": 2579
+                    }
+                  }
+                }
+              ],
+              "position": {
+                "start": {
+                  "line": 44,
+                  "column": 4,
+                  "offset": 2569
+                },
+                "end": {
+                  "line": 44,
+                  "column": 14,
+                  "offset": 2579
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 44,
+              "column": 1,
+              "offset": 2566
+            },
+            "end": {
+              "line": 44,
+              "column": 14,
+              "offset": 2579
+            }
+          }
+        },
+        {
+          "type": "listItem",
+          "spread": false,
+          "checked": null,
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Tags ",
+                  "position": {
+                    "start": {
+                      "line": 45,
+                      "column": 4,
+                      "offset": 2583
+                    },
+                    "end": {
+                      "line": 45,
+                      "column": 9,
+                      "offset": 2588
+                    }
+                  }
+                },
+                {
+                  "type": "inlineCode",
+                  "value": "[AnyTag]",
+                  "position": {
+                    "start": {
+                      "line": 45,
+                      "column": 9,
+                      "offset": 2588
+                    },
+                    "end": {
+                      "line": 45,
+                      "column": 19,
+                      "offset": 2598
+                    }
+                  }
+                }
+              ],
+              "position": {
+                "start": {
+                  "line": 45,
+                  "column": 4,
+                  "offset": 2583
+                },
+                "end": {
+                  "line": 45,
+                  "column": 19,
+                  "offset": 2598
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 45,
+              "column": 1,
+              "offset": 2580
+            },
+            "end": {
+              "line": 45,
+              "column": 19,
+              "offset": 2598
+            }
+          }
+        },
+        {
+          "type": "listItem",
+          "spread": false,
+          "checked": null,
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Specifiers ",
+                  "position": {
+                    "start": {
+                      "line": 46,
+                      "column": 4,
+                      "offset": 2602
+                    },
+                    "end": {
+                      "line": 46,
+                      "column": 15,
+                      "offset": 2613
+                    }
+                  }
+                },
+                {
+                  "type": "inlineCode",
+                  "value": "{AnySpecifier}",
+                  "position": {
+                    "start": {
+                      "line": 46,
+                      "column": 15,
+                      "offset": 2613
+                    },
+                    "end": {
+                      "line": 46,
+                      "column": 31,
+                      "offset": 2629
+                    }
+                  }
+                }
+              ],
+              "position": {
+                "start": {
+                  "line": 46,
+                  "column": 4,
+                  "offset": 2602
+                },
+                "end": {
+                  "line": 46,
+                  "column": 31,
+                  "offset": 2629
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 46,
+              "column": 1,
+              "offset": 2599
+            },
+            "end": {
+              "line": 46,
+              "column": 31,
+              "offset": 2629
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 39,
+          "column": 1,
+          "offset": 2489
+        },
+        "end": {
+          "line": 46,
+          "column": 31,
+          "offset": 2629
+        }
+      }
+    },
+    {
+      "type": "heading",
+      "depth": 1,
+      "children": [
+        {
+          "type": "text",
+          "value": "Loom AST",
+          "position": {
+            "start": {
+              "line": 48,
+              "column": 3,
+              "offset": 2633
+            },
+            "end": {
+              "line": 48,
+              "column": 11,
+              "offset": 2641
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 48,
+          "column": 1,
+          "offset": 2631
+        },
+        "end": {
+          "line": 48,
+          "column": 11,
+          "offset": 2641
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "Let's define ",
+          "position": {
+            "start": {
+              "line": 50,
+              "column": 1,
+              "offset": 2643
+            },
+            "end": {
+              "line": 50,
+              "column": 14,
+              "offset": 2656
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Loom AST",
+              "position": {
+                "start": {
+                  "line": 50,
+                  "column": 15,
+                  "offset": 2657
+                },
+                "end": {
+                  "line": 50,
+                  "column": 23,
+                  "offset": 2665
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 50,
+              "column": 14,
+              "offset": 2656
+            },
+            "end": {
+              "line": 50,
+              "column": 24,
+              "offset": 2666
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " in terms of Unist and Effect ADTs. Loom AST flows through ",
+          "position": {
+            "start": {
+              "line": 50,
+              "column": 24,
+              "offset": 2666
+            },
+            "end": {
+              "line": 50,
+              "column": 83,
+              "offset": 2725
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Chapters",
+              "position": {
+                "start": {
+                  "line": 50,
+                  "column": 84,
+                  "offset": 2726
+                },
+                "end": {
+                  "line": 50,
+                  "column": 92,
+                  "offset": 2734
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 50,
+              "column": 83,
+              "offset": 2725
+            },
+            "end": {
+              "line": 50,
+              "column": 93,
+              "offset": 2735
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " contaning ",
+          "position": {
+            "start": {
+              "line": 50,
+              "column": 93,
+              "offset": 2735
+            },
+            "end": {
+              "line": 50,
+              "column": 104,
+              "offset": 2746
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Sections",
+              "position": {
+                "start": {
+                  "line": 50,
+                  "column": 105,
+                  "offset": 2747
+                },
+                "end": {
+                  "line": 50,
+                  "column": 113,
+                  "offset": 2755
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 50,
+              "column": 104,
+              "offset": 2746
+            },
+            "end": {
+              "line": 50,
+              "column": 114,
+              "offset": 2756
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " with ",
+          "position": {
+            "start": {
+              "line": 50,
+              "column": 114,
+              "offset": 2756
+            },
+            "end": {
+              "line": 50,
+              "column": 120,
+              "offset": 2762
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Prose",
+              "position": {
+                "start": {
+                  "line": 50,
+                  "column": 121,
+                  "offset": 2763
+                },
+                "end": {
+                  "line": 50,
+                  "column": 126,
+                  "offset": 2768
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 50,
+              "column": 120,
+              "offset": 2762
+            },
+            "end": {
+              "line": 50,
+              "column": 127,
+              "offset": 2769
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " and ",
+          "position": {
+            "start": {
+              "line": 50,
+              "column": 127,
+              "offset": 2769
+            },
+            "end": {
+              "line": 50,
+              "column": 132,
+              "offset": 2774
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Code",
+              "position": {
+                "start": {
+                  "line": 50,
+                  "column": 133,
+                  "offset": 2775
+                },
+                "end": {
+                  "line": 50,
+                  "column": 137,
+                  "offset": 2779
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 50,
+              "column": 132,
+              "offset": 2774
+            },
+            "end": {
+              "line": 50,
+              "column": 138,
+              "offset": 2780
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": ".",
+          "position": {
+            "start": {
+              "line": 50,
+              "column": 138,
+              "offset": 2780
+            },
+            "end": {
+              "line": 50,
+              "column": 139,
+              "offset": 2781
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 50,
+          "column": 1,
+          "offset": 2643
+        },
+        "end": {
+          "line": 50,
+          "column": 139,
+          "offset": 2781
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "We will write ",
+          "position": {
+            "start": {
+              "line": 52,
+              "column": 1,
+              "offset": 2783
+            },
+            "end": {
+              "line": 52,
+              "column": 15,
+              "offset": 2797
+            }
+          }
+        },
+        {
+          "type": "inlineCode",
+          "value": "Schema.Struct",
+          "position": {
+            "start": {
+              "line": 52,
+              "column": 15,
+              "offset": 2797
+            },
+            "end": {
+              "line": 52,
+              "column": 30,
+              "offset": 2812
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " for each Unist node following the ",
+          "position": {
+            "start": {
+              "line": 52,
+              "column": 30,
+              "offset": 2812
+            },
+            "end": {
+              "line": 52,
+              "column": 65,
+              "offset": 2847
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Unist",
+              "position": {
+                "start": {
+                  "line": 52,
+                  "column": 66,
+                  "offset": 2848
+                },
+                "end": {
+                  "line": 52,
+                  "column": 71,
+                  "offset": 2853
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 52,
+              "column": 65,
+              "offset": 2847
+            },
+            "end": {
+              "line": 52,
+              "column": 72,
+              "offset": 2854
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " model with an explicit ",
+          "position": {
+            "start": {
+              "line": 52,
+              "column": 72,
+              "offset": 2854
+            },
+            "end": {
+              "line": 52,
+              "column": 96,
+              "offset": 2878
+            }
+          }
+        },
+        {
+          "type": "inlineCode",
+          "value": "type",
+          "position": {
+            "start": {
+              "line": 52,
+              "column": 96,
+              "offset": 2878
+            },
+            "end": {
+              "line": 52,
+              "column": 102,
+              "offset": 2884
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " discriminant. Every node must have ",
+          "position": {
+            "start": {
+              "line": 52,
+              "column": 102,
+              "offset": 2884
+            },
+            "end": {
+              "line": 52,
+              "column": 138,
+              "offset": 2920
+            }
+          }
+        },
+        {
+          "type": "inlineCode",
+          "value": "type",
+          "position": {
+            "start": {
+              "line": 52,
+              "column": 138,
+              "offset": 2920
+            },
+            "end": {
+              "line": 52,
+              "column": 144,
+              "offset": 2926
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " and ",
+          "position": {
+            "start": {
+              "line": 52,
+              "column": 144,
+              "offset": 2926
+            },
+            "end": {
+              "line": 52,
+              "column": 149,
+              "offset": 2931
+            }
+          }
+        },
+        {
+          "type": "inlineCode",
+          "value": "position",
+          "position": {
+            "start": {
+              "line": 52,
+              "column": 149,
+              "offset": 2931
+            },
+            "end": {
+              "line": 52,
+              "column": 159,
+              "offset": 2941
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": ". Parent nodes add ",
+          "position": {
+            "start": {
+              "line": 52,
+              "column": 159,
+              "offset": 2941
+            },
+            "end": {
+              "line": 52,
+              "column": 178,
+              "offset": 2960
+            }
+          }
+        },
+        {
+          "type": "inlineCode",
+          "value": "children",
+          "position": {
+            "start": {
+              "line": 52,
+              "column": 178,
+              "offset": 2960
+            },
+            "end": {
+              "line": 52,
+              "column": 188,
+              "offset": 2970
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": ". Literal nodes add ",
+          "position": {
+            "start": {
+              "line": 52,
+              "column": 188,
+              "offset": 2970
+            },
+            "end": {
+              "line": 52,
+              "column": 208,
+              "offset": 2990
+            }
+          }
+        },
+        {
+          "type": "inlineCode",
+          "value": "value",
+          "position": {
+            "start": {
+              "line": 52,
+              "column": 208,
+              "offset": 2990
+            },
+            "end": {
+              "line": 52,
+              "column": 215,
+              "offset": 2997
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": ". Void nodes have neither. Type assertions enforce unist conformance at compile time.",
+          "position": {
+            "start": {
+              "line": 52,
+              "column": 215,
+              "offset": 2997
+            },
+            "end": {
+              "line": 52,
+              "column": 300,
+              "offset": 3082
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 52,
+          "column": 1,
+          "offset": 2783
+        },
+        "end": {
+          "line": 52,
+          "column": 300,
+          "offset": 3082
+        }
+      }
+    },
+    {
+      "type": "Arrow",
+      "position": {
+        "start": {
+          "line": 54,
+          "column": 1,
+          "offset": 3084
+        },
+        "end": {
+          "line": 54,
+          "column": 3,
+          "offset": 3086
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "import { Schema } from \"effect\"",
+          "position": {
+            "start": {
+              "line": 56,
+              "column": 1,
+              "offset": 3088
+            },
+            "end": {
+              "line": 56,
+              "column": 32,
+              "offset": 3119
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 56,
+          "column": 1,
+          "offset": 3088
+        },
+        "end": {
+          "line": 56,
+          "column": 32,
+          "offset": 3119
+        }
+      }
+    },
+    {
+      "type": "heading",
+      "depth": 2,
+      "children": [
+        {
+          "type": "text",
+          "value": "Point and Position",
+          "position": {
+            "start": {
+              "line": 58,
+              "column": 4,
+              "offset": 3124
+            },
+            "end": {
+              "line": 58,
+              "column": 22,
+              "offset": 3142
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 58,
+          "column": 1,
+          "offset": 3121
+        },
+        "end": {
+          "line": 58,
+          "column": 22,
+          "offset": 3142
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "In order to project ",
+          "position": {
+            "start": {
+              "line": 60,
+              "column": 1,
+              "offset": 3144
+            },
+            "end": {
+              "line": 60,
+              "column": 21,
+              "offset": 3164
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Loom Frame",
+              "position": {
+                "start": {
+                  "line": 60,
+                  "column": 22,
+                  "offset": 3165
+                },
+                "end": {
+                  "line": 60,
+                  "column": 32,
+                  "offset": 3175
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 60,
+              "column": 21,
+              "offset": 3164
+            },
+            "end": {
+              "line": 60,
+              "column": 33,
+              "offset": 3176
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " and map it for LSP, Loom AST ",
+          "position": {
+            "start": {
+              "line": 60,
+              "column": 33,
+              "offset": 3176
+            },
+            "end": {
+              "line": 60,
+              "column": 63,
+              "offset": 3206
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "nodes",
+              "position": {
+                "start": {
+                  "line": 60,
+                  "column": 64,
+                  "offset": 3207
+                },
+                "end": {
+                  "line": 60,
+                  "column": 69,
+                  "offset": 3212
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 60,
+              "column": 63,
+              "offset": 3206
+            },
+            "end": {
+              "line": 60,
+              "column": 70,
+              "offset": 3213
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " must be aware of their precise position in ",
+          "position": {
+            "start": {
+              "line": 60,
+              "column": 70,
+              "offset": 3213
+            },
+            "end": {
+              "line": 60,
+              "column": 114,
+              "offset": 3257
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Loom Source",
+              "position": {
+                "start": {
+                  "line": 60,
+                  "column": 115,
+                  "offset": 3258
+                },
+                "end": {
+                  "line": 60,
+                  "column": 126,
+                  "offset": 3269
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 60,
+              "column": 114,
+              "offset": 3257
+            },
+            "end": {
+              "line": 60,
+              "column": 127,
+              "offset": 3270
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": ". We will define Unist compatible positioning with ",
+          "position": {
+            "start": {
+              "line": 60,
+              "column": 127,
+              "offset": 3270
+            },
+            "end": {
+              "line": 60,
+              "column": 178,
+              "offset": 3321
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Point",
+              "position": {
+                "start": {
+                  "line": 60,
+                  "column": 179,
+                  "offset": 3322
+                },
+                "end": {
+                  "line": 60,
+                  "column": 184,
+                  "offset": 3327
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 60,
+              "column": 178,
+              "offset": 3321
+            },
+            "end": {
+              "line": 60,
+              "column": 185,
+              "offset": 3328
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " and ",
+          "position": {
+            "start": {
+              "line": 60,
+              "column": 185,
+              "offset": 3328
+            },
+            "end": {
+              "line": 60,
+              "column": 190,
+              "offset": 3333
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Position",
+              "position": {
+                "start": {
+                  "line": 60,
+                  "column": 191,
+                  "offset": 3334
+                },
+                "end": {
+                  "line": 60,
+                  "column": 199,
+                  "offset": 3342
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 60,
+              "column": 190,
+              "offset": 3333
+            },
+            "end": {
+              "line": 60,
+              "column": 200,
+              "offset": 3343
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " primitives.",
+          "position": {
+            "start": {
+              "line": 60,
+              "column": 200,
+              "offset": 3343
+            },
+            "end": {
+              "line": 60,
+              "column": 212,
+              "offset": 3355
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 60,
+          "column": 1,
+          "offset": 3144
+        },
+        "end": {
+          "line": 60,
+          "column": 212,
+          "offset": 3355
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "Every Point is just a ",
+          "position": {
+            "start": {
+              "line": 62,
+              "column": 1,
+              "offset": 3357
+            },
+            "end": {
+              "line": 62,
+              "column": 23,
+              "offset": 3379
+            }
+          }
+        },
+        {
+          "type": "inlineCode",
+          "value": "line",
+          "position": {
+            "start": {
+              "line": 62,
+              "column": 23,
+              "offset": 3379
+            },
+            "end": {
+              "line": 62,
+              "column": 29,
+              "offset": 3385
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " and ",
+          "position": {
+            "start": {
+              "line": 62,
+              "column": 29,
+              "offset": 3385
+            },
+            "end": {
+              "line": 62,
+              "column": 34,
+              "offset": 3390
+            }
+          }
+        },
+        {
+          "type": "inlineCode",
+          "value": "column",
+          "position": {
+            "start": {
+              "line": 62,
+              "column": 34,
+              "offset": 3390
+            },
+            "end": {
+              "line": 62,
+              "column": 42,
+              "offset": 3398
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " number with the ",
+          "position": {
+            "start": {
+              "line": 62,
+              "column": 42,
+              "offset": 3398
+            },
+            "end": {
+              "line": 62,
+              "column": 59,
+              "offset": 3415
+            }
+          }
+        },
+        {
+          "type": "inlineCode",
+          "value": "offset",
+          "position": {
+            "start": {
+              "line": 62,
+              "column": 59,
+              "offset": 3415
+            },
+            "end": {
+              "line": 62,
+              "column": 67,
+              "offset": 3423
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": ".",
+          "position": {
+            "start": {
+              "line": 62,
+              "column": 67,
+              "offset": 3423
+            },
+            "end": {
+              "line": 62,
+              "column": 68,
+              "offset": 3424
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 62,
+          "column": 1,
+          "offset": 3357
+        },
+        "end": {
+          "line": 62,
+          "column": 68,
+          "offset": 3424
+        }
+      }
+    },
+    {
+      "type": "Arrow",
+      "position": {
+        "start": {
+          "line": 64,
+          "column": 1,
+          "offset": 3426
+        },
+        "end": {
+          "line": 64,
+          "column": 3,
+          "offset": 3428
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "export const PointSchema = Schema.Struct({\nline: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)),\ncolumn: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)),\noffset: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0)),\n})",
+          "position": {
+            "start": {
+              "line": 66,
+              "column": 1,
+              "offset": 3430
+            },
+            "end": {
+              "line": 70,
+              "column": 3,
+              "offset": 3701
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 66,
+          "column": 1,
+          "offset": 3430
+        },
+        "end": {
+          "line": 70,
+          "column": 3,
+          "offset": 3701
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "export type Point = typeof PointSchema.Type",
+          "position": {
+            "start": {
+              "line": 72,
+              "column": 1,
+              "offset": 3703
+            },
+            "end": {
+              "line": 72,
+              "column": 44,
+              "offset": 3746
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 72,
+          "column": 1,
+          "offset": 3703
+        },
+        "end": {
+          "line": 72,
+          "column": 44,
+          "offset": 3746
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "~",
+          "position": {
+            "start": {
+              "line": 74,
+              "column": 1,
+              "offset": 3748
+            },
+            "end": {
+              "line": 74,
+              "column": 2,
+              "offset": 3749
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 74,
+          "column": 1,
+          "offset": 3748
+        },
+        "end": {
+          "line": 74,
+          "column": 2,
+          "offset": 3749
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Position",
+              "position": {
+                "start": {
+                  "line": 76,
+                  "column": 2,
+                  "offset": 3752
+                },
+                "end": {
+                  "line": 76,
+                  "column": 10,
+                  "offset": 3760
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 76,
+              "column": 1,
+              "offset": 3751
+            },
+            "end": {
+              "line": 76,
+              "column": 11,
+              "offset": 3761
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " is just two Points locating a node.",
+          "position": {
+            "start": {
+              "line": 76,
+              "column": 11,
+              "offset": 3761
+            },
+            "end": {
+              "line": 76,
+              "column": 47,
+              "offset": 3797
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 76,
+          "column": 1,
+          "offset": 3751
+        },
+        "end": {
+          "line": 76,
+          "column": 47,
+          "offset": 3797
+        }
+      }
+    },
+    {
+      "type": "Arrow",
+      "position": {
+        "start": {
+          "line": 78,
+          "column": 1,
+          "offset": 3799
+        },
+        "end": {
+          "line": 78,
+          "column": 3,
+          "offset": 3801
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "export const PositionSchema = Schema.Struct({\nstart: PointSchema,\nend: PointSchema,\n})",
+          "position": {
+            "start": {
+              "line": 80,
+              "column": 1,
+              "offset": 3803
+            },
+            "end": {
+              "line": 83,
+              "column": 3,
+              "offset": 3893
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 80,
+          "column": 1,
+          "offset": 3803
+        },
+        "end": {
+          "line": 83,
+          "column": 3,
+          "offset": 3893
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "export type Position = typeof PositionSchema.Type",
+          "position": {
+            "start": {
+              "line": 85,
+              "column": 1,
+              "offset": 3895
+            },
+            "end": {
+              "line": 85,
+              "column": 50,
+              "offset": 3944
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 85,
+          "column": 1,
+          "offset": 3895
+        },
+        "end": {
+          "line": 85,
+          "column": 50,
+          "offset": 3944
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "~",
+          "position": {
+            "start": {
+              "line": 87,
+              "column": 1,
+              "offset": 3946
+            },
+            "end": {
+              "line": 87,
+              "column": 2,
+              "offset": 3947
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 87,
+          "column": 1,
+          "offset": 3946
+        },
+        "end": {
+          "line": 87,
+          "column": 2,
+          "offset": 3947
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "Positions and Points are just coordinate data — they describe where a node is, they aren't nodes themselves. In Unist, nodes are things we traverse, visit, match. Nodes must have the explicit ",
+          "position": {
+            "start": {
+              "line": 89,
+              "column": 1,
+              "offset": 3949
+            },
+            "end": {
+              "line": 89,
+              "column": 193,
+              "offset": 4141
+            }
+          }
+        },
+        {
+          "type": "inlineCode",
+          "value": "type",
+          "position": {
+            "start": {
+              "line": 89,
+              "column": 193,
+              "offset": 4141
+            },
+            "end": {
+              "line": 89,
+              "column": 199,
+              "offset": 4147
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " discriminator.",
+          "position": {
+            "start": {
+              "line": 89,
+              "column": 199,
+              "offset": 4147
+            },
+            "end": {
+              "line": 89,
+              "column": 214,
+              "offset": 4162
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 89,
+          "column": 1,
+          "offset": 3949
+        },
+        "end": {
+          "line": 89,
+          "column": 214,
+          "offset": 4162
+        }
+      }
+    },
+    {
+      "type": "heading",
+      "depth": 2,
+      "children": [
+        {
+          "type": "text",
+          "value": "Arrow and Tilde",
+          "position": {
+            "start": {
+              "line": 91,
+              "column": 4,
+              "offset": 4167
+            },
+            "end": {
+              "line": 91,
+              "column": 19,
+              "offset": 4182
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 91,
+          "column": 1,
+          "offset": 4164
+        },
+        "end": {
+          "line": 91,
+          "column": 19,
+          "offset": 4182
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "Today, we started disussing Loom's implementation with ",
+          "position": {
+            "start": {
+              "line": 93,
+              "column": 1,
+              "offset": 4184
+            },
+            "end": {
+              "line": 93,
+              "column": 56,
+              "offset": 4239
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Arrow",
+              "position": {
+                "start": {
+                  "line": 93,
+                  "column": 57,
+                  "offset": 4240
+                },
+                "end": {
+                  "line": 93,
+                  "column": 62,
+                  "offset": 4245
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 93,
+              "column": 56,
+              "offset": 4239
+            },
+            "end": {
+              "line": 93,
+              "column": 63,
+              "offset": 4246
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": ". Here it is.",
+          "position": {
+            "start": {
+              "line": 93,
+              "column": 63,
+              "offset": 4246
+            },
+            "end": {
+              "line": 93,
+              "column": 76,
+              "offset": 4259
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 93,
+          "column": 1,
+          "offset": 4184
+        },
+        "end": {
+          "line": 93,
+          "column": 76,
+          "offset": 4259
+        }
+      }
+    },
+    {
+      "type": "Arrow",
+      "position": {
+        "start": {
+          "line": 95,
+          "column": 1,
+          "offset": 4261
+        },
+        "end": {
+          "line": 95,
+          "column": 3,
+          "offset": 4263
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "export const ArrowSchema = Schema.Struct({\ntype: Schema.Literal(\"Arrow\"),\nposition: PositionSchema,\n}).pipe(\nSchema.filter(\n(node) => node.position.start.column === 1,\n{ message: () => \"Loom Arrows must be at column 1\" }\n)\n)",
+          "position": {
+            "start": {
+              "line": 97,
+              "column": 1,
+              "offset": 4265
+            },
+            "end": {
+              "line": 105,
+              "column": 2,
+              "offset": 4505
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 97,
+          "column": 1,
+          "offset": 4265
+        },
+        "end": {
+          "line": 105,
+          "column": 2,
+          "offset": 4505
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "export type Arrow = typeof ArrowSchema.Type",
+          "position": {
+            "start": {
+              "line": 107,
+              "column": 1,
+              "offset": 4507
+            },
+            "end": {
+              "line": 107,
+              "column": 44,
+              "offset": 4550
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 107,
+          "column": 1,
+          "offset": 4507
+        },
+        "end": {
+          "line": 107,
+          "column": 44,
+          "offset": 4550
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "~",
+          "position": {
+            "start": {
+              "line": 109,
+              "column": 1,
+              "offset": 4552
+            },
+            "end": {
+              "line": 109,
+              "column": 2,
+              "offset": 4553
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 109,
+          "column": 1,
+          "offset": 4552
+        },
+        "end": {
+          "line": 109,
+          "column": 2,
+          "offset": 4553
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Tilde",
+              "position": {
+                "start": {
+                  "line": 111,
+                  "column": 2,
+                  "offset": 4556
+                },
+                "end": {
+                  "line": 111,
+                  "column": 7,
+                  "offset": 4561
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 111,
+              "column": 1,
+              "offset": 4555
+            },
+            "end": {
+              "line": 111,
+              "column": 8,
+              "offset": 4562
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " already drives our rythm in this ",
+          "position": {
+            "start": {
+              "line": 111,
+              "column": 8,
+              "offset": 4562
+            },
+            "end": {
+              "line": 111,
+              "column": 42,
+              "offset": 4596
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Loom Source",
+              "position": {
+                "start": {
+                  "line": 111,
+                  "column": 43,
+                  "offset": 4597
+                },
+                "end": {
+                  "line": 111,
+                  "column": 54,
+                  "offset": 4608
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 111,
+              "column": 42,
+              "offset": 4596
+            },
+            "end": {
+              "line": 111,
+              "column": 55,
+              "offset": 4609
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": ". Here it is.",
+          "position": {
+            "start": {
+              "line": 111,
+              "column": 55,
+              "offset": 4609
+            },
+            "end": {
+              "line": 111,
+              "column": 68,
+              "offset": 4622
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 111,
+          "column": 1,
+          "offset": 4555
+        },
+        "end": {
+          "line": 111,
+          "column": 68,
+          "offset": 4622
+        }
+      }
+    },
+    {
+      "type": "Arrow",
+      "position": {
+        "start": {
+          "line": 113,
+          "column": 1,
+          "offset": 4624
+        },
+        "end": {
+          "line": 113,
+          "column": 3,
+          "offset": 4626
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "export const TildeSchema = Schema.Struct({\ntype: Schema.Literal(\"Tilde\"),\nposition: PositionSchema,\n}).pipe(\nSchema.filter(\n(node) => node.position.start.column === 1,\n{ message: () => \"Loom Tilde must be at column 1\" }\n)\n)",
+          "position": {
+            "start": {
+              "line": 115,
+              "column": 1,
+              "offset": 4628
+            },
+            "end": {
+              "line": 123,
+              "column": 2,
+              "offset": 4867
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 115,
+          "column": 1,
+          "offset": 4628
+        },
+        "end": {
+          "line": 123,
+          "column": 2,
+          "offset": 4867
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "export type Tilde = typeof TildeSchema.Type",
+          "position": {
+            "start": {
+              "line": 125,
+              "column": 1,
+              "offset": 4869
+            },
+            "end": {
+              "line": 125,
+              "column": 44,
+              "offset": 4912
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 125,
+          "column": 1,
+          "offset": 4869
+        },
+        "end": {
+          "line": 125,
+          "column": 44,
+          "offset": 4912
+        }
+      }
+    },
+    {
+      "type": "heading",
+      "depth": 2,
+      "children": [
+        {
+          "type": "text",
+          "value": "Loom Section",
+          "position": {
+            "start": {
+              "line": 127,
+              "column": 4,
+              "offset": 4917
+            },
+            "end": {
+              "line": 127,
+              "column": 16,
+              "offset": 4929
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 127,
+          "column": 1,
+          "offset": 4914
+        },
+        "end": {
+          "line": 127,
+          "column": 16,
+          "offset": 4929
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Loom Sections",
+              "position": {
+                "start": {
+                  "line": 129,
+                  "column": 2,
+                  "offset": 4932
+                },
+                "end": {
+                  "line": 129,
+                  "column": 15,
+                  "offset": 4945
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 129,
+              "column": 1,
+              "offset": 4931
+            },
+            "end": {
+              "line": 129,
+              "column": 16,
+              "offset": 4946
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " are Effect Functions and Services. To implement Loom Section AST, we have to define the following primitives:",
+          "position": {
+            "start": {
+              "line": 129,
+              "column": 16,
+              "offset": 4946
+            },
+            "end": {
+              "line": 129,
+              "column": 126,
+              "offset": 5056
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 129,
+          "column": 1,
+          "offset": 4931
+        },
+        "end": {
+          "line": 129,
+          "column": 126,
+          "offset": 5056
+        }
+      }
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "start": 1,
+      "spread": false,
+      "children": [
+        {
+          "type": "listItem",
+          "spread": false,
+          "checked": null,
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "SectionHeading ",
+                  "position": {
+                    "start": {
+                      "line": 131,
+                      "column": 4,
+                      "offset": 5061
+                    },
+                    "end": {
+                      "line": 131,
+                      "column": 19,
+                      "offset": 5076
+                    }
+                  }
+                },
+                {
+                  "type": "inlineCode",
+                  "value": "# Some section heading [Tag]{Specifier}",
+                  "position": {
+                    "start": {
+                      "line": 131,
+                      "column": 19,
+                      "offset": 5076
+                    },
+                    "end": {
+                      "line": 131,
+                      "column": 60,
+                      "offset": 5117
+                    }
+                  }
+                }
+              ],
+              "position": {
+                "start": {
+                  "line": 131,
+                  "column": 4,
+                  "offset": 5061
+                },
+                "end": {
+                  "line": 131,
+                  "column": 60,
+                  "offset": 5117
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 131,
+              "column": 1,
+              "offset": 5058
+            },
+            "end": {
+              "line": 131,
+              "column": 60,
+              "offset": 5117
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 131,
+          "column": 1,
+          "offset": 5058
+        },
+        "end": {
+          "line": 131,
+          "column": 60,
+          "offset": 5117
+        }
+      }
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "start": null,
+      "spread": false,
+      "children": [
+        {
+          "type": "listItem",
+          "spread": false,
+          "checked": null,
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "HeadingText ",
+                  "position": {
+                    "start": {
+                      "line": 132,
+                      "column": 5,
+                      "offset": 5122
+                    },
+                    "end": {
+                      "line": 132,
+                      "column": 17,
+                      "offset": 5134
+                    }
+                  }
+                },
+                {
+                  "type": "inlineCode",
+                  "value": "Some section heading",
+                  "position": {
+                    "start": {
+                      "line": 132,
+                      "column": 17,
+                      "offset": 5134
+                    },
+                    "end": {
+                      "line": 132,
+                      "column": 39,
+                      "offset": 5156
+                    }
+                  }
+                }
+              ],
+              "position": {
+                "start": {
+                  "line": 132,
+                  "column": 5,
+                  "offset": 5122
+                },
+                "end": {
+                  "line": 132,
+                  "column": 39,
+                  "offset": 5156
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 132,
+              "column": 3,
+              "offset": 5120
+            },
+            "end": {
+              "line": 132,
+              "column": 39,
+              "offset": 5156
+            }
+          }
+        },
+        {
+          "type": "listItem",
+          "spread": false,
+          "checked": null,
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "SectionTag ",
+                  "position": {
+                    "start": {
+                      "line": 133,
+                      "column": 5,
+                      "offset": 5161
+                    },
+                    "end": {
+                      "line": 133,
+                      "column": 16,
+                      "offset": 5172
+                    }
+                  }
+                },
+                {
+                  "type": "inlineCode",
+                  "value": "[Tag]",
+                  "position": {
+                    "start": {
+                      "line": 133,
+                      "column": 16,
+                      "offset": 5172
+                    },
+                    "end": {
+                      "line": 133,
+                      "column": 23,
+                      "offset": 5179
+                    }
+                  }
+                }
+              ],
+              "position": {
+                "start": {
+                  "line": 133,
+                  "column": 5,
+                  "offset": 5161
+                },
+                "end": {
+                  "line": 133,
+                  "column": 23,
+                  "offset": 5179
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 133,
+              "column": 3,
+              "offset": 5159
+            },
+            "end": {
+              "line": 133,
+              "column": 23,
+              "offset": 5179
+            }
+          }
+        },
+        {
+          "type": "listItem",
+          "spread": false,
+          "checked": null,
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "SectionSpecifier ",
+                  "position": {
+                    "start": {
+                      "line": 134,
+                      "column": 5,
+                      "offset": 5184
+                    },
+                    "end": {
+                      "line": 134,
+                      "column": 22,
+                      "offset": 5201
+                    }
+                  }
+                },
+                {
+                  "type": "inlineCode",
+                  "value": "{Specifier}",
+                  "position": {
+                    "start": {
+                      "line": 134,
+                      "column": 22,
+                      "offset": 5201
+                    },
+                    "end": {
+                      "line": 134,
+                      "column": 35,
+                      "offset": 5214
+                    }
+                  }
+                }
+              ],
+              "position": {
+                "start": {
+                  "line": 134,
+                  "column": 5,
+                  "offset": 5184
+                },
+                "end": {
+                  "line": 134,
+                  "column": 35,
+                  "offset": 5214
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 134,
+              "column": 3,
+              "offset": 5182
+            },
+            "end": {
+              "line": 134,
+              "column": 35,
+              "offset": 5214
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 132,
+          "column": 3,
+          "offset": 5120
+        },
+        "end": {
+          "line": 134,
+          "column": 35,
+          "offset": 5214
+        }
+      }
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "start": 4,
+      "spread": false,
+      "children": [
+        {
+          "type": "listItem",
+          "spread": false,
+          "checked": null,
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Prose",
+                  "position": {
+                    "start": {
+                      "line": 135,
+                      "column": 4,
+                      "offset": 5218
+                    },
+                    "end": {
+                      "line": 135,
+                      "column": 9,
+                      "offset": 5223
+                    }
+                  }
+                }
+              ],
+              "position": {
+                "start": {
+                  "line": 135,
+                  "column": 4,
+                  "offset": 5218
+                },
+                "end": {
+                  "line": 135,
+                  "column": 9,
+                  "offset": 5223
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 135,
+              "column": 1,
+              "offset": 5215
+            },
+            "end": {
+              "line": 135,
+              "column": 9,
+              "offset": 5223
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 135,
+          "column": 1,
+          "offset": 5215
+        },
+        "end": {
+          "line": 135,
+          "column": 9,
+          "offset": 5223
+        }
+      }
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "start": null,
+      "spread": false,
+      "children": [
+        {
+          "type": "listItem",
+          "spread": false,
+          "checked": null,
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Parameters ",
+                  "position": {
+                    "start": {
+                      "line": 136,
+                      "column": 5,
+                      "offset": 5228
+                    },
+                    "end": {
+                      "line": 136,
+                      "column": 16,
+                      "offset": 5239
+                    }
+                  }
+                },
+                {
+                  "type": "inlineCode",
+                  "value": "{{placeholder: type}}",
+                  "position": {
+                    "start": {
+                      "line": 136,
+                      "column": 16,
+                      "offset": 5239
+                    },
+                    "end": {
+                      "line": 136,
+                      "column": 39,
+                      "offset": 5262
+                    }
+                  }
+                }
+              ],
+              "position": {
+                "start": {
+                  "line": 136,
+                  "column": 5,
+                  "offset": 5228
+                },
+                "end": {
+                  "line": 136,
+                  "column": 39,
+                  "offset": 5262
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 136,
+              "column": 3,
+              "offset": 5226
+            },
+            "end": {
+              "line": 136,
+              "column": 39,
+              "offset": 5262
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 136,
+          "column": 3,
+          "offset": 5226
+        },
+        "end": {
+          "line": 136,
+          "column": 39,
+          "offset": 5262
+        }
+      }
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "start": 5,
+      "spread": false,
+      "children": [
+        {
+          "type": "listItem",
+          "spread": false,
+          "checked": null,
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Code",
+                  "position": {
+                    "start": {
+                      "line": 137,
+                      "column": 4,
+                      "offset": 5266
+                    },
+                    "end": {
+                      "line": 137,
+                      "column": 8,
+                      "offset": 5270
+                    }
+                  }
+                }
+              ],
+              "position": {
+                "start": {
+                  "line": 137,
+                  "column": 4,
+                  "offset": 5266
+                },
+                "end": {
+                  "line": 137,
+                  "column": 8,
+                  "offset": 5270
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 137,
+              "column": 1,
+              "offset": 5263
+            },
+            "end": {
+              "line": 137,
+              "column": 8,
+              "offset": 5270
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 137,
+          "column": 1,
+          "offset": 5263
+        },
+        "end": {
+          "line": 137,
+          "column": 8,
+          "offset": 5270
+        }
+      }
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "start": null,
+      "spread": false,
+      "children": [
+        {
+          "type": "listItem",
+          "spread": false,
+          "checked": null,
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Interpolation ",
+                  "position": {
+                    "start": {
+                      "line": 138,
+                      "column": 5,
+                      "offset": 5275
+                    },
+                    "end": {
+                      "line": 138,
+                      "column": 19,
+                      "offset": 5289
+                    }
+                  }
+                },
+                {
+                  "type": "inlineCode",
+                  "value": "${placeholder}",
+                  "position": {
+                    "start": {
+                      "line": 138,
+                      "column": 19,
+                      "offset": 5289
+                    },
+                    "end": {
+                      "line": 138,
+                      "column": 35,
+                      "offset": 5305
+                    }
+                  }
+                }
+              ],
+              "position": {
+                "start": {
+                  "line": 138,
+                  "column": 5,
+                  "offset": 5275
+                },
+                "end": {
+                  "line": 138,
+                  "column": 35,
+                  "offset": 5305
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 138,
+              "column": 3,
+              "offset": 5273
+            },
+            "end": {
+              "line": 138,
+              "column": 35,
+              "offset": 5305
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 138,
+          "column": 3,
+          "offset": 5273
+        },
+        "end": {
+          "line": 138,
+          "column": 35,
+          "offset": 5305
+        }
+      }
+    },
+    {
+      "type": "heading",
+      "depth": 3,
+      "children": [
+        {
+          "type": "text",
+          "value": "Heading Text",
+          "position": {
+            "start": {
+              "line": 140,
+              "column": 5,
+              "offset": 5311
+            },
+            "end": {
+              "line": 140,
+              "column": 17,
+              "offset": 5323
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 140,
+          "column": 1,
+          "offset": 5307
+        },
+        "end": {
+          "line": 140,
+          "column": 17,
+          "offset": 5323
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Loom Section Heading",
+              "position": {
+                "start": {
+                  "line": 142,
+                  "column": 2,
+                  "offset": 5326
+                },
+                "end": {
+                  "line": 142,
+                  "column": 22,
+                  "offset": 5346
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 142,
+              "column": 1,
+              "offset": 5325
+            },
+            "end": {
+              "line": 142,
+              "column": 23,
+              "offset": 5347
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " begins with the markdown heading ",
+          "position": {
+            "start": {
+              "line": 142,
+              "column": 23,
+              "offset": 5347
+            },
+            "end": {
+              "line": 142,
+              "column": 57,
+              "offset": 5381
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "marker",
+              "position": {
+                "start": {
+                  "line": 142,
+                  "column": 58,
+                  "offset": 5382
+                },
+                "end": {
+                  "line": 142,
+                  "column": 64,
+                  "offset": 5388
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 142,
+              "column": 57,
+              "offset": 5381
+            },
+            "end": {
+              "line": 142,
+              "column": 65,
+              "offset": 5389
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": ", and has children nodes: ",
+          "position": {
+            "start": {
+              "line": 142,
+              "column": 65,
+              "offset": 5389
+            },
+            "end": {
+              "line": 142,
+              "column": 91,
+              "offset": 5415
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "HeadingText",
+              "position": {
+                "start": {
+                  "line": 142,
+                  "column": 92,
+                  "offset": 5416
+                },
+                "end": {
+                  "line": 142,
+                  "column": 103,
+                  "offset": 5427
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 142,
+              "column": 91,
+              "offset": 5415
+            },
+            "end": {
+              "line": 142,
+              "column": 104,
+              "offset": 5428
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": ", ",
+          "position": {
+            "start": {
+              "line": 142,
+              "column": 104,
+              "offset": 5428
+            },
+            "end": {
+              "line": 142,
+              "column": 106,
+              "offset": 5430
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "SectionTag",
+              "position": {
+                "start": {
+                  "line": 142,
+                  "column": 107,
+                  "offset": 5431
+                },
+                "end": {
+                  "line": 142,
+                  "column": 117,
+                  "offset": 5441
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 142,
+              "column": 106,
+              "offset": 5430
+            },
+            "end": {
+              "line": 142,
+              "column": 118,
+              "offset": 5442
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " and ",
+          "position": {
+            "start": {
+              "line": 142,
+              "column": 118,
+              "offset": 5442
+            },
+            "end": {
+              "line": 142,
+              "column": 123,
+              "offset": 5447
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "SectionSpecifier",
+              "position": {
+                "start": {
+                  "line": 142,
+                  "column": 124,
+                  "offset": 5448
+                },
+                "end": {
+                  "line": 142,
+                  "column": 140,
+                  "offset": 5464
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 142,
+              "column": 123,
+              "offset": 5447
+            },
+            "end": {
+              "line": 142,
+              "column": 141,
+              "offset": 5465
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": ". Let's define their schemas.",
+          "position": {
+            "start": {
+              "line": 142,
+              "column": 141,
+              "offset": 5465
+            },
+            "end": {
+              "line": 142,
+              "column": 170,
+              "offset": 5494
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 142,
+          "column": 1,
+          "offset": 5325
+        },
+        "end": {
+          "line": 142,
+          "column": 170,
+          "offset": 5494
+        }
+      }
+    },
+    {
+      "type": "Arrow",
+      "position": {
+        "start": {
+          "line": 144,
+          "column": 1,
+          "offset": 5496
+        },
+        "end": {
+          "line": 144,
+          "column": 3,
+          "offset": 5498
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "export const HeadingTextSchema = Schema.Struct({\ntype: Schema.Literal(\"HeadingText\"),\nvalue: Schema.String,\nposition: PositionSchema,\n})",
+          "position": {
+            "start": {
+              "line": 146,
+              "column": 1,
+              "offset": 5500
+            },
+            "end": {
+              "line": 150,
+              "column": 3,
+              "offset": 5642
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 146,
+          "column": 1,
+          "offset": 5500
+        },
+        "end": {
+          "line": 150,
+          "column": 3,
+          "offset": 5642
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "export type HeadingText = typeof HeadingTextSchema.Type",
+          "position": {
+            "start": {
+              "line": 152,
+              "column": 1,
+              "offset": 5644
+            },
+            "end": {
+              "line": 152,
+              "column": 56,
+              "offset": 5699
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 152,
+          "column": 1,
+          "offset": 5644
+        },
+        "end": {
+          "line": 152,
+          "column": 56,
+          "offset": 5699
+        }
+      }
+    },
+    {
+      "type": "heading",
+      "depth": 3,
+      "children": [
+        {
+          "type": "text",
+          "value": "Section Tag",
+          "position": {
+            "start": {
+              "line": 154,
+              "column": 5,
+              "offset": 5705
+            },
+            "end": {
+              "line": 154,
+              "column": 16,
+              "offset": 5716
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 154,
+          "column": 1,
+          "offset": 5701
+        },
+        "end": {
+          "line": 154,
+          "column": 16,
+          "offset": 5716
+        }
+      }
+    },
+    {
+      "type": "Arrow",
+      "position": {
+        "start": {
+          "line": 156,
+          "column": 1,
+          "offset": 5718
+        },
+        "end": {
+          "line": 156,
+          "column": 3,
+          "offset": 5720
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "export const SectionTagSchema = Schema.Struct({\ntype: Schema.Literal(\"SectionTag\"),\nvalue: Schema.String,\nposition: PositionSchema,\n})",
+          "position": {
+            "start": {
+              "line": 158,
+              "column": 1,
+              "offset": 5722
+            },
+            "end": {
+              "line": 162,
+              "column": 3,
+              "offset": 5862
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 158,
+          "column": 1,
+          "offset": 5722
+        },
+        "end": {
+          "line": 162,
+          "column": 3,
+          "offset": 5862
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "export type SectionTag = typeof SectionTagSchema.Type",
+          "position": {
+            "start": {
+              "line": 164,
+              "column": 1,
+              "offset": 5864
+            },
+            "end": {
+              "line": 164,
+              "column": 54,
+              "offset": 5917
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 164,
+          "column": 1,
+          "offset": 5864
+        },
+        "end": {
+          "line": 164,
+          "column": 54,
+          "offset": 5917
+        }
+      }
+    },
+    {
+      "type": "heading",
+      "depth": 3,
+      "children": [
+        {
+          "type": "text",
+          "value": "Section Specifier",
+          "position": {
+            "start": {
+              "line": 166,
+              "column": 5,
+              "offset": 5923
+            },
+            "end": {
+              "line": 166,
+              "column": 22,
+              "offset": 5940
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 166,
+          "column": 1,
+          "offset": 5919
+        },
+        "end": {
+          "line": 166,
+          "column": 22,
+          "offset": 5940
+        }
+      }
+    },
+    {
+      "type": "Arrow",
+      "position": {
+        "start": {
+          "line": 168,
+          "column": 1,
+          "offset": 5942
+        },
+        "end": {
+          "line": 168,
+          "column": 3,
+          "offset": 5944
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "export const SectionSpecifierSchema = Schema.Struct({\ntype: Schema.Literal(\"SectionSpecifier\"),\nvalue: Schema.String,\nposition: PositionSchema,\n})",
+          "position": {
+            "start": {
+              "line": 170,
+              "column": 1,
+              "offset": 5946
+            },
+            "end": {
+              "line": 174,
+              "column": 3,
+              "offset": 6098
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 170,
+          "column": 1,
+          "offset": 5946
+        },
+        "end": {
+          "line": 174,
+          "column": 3,
+          "offset": 6098
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "export type SectionSpecifier = typeof SectionSpecifierSchema.Type",
+          "position": {
+            "start": {
+              "line": 176,
+              "column": 1,
+              "offset": 6100
+            },
+            "end": {
+              "line": 176,
+              "column": 66,
+              "offset": 6165
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 176,
+          "column": 1,
+          "offset": 6100
+        },
+        "end": {
+          "line": 176,
+          "column": 66,
+          "offset": 6165
+        }
+      }
+    },
+    {
+      "type": "heading",
+      "depth": 3,
+      "children": [
+        {
+          "type": "text",
+          "value": "Section Heading",
+          "position": {
+            "start": {
+              "line": 178,
+              "column": 5,
+              "offset": 6171
+            },
+            "end": {
+              "line": 178,
+              "column": 20,
+              "offset": 6186
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 178,
+          "column": 1,
+          "offset": 6167
+        },
+        "end": {
+          "line": 178,
+          "column": 20,
+          "offset": 6186
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "We have all building blocks for ",
+          "position": {
+            "start": {
+              "line": 180,
+              "column": 1,
+              "offset": 6188
+            },
+            "end": {
+              "line": 180,
+              "column": 33,
+              "offset": 6220
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Section Heading",
+              "position": {
+                "start": {
+                  "line": 180,
+                  "column": 34,
+                  "offset": 6221
+                },
+                "end": {
+                  "line": 180,
+                  "column": 49,
+                  "offset": 6236
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 180,
+              "column": 33,
+              "offset": 6220
+            },
+            "end": {
+              "line": 180,
+              "column": 50,
+              "offset": 6237
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " node, let's define tis schema.",
+          "position": {
+            "start": {
+              "line": 180,
+              "column": 50,
+              "offset": 6237
+            },
+            "end": {
+              "line": 180,
+              "column": 81,
+              "offset": 6268
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 180,
+          "column": 1,
+          "offset": 6188
+        },
+        "end": {
+          "line": 180,
+          "column": 81,
+          "offset": 6268
+        }
+      }
+    },
+    {
+      "type": "Arrow",
+      "position": {
+        "start": {
+          "line": 182,
+          "column": 1,
+          "offset": 6270
+        },
+        "end": {
+          "line": 182,
+          "column": 3,
+          "offset": 6272
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "const HeadingChildren = Schema.Union(\nHeadingTextSchema, SectionTagSchema, SectionSpecifierSchema\n)",
+          "position": {
+            "start": {
+              "line": 184,
+              "column": 1,
+              "offset": 6274
+            },
+            "end": {
+              "line": 186,
+              "column": 2,
+              "offset": 6375
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 184,
+          "column": 1,
+          "offset": 6274
+        },
+        "end": {
+          "line": 186,
+          "column": 2,
+          "offset": 6375
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "export const SectionHeadingSchema = Schema.Struct({\ntype: Schema.Literal(\"SectionHeading\"),\nposition: PositionSchema,\nchildren: Schema.Array(HeadingChildren),\n}).pipe(\nSchema.filter(\n(node) => node.position.start.column === 1,\n{ message: () => \"Loom Section Heading must be at column 1\" }\n)\n)",
+          "position": {
+            "start": {
+              "line": 188,
+              "column": 1,
+              "offset": 6377
+            },
+            "end": {
+              "line": 197,
+              "column": 2,
+              "offset": 6687
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 188,
+          "column": 1,
+          "offset": 6377
+        },
+        "end": {
+          "line": 197,
+          "column": 2,
+          "offset": 6687
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "export type SectionHeading = typeof SectionHeadingSchema.Type",
+          "position": {
+            "start": {
+              "line": 199,
+              "column": 1,
+              "offset": 6689
+            },
+            "end": {
+              "line": 199,
+              "column": 62,
+              "offset": 6750
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 199,
+          "column": 1,
+          "offset": 6689
+        },
+        "end": {
+          "line": 199,
+          "column": 62,
+          "offset": 6750
+        }
+      }
+    },
+    {
+      "type": "heading",
+      "depth": 3,
+      "children": [
+        {
+          "type": "text",
+          "value": "Prose and Code Nodes",
+          "position": {
+            "start": {
+              "line": 201,
+              "column": 5,
+              "offset": 6756
+            },
+            "end": {
+              "line": 201,
+              "column": 25,
+              "offset": 6776
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 201,
+          "column": 1,
+          "offset": 6752
+        },
+        "end": {
+          "line": 201,
+          "column": 25,
+          "offset": 6776
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "Loom literally is ",
+          "position": {
+            "start": {
+              "line": 203,
+              "column": 1,
+              "offset": 6778
+            },
+            "end": {
+              "line": 203,
+              "column": 19,
+              "offset": 6796
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Prose",
+              "position": {
+                "start": {
+                  "line": 203,
+                  "column": 20,
+                  "offset": 6797
+                },
+                "end": {
+                  "line": 203,
+                  "column": 25,
+                  "offset": 6802
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 203,
+              "column": 19,
+              "offset": 6796
+            },
+            "end": {
+              "line": 203,
+              "column": 26,
+              "offset": 6803
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " and ",
+          "position": {
+            "start": {
+              "line": 203,
+              "column": 26,
+              "offset": 6803
+            },
+            "end": {
+              "line": 203,
+              "column": 31,
+              "offset": 6808
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Code",
+              "position": {
+                "start": {
+                  "line": 203,
+                  "column": 32,
+                  "offset": 6809
+                },
+                "end": {
+                  "line": 203,
+                  "column": 36,
+                  "offset": 6813
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 203,
+              "column": 31,
+              "offset": 6808
+            },
+            "end": {
+              "line": 203,
+              "column": 37,
+              "offset": 6814
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": ", let's define them as Nodes.",
+          "position": {
+            "start": {
+              "line": 203,
+              "column": 37,
+              "offset": 6814
+            },
+            "end": {
+              "line": 203,
+              "column": 66,
+              "offset": 6843
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 203,
+          "column": 1,
+          "offset": 6778
+        },
+        "end": {
+          "line": 203,
+          "column": 66,
+          "offset": 6843
+        }
+      }
+    },
+    {
+      "type": "Arrow",
+      "position": {
+        "start": {
+          "line": 205,
+          "column": 1,
+          "offset": 6845
+        },
+        "end": {
+          "line": 205,
+          "column": 3,
+          "offset": 6847
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "export const ProseSchema = Schema.Struct({\ntype: Schema.Literal(\"Prose\"),\nvalue: Schema.String,\nposition: PositionSchema,\n})",
+          "position": {
+            "start": {
+              "line": 207,
+              "column": 1,
+              "offset": 6849
+            },
+            "end": {
+              "line": 211,
+              "column": 3,
+              "offset": 6979
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 207,
+          "column": 1,
+          "offset": 6849
+        },
+        "end": {
+          "line": 211,
+          "column": 3,
+          "offset": 6979
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "export const CodeSchema = Schema.Struct({\ntype: Schema.Literal(\"Code\"),\nvalue: Schema.String,\nlang: Schema.String,\nposition: PositionSchema,",
+          "position": {
+            "start": {
+              "line": 213,
+              "column": 1,
+              "offset": 6981
+            },
+            "end": {
+              "line": 217,
+              "column": 28,
+              "offset": 7129
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 213,
+          "column": 1,
+          "offset": 6981
+        },
+        "end": {
+          "line": 217,
+          "column": 28,
+          "offset": 7129
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "})",
+          "position": {
+            "start": {
+              "line": 219,
+              "column": 1,
+              "offset": 7131
+            },
+            "end": {
+              "line": 219,
+              "column": 3,
+              "offset": 7133
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 219,
+          "column": 1,
+          "offset": 7131
+        },
+        "end": {
+          "line": 219,
+          "column": 3,
+          "offset": 7133
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "export type Prose = typeof ProseSchema.Type\nexport type Code = typeof CodeSchema.Type",
+          "position": {
+            "start": {
+              "line": 221,
+              "column": 1,
+              "offset": 7135
+            },
+            "end": {
+              "line": 222,
+              "column": 42,
+              "offset": 7220
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 221,
+          "column": 1,
+          "offset": 7135
+        },
+        "end": {
+          "line": 222,
+          "column": 42,
+          "offset": 7220
+        }
+      }
+    },
+    {
+      "type": "heading",
+      "depth": 3,
+      "children": [
+        {
+          "type": "text",
+          "value": "Section Node Schema",
+          "position": {
+            "start": {
+              "line": 224,
+              "column": 5,
+              "offset": 7226
+            },
+            "end": {
+              "line": 224,
+              "column": 24,
+              "offset": 7245
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 224,
+          "column": 1,
+          "offset": 7222
+        },
+        "end": {
+          "line": 224,
+          "column": 24,
+          "offset": 7245
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "We have all building block for ",
+          "position": {
+            "start": {
+              "line": 226,
+              "column": 1,
+              "offset": 7247
+            },
+            "end": {
+              "line": 226,
+              "column": 32,
+              "offset": 7278
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Loom Section",
+              "position": {
+                "start": {
+                  "line": 226,
+                  "column": 33,
+                  "offset": 7279
+                },
+                "end": {
+                  "line": 226,
+                  "column": 45,
+                  "offset": 7291
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 226,
+              "column": 32,
+              "offset": 7278
+            },
+            "end": {
+              "line": 226,
+              "column": 46,
+              "offset": 7292
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " AST, let's define its schema.",
+          "position": {
+            "start": {
+              "line": 226,
+              "column": 46,
+              "offset": 7292
+            },
+            "end": {
+              "line": 226,
+              "column": 76,
+              "offset": 7322
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 226,
+          "column": 1,
+          "offset": 7247
+        },
+        "end": {
+          "line": 226,
+          "column": 76,
+          "offset": 7322
+        }
+      }
+    },
+    {
+      "type": "Arrow",
+      "position": {
+        "start": {
+          "line": 228,
+          "column": 1,
+          "offset": 7324
+        },
+        "end": {
+          "line": 228,
+          "column": 3,
+          "offset": 7326
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "const SectionChildren = Schema.Union(\nArrowSchema, TildeSchema, SectionHeadingSchema, ProseSchema, CodeSchema\n)",
+          "position": {
+            "start": {
+              "line": 230,
+              "column": 1,
+              "offset": 7328
+            },
+            "end": {
+              "line": 232,
+              "column": 2,
+              "offset": 7441
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 230,
+          "column": 1,
+          "offset": 7328
+        },
+        "end": {
+          "line": 232,
+          "column": 2,
+          "offset": 7441
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "export const LoomSectionSchema = Schema.Struct({\ntype: Schema.Literal(\"LoomSection\"),\nposition: PositionSchema,\nchildren: Schema.Array(SectionChildren),\n})",
+          "position": {
+            "start": {
+              "line": 234,
+              "column": 1,
+              "offset": 7443
+            },
+            "end": {
+              "line": 238,
+              "column": 3,
+              "offset": 7604
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 234,
+          "column": 1,
+          "offset": 7443
+        },
+        "end": {
+          "line": 238,
+          "column": 3,
+          "offset": 7604
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "export type LoomSection = typeof LoomSectionSchema.Type",
+          "position": {
+            "start": {
+              "line": 240,
+              "column": 1,
+              "offset": 7606
+            },
+            "end": {
+              "line": 240,
+              "column": 56,
+              "offset": 7661
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 240,
+          "column": 1,
+          "offset": 7606
+        },
+        "end": {
+          "line": 240,
+          "column": 56,
+          "offset": 7661
+        }
+      }
+    },
+    {
+      "type": "heading",
+      "depth": 2,
+      "children": [
+        {
+          "type": "text",
+          "value": "Chapter",
+          "position": {
+            "start": {
+              "line": 242,
+              "column": 4,
+              "offset": 7666
+            },
+            "end": {
+              "line": 242,
+              "column": 11,
+              "offset": 7673
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 242,
+          "column": 1,
+          "offset": 7663
+        },
+        "end": {
+          "line": 242,
+          "column": 11,
+          "offset": 7673
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "Loom document can have one or more ",
+          "position": {
+            "start": {
+              "line": 244,
+              "column": 1,
+              "offset": 7675
+            },
+            "end": {
+              "line": 244,
+              "column": 36,
+              "offset": 7710
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Chapters",
+              "position": {
+                "start": {
+                  "line": 244,
+                  "column": 37,
+                  "offset": 7711
+                },
+                "end": {
+                  "line": 244,
+                  "column": 45,
+                  "offset": 7719
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 244,
+              "column": 36,
+              "offset": 7710
+            },
+            "end": {
+              "line": 244,
+              "column": 46,
+              "offset": 7720
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": ". Chapter is the highest node before the ",
+          "position": {
+            "start": {
+              "line": 244,
+              "column": 46,
+              "offset": 7720
+            },
+            "end": {
+              "line": 244,
+              "column": 87,
+              "offset": 7761
+            }
+          }
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "Module",
+              "position": {
+                "start": {
+                  "line": 244,
+                  "column": 88,
+                  "offset": 7762
+                },
+                "end": {
+                  "line": 244,
+                  "column": 94,
+                  "offset": 7768
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 244,
+              "column": 87,
+              "offset": 7761
+            },
+            "end": {
+              "line": 244,
+              "column": 95,
+              "offset": 7769
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " it belongs. Chaptera are parents for Prose, Code, Arrows, Tildes, Sections, and Dependencies.",
+          "position": {
+            "start": {
+              "line": 244,
+              "column": 95,
+              "offset": 7769
+            },
+            "end": {
+              "line": 244,
+              "column": 189,
+              "offset": 7863
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 244,
+          "column": 1,
+          "offset": 7675
+        },
+        "end": {
+          "line": 244,
+          "column": 189,
+          "offset": 7863
+        }
+      }
+    },
+    {
+      "type": "heading",
+      "depth": 3,
+      "children": [
+        {
+          "type": "text",
+          "value": "Dependencies Section",
+          "position": {
+            "start": {
+              "line": 246,
+              "column": 5,
+              "offset": 7869
+            },
+            "end": {
+              "line": 246,
+              "column": 25,
+              "offset": 7889
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 246,
+          "column": 1,
+          "offset": 7865
+        },
+        "end": {
+          "line": 246,
+          "column": 25,
+          "offset": 7889
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "Dependencies Section is a special section kind which provides other Modules services.",
+          "position": {
+            "start": {
+              "line": 248,
+              "column": 1,
+              "offset": 7891
+            },
+            "end": {
+              "line": 248,
+              "column": 86,
+              "offset": 7976
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 248,
+          "column": 1,
+          "offset": 7891
+        },
+        "end": {
+          "line": 248,
+          "column": 86,
+          "offset": 7976
+        }
+      }
+    },
+    {
+      "type": "Arrow",
+      "position": {
+        "start": {
+          "line": 250,
+          "column": 1,
+          "offset": 7978
+        },
+        "end": {
+          "line": 250,
+          "column": 3,
+          "offset": 7980
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "export const ChapterDependenciesSchema = Schema.Struct({\ntype: Schema.Literal(\"ChapterDependencies\"),\nposition: PositionSchema,\n// children: Schema.Array(...), TBD, needs AST\n})",
+          "position": {
+            "start": {
+              "line": 252,
+              "column": 1,
+              "offset": 7982
+            },
+            "end": {
+              "line": 256,
+              "column": 3,
+              "offset": 8165
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 252,
+          "column": 1,
+          "offset": 7982
+        },
+        "end": {
+          "line": 256,
+          "column": 3,
+          "offset": 8165
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "export type ChapterDependencies = typeof ChapterDependenciesSchema.Type",
+          "position": {
+            "start": {
+              "line": 258,
+              "column": 1,
+              "offset": 8167
+            },
+            "end": {
+              "line": 258,
+              "column": 72,
+              "offset": 8238
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 258,
+          "column": 1,
+          "offset": 8167
+        },
+        "end": {
+          "line": 258,
+          "column": 72,
+          "offset": 8238
+        }
+      }
+    },
+    {
+      "type": "heading",
+      "depth": 3,
+      "children": [
+        {
+          "type": "text",
+          "value": "Chapter Node Schema",
+          "position": {
+            "start": {
+              "line": 261,
+              "column": 5,
+              "offset": 8245
+            },
+            "end": {
+              "line": 261,
+              "column": 24,
+              "offset": 8264
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 261,
+          "column": 1,
+          "offset": 8241
+        },
+        "end": {
+          "line": 261,
+          "column": 24,
+          "offset": 8264
+        }
+      }
+    },
+    {
+      "type": "Arrow",
+      "position": {
+        "start": {
+          "line": 263,
+          "column": 1,
+          "offset": 8266
+        },
+        "end": {
+          "line": 263,
+          "column": 3,
+          "offset": 8268
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "const ChapterChildren = Schema.Union(\nSectionHeadingSchema, ArrowSchema, TildeSchema, LoomSectionSchema, ProseSchema, CodeSchema, ChapterDependenciesSchema\n)",
+          "position": {
+            "start": {
+              "line": 265,
+              "column": 1,
+              "offset": 8270
+            },
+            "end": {
+              "line": 267,
+              "column": 2,
+              "offset": 8429
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 265,
+          "column": 1,
+          "offset": 8270
+        },
+        "end": {
+          "line": 267,
+          "column": 2,
+          "offset": 8429
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "const ChapterHeadingSchema = SectionHeadingSchema.pipe(\nSchema.filter(\n(node) => node. === 1,\n{ message: () => \"Loom Arrows must be at column 1\" }\n)\n)",
+          "position": {
+            "start": {
+              "line": 269,
+              "column": 1,
+              "offset": 8431
+            },
+            "end": {
+              "line": 274,
+              "column": 2,
+              "offset": 8593
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 269,
+          "column": 1,
+          "offset": 8431
+        },
+        "end": {
+          "line": 274,
+          "column": 2,
+          "offset": 8593
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "export const LoomChapterSchema = Schema.Struct({\ntype: Schema.Literal(\"LoomChapter\"),\nposition: PositionSchema,\nchildren: Schema.Array(ChapterChildren),\n})",
+          "position": {
+            "start": {
+              "line": 276,
+              "column": 1,
+              "offset": 8595
+            },
+            "end": {
+              "line": 280,
+              "column": 3,
+              "offset": 8756
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 276,
+          "column": 1,
+          "offset": 8595
+        },
+        "end": {
+          "line": 280,
+          "column": 3,
+          "offset": 8756
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "export type LoomChapter = typeof LoomChapterSchema.Type",
+          "position": {
+            "start": {
+              "line": 282,
+              "column": 1,
+              "offset": 8758
+            },
+            "end": {
+              "line": 282,
+              "column": 56,
+              "offset": 8813
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 282,
+          "column": 1,
+          "offset": 8758
+        },
+        "end": {
+          "line": 282,
+          "column": 56,
+          "offset": 8813
+        }
+      }
+    },
+    {
+      "type": "heading",
+      "depth": 1,
+      "children": [
+        {
+          "type": "text",
+          "value": "Bootstrapping Loom",
+          "position": {
+            "start": {
+              "line": 284,
+              "column": 3,
+              "offset": 8817
+            },
+            "end": {
+              "line": 284,
+              "column": 21,
+              "offset": 8835
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 284,
+          "column": 1,
+          "offset": 8815
+        },
+        "end": {
+          "line": 284,
+          "column": 21,
+          "offset": 8835
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "We have built minimal AST which will enable us to build basic Loom features on top of it. However, we can't run this program as there is nothing that able to understand Loom formats. We have to build a Loom parser first.",
+          "position": {
+            "start": {
+              "line": 286,
+              "column": 1,
+              "offset": 8837
+            },
+            "end": {
+              "line": 286,
+              "column": 221,
+              "offset": 9057
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 286,
+          "column": 1,
+          "offset": 8837
+        },
+        "end": {
+          "line": 286,
+          "column": 221,
+          "offset": 9057
+        }
+      }
+    },
+    {
+      "type": "Arrow",
+      "position": {
+        "start": {
+          "line": 288,
+          "column": 1,
+          "offset": 9059
+        },
+        "end": {
+          "line": 288,
+          "column": 3,
+          "offset": 9061
+        }
+      }
+    },
+    {
+      "type": "thematicBreak",
+      "position": {
+        "start": {
+          "line": 292,
+          "column": 1,
+          "offset": 9065
+        },
+        "end": {
+          "line": 292,
+          "column": 4,
+          "offset": 9068
+        }
+      }
+    },
+    {
+      "type": "heading",
+      "depth": 1,
+      "children": [
+        {
+          "type": "text",
+          "value": "Dependencies (example)",
+          "position": {
+            "start": {
+              "line": 293,
+              "column": 3,
+              "offset": 9071
+            },
+            "end": {
+              "line": 293,
+              "column": 25,
+              "offset": 9093
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 293,
+          "column": 1,
+          "offset": 9069
+        },
+        "end": {
+          "line": 293,
+          "column": 25,
+          "offset": 9093
+        }
+      }
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "start": 1,
+      "spread": false,
+      "children": [
+        {
+          "type": "listItem",
+          "spread": false,
+          "checked": null,
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "{ HonoPackageJson } from \"./ConfigsVolume\"",
+                  "position": {
+                    "start": {
+                      "line": 295,
+                      "column": 4,
+                      "offset": 9098
+                    },
+                    "end": {
+                      "line": 295,
+                      "column": 46,
+                      "offset": 9140
+                    }
+                  }
+                }
+              ],
+              "position": {
+                "start": {
+                  "line": 295,
+                  "column": 4,
+                  "offset": 9098
+                },
+                "end": {
+                  "line": 295,
+                  "column": 46,
+                  "offset": 9140
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 295,
+              "column": 1,
+              "offset": 9095
+            },
+            "end": {
+              "line": 295,
+              "column": 46,
+              "offset": 9140
+            }
+          }
+        },
+        {
+          "type": "listItem",
+          "spread": false,
+          "checked": null,
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "DatabaseVolume from \"@app/database\"",
+                  "position": {
+                    "start": {
+                      "line": 296,
+                      "column": 4,
+                      "offset": 9144
+                    },
+                    "end": {
+                      "line": 296,
+                      "column": 39,
+                      "offset": 9179
+                    }
+                  }
+                }
+              ],
+              "position": {
+                "start": {
+                  "line": 296,
+                  "column": 4,
+                  "offset": 9144
+                },
+                "end": {
+                  "line": 296,
+                  "column": 39,
+                  "offset": 9179
+                }
+              }
+            }
+          ],
+          "position": {
+            "start": {
+              "line": 296,
+              "column": 1,
+              "offset": 9141
+            },
+            "end": {
+              "line": 296,
+              "column": 39,
+              "offset": 9179
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 295,
+          "column": 1,
+          "offset": 9095
+        },
+        "end": {
+          "line": 296,
+          "column": 39,
+          "offset": 9179
+        }
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "Ok. Dependencies terminate chapters. If no dependencies section added then next chapther requires frontmatter.",
+          "position": {
+            "start": {
+              "line": 298,
+              "column": 1,
+              "offset": 9181
+            },
+            "end": {
+              "line": 298,
+              "column": 111,
+              "offset": 9291
+            }
+          }
+        }
+      ],
+      "position": {
+        "start": {
+          "line": 298,
+          "column": 1,
+          "offset": 9181
+        },
+        "end": {
+          "line": 298,
+          "column": 111,
+          "offset": 9291
+        }
+      }
+    }
+  ],
+  "position": {
+    "start": {
+      "line": 1,
+      "column": 1,
+      "offset": 0
+    },
+    "end": {
+      "line": 299,
+      "column": 1,
+      "offset": 9292
+    }
+  }
+}
+➜  literate git:(main) ✗

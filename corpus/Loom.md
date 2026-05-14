@@ -1,0 +1,298 @@
+# Chapter I
+
+# [Loom] is written in {Loom}
+
+This document implements Loom literate programming framework.
+
+Markdown sections following *Chapter* are *Sections*. Loom interprets Chapters as Effect Services. Sections map to parametrisable Effect Functions.
+
+1. a *Chapters* are the first markdown H1 section containing *Tag* and *Specifier* (e.g., `# Chapter name [MyApp]{TypeScript}`). *Chapters* must be Tagged and Specified. 
+
+2. *Sections* are markdown heading sections following *Chapter*. Sections can have a Tag and/or Specifier, or neither.
+
+*Tagged Sections* (e.g., `# Section name [Greet]`) are **hoisted and exported members** of Loom *Chapters*. Other Sections and *Looms* can refer Tagged Sections by tags.
+
+*Untagged Sections* are hoisted **but not exported member** of Chapters. Untagged Sections can be referred and used by any other section in the same Loom only. Untagged Sections do not have tags and hence can be referred only by their literal heading name.
+
+*Specified Sections* are Tagged Sections with an curly brackets indetifier (`[SomeTag]{Specifier}`). Specifiers act as markers defining a target language of a section or its *disposition*. For example, `{Loom}` specifies that a section is written in Loom Language which is an extension of TypeScript with Effect.
+
+*Unspecified Sections* leave specification details like disposition or a target language to Loom defaults. By default, an unspecified section is disposed as *Product Source Code* written and typechecked against the LSP given in the *Chapter Section* heading specifier.
+
+# First thing first: Syntax for Loom
+
+At this stage, we do not have any Loom specific syntax defined. This Loom is the genesis of its own. For its very existance, we must define Loom's foundational primitives and capabilties. Some of them described above but not yet implemented. Loom is written in TypeScript with Effect while following pure FP practices.
+
+The very first thing that will allow us materialise our first Loom program is *Arrow*. Arrows have simple and yet crucial role in Loom — they map *Prose* to *Code*.
+
+=>
+
+// Hello! This is the beginning of the Loom Language.
+
+~ 
+
+Our very first program in Loom does nothing but showcases the rythm of every Loom program.
+
+As you probably noticed, *Tildes* `~` mark the transition back from Code to Prose. Sections can have arbitrary number of Code and Prose blocks devided by the Tildes and Arrows.
+
+Let's think how to implement this minimal syntax. We already defined:
+
+1. Chapters `# ... []{}`
+2. Sections `#, ##`
+3. Prose
+4. Code
+5. Arrows `=>`
+6. Tildes `~`
+7. Tags `[AnyTag]`
+8. Specifiers `{AnySpecifier}`
+
+# Loom AST
+
+Let's define *Loom AST* in terms of Unist and Effect ADTs. Loom AST flows through *Chapters* contaning *Sections* with *Prose* and *Code*.
+
+We will write `Schema.Struct` for each Unist node following the *Unist* model with an explicit `type` discriminant. Every node must have `type` and `position`. Parent nodes add `children`. Literal nodes add `value`. Void nodes have neither. Type assertions enforce unist conformance at compile time.
+
+=>
+
+import { Schema } from "effect"
+
+## Point and Position
+
+In order to project *Loom Frame* and map it for LSP, Loom AST *nodes* must be aware of their precise position in *Loom Source*. We will define Unist compatible positioning with *Point* and *Position* primitives.
+
+Every Point is just a `line` and `column` number with the `offset`.
+
+=>
+
+export const PointSchema = Schema.Struct({
+  line: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)),
+  column: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)),
+  offset: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0)),
+})
+
+export type Point = typeof PointSchema.Type
+
+~
+
+*Position* is just two Points locating a node.
+
+~
+
+export const PositionSchema = Schema.Struct({
+  start: PointSchema,
+  end: PointSchema,
+})
+
+export type Position = typeof PositionSchema.Type
+
+~
+
+Positions and Points are just coordinate data — they describe where a node is, they aren't nodes themselves. In Unist, nodes are things we traverse, visit, match. Nodes must have the explicit `type` discriminator.
+
+## Arrow and Tilde
+
+Today, we started disussing Loom's implementation with *Arrow*. Here it is.
+
+=>
+
+export const ArrowSchema = Schema.Struct({
+  type: Schema.Literal("Arrow"),
+  position: PositionSchema,
+}).pipe(
+  Schema.filter(
+    (node) => node.position.start.column === 1,
+    { message: () => "Loom Arrows must be at column 1" }
+  )
+)
+
+export type Arrow = typeof ArrowSchema.Type
+
+~
+
+*Tilde* already drives our rythm in this *Loom Source*. Here it is.
+
+~
+
+export const TildeSchema = Schema.Struct({
+  type: Schema.Literal("Tilde"),
+  position: PositionSchema,
+}).pipe(
+  Schema.filter(
+    (node) => node.position.start.column === 1,
+    { message: () => "Loom Tilde must be at column 1" }
+  )
+)
+
+export type Tilde = typeof TildeSchema.Type
+
+## Loom Section
+
+*Loom Sections* are Effect Functions and Services. To implement Loom Section AST, we have to define the following primitives:
+
+1. SectionHeading `# Some section heading [Tag]{Specifier}`
+  * HeadingText `Some section heading`
+  * SectionTag `[Tag]`
+  * SectionSpecifier `{Specifier}`
+4. Prose
+  * Parameters `{{placeholder: type}}`
+5. Code
+  * Interpolation `${placeholder}`
+
+### Heading Text
+
+*Loom Section Heading* begins with the markdown heading *marker*, and has children nodes: *HeadingText*, *SectionTag* and *SectionSpecifier*. Let's define their schemas.
+
+=>
+
+export const HeadingTextSchema = Schema.Struct({
+  type: Schema.Literal("HeadingText"),
+  value: Schema.String,
+  position: PositionSchema,
+})
+
+export type HeadingText = typeof HeadingTextSchema.Type
+
+### Section Tag
+
+=>
+
+export const SectionTagSchema = Schema.Struct({
+  type: Schema.Literal("SectionTag"),
+  value: Schema.String,
+  position: PositionSchema,
+})
+
+export type SectionTag = typeof SectionTagSchema.Type
+
+### Section Specifier
+
+=>
+
+export const SectionSpecifierSchema = Schema.Struct({
+  type: Schema.Literal("SectionSpecifier"),
+  value: Schema.String,
+  position: PositionSchema,
+})
+
+export type SectionSpecifier = typeof SectionSpecifierSchema.Type
+
+### Section Heading
+
+We have all building blocks for *Section Heading* node, let's define tis schema.
+
+=>
+
+const HeadingChildren = Schema.Union(
+  HeadingTextSchema, SectionTagSchema, SectionSpecifierSchema
+)
+
+export const SectionHeadingSchema = Schema.Struct({
+  type: Schema.Literal("SectionHeading"),
+  position: PositionSchema,
+  children: Schema.Array(HeadingChildren),
+}).pipe(
+  Schema.filter(
+    (node) => node.position.start.column === 1,
+    { message: () => "Loom Section Heading must be at column 1" }
+  )
+)
+
+export type SectionHeading = typeof SectionHeadingSchema.Type
+
+### Prose and Code Nodes
+
+Loom literally is *Prose* and *Code*, let's define them as Nodes.
+
+=>
+
+export const ProseSchema = Schema.Struct({
+  type: Schema.Literal("Prose"),
+  value: Schema.String,
+  position: PositionSchema,
+})
+
+export const CodeSchema = Schema.Struct({
+  type: Schema.Literal("Code"),
+  value: Schema.String,
+  lang: Schema.String,
+  position: PositionSchema,
+
+})
+
+export type Prose = typeof ProseSchema.Type
+export type Code = typeof CodeSchema.Type
+
+### Section Node Schema
+
+We have all building block for *Loom Section* AST, let's define its schema.
+
+=>
+
+const SectionChildren = Schema.Union(
+  ArrowSchema, TildeSchema, SectionHeadingSchema, ProseSchema, CodeSchema
+)
+
+export const LoomSectionSchema = Schema.Struct({
+  type: Schema.Literal("LoomSection"),
+  position: PositionSchema,
+  children: Schema.Array(SectionChildren),
+})
+
+export type LoomSection = typeof LoomSectionSchema.Type
+
+## Chapter
+
+Loom document can have one or more *Chapters*. Chapter is the highest node before the *Module* it belongs. Chaptera are parents for Prose, Code, Arrows, Tildes, Sections, and Dependencies.
+
+### Dependencies Section
+
+Dependencies Section is a special section kind which provides other Modules services.
+
+=>
+
+export const ChapterDependenciesSchema = Schema.Struct({
+  type: Schema.Literal("ChapterDependencies"),
+  position: PositionSchema,
+  // children: Schema.Array(...), TBD, needs AST
+})
+
+export type ChapterDependencies = typeof ChapterDependenciesSchema.Type
+
+
+### Chapter Node Schema
+
+=>
+
+const ChapterChildren = Schema.Union(
+  SectionHeadingSchema, ArrowSchema, TildeSchema, LoomSectionSchema, ProseSchema, CodeSchema, ChapterDependenciesSchema
+)
+
+const ChapterHeadingSchema = SectionHeadingSchema.pipe(
+  Schema.filter(
+    (node) => node. === 1,
+    { message: () => "Loom Arrows must be at column 1" }
+  )
+)
+
+export const LoomChapterSchema = Schema.Struct({
+  type: Schema.Literal("LoomChapter"),
+  position: PositionSchema,
+  children: Schema.Array(ChapterChildren),
+})
+
+export type LoomChapter = typeof LoomChapterSchema.Type
+
+# Bootstrapping Loom
+
+We have built minimal AST which will enable us to build basic Loom features on top of it. However, we can't run this program as there is nothing that able to understand Loom formats. We have to build a Loom parser first.
+
+=>
+
+
+
+---
+# Dependencies (example)
+
+1. { HonoPackageJson } from "./ConfigsVolume"
+2. DatabaseVolume from "@app/database"
+
+Ok. Dependencies terminate chapters. If no dependencies section added then next chapther requires frontmatter.

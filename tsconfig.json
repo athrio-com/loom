@@ -8,10 +8,18 @@
     "skipLibCheck": true,
     "sourceMap": true,
     "noEmit": true,
+    "types": [
+      "bun"
+    ],
     "paths": {
-      "@literate/core": ["./src/core.ts"]
+      "@literate/core": [
+        "./src/core.ts"
+      ]
     }
   },
-  "include": ["src", "corpus", "*.ts"],
-  "exclude": ["src/from ai", "src/**/*.test.ts"]
+  "include": [
+    "src/**/*",
+    "corpus",
+    "*.ts"
+  ]
 }

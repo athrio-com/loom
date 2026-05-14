@@ -1,4 +1,0 @@
-name = "Loom"
-grammar = "loom"
-path_suffixes = ["loom"]
-line_comments = ["// "]
