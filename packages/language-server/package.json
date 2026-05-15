@@ -16,5 +16,8 @@
     "volar-service-css": "^0.0.71",
     "volar-service-html": "^0.0.71",
     "vscode-html-languageservice": "^5.6.2"
+  },
+  "devDependencies": {
+    "vscode-uri": "^3.1.0"
   }
 }
