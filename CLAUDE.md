@@ -8,7 +8,7 @@ This specification describes the target architecture. The current codebase may n
 
 2. **Do not patch the old architecture.** If the current code uses ad-hoc string manipulation, imperative orchestration, or `Context.Tag` instead of `Effect.Service`, do not add the new model alongside the old one. Replace the old model. The spec is the source of truth.
 
-3. **Start from entry points.** Every process begins from `BunRuntime.runMain()`. Build the Effect program top-down: entry point → Services → Layers → composition. Do not start from utility functions and hope they compose later.
+3. **Start from entry points.** Every process begins from `NodeRuntime.runMain()`. Build the Effect program top-down: entry point → Services → Layers → composition. Do not start from utility functions and hope they compose later.
 
 4. **Verify the two planes.** After any change, check: does the frame contain only de dicto code (Service definition, compose(), needs())? Does product code (section content) stay in tangled virtual docs or embedded codes? If product code appears in the frame as raw TS, the planes are conflated — fix it.
 
@@ -69,18 +69,18 @@ Every step is Effect. Every composition is a Kleisli arrow. Every dependency is 
 
 ### How to achieve this
 
-Everything starts from an Effect Runtime entry point. Every server, CLI tool, and plugin must begin as an Effect program using `BunRuntime.runMain()` or equivalent. Effect drives the process — not imperative code that calls Effect occasionally.
+Everything starts from an Effect Runtime entry point. Every server, CLI tool, and plugin must begin as an Effect program using `NodeRuntime.runMain()` or equivalent. Effect drives the process — not imperative code that calls Effect occasionally.
 
 **Entry points:**
 
-- **Tangle CLI** (`bun tangle.ts`) — an Effect program. `BunRuntime.runMain(Effect.gen(function* () { ... }))`. Parses .loom, builds Service, provides Layers, runs Tangles, writes files. All Effect.
+- **Tangle CLI** (`pnpm tsx tangle.ts`) — an Effect program. `NodeRuntime.runMain(Effect.gen(function* () { ... }))`. Parses .loom, builds Service, provides Layers, runs Tangles, writes files. All Effect.
 - **Volar LSP server** — an Effect Platform application. The server starts as an Effect program. Parsing, frame projection, virtual code assembly, diagnostics — all Effect services composed via Layers.
 - **Vite plugin** (if applicable) — Effect-native. The plugin's transform/build hooks are Effect programs.
 
 **Architecture:**
 
 ```
-BunRuntime.runMain(                          ← end of the world
+NodeRuntime.runMain(                         ← end of the world
   Effect.gen(function* () {
     const doc = yield* LoomParser.parse(source)    ← Service
     const service = yield* LoomCompiler.build(doc)  ← Service
@@ -95,13 +95,13 @@ BunRuntime.runMain(                          ← end of the world
 ```
 
 **Do not:**
-- Start with imperative Bun code and sprinkle Effect inside
+- Start with imperative Node code and sprinkle Effect inside
 - Use `Effect.runSync` or `Effect.runPromise` in the middle of imperative flows
 - Build ad-hoc string pipelines outside Effect and feed results back in
 - Treat Effect as a utility library rather than the program model
 
 **Do:**
-- Start from `BunRuntime.runMain()` or `Effect.runFork()`
+- Start from `NodeRuntime.runMain()` or `Effect.runFork()`
 - Model every concern as a Service with a Layer
 - Compose via `Effect.gen` and `yield*`
 - Let Layer handle all dependency wiring
@@ -681,9 +681,9 @@ We should always import the needed dependencies.
 
 # How to run this Hello Hono?
 
-bun tangle.ts corpus/Loom.loom --base .
-cd temp/hono && bun install
-bun start
+pnpm tsx tangle.ts corpus/Loom.loom --base .
+cd temp/hono && pnpm install
+pnpm start
 ```
 
 # Frame Virtual Code Assembly (The Heart of Loom)

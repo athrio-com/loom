@@ -18,7 +18,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Node / Bun / future tooling
+# Node / pnpm / future tooling
 node_modules/
 dist/
 build/
@@ -42,5 +42,5 @@ temp/
 # Rust build artifacts
 zed-extension/target/
 
-# Packed tarballs (created by `bun pm pack` / `npm pack`)
+# Packed tarballs (created by `pnpm pack` / `npm pack`)
 *.tgz

@@ -1,0 +1,36 @@
+{
+  "name": "@loom/vscode",
+  "displayName": "Loom",
+  "description": "A VS Code extension for Loom",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.55.0"
+  },
+  "activationEvents": [
+    "onLanguage:loom"
+  ],
+  "main": "./dist/vscode-extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "loom",
+        "extensions": [
+          ".loom"
+        ]
+      }
+    ]
+  },
+  "scripts": {
+    "build": "vite build",
+    "watch": "vite build --watch"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.120.0"
+  },
+  "dependencies": {
+    "@loom/language-server": "workspace:*",
+    "@volar/language-server": "^2.4.28",
+    "@volar/vscode": "^2.4.28",
+    "vscode-languageclient": "^9.0.1"
+  }
+}
