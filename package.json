@@ -9,6 +9,9 @@
     "pnpm": ">=11"
   },
   "scripts": {
+    "build": "pnpm -r build",
+    "watch": "pnpm -r --parallel watch",
+    "pack:vsix": "pnpm --filter loom-vscode run pack:vsix",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -24,6 +27,7 @@
     "@volar/language-core": "^2.4.28",
     "@volar/language-server": "^2.4.28",
     "@volar/typescript": "^2.4.28",
+    "@vscode/vsce": "^3.9.1",
     "prettier": "^3.8.3",
     "tsx": "^4.22.0",
     "typescript": "^6.0.3",

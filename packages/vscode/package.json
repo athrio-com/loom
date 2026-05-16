@@ -1,15 +1,22 @@
 {
-  "name": "@loom/vscode",
+  "name": "loom-vscode",
+  "publisher": "athrio",
   "displayName": "Loom",
   "description": "A VS Code extension for Loom",
   "version": "0.0.1",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/athrio-com/loom.git",
+    "directory": "packages/vscode"
+  },
   "engines": {
-    "vscode": "^1.55.0"
+    "vscode": "^1.120.0"
   },
   "activationEvents": [
     "onLanguage:loom"
   ],
-  "main": "./dist/vscode-extension.js",
+  "main": "./dist/client.js",
   "contributes": {
     "languages": [
       {
@@ -22,13 +29,11 @@
   },
   "scripts": {
     "build": "vite build",
-    "watch": "vite build --watch"
+    "watch": "vite build --watch",
+    "pack:vsix": "vite build && vsce package --no-dependencies"
   },
   "devDependencies": {
-    "@types/vscode": "^1.120.0"
-  },
-  "dependencies": {
-    "@loom/language-server": "workspace:*",
+    "@types/vscode": "^1.120.0",
     "@volar/language-server": "^2.4.28",
     "@volar/vscode": "^2.4.28",
     "vscode-languageclient": "^9.0.1"

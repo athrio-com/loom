@@ -42,5 +42,6 @@ temp/
 # Rust build artifacts
 zed-extension/target/
 
-# Packed tarballs (created by `pnpm pack` / `npm pack`)
+# Packed tarballs and VSIX
 *.tgz
+*.vsix

@@ -3,5 +3,5 @@ if (process.argv.includes("--version")) {
   const pkgJSON = require("../package.json");
   console.log(pkgJSON.version);
 } else {
-  require("../dist/loom-server.js");  // ← updated
+  require("../dist/loom-server.js");
 }

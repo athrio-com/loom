@@ -12,17 +12,10 @@ import {
 let client: BaseLanguageClient;
 
 export async function activate(context: vscode.ExtensionContext) {
-  // Diagnostic: confirm the named imports actually arrived at runtime.
-  // Remove once activation is working.
-  console.log("[Loom activate] TransportKind:", TransportKind);
-  console.log("[Loom activate] LanguageClient:", typeof LanguageClient);
-
   const serverModule = vscode.Uri.joinPath(
     context.extensionUri,
-    "node_modules",
-    "@loom/language-server",
     "dist",
-    "loom-server.js",
+    "server.js",
   );
   const serverOptions: ServerOptions = {
     run: {
