@@ -2,30 +2,30 @@ import { describe, expect, it } from "@effect/vitest"
 import { Option, Schema } from "effect"
 import {
   ArrowTokenSchema,
-  ArrowWeftSchema,
   HeadingStartTokenSchema,
-  HeadingWeftSchema,
-  LoomWeftSchema,
   SeparatorTokenSchema,
-  SeparatorWeftSchema,
   SpecifierTokenSchema,
   TagTokenSchema,
   TildeTokenSchema,
+  getProbe,
+} from "./LoomTokens"
+import {
+  ArrowWeftSchema,
+  HeadingWeftSchema,
+  LoomWeftSchema,
+  SeparatorWeftSchema,
   TildeWeftSchema,
   WeftSchema,
-  getProbe,
 } from "./LoomWefts"
+import type { LineRange } from "./StreamLineRanges"
 
 const samplePosition = {
   start: { line: 1, column: 1, offset: 0 },
   end: { line: 1, column: 4, offset: 3 },
 }
 
-const sampleSource = {
-  text: "## Heading",
-  startPoint: { line: 1, column: 1, offset: 0 },
-  hasEndOfLine: true,
-}
+// Sample source — a LineRange covering "## Heading" (10 chars) at offset 0.
+const sampleSource: LineRange = [0, 10]
 
 const validHeadingStart = {
   type: "HeadingStart" as const,
