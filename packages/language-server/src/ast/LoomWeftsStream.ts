@@ -1,5 +1,7 @@
 import { Effect, Match, Option, pipe, Stream } from "effect"
 
+// --- THIS IS JUST A DRAFT, not any kind of reference implementation or actual implementation
+
 // ─── Core types ──────────────────────────────────────────────────────────────
 
 interface SourceLine {
