@@ -17,26 +17,41 @@ export const getProbe = (
 
 // =============================================================================
 // Tokens — building blocks emitted by the Tokeniser and consumed by Wefts as
-// typed fields. Every token carries a Probe regex. Text-only portions of a
-// line (between or around recognised tokens) are not modelled as a token —
-// they're derivable from the surrounding token positions and the source.
+// typed fields. Every token carries a Probe regex.
 //
 // Tokens with internal anatomy (HeadingStart, Tag, Specifier) expose their
 // parts as subtokens — `{ value, position }` — so downstream consumers can
 // target the precision they need.
 // =============================================================================
 
-export const HeadingStartTokenSchema = Schema.Struct({
-  type: Schema.Literal("HeadingStart"),
-  position: PositionSchema, // whole `## ` including trailing space
+// Level-specific HeadingStart tokens. classifyWefts probes each and routes
+// directly: a ChapterHeadingStart match yields a ChapterHeadingWeft; a
+// SectionHeadingStart match yields one of SectionHeadingWeft /
+// DependenciesHeadingWeft / TangleHeadingWeft (disambiguated by tag).
+
+export const ChapterHeadingStartTokenSchema = Schema.Struct({
+  type: Schema.Literal("ChapterHeadingStart"),
+  position: PositionSchema, // whole `# ` including trailing space
   markers: Schema.Struct({
-    value: Schema.String.pipe(Schema.pattern(/^#{1,6}$/)),
+    value: Schema.Literal("#"),
     position: PositionSchema,
   }),
 }).annotations({
-  [Probe]: /^#{1,6} /,
+  [Probe]: /^# /,
 })
-export type HeadingStartToken = typeof HeadingStartTokenSchema.Type
+export type ChapterHeadingStartToken = typeof ChapterHeadingStartTokenSchema.Type
+
+export const SectionHeadingStartTokenSchema = Schema.Struct({
+  type: Schema.Literal("SectionHeadingStart"),
+  position: PositionSchema, // whole `##` (1–5 trailing `#`s) + ` ` including trailing space
+  markers: Schema.Struct({
+    value: Schema.String.pipe(Schema.pattern(/^#{2,6}$/)),
+    position: PositionSchema,
+  }),
+}).annotations({
+  [Probe]: /^#{2,6} /,
+})
+export type SectionHeadingStartToken = typeof SectionHeadingStartTokenSchema.Type
 
 export const TagTokenSchema = Schema.Struct({
   type: Schema.Literal("Tag"),
@@ -102,17 +117,45 @@ export const SeparatorTokenSchema = Schema.Struct({
 })
 export type SeparatorToken = typeof SeparatorTokenSchema.Type
 
+export const TextTokenSchema = Schema.Struct({
+  type: Schema.Literal("Text"),
+  position: PositionSchema, // contiguous text run between structural tokens on a heading line
+}).annotations({
+  [Probe]: /[^\[\]\{\}]+/g,
+})
+export type TextToken = typeof TextTokenSchema.Type
+
+export const CodeTokenSchema = Schema.Struct({
+  type: Schema.Literal("Code"),
+  position: PositionSchema, // code content; on an Arrow line, the content after `=>`
+}).annotations({
+  [Probe]: /(?<=^\s*=>\s*)\S.*$/,
+})
+export type CodeToken = typeof CodeTokenSchema.Type
+
+export const ProseTokenSchema = Schema.Struct({
+  type: Schema.Literal("Prose"),
+  position: PositionSchema, // prose content; on a Tilde line, the content after `~`
+}).annotations({
+  [Probe]: /(?<=^\s*~+\s*)\S.*$/,
+})
+export type ProseToken = typeof ProseTokenSchema.Type
+
 // =============================================================================
 // LoomToken — the union of all six tokens. The Tokeniser's intermediate
 // emission type, before Wefts assemble per-line groupings.
 // =============================================================================
 
 export const LoomTokenSchema = Schema.Union(
-  HeadingStartTokenSchema,
+  ChapterHeadingStartTokenSchema,
+  SectionHeadingStartTokenSchema,
   TagTokenSchema,
   SpecifierTokenSchema,
   ArrowTokenSchema,
   TildeTokenSchema,
   SeparatorTokenSchema,
+  TextTokenSchema,
+  CodeTokenSchema,
+  ProseTokenSchema,
 )
 export type LoomToken = typeof LoomTokenSchema.Type
