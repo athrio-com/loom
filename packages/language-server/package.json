@@ -10,11 +10,14 @@
     "watch": "vite build --watch"
   },
   "dependencies": {
+    "@effect/platform-node": "^0.106.0",
     "@volar/language-core": "^2.4.28",
     "@volar/language-server": "^2.4.28",
     "@volar/language-service": "^2.4.28",
+    "effect": "3.21.2",
     "volar-service-css": "^0.0.71",
     "volar-service-html": "^0.0.71",
+    "volar-service-markdown": "^0.0.71",
     "vscode-html-languageservice": "^5.6.2"
   },
   "devDependencies": {

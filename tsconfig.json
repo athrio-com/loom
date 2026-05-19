@@ -20,6 +20,13 @@
   "include": [
     "src/**/*",
     "corpus",
-    "*.ts"
-, "packages/language-server/src/ast/index.ts", "packages/language-server/src/ast/LoomSourceStream.ts", "packages/language-server/src/ast/LoomWefts.test.ts", "packages/language-server/src/ast/LoomSourceStream.test.ts", "packages/language-server/src/ast/LoomWefts.ts", "packages/language-server/src/ast/LoomWeftsStream.ts", "packages/language-server/src/ast/LoomDocument.ts"  ]
+    "*.ts",
+    "packages/language-server/src/ast/index.ts",
+    "packages/language-server/src/ast/StreamLineRanges.ts",
+    "packages/language-server/src/ast/LoomWefts.test.ts",
+    "packages/language-server/src/ast/StreamLineRanges.test.ts",
+    "packages/language-server/src/ast/LoomWefts.ts",
+    "packages/language-server/src/ast/LoomWeftsStream.ts",
+    "packages/language-server/src/ast/LoomDocument.ts"
+  ]
 }

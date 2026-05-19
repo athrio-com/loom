@@ -1,7 +1,12 @@
 import { Schema } from "effect"
+import { LineRangeSchema } from "./StreamLineRanges"
 
 // =============================================================================
-// Position
+// Position — start/end byte offsets into source text.
+//
+// Used by tokens and AST nodes that need precise span boundaries.
+// `line` and `column` are convenience fields for diagnostics; `offset` is
+// the source of truth for Volar mappings.
 // =============================================================================
 
 export const PointSchema = Schema.Struct({
@@ -20,19 +25,16 @@ export const PositionSchema = Schema.Struct({
 export type Position = typeof PositionSchema.Type
 
 // =============================================================================
-// Heading tokens
+// Heading — uniform for both chapters and sections.
+//
+// Every heading has markers (`#` to `######`) and text. Tag and specifier
+// are optional at the schema level. The parser enforces that chapters
+// require both — that's a validation rule, not a type split.
 // =============================================================================
-
-export const LoomHeadingTextSchema = Schema.Struct({
-  type: Schema.Literal("LoomHeadingText"),
-  position: PositionSchema,
-  value: Schema.String,
-})
-export type LoomHeadingText = typeof LoomHeadingTextSchema.Type
 
 export const LoomTagSchema = Schema.Struct({
   type: Schema.Literal("LoomTag"),
-  position: PositionSchema, // whole `[name]`
+  position: PositionSchema,
   open: Schema.Struct({
     value: Schema.Literal("["),
     position: PositionSchema,
@@ -50,7 +52,7 @@ export type LoomTag = typeof LoomTagSchema.Type
 
 export const LoomSpecifierSchema = Schema.Struct({
   type: Schema.Literal("LoomSpecifier"),
-  position: PositionSchema, // whole `{name}`
+  position: PositionSchema,
   open: Schema.Struct({
     value: Schema.Literal("{"),
     position: PositionSchema,
@@ -66,146 +68,78 @@ export const LoomSpecifierSchema = Schema.Struct({
 })
 export type LoomSpecifier = typeof LoomSpecifierSchema.Type
 
-// =============================================================================
-// Heading variants
-// =============================================================================
-
-const headingBase = {
+export const LoomHeadingSchema = Schema.Struct({
+  type: Schema.Literal("LoomHeading"),
   position: PositionSchema,
   markers: Schema.Struct({
     value: Schema.String.pipe(Schema.pattern(/^#{1,6}$/)),
     position: PositionSchema,
   }),
-  text: LoomHeadingTextSchema,
-}
-
-export const LoomChapterHeadingSchema = Schema.Struct({
-  type: Schema.Literal("LoomChapterHeading"),
-  ...headingBase,
-  tag: LoomTagSchema,             // required
-  specifier: LoomSpecifierSchema, // required
-})
-export type LoomChapterHeading = typeof LoomChapterHeadingSchema.Type
-
-export const LoomSectionHeadingSchema = Schema.Struct({
-  type: Schema.Literal("LoomSectionHeading"),
-  ...headingBase,
+  text: Schema.Struct({
+    value: Schema.String,
+    position: PositionSchema,
+  }),
   tag: Schema.optional(LoomTagSchema),
   specifier: Schema.optional(LoomSpecifierSchema),
 })
-export type LoomSectionHeading = typeof LoomSectionHeadingSchema.Type
+export type LoomHeading = typeof LoomHeadingSchema.Type
 
 // =============================================================================
-// Sections — Prose, Code, Dependencies
+// Arrow — the `=>` line that separates preamble from code.
 // =============================================================================
-
-export const LoomProseLineSchema = Schema.Struct({
-  type: Schema.Literal("LoomProseLine"),
-  position: PositionSchema,
-  value: Schema.String,
-})
-export type LoomProseLine = typeof LoomProseLineSchema.Type
-
-export const LoomProseSectionSchema = Schema.Struct({
-  type: Schema.Literal("LoomProseSection"),
-  position: PositionSchema,
-  heading: LoomSectionHeadingSchema,
-  lines: Schema.Array(LoomProseLineSchema),
-})
-export type LoomProseSection = typeof LoomProseSectionSchema.Type
-
-// -----------------------------------------------------------------------------
-// LoomCodeSection primitives
-// -----------------------------------------------------------------------------
-
-// Stub — to be filled when Param syntax (e.g. `{{name: type}}`) is implemented.
-export const LoomParamSchema = Schema.Struct({
-  type: Schema.Literal("LoomParam"),
-  position: PositionSchema,
-})
-export type LoomParam = typeof LoomParamSchema.Type
-
-export const LoomPreambleLineSchema = Schema.Struct({
-  type: Schema.Literal("LoomPreambleLine"),
-  position: PositionSchema,
-  value: Schema.String,
-  params: Schema.Array(LoomParamSchema), // empty until Param recognition lands
-})
-export type LoomPreambleLine = typeof LoomPreambleLineSchema.Type
-
-export const LoomPreambleSchema = Schema.Struct({
-  type: Schema.Literal("LoomPreamble"),
-  position: PositionSchema,
-  lines: Schema.Array(LoomPreambleLineSchema),
-})
-export type LoomPreamble = typeof LoomPreambleSchema.Type
 
 export const LoomArrowSchema = Schema.Struct({
   type: Schema.Literal("LoomArrow"),
-  position: PositionSchema, // span of `=>`
+  position: PositionSchema,
 })
 export type LoomArrow = typeof LoomArrowSchema.Type
 
-export const LoomCodeLineSchema = Schema.Struct({
-  type: Schema.Literal("LoomCodeLine"),
+// =============================================================================
+// Section — one structural unit under a chapter.
+//
+// Self-descriptive: read the fields to know what's present.
+//   - No arrow, no code  → prose section
+//   - Arrow present       → code section (preamble before arrow, code after)
+//
+// "Dependencies" is not a structural variant — it's a section whose tag
+// matches a reserved name. Semantic, not syntactic.
+//
+// Lines are stored as LineRanges into the source text. Text values are
+// derived on demand via `text.slice(start, end)`.
+// =============================================================================
+
+export const LoomSectionSchema = Schema.Struct({
+  type: Schema.Literal("LoomSection"),
   position: PositionSchema,
-  value: Schema.String,
+  heading: LoomHeadingSchema,
+  preamble: Schema.Array(LineRangeSchema),
+  arrow: Schema.optional(LoomArrowSchema),
+  code: Schema.Array(LineRangeSchema),
 })
-export type LoomCodeLine = typeof LoomCodeLineSchema.Type
-
-export const LoomCodeSchema = Schema.Struct({
-  type: Schema.Literal("LoomCode"),
-  position: PositionSchema,
-  lines: Schema.Array(Schema.Union(LoomCodeLineSchema, LoomProseLineSchema)),
-})
-export type LoomCode = typeof LoomCodeSchema.Type
-
-// -----------------------------------------------------------------------------
-// LoomCodeSection — heading + optional preamble + arrow + code
-// -----------------------------------------------------------------------------
-
-export const LoomCodeSectionSchema = Schema.Struct({
-  type: Schema.Literal("LoomCodeSection"),
-  position: PositionSchema,
-  heading: LoomSectionHeadingSchema,
-  preamble: Schema.optional(LoomPreambleSchema),
-  arrow: LoomArrowSchema,
-  code: LoomCodeSchema,
-})
-export type LoomCodeSection = typeof LoomCodeSectionSchema.Type
-
-export const LoomDependenciesSectionSchema = Schema.Struct({
-  type: Schema.Literal("LoomDependenciesSection"),
-  position: PositionSchema,
-  heading: LoomSectionHeadingSchema,
-})
-export type LoomDependenciesSection = typeof LoomDependenciesSectionSchema.Type
-
-export const LoomSectionSchema = Schema.Union(
-  LoomProseSectionSchema,
-  LoomCodeSectionSchema,
-  LoomDependenciesSectionSchema,
-)
 export type LoomSection = typeof LoomSectionSchema.Type
 
 // =============================================================================
-// Chapter — not a section, holds sections and an optional dependencies section
+// Chapter — a section that also holds child sections.
+//
+// Same shape as Section (heading, preamble, arrow, code) plus a `sections`
+// array for ## members. The parser requires tag and specifier on the
+// heading for chapters; the schema leaves them optional to keep one
+// heading type.
 // =============================================================================
 
 export const LoomChapterSchema = Schema.Struct({
   type: Schema.Literal("LoomChapter"),
   position: PositionSchema,
-  heading: LoomChapterHeadingSchema,
-  sections: Schema.Array(Schema.Union(
-    LoomProseSectionSchema,
-    LoomCodeSectionSchema,
-  )),
-  dependencies: Schema.optional(LoomDependenciesSectionSchema),
+  heading: LoomHeadingSchema,
+  preamble: Schema.Array(LineRangeSchema),
+  arrow: Schema.optional(LoomArrowSchema),
+  code: Schema.Array(LineRangeSchema),
+  sections: Schema.Array(LoomSectionSchema),
 })
 export type LoomChapter = typeof LoomChapterSchema.Type
 
 // =============================================================================
-// Document — at least one chapter required (uniform hoisting rule)
+// Document — the root. At least one chapter required.
 // =============================================================================
 
 export const LoomDocumentSchema = Schema.Struct({

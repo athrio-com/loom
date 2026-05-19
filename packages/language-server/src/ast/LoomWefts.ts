@@ -14,18 +14,6 @@ import {
 // and any recognised structural tokens as typed fields. Weft boundaries
 // replace any EndOfLine concept. Default/trailing text is derivable from the
 // source string sliced by `source` and any structural-token positions.
-//
-// NOTE: The 1-to-1 weft-per-line mapping inherited from the SourceLine model
-// is no longer the right shape now that the source is a Stream of LineRanges.
-// This file applies the minimal mechanical fix (SourceLineSchema → LineRange);
-// the model itself is due for a redesign.
-//
-// Kinds:
-//   Weft           — default line, no recognised structure
-//   HeadingWeft    — `#{1,6} ` line, optionally containing a tag and/or specifier
-//   ArrowWeft      — optional indent + `=>` line
-//   TildeWeft      — optional indent + `~+` line
-//   SeparatorWeft  — exact `---` line
 // =============================================================================
 
 // Default Weft — line with no structure. Content is `source` sliced from the
@@ -82,6 +70,7 @@ export type SeparatorWeft = typeof SeparatorWeftSchema.Type
 export const LoomWeftSchema = Schema.Union(
   WeftSchema,
   HeadingWeftSchema,
+  // PreambleWeftSchema, ProseWeftSchema, CodeWeftSchema, 
   ArrowWeftSchema,
   TildeWeftSchema,
   SeparatorWeftSchema,

@@ -1,5 +1,5 @@
 import { Option, Schema, SchemaAST } from "effect"
-import { PositionSchema } from "./LoomSyntaxTree"
+import { PositionSchema } from "./LoomDocument"
 
 // =============================================================================
 // Probe annotation — schema-level metadata carrying the regex the Tokeniser

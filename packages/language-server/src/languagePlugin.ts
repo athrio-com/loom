@@ -1,91 +1,45 @@
-import type { CodeMapping, LanguagePlugin, VirtualCode } from "@volar/language-core";
-import type { URI } from "vscode-uri";
-import type * as ts from "typescript";
-import type { LoomDocument } from "./ast/LoomDocument";
+import type { LanguagePlugin, VirtualCode } from "@volar/language-core"
+import type { URI } from "vscode-uri"
+import type * as ts from "typescript"
 
 // =============================================================================
-// Loom language plugin — activation stub.
+// loomLanguagePlugin — three pure functions Volar dispatches:
 //
-// No parsing. Every entry point logs its invocation so we can verify the
-// expected sequence when a .loom file is opened, changed, and closed:
+//   Uri                                   → string | undefined   (languageId)
+//   (Uri, languageId, Snapshot)           → VirtualCode | undefined
+//   (Uri, oldVirtualCode, Snapshot)       → VirtualCode
 //
-//   1. getLanguageId(uri)            once per file URI Volar inspects
-//   2. createVirtualCode(...)        on open, returns a LoomVirtualCode
-//   3. LoomVirtualCode constructor   triggers onSnapshotUpdated once
-//   4. updateVirtualCode(...)        on every textDocument/didChange
-//   5. LoomVirtualCode.update(...)   triggers onSnapshotUpdated again
-//
-// Logs surface in VSCode's Output panel under the "Loom Language Server"
-// channel (View → Output, select from dropdown).
+// The `oldVirtualCode` argument is intentionally ignored: rebuild from
+// snapshot, let the old one become collectable.
 // =============================================================================
 
-export const loomLanguagePlugin = {
+export const loomLanguagePlugin: LanguagePlugin<URI> = {
   getLanguageId(uri) {
-    console.log("[Loom] getLanguageId:", uri.path);
-    if (uri.path.endsWith(".loom")) {
-      console.log("[Loom]   -> matched 'loom'");
-      return "loom";
-    }
+    if (uri.path.endsWith(".loom")) return "loom"
   },
-  createVirtualCode(uri, languageId, _snapshot) {
-    console.log("[Loom] createVirtualCode:", uri.path, "languageId=", languageId);
-    if (languageId === "loom") {
-      console.log("[Loom]   -> constructing LoomVirtualCode");
-      return new LoomVirtualCode(_snapshot);
-    }
+  createVirtualCode(_uri, languageId, snapshot) {
+    if (languageId === "loom") return buildVirtualCode(snapshot)
   },
-  updateVirtualCode(uri, languageCode: LoomVirtualCode, snapshot) {
-    console.log("[Loom] updateVirtualCode:", uri.path);
-    languageCode.update(snapshot);
-    return languageCode;
+  updateVirtualCode(_uri, _old, snapshot) {
+    return buildVirtualCode(snapshot)
   },
-} satisfies LanguagePlugin<URI>;
-
-export class LoomVirtualCode implements VirtualCode {
-  id = "root";
-  languageId = "loom";
-  mappings: CodeMapping[] = [];
-  embeddedCodes: VirtualCode[] = [];
-  // Stash the parsed AST so custom services can read it later
-  // without re-parsing — same pattern the starter uses with htmlDocument.
-  document: LoomDocument | undefined;
-
-  constructor(public snapshot: ts.IScriptSnapshot) {
-    console.log("[Loom]   LoomVirtualCode constructor: length =", snapshot.getLength());
-    this.onSnapshotUpdated();
-  }
-
-  update(newSnapshot: ts.IScriptSnapshot) {
-    console.log("[Loom]   LoomVirtualCode.update: length =", newSnapshot.getLength());
-    this.snapshot = newSnapshot;
-    this.onSnapshotUpdated();
-  }
-
-  private onSnapshotUpdated() {
-    const text = this.snapshot.getText(0, this.snapshot.getLength());
-
-    // Identity mapping over the whole document.
-    // Required by the VirtualCode interface; without it, Volar treats this
-    // file as opaque and downstream services see no source coordinates.
-    this.mappings = [{
-      sourceOffsets: [0],
-      generatedOffsets: [0],
-      lengths: [text.length],
-      data: {
-        completion: true,
-        format: true,
-        navigation: true,
-        semantic: true,
-        structure: true,
-        verification: true,
-      },
-    }];
-
-    console.log("[Loom]   onSnapshotUpdated: text length =", text.length);
-    console.log("[Loom]   first 200 chars:", JSON.stringify(text.slice(0, 200)));
-
-    // Real work goes here once activation is confirmed:
-    // this.document = parseLoom(text)
-    // this.embeddedCodes = [...this.collectEmbeddedCodes()]
-  }
 }
+
+const buildVirtualCode = (snapshot: ts.IScriptSnapshot): VirtualCode => ({
+  id: "root",
+  languageId: "loom",
+  snapshot,
+  mappings: [],
+  embeddedCodes: [],
+})
+
+// Full VirtualCode interface:
+// id: string;
+// languageId: string;
+// snapshot: IScriptSnapshot;
+// mappings: CodeMapping[];
+// embeddedCodes?: VirtualCode[];
+// associatedScriptMappings?: Map<unknown, CodeMapping[]>;
+// linkedCodeMappings?: Mapping[];
+// 
+// // Ok, I see. Now the AST parser. The main entity we get is IScriptSnapshot and output must be VirtualCode. That's it.

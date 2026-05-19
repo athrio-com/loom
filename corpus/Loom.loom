@@ -37,7 +37,7 @@ As you probably noticed, *Tildes* `~` mark the transition back from Code to Pros
 Let's think how to implement this minimal syntax. We already defined:
 
 1. Chapters `# ... []{}`
-2. Sections `#, ##`
+2. Sections `##`
 3. Prose
 4. Code
 5. Arrows `=>`
@@ -294,5 +294,3 @@ We have built minimal AST which will enable us to build basic Loom features on t
 
 1. { HonoPackageJson } from "./ConfigsVolume"
 2. DatabaseVolume from "@app/database"
-
-Ok. Dependencies terminate chapters. If no dependencies section added then next chapther requires frontmatter.
