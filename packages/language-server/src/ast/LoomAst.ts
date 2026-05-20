@@ -200,6 +200,48 @@ export const LoomSectionSchema = loomNode("LoomSection", {
 export type LoomSection = typeof LoomSectionSchema.Type
 
 // =============================================================================
+// Dependencies — a reserved-tag section under a chapter, recognised at
+// classify time from `## ... [D]`. Same body shape as LoomSection; the
+// distinct type tag lets downstream consumers dispatch on it (Frame
+// projector treats the body as the `dependencies` Layer declarations).
+// =============================================================================
+
+export const LoomDependenciesSchema = loomNode("LoomDependencies", {
+  heading: LoomHeadingSchema,
+  code: Schema.Array(LineRangeSchema),
+})
+export type LoomDependencies = typeof LoomDependenciesSchema.Type
+
+// =============================================================================
+// Tangle — a reserved-tag section under a chapter, recognised at classify
+// time from `## ... [T]`. Same body shape as LoomSection; the body is the
+// composition program that emits a file at the path declared in the tag's
+// arguments (path parsing comes later — out of scope for this step).
+// =============================================================================
+
+export const LoomTangleSchema = loomNode("LoomTangle", {
+  heading: LoomHeadingSchema,
+  preamble: Schema.Array(LineRangeSchema),
+  arrow: Schema.optional(LoomArrowSchema),
+  code: Schema.Array(LineRangeSchema),
+})
+export type LoomTangle = typeof LoomTangleSchema.Type
+
+// =============================================================================
+// LoomChapterChild — the union of things a chapter can hold under its body.
+// LoomSection covers any `##`+ heading that isn't reserved; LoomDependencies
+// and LoomTangle cover the two reserved tags. classifyWefts decides which
+// kind is produced per heading, so the union is closed at parse time.
+// =============================================================================
+
+export const LoomChapterChildSchema = Schema.Union(
+  LoomSectionSchema,
+  LoomDependenciesSchema,
+  LoomTangleSchema,
+)
+export type LoomChapterChild = typeof LoomChapterChildSchema.Type
+
+// =============================================================================
 // Chapter — a section that also holds child sections.
 //
 // Same shape as Section (heading, preamble, arrow, code) plus a `sections`
@@ -213,7 +255,7 @@ export const LoomChapterSchema = loomNode("LoomChapter", {
   preamble: Schema.Array(LineRangeSchema),
   arrow: Schema.optional(LoomArrowSchema),
   code: Schema.Array(LineRangeSchema),
-  sections: Schema.Array(LoomSectionSchema),
+  children: Schema.Array(LoomChapterChildSchema),
 })
 export type LoomChapter = typeof LoomChapterSchema.Type
 

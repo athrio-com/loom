@@ -46,7 +46,7 @@ const stubDocument: LoomDocument = {
       },
       preamble: [],
       code: [],
-      sections: [],
+      children: [],
     },
   ],
 }

@@ -59,7 +59,7 @@ const emptyDocumentFor = (err: MixedEOL): LoomDocument => {
         },
         preamble: [],
         code: [],
-        sections: [],
+        children: [],
       },
     ],
   }
