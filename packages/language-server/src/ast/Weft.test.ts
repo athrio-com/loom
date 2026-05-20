@@ -10,6 +10,7 @@ import {
   TildeTokenSchema,
   getProbe,
 } from "./LoomTokens"
+import { okHealth } from "./LoomNode"
 import {
   ArrowWeftSchema,
   ChapterHeadingWeftSchema,
@@ -34,29 +35,33 @@ const sampleSource: LineRange = [0, 10]
 const validSectionHeadingStart = {
   type: "SectionHeadingStart" as const,
   position: samplePosition,
-  markers: { value: "##", position: samplePosition },
+  health: okHealth,
+  value: "##",
 }
 
 const validChapterHeadingStart = {
   type: "ChapterHeadingStart" as const,
   position: samplePosition,
-  markers: { value: "#" as const, position: samplePosition },
+  health: okHealth,
+  value: "#" as const,
 }
 
 const validTag = {
   type: "Tag" as const,
   position: samplePosition,
-  open: { value: "[" as const, position: samplePosition },
-  label: { value: "Greet", position: samplePosition },
-  close: { value: "]" as const, position: samplePosition },
+  health: okHealth,
+  open: { type: "TagOpen" as const, value: "[" as const, position: samplePosition, health: okHealth },
+  label: { type: "TagLabel" as const, value: "Greet", position: samplePosition, health: okHealth },
+  close: { type: "TagClose" as const, value: "]" as const, position: samplePosition, health: okHealth },
 }
 
 const validSpecifier = {
   type: "Specifier" as const,
   position: samplePosition,
-  open: { value: "{" as const, position: samplePosition },
-  label: { value: "Loom", position: samplePosition },
-  close: { value: "}" as const, position: samplePosition },
+  health: okHealth,
+  open: { type: "SpecifierOpen" as const, value: "{" as const, position: samplePosition, health: okHealth },
+  label: { type: "SpecifierLabel" as const, value: "Loom", position: samplePosition, health: okHealth },
+  close: { type: "SpecifierClose" as const, value: "}" as const, position: samplePosition, health: okHealth },
 }
 
 // =============================================================================
@@ -198,11 +203,11 @@ describe("ChapterHeadingStart schema validation", () => {
     expect(Schema.is(ChapterHeadingStartTokenSchema)(validChapterHeadingStart)).toBe(true)
   })
 
-  it("rejects level-2+ markers", () => {
+  it("rejects level-2+ value", () => {
     expect(
       Schema.is(ChapterHeadingStartTokenSchema)({
         ...validChapterHeadingStart,
-        markers: { value: "##", position: samplePosition },
+        value: "##",
       }),
     ).toBe(false)
   })
@@ -213,20 +218,20 @@ describe("SectionHeadingStart schema validation", () => {
     expect(Schema.is(SectionHeadingStartTokenSchema)(validSectionHeadingStart)).toBe(true)
   })
 
-  it("rejects level-1 markers", () => {
+  it("rejects level-1 value", () => {
     expect(
       Schema.is(SectionHeadingStartTokenSchema)({
         ...validSectionHeadingStart,
-        markers: { value: "#", position: samplePosition },
+        value: "#",
       }),
     ).toBe(false)
   })
 
-  it("rejects markers with too many hashes", () => {
+  it("rejects values with too many hashes", () => {
     expect(
       Schema.is(SectionHeadingStartTokenSchema)({
         ...validSectionHeadingStart,
-        markers: { value: "#######", position: samplePosition },
+        value: "#######",
       }),
     ).toBe(false)
   })
@@ -241,7 +246,7 @@ describe("Tag schema validation", () => {
     expect(
       Schema.is(TagTokenSchema)({
         ...validTag,
-        open: { value: "{", position: samplePosition },
+        open: { type: "TagOpen", value: "{", position: samplePosition, health: okHealth },
       }),
     ).toBe(false)
   })
@@ -373,7 +378,10 @@ describe("ChapterHeadingWeft schema", () => {
 })
 
 describe("DependenciesHeadingWeft schema", () => {
-  const depsTag = { ...validTag, label: { value: "D", position: samplePosition } }
+  const depsTag = {
+    ...validTag,
+    label: { type: "TagLabel" as const, value: "D", position: samplePosition, health: okHealth },
+  }
 
   it("accepts `##` heading with tag `[D]`", () => {
     expect(
@@ -413,7 +421,10 @@ describe("DependenciesHeadingWeft schema", () => {
 })
 
 describe("TangleHeadingWeft schema", () => {
-  const tangleTag = { ...validTag, label: { value: "T", position: samplePosition } }
+  const tangleTag = {
+    ...validTag,
+    label: { type: "TagLabel" as const, value: "T", position: samplePosition, health: okHealth },
+  }
 
   it("accepts `##` heading with tag `[T]`", () => {
     expect(
@@ -432,10 +443,7 @@ describe("TangleHeadingWeft schema", () => {
       Schema.is(TangleHeadingWeftSchema)({
         type: "TangleHeadingWeft",
         source: sampleSource,
-        headingStart: {
-          ...validSectionHeadingStart,
-          markers: { value: "###", position: samplePosition },
-        },
+        headingStart: { ...validSectionHeadingStart, value: "###" },
         texts: [],
         tag: tangleTag,
       }),
@@ -461,7 +469,7 @@ describe("ArrowWeft schema", () => {
       Schema.is(ArrowWeftSchema)({
         type: "ArrowWeft",
         source: sampleSource,
-        arrow: { type: "Arrow", position: samplePosition },
+        arrow: { type: "Arrow", position: samplePosition, health: okHealth },
       }),
     ).toBe(true)
   })
@@ -471,7 +479,7 @@ describe("ArrowWeft schema", () => {
       Schema.is(ArrowWeftSchema)({
         type: "ArrowWeft",
         source: sampleSource,
-        arrow: { type: "Tilde", position: samplePosition },
+        arrow: { type: "Tilde", position: samplePosition, health: okHealth },
       }),
     ).toBe(false)
   })
@@ -483,7 +491,7 @@ describe("TildeWeft schema", () => {
       Schema.is(TildeWeftSchema)({
         type: "TildeWeft",
         source: sampleSource,
-        tilde: { type: "Tilde", position: samplePosition },
+        tilde: { type: "Tilde", position: samplePosition, health: okHealth },
       }),
     ).toBe(true)
   })
@@ -495,7 +503,7 @@ describe("SeparatorWeft schema", () => {
       Schema.is(SeparatorWeftSchema)({
         type: "SeparatorWeft",
         source: sampleSource,
-        separator: { type: "Separator", position: samplePosition },
+        separator: { type: "Separator", position: samplePosition, health: okHealth },
       }),
     ).toBe(true)
   })
@@ -510,7 +518,7 @@ describe("LoomWeft union", () => {
       Schema.is(LoomWeftSchema)({
         type: "SeparatorWeft",
         source: sampleSource,
-        separator: { type: "Separator", position: samplePosition },
+        separator: { type: "Separator", position: samplePosition, health: okHealth },
       }),
     ).toBe(true)
   })

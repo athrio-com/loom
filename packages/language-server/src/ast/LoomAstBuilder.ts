@@ -1,5 +1,6 @@
 import { Effect, Stream } from "effect"
-import { okHealth, type LoomDocument, type Position } from "./LoomAst"
+import type { LoomDocument } from "./LoomAst"
+import { okHealth, type Position } from "./LoomNode"
 import type { LoomWeft } from "./Weft"
 
 // =============================================================================
@@ -32,17 +33,12 @@ const stubDocument: LoomDocument = {
         position: zeroPosition,
         health: okHealth,
         markers: {
-          type: "LoomHeadingMarkers",
+          type: "ChapterHeadingStart",
           position: zeroPosition,
           health: okHealth,
           value: "#",
         },
-        text: {
-          type: "LoomHeadingText",
-          position: zeroPosition,
-          health: okHealth,
-          value: "",
-        },
+        texts: [],
       },
       preamble: [],
       code: [],

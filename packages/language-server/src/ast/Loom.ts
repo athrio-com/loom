@@ -1,10 +1,6 @@
 import { Effect, pipe } from "effect"
-import {
-  okHealth,
-  type Health,
-  type LoomDocument,
-  type Position,
-} from "./LoomAst"
+import type { LoomDocument } from "./LoomAst"
+import { okHealth, type Health, type Position } from "./LoomNode"
 import { LoomSourceRanges, type MixedEOL } from "./LineRanges"
 import { WeftClassifier } from "./WeftClassifier"
 import { WeftTokeniser } from "./WeftTokeniser"
@@ -45,17 +41,12 @@ const emptyDocumentFor = (err: MixedEOL): LoomDocument => {
           position,
           health: okHealth,
           markers: {
-            type: "LoomHeadingMarkers",
+            type: "ChapterHeadingStart",
             position,
             health: okHealth,
             value: "#",
           },
-          text: {
-            type: "LoomHeadingText",
-            position,
-            health: okHealth,
-            value: "",
-          },
+          texts: [],
         },
         preamble: [],
         code: [],
