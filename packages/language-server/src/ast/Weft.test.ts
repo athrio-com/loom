@@ -22,15 +22,10 @@ import {
   TildeWeftSchema,
   WeftSchema,
 } from "./Weft"
-import type { LineRange } from "./LineRanges"
-
 const samplePosition = {
   start: { line: 1, column: 1, offset: 0 },
   end: { line: 1, column: 4, offset: 3 },
 }
-
-// Sample source — a LineRange covering "## Heading" (10 chars) at offset 0.
-const sampleSource: LineRange = [0, 10]
 
 const validSectionHeadingStart = {
   type: "SectionHeadingStart" as const,
@@ -259,7 +254,7 @@ describe("Tag schema validation", () => {
 describe("Weft (default) schema", () => {
   it("accepts a well-formed default Weft", () => {
     expect(
-      Schema.is(WeftSchema)({ type: "Weft", source: sampleSource }),
+      Schema.is(WeftSchema)({ type: "Weft", position: samplePosition, health: okHealth }),
     ).toBe(true)
   })
 })
@@ -269,7 +264,8 @@ describe("SectionHeadingWeft schema", () => {
     expect(
       Schema.is(SectionHeadingWeftSchema)({
         type: "SectionHeadingWeft",
-        source: sampleSource,
+        position: samplePosition,
+        health: okHealth,
         headingStart: validSectionHeadingStart,
         texts: [],
       }),
@@ -280,7 +276,8 @@ describe("SectionHeadingWeft schema", () => {
     expect(
       Schema.is(SectionHeadingWeftSchema)({
         type: "SectionHeadingWeft",
-        source: sampleSource,
+        position: samplePosition,
+        health: okHealth,
         headingStart: validSectionHeadingStart,
         texts: [],
         tag: validTag,
@@ -292,7 +289,8 @@ describe("SectionHeadingWeft schema", () => {
     expect(
       Schema.is(SectionHeadingWeftSchema)({
         type: "SectionHeadingWeft",
-        source: sampleSource,
+        position: samplePosition,
+        health: okHealth,
         headingStart: validSectionHeadingStart,
         texts: [],
         specifier: validSpecifier,
@@ -304,7 +302,8 @@ describe("SectionHeadingWeft schema", () => {
     expect(
       Schema.is(SectionHeadingWeftSchema)({
         type: "SectionHeadingWeft",
-        source: sampleSource,
+        position: samplePosition,
+        health: okHealth,
         headingStart: validSectionHeadingStart,
         texts: [],
         tag: validTag,
@@ -317,7 +316,8 @@ describe("SectionHeadingWeft schema", () => {
     expect(
       Schema.is(SectionHeadingWeftSchema)({
         type: "SectionHeadingWeft",
-        source: sampleSource,
+        position: samplePosition,
+        health: okHealth,
         headingStart: validSectionHeadingStart,
         texts: [],
         tag: { ...validSpecifier }, // wrong kind
@@ -329,7 +329,8 @@ describe("SectionHeadingWeft schema", () => {
     expect(
       Schema.is(SectionHeadingWeftSchema)({
         type: "SectionHeadingWeft",
-        source: sampleSource,
+        position: samplePosition,
+        health: okHealth,
         headingStart: validChapterHeadingStart,
         texts: [],
       }),
@@ -342,7 +343,8 @@ describe("ChapterHeadingWeft schema", () => {
     expect(
       Schema.is(ChapterHeadingWeftSchema)({
         type: "ChapterHeadingWeft",
-        source: sampleSource,
+        position: samplePosition,
+        health: okHealth,
         headingStart: validChapterHeadingStart,
         texts: [],
         tag: validTag,
@@ -355,7 +357,8 @@ describe("ChapterHeadingWeft schema", () => {
     expect(
       Schema.is(ChapterHeadingWeftSchema)({
         type: "ChapterHeadingWeft",
-        source: sampleSource,
+        position: samplePosition,
+        health: okHealth,
         headingStart: validChapterHeadingStart,
         texts: [],
         tag: validTag,
@@ -367,7 +370,8 @@ describe("ChapterHeadingWeft schema", () => {
     expect(
       Schema.is(ChapterHeadingWeftSchema)({
         type: "ChapterHeadingWeft",
-        source: sampleSource,
+        position: samplePosition,
+        health: okHealth,
         headingStart: validSectionHeadingStart,
         texts: [],
         tag: validTag,
@@ -387,7 +391,8 @@ describe("DependenciesHeadingWeft schema", () => {
     expect(
       Schema.is(DependenciesHeadingWeftSchema)({
         type: "DependenciesHeadingWeft",
-        source: sampleSource,
+        position: samplePosition,
+        health: okHealth,
         headingStart: validSectionHeadingStart,
         texts: [],
         tag: depsTag,
@@ -399,7 +404,8 @@ describe("DependenciesHeadingWeft schema", () => {
     expect(
       Schema.is(DependenciesHeadingWeftSchema)({
         type: "DependenciesHeadingWeft",
-        source: sampleSource,
+        position: samplePosition,
+        health: okHealth,
         headingStart: validSectionHeadingStart,
         texts: [],
         tag: validTag, // label is "Greet"
@@ -411,7 +417,8 @@ describe("DependenciesHeadingWeft schema", () => {
     expect(
       Schema.is(DependenciesHeadingWeftSchema)({
         type: "DependenciesHeadingWeft",
-        source: sampleSource,
+        position: samplePosition,
+        health: okHealth,
         headingStart: validChapterHeadingStart,
         texts: [],
         tag: depsTag,
@@ -430,7 +437,8 @@ describe("TangleHeadingWeft schema", () => {
     expect(
       Schema.is(TangleHeadingWeftSchema)({
         type: "TangleHeadingWeft",
-        source: sampleSource,
+        position: samplePosition,
+        health: okHealth,
         headingStart: validSectionHeadingStart,
         texts: [],
         tag: tangleTag,
@@ -442,7 +450,8 @@ describe("TangleHeadingWeft schema", () => {
     expect(
       Schema.is(TangleHeadingWeftSchema)({
         type: "TangleHeadingWeft",
-        source: sampleSource,
+        position: samplePosition,
+        health: okHealth,
         headingStart: { ...validSectionHeadingStart, value: "###" },
         texts: [],
         tag: tangleTag,
@@ -454,7 +463,8 @@ describe("TangleHeadingWeft schema", () => {
     expect(
       Schema.is(TangleHeadingWeftSchema)({
         type: "TangleHeadingWeft",
-        source: sampleSource,
+        position: samplePosition,
+        health: okHealth,
         headingStart: validChapterHeadingStart,
         texts: [],
         tag: tangleTag,
@@ -468,7 +478,8 @@ describe("ArrowWeft schema", () => {
     expect(
       Schema.is(ArrowWeftSchema)({
         type: "ArrowWeft",
-        source: sampleSource,
+        position: samplePosition,
+        health: okHealth,
         arrow: { type: "Arrow", position: samplePosition, health: okHealth },
       }),
     ).toBe(true)
@@ -478,7 +489,8 @@ describe("ArrowWeft schema", () => {
     expect(
       Schema.is(ArrowWeftSchema)({
         type: "ArrowWeft",
-        source: sampleSource,
+        position: samplePosition,
+        health: okHealth,
         arrow: { type: "Tilde", position: samplePosition, health: okHealth },
       }),
     ).toBe(false)
@@ -490,7 +502,8 @@ describe("TildeWeft schema", () => {
     expect(
       Schema.is(TildeWeftSchema)({
         type: "TildeWeft",
-        source: sampleSource,
+        position: samplePosition,
+        health: okHealth,
         tilde: { type: "Tilde", position: samplePosition, health: okHealth },
       }),
     ).toBe(true)
@@ -502,7 +515,8 @@ describe("SeparatorWeft schema", () => {
     expect(
       Schema.is(SeparatorWeftSchema)({
         type: "SeparatorWeft",
-        source: sampleSource,
+        position: samplePosition,
+        health: okHealth,
         separator: { type: "Separator", position: samplePosition, health: okHealth },
       }),
     ).toBe(true)
@@ -512,12 +526,13 @@ describe("SeparatorWeft schema", () => {
 describe("LoomWeft union", () => {
   it("accepts every Weft kind", () => {
     expect(
-      Schema.is(LoomWeftSchema)({ type: "Weft", source: sampleSource }),
+      Schema.is(LoomWeftSchema)({ type: "Weft", position: samplePosition, health: okHealth }),
     ).toBe(true)
     expect(
       Schema.is(LoomWeftSchema)({
         type: "SeparatorWeft",
-        source: sampleSource,
+        position: samplePosition,
+        health: okHealth,
         separator: { type: "Separator", position: samplePosition, health: okHealth },
       }),
     ).toBe(true)
@@ -525,7 +540,7 @@ describe("LoomWeft union", () => {
 
   it("rejects an unknown kind", () => {
     expect(
-      Schema.is(LoomWeftSchema)({ type: "UnknownWeft", source: sampleSource }),
+      Schema.is(LoomWeftSchema)({ type: "UnknownWeft", position: samplePosition, health: okHealth }),
     ).toBe(false)
   })
 })
