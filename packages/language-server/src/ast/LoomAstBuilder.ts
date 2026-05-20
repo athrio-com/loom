@@ -10,8 +10,8 @@ import type { LoomWeft } from "./Weft"
 // (ChapterHeadingWeft flushes the previous chapter; sentinel flushes the
 // final chapter), then Stream.runFold into a LoomDocument.
 //
-// For now: ignores the weft stream and returns a minimal valid LoomDocument
-// so Loom.ts compiles end-to-end. Replaced when step 7 lands.
+// For now: ignores the weft stream and returns an empty LoomDocument so
+// Loom.ts compiles end-to-end. Replaced when step 7 lands.
 // =============================================================================
 
 const zeroPosition: Position = {
@@ -23,28 +23,7 @@ const stubDocument: LoomDocument = {
   type: "LoomDocument",
   position: zeroPosition,
   health: okHealth,
-  chapters: [
-    {
-      type: "LoomChapter",
-      position: zeroPosition,
-      health: okHealth,
-      heading: {
-        type: "LoomHeading",
-        position: zeroPosition,
-        health: okHealth,
-        markers: {
-          type: "ChapterHeadingStart",
-          position: zeroPosition,
-          health: okHealth,
-          value: "#",
-        },
-        texts: [],
-      },
-      preamble: [],
-      code: [],
-      children: [],
-    },
-  ],
+  chapters: [],
 }
 
 export class LoomAstBuilder extends Effect.Service<LoomAstBuilder>()(

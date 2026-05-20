@@ -132,7 +132,13 @@ describe("StreamLineRanges — EOL convention & MixedEOL", () => {
     Effect.gen(function* () {
       const result = yield* Effect.flip(collect("a\nb\rc"))
       expect(result).toBeInstanceOf(MixedEOL)
-      expect(result).toMatchObject({ primary: "lf", found: "cr", offset: 3 })
+      expect(result).toMatchObject({
+        primary: "lf",
+        found: "cr",
+        offset: 3,
+        primaryLine: 1,
+        foundLine: 2,
+      })
     }).pipe(Effect.provide(LoomSourceRanges.Default)),
   )
 
@@ -140,7 +146,13 @@ describe("StreamLineRanges — EOL convention & MixedEOL", () => {
     Effect.gen(function* () {
       const result = yield* Effect.flip(collect("a\r\nb\nc"))
       expect(result).toBeInstanceOf(MixedEOL)
-      expect(result).toMatchObject({ primary: "crlf", found: "lf", offset: 4 })
+      expect(result).toMatchObject({
+        primary: "crlf",
+        found: "lf",
+        offset: 4,
+        primaryLine: 1,
+        foundLine: 2,
+      })
     }).pipe(Effect.provide(LoomSourceRanges.Default)),
   )
 
@@ -148,7 +160,13 @@ describe("StreamLineRanges — EOL convention & MixedEOL", () => {
     Effect.gen(function* () {
       const result = yield* Effect.flip(collect("a\r\nb\rc"))
       expect(result).toBeInstanceOf(MixedEOL)
-      expect(result).toMatchObject({ primary: "crlf", found: "cr", offset: 4 })
+      expect(result).toMatchObject({
+        primary: "crlf",
+        found: "cr",
+        offset: 4,
+        primaryLine: 1,
+        foundLine: 2,
+      })
     }).pipe(Effect.provide(LoomSourceRanges.Default)),
   )
 
@@ -156,7 +174,27 @@ describe("StreamLineRanges — EOL convention & MixedEOL", () => {
     Effect.gen(function* () {
       const result = yield* Effect.flip(collect("a\rb\nc"))
       expect(result).toBeInstanceOf(MixedEOL)
-      expect(result).toMatchObject({ primary: "cr", found: "lf", offset: 3 })
+      expect(result).toMatchObject({
+        primary: "cr",
+        found: "lf",
+        offset: 3,
+        primaryLine: 1,
+        foundLine: 2,
+      })
+    }).pipe(Effect.provide(LoomSourceRanges.Default)),
+  )
+
+  // Stray on a later line — multi-line guard for lineOfOffset.
+  it.effect("LF primary, stray CR on line 3", () =>
+    Effect.gen(function* () {
+      const result = yield* Effect.flip(collect("a\nb\nc\rd"))
+      expect(result).toBeInstanceOf(MixedEOL)
+      expect(result).toMatchObject({
+        primary: "lf",
+        found: "cr",
+        primaryLine: 1,
+        foundLine: 3,
+      })
     }).pipe(Effect.provide(LoomSourceRanges.Default)),
   )
 

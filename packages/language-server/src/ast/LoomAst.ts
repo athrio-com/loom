@@ -129,10 +129,16 @@ export const LoomChapterSchema = loomNode("LoomChapter", {
 export type LoomChapter = typeof LoomChapterSchema.Type
 
 // =============================================================================
-// Document — the root. At least one chapter required.
+// Document — the root.
+//
+// `chapters` may be empty. A real Loom document is expected to have at
+// least one chapter, but that's a grammar concern reported via
+// `health.diagnostics` — not a schema-shape constraint. Failure cases
+// (MixedEOL, empty file) yield a document with `chapters: []` and a NOK
+// root health.
 // =============================================================================
 
 export const LoomDocumentSchema = loomNode("LoomDocument", {
-  chapters: Schema.Array(LoomChapterSchema).pipe(Schema.minItems(1)),
+  chapters: Schema.Array(LoomChapterSchema),
 })
 export type LoomDocument = typeof LoomDocumentSchema.Type

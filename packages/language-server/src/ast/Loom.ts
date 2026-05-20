@@ -1,60 +1,10 @@
 import { Effect, pipe } from "effect"
 import type { LoomDocument } from "./LoomAst"
-import { okHealth, type Health, type Position } from "./LoomNode"
+import type { Health, Position } from "./LoomNode"
 import { LoomSourceRanges, type MixedEOL } from "./LineRanges"
 import { WeftClassifier } from "./WeftClassifier"
 import { WeftTokeniser } from "./WeftTokeniser"
 import { LoomAstBuilder } from "./LoomAstBuilder"
-
-// =============================================================================
-// emptyDocumentFor — produces a minimal LoomDocument with NOK root health and
-// a positioned diagnostic describing the offending terminator. The document
-// is otherwise empty; downstream walkers see one empty chapter with okHealth.
-// =============================================================================
-
-const emptyDocumentFor = (err: MixedEOL): LoomDocument => {
-  const position: Position = {
-    start: { line: 1, offset: err.offset },
-    end: { line: 1, offset: err.offset },
-  }
-  const rootHealth: Health = {
-    status: "error",
-    diagnostics: [
-      {
-        message: `Mixed line terminators: file is ${err.primary} but contains ${err.found} at offset ${err.offset}.`,
-        position,
-        severity: "error",
-      },
-    ],
-  }
-  return {
-    type: "LoomDocument",
-    position,
-    health: rootHealth,
-    chapters: [
-      {
-        type: "LoomChapter",
-        position,
-        health: okHealth,
-        heading: {
-          type: "LoomHeading",
-          position,
-          health: okHealth,
-          markers: {
-            type: "ChapterHeadingStart",
-            position,
-            health: okHealth,
-            value: "#",
-          },
-          texts: [],
-        },
-        preamble: [],
-        code: [],
-        children: [],
-      },
-    ],
-  }
-}
 
 // =============================================================================
 // Loom — the single entry point for turning raw source text into a
@@ -139,13 +89,53 @@ export class Loom extends Effect.Service<Loom>()("Loom", {
             tokenise.tokeniseWefts(text),  // Stream<LoomWeft>  → Stream<LoomWeft>
             document.build,                // Stream<LoomWeft>  → Effect<LoomDocument>
           )),
-          // Short-circuit on mixed terminators: minimal document, NOK root
-          // health (once step 1 lands). Placed AFTER the pipeline so the
-          // recovery value type matches the pipeline output (LoomDocument).
+          // Short-circuit on mixed terminators: pipeline never runs; recover
+          // with an empty document whose root health carries the diagnostic.
           Effect.catchTag("MixedEOL", (err) =>
-            Effect.succeed(emptyDocumentFor(err))
+            Effect.succeed(emptyDocumentFor(text, err))
           ),
         ),
     }
   }),
 }) { }
+
+
+// =============================================================================
+// emptyDocumentFor — produces a LoomDocument for the MixedEOL short-circuit.
+//
+// Document position spans the whole input (0..text.length) — positions are
+// about source spans, not error locations. Error context lives in
+// `health.diagnostics` where it belongs. `chapters: []` because nothing
+// parsed; no synthetic AST shape is fabricated.
+// =============================================================================
+
+const emptyDocumentFor = (text: string, err: MixedEOL): LoomDocument => {
+  const docPosition: Position = {
+    start: { line: 1, offset: 0 },
+    end: { line: 1, offset: text.length },
+  }
+  const rootHealth: Health = {
+    status: "error",
+    diagnostics: [
+      {
+        message: `Mixed line terminators. Line ${err.primaryLine} has ${eolName(err.primary)}, but line ${err.foundLine} has ${eolName(err.found)}. Pick one and stick with it.`,
+        position: docPosition,
+        severity: "error",
+      },
+    ],
+  }
+  return {
+    type: "LoomDocument",
+    position: docPosition,
+    health: rootHealth,
+    chapters: [],
+  }
+}
+
+const eolName = (kind: "lf" | "crlf" | "cr"): string => {
+  switch (kind) {
+    case "lf":   return "LF (Unix)"
+    case "crlf": return "CRLF (Windows)"
+    case "cr":   return "CR (classic Mac)"
+  }
+}

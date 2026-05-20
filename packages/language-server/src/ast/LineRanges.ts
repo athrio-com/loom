@@ -26,19 +26,22 @@ type Eol = {
 
 // =============================================================================
 // MixedEOL — error raised when a source file contains more than one kind of
-// line terminator. Mixed terminators produce incorrect offsets from the second
-// variant onward, which means wrong Volar mappings and wrong diagnostic
-// positions. The error carries the offset of the first offending terminator
-// so the caller can surface it as a positioned diagnostic.
+// line terminator. Mixed terminators are invisible to the reader, so the
+// error carries human-friendly line numbers (primary kind first seen on
+// `primaryLine`; offending kind first seen on `foundLine`) for use directly
+// in diagnostic messages. The offset of the offending terminator is also
+// available for callers that need it.
 //
 // `primary` and `found` are tag strings ("lf" | "crlf" | "cr"), suitable for
-// direct display in diagnostics.
+// direct display.
 // =============================================================================
 
 export class MixedEOL extends Data.TaggedError("MixedEOL")<{
   readonly primary: EolKind
   readonly found: EolKind
   readonly offset: number
+  readonly primaryLine: number
+  readonly foundLine: number
 }> { }
 
 // =============================================================================
@@ -81,13 +84,38 @@ const eolOf = (kind: EolKind): Eol => {
 // =============================================================================
 
 const checkMixed = (text: string, eol: Eol): Effect.Effect<Eol, MixedEOL> => {
-  const m = eol.stray.exec(text)
-  if (!m) return Effect.succeed(eol)
+  const stray = eol.stray.exec(text)
+  if (!stray) return Effect.succeed(eol)
+  eol.pattern.lastIndex = 0
+  const primary = eol.pattern.exec(text)
+  const primaryOffset = primary ? primary.index : 0
   return Effect.fail(new MixedEOL({
     primary: eol.kind,
-    found: strayKind(eol.kind, m[0]),
-    offset: m.index,
+    found: strayKind(eol.kind, stray[0]),
+    offset: stray.index,
+    primaryLine: lineOfOffset(text, primaryOffset),
+    foundLine: lineOfOffset(text, stray.index),
   }))
+}
+
+// =============================================================================
+// lineOfOffset — counts visual lines from text start to `offset`. Treats any
+// terminator (LF, CRLF, CR) as a single line break, so it gives the right
+// answer even when terminators are mixed (which is exactly the case we
+// surface diagnostics for).
+// =============================================================================
+
+const lineOfOffset = (text: string, offset: number): number => {
+  let line = 1
+  for (let i = 0; i < offset; i++) {
+    const c = text.charCodeAt(i)
+    if (c === 10) line++
+    else if (c === 13) {
+      line++
+      if (i + 1 < text.length && text.charCodeAt(i + 1) === 10) i++
+    }
+  }
+  return line
 }
 
 const strayKind = (primary: EolKind, match: string): EolKind => {
