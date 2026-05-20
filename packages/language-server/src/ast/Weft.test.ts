@@ -20,8 +20,8 @@ import {
   TangleHeadingWeftSchema,
   TildeWeftSchema,
   WeftSchema,
-} from "./LoomWefts"
-import type { LineRange } from "./StreamLineRanges"
+} from "./Weft"
+import type { LineRange } from "./LineRanges"
 
 const samplePosition = {
   start: { line: 1, column: 1, offset: 0 },

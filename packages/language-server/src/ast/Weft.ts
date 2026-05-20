@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { LineRangeSchema } from "./StreamLineRanges"
+import { LineRangeSchema } from "./LineRanges"
 import {
   ArrowTokenSchema,
   ChapterHeadingStartTokenSchema,

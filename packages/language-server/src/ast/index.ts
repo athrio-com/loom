@@ -1,5 +1,5 @@
 // src/ast/index.ts
-export * from "./LoomDocument"
+export * from "./LoomAst"
+export * from "./LineRanges"
 export * from "./LoomTokens"
-export * from "./LoomWefts"
-export * from "./StreamLineRanges"
+export * from "./Weft"

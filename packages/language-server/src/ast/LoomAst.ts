@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { LineRangeSchema } from "./StreamLineRanges"
+import { LineRangeSchema } from "./LineRanges"
 
 // =============================================================================
 // Position — start/end byte offsets into source text.

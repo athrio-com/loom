@@ -1,10 +1,10 @@
 import { Option, Schema, SchemaAST } from "effect"
-import { PositionSchema } from "./LoomDocument"
+import { PositionSchema } from "./LoomAst"
 
 // =============================================================================
 // Probe annotation — schema-level metadata carrying the regex the Tokeniser
 // uses to recognise this token kind. Probe matches do not equal the token:
-// they're an input to the Tokeniser, which assembles the typed token
+// they're an input to the WeftTokeniser, which assembles the typed token
 // (including any subtoken positions) from the match per kind.
 // =============================================================================
 

@@ -22,11 +22,11 @@
     "corpus",
     "*.ts",
     "packages/language-server/src/ast/index.ts",
-    "packages/language-server/src/ast/StreamLineRanges.ts",
-    "packages/language-server/src/ast/LoomWefts.test.ts",
-    "packages/language-server/src/ast/StreamLineRanges.test.ts",
-    "packages/language-server/src/ast/LoomWefts.ts",
+    "packages/language-server/src/ast/LineRanges.ts",
+    "packages/language-server/src/ast/Weft.test.ts",
+    "packages/language-server/src/ast/LineRanges.test.ts",
+    "packages/language-server/src/ast/Weft.ts",
     "packages/language-server/src/ast/LoomWeftsStream.ts",
-    "packages/language-server/src/ast/LoomDocument.ts"
+    "packages/language-server/src/ast/LoomAst.ts"
   ]
 }

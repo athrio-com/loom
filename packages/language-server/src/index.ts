@@ -8,7 +8,7 @@ import {
 import { create as createHtmlService } from "volar-service-html"
 import { create as createCssService } from "volar-service-css"
 import { create as createMarkdownService } from "volar-service-markdown"
-import { loomLanguagePlugin } from "./languagePlugin"
+import { loomLanguagePlugin } from "./LoomLanguagePlugin"
 
 // =============================================================================
 // LSP entry point — an Effect program.

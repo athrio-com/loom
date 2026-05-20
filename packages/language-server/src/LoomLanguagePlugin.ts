@@ -41,5 +41,3 @@ const buildVirtualCode = (snapshot: ts.IScriptSnapshot): VirtualCode => ({
 // embeddedCodes?: VirtualCode[];
 // associatedScriptMappings?: Map<unknown, CodeMapping[]>;
 // linkedCodeMappings?: Mapping[];
-// 
-// // Ok, I see. Now the AST parser. The main entity we get is IScriptSnapshot and output must be VirtualCode. That's it.

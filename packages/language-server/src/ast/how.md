@@ -1,231 +1,133 @@
-# Loom Parsing Pipeline — Design Conclusions
+# Loom — Design Checkpoints and Implementation Plan
 
-Settled during the Volar integration study. Documents the full path from
-`.loom` source text to VirtualCode tree with mappings.
+Read `LoomAst.ts` first. It is the primary specification and prompt for the
+pipeline. Everything below records design decisions made since the last
+implementation pass. Honour all of them.
 
+---
 
-## Input contract
+## Checkpoints
 
-Volar always provides a full `IScriptSnapshot` — the complete `.loom` file
-text on every change. Never a partial patch. The snapshot's `getChangeRange`
-method may carry incremental diff info from the editor, but we ignore it: the
-pipeline reparses from scratch each time.
+### Pipeline
 
-```
-snapshot.getText(0, snapshot.getLength())  →  full source string
-```
-
-
-## Stage 1 — Line offset table
-
-Instead of splitting the source into separate line strings (which strips
-terminators and allocates per line), we scan the full text once to build an
-offset table: an array of byte positions where each line begins.
+Four stages:
 
 ```
-const lineStarts = [0]
-const eol = /\r?\n|\r/g
-let m
-while ((m = eol.exec(text)) !== null) {
-  lineStarts.push(m.index + m[0].length)
+lineRanges.stream(text)        string → Effect<Stream<LineRange>, MixedEOL>
+classify.classifyWefts(text)   Stream<LineRange> → Stream<LoomWeft>
+tokenise.tokeniseWefts(text)   Stream<LoomWeft>  → Stream<LoomWeft>
+documentBuilder.build          Stream<LoomWeft>  → Effect<LoomDocument>
+```
+
+`Loom.ast(text)` is the entry point. It never fails — `MixedEOL` is
+caught and returned as a minimal LoomDocument with NOK root health.
+
+### Error model — Health
+
+Every AST node carries a required `health` field (draft). Tokens and Wefts
+are stream-internal — they never reach the final document walk — so they
+do not carry `health`. Diagnostics raised during classify/tokenise are
+attached to the AST node those wefts contribute to.
+
+```typescript
+interface Health {
+  readonly status:      "ok" | "error" | "warning"
+  readonly diagnostics: ReadonlyArray<Diagnostic>
+}
+
+interface Diagnostic {
+  readonly message:  string
+  readonly position: Position
+  readonly severity: "error" | "warning" | "info"
 }
 ```
 
-Result: `lineStarts = [0, 15, 32, 58, ...]`. Line N's content is
-`text.slice(lineStarts[n], lineStarts[n+1])`. The original string stays
-intact — no copies, no stripping. Every offset is directly usable as
-`sourceOffsets` in Volar mappings.
+The AST speaks for itself. No separate diagnostic collector, no Ref service.
+`MixedEOL` produces a document with NOK root health and a single positioned
+diagnostic. All other structural errors (malformed tags, missing brackets,
+invalid mode transitions) live in the `health` field of the relevant node.
+A flat diagnostic list is derived by walking the AST and collecting nodes
+where `health.status !== "ok"`.
 
+### Weft vocabulary
 
-## Stage 2 — Tokenisation (line → Weft recognition)
+`HeadingWeft` is dissolved into four specific kinds recognised at classify time:
 
-Each line is classified by its leading pattern. Recognition is line-oriented:
+- `ChapterHeadingWeft` — `#` only (level 1), requires tag + specifier
+- `SectionHeadingWeft` — `##`+ (level 2+), tag/specifier optional
+- `DependenciesHeadingWeft` — `##` + `[D]` tag, recognised by level + tag probe simultaneously
+- `TangleHeadingWeft` — `##` + `[T]` tag, same recognition approach
 
-- `## ` at column 1 → heading (check for `[Tag]` and `{Specifier}` within)
-- `=>` at column 1 (with optional indent) → arrow
-- `~` at column 1 → tilde fence open/close
-- `---` exactly → separator
-- anything else → plain line (prose or code depending on context)
+All heading Wefts carry `texts: ReadonlyArray<TextToken>` — an array of
+contiguous text segments, not a single token, because heading text can be
+non-contiguous (e.g. `# [Loom] is written in {Loom}` has text after the tag).
 
-Tokens are not the AST. They are line-level signals that mark structural
-patterns. A `HeadingStart` token says "this line starts with `## `"; it does
-not say "this is the beginning of a CodeSection."
+`TildeWeft` inline content is prose only — never code.
+`ArrowWeft` inline content is code only — never prose.
 
+### AST hierarchy
 
-## Stage 3 — Weft accumulation (multi-line blocks)
-
-Wefts are multi-line blocks, not 1:1 with source lines. The tokeniser
-feeds a `Stream.mapAccum` accumulator that groups consecutive lines into
-structural blocks:
-
-- `HeadingWeft` — a heading line (always single-line)
-- `CodeWeft` — an arrow line followed by code body lines, until next heading/separator/tilde
-- `TildeWeft` — open fence, body lines, close fence (paired, like markdown ``` fences)
-- `ProseWeft` — consecutive non-structural lines
-- `SeparatorWeft` — a `---` line (always single-line)
-
-The accumulator's state tracks "what kind of block am I currently inside?"
-and flushes completed blocks downstream. Each Weft carries offset ranges
-into the original text, not copies.
-
-
-## Stage 4 — AST (LoomDocument)
-
-The parser consumes the Weft stream and assembles the hierarchical
-structure: `LoomDocument → LoomChapter[] → LoomSection[]`.
-
-AST nodes store offset pairs (`start.offset`, `end.offset`) referencing the
-original source text. Text values (tag labels, code content) are derived on
-demand via `text.slice(start, end)` — the `value` field is a convenience,
-not the source of truth.
-
-We build a Loom AST only. No TypeScript AST, no JSON AST, no AST for any
-embedded language. Those are handled by their respective Volar services.
-
-
-## Stage 5 — Projection (AST → VirtualCode tree)
-
-The projector walks the Loom AST and builds the VirtualCode tree that Volar
-consumes. It produces:
-
-### Root VirtualCode
+`LoomAstBuilder.build` groups wefts into this hierarchy:
 
 ```
-{ id: "root", languageId: "loom", snapshot, mappings: [], embeddedCodes: [...] }
+LoomDocument
+  └── LoomChapter[]          (ChapterHeadingWeft — # level)
+        ├── LoomSection[]    (SectionHeadingWeft — ##+ level)
+        ├── LoomDependencies (DependenciesHeadingWeft — ## [D])
+        └── LoomTangle       (TangleHeadingWeft — ## [T])
 ```
 
-The root's text IS the source. `mappings: []` because no Volar service
-handles `languageId: "loom"` — the root is a container, not a service
-target.
+### LoomServicePlugin
 
-### Frame (always TypeScript)
+A minimal `LoomServicePlugin` for `languageId: "loom"` is needed to surface
+Loom structural diagnostics. It reads the `LoomDocument` from the root
+`VirtualCode` and walks the AST collecting `health.status !== "ok"` nodes.
 
-A synthetic `Effect.Service` class generated from the Loom AST. Contains:
+---
 
-- `import` preamble (synthetic, unmapped)
-- `class` header with chapter name (synthetic, unmapped)
-- `readonly` members for each tagged section (mapped: source tag label offset → generated identifier offset)
-- `compose(...)` calls with section body content (mapped: source code offsets → generated template literal offsets)
-- Service class boilerplate (synthetic, unmapped)
+## Implementation order
 
-### Tangled-N (language per Tangle declaration)
+Introduce features incrementally in this order. Do not skip ahead. Do not decide by yourself to move to the next item.
 
-Concatenated section bodies as declared by each Tangle's `compose(...)`.
-Each section's code lines are copied verbatim with 1:1 mappings. Synthetic
-separators between sections are unmapped.
+1. **`Health` and `Diagnostic` schemas** — add to `LoomDocument.ts`. Every
+   existing token and node schema gains a required `health: HealthSchema` field.
+   Update all existing schemas — `LoomHeading`, `LoomTag`, `LoomSpecifier`,
+   `LoomArrow`, `LoomSection`, `LoomChapter`, `LoomDocument`.
 
-### Embedded-N (language per untangled section)
+2. **New AST nodes** — add `LoomDependencies` and `LoomTangle` schemas to
+   `LoomDocument.ts`. Update `LoomChapter.children` to include them alongside
+   `LoomSection`.
 
-One VirtualCode per untangled code section. Nearly identity copies of
-section bodies with the declared language as `languageId`.
+3. **Token schema updates** — add `TextTokenSchema`, `InlineCodeTokenSchema`,
+   `InlineProseTokenSchema` to `LoomTokens.ts`. All position-only, with `Probe`
+   annotations. Follow existing token conventions exactly.
 
+4. **Weft schema rewrite** — apply the updated `LoomWefts.ts` prompt (already
+   provided separately). Ensure every Weft kind is present, `texts` is an array,
+   and the union is complete.
 
-## Mapping mechanics
+5. **`WeftClassifier.ts`** — implement `classifyWefts(text)` using
+   `Stream.mapAccum` with `ParseContext`. Mode tracks prose/code/deps/tangle
+   and current section kind. `DependenciesHeadingWeft` and `TangleHeadingWeft`
+   are recognised at this stage — no later promotion.
 
-A `CodeMapping` is a parallel array of span pairs sharing one
-`CodeInformation` capability mask:
+6. **`WeftTokeniser.ts`** — implement `tokeniseWefts(text)` as a pure
+   `Stream.map`. Per-kind probe expansion. Fills `texts[]`, `tag`, `specifier`,
+   `code?`, `prose?` on each Weft. No mode state.
 
-```ts
-{
-  sourceOffsets:    number[]   // byte positions in .loom
-  generatedOffsets: number[]   // byte positions in this virtual code's text
-  lengths:          number[]   // source span lengths
-  generatedLengths: number[]   // generated span lengths (always explicit)
-  data: CodeInformation        // feature flags for these regions
-}
-```
+7. **`DocumentBuilder.ts`** — implement `build(Stream<LoomWeft>)` using
+   `Stream.mapAccum` with a chapter accumulator. Groups wefts into the
+   `LoomChapter` hierarchy. Sentinel flushes the final chapter. Folds into
+   `LoomDocument` via `Stream.runFold`.
 
-### How mappings are authored
+8. **`LoomAst.ts`** — wire the three services together as specified. Implement
+   `emptyDocumentFor(err: MixedEOL)` producing a minimal `LoomDocument` with
+   NOK root health.
 
-Mappings are a byproduct of generation, not a separate analysis step. At
-each point during frame/tangled text construction, two values are known
-simultaneously:
+---
 
-1. **Source offset** — from the Loom AST node being emitted (`node.position.start.offset`)
-2. **Generated offset** — current length of the buffer being built (`buffer.length`)
+## Do not
 
-The builder records both at the moment of writing. No post-hoc analysis of
-the generated text is needed.
-
-### Builder operations
-
-Three operations cover all cases:
-
-- **copy** — append source text verbatim, record 1:1 mapping (source offset, generated offset, shared length)
-- **synth** — append synthetic text, no mapping (boilerplate, separators, glue)
-- **expand** — append generated text derived from source, record mapping with different lengths (e.g. `[Greet]` → `readonly Greet: Effect<Code>`)
-
-### Capability flags (CodeInformation)
-
-Each mapping declares which LSP features it enables:
-
-- `verification` — diagnostics + code actions propagate to source
-- `semantic` — hover, semantic tokens, inlay hints
-- `navigation` — go-to-def, references, rename
-- `completion` — autocomplete
-- `structure` — outline / symbol tree
-- `format` — formatting
-
-Default: all flags on for author-written text. Set flags off for synthetic
-regions that shouldn't surface errors or features to the user.
-
-### What is mapped vs unmapped
-
-Rule: if removing an author-written character would change or remove this
-generated character, map it. If this generated character exists regardless
-of what the author wrote (class headers, import boilerplate, separators),
-don't map it.
-
-Unmapped generated regions are invisible: diagnostics there are silently
-dropped, hover requests return nothing.
-
-
-## Snapshot creation for children
-
-Each child VirtualCode needs its own `IScriptSnapshot` wrapping its
-generated text:
-
-```ts
-const makeSnapshot = (text: string): IScriptSnapshot => ({
-  getText: (start, end) => text.slice(start, end),
-  getLength: () => text.length,
-  getChangeRange: () => undefined,
-})
-```
-
-`getChangeRange` returns `undefined` because we rebuild from scratch — no
-incremental diff available. Volar handles this by doing a full reparse of
-the child, which is correct.
-
-
-## Diagnostics — two independent pipelines
-
-### TS diagnostics (via Volar services + mappings)
-
-The TypeScript service runs against the frame and tangled children. It
-produces diagnostics at generated offsets. Volar translates them back to
-`.loom` source offsets via the mappings. Examples:
-
-- Duplicate `[Greet]` → two `readonly Greet:` in frame → TS reports `Duplicate identifier` → mapped back to second bracket
-- Type error in code body → TS reports in tangled doc → mapped back to code line in `.loom`
-
-### Loom diagnostics (via custom Loom service + AST)
-
-A custom Volar service for `languageId: "loom"` reads the stashed AST and
-produces diagnostics directly at `.loom` source offsets:
-
-- Unclosed brackets, missing tags, malformed headings
-- Structural validation (chapter without required specifier, etc.)
-
-The two services never communicate. Volar merges their results on the same
-file automatically.
-
-
-## Architecture invariants
-
-1. **Pure function.** `IScriptSnapshot → VirtualCode` is the entire contract. No state between calls.
-2. **Rebuild, don't mutate.** Each call returns a fresh VirtualCode. Volar's caches key on snapshot identity, not VirtualCode reference.
-3. **One Loom AST only.** No AST for generated languages. TS/JSON/etc. services handle their own parsing internally.
-4. **Flat children.** All embedded VirtualCodes are siblings under root, not nested. Volar checks each child's mappings independently against source offsets.
-5. **Mappings are a generation byproduct.** Source offsets come from AST nodes. Generated offsets come from buffer length at write time. No post-hoc analysis.
-6. **`generatedLengths` always explicit.** Even when equal to `lengths`, for uniform code and self-describing mappings.
+- Introduce a `ClassifiedLine` intermediate type — `LoomWeft` is the stream
+  element between every stage.
+- Implement Frame synthesis or `loomLanguagePlugin` projection — out of scope.
