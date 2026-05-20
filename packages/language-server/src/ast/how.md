@@ -89,13 +89,15 @@ Loom structural diagnostics. It reads the `LoomDocument` from the root
 
 Introduce features incrementally in this order. Do not skip ahead. Do not decide by yourself to move to the next item.
 
-1. **`Health` and `Diagnostic` schemas** — add to `LoomDocument.ts`. Every
-   existing token and node schema gains a required `health: HealthSchema` field.
+1. **`Health` and `Diagnostic` schemas** — add to `LoomAst.ts`. Every
+   existing node and subnode schema gains a required `health: HealthSchema` field.
    Update all existing schemas — `LoomHeading`, `LoomTag`, `LoomSpecifier`,
-   `LoomArrow`, `LoomSection`, `LoomChapter`, `LoomDocument`.
+   `LoomArrow`, `LoomSection`, `LoomChapter`, `LoomDocument`, and every
+   currently inline subnode (heading `markers`/`text`; tag and specifier
+   `open`/`label`/`close`).
 
 2. **New AST nodes** — add `LoomDependencies` and `LoomTangle` schemas to
-   `LoomDocument.ts`. Update `LoomChapter.children` to include them alongside
+   `LoomAst.ts`. Update `LoomChapter.children` to include them alongside
    `LoomSection`.
 
 3. **Token schema updates** — add `TextTokenSchema`, `InlineCodeTokenSchema`,

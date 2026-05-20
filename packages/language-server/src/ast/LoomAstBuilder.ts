@@ -1,5 +1,5 @@
 import { Effect, Stream } from "effect"
-import type { LoomDocument, Position } from "./LoomAst"
+import { okHealth, type LoomDocument, type Position } from "./LoomAst"
 import type { LoomWeft } from "./Weft"
 
 // =============================================================================
@@ -21,15 +21,28 @@ const zeroPosition: Position = {
 const stubDocument: LoomDocument = {
   type: "LoomDocument",
   position: zeroPosition,
+  health: okHealth,
   chapters: [
     {
       type: "LoomChapter",
       position: zeroPosition,
+      health: okHealth,
       heading: {
         type: "LoomHeading",
         position: zeroPosition,
-        markers: { value: "#", position: zeroPosition },
-        text: { value: "", position: zeroPosition },
+        health: okHealth,
+        markers: {
+          type: "LoomHeadingMarkers",
+          position: zeroPosition,
+          health: okHealth,
+          value: "#",
+        },
+        text: {
+          type: "LoomHeadingText",
+          position: zeroPosition,
+          health: okHealth,
+          value: "",
+        },
       },
       preamble: [],
       code: [],

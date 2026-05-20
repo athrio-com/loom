@@ -1,17 +1,19 @@
 import { Effect, pipe } from "effect"
-import type { LoomDocument, Position } from "./LoomAst"
+import {
+  okHealth,
+  type Health,
+  type LoomDocument,
+  type Position,
+} from "./LoomAst"
 import { LoomSourceRanges, type MixedEOL } from "./LineRanges"
 import { WeftClassifier } from "./WeftClassifier"
 import { WeftTokeniser } from "./WeftTokeniser"
 import { LoomAstBuilder } from "./LoomAstBuilder"
 
 // =============================================================================
-// emptyDocumentFor — stub helper for the MixedEOL short-circuit.
-//
-// Real implementation (per how.md step 8) will produce a LoomDocument with
-// NOK root health and a positioned diagnostic. Health is not yet on
-// LoomDocument (step 1 adds it), so this returns a structurally minimal
-// document anchored at the offending offset.
+// emptyDocumentFor — produces a minimal LoomDocument with NOK root health and
+// a positioned diagnostic describing the offending terminator. The document
+// is otherwise empty; downstream walkers see one empty chapter with okHealth.
 // =============================================================================
 
 const emptyDocumentFor = (err: MixedEOL): LoomDocument => {
@@ -19,18 +21,41 @@ const emptyDocumentFor = (err: MixedEOL): LoomDocument => {
     start: { line: 1, offset: err.offset },
     end: { line: 1, offset: err.offset },
   }
+  const rootHealth: Health = {
+    status: "error",
+    diagnostics: [
+      {
+        message: `Mixed line terminators: file is ${err.primary} but contains ${err.found} at offset ${err.offset}.`,
+        position,
+        severity: "error",
+      },
+    ],
+  }
   return {
     type: "LoomDocument",
     position,
+    health: rootHealth,
     chapters: [
       {
         type: "LoomChapter",
         position,
+        health: okHealth,
         heading: {
           type: "LoomHeading",
           position,
-          markers: { value: "#", position },
-          text: { value: "", position },
+          health: okHealth,
+          markers: {
+            type: "LoomHeadingMarkers",
+            position,
+            health: okHealth,
+            value: "#",
+          },
+          text: {
+            type: "LoomHeadingText",
+            position,
+            health: okHealth,
+            value: "",
+          },
         },
         preamble: [],
         code: [],
