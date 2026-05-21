@@ -277,12 +277,17 @@ B. **Weft promotion + container reshape** — Wefts followed tokens into the
 ### Remaining
 
 5. **`WeftClassifier.ts`** — implement `classifyWefts(text)` using
-   `Stream.mapAccum` with a ParseContext that tracks the current grammar
-   mode (Preamble / Code / Prose) and the current section kind (regular /
-   Dependencies / Tangle). `DependenciesHeadingWeft` and `TangleHeadingWeft`
-   are recognised at this stage by simultaneous probe of level + tag label
-   — no later promotion. Output Wefts are partially populated (leading
-   token filled if obvious; full sub-token assembly happens in stage 2).
+   `Stream.mapAccum` with the previously emitted `LoomWeft` (or `null`
+   before the first line) as the entire state. The grammar is
+   forward-only, so the previous Weft's `type` unambiguously encodes
+   the current mode and section kind — no parallel `ParseContext`
+   shadow, no separate mode/sectionKind fields. Line numbers derive
+   from `previousWeft.position.end.line + 1`. When the Weft vocabulary
+   evolves, the dispatch updates in one place.
+   `DependenciesHeadingWeft` and `TangleHeadingWeft` are recognised at
+   this stage by simultaneous probe of level + tag label — no later
+   promotion. Output Wefts are partially populated (leading token
+   filled if obvious; full sub-token assembly happens in stage 2).
 
 6. **`WeftTokeniser.ts`** — implement `tokeniseWefts(text)` as a pure
    `Stream.map`. Per-kind probe expansion: fills `texts[]`, `tag`,
