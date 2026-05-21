@@ -14,12 +14,12 @@ Containers  (LoomAst.ts)   ─ LoomDocument → LoomChapter → LoomSection /
                             │ multi-line structural units
                             ▼
 Wefts       (Weft.ts)      ─ ChapterHeading / SectionHeading / Deps / Tangle
-                            │ headings; ArrowWeft, TildeWeft, SeparatorWeft,
-                            │ PreambleWeft, ProseWeft, CodeWeft, DependencyWeft,
-                            │ TangleWeft; one line each, mode-classified
+                            │ headings; ArrowWeft, TildeWeft, PreambleWeft,
+                            │ ProseWeft, CodeWeft, DependencyWeft, TangleWeft;
+                            │ one line each, mode-classified
                             ▼
 Tokens      (LoomTokens.ts) ─ HeadingStart variants, Tag, Specifier, Arrow,
-                            │ Tilde, Separator, Text, Code, Prose; inner-line
+                            │ Tilde, Text, Code, Prose; inner-line
                             │ position slices. Tag/Specifier composites have
                             │ named subnode tokens
                             ▼
@@ -89,6 +89,25 @@ Use it everywhere the producer has nothing to report.
 
 ---
 
+## Schema-valid AST, truthful health
+
+Every stage produces a schema-valid AST. Source malformations don't break
+the schema — they surface as NOK `health` on the relevant token.
+
+The classifier routes purely on heading level and recognised probes — no
+fallback to default Weft for malformed headings. The tokeniser fills
+required subtokens; when source lacks them, it emits placeholders that
+satisfy the schema (e.g. a Tag with literal `[`/`]` values) and attaches
+NOK health at the position the missing structure should have occupied.
+
+Example: `# Chapter I` produces a `ChapterHeadingWeft` (schema-valid)
+carrying NOK `Tag` and `Specifier` tokens at end-of-line, each with a
+"missing" diagnostic. `Schema.is(LoomDocument)` holds end-to-end; the
+health walker collects positioned diagnostics from the leaves where the
+problems actually live.
+
+---
+
 ## Grammar — forward-only mode progression
 
 Inside a Section or Chapter body, modes progress in one direction:
@@ -148,7 +167,6 @@ Body Wefts:
   `code: CodeToken`.
 - `TildeWeft` — the `~` line. Carries `tilde: TildeToken` and optional
   `prose: ProseToken`.
-- `SeparatorWeft` — a `---` line.
 - `DependencyWeft` — line in a LoomDependencies body. Subtokens TBD.
 - `TangleWeft` — line in a LoomTangle body. Subtokens TBD.
 - `Weft` (default) — any line without recognised structure.
@@ -156,6 +174,11 @@ Body Wefts:
 `SectionBodyWeftSchema` is the exported union `(ArrowWeft | CodeWeft |
 TildeWeft | ProseWeft)` — the element type for LoomSection.code and
 LoomChapter.code.
+
+`---` is not a syntactic feature. A line of dashes is classified by the
+current mode like any other content (CodeWeft inside a `=>` block,
+PreambleWeft before any transition, etc.). No SeparatorWeft, no
+chapter-break syntax.
 
 ---
 

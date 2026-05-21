@@ -123,15 +123,6 @@ export const TildeTokenSchema = loomNode("Tilde", {}).annotations({
 export type TildeToken = typeof TildeTokenSchema.Type
 
 // =============================================================================
-// Separator — `---` at column 1. Position-only.
-// =============================================================================
-
-export const SeparatorTokenSchema = loomNode("Separator", {}).annotations({
-  [Probe]: /^---$/,
-})
-export type SeparatorToken = typeof SeparatorTokenSchema.Type
-
-// =============================================================================
 // Text — a contiguous text run between structural tokens on a heading line.
 // Position-only; content is `text.slice(position.start.offset, ...end.offset)`.
 // =============================================================================
@@ -170,7 +161,6 @@ export const LoomTokenSchema = Schema.Union(
   SpecifierTokenSchema,
   ArrowTokenSchema,
   TildeTokenSchema,
-  SeparatorTokenSchema,
   TextTokenSchema,
   CodeTokenSchema,
   ProseTokenSchema,

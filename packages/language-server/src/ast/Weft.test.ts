@@ -4,7 +4,6 @@ import {
   ArrowTokenSchema,
   ChapterHeadingStartTokenSchema,
   SectionHeadingStartTokenSchema,
-  SeparatorTokenSchema,
   SpecifierTokenSchema,
   TagTokenSchema,
   TildeTokenSchema,
@@ -17,7 +16,6 @@ import {
   DependenciesHeadingWeftSchema,
   LoomWeftSchema,
   SectionHeadingWeftSchema,
-  SeparatorWeftSchema,
   TangleHeadingWeftSchema,
   TildeWeftSchema,
   WeftSchema,
@@ -69,7 +67,6 @@ describe("Probe annotation", () => {
     expect(Option.isSome(getProbe(SectionHeadingStartTokenSchema))).toBe(true)
     expect(Option.isSome(getProbe(ArrowTokenSchema))).toBe(true)
     expect(Option.isSome(getProbe(TildeTokenSchema))).toBe(true)
-    expect(Option.isSome(getProbe(SeparatorTokenSchema))).toBe(true)
     expect(Option.isSome(getProbe(TagTokenSchema))).toBe(true)
     expect(Option.isSome(getProbe(SpecifierTokenSchema))).toBe(true)
   })
@@ -82,7 +79,6 @@ describe("Probe annotation", () => {
     expect(Option.isNone(getProbe(TangleHeadingWeftSchema))).toBe(true)
     expect(Option.isNone(getProbe(ArrowWeftSchema))).toBe(true)
     expect(Option.isNone(getProbe(TildeWeftSchema))).toBe(true)
-    expect(Option.isNone(getProbe(SeparatorWeftSchema))).toBe(true)
   })
 })
 
@@ -149,15 +145,6 @@ describe("Tilde probe", () => {
 
   it("rejects `~` mid-line", () => {
     expect(probe.test("const x = ~y")).toBe(false)
-  })
-})
-
-describe("Separator probe (strict whole-line)", () => {
-  it("matches exactly `---`", () => {
-    const probe = Option.getOrThrow(getProbe(SeparatorTokenSchema))
-    expect(probe.test("---")).toBe(true)
-    expect(probe.test("----")).toBe(false)
-    expect(probe.test("--- foo")).toBe(false)
   })
 })
 
@@ -510,19 +497,6 @@ describe("TildeWeft schema", () => {
   })
 })
 
-describe("SeparatorWeft schema", () => {
-  it("accepts a well-formed separator Weft", () => {
-    expect(
-      Schema.is(SeparatorWeftSchema)({
-        type: "SeparatorWeft",
-        position: samplePosition,
-        health: okHealth,
-        separator: { type: "Separator", position: samplePosition, health: okHealth },
-      }),
-    ).toBe(true)
-  })
-})
-
 describe("LoomWeft union", () => {
   it("accepts every Weft kind", () => {
     expect(
@@ -530,10 +504,10 @@ describe("LoomWeft union", () => {
     ).toBe(true)
     expect(
       Schema.is(LoomWeftSchema)({
-        type: "SeparatorWeft",
+        type: "ArrowWeft",
         position: samplePosition,
         health: okHealth,
-        separator: { type: "Separator", position: samplePosition, health: okHealth },
+        arrow: { type: "Arrow", position: samplePosition, health: okHealth },
       }),
     ).toBe(true)
   })

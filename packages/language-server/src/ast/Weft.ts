@@ -6,7 +6,6 @@ import {
   CodeTokenSchema,
   ProseTokenSchema,
   SectionHeadingStartTokenSchema,
-  SeparatorTokenSchema,
   SpecifierTokenSchema,
   TagTokenSchema,
   TextTokenSchema,
@@ -101,12 +100,6 @@ export const TildeWeftSchema = loomNode("TildeWeft", {
 })
 export type TildeWeft = typeof TildeWeftSchema.Type
 
-// SeparatorWeft — `---` line. No content beyond the marker.
-export const SeparatorWeftSchema = loomNode("SeparatorWeft", {
-  separator: SeparatorTokenSchema,
-})
-export type SeparatorWeft = typeof SeparatorWeftSchema.Type
-
 // PreambleWeft — a line in Preamble mode (default for the body of a Section
 // or Chapter before any mode transition). PreambleWefts have their own
 // tokenisation rules — distinct from ProseWefts (which only appear after a
@@ -148,7 +141,6 @@ export const LoomWeftSchema = Schema.Union(
   TangleHeadingWeftSchema,
   ArrowWeftSchema,
   TildeWeftSchema,
-  SeparatorWeftSchema,
   PreambleWeftSchema,
   ProseWeftSchema,
   CodeWeftSchema,
