@@ -66,7 +66,7 @@ occupied).
 
 ```typescript
 interface Health {
-  readonly status:      "ok" | "error" | "warning"
+  readonly status:      "ok" | "error" | "warning" | "incomplete"
   readonly diagnostics: ReadonlyArray<Diagnostic>
 }
 
@@ -77,6 +77,15 @@ interface Diagnostic {
 }
 ```
 
+Status semantics across pipeline stages:
+
+- `ok`        — structurally final, no problems detected.
+- `incomplete` — an earlier stage emitted the node knowing required fields are
+                 not yet filled; a later stage is expected to finish the work.
+                 Consumers must not trust missing fields.
+- `error`    — a stage detected a rule violation. Diagnostics describe it.
+- `warning`  — a non-fatal issue.
+
 The AST speaks for itself. No separate diagnostic collector, no Ref service.
 `MixedEOL` produces a document with NOK root health and a single positioned
 diagnostic. All other structural errors (malformed tags, missing brackets,
@@ -84,27 +93,41 @@ invalid mode transitions) live in the `health` field of the relevant node.
 A flat diagnostic list is derived by walking the AST and collecting nodes
 where `health.status !== "ok"`.
 
-`okHealth` is the canonical "no problems" value, exported from `LoomNode.ts`.
-Use it everywhere the producer has nothing to report.
+`okHealth` and `incompleteHealth` are exported from `LoomNode.ts` — use them
+everywhere the producer has nothing to report or is emitting a Classifier-Stage
+partial.
 
 ---
 
 ## Schema-valid AST, truthful health
 
 Every stage produces a schema-valid AST. Source malformations don't break
-the schema — they surface as NOK `health` on the relevant token.
+the schema — schema constraints stay strict and the `health` field carries
+the truth about what's known vs pending vs wrong.
 
-The classifier routes purely on heading level and recognised probes — no
-fallback to default Weft for malformed headings. The tokeniser fills
-required subtokens; when source lacks them, it emits placeholders that
-satisfy the schema (e.g. a Tag with literal `[`/`]` values) and attaches
-NOK health at the position the missing structure should have occupied.
+The Classifier Stage routes purely on heading level and recognised probes —
+no fallback to default Weft for malformed headings. When a schema field is
+structurally required but cannot be filled at the Classifier Stage (the
+ChapterHeading filter requires `tag` and `specifier`), the classifier emits
+**NOK placeholder tokens** carrying `health.status === "incomplete"` at
+zero-width-EOL positions. The schema filter is satisfied; the health field
+communicates that the subnodes are stand-ins.
 
-Example: `# Chapter I` produces a `ChapterHeadingWeft` (schema-valid)
-carrying NOK `Tag` and `Specifier` tokens at end-of-line, each with a
-"missing" diagnostic. `Schema.is(LoomDocument)` holds end-to-end; the
-health walker collects positioned diagnostics from the leaves where the
-problems actually live.
+The Tokeniser Stage walks each weft, tokenises subtokens from the source,
+and constructs the strict-schema target via `Schema.make`. On success it
+replaces placeholders with real tokens and promotes the weft's health to
+`ok`. On failure (multi-tag, missing required content, etc.) the `ParseError`
+is converted into a `Diagnostic` and the weft's health flips to `error`. The
+schema is the source of truth; NOK→error propagation falls out of validation
+failures rather than hand-coded checks.
+
+Example: `# Chapter I` produces a `ChapterHeadingWeft` (schema-valid,
+`incompleteHealth`) carrying NOK `Tag` and `Specifier` placeholders, all
+with `incompleteHealth`. The Tokeniser Stage either fills them with real
+tokens (promoting the weft to `ok`) or, if the source has no tag, surfaces
+the missing-structure `ParseError` as an `error`-status diagnostic on the
+weft. `Schema.is(LoomDocument)` holds end-to-end at every stage; the health
+walker collects positioned diagnostics from leaves where problems live.
 
 ---
 
@@ -141,15 +164,21 @@ of the section's specific Weft kind.
 
 ## Weft vocabulary
 
-`HeadingWeft` is dissolved into four specific kinds recognised at classify
-time:
+`HeadingWeft` is dissolved into four specific kinds. Only two are emitted
+by the Classifier Stage; the other two emerge from the Tokeniser Stage via
+schema-driven promotion of `SectionHeadingWeft`.
 
-- `ChapterHeadingWeft` — `#` only (level 1), requires tag + specifier
-- `SectionHeadingWeft` — `##`+ (level 2+), tag/specifier optional
-- `DependenciesHeadingWeft` — `##`+ with tag `[D]`, recognised at classify
-  time by level + tag-label probe simultaneously; not promoted from
-  SectionHeadingWeft later
-- `TangleHeadingWeft` — `##`+ with tag `[T]`, same recognition approach
+- `ChapterHeadingWeft` — `#` only (level 1), requires tag + specifier.
+  Emitted by the Classifier Stage with NOK placeholder tag/specifier tokens
+  when the source has not yet been tokenised.
+- `SectionHeadingWeft` — `##`+ (level 2+), tag/specifier optional. Emitted
+  by the Classifier Stage for every `##…` line, regardless of tag content.
+- `DependenciesHeadingWeft` — `##`+ with tag `[D]`. The Tokeniser Stage
+  promotes a Section to Deps when its single tokenised tag is `[D]`; the
+  schema's `tag.label.value === "D"` filter guards the promotion. Multi-tag
+  or wrong-tag conditions surface as `error` health on the weft via the
+  `ParseError` from a failed `Schema.make`.
+- `TangleHeadingWeft` — `##`+ with tag `[T]`, same promotion mechanism.
 
 All heading Wefts carry `texts: ReadonlyArray<TextToken>` — an array of
 contiguous text segments, not a single token, because heading text can be
@@ -254,7 +283,7 @@ decide by yourself to move to the next item.
 4. **Weft schema rewrite** — every Weft kind present, `texts` is an array,
    union complete. PreambleWeft added.
 
-### Out-of-band passes (after the original step 4, before step 5)
+Out-of-band passes (after the original step 4, before step 5):
 
 A. **Token-AST unification** — tokens crossed from "stream-only" into the
    AST as health-bearing leaves via `loomNode()`. Tag/Specifier subnodes
@@ -274,25 +303,49 @@ B. **Weft promotion + container reshape** — Wefts followed tokens into the
    ArrowWeft is now the first element of `code` when the arrow transition
    fires.
 
+5. **`WeftClassifier.ts`** — the Classifier Stage. Implemented as a Mealy
+   machine over `(Mode, Probe)`. Mode is derived from the previous Weft via
+   `modeOf`; probe is pure pattern recognition over the line text. Decision
+   table laid out as `Match.exhaustive` on Mode with probe-narrowing inside
+   the preamble/code rows. Universal heading patterns (chapter, section)
+   handled with early returns. Emission set narrowed to `ClassifierStageWeft`
+   — the eight kinds reachable here. `DependenciesHeadingWeft` and
+   `TangleHeadingWeft` are **not** emitted; promotion is the Tokeniser
+   Stage's job. Wefts carry `incompleteHealth`; `ChapterHeadingWeft`
+   additionally carries NOK placeholder tag/specifier tokens (all at
+   zero-width EOL, all `incompleteHealth`) so the schema filter is satisfied
+   without pretending the subnodes are real. Schema filters stay strict —
+   the placeholder mechanism is the Classifier Stage's only device for
+   missing fields.
+
+   Landed alongside: `incomplete` health status + `incompleteHealth`
+   constant in `LoomNode.ts`; `loomNode`'s `type` field gets
+   `withConstructorDefault` so `Schema.make` auto-fills the tag on
+   unrefined schemas (filtered schemas still need `type` passed
+   explicitly). Unit and integration tests under
+   `WeftClassifier.test.ts` and `WeftClassifier.integration.test.ts`;
+   dev probe at `scripts/classify-loom.ts`.
+
 ### Remaining
 
-5. **`WeftClassifier.ts`** — implement `classifyWefts(text)` using
-   `Stream.mapAccum` with the previously emitted `LoomWeft` (or `null`
-   before the first line) as the entire state. The grammar is
-   forward-only, so the previous Weft's `type` unambiguously encodes
-   the current mode and section kind — no parallel `ParseContext`
-   shadow, no separate mode/sectionKind fields. Line numbers derive
-   from `previousWeft.position.end.line + 1`. When the Weft vocabulary
-   evolves, the dispatch updates in one place.
-   `DependenciesHeadingWeft` and `TangleHeadingWeft` are recognised at
-   this stage by simultaneous probe of level + tag label — no later
-   promotion. Output Wefts are partially populated (leading token
-   filled if obvious; full sub-token assembly happens in the Tokeniser Stage).
+6. **`WeftTokeniser.ts`** — the Tokeniser Stage. Implement
+   `tokeniseWefts(text)` as a pure `Stream.map`. Two responsibilities:
 
-6. **`WeftTokeniser.ts`** — implement `tokeniseWefts(text)` as a pure
-   `Stream.map`. Per-kind probe expansion: fills `texts[]`, `tag`,
-   `specifier`, `code?`, `prose?` on each Weft. No mode state — purely a
-   function of `(text, weft) → weft'`.
+   (a) **Per-kind subtoken expansion.** Tokenise `texts[]`, `tag`,
+       `specifier`, `code?`, `prose?` from the source. Replace NOK
+       placeholders on ChapterHeadingWeft with the real tokens.
+
+   (b) **Schema-driven promotion.** When a `SectionHeadingWeft` tokenises
+       to exactly one reserved tag (`[D]` or `[T]`), construct the target
+       `DependenciesHeadingWeft` / `TangleHeadingWeft` via `Schema.make`.
+       The schema filter (`tag.label.value === "D"` / `"T"`) accepts on
+       success; on any violation (multi-tag, wrong label, etc.) the
+       `ParseError` is adapted into a `Diagnostic` (via
+       `ParseResult.ArrayFormatter`) and attached to the weft's
+       `health.diagnostics` with `status: "error"`.
+
+   No mode state — purely `(text, weft) → weft'`. Health transitions:
+   `incomplete → ok` on full tokenisation, `incomplete → error` on failure.
 
 7. **`LoomAstBuilder.ts`** — implement `build(Stream<LoomWeft>)` using
    `Stream.mapAccum` with a chapter accumulator. Groups wefts into the
@@ -304,7 +357,7 @@ B. **Weft promotion + container reshape** — Wefts followed tokens into the
 8. **`Loom.ts` (orchestrator)** — already wired with `LoomSourceRanges` +
    the three stage Services. `emptyDocumentFor(err: MixedEOL)` already
    produces a minimal LoomDocument with NOK root health. Re-verify once
-   steps 5–7 land that the pipeline composes end-to-end.
+   steps 6–7 land that the pipeline composes end-to-end.
 
 ---
 
