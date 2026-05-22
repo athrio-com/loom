@@ -287,7 +287,7 @@ B. **Weft promotion + container reshape** — Wefts followed tokens into the
    `DependenciesHeadingWeft` and `TangleHeadingWeft` are recognised at
    this stage by simultaneous probe of level + tag label — no later
    promotion. Output Wefts are partially populated (leading token
-   filled if obvious; full sub-token assembly happens in stage 2).
+   filled if obvious; full sub-token assembly happens in the Tokeniser Stage).
 
 6. **`WeftTokeniser.ts`** — implement `tokeniseWefts(text)` as a pure
    `Stream.map`. Per-kind probe expansion: fills `texts[]`, `tag`,

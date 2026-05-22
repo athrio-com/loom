@@ -15,7 +15,7 @@ import { Schema } from "effect"
 // any field whose value has one.
 //
 // This module owns:
-//   - Point / Position           — source-position primitives
+//   - Point / Position            — source-position primitives
 //   - Severity / Diagnostic       — diagnostic payload
 //   - HealthStatus / Health       — node-level health field
 //   - okHealth                    — canonical "no problems" value
@@ -68,7 +68,13 @@ export type Diagnostic = typeof DiagnosticSchema.Type
 // attached diagnostics; "ok" if none above info.
 // =============================================================================
 
-export const HealthStatusSchema = Schema.Literal("ok", "error", "warning")
+// "incomplete" marks a node still under construction by an earlier pipeline
+// stage — required fields are knowingly absent and a later stage is expected
+// to fill them. It is NOK in the same sense as "error"/"warning": the node
+// is not yet a finished claim. A consumer reading an "incomplete" node should
+// not trust missing fields; a consumer reading "ok" / "error" / "warning"
+// should treat the node as structurally final.
+export const HealthStatusSchema = Schema.Literal("ok", "error", "warning", "incomplete")
 export type HealthStatus = typeof HealthStatusSchema.Type
 
 export const HealthSchema = Schema.Struct({
@@ -80,6 +86,11 @@ export type Health = typeof HealthSchema.Type
 // Convenience: the canonical "no problems" health value. Use this everywhere
 // the producer has nothing to report.
 export const okHealth: Health = { status: "ok", diagnostics: [] }
+
+// Canonical "Classifier Stage partial" value — required fields not yet
+// filled, no diagnostics raised yet. The Tokeniser Stage tokenises subnodes
+// and flips status to "ok" (or "error" if validation fails).
+export const incompleteHealth: Health = { status: "incomplete", diagnostics: [] }
 
 // =============================================================================
 // loomNode() — the AST schema combinator.
@@ -93,7 +104,10 @@ export const loomNode = <
   Tag extends string,
   Fields extends Schema.Struct.Fields,
 >(tag: Tag, fields: Fields) => Schema.Struct({
-  type: Schema.Literal(tag),
+  type: Schema.Literal(tag).pipe(
+    Schema.propertySignature,
+    Schema.withConstructorDefault(() => tag),
+  ),
   position: PositionSchema,
   health: HealthSchema,
   ...fields,

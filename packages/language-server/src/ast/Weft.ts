@@ -30,7 +30,11 @@ export type Weft = typeof WeftSchema.Type
 
 // ChapterHeadingWeft — `#` heading. The headingStart token kind enforces
 // level 1. Title text decomposes into TextTokens between structural tokens.
-// Both `tag` and `specifier` are required.
+// Both `tag` and `specifier` are required on a structurally complete chapter
+// heading. The Classifier Stage emits the weft with NOK placeholder tokens carrying
+// `health.status === "incomplete"` when the real tokens have not yet been
+// recognised — the filter is satisfied at the schema level while the health
+// field communicates that subnodes are stand-ins.
 export const ChapterHeadingWeftSchema = loomNode("ChapterHeadingWeft", {
   headingStart: ChapterHeadingStartTokenSchema,
   texts: Schema.Array(TextTokenSchema),
