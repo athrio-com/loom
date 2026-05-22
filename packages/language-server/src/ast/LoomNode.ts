@@ -93,11 +93,33 @@ export const okHealth: Health = { status: "ok", diagnostics: [] }
 export const incompleteHealth: Health = { status: "incomplete", diagnostics: [] }
 
 // =============================================================================
+// UnexpectedToken — positional marker for structural anomalies (orphan
+// brackets, extra tags, stray punctuation) captured at the node where they
+// were encountered. No `health` field: the token's presence in a node's
+// `unexpected` array IS the anomaly, and the parent node's health status
+// is what reflects it.
+// =============================================================================
+
+export const UnexpectedTokenSchema = Schema.Struct({
+  type: Schema.Literal("UnexpectedToken").pipe(
+    Schema.propertySignature,
+    Schema.withConstructorDefault(() => "UnexpectedToken" as const),
+  ),
+  position: PositionSchema,
+  value: Schema.String,
+})
+export type UnexpectedToken = typeof UnexpectedTokenSchema.Type
+
+// =============================================================================
 // loomNode() — the AST schema combinator.
 //
-// Produces a Schema.Struct with `type`/`position`/`health` plus the caller's
-// fields. Used uniformly by container schemas (LoomHeading, LoomSection, …)
-// and leaf token schemas (TagToken, ArrowToken, …).
+// Produces a Schema.Struct with `type`/`position`/`health`/`unexpected?` plus
+// the caller's fields. Used uniformly by container schemas (LoomHeading,
+// LoomSection, …) and leaf token schemas (TagToken, ArrowToken, …).
+//
+// `unexpected` is `Schema.optional` — the absence of unexpected tokens is
+// the common case, so it is omittable both from `Schema.make` calls and
+// from typed object literals.
 // =============================================================================
 
 export const loomNode = <
@@ -110,5 +132,6 @@ export const loomNode = <
   ),
   position: PositionSchema,
   health: HealthSchema,
+  unexpected: Schema.optional(Schema.Array(UnexpectedTokenSchema)),
   ...fields,
 })
