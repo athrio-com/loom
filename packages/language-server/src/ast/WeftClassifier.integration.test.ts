@@ -64,22 +64,12 @@ describe("Classifier Stage — integration against an inline sample loom", () =>
     expect(wefts.length).toBe(sampleLoom.split("\n").length)
   })
 
-  it("never emits Deps/Tangle wefts (Tokeniser Stage's job)", () => {
-    const forbidden = [
-      "DependenciesHeadingWeft",
-      "TangleHeadingWeft",
-      "DependencyWeft",
-      "TangleWeft",
-    ] as const
-    for (const t of forbidden) {
-      expect(wefts.filter((w) => w.type === t)).toHaveLength(0)
-    }
-  })
-
-  it("fires every Classifier-Stage probe at least once", () => {
+  it("fires every Classifier-Stage probe at least once, including [D]/[T] discrimination", () => {
     const seen = new Set(wefts.map((w) => w.type))
     expect(seen.has("ChapterHeadingWeft")).toBe(true)
     expect(seen.has("SectionHeadingWeft")).toBe(true)
+    expect(seen.has("DependenciesHeadingWeft")).toBe(true)
+    expect(seen.has("TangleHeadingWeft")).toBe(true)
     expect(seen.has("ArrowWeft")).toBe(true)
     expect(seen.has("TildeWeft")).toBe(true)
     expect(seen.has("PreambleWeft")).toBe(true)
@@ -93,11 +83,11 @@ describe("Classifier Stage — integration against an inline sample loom", () =>
     }
   })
 
-  it("emits exactly one ChapterHeading and three SectionHeadings (including [D] and [T])", () => {
-    // The sample has one `# …` line and three `## …` lines. The [D] and [T]
-    // sections stay as SectionHeading at the Classifier Stage — promotion is
-    // the Tokeniser Stage's job.
+  it("classifies exactly one Chapter, one plain Section, one Deps and one Tangle heading", () => {
+    // Sample: `#` chapter + `## Greeting [Greet]` + `## Deps [D]` + `## Tangle [T]`.
     expect(wefts.filter((w) => w.type === "ChapterHeadingWeft")).toHaveLength(1)
-    expect(wefts.filter((w) => w.type === "SectionHeadingWeft")).toHaveLength(3)
+    expect(wefts.filter((w) => w.type === "SectionHeadingWeft")).toHaveLength(1)
+    expect(wefts.filter((w) => w.type === "DependenciesHeadingWeft")).toHaveLength(1)
+    expect(wefts.filter((w) => w.type === "TangleHeadingWeft")).toHaveLength(1)
   })
 })

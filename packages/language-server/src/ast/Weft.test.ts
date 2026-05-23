@@ -71,14 +71,17 @@ describe("Probe annotation", () => {
     expect(Option.isSome(getProbe(SpecifierTokenSchema))).toBe(true)
   })
 
-  it("returns None for Wefts (not pattern-recognised at schema level)", () => {
+  it("returns None for Wefts without line-level recognition rules", () => {
     expect(Option.isNone(getProbe(WeftSchema))).toBe(true)
     expect(Option.isNone(getProbe(ChapterHeadingWeftSchema))).toBe(true)
     expect(Option.isNone(getProbe(SectionHeadingWeftSchema))).toBe(true)
-    expect(Option.isNone(getProbe(DependenciesHeadingWeftSchema))).toBe(true)
-    expect(Option.isNone(getProbe(TangleHeadingWeftSchema))).toBe(true)
     expect(Option.isNone(getProbe(ArrowWeftSchema))).toBe(true)
     expect(Option.isNone(getProbe(TildeWeftSchema))).toBe(true)
+  })
+
+  it("returns Some for Deps/Tangle heading Wefts (line-level Probe for [D]/[T] discrimination)", () => {
+    expect(Option.isSome(getProbe(DependenciesHeadingWeftSchema))).toBe(true)
+    expect(Option.isSome(getProbe(TangleHeadingWeftSchema))).toBe(true)
   })
 })
 

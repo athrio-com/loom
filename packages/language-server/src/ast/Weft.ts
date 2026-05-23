@@ -4,6 +4,7 @@ import {
   ArrowTokenSchema,
   ChapterHeadingStartTokenSchema,
   CodeTokenSchema,
+  Probe,
   ProseTokenSchema,
   SectionHeadingStartTokenSchema,
   SpecifierTokenSchema,
@@ -59,32 +60,48 @@ export const SectionHeadingWeftSchema = loomNode("SectionHeadingWeft", {
 })
 export type SectionHeadingWeft = typeof SectionHeadingWeftSchema.Type
 
-// DependenciesHeadingWeft — reserved `##`+ heading whose tag is `[D]`.
+// DependenciesHeadingWeft — reserved `##`+ heading whose tag is `[D]`. The
+// schema carries a line-level Probe that recognises the structural form
+// "section marker + (any non-bracket/brace text) + [D] + (any non-bracket/
+// brace text)" — exactly one reserved tag, no extras, no specifier. The
+// Classifier consults this Probe via `getProbe` to discriminate at probe
+// time, with no token construction.
+//
+// The filter is health-aware: NOK-health wefts (Classifier-Stage
+// placeholders) are admitted with any tag content; `ok`-health wefts must
+// satisfy `tag.label.value === "D"`. The Tokeniser Stage flips the health
+// from `incomplete` to `ok` after building the real tag from source.
 export const DependenciesHeadingWeftSchema = loomNode("DependenciesHeadingWeft", {
   headingStart: SectionHeadingStartTokenSchema,
   texts: Schema.Array(TextTokenSchema),
   tag: TagTokenSchema,
 }).pipe(
-  Schema.filter((w) =>
-    w.tag.label.value === "D"
-      ? undefined
-      : "DependenciesHeadingWeft requires tag `[D]`",
-  ),
-)
+  Schema.filter((w) => {
+    if (w.health.status !== "ok") return true
+    return w.tag.label.value === "D"
+      ? true
+      : "DependenciesHeadingWeft with `ok` health requires tag `[D]`"
+  }),
+).annotations({
+  [Probe]: /^#{2,6} [^\[\]{}]*\[D\][^\[\]{}]*$/,
+})
 export type DependenciesHeadingWeft = typeof DependenciesHeadingWeftSchema.Type
 
-// TangleHeadingWeft — reserved `##`+ heading whose tag is `[T]`.
+// TangleHeadingWeft — same shape, `[T]` discriminator.
 export const TangleHeadingWeftSchema = loomNode("TangleHeadingWeft", {
   headingStart: SectionHeadingStartTokenSchema,
   texts: Schema.Array(TextTokenSchema),
   tag: TagTokenSchema,
 }).pipe(
-  Schema.filter((w) =>
-    w.tag.label.value === "T"
-      ? undefined
-      : "TangleHeadingWeft requires tag `[T]`",
-  ),
-)
+  Schema.filter((w) => {
+    if (w.health.status !== "ok") return true
+    return w.tag.label.value === "T"
+      ? true
+      : "TangleHeadingWeft with `ok` health requires tag `[T]`"
+  }),
+).annotations({
+  [Probe]: /^#{2,6} [^\[\]{}]*\[T\][^\[\]{}]*$/,
+})
 export type TangleHeadingWeft = typeof TangleHeadingWeftSchema.Type
 
 // ArrowWeft — `=>` line. The Arrow token; any trailing code content is the

@@ -54,16 +54,35 @@ export type SectionHeadingStartToken = typeof SectionHeadingStartTokenSchema.Typ
 
 export const TagOpenTokenSchema = loomNode("TagOpen", {
   value: Schema.Literal("["),
+}).annotations({
+  [Probe]: /\[/g,
 })
 export type TagOpenToken = typeof TagOpenTokenSchema.Type
 
+// Tag label — cross-field rule: a non-empty value must match the character
+// class shared with the composite Probe; an empty value is admitted only on
+// NOK-health nodes (incomplete/error/warning placeholders). Real labels with
+// ok health are always pattern-conforming; placeholders communicate "no
+// label here" via empty value + non-ok health.
 export const TagLabelTokenSchema = loomNode("TagLabel", {
   value: Schema.String,
-})
+}).pipe(
+  Schema.filter((t) => {
+    if (t.value === "" && t.health.status === "ok") {
+      return "empty `value` requires non-ok `health.status`"
+    }
+    if (t.value !== "" && !/^[a-zA-Z0-9_-]+$/.test(t.value)) {
+      return `label value must match [a-zA-Z0-9_-]+, got \`${t.value}\``
+    }
+    return true
+  }),
+)
 export type TagLabelToken = typeof TagLabelTokenSchema.Type
 
 export const TagCloseTokenSchema = loomNode("TagClose", {
   value: Schema.Literal("]"),
+}).annotations({
+  [Probe]: /\]/g,
 })
 export type TagCloseToken = typeof TagCloseTokenSchema.Type
 
@@ -82,16 +101,32 @@ export type TagToken = typeof TagTokenSchema.Type
 
 export const SpecifierOpenTokenSchema = loomNode("SpecifierOpen", {
   value: Schema.Literal("{"),
+}).annotations({
+  [Probe]: /\{/g,
 })
 export type SpecifierOpenToken = typeof SpecifierOpenTokenSchema.Type
 
+// Specifier label — same cross-field rule as TagLabel: empty value allowed
+// only when health is NOK; non-empty values must match the Probe's class.
 export const SpecifierLabelTokenSchema = loomNode("SpecifierLabel", {
   value: Schema.String,
-})
+}).pipe(
+  Schema.filter((t) => {
+    if (t.value === "" && t.health.status === "ok") {
+      return "empty `value` requires non-ok `health.status`"
+    }
+    if (t.value !== "" && !/^[a-zA-Z0-9_-]+$/.test(t.value)) {
+      return `specifier label value must match [a-zA-Z0-9_-]+, got \`${t.value}\``
+    }
+    return true
+  }),
+)
 export type SpecifierLabelToken = typeof SpecifierLabelTokenSchema.Type
 
 export const SpecifierCloseTokenSchema = loomNode("SpecifierClose", {
   value: Schema.Literal("}"),
+}).annotations({
+  [Probe]: /\}/g,
 })
 export type SpecifierCloseToken = typeof SpecifierCloseTokenSchema.Type
 
