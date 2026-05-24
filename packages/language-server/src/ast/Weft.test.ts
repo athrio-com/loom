@@ -7,6 +7,8 @@ import {
   SpecifierTokenSchema,
   TagTokenSchema,
   TildeTokenSchema,
+  WarpAnchorTokenSchema,
+  WarpTokenSchema,
   getProbe,
 } from "./LoomTokens"
 import { okHealth } from "./LoomNode"
@@ -67,6 +69,8 @@ describe("Probe annotation", () => {
     expect(Option.isSome(getProbe(TildeTokenSchema))).toBe(true)
     expect(Option.isSome(getProbe(TagTokenSchema))).toBe(true)
     expect(Option.isSome(getProbe(SpecifierTokenSchema))).toBe(true)
+    expect(Option.isSome(getProbe(WarpTokenSchema))).toBe(true)
+    expect(Option.isSome(getProbe(WarpAnchorTokenSchema))).toBe(true)
   })
 
   it("returns None for Wefts (line-level recognition lives on tokens only)", () => {
@@ -172,6 +176,36 @@ describe("Specifier probe", () => {
   })
 })
 
+describe("Warp probe", () => {
+  const probe = Option.getOrThrow(getProbe(WarpTokenSchema))
+
+  it("matches `{{name: type}}` declarations", () => {
+    expect([..."Uses {{mul: Mul}} to multiply.".matchAll(probe)][0]?.[0])
+      .toBe("{{mul: Mul}}")
+  })
+
+  it("matches `{{name: type = default}}` declarations", () => {
+    expect([..."port {{port: string = \"8080\"}}".matchAll(probe)][0]?.[0])
+      .toBe(`{{port: string = "8080"}}`)
+  })
+
+  it("does not match bare `{{name}}` references (no `:`)", () => {
+    expect([..."{{mul}}".matchAll(probe)]).toHaveLength(0)
+  })
+})
+
+describe("WarpAnchor probe", () => {
+  const probe = Option.getOrThrow(getProbe(WarpAnchorTokenSchema))
+
+  it("matches `{{name}}` references", () => {
+    expect([..."{{mul}}".matchAll(probe)][0]?.[0]).toBe("{{mul}}")
+  })
+
+  it("does not match declarations (which contain `:`)", () => {
+    expect([..."{{mul: Mul}}".matchAll(probe)]).toHaveLength(0)
+  })
+})
+
 // =============================================================================
 // Token schema validation (subset)
 // =============================================================================
@@ -225,6 +259,99 @@ describe("Tag schema validation", () => {
       Schema.is(TagTokenSchema)({
         ...validTag,
         open: { type: "TagOpen", value: "{", position: samplePosition, health: okHealth },
+      }),
+    ).toBe(false)
+  })
+})
+
+const warpOpen = {
+  type: "WarpOpen" as const, value: "{{" as const,
+  position: samplePosition, health: okHealth,
+}
+const warpClose = {
+  type: "WarpClose" as const, value: "}}" as const,
+  position: samplePosition, health: okHealth,
+}
+const warpName = (value: string) => ({
+  type: "WarpName" as const, value, position: samplePosition, health: okHealth,
+})
+
+describe("WarpAnchor schema validation", () => {
+  it("accepts a well-formed anchor", () => {
+    expect(
+      Schema.is(WarpAnchorTokenSchema)({
+        type: "WarpAnchor",
+        position: samplePosition,
+        health: okHealth,
+        open: warpOpen,
+        name: warpName("mul"),
+        close: warpClose,
+      }),
+    ).toBe(true)
+  })
+
+  it("rejects a name that is not a TS identifier", () => {
+    expect(
+      Schema.is(WarpAnchorTokenSchema)({
+        type: "WarpAnchor",
+        position: samplePosition,
+        health: okHealth,
+        open: warpOpen,
+        name: warpName("not-a-id"),
+        close: warpClose,
+      }),
+    ).toBe(false)
+  })
+})
+
+describe("Warp schema validation", () => {
+  const annotation = {
+    type: "WarpAnnotation" as const, value: " Mul",
+    position: samplePosition, health: okHealth,
+  }
+  const defaultToken = {
+    type: "WarpDefault" as const, value: ' "8080"',
+    position: samplePosition, health: okHealth,
+  }
+
+  it("accepts a declaration without a default", () => {
+    expect(
+      Schema.is(WarpTokenSchema)({
+        type: "Warp",
+        position: samplePosition,
+        health: okHealth,
+        open: warpOpen,
+        name: warpName("mul"),
+        annotation,
+        close: warpClose,
+      }),
+    ).toBe(true)
+  })
+
+  it("accepts a declaration with a default", () => {
+    expect(
+      Schema.is(WarpTokenSchema)({
+        type: "Warp",
+        position: samplePosition,
+        health: okHealth,
+        open: warpOpen,
+        name: warpName("port"),
+        annotation: { ...annotation, value: " string" },
+        default: defaultToken,
+        close: warpClose,
+      }),
+    ).toBe(true)
+  })
+
+  it("rejects when annotation is missing", () => {
+    expect(
+      Schema.is(WarpTokenSchema)({
+        type: "Warp",
+        position: samplePosition,
+        health: okHealth,
+        open: warpOpen,
+        name: warpName("mul"),
+        close: warpClose,
       }),
     ).toBe(false)
   })
@@ -372,6 +499,7 @@ describe("ArrowWeft schema", () => {
         position: samplePosition,
         health: okHealth,
         arrow: { type: "Arrow", position: samplePosition, health: okHealth },
+        anchors: [],
       }),
     ).toBe(true)
   })
@@ -383,6 +511,7 @@ describe("ArrowWeft schema", () => {
         position: samplePosition,
         health: okHealth,
         arrow: { type: "Tilde", position: samplePosition, health: okHealth },
+        anchors: [],
       }),
     ).toBe(false)
   })
@@ -412,6 +541,7 @@ describe("LoomWeft union", () => {
         position: samplePosition,
         health: okHealth,
         arrow: { type: "Arrow", position: samplePosition, health: okHealth },
+        anchors: [],
       }),
     ).toBe(true)
   })

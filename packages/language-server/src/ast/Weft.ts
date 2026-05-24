@@ -10,6 +10,8 @@ import {
   TagTokenSchema,
   TextTokenSchema,
   TildeTokenSchema,
+  WarpAnchorTokenSchema,
+  WarpTokenSchema,
 } from "./LoomTokens"
 
 // =============================================================================
@@ -61,11 +63,13 @@ export const SectionHeadingWeftSchema = loomNode("SectionHeadingWeft", {
 export type SectionHeadingWeft = typeof SectionHeadingWeftSchema.Type
 
 // ArrowWeft — `=>` line. The Arrow token; any trailing code content is the
-// optional CodeToken. The Arrow transition into Code mode is the line's
-// structural significance.
+// optional CodeToken. `anchors` carries every `{{name}}` reference
+// recognised inside the inline code. The Arrow transition into Code mode
+// is the line's structural significance.
 export const ArrowWeftSchema = loomNode("ArrowWeft", {
   arrow: ArrowTokenSchema,
   code: Schema.optional(CodeTokenSchema),
+  anchors: Schema.Array(WarpAnchorTokenSchema),
 })
 export type ArrowWeft = typeof ArrowWeftSchema.Type
 
@@ -78,20 +82,24 @@ export const TildeWeftSchema = loomNode("TildeWeft", {
 export type TildeWeft = typeof TildeWeftSchema.Type
 
 // PreambleWeft — a line in Preamble mode (the default body mode after a
-// heading, before any Arrow or Tilde transition). Distinct from ProseWeft,
-// which only appears after a Tilde transition. Inner-token expansion (Warp
-// declarations, inline references) belongs to the Synth phase.
-export const PreambleWeftSchema = loomNode("PreambleWeft", {})
+// heading, before any Arrow or Tilde transition). `warps` carries every
+// `{{name: annotation [= default]}}` declaration recognised on the line.
+export const PreambleWeftSchema = loomNode("PreambleWeft", {
+  warps: Schema.Array(WarpTokenSchema),
+})
 export type PreambleWeft = typeof PreambleWeftSchema.Type
 
-// ProseWeft — a line in Prose mode (after a Tilde transition). Same shape
-// and Synth-phase treatment as PreambleWeft.
+// ProseWeft — a line in Prose mode (after a Tilde transition).
 export const ProseWeftSchema = loomNode("ProseWeft", {})
 export type ProseWeft = typeof ProseWeftSchema.Type
 
-// CodeWeft — a line in Code mode (after an Arrow transition).
-// Opaque to Loom; embedded-language tokenisation happens elsewhere.
-export const CodeWeftSchema = loomNode("CodeWeft", {})
+// CodeWeft — a line in Code mode (after an Arrow transition). The line
+// content is opaque to Loom (embedded-language tokenisation happens
+// elsewhere); `anchors` carries every `{{name}}` reference recognised on
+// the line.
+export const CodeWeftSchema = loomNode("CodeWeft", {
+  anchors: Schema.Array(WarpAnchorTokenSchema),
+})
 export type CodeWeft = typeof CodeWeftSchema.Type
 
 // =============================================================================

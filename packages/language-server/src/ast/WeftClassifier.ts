@@ -130,13 +130,14 @@ const probeWeft = (
     Match.when("preamble", () =>
       probe.kind === "arrow" ? makeArrowWeft(line, range, probe.m)
         : probe.kind === "tilde" ? makeTildeWeft(line, range, probe.m)
-          : PreambleWeftSchema.make({ position, health: incompleteHealth }),
+          : PreambleWeftSchema.make({ position, health: incompleteHealth, warps: [] }),
     ),
     // CodeWeft — opaque to Loom per spec; embedded-language tokenisation is
     // handled outside the AST pipeline, so the weft is structurally final.
+    // `anchors` is empty here; a later stage may recognise `{{name}}` refs.
     Match.when("code", () =>
       probe.kind === "tilde" ? makeTildeWeft(line, range, probe.m)
-        : CodeWeftSchema.make({ position, health: okHealth }),
+        : CodeWeftSchema.make({ position, health: okHealth, anchors: [] }),
     ),
     Match.when("prose", () => ProseWeftSchema.make({ position, health: incompleteHealth })),
     Match.exhaustive,
@@ -298,6 +299,7 @@ const makeArrowWeft = (line: number, range: LineRange, m: RegExpMatchArray): Arr
     position: linePos(line, range),
     health: incompleteHealth,
     arrow: ArrowTokenSchema.make({ position: span(line, start, end), health: okHealth }),
+    anchors: [],
   })
 }
 

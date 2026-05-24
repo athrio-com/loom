@@ -186,6 +186,85 @@ export const ProseTokenSchema = loomNode("Prose", {}).annotations({
 export type ProseToken = typeof ProseTokenSchema.Type
 
 // =============================================================================
+// Warp — `{{name: annotation [= default]}}`, the declaration site of a
+// parameter inside a Preamble line. The Synth phase reads `annotation` as
+// either a Tag reference (e.g. `Mult`) or a TS type expression, and `default`
+// as a TS value expression matching that type.
+//
+// WarpAnchor — `{{name}}`, the reference site inside an ArrowWeft or Code line.
+// Names a Warp declared earlier in the same Section.
+//
+// Open/close/name are named subnodes so each carries its own health.
+// Annotation and default are opaque value tokens; their inner structure
+// belongs to Synth.
+// =============================================================================
+
+export const WarpOpenTokenSchema = loomNode("WarpOpen", {
+  value: Schema.Literal("{{"),
+}).annotations({
+  [Probe]: /\{\{/g,
+})
+export type WarpOpenToken = typeof WarpOpenTokenSchema.Type
+
+export const WarpCloseTokenSchema = loomNode("WarpClose", {
+  value: Schema.Literal("}}"),
+}).annotations({
+  [Probe]: /\}\}/g,
+})
+export type WarpCloseToken = typeof WarpCloseTokenSchema.Type
+
+// WarpName — TS identifier inside `{{…}}`. Same cross-field rule as
+// TagLabel: empty value admitted only when health is non-ok; non-empty
+// values must match a TS identifier pattern.
+export const WarpNameTokenSchema = loomNode("WarpName", {
+  value: Schema.String,
+}).pipe(
+  Schema.filter((t) => {
+    if (t.value === "" && t.health.status === "ok") {
+      return "empty `value` requires non-ok `health.status`"
+    }
+    if (t.value !== "" && !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(t.value)) {
+      return `warp name must be a TS identifier, got \`${t.value}\``
+    }
+    return true
+  }),
+)
+export type WarpNameToken = typeof WarpNameTokenSchema.Type
+
+// WarpAnnotation — the text between the name's `:` separator and either
+// `=` or the closing `}}`. Opaque to the AST stage.
+export const WarpAnnotationTokenSchema = loomNode("WarpAnnotation", {
+  value: Schema.String,
+})
+export type WarpAnnotationToken = typeof WarpAnnotationTokenSchema.Type
+
+// WarpDefault — the text after `=`. Opaque to the AST stage.
+export const WarpDefaultTokenSchema = loomNode("WarpDefault", {
+  value: Schema.String,
+})
+export type WarpDefaultToken = typeof WarpDefaultTokenSchema.Type
+
+export const WarpAnchorTokenSchema = loomNode("WarpAnchor", {
+  open: WarpOpenTokenSchema,
+  name: WarpNameTokenSchema,
+  close: WarpCloseTokenSchema,
+}).annotations({
+  [Probe]: /\{\{\s*[a-zA-Z_][a-zA-Z0-9_]*\s*\}\}/g,
+})
+export type WarpAnchorToken = typeof WarpAnchorTokenSchema.Type
+
+export const WarpTokenSchema = loomNode("Warp", {
+  open: WarpOpenTokenSchema,
+  name: WarpNameTokenSchema,
+  annotation: WarpAnnotationTokenSchema,
+  default: Schema.optional(WarpDefaultTokenSchema),
+  close: WarpCloseTokenSchema,
+}).annotations({
+  [Probe]: /\{\{[^{}]*:[^{}]*\}\}/g,
+})
+export type WarpToken = typeof WarpTokenSchema.Type
+
+// =============================================================================
 // LoomToken — the union of all leaf tokens. The Tokeniser's emission type.
 // =============================================================================
 
@@ -199,5 +278,7 @@ export const LoomTokenSchema = Schema.Union(
   TextTokenSchema,
   CodeTokenSchema,
   ProseTokenSchema,
+  WarpTokenSchema,
+  WarpAnchorTokenSchema,
 )
 export type LoomToken = typeof LoomTokenSchema.Type

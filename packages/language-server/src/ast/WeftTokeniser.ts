@@ -128,6 +128,7 @@ const tokeniseArrow = (text: string, weft: ArrowWeft): LoomWeft => {
     health: okHealth,
     arrow: weft.arrow,
     code: Option.getOrUndefined(code),
+    anchors: weft.anchors,
   })
 }
 
@@ -142,7 +143,11 @@ const tokeniseTilde = (text: string, weft: TildeWeft): LoomWeft => {
 }
 
 const tokenisePreamble = (weft: PreambleWeft): LoomWeft =>
-  PreambleWeftSchema.make({ position: weft.position, health: okHealth })
+  PreambleWeftSchema.make({
+    position: weft.position,
+    health: okHealth,
+    warps: weft.warps,
+  })
 
 const tokeniseProse = (weft: ProseWeft): LoomWeft =>
   ProseWeftSchema.make({ position: weft.position, health: okHealth })

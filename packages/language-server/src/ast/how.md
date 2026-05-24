@@ -204,7 +204,7 @@ belong to the Synth Frame Projection design.
 ## Warps
 
 Warps unify the two `{{…}}` forms (parameter and transclusion). A Warp is
-declared in a Section's Preamble or Prose and referenced from its Code:
+declared in a Section's Preamble and referenced from its Code:
 
 ```
 ## Square [Sq]
@@ -219,9 +219,9 @@ def square(x: Int): Int = mul(x, x)
 ```
 
 - **Declaration** — `{{name: TagOrType [= default]}}`, recognised in
-  Preamble / Prose Wefts. Token kind: `WarpTokenSchema`.
-- **Reference** — `{{name}}`, recognised in Code Wefts. Token kind:
-  `WarpRefTokenSchema`.
+  Preamble Wefts. Token kind: `WarpTokenSchema`.
+- **Reference** — `{{name}}`, recognised in Arrow and Code Wefts. Token
+  kind: `WarpAnchorTokenSchema`.
 
 Warps are **Section-local**. Each Section synthesises into a function whose
 Warps are its parameters; callers supply values implicitly when they pull
@@ -238,9 +238,9 @@ Annotation forms:
   with no substitution; Synth can check the declaration shape but not the
   value. Diagnostic is a warning, not an error.
 
-Token recognition is mode-driven (Preamble / Prose for declarations, Code
-for references), not colon-sniffing. Warp tokens belong to the Synth phase,
-not the AST pipeline.
+Token recognition is mode-driven: Preamble for declarations, Arrow / Code
+for references. The same `{{…}}` source shape resolves to a different
+schema by host Weft, not by colon-sniffing.
 
 ---
 
