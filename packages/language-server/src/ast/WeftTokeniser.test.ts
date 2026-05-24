@@ -463,6 +463,178 @@ describe("Tokeniser — body weft subtoken expansion", () => {
 })
 
 // =============================================================================
+// Warp tokenisation — PreambleWeft hosts `{{name: annotation [= default]}}`
+// declarations; ArrowWeft and CodeWeft host `{{name}}` references.
+// =============================================================================
+
+describe("Tokeniser — Warp declarations on PreambleWeft", () => {
+  const preambleWeft = (line: string) => {
+    const out = tokenise(["## A", line])
+    const w = out[1]
+    if (w.type !== "PreambleWeft") throw new Error(`expected PreambleWeft, got ${w.type}`)
+    return w
+  }
+
+  it("recognises a single `{{name: annotation}}`", () => {
+    const w = preambleWeft("Uses {{mul: Mul}} to multiply.")
+    expect(w.warps).toHaveLength(1)
+    expect(w.warps[0].name.value).toBe("mul")
+    expect(w.warps[0].annotation.value).toBe("Mul")
+    expect(w.warps[0].default).toBeUndefined()
+    expect(w.warps[0].health.status).toBe("ok")
+  })
+
+  it("recognises a declaration with a default", () => {
+    const w = preambleWeft(`Port {{port: string = "8080"}}.`)
+    expect(w.warps[0].name.value).toBe("port")
+    expect(w.warps[0].annotation.value).toBe("string")
+    expect(w.warps[0].default?.value).toBe(`"8080"`)
+  })
+
+  it("recognises multiple warps on one line", () => {
+    const w = preambleWeft("first {{a: A}} then {{b: B}}.")
+    expect(w.warps).toHaveLength(2)
+    expect(w.warps[0].name.value).toBe("a")
+    expect(w.warps[1].name.value).toBe("b")
+  })
+
+  it("preserves nested commas inside `<>` brackets in annotation", () => {
+    const w = preambleWeft("hold {{r: Record<string, number>}}.")
+    expect(w.warps[0].annotation.value).toBe("Record<string, number>")
+    expect(w.warps[0].health.status).toBe("ok")
+  })
+
+  it("top-level `,` in annotation surfaces as warp.unexpected[]", () => {
+    const w = preambleWeft("multi {{a: B, }}.")
+    expect(w.warps[0].annotation.value).toBe("B")
+    expect(w.warps[0].unexpected).toBeDefined()
+    expect(w.warps[0].unexpected![0].value).toBe(", ")
+    expect(w.warps[0].health.status).toBe("error")
+  })
+
+  it("top-level `;` in annotation surfaces as warp.unexpected[]", () => {
+    const w = preambleWeft("{{a: B; C}}")
+    expect(w.warps[0].annotation.value).toBe("B")
+    expect(w.warps[0].health.status).toBe("error")
+  })
+
+  it("missing `:` synthesises an error-health annotation", () => {
+    const w = preambleWeft("bad {{onlyName}}")
+    expect(w.warps[0].name.value).toBe("onlyName")
+    expect(w.warps[0].annotation.value).toBe("")
+    expect(w.warps[0].annotation.health.status).toBe("error")
+    expect(w.warps[0].health.status).toBe("error")
+  })
+
+  it("empty annotation after `:` is error-health", () => {
+    const w = preambleWeft("{{a: }}")
+    expect(w.warps[0].annotation.value).toBe("")
+    expect(w.warps[0].annotation.health.status).toBe("error")
+  })
+
+  it("empty default after `=` is error-health (preserves the `=` evidence)", () => {
+    const w = preambleWeft("{{a: B = }}")
+    expect(w.warps[0].default).toBeDefined()
+    expect(w.warps[0].default!.value).toBe("")
+    expect(w.warps[0].default!.health.status).toBe("error")
+  })
+
+  it("invalid name routes the bad text to name.unexpected[]", () => {
+    const w = preambleWeft("{{not-an-id: Tag}}")
+    expect(w.warps[0].name.value).toBe("")
+    expect(w.warps[0].name.health.status).toBe("error")
+    expect(w.warps[0].name.unexpected?.[0].value).toBe("not-an-id")
+  })
+
+  it("unclosed `{{` produces a synthetic `}}` at EOL with error health", () => {
+    const w = preambleWeft("{{a: B")
+    expect(w.warps[0].close.health.status).toBe("error")
+    expect(w.warps[0].close.health.diagnostics[0].message).toMatch(/expected closing/i)
+  })
+
+  it("stray `}}` becomes weft.unexpected[]", () => {
+    const w = preambleWeft("loose }} pair")
+    expect(w.warps).toHaveLength(0)
+    expect(w.unexpected).toBeDefined()
+    expect(w.unexpected![0].value).toBe("}}")
+    expect(w.health.status).toBe("error")
+  })
+
+  it("post-Tokeniser PreambleWeft is never `incomplete`", () => {
+    expect(preambleWeft("plain text").health.status).not.toBe("incomplete")
+    expect(preambleWeft("{{a: B}}").health.status).not.toBe("incomplete")
+    expect(preambleWeft("{{bad").health.status).not.toBe("incomplete")
+  })
+})
+
+describe("Tokeniser — WarpAnchor references on ArrowWeft / CodeWeft", () => {
+  const codeWeftFromLines = (lines: ReadonlyArray<string>, idx: number) => {
+    const out = tokenise(lines)
+    const w = out[idx]
+    if (w.type !== "CodeWeft") throw new Error(`expected CodeWeft, got ${w.type}`)
+    return w
+  }
+
+  const arrowWeftFromLine = (line: string) => {
+    const out = tokenise(["## A", line])
+    const w = out[1]
+    if (w.type !== "ArrowWeft") throw new Error(`expected ArrowWeft, got ${w.type}`)
+    return w
+  }
+
+  it("CodeWeft recognises a single anchor `{{name}}`", () => {
+    const w = codeWeftFromLines(["## A", "=>", "use {{mul}} here"], 2)
+    expect(w.anchors).toHaveLength(1)
+    expect(w.anchors[0].name.value).toBe("mul")
+    expect(w.anchors[0].health.status).toBe("ok")
+  })
+
+  it("CodeWeft recognises multiple anchors on one line", () => {
+    const w = codeWeftFromLines(["## A", "=>", "{{a}} + {{b}}"], 2)
+    expect(w.anchors).toHaveLength(2)
+    expect(w.anchors.map((a) => a.name.value)).toEqual(["a", "b"])
+  })
+
+  it("ArrowWeft recognises an anchor inline with the arrow's code", () => {
+    const w = arrowWeftFromLine("=> {{x}}")
+    expect(w.anchors).toHaveLength(1)
+    expect(w.anchors[0].name.value).toBe("x")
+  })
+
+  it("anchor with `:` content puts the rest on weft.unexpected[]", () => {
+    const w = codeWeftFromLines(["## A", "=>", "{{mul: Mul}}"], 2)
+    expect(w.anchors).toHaveLength(1)
+    expect(w.anchors[0].name.value).toBe("mul")
+    expect(w.unexpected).toBeDefined()
+    expect(w.unexpected![0].value).toBe(": Mul")
+    expect(w.health.status).toBe("error")
+  })
+
+  it("anchor with whitespace around the name is ok", () => {
+    const w = codeWeftFromLines(["## A", "=>", "{{ name }}"], 2)
+    expect(w.anchors[0].name.value).toBe("name")
+    expect(w.anchors[0].health.status).toBe("ok")
+  })
+
+  it("invalid anchor name (non-identifier start) becomes error-health name", () => {
+    const w = codeWeftFromLines(["## A", "=>", "{{1bad}}"], 2)
+    expect(w.anchors[0].name.health.status).toBe("error")
+  })
+
+  it("unclosed `{{` in code produces a synthetic `}}` at EOL", () => {
+    const w = codeWeftFromLines(["## A", "=>", "{{x"], 2)
+    expect(w.anchors[0].close.health.status).toBe("error")
+  })
+
+  it("post-Tokeniser CodeWeft is never `incomplete`", () => {
+    expect(codeWeftFromLines(["## A", "=>", "plain code"], 2).health.status)
+      .not.toBe("incomplete")
+    expect(codeWeftFromLines(["## A", "=>", "{{a}}"], 2).health.status)
+      .not.toBe("incomplete")
+  })
+})
+
+// =============================================================================
 // `{Loom}` sections — same grammar as any other Section. The `{Loom}`
 // Specifier is just a token; there is no special body weft re-typing.
 // =============================================================================

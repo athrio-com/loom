@@ -132,12 +132,12 @@ const probeWeft = (
         : probe.kind === "tilde" ? makeTildeWeft(line, range, probe.m)
           : PreambleWeftSchema.make({ position, health: incompleteHealth, warps: [] }),
     ),
-    // CodeWeft — opaque to Loom per spec; embedded-language tokenisation is
-    // handled outside the AST pipeline, so the weft is structurally final.
-    // `anchors` is empty here; a later stage may recognise `{{name}}` refs.
+    // CodeWeft — line content is opaque to Loom (embedded-language
+    // tokenisation happens elsewhere), but the Tokeniser still scans for
+    // `{{name}}` anchors and settles health accordingly.
     Match.when("code", () =>
       probe.kind === "tilde" ? makeTildeWeft(line, range, probe.m)
-        : CodeWeftSchema.make({ position, health: okHealth, anchors: [] }),
+        : CodeWeftSchema.make({ position, health: incompleteHealth, anchors: [] }),
     ),
     Match.when("prose", () => ProseWeftSchema.make({ position, health: incompleteHealth })),
     Match.exhaustive,

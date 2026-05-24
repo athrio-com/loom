@@ -18,6 +18,13 @@ import {
   TagOpenTokenSchema,
   TagTokenSchema,
   TextTokenSchema,
+  WarpAnchorTokenSchema,
+  WarpAnnotationTokenSchema,
+  WarpCloseTokenSchema,
+  WarpDefaultTokenSchema,
+  WarpNameTokenSchema,
+  WarpOpenTokenSchema,
+  WarpTokenSchema,
   getProbe,
   type SpecifierCloseToken,
   type SpecifierLabelToken,
@@ -28,11 +35,20 @@ import {
   type TagOpenToken,
   type TagToken,
   type TextToken,
+  type WarpAnchorToken,
+  type WarpAnnotationToken,
+  type WarpCloseToken,
+  type WarpDefaultToken,
+  type WarpNameToken,
+  type WarpOpenToken,
+  type WarpToken,
 } from "./LoomTokens"
 import {
   type ArrowWeft,
   ArrowWeftSchema,
   ChapterHeadingWeftSchema,
+  type CodeWeft,
+  CodeWeftSchema,
   type LoomWeft,
   type PreambleWeft,
   PreambleWeftSchema,
@@ -82,11 +98,11 @@ const tokeniseWeft = (text: string, weft: LoomWeft): LoomWeft =>
     Match.when({ type: "SectionHeadingWeft" }, (w) => tokeniseSectionHeading(text, w)),
     Match.when({ type: "ArrowWeft" }, (w) => tokeniseArrow(text, w)),
     Match.when({ type: "TildeWeft" }, (w) => tokeniseTilde(text, w)),
-    Match.when({ type: "PreambleWeft" }, (w) => tokenisePreamble(w)),
+    Match.when({ type: "PreambleWeft" }, (w) => tokenisePreamble(text, w)),
     Match.when({ type: "ProseWeft" }, (w) => tokeniseProse(w)),
-    // Terminal kinds — already okHealth from the Classifier.
+    Match.when({ type: "CodeWeft" }, (w) => tokeniseCode(text, w)),
+    // Terminal kind — passthrough; already okHealth from the Classifier.
     Match.when({ type: "Weft" }, (w) => w),
-    Match.when({ type: "CodeWeft" }, (w) => w),
     Match.exhaustive,
   )
 
@@ -110,25 +126,42 @@ const inlineAfter = <T>(
 ): Option.Option<T> => {
   const lineStart = linePosition.start.offset
   const lineText = text.slice(lineStart, linePosition.end.offset)
-  const m = probe.exec(lineText)
-  if (!m || m.index === undefined) return Option.none()
-  const start = lineStart + m.index
-  return Option.some(
-    (schema as any).make({
-      position: span(linePosition.start.line, start, start + m[0].length),
-      health: okHealth,
-    }),
+  return pipe(
+    Option.fromNullable(probe.exec(lineText)),
+    Option.filter((m): m is RegExpExecArray & { index: number } => m.index !== undefined),
+    Option.map((m) =>
+      (schema as any).make({
+        position: span(
+          linePosition.start.line,
+          lineStart + m.index,
+          lineStart + m.index + m[0].length,
+        ),
+        health: okHealth,
+      }),
+    ),
   )
 }
 
+const lineSlice = (text: string, position: Position): string =>
+  text.slice(position.start.offset, position.end.offset)
+
 const tokeniseArrow = (text: string, weft: ArrowWeft): LoomWeft => {
   const code = inlineAfter(CodeTokenSchema, codeProbe, text, weft.position)
+  const { tokens: anchors, unexpected } =
+    constructAnchors(lineSlice(text, weft.position), weft.position)
+  const status = aggregateStatus([
+    weft.arrow.health.status,
+    ...Option.toArray(code).map((c) => c.health.status),
+    ...anchors.map((a) => a.health.status),
+    ...unexpected.map(() => "error" as const),
+  ])
   return ArrowWeftSchema.make({
     position: weft.position,
-    health: okHealth,
+    health: { status, diagnostics: [] },
+    unexpected: unexpected.length > 0 ? unexpected : undefined,
     arrow: weft.arrow,
     code: Option.getOrUndefined(code),
-    anchors: weft.anchors,
+    anchors,
   })
 }
 
@@ -142,15 +175,38 @@ const tokeniseTilde = (text: string, weft: TildeWeft): LoomWeft => {
   })
 }
 
-const tokenisePreamble = (weft: PreambleWeft): LoomWeft =>
-  PreambleWeftSchema.make({
+const tokenisePreamble = (text: string, weft: PreambleWeft): LoomWeft => {
+  const { tokens: warps, unexpected } =
+    constructWarps(lineSlice(text, weft.position), weft.position)
+  const status = aggregateStatus([
+    ...warps.map((w) => w.health.status),
+    ...unexpected.map(() => "error" as const),
+  ])
+  return PreambleWeftSchema.make({
     position: weft.position,
-    health: okHealth,
-    warps: weft.warps,
+    health: { status, diagnostics: [] },
+    unexpected: unexpected.length > 0 ? unexpected : undefined,
+    warps,
   })
+}
 
 const tokeniseProse = (weft: ProseWeft): LoomWeft =>
   ProseWeftSchema.make({ position: weft.position, health: okHealth })
+
+const tokeniseCode = (text: string, weft: CodeWeft): LoomWeft => {
+  const { tokens: anchors, unexpected } =
+    constructAnchors(lineSlice(text, weft.position), weft.position)
+  const status = aggregateStatus([
+    ...anchors.map((a) => a.health.status),
+    ...unexpected.map(() => "error" as const),
+  ])
+  return CodeWeftSchema.make({
+    position: weft.position,
+    health: { status, diagnostics: [] },
+    unexpected: unexpected.length > 0 ? unexpected : undefined,
+    anchors,
+  })
+}
 
 // =============================================================================
 // Health — status lattice + monoid fold over a flat list of statuses.
@@ -180,7 +236,7 @@ const span = (line: number, start: number, end: number): Position => ({
   end: { line, offset: end },
 })
 
-const missingClosing = (line: number, lineEnd: number, expected: "]" | "}"): Health => ({
+const missingClosing = (line: number, lineEnd: number, expected: "]" | "}" | "}}"): Health => ({
   status: "error",
   diagnostics: [{
     message: `expected closing \`${expected}\``,
@@ -422,6 +478,426 @@ const constructSpecifier = (
       ...extraOpens.map(toUnexpected),
       ...extraCloses.map(toUnexpected),
     ],
+  }
+}
+
+// =============================================================================
+// Warp scanners + delimiter pairing.
+//
+// Warps and WarpAnchors share the same source delimiters (`{{` and `}}`).
+// The host Weft determines which schema each pair builds into: PreambleWeft
+// pairs become Warp declarations; ArrowWeft / CodeWeft pairs become
+// WarpAnchor references.
+// =============================================================================
+
+const scanWarpOpen = makeScanner(WarpOpenTokenSchema)
+const scanWarpClose = makeScanner(WarpCloseTokenSchema)
+
+// pairWarpDelims — greedy left-to-right pairing as a left fold over opens.
+// Each open consumes the first remaining close positioned after it;
+// unmatched opens pair with a synthetic `}}` at EOL (error health); closes
+// that no open consumed surface as UnexpectedTokens for the parent weft.
+type WarpPair = { readonly open: WarpOpenToken; readonly close: WarpCloseToken }
+
+type PairAcc = {
+  readonly pairs: ReadonlyArray<WarpPair>
+  readonly remaining: ReadonlyArray<WarpCloseToken>
+}
+
+const pairWarpDelims = (
+  opens: ReadonlyArray<WarpOpenToken>,
+  closes: ReadonlyArray<WarpCloseToken>,
+  linePosition: Position,
+): { readonly pairs: ReadonlyArray<WarpPair>; readonly stray: ReadonlyArray<UnexpectedToken> } => {
+  const line = linePosition.start.line
+  const lineEnd = linePosition.end.offset
+  const synthClose = (): WarpCloseToken => WarpCloseTokenSchema.make({
+    position: span(line, lineEnd, lineEnd),
+    health: missingClosing(line, lineEnd, "}}"),
+    value: "}}",
+  })
+
+  const { pairs, remaining } = opens.reduce<PairAcc>((acc, open) => {
+    const idx = acc.remaining.findIndex(
+      (c) => c.position.start.offset > open.position.start.offset,
+    )
+    return idx < 0
+      ? {
+          pairs: [...acc.pairs, { open, close: synthClose() }],
+          remaining: acc.remaining,
+        }
+      : {
+          pairs: [...acc.pairs, { open, close: acc.remaining[idx] }],
+          remaining: acc.remaining.filter((_, i) => i !== idx),
+        }
+  }, { pairs: [], remaining: closes })
+
+  return { pairs, stray: remaining.map(toUnexpected) }
+}
+
+// =============================================================================
+// Opaque segments — annotation and default values inside a Warp.
+//
+// Each segment is a substring with optional whitespace around it. `sliceTop`
+// stops at the first top-level `,` or `;` (depth-tracked across `<()[]>`),
+// since a Warp declares a single parameter; multi-param attempts surface as
+// `unexpected` on the Warp.
+// =============================================================================
+
+// sliceTop — left fold over characters tracking bracket depth. The first
+// top-level `,` or `;` settles `cut`; subsequent characters pass through
+// unchanged once `cut` is `Some`.
+type SliceAcc = { readonly depth: number; readonly cut: Option.Option<number> }
+
+const stepSlice = (s: SliceAcc, c: string, i: number): SliceAcc => {
+  if (Option.isSome(s.cut)) return s
+  if (c === "<" || c === "(" || c === "[") return { depth: s.depth + 1, cut: s.cut }
+  if (c === ">" || c === ")" || c === "]") return { depth: Math.max(0, s.depth - 1), cut: s.cut }
+  if ((c === "," || c === ";") && s.depth === 0) return { depth: s.depth, cut: Option.some(i) }
+  return s
+}
+
+const sliceTop = (raw: string): { kept: string; extraStart: number } => {
+  const final = [...raw].reduce<SliceAcc>(stepSlice, { depth: 0, cut: Option.none() })
+  return Option.match(final.cut, {
+    onNone: () => ({ kept: raw, extraStart: raw.length }),
+    onSome: (idx) => ({ kept: raw.slice(0, idx), extraStart: idx }),
+  })
+}
+
+const trimSpan = (raw: string, rawStart: number): { value: string; start: number; end: number } => {
+  const left = raw.match(/^\s*/)?.[0].length ?? 0
+  const right = raw.match(/\s*$/)?.[0].length ?? 0
+  return {
+    value: raw.slice(left, raw.length - right),
+    start: rawStart + left,
+    end: rawStart + raw.length - right,
+  }
+}
+
+// =============================================================================
+// WarpName builder — mirrors buildTagLabel. Strict schema first; on
+// rejection, build a schema-valid name with synthetic empty `value` and
+// stash the rejected source in `name.unexpected[]`.
+// =============================================================================
+
+const decodeWarpName = Schema.decodeUnknownEither(WarpNameTokenSchema)
+
+const buildWarpName = (value: string, position: Position): WarpNameToken =>
+  pipe(
+    decodeWarpName({ type: "WarpName", position, health: okHealth, value }),
+    Either.getOrElse((e) =>
+      WarpNameTokenSchema.make({
+        type: "WarpName",
+        position,
+        health: errorToHealth(e, position),
+        value: "",
+        unexpected: [UnexpectedTokenSchema.make({ position, value })],
+      }),
+    ),
+  )
+
+// =============================================================================
+// buildOpaqueSegment — produce a WarpAnnotation or WarpDefault token from
+// the raw substring between separators. Whitespace around the value is
+// trimmed; the position reflects the trimmed span. An empty kept value
+// flips health to error with the supplied diagnostic. Content past a
+// top-level `,`/`;` is returned as an UnexpectedToken for the caller to
+// attach to the Warp's `unexpected[]`.
+// =============================================================================
+
+type OpaqueMake<T> = (args: {
+  type: string
+  position: Position
+  health: Health
+  value: string
+}) => T
+
+const buildOpaqueSegment = <T>(
+  make: OpaqueMake<T>,
+  typeName: string,
+  emptyMessage: string,
+  raw: string,
+  rawStart: number,
+  line: number,
+): { token: T; extras: ReadonlyArray<UnexpectedToken> } => {
+  const { kept, extraStart } = sliceTop(raw)
+  const { value, start, end } = trimSpan(kept, rawStart)
+
+  const tokenPos = span(line, start, end)
+  const health: Health = value === ""
+    ? {
+        status: "error",
+        diagnostics: [{
+          message: emptyMessage,
+          position: tokenPos,
+          severity: "error",
+        }],
+      }
+    : okHealth
+
+  const token = make({ type: typeName, position: tokenPos, health, value })
+
+  const extras: UnexpectedToken[] = extraStart < raw.length
+    ? [UnexpectedTokenSchema.make({
+        position: span(line, rawStart + extraStart, rawStart + raw.length),
+        value: raw.slice(extraStart),
+      })]
+    : []
+
+  return { token, extras }
+}
+
+const buildWarpAnnotation = (raw: string, rawStart: number, line: number) =>
+  buildOpaqueSegment<WarpAnnotationToken>(
+    (args) => WarpAnnotationTokenSchema.make(args as any),
+    "WarpAnnotation",
+    "Warp annotation cannot be empty",
+    raw, rawStart, line,
+  )
+
+const buildWarpDefault = (raw: string, rawStart: number, line: number) =>
+  buildOpaqueSegment<WarpDefaultToken>(
+    (args) => WarpDefaultTokenSchema.make(args as any),
+    "WarpDefault",
+    "Warp default value cannot be empty",
+    raw, rawStart, line,
+  )
+
+// =============================================================================
+// buildWarp — assemble a single Warp from its delimiters and content.
+//
+// Content is `name [: annotation [= default]]`. Missing `:` is an error
+// (annotation is required); the entire content is used as the name and a
+// zero-width error-health annotation is synthesised. Trailing `,`/`;` and
+// anything past it on annotation or default becomes UnexpectedToken
+// entries on the Warp's `unexpected[]`.
+// =============================================================================
+
+const synthMissingAnnotation = (position: Position): WarpAnnotationToken =>
+  WarpAnnotationTokenSchema.make({
+    type: "WarpAnnotation",
+    position,
+    health: {
+      status: "error",
+      diagnostics: [{
+        message: "Warp declaration requires `:` annotation",
+        position,
+        severity: "error",
+      }],
+    },
+    value: "",
+  })
+
+const findChar = (s: string, c: string): Option.Option<number> => {
+  const idx = s.indexOf(c)
+  return idx < 0 ? Option.none() : Option.some(idx)
+}
+
+const buildWarp = (
+  open: WarpOpenToken,
+  close: WarpCloseToken,
+  lineText: string,
+  linePosition: Position,
+): WarpToken => {
+  const line = linePosition.start.line
+  const lineStart = linePosition.start.offset
+  const contentStart = open.position.end.offset
+  const contentEnd = close.position.start.offset
+  const content = lineText.slice(contentStart - lineStart, contentEnd - lineStart)
+
+  return Option.match(findChar(content, ":"), {
+    // No `:` — entire content is the name; synthesise an empty error-health
+    // annotation so the schema's required field stays filled.
+    onNone: () => {
+      const nameSpan = trimSpan(content, contentStart)
+      const name = buildWarpName(nameSpan.value, span(line, nameSpan.start, nameSpan.end))
+      const annotation = synthMissingAnnotation(span(line, contentEnd, contentEnd))
+      return assembleWarp(open, close, name, annotation, undefined, [], line)
+    },
+    onSome: (colonIdx) => {
+      const nameRaw = content.slice(0, colonIdx)
+      const restRaw = content.slice(colonIdx + 1)
+      const restStart = contentStart + colonIdx + 1
+      const nameSpanned = trimSpan(nameRaw, contentStart)
+      const name = buildWarpName(
+        nameSpanned.value,
+        span(line, nameSpanned.start, nameSpanned.end),
+      )
+
+      return Option.match(findChar(restRaw, "="), {
+        // No `=` — annotation only, no default.
+        onNone: () => {
+          const { token: annotation, extras } =
+            buildWarpAnnotation(restRaw, restStart, line)
+          return assembleWarp(open, close, name, annotation, undefined, extras, line)
+        },
+        onSome: (eqIdx) => {
+          const annotationRaw = restRaw.slice(0, eqIdx)
+          const defaultRaw = restRaw.slice(eqIdx + 1)
+          const defaultStart = restStart + eqIdx + 1
+          const { token: annotation, extras: annoExtras } =
+            buildWarpAnnotation(annotationRaw, restStart, line)
+          const { token: defaultToken, extras: defExtras } =
+            buildWarpDefault(defaultRaw, defaultStart, line)
+          return assembleWarp(
+            open, close, name, annotation, defaultToken,
+            [...annoExtras, ...defExtras], line,
+          )
+        },
+      })
+    },
+  })
+}
+
+const assembleWarp = (
+  open: WarpOpenToken,
+  close: WarpCloseToken,
+  name: WarpNameToken,
+  annotation: WarpAnnotationToken,
+  defaultToken: WarpDefaultToken | undefined,
+  extras: ReadonlyArray<UnexpectedToken>,
+  line: number,
+): WarpToken => {
+  const subStatuses = [
+    open.health.status,
+    name.health.status,
+    annotation.health.status,
+    ...(defaultToken ? [defaultToken.health.status] : []),
+    close.health.status,
+  ]
+  const status = aggregateStatus([
+    ...subStatuses,
+    ...extras.map(() => "error" as const),
+  ])
+  return WarpTokenSchema.make({
+    type: "Warp",
+    position: span(line, open.position.start.offset, close.position.end.offset),
+    health: { status, diagnostics: [] },
+    unexpected: extras.length > 0 ? extras : undefined,
+    open,
+    name,
+    annotation,
+    default: defaultToken,
+    close,
+  })
+}
+
+// =============================================================================
+// buildWarpAnchor — assemble a single WarpAnchor. Content should be a single
+// identifier (with optional whitespace). The name is taken from the
+// leading identifier-shaped run; anything past it becomes UnexpectedToken
+// entries on the parent weft's `unexpected[]`.
+// =============================================================================
+
+const identifierHead = /^[a-zA-Z_][a-zA-Z0-9_]*/
+
+const unexpectedIfNonEmpty = (
+  position: Position,
+  value: string,
+): ReadonlyArray<UnexpectedToken> =>
+  value.length > 0
+    ? [UnexpectedTokenSchema.make({ position, value })]
+    : []
+
+const buildWarpAnchor = (
+  open: WarpOpenToken,
+  close: WarpCloseToken,
+  lineText: string,
+  linePosition: Position,
+): { anchor: WarpAnchorToken; extras: ReadonlyArray<UnexpectedToken> } => {
+  const line = linePosition.start.line
+  const lineStart = linePosition.start.offset
+  const contentStart = open.position.end.offset
+  const contentEnd = close.position.start.offset
+  const content = lineText.slice(contentStart - lineStart, contentEnd - lineStart)
+  const leftPad = content.match(/^\s*/)?.[0].length ?? 0
+  const afterLeft = content.slice(leftPad)
+
+  const { name, extras } = Option.match(
+    Option.fromNullable(afterLeft.match(identifierHead)),
+    {
+      // No identifier — name token carries empty/error health; the full
+      // remaining content is the unexpected fragment.
+      onNone: () => {
+        const pos = span(line, contentStart + leftPad, contentStart + content.length)
+        return {
+          name: buildWarpName(afterLeft.trim(), pos),
+          extras: unexpectedIfNonEmpty(pos, afterLeft),
+        }
+      },
+      onSome: (idMatch) => {
+        const idStart = contentStart + leftPad
+        const idEnd = idStart + idMatch[0].length
+        const tail = content.slice(leftPad + idMatch[0].length)
+        const tailRightPad = tail.match(/\s*$/)?.[0].length ?? 0
+        const stray = tail.slice(0, tail.length - tailRightPad)
+        return {
+          name: buildWarpName(idMatch[0], span(line, idStart, idEnd)),
+          extras: unexpectedIfNonEmpty(
+            span(line, idEnd, idEnd + stray.length),
+            stray,
+          ),
+        }
+      },
+    },
+  )
+
+  return { anchor: assembleAnchor(open, close, name, line), extras }
+}
+
+const assembleAnchor = (
+  open: WarpOpenToken,
+  close: WarpCloseToken,
+  name: WarpNameToken,
+  line: number,
+): WarpAnchorToken => {
+  const status = aggregateStatus([
+    open.health.status,
+    name.health.status,
+    close.health.status,
+  ])
+  return WarpAnchorTokenSchema.make({
+    type: "WarpAnchor",
+    position: span(line, open.position.start.offset, close.position.end.offset),
+    health: { status, diagnostics: [] },
+    open,
+    name,
+    close,
+  })
+}
+
+// =============================================================================
+// constructWarps / constructAnchors — per-weft entry points. Scan the line
+// for `{{` and `}}`, pair them, and build the appropriate composite per
+// pair. Stray closes (with no preceding open) and Anchor-content remainders
+// accumulate as `unexpected` on the parent weft.
+// =============================================================================
+
+const constructWarps = (
+  lineText: string,
+  linePosition: Position,
+): { tokens: ReadonlyArray<WarpToken>; unexpected: ReadonlyArray<UnexpectedToken> } => {
+  const opens = scanWarpOpen(lineText, linePosition)
+  const closes = scanWarpClose(lineText, linePosition)
+  const { pairs, stray } = pairWarpDelims(opens, closes, linePosition)
+  const tokens = pairs.map(({ open, close }) =>
+    buildWarp(open, close, lineText, linePosition))
+  return { tokens, unexpected: stray }
+}
+
+const constructAnchors = (
+  lineText: string,
+  linePosition: Position,
+): { tokens: ReadonlyArray<WarpAnchorToken>; unexpected: ReadonlyArray<UnexpectedToken> } => {
+  const opens = scanWarpOpen(lineText, linePosition)
+  const closes = scanWarpClose(lineText, linePosition)
+  const { pairs, stray } = pairWarpDelims(opens, closes, linePosition)
+  const built = pairs.map(({ open, close }) =>
+    buildWarpAnchor(open, close, lineText, linePosition))
+  return {
+    tokens: built.map((b) => b.anchor),
+    unexpected: [...stray, ...built.flatMap((b) => b.extras)],
   }
 }
 

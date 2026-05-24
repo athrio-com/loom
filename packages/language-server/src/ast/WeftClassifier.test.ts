@@ -225,9 +225,9 @@ describe("Health status", () => {
     expect(classify(["pre-chapter prose"])[0].health).toEqual(okHealth)
   })
 
-  it("CodeWeft is okHealth (opaque per spec; no Tokeniser Stage work)", () => {
+  it("CodeWeft is incompleteHealth (Tokeniser settles after scanning anchors)", () => {
     const out = classify(["## A", "=>", "let x = 1"])
-    expect(last(out).health).toEqual(okHealth)
+    expect(last(out).health).toEqual(incompleteHealth)
   })
 })
 

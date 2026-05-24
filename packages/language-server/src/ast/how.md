@@ -114,6 +114,9 @@ Examples:
 - `TagLabel` / `SpecifierLabel`: empty `value` admitted only when health is
   non-ok; real labels must match `^[a-zA-Z0-9_-]+$`. One cross-field rule,
   both directions.
+- `WarpName`: same pattern — empty `value` admitted only when health is
+  non-ok; real names must match the TS-identifier shape
+  `^[a-zA-Z_][a-zA-Z0-9_]*$`.
 
 **Two NOK channels.** When the Classifier Stage emits a node it does not
 have content for, it fills required subnodes with **NOK placeholders** at
@@ -124,10 +127,10 @@ schema-valid node anyway — synthetic empty `value`, error health, the bad
 text preserved in `unexpected[]`. Bytes are never dropped.
 
 **Post-Tokeniser invariant.** A weft that has passed the Tokeniser is never
-`incomplete`. It is `ok`, `error`, or `warning`. ChapterHeading missing a
-required field synthesises an error-health placeholder with a diagnostic;
-PreambleWeft / ProseWeft flip from `incomplete` to `ok`. The Tokeniser is
-the authority on completion.
+`incomplete`. Its `health.status` is `ok`, `error`, or `warning` — the
+aggregate of its subnodes. ChapterHeading missing a required field
+synthesises an error-health placeholder with a diagnostic so the schema
+filter stays satisfied. The Tokeniser is the authority on completion.
 
 Example: `# Chapter I` produces a `ChapterHeadingWeft` (schema-valid,
 `incompleteHealth`) carrying NOK `Tag` and `Specifier` placeholders. The
@@ -263,19 +266,23 @@ and before the specifier).
 
 Body Wefts:
 
-- `PreambleWeft` — line in Preamble mode (default after heading). Tokeniser
-  flips health to `ok`; inner-token expansion belongs to the Synth phase.
-- `ProseWeft` — line in Prose mode (after a Tilde transition). Same shape
-  and treatment as `PreambleWeft`.
-- `CodeWeft` — line in Code mode (after an Arrow transition). Opaque to
-  Loom; embedded-language tokenisation happens elsewhere. Terminal.
-- `ArrowWeft` — the `=>` line. Carries `arrow: ArrowToken` and optional
-  `code: CodeToken`. Tokeniser fills `code` from text after `=>` if any.
+- `PreambleWeft` — line in Preamble mode (default after heading). Carries
+  `warps: ReadonlyArray<WarpToken>` — every `{{name: annotation [= default]}}`
+  declaration recognised on the line.
+- `ProseWeft` — line in Prose mode (after a Tilde transition). No inner
+  tokens at the AST stage; inner-token expansion belongs to the Synth phase.
+- `CodeWeft` — line in Code mode (after an Arrow transition). Carries
+  `anchors: ReadonlyArray<WarpAnchorToken>` — every `{{name}}` reference
+  recognised on the line. The line content itself is opaque to Loom
+  (embedded-language tokenisation happens elsewhere).
+- `ArrowWeft` — the `=>` line. Carries `arrow: ArrowToken`, optional
+  `code: CodeToken`, and `anchors: ReadonlyArray<WarpAnchorToken>` for
+  `{{name}}` references inside the inline code.
 - `TildeWeft` — the `~+` line. Carries `tilde: TildeToken` and optional
   `prose: ProseToken`. Tokeniser fills `prose` from text after the tilde
   run if any.
 - `Weft` (default) — any line in pre-chapter mode without recognised
-  structure. Terminal.
+  structure. Carries no subnodes.
 
 `SectionBodyWeftSchema` is the exported union `(ArrowWeft | CodeWeft |
 TildeWeft | ProseWeft)` — the element type for LoomSection.code and
@@ -345,13 +352,27 @@ stage is subtoken expansion plus health resolution.
   has the open but no close. Bad label content preserved in
   `label.unexpected[]` with synthetic empty `value`. ChapterHeading
   synthesises error-health placeholders for missing tag or specifier.
-- **`ArrowWeft` / `TildeWeft`** — fill optional `code` / `prose` subtoken
-  via the lookbehind `Probe` on `CodeTokenSchema` / `ProseTokenSchema`;
-  flip health to `ok`.
-- **`PreambleWeft` / `ProseWeft`** — structural-final at this stage; flip
-  health to `ok`.
-- **`Weft` / `CodeWeft`** — passthrough; already `okHealth` from the
-  Classifier; terminal per design.
+- **`PreambleWeft`** — scan `{{` / `}}` pairs, build Warp declarations
+  (`open` / `name` / `annotation` / `default?` / `close`), populate
+  `warps[]`. Stray `}}` lands on `weft.unexpected[]`; top-level `,` / `;`
+  inside an annotation or default lands on `warp.unexpected[]`.
+- **`ArrowWeft`** — fill the optional inline `code` subtoken via the
+  `CodeTokenSchema` Probe; scan `{{` / `}}` pairs in the line and build
+  WarpAnchor references into `anchors[]`.
+- **`CodeWeft`** — scan `{{` / `}}` pairs and build WarpAnchor references
+  into `anchors[]`. Line content stays opaque to Loom (embedded-language
+  tokenisation happens elsewhere).
+- **`TildeWeft`** — fill the optional inline `prose` subtoken via the
+  `ProseTokenSchema` Probe; flip health to `ok`.
+- **`ProseWeft`** — flip health to `ok`. Inner-token expansion belongs to
+  the Synth phase.
+- **`Weft`** — passthrough; already `okHealth` from the Classifier.
+
+Anchor content is a single TS identifier with optional whitespace; anything
+past the identifier (e.g. `{{name: Type}}` written in Code mode) lands on
+the host weft's `unexpected[]`. Warp content is `name [: annotation [=
+default]]`; missing `:` synthesises an error-health annotation so the
+schema's required `annotation` field stays filled.
 
 Post-Tokeniser invariant: no weft has `health.status === "incomplete"`.
 
