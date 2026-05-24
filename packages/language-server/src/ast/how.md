@@ -9,13 +9,11 @@ landing passes. Honour all of them.
 ## Architecture — three layers, one shape
 
 ```
-Containers  (LoomAst.ts)   ─ LoomDocument → LoomChapter → LoomSection /
-                            │ LoomDependencies / LoomTangle, LoomHeading
-                            │ multi-line structural units
+Containers  (LoomAst.ts)   ─ LoomDocument → LoomChapter → LoomSection,
+                            │ LoomHeading; multi-line structural units
                             ▼
-Wefts       (Weft.ts)      ─ ChapterHeading / SectionHeading / Deps / Tangle
-                            │ headings; ArrowWeft, TildeWeft, PreambleWeft,
-                            │ ProseWeft, CodeWeft, DependencyWeft, TangleWeft;
+Wefts       (Weft.ts)      ─ ChapterHeading, SectionHeading; ArrowWeft,
+                            │ TildeWeft, PreambleWeft, ProseWeft, CodeWeft;
                             │ one line each, mode-classified
                             ▼
 Tokens      (LoomTokens.ts) ─ HeadingStart variants, Tag, Specifier, Arrow,
@@ -117,9 +115,6 @@ Examples:
 - `TagLabel` / `SpecifierLabel`: empty `value` admitted only when health is
   non-ok; real labels must match `^[a-zA-Z0-9_-]+$`. One cross-field rule,
   both directions.
-- `DependenciesHeadingWeft` / `TangleHeadingWeft`: `tag.label.value` must
-  be `"D"` / `"T"` once health is `ok`; the Classifier-Stage placeholder
-  (incomplete-health, empty-label tag) is admitted before that.
 
 **Two NOK channels.** When the Classifier Stage emits a node it does not
 have content for, it fills required subnodes with **NOK placeholders** at
@@ -169,33 +164,101 @@ Preamble mode  (default)  →  PreambleWefts (specially tokenised)
 - `TildeWeft` inline content is prose only — never code.
 - `ArrowWeft` inline content is code only — never prose.
 
-Reserved sections (LoomDependencies, LoomTangle) do not admit these
-transitions — they are heading-plus-body only, body is a homogeneous array
-of the section's specific Weft kind.
+All Sections admit the same transitions, regardless of Specifier. A Section
+written in Loom (`{Loom}`) is grammatically identical to one written in
+Scala or JSON — the Specifier changes what the Code is typed against, not
+the shape of the body.
+
+---
+
+## Specifier `{Loom}` — de dicto sections
+
+A Section is *de dicto* (frame code) iff its Specifier is `{Loom}`. Every
+other Specifier — the Chapter default included — makes the Section *de re*
+(product code).
+
+```
+# Arithmetic [Arithmetic]{Scala}     Chapter — default product language
+
+## Adder [Add]                       de re Scala (inherited)
+## Build script [Build]{Bash}        de re Bash (per-Section override)
+## Deps {Loom}                       de dicto Loom (frame)
+## Tangling app {Loom}               de dicto Loom (frame)
+```
+
+`{Loom}` Sections have access to the Loom DSL — the Chapter's own Service
+(`Arithmetic.needs(…)`), `tangle(…)`, `compose(…)`. The `=>` / `~` rhythm
+works as in any other Section; only the Code's type context changes.
+
+There is no reserved heading shape. The earlier `[D]` / `[T]` markers and
+their `DependenciesHeadingWeft` / `TangleHeadingWeft` Probes are gone. The
+Classifier emits ordinary `SectionHeadingWeft`s; the Specifier is the single
+discriminator and lives in the Specifier token. The de-dicto cut is a
+Synth-phase concern, not an AST-pipeline concern.
+
+A `{Loom}` Section can combine roles — declare dependencies (`Service.needs(…)`)
+and emit files (`tangle(…)`) in the same body — and a single Loom file may
+have multiple `{Loom}` Sections acting as Tangle roots. Exact composition
+rules belong to the Synth Frame Projection design.
+
+---
+
+## Warps
+
+Warps unify the two `{{…}}` forms (parameter and transclusion). A Warp is
+declared in a Section's Preamble or Prose and referenced from its Code:
+
+```
+## Square [Sq]
+
+Uses {{mul: Mul}} to multiply.
+
+=>
+
+{{mul}}
+
+def square(x: Int): Int = mul(x, x)
+```
+
+- **Declaration** — `{{name: TagOrType [= default]}}`, recognised in
+  Preamble / Prose Wefts. Token kind: `WarpTokenSchema`.
+- **Reference** — `{{name}}`, recognised in Code Wefts. Token kind:
+  `WarpRefTokenSchema`.
+
+Warps are **Section-local**. Each Section synthesises into a function whose
+Warps are its parameters; callers supply values implicitly when they pull
+the Section into a composition.
+
+Annotation forms:
+
+- **Tag reference** — `{{mul: Mul}}` binds local `mul` to the Code of the
+  Section tagged `Mul`. Composition resolves at Synth time.
+- **TS type with default** — `{{port: string = "8080"}}` declares a typed
+  parameter with a concrete substitution; full TS checking falls out at the
+  substitution site.
+- **TS type, no default** — `{{port: string}}` declares a typed parameter
+  with no substitution; Synth can check the declaration shape but not the
+  value. Diagnostic is a warning, not an error.
+
+Token recognition is mode-driven (Preamble / Prose for declarations, Code
+for references), not colon-sniffing. Both token kinds are deferred from the
+current AST pipeline; their landing is a Synth-phase concern.
 
 ---
 
 ## Weft vocabulary
 
-`HeadingWeft` is dissolved into four specific kinds. All four are emitted
-directly by the Classifier Stage — Deps/Tangle discrimination is a
-Classifier responsibility, driven by `Probe` annotations on the
-`DependenciesHeadingWeftSchema` / `TangleHeadingWeftSchema` (matching
-`/^#{2,6} [^\[\]{}]*\[D\][^\[\]{}]*$/` and the `[T]` analogue: exactly one
-reserved tag, no extras, no specifier). The Classifier consults these via
-`getProbe`; no token construction happens at the Classifier Stage. The
-Tokeniser fills the real tag.
+`HeadingWeft` is dissolved into two specific kinds — `ChapterHeadingWeft`
+and `SectionHeadingWeft`. There is no reserved heading variant: the
+de-dicto distinction between frame and product Sections rides on the
+`Specifier` token (`{Loom}` vs everything else), not on a
+Probe-discriminated heading shape.
 
 - `ChapterHeadingWeft` — `#` (level 1). Requires tag + specifier (filter).
   Classifier emits with NOK placeholders; Tokeniser fills from source or
   synthesises error-health placeholders.
-- `SectionHeadingWeft` — `##`+ (level 2+). Tag/specifier optional. Default
-  for any `##…` line that does not match the Deps/Tangle Probe.
-- `DependenciesHeadingWeft` — `##`+ with exactly one `[D]` tag, no
-  specifier. Classifier emits with a NOK placeholder tag; Tokeniser fills
-  the real tag, at which point the health-aware filter enforces
-  `tag.label.value === "D"`.
-- `TangleHeadingWeft` — same shape, `[T]` discriminator.
+- `SectionHeadingWeft` — `##`+ (level 2+). Tag and specifier both optional.
+  Single kind for every `##…` line.
 
 All heading Wefts carry `texts: ReadonlyArray<TextToken>` — an array of
 contiguous text segments, not a single token, because heading text can be
@@ -214,10 +277,6 @@ Body Wefts:
 - `TildeWeft` — the `~+` line. Carries `tilde: TildeToken` and optional
   `prose: ProseToken`. Tokeniser fills `prose` from text after the tilde
   run if any.
-- `DependencyWeft` — line inside a Deps section, opaque per design
-  (homogeneous body, no transitions admitted). Classifier emits directly
-  in `deps` mode.
-- `TangleWeft` — same, for Tangle sections.
 - `Weft` (default) — any line in pre-chapter mode without recognised
   structure. Terminal.
 
@@ -239,13 +298,8 @@ chapter-break syntax.
 ```
 LoomDocument
   └── LoomChapter[]            (ChapterHeadingWeft — # level)
-        ├── LoomSection[]      (SectionHeadingWeft — ##+ level)
-        ├── LoomDependencies   (DependenciesHeadingWeft — ## [D])
-        └── LoomTangle         (TangleHeadingWeft — ## [T])
+        └── LoomSection[]      (SectionHeadingWeft — ##+ level)
 ```
-
-`LoomChapterChildSchema = Union(LoomSection, LoomDependencies, LoomTangle)`
-is the element type of `LoomChapter.children`.
 
 Section / Chapter shape:
 
@@ -257,16 +311,8 @@ LoomChapter: heading + preamble (PreambleWeft[]) + code (SectionBodyWeft[]) + ch
 The grammar's forward-only mode progression is preserved implicitly in the
 `code` array order: valid prefixes are `[]`, `[ArrowWeft, ...]`, or
 `[TildeWeft, ...]`. The classifier enforces the ordering; the AST just
-records it.
-
-Reserved section shape:
-
-```
-LoomDependencies: heading + code (DependencyWeft[])
-LoomTangle:       heading + code (TangleWeft[])
-```
-
-No preamble, no arrow, no mode transitions.
+records it. `{Loom}` Sections take the same shape — the Specifier token on
+the heading is the only marker that distinguishes them.
 
 ---
 
@@ -291,9 +337,11 @@ decide by yourself to move to the next item.
    `loomNode()` combinator. Every existing node and subnode schema carries
    `health: HealthSchema`.
 
-2. **New AST nodes** — `LoomDependencies` and `LoomTangle` in `LoomAst.ts`.
-   `LoomChapter.children` is the `Union(LoomSection, LoomDependencies,
-   LoomTangle)` array.
+2. **New AST nodes** — `LoomDependencies` and `LoomTangle` originally
+   landed in `LoomAst.ts` with `LoomChapter.children` as a
+   `Union(LoomSection, LoomDependencies, LoomTangle)` array. Superseded
+   by the Specifier `{Loom}` unification — `LoomChapter.children` is now
+   `LoomSection[]` and the two reserved container kinds are gone.
 
 3. **Token schema updates** — `TextTokenSchema`, `CodeTokenSchema`,
    `ProseTokenSchema` in `LoomTokens.ts`. Position-only, with Probe
@@ -325,20 +373,15 @@ B. **Weft promotion + container reshape** — Wefts followed tokens into the
    fires.
 
 5. **`WeftClassifier.ts`** — the Classifier Stage. Mealy machine over
-   `(Mode, Probe)`. Mode ∈ `orphan | preamble | code | prose | deps |
-   tangle`, derived from the previous Weft via `modeOf`. Probe is pure
-   pattern recognition over the line text. Decision table laid out as
-   `Match.exhaustive` on Mode with probe-narrowing inside preamble/code
-   rows. Universal heading patterns (chapter, section) handled with early
-   returns. Section discrimination consults the line-level `Probe`
-   annotations on `DependenciesHeadingWeftSchema` /
-   `TangleHeadingWeftSchema` to emit Deps/Tangle headings directly.
-   Inside `deps`/`tangle` modes, body lines become opaque `DependencyWeft`
-   / `TangleWeft` — reserved sections do not admit transitions per the
-   grammar. Wefts carry `incompleteHealth` where subtoken filling is
-   pending; Chapter/Deps/Tangle headings additionally carry NOK
-   placeholder tags (and ChapterHeading a NOK specifier) at zero-width
-   EOL so the strict schema filter is satisfied without pretending.
+   `(Mode, Probe)`. Mode ∈ `orphan | preamble | code | prose`, derived
+   from the previous Weft via `modeOf`. Probe is pure pattern recognition
+   over the line text. Decision table laid out as `Match.exhaustive` on
+   Mode with probe-narrowing inside preamble/code rows. All heading
+   patterns (chapter, section) handled with early returns — no reserved
+   discrimination at this stage. Wefts carry `incompleteHealth` where
+   subtoken filling is pending; ChapterHeading additionally carries NOK
+   placeholder tag and specifier at zero-width EOL so the strict schema
+   filter is satisfied without pretending.
 
    Landed alongside: `incomplete` health status + `incompleteHealth`
    constant in `LoomNode.ts`; the `unexpected?: ReadonlyArray<
@@ -360,22 +403,16 @@ B. **Weft promotion + container reshape** — Wefts followed tokens into the
      fill `texts[]` from the gaps. ChapterHeading synthesises
      error-health placeholders for missing tag/specifier (post-Tokeniser
      ChapterHeading is never `incomplete`).
-   - `DependenciesHeadingWeft` / `TangleHeadingWeft`: replace the
-     Classifier-Stage NOK placeholder tag with the real tag from source;
-     fill `texts[]`. Health-aware filter on the heading schema enforces
-     `tag.label.value === "D"` / `"T"` once status flips to `ok`.
    - `ArrowWeft` / `TildeWeft`: fill optional `code` / `prose` subtoken
      via the lookbehind `Probe` on `CodeTokenSchema` /
      `ProseTokenSchema`; flip health to `ok`.
    - `PreambleWeft` / `ProseWeft`: structural-final at this stage — flip
      health to `ok`.
-   - `Weft` / `CodeWeft` / `DependencyWeft` / `TangleWeft`: passthrough
-     (already `okHealth` from the Classifier; opaque/terminal per design).
+   - `Weft` / `CodeWeft`: passthrough (already `okHealth` from the
+     Classifier; terminal per design).
 
-   Promotion does **not** live here — the Classifier emits Deps/Tangle
-   directly. The Tokeniser is purely subtoken expansion + health
-   resolution. Post-Tokeniser invariant: `health.status` is never
-   `incomplete`.
+   The Tokeniser is purely subtoken expansion + health resolution.
+   Post-Tokeniser invariant: `health.status` is never `incomplete`.
 
    Tests at `WeftTokeniser.test.ts`: heading tokenisation, body weft
    subtoken expansion, multi-tag / multi-specifier handling, synthetic
@@ -388,8 +425,9 @@ B. **Weft promotion + container reshape** — Wefts followed tokens into the
    `Stream.mapAccum` with a chapter accumulator. Groups wefts into the
    `LoomChapter` hierarchy: ChapterHeadingWeft flushes the previous chapter;
    sentinel flushes the final. Inside a chapter, the same accumulator
-   pattern groups wefts into Section / Dependencies / Tangle. Folds into
-   `LoomDocument` via `Stream.runFold`.
+   pattern groups wefts into `LoomSection`s — one container kind, no
+   Deps/Tangle discrimination. Folds into `LoomDocument` via
+   `Stream.runFold`.
 
 8. **`Loom.ts` (orchestrator)** — already wired with `LoomSourceRanges` +
    `WeftClassifier` + `WeftTokeniser` + `LoomAstBuilder`. `emptyDocumentFor

@@ -1,0 +1,93 @@
+# Arithmetic [Arithmetic]{Scala}
+
+A small Scala arithmetic library showing the current Loom syntax. The Chapter Specifier `{Scala}` is the default language for every Section's Code. A per-Section Specifier overrides. Tags name Sections so a Tangle can compose them in any order.
+
+## Imports
+
+A Section with no Tag and no Specifier — Scala (inherited from the Chapter), referrable by its heading text "Imports".
+
+=>
+
+import scala.math.pow
+
+~
+
+The `~` returns to Prose. A Section may alternate Code and Prose freely; each `=>` opens Code and each `~` closes it.
+
+## Adder [Add]
+
+A Tagged Section — exported under the tag `Add`.
+
+=>
+
+def add(x: Int, y: Int): Int = x + y
+
+## Multiplier [Mul]
+
+=>
+
+def mul(x: Int, y: Int): Int = x * y
+
+## Square [Sq]
+
+`Sq` calls `mul`, so the Tangle must emit {{mul: Mul}} before `Sq`. Tags are names, not scopes — Tagged and untagged Sections share scope in the composed file.
+
+=>
+
+{{mul}}
+
+def square(x: Int): Int = mul(x, x)
+
+
+## Entry point [Main]
+
+Needs {{a: Add}}
+Also needs {{c: Sq}}
+
+=>
+
+{{a}}
+{{c}}
+
+object Arithmetic extends App {
+  println(s"add(2, 3)  = ${add(2, 3)}")
+  println(s"square(5)  = ${square(5)}")
+}
+
+## Build script [Build]{Bash}
+
+Per-Section Specifier override — this Section's Code is Bash, not Scala.
+
+=>
+
+#!/usr/bin/env bash
+scalac src/main/scala/Arithmetic.scala -d out
+scala -cp out Arithmetic
+
+
+## Deps {Loom}
+
+The reserved tag `[D]` marks a Deps Section. Its body is Loom frame code (TypeScript-with-Effect, de dicto) — no `=>` or `~`. The Classifier emits every body line as an opaque DependencyWeft; the Loom runtime later parses the body as Effect imports plus a `needs()` call.
+
+=>
+
+Arithmetic.needs(ScalaToolchain)
+
+## Tangling app {Loom}
+
+The reserved tag `[T]` marks a Tangle Section. The heading text becomes the Tangle member's identifier; the body is a single expression yielding `Effect<Tangle>`. One Section, one file.
+
+=>
+
+tangle("src/main/scala/Arithmetic.scala", compose(
+  Imports,
+  Main,
+))
+
+## Tangling script {Loom}
+
+A second Tangle — for the build script. Many `[T]` Sections, many emitted files.
+
+=>
+
+tangle("build.sh", compose(Build))
