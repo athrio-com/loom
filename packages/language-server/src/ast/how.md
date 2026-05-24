@@ -31,12 +31,17 @@ Every node — container, Weft, or Token — flows through `loomNode(tag, fields
 and so carries the same shape:
 
 ```
-{ type: <literal>, position: Position, health: Health, ...fields }
+{ type: <literal>, position: Position, health: Health,
+  unexpected?: ReadonlyArray<UnexpectedToken>, ...fields }
 ```
 
-This means the walker recognises a node by the presence of `type` and recurses
-into any field whose value has one. No three-vocabulary translation step; every
-layer is a discriminable AST node.
+`unexpected[]` is the universal slot for positional fragments rejected by the
+schema (orphan brackets, duplicate tags, label content that fails the
+character-class filter). Each entry is `{ type, position, value }` — no
+health field, because its presence in a parent's `unexpected[]` IS the
+anomaly. The walker recognises a node by the presence of `type` and recurses
+into any field whose value has one. No three-vocabulary translation step;
+every layer is a discriminable AST node.
 
 ---
 
@@ -102,31 +107,39 @@ partial.
 ## Schema-valid AST, truthful health
 
 Every stage produces a schema-valid AST. Source malformations don't break
-the schema — schema constraints stay strict and the `health` field carries
-the truth about what's known vs pending vs wrong.
+the schema — constraints stay strict; `health` and `unexpected[]` carry the
+truth about what's pending, wrong, or rejected.
 
-The Classifier Stage routes purely on heading level and recognised probes —
-no fallback to default Weft for malformed headings. When a schema field is
-structurally required but cannot be filled at the Classifier Stage (the
-ChapterHeading filter requires `tag` and `specifier`), the classifier emits
-**NOK placeholder tokens** carrying `health.status === "incomplete"` at
-zero-width-EOL positions. The schema filter is satisfied; the health field
-communicates that the subnodes are stand-ins.
+**Health-aware filters.** Where a schema rule is meaningful only on a
+finalised node, the `Schema.filter` is health-aware: it accepts NOK-health
+input regardless of content and enforces the rule only when health is `ok`.
+Examples:
+- `TagLabel` / `SpecifierLabel`: empty `value` admitted only when health is
+  non-ok; real labels must match `^[a-zA-Z0-9_-]+$`. One cross-field rule,
+  both directions.
+- `DependenciesHeadingWeft` / `TangleHeadingWeft`: `tag.label.value` must
+  be `"D"` / `"T"` once health is `ok`; the Classifier-Stage placeholder
+  (incomplete-health, empty-label tag) is admitted before that.
 
-The Tokeniser Stage walks each weft, tokenises subtokens from the source,
-and constructs the strict-schema target via `Schema.make`. On success it
-replaces placeholders with real tokens and promotes the weft's health to
-`ok`. On failure (multi-tag, missing required content, etc.) the `ParseError`
-is converted into a `Diagnostic` and the weft's health flips to `error`. The
-schema is the source of truth; NOK→error propagation falls out of validation
-failures rather than hand-coded checks.
+**Two NOK channels.** When the Classifier Stage emits a node it does not
+have content for, it fills required subnodes with **NOK placeholders** at
+zero-width-EOL positions carrying `incompleteHealth`. The Tokeniser Stage
+replaces them with real tokens parsed from source. When source content
+exists but is malformed (label with a space, etc.), the Tokeniser builds a
+schema-valid node anyway — synthetic empty `value`, error health, the bad
+text preserved in `unexpected[]`. Bytes are never dropped.
+
+**Post-Tokeniser invariant.** A weft that has passed the Tokeniser is never
+`incomplete`. It is `ok`, `error`, or `warning`. ChapterHeading missing a
+required field synthesises an error-health placeholder with a diagnostic;
+PreambleWeft / ProseWeft flip from `incomplete` to `ok`. The Tokeniser is
+the authority on completion.
 
 Example: `# Chapter I` produces a `ChapterHeadingWeft` (schema-valid,
-`incompleteHealth`) carrying NOK `Tag` and `Specifier` placeholders, all
-with `incompleteHealth`. The Tokeniser Stage either fills them with real
-tokens (promoting the weft to `ok`) or, if the source has no tag, surfaces
-the missing-structure `ParseError` as an `error`-status diagnostic on the
-weft. `Schema.is(LoomDocument)` holds end-to-end at every stage; the health
+`incompleteHealth`) carrying NOK `Tag` and `Specifier` placeholders. The
+Tokeniser fills them from source if present; otherwise synthesises
+error-health placeholders with a "requires a tag/specifier" diagnostic.
+`Schema.is(LoomDocument)` holds end-to-end at every stage; the health
 walker collects positioned diagnostics from leaves where problems live.
 
 ---
@@ -164,21 +177,25 @@ of the section's specific Weft kind.
 
 ## Weft vocabulary
 
-`HeadingWeft` is dissolved into four specific kinds. Only two are emitted
-by the Classifier Stage; the other two emerge from the Tokeniser Stage via
-schema-driven promotion of `SectionHeadingWeft`.
+`HeadingWeft` is dissolved into four specific kinds. All four are emitted
+directly by the Classifier Stage — Deps/Tangle discrimination is a
+Classifier responsibility, driven by `Probe` annotations on the
+`DependenciesHeadingWeftSchema` / `TangleHeadingWeftSchema` (matching
+`/^#{2,6} [^\[\]{}]*\[D\][^\[\]{}]*$/` and the `[T]` analogue: exactly one
+reserved tag, no extras, no specifier). The Classifier consults these via
+`getProbe`; no token construction happens at the Classifier Stage. The
+Tokeniser fills the real tag.
 
-- `ChapterHeadingWeft` — `#` only (level 1), requires tag + specifier.
-  Emitted by the Classifier Stage with NOK placeholder tag/specifier tokens
-  when the source has not yet been tokenised.
-- `SectionHeadingWeft` — `##`+ (level 2+), tag/specifier optional. Emitted
-  by the Classifier Stage for every `##…` line, regardless of tag content.
-- `DependenciesHeadingWeft` — `##`+ with tag `[D]`. The Tokeniser Stage
-  promotes a Section to Deps when its single tokenised tag is `[D]`; the
-  schema's `tag.label.value === "D"` filter guards the promotion. Multi-tag
-  or wrong-tag conditions surface as `error` health on the weft via the
-  `ParseError` from a failed `Schema.make`.
-- `TangleHeadingWeft` — `##`+ with tag `[T]`, same promotion mechanism.
+- `ChapterHeadingWeft` — `#` (level 1). Requires tag + specifier (filter).
+  Classifier emits with NOK placeholders; Tokeniser fills from source or
+  synthesises error-health placeholders.
+- `SectionHeadingWeft` — `##`+ (level 2+). Tag/specifier optional. Default
+  for any `##…` line that does not match the Deps/Tangle Probe.
+- `DependenciesHeadingWeft` — `##`+ with exactly one `[D]` tag, no
+  specifier. Classifier emits with a NOK placeholder tag; Tokeniser fills
+  the real tag, at which point the health-aware filter enforces
+  `tag.label.value === "D"`.
+- `TangleHeadingWeft` — same shape, `[T]` discriminator.
 
 All heading Wefts carry `texts: ReadonlyArray<TextToken>` — an array of
 contiguous text segments, not a single token, because heading text can be
@@ -187,18 +204,22 @@ and before the specifier).
 
 Body Wefts:
 
-- `PreambleWeft` — line in Preamble mode (default after heading). Subtokens
-  TBD.
-- `ProseWeft` — line in Prose mode (after a Tilde transition). Subtokens TBD.
+- `PreambleWeft` — line in Preamble mode (default after heading). Inner
+  tokenisation model TBD; Tokeniser flips health to `ok`.
+- `ProseWeft` — line in Prose mode (after a Tilde transition). Same.
 - `CodeWeft` — line in Code mode (after an Arrow transition). Opaque to
-  Loom; embedded-language tokenisation happens elsewhere.
+  Loom; embedded-language tokenisation happens elsewhere. Terminal.
 - `ArrowWeft` — the `=>` line. Carries `arrow: ArrowToken` and optional
-  `code: CodeToken`.
-- `TildeWeft` — the `~` line. Carries `tilde: TildeToken` and optional
-  `prose: ProseToken`.
-- `DependencyWeft` — line in a LoomDependencies body. Subtokens TBD.
-- `TangleWeft` — line in a LoomTangle body. Subtokens TBD.
-- `Weft` (default) — any line without recognised structure.
+  `code: CodeToken`. Tokeniser fills `code` from text after `=>` if any.
+- `TildeWeft` — the `~+` line. Carries `tilde: TildeToken` and optional
+  `prose: ProseToken`. Tokeniser fills `prose` from text after the tilde
+  run if any.
+- `DependencyWeft` — line inside a Deps section, opaque per design
+  (homogeneous body, no transitions admitted). Classifier emits directly
+  in `deps` mode.
+- `TangleWeft` — same, for Tangle sections.
+- `Weft` (default) — any line in pre-chapter mode without recognised
+  structure. Terminal.
 
 `SectionBodyWeftSchema` is the exported union `(ArrowWeft | CodeWeft |
 TildeWeft | ProseWeft)` — the element type for LoomSection.code and
@@ -303,49 +324,65 @@ B. **Weft promotion + container reshape** — Wefts followed tokens into the
    ArrowWeft is now the first element of `code` when the arrow transition
    fires.
 
-5. **`WeftClassifier.ts`** — the Classifier Stage. Implemented as a Mealy
-   machine over `(Mode, Probe)`. Mode is derived from the previous Weft via
-   `modeOf`; probe is pure pattern recognition over the line text. Decision
-   table laid out as `Match.exhaustive` on Mode with probe-narrowing inside
-   the preamble/code rows. Universal heading patterns (chapter, section)
-   handled with early returns. Emission set narrowed to `ClassifierStageWeft`
-   — the eight kinds reachable here. `DependenciesHeadingWeft` and
-   `TangleHeadingWeft` are **not** emitted; promotion is the Tokeniser
-   Stage's job. Wefts carry `incompleteHealth`; `ChapterHeadingWeft`
-   additionally carries NOK placeholder tag/specifier tokens (all at
-   zero-width EOL, all `incompleteHealth`) so the schema filter is satisfied
-   without pretending the subnodes are real. Schema filters stay strict —
-   the placeholder mechanism is the Classifier Stage's only device for
-   missing fields.
+5. **`WeftClassifier.ts`** — the Classifier Stage. Mealy machine over
+   `(Mode, Probe)`. Mode ∈ `orphan | preamble | code | prose | deps |
+   tangle`, derived from the previous Weft via `modeOf`. Probe is pure
+   pattern recognition over the line text. Decision table laid out as
+   `Match.exhaustive` on Mode with probe-narrowing inside preamble/code
+   rows. Universal heading patterns (chapter, section) handled with early
+   returns. Section discrimination consults the line-level `Probe`
+   annotations on `DependenciesHeadingWeftSchema` /
+   `TangleHeadingWeftSchema` to emit Deps/Tangle headings directly.
+   Inside `deps`/`tangle` modes, body lines become opaque `DependencyWeft`
+   / `TangleWeft` — reserved sections do not admit transitions per the
+   grammar. Wefts carry `incompleteHealth` where subtoken filling is
+   pending; Chapter/Deps/Tangle headings additionally carry NOK
+   placeholder tags (and ChapterHeading a NOK specifier) at zero-width
+   EOL so the strict schema filter is satisfied without pretending.
 
    Landed alongside: `incomplete` health status + `incompleteHealth`
-   constant in `LoomNode.ts`; `loomNode`'s `type` field gets
-   `withConstructorDefault` so `Schema.make` auto-fills the tag on
-   unrefined schemas (filtered schemas still need `type` passed
-   explicitly). Unit and integration tests under
-   `WeftClassifier.test.ts` and `WeftClassifier.integration.test.ts`;
-   dev probe at `scripts/classify-loom.ts`.
+   constant in `LoomNode.ts`; the `unexpected?: ReadonlyArray<
+   UnexpectedToken>` field on every loomNode; `loomNode`'s `type` field
+   gets `withConstructorDefault`; cross-field health-aware filters on
+   `TagLabel` / `SpecifierLabel` and on the reserved-heading schemas.
+   Unit and integration tests under `WeftClassifier.test.ts` and
+   `WeftClassifier.integration.test.ts`; dev probe at
+   `scripts/classify-loom.ts`.
+
+6. **`WeftTokeniser.ts`** — the Tokeniser Stage. Pure `Stream.map`,
+   `Match.exhaustive` over every LoomWeft kind. Per-kind subtoken
+   expansion:
+
+   - `ChapterHeadingWeft` / `SectionHeadingWeft`: scan tag and specifier
+     anchors, build composite tokens (synthetic close at EOL with error
+     health when source has the open but no close; bad label content
+     preserved in `label.unexpected[]` with synthetic empty `value`),
+     fill `texts[]` from the gaps. ChapterHeading synthesises
+     error-health placeholders for missing tag/specifier (post-Tokeniser
+     ChapterHeading is never `incomplete`).
+   - `DependenciesHeadingWeft` / `TangleHeadingWeft`: replace the
+     Classifier-Stage NOK placeholder tag with the real tag from source;
+     fill `texts[]`. Health-aware filter on the heading schema enforces
+     `tag.label.value === "D"` / `"T"` once status flips to `ok`.
+   - `ArrowWeft` / `TildeWeft`: fill optional `code` / `prose` subtoken
+     via the lookbehind `Probe` on `CodeTokenSchema` /
+     `ProseTokenSchema`; flip health to `ok`.
+   - `PreambleWeft` / `ProseWeft`: structural-final at this stage — flip
+     health to `ok`.
+   - `Weft` / `CodeWeft` / `DependencyWeft` / `TangleWeft`: passthrough
+     (already `okHealth` from the Classifier; opaque/terminal per design).
+
+   Promotion does **not** live here — the Classifier emits Deps/Tangle
+   directly. The Tokeniser is purely subtoken expansion + health
+   resolution. Post-Tokeniser invariant: `health.status` is never
+   `incomplete`.
+
+   Tests at `WeftTokeniser.test.ts`: heading tokenisation, body weft
+   subtoken expansion, multi-tag / multi-specifier handling, synthetic
+   close on unclosed brackets, malformed label values, text gaps, health
+   aggregation.
 
 ### Remaining
-
-6. **`WeftTokeniser.ts`** — the Tokeniser Stage. Implement
-   `tokeniseWefts(text)` as a pure `Stream.map`. Two responsibilities:
-
-   (a) **Per-kind subtoken expansion.** Tokenise `texts[]`, `tag`,
-       `specifier`, `code?`, `prose?` from the source. Replace NOK
-       placeholders on ChapterHeadingWeft with the real tokens.
-
-   (b) **Schema-driven promotion.** When a `SectionHeadingWeft` tokenises
-       to exactly one reserved tag (`[D]` or `[T]`), construct the target
-       `DependenciesHeadingWeft` / `TangleHeadingWeft` via `Schema.make`.
-       The schema filter (`tag.label.value === "D"` / `"T"`) accepts on
-       success; on any violation (multi-tag, wrong label, etc.) the
-       `ParseError` is adapted into a `Diagnostic` (via
-       `ParseResult.ArrayFormatter`) and attached to the weft's
-       `health.diagnostics` with `status: "error"`.
-
-   No mode state — purely `(text, weft) → weft'`. Health transitions:
-   `incomplete → ok` on full tokenisation, `incomplete → error` on failure.
 
 7. **`LoomAstBuilder.ts`** — implement `build(Stream<LoomWeft>)` using
    `Stream.mapAccum` with a chapter accumulator. Groups wefts into the
@@ -355,9 +392,10 @@ B. **Weft promotion + container reshape** — Wefts followed tokens into the
    `LoomDocument` via `Stream.runFold`.
 
 8. **`Loom.ts` (orchestrator)** — already wired with `LoomSourceRanges` +
-   the three stage Services. `emptyDocumentFor(err: MixedEOL)` already
-   produces a minimal LoomDocument with NOK root health. Re-verify once
-   steps 6–7 land that the pipeline composes end-to-end.
+   `WeftClassifier` + `WeftTokeniser` + `LoomAstBuilder`. `emptyDocumentFor
+   (err: MixedEOL)` already produces a minimal LoomDocument with NOK root
+   health. Re-verify once step 7 lands that the pipeline composes
+   end-to-end.
 
 ---
 

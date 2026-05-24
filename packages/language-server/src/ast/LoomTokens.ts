@@ -149,7 +149,7 @@ export const ArrowTokenSchema = loomNode("Arrow", {}).annotations({
 export type ArrowToken = typeof ArrowTokenSchema.Type
 
 // =============================================================================
-// Tilde — `~+` on a fence line. Position-only.
+// Tilde — `~+` on a prose line. Position-only.
 // =============================================================================
 
 export const TildeTokenSchema = loomNode("Tilde", {}).annotations({
