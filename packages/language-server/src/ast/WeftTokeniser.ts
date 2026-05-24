@@ -33,8 +33,6 @@ import {
   type ArrowWeft,
   ArrowWeftSchema,
   ChapterHeadingWeftSchema,
-  DependenciesHeadingWeftSchema,
-  type DependenciesHeadingWeft,
   type LoomWeft,
   type PreambleWeft,
   PreambleWeftSchema,
@@ -43,8 +41,6 @@ import {
   SectionHeadingWeftSchema,
   type ChapterHeadingWeft,
   type SectionHeadingWeft,
-  TangleHeadingWeftSchema,
-  type TangleHeadingWeft,
   type TildeWeft,
   TildeWeftSchema,
 } from "./Weft"
@@ -52,19 +48,19 @@ import {
 // =============================================================================
 // WeftTokeniser — the Tokeniser Stage of the parse pipeline.
 //
-// Pure Stream.map: per-weft transformation. Wefts arrive correctly typed
-// from WeftPromotion (which sits between Classifier and Tokeniser and
-// handles section-context-driven re-typing). The Tokeniser fills subtokens
+// Pure Stream.map: per-weft transformation. The Tokeniser fills subtokens
 // per weft kind:
 //
-//   ChapterHeading       — full tokenisation (tag/specifier/texts), with
-//                          synth-on-missing for the required fields.
-//   SectionHeading       — full tokenisation (tag/specifier/texts).
-//   DependenciesHeading  — texts only; `tag` already built by Promotion.
-//   TangleHeading        — texts only; same.
-//   Everything else      — passthrough (DependencyWeft / TangleWeft body
-//                          wefts are opaque per design; Arrow / Tilde
-//                          inline code / prose tokenisation is TODO).
+//   ChapterHeading   — full tokenisation (tag/specifier/texts), synthesising
+//                      error-health placeholders for missing required fields.
+//   SectionHeading   — full tokenisation (tag/specifier/texts); absences are
+//                      not errors.
+//   Arrow / Tilde    — fill the optional inline `code` / `prose` subtoken.
+//   Preamble / Prose — settle health to `ok`; inner-token expansion belongs
+//                      to the Synth phase.
+//   Weft / CodeWeft  — passthrough; already `okHealth` from the Classifier.
+//
+// Post-Tokeniser invariant: no weft remains `incomplete`.
 // =============================================================================
 
 export class WeftTokeniser extends Effect.Service<WeftTokeniser>()(
@@ -84,69 +80,15 @@ const tokeniseWeft = (text: string, weft: LoomWeft): LoomWeft =>
     Match.value(weft),
     Match.when({ type: "ChapterHeadingWeft" }, (w) => tokeniseChapterHeading(text, w)),
     Match.when({ type: "SectionHeadingWeft" }, (w) => tokeniseSectionHeading(text, w)),
-    Match.when({ type: "DependenciesHeadingWeft" }, (w) => tokeniseDepsHeading(text, w)),
-    Match.when({ type: "TangleHeadingWeft" }, (w) => tokeniseTangleHeading(text, w)),
     Match.when({ type: "ArrowWeft" }, (w) => tokeniseArrow(text, w)),
     Match.when({ type: "TildeWeft" }, (w) => tokeniseTilde(text, w)),
     Match.when({ type: "PreambleWeft" }, (w) => tokenisePreamble(w)),
     Match.when({ type: "ProseWeft" }, (w) => tokeniseProse(w)),
-    // Terminal / opaque kinds — already okHealth from the Classifier.
+    // Terminal kinds — already okHealth from the Classifier.
     Match.when({ type: "Weft" }, (w) => w),
     Match.when({ type: "CodeWeft" }, (w) => w),
-    Match.when({ type: "DependencyWeft" }, (w) => w),
-    Match.when({ type: "TangleWeft" }, (w) => w),
     Match.exhaustive,
   )
-
-// Deps/Tangle headings arrive from the Classifier with a NOK placeholder
-// tag. The Tokeniser rebuilds the real tag from source (the Classifier's
-// regex check on the section line had already established that exactly one
-// `[D]` / `[T]` tag exists, so tokeniseHeading produces Some(tag)). The
-// schema's filter then enforces `tag.label.value === "D"` / `"T"` once we
-// flip health to ok.
-const tokeniseDepsHeading = (text: string, weft: DependenciesHeadingWeft): LoomWeft => {
-  const { tag, texts, unexpected } = tokeniseHeading(
-    text, weft.position, weft.headingStart.position.end.offset,
-  )
-  const realTag = Option.getOrElse(tag, () => weft.tag)
-  const status = aggregateStatus([
-    weft.headingStart.health.status,
-    realTag.health.status,
-    ...texts.map((t) => t.health.status),
-    ...unexpected.map(() => "error" as const),
-  ])
-  return DependenciesHeadingWeftSchema.make({
-    type: "DependenciesHeadingWeft",
-    position: weft.position,
-    health: { status, diagnostics: [] },
-    unexpected: unexpected.length > 0 ? unexpected : undefined,
-    headingStart: weft.headingStart,
-    texts,
-    tag: realTag,
-  })
-}
-
-const tokeniseTangleHeading = (text: string, weft: TangleHeadingWeft): LoomWeft => {
-  const { tag, texts, unexpected } = tokeniseHeading(
-    text, weft.position, weft.headingStart.position.end.offset,
-  )
-  const realTag = Option.getOrElse(tag, () => weft.tag)
-  const status = aggregateStatus([
-    weft.headingStart.health.status,
-    realTag.health.status,
-    ...texts.map((t) => t.health.status),
-    ...unexpected.map(() => "error" as const),
-  ])
-  return TangleHeadingWeftSchema.make({
-    type: "TangleHeadingWeft",
-    position: weft.position,
-    health: { status, diagnostics: [] },
-    unexpected: unexpected.length > 0 ? unexpected : undefined,
-    headingStart: weft.headingStart,
-    texts,
-    tag: realTag,
-  })
-}
 
 // =============================================================================
 // Body wefts — Arrow/Tilde get their optional inline subtokens; Preamble /
@@ -243,10 +185,10 @@ const missingClosing = (line: number, lineEnd: number, expected: "]" | "}"): Hea
 })
 
 // =============================================================================
-// parseErrorToErrorHealth — adapt a Schema.make ParseError into a Health
-// with `status: "error"` and one Diagnostic per issue the formatter produces.
-// Used by the catch path when a value would be rejected by a schema filter
-// but the Tokeniser still wants to surface the offending text in the AST.
+// errorToHealth — adapt a `Schema` ParseError into a `Health` with
+// `status: "error"` and one Diagnostic per issue the formatter produces.
+// Used on the rejection path when source content fails a schema filter but
+// the Tokeniser still wants to keep the offending text in the AST.
 // =============================================================================
 
 const errorToHealth = (err: ParseResult.ParseError, position: Position): Health => ({
@@ -637,9 +579,9 @@ const tokeniseChapterHeading = (text: string, weft: ChapterHeadingWeft): LoomWef
 }
 
 // =============================================================================
-// SectionHeading — schema makes tag and specifier optional. Promotion is
-// handled by Stage 1 ahead of this; here the weft is known to be a real
-// SectionHeading (not promoted), so we just fill its subtokens.
+// SectionHeading — schema makes tag and specifier optional. The Tokeniser
+// fills whatever the source provides; absence of either is not an error
+// (the de-dicto cut on `{Loom}` happens at Synth time, not here).
 // =============================================================================
 
 const tokeniseSectionHeading = (text: string, weft: SectionHeadingWeft): LoomWeft => {

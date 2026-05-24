@@ -13,10 +13,10 @@ import type { LoomWeft } from "./Weft"
 //
 // The Classifier Stage emits the following set of LoomWefts:
 //   Weft, ChapterHeadingWeft, SectionHeadingWeft, ArrowWeft, TildeWeft,
-//   PreambleWeft, CodeWeft, ProseWeft, DependencyWeft, TangleWeft.
-// DependenciesHeadingWeft and TangleHeadingWeft are the Tokeniser Stage's
-// responsibility; the Classifier Stage always emits a plain SectionHeadingWeft
-// for a `##…` line, regardless of tag content.
+//   PreambleWeft, CodeWeft, ProseWeft.
+// There is no reserved heading shape — every `##…` line classifies as a
+// SectionHeadingWeft regardless of tag content. The de-dicto (frame) vs
+// de-re (product) distinction rides on the Specifier at Synth time.
 // =============================================================================
 
 const classify = (lines: ReadonlyArray<string>): ReadonlyArray<LoomWeft> => {
@@ -73,12 +73,6 @@ describe("classifyWefts — stream", () => {
 // The Mealy property "output is next state" means that the type of the
 // previous Weft determines the mode for the next line. We verify each
 // mode-defining prev-Weft drives the next plain line to the expected leaf.
-//
-// `dependency` and `tangle` modes are unreachable from the Classifier Stage
-// (no Deps / Tangle headings are emitted here), so they cannot be exercised
-// through the public Service. modeOf still maps DependenciesHeadingWeft and
-// TangleHeadingWeft to those modes — the Tokeniser Stage will exercise that
-// path.
 // =============================================================================
 
 describe("modeOf — state axis (prev Weft → mode → next leaf)", () => {
@@ -129,10 +123,6 @@ describe("modeOf — state axis (prev Weft → mode → next leaf)", () => {
 
 // =============================================================================
 // Decision table — (mode, probe) → output Weft.
-//
-// Only the modes the Classifier Stage can reach are exercised: orphan,
-// preamble, code, prose. `dependency` and `tangle` modes are unreachable
-// until the Tokeniser Stage promotes section headings to Deps / Tangle.
 // =============================================================================
 
 describe("Decision table — universal columns (mode-independent)", () => {
@@ -152,16 +142,6 @@ describe("Decision table — universal columns (mode-independent)", () => {
     it(`section probe wins from mode=${mode}`, () => {
       const out = classify([...prelude, "## Section"])
       expect(last(out).type).toBe("SectionHeadingWeft")
-    })
-
-    it(`section probe + [D] yields DependenciesHeadingWeft from mode=${mode}`, () => {
-      const out = classify([...prelude, "## Deps [D]"])
-      expect(last(out).type).toBe("DependenciesHeadingWeft")
-    })
-
-    it(`section probe + [T] yields TangleHeadingWeft from mode=${mode}`, () => {
-      const out = classify([...prelude, "## Tangle [T]"])
-      expect(last(out).type).toBe("TangleHeadingWeft")
     })
   }
 })
@@ -231,12 +211,12 @@ describe("Health status", () => {
     expect(last(out).health).toEqual(incompleteHealth)
   })
 
-  it("PreambleWeft is incompleteHealth (subtokens TODO)", () => {
+  it("PreambleWeft is incompleteHealth (Tokeniser settles to ok)", () => {
     const out = classify(["## A", "intro"])
     expect(last(out).health).toEqual(incompleteHealth)
   })
 
-  it("ProseWeft is incompleteHealth (subtokens TODO)", () => {
+  it("ProseWeft is incompleteHealth (Tokeniser settles to ok)", () => {
     const out = classify(["## A", "~", "prose"])
     expect(last(out).health).toEqual(incompleteHealth)
   })
@@ -339,22 +319,13 @@ describe("NOK placeholders on ChapterHeadingWeft", () => {
 })
 
 // =============================================================================
-// Section heading discrimination at the Classifier Stage — the Classifier
-// probes for `[D]` / `[T]` on section heading lines and emits the
-// appropriate reserved-heading weft kind directly. Detection is by
-// lightweight regex; the Tokeniser fills the real subtokens.
+// Section heading — every `##…` line classifies as SectionHeadingWeft. The
+// Classifier does not inspect the tag content; the Specifier-driven
+// de-dicto cut is a Synth-phase concern.
 // =============================================================================
 
-describe("Section heading — Classifier-Stage [D] / [T] discrimination", () => {
-  it("`## Deps [D]` → DependenciesHeadingWeft", () => {
-    expect(classify(["## Deps [D]"])[0].type).toBe("DependenciesHeadingWeft")
-  })
-
-  it("`## Tangle [T]` → TangleHeadingWeft", () => {
-    expect(classify(["## Tangle [T]"])[0].type).toBe("TangleHeadingWeft")
-  })
-
-  it("`## Greet [Greet]` → SectionHeadingWeft (non-reserved tag)", () => {
+describe("Section heading — uniform classification", () => {
+  it("`## Greet [Greet]` → SectionHeadingWeft", () => {
     expect(classify(["## Greet [Greet]"])[0].type).toBe("SectionHeadingWeft")
   })
 
@@ -362,26 +333,12 @@ describe("Section heading — Classifier-Stage [D] / [T] discrimination", () => 
     expect(classify(["## Plain heading"])[0].type).toBe("SectionHeadingWeft")
   })
 
-  it("`## Multi [D] [T]` → SectionHeadingWeft (multi-tag disqualifies promotion)", () => {
-    expect(classify(["## Multi [D] [T]"])[0].type).toBe("SectionHeadingWeft")
+  it("`## Deps {Loom}` → SectionHeadingWeft (Specifier on the heading is just a token)", () => {
+    expect(classify(["## Deps {Loom}"])[0].type).toBe("SectionHeadingWeft")
   })
 
-  it("`## Multi [Greet] [Reply]` → SectionHeadingWeft (multi-tag)", () => {
+  it("`## Multi [Greet] [Reply]` → SectionHeadingWeft (multi-tag is just data)", () => {
     expect(classify(["## Multi [Greet] [Reply]"])[0].type).toBe("SectionHeadingWeft")
-  })
-
-  it("`## [D]{TS}` → SectionHeadingWeft (specifier present disqualifies promotion)", () => {
-    expect(classify(["## [D]{TS}"])[0].type).toBe("SectionHeadingWeft")
-  })
-
-  it("Classifier-Stage DependenciesHeading carries incompleteHealth and a NOK placeholder tag", () => {
-    const w = classify(["## Deps [D]"])[0]
-    if (w.type !== "DependenciesHeadingWeft") throw new Error("expected DependenciesHeading")
-    expect(w.health.status).toBe("incomplete")
-    expect(w.tag.health.status).toBe("incomplete")
-    // Placeholder tag is zero-width at EOL — Tokeniser replaces it with the real tag.
-    expect(w.tag.position.start.offset).toBe(w.position.end.offset)
-    expect(w.tag.position.end.offset).toBe(w.position.end.offset)
   })
 })
 
@@ -413,18 +370,18 @@ describe("Mealy chain — output IS next state", () => {
     ])
   })
 
-  it("[D] / [T] section headings are emitted as DependenciesHeading / TangleHeading at the Classifier Stage", () => {
+  it("`{Loom}` sections behave like any other section (preamble + arrow + code admitted)", () => {
     const out = classify([
-      "## Deps [D]",
-      "import { X }",
-      "## Tangle [T]",
-      "compose(X)",
+      "## Deps {Loom}",
+      "Some preamble.",
+      "=>",
+      "needs(ScalaToolchain)",
     ])
     expect(types(out)).toEqual([
-      "DependenciesHeadingWeft",
-      "DependencyWeft",
-      "TangleHeadingWeft",
-      "TangleWeft",
+      "SectionHeadingWeft",
+      "PreambleWeft",
+      "ArrowWeft",
+      "CodeWeft",
     ])
   })
 

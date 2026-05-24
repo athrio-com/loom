@@ -4,14 +4,19 @@ import { okHealth, type Position } from "./LoomNode"
 import type { LoomWeft } from "./Weft"
 
 // =============================================================================
-// LoomAstBuilder — stub. Stage 3 of the parse pipeline (per how.md step 7).
+// LoomAstBuilder — final stage of the parse pipeline.
 //
-// Real implementation will use Stream.mapAccum with a chapter accumulator
-// (ChapterHeadingWeft flushes the previous chapter; sentinel flushes the
-// final chapter), then Stream.runFold into a LoomDocument.
+//   build(Stream<LoomWeft>): Effect<LoomDocument>
 //
-// For now: ignores the weft stream and returns an empty LoomDocument so
-// Loom.ts compiles end-to-end. Replaced when step 7 lands.
+// Groups the weft stream into the `LoomDocument → LoomChapter[] →
+// LoomSection[]` hierarchy via `Stream.mapAccum` with a chapter accumulator:
+// `ChapterHeadingWeft` flushes the previous chapter; a sentinel flushes the
+// final chapter. Inside a chapter, the same accumulator pattern groups
+// wefts into `LoomSection`s. Folds into a `LoomDocument` via
+// `Stream.runFold`. Never fails.
+//
+// Current implementation: stubbed — discards the input stream and returns
+// an empty document so the orchestrator compiles end-to-end.
 // =============================================================================
 
 const zeroPosition: Position = {

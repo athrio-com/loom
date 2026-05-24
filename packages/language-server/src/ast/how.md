@@ -1,8 +1,8 @@
-# Loom — Design Checkpoints and Implementation Plan
+# Loom AST — Specification
 
-Read `LoomAst.ts` first. It is the primary specification and prompt for the
-pipeline. Everything below records design decisions made through the AST
-landing passes. Honour all of them.
+The Loom parsing pipeline produces a `LoomDocument` AST from raw source
+text. This document specifies the architecture, grammar, vocabulary, and
+per-stage contracts.
 
 ---
 
@@ -96,9 +96,8 @@ invalid mode transitions) live in the `health` field of the relevant node.
 A flat diagnostic list is derived by walking the AST and collecting nodes
 where `health.status !== "ok"`.
 
-`okHealth` and `incompleteHealth` are exported from `LoomNode.ts` — use them
-everywhere the producer has nothing to report or is emitting a Classifier-Stage
-partial.
+`okHealth` and `incompleteHealth` are the canonical constants for the `ok`
+and `incomplete` cases, exported from `LoomNode.ts`.
 
 ---
 
@@ -147,7 +146,7 @@ Inside a Section or Chapter body, modes progress in one direction:
 [Heading]
    │
    ▼
-Preamble mode  (default)  →  PreambleWefts (specially tokenised)
+Preamble mode  (default)  →  PreambleWefts
    │
    ├── Arrow  → Code mode  →  CodeWefts
    │     │
@@ -190,16 +189,15 @@ other Specifier — the Chapter default included — makes the Section *de re*
 (`Arithmetic.needs(…)`), `tangle(…)`, `compose(…)`. The `=>` / `~` rhythm
 works as in any other Section; only the Code's type context changes.
 
-There is no reserved heading shape. The earlier `[D]` / `[T]` markers and
-their `DependenciesHeadingWeft` / `TangleHeadingWeft` Probes are gone. The
-Classifier emits ordinary `SectionHeadingWeft`s; the Specifier is the single
-discriminator and lives in the Specifier token. The de-dicto cut is a
-Synth-phase concern, not an AST-pipeline concern.
+There is no reserved heading shape. The Classifier emits ordinary
+`SectionHeadingWeft`s; the Specifier is the single discriminator and lives
+in the Specifier token. The de-dicto cut is a Synth-phase concern, not an
+AST-pipeline concern.
 
 A `{Loom}` Section can combine roles — declare dependencies (`Service.needs(…)`)
 and emit files (`tangle(…)`) in the same body — and a single Loom file may
-have multiple `{Loom}` Sections acting as Tangle roots. Exact composition
-rules belong to the Synth Frame Projection design.
+have multiple `{Loom}` Sections acting as Tangle roots. Composition rules
+belong to the Synth Frame Projection design.
 
 ---
 
@@ -241,18 +239,16 @@ Annotation forms:
   value. Diagnostic is a warning, not an error.
 
 Token recognition is mode-driven (Preamble / Prose for declarations, Code
-for references), not colon-sniffing. Both token kinds are deferred from the
-current AST pipeline; their landing is a Synth-phase concern.
+for references), not colon-sniffing. Warp tokens belong to the Synth phase,
+not the AST pipeline.
 
 ---
 
 ## Weft vocabulary
 
-`HeadingWeft` is dissolved into two specific kinds — `ChapterHeadingWeft`
-and `SectionHeadingWeft`. There is no reserved heading variant: the
-de-dicto distinction between frame and product Sections rides on the
-`Specifier` token (`{Loom}` vs everything else), not on a
-Probe-discriminated heading shape.
+Headings are two kinds — `ChapterHeadingWeft` and `SectionHeadingWeft`.
+The de-dicto distinction between frame and product Sections rides on the
+`Specifier` token (`{Loom}` vs everything else), not on the heading shape.
 
 - `ChapterHeadingWeft` — `#` (level 1). Requires tag + specifier (filter).
   Classifier emits with NOK placeholders; Tokeniser fills from source or
@@ -267,9 +263,10 @@ and before the specifier).
 
 Body Wefts:
 
-- `PreambleWeft` — line in Preamble mode (default after heading). Inner
-  tokenisation model TBD; Tokeniser flips health to `ok`.
-- `ProseWeft` — line in Prose mode (after a Tilde transition). Same.
+- `PreambleWeft` — line in Preamble mode (default after heading). Tokeniser
+  flips health to `ok`; inner-token expansion belongs to the Synth phase.
+- `ProseWeft` — line in Prose mode (after a Tilde transition). Same shape
+  and treatment as `PreambleWeft`.
 - `CodeWeft` — line in Code mode (after an Arrow transition). Opaque to
   Loom; embedded-language tokenisation happens elsewhere. Terminal.
 - `ArrowWeft` — the `=>` line. Carries `arrow: ArrowToken` and optional
@@ -316,133 +313,73 @@ the heading is the only marker that distinguishes them.
 
 ---
 
-## LoomServicePlugin
+## Stages
 
-A minimal `LoomServicePlugin` for `languageId: "loom"` is needed to surface
-Loom structural diagnostics. It reads the `LoomDocument` from the root
-`VirtualCode` and walks the AST collecting nodes where `health.status !==
-"ok"`.
+### `WeftClassifier`
 
----
+A Mealy machine over `(Mode, Probe)` driven by `Stream.mapAccum` carrying
+the previously emitted Weft.
 
-## Implementation order
+- **Mode** ∈ `orphan | preamble | code | prose`, derived from the previous
+  Weft via `modeOf`.
+- **Probe** is pure pattern recognition over the current line text; no
+  Mode awareness.
+- **Dispatch** is a decision table laid out as `Match.exhaustive` on Mode
+  with probe-narrowing inside the preamble and code rows. Chapter and
+  Section heading probes are mode-independent and handled with early
+  returns.
 
-Introduce features incrementally in this order. Do not skip ahead. Do not
-decide by yourself to move to the next item.
+Emitted Wefts carry `incompleteHealth` where subtoken filling is pending.
+ChapterHeading additionally carries NOK placeholder `tag` and `specifier`
+subnodes at zero-width EOL positions so the strict schema filter is
+satisfied without pretending content exists.
 
-### Done
+### `WeftTokeniser`
 
-1. **Health and Diagnostic schemas** — `LoomNode.ts` owns the foundation:
-   Severity / Diagnostic / HealthStatus / Health / okHealth and the
-   `loomNode()` combinator. Every existing node and subnode schema carries
-   `health: HealthSchema`.
+Pure `Stream.map` with `Match.exhaustive` over every LoomWeft kind. The
+stage is subtoken expansion plus health resolution.
 
-2. **New AST nodes** — `LoomDependencies` and `LoomTangle` originally
-   landed in `LoomAst.ts` with `LoomChapter.children` as a
-   `Union(LoomSection, LoomDependencies, LoomTangle)` array. Superseded
-   by the Specifier `{Loom}` unification — `LoomChapter.children` is now
-   `LoomSection[]` and the two reserved container kinds are gone.
+- **`ChapterHeadingWeft` / `SectionHeadingWeft`** — scan tag and specifier
+  anchors, build composite tokens, fill `texts[]` from the gaps between
+  structural tokens. Synthetic close at EOL with error health when source
+  has the open but no close. Bad label content preserved in
+  `label.unexpected[]` with synthetic empty `value`. ChapterHeading
+  synthesises error-health placeholders for missing tag or specifier.
+- **`ArrowWeft` / `TildeWeft`** — fill optional `code` / `prose` subtoken
+  via the lookbehind `Probe` on `CodeTokenSchema` / `ProseTokenSchema`;
+  flip health to `ok`.
+- **`PreambleWeft` / `ProseWeft`** — structural-final at this stage; flip
+  health to `ok`.
+- **`Weft` / `CodeWeft`** — passthrough; already `okHealth` from the
+  Classifier; terminal per design.
 
-3. **Token schema updates** — `TextTokenSchema`, `CodeTokenSchema`,
-   `ProseTokenSchema` in `LoomTokens.ts`. Position-only, with Probe
-   annotations. Level-specific heading-start tokens
-   (`ChapterHeadingStartTokenSchema`, `SectionHeadingStartTokenSchema`)
-   replace the generic HeadingStart.
+Post-Tokeniser invariant: no weft has `health.status === "incomplete"`.
 
-4. **Weft schema rewrite** — every Weft kind present, `texts` is an array,
-   union complete. PreambleWeft added.
+### `LoomAstBuilder`
 
-Out-of-band passes (after the original step 4, before step 5):
+`build(Stream<LoomWeft>) → Effect<LoomDocument>`. Groups wefts into the
+`LoomChapter` hierarchy via `Stream.mapAccum` with a chapter accumulator:
+ChapterHeadingWeft flushes the previous chapter; a sentinel flushes the
+final. Inside a chapter, the same accumulator pattern groups wefts into
+`LoomSection`s — one container kind, one path. Folds into `LoomDocument`
+via `Stream.runFold`.
 
-A. **Token-AST unification** — tokens crossed from "stream-only" into the
-   AST as health-bearing leaves via `loomNode()`. Tag/Specifier subnodes
-   (`TagOpen`/`Label`/`Close`, `SpecifierOpen`/`Label`/`Close`) became
-   named loomNodes; HeadingStart tokens were flattened (no inner `markers`
-   substruct, `value` lives on the token). The parallel
-   `LoomTag`/`LoomTagOpen`/… definitions in `LoomAst.ts` were dropped;
-   containers now reference token schemas directly. `LoomHeading.markers`
-   became a union of the two HeadingStart token kinds.
+### `Loom` (orchestrator)
 
-B. **Weft promotion + container reshape** — Wefts followed tokens into the
-   AST as health-bearing leaves. `source: LineRange` → `position: Position`.
-   `LoomSection` / `LoomChapter` body shape rewritten around the corrected
-   forward-only grammar: a `preamble` array of PreambleWefts and a `code`
-   array of `SectionBodyWeft` (the union of ArrowWeft, CodeWeft, TildeWeft,
-   ProseWeft). The separate `arrow?: ArrowToken` field is gone — the
-   ArrowWeft is now the first element of `code` when the arrow transition
-   fires.
-
-5. **`WeftClassifier.ts`** — the Classifier Stage. Mealy machine over
-   `(Mode, Probe)`. Mode ∈ `orphan | preamble | code | prose`, derived
-   from the previous Weft via `modeOf`. Probe is pure pattern recognition
-   over the line text. Decision table laid out as `Match.exhaustive` on
-   Mode with probe-narrowing inside preamble/code rows. All heading
-   patterns (chapter, section) handled with early returns — no reserved
-   discrimination at this stage. Wefts carry `incompleteHealth` where
-   subtoken filling is pending; ChapterHeading additionally carries NOK
-   placeholder tag and specifier at zero-width EOL so the strict schema
-   filter is satisfied without pretending.
-
-   Landed alongside: `incomplete` health status + `incompleteHealth`
-   constant in `LoomNode.ts`; the `unexpected?: ReadonlyArray<
-   UnexpectedToken>` field on every loomNode; `loomNode`'s `type` field
-   gets `withConstructorDefault`; cross-field health-aware filters on
-   `TagLabel` / `SpecifierLabel` and on the reserved-heading schemas.
-   Unit and integration tests under `WeftClassifier.test.ts` and
-   `WeftClassifier.integration.test.ts`; dev probe at
-   `scripts/classify-loom.ts`.
-
-6. **`WeftTokeniser.ts`** — the Tokeniser Stage. Pure `Stream.map`,
-   `Match.exhaustive` over every LoomWeft kind. Per-kind subtoken
-   expansion:
-
-   - `ChapterHeadingWeft` / `SectionHeadingWeft`: scan tag and specifier
-     anchors, build composite tokens (synthetic close at EOL with error
-     health when source has the open but no close; bad label content
-     preserved in `label.unexpected[]` with synthetic empty `value`),
-     fill `texts[]` from the gaps. ChapterHeading synthesises
-     error-health placeholders for missing tag/specifier (post-Tokeniser
-     ChapterHeading is never `incomplete`).
-   - `ArrowWeft` / `TildeWeft`: fill optional `code` / `prose` subtoken
-     via the lookbehind `Probe` on `CodeTokenSchema` /
-     `ProseTokenSchema`; flip health to `ok`.
-   - `PreambleWeft` / `ProseWeft`: structural-final at this stage — flip
-     health to `ok`.
-   - `Weft` / `CodeWeft`: passthrough (already `okHealth` from the
-     Classifier; terminal per design).
-
-   The Tokeniser is purely subtoken expansion + health resolution.
-   Post-Tokeniser invariant: `health.status` is never `incomplete`.
-
-   Tests at `WeftTokeniser.test.ts`: heading tokenisation, body weft
-   subtoken expansion, multi-tag / multi-specifier handling, synthetic
-   close on unclosed brackets, malformed label values, text gaps, health
-   aggregation.
-
-### Remaining
-
-7. **`LoomAstBuilder.ts`** — implement `build(Stream<LoomWeft>)` using
-   `Stream.mapAccum` with a chapter accumulator. Groups wefts into the
-   `LoomChapter` hierarchy: ChapterHeadingWeft flushes the previous chapter;
-   sentinel flushes the final. Inside a chapter, the same accumulator
-   pattern groups wefts into `LoomSection`s — one container kind, no
-   Deps/Tangle discrimination. Folds into `LoomDocument` via
-   `Stream.runFold`.
-
-8. **`Loom.ts` (orchestrator)** — already wired with `LoomSourceRanges` +
-   `WeftClassifier` + `WeftTokeniser` + `LoomAstBuilder`. `emptyDocumentFor
-   (err: MixedEOL)` already produces a minimal LoomDocument with NOK root
-   health. Re-verify once step 7 lands that the pipeline composes
-   end-to-end.
+Wires `LoomSourceRanges` → `WeftClassifier` → `WeftTokeniser` →
+`LoomAstBuilder` into a single `Loom.ast(text): Effect<LoomDocument>`
+entry point. `MixedEOL` from `LoomSourceRanges` is caught at the
+orchestrator and converted to a minimal LoomDocument with NOK root health
+via `emptyDocumentFor`; no further stages run on that path.
 
 ---
 
-## Do not
+## Invariants
 
-- Introduce a `ClassifiedLine` intermediate type — `LoomWeft` is the stream
-  element between every stage.
-- Implement Frame synthesis or `loomLanguagePlugin` projection — out of
-  scope for the AST pipeline.
-- Reintroduce parallel non-`loomNode` schemas in `LoomAst.ts` /
-  `LoomTokens.ts` / `Weft.ts` — every AST citizen flows through
-  `loomNode()`, no exceptions.
+- `LoomWeft` is the stream element between every stage. There is no
+  intermediate `ClassifiedLine` type.
+- Every AST citizen — container, Weft, or Token — flows through
+  `loomNode()`. No parallel non-`loomNode` schemas in `LoomAst.ts` /
+  `LoomTokens.ts` / `Weft.ts`.
+- Frame synthesis and `loomLanguagePlugin` projection are outside the AST
+  pipeline.

@@ -23,10 +23,6 @@ import {
   ChapterHeadingWeftSchema,
   type CodeWeft,
   CodeWeftSchema,
-  type DependenciesHeadingWeft,
-  DependenciesHeadingWeftSchema,
-  type DependencyWeft,
-  DependencyWeftSchema,
   type LoomWeft,
   type PreambleWeft,
   PreambleWeftSchema,
@@ -34,10 +30,6 @@ import {
   ProseWeftSchema,
   type SectionHeadingWeft,
   SectionHeadingWeftSchema,
-  type TangleHeadingWeft,
-  TangleHeadingWeftSchema,
-  type TangleWeft,
-  TangleWeftSchema,
   type TildeWeft,
   TildeWeftSchema,
   type Weft,
@@ -56,31 +48,23 @@ import {
 //
 // Output Wefts are partially populated: the leading token is filled
 // (headingStart, arrow, tilde) and the weft carries `incompleteHealth`.
-// Sub-token expansion (texts[], tags, specifier, code?, prose?) and any
-// promotion of SectionHeadingWeft to DependenciesHeadingWeft or
-// TangleHeadingWeft happens in the Tokeniser Stage. The Classifier Stage
-// never emits DependenciesHeadingWeft or TangleHeadingWeft directly.
+// Sub-token expansion (texts[], tags, specifier, code?, prose?) happens in
+// the Tokeniser Stage. There is no reserved heading shape: every `##`+
+// heading is a SectionHeadingWeft regardless of tag content; the de-dicto
+// (frame) vs de-re (product) distinction rides on the Specifier token at
+// Synth time.
 // =============================================================================
 
-// The Classifier-Stage Weft union. Every weft kind is emittable here — the
-// Classifier probes `[D]` / `[T]` on section heading lines to classify
-// Deps/Tangle headings directly (with NOK placeholder subnodes; the Tokeniser
-// fills real tokens). Body wefts inside Deps/Tangle sections become opaque
-// `DependencyWeft` / `TangleWeft` because reserved sections do not admit
-// arrow / tilde transitions per the grammar.
+// The Classifier-Stage Weft union — every kind the Classifier may emit.
 type ClassifierStageWeft =
   | Weft
   | ChapterHeadingWeft
   | SectionHeadingWeft
-  | DependenciesHeadingWeft
-  | TangleHeadingWeft
   | PreambleWeft
   | CodeWeft
   | ProseWeft
   | ArrowWeft
   | TildeWeft
-  | DependencyWeft
-  | TangleWeft
 
 export class WeftClassifier extends Effect.Service<WeftClassifier>()(
   "WeftClassifier",
@@ -104,26 +88,15 @@ export class WeftClassifier extends Effect.Service<WeftClassifier>()(
 
 // =============================================================================
 // Two enumerable axes:
-//   Mode  ∈ { orphan | preamble | code | prose | deps | tangle }
+//   Mode  ∈ { orphan | preamble | code | prose }
 //   Probe ∈ { chapter | section | arrow | tilde | plain }
 //
 // Decision table (priority top-to-bottom):
 //                    chapter  section  arrow    tilde    plain
-//   orphan           Chap     Sect*    Weft     Weft     Weft
-//   preamble         Chap     Sect*    Arrow    Tilde    Preamble
-//   code             Chap     Sect*    Code     Tilde    Code
-//   prose            Chap     Sect*    Prose    Prose    Prose
-//   deps             Chap     Sect*    Dep      Dep      Dep
-//   tangle           Chap     Sect*    Tng      Tng      Tng
-//
-// Sect* = SectionHeadingWeft, or DependenciesHeadingWeft if the line has
-// exactly one `[D]` tag and no specifier, or TangleHeadingWeft if exactly
-// one `[T]`. Detection is by lightweight regex on the line content — no
-// token construction in the Classifier; the Tokeniser fills real subtokens.
-//
-// Per how.md, reserved sections (Deps/Tangle) do not admit arrow/tilde
-// transitions: any non-heading line inside them becomes the section's
-// homogeneous body weft (DependencyWeft / TangleWeft), opaque per design.
+//   orphan           Chap     Sect     Weft     Weft     Weft
+//   preamble         Chap     Sect     Arrow    Tilde    Preamble
+//   code             Chap     Sect     Code     Tilde    Code
+//   prose            Chap     Sect     Prose    Prose    Prose
 //
 // The chapter and section columns are mode-independent — handled with early
 // returns before the Match. Everything below dispatches on Mode (outer
@@ -146,11 +119,7 @@ const probeWeft = (
 
   // Mode-independent columns
   if (probe.kind === "chapter") return makeChapterHeadingWeft(line, range)
-  if (probe.kind === "section") {
-    if (probe.reserved === "deps") return makeDependenciesHeadingWeft(line, range, probe.sect)
-    if (probe.reserved === "tangle") return makeTangleHeadingWeft(line, range, probe.sect)
-    return makeSectionHeadingWeft(line, range, probe.sect)
-  }
+  if (probe.kind === "section") return makeSectionHeadingWeft(line, range, probe.sect)
 
   // Mode-driven dispatch — one row per Mode. The preamble and code rows
   // narrow on probe.kind for their transitional cells.
@@ -170,8 +139,6 @@ const probeWeft = (
         : CodeWeftSchema.make({ position, health: okHealth }),
     ),
     Match.when("prose", () => ProseWeftSchema.make({ position, health: incompleteHealth })),
-    Match.when("deps", () => DependencyWeftSchema.make({ position, health: okHealth })),
-    Match.when("tangle", () => TangleWeftSchema.make({ position, health: okHealth })),
     Match.exhaustive,
   )
 }
@@ -194,7 +161,7 @@ const span = (line: number, start: number, end: number): Position => ({
 // Mode — the state axis. Derived from the previous Weft's type.
 // =============================================================================
 
-type Mode = "orphan" | "preamble" | "code" | "prose" | "deps" | "tangle"
+type Mode = "orphan" | "preamble" | "code" | "prose"
 
 const modeOf = (prev: Option.Option<ClassifierStageWeft>): Mode =>
   Option.match(prev, {
@@ -208,10 +175,6 @@ const modeOf = (prev: Option.Option<ClassifierStageWeft>): Mode =>
       Match.when({ type: "CodeWeft" }, () => "code" as const),
       Match.when({ type: "TildeWeft" }, () => "prose" as const),
       Match.when({ type: "ProseWeft" }, () => "prose" as const),
-      Match.when({ type: "DependenciesHeadingWeft" }, () => "deps" as const),
-      Match.when({ type: "DependencyWeft" }, () => "deps" as const),
-      Match.when({ type: "TangleHeadingWeft" }, () => "tangle" as const),
-      Match.when({ type: "TangleWeft" }, () => "tangle" as const),
       Match.when({ type: "Weft" }, () => "orphan" as const),
       Match.exhaustive,
     ),
@@ -225,15 +188,13 @@ const modeOf = (prev: Option.Option<ClassifierStageWeft>): Mode =>
 
 type Probe =
   | { readonly kind: "chapter" }
-  | { readonly kind: "section"; readonly sect: RegExpMatchArray; readonly reserved: "deps" | "tangle" | null }
+  | { readonly kind: "section"; readonly sect: RegExpMatchArray }
   | { readonly kind: "arrow"; readonly m: RegExpMatchArray }
   | { readonly kind: "tilde"; readonly m: RegExpMatchArray }
   | { readonly kind: "plain" }
 
 const chapterProbe = Option.getOrThrow(getProbe(ChapterHeadingStartTokenSchema))
 const sectionProbe = Option.getOrThrow(getProbe(SectionHeadingStartTokenSchema))
-const depsHeadingProbe = Option.getOrThrow(getProbe(DependenciesHeadingWeftSchema))
-const tangleHeadingProbe = Option.getOrThrow(getProbe(TangleHeadingWeftSchema))
 const arrowProbe = Option.getOrThrow(getProbe(ArrowTokenSchema))
 const tildeProbe = Option.getOrThrow(getProbe(TildeTokenSchema))
 
@@ -241,12 +202,7 @@ const probeOf = (lineText: string): Probe => {
   const ch = chapterProbe.exec(lineText)
   if (ch) return { kind: "chapter" }
   const sect = sectionProbe.exec(lineText)
-  if (sect) {
-    const reserved = depsHeadingProbe.test(lineText) ? "deps"
-      : tangleHeadingProbe.test(lineText) ? "tangle"
-      : null
-    return { kind: "section", sect, reserved }
-  }
+  if (sect) return { kind: "section", sect }
   const a = arrowProbe.exec(lineText)
   if (a) return { kind: "arrow", m: a }
   const t = tildeProbe.exec(lineText)
@@ -257,25 +213,22 @@ const probeOf = (lineText: string): Probe => {
 // =============================================================================
 // Heading-weft constructors.
 //
-// Real subtokens parsed from source carry okHealth (headingStart, discriminator
-// tags). NOK placeholder subtokens stand in for fields a downstream stage is
-// expected to fill (chapter tag/specifier) — they satisfy schema filters
-// structurally while their `health.status === "incomplete"` communicates that
-// they are stand-ins. Placeholders take a zero-width position at the end of
-// the heading line so they map to no real source span.
+// The Classifier fills the leading marker token (`headingStart`) with
+// okHealth from source. Required slots the Classifier cannot fill yet (the
+// chapter heading's `tag` and `specifier`) are filled with NOK placeholders
+// at zero-width EOL positions carrying `incompleteHealth`, so the strict
+// schema filter is satisfied without claiming content that isn't there.
 //
-// The weft itself carries incompleteHealth while subnode tokenisation is
-// pending. The Tokeniser Stage promotes the weft to okHealth (or errorHealth)
-// once it has either filled the real tokens or determined that they are
-// missing.
+// The weft itself carries `incompleteHealth`. The Tokeniser settles it to
+// `ok` once the real subtokens are in place, or to `error` when a required
+// slot has no source content.
 // =============================================================================
 
-// NOK placeholder subtokens — zero-width at the line's EOL, all subnodes
-// carry incompleteHealth. The schema's cross-field filter on TagLabel /
-// SpecifierLabel admits the empty `value` only because health is NOK; the
-// outer heading schemas (Deps/Tangle) are health-aware so they accept the
-// placeholder during the Classifier Stage and enforce the real label
-// content once the Tokeniser flips status to ok.
+// NOK placeholder subtokens — zero-width at the line's EOL, every subnode
+// carrying `incompleteHealth`. The cross-field filter on TagLabel /
+// SpecifierLabel admits the empty `value` because health is non-ok. Only
+// ChapterHeading emits placeholders (its schema requires both tag and
+// specifier); SectionHeading leaves both slots `undefined`.
 const nokTagToken = (line: number, range: LineRange) => {
   const eol = span(line, range[1], range[1])
   return TagTokenSchema.make({
@@ -331,36 +284,6 @@ const makeSectionHeadingWeft = (
     health: incompleteHealth,
     headingStart: sectionHeadingStart(line, range, m),
     texts: [],
-  })
-
-// Reserved-section headings — emitted when the Classifier's regex check on
-// the section line found exactly one `[D]` / `[T]` tag and no specifier.
-// The Tokeniser Stage replaces the NOK placeholder tag with a real tag
-// tokenised from source; the schema filter accepts incomplete-health wefts
-// regardless of tag content, then enforces `label.value === "D"` / `"T"`
-// once health is `ok`.
-const makeDependenciesHeadingWeft = (
-  line: number, range: LineRange, m: RegExpMatchArray,
-): DependenciesHeadingWeft =>
-  DependenciesHeadingWeftSchema.make({
-    type: "DependenciesHeadingWeft",
-    position: linePos(line, range),
-    health: incompleteHealth,
-    headingStart: sectionHeadingStart(line, range, m),
-    texts: [],
-    tag: nokTagToken(line, range),
-  })
-
-const makeTangleHeadingWeft = (
-  line: number, range: LineRange, m: RegExpMatchArray,
-): TangleHeadingWeft =>
-  TangleHeadingWeftSchema.make({
-    type: "TangleHeadingWeft",
-    position: linePos(line, range),
-    health: incompleteHealth,
-    headingStart: sectionHeadingStart(line, range, m),
-    texts: [],
-    tag: nokTagToken(line, range),
   })
 
 // =============================================================================

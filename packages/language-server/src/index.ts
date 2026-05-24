@@ -11,17 +11,13 @@ import { create as createMarkdownService } from "volar-service-markdown"
 import { loomLanguagePlugin } from "./LoomLanguagePlugin"
 
 // =============================================================================
-// LSP entry point — an Effect program.
+// LSP entry point — an Effect program launched via `NodeRuntime.runMain`.
 //
-// Per CLAUDE.md the LSP must boot from NodeRuntime.runMain. The program body
-// today is the boot itself plus `Effect.never` to keep the fiber alive while
-// Volar's JSON-RPC callbacks run. There is no Service to provide yet — the
-// plugin is a plain object with three pure functions; Volar holds it and
-// invokes those functions on its own dispatch loop.
-//
-// When the projector (SourceStream → WeftsStream → DocumentParser → embedded
-// virtual codes) lands and needs Effect-resolved dependencies, the plugin
-// graduates back into an Effect.Service and is provided as a Layer here.
+// The program wires Volar's connection and server, registers the Loom
+// language plugin alongside HTML/CSS/Markdown services, and yields to
+// `Effect.never` to keep the fiber alive while Volar drives JSON-RPC
+// callbacks. The plugin is a plain Volar `LanguagePlugin` — Volar holds it
+// and invokes its hooks on its own dispatch loop.
 // =============================================================================
 
 const program = Effect.gen(function* () {

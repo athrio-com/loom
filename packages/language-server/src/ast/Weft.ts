@@ -4,7 +4,6 @@ import {
   ArrowTokenSchema,
   ChapterHeadingStartTokenSchema,
   CodeTokenSchema,
-  Probe,
   ProseTokenSchema,
   SectionHeadingStartTokenSchema,
   SpecifierTokenSchema,
@@ -50,8 +49,9 @@ export const ChapterHeadingWeftSchema = loomNode("ChapterHeadingWeft", {
 )
 export type ChapterHeadingWeft = typeof ChapterHeadingWeftSchema.Type
 
-// SectionHeadingWeft — `##`+ heading. Does not apply to reserved Dependencies
-// or Tangle headings; those are recognised at classification time.
+// SectionHeadingWeft — `##`+ heading. Tag and specifier both optional. The
+// de-dicto / de-re distinction (frame vs product Section) rides on the
+// Specifier token (`{Loom}` vs everything else); no reserved heading variant.
 export const SectionHeadingWeftSchema = loomNode("SectionHeadingWeft", {
   headingStart: SectionHeadingStartTokenSchema,
   texts: Schema.Array(TextTokenSchema),
@@ -59,50 +59,6 @@ export const SectionHeadingWeftSchema = loomNode("SectionHeadingWeft", {
   specifier: Schema.optional(SpecifierTokenSchema),
 })
 export type SectionHeadingWeft = typeof SectionHeadingWeftSchema.Type
-
-// DependenciesHeadingWeft — reserved `##`+ heading whose tag is `[D]`. The
-// schema carries a line-level Probe that recognises the structural form
-// "section marker + (any non-bracket/brace text) + [D] + (any non-bracket/
-// brace text)" — exactly one reserved tag, no extras, no specifier. The
-// Classifier consults this Probe via `getProbe` to discriminate at probe
-// time, with no token construction.
-//
-// The filter is health-aware: NOK-health wefts (Classifier-Stage
-// placeholders) are admitted with any tag content; `ok`-health wefts must
-// satisfy `tag.label.value === "D"`. The Tokeniser Stage flips the health
-// from `incomplete` to `ok` after building the real tag from source.
-export const DependenciesHeadingWeftSchema = loomNode("DependenciesHeadingWeft", {
-  headingStart: SectionHeadingStartTokenSchema,
-  texts: Schema.Array(TextTokenSchema),
-  tag: TagTokenSchema,
-}).pipe(
-  Schema.filter((w) => {
-    if (w.health.status !== "ok") return true
-    return w.tag.label.value === "D"
-      ? true
-      : "DependenciesHeadingWeft with `ok` health requires tag `[D]`"
-  }),
-).annotations({
-  [Probe]: /^#{2,6} [^\[\]{}]*\[D\][^\[\]{}]*$/,
-})
-export type DependenciesHeadingWeft = typeof DependenciesHeadingWeftSchema.Type
-
-// TangleHeadingWeft — same shape, `[T]` discriminator.
-export const TangleHeadingWeftSchema = loomNode("TangleHeadingWeft", {
-  headingStart: SectionHeadingStartTokenSchema,
-  texts: Schema.Array(TextTokenSchema),
-  tag: TagTokenSchema,
-}).pipe(
-  Schema.filter((w) => {
-    if (w.health.status !== "ok") return true
-    return w.tag.label.value === "T"
-      ? true
-      : "TangleHeadingWeft with `ok` health requires tag `[T]`"
-  }),
-).annotations({
-  [Probe]: /^#{2,6} [^\[\]{}]*\[T\][^\[\]{}]*$/,
-})
-export type TangleHeadingWeft = typeof TangleHeadingWeftSchema.Type
 
 // ArrowWeft — `=>` line. The Arrow token; any trailing code content is the
 // optional CodeToken. The Arrow transition into Code mode is the line's
@@ -121,16 +77,15 @@ export const TildeWeftSchema = loomNode("TildeWeft", {
 })
 export type TildeWeft = typeof TildeWeftSchema.Type
 
-// PreambleWeft — a line in Preamble mode (default for the body of a Section
-// or Chapter before any mode transition). PreambleWefts have their own
-// tokenisation rules — distinct from ProseWefts (which only appear after a
-// Tilde transition).
-// TODO: subtoken structure
+// PreambleWeft — a line in Preamble mode (the default body mode after a
+// heading, before any Arrow or Tilde transition). Distinct from ProseWeft,
+// which only appears after a Tilde transition. Inner-token expansion (Warp
+// declarations, inline references) belongs to the Synth phase.
 export const PreambleWeftSchema = loomNode("PreambleWeft", {})
 export type PreambleWeft = typeof PreambleWeftSchema.Type
 
-// ProseWeft — a line in Prose mode (after a Tilde transition).
-// TODO: subtoken structure
+// ProseWeft — a line in Prose mode (after a Tilde transition). Same shape
+// and Synth-phase treatment as PreambleWeft.
 export const ProseWeftSchema = loomNode("ProseWeft", {})
 export type ProseWeft = typeof ProseWeftSchema.Type
 
@@ -138,16 +93,6 @@ export type ProseWeft = typeof ProseWeftSchema.Type
 // Opaque to Loom; embedded-language tokenisation happens elsewhere.
 export const CodeWeftSchema = loomNode("CodeWeft", {})
 export type CodeWeft = typeof CodeWeftSchema.Type
-
-// DependencyWeft — a line in the body of a LoomDependencies section.
-// TODO: subtoken structure
-export const DependencyWeftSchema = loomNode("DependencyWeft", {})
-export type DependencyWeft = typeof DependencyWeftSchema.Type
-
-// TangleWeft — a line in the body of a LoomTangle section.
-// TODO: subtoken structure
-export const TangleWeftSchema = loomNode("TangleWeft", {})
-export type TangleWeft = typeof TangleWeftSchema.Type
 
 // =============================================================================
 // LoomWeft — the union of all Weft kinds. The Tokeniser's output stream
@@ -158,15 +103,11 @@ export const LoomWeftSchema = Schema.Union(
   WeftSchema,
   ChapterHeadingWeftSchema,
   SectionHeadingWeftSchema,
-  DependenciesHeadingWeftSchema,
-  TangleHeadingWeftSchema,
   ArrowWeftSchema,
   TildeWeftSchema,
   PreambleWeftSchema,
   ProseWeftSchema,
   CodeWeftSchema,
-  DependencyWeftSchema,
-  TangleWeftSchema,
 )
 export type LoomWeft = typeof LoomWeftSchema.Type
 

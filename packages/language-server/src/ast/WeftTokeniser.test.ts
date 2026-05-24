@@ -38,12 +38,7 @@ const tokenise = (lines: ReadonlyArray<string>): ReadonlyArray<LoomWeft> => {
 
 const headingAt = (out: ReadonlyArray<LoomWeft>, idx: number) => {
   const w = out[idx]
-  if (
-    w.type !== "ChapterHeadingWeft"
-    && w.type !== "SectionHeadingWeft"
-    && w.type !== "DependenciesHeadingWeft"
-    && w.type !== "TangleHeadingWeft"
-  ) {
+  if (w.type !== "ChapterHeadingWeft" && w.type !== "SectionHeadingWeft") {
     throw new Error(`expected a heading at index ${idx}, got ${w.type}`)
   }
   return w
@@ -161,46 +156,46 @@ describe("Tokeniser — ChapterHeading", () => {
 })
 
 // =============================================================================
-// SectionHeading — schema makes tag and specifier optional. Promotion to
-// Deps/Tangle is attempted when exactly one reserved-label tag is present
-// and no specifier; otherwise the weft stays as SectionHeading.
+// SectionHeading — schema makes tag and specifier optional. Every `##…`
+// line is a SectionHeadingWeft regardless of tag content; the Specifier-
+// driven de-dicto cut happens at Synth time.
 // =============================================================================
 
-describe("Tokeniser — SectionHeading promotion", () => {
-  it("promotes `## … [D]` to DependenciesHeadingWeft", () => {
-    const out = tokenise(["## Deps [D]"])
-    expect(out[0].type).toBe("DependenciesHeadingWeft")
-  })
-
-  it("promotes `## … [T]` to TangleHeadingWeft", () => {
-    const out = tokenise(["## Tangle [T]"])
-    expect(out[0].type).toBe("TangleHeadingWeft")
-  })
-
-  it("non-reserved single tag → stays SectionHeadingWeft with the tag filled", () => {
+describe("Tokeniser — SectionHeading", () => {
+  it("single tag → SectionHeadingWeft with the tag filled", () => {
     const out = tokenise(["## Section [Greet]"])
     const w = headingAt(out, 0)
     if (w.type !== "SectionHeadingWeft") throw new Error()
     expect(w.tag?.label.value).toBe("Greet")
   })
 
-  it("a single tag + a specifier blocks promotion (Deps/Tangle have no specifier slot)", () => {
-    const out = tokenise(["## Section [D]{TypeScript}"])
-    expect(out[0].type).toBe("SectionHeadingWeft")
+  it("`[D]` is just a tag like any other (no promotion)", () => {
+    const out = tokenise(["## Deps [D]"])
+    const w = headingAt(out, 0)
+    if (w.type !== "SectionHeadingWeft") throw new Error()
+    expect(w.tag?.label.value).toBe("D")
   })
 
-  it("no tags → stays SectionHeadingWeft with undefined tag", () => {
+  it("tag + specifier → SectionHeadingWeft with both filled", () => {
+    const out = tokenise(["## Section [D]{TypeScript}"])
+    const w = headingAt(out, 0)
+    if (w.type !== "SectionHeadingWeft") throw new Error()
+    expect(w.tag?.label.value).toBe("D")
+    expect(w.specifier?.label.value).toBe("TypeScript")
+  })
+
+  it("`{Loom}` Specifier is just a token (no special routing at Classifier/Tokeniser)", () => {
+    const out = tokenise(["## Deps {Loom}"])
+    const w = headingAt(out, 0)
+    if (w.type !== "SectionHeadingWeft") throw new Error()
+    expect(w.specifier?.label.value).toBe("Loom")
+  })
+
+  it("no tags → SectionHeadingWeft with undefined tag", () => {
     const out = tokenise(["## Plain heading"])
     const w = headingAt(out, 0)
     if (w.type !== "SectionHeadingWeft") throw new Error()
     expect(w.tag).toBeUndefined()
-  })
-
-  it("promoted Deps weft's tag has label value 'D'", () => {
-    const out = tokenise(["## Deps [D]"])
-    const w = out[0]
-    if (w.type !== "DependenciesHeadingWeft") throw new Error()
-    expect(w.tag.label.value).toBe("D")
   })
 })
 
@@ -216,12 +211,6 @@ describe("Tokeniser — multi-tag / multi-specifier", () => {
     if (w.type !== "SectionHeadingWeft") throw new Error()
     expect(w.unexpected).toBeDefined()
     expect(w.unexpected!.length).toBeGreaterThan(0)
-  })
-
-  it("multi-tag heading promotes neither to Deps nor Tangle", () => {
-    expect(tokenise(["## Multi [D] [T]"])[0].type).toBe("SectionHeadingWeft")
-    expect(tokenise(["## Multi [T] [D]"])[0].type).toBe("SectionHeadingWeft")
-    expect(tokenise(["## Multi [D] [D]"])[0].type).toBe("SectionHeadingWeft")
   })
 
   it("first tag still becomes the weft's `tag`; extras go to unexpected", () => {
@@ -369,7 +358,7 @@ describe("Tokeniser — text gaps", () => {
 // Pass-through — wefts the Tokeniser doesn't yet handle survive unchanged.
 // =============================================================================
 
-describe("Tokeniser — body weft kinds preserved (outside Deps/Tangle)", () => {
+describe("Tokeniser — body weft kinds preserved", () => {
   it("Weft, PreambleWeft, ArrowWeft, CodeWeft, TildeWeft, ProseWeft survive their kind", () => {
     const out = tokenise([
       "pre-chapter line",  // Weft
@@ -474,76 +463,22 @@ describe("Tokeniser — body weft subtoken expansion", () => {
 })
 
 // =============================================================================
-// Body re-typing inside Deps / Tangle sections — Stage 1 re-types body wefts
-// to opaque DependencyWeft / TangleWeft before any inner-content tokenisation
-// happens, so we never tokenise an ArrowWeft only to discard it.
+// `{Loom}` sections — same grammar as any other Section. The `{Loom}`
+// Specifier is just a token; there is no special body weft re-typing.
 // =============================================================================
 
-describe("Tokeniser — Stage 1 body re-typing inside Deps / Tangle", () => {
-  it("PreambleWeft inside Deps section becomes opaque DependencyWeft", () => {
-    const out = tokenise(["## Deps [D]", "import { Hono }"])
-    expect(out[0].type).toBe("DependenciesHeadingWeft")
-    expect(out[1].type).toBe("DependencyWeft")
-  })
-
-  it("PreambleWeft inside Tangle section becomes opaque TangleWeft", () => {
-    const out = tokenise(["## Tangle [T]", "compose(App)"])
-    expect(out[0].type).toBe("TangleHeadingWeft")
-    expect(out[1].type).toBe("TangleWeft")
-  })
-
-  it("ArrowWeft / CodeWeft inside Deps are absorbed as opaque DependencyWeft (no inner tokenisation)", () => {
-    const out = tokenise(["## Deps [D]", "=>", "import X"])
+describe("Tokeniser — `{Loom}` sections behave like any other Section", () => {
+  it("`## Deps {Loom}` admits Preamble + Arrow + Code wefts in its body", () => {
+    const out = tokenise(["## Deps {Loom}", "Some preamble.", "=>", "needs(X)"])
     expect(out.map((w) => w.type)).toEqual([
-      "DependenciesHeadingWeft",
-      "DependencyWeft",
-      "DependencyWeft",
-    ])
-  })
-
-  it("re-typed DependencyWeft / TangleWeft carry okHealth (opaque per design)", () => {
-    const out = tokenise(["## Deps [D]", "import X"])
-    expect(out[1].health.status).toBe("ok")
-    const out2 = tokenise(["## Tangle [T]", "compose(X)"])
-    expect(out2[1].health.status).toBe("ok")
-  })
-
-  it("re-typed DependencyWeft / TangleWeft preserve the source position", () => {
-    // Line 2 is "import X" — offsets 12..20 in the combined source.
-    const out = tokenise(["## Deps [D]", "import X"])
-    expect(out[1].position.start.offset).toBe(12)
-    expect(out[1].position.end.offset).toBe(20)
-  })
-
-  it("section context resets to `regular` after a non-Deps/Tangle heading", () => {
-    const out = tokenise([
-      "## Deps [D]",     // → DepsHeading, ctx=deps
-      "import X",         // → DependencyWeft
-      "## Plain section", // → SectionHeading, ctx=regular
-      "preamble",         // → PreambleWeft (NOT DependencyWeft)
-    ])
-    expect(out.map((w) => w.type)).toEqual([
-      "DependenciesHeadingWeft",
-      "DependencyWeft",
       "SectionHeadingWeft",
       "PreambleWeft",
+      "ArrowWeft",
+      "CodeWeft",
     ])
   })
 
-  it("two consecutive Deps sections each re-type their own bodies", () => {
-    const out = tokenise([
-      "## Deps A [D]", "import A",
-      "## Deps B [D]", "import B",
-    ])
-    expect(out.map((w) => w.type)).toEqual([
-      "DependenciesHeadingWeft",
-      "DependencyWeft",
-      "DependenciesHeadingWeft",
-      "DependencyWeft",
-    ])
-  })
-
-  it("body wefts before any heading (outside context) pass through unchanged", () => {
+  it("body wefts before any heading (orphan mode) pass through as plain Weft", () => {
     const out = tokenise(["loose line"])
     expect(out[0].type).toBe("Weft")
   })

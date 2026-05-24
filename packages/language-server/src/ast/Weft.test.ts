@@ -13,10 +13,8 @@ import { okHealth } from "./LoomNode"
 import {
   ArrowWeftSchema,
   ChapterHeadingWeftSchema,
-  DependenciesHeadingWeftSchema,
   LoomWeftSchema,
   SectionHeadingWeftSchema,
-  TangleHeadingWeftSchema,
   TildeWeftSchema,
   WeftSchema,
 } from "./Weft"
@@ -71,17 +69,12 @@ describe("Probe annotation", () => {
     expect(Option.isSome(getProbe(SpecifierTokenSchema))).toBe(true)
   })
 
-  it("returns None for Wefts without line-level recognition rules", () => {
+  it("returns None for Wefts (line-level recognition lives on tokens only)", () => {
     expect(Option.isNone(getProbe(WeftSchema))).toBe(true)
     expect(Option.isNone(getProbe(ChapterHeadingWeftSchema))).toBe(true)
     expect(Option.isNone(getProbe(SectionHeadingWeftSchema))).toBe(true)
     expect(Option.isNone(getProbe(ArrowWeftSchema))).toBe(true)
     expect(Option.isNone(getProbe(TildeWeftSchema))).toBe(true)
-  })
-
-  it("returns Some for Deps/Tangle heading Wefts (line-level Probe for [D]/[T] discrimination)", () => {
-    expect(Option.isSome(getProbe(DependenciesHeadingWeftSchema))).toBe(true)
-    expect(Option.isSome(getProbe(TangleHeadingWeftSchema))).toBe(true)
   })
 })
 
@@ -366,98 +359,6 @@ describe("ChapterHeadingWeft schema", () => {
         texts: [],
         tag: validTag,
         specifier: validSpecifier,
-      }),
-    ).toBe(false)
-  })
-})
-
-describe("DependenciesHeadingWeft schema", () => {
-  const depsTag = {
-    ...validTag,
-    label: { type: "TagLabel" as const, value: "D", position: samplePosition, health: okHealth },
-  }
-
-  it("accepts `##` heading with tag `[D]`", () => {
-    expect(
-      Schema.is(DependenciesHeadingWeftSchema)({
-        type: "DependenciesHeadingWeft",
-        position: samplePosition,
-        health: okHealth,
-        headingStart: validSectionHeadingStart,
-        texts: [],
-        tag: depsTag,
-      }),
-    ).toBe(true)
-  })
-
-  it("rejects when tag is not `[D]`", () => {
-    expect(
-      Schema.is(DependenciesHeadingWeftSchema)({
-        type: "DependenciesHeadingWeft",
-        position: samplePosition,
-        health: okHealth,
-        headingStart: validSectionHeadingStart,
-        texts: [],
-        tag: validTag, // label is "Greet"
-      }),
-    ).toBe(false)
-  })
-
-  it("rejects a level-1 ChapterHeadingStart in the headingStart slot", () => {
-    expect(
-      Schema.is(DependenciesHeadingWeftSchema)({
-        type: "DependenciesHeadingWeft",
-        position: samplePosition,
-        health: okHealth,
-        headingStart: validChapterHeadingStart,
-        texts: [],
-        tag: depsTag,
-      }),
-    ).toBe(false)
-  })
-})
-
-describe("TangleHeadingWeft schema", () => {
-  const tangleTag = {
-    ...validTag,
-    label: { type: "TagLabel" as const, value: "T", position: samplePosition, health: okHealth },
-  }
-
-  it("accepts `##` heading with tag `[T]`", () => {
-    expect(
-      Schema.is(TangleHeadingWeftSchema)({
-        type: "TangleHeadingWeft",
-        position: samplePosition,
-        health: okHealth,
-        headingStart: validSectionHeadingStart,
-        texts: [],
-        tag: tangleTag,
-      }),
-    ).toBe(true)
-  })
-
-  it("accepts deeper section levels (`###`)", () => {
-    expect(
-      Schema.is(TangleHeadingWeftSchema)({
-        type: "TangleHeadingWeft",
-        position: samplePosition,
-        health: okHealth,
-        headingStart: { ...validSectionHeadingStart, value: "###" },
-        texts: [],
-        tag: tangleTag,
-      }),
-    ).toBe(true)
-  })
-
-  it("rejects a level-1 ChapterHeadingStart in the headingStart slot", () => {
-    expect(
-      Schema.is(TangleHeadingWeftSchema)({
-        type: "TangleHeadingWeft",
-        position: samplePosition,
-        health: okHealth,
-        headingStart: validChapterHeadingStart,
-        texts: [],
-        tag: tangleTag,
       }),
     ).toBe(false)
   })

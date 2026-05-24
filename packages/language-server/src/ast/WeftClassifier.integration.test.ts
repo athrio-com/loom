@@ -8,12 +8,9 @@ import { LoomWeftSchema, type LoomWeft } from "./Weft"
 // WeftClassifier — integration test.
 //
 // Exercises the Effect-DI composition of LoomSourceRanges + WeftClassifier
-// against a representative inline `.loom` source. Asserts the Classifier-Stage
-// invariants — never any per-weft snapshot — so the test does not break on
-// incidental changes to weft shape.
-//
-// TODO: replace the inline source with a dedicated fixture file (e.g.
-// corpus/test/sample.loom) once a stable fixture is curated. Inline for now.
+// against a representative inline `.loom` source. Asserts Classifier-Stage
+// invariants rather than per-weft snapshots, so incidental shape changes
+// don't ripple through the test.
 // =============================================================================
 
 const sampleLoom = `# Sample [App]{TypeScript}
@@ -32,13 +29,17 @@ app.get('/hello', () => 'world')
 
 Prose describing what the handler does.
 
-## Deps [D]
+## Deps {Loom}
 
-import { Hono } from 'hono'
+=>
 
-## Tangle [T]
+needs(HonoToolchain)
 
-compose(Greet)
+## Tangle {Loom}
+
+=>
+
+tangle("src/index.ts", compose(Greet))
 `
 
 const classifyText = (text: string): ReadonlyArray<LoomWeft> =>
@@ -64,12 +65,10 @@ describe("Classifier Stage — integration against an inline sample loom", () =>
     expect(wefts.length).toBe(sampleLoom.split("\n").length)
   })
 
-  it("fires every Classifier-Stage probe at least once, including [D]/[T] discrimination", () => {
+  it("fires every Classifier-Stage probe at least once", () => {
     const seen = new Set(wefts.map((w) => w.type))
     expect(seen.has("ChapterHeadingWeft")).toBe(true)
     expect(seen.has("SectionHeadingWeft")).toBe(true)
-    expect(seen.has("DependenciesHeadingWeft")).toBe(true)
-    expect(seen.has("TangleHeadingWeft")).toBe(true)
     expect(seen.has("ArrowWeft")).toBe(true)
     expect(seen.has("TildeWeft")).toBe(true)
     expect(seen.has("PreambleWeft")).toBe(true)
@@ -83,11 +82,8 @@ describe("Classifier Stage — integration against an inline sample loom", () =>
     }
   })
 
-  it("classifies exactly one Chapter, one plain Section, one Deps and one Tangle heading", () => {
-    // Sample: `#` chapter + `## Greeting [Greet]` + `## Deps [D]` + `## Tangle [T]`.
+  it("classifies exactly one Chapter and three Sections (Greeting + Deps + Tangle)", () => {
     expect(wefts.filter((w) => w.type === "ChapterHeadingWeft")).toHaveLength(1)
-    expect(wefts.filter((w) => w.type === "SectionHeadingWeft")).toHaveLength(1)
-    expect(wefts.filter((w) => w.type === "DependenciesHeadingWeft")).toHaveLength(1)
-    expect(wefts.filter((w) => w.type === "TangleHeadingWeft")).toHaveLength(1)
+    expect(wefts.filter((w) => w.type === "SectionHeadingWeft")).toHaveLength(3)
   })
 })

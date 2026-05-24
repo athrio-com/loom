@@ -83,13 +83,14 @@ export const HealthSchema = Schema.Struct({
 })
 export type Health = typeof HealthSchema.Type
 
-// Convenience: the canonical "no problems" health value. Use this everywhere
-// the producer has nothing to report.
+// The canonical "no problems" health value — `status: "ok"` with no
+// diagnostics. Shared singleton for nodes with nothing to report.
 export const okHealth: Health = { status: "ok", diagnostics: [] }
 
-// Canonical "Classifier Stage partial" value — required fields not yet
-// filled, no diagnostics raised yet. The Tokeniser Stage tokenises subnodes
-// and flips status to "ok" (or "error" if validation fails).
+// The canonical "Classifier-Stage partial" health value — required fields
+// not yet filled, no diagnostics raised. The Tokeniser fills the subnodes
+// from source and flips the status to `ok` (or `error` if validation
+// surfaces a problem).
 export const incompleteHealth: Health = { status: "incomplete", diagnostics: [] }
 
 // =============================================================================
