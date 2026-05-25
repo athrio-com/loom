@@ -5,7 +5,7 @@ import { resolve } from "node:path"
 import { LoomSourceRanges } from "./LineRanges"
 import { WeftClassifier } from "./WeftClassifier"
 import { WeftTokeniser } from "./WeftTokeniser"
-import { LoomWeftSchema, type LoomWeft } from "./Weft"
+import { LoomWeftSchema, WeftSchema, type LoomWeft } from "./Weft"
 
 // =============================================================================
 // Loom AST — integration tests against `corpus/Fun.loom`.
@@ -73,6 +73,7 @@ describe("Classifier Stage — integration against corpus/Fun.loom", () => {
 
   it("fires every Classifier-Stage probe at least once", () => {
     const seen = new Set(wefts.map((w) => w.type))
+    expect(seen.has("Weft")).toBe(true)                  // orphan mode (pre-chapter)
     expect(seen.has("ChapterHeadingWeft")).toBe(true)
     expect(seen.has("SectionHeadingWeft")).toBe(true)
     expect(seen.has("ArrowWeft")).toBe(true)
@@ -134,6 +135,24 @@ describe("Tokeniser Stage — integration against corpus/Fun.loom", () => {
     const [chapter] = filterByType("ChapterHeadingWeft")
     expect(chapter.tag?.label.value).toBe("Arithmetic")
     expect(chapter.specifier?.label.value).toBe("Scala")
+  })
+
+  it("orphan Wefts precede the Chapter heading in document order", () => {
+    const [chapter] = filterByType("ChapterHeadingWeft")
+    const orphans = filterByType("Weft")
+    expect(orphans.length).toBeGreaterThan(0)
+    for (const w of orphans) {
+      expect(w.position.end.line).toBeLessThan(chapter.position.start.line)
+    }
+  })
+
+  it("chapterless `## Reading notes [Notes]` precedes the Chapter heading", () => {
+    const [chapter] = filterByType("ChapterHeadingWeft")
+    const notes = filterByType("SectionHeadingWeft").find(
+      (s) => s.tag?.label.value === "Notes",
+    )
+    expect(notes).toBeDefined()
+    expect(notes!.position.end.line).toBeLessThan(chapter.position.start.line)
   })
 
   it("`## Deps {Loom}` parses with the `Loom` specifier and no tag", () => {
@@ -204,5 +223,56 @@ describe("Tokeniser Stage — integration against corpus/Fun.loom", () => {
         expect(slice).not.toMatch(/[\r\n]/)
       }
     }
+  })
+})
+
+// =============================================================================
+// LoomDocument shape compatibility — confirms the existing Classifier /
+// Tokeniser output composes with the new `LoomDocument` schema slots
+// (`wefts`, `sections`, `chapters`) without any upstream changes. We feed
+// a fixture covering pre-chapter prose and an orphan `##+` heading, then
+// assert the emitted wefts have the kinds those slots admit.
+// =============================================================================
+
+describe("Pipeline compatibility with LoomDocument shape", () => {
+  // Pre-chapter prose, then an orphan Section, then a real Chapter.
+  const fixture = [
+    "Some pre-chapter prose.",         // Weft (orphan)
+    "",                                 // Weft (orphan, still pre-heading)
+    "## Orphan section [Orphan]",      // SectionHeadingWeft (no parent Chapter)
+    "",                                 // PreambleWeft (section opens preamble mode)
+    "A line under the orphan section.",// PreambleWeft
+    "",                                 // PreambleWeft
+    "# Real Chapter [Tag]{Lang}",      // ChapterHeadingWeft
+    "",                                 // PreambleWeft (under the chapter)
+  ].join("\n")
+
+  const wefts = tokeniseText(fixture)
+
+  it("pre-chapter lines come back as Weft (orphan) kind", () => {
+    expect(wefts[0].type).toBe("Weft")
+    expect(wefts[1].type).toBe("Weft")
+  })
+
+  it("orphan Wefts satisfy `WeftSchema` — valid entries for `LoomDocument.wefts`", () => {
+    expect(Schema.is(WeftSchema)(wefts[0])).toBe(true)
+    expect(Schema.is(WeftSchema)(wefts[1])).toBe(true)
+  })
+
+  it("a `##+` heading before any `#` classifies as SectionHeadingWeft", () => {
+    expect(wefts[2].type).toBe("SectionHeadingWeft")
+  })
+
+  it("a `#` heading appearing after orphan content still classifies as ChapterHeadingWeft", () => {
+    const chapters = wefts.filter((w) => w.type === "ChapterHeadingWeft")
+    expect(chapters).toHaveLength(1)
+  })
+
+  it("body wefts between the orphan section and the real chapter live under the orphan section's preamble", () => {
+    // Indices 3, 4, 5 are between the orphan `##` heading and the real `#`
+    // heading; all should be PreambleWeft kind (preamble mode after a heading).
+    expect(wefts[3].type).toBe("PreambleWeft")
+    expect(wefts[4].type).toBe("PreambleWeft")
+    expect(wefts[5].type).toBe("PreambleWeft")
   })
 })

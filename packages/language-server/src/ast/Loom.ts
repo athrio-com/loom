@@ -87,6 +87,8 @@ const emptyDocumentFor = (text: string, err: MixedEOL): LoomDocument => {
     type: "LoomDocument",
     position: docPosition,
     health: rootHealth,
+    wefts: [],
+    sections: [],
     chapters: [],
   }
 }

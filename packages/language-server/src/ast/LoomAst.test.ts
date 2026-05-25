@@ -1,6 +1,11 @@
 import { describe, expect, it } from "@effect/vitest"
 import { Schema } from "effect"
-import { LoomHeadingSchema } from "./LoomAst"
+import {
+  LoomChapterSchema,
+  LoomDocumentSchema,
+  LoomHeadingSchema,
+  LoomSectionSchema,
+} from "./LoomAst"
 import { okHealth, type Position } from "./LoomNode"
 
 const pos: Position = {
@@ -118,5 +123,165 @@ describe("LoomHeading.texts", () => {
         texts: [tag("Greet") as unknown as ReturnType<typeof text>],
       }),
     ).toBe(false)
+  })
+})
+
+// =============================================================================
+// LoomDocument — three slots, no heading. `wefts` carries pre-chapter orphan
+// lines; `sections` carries orphan Sections (a `##+` heading before any `#`);
+// `chapters` carries Chapters in source order. All three may be empty.
+// =============================================================================
+
+const weft = () => ({
+  type: "Weft" as const,
+  position: pos,
+  health: okHealth,
+})
+
+const preambleWeft = () => ({
+  type: "PreambleWeft" as const,
+  position: pos,
+  health: okHealth,
+  warps: [],
+})
+
+const heading = (markers: typeof chapterMarkers | typeof sectionMarkers) => ({
+  type: "LoomHeading" as const,
+  position: pos,
+  health: okHealth,
+  markers,
+  texts: [],
+})
+
+const section = () => ({
+  type: "LoomSection" as const,
+  position: pos,
+  health: okHealth,
+  heading: heading(sectionMarkers),
+  preamble: [],
+  code: [],
+})
+
+const chapter = () => ({
+  type: "LoomChapter" as const,
+  position: pos,
+  health: okHealth,
+  heading: heading(chapterMarkers),
+  preamble: [],
+  code: [],
+  children: [],
+})
+
+describe("LoomDocument", () => {
+  it("accepts an empty document (all three slots empty)", () => {
+    expect(
+      Schema.is(LoomDocumentSchema)({
+        type: "LoomDocument",
+        position: pos,
+        health: okHealth,
+        wefts: [],
+        sections: [],
+        chapters: [],
+      }),
+    ).toBe(true)
+  })
+
+  it("accepts orphan Wefts in `wefts`", () => {
+    expect(
+      Schema.is(LoomDocumentSchema)({
+        type: "LoomDocument",
+        position: pos,
+        health: okHealth,
+        wefts: [weft(), weft()],
+        sections: [],
+        chapters: [],
+      }),
+    ).toBe(true)
+  })
+
+  it("accepts orphan Sections in `sections`", () => {
+    expect(
+      Schema.is(LoomDocumentSchema)({
+        type: "LoomDocument",
+        position: pos,
+        health: okHealth,
+        wefts: [],
+        sections: [section()],
+        chapters: [],
+      }),
+    ).toBe(true)
+  })
+
+  it("accepts Chapters in `chapters`", () => {
+    expect(
+      Schema.is(LoomDocumentSchema)({
+        type: "LoomDocument",
+        position: pos,
+        health: okHealth,
+        wefts: [],
+        sections: [],
+        chapters: [chapter()],
+      }),
+    ).toBe(true)
+  })
+
+  it("rejects a non-Weft (e.g. PreambleWeft) in `wefts`", () => {
+    expect(
+      Schema.is(LoomDocumentSchema)({
+        type: "LoomDocument",
+        position: pos,
+        health: okHealth,
+        wefts: [preambleWeft()],
+        sections: [],
+        chapters: [],
+      }),
+    ).toBe(false)
+  })
+
+  it("rejects a Chapter in `sections` (must be Section)", () => {
+    expect(
+      Schema.is(LoomDocumentSchema)({
+        type: "LoomDocument",
+        position: pos,
+        health: okHealth,
+        wefts: [],
+        sections: [chapter()],
+        chapters: [],
+      }),
+    ).toBe(false)
+  })
+
+  it("rejects a Section in `chapters` (must be Chapter)", () => {
+    expect(
+      Schema.is(LoomDocumentSchema)({
+        type: "LoomDocument",
+        position: pos,
+        health: okHealth,
+        wefts: [],
+        sections: [],
+        chapters: [section()],
+      }),
+    ).toBe(false)
+  })
+})
+
+// =============================================================================
+// LoomSection / LoomChapter — quick sanity checks for the body slots, since
+// the LoomDocument tests depend on them building correctly.
+// =============================================================================
+
+describe("LoomSection / LoomChapter — body shape", () => {
+  it("LoomSection accepts heading + empty preamble + empty code", () => {
+    expect(Schema.is(LoomSectionSchema)(section())).toBe(true)
+  })
+
+  it("LoomChapter accepts heading + empty body slots + empty children", () => {
+    expect(Schema.is(LoomChapterSchema)(chapter())).toBe(true)
+  })
+
+  it("LoomChapter accepts orphan-style children (LoomSections)", () => {
+    expect(
+      Schema.is(LoomChapterSchema)({ ...chapter(), children: [section()] }),
+    ).toBe(true)
   })
 })

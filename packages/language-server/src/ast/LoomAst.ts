@@ -10,6 +10,7 @@ import {
 import {
   PreambleWeftSchema,
   SectionBodyWeftSchema,
+  WeftSchema,
 } from "./Weft"
 
 // =============================================================================
@@ -87,16 +88,24 @@ export const LoomChapterSchema = loomNode("LoomChapter", {
 export type LoomChapter = typeof LoomChapterSchema.Type
 
 // =============================================================================
-// Document — the root.
+// Document — the root container, the implicit module.
 //
-// `chapters` may be empty. A real Loom document is expected to have at
-// least one chapter, but that's a grammar concern reported via
+// Three slots, no heading:
+//   wefts    — pre-chapter orphan Wefts (Classifier orphan mode).
+//   sections — Sections under no Chapter (a ##+ heading before any #).
+//              The Document is their de facto parent.
+//   chapters — Chapters in source order.
+//
+// Any slot may be empty. A real Loom file is expected to have at least
+// one chapter, but that's a grammar concern reported via
 // `health.diagnostics` — not a schema-shape constraint. Failure cases
-// (MixedEOL, empty file) yield a document with `chapters: []` and a NOK
+// (MixedEOL, empty file) yield a document with all slots empty and a NOK
 // root health.
 // =============================================================================
 
 export const LoomDocumentSchema = loomNode("LoomDocument", {
+  wefts: Schema.Array(WeftSchema),
+  sections: Schema.Array(LoomSectionSchema),
   chapters: Schema.Array(LoomChapterSchema),
 })
 export type LoomDocument = typeof LoomDocumentSchema.Type

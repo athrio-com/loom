@@ -28,6 +28,8 @@ const stubDocument: LoomDocument = {
   type: "LoomDocument",
   position: zeroPosition,
   health: okHealth,
+  wefts: [],
+  sections: [],
   chapters: [],
 }
 

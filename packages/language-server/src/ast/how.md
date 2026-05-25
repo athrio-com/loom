@@ -297,26 +297,38 @@ chapter-break syntax.
 
 ## AST hierarchy
 
-`LoomAstBuilder.build` groups wefts into this hierarchy:
+Three container tiers, all `loomNode`s:
 
 ```
 LoomDocument
-  └── LoomChapter[]            (ChapterHeadingWeft — # level)
-        └── LoomSection[]      (SectionHeadingWeft — ##+ level)
+  ├── wefts:    Weft[]            (pre-chapter orphan lines)
+  ├── sections: LoomSection[]     (orphan Sections — no parent Chapter)
+  └── chapters: LoomChapter[]
+        └── children: LoomSection[]
 ```
 
-Section / Chapter shape:
+Container shape:
 
 ```
-LoomSection: heading + preamble (PreambleWeft[]) + code (SectionBodyWeft[])
-LoomChapter: heading + preamble (PreambleWeft[]) + code (SectionBodyWeft[]) + children
+LoomDocument: wefts (Weft[]) + sections (LoomSection[]) + chapters (LoomChapter[])
+LoomChapter:  heading + preamble (PreambleWeft[]) + code (SectionBodyWeft[]) + children (LoomSection[])
+LoomSection:  heading + preamble (PreambleWeft[]) + code (SectionBodyWeft[])
 ```
 
-The grammar's forward-only mode progression is preserved implicitly in the
+`LoomDocument` is the implicit module. It carries no heading, no preamble,
+and no body code — only the three slots above. Its `wefts` holds raw
+`Weft`s from the Classifier's orphan mode (lines before the first `#`).
+Its `sections` holds Sections that appear before any Chapter; such
+Sections have the Document as their *de facto* parent.
+
+The grammar's forward-only mode progression is preserved implicitly in
 `code` array order: valid prefixes are `[]`, `[ArrowWeft, ...]`, or
-`[TildeWeft, ...]`. The classifier enforces the ordering; the AST just
-records it. `{Loom}` Sections take the same shape — the Specifier token on
-the heading is the only marker that distinguishes them.
+`[TildeWeft, ...]`. The Classifier enforces the ordering; the AST just
+records it. `{Loom}` Sections take the same shape as any other — the
+Specifier token on the heading is the only marker that distinguishes them.
+
+Every input weft has a place in the tree. The schema admits an entry for
+every kind the Tokeniser can produce; nothing is dropped between stages.
 
 ---
 
@@ -378,12 +390,25 @@ Post-Tokeniser invariant: no weft has `health.status === "incomplete"`.
 
 ### `LoomAstBuilder`
 
-`build(Stream<LoomWeft>) → Effect<LoomDocument>`. Groups wefts into the
-`LoomChapter` hierarchy via `Stream.mapAccum` with a chapter accumulator:
-ChapterHeadingWeft flushes the previous chapter; a sentinel flushes the
-final. Inside a chapter, the same accumulator pattern groups wefts into
-`LoomSection`s — one container kind, one path. Folds into `LoomDocument`
-via `Stream.runFold`.
+`build(Stream<LoomWeft>) → Effect<LoomDocument>`. Each weft has a
+placement determined by its kind and the open-container context:
+
+- `Weft` (orphan) — appended to `document.wefts`.
+- `ChapterHeadingWeft` — `heading` of a new `LoomChapter` appended to
+  `document.chapters`; closes any open Chapter and any Section open
+  within it.
+- `SectionHeadingWeft` — `heading` of a new `LoomSection` appended to
+  the latest open Chapter's `children`, or to `document.sections` when
+  no Chapter is open; closes any prior open Section under the same
+  parent.
+- `PreambleWeft` — appended to the innermost open container's
+  `preamble`: the latest open Section if any, otherwise the latest open
+  Chapter.
+- `ArrowWeft`, `CodeWeft`, `TildeWeft`, `ProseWeft` — appended to the
+  innermost open container's `code` with the same precedence.
+
+Container nodes carry `okHealth`; diagnostics on contained nodes ride
+with them, untouched. Never fails.
 
 ### `Loom` (orchestrator)
 
