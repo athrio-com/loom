@@ -3,6 +3,8 @@ import { Chunk, Effect, Schema, Stream, pipe } from "effect"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { LoomSourceRanges } from "./LineRanges"
+import { LoomDocumentSchema, type LoomDocument } from "./LoomAst"
+import { Loom } from "./Loom"
 import { WeftClassifier } from "./WeftClassifier"
 import { WeftTokeniser } from "./WeftTokeniser"
 import { LoomWeftSchema, WeftSchema, type LoomWeft } from "./Weft"
@@ -10,11 +12,12 @@ import { LoomWeftSchema, WeftSchema, type LoomWeft } from "./Weft"
 // =============================================================================
 // Loom AST — integration tests against `corpus/Fun.loom`.
 //
-// Two layers exercise the Effect-DI composition of the pipeline stages
+// Three layers exercise the Effect-DI composition of the pipeline stages
 // against the real-world example fixture:
 //
 //   Classifier Stage — LoomSourceRanges → WeftClassifier
 //   Tokeniser Stage  — Classifier output → WeftTokeniser
+//   AST Stage        — full pipeline via Loom.ast(text) → LoomDocument
 //
 // Assertions target stage invariants rather than per-weft snapshots, so
 // cosmetic changes to the fixture don't ripple through the test suite.
@@ -57,6 +60,14 @@ const tokeniseText = (text: string): ReadonlyArray<LoomWeft> =>
       Effect.provide(WeftTokeniser.Default),
       Effect.orDie,
     ),
+  )
+
+const buildDocument = (text: string): LoomDocument =>
+  Effect.runSync(
+    Effect.gen(function* () {
+      const loom = yield* Loom
+      return yield* loom.ast(text)
+    }).pipe(Effect.provide(Loom.Default)),
   )
 
 // =============================================================================
@@ -274,5 +285,219 @@ describe("Pipeline compatibility with LoomDocument shape", () => {
     expect(wefts[3].type).toBe("PreambleWeft")
     expect(wefts[4].type).toBe("PreambleWeft")
     expect(wefts[5].type).toBe("PreambleWeft")
+  })
+})
+
+// =============================================================================
+// AST Stage — end-to-end via Loom.ast(text). Asserts the document-level
+// structure: orphan content in document.wefts, chapterless sections in
+// document.sections, the Arithmetic chapter in document.chapters with its
+// expected children.
+// =============================================================================
+
+describe("AST Stage — integration against corpus/Fun.loom", () => {
+  const doc = buildDocument(sampleLoom)
+
+  it("packages the fixture as a schema-valid LoomDocument", () => {
+    expect(doc.type).toBe("LoomDocument")
+    expect(doc.health.status).toBe("ok")
+  })
+
+  it("collects the three pre-chapter lines on `document.wefts`", () => {
+    expect(doc.wefts).toHaveLength(3)
+    for (const w of doc.wefts) {
+      expect(w.type).toBe("Weft")
+    }
+  })
+
+  it("collects both chapterless Sections on `document.sections`", () => {
+    expect(doc.sections).toHaveLength(2)
+    const titles = doc.sections.map((s) => s.heading.tag?.label.value)
+    expect(titles).toContain("Notes")
+    // "Glossary" has no tag — match by text segment value when present.
+    const glossary = doc.sections.find((s) => s.heading.tag === undefined)
+    expect(glossary).toBeDefined()
+  })
+
+  it("collects the single Arithmetic chapter on `document.chapters`", () => {
+    expect(doc.chapters).toHaveLength(1)
+    expect(doc.chapters[0].heading.tag?.label.value).toBe("Arithmetic")
+    expect(doc.chapters[0].heading.specifier?.label.value).toBe("Scala")
+  })
+
+  it("Arithmetic carries all ten `##` Sections as children", () => {
+    const [chapter] = doc.chapters
+    expect(chapter.children).toHaveLength(10)
+    const tags = chapter.children.map((s) => s.heading.tag?.label.value)
+    expect(tags).toContain("Add")
+    expect(tags).toContain("Mul")
+    expect(tags).toContain("Sq")
+    expect(tags).toContain("Pow")
+    expect(tags).toContain("Main")
+    expect(tags).toContain("Build")
+  })
+
+  it("the orphan Section under `## Reading notes [Notes]` carries its body", () => {
+    const notes = doc.sections.find((s) => s.heading.tag?.label.value === "Notes")!
+    expect(notes.preamble.length).toBeGreaterThan(0)
+    expect(notes.code.length).toBeGreaterThan(0)
+    // The body includes the `=>` Arrow, code lines, the `~` Tilde, and prose.
+    const codeKinds = new Set(notes.code.map((w) => w.type))
+    expect(codeKinds.has("ArrowWeft")).toBe(true)
+    expect(codeKinds.has("CodeWeft")).toBe(true)
+    expect(codeKinds.has("TildeWeft")).toBe(true)
+    expect(codeKinds.has("ProseWeft")).toBe(true)
+  })
+
+  it("orphan Sections precede the Chapter in document order", () => {
+    // Section boundaries can touch (`<=`): the last preamble weft of the
+    // trailing orphan section ends exactly where the next chapter heading
+    // begins, since the classifier assigns the boundary blank line to the
+    // still-open section.
+    const [chapter] = doc.chapters
+    for (const section of doc.sections) {
+      expect(section.position.end.offset).toBeLessThanOrEqual(
+        chapter.position.start.offset,
+      )
+    }
+  })
+})
+
+// =============================================================================
+// Loom.ast — orchestrator behaviour. The Service wires the four pipeline
+// stages and catches `MixedEOL` at the boundary, converting it to a
+// minimal empty document with NOK root health. Edge cases (empty source,
+// single-line source without terminator) flow through normally.
+// =============================================================================
+
+describe("Loom.ast — orchestrator behaviour", () => {
+  it("recovers MixedEOL as an empty document with NOK root health and a positioned diagnostic", () => {
+    // CRLF on line 1, bare LF on line 2 — primary convention is CRLF, the
+    // stray LF triggers MixedEOL.
+    const text = "Line one\r\nLine two\nLine three"
+    const doc = buildDocument(text)
+    expect(doc.health.status).toBe("error")
+    expect(doc.health.diagnostics).toHaveLength(1)
+    expect(doc.health.diagnostics[0].message).toMatch(/mixed line terminators/i)
+    expect(doc.wefts).toEqual([])
+    expect(doc.sections).toEqual([])
+    expect(doc.chapters).toEqual([])
+    expect(doc.position.start.offset).toBe(0)
+    expect(doc.position.end.offset).toBe(text.length)
+  })
+
+  it("MixedEOL recovery produces a schema-valid LoomDocument", () => {
+    const doc = buildDocument("a\r\nb\nc")
+    expect(Schema.is(LoomDocumentSchema)(doc)).toBe(true)
+  })
+
+  it("handles empty source — one empty orphan Weft, okHealth root", () => {
+    // LoomSourceRanges emits a single `[0, 0]` range for input with no
+    // terminators; the Classifier emits one orphan-mode Weft.
+    const doc = buildDocument("")
+    expect(doc.health.status).toBe("ok")
+    expect(doc.wefts).toHaveLength(1)
+    expect(doc.wefts[0].type).toBe("Weft")
+    expect(doc.sections).toEqual([])
+    expect(doc.chapters).toEqual([])
+  })
+
+  it("handles single-line source without trailing newline", () => {
+    const doc = buildDocument("just a single line")
+    expect(doc.health.status).toBe("ok")
+    expect(doc.wefts).toHaveLength(1)
+    expect(doc.wefts[0].position.end.offset).toBe("just a single line".length)
+  })
+
+  it("wires all four services — single Loom.Default provides the whole pipeline", () => {
+    // No explicit provides for LoomSourceRanges / Classifier / Tokeniser /
+    // AstBuilder — Loom.Default carries them transitively via `dependencies`.
+    const doc = buildDocument("# T [T]{L}\n")
+    expect(doc.chapters).toHaveLength(1)
+    expect(doc.chapters[0].heading.tag?.label.value).toBe("T")
+  })
+})
+
+// =============================================================================
+// Loom.ast — NOK preservation end-to-end. Malformed source flows through
+// the pipeline; the Tokeniser synthesises error-health placeholders and
+// captures rejected bytes in `unexpected[]`, the AstBuilder forwards them
+// onto the resulting `LoomHeading`. Container nodes stay `okHealth`.
+// =============================================================================
+
+describe("Loom.ast — NOK preservation end-to-end", () => {
+  it("chapter heading missing both tag and specifier — both subnodes are error-health placeholders", () => {
+    const doc = buildDocument("# JustATitle\n")
+    expect(doc.chapters).toHaveLength(1)
+    const heading = doc.chapters[0].heading
+    expect(heading.tag?.health.status).toBe("error")
+    expect(heading.tag?.health.diagnostics[0].message).toMatch(/requires a tag/i)
+    expect(heading.specifier?.health.status).toBe("error")
+    expect(heading.specifier?.health.diagnostics[0].message).toMatch(
+      /requires a specifier/i,
+    )
+  })
+
+  it("chapter heading missing tag only — synth tag with diagnostic, real specifier", () => {
+    const doc = buildDocument("# OnlyTitle {Lang}\n")
+    const heading = doc.chapters[0].heading
+    expect(heading.tag?.health.status).toBe("error")
+    expect(heading.specifier?.label.value).toBe("Lang")
+    expect(heading.specifier?.health.status).toBe("ok")
+  })
+
+  it("chapter heading missing specifier only — real tag, synth specifier with diagnostic", () => {
+    const doc = buildDocument("# Title [Tag]\n")
+    const heading = doc.chapters[0].heading
+    expect(heading.tag?.label.value).toBe("Tag")
+    expect(heading.tag?.health.status).toBe("ok")
+    expect(heading.specifier?.health.status).toBe("error")
+  })
+
+  it("section tag label with spaces — bytes preserved in unexpected[], synthetic empty value, error health", () => {
+    const doc = buildDocument("# C [C]{L}\n## Heading [bad label name]\n")
+    const label = doc.chapters[0].children[0].heading.tag!.label
+    expect(label.value).toBe("")
+    expect(label.health.status).toBe("error")
+    expect(label.unexpected?.[0].value).toBe("bad label name")
+  })
+
+  it("unclosed `[` — synthetic TagClose at EOL with `expected closing` diagnostic", () => {
+    const doc = buildDocument("# C [C]{L}\n## Heading [Unclosed\n")
+    const close = doc.chapters[0].children[0].heading.tag!.close
+    expect(close.health.status).toBe("error")
+    expect(close.health.diagnostics[0].message).toMatch(/expected closing/i)
+  })
+
+  it("container LoomDocument / LoomChapter / LoomSection carry okHealth despite leaf errors", () => {
+    const doc = buildDocument("# JustATitle\n\n## Section [bad label]\n")
+    expect(doc.health.status).toBe("ok")
+    expect(doc.chapters[0].health.status).toBe("ok")
+    expect(doc.chapters[0].children[0].health.status).toBe("ok")
+  })
+
+  it("malformed sections still appear structurally with full body wefts attached", () => {
+    const text =
+      "# Real [Real]{X}\n\n## Bad [bad label name]\n\nA preamble line.\n\n=>\n\nval x = 42\n"
+    const doc = buildDocument(text)
+    const section = doc.chapters[0].children[0]
+    expect(section).toBeDefined()
+    expect(section.preamble.length).toBeGreaterThan(0)
+    expect(section.code.length).toBeGreaterThan(0)
+  })
+
+  it("schema validity holds across every NOK input variant", () => {
+    const malformed = [
+      "# JustATitle\n",
+      "# Title [Tag]\n",
+      "# OnlyTitle {Lang}\n",
+      "# C [C]{L}\n## Heading [bad label name]\n",
+      "# C [C]{L}\n## Heading [Unclosed\n",
+      "# C [C]{L}\n## Heading [Tag]{Unclosed\n",
+    ]
+    for (const text of malformed) {
+      const doc = buildDocument(text)
+      expect(Schema.is(LoomDocumentSchema)(doc)).toBe(true)
+    }
   })
 })
