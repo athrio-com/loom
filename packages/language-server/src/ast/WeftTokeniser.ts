@@ -902,29 +902,29 @@ const constructAnchors = (
 }
 
 // =============================================================================
-// textGaps — emit a TextToken for every non-empty hole between `cursor` and
-// `lineEnd` not covered by a consumed span. Pure fold over sorted spans.
-// =============================================================================
-
-// Assumes `consumed` ranges are pairwise disjoint (Loom's tag/specifier/
+// textTokens — emit a TextToken for every non-empty slice of `region` not
+// covered by a `consumed` span. Pure fold over sorted spans.
+//
+// `consumed` is assumed to be pairwise disjoint (Loom's tag/specifier/
 // unexpected positions satisfy this by construction — they don't nest).
 // Overlapping inputs would produce spurious gaps between nested ranges; if
 // that ever becomes possible, replace `gapStarts` with a running-max scan.
-const textGaps = (
-  linePosition: Position,
-  startCursor: number,
+// =============================================================================
+
+const textTokens = (
+  region: Position,
   consumed: ReadonlyArray<Position>,
 ): ReadonlyArray<TextToken> => {
-  const line = linePosition.start.line
-  const lineEnd = linePosition.end.offset
+  const line = region.start.line
   const sorted = [...consumed].sort((a, b) => a.start.offset - b.start.offset)
 
   // Each consumed range contributes a (gap-start, gap-end) pair: the gap
-  // starts where the previous range ended (or at startCursor before any
-  // range), and ends where the next range begins (or at lineEnd after the
-  // last range). Zip the two boundary lists, drop empty gaps, emit tokens.
-  const gapStarts = [startCursor, ...sorted.map((s) => s.end.offset)]
-  const gapEnds = [...sorted.map((s) => s.start.offset), lineEnd]
+  // starts where the previous range ended (or at the region's start before
+  // any range), and ends where the next range begins (or at the region's
+  // end after the last range). Zip the two boundary lists, drop empty
+  // gaps, emit tokens.
+  const gapStarts = [region.start.offset, ...sorted.map((s) => s.end.offset)]
+  const gapEnds = [...sorted.map((s) => s.start.offset), region.end.offset]
 
   return gapStarts
     .map((from, i) => [from, gapEnds[i]] as const)
@@ -966,14 +966,21 @@ const tokeniseHeading = (
 
   const unexpected = [...tagResult.unexpected, ...specResult.unexpected]
 
-  // Text region starts after the heading marker's mandatory trailing space.
-  const textCursor = headingStartEnd + 1
+  // The heading's text region begins past the marker (whose position
+  // covers hash + mandatory space) and ends before any trailing whitespace
+  // (which includes the line terminator carried in the LineRange).
+  const trailingWs = lineText.match(/\s*$/)?.[0].length ?? 0
+  const textRegion = span(
+    position.start.line,
+    headingStartEnd,
+    position.end.offset - trailingWs,
+  )
   const consumed: ReadonlyArray<Position> = [
     ...Option.toArray(tagResult.token).map((t) => t.position),
     ...Option.toArray(specResult.token).map((s) => s.position),
     ...unexpected.map((u) => u.position),
   ]
-  const texts = textGaps(position, textCursor, consumed)
+  const texts = textTokens(textRegion, consumed)
 
   return {
     tag: tagResult.token,

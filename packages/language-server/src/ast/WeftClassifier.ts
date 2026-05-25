@@ -258,24 +258,21 @@ const makeChapterHeadingWeft = (line: number, range: LineRange): ChapterHeadingW
     position: linePos(line, range),
     health: incompleteHealth,
     headingStart: ChapterHeadingStartTokenSchema.make({
-      position: span(line, range[0], range[0] + 1),
+      // The chapter marker is `# ` (hash plus mandatory space).
+      position: span(line, range[0], range[0] + 2),
       health: okHealth,
-      value: "#",
     }),
     texts: [],
     tag: nokTagToken(line, range),
     specifier: nokSpecifierToken(line, range),
   })
 
-const sectionHeadingStart = (line: number, range: LineRange, m: RegExpMatchArray) => {
-  // probe /^#{2,6} / — marker is m[0] minus the trailing space
-  const len = m[0].length - 1
-  return SectionHeadingStartTokenSchema.make({
-    position: span(line, range[0], range[0] + len),
+const sectionHeadingStart = (line: number, range: LineRange, m: RegExpMatchArray) =>
+  SectionHeadingStartTokenSchema.make({
+    // probe /^#{2,6} / — the whole match (hashes + mandatory space) is the marker.
+    position: span(line, range[0], range[0] + m[0].length),
     health: okHealth,
-    value: m[0].slice(0, len),
   })
-}
 
 const makeSectionHeadingWeft = (
   line: number, range: LineRange, m: RegExpMatchArray,

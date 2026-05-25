@@ -12,14 +12,12 @@ const chapterMarkers = {
   type: "ChapterHeadingStart" as const,
   position: pos,
   health: okHealth,
-  value: "#" as const,
 }
 
 const sectionMarkers = {
   type: "SectionHeadingStart" as const,
   position: pos,
   health: okHealth,
-  value: "##",
 }
 
 const text = (offsetStart: number, offsetEnd: number) => ({

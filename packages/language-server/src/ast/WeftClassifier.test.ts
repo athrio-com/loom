@@ -236,20 +236,22 @@ describe("Health status", () => {
 // =============================================================================
 
 describe("Subtoken health", () => {
-  it("ChapterHeading.headingStart carries okHealth (real `#` from source)", () => {
+  it("ChapterHeading.headingStart spans `# ` (hash + mandatory space)", () => {
     const out = classify(["# Title [T]{S}"])
     const w = out[0]
     if (w.type !== "ChapterHeadingWeft") throw new Error("expected ChapterHeading")
     expect(w.headingStart.health).toEqual(okHealth)
-    expect(w.headingStart.value).toBe("#")
+    expect(w.headingStart.position.start.offset).toBe(0)
+    expect(w.headingStart.position.end.offset).toBe(2)
   })
 
-  it("SectionHeading.headingStart carries okHealth (real `##`+ from source)", () => {
+  it("SectionHeading.headingStart spans `### ` (hashes + mandatory space)", () => {
     const out = classify(["### Deep"])
     const w = out[0]
     if (w.type !== "SectionHeadingWeft") throw new Error("expected SectionHeading")
     expect(w.headingStart.health).toEqual(okHealth)
-    expect(w.headingStart.value).toBe("###")
+    expect(w.headingStart.position.start.offset).toBe(0)
+    expect(w.headingStart.position.end.offset).toBe(4)
   })
 
   it("ArrowToken (real marker) carries okHealth", () => {

@@ -29,14 +29,12 @@ const validSectionHeadingStart = {
   type: "SectionHeadingStart" as const,
   position: samplePosition,
   health: okHealth,
-  value: "##",
 }
 
 const validChapterHeadingStart = {
   type: "ChapterHeadingStart" as const,
   position: samplePosition,
   health: okHealth,
-  value: "#" as const,
 }
 
 const validTag = {
@@ -215,11 +213,11 @@ describe("ChapterHeadingStart schema validation", () => {
     expect(Schema.is(ChapterHeadingStartTokenSchema)(validChapterHeadingStart)).toBe(true)
   })
 
-  it("rejects level-2+ value", () => {
+  it("rejects a wrong `type` discriminator", () => {
     expect(
       Schema.is(ChapterHeadingStartTokenSchema)({
         ...validChapterHeadingStart,
-        value: "##",
+        type: "SectionHeadingStart",
       }),
     ).toBe(false)
   })
@@ -230,20 +228,11 @@ describe("SectionHeadingStart schema validation", () => {
     expect(Schema.is(SectionHeadingStartTokenSchema)(validSectionHeadingStart)).toBe(true)
   })
 
-  it("rejects level-1 value", () => {
+  it("rejects a wrong `type` discriminator", () => {
     expect(
       Schema.is(SectionHeadingStartTokenSchema)({
         ...validSectionHeadingStart,
-        value: "#",
-      }),
-    ).toBe(false)
-  })
-
-  it("rejects values with too many hashes", () => {
-    expect(
-      Schema.is(SectionHeadingStartTokenSchema)({
-        ...validSectionHeadingStart,
-        value: "#######",
+        type: "ChapterHeadingStart",
       }),
     ).toBe(false)
   })

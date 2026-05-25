@@ -28,21 +28,18 @@ export const getProbe = (
 // =============================================================================
 // HeadingStart — split by level so classifyWefts can route by probe match.
 //
-// `value` is the marker string (`#` for chapter, `##`–`######` for section).
-// `position` covers the marker characters only; the trailing space matched
-// by the probe is not part of the token span.
+// The marker is `<hash><space>` (always); the token's `position` covers the
+// whole marker — both the hashes and the mandatory trailing space.
+// Position-only, like Arrow / Tilde: the marker text is `text.slice(start,
+// end)` when consumers want it, and the section level is `(end - start - 1)`.
 // =============================================================================
 
-export const ChapterHeadingStartTokenSchema = loomNode("ChapterHeadingStart", {
-  value: Schema.Literal("#"),
-}).annotations({
+export const ChapterHeadingStartTokenSchema = loomNode("ChapterHeadingStart", {}).annotations({
   [Probe]: /^# /,
 })
 export type ChapterHeadingStartToken = typeof ChapterHeadingStartTokenSchema.Type
 
-export const SectionHeadingStartTokenSchema = loomNode("SectionHeadingStart", {
-  value: Schema.String.pipe(Schema.pattern(/^#{2,6}$/)),
-}).annotations({
+export const SectionHeadingStartTokenSchema = loomNode("SectionHeadingStart", {}).annotations({
   [Probe]: /^#{2,6} /,
 })
 export type SectionHeadingStartToken = typeof SectionHeadingStartTokenSchema.Type
