@@ -228,17 +228,22 @@ export type ProseToken = typeof ProseTokenSchema.Type
 // belongs to Synth.
 // =============================================================================
 
+// A `{{` immediately preceded by a backtick is escaped — a documentation
+// mention inside an inline-code span on a Preamble line, not a Warp delimiter.
+// The Probe is shared with anchor scanning, but code does not wrap its
+// `{{…}}` references in backticks, so only Preamble declarations are affected.
 export const WarpOpenTokenSchema = loomNode("WarpOpen", {
   value: Schema.Literal("{{"),
 }).annotations({
-  [Probe]: /\{\{/g,
+  [Probe]: /(?<!`)\{\{/g,
 })
 export type WarpOpenToken = typeof WarpOpenTokenSchema.Type
 
+// A `}}` immediately followed by a backtick is escaped (see WarpOpen).
 export const WarpCloseTokenSchema = loomNode("WarpClose", {
   value: Schema.Literal("}}"),
 }).annotations({
-  [Probe]: /\}\}/g,
+  [Probe]: /\}\}(?!`)/g,
 })
 export type WarpCloseToken = typeof WarpCloseTokenSchema.Type
 

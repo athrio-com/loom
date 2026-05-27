@@ -647,3 +647,44 @@ describe("Tokeniser — health aggregation", () => {
     expect(tokenise(["## Multi [First] [Second]"])[0].health.status).toBe("error")
   })
 })
+
+// =============================================================================
+// Backtick escaping — a `{{` immediately preceded by a backtick (or `}}`
+// immediately followed by one) is a documentation mention, not a Warp.
+// Enforced by the WarpOpen / WarpClose Probes (negative look-around); in
+// practice only Preamble declarations are affected.
+// =============================================================================
+
+describe("Tokeniser — backtick escaping of Warp declarations", () => {
+  const preambleWeft = (line: string) => {
+    const out = tokenise(["## A", line])
+    const w = out[1]
+    if (w.type !== "PreambleWeft") throw new Error(`expected PreambleWeft, got ${w.type}`)
+    return w
+  }
+
+  it("a backtick-wrapped `{{…}}` is literal — no Warp, no unexpected", () => {
+    const w = preambleWeft("the `{{lang: Scala}}` Warp names the language")
+    expect(w.warps).toHaveLength(0)
+    expect(w.unexpected).toBeUndefined()
+    expect(w.health.status).toBe("ok")
+  })
+
+  it("a bare `{{…}}` is still a Warp", () => {
+    const w = preambleWeft("{{lang: Scala}}")
+    expect(w.warps).toHaveLength(1)
+    expect(w.warps[0].name.value).toBe("lang")
+  })
+
+  it("a backtick span elsewhere on the line doesn't suppress a non-wrapped Warp", () => {
+    const w = preambleWeft("`pow` needs {{x: Int}}")
+    expect(w.warps).toHaveLength(1)
+    expect(w.warps[0].name.value).toBe("x")
+  })
+
+  it("a real Warp and a backtick-wrapped mention coexist — only the real one is a Warp", () => {
+    const w = preambleWeft("set {{lang: Scala}} like `{{lang: Python}}`")
+    expect(w.warps).toHaveLength(1)
+    expect(w.warps[0].annotation.value).toBe("Scala")
+  })
+})

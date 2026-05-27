@@ -3,8 +3,8 @@ This loom is written mainly in {{lang: Scala}} and other languages as specified.
 ---
 
 This file is the dev-probe fixture. The lines above the first heading
-form the Document Preamble; the `lang` Warp names the primary
-language. Every heading below is a flat Section.
+form the Document Preamble; the `{{lang: Scala}}` Warp names the
+primary language. Every heading below is a flat Section.
 
 # Reading notes [Notes]
 
