@@ -365,25 +365,28 @@ export const LoomMain = Effect.provide(
 > has one reference. Remove it once the AST conforms.
 
 **Drop chapters.** `LoomDocument` flattens from `{ wefts, sections,
-chapters }` to `{ frontmatter?, wefts, sections }`. `LoomChapter` and
-`chapter.children` are removed. Every heading, at any level, produces a
-flat `LoomSection`; heading level is recorded but structurally inert.
+chapters }` to `{ preamble, sections }`. `LoomChapter`,
+`chapter.children`, and the default `Weft` kind are removed. Every
+heading, at any level, produces a flat `LoomSection`; heading level is
+recorded but structurally inert.
 
 **Collapse the heading wefts.** `ChapterHeadingWeft` and
 `SectionHeadingWeft` merge into one `HeadingWeft`. The `#{1,6}` level
 lives in the heading-start token, not in the weft kind. The Classifier's
 chapter/section dispatch becomes a single heading probe.
 
-**Add frontmatter.** A `---`-fenced block at the document head, parsed as
-prose that carries a default-language `{Specifier}`. No module-name token
-— the filename is the module identity. The Classifier gains a frontmatter
-mode at document start; the builder carries the result as a document
-field.
+**Add a Document Preamble.** Lines before the first heading become a
+`document.preamble` of `PreambleWeft`s. A Warp named `lang`
+(`{{lang: Scala}}`) declares the primary language; a missing `lang`
+raises a warning on document health. The filename is the module
+identity — no module-name token, no frontmatter node. `---` divider
+lines stay decorative (non-structural). The Classifier opens in preamble
+mode rather than an orphan mode.
 
-**Widen specifiers to file paths.** A specifier whose label contains path
-separators (`{src/main/scala/Arithmetic.scala}`) marks a tangle section.
-`SpecifierLabel`'s character class must admit paths, or a distinct
-path-specifier token kind is added.
+**Split specifiers into two token kinds.** `SpecifierToken` (label,
+`^[a-zA-Z0-9_-]+$`, languages plus `{Loom}`) and `PathSpecifierToken`
+(path, admits separators) marking a tangle section. The Tokeniser
+distinguishes them by the presence of path separators.
 
 **Widen name anchors to heading names.** A code-block anchor may carry a
 multi-word heading name (`{{Multiplier Function}}`), not only a single
