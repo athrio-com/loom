@@ -4,8 +4,8 @@ import {
   LoomDocumentSchema,
   LoomHeadingSchema,
   LoomSectionSchema,
-} from "./LoomAst"
-import { okHealth, type Position } from "./LoomNode"
+} from "#ast/LoomAst"
+import { okHealth, type Position } from "#ast/LoomNode"
 
 const pos: Position = {
   start: { line: 1, column: 1, offset: 0 },

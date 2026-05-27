@@ -10,14 +10,14 @@ import {
   WarpAnchorTokenSchema,
   WarpTokenSchema,
   getProbe,
-} from "./LoomTokens"
-import { okHealth } from "./LoomNode"
+} from "#ast/LoomTokens"
+import { okHealth } from "#ast/LoomNode"
 import {
   ArrowWeftSchema,
   HeadingWeftSchema,
   LoomWeftSchema,
   TildeWeftSchema,
-} from "./Weft"
+} from "#ast/Weft"
 
 const samplePosition = {
   start: { line: 1, column: 1, offset: 0 },

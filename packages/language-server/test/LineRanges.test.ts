@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
 import { Chunk, Effect, Stream } from "effect"
-import { LoomSourceRanges, MixedEOL, type LineRange } from "./LineRanges"
+import { LoomSourceRanges, MixedEOL, type LineRange } from "#ast/LineRanges"
 
 // =============================================================================
 // collect — helper that resolves the LoomSourceRanges service, opens a stream

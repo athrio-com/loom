@@ -2,12 +2,12 @@ import { describe, expect, it } from "@effect/vitest"
 import { Chunk, Effect, Schema, Stream, pipe } from "effect"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
-import { LoomSourceRanges } from "./LineRanges"
-import { LoomDocumentSchema, type LoomDocument, type LoomHeading } from "./LoomAst"
-import { Loom } from "./Loom"
-import { WeftClassifier } from "./WeftClassifier"
-import { WeftTokeniser } from "./WeftTokeniser"
-import { LoomWeftSchema, type LoomWeft } from "./Weft"
+import { LoomSourceRanges } from "#ast/LineRanges"
+import { LoomDocumentSchema, type LoomDocument, type LoomHeading } from "#ast/LoomAst"
+import { Loom } from "#ast/Loom"
+import { WeftClassifier } from "#ast/WeftClassifier"
+import { WeftTokeniser } from "#ast/WeftTokeniser"
+import { LoomWeftSchema, type LoomWeft } from "#ast/Weft"
 
 // =============================================================================
 // Loom AST — integration tests against `corpus/Fun.loom`.
@@ -25,7 +25,7 @@ import { LoomWeftSchema, type LoomWeft } from "./Weft"
 // per-weft snapshots, so cosmetic changes to the fixture don't ripple through.
 // =============================================================================
 
-const fixturePath = resolve(__dirname, "../../../../corpus/Fun.loom")
+const fixturePath = resolve(__dirname, "fixtures/Fun.loom")
 const sampleLoom = readFileSync(fixturePath, "utf8")
 
 // The trimmed concatenation of a heading's TextTokens — the human-facing

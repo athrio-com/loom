@@ -2,7 +2,7 @@ import { NodeRuntime } from "@effect/platform-node"
 import { Effect } from "effect"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
-import { Loom } from "../src/ast/Loom"
+import { Loom } from "#ast/Loom"
 
 // =============================================================================
 // tokenise-loom — dev probe. Reads a `.loom` file, runs the full AST
