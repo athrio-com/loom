@@ -2,11 +2,15 @@ import { describe, expect, it } from "@effect/vitest"
 import { Effect, Stream } from "effect"
 import type { LoomDocument } from "./LoomAst"
 import { LoomAstBuilder } from "./LoomAstBuilder"
-import { okHealth, UnexpectedTokenSchema, type Health, type Position } from "./LoomNode"
+import {
+  okHealth,
+  UnexpectedTokenSchema,
+  type Health,
+  type Position,
+} from "./LoomNode"
 import {
   ArrowTokenSchema,
-  ChapterHeadingStartTokenSchema,
-  SectionHeadingStartTokenSchema,
+  HeadingStartTokenSchema,
   SpecifierCloseTokenSchema,
   SpecifierLabelTokenSchema,
   SpecifierOpenTokenSchema,
@@ -16,16 +20,19 @@ import {
   TagOpenTokenSchema,
   TagTokenSchema,
   TildeTokenSchema,
+  WarpAnnotationTokenSchema,
+  WarpCloseTokenSchema,
+  WarpNameTokenSchema,
+  WarpOpenTokenSchema,
+  WarpTokenSchema,
 } from "./LoomTokens"
 import {
   ArrowWeftSchema,
-  ChapterHeadingWeftSchema,
   CodeWeftSchema,
+  HeadingWeftSchema,
   PreambleWeftSchema,
   ProseWeftSchema,
-  SectionHeadingWeftSchema,
   TildeWeftSchema,
-  WeftSchema,
   type LoomWeft,
 } from "./Weft"
 
@@ -35,8 +42,14 @@ import {
 // The builder is the AST-pipeline stage that turns a `Stream<LoomWeft>` into
 // a `LoomDocument`. These tests bypass the Classifier/Tokeniser and feed
 // builder-shaped wefts directly via `Stream.fromIterable`, asserting the
-// resulting tree shape: which weft kind ends up where, how heading wefts
-// open/close containers, and how positions and health are derived.
+// resulting tree shape.
+//
+// The FLAT model: every HeadingWeft opens a LoomSection appended to
+// `document.sections`. There is no chapter tier. LoomDocument has exactly
+// two slots: `preamble: PreambleWeft[]` and `sections: LoomSection[]`.
+// Pre-heading PreambleWefts go to `document.preamble`; PreambleWefts after
+// a heading go to the open section's `preamble`; body wefts (Arrow/Code/
+// Tilde/Prose) go to the open section's `code`.
 //
 // The corresponding end-to-end coverage (real source → Classifier →
 // Tokeniser → AstBuilder) lives in Loom.integration.test.ts.
@@ -106,49 +119,62 @@ const specToken = (label: string, p: Position) =>
     }),
   })
 
-const mkWeft = (line: number) =>
-  WeftSchema.make({ position: pos(line), health: okHealth })
-
-const mkChapter = (line: number, tag: string, spec: string) => {
+// mkHeading — builds a HeadingWeft using the unified HeadingWeftSchema
+// (there is no longer a separate Chapter/Section heading schema). Any heading
+// level can be expressed by adjusting the position; the HeadingStart token
+// carries only position information, not a level field.
+const mkHeading = (line: number, tag?: string, spec?: string) => {
   const p = pos(line)
-  // ChapterHeadingWeftSchema is a filtered schema (requires tag + specifier);
-  // filtered .make() needs an explicit `type` field, since the underlying
-  // struct's `withConstructorDefault` doesn't run through the refinement.
-  return ChapterHeadingWeftSchema.make({
-    type: "ChapterHeadingWeft",
+  return HeadingWeftSchema.make({
     position: p,
     health: okHealth,
-    headingStart: ChapterHeadingStartTokenSchema.make({
-      position: p,
-      health: okHealth,
-    }),
-    texts: [],
-    tag: tagToken(tag, p),
-    specifier: specToken(spec, p),
-  })
-}
-
-const mkSection = (line: number, tag?: string, spec?: string) => {
-  const p = pos(line)
-  return SectionHeadingWeftSchema.make({
-    position: p,
-    health: okHealth,
-    headingStart: SectionHeadingStartTokenSchema.make({
-      position: p,
-      health: okHealth,
-    }),
+    headingStart: HeadingStartTokenSchema.make({ position: p, health: okHealth }),
     texts: [],
     tag: tag === undefined ? undefined : tagToken(tag, p),
     specifier: spec === undefined ? undefined : specToken(spec, p),
   })
 }
 
+// mkPreamble — a plain PreambleWeft with no Warp declarations (no lang warp).
+// Use `langPreamble` when you need a Document Preamble that satisfies the
+// `{{lang: …}}` requirement.
 const mkPreamble = (line: number) =>
   PreambleWeftSchema.make({
     position: pos(line),
     health: okHealth,
     warps: [],
   })
+
+// langPreamble — a PreambleWeft whose `warps` contains a WarpToken whose
+// `name.value === "lang"`. When this weft is in `document.preamble`, the
+// builder's `hasLangWarp` check passes and `document.health` is `okHealth`.
+const langPreamble = (line: number) => {
+  const p = pos(line)
+  return PreambleWeftSchema.make({
+    position: p,
+    health: okHealth,
+    warps: [
+      WarpTokenSchema.make({
+        position: p,
+        health: okHealth,
+        open: WarpOpenTokenSchema.make({ position: p, health: okHealth, value: "{{" }),
+        name: WarpNameTokenSchema.make({
+          type: "WarpName",
+          position: p,
+          health: okHealth,
+          value: "lang",
+        }),
+        annotation: WarpAnnotationTokenSchema.make({
+          type: "WarpAnnotation",
+          position: p,
+          health: okHealth,
+          value: "Scala",
+        }),
+        close: WarpCloseTokenSchema.make({ position: p, health: okHealth, value: "}}" }),
+      }),
+    ],
+  })
+}
 
 const mkArrow = (line: number) => {
   const p = pos(line)
@@ -184,298 +210,241 @@ const mkProse = (line: number) =>
 // =============================================================================
 
 describe("LoomAstBuilder — empty and trivial inputs", () => {
-  it("an empty stream produces an empty document, all three slots empty", () => {
+  it("an empty stream produces an empty document: empty preamble, empty sections", () => {
     const doc = buildAst([])
-    expect(doc.wefts).toEqual([])
+    expect(doc.preamble).toEqual([])
     expect(doc.sections).toEqual([])
-    expect(doc.chapters).toEqual([])
   })
 
-  it("a single Weft (orphan kind) lands on `document.wefts`", () => {
-    const w = mkWeft(1)
-    const doc = buildAst([w])
-    expect(doc.wefts).toHaveLength(1)
-    expect(doc.wefts[0]).toEqual(w)
-    expect(doc.sections).toEqual([])
-    expect(doc.chapters).toEqual([])
+  it("an empty document has health.status === 'warning' (no lang warp in preamble)", () => {
+    const doc = buildAst([])
+    expect(doc.health.status).toBe("warning")
   })
 
-  it("multiple consecutive Wefts accumulate in `document.wefts` in source order", () => {
-    const a = mkWeft(1)
-    const b = mkWeft(2)
-    const c = mkWeft(3)
-    const doc = buildAst([a, b, c])
-    expect(doc.wefts).toEqual([a, b, c])
+  it("an empty document has position {1,0}..{1,0}", () => {
+    const doc = buildAst([])
+    expect(doc.position.start).toEqual({ line: 1, offset: 0 })
+    expect(doc.position.end).toEqual({ line: 1, offset: 0 })
   })
 })
 
 // =============================================================================
-// Chapter — opening, body wefts, child sections, closing.
+// Document Preamble — PreambleWefts before the first heading.
 // =============================================================================
 
-describe("LoomAstBuilder — chapters", () => {
-  it("a lone chapter heading produces one Chapter with empty body and no children", () => {
-    const doc = buildAst([mkChapter(1, "Foo", "Lang")])
-    expect(doc.chapters).toHaveLength(1)
-    const [chapter] = doc.chapters
-    expect(chapter.preamble).toEqual([])
-    expect(chapter.code).toEqual([])
-    expect(chapter.children).toEqual([])
+describe("LoomAstBuilder — document preamble", () => {
+  it("PreambleWefts before the first heading accumulate on document.preamble in source order", () => {
+    const a = mkPreamble(1)
+    const b = mkPreamble(2)
+    const c = mkPreamble(3)
+    const doc = buildAst([a, b, c])
+    expect(doc.preamble).toEqual([a, b, c])
+    expect(doc.sections).toEqual([])
   })
 
-  it("PreambleWeft after a chapter heading lands on `chapter.preamble`", () => {
+  it("a lang-warp PreambleWeft in the document preamble → health 'ok'", () => {
+    const doc = buildAst([langPreamble(1)])
+    expect(doc.health.status).toBe("ok")
+  })
+
+  it("PreambleWefts before the first heading do NOT start a section", () => {
+    const doc = buildAst([mkPreamble(1), mkPreamble(2)])
+    expect(doc.sections).toHaveLength(0)
+  })
+})
+
+// =============================================================================
+// Flat sections — every HeadingWeft opens a new LoomSection.
+// =============================================================================
+
+describe("LoomAstBuilder — flat sections", () => {
+  it("a lone heading produces exactly one flat LoomSection with empty preamble and empty code", () => {
+    const doc = buildAst([mkHeading(1, "Foo")])
+    expect(doc.sections).toHaveLength(1)
+    const [section] = doc.sections
+    expect(section.preamble).toEqual([])
+    expect(section.code).toEqual([])
+  })
+
+  it("PreambleWeft after a heading lands on the open section's preamble, not document.preamble", () => {
     const doc = buildAst([
-      mkChapter(1, "Foo", "Lang"),
+      mkHeading(1, "Foo"),
       mkPreamble(2),
       mkPreamble(3),
     ])
-    const [chapter] = doc.chapters
-    expect(chapter.preamble).toHaveLength(2)
+    expect(doc.preamble).toHaveLength(0)
+    const [section] = doc.sections
+    expect(section.preamble).toHaveLength(2)
   })
 
-  it("body wefts (Arrow/Code/Tilde/Prose) after a chapter heading land on `chapter.code` in order", () => {
+  it("body wefts (Arrow/Code/Tilde/Prose) after a heading land on section.code in order", () => {
     const arrow = mkArrow(2)
     const code = mkCode(3)
     const tilde = mkTilde(4)
     const prose = mkProse(5)
     const doc = buildAst([
-      mkChapter(1, "Foo", "Lang"),
+      mkHeading(1, "Foo"),
       arrow,
       code,
       tilde,
       prose,
     ])
-    const [chapter] = doc.chapters
-    expect(chapter.code).toEqual([arrow, code, tilde, prose])
+    const [section] = doc.sections
+    expect(section.code).toEqual([arrow, code, tilde, prose])
   })
 
-  it("a heading propagates its tag and specifier into `chapter.heading`", () => {
-    const doc = buildAst([mkChapter(1, "MyChapter", "Scala")])
-    const [chapter] = doc.chapters
-    expect(chapter.heading.tag?.label.value).toBe("MyChapter")
-    expect(chapter.heading.specifier?.label.value).toBe("Scala")
+  it("a heading forwards its tag and specifier onto section.heading", () => {
+    const doc = buildAst([mkHeading(1, "MySection", "Scala")])
+    const [section] = doc.sections
+    expect(section.heading.tag?.label.value).toBe("MySection")
+    expect(section.heading.specifier?.label.value).toBe("Scala")
   })
 
-  it("a second chapter heading closes the previous chapter and opens a new one", () => {
+  it("a tagless heading produces a section whose heading.tag is undefined", () => {
+    const doc = buildAst([mkHeading(1)])
+    const [section] = doc.sections
+    expect(section.heading.tag).toBeUndefined()
+  })
+
+  it("a second heading closes the first section and opens a new flat section", () => {
+    const arrow1 = mkArrow(2)
+    const arrow2 = mkArrow(4)
     const doc = buildAst([
-      mkChapter(1, "A", "X"),
-      mkArrow(2),
-      mkChapter(3, "B", "Y"),
-      mkArrow(4),
-    ])
-    expect(doc.chapters).toHaveLength(2)
-    expect(doc.chapters[0].heading.tag?.label.value).toBe("A")
-    expect(doc.chapters[1].heading.tag?.label.value).toBe("B")
-    expect(doc.chapters[0].code).toHaveLength(1)
-    expect(doc.chapters[1].code).toHaveLength(1)
-  })
-})
-
-// =============================================================================
-// Sections under a chapter.
-// =============================================================================
-
-describe("LoomAstBuilder — sections under a chapter", () => {
-  it("a section heading after a chapter heading opens a child Section", () => {
-    const doc = buildAst([
-      mkChapter(1, "Foo", "Lang"),
-      mkSection(2, "Bar"),
-    ])
-    const [chapter] = doc.chapters
-    expect(chapter.children).toHaveLength(1)
-    expect(chapter.children[0].heading.tag?.label.value).toBe("Bar")
-  })
-
-  it("body wefts after a section heading flow into the section, not the chapter", () => {
-    const doc = buildAst([
-      mkChapter(1, "Foo", "Lang"),
-      mkSection(2, "Bar"),
-      mkPreamble(3),
-      mkArrow(4),
-      mkCode(5),
-    ])
-    const [chapter] = doc.chapters
-    expect(chapter.preamble).toEqual([])
-    expect(chapter.code).toEqual([])
-    expect(chapter.children[0].preamble).toHaveLength(1)
-    expect(chapter.children[0].code).toHaveLength(2)
-  })
-
-  it("a chapter can carry its own preamble before a section heading appears", () => {
-    const doc = buildAst([
-      mkChapter(1, "Foo", "Lang"),
-      mkPreamble(2),
-      mkSection(3, "Bar"),
-      mkPreamble(4),
-    ])
-    const [chapter] = doc.chapters
-    expect(chapter.preamble).toHaveLength(1)
-    expect(chapter.children[0].preamble).toHaveLength(1)
-  })
-
-  it("a second section heading closes the previous section into `chapter.children`", () => {
-    const doc = buildAst([
-      mkChapter(1, "Foo", "Lang"),
-      mkSection(2, "A"),
-      mkArrow(3),
-      mkSection(4, "B"),
-      mkArrow(5),
-    ])
-    const [chapter] = doc.chapters
-    expect(chapter.children).toHaveLength(2)
-    expect(chapter.children[0].heading.tag?.label.value).toBe("A")
-    expect(chapter.children[1].heading.tag?.label.value).toBe("B")
-    expect(chapter.children[0].code).toHaveLength(1)
-    expect(chapter.children[1].code).toHaveLength(1)
-  })
-
-  it("a new chapter heading closes both the open section and the open chapter", () => {
-    const doc = buildAst([
-      mkChapter(1, "Outer", "X"),
-      mkSection(2, "S"),
-      mkArrow(3),
-      mkChapter(4, "Next", "Y"),
-    ])
-    expect(doc.chapters).toHaveLength(2)
-    expect(doc.chapters[0].children).toHaveLength(1)
-    expect(doc.chapters[1].children).toEqual([])
-  })
-})
-
-// =============================================================================
-// Orphan content — no parent chapter.
-// =============================================================================
-
-describe("LoomAstBuilder — orphan content", () => {
-  it("a section heading before any chapter lands on `document.sections`", () => {
-    const doc = buildAst([mkSection(1, "Notes")])
-    expect(doc.chapters).toEqual([])
-    expect(doc.sections).toHaveLength(1)
-    expect(doc.sections[0].heading.tag?.label.value).toBe("Notes")
-  })
-
-  it("body wefts under an orphan section flow into that section", () => {
-    const doc = buildAst([
-      mkSection(1, "Notes"),
-      mkPreamble(2),
-      mkArrow(3),
-      mkCode(4),
-    ])
-    expect(doc.sections).toHaveLength(1)
-    expect(doc.sections[0].preamble).toHaveLength(1)
-    expect(doc.sections[0].code).toHaveLength(2)
-  })
-
-  it("two consecutive orphan section headings both land on `document.sections`", () => {
-    const doc = buildAst([
-      mkSection(1, "A"),
-      mkArrow(2),
-      mkSection(3, "B"),
-      mkArrow(4),
+      mkHeading(1, "A"),
+      arrow1,
+      mkHeading(3, "B"),
+      arrow2,
     ])
     expect(doc.sections).toHaveLength(2)
-    expect(doc.sections[0].code).toHaveLength(1)
-    expect(doc.sections[1].code).toHaveLength(1)
+    expect(doc.sections[0].heading.tag?.label.value).toBe("A")
+    expect(doc.sections[1].heading.tag?.label.value).toBe("B")
+    expect(doc.sections[0].code).toEqual([arrow1])
+    expect(doc.sections[1].code).toEqual([arrow2])
   })
 
-  it("orphan Wefts, orphan Section, and a Chapter coexist in their respective slots", () => {
+  it("any number of headings produce that many flat sections (no nesting)", () => {
     const doc = buildAst([
-      mkWeft(1),
-      mkWeft(2),
-      mkSection(3, "Notes"),
-      mkPreamble(4),
-      mkChapter(5, "Foo", "Lang"),
-      mkPreamble(6),
-      mkSection(7, "Bar"),
-      mkArrow(8),
+      mkHeading(1, "A"),
+      mkHeading(2, "B"),
+      mkHeading(3, "C"),
     ])
-    expect(doc.wefts).toHaveLength(2)
-    expect(doc.sections).toHaveLength(1)
-    expect(doc.sections[0].preamble).toHaveLength(1)
-    expect(doc.chapters).toHaveLength(1)
-    expect(doc.chapters[0].preamble).toHaveLength(1)
-    expect(doc.chapters[0].children).toHaveLength(1)
-    expect(doc.chapters[0].children[0].code).toHaveLength(1)
-  })
-
-  it("a chapter following an orphan section closes the section first", () => {
-    const doc = buildAst([
-      mkSection(1, "Orphan"),
-      mkArrow(2),
-      mkChapter(3, "Foo", "Lang"),
-    ])
-    expect(doc.sections).toHaveLength(1)
-    expect(doc.sections[0].code).toHaveLength(1)
-    expect(doc.chapters).toHaveLength(1)
+    expect(doc.sections).toHaveLength(3)
+    expect(doc.sections[0].heading.tag?.label.value).toBe("A")
+    expect(doc.sections[1].heading.tag?.label.value).toBe("B")
+    expect(doc.sections[2].heading.tag?.label.value).toBe("C")
   })
 })
 
 // =============================================================================
-// Position derivation — the span runs from heading start to last constituent.
+// Mixed document — pre-heading preamble + multiple flat sections.
+// =============================================================================
+
+describe("LoomAstBuilder — mixed document", () => {
+  it("pre-heading preamble (with lang) + several headings: preamble populated, sections flat, health ok", () => {
+    const doc = buildAst([
+      langPreamble(1),
+      mkHeading(2, "Alpha"),
+      mkPreamble(3),
+      mkArrow(4),
+      mkHeading(5, "Beta"),
+      mkCode(6),
+    ])
+    expect(doc.health.status).toBe("ok")
+    expect(doc.preamble).toHaveLength(1)
+    expect(doc.sections).toHaveLength(2)
+    expect(doc.sections[0].heading.tag?.label.value).toBe("Alpha")
+    expect(doc.sections[0].preamble).toHaveLength(1)
+    expect(doc.sections[0].code).toHaveLength(1)
+    expect(doc.sections[1].heading.tag?.label.value).toBe("Beta")
+    expect(doc.sections[1].code).toHaveLength(1)
+  })
+})
+
+// =============================================================================
+// Missing-lang warning.
+// =============================================================================
+
+describe("LoomAstBuilder — missing-lang warning", () => {
+  it("no lang warp in document preamble → health.status 'warning'", () => {
+    const doc = buildAst([mkPreamble(1), mkHeading(2, "Foo")])
+    expect(doc.health.status).toBe("warning")
+    expect(doc.health.diagnostics).toHaveLength(1)
+    expect(doc.health.diagnostics[0].severity).toBe("warning")
+  })
+
+  it("a lang warp in document preamble → health.status 'ok'", () => {
+    const doc = buildAst([langPreamble(1), mkHeading(2, "Foo")])
+    expect(doc.health.status).toBe("ok")
+  })
+
+  it("a lang warp only in section preamble (not document preamble) → health 'warning'", () => {
+    // The lang warp must be in the DOCUMENT preamble (before the first heading).
+    // A warp inside a section's preamble does not satisfy the requirement.
+    const doc = buildAst([mkHeading(1, "Foo"), langPreamble(2)])
+    expect(doc.health.status).toBe("warning")
+  })
+})
+
+// =============================================================================
+// Position spans.
 // =============================================================================
 
 describe("LoomAstBuilder — position spans", () => {
-  it("a Section spans from its heading to its last body weft", () => {
-    const arrow = mkArrow(3)
-    const doc = buildAst([
-      mkChapter(1, "Foo", "Lang"),
-      mkSection(2, "S"),
-      arrow,
-    ])
-    const section = doc.chapters[0].children[0]
-    expect(section.position.start.offset).toBe(pos(2).start.offset)
-    expect(section.position.end.offset).toBe(arrow.position.end.offset)
-  })
-
   it("a Section with only a heading spans the heading alone", () => {
-    const doc = buildAst([
-      mkChapter(1, "Foo", "Lang"),
-      mkSection(2, "S"),
-    ])
-    const section = doc.chapters[0].children[0]
+    const doc = buildAst([mkHeading(2, "S")])
+    const [section] = doc.sections
     expect(section.position.start.offset).toBe(pos(2).start.offset)
     expect(section.position.end.offset).toBe(pos(2).end.offset)
   })
 
-  it("a Chapter spans through its last child Section's last weft", () => {
-    const lastWeft = mkCode(7)
+  it("a Section spans from its heading to its last body weft", () => {
+    const arrow = mkArrow(3)
     const doc = buildAst([
-      mkChapter(1, "Foo", "Lang"),
-      mkPreamble(2),
-      mkSection(3, "S"),
-      mkArrow(4),
-      lastWeft,
+      mkHeading(2, "S"),
+      arrow,
     ])
-    const [chapter] = doc.chapters
-    expect(chapter.position.end.offset).toBe(lastWeft.position.end.offset)
+    const [section] = doc.sections
+    expect(section.position.start.offset).toBe(pos(2).start.offset)
+    expect(section.position.end.offset).toBe(arrow.position.end.offset)
   })
 
-  it("a Chapter without children spans through its last body weft", () => {
+  it("a Section span includes preamble wefts and body wefts; end is the last element", () => {
     const lastCode = mkCode(5)
     const doc = buildAst([
-      mkChapter(1, "Foo", "Lang"),
-      mkPreamble(2),
+      mkHeading(2, "S"),
+      mkPreamble(3),
+      mkArrow(4),
       lastCode,
     ])
-    expect(doc.chapters[0].position.end.offset).toBe(lastCode.position.end.offset)
+    const [section] = doc.sections
+    expect(section.position.start.offset).toBe(pos(2).start.offset)
+    expect(section.position.end.offset).toBe(lastCode.position.end.offset)
   })
 
-  it("an empty document has position {0,0} at line 1", () => {
+  it("an empty document has position {1,0}..{1,0}", () => {
     const doc = buildAst([])
     expect(doc.position.start).toEqual({ line: 1, offset: 0 })
     expect(doc.position.end).toEqual({ line: 1, offset: 0 })
   })
 
   it("a non-empty document spans from its first constituent to its last", () => {
-    const w = mkWeft(1)
+    const first = langPreamble(1)
     const last = mkCode(5)
     const doc = buildAst([
-      w,
-      mkChapter(3, "Foo", "Lang"),
+      first,
+      mkHeading(3, "Foo"),
       mkPreamble(4),
       last,
     ])
-    expect(doc.position.start.offset).toBe(w.position.start.offset)
+    expect(doc.position.start.offset).toBe(first.position.start.offset)
+    expect(doc.position.end.offset).toBe(last.position.end.offset)
+  })
+
+  it("a document with only pre-heading preambles spans the preamble wefts", () => {
+    const first = langPreamble(1)
+    const last = mkPreamble(3)
+    const doc = buildAst([first, last])
+    expect(doc.position.start.offset).toBe(first.position.start.offset)
     expect(doc.position.end.offset).toBe(last.position.end.offset)
   })
 })
@@ -486,19 +455,11 @@ describe("LoomAstBuilder — position spans", () => {
 // =============================================================================
 
 describe("LoomAstBuilder — container health", () => {
-  it("the document carries okHealth on any input", () => {
-    expect(buildAst([]).health.status).toBe("ok")
-    expect(buildAst([mkChapter(1, "Foo", "Lang")]).health.status).toBe("ok")
-  })
-
-  it("chapters and sections carry okHealth", () => {
-    const doc = buildAst([
-      mkChapter(1, "Foo", "Lang"),
-      mkSection(2, "S"),
-      mkArrow(3),
-    ])
-    expect(doc.chapters[0].health.status).toBe("ok")
-    expect(doc.chapters[0].children[0].health.status).toBe("ok")
+  it("sections always carry okHealth (even when their heading carries error health)", () => {
+    const doc = buildAst([mkHeading(1, "Foo"), mkHeading(2, "Bar")])
+    for (const section of doc.sections) {
+      expect(section.health.status).toBe("ok")
+    }
   })
 })
 
@@ -506,8 +467,8 @@ describe("LoomAstBuilder — container health", () => {
 // NOK preservation — the builder receives wefts whose `health` and
 // `unexpected[]` carry the Tokeniser's diagnostic findings. Its job at the
 // container layer is to forward those leaves unchanged onto the resulting
-// LoomHeading. Container nodes (LoomSection / LoomChapter / LoomDocument)
-// stay `okHealth` regardless; consumers read leaf health to find problems.
+// LoomHeading. Container nodes (LoomSection / LoomDocument) stay `okHealth`
+// regardless; consumers read leaf health to find problems.
 // =============================================================================
 
 const errorHealth = (line: number, message: string): Health => ({
@@ -516,85 +477,66 @@ const errorHealth = (line: number, message: string): Health => ({
 })
 
 describe("LoomAstBuilder — NOK preservation", () => {
-  it("forwards section weft.health onto LoomSection.heading.health", () => {
-    const errored = SectionHeadingWeftSchema.make({
-      ...mkSection(2, "Bar"),
-      health: errorHealth(2, "synthetic diagnostic"),
+  it("forwards weft.health onto section.heading.health", () => {
+    const errored = HeadingWeftSchema.make({
+      ...mkHeading(1, "Bar"),
+      health: errorHealth(1, "synthetic diagnostic"),
     })
-    const doc = buildAst([mkChapter(1, "C", "L"), errored])
-    const section = doc.chapters[0].children[0]
+    const doc = buildAst([errored])
+    const [section] = doc.sections
     expect(section.heading.health.status).toBe("error")
     expect(section.heading.health.diagnostics[0].message).toBe("synthetic diagnostic")
   })
 
-  it("forwards section weft.unexpected onto LoomSection.heading.unexpected", () => {
-    const stray = UnexpectedTokenSchema.make({ position: pos(2), value: "]]" })
-    const errored = SectionHeadingWeftSchema.make({
-      ...mkSection(2, "Bar"),
+  it("forwards weft.unexpected onto section.heading.unexpected", () => {
+    const stray = UnexpectedTokenSchema.make({ position: pos(1), value: "]]" })
+    const errored = HeadingWeftSchema.make({
+      ...mkHeading(1, "Bar"),
       unexpected: [stray],
     })
-    const doc = buildAst([mkChapter(1, "C", "L"), errored])
-    const section = doc.chapters[0].children[0]
+    const doc = buildAst([errored])
+    const [section] = doc.sections
     expect(section.heading.unexpected).toBeDefined()
     expect(section.heading.unexpected?.[0].value).toBe("]]")
   })
 
   it("LoomSection container stays okHealth even when its heading is error", () => {
-    const errored = SectionHeadingWeftSchema.make({
-      ...mkSection(2, "Bar"),
-      health: errorHealth(2, "synthetic"),
-    })
-    const doc = buildAst([mkChapter(1, "C", "L"), errored])
-    expect(doc.chapters[0].children[0].health.status).toBe("ok")
-  })
-
-  it("forwards chapter weft.health onto LoomChapter.heading.health", () => {
-    const errored = ChapterHeadingWeftSchema.make({
-      ...mkChapter(1, "C", "L"),
-      health: errorHealth(1, "synthetic chapter error"),
-    })
-    const doc = buildAst([errored])
-    expect(doc.chapters[0].heading.health.status).toBe("error")
-    expect(doc.chapters[0].heading.health.diagnostics[0].message).toBe(
-      "synthetic chapter error",
-    )
-  })
-
-  it("LoomChapter and LoomDocument containers stay okHealth despite chapter heading error", () => {
-    const errored = ChapterHeadingWeftSchema.make({
-      ...mkChapter(1, "C", "L"),
+    const errored = HeadingWeftSchema.make({
+      ...mkHeading(1, "Bar"),
       health: errorHealth(1, "synthetic"),
     })
     const doc = buildAst([errored])
-    expect(doc.chapters[0].health.status).toBe("ok")
-    expect(doc.health.status).toBe("ok")
+    expect(doc.sections[0].health.status).toBe("ok")
   })
 
-  it("preserves heading.tag / heading.specifier identity (the Tokeniser's tokens ride through)", () => {
-    // Builder doesn't reconstruct tag/specifier — it copies the weft's token
-    // references onto LoomHeading. So mutating the value in the weft propagates
-    // directly to the heading.
+  it("preserves heading.tag / heading.specifier identity (Tokeniser tokens ride through unchanged)", () => {
+    // The builder copies the weft's tag/specifier token references directly onto
+    // LoomHeading — it does not reconstruct them. A tag token with error health
+    // and empty label value (as the Tokeniser emits for a malformed label) rides
+    // through to section.heading.tag unchanged.
     const tagWithError = TagTokenSchema.make({
-      position: pos(2),
-      health: errorHealth(2, "label rejected"),
-      open: TagOpenTokenSchema.make({ position: pos(2), health: okHealth, value: "[" }),
+      position: pos(1),
+      health: errorHealth(1, "label rejected"),
+      open: TagOpenTokenSchema.make({ position: pos(1), health: okHealth, value: "[" }),
       label: TagLabelTokenSchema.make({
         type: "TagLabel",
-        position: pos(2),
-        health: errorHealth(2, "label rejected"),
+        position: pos(1),
+        health: errorHealth(1, "label rejected"),
         value: "",
-        unexpected: [UnexpectedTokenSchema.make({ position: pos(2), value: "bad text" })],
+        unexpected: [UnexpectedTokenSchema.make({ position: pos(1), value: "bad text" })],
       }),
-      close: TagCloseTokenSchema.make({ position: pos(2), health: okHealth, value: "]" }),
+      close: TagCloseTokenSchema.make({ position: pos(1), health: okHealth, value: "]" }),
     })
-    const heading = SectionHeadingWeftSchema.make({
-      ...mkSection(2),
+    const heading = HeadingWeftSchema.make({
+      ...mkHeading(1),
       tag: tagWithError,
     })
-    const doc = buildAst([mkChapter(1, "C", "L"), heading])
-    const section = doc.chapters[0].children[0]
+    const doc = buildAst([heading])
+    const [section] = doc.sections
     expect(section.heading.tag?.health.status).toBe("error")
     expect(section.heading.tag?.label.value).toBe("")
     expect(section.heading.tag?.label.unexpected?.[0].value).toBe("bad text")
+    // The section container stays ok despite the NOK heading
+    expect(section.health.status).toBe("ok")
   })
 })

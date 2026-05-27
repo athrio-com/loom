@@ -1,24 +1,29 @@
-This file is the integration fixture. Lines before the first `#`
-heading are orphan content — raw lines that live on `document.wefts`.
+---
+The integration fixture, written mainly in {{lang: Scala}}.
+---
 
-## Reading notes [Notes]
+The lines above form the Document Preamble; the `lang` Warp names the
+primary language. Every heading below is a flat Section — heading
+level is reader-facing organisation only, the tree stays flat.
 
-A `##+` heading before any `#` has no parent Chapter; the Document is
-its de facto parent. Orphan Sections live on `document.sections`.
+# Reading notes [Notes]
+
+A heading at any level creates a flat Section.
 
 =>
 
-val orphanGreeting = "Hello from Document scope"
+val readingNote = "Sections are flat on the document"
 
 ~
 
-The code above belongs to this orphan Section, not to any Chapter.
+This prose line still belongs to the Notes Section.
 
-## Glossary
+# Glossary
 
-A second orphan Section. Headings without a tag are still valid.
+A Section with no tag. The Tokeniser synthesises a stable hash
+tag so every Section has an identifier.
 
-# Arithmetic [Arithmetic]{Scala}
+# Arithmetic
 
 A library of integer arithmetic. The primitives first, a couple of
 composites on top, and a `main` that prints a few results.
@@ -49,7 +54,7 @@ def mul(x: Int, y: Int): Int = x * y
 
 ## Square [Sq]
 
-Built on top of `mul`. {{m: Mul}}
+Built on top of {{m: Mul}}.
 
 =>
 
@@ -82,7 +87,7 @@ object Arithmetic extends App {
   println(s"power(2, 10) = ${power(2, 10)}")
 }
 
-## Build script [Build]{Bash}
+# Build script [Build]{Bash}
 
 Compile the single file, then run the resulting class.
 
@@ -92,24 +97,17 @@ Compile the single file, then run the resulting class.
 scalac src/main/scala/Arithmetic.scala -d out
 scala -cp out Arithmetic
 
-## Deps {Loom}
+# Tangling the library {src/main/scala/Arithmetic.scala}
+
+Pull the imports and the entry point together.
 
 =>
 
-import { ScalaToolchain } from "./Toolchain.loom"
-Arithmetic.needs(ScalaToolchain)
+{{Imports}}
+{{Entry point}}
 
-## Tangling the library {Loom}
-
-=>
-
-tangle("src/main/scala/Arithmetic.scala", compose(
-  Imports,
-  Main,
-))
-
-## Tangling the build script {Loom}
+# Tangling the build script {build.sh}
 
 =>
 
-tangle("build.sh", compose(Build))
+{{Build}}

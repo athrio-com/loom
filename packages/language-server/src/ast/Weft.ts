@@ -2,10 +2,10 @@ import { Schema } from "effect"
 import { loomNode } from "./LoomNode"
 import {
   ArrowTokenSchema,
-  ChapterHeadingStartTokenSchema,
   CodeTokenSchema,
+  HeadingStartTokenSchema,
+  PathSpecifierTokenSchema,
   ProseTokenSchema,
-  SectionHeadingStartTokenSchema,
   SpecifierTokenSchema,
   TagTokenSchema,
   TextTokenSchema,
@@ -26,41 +26,26 @@ import {
 // the line's first byte to its terminator inclusive.
 // =============================================================================
 
-// Default Weft — line with no recognised structure.
-export const WeftSchema = loomNode("Weft", {})
-export type Weft = typeof WeftSchema.Type
-
-// ChapterHeadingWeft — `#` heading. The headingStart token kind enforces
-// level 1. Title text decomposes into TextTokens between structural tokens.
-// Both `tag` and `specifier` are required on a structurally complete chapter
-// heading. The Classifier Stage emits the weft with NOK placeholder tokens carrying
-// `health.status === "incomplete"` when the real tokens have not yet been
-// recognised — the filter is satisfied at the schema level while the health
-// field communicates that subnodes are stand-ins.
-export const ChapterHeadingWeftSchema = loomNode("ChapterHeadingWeft", {
-  headingStart: ChapterHeadingStartTokenSchema,
+// HeadingWeft — a `#{1,6}` heading line, any level. The headingStart token
+// records the level for the human reader; it carries no structural meaning,
+// since every heading produces a flat Section. Title text decomposes into
+// TextTokens between structural tokens. Both `tag` and `specifier` are
+// optional: the Tokeniser synthesises a hash-derived `tag` for a tagless
+// heading so every Section has a stable identifier, and a heading without a
+// specifier inherits the Document Preamble's `lang`. The specifier is either
+// a label `{Scala}` (language) or a path `{src/index.ts}` (tangle sink).
+// The Classifier Stage emits the weft with NOK placeholders carrying
+// `health.status === "incomplete"` for subtokens not yet recognised; the
+// Tokeniser settles the health.
+export const HeadingWeftSchema = loomNode("HeadingWeft", {
+  headingStart: HeadingStartTokenSchema,
   texts: Schema.Array(TextTokenSchema),
   tag: Schema.optional(TagTokenSchema),
-  specifier: Schema.optional(SpecifierTokenSchema),
-}).pipe(
-  Schema.filter((w) =>
-    w.tag !== undefined && w.specifier !== undefined
-      ? undefined
-      : "ChapterHeadingWeft requires both tag and specifier",
+  specifier: Schema.optional(
+    Schema.Union(SpecifierTokenSchema, PathSpecifierTokenSchema),
   ),
-)
-export type ChapterHeadingWeft = typeof ChapterHeadingWeftSchema.Type
-
-// SectionHeadingWeft — `##`+ heading. Tag and specifier both optional. The
-// de-dicto / de-re distinction (frame vs product Section) rides on the
-// Specifier token (`{Loom}` vs everything else); no reserved heading variant.
-export const SectionHeadingWeftSchema = loomNode("SectionHeadingWeft", {
-  headingStart: SectionHeadingStartTokenSchema,
-  texts: Schema.Array(TextTokenSchema),
-  tag: Schema.optional(TagTokenSchema),
-  specifier: Schema.optional(SpecifierTokenSchema),
 })
-export type SectionHeadingWeft = typeof SectionHeadingWeftSchema.Type
+export type HeadingWeft = typeof HeadingWeftSchema.Type
 
 // ArrowWeft — `=>` line. The Arrow token; any trailing code content is the
 // optional CodeToken. `anchors` carries every `{{name}}` reference
@@ -108,9 +93,7 @@ export type CodeWeft = typeof CodeWeftSchema.Type
 // =============================================================================
 
 export const LoomWeftSchema = Schema.Union(
-  WeftSchema,
-  ChapterHeadingWeftSchema,
-  SectionHeadingWeftSchema,
+  HeadingWeftSchema,
   ArrowWeftSchema,
   TildeWeftSchema,
   PreambleWeftSchema,
@@ -120,9 +103,9 @@ export const LoomWeftSchema = Schema.Union(
 export type LoomWeft = typeof LoomWeftSchema.Type
 
 // =============================================================================
-// SectionBodyWeft — the Weft kinds that can appear in a Section or Chapter
-// `code` body (after the preamble). The grammar's forward-only mode
-// progression admits these four; the classifier enforces ordering.
+// SectionBodyWeft — the Weft kinds that can appear in a Section `code` body
+// (after the preamble). The grammar's forward-only mode progression admits
+// these four; the classifier enforces ordering.
 // =============================================================================
 
 export const SectionBodyWeftSchema = Schema.Union(

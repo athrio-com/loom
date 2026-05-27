@@ -3,68 +3,53 @@ import type { LineRange } from "./LineRanges"
 import { incompleteHealth, okHealth, type Position } from "./LoomNode"
 import {
   ArrowTokenSchema,
-  ChapterHeadingStartTokenSchema,
-  SectionHeadingStartTokenSchema,
-  SpecifierCloseTokenSchema,
-  SpecifierLabelTokenSchema,
-  SpecifierOpenTokenSchema,
-  SpecifierTokenSchema,
-  TagCloseTokenSchema,
-  TagLabelTokenSchema,
-  TagOpenTokenSchema,
-  TagTokenSchema,
+  HeadingStartTokenSchema,
   TildeTokenSchema,
-  getProbe
+  getProbe,
 } from "./LoomTokens"
 import {
   type ArrowWeft,
   ArrowWeftSchema,
-  type ChapterHeadingWeft,
-  ChapterHeadingWeftSchema,
-  type CodeWeft,
   CodeWeftSchema,
+  type HeadingWeft,
+  HeadingWeftSchema,
   type LoomWeft,
-  type PreambleWeft,
   PreambleWeftSchema,
-  type ProseWeft,
   ProseWeftSchema,
-  type SectionHeadingWeft,
-  SectionHeadingWeftSchema,
   type TildeWeft,
   TildeWeftSchema,
-  type Weft,
-  WeftSchema,
 } from "./Weft"
 
 // =============================================================================
 // WeftClassifier — the Classifier Stage of the parse pipeline.
 //
-// The classifier is a Mealy machine: state (Mode) is derived from the previous
-// Weft; input is a pattern probe of the current line; output is the next Weft,
-// which is also the next state.
+// The classifier is a Mealy machine: state is the previously emitted Weft plus
+// whether a heading has been seen; input is a pattern probe of the current
+// line; output is the next Weft, which also feeds the next state.
 //
-// Stream.mapAccum carries the previously emitted Weft as Option<LoomWeft>;
-// line numbers derive from previousWeft.position.end.line + 1.
+// Stream.mapAccum carries that state; line numbers derive from
+// previousWeft.position.end.line + 1.
 //
 // Output Wefts are partially populated: the leading token is filled
 // (headingStart, arrow, tilde) and the weft carries `incompleteHealth`.
-// Sub-token expansion (texts[], tags, specifier, code?, prose?) happens in
-// the Tokeniser Stage. There is no reserved heading shape: every `##`+
-// heading is a SectionHeadingWeft regardless of tag content; the de-dicto
-// (frame) vs de-re (product) distinction rides on the Specifier token at
-// Synth time.
+// Sub-token expansion (texts[], tag, specifier, code?, prose?) happens in the
+// Tokeniser Stage. There is one heading shape: every `#{1,6}` line is a
+// HeadingWeft regardless of level or tag content. The de-dicto (frame) vs
+// de-re (product) distinction rides on the Specifier token at Synth time.
 // =============================================================================
 
-// The Classifier-Stage Weft union — every kind the Classifier may emit.
-type ClassifierStageWeft =
-  | Weft
-  | ChapterHeadingWeft
-  | SectionHeadingWeft
-  | PreambleWeft
-  | CodeWeft
-  | ProseWeft
-  | ArrowWeft
-  | TildeWeft
+// The classifier opens before the first heading (the Document Preamble) and
+// tracks whether a heading has been emitted; the Document Preamble admits no
+// Arrow / Tilde transitions, so its lines are all PreambleWefts.
+type ClassifierState = {
+  readonly prev: Option.Option<LoomWeft>
+  readonly seenHeading: boolean
+}
+
+const initialState: ClassifierState = {
+  prev: Option.none(),
+  seenHeading: false,
+}
 
 export class WeftClassifier extends Effect.Service<WeftClassifier>()(
   "WeftClassifier",
@@ -75,11 +60,15 @@ export class WeftClassifier extends Effect.Service<WeftClassifier>()(
           (source: Stream.Stream<LineRange>): Stream.Stream<LoomWeft> =>
             Stream.mapAccum(
               source,
-              Option.none<ClassifierStageWeft>(),
-              (prev, range) => {
+              initialState,
+              (state, range) => {
                 const lineText = text.slice(range[0], range[1])
-                const weft = probeWeft(lineText, range, prev)
-                return [Option.some(weft), weft]
+                const weft = probeWeft(lineText, range, state)
+                const next: ClassifierState = {
+                  prev: Option.some(weft),
+                  seenHeading: state.seenHeading || weft.type === "HeadingWeft",
+                }
+                return [next, weft]
               },
             ),
     },
@@ -88,45 +77,49 @@ export class WeftClassifier extends Effect.Service<WeftClassifier>()(
 
 // =============================================================================
 // Two enumerable axes:
-//   Mode  ∈ { orphan | preamble | code | prose }
-//   Probe ∈ { chapter | section | arrow | tilde | plain }
+//   Mode  ∈ { preamble | code | prose }
+//   Probe ∈ { heading | arrow | tilde | plain }
 //
 // Decision table (priority top-to-bottom):
-//                    chapter  section  arrow    tilde    plain
-//   orphan           Chap     Sect     Weft     Weft     Weft
-//   preamble         Chap     Sect     Arrow    Tilde    Preamble
-//   code             Chap     Sect     Code     Tilde    Code
-//   prose            Chap     Sect     Prose    Prose    Prose
+//                    heading  arrow    tilde    plain
+//   preamble         Heading  Arrow    Tilde    Preamble
+//   code             Heading  Code     Tilde    Code
+//   prose            Heading  Prose    Prose    Prose
 //
-// The chapter and section columns are mode-independent — handled with early
-// returns before the Match. Everything below dispatches on Mode (outer
-// Match.exhaustive); transitional cells (Arrow/Tilde columns in preamble and
-// code rows) narrow on probe.kind inside the row.
+// The heading column is mode-independent — one probe for `#{1,6}` — handled
+// with an early return that opens the new Section's body in `preamble` mode.
+// Before the first heading (the Document Preamble) every non-heading line is a
+// PreambleWeft: Arrow / Tilde transitions begin only within a Section.
+// Everything below dispatches on Mode (outer Match.exhaustive); transitional
+// cells (Arrow / Tilde columns in the preamble and code rows) narrow on
+// probe.kind inside the row.
 // =============================================================================
 
 const probeWeft = (
   lineText: string,
   range: LineRange,
-  prev: Option.Option<ClassifierStageWeft>,
-): ClassifierStageWeft => {
-  const line = Option.match(prev, {
+  state: ClassifierState,
+): LoomWeft => {
+  const line = Option.match(state.prev, {
     onNone: () => 1,
     onSome: (w) => w.position.end.line + 1,
   })
-  const mode = modeOf(prev)
   const probe = probeOf(lineText)
   const position = linePos(line, range)
 
-  // Mode-independent columns
-  if (probe.kind === "chapter") return makeChapterHeadingWeft(line, range)
-  if (probe.kind === "section") return makeSectionHeadingWeft(line, range, probe.sect)
+  // Mode-independent: a heading opens a new Section whose body starts in
+  // preamble mode.
+  if (probe.kind === "heading") return makeHeadingWeft(line, range, probe.m)
 
-  // Mode-driven dispatch — one row per Mode. The preamble and code rows
-  // narrow on probe.kind for their transitional cells.
+  // Document Preamble: before the first heading, every non-heading line is a
+  // PreambleWeft. No Arrow / Tilde transition fires here.
+  if (!state.seenHeading)
+    return PreambleWeftSchema.make({ position, health: incompleteHealth, warps: [] })
+
+  // Mode-driven dispatch — one row per Mode. The preamble and code rows narrow
+  // on probe.kind for their transitional cells.
   return pipe(
-    Match.value(mode),
-    // Pre-chapter Weft — terminal, no Tokeniser Stage processing expected.
-    Match.when("orphan", () => WeftSchema.make({ position, health: okHealth })),
+    Match.value(modeOf(state.prev)),
     Match.when("preamble", () =>
       probe.kind === "arrow" ? makeArrowWeft(line, range, probe.m)
         : probe.kind === "tilde" ? makeTildeWeft(line, range, probe.m)
@@ -159,24 +152,24 @@ const span = (line: number, start: number, end: number): Position => ({
 })
 
 // =============================================================================
-// Mode — the state axis. Derived from the previous Weft's type.
+// Mode — the state axis. Derived from the previous Weft's type. Consulted only
+// after the first heading; the Document Preamble is handled by the
+// `seenHeading` guard before this runs.
 // =============================================================================
 
-type Mode = "orphan" | "preamble" | "code" | "prose"
+type Mode = "preamble" | "code" | "prose"
 
-const modeOf = (prev: Option.Option<ClassifierStageWeft>): Mode =>
+const modeOf = (prev: Option.Option<LoomWeft>): Mode =>
   Option.match(prev, {
-    onNone: () => "orphan" as const,
+    onNone: () => "preamble" as const,
     onSome: (w) => pipe(
       Match.value(w),
-      Match.when({ type: "ChapterHeadingWeft" }, () => "preamble" as const),
-      Match.when({ type: "SectionHeadingWeft" }, () => "preamble" as const),
+      Match.when({ type: "HeadingWeft" }, () => "preamble" as const),
       Match.when({ type: "PreambleWeft" }, () => "preamble" as const),
       Match.when({ type: "ArrowWeft" }, () => "code" as const),
       Match.when({ type: "CodeWeft" }, () => "code" as const),
       Match.when({ type: "TildeWeft" }, () => "prose" as const),
       Match.when({ type: "ProseWeft" }, () => "prose" as const),
-      Match.when({ type: "Weft" }, () => "orphan" as const),
       Match.exhaustive,
     ),
   })
@@ -188,22 +181,18 @@ const modeOf = (prev: Option.Option<ClassifierStageWeft>): Mode =>
 // =============================================================================
 
 type Probe =
-  | { readonly kind: "chapter" }
-  | { readonly kind: "section"; readonly sect: RegExpMatchArray }
+  | { readonly kind: "heading"; readonly m: RegExpMatchArray }
   | { readonly kind: "arrow"; readonly m: RegExpMatchArray }
   | { readonly kind: "tilde"; readonly m: RegExpMatchArray }
   | { readonly kind: "plain" }
 
-const chapterProbe = Option.getOrThrow(getProbe(ChapterHeadingStartTokenSchema))
-const sectionProbe = Option.getOrThrow(getProbe(SectionHeadingStartTokenSchema))
+const headingProbe = Option.getOrThrow(getProbe(HeadingStartTokenSchema))
 const arrowProbe = Option.getOrThrow(getProbe(ArrowTokenSchema))
 const tildeProbe = Option.getOrThrow(getProbe(TildeTokenSchema))
 
 const probeOf = (lineText: string): Probe => {
-  const ch = chapterProbe.exec(lineText)
-  if (ch) return { kind: "chapter" }
-  const sect = sectionProbe.exec(lineText)
-  if (sect) return { kind: "section", sect }
+  const h = headingProbe.exec(lineText)
+  if (h) return { kind: "heading", m: h }
   const a = arrowProbe.exec(lineText)
   if (a) return { kind: "arrow", m: a }
   const t = tildeProbe.exec(lineText)
@@ -212,75 +201,24 @@ const probeOf = (lineText: string): Probe => {
 }
 
 // =============================================================================
-// Heading-weft constructors.
+// Heading-weft constructor.
 //
-// The Classifier fills the leading marker token (`headingStart`) with
-// okHealth from source. Required slots the Classifier cannot fill yet (the
-// chapter heading's `tag` and `specifier`) are filled with NOK placeholders
-// at zero-width EOL positions carrying `incompleteHealth`, so the strict
-// schema filter is satisfied without claiming content that isn't there.
-//
-// The weft itself carries `incompleteHealth`. The Tokeniser settles it to
-// `ok` once the real subtokens are in place, or to `error` when a required
-// slot has no source content.
+// The Classifier fills the leading marker token (`headingStart`) with okHealth
+// from source and leaves `tag` / `specifier` absent — both are optional, and
+// the Tokeniser fills whatever the source supplies (synthesising a hash-
+// derived tag when the heading carries none). The weft itself carries
+// `incompleteHealth`; the Tokeniser settles it.
 // =============================================================================
 
-// NOK placeholder subtokens — zero-width at the line's EOL, every subnode
-// carrying `incompleteHealth`. The cross-field filter on TagLabel /
-// SpecifierLabel admits the empty `value` because health is non-ok. Only
-// ChapterHeading emits placeholders (its schema requires both tag and
-// specifier); SectionHeading leaves both slots `undefined`.
-const nokTagToken = (line: number, range: LineRange) => {
-  const eol = span(line, range[1], range[1])
-  return TagTokenSchema.make({
-    position: eol,
-    health: incompleteHealth,
-    open: TagOpenTokenSchema.make({ position: eol, health: incompleteHealth, value: "[" }),
-    label: TagLabelTokenSchema.make({ type: "TagLabel", position: eol, health: incompleteHealth, value: "" }),
-    close: TagCloseTokenSchema.make({ position: eol, health: incompleteHealth, value: "]" }),
-  })
-}
-
-const nokSpecifierToken = (line: number, range: LineRange) => {
-  const eol = span(line, range[1], range[1])
-  return SpecifierTokenSchema.make({
-    position: eol,
-    health: incompleteHealth,
-    open: SpecifierOpenTokenSchema.make({ position: eol, health: incompleteHealth, value: "{" }),
-    label: SpecifierLabelTokenSchema.make({ type: "SpecifierLabel", position: eol, health: incompleteHealth, value: "" }),
-    close: SpecifierCloseTokenSchema.make({ position: eol, health: incompleteHealth, value: "}" }),
-  })
-}
-
-const makeChapterHeadingWeft = (line: number, range: LineRange): ChapterHeadingWeft =>
-  ChapterHeadingWeftSchema.make({
-    type: "ChapterHeadingWeft",
+const makeHeadingWeft = (line: number, range: LineRange, m: RegExpMatchArray): HeadingWeft =>
+  HeadingWeftSchema.make({
     position: linePos(line, range),
     health: incompleteHealth,
-    headingStart: ChapterHeadingStartTokenSchema.make({
-      // The chapter marker is `# ` (hash plus mandatory space).
-      position: span(line, range[0], range[0] + 2),
+    headingStart: HeadingStartTokenSchema.make({
+      // probe /^#{1,6} / — the whole match (hashes + mandatory space) is the marker.
+      position: span(line, range[0], range[0] + m[0].length),
       health: okHealth,
     }),
-    texts: [],
-    tag: nokTagToken(line, range),
-    specifier: nokSpecifierToken(line, range),
-  })
-
-const sectionHeadingStart = (line: number, range: LineRange, m: RegExpMatchArray) =>
-  SectionHeadingStartTokenSchema.make({
-    // probe /^#{2,6} / — the whole match (hashes + mandatory space) is the marker.
-    position: span(line, range[0], range[0] + m[0].length),
-    health: okHealth,
-  })
-
-const makeSectionHeadingWeft = (
-  line: number, range: LineRange, m: RegExpMatchArray,
-): SectionHeadingWeft =>
-  SectionHeadingWeftSchema.make({
-    position: linePos(line, range),
-    health: incompleteHealth,
-    headingStart: sectionHeadingStart(line, range, m),
     texts: [],
   })
 

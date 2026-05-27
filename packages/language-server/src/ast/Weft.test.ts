@@ -2,8 +2,8 @@ import { describe, expect, it } from "@effect/vitest"
 import { Option, Schema } from "effect"
 import {
   ArrowTokenSchema,
-  ChapterHeadingStartTokenSchema,
-  SectionHeadingStartTokenSchema,
+  HeadingStartTokenSchema,
+  PathSpecifierTokenSchema,
   SpecifierTokenSchema,
   TagTokenSchema,
   TildeTokenSchema,
@@ -14,25 +14,18 @@ import {
 import { okHealth } from "./LoomNode"
 import {
   ArrowWeftSchema,
-  ChapterHeadingWeftSchema,
+  HeadingWeftSchema,
   LoomWeftSchema,
-  SectionHeadingWeftSchema,
   TildeWeftSchema,
-  WeftSchema,
 } from "./Weft"
+
 const samplePosition = {
   start: { line: 1, column: 1, offset: 0 },
   end: { line: 1, column: 4, offset: 3 },
 }
 
-const validSectionHeadingStart = {
-  type: "SectionHeadingStart" as const,
-  position: samplePosition,
-  health: okHealth,
-}
-
-const validChapterHeadingStart = {
-  type: "ChapterHeadingStart" as const,
+const validHeadingStart = {
+  type: "HeadingStart" as const,
   position: samplePosition,
   health: okHealth,
 }
@@ -55,26 +48,33 @@ const validSpecifier = {
   close: { type: "SpecifierClose" as const, value: "}" as const, position: samplePosition, health: okHealth },
 }
 
+const validPathSpecifier = {
+  type: "PathSpecifier" as const,
+  position: samplePosition,
+  health: okHealth,
+  open: { type: "SpecifierOpen" as const, value: "{" as const, position: samplePosition, health: okHealth },
+  label: { type: "PathSpecifierLabel" as const, value: "src/index.ts", position: samplePosition, health: okHealth },
+  close: { type: "SpecifierClose" as const, value: "}" as const, position: samplePosition, health: okHealth },
+}
+
 // =============================================================================
 // Probe annotation
 // =============================================================================
 
 describe("Probe annotation", () => {
   it("returns a probe for every token", () => {
-    expect(Option.isSome(getProbe(ChapterHeadingStartTokenSchema))).toBe(true)
-    expect(Option.isSome(getProbe(SectionHeadingStartTokenSchema))).toBe(true)
+    expect(Option.isSome(getProbe(HeadingStartTokenSchema))).toBe(true)
     expect(Option.isSome(getProbe(ArrowTokenSchema))).toBe(true)
     expect(Option.isSome(getProbe(TildeTokenSchema))).toBe(true)
     expect(Option.isSome(getProbe(TagTokenSchema))).toBe(true)
     expect(Option.isSome(getProbe(SpecifierTokenSchema))).toBe(true)
+    expect(Option.isSome(getProbe(PathSpecifierTokenSchema))).toBe(true)
     expect(Option.isSome(getProbe(WarpTokenSchema))).toBe(true)
     expect(Option.isSome(getProbe(WarpAnchorTokenSchema))).toBe(true)
   })
 
   it("returns None for Wefts (line-level recognition lives on tokens only)", () => {
-    expect(Option.isNone(getProbe(WeftSchema))).toBe(true)
-    expect(Option.isNone(getProbe(ChapterHeadingWeftSchema))).toBe(true)
-    expect(Option.isNone(getProbe(SectionHeadingWeftSchema))).toBe(true)
+    expect(Option.isNone(getProbe(HeadingWeftSchema))).toBe(true)
     expect(Option.isNone(getProbe(ArrowWeftSchema))).toBe(true)
     expect(Option.isNone(getProbe(TildeWeftSchema))).toBe(true)
   })
@@ -84,32 +84,27 @@ describe("Probe annotation", () => {
 // Probes
 // =============================================================================
 
-describe("ChapterHeadingStart probe", () => {
-  const probe = Option.getOrThrow(getProbe(ChapterHeadingStartTokenSchema))
+describe("HeadingStart probe", () => {
+  const probe = Option.getOrThrow(getProbe(HeadingStartTokenSchema))
 
   it("matches level-1 `#` followed by a space", () => {
     expect("# Heading".match(probe)?.[0]).toBe("# ")
   })
 
-  it("rejects level-2+ and malformed", () => {
-    expect("## Section".match(probe)).toBeNull()
-    expect("#NoSpace".match(probe)).toBeNull()
-    expect("Plain text".match(probe)).toBeNull()
-  })
-})
-
-describe("SectionHeadingStart probe", () => {
-  const probe = Option.getOrThrow(getProbe(SectionHeadingStartTokenSchema))
-
-  it("matches 2–6 hash markers followed by a space", () => {
+  it("matches level-2 through level-6 headings", () => {
     expect("## Section".match(probe)?.[0]).toBe("## ")
     expect("###### Deep".match(probe)?.[0]).toBe("###### ")
   })
 
-  it("rejects level-1 and malformed", () => {
-    expect("# Heading".match(probe)).toBeNull()
-    expect("##NoSpace".match(probe)).toBeNull()
+  it("rejects 7+ hashes (too deep)", () => {
     expect("####### TooDeep".match(probe)).toBeNull()
+  })
+
+  it("rejects hash with no trailing space", () => {
+    expect("#NoSpace".match(probe)).toBeNull()
+  })
+
+  it("rejects plain text", () => {
     expect("Plain text".match(probe)).toBeNull()
   })
 })
@@ -174,6 +169,22 @@ describe("Specifier probe", () => {
   })
 })
 
+describe("PathSpecifier probe", () => {
+  const probe = Option.getOrThrow(getProbe(PathSpecifierTokenSchema))
+
+  it("finds a path specifier with `/` separators", () => {
+    const matches = [..."# Tangle {src/x.ts}".matchAll(probe)]
+    expect(matches).toHaveLength(1)
+    expect(matches[0][0]).toBe("{src/x.ts}")
+  })
+
+  it("admits `.` in path labels", () => {
+    const matches = [..."# Tangle {package.json}".matchAll(probe)]
+    expect(matches).toHaveLength(1)
+    expect(matches[0][0]).toBe("{package.json}")
+  })
+})
+
 describe("Warp probe", () => {
   const probe = Option.getOrThrow(getProbe(WarpTokenSchema))
 
@@ -205,34 +216,19 @@ describe("WarpAnchor probe", () => {
 })
 
 // =============================================================================
-// Token schema validation (subset)
+// Token schema validation
 // =============================================================================
 
-describe("ChapterHeadingStart schema validation", () => {
+describe("HeadingStart schema validation", () => {
   it("accepts a well-formed token", () => {
-    expect(Schema.is(ChapterHeadingStartTokenSchema)(validChapterHeadingStart)).toBe(true)
+    expect(Schema.is(HeadingStartTokenSchema)(validHeadingStart)).toBe(true)
   })
 
   it("rejects a wrong `type` discriminator", () => {
     expect(
-      Schema.is(ChapterHeadingStartTokenSchema)({
-        ...validChapterHeadingStart,
+      Schema.is(HeadingStartTokenSchema)({
+        ...validHeadingStart,
         type: "SectionHeadingStart",
-      }),
-    ).toBe(false)
-  })
-})
-
-describe("SectionHeadingStart schema validation", () => {
-  it("accepts a well-formed token", () => {
-    expect(Schema.is(SectionHeadingStartTokenSchema)(validSectionHeadingStart)).toBe(true)
-  })
-
-  it("rejects a wrong `type` discriminator", () => {
-    expect(
-      Schema.is(SectionHeadingStartTokenSchema)({
-        ...validSectionHeadingStart,
-        type: "ChapterHeadingStart",
       }),
     ).toBe(false)
   })
@@ -253,6 +249,20 @@ describe("Tag schema validation", () => {
   })
 })
 
+describe("PathSpecifier schema validation", () => {
+  it("accepts a well-formed `{src/x.ts}`-style token", () => {
+    expect(Schema.is(PathSpecifierTokenSchema)(validPathSpecifier)).toBe(true)
+  })
+
+  it("label type is `PathSpecifierLabel`", () => {
+    expect(validPathSpecifier.label.type).toBe("PathSpecifierLabel")
+  })
+
+  it("rejects a Specifier (wrong type discriminator) in the PathSpecifier slot", () => {
+    expect(Schema.is(PathSpecifierTokenSchema)(validSpecifier as any)).toBe(false)
+  })
+})
+
 const warpOpen = {
   type: "WarpOpen" as const, value: "{{" as const,
   position: samplePosition, health: okHealth,
@@ -261,32 +271,50 @@ const warpClose = {
   type: "WarpClose" as const, value: "}}" as const,
   position: samplePosition, health: okHealth,
 }
+
+const warpAnchorName = (value: string) => ({
+  type: "WarpAnchorName" as const, value, position: samplePosition, health: okHealth,
+})
+
 const warpName = (value: string) => ({
   type: "WarpName" as const, value, position: samplePosition, health: okHealth,
 })
 
 describe("WarpAnchor schema validation", () => {
-  it("accepts a well-formed anchor", () => {
+  it("accepts a simple single-word name", () => {
     expect(
       Schema.is(WarpAnchorTokenSchema)({
         type: "WarpAnchor",
         position: samplePosition,
         health: okHealth,
         open: warpOpen,
-        name: warpName("mul"),
+        name: warpAnchorName("mul"),
         close: warpClose,
       }),
     ).toBe(true)
   })
 
-  it("rejects a name that is not a TS identifier", () => {
+  it("accepts a multi-word heading name (e.g. `Multiplier Function`)", () => {
     expect(
       Schema.is(WarpAnchorTokenSchema)({
         type: "WarpAnchor",
         position: samplePosition,
         health: okHealth,
         open: warpOpen,
-        name: warpName("not-a-id"),
+        name: warpAnchorName("Multiplier Function"),
+        close: warpClose,
+      }),
+    ).toBe(true)
+  })
+
+  it("rejects a name containing `:`", () => {
+    expect(
+      Schema.is(WarpAnchorTokenSchema)({
+        type: "WarpAnchor",
+        position: samplePosition,
+        health: okHealth,
+        open: warpOpen,
+        name: warpAnchorName("not:valid"),
         close: warpClose,
       }),
     ).toBe(false)
@@ -347,25 +375,17 @@ describe("Warp schema validation", () => {
 })
 
 // =============================================================================
-// Weft schema validation
+// HeadingWeft schema validation
 // =============================================================================
 
-describe("Weft (default) schema", () => {
-  it("accepts a well-formed default Weft", () => {
+describe("HeadingWeft schema", () => {
+  it("accepts a heading with only headingStart + empty texts (no tag, no specifier)", () => {
     expect(
-      Schema.is(WeftSchema)({ type: "Weft", position: samplePosition, health: okHealth }),
-    ).toBe(true)
-  })
-})
-
-describe("SectionHeadingWeft schema", () => {
-  it("accepts a heading with only headingStart (no tag, no specifier)", () => {
-    expect(
-      Schema.is(SectionHeadingWeftSchema)({
-        type: "SectionHeadingWeft",
+      Schema.is(HeadingWeftSchema)({
+        type: "HeadingWeft",
         position: samplePosition,
         health: okHealth,
-        headingStart: validSectionHeadingStart,
+        headingStart: validHeadingStart,
         texts: [],
       }),
     ).toBe(true)
@@ -373,37 +393,50 @@ describe("SectionHeadingWeft schema", () => {
 
   it("accepts a heading with tag only", () => {
     expect(
-      Schema.is(SectionHeadingWeftSchema)({
-        type: "SectionHeadingWeft",
+      Schema.is(HeadingWeftSchema)({
+        type: "HeadingWeft",
         position: samplePosition,
         health: okHealth,
-        headingStart: validSectionHeadingStart,
+        headingStart: validHeadingStart,
         texts: [],
         tag: validTag,
       }),
     ).toBe(true)
   })
 
-  it("accepts a heading with specifier only", () => {
+  it("accepts a heading with a label specifier only", () => {
     expect(
-      Schema.is(SectionHeadingWeftSchema)({
-        type: "SectionHeadingWeft",
+      Schema.is(HeadingWeftSchema)({
+        type: "HeadingWeft",
         position: samplePosition,
         health: okHealth,
-        headingStart: validSectionHeadingStart,
+        headingStart: validHeadingStart,
         texts: [],
         specifier: validSpecifier,
+      }),
+    ).toBe(true)
+  })
+
+  it("accepts a heading with a path specifier", () => {
+    expect(
+      Schema.is(HeadingWeftSchema)({
+        type: "HeadingWeft",
+        position: samplePosition,
+        health: okHealth,
+        headingStart: validHeadingStart,
+        texts: [],
+        specifier: validPathSpecifier,
       }),
     ).toBe(true)
   })
 
   it("accepts a heading with both tag and specifier", () => {
     expect(
-      Schema.is(SectionHeadingWeftSchema)({
-        type: "SectionHeadingWeft",
+      Schema.is(HeadingWeftSchema)({
+        type: "HeadingWeft",
         position: samplePosition,
         health: okHealth,
-        headingStart: validSectionHeadingStart,
+        headingStart: validHeadingStart,
         texts: [],
         tag: validTag,
         specifier: validSpecifier,
@@ -411,74 +444,23 @@ describe("SectionHeadingWeft schema", () => {
     ).toBe(true)
   })
 
-  it("rejects a heading carrying a non-tag in the tag slot", () => {
+  it("rejects a wrong-kind token in the tag slot", () => {
     expect(
-      Schema.is(SectionHeadingWeftSchema)({
-        type: "SectionHeadingWeft",
+      Schema.is(HeadingWeftSchema)({
+        type: "HeadingWeft",
         position: samplePosition,
         health: okHealth,
-        headingStart: validSectionHeadingStart,
+        headingStart: validHeadingStart,
         texts: [],
-        tag: { ...validSpecifier }, // wrong kind
-      }),
-    ).toBe(false)
-  })
-
-  it("rejects a level-1 ChapterHeadingStart in the headingStart slot", () => {
-    expect(
-      Schema.is(SectionHeadingWeftSchema)({
-        type: "SectionHeadingWeft",
-        position: samplePosition,
-        health: okHealth,
-        headingStart: validChapterHeadingStart,
-        texts: [],
+        tag: { ...validSpecifier } as any, // wrong kind
       }),
     ).toBe(false)
   })
 })
 
-describe("ChapterHeadingWeft schema", () => {
-  it("requires both tag and specifier", () => {
-    expect(
-      Schema.is(ChapterHeadingWeftSchema)({
-        type: "ChapterHeadingWeft",
-        position: samplePosition,
-        health: okHealth,
-        headingStart: validChapterHeadingStart,
-        texts: [],
-        tag: validTag,
-        specifier: validSpecifier,
-      }),
-    ).toBe(true)
-  })
-
-  it("rejects when specifier is missing", () => {
-    expect(
-      Schema.is(ChapterHeadingWeftSchema)({
-        type: "ChapterHeadingWeft",
-        position: samplePosition,
-        health: okHealth,
-        headingStart: validChapterHeadingStart,
-        texts: [],
-        tag: validTag,
-      }),
-    ).toBe(false)
-  })
-
-  it("rejects a level-2+ SectionHeadingStart in the headingStart slot", () => {
-    expect(
-      Schema.is(ChapterHeadingWeftSchema)({
-        type: "ChapterHeadingWeft",
-        position: samplePosition,
-        health: okHealth,
-        headingStart: validSectionHeadingStart,
-        texts: [],
-        tag: validTag,
-        specifier: validSpecifier,
-      }),
-    ).toBe(false)
-  })
-})
+// =============================================================================
+// ArrowWeft / TildeWeft — quick sanity checks preserved from the old suite
+// =============================================================================
 
 describe("ArrowWeft schema", () => {
   it("accepts a well-formed arrow Weft", () => {
@@ -519,11 +501,24 @@ describe("TildeWeft schema", () => {
   })
 })
 
+// =============================================================================
+// LoomWeft union — discriminates correctly across all current Weft kinds
+// =============================================================================
+
 describe("LoomWeft union", () => {
-  it("accepts every Weft kind", () => {
+  it("accepts a HeadingWeft", () => {
     expect(
-      Schema.is(LoomWeftSchema)({ type: "Weft", position: samplePosition, health: okHealth }),
+      Schema.is(LoomWeftSchema)({
+        type: "HeadingWeft",
+        position: samplePosition,
+        health: okHealth,
+        headingStart: validHeadingStart,
+        texts: [],
+      }),
     ).toBe(true)
+  })
+
+  it("accepts an ArrowWeft", () => {
     expect(
       Schema.is(LoomWeftSchema)({
         type: "ArrowWeft",

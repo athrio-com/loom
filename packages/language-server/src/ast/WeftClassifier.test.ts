@@ -12,11 +12,14 @@ import type { LoomWeft } from "./Weft"
 // Option<LoomWeft>, modeOf derivation, probeOf, the decision table.
 //
 // The Classifier Stage emits the following set of LoomWefts:
-//   Weft, ChapterHeadingWeft, SectionHeadingWeft, ArrowWeft, TildeWeft,
-//   PreambleWeft, CodeWeft, ProseWeft.
-// There is no reserved heading shape — every `##…` line classifies as a
-// SectionHeadingWeft regardless of tag content. The de-dicto (frame) vs
-// de-re (product) distinction rides on the Specifier at Synth time.
+//   HeadingWeft, ArrowWeft, TildeWeft, PreambleWeft, CodeWeft, ProseWeft.
+//
+// There is ONE heading kind — HeadingWeft — for every `#{1,6}` line
+// regardless of level or tag content. There is no `orphan` mode and no
+// default `Weft` kind: lines before the first heading are Document Preamble
+// PreambleWefts. Arrow / Tilde transitions begin only within a Section
+// (after a heading). The de-dicto (frame) vs de-re (product) distinction
+// rides on the Specifier token at Synth time.
 // =============================================================================
 
 const classify = (lines: ReadonlyArray<string>): ReadonlyArray<LoomWeft> => {
@@ -68,24 +71,62 @@ describe("classifyWefts — stream", () => {
 })
 
 // =============================================================================
+// Document Preamble — lines before the first heading.
+//
+// The document opens in preamble mode with seenHeading=false. Every
+// non-heading line — including Arrow (`=>`) and Tilde (`~`) lines — is a
+// PreambleWeft. No Arrow / Tilde transition fires in the Document Preamble.
+// =============================================================================
+
+describe("Document Preamble — pre-heading lines", () => {
+  it("a plain line before any heading → PreambleWeft", () => {
+    expect(classify(["just text"])[0].type).toBe("PreambleWeft")
+  })
+
+  it("`=>` before any heading → PreambleWeft (no transition)", () => {
+    expect(classify(["=>"])[0].type).toBe("PreambleWeft")
+  })
+
+  it("`~` before any heading → PreambleWeft (no transition)", () => {
+    expect(classify(["~"])[0].type).toBe("PreambleWeft")
+  })
+
+  it("multiple pre-heading lines all → PreambleWeft", () => {
+    const out = classify(["first", "second", "third"])
+    expect(types(out)).toEqual(["PreambleWeft", "PreambleWeft", "PreambleWeft"])
+  })
+
+  it("mix of plain, `=>`, and `~` before any heading → all PreambleWeft", () => {
+    const out = classify(["intro", "=>", "~", "more prose"])
+    expect(types(out)).toEqual([
+      "PreambleWeft",
+      "PreambleWeft",
+      "PreambleWeft",
+      "PreambleWeft",
+    ])
+  })
+
+  it("Document Preamble PreambleWefts carry incompleteHealth", () => {
+    const out = classify(["pre-heading prose"])
+    expect(out[0].health).toEqual(incompleteHealth)
+  })
+})
+
+// =============================================================================
 // State axis — modeOf via output type.
 //
-// The Mealy property "output is next state" means that the type of the
-// previous Weft determines the mode for the next line. We verify each
-// mode-defining prev-Weft drives the next plain line to the expected leaf.
+// The Mealy property "output is next state" means the type of the previous
+// Weft determines the mode for the next line. Each mode-defining Weft is
+// verified to drive the next plain line to the expected kind.
 // =============================================================================
 
 describe("modeOf — state axis (prev Weft → mode → next leaf)", () => {
-  it("None  → orphan → Weft", () => {
-    expect(classify(["just text"])[0].type).toBe("Weft")
-  })
-
-  it("ChapterHeading → preamble → PreambleWeft", () => {
-    const out = classify(["# Title [T]{S}", "intro line"])
+  it("HeadingWeft → preamble → PreambleWeft", () => {
+    const out = classify(["# Title", "intro line"])
     expect(out[1].type).toBe("PreambleWeft")
   })
 
-  it("SectionHeading → preamble → PreambleWeft", () => {
+  it("level-2 HeadingWeft → preamble → PreambleWeft", () => {
     const out = classify(["## Section", "intro line"])
     expect(out[1].type).toBe("PreambleWeft")
   })
@@ -96,7 +137,7 @@ describe("modeOf — state axis (prev Weft → mode → next leaf)", () => {
   })
 
   it("ArrowWeft → code → CodeWeft", () => {
-    const out = classify(["## Section", "=> ", "x = 1"])
+    const out = classify(["## Section", "=>", "x = 1"])
     expect(out[2].type).toBe("CodeWeft")
   })
 
@@ -114,37 +155,60 @@ describe("modeOf — state axis (prev Weft → mode → next leaf)", () => {
     const out = classify(["## Section", "~", "prose 1", "prose 2"])
     expect(out[3].type).toBe("ProseWeft")
   })
+})
 
-  it("Weft (pre-chapter) → orphan (sticky) → Weft", () => {
-    const out = classify(["before", "still before"])
-    expect(out.map((w) => w.type)).toEqual(["Weft", "Weft"])
+// =============================================================================
+// Heading probe — mode-independent; one kind for all levels `#{1,6}`.
+//
+// The heading probe /^#{1,6} / fires regardless of current mode. Every
+// heading line → HeadingWeft, opening the new Section's body in preamble
+// mode.
+// =============================================================================
+
+describe("Heading — mode-independent, all levels → HeadingWeft", () => {
+  const modePrelude: Record<string, ReadonlyArray<string>> = {
+    preamble: ["## A"],
+    code:     ["## A", "=>"],
+    prose:    ["## A", "~"],
+  }
+
+  for (const [mode, prelude] of Object.entries(modePrelude)) {
+    it(`heading probe wins from mode=${mode}`, () => {
+      const out = classify([...prelude, "# Title"])
+      expect(last(out).type).toBe("HeadingWeft")
+    })
+  }
+
+  it("`# X` (level 1) → HeadingWeft", () => {
+    expect(classify(["# Hello"])[0].type).toBe("HeadingWeft")
+  })
+
+  it("`## X` (level 2) → HeadingWeft", () => {
+    expect(classify(["## Hello"])[0].type).toBe("HeadingWeft")
+  })
+
+  it("`### X` (level 3) → HeadingWeft", () => {
+    expect(classify(["### Hello"])[0].type).toBe("HeadingWeft")
+  })
+
+  it("`###### X` (level 6) → HeadingWeft", () => {
+    expect(classify(["###### Hello"])[0].type).toBe("HeadingWeft")
+  })
+
+  it("heading from document preamble (before any previous heading) → HeadingWeft", () => {
+    // No prior heading — seenHeading is false, but heading probe fires first
+    expect(classify(["# First"])[0].type).toBe("HeadingWeft")
   })
 })
 
 // =============================================================================
-// Decision table — (mode, probe) → output Weft.
+// Decision table — mode-gated transitions.
+//
+// After the first heading, Arrow and Tilde lines drive mode transitions.
+// The table: preamble→Arrow→ArrowWeft; preamble→Tilde→TildeWeft;
+//            code→Tilde→TildeWeft; code→arrow→CodeWeft (no re-fire);
+//            prose→anything→ProseWeft (terminal).
 // =============================================================================
-
-describe("Decision table — universal columns (mode-independent)", () => {
-  const modePrelude: Record<string, ReadonlyArray<string>> = {
-    orphan: [],
-    preamble: ["## A"],
-    code: ["## A", "=>"],
-    prose: ["## A", "~"],
-  }
-
-  for (const [mode, prelude] of Object.entries(modePrelude)) {
-    it(`chapter probe wins from mode=${mode}`, () => {
-      const out = classify([...prelude, "# Title [T]{S}"])
-      expect(last(out).type).toBe("ChapterHeadingWeft")
-    })
-
-    it(`section probe wins from mode=${mode}`, () => {
-      const out = classify([...prelude, "## Section"])
-      expect(last(out).type).toBe("SectionHeadingWeft")
-    })
-  }
-})
 
 describe("Decision table — mode-gated transitions", () => {
   it("preamble + arrow → ArrowWeft", () => {
@@ -177,26 +241,37 @@ describe("Decision table — mode-gated transitions", () => {
     expect(last(out).type).toBe("ProseWeft")
   })
 
-  it("orphan + arrow → Weft (no chapter open yet)", () => {
-    expect(classify(["=>"])[0].type).toBe("Weft")
+  it("preamble + plain → PreambleWeft", () => {
+    const out = classify(["# A", "just a line"])
+    expect(last(out).type).toBe("PreambleWeft")
   })
 
-  it("orphan + tilde → Weft (no chapter open yet)", () => {
-    expect(classify(["~"])[0].type).toBe("Weft")
+  it("code + plain → CodeWeft", () => {
+    const out = classify(["# A", "=>", "let x = 1"])
+    expect(last(out).type).toBe("CodeWeft")
+  })
+
+  it("prose + plain → ProseWeft", () => {
+    const out = classify(["# A", "~", "some text"])
+    expect(last(out).type).toBe("ProseWeft")
   })
 })
 
 // =============================================================================
-// Health status — partials carry incompleteHealth, terminals carry okHealth.
+// Health status — all Classifier-Stage wefts carry incompleteHealth.
+//
+// The Tokeniser Stage settles health to ok/error/warning. The only okHealth
+// values the Classifier emits are on the leading marker tokens themselves
+// (headingStart, arrow, tilde) — not on the wefts.
 // =============================================================================
 
 describe("Health status", () => {
-  it("ChapterHeadingWeft is incompleteHealth (tag/specifier are placeholders)", () => {
-    const out = classify(["# Title [T]{S}"])
+  it("HeadingWeft is incompleteHealth (texts/tag/specifier pending Tokeniser)", () => {
+    const out = classify(["# Title"])
     expect(out[0].health).toEqual(incompleteHealth)
   })
 
-  it("SectionHeadingWeft is incompleteHealth (texts pending Tokeniser Stage)", () => {
+  it("HeadingWeft (level 2+) is incompleteHealth", () => {
     const out = classify(["## Section"])
     expect(out[0].health).toEqual(incompleteHealth)
   })
@@ -216,13 +291,14 @@ describe("Health status", () => {
     expect(last(out).health).toEqual(incompleteHealth)
   })
 
+  it("PreambleWeft in Document Preamble is incompleteHealth", () => {
+    const out = classify(["before any heading"])
+    expect(out[0].health).toEqual(incompleteHealth)
+  })
+
   it("ProseWeft is incompleteHealth (Tokeniser settles to ok)", () => {
     const out = classify(["## A", "~", "prose"])
     expect(last(out).health).toEqual(incompleteHealth)
-  })
-
-  it("plain Weft (pre-chapter) is okHealth (terminal)", () => {
-    expect(classify(["pre-chapter prose"])[0].health).toEqual(okHealth)
   })
 
   it("CodeWeft is incompleteHealth (Tokeniser settles after scanning anchors)", () => {
@@ -232,115 +308,128 @@ describe("Health status", () => {
 })
 
 // =============================================================================
-// Subtoken health — real source-parsed tokens vs NOK placeholders.
+// Subtoken health — marker tokens on HeadingWeft, ArrowWeft, TildeWeft.
+//
+// The leading marker token (headingStart, arrow, tilde) is assembled from
+// real source bytes by the Classifier and carries okHealth. Its position
+// spans the marker itself: hashes + trailing space for headingStart, `=>`
+// for arrow, the tilde run for tilde.
 // =============================================================================
 
-describe("Subtoken health", () => {
-  it("ChapterHeading.headingStart spans `# ` (hash + mandatory space)", () => {
-    const out = classify(["# Title [T]{S}"])
+describe("Subtoken health — marker tokens", () => {
+  it("HeadingWeft.headingStart spans `# ` (level-1: 1 hash + space = offsets 0..2)", () => {
+    const out = classify(["# Title"])
     const w = out[0]
-    if (w.type !== "ChapterHeadingWeft") throw new Error("expected ChapterHeading")
+    if (w.type !== "HeadingWeft") throw new Error("expected HeadingWeft")
     expect(w.headingStart.health).toEqual(okHealth)
     expect(w.headingStart.position.start.offset).toBe(0)
     expect(w.headingStart.position.end.offset).toBe(2)
   })
 
-  it("SectionHeading.headingStart spans `### ` (hashes + mandatory space)", () => {
+  it("HeadingWeft.headingStart spans `## ` (level-2: 2 hashes + space = offsets 0..3)", () => {
+    const out = classify(["## Section"])
+    const w = out[0]
+    if (w.type !== "HeadingWeft") throw new Error("expected HeadingWeft")
+    expect(w.headingStart.health).toEqual(okHealth)
+    expect(w.headingStart.position.start.offset).toBe(0)
+    expect(w.headingStart.position.end.offset).toBe(3)
+  })
+
+  it("HeadingWeft.headingStart spans `### ` (level-3: offsets 0..4)", () => {
     const out = classify(["### Deep"])
     const w = out[0]
-    if (w.type !== "SectionHeadingWeft") throw new Error("expected SectionHeading")
+    if (w.type !== "HeadingWeft") throw new Error("expected HeadingWeft")
     expect(w.headingStart.health).toEqual(okHealth)
     expect(w.headingStart.position.start.offset).toBe(0)
     expect(w.headingStart.position.end.offset).toBe(4)
   })
 
+  it("HeadingWeft.headingStart spans `###### ` (level-6: offsets 0..7)", () => {
+    const out = classify(["###### Deep"])
+    const w = out[0]
+    if (w.type !== "HeadingWeft") throw new Error("expected HeadingWeft")
+    expect(w.headingStart.health).toEqual(okHealth)
+    expect(w.headingStart.position.start.offset).toBe(0)
+    expect(w.headingStart.position.end.offset).toBe(7)
+  })
+
   it("ArrowToken (real marker) carries okHealth", () => {
     const out = classify(["## A", "=>"])
     const w = out[1]
-    if (w.type !== "ArrowWeft") throw new Error("expected Arrow")
+    if (w.type !== "ArrowWeft") throw new Error("expected ArrowWeft")
     expect(w.arrow.health).toEqual(okHealth)
   })
 
   it("TildeToken (real marker) carries okHealth", () => {
     const out = classify(["## A", "~~~"])
     const w = out[1]
-    if (w.type !== "TildeWeft") throw new Error("expected Tilde")
+    if (w.type !== "TildeWeft") throw new Error("expected TildeWeft")
     expect(w.tilde.health).toEqual(okHealth)
   })
 })
 
 // =============================================================================
-// NOK placeholders — ChapterHeading is the only weft requiring tag/specifier
-// stand-ins to satisfy its filter at the Classifier Stage.
+// HeadingWeft at Classifier Stage — no NOK placeholders for tag/specifier.
+//
+// The Classifier does NOT emit tag or specifier placeholders. Both fields are
+// optional in HeadingWeftSchema; the Tokeniser fills them from source.
+// The `texts` array is emitted as `[]` (empty) — the Tokeniser populates it.
 // =============================================================================
 
-describe("NOK placeholders on ChapterHeadingWeft", () => {
-  const chapter = () => {
-    const out = classify(["# Title"])
+describe("HeadingWeft at Classifier Stage — minimal, no placeholders", () => {
+  it("tag is absent on the emitted HeadingWeft (Tokeniser fills it)", () => {
+    const out = classify(["# Title [Tag]"])
     const w = out[0]
-    if (w.type !== "ChapterHeadingWeft") throw new Error("expected ChapterHeading")
-    return w
-  }
-
-  it("emits a tag placeholder with incompleteHealth on every subnode", () => {
-    const w = chapter()
-    expect(w.tag).toBeDefined()
-    expect(w.tag!.health).toEqual(incompleteHealth)
-    expect(w.tag!.open.health).toEqual(incompleteHealth)
-    expect(w.tag!.label.health).toEqual(incompleteHealth)
-    expect(w.tag!.close.health).toEqual(incompleteHealth)
+    if (w.type !== "HeadingWeft") throw new Error("expected HeadingWeft")
+    expect(w.tag).toBeUndefined()
   })
 
-  it("emits a specifier placeholder with incompleteHealth on every subnode", () => {
-    const w = chapter()
-    expect(w.specifier).toBeDefined()
-    expect(w.specifier!.health).toEqual(incompleteHealth)
-    expect(w.specifier!.open.health).toEqual(incompleteHealth)
-    expect(w.specifier!.label.health).toEqual(incompleteHealth)
-    expect(w.specifier!.close.health).toEqual(incompleteHealth)
+  it("specifier is absent on the emitted HeadingWeft (Tokeniser fills it)", () => {
+    const out = classify(["# Title {Lang}"])
+    const w = out[0]
+    if (w.type !== "HeadingWeft") throw new Error("expected HeadingWeft")
+    expect(w.specifier).toBeUndefined()
   })
 
-  it("places tag placeholder at zero-width EOL position", () => {
-    const w = chapter()
-    // line "# Title" is 7 chars; EOL offset = range[1] = 7
-    expect(w.tag!.position.start.offset).toBe(7)
-    expect(w.tag!.position.end.offset).toBe(7)
+  it("texts is an empty array on the emitted HeadingWeft", () => {
+    const out = classify(["# Some Title"])
+    const w = out[0]
+    if (w.type !== "HeadingWeft") throw new Error("expected HeadingWeft")
+    expect(w.texts).toEqual([])
   })
 
-  it("places specifier placeholder at zero-width EOL position", () => {
-    const w = chapter()
-    expect(w.specifier!.position.start.offset).toBe(7)
-    expect(w.specifier!.position.end.offset).toBe(7)
-  })
-
-  it("placeholders satisfy the ChapterHeadingWeft filter at the schema level", () => {
-    // If they didn't, Schema.make in the classifier would throw — getting here
-    // (and getting a ChapterHeadingWeft back) is the assertion.
-    expect(chapter().type).toBe("ChapterHeadingWeft")
+  it("headingStart is present and okHealth — the only filled field", () => {
+    const out = classify(["## Greet [Greet]"])
+    const w = out[0]
+    if (w.type !== "HeadingWeft") throw new Error("expected HeadingWeft")
+    expect(w.headingStart).toBeDefined()
+    expect(w.headingStart.health).toEqual(okHealth)
   })
 })
 
 // =============================================================================
-// Section heading — every `##…` line classifies as SectionHeadingWeft. The
-// Classifier does not inspect the tag content; the Specifier-driven
-// de-dicto cut is a Synth-phase concern.
+// Heading classification — all levels, any tag content → one HeadingWeft.
 // =============================================================================
 
-describe("Section heading — uniform classification", () => {
-  it("`## Greet [Greet]` → SectionHeadingWeft", () => {
-    expect(classify(["## Greet [Greet]"])[0].type).toBe("SectionHeadingWeft")
+describe("Heading classification — uniform across levels and content", () => {
+  it("`# Greet [Greet]` → HeadingWeft", () => {
+    expect(classify(["# Greet [Greet]"])[0].type).toBe("HeadingWeft")
   })
 
-  it("`## Plain heading` → SectionHeadingWeft", () => {
-    expect(classify(["## Plain heading"])[0].type).toBe("SectionHeadingWeft")
+  it("`## Greet [Greet]` → HeadingWeft", () => {
+    expect(classify(["## Greet [Greet]"])[0].type).toBe("HeadingWeft")
   })
 
-  it("`## Deps {Loom}` → SectionHeadingWeft (Specifier on the heading is just a token)", () => {
-    expect(classify(["## Deps {Loom}"])[0].type).toBe("SectionHeadingWeft")
+  it("`## Plain heading` → HeadingWeft", () => {
+    expect(classify(["## Plain heading"])[0].type).toBe("HeadingWeft")
   })
 
-  it("`## Multi [Greet] [Reply]` → SectionHeadingWeft (multi-tag is just data)", () => {
-    expect(classify(["## Multi [Greet] [Reply]"])[0].type).toBe("SectionHeadingWeft")
+  it("`## Deps {Loom}` → HeadingWeft (Specifier on the heading is just a token)", () => {
+    expect(classify(["## Deps {Loom}"])[0].type).toBe("HeadingWeft")
+  })
+
+  it("`## Multi [Greet] [Reply]` → HeadingWeft (multi-tag is just data)", () => {
+    expect(classify(["## Multi [Greet] [Reply]"])[0].type).toBe("HeadingWeft")
   })
 })
 
@@ -349,11 +438,11 @@ describe("Section heading — uniform classification", () => {
 // =============================================================================
 
 describe("Mealy chain — output IS next state", () => {
-  it("classifies a typical chapter with section, code, and prose runs", () => {
+  it("classifies a typical document with heading, preamble, code, and prose runs", () => {
     const out = classify([
-      "# HonoHello [Hono]{Loom}",      // chapter
+      "# HonoHello",                    // HeadingWeft
       "intro prose",                    // PreambleWeft
-      "## Greeting [Greet]",            // SectionHeading
+      "## Greeting [Greet]",            // HeadingWeft
       "preamble line",                  // PreambleWeft
       "=>",                             // ArrowWeft → switches to code
       "app.get('/', () => 'hi')",       // CodeWeft
@@ -361,14 +450,31 @@ describe("Mealy chain — output IS next state", () => {
       "now we describe it",             // ProseWeft
     ])
     expect(types(out)).toEqual([
-      "ChapterHeadingWeft",
+      "HeadingWeft",
       "PreambleWeft",
-      "SectionHeadingWeft",
+      "HeadingWeft",
       "PreambleWeft",
       "ArrowWeft",
       "CodeWeft",
       "TildeWeft",
       "ProseWeft",
+    ])
+  })
+
+  it("document preamble lines (including `=>` and `~`) become PreambleWefts", () => {
+    const out = classify([
+      "{{lang: Scala}}",                // PreambleWeft (Document Preamble)
+      "=>",                             // PreambleWeft (no heading yet)
+      "~",                              // PreambleWeft (no heading yet)
+      "# First Section",               // HeadingWeft (now seenHeading=true)
+      "=>",                             // ArrowWeft (inside section)
+    ])
+    expect(types(out)).toEqual([
+      "PreambleWeft",
+      "PreambleWeft",
+      "PreambleWeft",
+      "HeadingWeft",
+      "ArrowWeft",
     ])
   })
 
@@ -380,23 +486,41 @@ describe("Mealy chain — output IS next state", () => {
       "needs(ScalaToolchain)",
     ])
     expect(types(out)).toEqual([
-      "SectionHeadingWeft",
+      "HeadingWeft",
       "PreambleWeft",
       "ArrowWeft",
       "CodeWeft",
     ])
   })
 
-  it("any heading resets the mode (heading IS the section reset)", () => {
-    // Walk through every Classifier-Stage-reachable non-orphan mode, then hit a heading.
+  it("any heading resets to preamble mode for the next line", () => {
+    // Walk through preamble → code → heading (reset) → prose → heading (reset).
     const out = classify([
-      "## A", "preamble",  // preamble
-      "=>", "code",         // code
-      "## B",               // reset from code
-      "~", "prose",         // prose
-      "## C",               // reset from prose
+      "## A", "preamble",               // preamble
+      "=>", "code",                     // code
+      "## B",                           // reset from code → HeadingWeft
+      "~", "prose",                     // prose
+      "## C",                           // reset from prose → HeadingWeft
     ])
-    expect(out.filter((w) => w.type === "SectionHeadingWeft")).toHaveLength(3)
+    expect(out.filter((w) => w.type === "HeadingWeft")).toHaveLength(3)
+  })
+
+  it("heading after code mode transitions back to preamble (not code)", () => {
+    const out = classify([
+      "## A", "=>", "x = 1",           // code mode
+      "## B",                           // HeadingWeft → preamble
+      "intro",                          // PreambleWeft (not CodeWeft)
+    ])
+    expect(last(out).type).toBe("PreambleWeft")
+  })
+
+  it("heading after prose mode transitions back to preamble (not prose)", () => {
+    const out = classify([
+      "## A", "~", "prose text",       // prose mode
+      "## B",                           // HeadingWeft → preamble
+      "intro",                          // PreambleWeft (not ProseWeft)
+    ])
+    expect(last(out).type).toBe("PreambleWeft")
   })
 
   it("determinism — identical input yields identical output", () => {

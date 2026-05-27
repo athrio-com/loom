@@ -3,11 +3,11 @@ import { Chunk, Effect, Schema, Stream, pipe } from "effect"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { LoomSourceRanges } from "./LineRanges"
-import { LoomDocumentSchema, type LoomDocument } from "./LoomAst"
+import { LoomDocumentSchema, type LoomDocument, type LoomHeading } from "./LoomAst"
 import { Loom } from "./Loom"
 import { WeftClassifier } from "./WeftClassifier"
 import { WeftTokeniser } from "./WeftTokeniser"
-import { LoomWeftSchema, WeftSchema, type LoomWeft } from "./Weft"
+import { LoomWeftSchema, type LoomWeft } from "./Weft"
 
 // =============================================================================
 // Loom AST — integration tests against `corpus/Fun.loom`.
@@ -19,12 +19,22 @@ import { LoomWeftSchema, WeftSchema, type LoomWeft } from "./Weft"
 //   Tokeniser Stage  — Classifier output → WeftTokeniser
 //   AST Stage        — full pipeline via Loom.ast(text) → LoomDocument
 //
-// Assertions target stage invariants rather than per-weft snapshots, so
-// cosmetic changes to the fixture don't ripple through the test suite.
+// The model is flat: a Document Preamble (the lines before the first heading,
+// carrying the `{{lang: Scala}}` Warp) plus a list of Sections, one per
+// heading at any level. Assertions target stage invariants rather than
+// per-weft snapshots, so cosmetic changes to the fixture don't ripple through.
 // =============================================================================
 
 const fixturePath = resolve(__dirname, "../../../../corpus/Fun.loom")
 const sampleLoom = readFileSync(fixturePath, "utf8")
+
+// The trimmed concatenation of a heading's TextTokens — the human-facing
+// title, used to find tagless Sections (whose tag is a synthetic hash).
+const headingText = (text: string, heading: LoomHeading): string =>
+  heading.texts
+    .map((t) => text.slice(t.position.start.offset, t.position.end.offset))
+    .join("")
+    .trim()
 
 const classifyText = (text: string): ReadonlyArray<LoomWeft> =>
   Effect.runSync(
@@ -84,13 +94,11 @@ describe("Classifier Stage — integration against corpus/Fun.loom", () => {
 
   it("fires every Classifier-Stage probe at least once", () => {
     const seen = new Set(wefts.map((w) => w.type))
-    expect(seen.has("Weft")).toBe(true)                  // orphan mode (pre-chapter)
-    expect(seen.has("ChapterHeadingWeft")).toBe(true)
-    expect(seen.has("SectionHeadingWeft")).toBe(true)
-    expect(seen.has("ArrowWeft")).toBe(true)
-    expect(seen.has("TildeWeft")).toBe(true)
+    expect(seen.has("HeadingWeft")).toBe(true)
     expect(seen.has("PreambleWeft")).toBe(true)
+    expect(seen.has("ArrowWeft")).toBe(true)
     expect(seen.has("CodeWeft")).toBe(true)
+    expect(seen.has("TildeWeft")).toBe(true)
     expect(seen.has("ProseWeft")).toBe(true)
   })
 
@@ -100,14 +108,21 @@ describe("Classifier Stage — integration against corpus/Fun.loom", () => {
     }
   })
 
-  it("classifies exactly one Chapter", () => {
-    expect(wefts.filter((w) => w.type === "ChapterHeadingWeft")).toHaveLength(1)
+  it("classifies one HeadingWeft per `#{1,6}` heading line (twelve in the fixture)", () => {
+    expect(wefts.filter((w) => w.type === "HeadingWeft")).toHaveLength(12)
+  })
+
+  it("the lines before the first heading are all PreambleWefts (the Document Preamble)", () => {
+    const firstHeading = wefts.findIndex((w) => w.type === "HeadingWeft")
+    for (const w of wefts.slice(0, firstHeading)) {
+      expect(w.type).toBe("PreambleWeft")
+    }
   })
 })
 
 // =============================================================================
-// Tokeniser Stage — heading subtokens, body weft Warp/Anchor expansion,
-// post-Tokeniser health invariant.
+// Tokeniser Stage — heading subtokens, specifier kinds, Warp/Anchor expansion,
+// hash-tag synthesis, post-Tokeniser health invariant.
 // =============================================================================
 
 describe("Tokeniser Stage — integration against corpus/Fun.loom", () => {
@@ -116,9 +131,11 @@ describe("Tokeniser Stage — integration against corpus/Fun.loom", () => {
   const filterByType = <K extends LoomWeft["type"]>(
     type: K,
   ): ReadonlyArray<Extract<LoomWeft, { type: K }>> =>
-    wefts.filter(
-      (w): w is Extract<LoomWeft, { type: K }> => w.type === type,
-    )
+    wefts.filter((w): w is Extract<LoomWeft, { type: K }> => w.type === type)
+
+  const headings = () => filterByType("HeadingWeft")
+  const headingTitled = (title: string) =>
+    headings().find((h) => headingText(sampleLoom, h as unknown as LoomHeading) === title)
 
   it("emits one weft per source line", () => {
     expect(wefts.length).toBe(sampleLoom.split("\n").length)
@@ -136,48 +153,36 @@ describe("Tokeniser Stage — integration against corpus/Fun.loom", () => {
     }
   })
 
-  it("the fixture parses without errors or warnings", () => {
+  it("the fixture parses cleanly — every weft is okHealth", () => {
     for (const w of wefts) {
       expect(w.health.status).toBe("ok")
     }
   })
 
-  it("Chapter heading carries the fixture's tag and specifier", () => {
-    const [chapter] = filterByType("ChapterHeadingWeft")
-    expect(chapter.tag?.label.value).toBe("Arithmetic")
-    expect(chapter.specifier?.label.value).toBe("Scala")
+  it("a tagged heading carries its source tag", () => {
+    const add = headings().find((h) => h.tag?.label.value === "Add")
+    expect(add).toBeDefined()
+    expect(add!.tag?.health.status).toBe("ok")
   })
 
-  it("orphan Wefts precede the Chapter heading in document order", () => {
-    const [chapter] = filterByType("ChapterHeadingWeft")
-    const orphans = filterByType("Weft")
-    expect(orphans.length).toBeGreaterThan(0)
-    for (const w of orphans) {
-      expect(w.position.end.line).toBeLessThan(chapter.position.start.line)
-    }
+  it("a tagless heading receives a synthetic hash tag (ok health, `S_` prefix)", () => {
+    const glossary = headingTitled("Glossary")
+    expect(glossary).toBeDefined()
+    expect(glossary!.tag).toBeDefined()
+    expect(glossary!.tag?.health.status).toBe("ok")
+    expect(glossary!.tag?.label.value).toMatch(/^S_/)
   })
 
-  it("chapterless `## Reading notes [Notes]` precedes the Chapter heading", () => {
-    const [chapter] = filterByType("ChapterHeadingWeft")
-    const notes = filterByType("SectionHeadingWeft").find(
-      (s) => s.tag?.label.value === "Notes",
-    )
-    expect(notes).toBeDefined()
-    expect(notes!.position.end.line).toBeLessThan(chapter.position.start.line)
-  })
-
-  it("`## Deps {Loom}` parses with the `Loom` specifier and no tag", () => {
-    const deps = filterByType("SectionHeadingWeft").find(
-      (s) => s.specifier?.label.value === "Loom" && s.tag === undefined,
-    )
-    expect(deps).toBeDefined()
-  })
-
-  it("`## Build script [Build]{Bash}` parses with both tag and per-Section specifier", () => {
-    const build = filterByType("SectionHeadingWeft").find(
-      (s) => s.tag?.label.value === "Build",
-    )
+  it("`# Build script [Build]{Bash}` carries a label Specifier (not a path)", () => {
+    const build = headings().find((h) => h.tag?.label.value === "Build")
+    expect(build?.specifier?.type).toBe("Specifier")
     expect(build?.specifier?.label.value).toBe("Bash")
+  })
+
+  it("a tangle heading carries a PathSpecifier (path separators present)", () => {
+    const tangle = headingTitled("Tangling the library")
+    expect(tangle?.specifier?.type).toBe("PathSpecifier")
+    expect(tangle?.specifier?.label.value).toBe("src/main/scala/Arithmetic.scala")
   })
 
   it("a PreambleWeft with `{{m: Mul}}` populates warps with the Mul reference", () => {
@@ -189,6 +194,14 @@ describe("Tokeniser Stage — integration against corpus/Fun.loom", () => {
     expect(warp.annotation.value).toBe("Mul")
     expect(warp.default).toBeUndefined()
     expect(warp.health.status).toBe("ok")
+  })
+
+  it("the Document Preamble declares the `{{lang: Scala}}` Warp", () => {
+    const lang = filterByType("PreambleWeft")
+      .flatMap((w) => w.warps)
+      .find((wp) => wp.name.value === "lang")
+    expect(lang).toBeDefined()
+    expect(lang!.annotation.value).toBe("Scala")
   })
 
   it("the entry-point preamble declares three warps in one line (a, s, p)", () => {
@@ -207,6 +220,14 @@ describe("Tokeniser Stage — integration against corpus/Fun.loom", () => {
     expect(anchor.health.status).toBe("ok")
   })
 
+  it("recognises a multi-word heading-name anchor `{{Entry point}}` (ok health)", () => {
+    const anchor = filterByType("CodeWeft")
+      .flatMap((c) => c.anchors)
+      .find((a) => a.name.value === "Entry point")
+    expect(anchor).toBeDefined()
+    expect(anchor!.health.status).toBe("ok")
+  })
+
   it("the entry-point body emits anchors for each top-level dependency", () => {
     const referenced = new Set(
       filterByType("CodeWeft").flatMap((c) => c.anchors.map((a) => a.name.value)),
@@ -216,7 +237,7 @@ describe("Tokeniser Stage — integration against corpus/Fun.loom", () => {
     expect(referenced.has("p")).toBe(true)
   })
 
-  it("ArrowWefts in the fixture have no inline code or anchors", () => {
+  it("the fixture's `=>` lines carry no inline code or anchors", () => {
     for (const arrow of filterByType("ArrowWeft")) {
       expect(arrow.code).toBeUndefined()
       expect(arrow.anchors).toHaveLength(0)
@@ -224,11 +245,7 @@ describe("Tokeniser Stage — integration against corpus/Fun.loom", () => {
   })
 
   it("no heading Text token contains the line terminator", () => {
-    const headings = [
-      ...filterByType("ChapterHeadingWeft"),
-      ...filterByType("SectionHeadingWeft"),
-    ]
-    for (const h of headings) {
+    for (const h of headings()) {
       for (const t of h.texts) {
         const slice = sampleLoom.slice(t.position.start.offset, t.position.end.offset)
         expect(slice).not.toMatch(/[\r\n]/)
@@ -238,61 +255,10 @@ describe("Tokeniser Stage — integration against corpus/Fun.loom", () => {
 })
 
 // =============================================================================
-// LoomDocument shape compatibility — confirms the existing Classifier /
-// Tokeniser output composes with the new `LoomDocument` schema slots
-// (`wefts`, `sections`, `chapters`) without any upstream changes. We feed
-// a fixture covering pre-chapter prose and an orphan `##+` heading, then
-// assert the emitted wefts have the kinds those slots admit.
-// =============================================================================
-
-describe("Pipeline compatibility with LoomDocument shape", () => {
-  // Pre-chapter prose, then an orphan Section, then a real Chapter.
-  const fixture = [
-    "Some pre-chapter prose.",         // Weft (orphan)
-    "",                                 // Weft (orphan, still pre-heading)
-    "## Orphan section [Orphan]",      // SectionHeadingWeft (no parent Chapter)
-    "",                                 // PreambleWeft (section opens preamble mode)
-    "A line under the orphan section.",// PreambleWeft
-    "",                                 // PreambleWeft
-    "# Real Chapter [Tag]{Lang}",      // ChapterHeadingWeft
-    "",                                 // PreambleWeft (under the chapter)
-  ].join("\n")
-
-  const wefts = tokeniseText(fixture)
-
-  it("pre-chapter lines come back as Weft (orphan) kind", () => {
-    expect(wefts[0].type).toBe("Weft")
-    expect(wefts[1].type).toBe("Weft")
-  })
-
-  it("orphan Wefts satisfy `WeftSchema` — valid entries for `LoomDocument.wefts`", () => {
-    expect(Schema.is(WeftSchema)(wefts[0])).toBe(true)
-    expect(Schema.is(WeftSchema)(wefts[1])).toBe(true)
-  })
-
-  it("a `##+` heading before any `#` classifies as SectionHeadingWeft", () => {
-    expect(wefts[2].type).toBe("SectionHeadingWeft")
-  })
-
-  it("a `#` heading appearing after orphan content still classifies as ChapterHeadingWeft", () => {
-    const chapters = wefts.filter((w) => w.type === "ChapterHeadingWeft")
-    expect(chapters).toHaveLength(1)
-  })
-
-  it("body wefts between the orphan section and the real chapter live under the orphan section's preamble", () => {
-    // Indices 3, 4, 5 are between the orphan `##` heading and the real `#`
-    // heading; all should be PreambleWeft kind (preamble mode after a heading).
-    expect(wefts[3].type).toBe("PreambleWeft")
-    expect(wefts[4].type).toBe("PreambleWeft")
-    expect(wefts[5].type).toBe("PreambleWeft")
-  })
-})
-
-// =============================================================================
-// AST Stage — end-to-end via Loom.ast(text). Asserts the document-level
-// structure: orphan content in document.wefts, chapterless sections in
-// document.sections, the Arithmetic chapter in document.chapters with its
-// expected children.
+// AST Stage — end-to-end via Loom.ast(text). Asserts the flat document-level
+// structure: the Document Preamble on `document.preamble`, every heading as a
+// flat Section on `document.sections`, and the `{{lang: Scala}}` declaration
+// keeping the document's health `ok`.
 // =============================================================================
 
 describe("AST Stage — integration against corpus/Fun.loom", () => {
@@ -300,35 +266,28 @@ describe("AST Stage — integration against corpus/Fun.loom", () => {
 
   it("packages the fixture as a schema-valid LoomDocument", () => {
     expect(doc.type).toBe("LoomDocument")
+    expect(Schema.is(LoomDocumentSchema)(doc)).toBe(true)
+  })
+
+  it("the `{{lang: Scala}}` declaration keeps document health `ok`", () => {
     expect(doc.health.status).toBe("ok")
   })
 
-  it("collects the three pre-chapter lines on `document.wefts`", () => {
-    expect(doc.wefts).toHaveLength(3)
-    for (const w of doc.wefts) {
-      expect(w.type).toBe("Weft")
+  it("collects the pre-heading lines on `document.preamble` (all PreambleWefts)", () => {
+    expect(doc.preamble.length).toBeGreaterThan(0)
+    for (const w of doc.preamble) {
+      expect(w.type).toBe("PreambleWeft")
     }
+    const lang = doc.preamble
+      .flatMap((w) => w.warps)
+      .find((wp) => wp.name.value === "lang")
+    expect(lang).toBeDefined()
   })
 
-  it("collects both chapterless Sections on `document.sections`", () => {
-    expect(doc.sections).toHaveLength(2)
-    const titles = doc.sections.map((s) => s.heading.tag?.label.value)
-    expect(titles).toContain("Notes")
-    // "Glossary" has no tag — match by text segment value when present.
-    const glossary = doc.sections.find((s) => s.heading.tag === undefined)
-    expect(glossary).toBeDefined()
-  })
-
-  it("collects the single Arithmetic chapter on `document.chapters`", () => {
-    expect(doc.chapters).toHaveLength(1)
-    expect(doc.chapters[0].heading.tag?.label.value).toBe("Arithmetic")
-    expect(doc.chapters[0].heading.specifier?.label.value).toBe("Scala")
-  })
-
-  it("Arithmetic carries all ten `##` Sections as children", () => {
-    const [chapter] = doc.chapters
-    expect(chapter.children).toHaveLength(10)
-    const tags = chapter.children.map((s) => s.heading.tag?.label.value)
+  it("collects every heading as a flat Section on `document.sections`", () => {
+    expect(doc.sections).toHaveLength(12)
+    const tags = doc.sections.map((s) => s.heading.tag?.label.value)
+    expect(tags).toContain("Notes")
     expect(tags).toContain("Add")
     expect(tags).toContain("Mul")
     expect(tags).toContain("Sq")
@@ -337,11 +296,18 @@ describe("AST Stage — integration against corpus/Fun.loom", () => {
     expect(tags).toContain("Build")
   })
 
-  it("the orphan Section under `## Reading notes [Notes]` carries its body", () => {
+  it("tagless Sections still carry an identifier (synthetic hash tag)", () => {
+    const glossary = doc.sections.find(
+      (s) => headingText(sampleLoom, s.heading) === "Glossary",
+    )
+    expect(glossary).toBeDefined()
+    expect(glossary!.heading.tag?.label.value).toMatch(/^S_/)
+  })
+
+  it("the `Notes` Section carries its body wefts in order", () => {
     const notes = doc.sections.find((s) => s.heading.tag?.label.value === "Notes")!
     expect(notes.preamble.length).toBeGreaterThan(0)
     expect(notes.code.length).toBeGreaterThan(0)
-    // The body includes the `=>` Arrow, code lines, the `~` Tilde, and prose.
     const codeKinds = new Set(notes.code.map((w) => w.type))
     expect(codeKinds.has("ArrowWeft")).toBe(true)
     expect(codeKinds.has("CodeWeft")).toBe(true)
@@ -349,25 +315,25 @@ describe("AST Stage — integration against corpus/Fun.loom", () => {
     expect(codeKinds.has("ProseWeft")).toBe(true)
   })
 
-  it("orphan Sections precede the Chapter in document order", () => {
-    // Section boundaries can touch (`<=`): the last preamble weft of the
-    // trailing orphan section ends exactly where the next chapter heading
-    // begins, since the classifier assigns the boundary blank line to the
-    // still-open section.
-    const [chapter] = doc.chapters
-    for (const section of doc.sections) {
-      expect(section.position.end.offset).toBeLessThanOrEqual(
-        chapter.position.start.offset,
-      )
-    }
+  it("a tangle Section keeps its PathSpecifier on the heading", () => {
+    const tangle = doc.sections.find(
+      (s) => headingText(sampleLoom, s.heading) === "Tangling the library",
+    )!
+    expect(tangle.heading.specifier?.type).toBe("PathSpecifier")
+  })
+
+  it("Sections appear in document order", () => {
+    const offsets = doc.sections.map((s) => s.position.start.offset)
+    const sorted = [...offsets].sort((a, b) => a - b)
+    expect(offsets).toEqual(sorted)
   })
 })
 
 // =============================================================================
 // Loom.ast — orchestrator behaviour. The Service wires the four pipeline
-// stages and catches `MixedEOL` at the boundary, converting it to a
-// minimal empty document with NOK root health. Edge cases (empty source,
-// single-line source without terminator) flow through normally.
+// stages and catches `MixedEOL` at the boundary, converting it to a minimal
+// empty document with NOK root health. Edge cases (empty source, single-line
+// source without terminator) flow through normally.
 // =============================================================================
 
 describe("Loom.ast — orchestrator behaviour", () => {
@@ -379,9 +345,8 @@ describe("Loom.ast — orchestrator behaviour", () => {
     expect(doc.health.status).toBe("error")
     expect(doc.health.diagnostics).toHaveLength(1)
     expect(doc.health.diagnostics[0].message).toMatch(/mixed line terminators/i)
-    expect(doc.wefts).toEqual([])
+    expect(doc.preamble).toEqual([])
     expect(doc.sections).toEqual([])
-    expect(doc.chapters).toEqual([])
     expect(doc.position.start.offset).toBe(0)
     expect(doc.position.end.offset).toBe(text.length)
   })
@@ -391,96 +356,82 @@ describe("Loom.ast — orchestrator behaviour", () => {
     expect(Schema.is(LoomDocumentSchema)(doc)).toBe(true)
   })
 
-  it("handles empty source — one empty orphan Weft, okHealth root", () => {
+  it("handles empty source — one Document-Preamble weft, no Sections", () => {
     // LoomSourceRanges emits a single `[0, 0]` range for input with no
-    // terminators; the Classifier emits one orphan-mode Weft.
+    // terminators; the Classifier emits one Document-Preamble PreambleWeft.
     const doc = buildDocument("")
-    expect(doc.health.status).toBe("ok")
-    expect(doc.wefts).toHaveLength(1)
-    expect(doc.wefts[0].type).toBe("Weft")
+    expect(doc.preamble).toHaveLength(1)
+    expect(doc.preamble[0].type).toBe("PreambleWeft")
     expect(doc.sections).toEqual([])
-    expect(doc.chapters).toEqual([])
+    // No `{{lang: …}}` Warp → the document health is a warning.
+    expect(doc.health.status).toBe("warning")
   })
 
   it("handles single-line source without trailing newline", () => {
     const doc = buildDocument("just a single line")
-    expect(doc.health.status).toBe("ok")
-    expect(doc.wefts).toHaveLength(1)
-    expect(doc.wefts[0].position.end.offset).toBe("just a single line".length)
+    expect(doc.preamble).toHaveLength(1)
+    expect(doc.preamble[0].position.end.offset).toBe("just a single line".length)
+    expect(doc.sections).toEqual([])
   })
 
   it("wires all four services — single Loom.Default provides the whole pipeline", () => {
     // No explicit provides for LoomSourceRanges / Classifier / Tokeniser /
     // AstBuilder — Loom.Default carries them transitively via `dependencies`.
     const doc = buildDocument("# T [T]{L}\n")
-    expect(doc.chapters).toHaveLength(1)
-    expect(doc.chapters[0].heading.tag?.label.value).toBe("T")
+    expect(doc.sections).toHaveLength(1)
+    expect(doc.sections[0].heading.tag?.label.value).toBe("T")
+  })
+
+  it("a document with no `{{lang: …}}` Warp carries a warning on its health", () => {
+    const doc = buildDocument("# Solo [Solo]\n")
+    expect(doc.health.status).toBe("warning")
+    expect(doc.health.diagnostics[0].message).toMatch(/lang/i)
   })
 })
 
 // =============================================================================
-// Loom.ast — NOK preservation end-to-end. Malformed source flows through
-// the pipeline; the Tokeniser synthesises error-health placeholders and
-// captures rejected bytes in `unexpected[]`, the AstBuilder forwards them
-// onto the resulting `LoomHeading`. Container nodes stay `okHealth`.
+// Loom.ast — NOK preservation end-to-end. Malformed source flows through the
+// pipeline; the Tokeniser keeps rejected bytes in `unexpected[]` and flips the
+// affected leaf to error health, the AstBuilder forwards them onto the
+// resulting `LoomHeading`. Container nodes stay `okHealth`. A tagless heading
+// is NOT an error — it receives a synthetic hash tag.
 // =============================================================================
 
 describe("Loom.ast — NOK preservation end-to-end", () => {
-  it("chapter heading missing both tag and specifier — both subnodes are error-health placeholders", () => {
-    const doc = buildDocument("# JustATitle\n")
-    expect(doc.chapters).toHaveLength(1)
-    const heading = doc.chapters[0].heading
-    expect(heading.tag?.health.status).toBe("error")
-    expect(heading.tag?.health.diagnostics[0].message).toMatch(/requires a tag/i)
-    expect(heading.specifier?.health.status).toBe("error")
-    expect(heading.specifier?.health.diagnostics[0].message).toMatch(
-      /requires a specifier/i,
-    )
-  })
-
-  it("chapter heading missing tag only — synth tag with diagnostic, real specifier", () => {
-    const doc = buildDocument("# OnlyTitle {Lang}\n")
-    const heading = doc.chapters[0].heading
-    expect(heading.tag?.health.status).toBe("error")
-    expect(heading.specifier?.label.value).toBe("Lang")
-    expect(heading.specifier?.health.status).toBe("ok")
-  })
-
-  it("chapter heading missing specifier only — real tag, synth specifier with diagnostic", () => {
-    const doc = buildDocument("# Title [Tag]\n")
-    const heading = doc.chapters[0].heading
-    expect(heading.tag?.label.value).toBe("Tag")
+  it("a tagless heading receives a synthetic hash tag with ok health (not an error)", () => {
+    const doc = buildDocument("{{lang: Scala}}\n\n# JustATitle\n")
+    const heading = doc.sections[0].heading
+    expect(heading.tag).toBeDefined()
     expect(heading.tag?.health.status).toBe("ok")
-    expect(heading.specifier?.health.status).toBe("error")
+    expect(heading.tag?.label.value).toMatch(/^S_/)
   })
 
-  it("section tag label with spaces — bytes preserved in unexpected[], synthetic empty value, error health", () => {
-    const doc = buildDocument("# C [C]{L}\n## Heading [bad label name]\n")
-    const label = doc.chapters[0].children[0].heading.tag!.label
+  it("section tag label with spaces — bytes preserved in unexpected[], empty value, error health", () => {
+    const doc = buildDocument("{{lang: Scala}}\n\n# Heading [bad label name]\n")
+    const label = doc.sections[0].heading.tag!.label
     expect(label.value).toBe("")
     expect(label.health.status).toBe("error")
     expect(label.unexpected?.[0].value).toBe("bad label name")
   })
 
   it("unclosed `[` — synthetic TagClose at EOL with `expected closing` diagnostic", () => {
-    const doc = buildDocument("# C [C]{L}\n## Heading [Unclosed\n")
-    const close = doc.chapters[0].children[0].heading.tag!.close
+    const doc = buildDocument("{{lang: Scala}}\n\n# Heading [Unclosed\n")
+    const close = doc.sections[0].heading.tag!.close
     expect(close.health.status).toBe("error")
     expect(close.health.diagnostics[0].message).toMatch(/expected closing/i)
   })
 
-  it("container LoomDocument / LoomChapter / LoomSection carry okHealth despite leaf errors", () => {
-    const doc = buildDocument("# JustATitle\n\n## Section [bad label]\n")
+  it("container LoomDocument / LoomSection carry okHealth despite leaf errors", () => {
+    const doc = buildDocument("{{lang: Scala}}\n\n# Section [bad label name]\n")
     expect(doc.health.status).toBe("ok")
-    expect(doc.chapters[0].health.status).toBe("ok")
-    expect(doc.chapters[0].children[0].health.status).toBe("ok")
+    expect(doc.sections[0].health.status).toBe("ok")
   })
 
   it("malformed sections still appear structurally with full body wefts attached", () => {
     const text =
-      "# Real [Real]{X}\n\n## Bad [bad label name]\n\nA preamble line.\n\n=>\n\nval x = 42\n"
+      "{{lang: Scala}}\n\n# Bad [bad label name]\n\nA preamble line.\n\n=>\n\nval x = 42\n"
     const doc = buildDocument(text)
-    const section = doc.chapters[0].children[0]
+    const section = doc.sections[0]
     expect(section).toBeDefined()
     expect(section.preamble.length).toBeGreaterThan(0)
     expect(section.code.length).toBeGreaterThan(0)
@@ -491,9 +442,9 @@ describe("Loom.ast — NOK preservation end-to-end", () => {
       "# JustATitle\n",
       "# Title [Tag]\n",
       "# OnlyTitle {Lang}\n",
-      "# C [C]{L}\n## Heading [bad label name]\n",
-      "# C [C]{L}\n## Heading [Unclosed\n",
-      "# C [C]{L}\n## Heading [Tag]{Unclosed\n",
+      "# Heading [bad label name]\n",
+      "# Heading [Unclosed\n",
+      "# Heading [Tag]{Unclosed\n",
     ]
     for (const text of malformed) {
       const doc = buildDocument(text)

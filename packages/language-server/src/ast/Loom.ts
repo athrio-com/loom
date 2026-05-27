@@ -65,7 +65,7 @@ export class Loom extends Effect.Service<Loom>()("Loom", {
 // emptyDocumentFor — the LoomDocument returned when `MixedEOL` short-circuits
 // the pipeline. Position spans the whole input (positions describe source
 // spans, not error locations). Error context lives in `health.diagnostics`.
-// `chapters` is empty: no synthetic AST shape is fabricated.
+// Both slots are empty: no synthetic AST shape is fabricated.
 // =============================================================================
 
 const emptyDocumentFor = (text: string, err: MixedEOL): LoomDocument => {
@@ -87,9 +87,8 @@ const emptyDocumentFor = (text: string, err: MixedEOL): LoomDocument => {
     type: "LoomDocument",
     position: docPosition,
     health: rootHealth,
-    wefts: [],
+    preamble: [],
     sections: [],
-    chapters: [],
   }
 }
 

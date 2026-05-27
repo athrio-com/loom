@@ -4,7 +4,7 @@ import type { LineRange } from "./LineRanges"
 import { okHealth } from "./LoomNode"
 import { WeftClassifier } from "./WeftClassifier"
 import { WeftTokeniser } from "./WeftTokeniser"
-import type { LoomWeft } from "./Weft"
+import type { HeadingWeft, LoomWeft } from "./Weft"
 
 // =============================================================================
 // Harness — drive lines through Classifier → Tokeniser and collect the
@@ -36,10 +36,10 @@ const tokenise = (lines: ReadonlyArray<string>): ReadonlyArray<LoomWeft> => {
   )
 }
 
-const headingAt = (out: ReadonlyArray<LoomWeft>, idx: number) => {
+const headingAt = (out: ReadonlyArray<LoomWeft>, idx: number): HeadingWeft => {
   const w = out[idx]
-  if (w.type !== "ChapterHeadingWeft" && w.type !== "SectionHeadingWeft") {
-    throw new Error(`expected a heading at index ${idx}, got ${w.type}`)
+  if (w.type !== "HeadingWeft") {
+    throw new Error(`expected a HeadingWeft at index ${idx}, got ${w.type}`)
   }
   return w
 }
@@ -52,9 +52,7 @@ const headingAt = (out: ReadonlyArray<LoomWeft>, idx: number) => {
 
 describe("Tokeniser — scanning + construction (happy paths)", () => {
   it("fills a tag's open/label/close subnodes from a `[Foo]` source", () => {
-    const out = tokenise(["## Section [Foo]"])
-    const w = headingAt(out, 0)
-    if (w.type !== "SectionHeadingWeft") throw new Error()
+    const w = headingAt(tokenise(["## Section [Foo]"]), 0)
     expect(w.tag?.open.value).toBe("[")
     expect(w.tag?.label.value).toBe("Foo")
     expect(w.tag?.close.value).toBe("]")
@@ -65,9 +63,7 @@ describe("Tokeniser — scanning + construction (happy paths)", () => {
 
   it("places tag subnode positions at real source offsets", () => {
     // "## Section [Foo]" — `[` at index 11, `]` at index 15.
-    const out = tokenise(["## Section [Foo]"])
-    const w = headingAt(out, 0)
-    if (w.type !== "SectionHeadingWeft") throw new Error()
+    const w = headingAt(tokenise(["## Section [Foo]"]), 0)
     expect(w.tag?.open.position.start.offset).toBe(11)
     expect(w.tag?.open.position.end.offset).toBe(12)
     expect(w.tag?.close.position.start.offset).toBe(15)
@@ -77,9 +73,7 @@ describe("Tokeniser — scanning + construction (happy paths)", () => {
   })
 
   it("fills a specifier's open/label/close subnodes from a `{Lang}` source", () => {
-    const out = tokenise(["# Title [App]{TypeScript}"])
-    const w = headingAt(out, 0)
-    if (w.type !== "ChapterHeadingWeft") throw new Error()
+    const w = headingAt(tokenise(["# Title [App]{TypeScript}"]), 0)
     expect(w.specifier?.open.value).toBe("{")
     expect(w.specifier?.label.value).toBe("TypeScript")
     expect(w.specifier?.close.value).toBe("}")
@@ -89,66 +83,68 @@ describe("Tokeniser — scanning + construction (happy paths)", () => {
   })
 
   it("aggregates tag/specifier subnode health into the weft", () => {
-    const out = tokenise(["# Title [App]{TypeScript}"])
-    expect(out[0].health.status).toBe("ok")
+    expect(tokenise(["# Title [App]{TypeScript}"])[0].health.status).toBe("ok")
   })
 })
 
 // =============================================================================
-// ChapterHeading — schema requires tag and specifier. The Tokeniser
-// replaces the Classifier's NOK placeholders with real tokens when the
-// source provides them; otherwise the placeholders remain.
+// Heading — one weft kind for every `#{1,6}` line. Tag and specifier are both
+// optional. A tagless heading receives a HASH-SYNTHESISED tag (ok health) — a
+// private section, not an error — so every Section has a stable identifier.
 // =============================================================================
 
-describe("Tokeniser — ChapterHeading", () => {
-  it("replaces Classifier NOK placeholders with real tag and specifier", () => {
-    const out = tokenise(["# Title [App]{TypeScript}"])
-    const w = headingAt(out, 0)
-    if (w.type !== "ChapterHeadingWeft") throw new Error()
+describe("Tokeniser — Heading tag/specifier filling", () => {
+  it("fills the tag and specifier when the source provides them", () => {
+    const w = headingAt(tokenise(["# Title [App]{TypeScript}"]), 0)
     expect(w.tag?.label.value).toBe("App")
     expect(w.specifier?.label.value).toBe("TypeScript")
     expect(w.tag?.health.status).toBe("ok")
     expect(w.specifier?.health.status).toBe("ok")
   })
 
-  it("synthesises an error-health tag when source provides none", () => {
-    const out = tokenise(["# Title"])
-    const w = headingAt(out, 0)
-    if (w.type !== "ChapterHeadingWeft") throw new Error()
-    expect(w.tag?.health.status).toBe("error")
-    expect(w.tag?.health.diagnostics[0].message).toMatch(/requires a tag/i)
-    // Synthetic tag sits at a zero-width EOL position.
+  it("a tag only → real tag, specifier undefined, weft ok", () => {
+    const w = headingAt(tokenise(["# Title [App]"]), 0)
+    expect(w.tag?.label.value).toBe("App")
+    expect(w.tag?.health.status).toBe("ok")
+    expect(w.specifier).toBeUndefined()
+    expect(w.health.status).toBe("ok")
+  })
+
+  it("no tag → a hash-synthesised tag with ok health (`S_` prefix), not an error", () => {
+    const w = headingAt(tokenise(["# Title"]), 0)
+    expect(w.tag).toBeDefined()
+    expect(w.tag?.health.status).toBe("ok")
+    expect(w.tag?.label.value).toMatch(/^S_/)
+    expect(w.health.status).toBe("ok")
+  })
+
+  it("places the synthetic hash tag at a zero-width EOL position", () => {
+    const w = headingAt(tokenise(["# Title"]), 0)
     expect(w.tag?.position.start.offset).toBe(w.position.end.offset)
     expect(w.tag?.position.end.offset).toBe(w.position.end.offset)
   })
 
-  it("synthesises an error-health specifier when source provides none", () => {
-    const out = tokenise(["# Title"])
-    const w = headingAt(out, 0)
-    if (w.type !== "ChapterHeadingWeft") throw new Error()
-    expect(w.specifier?.health.status).toBe("error")
-    expect(w.specifier?.health.diagnostics[0].message).toMatch(/requires a specifier/i)
+  it("the hash tag is derived from the heading text (distinct titles → distinct ids)", () => {
+    const a = headingAt(tokenise(["# Alpha"]), 0)
+    const b = headingAt(tokenise(["# Beta"]), 0)
+    expect(a.tag?.label.value).not.toBe(b.tag?.label.value)
   })
 
-  it("synth-only ChapterHeading rolls up to error health (never incomplete)", () => {
-    const out = tokenise(["# Title"])
-    expect(out[0].health.status).toBe("error")
+  it("identical heading text yields a stable hash id", () => {
+    const a = headingAt(tokenise(["# Glossary"]), 0)
+    const b = headingAt(tokenise(["# Glossary"]), 0)
+    expect(a.tag?.label.value).toBe(b.tag?.label.value)
   })
 
-  it("partial source (tag only) → real tag + synth specifier + error weft", () => {
-    const out = tokenise(["# Title [App]"])
-    const w = headingAt(out, 0)
-    if (w.type !== "ChapterHeadingWeft") throw new Error()
-    expect(w.tag?.label.value).toBe("App")
-    expect(w.tag?.health.status).toBe("ok")
-    expect(w.specifier?.health.status).toBe("error")
-    expect(w.specifier?.health.diagnostics[0].message).toMatch(/requires a specifier/i)
-    expect(w.health.status).toBe("error")
+  it("every level (1–6) tokenises as a HeadingWeft, never incomplete", () => {
+    for (const line of ["# One", "## Two", "###### Six"]) {
+      const out = tokenise([line])
+      expect(out[0].type).toBe("HeadingWeft")
+      expect(out[0].health.status).not.toBe("incomplete")
+    }
   })
 
-  it("post-Tokeniser ChapterHeading is never `incomplete`", () => {
-    // Across the full matrix of presence/absence, the weft is ok or error,
-    // never incomplete. The Tokeniser is the authority after Classifier Stage.
+  it("post-Tokeniser Heading is never `incomplete` across presence/absence", () => {
     for (const line of ["# Title", "# Title [App]", "# Title {TS}", "# Title [App]{TS}"]) {
       expect(tokenise([line])[0].health.status).not.toBe("incomplete")
     }
@@ -156,46 +152,43 @@ describe("Tokeniser — ChapterHeading", () => {
 })
 
 // =============================================================================
-// SectionHeading — schema makes tag and specifier optional. Every `##…`
-// line is a SectionHeadingWeft regardless of tag content; the Specifier-
-// driven de-dicto cut happens at Synth time.
+// Specifier kind — label vs path. A label without path separators (`{Bash}`)
+// builds a `Specifier`; a label carrying `.` or `/` (`{src/x.ts}`) builds a
+// `PathSpecifier`, marking the Section as a tangle (file-emission) sink.
 // =============================================================================
 
-describe("Tokeniser — SectionHeading", () => {
-  it("single tag → SectionHeadingWeft with the tag filled", () => {
-    const out = tokenise(["## Section [Greet]"])
-    const w = headingAt(out, 0)
-    if (w.type !== "SectionHeadingWeft") throw new Error()
-    expect(w.tag?.label.value).toBe("Greet")
+describe("Tokeniser — label vs path specifier", () => {
+  it("`{Bash}` is a label Specifier", () => {
+    const w = headingAt(tokenise(["# Build [B]{Bash}"]), 0)
+    expect(w.specifier?.type).toBe("Specifier")
+    expect(w.specifier?.label.value).toBe("Bash")
   })
 
-  it("`[D]` is just a tag like any other (no promotion)", () => {
-    const out = tokenise(["## Deps [D]"])
-    const w = headingAt(out, 0)
-    if (w.type !== "SectionHeadingWeft") throw new Error()
-    expect(w.tag?.label.value).toBe("D")
-  })
-
-  it("tag + specifier → SectionHeadingWeft with both filled", () => {
-    const out = tokenise(["## Section [D]{TypeScript}"])
-    const w = headingAt(out, 0)
-    if (w.type !== "SectionHeadingWeft") throw new Error()
-    expect(w.tag?.label.value).toBe("D")
-    expect(w.specifier?.label.value).toBe("TypeScript")
-  })
-
-  it("`{Loom}` Specifier is just a token (no special routing at Classifier/Tokeniser)", () => {
-    const out = tokenise(["## Deps {Loom}"])
-    const w = headingAt(out, 0)
-    if (w.type !== "SectionHeadingWeft") throw new Error()
+  it("`{Loom}` is a label Specifier (no path separators)", () => {
+    const w = headingAt(tokenise(["# Deps {Loom}"]), 0)
+    expect(w.specifier?.type).toBe("Specifier")
     expect(w.specifier?.label.value).toBe("Loom")
   })
 
-  it("no tags → SectionHeadingWeft with undefined tag", () => {
-    const out = tokenise(["## Plain heading"])
-    const w = headingAt(out, 0)
-    if (w.type !== "SectionHeadingWeft") throw new Error()
-    expect(w.tag).toBeUndefined()
+  it("`{src/main/scala/App.scala}` is a PathSpecifier (slashes present)", () => {
+    const w = headingAt(tokenise(["# Tangle {src/main/scala/App.scala}"]), 0)
+    expect(w.specifier?.type).toBe("PathSpecifier")
+    expect(w.specifier?.label.value).toBe("src/main/scala/App.scala")
+    expect(w.specifier?.health.status).toBe("ok")
+  })
+
+  it("`{build.sh}` is a PathSpecifier (dot present)", () => {
+    const w = headingAt(tokenise(["# Tangle {build.sh}"]), 0)
+    expect(w.specifier?.type).toBe("PathSpecifier")
+    expect(w.specifier?.label.value).toBe("build.sh")
+  })
+
+  it("a path specifier with a space fails its pattern (bad text in unexpected)", () => {
+    const w = headingAt(tokenise(["# Tangle {src/bad name.ts}"]), 0)
+    expect(w.specifier?.type).toBe("PathSpecifier")
+    expect(w.specifier?.label.health.status).toBe("error")
+    expect(w.specifier?.label.value).toBe("")
+    expect(w.specifier?.label.unexpected?.[0].value).toBe("src/bad name.ts")
   })
 })
 
@@ -205,31 +198,24 @@ describe("Tokeniser — SectionHeading", () => {
 // =============================================================================
 
 describe("Tokeniser — multi-tag / multi-specifier", () => {
-  it("multi-tag section captures extras as UnexpectedToken on the weft", () => {
-    const out = tokenise(["## Multi [D] [T]"])
-    const w = headingAt(out, 0)
-    if (w.type !== "SectionHeadingWeft") throw new Error()
+  it("multi-tag heading captures extras as UnexpectedToken on the weft", () => {
+    const w = headingAt(tokenise(["## Multi [D] [T]"]), 0)
     expect(w.unexpected).toBeDefined()
     expect(w.unexpected!.length).toBeGreaterThan(0)
   })
 
   it("first tag still becomes the weft's `tag`; extras go to unexpected", () => {
-    const out = tokenise(["## Multi [First] [Second]"])
-    const w = headingAt(out, 0)
-    if (w.type !== "SectionHeadingWeft") throw new Error()
+    const w = headingAt(tokenise(["## Multi [First] [Second]"]), 0)
     expect(w.tag?.label.value).toBe("First")
     expect(w.unexpected?.length).toBeGreaterThan(0)
   })
 
   it("unexpected entries flip weft health to error via aggregation", () => {
-    const out = tokenise(["## Multi [D] [T]"])
-    expect(out[0].health.status).toBe("error")
+    expect(tokenise(["## Multi [D] [T]"])[0].health.status).toBe("error")
   })
 
   it("multi-specifier captures extras as UnexpectedToken", () => {
-    const out = tokenise(["# Title [App]{One}{Two}"])
-    const w = headingAt(out, 0)
-    if (w.type !== "ChapterHeadingWeft") throw new Error()
+    const w = headingAt(tokenise(["# Title [App]{One}{Two}"]), 0)
     expect(w.unexpected).toBeDefined()
     expect(w.unexpected!.length).toBeGreaterThan(0)
     expect(w.health.status).toBe("error")
@@ -245,33 +231,25 @@ describe("Tokeniser — multi-tag / multi-specifier", () => {
 
 describe("Tokeniser — synthetic close (unclosed bracket)", () => {
   it("unclosed `[` produces a Tag with synthetic close at EOL", () => {
-    const out = tokenise(["## Section [Foo"])
-    const w = headingAt(out, 0)
-    if (w.type !== "SectionHeadingWeft") throw new Error()
+    const w = headingAt(tokenise(["## Section [Foo"]), 0)
     // line `## Section [Foo` is 15 chars long; close should be at 15..15.
     expect(w.tag?.close.position.start.offset).toBe(15)
     expect(w.tag?.close.position.end.offset).toBe(15)
   })
 
   it("synthetic close carries error health with a 'missing `]`' diagnostic", () => {
-    const out = tokenise(["## Section [Foo"])
-    const w = headingAt(out, 0)
-    if (w.type !== "SectionHeadingWeft") throw new Error()
+    const w = headingAt(tokenise(["## Section [Foo"]), 0)
     expect(w.tag?.close.health.status).toBe("error")
     expect(w.tag?.close.health.diagnostics[0].message).toMatch(/expected closing/i)
   })
 
   it("Tag with synthetic close has its own health aggregated to error", () => {
-    const out = tokenise(["## Section [Foo"])
-    const w = headingAt(out, 0)
-    if (w.type !== "SectionHeadingWeft") throw new Error()
+    const w = headingAt(tokenise(["## Section [Foo"]), 0)
     expect(w.tag?.health.status).toBe("error")
   })
 
   it("unclosed `{` produces a Specifier with synthetic close + error health", () => {
-    const out = tokenise(["# Title [App]{Lang"])
-    const w = headingAt(out, 0)
-    if (w.type !== "ChapterHeadingWeft") throw new Error()
+    const w = headingAt(tokenise(["# Title [App]{Lang"]), 0)
     expect(w.specifier?.close.health.status).toBe("error")
     expect(w.specifier?.close.health.diagnostics[0].message).toMatch(/expected closing/i)
   })
@@ -285,34 +263,28 @@ describe("Tokeniser — synthetic close (unclosed bracket)", () => {
 
 describe("Tokeniser — malformed label values", () => {
   it("label with a space gets error health, value `\"\"`, and bad text in unexpected", () => {
-    const out = tokenise(["## Section [has space]"])
-    const w = headingAt(out, 0)
-    if (w.type !== "SectionHeadingWeft") throw new Error()
+    const w = headingAt(tokenise(["## Section [has space]"]), 0)
     expect(w.tag?.label.health.status).toBe("error")
     expect(w.tag?.label.value).toBe("")
     expect(w.tag?.label.unexpected?.[0].value).toBe("has space")
   })
 
-  it("label with a dot fails the pattern and lands in unexpected", () => {
-    const out = tokenise(["## Section [foo.bar]"])
-    const w = headingAt(out, 0)
-    if (w.type !== "SectionHeadingWeft") throw new Error()
+  it("tag label with a dot fails the pattern and lands in unexpected", () => {
+    // `.` is a path separator, but the TAG label class never admits it.
+    const w = headingAt(tokenise(["## Section [foo.bar]"]), 0)
     expect(w.tag?.label.health.status).toBe("error")
     expect(w.tag?.label.unexpected?.[0].value).toBe("foo.bar")
   })
 
   it("malformed label propagates error to the Tag and to the weft", () => {
-    const out = tokenise(["## Section [bad space]"])
-    const w = headingAt(out, 0)
-    if (w.type !== "SectionHeadingWeft") throw new Error()
+    const w = headingAt(tokenise(["## Section [bad space]"]), 0)
     expect(w.tag?.health.status).toBe("error")
     expect(w.health.status).toBe("error")
   })
 
-  it("malformed Specifier label also routes the bad text to unexpected", () => {
-    const out = tokenise(["# Title [App]{bad lang}"])
-    const w = headingAt(out, 0)
-    if (w.type !== "ChapterHeadingWeft") throw new Error()
+  it("malformed label Specifier routes the bad text to unexpected", () => {
+    const w = headingAt(tokenise(["# Title [App]{bad lang}"]), 0)
+    expect(w.specifier?.type).toBe("Specifier")
     expect(w.specifier?.label.health.status).toBe("error")
     expect(w.specifier?.label.value).toBe("")
     expect(w.specifier?.label.unexpected?.[0].value).toBe("bad lang")
@@ -326,52 +298,46 @@ describe("Tokeniser — malformed label values", () => {
 
 describe("Tokeniser — text gaps", () => {
   it("emits a TextToken for the text before the tag", () => {
-    const out = tokenise(["## Title here [Tag]"])
-    const w = headingAt(out, 0)
-    if (w.type !== "SectionHeadingWeft") throw new Error()
+    const w = headingAt(tokenise(["## Title here [Tag]"]), 0)
     expect(w.texts.length).toBeGreaterThan(0)
     // Marker `## ` ends at offset 3; tag opens at 14. Gap is [3..14).
     expect(w.texts[0].position.start.offset).toBe(3)
     expect(w.texts[0].position.end.offset).toBe(14)
   })
 
-  it("emits text between tag and specifier", () => {
-    const out = tokenise(["# Title [App]{TypeScript}"])
-    const w = headingAt(out, 0)
-    if (w.type !== "ChapterHeadingWeft") throw new Error()
+  it("emits text between the marker and the tag", () => {
+    const w = headingAt(tokenise(["# Title [App]{TypeScript}"]), 0)
     // `# ` ends at offset 2; tag is at 8..13; specifier at 13..25.
-    // The gap before the tag is "Title " (offsets 2..8) and there's no gap
-    // between tag (13) and specifier (13) since they're adjacent.
     expect(w.texts.length).toBeGreaterThanOrEqual(1)
     expect(w.texts[0].position.start.offset).toBe(2)
   })
 
-  it("no text gap when heading has only the marker and anchors", () => {
-    const out = tokenise(["## [Tag]"])
-    const w = headingAt(out, 0)
-    if (w.type !== "SectionHeadingWeft") throw new Error()
+  it("no text gap when the heading has only the marker and anchors", () => {
+    const w = headingAt(tokenise(["## [Tag]"]), 0)
     expect(w.texts.length).toBe(0)
   })
 })
 
 // =============================================================================
-// Pass-through — wefts the Tokeniser doesn't yet handle survive unchanged.
+// Weft-kind pass-through — every classifier-stage weft kind survives the
+// Tokeniser with its kind intact. There is no default `Weft` kind: a line
+// before the first heading is a Document-Preamble PreambleWeft.
 // =============================================================================
 
-describe("Tokeniser — body weft kinds preserved", () => {
-  it("Weft, PreambleWeft, ArrowWeft, CodeWeft, TildeWeft, ProseWeft survive their kind", () => {
+describe("Tokeniser — weft kinds preserved", () => {
+  it("PreambleWeft, HeadingWeft, ArrowWeft, CodeWeft, TildeWeft, ProseWeft survive their kind", () => {
     const out = tokenise([
-      "pre-chapter line",  // Weft
-      "# Title [App]{TS}", // ChapterHeading (tokenised)
-      "intro",             // PreambleWeft
+      "pre-heading line",  // PreambleWeft (Document Preamble)
+      "# Title [App]{TS}", // HeadingWeft (tokenised)
+      "intro",             // PreambleWeft (section preamble)
       "=>",                // ArrowWeft
       "x = 1",             // CodeWeft
       "~",                 // TildeWeft
       "prose",             // ProseWeft
     ])
     expect(out.map((w) => w.type)).toEqual([
-      "Weft",
-      "ChapterHeadingWeft",
+      "PreambleWeft",
+      "HeadingWeft",
       "PreambleWeft",
       "ArrowWeft",
       "CodeWeft",
@@ -595,18 +561,26 @@ describe("Tokeniser — WarpAnchor references on ArrowWeft / CodeWeft", () => {
     expect(w.anchors.map((a) => a.name.value)).toEqual(["a", "b"])
   })
 
+  it("recognises a multi-word heading-name anchor `{{Multiplier Function}}`", () => {
+    const w = codeWeftFromLines(["## A", "=>", "{{Multiplier Function}}"], 2)
+    expect(w.anchors).toHaveLength(1)
+    expect(w.anchors[0].name.value).toBe("Multiplier Function")
+    expect(w.anchors[0].health.status).toBe("ok")
+  })
+
   it("ArrowWeft recognises an anchor inline with the arrow's code", () => {
     const w = arrowWeftFromLine("=> {{x}}")
     expect(w.anchors).toHaveLength(1)
     expect(w.anchors[0].name.value).toBe("x")
   })
 
-  it("anchor with `:` content puts the rest on weft.unexpected[]", () => {
+  it("anchor content carrying `:` (a declaration in code) fails — bad text on weft.unexpected[]", () => {
     const w = codeWeftFromLines(["## A", "=>", "{{mul: Mul}}"], 2)
     expect(w.anchors).toHaveLength(1)
-    expect(w.anchors[0].name.value).toBe("mul")
+    expect(w.anchors[0].name.value).toBe("")
+    expect(w.anchors[0].name.health.status).toBe("error")
     expect(w.unexpected).toBeDefined()
-    expect(w.unexpected![0].value).toBe(": Mul")
+    expect(w.unexpected![0].value).toBe("mul: Mul")
     expect(w.health.status).toBe("error")
   })
 
@@ -614,11 +588,6 @@ describe("Tokeniser — WarpAnchor references on ArrowWeft / CodeWeft", () => {
     const w = codeWeftFromLines(["## A", "=>", "{{ name }}"], 2)
     expect(w.anchors[0].name.value).toBe("name")
     expect(w.anchors[0].health.status).toBe("ok")
-  })
-
-  it("invalid anchor name (non-identifier start) becomes error-health name", () => {
-    const w = codeWeftFromLines(["## A", "=>", "{{1bad}}"], 2)
-    expect(w.anchors[0].name.health.status).toBe("error")
   })
 
   it("unclosed `{{` in code produces a synthetic `}}` at EOL", () => {
@@ -636,23 +605,24 @@ describe("Tokeniser — WarpAnchor references on ArrowWeft / CodeWeft", () => {
 
 // =============================================================================
 // `{Loom}` sections — same grammar as any other Section. The `{Loom}`
-// Specifier is just a token; there is no special body weft re-typing.
+// Specifier is just a label token; there is no special body weft re-typing.
 // =============================================================================
 
 describe("Tokeniser — `{Loom}` sections behave like any other Section", () => {
   it("`## Deps {Loom}` admits Preamble + Arrow + Code wefts in its body", () => {
     const out = tokenise(["## Deps {Loom}", "Some preamble.", "=>", "needs(X)"])
     expect(out.map((w) => w.type)).toEqual([
-      "SectionHeadingWeft",
+      "HeadingWeft",
       "PreambleWeft",
       "ArrowWeft",
       "CodeWeft",
     ])
   })
 
-  it("body wefts before any heading (orphan mode) pass through as plain Weft", () => {
+  it("a line before any heading is a Document-Preamble PreambleWeft", () => {
     const out = tokenise(["loose line"])
-    expect(out[0].type).toBe("Weft")
+    expect(out[0].type).toBe("PreambleWeft")
+    expect(out[0].health.status).toBe("ok")
   })
 })
 

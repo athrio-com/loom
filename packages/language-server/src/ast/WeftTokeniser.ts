@@ -1,4 +1,4 @@
-import { Effect, Either, Match, Option, ParseResult, Schema, Stream, pipe } from "effect"
+import { Effect, Either, Hash, Match, Option, ParseResult, Schema, Stream, pipe } from "effect"
 import {
   okHealth,
   type Health,
@@ -8,6 +8,8 @@ import {
 } from "./LoomNode"
 import {
   CodeTokenSchema,
+  PathSpecifierLabelTokenSchema,
+  PathSpecifierTokenSchema,
   ProseTokenSchema,
   SpecifierCloseTokenSchema,
   SpecifierLabelTokenSchema,
@@ -18,6 +20,7 @@ import {
   TagOpenTokenSchema,
   TagTokenSchema,
   TextTokenSchema,
+  WarpAnchorNameTokenSchema,
   WarpAnchorTokenSchema,
   WarpAnnotationTokenSchema,
   WarpCloseTokenSchema,
@@ -26,6 +29,8 @@ import {
   WarpOpenTokenSchema,
   WarpTokenSchema,
   getProbe,
+  type PathSpecifierLabelToken,
+  type PathSpecifierToken,
   type SpecifierCloseToken,
   type SpecifierLabelToken,
   type SpecifierOpenToken,
@@ -35,6 +40,7 @@ import {
   type TagOpenToken,
   type TagToken,
   type TextToken,
+  type WarpAnchorNameToken,
   type WarpAnchorToken,
   type WarpAnnotationToken,
   type WarpCloseToken,
@@ -46,17 +52,15 @@ import {
 import {
   type ArrowWeft,
   ArrowWeftSchema,
-  ChapterHeadingWeftSchema,
   type CodeWeft,
   CodeWeftSchema,
+  type HeadingWeft,
+  HeadingWeftSchema,
   type LoomWeft,
   type PreambleWeft,
   PreambleWeftSchema,
   type ProseWeft,
   ProseWeftSchema,
-  SectionHeadingWeftSchema,
-  type ChapterHeadingWeft,
-  type SectionHeadingWeft,
   type TildeWeft,
   TildeWeftSchema,
 } from "./Weft"
@@ -67,14 +71,13 @@ import {
 // Pure Stream.map: per-weft transformation. The Tokeniser fills subtokens
 // per weft kind:
 //
-//   ChapterHeading   — full tokenisation (tag/specifier/texts), synthesising
-//                      error-health placeholders for missing required fields.
-//   SectionHeading   — full tokenisation (tag/specifier/texts); absences are
-//                      not errors.
+//   Heading          — full tokenisation (tag/specifier/texts). A label vs
+//                      path specifier is chosen by path-separator presence;
+//                      a tagless heading gets a hash-derived tag (ok health).
 //   Arrow / Tilde    — fill the optional inline `code` / `prose` subtoken.
 //   Preamble / Prose — settle health to `ok`; inner-token expansion belongs
 //                      to the Synth phase.
-//   Weft / CodeWeft  — passthrough; already `okHealth` from the Classifier.
+//   CodeWeft         — scan `{{name}}` anchors and settle health.
 //
 // Post-Tokeniser invariant: no weft remains `incomplete`.
 // =============================================================================
@@ -94,15 +97,12 @@ export class WeftTokeniser extends Effect.Service<WeftTokeniser>()(
 const tokeniseWeft = (text: string, weft: LoomWeft): LoomWeft =>
   pipe(
     Match.value(weft),
-    Match.when({ type: "ChapterHeadingWeft" }, (w) => tokeniseChapterHeading(text, w)),
-    Match.when({ type: "SectionHeadingWeft" }, (w) => tokeniseSectionHeading(text, w)),
+    Match.when({ type: "HeadingWeft" }, (w) => tokeniseHeading(text, w)),
     Match.when({ type: "ArrowWeft" }, (w) => tokeniseArrow(text, w)),
     Match.when({ type: "TildeWeft" }, (w) => tokeniseTilde(text, w)),
     Match.when({ type: "PreambleWeft" }, (w) => tokenisePreamble(text, w)),
     Match.when({ type: "ProseWeft" }, (w) => tokeniseProse(w)),
     Match.when({ type: "CodeWeft" }, (w) => tokeniseCode(text, w)),
-    // Terminal kind — passthrough; already okHealth from the Classifier.
-    Match.when({ type: "Weft" }, (w) => w),
     Match.exhaustive,
   )
 
@@ -272,6 +272,7 @@ const errorToHealth = (err: ParseResult.ParseError, position: Position): Health 
 
 const decodeTagLabel = Schema.decodeUnknownEither(TagLabelTokenSchema)
 const decodeSpecifierLabel = Schema.decodeUnknownEither(SpecifierLabelTokenSchema)
+const decodePathSpecifierLabel = Schema.decodeUnknownEither(PathSpecifierLabelTokenSchema)
 
 const buildTagLabel = (value: string, position: Position): TagLabelToken =>
   pipe(
@@ -293,6 +294,20 @@ const buildSpecifierLabel = (value: string, position: Position): SpecifierLabelT
     Either.getOrElse((e) =>
       SpecifierLabelTokenSchema.make({
         type: "SpecifierLabel",
+        position,
+        health: errorToHealth(e, position),
+        value: "",
+        unexpected: [UnexpectedTokenSchema.make({ position, value })],
+      }),
+    ),
+  )
+
+const buildPathSpecifierLabel = (value: string, position: Position): PathSpecifierLabelToken =>
+  pipe(
+    decodePathSpecifierLabel({ type: "PathSpecifierLabel", position, health: okHealth, value }),
+    Either.getOrElse((e) =>
+      PathSpecifierLabelTokenSchema.make({
+        type: "PathSpecifierLabel",
         position,
         health: errorToHealth(e, position),
         value: "",
@@ -427,12 +442,54 @@ const constructTag = (
   }
 }
 
+// A specifier label carrying a path separator (`.` or `/`) marks a tangle
+// (file-emission) sink and builds a PathSpecifier; a bare identifier is a
+// language label and builds a Specifier. Open / close subnodes are shared;
+// only the label pattern and the composite schema differ.
+const isPathLabel = (label: string): boolean => /[./]/.test(label)
+
+const buildLabelSpecifier = (
+  open: SpecifierOpenToken,
+  close: SpecifierCloseToken,
+  labelText: string,
+  labelPos: Position,
+  specifierPos: Position,
+): SpecifierToken => {
+  const label = buildSpecifierLabel(labelText, labelPos)
+  const status = aggregateStatus([open.health.status, label.health.status, close.health.status])
+  return SpecifierTokenSchema.make({
+    position: specifierPos,
+    health: { status, diagnostics: [] },
+    open,
+    label,
+    close,
+  })
+}
+
+const buildPathSpecifier = (
+  open: SpecifierOpenToken,
+  close: SpecifierCloseToken,
+  labelText: string,
+  labelPos: Position,
+  specifierPos: Position,
+): PathSpecifierToken => {
+  const label = buildPathSpecifierLabel(labelText, labelPos)
+  const status = aggregateStatus([open.health.status, label.health.status, close.health.status])
+  return PathSpecifierTokenSchema.make({
+    position: specifierPos,
+    health: { status, diagnostics: [] },
+    open,
+    label,
+    close,
+  })
+}
+
 const constructSpecifier = (
   opens: ReadonlyArray<SpecifierOpenToken>,
   closes: ReadonlyArray<SpecifierCloseToken>,
   lineText: string,
   linePosition: Position,
-): Construction<SpecifierToken> => {
+): Construction<SpecifierToken | PathSpecifierToken> => {
   if (opens.length === 0) {
     return {
       token: Option.none(),
@@ -455,25 +512,16 @@ const constructSpecifier = (
 
   const labelStart = open.position.end.offset
   const labelEnd = match ? match.position.start.offset : lineEnd
-  const label = buildSpecifierLabel(
-    lineText.slice(labelStart - lineStart, labelEnd - lineStart),
-    span(line, labelStart, labelEnd),
-  )
+  const labelText = lineText.slice(labelStart - lineStart, labelEnd - lineStart)
+  const labelPos = span(line, labelStart, labelEnd)
+  const specifierPos = span(line, open.position.start.offset, close.position.end.offset)
 
-  const status = aggregateStatus([
-    open.health.status,
-    label.health.status,
-    close.health.status,
-  ])
+  const token = isPathLabel(labelText)
+    ? buildPathSpecifier(open, close, labelText, labelPos, specifierPos)
+    : buildLabelSpecifier(open, close, labelText, labelPos, specifierPos)
 
   return {
-    token: Option.some(SpecifierTokenSchema.make({
-      position: span(line, open.position.start.offset, close.position.end.offset),
-      health: { status, diagnostics: [] },
-      open,
-      label,
-      close,
-    })),
+    token: Option.some(token),
     unexpected: [
       ...extraOpens.map(toUnexpected),
       ...extraCloses.map(toUnexpected),
@@ -784,13 +832,13 @@ const assembleWarp = (
 }
 
 // =============================================================================
-// buildWarpAnchor — assemble a single WarpAnchor. Content should be a single
-// identifier (with optional whitespace). The name is taken from the
-// leading identifier-shaped run; anything past it becomes UnexpectedToken
-// entries on the parent weft's `unexpected[]`.
+// buildWarpAnchor — assemble a single WarpAnchor. The trimmed content is the
+// anchor's name: a single identifier (`{{mul}}`) or a multi-word heading name
+// (`{{Multiplier Function}}`). Content that is neither — empty, or carrying a
+// `:` (a declaration written in Code mode) — fails the WarpAnchorName pattern:
+// the name token carries error health and the offending text surfaces on the
+// host weft's `unexpected[]`.
 // =============================================================================
-
-const identifierHead = /^[a-zA-Z_][a-zA-Z0-9_]*/
 
 const unexpectedIfNonEmpty = (
   position: Position,
@@ -799,6 +847,8 @@ const unexpectedIfNonEmpty = (
   value.length > 0
     ? [UnexpectedTokenSchema.make({ position, value })]
     : []
+
+const decodeWarpAnchorName = Schema.decodeUnknownEither(WarpAnchorNameTokenSchema)
 
 const buildWarpAnchor = (
   open: WarpOpenToken,
@@ -811,45 +861,39 @@ const buildWarpAnchor = (
   const contentStart = open.position.end.offset
   const contentEnd = close.position.start.offset
   const content = lineText.slice(contentStart - lineStart, contentEnd - lineStart)
-  const leftPad = content.match(/^\s*/)?.[0].length ?? 0
-  const afterLeft = content.slice(leftPad)
+  const { value, start, end } = trimSpan(content, contentStart)
+  const namePos = span(line, start, end)
 
-  const { name, extras } = Option.match(
-    Option.fromNullable(afterLeft.match(identifierHead)),
-    {
-      // No identifier — name token carries empty/error health; the full
-      // remaining content is the unexpected fragment.
-      onNone: () => {
-        const pos = span(line, contentStart + leftPad, contentStart + content.length)
-        return {
-          name: buildWarpName(afterLeft.trim(), pos),
-          extras: unexpectedIfNonEmpty(pos, afterLeft),
-        }
-      },
-      onSome: (idMatch) => {
-        const idStart = contentStart + leftPad
-        const idEnd = idStart + idMatch[0].length
-        const tail = content.slice(leftPad + idMatch[0].length)
-        const tailRightPad = tail.match(/\s*$/)?.[0].length ?? 0
-        const stray = tail.slice(0, tail.length - tailRightPad)
-        return {
-          name: buildWarpName(idMatch[0], span(line, idStart, idEnd)),
-          extras: unexpectedIfNonEmpty(
-            span(line, idEnd, idEnd + stray.length),
-            stray,
-          ),
-        }
-      },
-    },
+  return pipe(
+    decodeWarpAnchorName({ type: "WarpAnchorName", position: namePos, health: okHealth, value }),
+    Either.match({
+      // Content that fails the anchor-name pattern: empty value + error health
+      // on the name token, offending text on the host weft's `unexpected[]`.
+      onLeft: (e) => ({
+        anchor: assembleAnchor(
+          open, close,
+          WarpAnchorNameTokenSchema.make({
+            type: "WarpAnchorName",
+            position: namePos,
+            health: errorToHealth(e, namePos),
+            value: "",
+          }),
+          line,
+        ),
+        extras: unexpectedIfNonEmpty(namePos, value),
+      }),
+      onRight: (name) => ({
+        anchor: assembleAnchor(open, close, name, line),
+        extras: [],
+      }),
+    }),
   )
-
-  return { anchor: assembleAnchor(open, close, name, line), extras }
 }
 
 const assembleAnchor = (
   open: WarpOpenToken,
   close: WarpCloseToken,
-  name: WarpNameToken,
+  name: WarpAnchorNameToken,
   line: number,
 ): WarpAnchorToken => {
   const status = aggregateStatus([
@@ -938,18 +982,18 @@ const textTokens = (
 }
 
 // =============================================================================
-// Heading tokenisation — common to Chapter and Section. Returns the
-// constructed subnodes; per-kind handlers decide how to assemble the weft.
+// Heading tokenisation. `scanHeading` constructs the subnodes — tag, specifier
+// (label or path), texts — that the weft handler then assembles.
 // =============================================================================
 
 type HeadingTokens = {
   readonly tag: Option.Option<TagToken>
-  readonly specifier: Option.Option<SpecifierToken>
+  readonly specifier: Option.Option<SpecifierToken | PathSpecifierToken>
   readonly texts: ReadonlyArray<TextToken>
   readonly unexpected: ReadonlyArray<UnexpectedToken>
 }
 
-const tokeniseHeading = (
+const scanHeading = (
   text: string,
   position: Position,
   headingStartEnd: number,
@@ -991,107 +1035,64 @@ const tokeniseHeading = (
 }
 
 // =============================================================================
-// ChapterHeading — schema requires tag + specifier. The Tokeniser is the
-// authority after Classifier Stage: when source supplies the tokens, it
-// replaces the Classifier's NOK placeholders with real tokens; when source
-// supplies nothing for a required slot, it synthesises an error-health
-// placeholder (with a positioned diagnostic) instead of passing through the
-// Classifier's `incomplete` placeholder. Principle: a post-Tokeniser weft is
-// never `incomplete` — it's `ok`, `error`, or `warning`.
+// Heading — one handler for every `#{1,6}` line. The Tokeniser fills whatever
+// the source supplies for tag and specifier; both are optional. A tagless
+// heading receives a hash-derived `TagToken` (ok health) so every Section has
+// a stable identifier — a private section, not an error. The hash is taken
+// from the heading text. The label vs path specifier choice is made in
+// `constructSpecifier` by path-separator presence. Post-Tokeniser invariant:
+// the weft is never `incomplete`.
 // =============================================================================
 
-const missingFieldHealth = (line: number, lineEnd: number, message: string): Health => ({
-  status: "error",
-  diagnostics: [{
-    message,
-    position: span(line, lineEnd, lineEnd),
-    severity: "error",
-  }],
-})
+// A synthetic tag id is a valid TS identifier (`S_` prefix + unsigned base-36
+// hash), so it can name a Service member in the Frame downstream.
+const syntheticTagId = (title: string): string =>
+  `S_${(Hash.string(title) >>> 0).toString(36)}`
 
-const synthMissingTag = (line: number, lineEnd: number, message: string): TagToken => {
-  const eol = span(line, lineEnd, lineEnd)
-  const health = missingFieldHealth(line, lineEnd, message)
+const synthHashTag = (
+  text: string,
+  position: Position,
+  texts: ReadonlyArray<TextToken>,
+): TagToken => {
+  const eol = span(position.start.line, position.end.offset, position.end.offset)
+  const title = texts
+    .map((t) => text.slice(t.position.start.offset, t.position.end.offset))
+    .join("")
+    .trim()
+  const value = syntheticTagId(title)
   return TagTokenSchema.make({
     position: eol,
-    health,
-    open: TagOpenTokenSchema.make({ position: eol, health, value: "[" }),
-    label: TagLabelTokenSchema.make({ type: "TagLabel", position: eol, health, value: "" }),
-    close: TagCloseTokenSchema.make({ position: eol, health, value: "]" }),
+    health: okHealth,
+    open: TagOpenTokenSchema.make({ position: eol, health: okHealth, value: "[" }),
+    label: TagLabelTokenSchema.make({ type: "TagLabel", position: eol, health: okHealth, value }),
+    close: TagCloseTokenSchema.make({ position: eol, health: okHealth, value: "]" }),
   })
 }
 
-const synthMissingSpecifier = (line: number, lineEnd: number, message: string): SpecifierToken => {
-  const eol = span(line, lineEnd, lineEnd)
-  const health = missingFieldHealth(line, lineEnd, message)
-  return SpecifierTokenSchema.make({
-    position: eol,
-    health,
-    open: SpecifierOpenTokenSchema.make({ position: eol, health, value: "{" }),
-    label: SpecifierLabelTokenSchema.make({ type: "SpecifierLabel", position: eol, health, value: "" }),
-    close: SpecifierCloseTokenSchema.make({ position: eol, health, value: "}" }),
-  })
-}
-
-const tokeniseChapterHeading = (text: string, weft: ChapterHeadingWeft): LoomWeft => {
-  const { tag, specifier, texts, unexpected } = tokeniseHeading(
+const tokeniseHeading = (text: string, weft: HeadingWeft): LoomWeft => {
+  const { tag, specifier, texts, unexpected } = scanHeading(
     text, weft.position, weft.headingStart.position.end.offset,
   )
 
-  const line = weft.position.start.line
-  const lineEnd = weft.position.end.offset
-
-  const resolvedTag = Option.getOrElse(tag, () =>
-    synthMissingTag(line, lineEnd, "ChapterHeadingWeft requires a tag `[…]`"))
-  const resolvedSpecifier = Option.getOrElse(specifier, () =>
-    synthMissingSpecifier(line, lineEnd, "ChapterHeadingWeft requires a specifier `{…}`"))
+  // A real tag wins; a tagless heading gets a hash-derived tag so every
+  // Section carries a stable identifier.
+  const resolvedTag = Option.getOrElse(tag, () => synthHashTag(text, weft.position, texts))
 
   const status = aggregateStatus([
     weft.headingStart.health.status,
     resolvedTag.health.status,
-    resolvedSpecifier.health.status,
+    ...Option.toArray(specifier).map((s) => s.health.status),
     ...texts.map((t) => t.health.status),
     ...unexpected.map(() => "error" as const),
   ])
 
-  return ChapterHeadingWeftSchema.make({
-    type: "ChapterHeadingWeft",
+  return HeadingWeftSchema.make({
     position: weft.position,
     health: { status, diagnostics: [] },
     unexpected: unexpected.length > 0 ? unexpected : undefined,
     headingStart: weft.headingStart,
     texts,
     tag: resolvedTag,
-    specifier: resolvedSpecifier,
-  })
-}
-
-// =============================================================================
-// SectionHeading — schema makes tag and specifier optional. The Tokeniser
-// fills whatever the source provides; absence of either is not an error
-// (the de-dicto cut on `{Loom}` happens at Synth time, not here).
-// =============================================================================
-
-const tokeniseSectionHeading = (text: string, weft: SectionHeadingWeft): LoomWeft => {
-  const { tag, specifier, texts, unexpected } = tokeniseHeading(
-    text, weft.position, weft.headingStart.position.end.offset,
-  )
-
-  const status = aggregateStatus([
-    weft.headingStart.health.status,
-    ...Option.toArray(tag).map((t) => t.health.status),
-    ...Option.toArray(specifier).map((s) => s.health.status),
-    ...texts.map((t) => t.health.status),
-    ...unexpected.map(() => "error" as const),
-  ])
-
-  return SectionHeadingWeftSchema.make({
-    position: weft.position,
-    health: { status, diagnostics: [] },
-    unexpected: unexpected.length > 0 ? unexpected : undefined,
-    headingStart: weft.headingStart,
-    texts,
-    tag: Option.getOrUndefined(tag),
     specifier: Option.getOrUndefined(specifier),
   })
 }

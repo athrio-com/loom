@@ -1,17 +1,13 @@
 import { Schema } from "effect"
 import { loomNode } from "./LoomNode"
 import {
-  ChapterHeadingStartTokenSchema,
-  SectionHeadingStartTokenSchema,
+  HeadingStartTokenSchema,
+  PathSpecifierTokenSchema,
   SpecifierTokenSchema,
   TagTokenSchema,
   TextTokenSchema,
 } from "./LoomTokens"
-import {
-  PreambleWeftSchema,
-  SectionBodyWeftSchema,
-  WeftSchema,
-} from "./Weft"
+import { PreambleWeftSchema, SectionBodyWeftSchema } from "./Weft"
 
 // =============================================================================
 // Containers — the inner AST. Leaves (tokens and wefts) live in LoomTokens.ts
@@ -25,35 +21,33 @@ import {
 // =============================================================================
 
 // =============================================================================
-// Heading — uniform for chapters and sections at the schema level.
+// Heading — one shape for every heading, any level.
 //
-// `markers` is a union of the two heading-start token kinds; the inner
-// `type` distinguishes chapter (level 1) from section (level 2+).
-// `texts` is the array of contiguous text segments between structural
-// tokens on the heading line — heading text can be non-contiguous, e.g.
-// `# [Loom] is written in {Loom}` has a text segment after the tag and
-// before the specifier.
+// `headingStart` is the single heading-start token; its position records the
+// level for the human reader, but level carries no structural meaning — every
+// heading produces a flat Section. `texts` is the array of contiguous text
+// segments between structural tokens on the heading line — heading text can be
+// non-contiguous, e.g. `# [Loom] is written in {Loom}` has a text segment
+// after the tag and before the specifier.
 //
-// Tag and specifier are optional. The parser enforces that chapter headings
-// require both — a validation rule, not a type split.
+// Tag and specifier are both optional. The Tokeniser synthesises a
+// hash-derived tag for a tagless heading, and the specifier is either a label
+// (`{Scala}`) or a path (`{src/index.ts}`, a tangle sink).
 // =============================================================================
 
-export const LoomHeadingMarkersSchema = Schema.Union(
-  ChapterHeadingStartTokenSchema,
-  SectionHeadingStartTokenSchema,
-)
-export type LoomHeadingMarkers = typeof LoomHeadingMarkersSchema.Type
-
 export const LoomHeadingSchema = loomNode("LoomHeading", {
-  markers: LoomHeadingMarkersSchema,
+  headingStart: HeadingStartTokenSchema,
   texts: Schema.Array(TextTokenSchema),
   tag: Schema.optional(TagTokenSchema),
-  specifier: Schema.optional(SpecifierTokenSchema),
+  specifier: Schema.optional(
+    Schema.Union(SpecifierTokenSchema, PathSpecifierTokenSchema),
+  ),
 })
 export type LoomHeading = typeof LoomHeadingSchema.Type
 
 // =============================================================================
-// Section — one structural unit under a chapter.
+// Section — one structural unit, created by a heading at any level. Sections
+// are flat on the Document; heading level is reader-facing organisation only.
 //
 // Body is two ordered weft sequences:
 //   - preamble: PreambleWefts (default mode after the heading)
@@ -72,40 +66,20 @@ export const LoomSectionSchema = loomNode("LoomSection", {
 export type LoomSection = typeof LoomSectionSchema.Type
 
 // =============================================================================
-// Chapter — a section that also holds children.
+// Document — the root container, the implicit module named by its file.
 //
-// Same body shape as Section (heading + preamble + code, with the
-// grammar's forward-only mode progression encoded implicitly in `code`'s
-// order) plus a `children` array for sub-sections.
-// =============================================================================
-
-export const LoomChapterSchema = loomNode("LoomChapter", {
-  heading: LoomHeadingSchema,
-  preamble: Schema.Array(PreambleWeftSchema),
-  code: Schema.Array(SectionBodyWeftSchema),
-  children: Schema.Array(LoomSectionSchema),
-})
-export type LoomChapter = typeof LoomChapterSchema.Type
-
-// =============================================================================
-// Document — the root container, the implicit module.
+// Two slots, no heading:
+//   preamble — the Document Preamble: the run of PreambleWefts before the
+//              first heading. Carries the `{{lang: …}}` declaration and any
+//              introductory prose.
+//   sections — flat Sections in source order, one per heading at any level.
 //
-// Three slots, no heading:
-//   wefts    — pre-chapter orphan Wefts (Classifier orphan mode).
-//   sections — Sections under no Chapter (a ##+ heading before any #).
-//              The Document is their de facto parent.
-//   chapters — Chapters in source order.
-//
-// Any slot may be empty. A real Loom file is expected to have at least
-// one chapter, but that's a grammar concern reported via
-// `health.diagnostics` — not a schema-shape constraint. Failure cases
-// (MixedEOL, empty file) yield a document with all slots empty and a NOK
-// root health.
+// Either slot may be empty. Failure cases (MixedEOL, empty file) yield a
+// document with both slots empty and a NOK root health.
 // =============================================================================
 
 export const LoomDocumentSchema = loomNode("LoomDocument", {
-  wefts: Schema.Array(WeftSchema),
+  preamble: Schema.Array(PreambleWeftSchema),
   sections: Schema.Array(LoomSectionSchema),
-  chapters: Schema.Array(LoomChapterSchema),
 })
 export type LoomDocument = typeof LoomDocumentSchema.Type

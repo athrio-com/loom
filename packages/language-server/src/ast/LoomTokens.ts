@@ -26,23 +26,20 @@ export const getProbe = (
 // =============================================================================
 
 // =============================================================================
-// HeadingStart — split by level so classifyWefts can route by probe match.
+// HeadingStart — one token for every heading line, any level (`#`..`######`).
 //
-// The marker is `<hash><space>` (always); the token's `position` covers the
-// whole marker — both the hashes and the mandatory trailing space.
-// Position-only, like Arrow / Tilde: the marker text is `text.slice(start,
-// end)` when consumers want it, and the section level is `(end - start - 1)`.
+// The marker is `<hashes><space>`; the token's `position` covers the whole
+// marker — both the hashes and the mandatory trailing space. Position-only,
+// like Arrow / Tilde: the marker text is `text.slice(start, end)`, and the
+// heading level is `(end - start - 1)` (the hash count). Level is recorded
+// only for the human reader — it carries no structural meaning, since every
+// heading produces a flat Section.
 // =============================================================================
 
-export const ChapterHeadingStartTokenSchema = loomNode("ChapterHeadingStart", {}).annotations({
-  [Probe]: /^# /,
+export const HeadingStartTokenSchema = loomNode("HeadingStart", {}).annotations({
+  [Probe]: /^#{1,6} /,
 })
-export type ChapterHeadingStartToken = typeof ChapterHeadingStartTokenSchema.Type
-
-export const SectionHeadingStartTokenSchema = loomNode("SectionHeadingStart", {}).annotations({
-  [Probe]: /^#{2,6} /,
-})
-export type SectionHeadingStartToken = typeof SectionHeadingStartTokenSchema.Type
+export type HeadingStartToken = typeof HeadingStartTokenSchema.Type
 
 // =============================================================================
 // Tag — `[name]`. Open / label / close are named subnodes so each can carry
@@ -135,6 +132,41 @@ export const SpecifierTokenSchema = loomNode("Specifier", {
   [Probe]: /\{[a-zA-Z0-9_-]+\}/g,
 })
 export type SpecifierToken = typeof SpecifierTokenSchema.Type
+
+// =============================================================================
+// PathSpecifier — `{path/to/file}`. Same `{` / `}` delimiters as Specifier,
+// but the label admits path separators. A heading carrying a PathSpecifier
+// is a tangle (file-emission) Section. The Tokeniser scans the `{` / `}`
+// delimiters once and chooses Specifier vs PathSpecifier by whether the
+// label contains a path separator — so open / close reuse the Specifier
+// subnode tokens; only the label pattern differs.
+// =============================================================================
+
+// PathSpecifier label — same health-aware scheme as SpecifierLabel, but the
+// character class admits the `.` and `/` of a file path.
+export const PathSpecifierLabelTokenSchema = loomNode("PathSpecifierLabel", {
+  value: Schema.String,
+}).pipe(
+  Schema.filter((t) => {
+    if (t.value === "" && t.health.status === "ok") {
+      return "empty `value` requires non-ok `health.status`"
+    }
+    if (t.value !== "" && !/^[a-zA-Z0-9_\-./]+$/.test(t.value)) {
+      return `path specifier label must match [a-zA-Z0-9_-./]+, got \`${t.value}\``
+    }
+    return true
+  }),
+)
+export type PathSpecifierLabelToken = typeof PathSpecifierLabelTokenSchema.Type
+
+export const PathSpecifierTokenSchema = loomNode("PathSpecifier", {
+  open: SpecifierOpenTokenSchema,
+  label: PathSpecifierLabelTokenSchema,
+  close: SpecifierCloseTokenSchema,
+}).annotations({
+  [Probe]: /\{[a-zA-Z0-9_\-./]+\}/g,
+})
+export type PathSpecifierToken = typeof PathSpecifierTokenSchema.Type
 
 // =============================================================================
 // Arrow — `=>` on a code line. Position-only.
@@ -241,12 +273,34 @@ export const WarpDefaultTokenSchema = loomNode("WarpDefault", {
 })
 export type WarpDefaultToken = typeof WarpDefaultTokenSchema.Type
 
+// WarpAnchorName — the reference content inside `{{…}}` on an Arrow / Code
+// line. Unlike WarpName (a declaration's bound identifier), an anchor may
+// name a Warp binding (an identifier, `{{m}}`) OR a Section by heading name
+// (a multi-word phrase, `{{Multiplier Function}}`). The pattern is
+// permissive: a non-empty value with no braces and no colon — a colon would
+// make it a declaration, braces a delimiter. Which kind of reference it is
+// (binding vs heading name) is resolved downstream, not at the AST stage.
+export const WarpAnchorNameTokenSchema = loomNode("WarpAnchorName", {
+  value: Schema.String,
+}).pipe(
+  Schema.filter((t) => {
+    if (t.value === "" && t.health.status === "ok") {
+      return "empty `value` requires non-ok `health.status`"
+    }
+    if (t.value !== "" && /[{}:]/.test(t.value)) {
+      return `warp anchor name must not contain { } or :, got \`${t.value}\``
+    }
+    return true
+  }),
+)
+export type WarpAnchorNameToken = typeof WarpAnchorNameTokenSchema.Type
+
 export const WarpAnchorTokenSchema = loomNode("WarpAnchor", {
   open: WarpOpenTokenSchema,
-  name: WarpNameTokenSchema,
+  name: WarpAnchorNameTokenSchema,
   close: WarpCloseTokenSchema,
 }).annotations({
-  [Probe]: /\{\{\s*[a-zA-Z_][a-zA-Z0-9_]*\s*\}\}/g,
+  [Probe]: /\{\{[^{}:]+\}\}/g,
 })
 export type WarpAnchorToken = typeof WarpAnchorTokenSchema.Type
 
@@ -266,10 +320,10 @@ export type WarpToken = typeof WarpTokenSchema.Type
 // =============================================================================
 
 export const LoomTokenSchema = Schema.Union(
-  ChapterHeadingStartTokenSchema,
-  SectionHeadingStartTokenSchema,
+  HeadingStartTokenSchema,
   TagTokenSchema,
   SpecifierTokenSchema,
+  PathSpecifierTokenSchema,
   ArrowTokenSchema,
   TildeTokenSchema,
   TextTokenSchema,
