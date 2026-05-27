@@ -5,8 +5,8 @@
 Every Section in a Loom document projects to an `Effect.Service` class.
 The Service exposes three fields: `name` — the heading text as a plain
 string — `preamble` — the section's prose context — and `code` — the
-composed product code as `Effect.Effect<Code>`. This is the complete,
-uniform surface of every section in the Frame.
+composed product code (effectful, since composing it may resolve other
+sections). This is the complete, uniform surface of every section in the Frame.
 
 Sections without Warp declarations use `succeed:` — their fields are
 static values, constructed once. Sections with Warp declarations use
@@ -27,8 +27,8 @@ document via name anchors in code blocks.
 All headings — regardless of level — create sections. The document is a
 flat `LoomSection[]` with no nesting, no parent containers. Heading levels
 are prose organisation for the human reader; they carry no structural
-meaning in the Frame. Lines before the first heading live on
-`document.wefts`.
+meaning in the Frame. Lines before the first heading form the Document
+Preamble — `document.preamble`.
 
 ## Warp Declarations and Name Anchors
 
@@ -213,9 +213,12 @@ from the same source document, with no duplication.
 //   - Tangle section ({path} specifier) → private, tangle() return, graph sink.
 //   - {Loom} specifier → code block projected literally (escape hatch only).
 //   - Composition root → auto-synthesised by Loom from graph leaf analysis.
+//   - compose / tangle are provisional primitives — module home not yet built
+//     (see how-lsp.md). There is no separate Code value type; product code is
+//     the AST's CodeWeft text. The import below is illustrative.
 // =============================================================================
 
-import { Code, compose, tangle } from "@literate/core"
+import { compose, tangle } from "@literate/core"
 import { Effect, Layer } from "effect"
 
 
@@ -357,49 +360,3 @@ export const LoomMain = Effect.provide(
   Layer.merge(S_d2c5b9.Default, S_a1b3c7.Default)
 )
 ```
-
-## Implications for Upstream Decisions
-
-> Transitional. This section records what the reframing changes in the
-> already-built AST pipeline (`how-ast.md` and `src/ast`), so the refactor
-> has one reference. Remove it once the AST conforms.
-
-**Drop chapters.** `LoomDocument` flattens from `{ wefts, sections,
-chapters }` to `{ preamble, sections }`. `LoomChapter`,
-`chapter.children`, and the default `Weft` kind are removed. Every
-heading, at any level, produces a flat `LoomSection`; heading level is
-recorded but structurally inert.
-
-**Collapse the heading wefts.** `ChapterHeadingWeft` and
-`SectionHeadingWeft` merge into one `HeadingWeft`. The `#{1,6}` level
-lives in the heading-start token, not in the weft kind. The Classifier's
-chapter/section dispatch becomes a single heading probe.
-
-**Add a Document Preamble.** Lines before the first heading become a
-`document.preamble` of `PreambleWeft`s. A Warp named `lang`
-(`{{lang: Scala}}`) declares the primary language; a missing `lang`
-raises a warning on document health. The filename is the module
-identity — no module-name token, no frontmatter node. `---` divider
-lines stay decorative (non-structural). The Classifier opens in preamble
-mode rather than an orphan mode.
-
-**Split specifiers into two token kinds.** `SpecifierToken` (label,
-`^[a-zA-Z0-9_-]+$`, languages plus `{Loom}`) and `PathSpecifierToken`
-(path, admits separators) marking a tangle section. The Tokeniser
-distinguishes them by the presence of path separators.
-
-**Widen name anchors to heading names.** A code-block anchor may carry a
-multi-word heading name (`{{Multiplier Function}}`), not only a single
-identifier. The Tokeniser must stop routing post-identifier content to
-`unexpected` for anchors.
-
-**Synthesise a hash tag in the Tokeniser.** A tagless heading receives a
-hash-derived `TagToken` — a stable identifier from the heading text —
-at tokenisation. The AST and the Frame read that one identifier; the
-projector never re-derives it.
-
-These follow from the settled model above: sections are Services; tag =
-exported, tagless = private/hashed; Warp declarations are cross-file
-dependency edges and name anchors are same-file references; the
-dependency graph is the AST's Warp map; the composition root is emitted
-only when tangle sinks exist.
