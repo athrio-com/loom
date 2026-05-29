@@ -1,0 +1,143 @@
+{{lang: Template}}
+
+The Loom Frame projector — a set of named templates the Engine pairs
+with input AST nodes. Each `#` section names one template; its body
+after `=>` is the output shape, with named placeholders the Engine
+fills in. Templates carry every literal of the projected output. The
+Engine itself walks the input AST and orchestrates substitution; no
+Template text should live in `Engine.ts`.
+
+Anchors come in two flavours by convention:
+
+  - Lower-case keys (`className`, `name`, `code`, `tag`) are scalar
+    holes. The Engine fills them from values read out of the input
+    AST. They are pure data; no further projection happens at the
+    anchor.
+
+  - Capitalised keys (`Imports`, `ExportedSections`, `PrivateSections`,
+    `Body`, `WarpBindings`, `Dependencies`) name a downstream
+    template by its tag. The Engine renders that template — once for
+    a singleton resolver, or once per input element for a folded
+    list — and splices the result. The reference is by tag, a plain
+    string key; the engine encodes which key resolves to which
+    template. There is no autodetection — the match between a
+    capitalised key and a section's `[Tag]` is convention, not
+    runtime dispatch.
+
+The story of one projection lives in `Engine.ts`. The story of one
+template's shape lives in its body after `=>`. The story of why each
+shape is what it is lives in its preamble and tilde prose here.
+
+# The Document [Document]
+
+The top of the projection. The Engine starts here with an input
+`LoomDocument`. Four holes lay the output in order: the import
+header, the exported sections (the public API), the private sections
+(hash-tagged, file-local), and the composition root that wires the
+tangle sinks together.
+
+=>
+
+{{Imports}}
+
+{{ExportedSections}}
+
+{{PrivateSections}}
+
+{{LoomMain}}
+
+~
+
+`Imports` resolves once. `ExportedSections` and `PrivateSections` are
+each a folded list — the Engine partitions the input's sections by
+tag origin (source-supplied vs hash-synthesised) and maps each group
+through its visibility template. `LoomMain` is the auto-synthesised
+composition root over tangle sinks; absent from the trivial case it
+collapses to the empty string.
+
+# The Imports Header [Imports]
+
+The module-level imports. For now a fixed core import. When cross-
+file Warps land, this template grows `import type { Tag } …` lines
+synthesised from the input's annotations; the Engine passes them in
+as a hole.
+
+=>
+
+import { Effect } from "effect"
+
+# Exported Section [ExportedSection]
+
+A public section — the heading carried a source-supplied `[Tag]`, so
+the class is `export`ed and reachable from other files. Two holes:
+`className` is the section's tag label; `Body` is the Service body,
+picked by variant downstream.
+
+=>
+
+export class {{className}} extends Effect.Service<{{className}}>()("{{className}}", {{Body}}) {}
+
+# Private Section [PrivateSection]
+
+A private section — the heading carried no `[Tag]`, so the Tokeniser
+synthesised a hash-derived one. The class is unexported and
+unreachable from other files. Same shape as `ExportedSection` without
+the `export` keyword.
+
+=>
+
+class {{className}} extends Effect.Service<{{className}}>()("{{className}}", {{Body}}) {}
+
+# Static Body [StaticBody]
+
+The Service body when the section's preamble carries no Warps. A
+`succeed` object literal: three scalar holes for the heading text,
+the preamble prose, and the product code.
+
+=>
+
+{ succeed: { name: `{{name}}`, preamble: `{{preamble}}`, code: `{{code}}` } }
+
+# Effectful Body [EffectfulBody]
+
+The Service body when the section's preamble declares one or more
+Warps. An `Effect.gen` block yields each declared dependency before
+returning the `name`/`preamble`/`code` triple; the `dependencies`
+field carries the layers in parallel.
+
+=>
+
+{
+  effect: Effect.gen(function* () {
+    {{WarpBindings}}
+    return { name: `{{name}}`, preamble: `{{preamble}}`, code: `{{code}}` }
+  }),
+  dependencies: [{{Dependencies}}],
+}
+
+~
+
+`WarpBindings` and `Dependencies` are parallel folded lists over the
+section's preamble Warps. Each Warp produces one `WarpBinding` line
+and one `Dependency` entry. The Engine joins bindings with newline
+plus indent (so they sit inside the `Effect.gen` block) and joins
+dependencies with `, `.
+
+# Warp Binding [WarpBinding]
+
+One preamble Warp → one `yield*` line inside an `EffectfulBody`. Two
+scalar holes from the Warp itself: `name` is the local binding,
+`tag` is the Service to yield from.
+
+=>
+
+const {{name}} = yield* {{tag}}
+
+# Dependency [Dependency]
+
+One preamble Warp → one entry in the `EffectfulBody`'s `dependencies`
+list. The Service `tag` suffixed with `.Default` to name its Layer.
+
+=>
+
+{{tag}}.Default

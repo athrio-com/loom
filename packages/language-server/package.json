@@ -6,7 +6,8 @@
     "loom-language-server": "./bin/loom-language-server.js"
   },
   "imports": {
-    "#ast/*": "./src/ast/*.ts"
+    "#ast/*": "./src/ast/*.ts",
+    "#projectors/*": "./src/projectors/*.ts"
   },
   "scripts": {
     "build": "vite build",
