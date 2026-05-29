@@ -268,16 +268,6 @@ host Weft, not by colon-sniffing. How a Warp resolves into the Frame — a
 Service dependency, an inlined code value — is a Synth concern; at the AST
 layer a Warp is a declaration and an anchor is a reference.
 
-**Escaping with backticks.** To mention the `{{…}}` syntax in Preamble prose
-without declaring a Warp, wrap it in backticks. A `{{` immediately preceded by
-a backtick — and a `}}` immediately followed by one — is not recognised as a
-Warp delimiter, so a backtick-wrapped reference is literal text: neither a Warp
-nor an `unexpected` entry. The rule lives declaratively in the `WarpOpen` /
-`WarpClose` token Probes as a negative look-around — no Tokeniser branch. Those
-delimiter Probes are shared with anchor scanning, but in practice only Preamble
-declarations are affected: code does not wrap its `{{…}}` references in
-backticks.
-
 ---
 
 ## Weft vocabulary
@@ -392,10 +382,8 @@ is subtoken expansion plus health resolution.
   health), so every Section has a stable identifier.
 - **`PreambleWeft`** — scan `{{` / `}}` pairs, build Warp declarations
   (`open` / `name` / `annotation` / `default?` / `close`), populate `warps[]`.
-  A delimiter adjacent to a backtick is excluded by the `WarpOpen` /
-  `WarpClose` Probe (see Warps → escaping). Stray `}}` lands on
-  `weft.unexpected[]`; a top-level `,` / `;` inside an annotation or default
-  lands on `warp.unexpected[]`.
+  Stray `}}` lands on `weft.unexpected[]`; a top-level `,` / `;` inside an
+  annotation or default lands on `warp.unexpected[]`.
 - **`ArrowWeft`** — fill the optional inline `code` subtoken via the
   `CodeTokenSchema` Probe; scan `{{` / `}}` pairs and build WarpAnchor
   references into `anchors[]`.

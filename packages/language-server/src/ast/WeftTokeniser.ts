@@ -916,10 +916,6 @@ const assembleAnchor = (
 // for `{{` and `}}`, pair them, and build the appropriate composite per
 // pair. Stray closes (with no preceding open) and Anchor-content remainders
 // accumulate as `unexpected` on the parent weft.
-//
-// Backtick escaping is a Probe concern, not a Tokeniser one: the WarpOpen /
-// WarpClose Probes skip a delimiter adjacent to a backtick, so a
-// backtick-wrapped `{{…}}` never scans as a delimiter here.
 // =============================================================================
 
 const constructWarps = (
