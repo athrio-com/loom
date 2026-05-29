@@ -114,9 +114,21 @@ export type UnexpectedToken = typeof UnexpectedTokenSchema.Type
 // =============================================================================
 // loomNode() — the AST schema combinator.
 //
-// Produces a Schema.Struct with `type`/`position`/`health`/`unexpected?` plus
-// the caller's fields. Used uniformly by container schemas (LoomHeading,
-// LoomSection, …) and leaf token schemas (TagToken, ArrowToken, …).
+// Produces a Schema.Struct with `type`/`position`/`source`/`health`/
+// `unexpected?` plus the caller's fields. Used uniformly by container
+// schemas (LoomHeading, LoomSection, …) and leaf token schemas (TagToken,
+// ArrowToken, …).
+//
+// `source` is the original byte slice the node covers — `text.slice(
+// position.start.offset, position.end.offset)` at construction time —
+// stored once per node so downstream consumers (Frame projection, LSP
+// hovers, snapshot dumps) read text directly without threading the
+// source string. Slices overlap across nesting layers (a Weft's source
+// contains its tokens' sources, a TagToken contains its TagLabel's),
+// which is the natural cost of self-contained nodes. V8 typically
+// materialises substring views as slot + offsets over the parent
+// string, so the practical overhead is much closer to one slot per
+// node than to duplicated bytes.
 //
 // `unexpected` is `Schema.optional` — the absence of unexpected tokens is
 // the common case, so it is omittable both from `Schema.make` calls and
@@ -132,6 +144,7 @@ export const loomNode = <
     Schema.withConstructorDefault(() => tag),
   ),
   position: PositionSchema,
+  source: Schema.String,
   health: HealthSchema,
   unexpected: Schema.optional(Schema.Array(UnexpectedTokenSchema)),
   ...fields,

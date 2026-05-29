@@ -136,6 +136,7 @@ const inlineAfter = <T>(
           lineStart + m.index,
           lineStart + m.index + m[0].length,
         ),
+        source: m[0],
         health: okHealth,
       }),
     ),
@@ -157,6 +158,7 @@ const tokeniseArrow = (text: string, weft: ArrowWeft): LoomWeft => {
   ])
   return ArrowWeftSchema.make({
     position: weft.position,
+    source: lineSlice(text, weft.position),
     health: { status, diagnostics: [] },
     unexpected: unexpected.length > 0 ? unexpected : undefined,
     arrow: weft.arrow,
@@ -169,6 +171,7 @@ const tokeniseTilde = (text: string, weft: TildeWeft): LoomWeft => {
   const prose = inlineAfter(ProseTokenSchema, proseProbe, text, weft.position)
   return TildeWeftSchema.make({
     position: weft.position,
+    source: lineSlice(text, weft.position),
     health: okHealth,
     tilde: weft.tilde,
     prose: Option.getOrUndefined(prose),
@@ -184,6 +187,7 @@ const tokenisePreamble = (text: string, weft: PreambleWeft): LoomWeft => {
   ])
   return PreambleWeftSchema.make({
     position: weft.position,
+    source: lineSlice(text, weft.position),
     health: { status, diagnostics: [] },
     unexpected: unexpected.length > 0 ? unexpected : undefined,
     warps,
@@ -191,7 +195,7 @@ const tokenisePreamble = (text: string, weft: PreambleWeft): LoomWeft => {
 }
 
 const tokeniseProse = (weft: ProseWeft): LoomWeft =>
-  ProseWeftSchema.make({ position: weft.position, health: okHealth })
+  ProseWeftSchema.make({ position: weft.position, source: weft.source, health: okHealth })
 
 const tokeniseCode = (text: string, weft: CodeWeft): LoomWeft => {
   const { tokens: anchors, unexpected } =
@@ -202,6 +206,7 @@ const tokeniseCode = (text: string, weft: CodeWeft): LoomWeft => {
   ])
   return CodeWeftSchema.make({
     position: weft.position,
+    source: lineSlice(text, weft.position),
     health: { status, diagnostics: [] },
     unexpected: unexpected.length > 0 ? unexpected : undefined,
     anchors,
@@ -276,11 +281,12 @@ const decodePathSpecifierLabel = Schema.decodeUnknownEither(PathSpecifierLabelTo
 
 const buildTagLabel = (value: string, position: Position): TagLabelToken =>
   pipe(
-    decodeTagLabel({ type: "TagLabel", position, health: okHealth, value }),
+    decodeTagLabel({ type: "TagLabel", position, source: value, health: okHealth, value }),
     Either.getOrElse((e) =>
       TagLabelTokenSchema.make({
         type: "TagLabel",
         position,
+        source: value,
         health: errorToHealth(e, position),
         value: "",
         unexpected: [UnexpectedTokenSchema.make({ position, value })],
@@ -290,11 +296,12 @@ const buildTagLabel = (value: string, position: Position): TagLabelToken =>
 
 const buildSpecifierLabel = (value: string, position: Position): SpecifierLabelToken =>
   pipe(
-    decodeSpecifierLabel({ type: "SpecifierLabel", position, health: okHealth, value }),
+    decodeSpecifierLabel({ type: "SpecifierLabel", position, source: value, health: okHealth, value }),
     Either.getOrElse((e) =>
       SpecifierLabelTokenSchema.make({
         type: "SpecifierLabel",
         position,
+        source: value,
         health: errorToHealth(e, position),
         value: "",
         unexpected: [UnexpectedTokenSchema.make({ position, value })],
@@ -304,11 +311,12 @@ const buildSpecifierLabel = (value: string, position: Position): SpecifierLabelT
 
 const buildPathSpecifierLabel = (value: string, position: Position): PathSpecifierLabelToken =>
   pipe(
-    decodePathSpecifierLabel({ type: "PathSpecifierLabel", position, health: okHealth, value }),
+    decodePathSpecifierLabel({ type: "PathSpecifierLabel", position, source: value, health: okHealth, value }),
     Either.getOrElse((e) =>
       PathSpecifierLabelTokenSchema.make({
         type: "PathSpecifierLabel",
         position,
+        source: value,
         health: errorToHealth(e, position),
         value: "",
         unexpected: [UnexpectedTokenSchema.make({ position, value })],
@@ -347,6 +355,7 @@ const makeScanner = <T>(schema: Scannable<T>): Scanner<T> => {
         const i = match.index!
         return (schema as any).make({
           position: span(line, lineStart + i, lineStart + i + match[0].length),
+          source: match[0],
           health: okHealth,
           value: match[0],
         })
@@ -410,6 +419,7 @@ const constructTag = (
 
   const close: TagCloseToken = match ?? TagCloseTokenSchema.make({
     position: span(line, lineEnd, lineEnd),
+    source: "",
     health: missingClosing(line, lineEnd, "]"),
     value: "]",
   })
@@ -427,9 +437,11 @@ const constructTag = (
     close.health.status,
   ])
 
+  const tagPos = span(line, open.position.start.offset, close.position.end.offset)
   return {
     token: Option.some(TagTokenSchema.make({
-      position: span(line, open.position.start.offset, close.position.end.offset),
+      position: tagPos,
+      source: lineText.slice(tagPos.start.offset - lineStart, tagPos.end.offset - lineStart),
       health: { status, diagnostics: [] },
       open,
       label,
@@ -454,11 +466,13 @@ const buildLabelSpecifier = (
   labelText: string,
   labelPos: Position,
   specifierPos: Position,
+  specifierSource: string,
 ): SpecifierToken => {
   const label = buildSpecifierLabel(labelText, labelPos)
   const status = aggregateStatus([open.health.status, label.health.status, close.health.status])
   return SpecifierTokenSchema.make({
     position: specifierPos,
+    source: specifierSource,
     health: { status, diagnostics: [] },
     open,
     label,
@@ -472,11 +486,13 @@ const buildPathSpecifier = (
   labelText: string,
   labelPos: Position,
   specifierPos: Position,
+  specifierSource: string,
 ): PathSpecifierToken => {
   const label = buildPathSpecifierLabel(labelText, labelPos)
   const status = aggregateStatus([open.health.status, label.health.status, close.health.status])
   return PathSpecifierTokenSchema.make({
     position: specifierPos,
+    source: specifierSource,
     health: { status, diagnostics: [] },
     open,
     label,
@@ -506,6 +522,7 @@ const constructSpecifier = (
 
   const close: SpecifierCloseToken = match ?? SpecifierCloseTokenSchema.make({
     position: span(line, lineEnd, lineEnd),
+    source: "",
     health: missingClosing(line, lineEnd, "}"),
     value: "}",
   })
@@ -515,10 +532,14 @@ const constructSpecifier = (
   const labelText = lineText.slice(labelStart - lineStart, labelEnd - lineStart)
   const labelPos = span(line, labelStart, labelEnd)
   const specifierPos = span(line, open.position.start.offset, close.position.end.offset)
+  const specifierSource = lineText.slice(
+    specifierPos.start.offset - lineStart,
+    specifierPos.end.offset - lineStart,
+  )
 
   const token = isPathLabel(labelText)
-    ? buildPathSpecifier(open, close, labelText, labelPos, specifierPos)
-    : buildLabelSpecifier(open, close, labelText, labelPos, specifierPos)
+    ? buildPathSpecifier(open, close, labelText, labelPos, specifierPos, specifierSource)
+    : buildLabelSpecifier(open, close, labelText, labelPos, specifierPos, specifierSource)
 
   return {
     token: Option.some(token),
@@ -561,6 +582,7 @@ const pairWarpDelims = (
   const lineEnd = linePosition.end.offset
   const synthClose = (): WarpCloseToken => WarpCloseTokenSchema.make({
     position: span(line, lineEnd, lineEnd),
+    source: "",
     health: missingClosing(line, lineEnd, "}}"),
     value: "}}",
   })
@@ -633,11 +655,12 @@ const decodeWarpName = Schema.decodeUnknownEither(WarpNameTokenSchema)
 
 const buildWarpName = (value: string, position: Position): WarpNameToken =>
   pipe(
-    decodeWarpName({ type: "WarpName", position, health: okHealth, value }),
+    decodeWarpName({ type: "WarpName", position, source: value, health: okHealth, value }),
     Either.getOrElse((e) =>
       WarpNameTokenSchema.make({
         type: "WarpName",
         position,
+        source: value,
         health: errorToHealth(e, position),
         value: "",
         unexpected: [UnexpectedTokenSchema.make({ position, value })],
@@ -657,6 +680,7 @@ const buildWarpName = (value: string, position: Position): WarpNameToken =>
 type OpaqueMake<T> = (args: {
   type: string
   position: Position
+  source: string
   health: Health
   value: string
 }) => T
@@ -684,7 +708,7 @@ const buildOpaqueSegment = <T>(
       }
     : okHealth
 
-  const token = make({ type: typeName, position: tokenPos, health, value })
+  const token = make({ type: typeName, position: tokenPos, source: value, health, value })
 
   const extras: UnexpectedToken[] = extraStart < raw.length
     ? [UnexpectedTokenSchema.make({
@@ -726,6 +750,7 @@ const synthMissingAnnotation = (position: Position): WarpAnnotationToken =>
   WarpAnnotationTokenSchema.make({
     type: "WarpAnnotation",
     position,
+    source: "",
     health: {
       status: "error",
       diagnostics: [{
@@ -753,6 +778,10 @@ const buildWarp = (
   const contentStart = open.position.end.offset
   const contentEnd = close.position.start.offset
   const content = lineText.slice(contentStart - lineStart, contentEnd - lineStart)
+  const warpSource = lineText.slice(
+    open.position.start.offset - lineStart,
+    close.position.end.offset - lineStart,
+  )
 
   return Option.match(findChar(content, ":"), {
     // No `:` — entire content is the name; synthesise an empty error-health
@@ -761,7 +790,7 @@ const buildWarp = (
       const nameSpan = trimSpan(content, contentStart)
       const name = buildWarpName(nameSpan.value, span(line, nameSpan.start, nameSpan.end))
       const annotation = synthMissingAnnotation(span(line, contentEnd, contentEnd))
-      return assembleWarp(open, close, name, annotation, undefined, [], line)
+      return assembleWarp(open, close, name, annotation, undefined, [], line, warpSource)
     },
     onSome: (colonIdx) => {
       const nameRaw = content.slice(0, colonIdx)
@@ -778,7 +807,7 @@ const buildWarp = (
         onNone: () => {
           const { token: annotation, extras } =
             buildWarpAnnotation(restRaw, restStart, line)
-          return assembleWarp(open, close, name, annotation, undefined, extras, line)
+          return assembleWarp(open, close, name, annotation, undefined, extras, line, warpSource)
         },
         onSome: (eqIdx) => {
           const annotationRaw = restRaw.slice(0, eqIdx)
@@ -790,7 +819,7 @@ const buildWarp = (
             buildWarpDefault(defaultRaw, defaultStart, line)
           return assembleWarp(
             open, close, name, annotation, defaultToken,
-            [...annoExtras, ...defExtras], line,
+            [...annoExtras, ...defExtras], line, warpSource,
           )
         },
       })
@@ -806,6 +835,7 @@ const assembleWarp = (
   defaultToken: WarpDefaultToken | undefined,
   extras: ReadonlyArray<UnexpectedToken>,
   line: number,
+  source: string,
 ): WarpToken => {
   const subStatuses = [
     open.health.status,
@@ -821,6 +851,7 @@ const assembleWarp = (
   return WarpTokenSchema.make({
     type: "Warp",
     position: span(line, open.position.start.offset, close.position.end.offset),
+    source,
     health: { status, diagnostics: [] },
     unexpected: extras.length > 0 ? extras : undefined,
     open,
@@ -863,9 +894,13 @@ const buildWarpAnchor = (
   const content = lineText.slice(contentStart - lineStart, contentEnd - lineStart)
   const { value, start, end } = trimSpan(content, contentStart)
   const namePos = span(line, start, end)
+  const anchorSource = lineText.slice(
+    open.position.start.offset - lineStart,
+    close.position.end.offset - lineStart,
+  )
 
   return pipe(
-    decodeWarpAnchorName({ type: "WarpAnchorName", position: namePos, health: okHealth, value }),
+    decodeWarpAnchorName({ type: "WarpAnchorName", position: namePos, source: value, health: okHealth, value }),
     Either.match({
       // Content that fails the anchor-name pattern: empty value + error health
       // on the name token, offending text on the host weft's `unexpected[]`.
@@ -875,15 +910,17 @@ const buildWarpAnchor = (
           WarpAnchorNameTokenSchema.make({
             type: "WarpAnchorName",
             position: namePos,
+            source: value,
             health: errorToHealth(e, namePos),
             value: "",
           }),
           line,
+          anchorSource,
         ),
         extras: unexpectedIfNonEmpty(namePos, value),
       }),
       onRight: (name) => ({
-        anchor: assembleAnchor(open, close, name, line),
+        anchor: assembleAnchor(open, close, name, line, anchorSource),
         extras: [],
       }),
     }),
@@ -895,6 +932,7 @@ const assembleAnchor = (
   close: WarpCloseToken,
   name: WarpAnchorNameToken,
   line: number,
+  source: string,
 ): WarpAnchorToken => {
   const status = aggregateStatus([
     open.health.status,
@@ -904,6 +942,7 @@ const assembleAnchor = (
   return WarpAnchorTokenSchema.make({
     type: "WarpAnchor",
     position: span(line, open.position.start.offset, close.position.end.offset),
+    source,
     health: { status, diagnostics: [] },
     open,
     name,
@@ -956,6 +995,7 @@ const constructAnchors = (
 // =============================================================================
 
 const textTokens = (
+  text: string,
   region: Position,
   consumed: ReadonlyArray<Position>,
 ): ReadonlyArray<TextToken> => {
@@ -976,6 +1016,7 @@ const textTokens = (
     .map(([from, to]) =>
       TextTokenSchema.make({
         position: span(line, from, to),
+        source: text.slice(from, to),
         health: okHealth,
       }),
     )
@@ -1024,7 +1065,7 @@ const scanHeading = (
     ...Option.toArray(specResult.token).map((s) => s.position),
     ...unexpected.map((u) => u.position),
   ]
-  const texts = textTokens(textRegion, consumed)
+  const texts = textTokens(text, textRegion, consumed)
 
   return {
     tag: tagResult.token,
@@ -1062,10 +1103,11 @@ const synthHashTag = (
   const value = syntheticTagId(title)
   return TagTokenSchema.make({
     position: eol,
+    source: "",
     health: okHealth,
-    open: TagOpenTokenSchema.make({ position: eol, health: okHealth, value: "[" }),
-    label: TagLabelTokenSchema.make({ type: "TagLabel", position: eol, health: okHealth, value }),
-    close: TagCloseTokenSchema.make({ position: eol, health: okHealth, value: "]" }),
+    open: TagOpenTokenSchema.make({ position: eol, source: "", health: okHealth, value: "[" }),
+    label: TagLabelTokenSchema.make({ type: "TagLabel", position: eol, source: "", health: okHealth, value }),
+    close: TagCloseTokenSchema.make({ position: eol, source: "", health: okHealth, value: "]" }),
   })
 }
 
@@ -1088,6 +1130,7 @@ const tokeniseHeading = (text: string, weft: HeadingWeft): LoomWeft => {
 
   return HeadingWeftSchema.make({
     position: weft.position,
+    source: lineSlice(text, weft.position),
     health: { status, diagnostics: [] },
     unexpected: unexpected.length > 0 ? unexpected : undefined,
     headingStart: weft.headingStart,

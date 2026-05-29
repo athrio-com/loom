@@ -27,34 +27,38 @@ const samplePosition = {
 const validHeadingStart = {
   type: "HeadingStart" as const,
   position: samplePosition,
+  source: "",
   health: okHealth,
 }
 
 const validTag = {
   type: "Tag" as const,
   position: samplePosition,
+  source: "",
   health: okHealth,
-  open: { type: "TagOpen" as const, value: "[" as const, position: samplePosition, health: okHealth },
-  label: { type: "TagLabel" as const, value: "Greet", position: samplePosition, health: okHealth },
-  close: { type: "TagClose" as const, value: "]" as const, position: samplePosition, health: okHealth },
+  open: { type: "TagOpen" as const, value: "[" as const, position: samplePosition, source: "", health: okHealth },
+  label: { type: "TagLabel" as const, value: "Greet", position: samplePosition, source: "", health: okHealth },
+  close: { type: "TagClose" as const, value: "]" as const, position: samplePosition, source: "", health: okHealth },
 }
 
 const validSpecifier = {
   type: "Specifier" as const,
   position: samplePosition,
+  source: "",
   health: okHealth,
-  open: { type: "SpecifierOpen" as const, value: "{" as const, position: samplePosition, health: okHealth },
-  label: { type: "SpecifierLabel" as const, value: "Loom", position: samplePosition, health: okHealth },
-  close: { type: "SpecifierClose" as const, value: "}" as const, position: samplePosition, health: okHealth },
+  open: { type: "SpecifierOpen" as const, value: "{" as const, position: samplePosition, source: "", health: okHealth },
+  label: { type: "SpecifierLabel" as const, value: "Loom", position: samplePosition, source: "", health: okHealth },
+  close: { type: "SpecifierClose" as const, value: "}" as const, position: samplePosition, source: "", health: okHealth },
 }
 
 const validPathSpecifier = {
   type: "PathSpecifier" as const,
   position: samplePosition,
+  source: "",
   health: okHealth,
-  open: { type: "SpecifierOpen" as const, value: "{" as const, position: samplePosition, health: okHealth },
-  label: { type: "PathSpecifierLabel" as const, value: "src/index.ts", position: samplePosition, health: okHealth },
-  close: { type: "SpecifierClose" as const, value: "}" as const, position: samplePosition, health: okHealth },
+  open: { type: "SpecifierOpen" as const, value: "{" as const, position: samplePosition, source: "", health: okHealth },
+  label: { type: "PathSpecifierLabel" as const, value: "src/index.ts", position: samplePosition, source: "", health: okHealth },
+  close: { type: "SpecifierClose" as const, value: "}" as const, position: samplePosition, source: "", health: okHealth },
 }
 
 // =============================================================================
@@ -243,7 +247,7 @@ describe("Tag schema validation", () => {
     expect(
       Schema.is(TagTokenSchema)({
         ...validTag,
-        open: { type: "TagOpen", value: "{", position: samplePosition, health: okHealth },
+        open: { type: "TagOpen", value: "{", position: samplePosition, source: "", health: okHealth },
       }),
     ).toBe(false)
   })
@@ -265,19 +269,19 @@ describe("PathSpecifier schema validation", () => {
 
 const warpOpen = {
   type: "WarpOpen" as const, value: "{{" as const,
-  position: samplePosition, health: okHealth,
+  position: samplePosition, source: "", health: okHealth,
 }
 const warpClose = {
   type: "WarpClose" as const, value: "}}" as const,
-  position: samplePosition, health: okHealth,
+  position: samplePosition, source: "", health: okHealth,
 }
 
 const warpAnchorName = (value: string) => ({
-  type: "WarpAnchorName" as const, value, position: samplePosition, health: okHealth,
+  type: "WarpAnchorName" as const, value, position: samplePosition, source: "", health: okHealth,
 })
 
 const warpName = (value: string) => ({
-  type: "WarpName" as const, value, position: samplePosition, health: okHealth,
+  type: "WarpName" as const, value, position: samplePosition, source: "", health: okHealth,
 })
 
 describe("WarpAnchor schema validation", () => {
@@ -286,6 +290,7 @@ describe("WarpAnchor schema validation", () => {
       Schema.is(WarpAnchorTokenSchema)({
         type: "WarpAnchor",
         position: samplePosition,
+        source: "",
         health: okHealth,
         open: warpOpen,
         name: warpAnchorName("mul"),
@@ -299,6 +304,7 @@ describe("WarpAnchor schema validation", () => {
       Schema.is(WarpAnchorTokenSchema)({
         type: "WarpAnchor",
         position: samplePosition,
+        source: "",
         health: okHealth,
         open: warpOpen,
         name: warpAnchorName("Multiplier Function"),
@@ -312,6 +318,7 @@ describe("WarpAnchor schema validation", () => {
       Schema.is(WarpAnchorTokenSchema)({
         type: "WarpAnchor",
         position: samplePosition,
+        source: "",
         health: okHealth,
         open: warpOpen,
         name: warpAnchorName("not:valid"),
@@ -324,11 +331,11 @@ describe("WarpAnchor schema validation", () => {
 describe("Warp schema validation", () => {
   const annotation = {
     type: "WarpAnnotation" as const, value: " Mul",
-    position: samplePosition, health: okHealth,
+    position: samplePosition, source: "", health: okHealth,
   }
   const defaultToken = {
     type: "WarpDefault" as const, value: ' "8080"',
-    position: samplePosition, health: okHealth,
+    position: samplePosition, source: "", health: okHealth,
   }
 
   it("accepts a declaration without a default", () => {
@@ -336,6 +343,7 @@ describe("Warp schema validation", () => {
       Schema.is(WarpTokenSchema)({
         type: "Warp",
         position: samplePosition,
+        source: "",
         health: okHealth,
         open: warpOpen,
         name: warpName("mul"),
@@ -350,6 +358,7 @@ describe("Warp schema validation", () => {
       Schema.is(WarpTokenSchema)({
         type: "Warp",
         position: samplePosition,
+        source: "",
         health: okHealth,
         open: warpOpen,
         name: warpName("port"),
@@ -365,6 +374,7 @@ describe("Warp schema validation", () => {
       Schema.is(WarpTokenSchema)({
         type: "Warp",
         position: samplePosition,
+        source: "",
         health: okHealth,
         open: warpOpen,
         name: warpName("mul"),
@@ -384,6 +394,7 @@ describe("HeadingWeft schema", () => {
       Schema.is(HeadingWeftSchema)({
         type: "HeadingWeft",
         position: samplePosition,
+        source: "",
         health: okHealth,
         headingStart: validHeadingStart,
         texts: [],
@@ -396,6 +407,7 @@ describe("HeadingWeft schema", () => {
       Schema.is(HeadingWeftSchema)({
         type: "HeadingWeft",
         position: samplePosition,
+        source: "",
         health: okHealth,
         headingStart: validHeadingStart,
         texts: [],
@@ -409,6 +421,7 @@ describe("HeadingWeft schema", () => {
       Schema.is(HeadingWeftSchema)({
         type: "HeadingWeft",
         position: samplePosition,
+        source: "",
         health: okHealth,
         headingStart: validHeadingStart,
         texts: [],
@@ -422,6 +435,7 @@ describe("HeadingWeft schema", () => {
       Schema.is(HeadingWeftSchema)({
         type: "HeadingWeft",
         position: samplePosition,
+        source: "",
         health: okHealth,
         headingStart: validHeadingStart,
         texts: [],
@@ -435,6 +449,7 @@ describe("HeadingWeft schema", () => {
       Schema.is(HeadingWeftSchema)({
         type: "HeadingWeft",
         position: samplePosition,
+        source: "",
         health: okHealth,
         headingStart: validHeadingStart,
         texts: [],
@@ -449,6 +464,7 @@ describe("HeadingWeft schema", () => {
       Schema.is(HeadingWeftSchema)({
         type: "HeadingWeft",
         position: samplePosition,
+        source: "",
         health: okHealth,
         headingStart: validHeadingStart,
         texts: [],
@@ -468,8 +484,9 @@ describe("ArrowWeft schema", () => {
       Schema.is(ArrowWeftSchema)({
         type: "ArrowWeft",
         position: samplePosition,
+        source: "",
         health: okHealth,
-        arrow: { type: "Arrow", position: samplePosition, health: okHealth },
+        arrow: { type: "Arrow", position: samplePosition, source: "", health: okHealth },
         anchors: [],
       }),
     ).toBe(true)
@@ -480,8 +497,9 @@ describe("ArrowWeft schema", () => {
       Schema.is(ArrowWeftSchema)({
         type: "ArrowWeft",
         position: samplePosition,
+        source: "",
         health: okHealth,
-        arrow: { type: "Tilde", position: samplePosition, health: okHealth },
+        arrow: { type: "Tilde", position: samplePosition, source: "", health: okHealth },
         anchors: [],
       }),
     ).toBe(false)
@@ -494,8 +512,9 @@ describe("TildeWeft schema", () => {
       Schema.is(TildeWeftSchema)({
         type: "TildeWeft",
         position: samplePosition,
+        source: "",
         health: okHealth,
-        tilde: { type: "Tilde", position: samplePosition, health: okHealth },
+        tilde: { type: "Tilde", position: samplePosition, source: "", health: okHealth },
       }),
     ).toBe(true)
   })
@@ -511,6 +530,7 @@ describe("LoomWeft union", () => {
       Schema.is(LoomWeftSchema)({
         type: "HeadingWeft",
         position: samplePosition,
+        source: "",
         health: okHealth,
         headingStart: validHeadingStart,
         texts: [],
@@ -523,8 +543,9 @@ describe("LoomWeft union", () => {
       Schema.is(LoomWeftSchema)({
         type: "ArrowWeft",
         position: samplePosition,
+        source: "",
         health: okHealth,
-        arrow: { type: "Arrow", position: samplePosition, health: okHealth },
+        arrow: { type: "Arrow", position: samplePosition, source: "", health: okHealth },
         anchors: [],
       }),
     ).toBe(true)
@@ -532,7 +553,7 @@ describe("LoomWeft union", () => {
 
   it("rejects an unknown kind", () => {
     expect(
-      Schema.is(LoomWeftSchema)({ type: "UnknownWeft", position: samplePosition, health: okHealth }),
+      Schema.is(LoomWeftSchema)({ type: "UnknownWeft", position: samplePosition, source: "", health: okHealth }),
     ).toBe(false)
   })
 })

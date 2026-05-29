@@ -34,7 +34,7 @@ const render = (input: string): string =>
   Effect.runSync(
     Effect.gen(function* () {
       const engine = yield* Engine
-      return engine.render(ast(rulesSource), rulesSource, ast(input), input)
+      return engine.render(ast(rulesSource), ast(input))
     }).pipe(
       Effect.provide(Loom.Default),
       Effect.provide(Engine.Default),

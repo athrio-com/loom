@@ -79,19 +79,26 @@ const pos = (line: number): Position => ({
   end: { line, offset: line * 100 + 10 },
 })
 
+// Synthetic test fixtures don't correspond to real source text — positions
+// are computed from line numbers. Every constructed node carries `source: ""`
+// since there are no bytes to slice.
+
 const tagToken = (label: string, p: Position) =>
   TagTokenSchema.make({
     position: p,
+    source: "",
     health: okHealth,
-    open: TagOpenTokenSchema.make({ position: p, health: okHealth, value: "[" }),
+    open: TagOpenTokenSchema.make({ position: p, source: "", health: okHealth, value: "[" }),
     label: TagLabelTokenSchema.make({
       type: "TagLabel",
       position: p,
+      source: "",
       health: okHealth,
       value: label,
     }),
     close: TagCloseTokenSchema.make({
       position: p,
+      source: "",
       health: okHealth,
       value: "]",
     }),
@@ -100,20 +107,24 @@ const tagToken = (label: string, p: Position) =>
 const specToken = (label: string, p: Position) =>
   SpecifierTokenSchema.make({
     position: p,
+    source: "",
     health: okHealth,
     open: SpecifierOpenTokenSchema.make({
       position: p,
+      source: "",
       health: okHealth,
       value: "{",
     }),
     label: SpecifierLabelTokenSchema.make({
       type: "SpecifierLabel",
       position: p,
+      source: "",
       health: okHealth,
       value: label,
     }),
     close: SpecifierCloseTokenSchema.make({
       position: p,
+      source: "",
       health: okHealth,
       value: "}",
     }),
@@ -127,8 +138,9 @@ const mkHeading = (line: number, tag?: string, spec?: string) => {
   const p = pos(line)
   return HeadingWeftSchema.make({
     position: p,
+    source: "",
     health: okHealth,
-    headingStart: HeadingStartTokenSchema.make({ position: p, health: okHealth }),
+    headingStart: HeadingStartTokenSchema.make({ position: p, source: "", health: okHealth }),
     texts: [],
     tag: tag === undefined ? undefined : tagToken(tag, p),
     specifier: spec === undefined ? undefined : specToken(spec, p),
@@ -141,6 +153,7 @@ const mkHeading = (line: number, tag?: string, spec?: string) => {
 const mkPreamble = (line: number) =>
   PreambleWeftSchema.make({
     position: pos(line),
+    source: "",
     health: okHealth,
     warps: [],
   })
@@ -152,25 +165,29 @@ const langPreamble = (line: number) => {
   const p = pos(line)
   return PreambleWeftSchema.make({
     position: p,
+    source: "",
     health: okHealth,
     warps: [
       WarpTokenSchema.make({
         position: p,
+        source: "",
         health: okHealth,
-        open: WarpOpenTokenSchema.make({ position: p, health: okHealth, value: "{{" }),
+        open: WarpOpenTokenSchema.make({ position: p, source: "", health: okHealth, value: "{{" }),
         name: WarpNameTokenSchema.make({
           type: "WarpName",
           position: p,
+          source: "",
           health: okHealth,
           value: "lang",
         }),
         annotation: WarpAnnotationTokenSchema.make({
           type: "WarpAnnotation",
           position: p,
+          source: "",
           health: okHealth,
           value: "Scala",
         }),
-        close: WarpCloseTokenSchema.make({ position: p, health: okHealth, value: "}}" }),
+        close: WarpCloseTokenSchema.make({ position: p, source: "", health: okHealth, value: "}}" }),
       }),
     ],
   })
@@ -180,8 +197,9 @@ const mkArrow = (line: number) => {
   const p = pos(line)
   return ArrowWeftSchema.make({
     position: p,
+    source: "",
     health: okHealth,
-    arrow: ArrowTokenSchema.make({ position: p, health: okHealth }),
+    arrow: ArrowTokenSchema.make({ position: p, source: "", health: okHealth }),
     anchors: [],
   })
 }
@@ -189,6 +207,7 @@ const mkArrow = (line: number) => {
 const mkCode = (line: number) =>
   CodeWeftSchema.make({
     position: pos(line),
+    source: "",
     health: okHealth,
     anchors: [],
   })
@@ -197,13 +216,14 @@ const mkTilde = (line: number) => {
   const p = pos(line)
   return TildeWeftSchema.make({
     position: p,
+    source: "",
     health: okHealth,
-    tilde: TildeTokenSchema.make({ position: p, health: okHealth }),
+    tilde: TildeTokenSchema.make({ position: p, source: "", health: okHealth }),
   })
 }
 
 const mkProse = (line: number) =>
-  ProseWeftSchema.make({ position: pos(line), health: okHealth })
+  ProseWeftSchema.make({ position: pos(line), source: "", health: okHealth })
 
 // =============================================================================
 // Empty and trivial inputs.
@@ -516,16 +536,18 @@ describe("LoomAstBuilder — NOK preservation", () => {
     // through to section.heading.tag unchanged.
     const tagWithError = TagTokenSchema.make({
       position: pos(1),
+      source: "",
       health: errorHealth(1, "label rejected"),
-      open: TagOpenTokenSchema.make({ position: pos(1), health: okHealth, value: "[" }),
+      open: TagOpenTokenSchema.make({ position: pos(1), source: "", health: okHealth, value: "[" }),
       label: TagLabelTokenSchema.make({
         type: "TagLabel",
         position: pos(1),
+        source: "",
         health: errorHealth(1, "label rejected"),
         value: "",
         unexpected: [UnexpectedTokenSchema.make({ position: pos(1), value: "bad text" })],
       }),
-      close: TagCloseTokenSchema.make({ position: pos(1), health: okHealth, value: "]" }),
+      close: TagCloseTokenSchema.make({ position: pos(1), source: "", health: okHealth, value: "]" }),
     })
     const heading = HeadingWeftSchema.make({
       ...mkHeading(1),

@@ -177,6 +177,7 @@ const buildSection = (
   const code = Chunk.toReadonlyArray(Chunk.filter(body, isSectionBody))
   return LoomSectionSchema.make({
     position: spanFrom(h.position, preamble, code),
+    source: sourceOf(h, preamble, code),
     health: okHealth,
     heading: h,
     preamble,
@@ -187,6 +188,7 @@ const buildSection = (
 const headingOf = (weft: HeadingWeft): LoomHeading =>
   LoomHeadingSchema.make({
     position: weft.position,
+    source: weft.source,
     health: weft.health,
     unexpected: weft.unexpected,
     headingStart: weft.headingStart,
@@ -194,6 +196,20 @@ const headingOf = (weft: HeadingWeft): LoomHeading =>
     tag: weft.tag,
     specifier: weft.specifier,
   })
+
+// Container source — concatenation of the constituent children's sources
+// in order. Each child's source carries its trailing newline; concatenation
+// reconstructs the original byte range the container spans.
+const sourceOf = (
+  ...groups: ReadonlyArray<
+    { readonly source: string }
+    | ReadonlyArray<{ readonly source: string }>
+  >
+): string =>
+  groups
+    .flatMap((g) => (Array.isArray(g) ? g : [g as { readonly source: string }]))
+    .map((n) => n.source)
+    .join("")
 
 // =============================================================================
 // Position derivation. `spanFrom` takes the heading position and any number of
@@ -251,6 +267,7 @@ const makeDocument = (db: DocumentBuilder): LoomDocument => {
   const position = documentSpan(db)
   return LoomDocumentSchema.make({
     position,
+    source: sourceOf(db.preamble, db.sections),
     health: documentHealth(db, position),
     preamble: db.preamble,
     sections: db.sections,

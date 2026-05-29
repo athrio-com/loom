@@ -1,5 +1,4 @@
 import { Effect, Match, Option, pipe } from "effect"
-import type { Position } from "#ast/LoomNode"
 import type { LoomDocument, LoomSection } from "#ast/LoomAst"
 import type {
   ArrowWeft,
@@ -47,6 +46,12 @@ import type {
 // function below states explicitly which template it renders and
 // which key it fills.
 //
+// AST nodes carry their own `source` slice (set by the Tokeniser and
+// AstBuilder), so no `source: string` parameter threads through
+// either side of the engine. Template-body wefts expose their own
+// `source` for slicing; input-side slicers read `node.source`
+// directly.
+//
 // Read the rest of this file top-down as the story of one call to
 // `render`. The first section is the entry. Each subsequent section
 // is the next thing that happens, with the lower-level mechanics —
@@ -54,12 +59,11 @@ import type {
 // =============================================================================
 
 // =============================================================================
-// Entry — `Engine.render(templates, templatesSource, input, inputSource)`.
+// Entry — `Engine.render(templates, input)`.
 //
 // The call begins here. We index the templates document into a flat
-// lookup, build a context carrying the index plus the two source
-// strings, and hand the input document to `projectDocument`. The
-// recursion unfolds from there.
+// `Templates` lookup and hand the input document plus that map to
+// `projectDocument`. The recursion unfolds from there.
 // =============================================================================
 
 export class Engine extends Effect.Service<Engine>()(
@@ -67,15 +71,9 @@ export class Engine extends Effect.Service<Engine>()(
   {
     succeed: {
       render: (
-        templates:        LoomDocument,
-        templatesSource:  string,
-        input:            LoomDocument,
-        inputSource:      string,
-      ): string => projectDocument(input, {
-        templates:       indexTemplates(templates),
-        templatesSource,
-        inputSource,
-      }),
+        templates: LoomDocument,
+        input: LoomDocument,
+      ): string => projectDocument(input, indexTemplates(templates)),
     },
   },
 ) { }
@@ -95,40 +93,28 @@ interface Template {
   readonly body: ReadonlyArray<ArrowWeft | CodeWeft>
 }
 
+// The recursion's only piece of shared state: tag → Template lookup.
+// Threaded as a single positional parameter `templates` through every
+// projection function.
+type Templates = ReadonlyMap<string, Template>
+
 const isBodyTemplate = (w: SectionBodyWeft): w is ArrowWeft | CodeWeft =>
   w.type === "ArrowWeft" || w.type === "CodeWeft"
 
-const indexTemplates = (
-  doc: LoomDocument,
-): ReadonlyMap<string, Template> =>
+const indexTemplates = (doc: LoomDocument): Templates =>
   new Map(
     doc.sections.flatMap((section) =>
       pipe(
         Option.fromNullable(section.heading.tag?.label.value),
         Option.filter((v) => !/^S_[0-9a-z]+$/.test(v)),
         Option.match({
-          onNone:  () => [] as ReadonlyArray<readonly [string, Template]>,
+          onNone: () => [] as ReadonlyArray<readonly [string, Template]>,
           onSome: (tag) =>
             [[tag, { body: section.code.filter(isBodyTemplate) }] as const],
         }),
       ),
     ),
   )
-
-// =============================================================================
-// Context — what the recursion threads through itself.
-//
-// `templatesSource` lets us slice each template body weft by its
-// position. `inputSource` lets the input-side slicers (heading text,
-// preamble prose, product code) read text out of the document being
-// projected. `templates` is the indexed lookup we just built.
-// =============================================================================
-
-interface Ctx {
-  readonly templates:       ReadonlyMap<string, Template>
-  readonly templatesSource: string
-  readonly inputSource:     string
-}
 
 // =============================================================================
 // The recursion, step 1 — project the document.
@@ -149,19 +135,19 @@ interface Ctx {
 //                          it via a matching template.
 // =============================================================================
 
-const projectDocument = (doc: LoomDocument, ctx: Ctx): string =>
-  useTemplate(ctx, "Document", (t) =>
+const projectDocument = (doc: LoomDocument, templates: Templates): string =>
+  useTemplate(templates, "Document", (t) =>
     interpolate(t, {
-      Imports: projectImports(ctx),
+      Imports: projectImports(templates),
       ExportedSections: doc.sections
         .filter((s) => !isHashTag(s))
-        .map((s) => projectExportedSection(s, ctx))
+        .map((s) => projectExportedSection(s, templates))
         .join("\n\n"),
       PrivateSections: doc.sections
         .filter((s) => isHashTag(s))
-        .map((s) => projectPrivateSection(s, ctx))
+        .map((s) => projectPrivateSection(s, templates))
         .join("\n\n"),
-    }, ctx.templatesSource),
+    }),
   )
 
 // =============================================================================
@@ -172,10 +158,8 @@ const projectDocument = (doc: LoomDocument, ctx: Ctx): string =>
 // cross-file-Warp resolution will feed a `typeImports` hole here.
 // =============================================================================
 
-const projectImports = (ctx: Ctx): string =>
-  useTemplate(ctx, "Imports", (t) =>
-    interpolate(t, {}, ctx.templatesSource),
-  )
+const projectImports = (templates: Templates): string =>
+  useTemplate(templates, "Imports", (t) => interpolate(t, {}))
 
 // =============================================================================
 // The recursion, step 2b — project one exported section.
@@ -190,12 +174,12 @@ const projectImports = (ctx: Ctx): string =>
 //                   an `EffectfulBody` render.
 // =============================================================================
 
-const projectExportedSection = (section: LoomSection, ctx: Ctx): string =>
-  useTemplate(ctx, "ExportedSection", (t) =>
+const projectExportedSection = (section: LoomSection, templates: Templates): string =>
+  useTemplate(templates, "ExportedSection", (t) =>
     interpolate(t, {
       className: classNameOf(section),
-      Body:      projectServiceBody(section, ctx),
-    }, ctx.templatesSource),
+      Body: projectServiceBody(section, templates),
+    }),
   )
 
 // =============================================================================
@@ -206,12 +190,12 @@ const projectExportedSection = (section: LoomSection, ctx: Ctx): string =>
 // (the `class …` line without `export`).
 // =============================================================================
 
-const projectPrivateSection = (section: LoomSection, ctx: Ctx): string =>
-  useTemplate(ctx, "PrivateSection", (t) =>
+const projectPrivateSection = (section: LoomSection, templates: Templates): string =>
+  useTemplate(templates, "PrivateSection", (t) =>
     interpolate(t, {
       className: classNameOf(section),
-      Body:      projectServiceBody(section, ctx),
-    }, ctx.templatesSource),
+      Body: projectServiceBody(section, templates),
+    }),
   )
 
 // =============================================================================
@@ -227,39 +211,39 @@ const projectPrivateSection = (section: LoomSection, ctx: Ctx): string =>
 // Warps); both output shapes live in templates.
 // =============================================================================
 
-const projectServiceBody = (section: LoomSection, ctx: Ctx): string => {
+const projectServiceBody = (section: LoomSection, templates: Templates): string => {
   const warps = section.preamble.flatMap((p) => p.warps)
   return warps.length === 0
-    ? projectStaticBody(section, ctx)
-    : projectEffectfulBody(section, warps, ctx)
+    ? projectStaticBody(section, templates)
+    : projectEffectfulBody(section, warps, templates)
 }
 
-const projectStaticBody = (section: LoomSection, ctx: Ctx): string =>
-  useTemplate(ctx, "StaticBody", (t) =>
+const projectStaticBody = (section: LoomSection, templates: Templates): string =>
+  useTemplate(templates, "StaticBody", (t) =>
     interpolate(t, {
-      name:     headingName(section, ctx.inputSource),
-      preamble: preambleText(section, ctx.inputSource),
-      code:     codeText(section, ctx.inputSource),
-    }, ctx.templatesSource),
+      name: headingName(section),
+      preamble: preambleText(section),
+      code: codeText(section),
+    }),
   )
 
 const projectEffectfulBody = (
   section: LoomSection,
-  warps:   ReadonlyArray<WarpToken>,
-  ctx:     Ctx,
+  warps: ReadonlyArray<WarpToken>,
+  templates: Templates,
 ): string =>
-  useTemplate(ctx, "EffectfulBody", (t) =>
+  useTemplate(templates, "EffectfulBody", (t) =>
     interpolate(t, {
       WarpBindings: warps
-        .map((w) => projectWarpBinding(w, ctx))
+        .map((w) => projectWarpBinding(w, templates))
         .join("\n    "),
-      name:         headingName(section, ctx.inputSource),
-      preamble:     preambleText(section, ctx.inputSource),
-      code:         codeText(section, ctx.inputSource),
+      name: headingName(section),
+      preamble: preambleText(section),
+      code: codeText(section),
       Dependencies: warps
-        .map((w) => projectDependency(w, ctx))
+        .map((w) => projectDependency(w, templates))
         .join(", "),
-    }, ctx.templatesSource),
+    }),
   )
 
 // =============================================================================
@@ -276,19 +260,19 @@ const projectEffectfulBody = (
 // engine-side.
 // =============================================================================
 
-const projectWarpBinding = (warp: WarpToken, ctx: Ctx): string =>
-  useTemplate(ctx, "WarpBinding", (t) =>
+const projectWarpBinding = (warp: WarpToken, templates: Templates): string =>
+  useTemplate(templates, "WarpBinding", (t) =>
     interpolate(t, {
       name: warp.name.value,
-      tag:  warp.annotation.value,
-    }, ctx.templatesSource),
+      tag: warp.annotation.value,
+    }),
   )
 
-const projectDependency = (warp: WarpToken, ctx: Ctx): string =>
-  useTemplate(ctx, "Dependency", (t) =>
+const projectDependency = (warp: WarpToken, templates: Templates): string =>
+  useTemplate(templates, "Dependency", (t) =>
     interpolate(t, {
       tag: warp.annotation.value,
-    }, ctx.templatesSource),
+    }),
   )
 
 // =============================================================================
@@ -302,15 +286,15 @@ const projectDependency = (warp: WarpToken, ctx: Ctx): string =>
 // =============================================================================
 
 const useTemplate = (
-  ctx:   Ctx,
-  tag:   string,
+  templates: Templates,
+  tag: string,
   build: (t: Template) => string,
 ): string =>
   pipe(
-    Option.fromNullable(ctx.templates.get(tag)),
+    Option.fromNullable(templates.get(tag)),
     Option.match({
-      onNone:  () => "",
-      onSome:  build,
+      onNone: () => "",
+      onSome: build,
     }),
   )
 
@@ -318,10 +302,10 @@ const useTemplate = (
 // Interpolation — fill a template body with a values map.
 //
 // The substitution is line-oriented: we walk each ArrowWeft /
-// CodeWeft, slice its source text, and replace every `{{key}}`
-// anchor with `values[key]`. Source slices already carry their
-// trailing newline, so the per-weft concatenation produces natural
-// line breaks.
+// CodeWeft, read its `source` slice (set when the Tokeniser built
+// the weft), and replace every `{{key}}` anchor with `values[key]`.
+// Source slices already carry their trailing newline, so the
+// per-weft concatenation produces natural line breaks.
 //
 // After concatenation we strip leading and trailing newlines from
 // the result. That trim makes templates compose cleanly: an
@@ -338,24 +322,19 @@ const useTemplate = (
 // "". Loud-failure diagnostics are reserved for a future pass.
 // =============================================================================
 
-const slice = (source: string, position: Position): string =>
-  source.slice(position.start.offset, position.end.offset)
-
 const interpolate = (
   template: Template,
-  values:   Record<string, string>,
-  source:   string,
+  values: Record<string, string>,
 ): string => {
   const raw = template.body
-    .map((weft) => renderTemplateWeft(weft, values, source))
+    .map((weft) => renderTemplateWeft(weft, values))
     .join("")
   return raw.replace(/^\n+|\n+$/g, "")
 }
 
 const renderTemplateWeft = (
-  weft:   ArrowWeft | CodeWeft,
+  weft: ArrowWeft | CodeWeft,
   values: Record<string, string>,
-  source: string,
 ): string =>
   pipe(
     Match.value(weft),
@@ -363,9 +342,9 @@ const renderTemplateWeft = (
       pipe(
         Option.fromNullable(w.code),
         Option.match({
-          onNone:  () => "",
+          onNone: () => "",
           onSome: (c) => substituteAnchors(
-            slice(source, c.position),
+            c.source,
             c.position.start.offset,
             w.anchors,
             values,
@@ -375,7 +354,7 @@ const renderTemplateWeft = (
     ),
     Match.when({ type: "CodeWeft" }, (w) =>
       substituteAnchors(
-        slice(source, w.position),
+        w.source,
         w.position.start.offset,
         w.anchors,
         values,
@@ -398,10 +377,10 @@ const renderTemplateWeft = (
 type StitchAcc = { readonly out: string; readonly cursor: number }
 
 const substituteAnchors = (
-  lineText:        string,
+  lineText: string,
   lineStartOffset: number,
-  anchors:         ReadonlyArray<WarpAnchorToken>,
-  values:          Record<string, string>,
+  anchors: ReadonlyArray<WarpAnchorToken>,
+  values: Record<string, string>,
 ): string => {
   if (anchors.length === 0) return lineText
   const sorted = [...anchors].sort(
@@ -410,11 +389,11 @@ const substituteAnchors = (
   const folded = sorted.reduce<StitchAcc>(
     (acc, anchor) => {
       const relStart = anchor.position.start.offset - lineStartOffset
-      const relEnd   = anchor.position.end.offset   - lineStartOffset
+      const relEnd = anchor.position.end.offset - lineStartOffset
       return {
-        out:    acc.out
-                + lineText.slice(acc.cursor, relStart)
-                + (values[anchor.name.value] ?? ""),
+        out: acc.out
+          + lineText.slice(acc.cursor, relStart)
+          + (values[anchor.name.value] ?? ""),
         cursor: relEnd,
       }
     },
@@ -424,77 +403,41 @@ const substituteAnchors = (
 }
 
 // =============================================================================
-// Input-side slicers and predicates — values the engine extracts
-// from the AST of the document being projected.
+// Input-side readers — scalar values pulled from the input AST.
 //
-// These are pure functions over the input AST and the input source
-// text. They compute *scalar* values the projection functions hand
-// to `interpolate`: the section's class name, the heading text, the
-// preamble prose, the product code, and a visibility predicate.
-// None of them emit TypeScript; they only read the input.
+// All of these read `node.source` (set by the Tokeniser/AstBuilder)
+// rather than slicing a passed-in source string. None of them emit
+// TypeScript; they only read the input.
 // =============================================================================
 
 const classNameOf = (section: LoomSection): string =>
   section.heading.tag?.label.value ?? ""
 
 const isHashTag = (section: LoomSection): boolean =>
-  pipe(
-    Option.fromNullable(section.heading.tag?.label.value),
-    Option.map((v) => /^S_[0-9a-z]+$/.test(v)),
-    Option.getOrElse(() => false),
-  )
+  /^S_[0-9a-z]+$/.test(section.heading.tag?.label.value ?? "")
 
-const headingName = (section: LoomSection, source: string): string =>
-  section.heading.texts
-    .map((t) => slice(source, t.position))
-    .join("")
-    .trim()
+const headingName = (section: LoomSection): string =>
+  section.heading.texts.map((t) => t.source).join("").trim()
 
-const preambleText = (section: LoomSection, source: string): string =>
-  section.preamble
-    .map((p) => slice(source, p.position))
-    .join("")
-    .trim()
-
-// `productSpansOf` reports the source spans that contribute to a
-// section's product code per body weft kind. `ArrowWeft` contributes
-// its optional inline code; `CodeWeft` contributes its whole line;
-// `TildeWeft` and `ProseWeft` contribute nothing (prose is authoring
-// context, not code).
-const productSpansOf = (w: SectionBodyWeft): ReadonlyArray<Position> =>
-  pipe(
-    Match.value(w),
-    Match.when({ type: "ArrowWeft" }, (a) =>
-      pipe(
-        Option.fromNullable(a.code),
-        Option.match({
-          onNone:  () => [] as ReadonlyArray<Position>,
-          onSome: (c) => [c.position],
-        }),
-      ),
-    ),
-    Match.when({ type: "CodeWeft" },  (c) => [c.position] as ReadonlyArray<Position>),
-    Match.when({ type: "TildeWeft" }, () => [] as ReadonlyArray<Position>),
-    Match.when({ type: "ProseWeft" }, () => [] as ReadonlyArray<Position>),
-    Match.exhaustive,
-  )
+const preambleText = (section: LoomSection): string =>
+  section.preamble.map((p) => p.source).join("").trim()
 
 // `codeText` stops at the first `~` transition: the forward-only
 // mode progression guarantees no body weft after the first `~` is
-// code.
-const isProseTransition = (w: SectionBodyWeft): boolean =>
-  w.type === "TildeWeft" || w.type === "ProseWeft"
-
-const beforeProse = (
-  body: ReadonlyArray<SectionBodyWeft>,
-): ReadonlyArray<SectionBodyWeft> => {
-  const cut = body.findIndex(isProseTransition)
-  return cut < 0 ? body : body.slice(0, cut)
-}
-
-const codeText = (section: LoomSection, source: string): string =>
-  beforeProse(section.code)
-    .flatMap(productSpansOf)
-    .map((p) => slice(source, p))
+// code. Within the code-eligible prefix, an ArrowWeft contributes
+// its optional inline code only (the `=>` marker itself is
+// structural), and a CodeWeft contributes its whole line.
+const codeText = (section: LoomSection): string => {
+  const stop = section.code.findIndex(
+    (w) => w.type === "TildeWeft" || w.type === "ProseWeft",
+  )
+  const body = stop < 0 ? section.code : section.code.slice(0, stop)
+  return body
+    .flatMap((w): ReadonlyArray<string> =>
+      w.type === "CodeWeft" ? [w.source]
+        : w.type === "ArrowWeft" && w.code ? [w.code.source]
+          : [],
+    )
     .join("")
     .trim()
+}

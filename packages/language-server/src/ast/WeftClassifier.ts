@@ -109,30 +109,30 @@ const probeWeft = (
 
   // Mode-independent: a heading opens a new Section whose body starts in
   // preamble mode.
-  if (probe.kind === "heading") return makeHeadingWeft(line, range, probe.m)
+  if (probe.kind === "heading") return makeHeadingWeft(lineText, line, range, probe.m)
 
   // Document Preamble: before the first heading, every non-heading line is a
   // PreambleWeft. No Arrow / Tilde transition fires here.
   if (!state.seenHeading)
-    return PreambleWeftSchema.make({ position, health: incompleteHealth, warps: [] })
+    return PreambleWeftSchema.make({ position, source: lineText, health: incompleteHealth, warps: [] })
 
   // Mode-driven dispatch — one row per Mode. The preamble and code rows narrow
   // on probe.kind for their transitional cells.
   return pipe(
     Match.value(modeOf(state.prev)),
     Match.when("preamble", () =>
-      probe.kind === "arrow" ? makeArrowWeft(line, range, probe.m)
-        : probe.kind === "tilde" ? makeTildeWeft(line, range, probe.m)
-          : PreambleWeftSchema.make({ position, health: incompleteHealth, warps: [] }),
+      probe.kind === "arrow" ? makeArrowWeft(lineText, line, range, probe.m)
+        : probe.kind === "tilde" ? makeTildeWeft(lineText, line, range, probe.m)
+          : PreambleWeftSchema.make({ position, source: lineText, health: incompleteHealth, warps: [] }),
     ),
     // CodeWeft — line content is opaque to Loom (embedded-language
     // tokenisation happens elsewhere), but the Tokeniser still scans for
     // `{{name}}` anchors and settles health accordingly.
     Match.when("code", () =>
-      probe.kind === "tilde" ? makeTildeWeft(line, range, probe.m)
-        : CodeWeftSchema.make({ position, health: incompleteHealth, anchors: [] }),
+      probe.kind === "tilde" ? makeTildeWeft(lineText, line, range, probe.m)
+        : CodeWeftSchema.make({ position, source: lineText, health: incompleteHealth, anchors: [] }),
     ),
-    Match.when("prose", () => ProseWeftSchema.make({ position, health: incompleteHealth })),
+    Match.when("prose", () => ProseWeftSchema.make({ position, source: lineText, health: incompleteHealth })),
     Match.exhaustive,
   )
 }
@@ -210,13 +210,20 @@ const probeOf = (lineText: string): Probe => {
 // `incompleteHealth`; the Tokeniser settles it.
 // =============================================================================
 
-const makeHeadingWeft = (line: number, range: LineRange, m: RegExpMatchArray): HeadingWeft =>
+const makeHeadingWeft = (
+  lineText: string,
+  line: number,
+  range: LineRange,
+  m: RegExpMatchArray,
+): HeadingWeft =>
   HeadingWeftSchema.make({
     position: linePos(line, range),
+    source: lineText,
     health: incompleteHealth,
     headingStart: HeadingStartTokenSchema.make({
       // probe /^#{1,6} / — the whole match (hashes + mandatory space) is the marker.
       position: span(line, range[0], range[0] + m[0].length),
+      source: m[0],
       health: okHealth,
     }),
     texts: [],
@@ -226,26 +233,38 @@ const makeHeadingWeft = (line: number, range: LineRange, m: RegExpMatchArray): H
 // Transition-weft constructors — fill the leading marker token.
 // =============================================================================
 
-const makeArrowWeft = (line: number, range: LineRange, m: RegExpMatchArray): ArrowWeft => {
+const makeArrowWeft = (
+  lineText: string,
+  line: number,
+  range: LineRange,
+  m: RegExpMatchArray,
+): ArrowWeft => {
   // probe /^\s*=>/ — `=>` is the last 2 chars of m[0]
   const start = range[0] + m[0].length - 2
   const end = range[0] + m[0].length
   return ArrowWeftSchema.make({
     position: linePos(line, range),
+    source: lineText,
     health: incompleteHealth,
-    arrow: ArrowTokenSchema.make({ position: span(line, start, end), health: okHealth }),
+    arrow: ArrowTokenSchema.make({ position: span(line, start, end), source: "=>", health: okHealth }),
     anchors: [],
   })
 }
 
-const makeTildeWeft = (line: number, range: LineRange, m: RegExpMatchArray): TildeWeft => {
+const makeTildeWeft = (
+  lineText: string,
+  line: number,
+  range: LineRange,
+  m: RegExpMatchArray,
+): TildeWeft => {
   // probe /^\s*~+/ — trailing run of tildes lies at the end of m[0]
   const run = /~+$/.exec(m[0])![0]
   const start = range[0] + m[0].length - run.length
   const end = range[0] + m[0].length
   return TildeWeftSchema.make({
     position: linePos(line, range),
+    source: lineText,
     health: incompleteHealth,
-    tilde: TildeTokenSchema.make({ position: span(line, start, end), health: okHealth }),
+    tilde: TildeTokenSchema.make({ position: span(line, start, end), source: run, health: okHealth }),
   })
 }

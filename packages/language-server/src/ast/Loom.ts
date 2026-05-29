@@ -86,6 +86,7 @@ const emptyDocumentFor = (text: string, err: MixedEOL): LoomDocument => {
   return {
     type: "LoomDocument",
     position: docPosition,
+    source: text,
     health: rootHealth,
     preamble: [],
     sections: [],

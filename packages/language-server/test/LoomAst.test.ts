@@ -12,9 +12,15 @@ const pos: Position = {
   end: { line: 1, column: 4, offset: 3 },
 }
 
+// Synthetic test fixtures — no real source bytes, so every node carries
+// `source: ""`. The schemas accept any string here; "" simply signals "no
+// underlying text" for these manually-constructed objects.
+const src = ""
+
 const headingStart = {
   type: "HeadingStart" as const,
   position: pos,
+  source: src,
   health: okHealth,
 }
 
@@ -24,25 +30,28 @@ const text = (offsetStart: number, offsetEnd: number) => ({
     start: { line: 1, column: offsetStart + 1, offset: offsetStart },
     end: { line: 1, column: offsetEnd + 1, offset: offsetEnd },
   },
+  source: src,
   health: okHealth,
 })
 
 const tag = (label: string) => ({
   type: "Tag" as const,
   position: pos,
+  source: src,
   health: okHealth,
-  open: { type: "TagOpen" as const, value: "[" as const, position: pos, health: okHealth },
-  label: { type: "TagLabel" as const, value: label, position: pos, health: okHealth },
-  close: { type: "TagClose" as const, value: "]" as const, position: pos, health: okHealth },
+  open: { type: "TagOpen" as const, value: "[" as const, position: pos, source: src, health: okHealth },
+  label: { type: "TagLabel" as const, value: label, position: pos, source: src, health: okHealth },
+  close: { type: "TagClose" as const, value: "]" as const, position: pos, source: src, health: okHealth },
 })
 
 const specifier = (label: string) => ({
   type: "Specifier" as const,
   position: pos,
+  source: src,
   health: okHealth,
-  open: { type: "SpecifierOpen" as const, value: "{" as const, position: pos, health: okHealth },
-  label: { type: "SpecifierLabel" as const, value: label, position: pos, health: okHealth },
-  close: { type: "SpecifierClose" as const, value: "}" as const, position: pos, health: okHealth },
+  open: { type: "SpecifierOpen" as const, value: "{" as const, position: pos, source: src, health: okHealth },
+  label: { type: "SpecifierLabel" as const, value: label, position: pos, source: src, health: okHealth },
+  close: { type: "SpecifierClose" as const, value: "}" as const, position: pos, source: src, health: okHealth },
 })
 
 // =============================================================================
@@ -59,6 +68,7 @@ describe("LoomHeading.headingStart", () => {
       Schema.is(LoomHeadingSchema)({
         type: "LoomHeading",
         position: pos,
+        source: src,
         health: okHealth,
         headingStart,
         texts: [],
@@ -73,6 +83,7 @@ describe("LoomHeading.headingStart", () => {
       Schema.is(LoomHeadingSchema)({
         type: "LoomHeading",
         position: pos,
+        source: src,
         health: okHealth,
         headingStart: { ...headingStart, type: "Arrow" },
         texts: [],
@@ -87,6 +98,7 @@ describe("LoomHeading.texts", () => {
       Schema.is(LoomHeadingSchema)({
         type: "LoomHeading",
         position: pos,
+        source: src,
         health: okHealth,
         headingStart,
         texts: [],
@@ -101,6 +113,7 @@ describe("LoomHeading.texts", () => {
       Schema.is(LoomHeadingSchema)({
         type: "LoomHeading",
         position: pos,
+        source: src,
         health: okHealth,
         headingStart,
         texts: [text(3, 16)],
@@ -114,6 +127,7 @@ describe("LoomHeading.texts", () => {
       Schema.is(LoomHeadingSchema)({
         type: "LoomHeading",
         position: pos,
+        source: src,
         health: okHealth,
         headingStart,
         texts: [text(8, 23), text(29, 30)],
@@ -128,6 +142,7 @@ describe("LoomHeading.texts", () => {
       Schema.is(LoomHeadingSchema)({
         type: "LoomHeading",
         position: pos,
+        source: src,
         health: okHealth,
         headingStart,
         texts: text(3, 16), // not an array
@@ -142,6 +157,7 @@ describe("LoomHeading.texts", () => {
       Schema.is(LoomHeadingSchema)({
         type: "LoomHeading",
         position: pos,
+        source: src,
         health: okHealth,
         headingStart,
         // a Tag is the wrong kind here
@@ -160,6 +176,7 @@ describe("LoomHeading.texts", () => {
 const preambleWeft = () => ({
   type: "PreambleWeft" as const,
   position: pos,
+  source: src,
   health: okHealth,
   warps: [],
 })
@@ -167,6 +184,7 @@ const preambleWeft = () => ({
 const heading = () => ({
   type: "LoomHeading" as const,
   position: pos,
+  source: src,
   health: okHealth,
   headingStart,
   texts: [],
@@ -175,6 +193,7 @@ const heading = () => ({
 const section = () => ({
   type: "LoomSection" as const,
   position: pos,
+  source: src,
   health: okHealth,
   heading: heading(),
   preamble: [],
@@ -187,6 +206,7 @@ describe("LoomDocument", () => {
       Schema.is(LoomDocumentSchema)({
         type: "LoomDocument",
         position: pos,
+        source: src,
         health: okHealth,
         preamble: [],
         sections: [],
@@ -199,6 +219,7 @@ describe("LoomDocument", () => {
       Schema.is(LoomDocumentSchema)({
         type: "LoomDocument",
         position: pos,
+        source: src,
         health: okHealth,
         preamble: [preambleWeft(), preambleWeft()],
         sections: [],
@@ -211,6 +232,7 @@ describe("LoomDocument", () => {
       Schema.is(LoomDocumentSchema)({
         type: "LoomDocument",
         position: pos,
+        source: src,
         health: okHealth,
         preamble: [],
         sections: [section()],
@@ -223,6 +245,7 @@ describe("LoomDocument", () => {
       Schema.is(LoomDocumentSchema)({
         type: "LoomDocument",
         position: pos,
+        source: src,
         health: okHealth,
         preamble: [{ type: "ProseWeft", position: pos, health: okHealth }],
         sections: [],
@@ -235,6 +258,7 @@ describe("LoomDocument", () => {
       Schema.is(LoomDocumentSchema)({
         type: "LoomDocument",
         position: pos,
+        source: src,
         health: okHealth,
         preamble: [],
         sections: [{ type: "LoomSection", position: pos, health: okHealth }],
@@ -247,6 +271,7 @@ describe("LoomDocument", () => {
       Schema.is(LoomDocumentSchema)({
         type: "LoomDocument",
         position: pos,
+        source: src,
         health: okHealth,
         wefts: [],
         sections: [],
