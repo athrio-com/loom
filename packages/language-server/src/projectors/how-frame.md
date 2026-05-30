@@ -42,9 +42,10 @@ lifts the `Mul` requirement into the Service's layer type
 automatically, so the Frame emits **no** separate `dependencies` array
 (see Order Independence below for why that matters). The bound name `m`
 is then used as an anchor `{{m}}` in the code block to inline the
-resolved `.code` field. Cross-file Warp declarations generate an
-`import type` automatically. Only exported (tagged) sections are
-reachable via Warp declarations.
+resolved `.code` field. When the referenced tag lives in another
+`.loom` file, the author brings it into scope with an import; Loom
+does not resolve the path (see Cross-Module Dependencies). Only
+exported (tagged) sections are reachable via Warp declarations.
 
 **Name anchors** — written directly in the code block as
 `{{Imports}}` or `{{Multiplier Function}}` — reference a private
@@ -199,10 +200,54 @@ is for cases the projection model does not cover: custom runtime setup,
 low-level Effect wiring, or anything that requires direct access to the
 Frame's TypeScript surface.
 
-`{Loom}` sections carry no dependency management role. Cross-file
-dependencies are declared via Warp annotations on individual sections and
-wired automatically by the synthesiser. There is no module-level dependency
-DSL; Effect's DI derives the full graph from Warp declarations alone.
+The one structural role a `{Loom}` section plays is carrying cross-file
+imports: an `import { Mul } from "./arithmetic.js"` written in a `{Loom}`
+section brings an out-of-file Service into the Frame's scope (see
+Cross-Module Dependencies). Within a single document there is no
+module-level dependency DSL — Effect's DI derives the same-file graph
+from Warp declarations alone.
+
+## Cross-Module Dependencies
+
+A Warp annotation names a tag: `{{m: Mul}}` depends on the Service tagged
+`Mul`. When `Mul` is defined in the same document, the projected
+`yield* Mul` resolves to a class declared elsewhere in the same Frame,
+order-independently. When `Mul` lives in *another* `.loom` file, the
+Frame still emits `yield* Mul` — and `Mul` must be in module scope for
+that to compile and run.
+
+Loom does not resolve where `Mul` lives — no filesystem search, no
+cross-file tag index, no inference. Path resolution is deferred to
+TypeScript. The author brings the Service into scope with an ordinary
+import, written in a `{Loom}` section:
+
+```
+# Imports {Loom}
+
+=>
+
+import { Mul } from "./arithmetic.js"
+```
+
+The projector emits that import verbatim. TypeScript then binds the
+imported `Mul` to the `yield* Mul` the Warp generated — ordinary name
+resolution. The Warp declares the *logical* dependency (the graph edge);
+the import declares the *physical* location (the module). They are
+complementary, on different planes, bound by symbol name.
+
+It is a value import (`import { Mul }`), never `import type`: a Service
+is used as a value — it is yielded, and provided through `.Default` at
+the root — so a type-only import would erase the binding the running
+Frame needs. Because the author writes the import, the author chooses
+the form; Loom never decides value-vs-type or guesses a path. An
+imported Service's `.Default` participates in the root's layer wiring
+exactly as a same-file one does (the precise shape of multi-file root
+composition is settled when multi-file builds land).
+
+The projector hoists the `import` lines from `{Loom}` sections to the
+head of the Frame, regardless of where their sections sit in the
+document. The file path lives in the import; the Warp graph records
+only the logical tag edge.
 
 ## Providing Dependencies
 
