@@ -36,19 +36,24 @@ There are two ways to reference another section from a code block.
 
 **Warp declarations** — written in the preamble as `{{m: Mul}}` — are
 explicit, tag-based dependency declarations. The Frame projects each
-declaration into a `const m = yield* Mul` statement and a
-`dependencies: [Mul.Default]` entry. The bound name `m` is then used as
-an anchor `{{m}}` in the code block to inline the resolved `.code` field.
-Cross-file Warp declarations generate an `import type` automatically.
-Only exported (tagged) sections are reachable via Warp declarations.
+declaration into a single `const m = yield* Mul` statement inside the
+Service's `Effect.gen` body. That `yield*` *is* the dependency: Effect
+lifts the `Mul` requirement into the Service's layer type
+automatically, so the Frame emits **no** separate `dependencies` array
+(see Order Independence below for why that matters). The bound name `m`
+is then used as an anchor `{{m}}` in the code block to inline the
+resolved `.code` field. Cross-file Warp declarations generate an
+`import type` automatically. Only exported (tagged) sections are
+reachable via Warp declarations.
 
 **Name anchors** — written directly in the code block as
 `{{Imports}}` or `{{Multiplier Function}}` — reference a private
 (tagless) section within the same file by its heading name. The
 synthesiser resolves the name to the section's hash, hoists a
-`yield*` and `dependencies[]` entry internally, and inlines the
-`.code` field at the anchor site. No preamble declaration is needed.
-The internal binding name is hash-derived and not user-visible.
+`yield*` for it internally (the same lazy dependency mechanism as a
+Warp declaration), and inlines the `.code` field at the anchor site.
+No preamble declaration is needed. The internal binding name is
+hash-derived and not user-visible.
 
 A single-word name anchor (`{{Imports}}`) is resolved as a preamble
 Warp binding first; if no match is found, heading name lookup follows.
@@ -73,10 +78,10 @@ and they are traversable directly from the AST.
 
 Effect Layers are opaque at runtime: you can run a layer, not inspect
 its dependency structure without executing. The graph the CLI walks is
-the AST's Warp map, not the compiled Frame. The Frame's `dependencies:`
-arrays and `yield*` calls faithfully reflect that map at the TypeScript
-level — so Effect's DI actually executes the graph — but the authoritative,
-traversable source is always the AST.
+the AST's Warp map, not the compiled Frame. The Frame's `yield*` calls
+faithfully reflect that map at the TypeScript level — so Effect's DI
+actually executes the graph — but the authoritative, traversable source
+is always the AST.
 
 Each node in the Warp graph carries semantic content: the section's
 `preamble` (why it exists and what it does) and the code it produces.
@@ -91,36 +96,60 @@ traversal, cycle detection, transitive reachability, and `toGraphViz` /
 and serializable; `Graph` is a separate structure derived from the AST's
 Warp annotations after parsing, used only for traversal and analysis.
 
-## Emission Order and Cycles
+## Order Independence and Cycles
 
-The Frame synthesiser emits sections in topological order derived from the
-Warp graph, not in document order. This is assumed to be necessary because
-of how JavaScript class declarations behave.
+The Frame synthesiser emits sections in **document order** — the order
+they appear in the source is the order they appear in the Frame. There
+is no topological sort and no dependency-driven reordering.
 
-A `class` declaration in JavaScript is subject to the Temporal Dead Zone
-(TDZ): the name is hoisted into scope, but the binding is not initialised
-until the declaration is actually evaluated at runtime. Accessing it before
-that point throws a `ReferenceError`. Since `dependencies: [Mul.Default]`
-is evaluated eagerly when `Sq`'s class body runs, `Mul` must already be
-initialised — meaning it must appear earlier in the emitted file. If the
-synthesiser emitted sections in document order and a dependency appeared
-below its dependent, the Frame would throw at module load time.
+This works because no class declaration references another class
+*eagerly*. A projected Service has the shape:
 
-Topological order resolves this: dependencies are always emitted before the
-sections that depend on them. The Warp graph the synthesiser already builds
-gives this order directly — no additional analysis pass is required.
+```typescript
+export class Sq extends Effect.Service<Sq>()("Sq", {
+  effect: Effect.gen(function* () {
+    const m = yield* Mul
+    return { … }
+  })
+}) {}
+```
 
-Cycles are a related assumption. A same-file cycle (A's Warp names B, B's
-names A) has no valid topological order and would produce a TDZ error
-regardless of how the file is arranged. The synthesiser detects cycles via
-the Warp graph and surfaces them as LSP diagnostics — inline squiggles in
-the editor via Volar, not hard failures. The Frame is still emitted as best
-as possible; the diagnostic annotates the offending Warp anchors in the
-source. Loom's principle is to always produce the best possible projection
-and speak through the language server, not to withhold output.
+The only reference to `Mul` is `yield* Mul`, and it lives inside the
+generator body that `Effect.gen` wraps but does not run. At module-load
+time the generator function is created, `Mul` is captured by closure,
+and nothing is evaluated. `Mul` is touched only when the effect later
+runs — by which point every class in the module is initialised. The
+declaration is *analysed, not evaluated*; declaration order is
+irrelevant.
 
-Both of these are assumptions pending confirmation against the actual
-Effect runtime behaviour of `Effect.Service` and its `dependencies` field.
+What would break this is an eager reference. The natural one to reach
+for is `Effect.Service`'s `dependencies: [Mul.Default]` option — but
+that array is an argument to the `Effect.Service<Sq>()(…)` call in the
+`extends` clause, evaluated the instant `class Sq` is reached. A `class`
+declaration in JavaScript is subject to the Temporal Dead Zone (TDZ):
+the name is hoisted into scope, but the binding is not initialised until
+the declaration is evaluated. If `Mul` were declared below `Sq`,
+`Mul.Default` would be in the TDZ and throw a `ReferenceError` at module
+load. The Frame therefore **does not emit `dependencies` arrays at all**.
+The dependency is carried by the lazy `yield*` alone.
+
+The trade-off: a Service's `.Default` layer is no longer self-contained.
+`Sq.Default` has type `Layer<Sq, never, Mul>` — it *requires* `Mul` from
+outside rather than bundling it. Loom owns the composition root and
+satisfies every requirement there (see Providing Dependencies), so this
+is invisible to the author.
+
+Cycles. A genuine same-file cycle (A's Warp names B, B's names A) is a
+real error — Effect cannot build a layer set with a circular
+requirement. But detecting it is now decoupled from emission: the Frame
+emits in document order regardless, and the cycle surfaces as an LSP
+diagnostic on the offending Warp anchors, walked from the AST's Warp
+graph. Loom's principle holds — always produce the best possible
+projection and speak through the language server, never withhold output.
+
+The lazy-`yield*` mechanism is plain JavaScript and Effect semantics; the
+root-wiring form it depends on is noted as pending confirmation in
+Providing Dependencies.
 
 ## Tangle Sections
 
@@ -149,10 +178,11 @@ Tangle sections use the same Warp mechanics as every other section. Preamble
 Warp declarations (`{{i: Imports}}`, `{{m: Main}}`) are where tag resolution
 happens and dependencies are declared. Code block anchors (`{{i}}`, `{{m}}`)
 dereference the bound names to inline the resolved `.code` fields in order.
-The synthesiser generates `yield*` and `dependencies[]` from the preamble
-declarations, and wraps the composed result in a `tangle(path, ...)` call
-instead of returning `{ name, preamble, code }`. No special anchor form,
-no shortcut — consistent Warp syntax throughout.
+The synthesiser generates one lazy `yield*` per preamble declaration (no
+`dependencies` array, exactly as for an ordinary section), and wraps the
+composed result in a `tangle(path, ...)` call instead of returning
+`{ name, preamble, code }`. No special anchor form, no shortcut —
+consistent Warp syntax throughout.
 
 A tangle section is a sink in the Warp graph: other sections never declare
 it as a dependency. It consumes the graph; nothing consumes it. Tangle
@@ -176,13 +206,33 @@ DSL; Effect's DI derives the full graph from Warp declarations alone.
 
 ## Providing Dependencies
 
-Loom owns the composition root. The Frame synthesises a top-level
-provision automatically — it identifies which sections are roots of the
-dependency graph (sections that no other section depends on), assembles
-their `Default` layers, and emits the `Effect.provide` call. The user
-writes sections and declares Warps. Loom derives the full wiring from
-that and generates it into the Frame. The user never writes imports,
-never assembles layers manually, and never touches the entry point.
+Loom owns the composition root. Because each Service's `.Default` layer
+carries unsatisfied requirements — the dependencies its `yield*` calls
+declare — the root's job is to satisfy them all at once. It merges every
+Service's layer into one set and provides that set back to itself, so
+each requirement is met by another member of the same merge:
+
+```typescript
+const layers = Layer.mergeAll(Add.Default, Mul.Default, Sq.Default, /* … */)
+
+export const LoomMain = Effect.provide(
+  program,                       // yields the tangle sinks to run them
+  Layer.provide(layers, layers), // feed the merge into itself to self-wire
+)
+```
+
+`Layer.mergeAll` is commutative — the order layers are listed in does
+not matter — so the root, like the emission, is order-free. The user
+writes sections and declares Warps; Loom derives the full wiring and
+generates it into the Frame. The user never writes imports, never
+assembles layers manually, and never touches the entry point.
+
+The self-provision form (`Layer.provide(layers, layers)`) is pending
+confirmation against Effect's actual layer-resolution behaviour. The
+mechanism is sound in principle — Effect memoises each service and
+resolves the requirement DAG independent of merge order — but the exact
+API spelling may differ. This is the one piece of the order-independent
+design that warrants a runtime spike before it is relied on.
 
 ## What This Enables
 
@@ -204,15 +254,16 @@ from the same source document, with no duplication.
 // Projection rules:
 //   - Tagged sections  → export class — public API, importable cross-file.
 //   - Tagless sections → class (no export) — private, same-file only.
-//   - Sections emitted in topological order (dependencies before dependents).
+//   - Sections emitted in document order (no eager cross-refs; order is free).
 //   - Explicit [Tag]  → class name = tag label, service identifier = tag label.
 //   - No [Tag]        → class name = hash of heading name, identifier = same hash.
 //   - Heading name stored as `name` field on every section.
-//   - Preamble Warp declaration ({{a: Add}}) → yield* + dependencies[].
+//   - Preamble Warp declaration ({{a: Add}}) → lazy yield* inside Effect.gen;
+//     no dependencies[] array (see Order Independence).
 //   - Name anchor ({{Imports}}) in code block → internal yield* by hash, hoisted.
 //   - Tangle section ({path} specifier) → private, tangle() return, graph sink.
 //   - {Loom} specifier → code block projected literally (escape hatch only).
-//   - Composition root → auto-synthesised by Loom from graph leaf analysis.
+//   - Composition root → auto-synthesised: merge all layers, provide to self.
 //   - compose / tangle are provisional primitives — module home not yet built
 //     (see how-lsp.md). There is no separate Code value type; product code is
 //     the AST's CodeWeft text. The import below is illustrative.
@@ -266,8 +317,7 @@ export class Sq extends Effect.Service<Sq>()("Sq", {
       preamble: `Built on top of mul.`,
       code: compose(_S_f1e7d2.code, `def square(x: Int): Int = mul(x, x)`)
     }
-  }),
-  dependencies: [S_f1e7d2.Default]
+  })
 }) {}
 
 
@@ -279,8 +329,7 @@ export class Pow extends Effect.Service<Pow>()("Pow", {
       preamble: `\`pow\` works in \`Double\`; the result is rounded back to \`Int\`.`,
       code: compose(_S_f1e7d2.code, `def power(base: Int, exp: Int): Int = pow(base, exp).toInt`)
     }
-  }),
-  dependencies: [S_f1e7d2.Default]
+  })
 }) {}
 
 
@@ -304,8 +353,7 @@ export class Main extends Effect.Service<Main>()("Main", {
 }`
       )
     }
-  }),
-  dependencies: [Add.Default, Sq.Default, Pow.Default]
+  })
 }) {}
 
 
@@ -332,8 +380,7 @@ class S_d2c5b9 extends Effect.Service<S_d2c5b9>()("S_d2c5b9", {
     const i = yield* S_f1e7d2
     const m = yield* Main
     return tangle("src/main/scala/Arithmetic.scala", compose(i.code, m.code))
-  }),
-  dependencies: [S_f1e7d2.Default, Main.Default]
+  })
 }) {}
 
 
@@ -342,21 +389,36 @@ class S_a1b3c7 extends Effect.Service<S_a1b3c7>()("S_a1b3c7", {
   effect: Effect.gen(function* () {
     const b = yield* Build
     return tangle("scripts/build.sh", b.code)
-  }),
-  dependencies: [Build.Default]
+  })
 }) {}
 
 
 // =============================================================================
 // Auto-synthesised composition root — emitted by Loom, not by the user.
-// Graph leaves: S_d2c5b9, S_a1b3c7.
+// The program yields the tangle sinks (S_d2c5b9, S_a1b3c7) to run their
+// file emission. Because each Service's `.Default` carries unsatisfied
+// requirements (its `yield*` dependencies), the root merges every layer
+// and provides the merge to itself, so each requirement is met by another
+// member of the same merge. Merge is commutative — listing order is free.
 // =============================================================================
+
+const layers = Layer.mergeAll(
+  S_f1e7d2.Default,
+  Add.Default,
+  Mul.Default,
+  Sq.Default,
+  Pow.Default,
+  Main.Default,
+  Build.Default,
+  S_d2c5b9.Default,
+  S_a1b3c7.Default,
+)
 
 export const LoomMain = Effect.provide(
   Effect.gen(function* () {
     yield* S_d2c5b9
     yield* S_a1b3c7
   }),
-  Layer.merge(S_d2c5b9.Default, S_a1b3c7.Default)
+  Layer.provide(layers, layers)
 )
 ```
