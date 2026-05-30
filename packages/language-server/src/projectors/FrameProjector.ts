@@ -89,6 +89,7 @@ const projectServiceBody = (section: LoomSection): Effect.Effect<Mapped> => {
   return warps.length === 0
     ? Effect.succeed(Frame.StaticBody({
       name: headingTitleOf(section),
+      preamble: preambleTextOf(section),
       code: codeTextOf(section),
     }))
     : projectEffectfulBody(section, warps)
@@ -105,6 +106,7 @@ const projectEffectfulBody = (
       warpBindings: join(bindings, "\n    "),
       dependencies: join(dependencies, ", "),
       name: headingTitleOf(section),
+      preamble: preambleTextOf(section),
       code: codeTextOf(section),
     })
   })
@@ -161,6 +163,14 @@ const headingTitleOf = (section: LoomSection): Mapped =>
   section.heading.title
     ? sourced(section.heading.title, "identifier")
     : literal("")
+
+// The section's preamble prose — every PreambleWeft between the
+// heading and the first transition, concatenated 1:1 (EOLs and
+// blank lines included, exactly as for code). Loom maps the prose
+// it carries byte-for-byte rather than synthesising or trimming it,
+// so the projected `preamble` field traces back to the source prose.
+const preambleTextOf = (section: LoomSection): Mapped =>
+  concatAll(section.preamble.map((p) => sourced(p, "prose")))
 
 // The section's product code is every body weft contributing
 // source up to (but excluding) the first `~` transition. An

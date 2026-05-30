@@ -83,9 +83,10 @@ export const PrivateSection = (slots: {
 
 export const StaticBody = (slots: {
   readonly name: Mapped
+  readonly preamble: Mapped
   readonly code: Mapped
 }): Mapped =>
-  m`{ succeed: { name: \`${slots.name}\`, code: \`${slots.code}\` } }`
+  m`{ succeed: { name: \`${slots.name}\`, preamble: \`${slots.preamble}\`, code: \`${slots.code}\` } }`
 
 
 // --- Effectful Body ----------------------------------------------------------
@@ -97,13 +98,14 @@ export const StaticBody = (slots: {
 export const EffectfulBody = (slots: {
   readonly warpBindings: Mapped
   readonly name: Mapped
+  readonly preamble: Mapped
   readonly code: Mapped
   readonly dependencies: Mapped
 }): Mapped =>
   m`{
   effect: Effect.gen(function* () {
     ${slots.warpBindings}
-    return { name: \`${slots.name}\`, code: \`${slots.code}\` }
+    return { name: \`${slots.name}\`, preamble: \`${slots.preamble}\`, code: \`${slots.code}\` }
   }),
   dependencies: [${slots.dependencies}],
 }`

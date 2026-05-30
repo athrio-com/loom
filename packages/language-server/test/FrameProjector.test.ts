@@ -66,11 +66,27 @@ describe("FrameProjector — trivial projection", () => {
     expect(result.genCode).toContain("name: `")
   })
 
+  it("carries the section's preamble prose into the `preamble` field", () => {
+    expect(result.genCode).toContain("preamble: `")
+    expect(result.genCode).toContain("Adds two integers.")
+  })
+
   it("carries the section's product code into the `code` field", () => {
     expect(result.genCode).toContain(
       "export const add = (x: number, y: number): number => x + y",
     )
     expect(result.genCode).toContain("code: `")
+  })
+
+  it("maps the projected preamble prose back to a source PreambleWeft", () => {
+    const proseMappings = result.mappings.filter((mp) => mp.kind === "prose")
+    expect(proseMappings.length).toBeGreaterThan(0)
+    // The prose line "Adds two integers.\n" must appear among the
+    // mapped source spans.
+    const sources = proseMappings.map((mp) =>
+      trivialInput.slice(mp.sourcePosition.start.offset, mp.sourcePosition.end.offset),
+    )
+    expect(sources).toContain("Adds two integers.\n")
   })
 
   it("closes the class declaration", () => {
