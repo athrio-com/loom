@@ -62,12 +62,18 @@ Warp binding first; if no match is found, heading name lookup follows.
 ## Preamble as a First-Class Field
 
 The section's preamble prose — everything written between the heading and
-the `=>` Arrow, excluding Warp declarations — becomes the `preamble` field
-on the Service's `succeed` or `return` object. It appears in two places:
-as a TSDoc comment on the Service class (visible in IDE hover and
-cross-references) and as a queryable string field at runtime. Post-tilde
-prose is authoring context; it lives in the `.loom` source and is not
-projected into the Frame.
+the `=>` Arrow — becomes the `preamble` field on the Service's `succeed`
+or `return` object, mapped 1:1: the PreambleWefts are transferred
+byte-for-byte, EOLs and blank lines included, exactly as code is. Warp
+declarations are *not* excised — a `{{m: Mul}}` sitting in the prose is
+part of what the author wrote and appears verbatim in the field. (The
+Warp's role as a dependency is carried separately by the `yield*` the
+projector emits; excising its span here would only fragment the prose and
+break the 1:1 mapping.) The field appears in two places: as a TSDoc
+comment on the Service class (visible in IDE hover and cross-references)
+and as a queryable string field at runtime. Post-tilde prose is authoring
+context; it lives in the `.loom` source and is not projected into the
+Frame.
 
 ## The Dependency Graph for Free
 
