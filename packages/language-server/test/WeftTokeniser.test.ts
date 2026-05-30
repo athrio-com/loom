@@ -292,29 +292,33 @@ describe("Tokeniser — malformed label values", () => {
 })
 
 // =============================================================================
-// Text gaps — heading text between structural anchors (after the marker's
-// trailing space) becomes TextTokens.
+// Heading title — the single trimmed title token: the text between the
+// marker and the first structural token, whitespace stripped. Text after a
+// structural token is dropped; a heading that opens straight into a tag has
+// no title.
 // =============================================================================
 
-describe("Tokeniser — text gaps", () => {
-  it("emits a TextToken for the text before the tag", () => {
+describe("Tokeniser — heading title", () => {
+  it("captures the title before the tag, trimmed of the trailing space", () => {
     const w = headingAt(tokenise(["## Title here [Tag]"]), 0)
-    expect(w.texts.length).toBeGreaterThan(0)
-    // Marker `## ` ends at offset 3; tag opens at 14. Gap is [3..14).
-    expect(w.texts[0].position.start.offset).toBe(3)
-    expect(w.texts[0].position.end.offset).toBe(14)
+    // Marker `## ` ends at offset 3; tag opens at 14. The raw gap [3..14)
+    // is "Title here " — the trailing space is trimmed off, so [3..13).
+    expect(w.title?.source).toBe("Title here")
+    expect(w.title?.position.start.offset).toBe(3)
+    expect(w.title?.position.end.offset).toBe(13)
   })
 
-  it("emits text between the marker and the tag", () => {
+  it("ends the title at the first structural token", () => {
     const w = headingAt(tokenise(["# Title [App]{TypeScript}"]), 0)
-    // `# ` ends at offset 2; tag is at 8..13; specifier at 13..25.
-    expect(w.texts.length).toBeGreaterThanOrEqual(1)
-    expect(w.texts[0].position.start.offset).toBe(2)
+    // `# ` ends at offset 2; tag is at 8..13. Title is [2..7) = "Title".
+    expect(w.title?.source).toBe("Title")
+    expect(w.title?.position.start.offset).toBe(2)
+    expect(w.title?.position.end.offset).toBe(7)
   })
 
-  it("no text gap when the heading has only the marker and anchors", () => {
+  it("has no title when the heading is only the marker and a tag", () => {
     const w = headingAt(tokenise(["## [Tag]"]), 0)
-    expect(w.texts.length).toBe(0)
+    expect(w.title).toBeUndefined()
   })
 })
 

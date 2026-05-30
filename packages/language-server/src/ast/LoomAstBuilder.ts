@@ -192,7 +192,7 @@ const headingOf = (weft: HeadingWeft): LoomHeading =>
     health: weft.health,
     unexpected: weft.unexpected,
     headingStart: weft.headingStart,
-    texts: weft.texts,
+    title: weft.title,
     tag: weft.tag,
     specifier: weft.specifier,
   })

@@ -2,10 +2,10 @@ import { Schema } from "effect"
 import { loomNode } from "./LoomNode"
 import {
   HeadingStartTokenSchema,
+  HeadingTitleTokenSchema,
   PathSpecifierTokenSchema,
   SpecifierTokenSchema,
   TagTokenSchema,
-  TextTokenSchema,
 } from "./LoomTokens"
 import { PreambleWeftSchema, SectionBodyWeftSchema } from "./Weft"
 
@@ -25,10 +25,9 @@ import { PreambleWeftSchema, SectionBodyWeftSchema } from "./Weft"
 //
 // `headingStart` is the single heading-start token; its position records the
 // level for the human reader, but level carries no structural meaning — every
-// heading produces a flat Section. `texts` is the array of contiguous text
-// segments between structural tokens on the heading line — heading text can be
-// non-contiguous, e.g. `# [Loom] is written in {Loom}` has a text segment
-// after the tag and before the specifier.
+// heading produces a flat Section. `title` is the optional human-readable
+// title: the text run between the marker and the first structural token,
+// trimmed of surrounding whitespace; absent when there is no such text.
 //
 // Tag and specifier are both optional. The Tokeniser synthesises a
 // hash-derived tag for a tagless heading, and the specifier is either a label
@@ -37,7 +36,7 @@ import { PreambleWeftSchema, SectionBodyWeftSchema } from "./Weft"
 
 export const LoomHeadingSchema = loomNode("LoomHeading", {
   headingStart: HeadingStartTokenSchema,
-  texts: Schema.Array(TextTokenSchema),
+  title: Schema.optional(HeadingTitleTokenSchema),
   tag: Schema.optional(TagTokenSchema),
   specifier: Schema.optional(
     Schema.Union(SpecifierTokenSchema, PathSpecifierTokenSchema),

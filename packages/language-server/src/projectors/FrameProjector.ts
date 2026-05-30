@@ -153,13 +153,14 @@ const classNameOf = (section: LoomSection): Mapped =>
     ? sourced(section.heading.tag.label, "identifier")
     : literal("")
 
-// The heading's title is the concatenation of every TextToken on
-// the heading line in source order. Each token records its own
-// mapping back to its position — clicking any character of the
-// projected `name` field routes to the corresponding span in the
-// heading.
+// The heading's title is a single trimmed token — the text between
+// the marker and the first structural token. It maps back to its own
+// span, so the projected `name` field routes to the heading title.
+// Absent when the heading carries no title text.
 const headingTitleOf = (section: LoomSection): Mapped =>
-  concatAll(section.heading.texts.map((t) => sourced(t, "identifier")))
+  section.heading.title
+    ? sourced(section.heading.title, "identifier")
+    : literal("")
 
 // The section's product code is every body weft contributing
 // source up to (but excluding) the first `~` transition. An

@@ -226,7 +226,8 @@ const makeHeadingWeft = (
       source: m[0],
       health: okHealth,
     }),
-    texts: [],
+    // `title`, `tag`, `specifier` are all optional and filled by the
+    // Tokeniser; the Classifier emits the heading shell only.
   })
 
 // =============================================================================

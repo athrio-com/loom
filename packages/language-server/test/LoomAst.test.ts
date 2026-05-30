@@ -24,13 +24,10 @@ const headingStart = {
   health: okHealth,
 }
 
-const text = (offsetStart: number, offsetEnd: number) => ({
-  type: "Text" as const,
-  position: {
-    start: { line: 1, column: offsetStart + 1, offset: offsetStart },
-    end: { line: 1, column: offsetEnd + 1, offset: offsetEnd },
-  },
-  source: src,
+const title = (value: string) => ({
+  type: "HeadingTitle" as const,
+  position: pos,
+  source: value,
   health: okHealth,
 })
 
@@ -58,7 +55,7 @@ const specifier = (label: string) => ({
 // LoomHeading — one shape for every heading level.
 //
 // `headingStart` is the single heading-start token (HeadingStartTokenSchema).
-// `texts` is an array of TextTokens; it must always be an array.
+// `title` is the optional single HeadingTitle token.
 // `tag` and `specifier` are both optional.
 // =============================================================================
 
@@ -71,7 +68,6 @@ describe("LoomHeading.headingStart", () => {
         source: src,
         health: okHealth,
         headingStart,
-        texts: [],
         tag: tag("Loom"),
         specifier: specifier("Loom"),
       }),
@@ -86,14 +82,13 @@ describe("LoomHeading.headingStart", () => {
         source: src,
         health: okHealth,
         headingStart: { ...headingStart, type: "Arrow" },
-        texts: [],
       }),
     ).toBe(false)
   })
 })
 
-describe("LoomHeading.texts", () => {
-  it("accepts an empty texts array (heading with no interstitial text)", () => {
+describe("LoomHeading.title", () => {
+  it("accepts a heading with no title (opens straight into a tag)", () => {
     expect(
       Schema.is(LoomHeadingSchema)({
         type: "LoomHeading",
@@ -101,14 +96,12 @@ describe("LoomHeading.texts", () => {
         source: src,
         health: okHealth,
         headingStart,
-        texts: [],
         tag: tag("Loom"),
-        specifier: specifier("Loom"),
       }),
     ).toBe(true)
   })
 
-  it("accepts a single text segment (typical `## Section title` heading)", () => {
+  it("accepts a heading carrying a single title token", () => {
     expect(
       Schema.is(LoomHeadingSchema)({
         type: "LoomHeading",
@@ -116,43 +109,13 @@ describe("LoomHeading.texts", () => {
         source: src,
         health: okHealth,
         headingStart,
-        texts: [text(3, 16)],
+        title: title("Section title"),
+        tag: tag("Loom"),
       }),
     ).toBe(true)
   })
 
-  it("accepts multiple text segments interleaved with structural tokens", () => {
-    // models `# [Loom] is written in {Loom}` — text after the tag, before the specifier
-    expect(
-      Schema.is(LoomHeadingSchema)({
-        type: "LoomHeading",
-        position: pos,
-        source: src,
-        health: okHealth,
-        headingStart,
-        texts: [text(8, 23), text(29, 30)],
-        tag: tag("Loom"),
-        specifier: specifier("Loom"),
-      }),
-    ).toBe(true)
-  })
-
-  it("rejects a single TextToken in the `texts` slot (must be an array)", () => {
-    expect(
-      Schema.is(LoomHeadingSchema)({
-        type: "LoomHeading",
-        position: pos,
-        source: src,
-        health: okHealth,
-        headingStart,
-        texts: text(3, 16), // not an array
-        tag: tag("Loom"),
-        specifier: specifier("Loom"),
-      }),
-    ).toBe(false)
-  })
-
-  it("rejects a non-Text token in the texts array", () => {
+  it("rejects a wrong-kind token in the `title` slot", () => {
     expect(
       Schema.is(LoomHeadingSchema)({
         type: "LoomHeading",
@@ -161,7 +124,7 @@ describe("LoomHeading.texts", () => {
         health: okHealth,
         headingStart,
         // a Tag is the wrong kind here
-        texts: [tag("Greet") as unknown as ReturnType<typeof text>],
+        title: tag("Greet") as unknown as ReturnType<typeof title>,
       }),
     ).toBe(false)
   })
@@ -187,7 +150,6 @@ const heading = () => ({
   source: src,
   health: okHealth,
   headingStart,
-  texts: [],
 })
 
 const section = () => ({

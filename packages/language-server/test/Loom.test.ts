@@ -28,13 +28,11 @@ import { LoomWeftSchema, type LoomWeft } from "#ast/Weft"
 const fixturePath = resolve(__dirname, "fixtures/Fun.loom")
 const sampleLoom = readFileSync(fixturePath, "utf8")
 
-// The trimmed concatenation of a heading's TextTokens — the human-facing
-// title, used to find tagless Sections (whose tag is a synthetic hash).
-const headingText = (text: string, heading: LoomHeading): string =>
-  heading.texts
-    .map((t) => text.slice(t.position.start.offset, t.position.end.offset))
-    .join("")
-    .trim()
+// The heading's title token source — the human-facing title, used to
+// find tagless Sections (whose tag is a synthetic hash). The token is
+// already trimmed by the Tokeniser; absent titles read as "".
+const headingText = (_text: string, heading: LoomHeading): string =>
+  heading.title?.source ?? ""
 
 const classifyText = (text: string): ReadonlyArray<LoomWeft> =>
   Effect.runSync(
@@ -244,11 +242,10 @@ describe("Tokeniser Stage — integration against corpus/Fun.loom", () => {
     }
   })
 
-  it("no heading Text token contains the line terminator", () => {
+  it("no heading title token contains the line terminator", () => {
     for (const h of headings()) {
-      for (const t of h.texts) {
-        const slice = sampleLoom.slice(t.position.start.offset, t.position.end.offset)
-        expect(slice).not.toMatch(/[\r\n]/)
+      if (h.title) {
+        expect(h.title.source).not.toMatch(/[\r\n]/)
       }
     }
   })

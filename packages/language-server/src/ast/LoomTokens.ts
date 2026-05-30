@@ -187,14 +187,15 @@ export const TildeTokenSchema = loomNode("Tilde", {}).annotations({
 export type TildeToken = typeof TildeTokenSchema.Type
 
 // =============================================================================
-// Text — a contiguous text run between structural tokens on a heading line.
-// Position-only; content is `text.slice(position.start.offset, ...end.offset)`.
+// HeadingTitle — the human-readable title of a heading: the text run
+// between the heading marker and the first structural token (tag or
+// specifier), trimmed of surrounding whitespace. Position-only; the text
+// is `source`. At most one per heading; computed positionally by the
+// Tokeniser, not scanned, so it carries no Probe.
 // =============================================================================
 
-export const TextTokenSchema = loomNode("Text", {}).annotations({
-  [Probe]: /[^\[\]\{\}]+/g,
-})
-export type TextToken = typeof TextTokenSchema.Type
+export const HeadingTitleTokenSchema = loomNode("HeadingTitle", {})
+export type HeadingTitleToken = typeof HeadingTitleTokenSchema.Type
 
 // =============================================================================
 // Code — code content; on an Arrow line, the content after `=>`. Position-only.
@@ -326,7 +327,7 @@ export const LoomTokenSchema = Schema.Union(
   PathSpecifierTokenSchema,
   ArrowTokenSchema,
   TildeTokenSchema,
-  TextTokenSchema,
+  HeadingTitleTokenSchema,
   CodeTokenSchema,
   ProseTokenSchema,
   WarpTokenSchema,

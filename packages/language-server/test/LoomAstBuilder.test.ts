@@ -141,7 +141,6 @@ const mkHeading = (line: number, tag?: string, spec?: string) => {
     source: "",
     health: okHealth,
     headingStart: HeadingStartTokenSchema.make({ position: p, source: "", health: okHealth }),
-    texts: [],
     tag: tag === undefined ? undefined : tagToken(tag, p),
     specifier: spec === undefined ? undefined : specToken(spec, p),
   })

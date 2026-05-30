@@ -389,16 +389,14 @@ describe("Warp schema validation", () => {
 // =============================================================================
 
 describe("HeadingWeft schema", () => {
-  it("accepts a heading with only headingStart + empty texts (no tag, no specifier)", () => {
+  it("accepts a heading with only headingStart (no title, tag, or specifier)", () => {
     expect(
       Schema.is(HeadingWeftSchema)({
         type: "HeadingWeft",
         position: samplePosition,
         source: "",
         health: okHealth,
-        headingStart: validHeadingStart,
-        texts: [],
-      }),
+        headingStart: validHeadingStart,      }),
     ).toBe(true)
   })
 
@@ -409,9 +407,7 @@ describe("HeadingWeft schema", () => {
         position: samplePosition,
         source: "",
         health: okHealth,
-        headingStart: validHeadingStart,
-        texts: [],
-        tag: validTag,
+        headingStart: validHeadingStart,        tag: validTag,
       }),
     ).toBe(true)
   })
@@ -423,9 +419,7 @@ describe("HeadingWeft schema", () => {
         position: samplePosition,
         source: "",
         health: okHealth,
-        headingStart: validHeadingStart,
-        texts: [],
-        specifier: validSpecifier,
+        headingStart: validHeadingStart,        specifier: validSpecifier,
       }),
     ).toBe(true)
   })
@@ -437,9 +431,7 @@ describe("HeadingWeft schema", () => {
         position: samplePosition,
         source: "",
         health: okHealth,
-        headingStart: validHeadingStart,
-        texts: [],
-        specifier: validPathSpecifier,
+        headingStart: validHeadingStart,        specifier: validPathSpecifier,
       }),
     ).toBe(true)
   })
@@ -451,9 +443,7 @@ describe("HeadingWeft schema", () => {
         position: samplePosition,
         source: "",
         health: okHealth,
-        headingStart: validHeadingStart,
-        texts: [],
-        tag: validTag,
+        headingStart: validHeadingStart,        tag: validTag,
         specifier: validSpecifier,
       }),
     ).toBe(true)
@@ -466,9 +456,7 @@ describe("HeadingWeft schema", () => {
         position: samplePosition,
         source: "",
         health: okHealth,
-        headingStart: validHeadingStart,
-        texts: [],
-        tag: { ...validSpecifier } as any, // wrong kind
+        headingStart: validHeadingStart,        tag: { ...validSpecifier } as any, // wrong kind
       }),
     ).toBe(false)
   })
@@ -532,9 +520,7 @@ describe("LoomWeft union", () => {
         position: samplePosition,
         source: "",
         health: okHealth,
-        headingStart: validHeadingStart,
-        texts: [],
-      }),
+        headingStart: validHeadingStart,      }),
     ).toBe(true)
   })
 

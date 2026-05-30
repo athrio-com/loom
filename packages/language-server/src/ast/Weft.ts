@@ -6,9 +6,9 @@ import {
   HeadingStartTokenSchema,
   PathSpecifierTokenSchema,
   ProseTokenSchema,
+  HeadingTitleTokenSchema,
   SpecifierTokenSchema,
   TagTokenSchema,
-  TextTokenSchema,
   TildeTokenSchema,
   WarpAnchorTokenSchema,
   WarpTokenSchema,
@@ -28,18 +28,19 @@ import {
 
 // HeadingWeft — a `#{1,6}` heading line, any level. The headingStart token
 // records the level for the human reader; it carries no structural meaning,
-// since every heading produces a flat Section. Title text decomposes into
-// TextTokens between structural tokens. Both `tag` and `specifier` are
-// optional: the Tokeniser synthesises a hash-derived `tag` for a tagless
-// heading so every Section has a stable identifier, and a heading without a
-// specifier inherits the Document Preamble's `lang`. The specifier is either
-// a label `{Scala}` (language) or a path `{src/index.ts}` (tangle sink).
-// The Classifier Stage emits the weft with NOK placeholders carrying
-// `health.status === "incomplete"` for subtokens not yet recognised; the
-// Tokeniser settles the health.
+// since every heading produces a flat Section. `title` is the optional
+// human-readable title — the text run between the marker and the first
+// structural token, trimmed; absent when the heading has no such text.
+// Both `tag` and `specifier` are optional: the Tokeniser synthesises a
+// hash-derived `tag` for a tagless heading so every Section has a stable
+// identifier, and a heading without a specifier inherits the Document
+// Preamble's `lang`. The specifier is either a label `{Scala}` (language)
+// or a path `{src/index.ts}` (tangle sink). The Classifier Stage emits the
+// weft with NOK placeholders carrying `health.status === "incomplete"` for
+// subtokens not yet recognised; the Tokeniser settles the health.
 export const HeadingWeftSchema = loomNode("HeadingWeft", {
   headingStart: HeadingStartTokenSchema,
-  texts: Schema.Array(TextTokenSchema),
+  title: Schema.optional(HeadingTitleTokenSchema),
   tag: Schema.optional(TagTokenSchema),
   specifier: Schema.optional(
     Schema.Union(SpecifierTokenSchema, PathSpecifierTokenSchema),

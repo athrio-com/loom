@@ -8,6 +8,7 @@ import {
 } from "./LoomNode"
 import {
   CodeTokenSchema,
+  HeadingTitleTokenSchema,
   PathSpecifierLabelTokenSchema,
   PathSpecifierTokenSchema,
   ProseTokenSchema,
@@ -19,7 +20,6 @@ import {
   TagLabelTokenSchema,
   TagOpenTokenSchema,
   TagTokenSchema,
-  TextTokenSchema,
   WarpAnchorNameTokenSchema,
   WarpAnchorTokenSchema,
   WarpAnnotationTokenSchema,
@@ -35,11 +35,11 @@ import {
   type SpecifierLabelToken,
   type SpecifierOpenToken,
   type SpecifierToken,
+  type HeadingTitleToken,
   type TagCloseToken,
   type TagLabelToken,
   type TagOpenToken,
   type TagToken,
-  type TextToken,
   type WarpAnchorNameToken,
   type WarpAnchorToken,
   type WarpAnnotationToken,
@@ -71,7 +71,7 @@ import {
 // Pure Stream.map: per-weft transformation. The Tokeniser fills subtokens
 // per weft kind:
 //
-//   Heading          — full tokenisation (tag/specifier/texts). A label vs
+//   Heading          — full tokenisation (title/tag/specifier). A label vs
 //                      path specifier is chosen by path-separator presence;
 //                      a tagless heading gets a hash-derived tag (ok health).
 //   Arrow / Tilde    — fill the optional inline `code` / `prose` subtoken.
@@ -593,13 +593,13 @@ const pairWarpDelims = (
     )
     return idx < 0
       ? {
-          pairs: [...acc.pairs, { open, close: synthClose() }],
-          remaining: acc.remaining,
-        }
+        pairs: [...acc.pairs, { open, close: synthClose() }],
+        remaining: acc.remaining,
+      }
       : {
-          pairs: [...acc.pairs, { open, close: acc.remaining[idx] }],
-          remaining: acc.remaining.filter((_, i) => i !== idx),
-        }
+        pairs: [...acc.pairs, { open, close: acc.remaining[idx] }],
+        remaining: acc.remaining.filter((_, i) => i !== idx),
+      }
   }, { pairs: [], remaining: closes })
 
   return { pairs, stray: remaining.map(toUnexpected) }
@@ -699,22 +699,22 @@ const buildOpaqueSegment = <T>(
   const tokenPos = span(line, start, end)
   const health: Health = value === ""
     ? {
-        status: "error",
-        diagnostics: [{
-          message: emptyMessage,
-          position: tokenPos,
-          severity: "error",
-        }],
-      }
+      status: "error",
+      diagnostics: [{
+        message: emptyMessage,
+        position: tokenPos,
+        severity: "error",
+      }],
+    }
     : okHealth
 
   const token = make({ type: typeName, position: tokenPos, source: value, health, value })
 
   const extras: UnexpectedToken[] = extraStart < raw.length
     ? [UnexpectedTokenSchema.make({
-        position: span(line, rawStart + extraStart, rawStart + raw.length),
-        value: raw.slice(extraStart),
-      })]
+      position: span(line, rawStart + extraStart, rawStart + raw.length),
+      value: raw.slice(extraStart),
+    })]
     : []
 
   return { token, extras }
@@ -985,52 +985,54 @@ const constructAnchors = (
 }
 
 // =============================================================================
-// textTokens — emit a TextToken for every non-empty slice of `region` not
-// covered by a `consumed` span. Pure fold over sorted spans.
-//
-// `consumed` is assumed to be pairwise disjoint (Loom's tag/specifier/
-// unexpected positions satisfy this by construction — they don't nest).
-// Overlapping inputs would produce spurious gaps between nested ranges; if
-// that ever becomes possible, replace `gapStarts` with a running-max scan.
+// headingTitle — the heading's single title token: the text between the
+// marker and the first structural token (tag, specifier, or stray
+// `unexpected` fragment), trimmed of surrounding whitespace. Returns
+// `None` when that span is empty (a heading that opens straight into a
+// tag, e.g. `# [Add]`). Text after the first structural token has no role
+// in the projection and is dropped.
 // =============================================================================
 
-const textTokens = (
+const headingTitle = (
   text: string,
-  region: Position,
+  position: Position,
+  headingStartEnd: number,
   consumed: ReadonlyArray<Position>,
-): ReadonlyArray<TextToken> => {
-  const line = region.start.line
-  const sorted = [...consumed].sort((a, b) => a.start.offset - b.start.offset)
+): Option.Option<HeadingTitleToken> => {
+  const line = position.start.line
+  const lineText = text.slice(position.start.offset, position.end.offset)
+  const trailingWs = lineText.match(/\s*$/)?.[0].length ?? 0
 
-  // Each consumed range contributes a (gap-start, gap-end) pair: the gap
-  // starts where the previous range ended (or at the region's start before
-  // any range), and ends where the next range begins (or at the region's
-  // end after the last range). Zip the two boundary lists, drop empty
-  // gaps, emit tokens.
-  const gapStarts = [region.start.offset, ...sorted.map((s) => s.end.offset)]
-  const gapEnds = [...sorted.map((s) => s.start.offset), region.end.offset]
+  // The title ends where the first structural token begins, or at the
+  // trimmed line end if none precedes it.
+  const titleEnd = consumed
+    .map((p) => p.start.offset)
+    .filter((offset) => offset >= headingStartEnd)
+    .reduce((min, offset) => Math.min(min, offset), position.end.offset - trailingWs)
 
-  return gapStarts
-    .map((from, i) => [from, gapEnds[i]] as const)
-    .filter(([from, to]) => from < to)
-    .map(([from, to]) =>
-      TextTokenSchema.make({
-        position: span(line, from, to),
-        source: text.slice(from, to),
-        health: okHealth,
-      }),
-    )
+  const raw = text.slice(headingStartEnd, titleEnd)
+  const leading = raw.match(/^\s*/)?.[0].length ?? 0
+  const trailing = raw.match(/\s*$/)?.[0].length ?? 0
+  const start = headingStartEnd + leading
+  const end = titleEnd - trailing
+  if (start >= end) return Option.none()
+
+  return Option.some(HeadingTitleTokenSchema.make({
+    position: span(line, start, end),
+    source: text.slice(start, end),
+    health: okHealth,
+  }))
 }
 
 // =============================================================================
 // Heading tokenisation. `scanHeading` constructs the subnodes — tag, specifier
-// (label or path), texts — that the weft handler then assembles.
+// (label or path), title — that the weft handler then assembles.
 // =============================================================================
 
 type HeadingTokens = {
   readonly tag: Option.Option<TagToken>
   readonly specifier: Option.Option<SpecifierToken | PathSpecifierToken>
-  readonly texts: ReadonlyArray<TextToken>
+  readonly title: Option.Option<HeadingTitleToken>
   readonly unexpected: ReadonlyArray<UnexpectedToken>
 }
 
@@ -1051,26 +1053,17 @@ const scanHeading = (
 
   const unexpected = [...tagResult.unexpected, ...specResult.unexpected]
 
-  // The heading's text region begins past the marker (whose position
-  // covers hash + mandatory space) and ends before any trailing whitespace
-  // (which includes the line terminator carried in the LineRange).
-  const trailingWs = lineText.match(/\s*$/)?.[0].length ?? 0
-  const textRegion = span(
-    position.start.line,
-    headingStartEnd,
-    position.end.offset - trailingWs,
-  )
   const consumed: ReadonlyArray<Position> = [
     ...Option.toArray(tagResult.token).map((t) => t.position),
     ...Option.toArray(specResult.token).map((s) => s.position),
     ...unexpected.map((u) => u.position),
   ]
-  const texts = textTokens(text, textRegion, consumed)
+  const title = headingTitle(text, position, headingStartEnd, consumed)
 
   return {
     tag: tagResult.token,
     specifier: specResult.token,
-    texts,
+    title,
     unexpected,
   }
 }
@@ -1091,16 +1084,15 @@ const syntheticTagId = (title: string): string =>
   `S_${(Hash.string(title) >>> 0).toString(36)}`
 
 const synthHashTag = (
-  text: string,
   position: Position,
-  texts: ReadonlyArray<TextToken>,
+  title: Option.Option<HeadingTitleToken>,
 ): TagToken => {
   const eol = span(position.start.line, position.end.offset, position.end.offset)
-  const title = texts
-    .map((t) => text.slice(t.position.start.offset, t.position.end.offset))
-    .join("")
-    .trim()
-  const value = syntheticTagId(title)
+  const titleText = Option.match(title, {
+    onNone: () => "",
+    onSome: (t) => t.source,
+  })
+  const value = syntheticTagId(titleText)
   return TagTokenSchema.make({
     position: eol,
     source: "",
@@ -1112,19 +1104,19 @@ const synthHashTag = (
 }
 
 const tokeniseHeading = (text: string, weft: HeadingWeft): LoomWeft => {
-  const { tag, specifier, texts, unexpected } = scanHeading(
+  const { tag, specifier, title, unexpected } = scanHeading(
     text, weft.position, weft.headingStart.position.end.offset,
   )
 
   // A real tag wins; a tagless heading gets a hash-derived tag so every
   // Section carries a stable identifier.
-  const resolvedTag = Option.getOrElse(tag, () => synthHashTag(text, weft.position, texts))
+  const resolvedTag = Option.getOrElse(tag, () => synthHashTag(weft.position, title))
 
   const status = aggregateStatus([
     weft.headingStart.health.status,
     resolvedTag.health.status,
     ...Option.toArray(specifier).map((s) => s.health.status),
-    ...texts.map((t) => t.health.status),
+    ...Option.toArray(title).map((t) => t.health.status),
     ...unexpected.map(() => "error" as const),
   ])
 
@@ -1134,7 +1126,7 @@ const tokeniseHeading = (text: string, weft: HeadingWeft): LoomWeft => {
     health: { status, diagnostics: [] },
     unexpected: unexpected.length > 0 ? unexpected : undefined,
     headingStart: weft.headingStart,
-    texts,
+    title: Option.getOrUndefined(title),
     tag: resolvedTag,
     specifier: Option.getOrUndefined(specifier),
   })

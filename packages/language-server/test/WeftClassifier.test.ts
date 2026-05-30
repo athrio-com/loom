@@ -391,11 +391,11 @@ describe("HeadingWeft at Classifier Stage — minimal, no placeholders", () => {
     expect(w.specifier).toBeUndefined()
   })
 
-  it("texts is an empty array on the emitted HeadingWeft", () => {
+  it("title is absent on the emitted HeadingWeft (Tokeniser fills it)", () => {
     const out = classify(["# Some Title"])
     const w = out[0]
     if (w.type !== "HeadingWeft") throw new Error("expected HeadingWeft")
-    expect(w.texts).toEqual([])
+    expect(w.title).toBeUndefined()
   })
 
   it("headingStart is present and okHealth — the only filled field", () => {
