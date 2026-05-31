@@ -1,8 +1,8 @@
-import { Effect } from "effect"
-import type { LoomDocument, LoomSection } from "#ast/LoomAst"
-import type { WarpToken } from "#ast/LoomTokens"
-import * as Frame from "./Frame"
-import { concatAll, join, literal, sourced, type Mapped } from "./Mapper"
+import { Effect } from 'effect'
+import type { LoomDocument, LoomSection } from '#ast/LoomAst'
+import type { WarpToken } from '#ast/LoomTokens'
+import * as Frame from './Frame'
+import { concatAll, join, literal, sourced, type Mapped } from './Mapper'
 
 // =============================================================================
 // FrameProjector — orchestrates the projection of a `LoomDocument`
@@ -31,7 +31,6 @@ import { concatAll, join, literal, sourced, type Mapped } from "./Mapper"
 // belong.
 // =============================================================================
 
-
 // =============================================================================
 // Entry — `projectDocument(doc): Effect<Mapped>`.
 //
@@ -45,16 +44,21 @@ import { concatAll, join, literal, sourced, type Mapped } from "./Mapper"
 
 export const projectDocument = (doc: LoomDocument): Effect.Effect<Mapped> =>
   Effect.gen(function* () {
-    const exported = yield* Effect.forEach(exportedSectionsOf(doc), projectExportedSection)
-    const private_ = yield* Effect.forEach(privateSectionsOf(doc), projectPrivateSection)
+    const exported = yield* Effect.forEach(
+      exportedSectionsOf(doc),
+      projectExportedSection,
+    )
+    const private_ = yield* Effect.forEach(
+      privateSectionsOf(doc),
+      projectPrivateSection,
+    )
     return Frame.Document({
       imports: Frame.Imports(),
-      exportedSections: join(exported, "\n\n"),
-      privateSections: join(private_, "\n\n"),
-      loomMain: literal(""),
+      exportedSections: join(exported, '\n\n'),
+      privateSections: join(private_, '\n\n'),
+      loomMain: literal(''),
     })
   })
-
 
 // =============================================================================
 // Section projection — one `Effect.Service` class per input section.
@@ -77,7 +81,6 @@ const projectPrivateSection = (section: LoomSection): Effect.Effect<Mapped> =>
     return Frame.PrivateSection({ className: classNameOf(section), body })
   })
 
-
 // =============================================================================
 // Service body — static when the section's preamble carries no
 // Warps, effectful when it declares one or more. Both shapes live
@@ -87,11 +90,13 @@ const projectPrivateSection = (section: LoomSection): Effect.Effect<Mapped> =>
 const projectServiceBody = (section: LoomSection): Effect.Effect<Mapped> => {
   const warps = warpsOf(section)
   return warps.length === 0
-    ? Effect.succeed(Frame.StaticBody({
-      name: headingTitleOf(section),
-      preamble: preambleTextOf(section),
-      code: codeTextOf(section),
-    }))
+    ? Effect.succeed(
+        Frame.StaticBody({
+          name: headingTitleOf(section),
+          preamble: preambleTextOf(section),
+          code: codeTextOf(section),
+        }),
+      )
     : projectEffectfulBody(section, warps)
 }
 
@@ -103,14 +108,13 @@ const projectEffectfulBody = (
     const bindings = yield* Effect.forEach(warps, projectWarpBinding)
     const dependencies = yield* Effect.forEach(warps, projectDependency)
     return Frame.EffectfulBody({
-      warpBindings: join(bindings, "\n    "),
-      dependencies: join(dependencies, ", "),
+      warpBindings: join(bindings, '\n    '),
+      dependencies: join(dependencies, ', '),
       name: headingTitleOf(section),
       preamble: preambleTextOf(section),
       code: codeTextOf(section),
     })
   })
-
 
 // =============================================================================
 // Warp-level projection — one yield line and one dependency entry
@@ -118,16 +122,19 @@ const projectEffectfulBody = (
 // =============================================================================
 
 const projectWarpBinding = (warp: WarpToken): Effect.Effect<Mapped> =>
-  Effect.succeed(Frame.WarpBinding({
-    name: sourced(warp.name, "identifier"),
-    tag: sourced(warp.annotation, "identifier"),
-  }))
+  Effect.succeed(
+    Frame.WarpBinding({
+      name: sourced(warp.name, 'identifier'),
+      tag: sourced(warp.annotation, 'identifier'),
+    }),
+  )
 
 const projectDependency = (warp: WarpToken): Effect.Effect<Mapped> =>
-  Effect.succeed(Frame.Dependency({
-    tag: sourced(warp.annotation, "identifier"),
-  }))
-
+  Effect.succeed(
+    Frame.Dependency({
+      tag: sourced(warp.annotation, 'identifier'),
+    }),
+  )
 
 // =============================================================================
 // AST readers — pure helpers that produce `Mapped` from input AST
@@ -139,7 +146,7 @@ const projectDependency = (warp: WarpToken): Effect.Effect<Mapped> =>
 // =============================================================================
 
 const isHashTag = (section: LoomSection): boolean =>
-  /^S_[0-9a-z]+$/.test(section.heading.tag?.label.value ?? "")
+  /^S_[0-9a-z]+$/.test(section.heading.tag?.label.value ?? '')
 
 const exportedSectionsOf = (doc: LoomDocument): ReadonlyArray<LoomSection> =>
   doc.sections.filter((s) => !isHashTag(s))
@@ -152,8 +159,8 @@ const warpsOf = (section: LoomSection): ReadonlyArray<WarpToken> =>
 
 const classNameOf = (section: LoomSection): Mapped =>
   section.heading.tag
-    ? sourced(section.heading.tag.label, "identifier")
-    : literal("")
+    ? sourced(section.heading.tag.label, 'identifier')
+    : literal('')
 
 // The heading's title is a single trimmed token — the text between
 // the marker and the first structural token. It maps back to its own
@@ -161,8 +168,8 @@ const classNameOf = (section: LoomSection): Mapped =>
 // Absent when the heading carries no title text.
 const headingTitleOf = (section: LoomSection): Mapped =>
   section.heading.title
-    ? sourced(section.heading.title, "identifier")
-    : literal("")
+    ? sourced(section.heading.title, 'identifier')
+    : literal('')
 
 // The section's preamble prose — every PreambleWeft between the
 // heading and the first transition, concatenated 1:1 (EOLs and
@@ -170,7 +177,7 @@ const headingTitleOf = (section: LoomSection): Mapped =>
 // it carries byte-for-byte rather than synthesising or trimming it,
 // so the projected `preamble` field traces back to the source prose.
 const preambleTextOf = (section: LoomSection): Mapped =>
-  concatAll(section.preamble.map((p) => sourced(p, "prose")))
+  concatAll(section.preamble.map((p) => sourced(p, 'prose')))
 
 // The section's product code is every body weft contributing
 // source up to (but excluding) the first `~` transition. An
@@ -179,14 +186,17 @@ const preambleTextOf = (section: LoomSection): Mapped =>
 // line, EOL included.
 const codeTextOf = (section: LoomSection): Mapped => {
   const stop = section.code.findIndex(
-    (w) => w.type === "TildeWeft" || w.type === "ProseWeft",
+    (w) => w.type === 'TildeWeft' || w.type === 'ProseWeft',
   )
   const body = stop < 0 ? section.code : section.code.slice(0, stop)
   return concatAll(
-    body.flatMap((w): ReadonlyArray<Mapped> =>
-      w.type === "CodeWeft" ? [sourced(w)]
-        : w.type === "ArrowWeft" && w.code ? [sourced(w.code)]
-          : [],
+    body.flatMap(
+      (w): ReadonlyArray<Mapped> =>
+        w.type === 'CodeWeft'
+          ? [sourced(w)]
+          : w.type === 'ArrowWeft' && w.code
+            ? [sourced(w.code)]
+            : [],
     ),
   )
 }

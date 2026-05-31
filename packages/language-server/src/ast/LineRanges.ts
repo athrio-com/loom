@@ -1,4 +1,4 @@
-import { Effect, Option, Stream, Data, Schema } from "effect"
+import { Effect, Option, Stream, Data, Schema } from 'effect'
 
 // =============================================================================
 // EolKind — the line terminator convention of a source file.
@@ -7,7 +7,7 @@ import { Effect, Option, Stream, Data, Schema } from "effect"
 //   "cr"   → \r      (classic Mac)
 // =============================================================================
 
-export type EolKind = "lf" | "crlf" | "cr"
+export type EolKind = 'lf' | 'crlf' | 'cr'
 
 // =============================================================================
 // Eol — detected convention plus the regexes used to walk and validate it.
@@ -36,13 +36,13 @@ type Eol = {
 // direct display.
 // =============================================================================
 
-export class MixedEOL extends Data.TaggedError("MixedEOL")<{
+export class MixedEOL extends Data.TaggedError('MixedEOL')<{
   readonly primary: EolKind
   readonly found: EolKind
   readonly offset: number
   readonly primaryLine: number
   readonly foundLine: number
-}> { }
+}> {}
 
 // =============================================================================
 // detectEol — which terminator convention does this source use?
@@ -52,25 +52,25 @@ export class MixedEOL extends Data.TaggedError("MixedEOL")<{
 // =============================================================================
 
 export const detectEol = (s: string): Option.Option<Eol> => {
-  const lf = s.indexOf("\n")
-  const cr = s.indexOf("\r")
+  const lf = s.indexOf('\n')
+  const cr = s.indexOf('\r')
   if (lf < 0 && cr < 0) return Option.none()
-  if (cr < 0) return Option.some(eolOf("lf"))
-  if (lf < 0) return Option.some(eolOf("cr"))
+  if (cr < 0) return Option.some(eolOf('lf'))
+  if (lf < 0) return Option.some(eolOf('cr'))
   return cr < lf
     ? cr + 1 === lf
-      ? Option.some(eolOf("crlf"))
-      : Option.some(eolOf("cr"))
-    : Option.some(eolOf("lf"))
+      ? Option.some(eolOf('crlf'))
+      : Option.some(eolOf('cr'))
+    : Option.some(eolOf('lf'))
 }
 
 const eolOf = (kind: EolKind): Eol => {
   switch (kind) {
-    case "lf":
+    case 'lf':
       return { kind, pattern: /\n/g, stray: /\r/g }
-    case "crlf":
+    case 'crlf':
       return { kind, pattern: /\r\n/g, stray: /(?<!\r)\n|\r(?!\n)/g }
-    case "cr":
+    case 'cr':
       return { kind, pattern: /\r/g, stray: /\n/g }
   }
 }
@@ -89,13 +89,15 @@ const checkMixed = (text: string, eol: Eol): Effect.Effect<Eol, MixedEOL> => {
   eol.pattern.lastIndex = 0
   const primary = eol.pattern.exec(text)
   const primaryOffset = primary ? primary.index : 0
-  return Effect.fail(new MixedEOL({
-    primary: eol.kind,
-    found: strayKind(eol.kind, stray[0]),
-    offset: stray.index,
-    primaryLine: lineOfOffset(text, primaryOffset),
-    foundLine: lineOfOffset(text, stray.index),
-  }))
+  return Effect.fail(
+    new MixedEOL({
+      primary: eol.kind,
+      found: strayKind(eol.kind, stray[0]),
+      offset: stray.index,
+      primaryLine: lineOfOffset(text, primaryOffset),
+      foundLine: lineOfOffset(text, stray.index),
+    }),
+  )
 }
 
 // =============================================================================
@@ -119,9 +121,9 @@ const lineOfOffset = (text: string, offset: number): number => {
 }
 
 const strayKind = (primary: EolKind, match: string): EolKind => {
-  if (match === "\r\n") return "crlf"
-  if (match === "\n") return "lf"
-  if (match === "\r") return "cr"
+  if (match === '\r\n') return 'crlf'
+  if (match === '\n') return 'lf'
+  if (match === '\r') return 'cr'
   // Unreachable: `stray` regex only matches one of \n, \r, or \r\n.
   return primary
 }
@@ -146,7 +148,10 @@ export type LineRange = readonly [start: number, end: number]
 // re-checked at the schema boundary.
 // =============================================================================
 
-const NonNegativeInt = Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0))
+const NonNegativeInt = Schema.Number.pipe(
+  Schema.int(),
+  Schema.greaterThanOrEqualTo(0),
+)
 
 export const LineRangeSchema = Schema.Tuple(NonNegativeInt, NonNegativeInt)
 
@@ -164,7 +169,10 @@ const lineRanges = (text: string, eol: Eol): Stream.Stream<LineRange> =>
     eol.pattern.lastIndex = from
     const m = eol.pattern.exec(text)
     if (!m) return Option.some([[from, text.length] as const, text.length + 1])
-    return Option.some([[from, eol.pattern.lastIndex] as const, eol.pattern.lastIndex])
+    return Option.some([
+      [from, eol.pattern.lastIndex] as const,
+      eol.pattern.lastIndex,
+    ])
   })
 
 // =============================================================================
@@ -180,10 +188,12 @@ const lineRanges = (text: string, eol: Eol): Stream.Stream<LineRange> =>
 // =============================================================================
 
 export class LoomSourceRanges extends Effect.Service<LoomSourceRanges>()(
-  "LoomSourceRanges",
+  'LoomSourceRanges',
   {
     succeed: {
-      stream: (text: string): Effect.Effect<Stream.Stream<LineRange>, MixedEOL> =>
+      stream: (
+        text: string,
+      ): Effect.Effect<Stream.Stream<LineRange>, MixedEOL> =>
         Option.match(detectEol(text), {
           onNone: () => Effect.succeed(Stream.make([0, text.length] as const)),
           onSome: (eol) =>
@@ -193,4 +203,4 @@ export class LoomSourceRanges extends Effect.Service<LoomSourceRanges>()(
         }),
     },
   },
-) { }
+) {}

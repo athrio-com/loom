@@ -1,4 +1,4 @@
-import { Schema } from "effect"
+import { Schema } from 'effect'
 
 // =============================================================================
 // LoomNode — the foundation layer shared by Tokens (leaf nodes) and
@@ -32,7 +32,7 @@ import { Schema } from "effect"
 export const PointSchema = Schema.Struct({
   line: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)),
   column: Schema.optional(
-    Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1))
+    Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)),
   ),
   offset: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0)),
 })
@@ -49,7 +49,7 @@ export type Position = typeof PositionSchema.Type
 // diagnostics keep health.status === "ok".
 // =============================================================================
 
-export const SeveritySchema = Schema.Literal("error", "warning", "info")
+export const SeveritySchema = Schema.Literal('error', 'warning', 'info')
 export type Severity = typeof SeveritySchema.Type
 
 // =============================================================================
@@ -74,7 +74,12 @@ export type Diagnostic = typeof DiagnosticSchema.Type
 // is not yet a finished claim. A consumer reading an "incomplete" node should
 // not trust missing fields; a consumer reading "ok" / "error" / "warning"
 // should treat the node as structurally final.
-export const HealthStatusSchema = Schema.Literal("ok", "error", "warning", "incomplete")
+export const HealthStatusSchema = Schema.Literal(
+  'ok',
+  'error',
+  'warning',
+  'incomplete',
+)
 export type HealthStatus = typeof HealthStatusSchema.Type
 
 export const HealthSchema = Schema.Struct({
@@ -85,13 +90,16 @@ export type Health = typeof HealthSchema.Type
 
 // The canonical "no problems" health value — `status: "ok"` with no
 // diagnostics. Shared singleton for nodes with nothing to report.
-export const okHealth: Health = { status: "ok", diagnostics: [] }
+export const okHealth: Health = { status: 'ok', diagnostics: [] }
 
 // The canonical "Classifier-Stage partial" health value — required fields
 // not yet filled, no diagnostics raised. The Tokeniser fills the subnodes
 // from source and flips the status to `ok` (or `error` if validation
 // surfaces a problem).
-export const incompleteHealth: Health = { status: "incomplete", diagnostics: [] }
+export const incompleteHealth: Health = {
+  status: 'incomplete',
+  diagnostics: [],
+}
 
 // =============================================================================
 // UnexpectedToken — positional marker for structural anomalies (orphan
@@ -102,9 +110,9 @@ export const incompleteHealth: Health = { status: "incomplete", diagnostics: [] 
 // =============================================================================
 
 export const UnexpectedTokenSchema = Schema.Struct({
-  type: Schema.Literal("UnexpectedToken").pipe(
+  type: Schema.Literal('UnexpectedToken').pipe(
     Schema.propertySignature,
-    Schema.withConstructorDefault(() => "UnexpectedToken" as const),
+    Schema.withConstructorDefault(() => 'UnexpectedToken' as const),
   ),
   position: PositionSchema,
   value: Schema.String,
@@ -138,14 +146,18 @@ export type UnexpectedToken = typeof UnexpectedTokenSchema.Type
 export const loomNode = <
   Tag extends string,
   Fields extends Schema.Struct.Fields,
->(tag: Tag, fields: Fields) => Schema.Struct({
-  type: Schema.Literal(tag).pipe(
-    Schema.propertySignature,
-    Schema.withConstructorDefault(() => tag),
-  ),
-  position: PositionSchema,
-  source: Schema.String,
-  health: HealthSchema,
-  unexpected: Schema.optional(Schema.Array(UnexpectedTokenSchema)),
-  ...fields,
-})
+>(
+  tag: Tag,
+  fields: Fields,
+) =>
+  Schema.Struct({
+    type: Schema.Literal(tag).pipe(
+      Schema.propertySignature,
+      Schema.withConstructorDefault(() => tag),
+    ),
+    position: PositionSchema,
+    source: Schema.String,
+    health: HealthSchema,
+    unexpected: Schema.optional(Schema.Array(UnexpectedTokenSchema)),
+    ...fields,
+  })

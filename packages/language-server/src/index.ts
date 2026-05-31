@@ -1,14 +1,14 @@
-import { Effect } from "effect"
-import { NodeRuntime } from "@effect/platform-node"
+import { Effect } from 'effect'
+import { NodeRuntime } from '@effect/platform-node'
 import {
   createConnection,
   createServer,
   createSimpleProject,
-} from "@volar/language-server/node"
-import { create as createHtmlService } from "volar-service-html"
-import { create as createCssService } from "volar-service-css"
-import { create as createMarkdownService } from "volar-service-markdown"
-import { loomLanguagePlugin } from "./LoomLanguagePlugin"
+} from '@volar/language-server/node'
+import { create as createHtmlService } from 'volar-service-html'
+import { create as createCssService } from 'volar-service-css'
+import { create as createMarkdownService } from 'volar-service-markdown'
+import { loomLanguagePlugin } from './LoomLanguagePlugin'
 
 // =============================================================================
 // LSP entry point — an Effect program launched via `NodeRuntime.runMain`.
@@ -25,11 +25,11 @@ const program = Effect.gen(function* () {
   const server = createServer(connection)
 
   connection.onInitialize((params) =>
-    server.initialize(
-      params,
-      createSimpleProject([loomLanguagePlugin]),
-      [createHtmlService(), createCssService(), createMarkdownService()],
-    ),
+    server.initialize(params, createSimpleProject([loomLanguagePlugin]), [
+      createHtmlService(),
+      createCssService(),
+      createMarkdownService(),
+    ]),
   )
   connection.onInitialized(server.initialized)
   connection.onShutdown(server.shutdown)

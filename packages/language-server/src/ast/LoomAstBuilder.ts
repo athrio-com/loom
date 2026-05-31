@@ -1,4 +1,13 @@
-import { Chunk, Effect, Function, Match, Option, Sink, Stream, pipe } from "effect"
+import {
+  Chunk,
+  Effect,
+  Function,
+  Match,
+  Option,
+  Sink,
+  Stream,
+  pipe,
+} from 'effect'
 import {
   LoomDocumentSchema,
   LoomHeadingSchema,
@@ -6,14 +15,14 @@ import {
   type LoomDocument,
   type LoomHeading,
   type LoomSection,
-} from "./LoomAst"
-import { okHealth, type Health, type Position } from "./LoomNode"
+} from './LoomAst'
+import { okHealth, type Health, type Position } from './LoomNode'
 import type {
   HeadingWeft,
   LoomWeft,
   PreambleWeft,
   SectionBodyWeft,
-} from "./Weft"
+} from './Weft'
 
 // =============================================================================
 // LoomAstBuilder — final stage of the parse pipeline.
@@ -36,7 +45,7 @@ import type {
 // =============================================================================
 
 export class LoomAstBuilder extends Effect.Service<LoomAstBuilder>()(
-  "LoomAstBuilder",
+  'LoomAstBuilder',
   {
     succeed: {
       build: (source: Stream.Stream<LoomWeft>): Effect.Effect<LoomDocument> =>
@@ -48,7 +57,7 @@ export class LoomAstBuilder extends Effect.Service<LoomAstBuilder>()(
         ),
     },
   },
-) { }
+) {}
 
 // =============================================================================
 // parsingSink — the only shared abstraction. Peels one input element,
@@ -74,16 +83,15 @@ const parsingSink = <In, A>(
 // Predicates.
 // =============================================================================
 
-const isHeading = (w: LoomWeft): w is HeadingWeft => w.type === "HeadingWeft"
+const isHeading = (w: LoomWeft): w is HeadingWeft => w.type === 'HeadingWeft'
 
 const isSectionBody = (w: LoomWeft): w is SectionBodyWeft =>
-  w.type === "ArrowWeft" ||
-  w.type === "CodeWeft" ||
-  w.type === "TildeWeft" ||
-  w.type === "ProseWeft"
+  w.type === 'ArrowWeft' ||
+  w.type === 'CodeWeft' ||
+  w.type === 'TildeWeft' ||
+  w.type === 'ProseWeft'
 
-const isPreamble = (w: LoomWeft): w is PreambleWeft =>
-  w.type === "PreambleWeft"
+const isPreamble = (w: LoomWeft): w is PreambleWeft => w.type === 'PreambleWeft'
 
 // =============================================================================
 // TopLevelNode — the element type of the routing fold. A pre-heading
@@ -105,15 +113,19 @@ type TopLevelNode = PreambleWeft | LoomSection
 
 const nodeSink = parsingSink<LoomWeft, TopLevelNode>((w) => dispatchNode(w))
 
-const dispatchNode = (w: LoomWeft): Sink.Sink<TopLevelNode, LoomWeft, LoomWeft> =>
+const dispatchNode = (
+  w: LoomWeft,
+): Sink.Sink<TopLevelNode, LoomWeft, LoomWeft> =>
   pipe(
     Match.value(w),
-    Match.when({ type: "HeadingWeft" }, sectionSink),
-    Match.when({ type: "PreambleWeft" }, (weft) => Sink.succeed<TopLevelNode>(weft)),
-    Match.when({ type: "ArrowWeft" }, unexpectedAtTop),
-    Match.when({ type: "CodeWeft" }, unexpectedAtTop),
-    Match.when({ type: "TildeWeft" }, unexpectedAtTop),
-    Match.when({ type: "ProseWeft" }, unexpectedAtTop),
+    Match.when({ type: 'HeadingWeft' }, sectionSink),
+    Match.when({ type: 'PreambleWeft' }, (weft) =>
+      Sink.succeed<TopLevelNode>(weft),
+    ),
+    Match.when({ type: 'ArrowWeft' }, unexpectedAtTop),
+    Match.when({ type: 'CodeWeft' }, unexpectedAtTop),
+    Match.when({ type: 'TildeWeft' }, unexpectedAtTop),
+    Match.when({ type: 'ProseWeft' }, unexpectedAtTop),
     Match.exhaustive,
   )
 
@@ -152,11 +164,11 @@ const appendToDocument = (
 ): DocumentBuilder =>
   pipe(
     Match.value(node),
-    Match.when({ type: "LoomSection" }, (section) => ({
+    Match.when({ type: 'LoomSection' }, (section) => ({
       ...doc,
       sections: [...doc.sections, section],
     })),
-    Match.when({ type: "PreambleWeft" }, (weft) => ({
+    Match.when({ type: 'PreambleWeft' }, (weft) => ({
       ...doc,
       preamble: [...doc.preamble, weft],
     })),
@@ -202,14 +214,13 @@ const headingOf = (weft: HeadingWeft): LoomHeading =>
 // reconstructs the original byte range the container spans.
 const sourceOf = (
   ...groups: ReadonlyArray<
-    { readonly source: string }
-    | ReadonlyArray<{ readonly source: string }>
+    { readonly source: string } | ReadonlyArray<{ readonly source: string }>
   >
 ): string =>
   groups
     .flatMap((g) => (Array.isArray(g) ? g : [g as { readonly source: string }]))
     .map((n) => n.source)
-    .join("")
+    .join('')
 
 // =============================================================================
 // Position derivation. `spanFrom` takes the heading position and any number of
@@ -225,9 +236,7 @@ const spanFrom = (
   return {
     start: headingPos.start,
     end:
-      flat.length === 0
-        ? headingPos.end
-        : flat[flat.length - 1].position.end,
+      flat.length === 0 ? headingPos.end : flat[flat.length - 1].position.end,
   }
 }
 
@@ -248,19 +257,21 @@ const documentSpan = (db: DocumentBuilder): Position => {
 }
 
 const hasLangWarp = (preamble: ReadonlyArray<PreambleWeft>): boolean =>
-  preamble.some((weft) => weft.warps.some((warp) => warp.name.value === "lang"))
+  preamble.some((weft) => weft.warps.some((warp) => warp.name.value === 'lang'))
 
 const documentHealth = (db: DocumentBuilder, position: Position): Health =>
   hasLangWarp(db.preamble)
     ? okHealth
     : {
-        status: "warning",
-        diagnostics: [{
-          message:
-            "No `{{lang: …}}` declaration in the Document Preamble; the primary language is unknown.",
-          position: { start: position.start, end: position.start },
-          severity: "warning",
-        }],
+        status: 'warning',
+        diagnostics: [
+          {
+            message:
+              'No `{{lang: …}}` declaration in the Document Preamble; the primary language is unknown.',
+            position: { start: position.start, end: position.start },
+            severity: 'warning',
+          },
+        ],
       }
 
 const makeDocument = (db: DocumentBuilder): LoomDocument => {

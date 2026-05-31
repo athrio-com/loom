@@ -1,6 +1,6 @@
-import { describe, expect, it } from "@effect/vitest"
-import { Chunk, Effect, Stream } from "effect"
-import { LoomSourceRanges, MixedEOL, type LineRange } from "#ast/LineRanges"
+import { describe, expect, it } from '@effect/vitest'
+import { Chunk, Effect, Stream } from 'effect'
+import { LoomSourceRanges, MixedEOL, type LineRange } from '#ast/LineRanges'
 
 // =============================================================================
 // collect — helper that resolves the LoomSourceRanges service, opens a stream
@@ -28,10 +28,10 @@ const collect = (text: string) =>
 // further down.
 // =============================================================================
 
-describe("StreamLineRanges — range correctness", () => {
-  it.effect("LF, multiple lines", () =>
+describe('StreamLineRanges — range correctness', () => {
+  it.effect('LF, multiple lines', () =>
     Effect.gen(function* () {
-      const ranges = yield* collect("line1\nline2\nline3")
+      const ranges = yield* collect('line1\nline2\nline3')
       expect(ranges).toEqual<ReadonlyArray<LineRange>>([
         [0, 6],
         [6, 12],
@@ -40,9 +40,9 @@ describe("StreamLineRanges — range correctness", () => {
     }).pipe(Effect.provide(LoomSourceRanges.Default)),
   )
 
-  it.effect("CRLF, multiple lines", () =>
+  it.effect('CRLF, multiple lines', () =>
     Effect.gen(function* () {
-      const ranges = yield* collect("line1\r\nline2\r\nline3")
+      const ranges = yield* collect('line1\r\nline2\r\nline3')
       expect(ranges).toEqual<ReadonlyArray<LineRange>>([
         [0, 7],
         [7, 14],
@@ -51,9 +51,9 @@ describe("StreamLineRanges — range correctness", () => {
     }).pipe(Effect.provide(LoomSourceRanges.Default)),
   )
 
-  it.effect("CR-only (classic Mac)", () =>
+  it.effect('CR-only (classic Mac)', () =>
     Effect.gen(function* () {
-      const ranges = yield* collect("a\rb\rc")
+      const ranges = yield* collect('a\rb\rc')
       expect(ranges).toEqual<ReadonlyArray<LineRange>>([
         [0, 2],
         [2, 4],
@@ -66,9 +66,9 @@ describe("StreamLineRanges — range correctness", () => {
   // This isn't an accident — it represents the "empty final line" that text
   // editors show after a trailing newline, and downstream stages can rely on
   // its presence when computing positions past the last terminator.
-  it.effect("trailing terminator emits a final empty range", () =>
+  it.effect('trailing terminator emits a final empty range', () =>
     Effect.gen(function* () {
-      const ranges = yield* collect("hello\n")
+      const ranges = yield* collect('hello\n')
       expect(ranges).toEqual<ReadonlyArray<LineRange>>([
         [0, 6],
         [6, 6],
@@ -78,25 +78,25 @@ describe("StreamLineRanges — range correctness", () => {
 
   // No terminator anywhere → detectEol returns None and the service short-
   // circuits to a single range covering the whole text. checkMixed is skipped.
-  it.effect("single line, no terminator", () =>
+  it.effect('single line, no terminator', () =>
     Effect.gen(function* () {
-      const ranges = yield* collect("hello")
+      const ranges = yield* collect('hello')
       expect(ranges).toEqual<ReadonlyArray<LineRange>>([[0, 5]])
     }).pipe(Effect.provide(LoomSourceRanges.Default)),
   )
 
   // Same None branch as above; the lone range collapses to [0, 0]. Important
   // because consumers should never see a zero-element stream, even for "".
-  it.effect("empty input", () =>
+  it.effect('empty input', () =>
     Effect.gen(function* () {
-      const ranges = yield* collect("")
+      const ranges = yield* collect('')
       expect(ranges).toEqual<ReadonlyArray<LineRange>>([[0, 0]])
     }).pipe(Effect.provide(LoomSourceRanges.Default)),
   )
 
-  it.effect("consecutive blank lines", () =>
+  it.effect('consecutive blank lines', () =>
     Effect.gen(function* () {
-      const ranges = yield* collect("a\n\n\nb")
+      const ranges = yield* collect('a\n\n\nb')
       expect(ranges).toEqual<ReadonlyArray<LineRange>>([
         [0, 2],
         [2, 3],
@@ -106,9 +106,9 @@ describe("StreamLineRanges — range correctness", () => {
     }).pipe(Effect.provide(LoomSourceRanges.Default)),
   )
 
-  it.effect("only a terminator", () =>
+  it.effect('only a terminator', () =>
     Effect.gen(function* () {
-      const ranges = yield* collect("\n")
+      const ranges = yield* collect('\n')
       expect(ranges).toEqual<ReadonlyArray<LineRange>>([
         [0, 1],
         [1, 1],
@@ -127,14 +127,14 @@ describe("StreamLineRanges — range correctness", () => {
 // match the `\n` inside `\r\n` and report a false mix.
 // =============================================================================
 
-describe("StreamLineRanges — EOL convention & MixedEOL", () => {
-  it.effect("LF primary, stray CR fails", () =>
+describe('StreamLineRanges — EOL convention & MixedEOL', () => {
+  it.effect('LF primary, stray CR fails', () =>
     Effect.gen(function* () {
-      const result = yield* Effect.flip(collect("a\nb\rc"))
+      const result = yield* Effect.flip(collect('a\nb\rc'))
       expect(result).toBeInstanceOf(MixedEOL)
       expect(result).toMatchObject({
-        primary: "lf",
-        found: "cr",
+        primary: 'lf',
+        found: 'cr',
         offset: 3,
         primaryLine: 1,
         foundLine: 2,
@@ -142,13 +142,13 @@ describe("StreamLineRanges — EOL convention & MixedEOL", () => {
     }).pipe(Effect.provide(LoomSourceRanges.Default)),
   )
 
-  it.effect("CRLF primary, bare LF fails", () =>
+  it.effect('CRLF primary, bare LF fails', () =>
     Effect.gen(function* () {
-      const result = yield* Effect.flip(collect("a\r\nb\nc"))
+      const result = yield* Effect.flip(collect('a\r\nb\nc'))
       expect(result).toBeInstanceOf(MixedEOL)
       expect(result).toMatchObject({
-        primary: "crlf",
-        found: "lf",
+        primary: 'crlf',
+        found: 'lf',
         offset: 4,
         primaryLine: 1,
         foundLine: 2,
@@ -156,13 +156,13 @@ describe("StreamLineRanges — EOL convention & MixedEOL", () => {
     }).pipe(Effect.provide(LoomSourceRanges.Default)),
   )
 
-  it.effect("CRLF primary, bare CR fails", () =>
+  it.effect('CRLF primary, bare CR fails', () =>
     Effect.gen(function* () {
-      const result = yield* Effect.flip(collect("a\r\nb\rc"))
+      const result = yield* Effect.flip(collect('a\r\nb\rc'))
       expect(result).toBeInstanceOf(MixedEOL)
       expect(result).toMatchObject({
-        primary: "crlf",
-        found: "cr",
+        primary: 'crlf',
+        found: 'cr',
         offset: 4,
         primaryLine: 1,
         foundLine: 2,
@@ -170,13 +170,13 @@ describe("StreamLineRanges — EOL convention & MixedEOL", () => {
     }).pipe(Effect.provide(LoomSourceRanges.Default)),
   )
 
-  it.effect("CR primary, stray LF fails", () =>
+  it.effect('CR primary, stray LF fails', () =>
     Effect.gen(function* () {
-      const result = yield* Effect.flip(collect("a\rb\nc"))
+      const result = yield* Effect.flip(collect('a\rb\nc'))
       expect(result).toBeInstanceOf(MixedEOL)
       expect(result).toMatchObject({
-        primary: "cr",
-        found: "lf",
+        primary: 'cr',
+        found: 'lf',
         offset: 3,
         primaryLine: 1,
         foundLine: 2,
@@ -185,13 +185,13 @@ describe("StreamLineRanges — EOL convention & MixedEOL", () => {
   )
 
   // Stray on a later line — multi-line guard for lineOfOffset.
-  it.effect("LF primary, stray CR on line 3", () =>
+  it.effect('LF primary, stray CR on line 3', () =>
     Effect.gen(function* () {
-      const result = yield* Effect.flip(collect("a\nb\nc\rd"))
+      const result = yield* Effect.flip(collect('a\nb\nc\rd'))
       expect(result).toBeInstanceOf(MixedEOL)
       expect(result).toMatchObject({
-        primary: "lf",
-        found: "cr",
+        primary: 'lf',
+        found: 'cr',
         primaryLine: 1,
         foundLine: 3,
       })
@@ -201,9 +201,9 @@ describe("StreamLineRanges — EOL convention & MixedEOL", () => {
   // Regression guard: the CRLF stray regex uses negative look-around so the
   // `\n` inside `\r\n` and the `\r` inside `\r\n` are NOT flagged as stray.
   // Without that, every pure-CRLF file would falsely report MixedEOL.
-  it.effect("pure CRLF is not flagged as mixed", () =>
+  it.effect('pure CRLF is not flagged as mixed', () =>
     Effect.gen(function* () {
-      const ranges = yield* collect("a\r\nb\r\nc")
+      const ranges = yield* collect('a\r\nb\r\nc')
       expect(ranges).toEqual<ReadonlyArray<LineRange>>([
         [0, 3],
         [3, 6],
@@ -232,17 +232,17 @@ describe("StreamLineRanges — EOL convention & MixedEOL", () => {
 // `corpus` is automatically exercised by all three.
 // =============================================================================
 
-describe("StreamLineRanges — structural invariants", () => {
+describe('StreamLineRanges — structural invariants', () => {
   const corpus: ReadonlyArray<string> = [
-    "",
-    "hello",
-    "hello\n",
-    "\n",
-    "line1\nline2\nline3",
-    "a\n\n\nb",
-    "line1\r\nline2\r\nline3",
-    "a\rb\rc",
-    "# Heading [Tag]\n\nProse line.\n\n=>\nconst x = 1\n",
+    '',
+    'hello',
+    'hello\n',
+    '\n',
+    'line1\nline2\nline3',
+    'a\n\n\nb',
+    'line1\r\nline2\r\nline3',
+    'a\rb\rc',
+    '# Heading [Tag]\n\nProse line.\n\n=>\nconst x = 1\n',
   ]
 
   for (const text of corpus) {
@@ -250,27 +250,31 @@ describe("StreamLineRanges — structural invariants", () => {
     it.effect(`round-trip: slices concatenate to the source (${label})`, () =>
       Effect.gen(function* () {
         const ranges = yield* collect(text)
-        const rejoined = ranges.map(([s, e]) => text.slice(s, e)).join("")
+        const rejoined = ranges.map(([s, e]) => text.slice(s, e)).join('')
         expect(rejoined).toBe(text)
       }).pipe(Effect.provide(LoomSourceRanges.Default)),
     )
 
-    it.effect(`contiguity: every range.end === next range.start (${label})`, () =>
-      Effect.gen(function* () {
-        const ranges = yield* collect(text)
-        for (let i = 1; i < ranges.length; i++) {
-          expect(ranges[i][0]).toBe(ranges[i - 1][1])
-        }
-      }).pipe(Effect.provide(LoomSourceRanges.Default)),
+    it.effect(
+      `contiguity: every range.end === next range.start (${label})`,
+      () =>
+        Effect.gen(function* () {
+          const ranges = yield* collect(text)
+          for (let i = 1; i < ranges.length; i++) {
+            expect(ranges[i][0]).toBe(ranges[i - 1][1])
+          }
+        }).pipe(Effect.provide(LoomSourceRanges.Default)),
     )
 
-    it.effect(`spans the source: first.start=0, last.end=text.length (${label})`, () =>
-      Effect.gen(function* () {
-        const ranges = yield* collect(text)
-        expect(ranges.length).toBeGreaterThan(0)
-        expect(ranges[0][0]).toBe(0)
-        expect(ranges[ranges.length - 1][1]).toBe(text.length)
-      }).pipe(Effect.provide(LoomSourceRanges.Default)),
+    it.effect(
+      `spans the source: first.start=0, last.end=text.length (${label})`,
+      () =>
+        Effect.gen(function* () {
+          const ranges = yield* collect(text)
+          expect(ranges.length).toBeGreaterThan(0)
+          expect(ranges[0][0]).toBe(0)
+          expect(ranges[ranges.length - 1][1]).toBe(text.length)
+        }).pipe(Effect.provide(LoomSourceRanges.Default)),
     )
   }
 })
@@ -294,14 +298,18 @@ describe("StreamLineRanges — structural invariants", () => {
 //                    returning an array, the call sites break here.
 // =============================================================================
 
-describe("StreamLineRanges — streaming behavior", () => {
-  it.effect("laziness: Stream.take(n) does not pull the whole source", () =>
+describe('StreamLineRanges — streaming behavior', () => {
+  it.effect('laziness: Stream.take(n) does not pull the whole source', () =>
     Effect.gen(function* () {
       const ss = yield* LoomSourceRanges
-      const stream = yield* ss.stream("a\nb\nc\nd\ne")
+      const stream = yield* ss.stream('a\nb\nc\nd\ne')
       let pulls = 0
       yield* stream.pipe(
-        Stream.tap(() => Effect.sync(() => { pulls++ })),
+        Stream.tap(() =>
+          Effect.sync(() => {
+            pulls++
+          }),
+        ),
         Stream.take(2),
         Stream.runDrain,
       )
@@ -311,20 +319,22 @@ describe("StreamLineRanges — streaming behavior", () => {
     }).pipe(Effect.provide(LoomSourceRanges.Default)),
   )
 
-  it.effect("replayability: running the same Stream twice yields identical ranges", () =>
-    Effect.gen(function* () {
-      const ss = yield* LoomSourceRanges
-      const stream = yield* ss.stream("line1\nline2\nline3")
-      const a = Chunk.toReadonlyArray(yield* Stream.runCollect(stream))
-      const b = Chunk.toReadonlyArray(yield* Stream.runCollect(stream))
-      expect(a).toEqual(b)
-    }).pipe(Effect.provide(LoomSourceRanges.Default)),
+  it.effect(
+    'replayability: running the same Stream twice yields identical ranges',
+    () =>
+      Effect.gen(function* () {
+        const ss = yield* LoomSourceRanges
+        const stream = yield* ss.stream('line1\nline2\nline3')
+        const a = Chunk.toReadonlyArray(yield* Stream.runCollect(stream))
+        const b = Chunk.toReadonlyArray(yield* Stream.runCollect(stream))
+        expect(a).toEqual(b)
+      }).pipe(Effect.provide(LoomSourceRanges.Default)),
   )
 
-  it.effect("composability: operators chain through the Stream", () =>
+  it.effect('composability: operators chain through the Stream', () =>
     Effect.gen(function* () {
       const ss = yield* LoomSourceRanges
-      const stream = yield* ss.stream("a\nbb\nccc")
+      const stream = yield* ss.stream('a\nbb\nccc')
       const lengths = yield* stream.pipe(
         Stream.map(([s, e]: LineRange) => e - s),
         Stream.runCollect,

@@ -1,13 +1,13 @@
-import { Schema } from "effect"
-import { loomNode } from "./LoomNode"
+import { Schema } from 'effect'
+import { loomNode } from './LoomNode'
 import {
   HeadingStartTokenSchema,
   HeadingTitleTokenSchema,
   PathSpecifierTokenSchema,
   SpecifierTokenSchema,
   TagTokenSchema,
-} from "./LoomTokens"
-import { PreambleWeftSchema, SectionBodyWeftSchema } from "./Weft"
+} from './LoomTokens'
+import { PreambleWeftSchema, SectionBodyWeftSchema } from './Weft'
 
 // =============================================================================
 // Containers — the inner AST. Leaves (tokens and wefts) live in LoomTokens.ts
@@ -34,7 +34,7 @@ import { PreambleWeftSchema, SectionBodyWeftSchema } from "./Weft"
 // (`{Scala}`) or a path (`{src/index.ts}`, a tangle sink).
 // =============================================================================
 
-export const LoomHeadingSchema = loomNode("LoomHeading", {
+export const LoomHeadingSchema = loomNode('LoomHeading', {
   headingStart: HeadingStartTokenSchema,
   title: Schema.optional(HeadingTitleTokenSchema),
   tag: Schema.optional(TagTokenSchema),
@@ -57,7 +57,7 @@ export type LoomHeading = typeof LoomHeadingSchema.Type
 //               Valid prefixes: [], [ArrowWeft, ...], [TildeWeft, ...].
 // =============================================================================
 
-export const LoomSectionSchema = loomNode("LoomSection", {
+export const LoomSectionSchema = loomNode('LoomSection', {
   heading: LoomHeadingSchema,
   preamble: Schema.Array(PreambleWeftSchema),
   code: Schema.Array(SectionBodyWeftSchema),
@@ -77,7 +77,7 @@ export type LoomSection = typeof LoomSectionSchema.Type
 // document with both slots empty and a NOK root health.
 // =============================================================================
 
-export const LoomDocumentSchema = loomNode("LoomDocument", {
+export const LoomDocumentSchema = loomNode('LoomDocument', {
   preamble: Schema.Array(PreambleWeftSchema),
   sections: Schema.Array(LoomSectionSchema),
 })

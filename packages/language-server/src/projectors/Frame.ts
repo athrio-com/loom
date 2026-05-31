@@ -1,4 +1,4 @@
-import { m, type Mapped } from "./Mapper"
+import { m, type Mapped } from './Mapper'
 
 // =============================================================================
 // Frame — the projected Frame as static, mapping-aware templates.
@@ -26,7 +26,6 @@ import { m, type Mapped } from "./Mapper"
 // pieces glue together.
 // =============================================================================
 
-
 // --- The Document ------------------------------------------------------------
 // The top of the projection: import header, exported sections,
 // private sections, and the composition root in that order.
@@ -45,14 +44,11 @@ ${slots.privateSections}
 
 ${slots.loomMain}`
 
-
 // --- The Imports Header ------------------------------------------------------
 // Module-level imports. Constant for now; cross-file Warp
 // resolution will fold in synthesised `import type` lines later.
 
-export const Imports = (): Mapped =>
-  m`import { Effect } from "effect"`
-
+export const Imports = (): Mapped => m`import { Effect } from "effect"`
 
 // --- Exported Section --------------------------------------------------------
 // A public `Effect.Service` class — the section's `[Tag]` was
@@ -65,7 +61,6 @@ export const ExportedSection = (slots: {
 }): Mapped =>
   m`export class ${slots.className} extends Effect.Service<${slots.className}>()("${slots.className}", ${slots.body}) {}`
 
-
 // --- Private Section ---------------------------------------------------------
 // A private `Effect.Service` class — the section's tag is
 // hash-synthesised by the Tokeniser, so the class is unexported and
@@ -77,7 +72,6 @@ export const PrivateSection = (slots: {
 }): Mapped =>
   m`class ${slots.className} extends Effect.Service<${slots.className}>()("${slots.className}", ${slots.body}) {}`
 
-
 // --- Static Body -------------------------------------------------------------
 // The Service body when the section's preamble carries no Warps.
 
@@ -87,7 +81,6 @@ export const StaticBody = (slots: {
   readonly code: Mapped
 }): Mapped =>
   m`{ succeed: { name: \`${slots.name}\`, preamble: \`${slots.preamble}\`, code: \`${slots.code}\` } }`
-
 
 // --- Effectful Body ----------------------------------------------------------
 // The Service body when the section's preamble declares one or
@@ -110,21 +103,16 @@ export const EffectfulBody = (slots: {
   dependencies: [${slots.dependencies}],
 }`
 
-
 // --- Warp Binding ------------------------------------------------------------
 // One `yield*` line inside an `EffectfulBody`.
 
 export const WarpBinding = (slots: {
   readonly name: Mapped
   readonly tag: Mapped
-}): Mapped =>
-  m`const ${slots.name} = yield* ${slots.tag}`
-
+}): Mapped => m`const ${slots.name} = yield* ${slots.tag}`
 
 // --- Dependency --------------------------------------------------------------
 // One entry in an `EffectfulBody`'s dependencies list.
 
-export const Dependency = (slots: {
-  readonly tag: Mapped
-}): Mapped =>
+export const Dependency = (slots: { readonly tag: Mapped }): Mapped =>
   m`${slots.tag}.Default`

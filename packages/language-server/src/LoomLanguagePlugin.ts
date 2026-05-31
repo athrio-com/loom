@@ -1,6 +1,6 @@
-import type { LanguagePlugin, VirtualCode } from "@volar/language-core"
-import type { URI } from "vscode-uri"
-import type * as ts from "typescript"
+import type { LanguagePlugin, VirtualCode } from '@volar/language-core'
+import type { URI } from 'vscode-uri'
+import type * as ts from 'typescript'
 
 // =============================================================================
 // loomLanguagePlugin — three pure functions Volar dispatches:
@@ -15,10 +15,10 @@ import type * as ts from "typescript"
 
 export const loomLanguagePlugin: LanguagePlugin<URI> = {
   getLanguageId(uri) {
-    if (uri.path.endsWith(".loom")) return "loom"
+    if (uri.path.endsWith('.loom')) return 'loom'
   },
   createVirtualCode(_uri, languageId, snapshot) {
-    if (languageId === "loom") return buildVirtualCode(snapshot)
+    if (languageId === 'loom') return buildVirtualCode(snapshot)
   },
   updateVirtualCode(_uri, _old, snapshot) {
     return buildVirtualCode(snapshot)
@@ -26,8 +26,8 @@ export const loomLanguagePlugin: LanguagePlugin<URI> = {
 }
 
 const buildVirtualCode = (snapshot: ts.IScriptSnapshot): VirtualCode => ({
-  id: "root",
-  languageId: "loom",
+  id: 'root',
+  languageId: 'loom',
   snapshot,
   mappings: [],
   embeddedCodes: [],

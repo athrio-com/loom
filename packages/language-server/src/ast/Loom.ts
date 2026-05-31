@@ -1,10 +1,10 @@
-import { Effect, pipe } from "effect"
-import type { LoomDocument } from "./LoomAst"
-import type { Health, Position } from "./LoomNode"
-import { LoomSourceRanges, type MixedEOL } from "./LineRanges"
-import { WeftClassifier } from "./WeftClassifier"
-import { WeftTokeniser } from "./WeftTokeniser"
-import { LoomAstBuilder } from "./LoomAstBuilder"
+import { Effect, pipe } from 'effect'
+import type { LoomDocument } from './LoomAst'
+import type { Health, Position } from './LoomNode'
+import { LoomSourceRanges, type MixedEOL } from './LineRanges'
+import { WeftClassifier } from './WeftClassifier'
+import { WeftTokeniser } from './WeftTokeniser'
+import { LoomAstBuilder } from './LoomAstBuilder'
 
 // =============================================================================
 // Loom — the single entry point that turns raw source text into a
@@ -25,7 +25,7 @@ import { LoomAstBuilder } from "./LoomAstBuilder"
 // where `health.status !== "ok"`.
 // =============================================================================
 
-export class Loom extends Effect.Service<Loom>()("Loom", {
+export class Loom extends Effect.Service<Loom>()('Loom', {
   dependencies: [
     LoomSourceRanges.Default,
     WeftClassifier.Default,
@@ -44,22 +44,23 @@ export class Loom extends Effect.Service<Loom>()("Loom", {
       // structural problems live in node-level `health` fields.
       ast: (text: string): Effect.Effect<LoomDocument> =>
         source.stream(text).pipe(
-          Effect.flatMap((sourceRanges) => pipe(
-            sourceRanges,
-            classify.classifyWefts(text),  // Stream<LineRange> → Stream<LoomWeft>
-            tokenise.tokeniseWefts(text),  // Stream<LoomWeft>  → Stream<LoomWeft>
-            document.build,                // Stream<LoomWeft>  → Effect<LoomDocument>
-          )),
+          Effect.flatMap((sourceRanges) =>
+            pipe(
+              sourceRanges,
+              classify.classifyWefts(text), // Stream<LineRange> → Stream<LoomWeft>
+              tokenise.tokeniseWefts(text), // Stream<LoomWeft>  → Stream<LoomWeft>
+              document.build, // Stream<LoomWeft>  → Effect<LoomDocument>
+            ),
+          ),
           // Short-circuit on mixed terminators: pipeline never runs; recover
           // with an empty document whose root health carries the diagnostic.
-          Effect.catchTag("MixedEOL", (err) =>
-            Effect.succeed(emptyDocumentFor(text, err))
+          Effect.catchTag('MixedEOL', (err) =>
+            Effect.succeed(emptyDocumentFor(text, err)),
           ),
         ),
     }
   }),
-}) { }
-
+}) {}
 
 // =============================================================================
 // emptyDocumentFor — the LoomDocument returned when `MixedEOL` short-circuits
@@ -74,17 +75,17 @@ const emptyDocumentFor = (text: string, err: MixedEOL): LoomDocument => {
     end: { line: 1, offset: text.length },
   }
   const rootHealth: Health = {
-    status: "error",
+    status: 'error',
     diagnostics: [
       {
         message: `Mixed line terminators. Line ${err.primaryLine} has ${eolName(err.primary)}, but line ${err.foundLine} has ${eolName(err.found)}. Pick one and stick with it.`,
         position: docPosition,
-        severity: "error",
+        severity: 'error',
       },
     ],
   }
   return {
-    type: "LoomDocument",
+    type: 'LoomDocument',
     position: docPosition,
     source: text,
     health: rootHealth,
@@ -93,10 +94,13 @@ const emptyDocumentFor = (text: string, err: MixedEOL): LoomDocument => {
   }
 }
 
-const eolName = (kind: "lf" | "crlf" | "cr"): string => {
+const eolName = (kind: 'lf' | 'crlf' | 'cr'): string => {
   switch (kind) {
-    case "lf":   return "LF (Unix)"
-    case "crlf": return "CRLF (Windows)"
-    case "cr":   return "CR (classic Mac)"
+    case 'lf':
+      return 'LF (Unix)'
+    case 'crlf':
+      return 'CRLF (Windows)'
+    case 'cr':
+      return 'CR (classic Mac)'
   }
 }

@@ -8,13 +8,9 @@
     "skipLibCheck": true,
     "sourceMap": true,
     "noEmit": true,
-    "types": [
-      "node"
-    ],
+    "types": ["node"],
     "paths": {
-      "@literate/core": [
-        "./src/core.ts"
-      ]
+      "@literate/core": ["./src/core.ts"]
     }
   },
   "include": [

@@ -1,4 +1,4 @@
-import type { Position } from "#ast/LoomNode"
+import type { Position } from '#ast/LoomNode'
 
 // =============================================================================
 // Mapper — mapping-aware text composition for the Loom Frame projector.
@@ -42,7 +42,6 @@ import type { Position } from "#ast/LoomNode"
 // shape, translated to whichever consumer needs it at the edge.
 // =============================================================================
 
-
 // =============================================================================
 // Types — `Mapping`, `Mapped`, and the per-mapping `MappingKind`.
 //
@@ -65,7 +64,7 @@ import type { Position } from "#ast/LoomNode"
 // restructure.
 // =============================================================================
 
-export type MappingKind = "code" | "identifier" | "prose"
+export type MappingKind = 'code' | 'identifier' | 'prose'
 
 export interface Mapping {
   readonly sourcePosition: Position
@@ -78,7 +77,6 @@ export interface Mapped {
   readonly genCode: string
   readonly mappings: ReadonlyArray<Mapping>
 }
-
 
 // =============================================================================
 // Atoms — `empty`, `literal`, `sourced`.
@@ -98,23 +96,24 @@ export interface Mapped {
 // parts of `m\`…\``, which lifts them automatically).
 // =============================================================================
 
-export const empty: Mapped = { genCode: "", mappings: [] }
+export const empty: Mapped = { genCode: '', mappings: [] }
 
 export const literal = (s: string): Mapped => ({ genCode: s, mappings: [] })
 
 export const sourced = (
   node: { readonly source: string; readonly position: Position },
-  kind: MappingKind = "code",
+  kind: MappingKind = 'code',
 ): Mapped => ({
   genCode: node.source,
-  mappings: [{
-    sourcePosition: node.position,
-    genStart: 0,
-    genLength: node.source.length,
-    kind,
-  }],
+  mappings: [
+    {
+      sourcePosition: node.position,
+      genStart: 0,
+      genLength: node.source.length,
+      kind,
+    },
+  ],
 })
-
 
 // =============================================================================
 // Combinators — `concat`, `concatAll`, `join`.
@@ -137,7 +136,10 @@ export const concat = (a: Mapped, b: Mapped): Mapped => ({
   genCode: a.genCode + b.genCode,
   mappings: [
     ...a.mappings,
-    ...b.mappings.map((mp) => ({ ...mp, genStart: mp.genStart + a.genCode.length })),
+    ...b.mappings.map((mp) => ({
+      ...mp,
+      genStart: mp.genStart + a.genCode.length,
+    })),
   ],
 })
 
@@ -152,7 +154,6 @@ export const join = (items: ReadonlyArray<Mapped>, sep: string): Mapped => {
     first,
   )
 }
-
 
 // =============================================================================
 // Tagged template — `m\`…${slot}…\``.
@@ -173,16 +174,17 @@ export const join = (items: ReadonlyArray<Mapped>, sep: string): Mapped => {
 // =============================================================================
 
 const toMapped = (x: Mapped | string): Mapped =>
-  typeof x === "string" ? literal(x) : x
+  typeof x === 'string' ? literal(x) : x
 
 export const m = (
   parts: TemplateStringsArray,
   ...slots: ReadonlyArray<Mapped | string>
 ): Mapped =>
   concatAll(
-    parts.flatMap((part, i): ReadonlyArray<Mapped> =>
-      i < slots.length
-        ? [literal(part), toMapped(slots[i])]
-        : [literal(part)],
+    parts.flatMap(
+      (part, i): ReadonlyArray<Mapped> =>
+        i < slots.length
+          ? [literal(part), toMapped(slots[i])]
+          : [literal(part)],
     ),
   )
