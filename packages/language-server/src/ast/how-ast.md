@@ -4,6 +4,10 @@ The Loom parsing pipeline produces a `LoomDocument` AST from raw source
 text. This document specifies the architecture, grammar, vocabulary, and
 per-stage contracts.
 
+This is the **parse** arrow of Loom's transformation pipeline (text →
+`LoomDocument`); `how-lsp.md` → The Transformation Pipeline frames the whole
+chain and the morphisms each stage is.
+
 ---
 
 ## Architecture — three layers, one shape

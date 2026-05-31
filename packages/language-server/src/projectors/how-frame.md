@@ -1,5 +1,11 @@
 # Loom Frame — Reframing
 
+This spec owns two arrows of Loom's transformation pipeline: **transduce**
+(`LoomDocument` → `FrameModule`, a macro tree transducer) and **synthesise**
+(`FrameModule` → the Frame's synthetic code + source mappings — one projection
+of the Frame, a catamorphism with L-attributed offsets). `how-lsp.md` → The
+Transformation Pipeline frames the whole chain.
+
 ## Sections as Services
 
 Every Section in a Loom document projects to an `Effect.Service` class.

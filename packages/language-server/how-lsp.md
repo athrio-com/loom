@@ -1,15 +1,92 @@
 # Loom LSP & Runtime — Tooling Layer
 
-This is the third layer of the Loom specification. The AST pipeline (source →
-`LoomDocument`) is `how-ast.md`; the Frame synthesis (AST → `Effect.Service`
-classes) is `how-frame.md`. This document covers what sits on top of both: the
-core type vocabulary the Frame is built from, the runtime entry points that
-execute it, and the Volar/LSP integration that surfaces it in the editor.
+This is the root of the Loom specification. The AST pipeline (source →
+`LoomDocument`) is `how-ast.md`; the Frame synthesis is `how-frame.md`. This 
+document covers what sits on top of both: the core type vocabulary the Frame
+is built from, the runtime entry points that execute it, and the Volar/LSP
+integration that surfaces it in the editor.
 
 Like the other specs, this describes the target architecture. The current code
 may not yet conform; where it does (embedded language resolution, syntax
 highlighting, source mappings, the multiplexer), that behaviour must be
 preserved, not regressed.
+
+---
+
+## The Transformation Pipeline
+
+Loom is a chain of tree transformations — the architecture of a compiler, and
+of literate-programming tangling (Knuth's WEB). Specifically it is a **nanopass
+pipeline**: a sequence of small, total passes between *explicitly-defined*
+intermediate languages — here `LoomDocument` and `FrameModule`, each a
+Schema-defined AST — rather than one monolithic transform. Each arrow has a
+precise name from the program-transformation literature; naming them fixes both
+the shape we build and the discipline that keeps it efficient and pure.
+
+```
+text ──parse──▶ LoomDocument ──transduce──▶ FrameModule ──project──┬─▶ synthesise → genCode + mappings  (Volar virtual code)
+                                                                   └─▶ tangle → product files        (filesystem)
+```
+
+- **parse** (`how-ast.md`) — source text → `LoomDocument`, the input AST.
+- **transduce** (`how-frame.md`) — `LoomDocument` → `FrameModule`, the output
+  AST (`FrameAst.ts`). A *macro tree transducer*: a tree→tree map that hoists
+  bindings, resolves anchors, and synthesises scaffolding — strictly more than a
+  structure-preserving homomorphism. No code is emitted here; emitting is
+  projection.
+- **project** — `FrameModule` → a concrete surface. A *family* of
+  *catamorphisms* (folds) over the one Frame, each differing only in its
+  algebra:
+  - **synthesise** → the Frame's *synthetic code* (generated TypeScript) + source
+    mappings — the editor projection, which Volar wraps as virtual code. One
+    depth-first, left-to-right walk threads a cursor, emitting each node's text
+    and recording each mapped leaf's generated range against its `.loom`
+    `source`. Offsets are an *L-attributed* computation — inherited start,
+    synthesised length — settled in that single pass, never stored.
+  - **tangle** → product files on disk — the filesystem projection, on the de-re
+    plane: resolve each `{path}` sink's composed code and write it.
+  Projection is the family; **synthesise and tangle are members**, not stages —
+  further surfaces (semantic tokens, …) are just more algebras over the Frame.
+
+Two properties of the shape:
+
+- **The trees are kept, not fused.** A compiler could fuse transduce-then-fold
+  into one pass (a *hylomorphism*). Loom materialises both `LoomDocument` and
+  `FrameModule` precisely *because* the Frame is projected many ways — one
+  inspectable, mappable source of truth feeding synthesise, tangle, and every editor
+  surface; a fused pipeline would keep none of them.
+- **It stays pure FP with Effect.** A catamorphism is total structural
+  recursion; each projection, written as an `Effect.gen` / `Effect.reduce` fold
+  over a node's children (threading the cursor), is an *effectful catamorphism*.
+  The Effect idiom is what the morphism already is, not a layer on top of it.
+
+### Pedigree
+
+This is a well-trodden class of problem; the names below are the path to follow
+when extending the pipeline.
+
+- **Overall shape** — nanopass compilers (Sarkar, Waddell & Dybvig, *A Nanopass
+  Framework for Compiler Education*); multi-IR compilers generally (e.g. GHC's
+  `HsSyn → Core → STG → Cmm`).
+- **transduce — tree → tree** — tree transducers, and term rewriting / program
+  transformation: XSLT, Stratego/XT, TXL, Rascal.
+- **project — tree → surface** — unparsing / pretty-printing (Wadler, *A
+  prettier printer*; Oppen), as catamorphisms / recursion schemes (Meijer,
+  Fokkinga & Paterson, *Bananas, Lenses, Envelopes and Barbed Wire*); each
+  surface is a different algebra over the one Frame.
+- **offsets** — attribute grammars (Knuth); the *L-attributed* subclass is
+  exactly the one evaluable in a single left-to-right pass.
+- **literals as nodes** — lossless / concrete syntax trees (Roslyn red-green
+  trees, rust-analyzer's rowan, SwiftSyntax): the same full-fidelity choice
+  Loom makes for its output tree.
+- **source ⇄ generated mappings** — source maps and bidirectional
+  transformations (lenses); institutionalised for editors by Volar's virtual
+  code + mappings, which the `synthesise` output feeds.
+
+The layer specs own their arrows: `how-ast.md` the parse, `how-frame.md` the
+transduce and synthesise. This document covers the rest of the projection family —
+the tangle that writes product files, the runtime that executes the Frame, and
+the Volar virtual-code layer that surfaces it.
 
 ---
 
@@ -29,10 +106,11 @@ The Frame's composition primitives are design-level and not yet built:
   of the world emits the file.
 
 Their exact signatures follow from the AST representation and will be fixed when
-the Frame projector (`LoomFrame.ts`) is built; this document does not pin them
-down in advance. The output is always literal code, concatenated in tangle
-order — the machinery (Effect, Services, Layers) never appears unless the
-author wrote Effect in a section.
+the Frame synthesiser is built (the `synthesise` / `tangle` arrows over `FrameAst.ts`;
+see The Transformation Pipeline); this document does not pin them down in
+advance. The output is always literal code, concatenated in tangle order — the
+machinery (Effect, Services, Layers) never appears unless the author wrote
+Effect in a section.
 
 There is no `Template` type and no `needs()` function: every section —
 parameterised or not — projects to one `Effect.Service` exposing
@@ -50,23 +128,25 @@ imperative code that calls Effect occasionally. Each entry point begins from
 the end of the world, where the output is pure text on disk.
 
 ```
-NodeRuntime.runMain(                              ← end of the world
+NodeRuntime.runMain(                                  ← end of the world
   Effect.gen(function* () {
-    const doc = yield* Loom.ast(source)           ← parse (how-ast)
-    const frame = yield* LoomFrame.synth(doc)     ← synthesise (how-frame)
-    yield* frame.LoomMain                          ← run the composition root
+    const doc   = yield* Loom.ast(source)             ← parse   (how-ast)
+    const frame = yield* FrameProjector.project(doc)  ← transduce (how-frame) → FrameModule
+    yield* Tangle.run(frame)                          ← tangle the {path} sinks → files
   }).pipe(
     Effect.provide(Loom.Default),
-    Effect.provide(LoomFrame.Default),
+    Effect.provide(FrameProjector.Default),
+    Effect.provide(Tangle.Default),
     Effect.provide(NodeFileSystem.layer),
   )
 )
 ```
 
 - **Tangle CLI** (`pnpm tsx tangle.ts <file>.loom`) — parses the document,
-  synthesises the Frame, and runs `LoomMain`. `LoomMain` is the auto-synthesised
-  composition root (emitted only when the document has tangle sinks); running it
-  drives each tangle section, and the end of the world is the emitted files.
+  transduces it to the `FrameModule`, and tangles each `{path}` sink. The end of
+  the world is the emitted files. (Equivalently, the eventual self-hosting path
+  synthesises the `FrameModule` to a runnable Frame whose auto-synthesised
+  `LoomMain` composition root tangles the sinks when executed.)
 - **Volar LSP server** — an Effect Platform application. Parsing, Frame
   synthesis, virtual-code assembly, and diagnostics are all Effect services
   composed via Layers; the server starts as an Effect program.
@@ -86,8 +166,9 @@ Every `.loom` position belongs to exactly one of two planes, and that
 determines which virtual code the language server consults.
 
 **De dicto — the frame.** The composition machinery: the synthesised
-`Effect.Service` classes, their `compose()` / `tangle()` calls, Warp wiring
-(`const m = yield* Mul`, `dependencies: [Mul.Default]`), and `import type`
+`Effect.Service` classes, their `compose()` / `tangle()` calls, Warp wiring (the
+lazy `const m = yield* Mul` bindings — no eager `dependencies` array, see
+`how-frame.md` on order independence), and the author's cross-file `import`
 lines. This is TypeScript that describes *how* code is composed. tsc checks it
 for composition correctness.
 
