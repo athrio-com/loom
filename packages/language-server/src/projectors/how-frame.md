@@ -6,13 +6,57 @@ This spec owns two arrows of Loom's transformation pipeline: **transduce**
 of the Frame, a catamorphism with L-attributed offsets). `how-lsp.md` → The
 Transformation Pipeline frames the whole chain.
 
+## The Output AST
+
+The Frame is materialised as `FrameModule` — the output AST (`FrameAst.ts`), the
+target of `transduce` and the source of `synthesise`. Every byte of the
+generated frame is a **token**, of one of two kinds by origin:
+
+- **`FrameSynthToken`** — Loom's predefined glue: keywords, punctuation, the
+  separators between list items. It has no `.loom` origin, so it carries **no
+  mapping**. (These are the schema's own literals; the constructor fills them, so
+  `transduce` supplies only the holes.)
+- **`FrameAuthoredToken`** — a span lifted from the `.loom` (a name, a tag, a
+  bound variable, a preamble) that resolves into the frame. It carries its
+  `source`, hence **one mapping**. Its `kind` (`identifier` | `prose`) selects
+  which features the language service forwards there.
+
+**Mapping belongs to authored tokens, never to synth.** A mapping links a
+generated span to its `.loom` origin; synth glue has no origin, so it can be no
+endpoint — it sits in the unmapped gaps between authored tokens. The
+synth/authored and unmapped/mapped splits are one line seen twice: a token has a
+`source` iff it is authored.
+
+The two **code blocks** are authored as well, so both are mapped — they differ
+only in which virtual code answers for them:
+
+- **`FrameCode`** — a `{Loom}` block, raw de dicto frame code; **always
+  TypeScript**, mapping into the one frame virtual code (tsc).
+- **`EmbeddedCode`** — a `=>` block, de re product code; mapping into the
+  section's **product** virtual code, served by that language's service —
+  proxied to the relevant LSP, whatever the section's specifier declares.
+
+So `FrameAuthoredToken` and `FrameCode` answer through the single TypeScript
+frame; only `EmbeddedCode` is routed elsewhere (see `how-lsp.md` → The Two Planes
+and Composition Drives Type Resolution).
+
+Rendering is the in-order projection of this tree — it emits each token as
+declared and introduces no text of its own; no separator, no glue, is applied
+"somewhere else". The form is minimal and canonical: the Frame is virtual code
+(mapped, not read), carrying only the spacing TypeScript requires. A
+pretty-printer is never run over it — derived offsets would shift and the
+mappings break — so the canonical form *is* the schema.
+
 ## Sections as Services
 
-Every Section in a Loom document projects to an `Effect.Service` class.
-The Service exposes three fields: `name` — the heading text as a plain
+Every Section in a Loom document projects to an `Effect.Service` class — with
+one exception, the `{Loom}` escape hatch (below), whose code splices into the
+frame unwrapped. The Service exposes three fields: `name` — the heading text as a plain
 string — `preamble` — the section's prose context — and `code` — the
 composed product code (effectful, since composing it may resolve other
-sections). This is the complete, uniform surface of every section in the Frame.
+sections). The `code` field is always a `compose(…)` call — a section with no
+transclusions composes its single own fragment — so the shape stays uniform.
+This is the complete, uniform surface of every section in the Frame.
 
 Sections without Warp declarations use `succeed:` — their fields are
 static values, constructed once. Sections with Warp declarations use
@@ -65,6 +109,22 @@ hash-derived and not user-visible.
 A single-word name anchor (`{{Imports}}`) is resolved as a preamble
 Warp binding first; if no match is found, heading name lookup follows.
 
+## Composition Is Homogeneous
+
+A composition edge — a Warp declaration or a name anchor — inlines one section's
+code into another's. That is only meaningful when both sections carry the
+**same specifier**: Scala composes Scala, JSON composes JSON. A cross-specifier
+edge has no valid product — there is no single language in which both fragments
+form one program — so it is a diagnostic on the offending anchor, not a silent
+splice.
+
+The specifier is the whole key; there is no separate plane axis. `{Loom}` is its
+own specifier — TypeScript de facto, but never interchangeable with
+`{TypeScript}`, and product TypeScript is never treated as frame code. A `{Loom}`
+section is not in the composition graph at all (see The `{Loom}` Specifier): it
+can be neither a Warp nor an anchor target, so it never enters the homogeneity
+check — the rule governs product↔product edges alone.
+
 ## Preamble as a First-Class Field
 
 The section's preamble prose — everything written between the heading and
@@ -75,9 +135,12 @@ declarations are *not* excised — a `{{m: Mul}}` sitting in the prose is
 part of what the author wrote and appears verbatim in the field. (The
 Warp's role as a dependency is carried separately by the `yield*` the
 projector emits; excising its span here would only fragment the prose and
-break the 1:1 mapping.) The field appears in two places: as a TSDoc
-comment on the Service class (visible in IDE hover and cross-references)
-and as a queryable string field at runtime. Post-tilde prose is authoring
+break the 1:1 mapping.) The preamble appears in two places, from the one
+source span: as a raw `/** … */` TSDoc block above the class (minimal — no
+per-line gutter; visible in IDE hover) and as the queryable `preamble` field.
+Each occurrence is escaped where it sits — the TSDoc escapes `*/`, the field
+escapes `` ` `` and `${` — so the two generated texts differ while both map
+back to the same prose span. Post-tilde prose is authoring
 context; it lives in the `.loom` source and is not projected into the
 Frame.
 
@@ -205,19 +268,28 @@ distinguishing it from a Tag label without additional syntax.
 
 ## The `{Loom}` Specifier
 
-A `{Loom}` specifier marks a section as a power-user escape hatch. Its
-code block is projected literally into the Frame as-is — raw
-TypeScript/Effect code that bypasses the standard Service projection. This
-is for cases the projection model does not cover: custom runtime setup,
-low-level Effect wiring, or anything that requires direct access to the
-Frame's TypeScript surface.
+A `{Loom}` specifier marks a section as a power-user escape hatch. It is still a
+Section — heading, preamble, code, prose — but its code does not become an
+`Effect.Service`. It transduces into a single `FrameCode { text, source }` node: the
+code spliced **verbatim and unwrapped** into the frame module, as raw
+TypeScript/Effect, in document order. This is for what the projection model does
+not cover — custom runtime setup, low-level Effect wiring, direct access to the
+frame's TypeScript surface.
 
-The one structural role a `{Loom}` section plays is carrying cross-file
-imports: an `import { Mul } from "./arithmetic.js"` written in a `{Loom}`
-section brings an out-of-file Service into the Frame's scope (see
-Cross-Module Dependencies). Within a single document there is no
-module-level dependency DSL — Effect's DI derives the same-file graph
-from Warp declarations alone.
+Activating `{Loom}` opts out of the framework. A `FrameCode` node is **not in
+the composition graph**: no Warp or anchor can target it, Effect DI does not
+apply, and a `[Tag]` on a `{Loom}` section has no effect — a diagnostic says so
+rather than failing silently. To reuse a `{Loom}` definition you write ordinary
+TypeScript — `export const …` here, `import` it there — at which point you are
+doing hand-written TypeScript, not Loom composition. From `{Loom}` on, you are
+on your own.
+
+The one structural service a `{Loom}` section still provides is carrying
+cross-file imports: an `import { Mul } from "./arithmetic.js"` brings an
+out-of-file Service into the frame's scope (see Cross-Module Dependencies). Its
+`import` lines are hoisted to the head of the frame; the rest of its body is the
+`FrameCode` splice. Within a single document there is no module-level dependency
+DSL — Effect's DI derives the same-file graph from Warp declarations alone.
 
 ## Cross-Module Dependencies
 
@@ -284,6 +356,15 @@ writes sections and declares Warps; Loom derives the full wiring and
 generates it into the Frame. The user never writes imports, never
 assembles layers manually, and never touches the entry point.
 
+The root is synthesised for **every** file, not only those that tangle. Each
+`.loom` projects to one self-provided unit: a file with `{path}` sinks runs
+them; a library file's root still merges and self-provides, ready to be composed
+by an importer. Beyond execution, this per-file root is what makes a document's
+sections one interconnected, checkable whole — the basis for cross-section
+resolution of product code in the editor (`how-lsp.md` → Composition Drives Type
+Resolution). The shape of merging an *imported* Service's layer is settled with
+multi-file builds.
+
 The self-provision form (`Layer.provide(layers, layers)`) is pending
 confirmation against Effect's actual layer-resolution behaviour. The
 mechanism is sound in principle — Effect memoises each service and
@@ -321,12 +402,12 @@ from the same source document, with no duplication.
 //   - Tangle section ({path} specifier) → private, tangle() return, graph sink.
 //   - {Loom} specifier → code block projected literally (escape hatch only).
 //   - Composition root → auto-synthesised: merge all layers, provide to self.
-//   - compose / tangle are provisional primitives — module home not yet built
-//     (see how-lsp.md). There is no separate Code value type; product code is
-//     the AST's CodeWeft text. The import below is illustrative.
+//   - compose / tangle are runtime primitives from #loom/core (a monorepo
+//     module; see how-lsp.md). There is no separate Code value type; product
+//     code is the AST's CodeWeft text.
 // =============================================================================
 
-import { compose, tangle } from "@literate/core"
+import { compose, tangle } from "#loom/core"
 import { Effect, Layer } from "effect"
 
 

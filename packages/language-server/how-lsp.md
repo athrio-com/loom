@@ -92,25 +92,22 @@ the Volar virtual-code layer that surfaces it.
 
 ## Composition Primitives
 
-There is no separate `Code` value type and no `@literate/core` package. The
-type vocabulary is the Schema-defined AST (`how-ast.md`): every node is a
-`loomNode`, and a section's product code is the source text carried by its
-`CodeWeft` and `ArrowWeft` nodes — read by position, not wrapped in a dedicated
-value.
-
-The Frame's composition primitives are design-level and not yet built:
+There is no separate `Code` value type: a section's product code is the source
+text carried by its `CodeWeft` and `ArrowWeft` nodes (`how-ast.md`), read by
+position, not wrapped in a dedicated value. The runtime primitives the Frame
+*calls*, however, are real and live in `#loom/core` — a monorepo module the
+Frame imports from:
 
 - **`compose`** — orders the code of the sections it references, in argument
   order, into one composed result.
 - **`tangle`** — binds a composed result to a file path; running it at the end
   of the world emits the file.
 
-Their exact signatures follow from the AST representation and will be fixed when
-the Frame synthesiser is built (the `synthesise` / `tangle` arrows over `FrameAst.ts`;
-see The Transformation Pipeline); this document does not pin them down in
-advance. The output is always literal code, concatenated in tangle order — the
-machinery (Effect, Services, Layers) never appears unless the author wrote
-Effect in a section.
+Their exact signatures follow from the AST representation and are fixed in
+`#loom/core`, alongside the Frame synthesiser (the `synthesise` / `tangle`
+arrows over `FrameAst.ts`; see The Transformation Pipeline). The output is
+always literal code, concatenated in tangle order — the machinery (Effect,
+Services, Layers) never appears unless the author wrote Effect in a section.
 
 There is no `Template` type and no `needs()` function: every section —
 parameterised or not — projects to one `Effect.Service` exposing
@@ -168,8 +165,9 @@ determines which virtual code the language server consults.
 **De dicto — the frame.** The composition machinery: the synthesised
 `Effect.Service` classes, their `compose()` / `tangle()` calls, Warp wiring (the
 lazy `const m = yield* Mul` bindings — no eager `dependencies` array, see
-`how-frame.md` on order independence), and the author's cross-file `import`
-lines. This is TypeScript that describes *how* code is composed. tsc checks it
+`how-frame.md` on order independence), the author's cross-file `import` lines,
+and the verbatim body of any `{Loom}` section (a `FrameCode` splice). This is
+TypeScript that describes *how* code is composed. tsc checks it
 for composition correctness.
 
 **De re — the product.** The actual code the author wrote in a section's code
@@ -179,9 +177,9 @@ It may be any language the document or a section specifier declares.
 
 The conflation to avoid: when product code happens to be TypeScript, it looks
 identical to frame code. It is not. One describes composition; the other is
-composed. A `.loom` position inside a heading, a Warp declaration, or a tangle
-body maps to the frame; a position inside a content section's code block maps
-to the product. They never mix.
+composed. A `.loom` position inside a heading, a Warp declaration, a tangle
+body, or a `{Loom}` section's code maps to the frame; a position inside a
+*product* section's code block maps to the product. They never mix.
 
 ---
 
@@ -199,8 +197,8 @@ root (languageId: "loom")
 ├── tangled-0    (languageId: per target)     ← de re: resolved product for a
 │                                                {path} tangle, in compose order
 ├── tangled-1    (languageId: per target)     ← one per tangle section
-├── section-0    (languageId: per section)    ← de re: one embedded region per
-│                                                content section's code block
+├── section-0    (languageId: per section)    ← de re: a section's resolved
+│                                                composition (code + transclusions)
 └── …
 ```
 
@@ -213,10 +211,12 @@ root (languageId: "loom")
   tangle order, producing a virtual document in the tangle's target language.
   The language service type-checks the assembled product and the diagnostics map
   back to the `.loom` source lines each section came from.
-- **Embedded section regions** — each content section's code block is an
-  embedded virtual code with its own `languageId` (the document's `{{lang: …}}`
-  default, or a per-section label specifier such as `{Bash}`). Volar dispatches
-  syntax highlighting and any per-region language service natively.
+- **Embedded section compositions** — each content section projects to its
+  *resolved composition*: its code with its transcluded sections inlined in
+  composition order, in its own `languageId` (the document's `{{lang: …}}`
+  default, or a per-section label specifier such as `{Bash}`). The language
+  service resolves cross-section references against it; syntax highlighting is
+  the floor when no composition resolves.
 
 The default `languageId` comes from the document's `lang` Warp; a section's
 label specifier overrides it for that section. A `{Loom}` section is projected
@@ -225,28 +225,31 @@ literally into the frame rather than carried as composed product (see
 
 ---
 
-## Tangles Drive Type Resolution
+## Composition Drives Type Resolution
 
-Type checking and semantic analysis of *product* code work through the tangled
-virtual documents:
+Type checking and semantic analysis of *product* code work through the
+*composition* — the de re projection of the Frame, anchored by the per-file
+`Root` (see `how-frame.md`). A section's resolved product document is its code
+with its transcluded sections inlined in composition order; that document is
+what the language service checks, and its results map back to the `.loom`
+sections that contributed them.
 
-```
-Parse .loom  →  synthesise Frame  →  for each tangle section:
-    compose its member sections' code in tangle order
-    → a virtual document in the target language (correct compilation order)
-    → feed to the language service (types, diagnostics, semantic tokens)
-    → map results back to .loom source via bidirectional source mappings
-```
+Composition order — not document order — is what the language service sees, so a
+section may reference another defined later in the source without error. The
+order is the transclusion graph: a section's code follows the code of the
+sections it transcludes through `{{…}}` anchors.
 
-This is by design. A tangle defines the compositional order; without that
-order, there is no valid program to check across sections. A `.loom` file with
-no tangle sections is a library or documentation — its sections are consumed by
-other documents that *do* tangle. **Without a tangle, product code gets only
-syntax highlighting** (Tree-sitter), no cross-section types or diagnostics.
+A **tangle** is the composition whose unit is a file-output target: a `{path}`
+section assembles its members into one document in the target language — checked
+as a virtual document *and*, at the end of the world, written to disk. But
+resolution is not gated on a tangle. Because the whole file projects to one
+synth, every section is interconnected and diagnosable on its own composition,
+and a library `.loom` with no tangle is still fully resolved within itself.
 
-If a section is used before its definition in document order but after it in
-tangle order, there is no error — tangle order is what the language service
-sees.
+**Syntax highlighting (Tree-sitter) is the floor** — always available, and the
+only product signal when a composition cannot be resolved: a missing grammar,
+or a transcluded Service that lives in another file (cross-file resolution
+arrives with multi-file builds).
 
 ---
 
@@ -262,11 +265,11 @@ Routing is by plane:
 
 ```
 .loom source position
-  ├─ heading bracket, Warp declaration, or tangle body
-  │     → frame virtual code → language service → frame annotations
-  └─ content section code block
-        ├─ section is in a tangle → tangled virtual doc → product annotations
-        └─ section is untangled   → Tree-sitter → syntax tokens only
+  ├─ heading, Warp/anchor, tangle body, or {Loom} code (FrameCode)
+  │     → frame virtual code (tsc) → frame annotations
+  └─ a product section's code block (EmbeddedCode)
+        → the section's resolved composition → product annotations
+           (unresolved, e.g. cross-file dep → Tree-sitter syntax tokens only)
 ```
 
 Frame annotations (a tag's resolved Service, a Warp's resolved target, a
@@ -294,16 +297,15 @@ external servers. They are complementary, not competing.
 Two token sources, dispatched by Volar depending on what is available:
 
 1. **Language-service semantic tokens** — type-aware tokens (variables,
-   functions, types) for sections included in a tangle, produced from the
-   tangled virtual document and mapped back to `.loom` positions.
+   functions, types) for any section whose composition resolves, produced from
+   its resolved composition and mapped back to `.loom` positions.
 2. **Tree-sitter syntax tokens** — keywords, strings, numbers, operators, and
    punctuation, produced per code section with the appropriate grammar. Works
    for every code section, including untangled ones.
 
 ```
-Tangled sections:   semantic tokens (types, errors) via the tangled virtual doc
-Untangled sections: Tree-sitter syntax tokens only
-No tangles at all:  Tree-sitter syntax tokens only for every section
+Resolved composition:     semantic tokens (types, errors) via the composition
+Unresolved / no grammar:  Tree-sitter syntax tokens only
 ```
 
 If the Tree-sitter runtime has no grammar for a language, those sections get no
