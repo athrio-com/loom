@@ -40,9 +40,10 @@ So `FrameAuthoredToken` and `FrameCode` answer through the single TypeScript
 frame; only `EmbeddedCode` is routed elsewhere (see `how-lsp.md` → The Two Planes
 and Composition Drives Type Resolution).
 
-Rendering is the in-order projection of this tree — it emits each token as
-declared and introduces no text of its own; no separator, no glue, is applied
-"somewhere else". The form is minimal and canonical: the Frame is virtual code
+Rendering is the in-order projection of this tree — it emits each node's tokens
+in the explicit render order the node pins (not their struct position) and
+introduces no text of its own; no separator, no glue, is applied "somewhere
+else". The form is minimal and canonical: the Frame is virtual code
 (mapped, not read), carrying only the spacing TypeScript requires. A
 pretty-printer is never run over it — derived offsets would shift and the
 mappings break — so the canonical form *is* the schema.
@@ -55,8 +56,9 @@ frame unwrapped. The Service exposes three fields: `name` — the heading text a
 string — `preamble` — the section's prose context — and `code` — the
 composed product code (effectful, since composing it may resolve other
 sections). The `code` field is always a `compose(…)` call — a section with no
-transclusions composes its single own fragment — so the shape stays uniform.
-This is the complete, uniform surface of every section in the Frame.
+transclusions composes its single own fragment, and a prose-only section (empty
+code block) composes nothing, `compose()` — so the shape stays uniform. This is
+the complete, uniform surface of every section in the Frame.
 
 Sections without Warp declarations use `succeed:` — their fields are
 static values, constructed once. Sections with Warp declarations use
@@ -356,14 +358,15 @@ writes sections and declares Warps; Loom derives the full wiring and
 generates it into the Frame. The user never writes imports, never
 assembles layers manually, and never touches the entry point.
 
-The root is synthesised for **every** file, not only those that tangle. Each
-`.loom` projects to one self-provided unit: a file with `{path}` sinks runs
-them; a library file's root still merges and self-provides, ready to be composed
-by an importer. Beyond execution, this per-file root is what makes a document's
-sections one interconnected, checkable whole — the basis for cross-section
-resolution of product code in the editor (`how-lsp.md` → Composition Drives Type
-Resolution). The shape of merging an *imported* Service's layer is settled with
-multi-file builds.
+The root is synthesised for every file **with Services**, not only those that
+tangle: a file with `{path}` sinks runs them, and a library file's root still
+merges and self-provides, ready to be composed by an importer. A service-less
+file — empty, or only `{Loom}` blocks — has **no** root (nothing to merge,
+nothing to run); an empty `.loom` is a valid file. Where a root exists it is
+what makes a document's sections one interconnected, checkable whole — the basis
+for cross-section resolution of product code in the editor (`how-lsp.md` →
+Composition Drives Type Resolution). The shape of merging an *imported*
+Service's layer is settled with multi-file builds.
 
 The self-provision form (`Layer.provide(layers, layers)`) is pending
 confirmation against Effect's actual layer-resolution behaviour. The
@@ -371,6 +374,27 @@ mechanism is sound in principle — Effect memoises each service and
 resolves the requirement DAG independent of merge order — but the exact
 API spelling may differ. This is the one piece of the order-independent
 design that warrants a runtime spike before it is relied on.
+
+## Health Is Two-Tier
+
+Diagnostics live on AST nodes, and there are two tiers — one per AST:
+
+- **Grammatical health — on the Loom AST, at parse.** Orphan brackets, malformed
+  labels, duplicate tags, unclosed delimiters; `how-ast.md`'s health model.
+  `{Loom}` needs no special case here — a `[Tag] {Loom}` heading is
+  grammatically fine.
+- **Semantic health — on the Frame AST, at transduce.** A tag on a `{Loom}`
+  section (no effect), a cross-specifier composition edge, a Warp cycle, an
+  unresolved or heterogeneous anchor. These need *meaning* — exactly what
+  transduce has and parse does not. `frameNode` carries an optional `health`
+  (defaulting to ok), the same `Health` shape the Loom AST uses.
+
+Both surface at source. Grammatical health is already on Loom nodes, which carry
+their `source`. Semantic health rides the mapping: a Frame node's health resolves
+to its originating `.loom` span exactly as its text does — a `ServiceClass`'s
+diagnostic lands on its heading, a `Binding`'s on its Warp. The editor merges the
+two tiers, and neither is withheld (always project, always speak through the
+language server).
 
 ## What This Enables
 

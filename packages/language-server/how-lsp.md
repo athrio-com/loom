@@ -128,11 +128,11 @@ the end of the world, where the output is pure text on disk.
 NodeRuntime.runMain(                                  ← end of the world
   Effect.gen(function* () {
     const doc   = yield* Loom.ast(source)             ← parse   (how-ast)
-    const frame = yield* FrameProjector.project(doc)  ← transduce (how-frame) → FrameModule
+    const frame = yield* Transduce.run(doc)           ← transduce (how-frame) → FrameModule
     yield* Tangle.run(frame)                          ← tangle the {path} sinks → files
   }).pipe(
     Effect.provide(Loom.Default),
-    Effect.provide(FrameProjector.Default),
+    Effect.provide(Transduce.Default),
     Effect.provide(Tangle.Default),
     Effect.provide(NodeFileSystem.layer),
   )
@@ -228,8 +228,8 @@ literally into the frame rather than carried as composed product (see
 ## Composition Drives Type Resolution
 
 Type checking and semantic analysis of *product* code work through the
-*composition* — the de re projection of the Frame, anchored by the per-file
-`Root` (see `how-frame.md`). A section's resolved product document is its code
+*composition* — the de re projection of the Frame, anchored by the file's
+`Root` (synthesised where the file has Services; see `how-frame.md`). A section's resolved product document is its code
 with its transcluded sections inlined in composition order; that document is
 what the language service checks, and its results map back to the `.loom`
 sections that contributed them.
