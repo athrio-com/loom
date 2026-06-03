@@ -1,0 +1,9 @@
+{{lang: TypeScript}}
+
+# Adder [Add]
+
+Adds two integers.
+
+=>
+
+export const add = (x: number, y: number): number => x + y

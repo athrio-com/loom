@@ -28,19 +28,19 @@ const pos = (start: number, end: number) => ({
 const id = (text: string) =>
   FrameAuthoredTokenSchema.make({
     text,
-    source: pos(0, text.length),
+    position: pos(0, text.length),
     kind: 'identifier',
   })
 
 const prose = (text: string) =>
   FrameAuthoredTokenSchema.make({
     text,
-    source: pos(0, text.length),
+    position: pos(0, text.length),
     kind: 'prose',
   })
 
 const embedded = (text: string) =>
-  EmbeddedCodeSchema.make({ text, source: pos(0, text.length) })
+  EmbeddedCodeSchema.make({ text, position: pos(0, text.length) })
 
 describe('FrameAst — construction', () => {
   it('auto-fills type and health on an authored leaf', () => {
@@ -52,7 +52,7 @@ describe('FrameAst — construction', () => {
   it('auto-fills synth tokens as typed siblings', () => {
     const c = ComposeSchema.make({ head: embedded('x'), tail: [] })
     expect(c.open.type).toBe('FrameSynthToken')
-    expect(c.open.text).toBe('compose(')
+    expect(c.open.text).toBe('core.compose(')
     expect(c.close.text).toBe(')')
     expect(embedded('x').open.text).toBe('`') // EmbeddedCode owns its backtick
   })
@@ -75,14 +75,14 @@ describe('FrameAst — construction', () => {
       'text',
       'close',
     ])
-    // source / kind are metadata — excluded from the render order.
+    // position / kind are metadata — excluded from the render order.
     expect(Option.getOrThrow(renderOrderOf(FrameAuthoredTokenSchema))).toEqual([
       'text',
     ])
   })
 
   it('RenderOrder covers exactly the renderable fields of every node', () => {
-    const META = new Set(['type', 'health', 'source', 'kind'])
+    const META = new Set(['type', 'health', 'position', 'kind', 'languageId'])
     // Effect schemas are callable (typeof 'function') with an `.ast`.
     const isSchema = (v: unknown): v is Schema.Schema<any, any, never> =>
       v != null &&
@@ -122,6 +122,7 @@ describe('FrameAst — construction', () => {
       nameType: id('Add'),
       nameTag: id('Add'),
       body,
+      languageId: 'typescript',
     })
     const root = RootSchema.make({
       head: LayerRefSchema.make({ name: id('Add') }),
@@ -145,7 +146,7 @@ describe('FrameAst — construction', () => {
     const c = ComposeSchema.make({ tail: [] })
     expect(c.head).toBeUndefined()
     expect(c.tail).toEqual([])
-    expect(c.open.text).toBe('compose(')
+    expect(c.open.text).toBe('core.compose(')
   })
 
   it('a service-less file is valid — no root', () => {

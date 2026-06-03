@@ -18,14 +18,25 @@ generated frame is a **token**, of one of two kinds by origin:
   `transduce` supplies only the holes.)
 - **`FrameAuthoredToken`** — a span lifted from the `.loom` (a name, a tag, a
   bound variable, a preamble) that resolves into the frame. It carries its
-  `source`, hence **one mapping**. Its `kind` (`identifier` | `prose`) selects
+  `position`, hence **one mapping**. Its `kind` (`identifier` | `prose`) selects
   which features the language service forwards there.
 
 **Mapping belongs to authored tokens, never to synth.** A mapping links a
 generated span to its `.loom` origin; synth glue has no origin, so it can be no
 endpoint — it sits in the unmapped gaps between authored tokens. The
 synth/authored and unmapped/mapped splits are one line seen twice: a token has a
-`source` iff it is authored.
+`position` iff it is authored.
+
+**Escaping is a `.text`-only transform; `position` stays raw.** A leaf's `text` is
+escaped for the literal it sits in — `` ` ``, `${`, `\` inside a template literal
+(`EmbeddedCode`, the `name` / `preamble` fields); `*/` inside the TSDoc — while
+its `position` keeps the unescaped `.loom` span. So a leaf still yields one coarse
+mapping over the whole span, never a per-character split. That suffices because
+the only content needing char-precise mapping is identifiers (never escaped, so
+1:1) and product code *as the language service reads it* — the raw resolved
+composition (`EmbeddedCode.position`, unescaped), not the frame's escaped copy. The
+same prose escaped two ways (field `` ` `` vs TSDoc `*/`) is two leaves, different
+`text`, one `position`.
 
 The two **code blocks** are authored as well, so both are mapped — they differ
 only in which virtual code answers for them:
@@ -55,9 +66,9 @@ one exception, the `{Loom}` escape hatch (below), whose code splices into the
 frame unwrapped. The Service exposes three fields: `name` — the heading text as a plain
 string — `preamble` — the section's prose context — and `code` — the
 composed product code (effectful, since composing it may resolve other
-sections). The `code` field is always a `compose(…)` call — a section with no
+sections). The `code` field is always a `core.compose(…)` call — a section with no
 transclusions composes its single own fragment, and a prose-only section (empty
-code block) composes nothing, `compose()` — so the shape stays uniform. This is
+code block) composes nothing, `core.compose()` — so the shape stays uniform. This is
 the complete, uniform surface of every section in the Frame.
 
 Sections without Warp declarations use `succeed:` — their fields are
@@ -258,7 +269,7 @@ happens and dependencies are declared. Code block anchors (`{{i}}`, `{{m}}`)
 dereference the bound names to inline the resolved `.code` fields in order.
 The synthesiser generates one lazy `yield*` per preamble declaration (no
 `dependencies` array, exactly as for an ordinary section), and wraps the
-composed result in a `tangle(path, ...)` call instead of returning
+composed result in a `core.tangle(path, ...)` call instead of returning
 `{ name, preamble, code }`. No special anchor form, no shortcut —
 consistent Warp syntax throughout.
 
@@ -272,7 +283,7 @@ distinguishing it from a Tag label without additional syntax.
 
 A `{Loom}` specifier marks a section as a power-user escape hatch. It is still a
 Section — heading, preamble, code, prose — but its code does not become an
-`Effect.Service`. It transduces into a single `FrameCode { text, source }` node: the
+`Effect.Service`. It transduces into a single `FrameCode { text, position }` node: the
 code spliced **verbatim and unwrapped** into the frame module, as raw
 TypeScript/Effect, in document order. This is for what the projection model does
 not cover — custom runtime setup, low-level Effect wiring, direct access to the
@@ -390,7 +401,7 @@ Diagnostics live on AST nodes, and there are two tiers — one per AST:
   (defaulting to ok), the same `Health` shape the Loom AST uses.
 
 Both surface at source. Grammatical health is already on Loom nodes, which carry
-their `source`. Semantic health rides the mapping: a Frame node's health resolves
+their `position`. Semantic health rides the mapping: a Frame node's health resolves
 to its originating `.loom` span exactly as its text does — a `ServiceClass`'s
 diagnostic lands on its heading, a `Binding`'s on its Warp. The editor merges the
 two tiers, and neither is withheld (always project, always speak through the
@@ -423,7 +434,7 @@ from the same source document, with no duplication.
 //   - Preamble Warp declaration ({{a: Add}}) → lazy yield* inside Effect.gen;
 //     no dependencies[] array (see Order Independence).
 //   - Name anchor ({{Imports}}) in code block → internal yield* by hash, hoisted.
-//   - Tangle section ({path} specifier) → private, tangle() return, graph sink.
+//   - Tangle section ({path} specifier) → private, core.tangle() return, graph sink.
 //   - {Loom} specifier → code block projected literally (escape hatch only).
 //   - Composition root → auto-synthesised: merge all layers, provide to self.
 //   - compose / tangle are runtime primitives from #loom/core (a monorepo
@@ -431,7 +442,7 @@ from the same source document, with no duplication.
 //     code is the AST's CodeWeft text.
 // =============================================================================
 
-import { compose, tangle } from "#loom/core"
+import * as core from "#loom/core"
 import { Effect, Layer } from "effect"
 
 
@@ -444,7 +455,7 @@ class S_f1e7d2 extends Effect.Service<S_f1e7d2>()("S_f1e7d2", {
   succeed: {
     name:     `Imports`,
     preamble: `Provides the only outside dependency.`,
-    code: compose(`import scala.math.pow`)
+    code: core.compose(`import scala.math.pow`)
   }
 }) {}
 
@@ -457,7 +468,7 @@ export class Add extends Effect.Service<Add>()("Add", {
   succeed: {
     name:     `Adder`,
     preamble: `Adds two integers.`,
-    code: compose(`def add(x: Int, y: Int): Int = x + y`)
+    code: core.compose(`def add(x: Int, y: Int): Int = x + y`)
   }
 }) {}
 
@@ -466,7 +477,7 @@ export class Mul extends Effect.Service<Mul>()("Mul", {
   succeed: {
     name:     `Multiplier`,
     preamble: `Multiplies two integers.`,
-    code: compose(`def mul(x: Int, y: Int): Int = x * y`)
+    code: core.compose(`def mul(x: Int, y: Int): Int = x * y`)
   }
 }) {}
 
@@ -477,7 +488,7 @@ export class Sq extends Effect.Service<Sq>()("Sq", {
     return {
       name:     `Square`,
       preamble: `Built on top of mul.`,
-      code: compose(_S_f1e7d2.code, `def square(x: Int): Int = mul(x, x)`)
+      code: core.compose(_S_f1e7d2.code, `def square(x: Int): Int = mul(x, x)`)
     }
   })
 }) {}
@@ -489,7 +500,7 @@ export class Pow extends Effect.Service<Pow>()("Pow", {
     return {
       name:     `Power`,
       preamble: `\`pow\` works in \`Double\`; the result is rounded back to \`Int\`.`,
-      code: compose(_S_f1e7d2.code, `def power(base: Int, exp: Int): Int = pow(base, exp).toInt`)
+      code: core.compose(_S_f1e7d2.code, `def power(base: Int, exp: Int): Int = pow(base, exp).toInt`)
     }
   })
 }) {}
@@ -503,7 +514,7 @@ export class Main extends Effect.Service<Main>()("Main", {
     return {
       name:     `Entry point`,
       preamble: `Smoke tests for Add, Sq, and Pow.`,
-      code: compose(
+      code: core.compose(
         a.code,
         s.code,
         p.code,
@@ -523,7 +534,7 @@ export class Build extends Effect.Service<Build>()("Build", {
   succeed: {
     name:     `Build script`,
     preamble: `Compile the single file, then run the resulting class.`,
-    code: compose(
+    code: core.compose(
 `#!/usr/bin/env bash
 scalac src/main/scala/Arithmetic.scala -d out
 scala -cp out Arithmetic`
@@ -541,7 +552,7 @@ class S_d2c5b9 extends Effect.Service<S_d2c5b9>()("S_d2c5b9", {
   effect: Effect.gen(function* () {
     const i = yield* S_f1e7d2
     const m = yield* Main
-    return tangle("src/main/scala/Arithmetic.scala", compose(i.code, m.code))
+    return core.tangle("src/main/scala/Arithmetic.scala", core.compose(i.code, m.code))
   })
 }) {}
 
@@ -550,7 +561,7 @@ class S_d2c5b9 extends Effect.Service<S_d2c5b9>()("S_d2c5b9", {
 class S_a1b3c7 extends Effect.Service<S_a1b3c7>()("S_a1b3c7", {
   effect: Effect.gen(function* () {
     const b = yield* Build
-    return tangle("scripts/build.sh", b.code)
+    return core.tangle("scripts/build.sh", b.code)
   })
 }) {}
 

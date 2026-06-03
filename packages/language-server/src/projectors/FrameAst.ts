@@ -9,21 +9,22 @@ import { HealthSchema, okHealth, PositionSchema } from '#ast/LoomNode'
 // are no bare-string siblings.
 //
 // Tokens, by origin:
-//   - FrameSynthToken  { text }                predefined glue; no source, never
+//   - FrameSynthToken  { text }                predefined glue; no position, never
 //                                              mapped. Written `synth('…')`; the
 //                                              constructor fills it, so transduce
 //                                              supplies only the holes.
-//   - FrameAuthoredToken { text, source, kind } frame token (id / prose), mapped
-//   - FrameCode          { text, source }       frame raw block ({Loom}), mapped
-//   - EmbeddedCode  `text` source               product block (=> code), mapped
+//   - FrameAuthoredToken { text, position, kind } frame token (id / prose), mapped
+//   - FrameCode          { text, position }       frame raw block ({Loom}), mapped
+//   - EmbeddedCode  `text` position               product block (=> code), mapped
 //
-// Mapping belongs to authored leaves: a leaf maps iff it carries `source`.
+// Mapping belongs to authored leaves: a leaf maps iff it carries `position`.
 // `kind` (identifier | prose) selects which features the LSP forwards.
 //
 // Render order is *explicit*, not positional: each node carries a `RenderOrder`
 // annotation — the ordered list of fields the renderer emits. Fields absent from
-// it are metadata (`type`, `health`, `source`, `kind`): never emitted, though a
-// leaf's `text` maps via its sibling `source`. Reordering a struct cannot change
+// it are metadata (`type`, `health`, `position`, `kind`, `languageId`): never
+// emitted, though a
+// leaf's `text` maps via its sibling `position`. Reordering a struct cannot change
 // output; the order's type admits only real, non-metadata field names, and the
 // test suite checks it covers them exhaustively.
 //
@@ -63,7 +64,7 @@ export const renderOrderOf = (
 const frameNode = <Tag extends string, Fields extends Schema.Struct.Fields>(
   tag: Tag,
   fields: Fields,
-  order: ReadonlyArray<Exclude<keyof Fields, 'source' | 'kind'>>,
+  order: ReadonlyArray<Exclude<keyof Fields, 'position' | 'kind' | 'languageId'>>,
 ) =>
   Schema.Struct({
     type: Schema.Literal(tag).pipe(
@@ -106,7 +107,7 @@ export type SpanKind = typeof SpanKindSchema.Type
 // resolved from the .loom. `kind` selects which LSP features Volar forwards.
 export const FrameAuthoredTokenSchema = frameNode(
   'FrameAuthoredToken',
-  { text: Schema.String, source: PositionSchema, kind: SpanKindSchema },
+  { text: Schema.String, position: PositionSchema, kind: SpanKindSchema },
   ['text'],
 )
 export type FrameAuthoredToken = typeof FrameAuthoredTokenSchema.Type
@@ -115,20 +116,20 @@ export type FrameAuthoredToken = typeof FrameAuthoredTokenSchema.Type
 // undelimited; always TypeScript, mapping into the frame virtual code.
 export const FrameCodeSchema = frameNode(
   'FrameCode',
-  { text: Schema.String, source: PositionSchema },
+  { text: Schema.String, position: PositionSchema },
   ['text'],
 )
 export type FrameCode = typeof FrameCodeSchema.Type
 
 // EmbeddedCode — a => block: de re product code, backtick-delimited as a compose
 // argument; maps into the section's product virtual code. The backticks are
-// FrameSynthToken siblings; `text`/`source` are the mapped product span.
+// FrameSynthToken siblings; `text`/`position` are the mapped product span.
 export const EmbeddedCodeSchema = frameNode(
   'EmbeddedCode',
   {
     open: synth('`'),
     text: Schema.String,
-    source: PositionSchema,
+    position: PositionSchema,
     close: synth('`'),
   },
   ['open', 'text', 'close'],
@@ -162,7 +163,7 @@ export type ComposeArgItem = typeof ComposeArgItemSchema.Type
 export const ComposeSchema = frameNode(
   'Compose',
   {
-    open: synth('compose('),
+    open: synth('core.compose('),
     head: Schema.optional(ComposeArgSchema),
     tail: Schema.Array(ComposeArgItemSchema),
     close: synth(')'),
@@ -245,7 +246,7 @@ export const TangleBodySchema = frameNode(
     open: synth('{\n  effect: Effect.gen(function* () {\n    '),
     head: BindingSchema,
     tail: Schema.Array(BindingItemSchema),
-    mid1: synth('\n    return tangle("'),
+    mid1: synth('\n    return core.tangle("'),
     path: FrameAuthoredTokenSchema,
     mid2: synth('", '),
     code: ComposeSchema,
@@ -287,6 +288,10 @@ export const ServiceClassSchema = frameNode(
     kw4: synth('", '),
     body: ServiceBodySchema,
     kw5: synth(') {}'),
+    // languageId — metadata: the section's product language (the `{{lang}}`
+    // default or a `{specifier}`), carried for the de re Resolver. Never
+    // rendered into the frame (excluded from the render order).
+    languageId: Schema.String,
   },
   [
     'doc1', 'docPreamble', 'doc2', 'modifier', 'kw1', 'name', 'kw2',
@@ -335,7 +340,7 @@ export type SinkItem = typeof SinkItemSchema.Type
 export const RootSchema = frameNode(
   'Root',
   {
-    open: synth('const layers = Layer.mergeAll(\n  '),
+    open: synth('\n\nconst layers = Layer.mergeAll(\n  '),
     head: LayerRefSchema,
     tail: Schema.Array(LayerRefItemSchema),
     mid: synth(
@@ -370,7 +375,7 @@ export const FrameModuleSchema = frameNode(
   'FrameModule',
   {
     header: synth(
-      'import { compose, tangle } from "#loom/core"\nimport { Effect, Layer } from "effect"\n',
+      'import * as core from "#loom/core"\nimport { Effect, Layer } from "effect"\n',
     ),
     imports: Schema.Array(FrameCodeSchema),
     members: Schema.Array(MemberItemSchema),

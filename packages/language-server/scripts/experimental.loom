@@ -29,7 +29,7 @@ Tokeniser synthesises a stable hash tag.
 A library of integer arithmetic. The primitives first, a couple of
 composites on top, and a `main` that prints a few results.
 
-## Imports
+## Imports [Imports]
 
 `Math.pow` is the only outside dependency.
 
