@@ -4,7 +4,7 @@ import type { LineRange } from '#ast/LineRanges'
 import { okHealth } from '#ast/LoomNode'
 import { WeftClassifier } from '#ast/WeftClassifier'
 import { WeftTokeniser } from '#ast/WeftTokeniser'
-import type { HeadingWeft, LoomWeft } from '#ast/Weft'
+import type { ArrowWeft, HeadingWeft, LoomWeft } from '#ast/Weft'
 
 // =============================================================================
 // Harness — drive lines through Classifier → Tokeniser and collect the
@@ -667,5 +667,24 @@ describe('Tokeniser — health aggregation', () => {
     expect(tokenise(['## Multi [First] [Second]'])[0].health.status).toBe(
       'error',
     )
+  })
+})
+
+describe('Tokeniser — Arrow inline code', () => {
+  const arrowOf = (out: ReadonlyArray<LoomWeft>): ArrowWeft =>
+    out.find((w): w is ArrowWeft => w.type === 'ArrowWeft')!
+
+  it('fills `code` from inline content after `=>`, past the line terminator', () => {
+    const arrow = arrowOf(tokenise(['## A', '=> export const x = 1']))
+    expect(arrow.code?.source).toBe('export const x = 1')
+  })
+
+  it('the `code` span excludes the `=>` marker and its trailing whitespace', () => {
+    const arrow = arrowOf(tokenise(['## A', '=>   export const x = 1']))
+    expect(arrow.code?.source).toBe('export const x = 1')
+  })
+
+  it('a bare `=>` has no inline code', () => {
+    expect(arrowOf(tokenise(['## A', '=>'])).code).toBeUndefined()
   })
 })

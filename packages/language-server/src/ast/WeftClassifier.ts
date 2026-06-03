@@ -80,15 +80,18 @@ export class WeftClassifier extends Effect.Service<WeftClassifier>()(
 //                    heading  arrow    tilde    plain
 //   preamble         Heading  Arrow    Tilde    Preamble
 //   code             Heading  Code     Tilde    Code
-//   prose            Heading  Prose    Prose    Prose
+//   prose            Heading  Arrow    Prose    Prose
 //
 // The heading column is mode-independent — one probe for `#{1,6}` — handled
 // with an early return that opens the new Section's body in `preamble` mode.
 // Before the first heading (the Document Preamble) every non-heading line is a
 // PreambleWeft: Arrow / Tilde transitions begin only within a Section.
+// Code and Prose alternate: a `~` ends a code chunk (back to prose), and an `=>`
+// re-enters code — the `prose` row's `arrow` cell. A Section's code body is the
+// run of `=>` chunks; the body composes them as one.
 // Everything below dispatches on Mode (outer Match.exhaustive); transitional
-// cells (Arrow / Tilde columns in the preamble and code rows) narrow on
-// probe.kind inside the row.
+// cells (the Arrow / Tilde columns in the preamble, code, and prose rows) narrow
+// on probe.kind inside the row.
 // =============================================================================
 
 const probeWeft = (
@@ -147,12 +150,16 @@ const probeWeft = (
             anchors: [],
           }),
     ),
+    // Prose mode — an Arrow re-enters Code (a `~` ended the prior chunk, not the
+    // code body); every other line stays prose.
     Match.when('prose', () =>
-      ProseWeftSchema.make({
-        position,
-        source: lineText,
-        health: incompleteHealth,
-      }),
+      probe.kind === 'arrow'
+        ? makeArrowWeft(lineText, line, range, probe.m)
+        : ProseWeftSchema.make({
+            position,
+            source: lineText,
+            health: incompleteHealth,
+          }),
     ),
     Match.exhaustive,
   )

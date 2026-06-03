@@ -231,9 +231,22 @@ describe('Decision table — mode-gated transitions', () => {
     expect(last(out).type).toBe('CodeWeft')
   })
 
-  it('prose + arrow → ProseWeft (prose is terminal)', () => {
+  it('prose + arrow → ArrowWeft (a `~` ends a chunk, `=>` re-enters code)', () => {
     const out = classify(['## A', '~', 'prose', '=>'])
-    expect(last(out).type).toBe('ProseWeft')
+    expect(last(out).type).toBe('ArrowWeft')
+  })
+
+  it('code and prose alternate: `=> a ~ p => b` re-enters code', () => {
+    const out = classify(['## A', '=>', 'a', '~', 'p', '=>', 'b'])
+    expect(out.map((w) => w.type)).toEqual([
+      'HeadingWeft',
+      'ArrowWeft',
+      'CodeWeft',
+      'TildeWeft',
+      'ProseWeft',
+      'ArrowWeft',
+      'CodeWeft',
+    ])
   })
 
   it('prose + tilde → ProseWeft (tilde does not re-fire inside prose)', () => {

@@ -172,9 +172,10 @@ Preamble ends at the first heading.
 
 ---
 
-## Grammar — forward-only mode progression
+## Grammar — mode progression
 
-Inside a Section body, modes progress in one direction:
+A Section body opens in Preamble; the first `=>` / `~` enters Code / Prose, which
+then alternate:
 
 ```
 [Heading]
@@ -182,18 +183,16 @@ Inside a Section body, modes progress in one direction:
    ▼
 Preamble mode  (default)  →  PreambleWefts
    │
-   ├── Arrow  → Code mode  →  CodeWefts
-   │     │
-   │     └── Tilde  → Prose mode  →  ProseWefts (terminal)
-   │
-   └── Tilde  → Prose mode  →  ProseWefts (terminal)
+   ├── Arrow  → Code mode  →  CodeWefts   ⇄  Tilde → Prose
+   └── Tilde  → Prose mode →  ProseWefts  ⇄  Arrow → Code
 ```
 
-- **Arrow** is the only way into Code mode.
-- **Tilde** is the only way into Prose mode.
-- Neither transition reverses.
-- `PreambleWeft` is its own kind — distinct from `ProseWeft`, which only
-  appears after a Tilde transition.
+- **Arrow** is the only way into Code mode; **Tilde** the only way into Prose.
+- Code and Prose **alternate**: a `~` ends a code *chunk* (back to prose), and a
+  later `=>` re-enters Code. A Section's code body is the run of all its `=>`
+  chunks — the body composes them as one, the interleaved prose is documentation.
+- `PreambleWeft` is its own kind — distinct from `ProseWeft`, which appears only
+  after a Tilde transition; the Document Preamble takes neither transition.
 - `TildeWeft` inline content is prose only — never code.
 - `ArrowWeft` inline content is code only — never prose.
 
@@ -342,10 +341,10 @@ heading. Its `preamble` carries the `lang` declaration and any introductory
 prose; its `sections` are flat, with no nesting. Heading level is prose
 organisation for the reader and has no bearing on the tree.
 
-The grammar's forward-only mode progression is preserved implicitly in each
-Section's `code` array order: valid prefixes are `[]`, `[ArrowWeft, ...]`, or
-`[TildeWeft, ...]`. The Classifier enforces the ordering; the AST just
-records it. `{Loom}` Sections take the same shape as any other — the
+The grammar's mode progression is preserved implicitly in each Section's `code`
+array: it begins at the first transition — valid prefixes `[]`, `[ArrowWeft, ...]`,
+or `[TildeWeft, ...]` — after which Code and Prose alternate. The Classifier
+enforces this; the AST just records it. `{Loom}` Sections take the same shape as any other — the
 Specifier token on the heading is the only marker that distinguishes them.
 
 Every input weft has a place in the tree; nothing is dropped between stages.

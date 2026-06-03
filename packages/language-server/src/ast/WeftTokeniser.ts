@@ -135,7 +135,12 @@ const inlineAfter = <T>(
   linePosition: Position,
 ): Option.Option<T> => {
   const lineStart = linePosition.start.offset
-  const lineText = text.slice(lineStart, linePosition.end.offset)
+  // The line slice spans to its terminator inclusive; the inline probes anchor
+  // their content to `$`, which (no `m` flag) is the absolute end — so a trailing
+  // newline would defeat the match. Drop it; the content never includes it.
+  const lineText = text
+    .slice(lineStart, linePosition.end.offset)
+    .replace(/\r?\n$/, '')
   return pipe(
     Option.fromNullable(probe.exec(lineText)),
     Option.filter(
