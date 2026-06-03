@@ -128,11 +128,11 @@ the end of the world, where the output is pure text on disk.
 NodeRuntime.runMain(                                  ← end of the world
   Effect.gen(function* () {
     const doc   = yield* Loom.ast(source)             ← parse   (how-ast)
-    const frame = yield* Transduce.run(doc)           ← transduce (how-frame) → FrameModule
+    const frame = yield* Transducer.run(doc)          ← transduce (how-frame) → FrameModule
     yield* Tangle.run(frame)                          ← tangle the {path} sinks → files
   }).pipe(
     Effect.provide(Loom.Default),
-    Effect.provide(Transduce.Default),
+    Effect.provide(Transducer.Default),
     Effect.provide(Tangle.Default),
     Effect.provide(NodeFileSystem.layer),
   )
@@ -163,7 +163,7 @@ Every `.loom` position belongs to exactly one of two planes, and that
 determines which virtual code the language server consults.
 
 **De dicto — the frame.** The composition machinery: the synthesised
-`Effect.Service` classes, their `compose()` / `tangle()` calls, Warp wiring (the
+`Effect.Service` classes, their `core.compose()` / `core.tangle()` calls, Warp wiring (the
 lazy `const m = yield* Mul` bindings — no eager `dependencies` array, see
 `how-frame.md` on order independence), the author's cross-file `import` lines,
 and the verbatim body of any `{Loom}` section (a `FrameCode` splice). This is
@@ -233,6 +233,17 @@ Type checking and semantic analysis of *product* code work through the
 with its transcluded sections inlined in composition order; that document is
 what the language service checks, and its results map back to the `.loom`
 sections that contributed them.
+
+A **composition diagnostic** — one that exists only because sections are spliced:
+a duplicated binding, a name a mid-section anchor pulls into scope, a type that
+clashes only when composed — is emergent. No section produces it alone, only the
+consuming document does, so it is reported once. By default it maps to the actual
+offending span, in whichever contributing section's `.loom` wrote it — the
+language service's own order, run backward through the mappings. The exception is
+**cross-file** transclusion: when the offending span was inlined from another
+file's library section, the diagnostic re-pins to the `{{…}}` **anchor** in the
+consuming section — the composition is the consumer's to own, and the library
+author never sees it — not to the library's own source.
 
 Composition order — not document order — is what the language service sees, so a
 section may reference another defined later in the source without error. The
