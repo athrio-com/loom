@@ -29,7 +29,7 @@ const id = (text: string) =>
   FrameAuthoredTokenSchema.make({
     text,
     position: pos(0, text.length),
-    kind: 'identifier',
+    kind: 'name',
   })
 
 const prose = (text: string) =>

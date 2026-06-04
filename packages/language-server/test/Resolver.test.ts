@@ -2,7 +2,7 @@ import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import { Loom } from '#ast/Loom'
 import { resolve } from '#projectors/Resolver'
-import { transduce } from '#projectors/Transducer'
+import { buildFrame } from '#projectors/FrameAstBuilder'
 
 // The Resolver projects the de re product: one document per Service, in its own
 // language, with `{{…}}` transclusions inlined in composition order. The probes
@@ -36,7 +36,7 @@ const square = (x: number) => mul(x, x)
 `
 
 describe('Resolver — de re product compositions', () => {
-  const resolved = resolve(transduce(parse(input)), input)
+  const resolved = resolve(buildFrame(parse(input)), input)
   const byId = (id: string) => resolved.find((r) => r.id === id)!
   const at = (m: {
     source: { start: { offset: number }; end: { offset: number } }

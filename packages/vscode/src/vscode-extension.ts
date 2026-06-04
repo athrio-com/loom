@@ -1,5 +1,6 @@
 import * as serverProtocol from '@volar/language-server/protocol'
 import { activateAutoInsertion, createLabsInfo } from '@volar/vscode'
+import * as path from 'node:path'
 import * as vscode from 'vscode'
 import {
   type BaseLanguageClient,
@@ -30,9 +31,21 @@ export async function activate(context: vscode.ExtensionContext) {
     },
   }
 
+  // The server type-checks the synthesised frame, so it needs a TypeScript
+  // `lib/`. Rather than bundle one, point it at the TypeScript VS Code already
+  // ships (`loadTsdkByPath` on the server loads `typescript.js` and resolves the
+  // `lib.*.d.ts` from this directory).
+  const tsdk = path.join(
+    vscode.env.appRoot,
+    'extensions',
+    'node_modules',
+    'typescript',
+    'lib',
+  )
+
   const clientOptions: LanguageClientOptions = {
     documentSelector: [{ language: 'loom' }],
-    initializationOptions: {},
+    initializationOptions: { typescript: { tsdk } },
   }
 
   client = new LanguageClient(

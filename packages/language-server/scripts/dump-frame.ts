@@ -5,12 +5,12 @@ import { resolve } from 'node:path'
 import { Loom } from '#ast/Loom'
 import { Resolver } from '#projectors/Resolver'
 import { Synthesiser } from '#projectors/Synthesiser'
-import { Transducer } from '#projectors/Transducer'
+import { FrameAstBuilder } from '#projectors/FrameAstBuilder'
 
 // =============================================================================
 // dump-frame — dev probe. Reads a `.loom`, runs parse → transduce → synthesise →
 // resolve, and prints (1) the frame source mappings as `gen ⟵ src` pairs
-// (identifier mismatches flagged), (2) the resolved de re product documents (one
+// (a `name` mapped to an empty source span flagged), (2) the resolved de re product documents (one
 // per Service, transclusions inlined), and (3) the full `FrameModule` as JSON
 // (health omitted, `position` compacted to offsets).
 //
@@ -34,12 +34,12 @@ const compact = (k: string, v: any) => {
 
 const program = Effect.gen(function* () {
   const loom = yield* Loom
-  const transducer = yield* Transducer
+  const builder = yield* FrameAstBuilder
   const synthesiser = yield* Synthesiser
   const resolver = yield* Resolver
 
   const document = yield* loom.ast(text)
-  const frame = yield* transducer.run(document)
+  const frame = yield* builder.build(document)
   const { genCode, mappings } = yield* synthesiser.run(frame)
   const products = yield* resolver.run(frame, text)
 
@@ -47,7 +47,14 @@ const program = Effect.gen(function* () {
     .map((m) => {
       const gen = genCode.slice(m.genStart, m.genStart + m.genLength)
       const src = text.slice(m.source.start.offset, m.source.end.offset)
-      const warn = m.kind === 'identifier' && gen !== src ? '  ⚠ MISMATCH' : ''
+      // A `name` must map to a real label/name span, or be synth (unmapped) — a
+      // name mapped to an empty span is the anomaly (e.g. a tagless hash leaking
+      // back in). A by-name anchor's name legitimately differs in *text* from its
+      // label, so text-difference alone is not flagged.
+      const warn =
+        m.kind === 'name' && m.source.start.offset === m.source.end.offset
+          ? '  ⚠ NAME→∅'
+          : ''
       const gp = `gen[${m.genStart},${m.genStart + m.genLength})`
       const sp = `src[${m.source.start.offset},${m.source.end.offset})`
       return `[${(m.kind ?? 'code').padEnd(10)}] ${gp} ${q(gen)} ⟵ ${sp} ${q(src)}${warn}`
@@ -71,7 +78,7 @@ const program = Effect.gen(function* () {
   process.stdout.write(JSON.stringify(frame, compact, 2) + '\n')
 }).pipe(
   Effect.provide(Loom.Default),
-  Effect.provide(Transducer.Default),
+  Effect.provide(FrameAstBuilder.Default),
   Effect.provide(Synthesiser.Default),
   Effect.provide(Resolver.Default),
 )

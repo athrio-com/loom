@@ -1,0 +1,11 @@
+{{lang: Scala}}
+
+A companion document. `Fun.loom` imports `Neg` from here, across files.
+
+# Negate [Neg]
+
+Negates an integer — the only export.
+
+=>
+
+def negate(x: Int): Int = -x

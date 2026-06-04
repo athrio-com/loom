@@ -3,7 +3,7 @@ import { Effect, Layer, Runtime } from 'effect'
 import { Loom } from '#ast/Loom'
 import { Resolver } from '#projectors/Resolver'
 import { Synthesiser } from '#projectors/Synthesiser'
-import { Transducer } from '#projectors/Transducer'
+import { FrameAstBuilder } from '#projectors/FrameAstBuilder'
 import { loomVirtualCode, stringSnapshot } from '../src/VirtualCode'
 
 // VirtualCode dispatches the projections and assembles the Volar tree. For now
@@ -16,7 +16,7 @@ import { loomVirtualCode, stringSnapshot } from '../src/VirtualCode'
 
 const layer = Layer.mergeAll(
   Loom.Default,
-  Transducer.Default,
+  FrameAstBuilder.Default,
   Synthesiser.Default,
   Resolver.Default,
 )
@@ -35,7 +35,7 @@ export const add = (x: number, y: number): number => x + y
 describe('VirtualCode — root → frame projection', () => {
   it.effect('builds the tree via Runtime.runSync on a warm runtime', () =>
     Effect.gen(function* () {
-      const runtime = yield* Effect.runtime<Loom | Transducer | Synthesiser | Resolver>()
+      const runtime = yield* Effect.runtime<Loom | FrameAstBuilder | Synthesiser | Resolver>()
       const root = Runtime.runSync(runtime)(loomVirtualCode(stringSnapshot(input)))
 
       expect(root.id).toBe('root')
@@ -53,7 +53,7 @@ describe('VirtualCode — root → frame projection', () => {
 
       // the de re product for the Add section — its raw code, in its language
       const product = root.embeddedCodes![1]!
-      expect(product.id).toBe('Add')
+      expect(product.id).toBe('section-0')
       expect(product.languageId).toBe('typescript')
       expect(
         product.snapshot.getText(0, product.snapshot.getLength()),
@@ -63,7 +63,7 @@ describe('VirtualCode — root → frame projection', () => {
 
   it.effect('maps the frame class name back to the [Add] tag in the .loom', () =>
     Effect.gen(function* () {
-      const runtime = yield* Effect.runtime<Loom | Transducer | Synthesiser | Resolver>()
+      const runtime = yield* Effect.runtime<Loom | FrameAstBuilder | Synthesiser | Resolver>()
       const root = Runtime.runSync(runtime)(loomVirtualCode(stringSnapshot(input)))
 
       const frame = root.embeddedCodes![0]!

@@ -3,46 +3,56 @@ import { NodeRuntime } from '@effect/platform-node'
 import {
   createConnection,
   createServer,
-  createSimpleProject,
+  createTypeScriptProject,
+  loadTsdkByPath,
 } from '@volar/language-server/node'
-import { create as createHtmlService } from 'volar-service-html'
-import { create as createCssService } from 'volar-service-css'
-import { create as createMarkdownService } from 'volar-service-markdown'
+import { create as createTypeScriptServices } from 'volar-service-typescript'
 import { Loom } from '#ast/Loom'
 import { Resolver } from '#projectors/Resolver'
 import { Synthesiser } from '#projectors/Synthesiser'
-import { Transducer } from '#projectors/Transducer'
+import { FrameAstBuilder } from '#projectors/FrameAstBuilder'
 import { loomLanguagePlugin } from './LoomLanguagePlugin'
 
 // =============================================================================
 // LSP entry point — an Effect program launched via `NodeRuntime.runMain`.
 //
-// Providing the pipeline layers here *warms* them (Effect builds layers
-// asynchronously), and `Effect.runtime` captures that warm runtime to hand to
-// the Loom language plugin. Volar's plugin hooks are synchronous, so the plugin
-// runs its (synchronous) virtual-code projection on this warm runtime via
-// `Runtime.runSync` — which is only sound because the layers are already built.
-// This is why the server is an Effect program rather than plain Volar: a cold,
-// per-callback runtime would throw on the async layer build. The program then
-// wires Volar's connection/server alongside HTML/CSS/Markdown services and
-// yields to `Effect.never`, staying alive while Volar drives its callbacks.
+// Providing the pipeline layers warms them, and `Effect.runtime` captures that
+// warm runtime for the plugin (Volar's hooks are synchronous; the plugin runs
+// the projection on it). The project is TypeScript-aware
+// (`createTypeScriptProject`), so Volar type-checks the synthesised frame — the
+// `typescript` embedded code the plugin exposes via `typescript.getServiceScript`
+// — and the TypeScript language service surfaces composition diagnostics, mapped
+// back to the `.loom`.
+//
+// `typescript` is not bundled: the client passes its `lib/` directory as
+// `initializationOptions.typescript.tsdk` and `loadTsdkByPath` loads it, so the
+// frame checks against a real standard library (`lib.*.d.ts` resolve from that
+// dir). (Prose services — HTML/CSS/Markdown — are dropped for now: they pull in a
+// `vscode-uri` ESM-interop break at bundle time, and aren't needed here.)
 // =============================================================================
 
 const program = Effect.gen(function* () {
   const runtime = yield* Effect.runtime<
-    Loom | Transducer | Synthesiser | Resolver
+    Loom | FrameAstBuilder | Synthesiser | Resolver
   >()
 
   const connection = createConnection()
   const server = createServer(connection)
 
-  connection.onInitialize((params) =>
-    server.initialize(
+  connection.onInitialize((params) => {
+    const tsdk = loadTsdkByPath(
+      (params.initializationOptions as { typescript: { tsdk: string } })
+        .typescript.tsdk,
+      params.locale,
+    )
+    return server.initialize(
       params,
-      createSimpleProject([loomLanguagePlugin(runtime)]),
-      [createHtmlService(), createCssService(), createMarkdownService()],
-    ),
-  )
+      createTypeScriptProject(tsdk.typescript, tsdk.diagnosticMessages, () => ({
+        languagePlugins: [loomLanguagePlugin(runtime)],
+      })),
+      createTypeScriptServices(tsdk.typescript),
+    )
+  })
   connection.onInitialized(server.initialized)
   connection.onShutdown(server.shutdown)
   connection.listen()
@@ -50,7 +60,7 @@ const program = Effect.gen(function* () {
   yield* Effect.never
 }).pipe(
   Effect.provide(Loom.Default),
-  Effect.provide(Transducer.Default),
+  Effect.provide(FrameAstBuilder.Default),
   Effect.provide(Synthesiser.Default),
   Effect.provide(Resolver.Default),
 )

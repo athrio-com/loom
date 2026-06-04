@@ -87,6 +87,26 @@ object Arithmetic extends App {
   println(s"power(2, 10) = ${power(2, 10)}")
 }
 
+# Companion imports {Loom}
+
+Bring `Neg` in from the companion document so a section can depend on it
+across files. The import is hoisted to the head of the synthesised frame.
+
+=>
+
+import { Neg } from "./Sad.loom"
+
+## Negated [Negd]
+
+Built on `Neg` from the companion document via {{n: Neg}} — a cross-file
+Warp edge. The `yield* Neg` resolves to the imported class.
+
+=>
+
+{{n}}
+
+def negated(x: Int): Int = negate(x)
+
 # Build script [Build]{Bash}
 
 Compile the single file, then run the resulting class.
@@ -110,4 +130,4 @@ Pull the imports and the entry point together.
 
 =>
 
-{{Build}}
+{{Build script}}

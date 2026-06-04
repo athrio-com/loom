@@ -1,10 +1,12 @@
 import type { LanguagePlugin } from '@volar/language-core'
+import type {} from '@volar/typescript'
 import { Runtime } from 'effect'
+import type * as ts from 'typescript'
 import type { URI } from 'vscode-uri'
 import type { Loom } from '#ast/Loom'
 import type { Resolver } from '#projectors/Resolver'
 import type { Synthesiser } from '#projectors/Synthesiser'
-import type { Transducer } from '#projectors/Transducer'
+import type { FrameAstBuilder } from '#projectors/FrameAstBuilder'
 import { loomVirtualCode } from './VirtualCode'
 
 // =============================================================================
@@ -24,7 +26,7 @@ import { loomVirtualCode } from './VirtualCode'
 // =============================================================================
 
 export const loomLanguagePlugin = (
-  runtime: Runtime.Runtime<Loom | Transducer | Synthesiser | Resolver>,
+  runtime: Runtime.Runtime<Loom | FrameAstBuilder | Synthesiser | Resolver>,
 ): LanguagePlugin<URI> => ({
   getLanguageId(uri) {
     if (uri.path.endsWith('.loom')) return 'loom'
@@ -36,5 +38,19 @@ export const loomLanguagePlugin = (
   },
   updateVirtualCode(_uri, _old, snapshot) {
     return Runtime.runSync(runtime)(loomVirtualCode(snapshot))
+  },
+  // TS integration: tell @volar/typescript that the `frame` embedded code is the
+  // TypeScript service script, so Volar type-checks the synthesised frame and
+  // maps its diagnostics back to the `.loom` through the frame's mappings.
+  typescript: {
+    extraFileExtensions: [
+      { extension: 'loom', isMixedContent: true, scriptKind: 7 as ts.ScriptKind },
+    ],
+    getServiceScript(root) {
+      const frame = root.embeddedCodes?.find((code) => code.id === 'frame')
+      return frame
+        ? { code: frame, extension: '.ts', scriptKind: 3 as ts.ScriptKind }
+        : undefined
+    },
   },
 })

@@ -194,9 +194,9 @@ to reimplement what Volar provides.
 root (languageId: "loom")
 ├── frame        (languageId: "typescript")   ← de dicto: the synthesised
 │                                                Service program (how-frame)
-├── tangled-0    (languageId: per target)     ← de re: resolved product for a
+├── tangled-0    (languageId: Loom)           ← de re: resolved product for a
 │                                                {path} tangle, in compose order
-├── tangled-1    (languageId: per target)     ← one per tangle section
+├── tangled-1    (languageId: Loom)           ← one per tangle section
 ├── section-0    (languageId: per section)    ← de re: a section's resolved
 │                                                composition (code + transclusions)
 └── …
@@ -208,9 +208,12 @@ root (languageId: "loom")
   hover, go-to-definition, and type info here (a tag resolves to its exported
   Service; a tagless heading to its hash-named class).
 - **Tangled** — one per tangle section. The member sections' `code` composed in
-  tangle order, producing a virtual document in the tangle's target language.
-  The language service type-checks the assembled product and the diagnostics map
-  back to the `.loom` source lines each section came from.
+  tangle order, producing the assembled file as a virtual document. A tangle is
+  **language-agnostic**: it composes any source — possibly several languages —
+  into one file, so it claims no product language of its own; it is marked `Loom`
+  and is not type-checked as a single language. Type-checking is per contributing
+  section (below); the tangle's mappings only carry each line back to the `.loom`
+  section it came from.
 - **Embedded section compositions** — each content section projects to its
   *resolved composition*: its code with its transcluded sections inlined in
   composition order, in its own `languageId` (the document's `{{lang: …}}`
@@ -251,9 +254,10 @@ order is the transclusion graph: a section's code follows the code of the
 sections it transcludes through `{{…}}` anchors.
 
 A **tangle** is the composition whose unit is a file-output target: a `{path}`
-section assembles its members into one document in the target language — checked
-as a virtual document *and*, at the end of the world, written to disk. But
-resolution is not gated on a tangle. Because the whole file projects to one
+section assembles its members into one document — language-agnostic (marked
+`Loom`), so not type-checked as a single language, but mapped back to its sources
+*and*, at the end of the world, written to disk. But resolution is not gated on a
+tangle. Because the whole file projects to one
 synth, every section is interconnected and diagnosable on its own composition,
 and a library `.loom` with no tangle is still fully resolved within itself.
 

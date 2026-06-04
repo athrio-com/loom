@@ -49,7 +49,7 @@ const empty: Rendered = { code: '', mappings: [] }
 const bindingsOf = (body: ServiceBody): ReadonlyArray<Binding> =>
   body.type === 'StaticBody'
     ? []
-    : [body.head, ...Array.map(body.tail, (item) => item.value)]
+    : Array.map(body.bindings, (item) => item.value)
 
 const tagsOf = (body: ServiceBody): ReadonlyMap<string, string> =>
   new Map(Array.map(bindingsOf(body), (b) => [b.name.text, b.tag.text] as const))

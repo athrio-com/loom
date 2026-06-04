@@ -18,8 +18,10 @@ generated frame is a **token**, of one of two kinds by origin:
   `transduce` supplies only the holes.)
 - **`FrameAuthoredToken`** — a span lifted from the `.loom` (a name, a tag, a
   bound variable, a preamble) that resolves into the frame. It carries its
-  `position`, hence **one mapping**. Its `kind` (`identifier` | `prose`) selects
-  which features the language service forwards there.
+  `position`, hence **one mapping**. Its `kind` (`name` | `prose`) selects
+  which features the language service forwards there — a `name` is a const/class
+  identifier the frame generates, mapping back to the source `label` or name it
+  came from; `prose` is title / preamble text.
 
 **Mapping belongs to authored tokens, never to synth.** A mapping links a
 generated span to its `.loom` origin; synth glue has no origin, so it can be no
@@ -32,9 +34,15 @@ escaped for the literal it sits in — `` ` ``, `${`, `\` inside a template lite
 (`EmbeddedCode`, the `name` / `preamble` fields); `*/` inside the TSDoc — while
 its `position` keeps the unescaped `.loom` span. So a leaf still yields one coarse
 mapping over the whole span, never a per-character split. That suffices because
-the only content needing char-precise mapping is identifiers (never escaped, so
-1:1) and product code *as the language service reads it* — the raw resolved
+the only content needing char-precise mapping is **names** (a const/class
+identifier, never escaped — so a name that stands for itself is 1:1 with the
+**label** or name it came from: class `Add` ⟷ tag label `Add`, const `m` ⟷ Warp
+local `m`) and product code *as the language service reads it* — the raw resolved
 composition (`EmbeddedCode.position`, unescaped), not the frame's escaped copy. The
+one name that is *not* 1:1 is a **by-name anchor**: its generated const name is the
+resolved service (`Main`), but it maps to the heading **label** the author wrote
+(`Entry point`) — a coarse whole-span link of different text, all a navigation jump
+to the anchor needs. The
 same prose escaped two ways (field `` ` `` vs TSDoc `*/`) is two leaves, different
 `text`, one `position`.
 
@@ -71,9 +79,9 @@ transclusions composes its single own fragment, and a prose-only section (empty
 code block) composes nothing, `core.compose()` — so the shape stays uniform. This is
 the complete, uniform surface of every section in the Frame.
 
-Sections without Warp declarations use `succeed:` — their fields are
-static values, constructed once. Sections with Warp declarations use
-`effect: Effect.gen(...)` — their fields depend on other sections resolved
+Sections with no dependency use `succeed:` — their fields are static
+values, constructed once. Sections with any dependency — a Warp declaration
+*or* a name anchor — use `effect: Effect.gen(...)`, their fields resolved
 through Effect's dependency injection. The shape is identical from the
 outside; only the construction mechanism differs.
 
@@ -81,9 +89,11 @@ outside; only the construction mechanism differs.
 exported — `export class Add extends Effect.Service...` — and forms part
 of the document's public API, referenceable from other files via Warp
 declarations. A tagless section is private — no `export`, not importable
-across files. Its class name and service identifier are derived by hashing
-the heading name. Tagless sections are reachable only within the same
-document via name anchors in code blocks.
+across files. Its class name and service tag are derived by hashing the heading
+name; that hash is a synth name — Loom's own, with no `.loom` span — so it is
+never mapped (the section is reached by name anchor, not by the hash). Tagless
+sections are reachable only within the same document via name anchors in code
+blocks.
 
 ## Heading Levels and Document Structure
 
@@ -111,13 +121,15 @@ does not resolve the path (see Cross-Module Dependencies). Only
 exported (tagged) sections are reachable via Warp declarations.
 
 **Name anchors** — written directly in the code block as
-`{{Imports}}` or `{{Multiplier Function}}` — reference a private
-(tagless) section within the same file by its heading name. The
-synthesiser resolves the name to the section's hash, hoists a
-`yield*` for it internally (the same lazy dependency mechanism as a
-Warp declaration), and inlines the `.code` field at the anchor site.
-No preamble declaration is needed. The internal binding name is
-hash-derived and not user-visible.
+`{{Imports}}` or `{{Multiplier Function}}` — reference a section within
+the same file **by its heading title**, tagged or not. The title is
+always available; only the `[Tag]` *label* is Warp-gated, so a bare tag
+(`{{Mul}}` for a section tagged `[Mul]`) is a *name miss* — the label is
+not the title. The synthesiser resolves the title to the section's
+service, hoists a `yield*` for it internally — the same lazy dependency
+mechanism as a Warp declaration — under a `_`-prefixed alias that won't
+shadow the service's class, and inlines the `.code` field at the anchor
+site. No preamble declaration is needed; the alias is not user-visible.
 
 A single-word name anchor (`{{Imports}}`) is resolved as a preamble
 Warp binding first; if no match is found, heading name lookup follows.
@@ -298,7 +310,7 @@ doing hand-written TypeScript, not Loom composition. From `{Loom}` on, you are
 on your own.
 
 The one structural service a `{Loom}` section still provides is carrying
-cross-file imports: an `import { Mul } from "./arithmetic.js"` brings an
+cross-file imports: an `import { Mul } from "./arithmetic.loom"` brings an
 out-of-file Service into the frame's scope (see Cross-Module Dependencies). Its
 `import` lines are hoisted to the head of the frame; the rest of its body is the
 `FrameCode` splice. Within a single document there is no module-level dependency
@@ -323,7 +335,7 @@ import, written in a `{Loom}` section:
 
 =>
 
-import { Mul } from "./arithmetic.js"
+import { Mul } from "./arithmetic.loom"
 ```
 
 The projector emits that import verbatim. TypeScript then binds the
@@ -336,7 +348,13 @@ It is a value import (`import { Mul }`), never `import type`: a Service
 is used as a value — it is yielded, and provided through `.Default` at
 the root — so a type-only import would erase the binding the running
 Frame needs. Because the author writes the import, the author chooses
-the form; Loom never decides value-vs-type or guesses a path. An
+the form; Loom never decides value-vs-type or guesses a path. The path carries
+the dependency's `.loom` extension — `import { Neg } from "./Sad.loom"` — which
+the tooling resolves to that document's frame, exactly as Volar resolves
+`"./Foo.vue"` (the same `extraFileExtensions` mechanism, no custom resolver). The
+tangle CLI resolves composition from the AST and never runs the frame, so the
+`.loom` import (which vanilla Node could not load) costs nothing there; only a
+self-hosting runtime would add a `.loom` loader. An
 imported Service's `.Default` participates in the root's layer wiring
 exactly as a same-file one does (the precise shape of multi-file root
 composition is settled when multi-file builds land).
@@ -428,12 +446,13 @@ from the same source document, with no duplication.
 //   - Tagged sections  → export class — public API, importable cross-file.
 //   - Tagless sections → class (no export) — private, same-file only.
 //   - Sections emitted in document order (no eager cross-refs; order is free).
-//   - Explicit [Tag]  → class name = tag label, service identifier = tag label.
-//   - No [Tag]        → class name = hash of heading name, identifier = same hash.
-//   - Heading name stored as `name` field on every section.
+//   - Explicit [Tag]  → name (class + service tag) = the tag label, mapped to it.
+//   - No [Tag]        → name = hash of the heading name; a synth name, unmapped.
+//   - Heading title stored as `name` field on every content section (tangle
+//     sinks return core.tangle(…) — no name/preamble).
 //   - Preamble Warp declaration ({{a: Add}}) → lazy yield* inside Effect.gen;
 //     no dependencies[] array (see Order Independence).
-//   - Name anchor ({{Imports}}) in code block → internal yield* by hash, hoisted.
+//   - Name anchor ({{Title}}) in code block → internal `_`-aliased yield*, hoisted.
 //   - Tangle section ({path} specifier) → private, core.tangle() return, graph sink.
 //   - {Loom} specifier → code block projected literally (escape hatch only).
 //   - Composition root → auto-synthesised: merge all layers, provide to self.

@@ -13,20 +13,23 @@ import { HealthSchema, okHealth, PositionSchema } from '#ast/LoomNode'
 //                                              mapped. Written `synth('…')`; the
 //                                              constructor fills it, so transduce
 //                                              supplies only the holes.
-//   - FrameAuthoredToken { text, position, kind } frame token (id / prose), mapped
+//   - FrameAuthoredToken { text, position, kind } frame token (name / prose), mapped
 //   - FrameCode          { text, position }       frame raw block ({Loom}), mapped
 //   - EmbeddedCode  `text` position               product block (=> code), mapped
 //
 // Mapping belongs to authored leaves: a leaf maps iff it carries `position`.
-// `kind` (identifier | prose) selects which features the LSP forwards.
+// `kind` (name | prose) selects which features the LSP forwards. A `name` is a
+// const/class identifier the frame generates; it maps back to the source `label`
+// (a tag, an anchor) or name (a Warp local) that introduced it. `prose` is title
+// / preamble text.
 //
 // Render order is *explicit*, not positional: each node carries a `RenderOrder`
 // annotation — the ordered list of fields the renderer emits. Fields absent from
 // it are metadata (`type`, `health`, `position`, `kind`, `languageId`): never
 // emitted, though a
 // leaf's `text` maps via its sibling `position`. Reordering a struct cannot change
-// output; the order's type admits only real, non-metadata field names, and the
-// test suite checks it covers them exhaustively.
+// output; the order is written by hand (metadata simply omitted), and the test
+// suite checks it covers exactly the renderable fields.
 //
 // Health is two-tier: grammatical health lives on the Loom AST (parse); the
 // `health` here carries semantic findings discovered at transduce (tag-on-
@@ -57,14 +60,15 @@ export const renderOrderOf = (
   SchemaAST.getAnnotation<ReadonlyArray<string>>(RenderOrder)(schema.ast)
 
 // frameNode — adds `type` and `health` (semantic, default ok), and pins the
-// explicit `order` of renderable fields as a `RenderOrder` annotation. The type
-// of `order` admits only real, non-metadata field names; that it covers them
-// *exhaustively* is a fact about these definitions, checked by the test suite
-// (FrameAst.test.ts), not guarded at runtime.
+// explicit `order` of renderable fields as a `RenderOrder` annotation. The order
+// is written by hand; metadata (`position`, `kind`, `languageId`) is simply left
+// out of it. That the order lists *exactly* the renderable fields — all of them,
+// none of the metadata — is checked by the test suite (FrameAst.test.ts), the one
+// guard that matters; the param type only keeps entries to real field names.
 const frameNode = <Tag extends string, Fields extends Schema.Struct.Fields>(
   tag: Tag,
   fields: Fields,
-  order: ReadonlyArray<Exclude<keyof Fields, 'position' | 'kind' | 'languageId'>>,
+  order: ReadonlyArray<keyof Fields>,
 ) =>
   Schema.Struct({
     type: Schema.Literal(tag).pipe(
@@ -100,11 +104,11 @@ const synth = (text: string) =>
 // Authored leaves — text lifted from the .loom, mapped back to it.
 // =============================================================================
 
-export const SpanKindSchema = Schema.Literal('identifier', 'prose')
+export const SpanKindSchema = Schema.Literal('name', 'prose')
 export type SpanKind = typeof SpanKindSchema.Type
 
-// FrameAuthoredToken — a generated frame token (an identifier or a prose span)
-// resolved from the .loom. `kind` selects which LSP features Volar forwards.
+// FrameAuthoredToken — a generated frame token (a const/class `name`, or a prose
+// span) resolved from the .loom. `kind` selects which LSP features Volar forwards.
 export const FrameAuthoredTokenSchema = frameNode(
   'FrameAuthoredToken',
   { text: Schema.String, position: PositionSchema, kind: SpanKindSchema },
@@ -120,6 +124,19 @@ export const FrameCodeSchema = frameNode(
   ['text'],
 )
 export type FrameCode = typeof FrameCodeSchema.Type
+
+// ServiceName — a service's name wherever it appears in the frame: the
+// class name, the `<…>` type param, the `"…"` service tag, and each `.Default` /
+// `yield*` reference. Authored when the section is tagged — the name is the
+// `[Tag]` label, mapped to that span; a FrameSynthToken when tagless — the name
+// is a synthesised hash, pure glue with no `.loom` origin, so it is never mapped.
+// (A by-name *anchor* is different: its ref maps to the author-written label, so
+// it stays a FrameAuthoredToken even when the resolved text is a hash.)
+export const ServiceNameSchema = Schema.Union(
+  FrameAuthoredTokenSchema,
+  FrameSynthTokenSchema,
+)
+export type ServiceName = typeof ServiceNameSchema.Type
 
 // EmbeddedCode — a => block: de re product code, backtick-delimited as a compose
 // argument; maps into the section's product virtual code. The backticks are
@@ -218,14 +235,15 @@ export const StaticBodySchema = frameNode(
 )
 export type StaticBody = typeof StaticBodySchema.Type
 
-// EffectfulBody — one or more Warps: `Effect.gen` yielding each dependency, then
-// returning the triple. `open` provides the first binding's indent.
+// EffectfulBody — has dependencies: `Effect.gen` yielding each, then returning
+// the triple. `bindings` is a `0..n` list (each `BindingItem` owns its leading
+// `\n    `, so `open` ends at the brace and the binding-less shape is moot here —
+// a section with no binding is a `StaticBody`).
 export const EffectfulBodySchema = frameNode(
   'EffectfulBody',
   {
-    open: synth('{\n  effect: Effect.gen(function* () {\n    '),
-    head: BindingSchema,
-    tail: Schema.Array(BindingItemSchema),
+    open: synth('{\n  effect: Effect.gen(function* () {'),
+    bindings: Schema.Array(BindingItemSchema),
     mid1: synth('\n    return { name: `'),
     name: FrameAuthoredTokenSchema,
     mid2: synth('`, preamble: `'),
@@ -234,25 +252,24 @@ export const EffectfulBodySchema = frameNode(
     code: ComposeSchema,
     close: synth(' }\n  }),\n}'),
   },
-  ['open', 'head', 'tail', 'mid1', 'name', 'mid2', 'preamble', 'mid3', 'code', 'close'],
+  ['open', 'bindings', 'mid1', 'name', 'mid2', 'preamble', 'mid3', 'code', 'close'],
 )
 export type EffectfulBody = typeof EffectfulBodySchema.Type
 
-// TangleBody — a {path} sink: yields its dependencies, returns
-// `tangle(path, compose(…))`.
+// TangleBody — a {path} sink: yields its dependencies (a `0..n` binding list —
+// a literal-only or all-resolved tangle has none), returns `tangle(path, …)`.
 export const TangleBodySchema = frameNode(
   'TangleBody',
   {
-    open: synth('{\n  effect: Effect.gen(function* () {\n    '),
-    head: BindingSchema,
-    tail: Schema.Array(BindingItemSchema),
+    open: synth('{\n  effect: Effect.gen(function* () {'),
+    bindings: Schema.Array(BindingItemSchema),
     mid1: synth('\n    return core.tangle("'),
     path: FrameAuthoredTokenSchema,
     mid2: synth('", '),
     code: ComposeSchema,
     close: synth(')\n  }),\n}'),
   },
-  ['open', 'head', 'tail', 'mid1', 'path', 'mid2', 'code', 'close'],
+  ['open', 'bindings', 'mid1', 'path', 'mid2', 'code', 'close'],
 )
 export type TangleBody = typeof TangleBodySchema.Type
 
@@ -268,8 +285,9 @@ export type ServiceBody = typeof ServiceBodySchema.Type
 // twice from one source: a `/** … */` TSDoc block above the class, and the
 // `name` / `preamble` fields in the body. `modifier` is a FrameSynthToken the
 // transducer fills with `export ` (tagged) or `` (tagless). `name` appears three
-// times (class name, type param, service tag), each a distinct generated
-// occurrence mapping back to the same heading span.
+// times (class name, type param, service tag) as a `ServiceName`: each a distinct
+// generated occurrence mapping back to the `[Tag]` label when the section is
+// tagged, or a synth hash (unmapped) when tagless.
 // =============================================================================
 
 export const ServiceClassSchema = frameNode(
@@ -280,11 +298,11 @@ export const ServiceClassSchema = frameNode(
     doc2: synth(' */\n'),
     modifier: FrameSynthTokenSchema,
     kw1: synth('class '),
-    name: FrameAuthoredTokenSchema,
+    name: ServiceNameSchema,
     kw2: synth(' extends Effect.Service<'),
-    nameType: FrameAuthoredTokenSchema,
+    nameType: ServiceNameSchema,
     kw3: synth('>()("'),
-    nameTag: FrameAuthoredTokenSchema,
+    nameTag: ServiceNameSchema,
     kw4: synth('", '),
     body: ServiceBodySchema,
     kw5: synth(') {}'),
@@ -311,7 +329,7 @@ export type ServiceClass = typeof ServiceClassSchema.Type
 
 export const LayerRefSchema = frameNode(
   'LayerRef',
-  { name: FrameAuthoredTokenSchema, dot: synth('.Default') },
+  { name: ServiceNameSchema, dot: synth('.Default') },
   ['name', 'dot'],
 )
 export type LayerRef = typeof LayerRefSchema.Type
@@ -325,7 +343,7 @@ export type LayerRefItem = typeof LayerRefItemSchema.Type
 
 export const SinkRefSchema = frameNode(
   'SinkRef',
-  { kw: synth('yield* '), name: FrameAuthoredTokenSchema },
+  { kw: synth('yield* '), name: ServiceNameSchema },
   ['kw', 'name'],
 )
 export type SinkRef = typeof SinkRefSchema.Type

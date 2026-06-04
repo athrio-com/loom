@@ -23,7 +23,7 @@ import {
 // A generated span paired with the `.loom` it maps to. `source` is the source
 // *side* of the mapping (Volar's term) — it carries the authored node's
 // `position`; a node's own location field is named `position`, not `source`.
-// The kind of a mapped span: a frame `identifier` / `prose` (Synthesiser), or de
+// The kind of a mapped span: a frame `name` / `prose` (Synthesiser), or de
 // re `product` code (Resolver). Drives which features Volar forwards there.
 export type MappingKind = SpanKind | 'product'
 

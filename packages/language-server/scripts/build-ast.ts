@@ -4,11 +4,11 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { Loom } from '#ast/Loom'
 import { Synthesiser } from '#projectors/Synthesiser'
-import { Transducer } from '#projectors/Transducer'
+import { FrameAstBuilder } from '#projectors/FrameAstBuilder'
 
 // =============================================================================
 // build-ast — dev probe. Reads a `.loom` file and runs the full pipeline —
-// parse (`Loom.ast`) → transduce (`Transducer`, LoomDocument → FrameModule) →
+// parse (`Loom.ast`) → transduce (`FrameAstBuilder`, LoomDocument → FrameModule) →
 // synthesise (`Synthesiser`, FrameModule → genCode) — then prints the generated
 // TypeScript frame.
 //
@@ -27,17 +27,17 @@ const text = readFileSync(path, 'utf8')
 
 const program = Effect.gen(function* () {
   const loom = yield* Loom
-  const transducer = yield* Transducer
+  const builder = yield* FrameAstBuilder
   const synthesiser = yield* Synthesiser
 
   const document = yield* loom.ast(text)
-  const frame = yield* transducer.run(document)
+  const frame = yield* builder.build(document)
   const { genCode } = yield* synthesiser.run(frame)
 
   process.stdout.write(genCode + '\n')
 }).pipe(
   Effect.provide(Loom.Default),
-  Effect.provide(Transducer.Default),
+  Effect.provide(FrameAstBuilder.Default),
   Effect.provide(Synthesiser.Default),
 )
 

@@ -110,8 +110,8 @@ describe('Classifier Stage — integration against corpus/Fun.loom', () => {
     }
   })
 
-  it('classifies one HeadingWeft per `#{1,6}` heading line (twelve in the fixture)', () => {
-    expect(wefts.filter((w) => w.type === 'HeadingWeft')).toHaveLength(12)
+  it('classifies one HeadingWeft per `#{1,6}` heading line (fourteen in the fixture)', () => {
+    expect(wefts.filter((w) => w.type === 'HeadingWeft')).toHaveLength(14)
   })
 
   it('the lines before the first heading are all PreambleWefts (the Document Preamble)', () => {
@@ -294,7 +294,7 @@ describe('AST Stage — integration against corpus/Fun.loom', () => {
   })
 
   it('collects every heading as a flat Section on `document.sections`', () => {
-    expect(doc.sections).toHaveLength(12)
+    expect(doc.sections).toHaveLength(14)
     const tags = doc.sections.map((s) => s.heading.tag?.label.value)
     expect(tags).toContain('Notes')
     expect(tags).toContain('Add')

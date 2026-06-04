@@ -24,6 +24,7 @@
   "devDependencies": {
     "@effect/vitest": "^0.29.0",
     "@types/node": "^25.8.0",
+    "@volar/kit": "^2.4.28",
     "@volar/language-core": "^2.4.28",
     "@volar/language-server": "^2.4.28",
     "@volar/typescript": "^2.4.28",

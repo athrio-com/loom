@@ -2,9 +2,9 @@ import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import { Loom } from '#ast/Loom'
 import { synthesise } from '#projectors/Synthesiser'
-import { transduce } from '#projectors/Transducer'
+import { buildFrame } from '#projectors/FrameAstBuilder'
 
-// synthesise over the trivial frame: parse → transduce → render → assert the
+// synthesise over the trivial frame: parse → buildFrame → render → assert the
 // generated TypeScript and one source mapping. Closes the end-to-end loop.
 
 const input = `{{lang: TypeScript}}
@@ -27,7 +27,7 @@ const parse = (src: string) =>
   )
 
 describe('synthesise — trivial frame → genCode', () => {
-  const { genCode, mappings } = synthesise(transduce(parse(input)))
+  const { genCode, mappings } = synthesise(buildFrame(parse(input)))
 
   it('opens with the #loom/core + effect header', () => {
     expect(
@@ -60,12 +60,12 @@ describe('synthesise — trivial frame → genCode', () => {
     expect(genCode).toContain('Layer.provide(layers, layers)')
   })
 
-  it('maps a generated `Add` back to the [Add] tag span', () => {
+  it('maps a generated `Add` name back to the [Add] tag label span', () => {
     const at = genCode.indexOf('export class Add') + 'export class '.length
     const mapping = mappings.find(
       (m) => m.genStart <= at && at < m.genStart + m.genLength,
     )
-    expect(mapping?.kind).toBe('identifier')
+    expect(mapping?.kind).toBe('name')
     expect(mapping?.source.start.offset).toBe(input.indexOf('[Add]') + 1)
     // and the source span is the tag label "Add" in the .loom
     expect(
@@ -79,7 +79,7 @@ describe('synthesise — trivial frame → genCode', () => {
   it('escapes ` and ${ in the field and product code; TSDoc stays raw', () => {
     const escInput =
       '{{lang: TypeScript}}\n\n# Escapes [Esc]\n\nMentions `pow` in prose.\n\n=>\n\nconst greeting = `Hi ${name}`\n'
-    const out = synthesise(transduce(parse(escInput))).genCode
+    const out = synthesise(buildFrame(parse(escInput))).genCode
     expect(out).toContain('\\`pow\\`') // field: escaped backticks
     expect(out).toContain('`pow`') // TSDoc: raw (a comment may contain backticks)
     expect(out).toContain('\\${name}') // product code: escaped ${

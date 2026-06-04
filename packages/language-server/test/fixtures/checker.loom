@@ -1,0 +1,9 @@
+{{lang: TypeScript}}
+
+# Entry [Main]
+
+{{x: Ghost}}
+
+=>
+
+export const main = {{x}}
