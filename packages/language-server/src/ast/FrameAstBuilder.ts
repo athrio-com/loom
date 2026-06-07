@@ -323,34 +323,66 @@ const pieceOf = (w: SectionBodyWeft): Option.Option<CodePiece> =>
   )
 
 // A piece is blank when its line is whitespace only — an empty line after `=>`,
-// an empty line before the next heading, or an arrow with no code at all.
+// an empty line before the next heading or `~`, or an arrow with no code at all.
 const isBlank = (p: CodePiece): boolean => p.source.trim().length === 0
 
-// trimBlank — drop the leading and trailing blank pieces of a run, so the emitted
-// span is the code itself: no empty line before the first statement, none after
-// the last. Interior blanks (the author's spacing between statements, or between
-// anchors in a tangle sink) are kept, and the kept pieces carry their own `.loom`
-// positions, so mappings stay exact. An all-blank run trims to nothing.
-const trimBlank = (
+// The two halves of the trim. Leading blanks are always shed (no blank before a
+// run's first statement); trailing blanks are shed by `dropTrailingBlank`, and the
+// seam logic below decides how many to put back.
+const dropLeadingBlank = (
+  run: ReadonlyArray<CodePiece>,
+): ReadonlyArray<CodePiece> => Array.dropWhile(run, isBlank)
+
+const dropTrailingBlank = (
   run: ReadonlyArray<CodePiece>,
 ): ReadonlyArray<CodePiece> =>
-  pipe(
-    run,
-    Array.dropWhile(isBlank),
-    Array.reverse,
-    Array.dropWhile(isBlank),
-    Array.reverse,
+  pipe(run, Array.reverse, Array.dropWhile(isBlank), Array.reverse)
+
+// trimBlank — both edges shed, so the span is the code itself. The last run of a
+// section uses this: it closes the section, so it carries no trailing blank.
+// Interior blanks (the author's spacing between statements) are kept, and every
+// kept piece carries its own `.loom` position, so mappings stay exact.
+const trimBlank = (
+  run: ReadonlyArray<CodePiece>,
+): ReadonlyArray<CodePiece> => dropTrailingBlank(dropLeadingBlank(run))
+
+// seamTrailing — leading blanks shed, trailing blanks capped at *one*. That one
+// surviving blank is the prose seam to the next `=>` chunk: however many blank
+// lines were written before the `~`, the run keeps a single *real* blank piece, so
+// the slice stays contiguous source and the mapping exact (a fabricated `\n` would
+// not survive — the de re text is re-sliced from each piece's position, not its
+// `.text`). Idempotent separation — the mirror of transclusion shedding a block's
+// trailing newline.
+const seamTrailing = (
+  run: ReadonlyArray<CodePiece>,
+): ReadonlyArray<CodePiece> => {
+  const lead = dropLeadingBlank(run)
+  const body = dropTrailingBlank(lead)
+  return Option.match(Array.get(lead, body.length), {
+    onNone: () => body,
+    onSome: (blank) => [...body, blank],
+  })
+}
+
+// sealRuns — close each run's blanks by position: the last run trims both edges
+// (it ends the section), every earlier run keeps one trailing blank as its seam to
+// the next chunk. So `=> a ~ prose => b` composes to `a`, one blank line, `b`.
+const sealRuns = (
+  runs: ReadonlyArray<ReadonlyArray<CodePiece>>,
+): ReadonlyArray<ReadonlyArray<CodePiece>> =>
+  Array.map(runs, (run, i) =>
+    i === runs.length - 1 ? trimBlank(run) : seamTrailing(run),
   )
 
 // codeRuns — the section's code as contiguous runs, one per `=>` chunk. A `~`
 // drops back to prose and a later `=>` opens the next chunk (how-ast §"Grammar —
 // mode progression"), so a section freely interleaves prose and code: the prose
-// Wefts carry no piece and fall away, each run's leading/trailing blank lines are
-// trimmed, and what remains is a tight, sliceable span of real code (an arrow with
-// no code yields nothing). `groupWith` keys on the *first* weft of each adjacent
-// pair, so an `=>` opens a fresh run; keying on the second instead (`(_, w)`)
-// folds every chunk after the first into one run and drags the interleaved prose's
-// span back into the code — the alternation test guards against that.
+// Wefts carry no piece and fall away. Empty (all-blank) runs — an arrow with no
+// code — drop out, then `sealRuns` trims the edges and leaves one blank line at
+// each prose seam. `groupWith` keys on the *first* weft of each adjacent pair, so
+// an `=>` opens a fresh run; keying on the second instead (`(_, w)`) folds every
+// chunk after the first into one run and drags the interleaved prose's span back
+// into the code — the alternation test guards against that.
 const codeRuns = (
   code: ReadonlyArray<SectionBodyWeft>,
 ): ReadonlyArray<ReadonlyArray<CodePiece>> =>
@@ -359,8 +391,8 @@ const codeRuns = (
         code,
         Array.groupWith((a, _b) => a.type !== 'ArrowWeft'), // a new run opens at each `=>`
         Array.map((block) => Array.filterMap(block, pieceOf)),
-        Array.map(trimBlank),
-        Array.filter((run) => run.length > 0),
+        Array.filter((run) => Array.some(run, (p) => !isBlank(p))),
+        sealRuns,
       )
     : []
 

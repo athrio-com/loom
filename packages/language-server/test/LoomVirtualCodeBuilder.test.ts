@@ -230,10 +230,11 @@ describe('fromProduct — transclusion sheds the block trailing newline', () => 
 // === de re — prose ⇄ code alternation =====================================
 
 // A section may interleave prose and code: `=> code ~ prose => code`. The prose
-// chunks are documentation — they carry no product and must not leak into the
-// composed code; the `=>` chunks compose as one. This guards `codeRuns`' grouping:
-// keying `groupWith` on the wrong weft folds the second chunk into the first run,
-// dragging the interleaved prose's source span back into the code.
+// is documentation — dropped from the output — and the `=>` chunks compose with
+// exactly one blank line at the seam: the prose break reads as one separator, so
+// the chunks are neither butted together nor the prose itself emitted. This also
+// guards `codeRuns`' grouping — keying `groupWith` on the wrong weft folds the
+// second chunk into the first run, dragging the prose's source span into the code.
 const alt = `{{lang: TypeScript}}
 
 # Alternating [Alt]
@@ -261,10 +262,10 @@ const altMod: ModuleInput = {
 }
 const altCode = new Map([['/Alt.loom', buildCode(altMod)]])
 
-describe('fromProduct — prose between code chunks is dropped', () => {
-  it('composes the `=>` chunks as one, never the interleaved prose', () => {
+describe('fromProduct — prose seam between code chunks', () => {
+  it('drops the prose and leaves one blank line between the chunks', () => {
     const vc = fromProduct(altCode, { path: '/Alt.loom', name: 'Alt' })
-    expect(vc.code).toBe('const a = 1\nconst b = 2\n')
+    expect(vc.code).toBe('const a = 1\n\nconst b = 2\n')
     expect(vc.code).not.toContain('narrative')
   })
 })
