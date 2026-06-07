@@ -79,6 +79,14 @@ transclusions composes its single own fragment, and a prose-only section (empty
 code block) composes nothing, `core.compose()` — so the shape stays uniform. This is
 the complete, uniform surface of every section in the Frame.
 
+A section's fragments are its code runs with surrounding blank lines shed: the
+empty lines after the `=>` Arrow and before the next heading are not part of the
+code, and an Arrow with no code at all contributes nothing. Interior blank lines —
+the author's spacing between statements — are kept, and every kept fragment carries
+its exact `.loom` span, so the trim costs no mapping fidelity. (The matching de re
+rule, where a transcluded block sheds its trailing newline so the sink's layout is
+the output's, is in `how-lsp.md`.)
+
 Sections with no dependency use `succeed:` — their fields are static
 values, constructed once. Sections with any dependency — a Warp declaration
 *or* a name anchor — use `effect: Effect.gen(...)`, their fields resolved
@@ -155,7 +163,7 @@ check — the rule governs product↔product edges alone.
 The section's preamble prose — everything written between the heading and
 the `=>` Arrow — becomes the `preamble` field on the Service's `succeed`
 or `return` object, mapped 1:1: the PreambleWefts are transferred
-byte-for-byte, EOLs and blank lines included, exactly as code is. Warp
+byte-for-byte, EOLs and blank lines included — one verbatim span. Warp
 declarations are *not* excised — a `{{m: Mul}}` sitting in the prose is
 part of what the author wrote and appears verbatim in the field. (The
 Warp's role as a dependency is carried separately by the `yield*` the

@@ -157,7 +157,9 @@ const emitNode = (node: any): LoomVirtualCode =>
 // followed across the corpus and inlined. Crossing a `Ref` into another *file*
 // pins the whole inlined subtree onto the consuming `{{…}}` anchor (so no mapping
 // dangles into the dependency); a `Ref` that is unresolved, missing from the
-// corpus, or already on the stack (a cycle) contributes nothing.
+// corpus, or already on the stack (a cycle) contributes nothing. An inlined block
+// sheds its trailing newline (Transclusion's newline rule, below), so the sink's
+// layout is the output's.
 // =============================================================================
 
 // lookup — a section's ComposedCode across the corpus (a two-level Option get).
@@ -169,6 +171,55 @@ const lookup = (
     Option.fromNullable(codeByPath.get(id.path)),
     Option.flatMap((code) => Option.fromNullable(code.get(id.name))),
   )
+
+// =============================================================================
+// Transclusion's newline rule. An anchor `{{a}}` is replaced by block a's *lines*;
+// the line break that ends the anchor's own line in the sink is the terminator of
+// the block's last line — not an extra blank. So a transcluded block sheds its own
+// trailing newline, and the sink's literal layout becomes the output's layout:
+//
+//     {{a}}            block a, then block b on the next line     (0 blank lines)
+//     {{b}}
+//
+//     {{a}}            block a, one blank line, then block b       (1 blank line)
+//
+//     {{b}}
+//
+// and the last anchor's line break is the file's single final newline — no doubled
+// gaps, no trailing blank. (This is noweb's chunk-reference semantics: a reference
+// stands for the chunk's lines, and the reference's own line supplies the break.)
+//
+// Generated-side only: the shed newline's `.loom` origin simply stops being mapped
+// (a newline is never a hover/diagnostic target), and `toCodeMapping` carries
+// `generatedLengths` apart from source `lengths`, so trimming the generated span
+// leaves every other mapping — and every source span — untouched.
+// =============================================================================
+
+// clipMappings — keep the mappings that still fit within `genLen` generated chars,
+// shrinking the one (if any) that straddles the new end. Mappings are appended in
+// generated order, so this only ever trims the tail.
+const clipMappings = (
+  mappings: ReadonlyArray<Mapping>,
+  genLen: number,
+): ReadonlyArray<Mapping> =>
+  Array.filterMap(mappings, (m) =>
+    m.genStart >= genLen
+      ? Option.none()
+      : Option.some(
+          m.genStart + m.genLength <= genLen
+            ? m
+            : { ...m, genLength: genLen - m.genStart },
+        ),
+  )
+
+// absorbTrailingNewline — a block sheds its trailing newline(s) as it is inlined;
+// the consuming anchor's own line break terminates its last line.
+const absorbTrailingNewline = (vc: LoomVirtualCode): LoomVirtualCode => {
+  const code = vc.code.replace(/\n+$/, '')
+  return code.length === vc.code.length
+    ? vc
+    : { ...vc, code, mappings: clipMappings(vc.mappings, code.length) }
+}
 
 const inlinePart =
   (
@@ -197,17 +248,19 @@ const inlinePart =
       Option.match({
         onNone: () => emptyLeaf,
         onSome: ([t, node]) =>
-          inlineComposed(
-            codeByPath,
-            rootPath,
-            // the first cross-file boundary pins the cone onto this anchor
-            Option.orElse(pin, () =>
-              t.path === rootPath
-                ? Option.none<Position>()
-                : Option.some(part.anchor),
-            ),
-            new Set([...seen, keyOf(t)]),
-          )(node),
+          absorbTrailingNewline(
+            inlineComposed(
+              codeByPath,
+              rootPath,
+              // the first cross-file boundary pins the cone onto this anchor
+              Option.orElse(pin, () =>
+                t.path === rootPath
+                  ? Option.none<Position>()
+                  : Option.some(part.anchor),
+              ),
+              new Set([...seen, keyOf(t)]),
+            )(node),
+          ),
       }),
     )
   }

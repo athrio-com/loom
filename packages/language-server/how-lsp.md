@@ -273,6 +273,17 @@ section may reference another defined later in the source without error. The
 order is the transclusion graph: a section's code follows the code of the
 sections it transcludes through `{{…}}` anchors.
 
+**Transclusion absorbs the block's trailing newline.** An anchor stands for the
+transcluded block's *lines*; the line break that ends the anchor's own line
+supplies the block's last terminator, so an inlined block sheds its trailing
+newline and the consuming section's literal layout becomes the output's: `{{a}}`
+then `{{b}}` stacked places the blocks on consecutive lines, one blank line
+between the anchors yields exactly one blank line between the blocks, and the
+final anchor's break is the file's single trailing newline — no doubled gaps, no
+trailing blank (noweb's chunk-reference semantics). It is generated-side only: the
+shed newline's `.loom` origin stops being mapped — a newline is never a hover or
+diagnostic target — and every source span is left exact.
+
 A **tangle** is the composition whose unit is a file-output target: a `{path}`
 section assembles its members into one document — language-agnostic (marked
 `Loom`), so not type-checked as a single language, but mapped back to its sources

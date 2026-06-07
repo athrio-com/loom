@@ -1,13 +1,8 @@
-
-
 import { Console, Effect } from 'effect'
 import { NodeContext, NodeRuntime } from '@effect/platform-node'
 import { resolve as resolvePath } from 'node:path'
 import { DocumentSource } from '@loom/language-server/LoomCompiler'
 import { LoomTangler } from '@loom/language-server/LoomTangler'
-
-
-
 
 const tangle = (file: string): Effect.Effect<void> =>
   Effect.gen(function* () {
@@ -27,9 +22,6 @@ const tangle = (file: string): Effect.Effect<void> =>
     Effect.provide(NodeContext.layer),
   )
 
-
-
-
 const main = Effect.gen(function* () {
   const [command, file] = process.argv.slice(2)
   if (command === 'tangle' && file) {
@@ -40,6 +32,3 @@ const main = Effect.gen(function* () {
 })
 
 NodeRuntime.runMain(main)
-
-
-

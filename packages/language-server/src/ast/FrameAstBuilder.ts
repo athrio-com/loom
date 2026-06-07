@@ -322,10 +322,31 @@ const pieceOf = (w: SectionBodyWeft): Option.Option<CodePiece> =>
     Match.orElse(() => Option.none<CodePiece>()),
   )
 
+// A piece is blank when its line is whitespace only — an empty line after `=>`,
+// an empty line before the next heading, or an arrow with no code at all.
+const isBlank = (p: CodePiece): boolean => p.source.trim().length === 0
+
+// trimBlank — drop the leading and trailing blank pieces of a run, so the emitted
+// span is the code itself: no empty line before the first statement, none after
+// the last. Interior blanks (the author's spacing between statements, or between
+// anchors in a tangle sink) are kept, and the kept pieces carry their own `.loom`
+// positions, so mappings stay exact. An all-blank run trims to nothing.
+const trimBlank = (
+  run: ReadonlyArray<CodePiece>,
+): ReadonlyArray<CodePiece> =>
+  pipe(
+    run,
+    Array.dropWhile(isBlank),
+    Array.reverse,
+    Array.dropWhile(isBlank),
+    Array.reverse,
+  )
+
 // codeRuns — the section's code as contiguous runs. Each `=>` opens a run (its
 // inline code, if any, then the `CodeWeft`s up to the next `~`); prose drops out.
-// A run's pieces are contiguous, so a run is one sliceable span — and a section
-// with several `=> … ~ … =>` blocks yields several runs, composed in order.
+// Each run's leading/trailing blank lines are trimmed (so an arrow with no code
+// yields nothing). A run's pieces are contiguous, so a run is one sliceable span —
+// and a section with several `=> … ~ … =>` blocks yields several runs, in order.
 const codeRuns = (
   code: ReadonlyArray<SectionBodyWeft>,
 ): ReadonlyArray<ReadonlyArray<CodePiece>> =>
@@ -334,6 +355,7 @@ const codeRuns = (
         code,
         Array.groupWith((_, w) => w.type !== 'ArrowWeft'), // break before each `=>`
         Array.map((block) => Array.filterMap(block, pieceOf)),
+        Array.map(trimBlank),
         Array.filter((run) => run.length > 0),
       )
     : []

@@ -179,3 +179,50 @@ describe('fromProduct — section → product virtual code (cross-file)', () => 
     )
   })
 })
+
+// === de re — transclusion's newline rule ==================================
+
+// A sink that stacks two blocks with one blank line between the anchors. The rule:
+// each inlined block sheds its own trailing newline, so the sink's `{{x}}⏎⏎{{y}}`
+// layout produces exactly one blank line between the blocks — never two — and the
+// file ends with a single newline, not a doubled trailing blank.
+const two = `{{lang: TypeScript}}
+
+# Alpha [A]
+
+=>
+
+const a = 1
+
+# Beta [B]
+
+=>
+
+const b = 2
+
+# Bundle [Bun]
+
+{{x: A}}
+{{y: B}}
+
+=>
+
+{{x}}
+
+{{y}}
+`
+
+const twoMod: ModuleInput = {
+  path: '/Two.loom',
+  text: two,
+  frame: buildFrame(parse(two)),
+  imports: new Map(),
+}
+const twoCode = new Map([['/Two.loom', buildCode(twoMod)]])
+
+describe('fromProduct — transclusion sheds the block trailing newline', () => {
+  it('one blank line between anchors yields one blank line between blocks', () => {
+    const vc = fromProduct(twoCode, { path: '/Two.loom', name: 'Bun' })
+    expect(vc.code).toBe('const a = 1\n\nconst b = 2\n')
+  })
+})
