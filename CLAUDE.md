@@ -33,13 +33,13 @@ duplicate their detail):
   `LoomDocument` AST: Wefts, Tokens, Warps, label/path specifiers, the health
   model, and the forward-only mode grammar (Preamble → Code → Prose). The AST
   pipeline in `src/ast` conforms to it.
-- **`packages/language-server/src/projectors/how-frame.md`** — *synthesis*. AST
+- **`packages/language-server/src/ast/how-frame.md`** — *the frame pass*. AST
   → `Effect.Service` classes: each section is a Service exposing
   `{ name, preamble, code }`; tags determine visibility (tagged = exported,
   tagless = private/hashed); the Warp graph drives dependencies and emission
   order; tangle sections (`{path}` specifier) emit files; the composition root
-  is auto-synthesised.
-- **`packages/language-server/src/projectors/how-lsp.md`** — *tooling*. The
+  is auto-generated.
+- **`packages/language-server/how-lsp.md`** — *tooling*. The
   composition primitives (`compose`, `tangle` — design-level, not yet built), the runtime entry points (Tangle CLI, LSP server, Vite plugin), and
   the Volar/LSP virtual-code layer (virtual code tree, source mappings, the
   multiplexer, syntax highlighting).
@@ -78,7 +78,7 @@ they compose later.
 
 ### Keep the two planes separate
 
-The frame is *de dicto* — the composition program (the synthesised Services,
+The frame is *de dicto* — the composition program (the generated Services,
 `compose()` / `tangle()` calls, Warp wiring). The product is *de re* — the code
 the author wrote in a section's body, carried as that section's `code` field.
 When product code happens to be TypeScript it looks like frame code; it is not.

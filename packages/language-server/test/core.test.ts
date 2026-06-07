@@ -4,7 +4,7 @@ import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import { compose, tangle } from '#loom/core'
 
-// The two runtime primitives the synthesised Frame imports from #loom/core.
+// The two runtime primitives the generated Frame imports from #loom/core.
 // compose is pure text assembly; tangle is the one effectful sink — it writes
 // the composed code to disk, creating parent directories.
 

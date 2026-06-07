@@ -1,21 +1,21 @@
 # Loom Frame — Reframing
 
-This spec owns two arrows of Loom's transformation pipeline: **transduce**
-(`LoomDocument` → `FrameModule`, a macro tree transducer) and **synthesise**
-(`FrameModule` → the Frame's synthetic code + source mappings — one projection
-of the Frame, a catamorphism with L-attributed offsets). `how-lsp.md` → The
-Transformation Pipeline frames the whole chain.
+This spec owns two passes of Loom's pipeline: the **`FrameAstBuilder`** pass
+(`LoomDocument` → `FrameModule`, a macro tree transducer) and **`fromFrame`**
+(`FrameModule` → the de dicto frame virtual code + source mappings — one
+projection of the Frame, a catamorphism with L-attributed offsets). `how-lsp.md`
+→ The Transformation Pipeline frames the whole chain.
 
 ## The Output AST
 
 The Frame is materialised as `FrameModule` — the output AST (`FrameAst.ts`), the
-target of `transduce` and the source of `synthesise`. Every byte of the
+target of the `FrameAstBuilder` pass and the source `fromFrame` reads. Every byte of the
 generated frame is a **token**, of one of two kinds by origin:
 
 - **`FrameSynthToken`** — Loom's predefined glue: keywords, punctuation, the
   separators between list items. It has no `.loom` origin, so it carries **no
   mapping**. (These are the schema's own literals; the constructor fills them, so
-  `transduce` supplies only the holes.)
+  the `FrameAstBuilder` pass supplies only the holes.)
 - **`FrameAuthoredToken`** — a span lifted from the `.loom` (a name, a tag, a
   bound variable, a preamble) that resolves into the frame. It carries its
   `position`, hence **one mapping**. Its `kind` (`name` | `prose`) selects
@@ -59,7 +59,7 @@ So `FrameAuthoredToken` and `FrameCode` answer through the single TypeScript
 frame; only `EmbeddedCode` is routed elsewhere (see `how-lsp.md` → The Two Planes
 and Composition Drives Type Resolution).
 
-Rendering is the in-order projection of this tree — it emits each node's tokens
+`fromFrame` is the in-order projection of this tree — it emits each node's tokens
 in the explicit render order the node pins (not their struct position) and
 introduces no text of its own; no separator, no glue, is applied "somewhere
 else". The form is minimal and canonical: the Frame is virtual code
@@ -125,7 +125,7 @@ exported (tagged) sections are reachable via Warp declarations.
 the same file **by its heading title**, tagged or not. The title is
 always available; only the `[Tag]` *label* is Warp-gated, so a bare tag
 (`{{Mul}}` for a section tagged `[Mul]`) is a *name miss* — the label is
-not the title. The synthesiser resolves the title to the section's
+not the title. The `FrameAstBuilder` pass resolves the title to the section's
 service, hoists a `yield*` for it internally — the same lazy dependency
 mechanism as a Warp declaration — under a `_`-prefixed alias that won't
 shadow the service's class, and inlines the `.code` field at the anchor
@@ -159,7 +159,7 @@ byte-for-byte, EOLs and blank lines included, exactly as code is. Warp
 declarations are *not* excised — a `{{m: Mul}}` sitting in the prose is
 part of what the author wrote and appears verbatim in the field. (The
 Warp's role as a dependency is carried separately by the `yield*` the
-projector emits; excising its span here would only fragment the prose and
+`FrameAstBuilder` pass emits; excising its span here would only fragment the prose and
 break the 1:1 mapping.) The preamble appears in two places, from the one
 source span: as a raw `/** … */` TSDoc block above the class (minimal — no
 per-line gutter; visible in IDE hover) and as the queryable `preamble` field.
@@ -199,7 +199,7 @@ Warp annotations after parsing, used only for traversal and analysis.
 
 ## Order Independence and Cycles
 
-The Frame synthesiser emits sections in **document order** — the order
+The `FrameAstBuilder` pass emits sections in **document order** — the order
 they appear in the source is the order they appear in the Frame. There
 is no topological sort and no dependency-driven reordering.
 
@@ -256,8 +256,8 @@ Providing Dependencies.
 
 File emission is declared in the source document, not in code. A section
 whose specifier is a file path — `{src/main/scala/Arithmetic.scala}` rather
-than a Tag label — is a tangle section. The specifier signals to the Frame
-synthesiser that this section's purpose is emission, not composition.
+than a Tag label — is a tangle section. The specifier signals to the
+`FrameAstBuilder` pass that this section's purpose is emission, not composition.
 
 The code block of a tangle section contains only Warp anchors:
 
@@ -279,7 +279,7 @@ Tangle sections use the same Warp mechanics as every other section. Preamble
 Warp declarations (`{{i: Imports}}`, `{{m: Main}}`) are where tag resolution
 happens and dependencies are declared. Code block anchors (`{{i}}`, `{{m}}`)
 dereference the bound names to inline the resolved `.code` fields in order.
-The synthesiser generates one lazy `yield*` per preamble declaration (no
+The `FrameAstBuilder` pass generates one lazy `yield*` per preamble declaration (no
 `dependencies` array, exactly as for an ordinary section), and wraps the
 composed result in a `core.tangle(path, ...)` call instead of returning
 `{ name, preamble, code }`. No special anchor form, no shortcut —
@@ -287,7 +287,7 @@ consistent Warp syntax throughout.
 
 A tangle section is a sink in the Warp graph: other sections never declare
 it as a dependency. It consumes the graph; nothing consumes it. Tangle
-sections are always tagless — private by convention. The synthesiser
+sections are always tagless — private by convention. The `FrameAstBuilder` pass
 recognises a file path specifier by the presence of path separators,
 distinguishing it from a Tag label without additional syntax.
 
@@ -295,7 +295,7 @@ distinguishing it from a Tag label without additional syntax.
 
 A `{Loom}` specifier marks a section as a power-user escape hatch. It is still a
 Section — heading, preamble, code, prose — but its code does not become an
-`Effect.Service`. It transduces into a single `FrameCode { text, position }` node: the
+`Effect.Service`. The `FrameAstBuilder` pass turns it into a single `FrameCode { text, position }` node: the
 code spliced **verbatim and unwrapped** into the frame module, as raw
 TypeScript/Effect, in document order. This is for what the projection model does
 not cover — custom runtime setup, low-level Effect wiring, direct access to the
@@ -338,7 +338,7 @@ import, written in a `{Loom}` section:
 import { Mul } from "./arithmetic.loom"
 ```
 
-The projector emits that import verbatim. TypeScript then binds the
+The `FrameAstBuilder` pass emits that import verbatim. TypeScript then binds the
 imported `Mul` to the `yield* Mul` the Warp generated — ordinary name
 resolution. The Warp declares the *logical* dependency (the graph edge);
 the import declares the *physical* location (the module). They are
@@ -359,7 +359,7 @@ imported Service's `.Default` participates in the root's layer wiring
 exactly as a same-file one does (the precise shape of multi-file root
 composition is settled when multi-file builds land).
 
-The projector hoists the `import` lines from `{Loom}` sections to the
+The `FrameAstBuilder` pass hoists the `import` lines from `{Loom}` sections to the
 head of the Frame, regardless of where their sections sit in the
 document. The file path lives in the import; the Warp graph records
 only the logical tag edge.
@@ -387,7 +387,7 @@ writes sections and declares Warps; Loom derives the full wiring and
 generates it into the Frame. The user never writes imports, never
 assembles layers manually, and never touches the entry point.
 
-The root is synthesised for every file **with Services**, not only those that
+The root is generated for every file **with Services**, not only those that
 tangle: a file with `{path}` sinks runs them, and a library file's root still
 merges and self-provides, ready to be composed by an importer. A service-less
 file — empty, or only `{Loom}` blocks — has **no** root (nothing to merge,
@@ -412,10 +412,11 @@ Diagnostics live on AST nodes, and there are two tiers — one per AST:
   labels, duplicate tags, unclosed delimiters; `how-ast.md`'s health model.
   `{Loom}` needs no special case here — a `[Tag] {Loom}` heading is
   grammatically fine.
-- **Semantic health — on the Frame AST, at transduce.** A tag on a `{Loom}`
-  section (no effect), a cross-specifier composition edge, a Warp cycle, an
-  unresolved or heterogeneous anchor. These need *meaning* — exactly what
-  transduce has and parse does not. `frameNode` carries an optional `health`
+- **Semantic health — on the Frame AST, at the `FrameAstBuilder` pass.** A tag
+  on a `{Loom}` section (no effect), a cross-specifier composition edge, a Warp
+  cycle, an unresolved or heterogeneous anchor. These need *meaning* — exactly
+  what the `FrameAstBuilder` pass has and parse does not. `frameNode` carries an
+  optional `health`
   (defaulting to ok), the same `Health` shape the Loom AST uses.
 
 Both surface at source. Grammatical health is already on Loom nodes, which carry
@@ -438,9 +439,9 @@ from the same source document, with no duplication.
 
 ```typescript
 // =============================================================================
-// SynthesizedFrameExample.ts
+// GeneratedFrameExample.ts
 //
-// Synthesized Frame for arithmetic.loom.
+// Generated Frame for arithmetic.loom.
 //
 // Projection rules:
 //   - Tagged sections  → export class — public API, importable cross-file.
@@ -455,7 +456,7 @@ from the same source document, with no duplication.
 //   - Name anchor ({{Title}}) in code block → internal `_`-aliased yield*, hoisted.
 //   - Tangle section ({path} specifier) → private, core.tangle() return, graph sink.
 //   - {Loom} specifier → code block projected literally (escape hatch only).
-//   - Composition root → auto-synthesised: merge all layers, provide to self.
+//   - Composition root → auto-generated: merge all layers, provide to self.
 //   - compose / tangle are runtime primitives from #loom/core (a monorepo
 //     module; see how-lsp.md). There is no separate Code value type; product
 //     code is the AST's CodeWeft text.
@@ -586,7 +587,7 @@ class S_a1b3c7 extends Effect.Service<S_a1b3c7>()("S_a1b3c7", {
 
 
 // =============================================================================
-// Auto-synthesised composition root — emitted by Loom, not by the user.
+// Auto-generated composition root — emitted by Loom, not by the user.
 // The program yields the tangle sinks (S_d2c5b9, S_a1b3c7) to run their
 // file emission. Because each Service's `.Default` carries unsatisfied
 // requirements (its `yield*` dependencies), the root merges every layer

@@ -8,8 +8,8 @@ import type {
   FrameAuthoredToken,
   ServiceClass,
   StaticBody,
-} from '#projectors/FrameAst'
-import { buildFrame } from '#projectors/FrameAstBuilder'
+} from '#ast/FrameAst'
+import { buildFrame } from '#ast/FrameAstBuilder'
 
 // A ServiceName is authored (tagged → mapped to the `[Tag]`) or synth (tagless →
 // the hash, unmapped). Tests asserting a mapped position narrow to the authored

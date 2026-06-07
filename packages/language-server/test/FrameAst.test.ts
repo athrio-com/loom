@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Option, Schema, SchemaAST } from 'effect'
-import * as FrameAst from '#projectors/FrameAst'
+import * as FrameAst from '#ast/FrameAst'
 import {
   ComposeArgItemSchema,
   ComposeSchema,
@@ -14,7 +14,7 @@ import {
   RootSchema,
   ServiceClassSchema,
   StaticBodySchema,
-} from '#projectors/FrameAst'
+} from '#ast/FrameAst'
 
 // Probe: the Frame AST constructs from the holes alone — every synth token and
 // `health` auto-fills — and every child is a typed node (no bare strings).

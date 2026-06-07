@@ -36,7 +36,7 @@ import {
   SinkRefSchema,
   StaticBodySchema,
   TangleBodySchema,
-} from '#projectors/FrameAst'
+} from '#ast/FrameAst'
 
 // =============================================================================
 // FrameAstBuilder — the frame-side AST Builder.

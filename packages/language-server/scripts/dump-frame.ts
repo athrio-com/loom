@@ -3,13 +3,17 @@ import { Effect } from 'effect'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { Loom } from '#ast/Loom'
-import { Resolver } from '#projectors/Resolver'
-import { Synthesiser } from '#projectors/Synthesiser'
-import { FrameAstBuilder } from '#projectors/FrameAstBuilder'
+import { FrameAstBuilder } from '#ast/FrameAstBuilder'
+import { buildCode } from '#ast/ProductAstBuilder'
+import {
+  fromFrame,
+  fromProduct,
+  type CodeByPath,
+} from '#ast/LoomVirtualCodeBuilder'
 
 // =============================================================================
-// dump-frame — dev probe. Reads a `.loom`, runs parse → transduce → synthesise →
-// resolve, and prints (1) the frame source mappings as `gen ⟵ src` pairs
+// dump-frame — dev probe. Reads a `.loom`, runs parse → FrameAstBuilder → fromFrame +
+// fromProduct, and prints (1) the frame source mappings as `gen ⟵ src` pairs
 // (a `name` mapped to an empty source span flagged), (2) the resolved de re product documents (one
 // per Service, transclusions inlined), and (3) the full `FrameModule` as JSON
 // (health omitted, `position` compacted to offsets).
@@ -35,13 +39,21 @@ const compact = (k: string, v: any) => {
 const program = Effect.gen(function* () {
   const loom = yield* Loom
   const builder = yield* FrameAstBuilder
-  const synthesiser = yield* Synthesiser
-  const resolver = yield* Resolver
 
   const document = yield* loom.ast(text)
   const frame = yield* builder.build(document)
-  const { genCode, mappings } = yield* synthesiser.run(frame)
-  const products = yield* resolver.run(frame, text)
+  const { code: genCode, mappings } = fromFrame(frame)
+  const code = buildCode({
+    path: '',
+    text,
+    frame,
+    imports: new Map<string, string>(),
+  })
+  const codeByPath: CodeByPath = new Map([['', code]])
+  const products = [...code.values()].map((node) => {
+    const vc = fromProduct(codeByPath, node.origin)
+    return { id: vc.id, languageId: vc.languageId, code: vc.code }
+  })
 
   const rows = mappings
     .map((m) => {
@@ -79,8 +91,6 @@ const program = Effect.gen(function* () {
 }).pipe(
   Effect.provide(Loom.Default),
   Effect.provide(FrameAstBuilder.Default),
-  Effect.provide(Synthesiser.Default),
-  Effect.provide(Resolver.Default),
 )
 
 NodeRuntime.runMain(program)

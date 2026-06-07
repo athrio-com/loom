@@ -2,7 +2,7 @@ import { FileSystem, Path } from '@effect/platform'
 import { Effect } from 'effect'
 
 // =============================================================================
-// #loom/core — the runtime primitives the synthesised Frame imports and calls.
+// #loom/core — the runtime primitives the generated Frame imports and calls.
 //
 // Just two functions; everything else in the Frame (Effect, Layer, the Service
 // classes) is the author's own composition, never Loom's. They are plain
@@ -17,7 +17,7 @@ import { Effect } from 'effect'
 
 // compose — order the code of the sections it references, in argument order,
 // into one composed result. Byte-faithful: each fragment already carries its
-// own surrounding whitespace (the transducer split the block at its anchors), so
+// own surrounding whitespace (the frame pass split the block at its anchors), so
 // the join inserts nothing between parts. A section with no code is `compose()`,
 // which is the empty string.
 export const compose = (...parts: ReadonlyArray<string>): string =>

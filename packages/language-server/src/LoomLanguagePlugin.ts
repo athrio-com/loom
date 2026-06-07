@@ -4,10 +4,8 @@ import { Runtime } from 'effect'
 import type * as ts from 'typescript'
 import type { URI } from 'vscode-uri'
 import type { Loom } from '#ast/Loom'
-import type { Resolver } from '#projectors/Resolver'
-import type { Synthesiser } from '#projectors/Synthesiser'
-import type { FrameAstBuilder } from '#projectors/FrameAstBuilder'
-import { loomVirtualCode } from './VirtualCode'
+import type { FrameAstBuilder } from '#ast/FrameAstBuilder'
+import { loomVirtualCode } from './LoomCompiler'
 
 // =============================================================================
 // loomLanguagePlugin — Volar's three hooks:
@@ -26,7 +24,7 @@ import { loomVirtualCode } from './VirtualCode'
 // =============================================================================
 
 export const loomLanguagePlugin = (
-  runtime: Runtime.Runtime<Loom | FrameAstBuilder | Synthesiser | Resolver>,
+  runtime: Runtime.Runtime<Loom | FrameAstBuilder>,
 ): LanguagePlugin<URI> => ({
   getLanguageId(uri) {
     if (uri.path.endsWith('.loom')) return 'loom'
@@ -40,7 +38,7 @@ export const loomLanguagePlugin = (
     return Runtime.runSync(runtime)(loomVirtualCode(snapshot))
   },
   // TS integration: tell @volar/typescript that the `frame` embedded code is the
-  // TypeScript service script, so Volar type-checks the synthesised frame and
+  // TypeScript service script, so Volar type-checks the generated frame and
   // maps its diagnostics back to the `.loom` through the frame's mappings.
   typescript: {
     extraFileExtensions: [

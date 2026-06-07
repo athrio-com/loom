@@ -4,7 +4,7 @@ The Loom parsing pipeline produces a `LoomDocument` AST from raw source
 text. This document specifies the architecture, grammar, vocabulary, and
 per-stage contracts.
 
-This is the **parse** arrow of Loom's transformation pipeline (text →
+This is the **parse** pass of Loom's transformation pipeline (text →
 `LoomDocument`); `how-lsp.md` → The Transformation Pipeline frames the whole
 chain and the morphisms each stage is.
 
@@ -221,7 +221,7 @@ syntax. A Section with no Specifier inherits the Document Preamble's `lang`.
 `{Loom}` is a power-user escape hatch: the Section's code block is projected
 literally into the Frame rather than wrapped as composed product code. It
 carries no dependency role. The de-dicto / de-re cut, tangle composition,
-and dependency wiring are Frame-synthesis concerns, not AST-pipeline
+and dependency wiring are Frame-pass concerns (`how-frame.md`), not AST-pipeline
 concerns — the AST records the Specifier token and nothing more.
 
 ---
@@ -262,13 +262,13 @@ Annotation forms:
 - **TS type with default** — `{{port: string = "8080"}}` declares a typed
   parameter with a concrete substitution.
 - **TS type, no default** — `{{port: string}}` declares a typed parameter
-  with no substitution; the Synth layer can check the declaration shape but
+  with no substitution; the Frame pass can check the declaration shape but
   not the value. The diagnostic is a warning, not an error.
 
 Token recognition is mode-driven: Preamble for declarations, Arrow / Code for
 references. The same `{{…}}` source shape resolves to a different schema by
 host Weft, not by colon-sniffing. How a Warp resolves into the Frame — a
-Service dependency, an inlined code value — is a Synth concern; at the AST
+Service dependency, an inlined code value — is a Frame-pass concern; at the AST
 layer a Warp is a declaration and an anchor is a reference.
 
 ---
@@ -294,7 +294,7 @@ Body Wefts:
   transition). Carries `warps: ReadonlyArray<WarpToken>` — every
   `{{name: annotation [= default]}}` declaration recognised on the line.
 - `ProseWeft` — a line in Prose mode (after a Tilde transition). No inner
-  tokens at the AST stage; inner-token expansion belongs to the Synth phase.
+  tokens at the AST stage; inner-token expansion belongs to the Frame pass.
 - `CodeWeft` — a line in Code mode (after an Arrow transition). Carries
   `anchors: ReadonlyArray<WarpAnchorToken>` — every `{{name}}` /
   `{{Heading Name}}` reference recognised on the line. The line content is
@@ -396,7 +396,7 @@ is subtoken expansion plus health resolution.
 - **`TildeWeft`** — fill the optional inline `prose` subtoken via the
   `ProseTokenSchema` Probe; flip health to `ok`.
 - **`ProseWeft`** — flip health to `ok`. Inner-token expansion belongs to the
-  Synth phase.
+  Frame pass.
 
 A Warp anchor's content is a single identifier or a multi-word heading name;
 anything that is neither (e.g. `{{name: Type}}` written in Code mode) lands
@@ -439,5 +439,5 @@ converted to a minimal LoomDocument with NOK root health via
 - Every AST citizen — container, Weft, or Token — flows through `loomNode()`.
   No parallel non-`loomNode` schemas in `LoomAst.ts` / `LoomTokens.ts` /
   `Weft.ts`.
-- Frame synthesis and `loomLanguagePlugin` projection are outside the AST
+- The Frame pass and `loomLanguagePlugin` projection are outside the AST
   pipeline.

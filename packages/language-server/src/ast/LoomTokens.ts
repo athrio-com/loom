@@ -218,7 +218,7 @@ export type ProseToken = typeof ProseTokenSchema.Type
 
 // =============================================================================
 // Warp — `{{name: annotation [= default]}}`, the declaration site of a
-// parameter inside a Preamble line. The Synth phase reads `annotation` as
+// parameter inside a Preamble line. The Frame pass reads `annotation` as
 // either a Tag reference (e.g. `Mult`) or a TS type expression, and `default`
 // as a TS value expression matching that type.
 //

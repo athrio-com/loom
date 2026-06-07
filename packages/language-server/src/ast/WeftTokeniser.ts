@@ -86,7 +86,7 @@ import {
 //                      a tagless heading gets a hash-derived tag (ok health).
 //   Arrow / Tilde    — fill the optional inline `code` / `prose` subtoken.
 //   Preamble / Prose — settle health to `ok`; inner-token expansion belongs
-//                      to the Synth phase.
+//                      to the Frame pass.
 //   CodeWeft         — scan `{{name}}` anchors and settle health.
 //
 // Post-Tokeniser invariant: no weft remains `incomplete`.

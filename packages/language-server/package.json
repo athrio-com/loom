@@ -7,7 +7,6 @@
   },
   "imports": {
     "#ast/*": "./src/ast/*.ts",
-    "#projectors/*": "./src/projectors/*.ts",
     "#loom/core": "./src/core.ts"
   },
   "scripts": {

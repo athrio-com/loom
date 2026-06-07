@@ -2,7 +2,7 @@ import { Option, Schema, SchemaAST } from 'effect'
 import { HealthSchema, okHealth, PositionSchema } from '#ast/LoomNode'
 
 // =============================================================================
-// FrameAst — the Frame AST: output of `transduce`, input to `synthesise`.
+// FrameAst — the Frame AST: output of the `FrameAstBuilder` pass, input to `fromFrame`.
 //
 // LoomAst is parsed (source → tree); FrameAst is generated (tree → TypeScript
 // frame + source mappings). Every byte of the frame is a *typed token* — there
@@ -11,7 +11,7 @@ import { HealthSchema, okHealth, PositionSchema } from '#ast/LoomNode'
 // Tokens, by origin:
 //   - FrameSynthToken  { text }                predefined glue; no position, never
 //                                              mapped. Written `synth('…')`; the
-//                                              constructor fills it, so transduce
+//                                              constructor fills it, so the pass
 //                                              supplies only the holes.
 //   - FrameAuthoredToken { text, position, kind } frame token (name / prose), mapped
 //   - FrameCode          { text, position }       frame raw block ({Loom}), mapped
@@ -32,11 +32,11 @@ import { HealthSchema, okHealth, PositionSchema } from '#ast/LoomNode'
 // suite checks it covers exactly the renderable fields.
 //
 // Health is two-tier: grammatical health lives on the Loom AST (parse); the
-// `health` here carries semantic findings discovered at transduce (tag-on-
+// `health` here carries semantic findings discovered by the frame pass (tag-on-
 // {Loom}, cross-specifier edge, cycle, unresolved anchor) and rides the mapping
 // back to source. It defaults to ok.
 //
-// Offsets are derived, not stored: the render walk threads a cursor; a token's
+// Offsets are derived, not stored: the `fromFrame` walk threads a cursor; a token's
 // gen range is [cursor, cursor + text.length).
 //
 // Separators are schema-owned, never renderer-applied. A separated list is a
@@ -51,11 +51,11 @@ import { HealthSchema, okHealth, PositionSchema } from '#ast/LoomNode'
 // =============================================================================
 
 // RenderOrder — the ordered list of a node's renderable fields. Read by the
-// renderer (`synthesise`); attached by `frameNode`.
+// renderer (`fromFrame`); attached by `frameNode`.
 export const RenderOrder: unique symbol = Symbol.for('loom/RenderOrder')
 
 export const renderOrderOf = (
-  schema: Schema.Schema<any, any, never>,
+  schema: Schema.Schema.Any,
 ): Option.Option<ReadonlyArray<string>> =>
   SchemaAST.getAnnotation<ReadonlyArray<string>>(RenderOrder)(schema.ast)
 
@@ -84,7 +84,7 @@ const frameNode = <Tag extends string, Fields extends Schema.Struct.Fields>(
 
 // =============================================================================
 // FrameSynthToken — a predefined glue token. `synth(text)` is a field of this
-// type whose value the constructor fills, so transduce omits it entirely.
+// type whose value the constructor fills, so the frame pass omits it entirely.
 // =============================================================================
 
 export const FrameSynthTokenSchema = frameNode(
@@ -284,7 +284,7 @@ export type ServiceBody = typeof ServiceBodySchema.Type
 // ServiceClass — one Section → one Effect.Service class. The preamble emits
 // twice from one source: a `/** … */` TSDoc block above the class, and the
 // `name` / `preamble` fields in the body. `modifier` is a FrameSynthToken the
-// transducer fills with `export ` (tagged) or `` (tagless). `name` appears three
+// frame pass fills with `export ` (tagged) or `` (tagless). `name` appears three
 // times (class name, type param, service tag) as a `ServiceName`: each a distinct
 // generated occurrence mapping back to the `[Tag]` label when the section is
 // tagged, or a synth hash (unmapped) when tagless.
@@ -307,8 +307,8 @@ export const ServiceClassSchema = frameNode(
     body: ServiceBodySchema,
     kw5: synth(') {}'),
     // languageId — metadata: the section's product language (the `{{lang}}`
-    // default or a `{specifier}`), carried for the de re Resolver. Never
-    // rendered into the frame (excluded from the render order).
+    // default or a `{specifier}`), carried for the de re ProductAstBuilder. Never
+    // emitted into the frame (excluded from the render order).
     languageId: Schema.String,
   },
   [
@@ -319,7 +319,7 @@ export const ServiceClassSchema = frameNode(
 export type ServiceClass = typeof ServiceClassSchema.Type
 
 // =============================================================================
-// Composition root — synthesised for any file with Services; absent for a
+// Composition root — generated for any file with Services; absent for a
 // service-less file (empty, or only {Loom} blocks). `layers` merges every
 // Service's `.Default`; `LoomMain` runs the tangle sinks and provides the merge
 // to itself (self-wiring; order-free). Service and sink names map back to their

@@ -6,9 +6,7 @@ import * as ts from 'typescript'
 import { create as createTypeScriptServices } from 'volar-service-typescript'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { Loom } from '#ast/Loom'
-import { Resolver } from '#projectors/Resolver'
-import { Synthesiser } from '#projectors/Synthesiser'
-import { FrameAstBuilder } from '#projectors/FrameAstBuilder'
+import { FrameAstBuilder } from '#ast/FrameAstBuilder'
 import { loomLanguagePlugin } from '../src/LoomLanguagePlugin'
 
 // End-to-end through Volar: drive a `.loom` through a TypeScript-aware language
@@ -16,7 +14,7 @@ import { loomLanguagePlugin } from '../src/LoomLanguagePlugin'
 // confirm a frame type error maps back to the `.loom` line that caused it.
 //
 // The fixture's `{{x: Ghost}}` Warp names a section that does not exist, so the
-// synthesised frame emits `const x = yield* Ghost` — which tsc rejects with
+// generated frame emits `const x = yield* Ghost` — which tsc rejects with
 // "Cannot find name 'Ghost'". The whole point of the virtual-code mapping is
 // that Volar surfaces that on the `Ghost` token in the `.loom`, not on
 // generated frame code the author never sees.
@@ -27,15 +25,10 @@ const fixtureText = readFileSync(fixture, 'utf8')
 let checker: ReturnType<typeof createTypeScriptInferredChecker>
 
 beforeAll(async () => {
-  const layer = Layer.mergeAll(
-    Loom.Default,
-    FrameAstBuilder.Default,
-    Synthesiser.Default,
-    Resolver.Default,
-  )
+  const layer = Layer.mergeAll(Loom.Default, FrameAstBuilder.Default)
   // A warm runtime: the loom plugin runs the projection synchronously on it.
   const runtime = await Effect.runPromise(
-    Effect.runtime<Loom | FrameAstBuilder | Synthesiser | Resolver>().pipe(
+    Effect.runtime<Loom | FrameAstBuilder>().pipe(
       Effect.provide(layer),
     ),
   )
