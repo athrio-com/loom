@@ -342,18 +342,22 @@ const trimBlank = (
     Array.reverse,
   )
 
-// codeRuns — the section's code as contiguous runs. Each `=>` opens a run (its
-// inline code, if any, then the `CodeWeft`s up to the next `~`); prose drops out.
-// Each run's leading/trailing blank lines are trimmed (so an arrow with no code
-// yields nothing). A run's pieces are contiguous, so a run is one sliceable span —
-// and a section with several `=> … ~ … =>` blocks yields several runs, in order.
+// codeRuns — the section's code as contiguous runs, one per `=>` chunk. A `~`
+// drops back to prose and a later `=>` opens the next chunk (how-ast §"Grammar —
+// mode progression"), so a section freely interleaves prose and code: the prose
+// Wefts carry no piece and fall away, each run's leading/trailing blank lines are
+// trimmed, and what remains is a tight, sliceable span of real code (an arrow with
+// no code yields nothing). `groupWith` keys on the *first* weft of each adjacent
+// pair, so an `=>` opens a fresh run; keying on the second instead (`(_, w)`)
+// folds every chunk after the first into one run and drags the interleaved prose's
+// span back into the code — the alternation test guards against that.
 const codeRuns = (
   code: ReadonlyArray<SectionBodyWeft>,
 ): ReadonlyArray<ReadonlyArray<CodePiece>> =>
   Array.isNonEmptyReadonlyArray(code)
     ? pipe(
         code,
-        Array.groupWith((_, w) => w.type !== 'ArrowWeft'), // break before each `=>`
+        Array.groupWith((a, _b) => a.type !== 'ArrowWeft'), // a new run opens at each `=>`
         Array.map((block) => Array.filterMap(block, pieceOf)),
         Array.map(trimBlank),
         Array.filter((run) => run.length > 0),
