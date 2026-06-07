@@ -9,6 +9,10 @@
     "#ast/*": "./src/ast/*.ts",
     "#loom/core": "./src/core.ts"
   },
+  "exports": {
+    "./LoomCompiler": "./src/LoomCompiler.ts",
+    "./LoomTangler": "./src/LoomTangler.ts"
+  },
   "scripts": {
     "build": "vite build",
     "watch": "vite build --watch"

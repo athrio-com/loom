@@ -1,0 +1,16 @@
+
+{
+  "name": "@loom/cli",
+  "version": "0.0.1",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "tsx src/main.ts tangle corpus/cli.loom"
+  },
+  "dependencies": {
+    "@loom/language-server": "workspace:*",
+    "@effect/platform-node": "^0.106.0",
+    "effect": "3.21.2"
+  }
+}
+

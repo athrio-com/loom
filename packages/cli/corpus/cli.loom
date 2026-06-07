@@ -1,0 +1,117 @@
+{{lang: TypeScript}}
+
+The `@loom/cli` package, written in Loom itself. Every file of the package — the
+manifest, the TypeScript config, and the program — is a section in this one
+document, and the tangle sinks at the end emit them. Tangling this file
+reproduces the whole package.
+
+# Imports [Imports]
+
+The program is built on Effect; the Node platform supplies the runtime and the
+filesystem, and the language server supplies the tangler and its document source.
+
+=>
+
+import { Console, Effect } from 'effect'
+import { NodeContext, NodeRuntime } from '@effect/platform-node'
+import { resolve as resolvePath } from 'node:path'
+import { DocumentSource } from '@loom/language-server/LoomCompiler'
+import { LoomTangler } from '@loom/language-server/LoomTangler'
+
+# Tangle command [Tangle]
+
+`tangle <file>` resolves the path against the working directory, runs the tangler
+over the corpus, and reports each emitted file. It owns the filesystem
+`DocumentSource` — the editor never reads files, but the CLI does.
+
+=>
+
+const tangle = (file: string): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    const entry = resolvePath(process.cwd(), file)
+    const tangler = yield* LoomTangler
+    const written = yield* tangler.tangle(entry)
+    if (written.length === 0) {
+      yield* Console.log('loom: no {path} sinks to tangle')
+    } else {
+      yield* Effect.forEach(written, (f) =>
+        Console.log(`loom: tangled ${f.section} → ${f.path}`),
+      )
+    }
+  }).pipe(
+    Effect.provide(LoomTangler.Default),
+    Effect.provide(DocumentSource.Default),
+    Effect.provide(NodeContext.layer),
+  )
+
+# Entry point [Main]
+
+Dispatch the one command and start the Effect runtime; the filesystem is the end
+of the world.
+
+=>
+
+const main = Effect.gen(function* () {
+  const [command, file] = process.argv.slice(2)
+  if (command === 'tangle' && file) {
+    yield* tangle(file)
+  } else {
+    yield* Console.error('usage: loom tangle <file.loom>')
+  }
+})
+
+NodeRuntime.runMain(main)
+
+# The program {../src/main.ts}
+
+Imports first, then the command, then the entry point.
+
+{{i: Imports}}
+{{t: Tangle}}
+{{m: Main}}
+
+=>
+
+{{i}}
+
+{{t}}
+
+{{m}}
+
+# The manifest {../package.json}
+
+A private ESM package depending on the language server (a workspace link), the
+Node platform, and Effect. `build` regenerates the package from this document —
+the CLI tangles its own source.
+
+=>
+
+{
+  "name": "@loom/cli",
+  "version": "0.0.1",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "tsx src/main.ts tangle corpus/cli.loom"
+  },
+  "dependencies": {
+    "@loom/language-server": "workspace:*",
+    "@effect/platform-node": "^0.106.0",
+    "effect": "3.21.2"
+  }
+}
+
+# The TypeScript config {../tsconfig.json}
+
+Extends the workspace base and compiles `src`.
+
+=>
+
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "out",
+    "rootDir": "src"
+  },
+  "include": ["src"]
+}

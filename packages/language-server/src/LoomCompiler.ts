@@ -249,7 +249,7 @@ export const loomVirtualCode = (
 // =============================================================================
 
 // codeOf — each module's `code` map indexed by path, the view `fromProduct` walks.
-const codeOf = (modules: ReadonlyMap<Path, LoomModule>): CodeByPath =>
+export const codeOf = (modules: ReadonlyMap<Path, LoomModule>): CodeByPath =>
   new Map(
     Array.map(Array.fromIterable(modules), ([p, m]) => [p, m.code] as const),
   )
