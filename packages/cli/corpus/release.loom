@@ -1,0 +1,65 @@
+{{lang: TypeScript}}
+
+The release task for `@athrio/loom-cli`. Tests gate the release; then, because
+the version lives in `package.loom` and is tangled into `package.json` (so
+`npm version` would be undone by the next tangle), it bumps the minor there,
+re-tangles so the manifest picks it up, and publishes. `pnpm release` runs this.
+Tangling this file writes `scripts/release.ts`.
+
+# Release {../scripts/release.ts}
+
+The script lives in `scripts/`, so it locates the package root and the manifest
+loom from its own path. `run` shells out from the package directory and inherits
+stdio, so any non-zero exit aborts the release.
+
+=>
+
+import { execFileSync } from 'node:child_process'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const cli = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const manifest = resolve(cli, 'corpus/package.loom')
+
+const run = (cmd: string, args: ReadonlyArray<string>): void =>
+  execFileSync(cmd, [...args], { cwd: cli, stdio: 'inherit' })
+
+~
+
+Tests gate the release: run them first, so a failure aborts before anything is
+bumped or published.
+
+=>
+
+run('pnpm', ['test'])
+
+~
+
+Bump the minor version in the manifest loom — the patch resets to zero — failing
+loudly if there is no version to bump.
+
+=>
+
+const bumpMinor = (text: string): string =>
+  text.replace(
+    /("version": ")(\d+)\.(\d+)\.\d+(")/,
+    (_m, pre, major, minor, post) => `${pre}${major}.${Number(minor) + 1}.0${post}`,
+  )
+
+const before = readFileSync(manifest, 'utf8')
+const after = bumpMinor(before)
+if (after === before) throw new Error('no "version" to bump in package.loom')
+writeFileSync(manifest, after)
+
+~
+
+Re-tangle so `package.json` carries the new version, then publish (the bump leaves
+the tree dirty, hence `--no-git-checks`; commit the bump afterwards).
+
+=>
+
+const version = after.match(/"version": "([^"]+)"/)?.[1] ?? '?'
+run('tsx', ['src/main.ts', 'tangle', 'corpus'])
+run('pnpm', ['publish', '--no-git-checks'])
+console.log(`released @athrio/loom-cli ${version}`)

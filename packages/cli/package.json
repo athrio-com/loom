@@ -23,13 +23,16 @@
   },
   "scripts": {
     "build": "tsx src/main.ts tangle corpus && vite build",
-    "prepack": "vite build"
+    "test": "vitest run",
+    "prepack": "vite build",
+    "release": "tsx scripts/release.ts"
   },
   "devDependencies": {
     "@athrio/loom-lang": "workspace:*",
     "@effect/platform-node": "^0.106.0",
     "effect": "3.21.2",
     "tsx": "^4.22.0",
-    "vite": "^8.0.12"
+    "vite": "^8.0.12",
+    "vitest": "^4.1.6"
   }
 }
