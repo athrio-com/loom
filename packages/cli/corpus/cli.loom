@@ -1,9 +1,9 @@
 {{lang: TypeScript}}
 
-The `@loom/cli` package, written in Loom itself. Every file of the package — the
-manifest, the TypeScript config, and the program — is a section in this one
-document, and the tangle sinks at the end emit them. Tangling this file
-reproduces the whole package.
+The `@loom/cli` program, written in Loom itself: the imports, the tangle command,
+and the entry point compose into `src/main.ts`. The package's manifest and build
+config live in their own looms — `package.loom` and `vite.loom`. Tangling this
+file writes the program.
 
 # Imports [Imports]
 
@@ -77,41 +77,3 @@ Imports first, then the command, then the entry point.
 {{t}}
 
 {{m}}
-
-# The manifest {../package.json}
-
-A private ESM package depending on the language server (a workspace link), the
-Node platform, and Effect. `build` regenerates the package from this document —
-the CLI tangles its own source.
-
-=>
-
-{
-  "name": "@loom/cli",
-  "version": "0.0.1",
-  "type": "module",
-  "private": true,
-  "scripts": {
-    "build": "tsx src/main.ts tangle corpus/cli.loom"
-  },
-  "dependencies": {
-    "@loom/language-server": "workspace:*",
-    "@effect/platform-node": "^0.106.0",
-    "effect": "3.21.2"
-  }
-}
-
-# The TypeScript config {../tsconfig.json}
-
-Extends the workspace base and compiles `src`.
-
-=>
-
-{
-  "extends": "../../tsconfig.base.json",
-  "compilerOptions": {
-    "outDir": "out",
-    "rootDir": "src"
-  },
-  "include": ["src"]
-}

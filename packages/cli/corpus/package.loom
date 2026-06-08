@@ -1,0 +1,70 @@
+{{lang: JSON}}
+
+The packaging for `@loom/cli` — the npm manifest and the TypeScript config —
+split out of `cli.loom` so the program and the way it ships are separate
+concerns. Tangling this file writes `package.json` and `tsconfig.json`.
+
+# The manifest {../package.json}
+
+`@loom/cli` ships to npm as one self-contained file. Vite bundles the program,
+the language server, and Effect into `dist/main.js` with a Node shebang, so the
+published package carries no runtime dependencies and no TypeScript: `files`
+ships only `dist`, and `bin` points `loom` at the bundle. The dependencies are
+build inputs only — hence `devDependencies` — since the bundle inlines them.
+`build` tangles the whole corpus then bundles; `prepack` re-bundles before a
+publish. Publish with `pnpm publish`, which rewrites the `workspace:*` link to
+the language server into a real version.
+
+=>
+
+{
+  "name": "@loom/cli",
+  "version": "0.1.0",
+  "description": "Tangle Loom literate sources into real source files.",
+  "license": "Apache-2.0 OR MIT",
+  "type": "module",
+  "bin": {
+    "loom": "dist/main.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/athrio-com/loom.git",
+    "directory": "packages/cli"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsx src/main.ts tangle corpus && vite build",
+    "prepack": "vite build"
+  },
+  "devDependencies": {
+    "@loom/language-server": "workspace:*",
+    "@effect/platform-node": "^0.106.0",
+    "effect": "3.21.2",
+    "tsx": "^4.22.0",
+    "vite": "^8.0.12"
+  }
+}
+
+# The TypeScript config {../tsconfig.json}
+
+Extends the workspace base and typechecks `src`. A development tool only — Vite
+produces `dist` — so it is never shipped.
+
+=>
+
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "out",
+    "rootDir": "src"
+  },
+  "include": ["src"]
+}
