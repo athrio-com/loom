@@ -1,6 +1,6 @@
 {{lang: TypeScript}}
 
-The `@loom/cli` program, written in Loom itself: the imports, the tangle command,
+The `@athrio/loom-cli` program, written in Loom itself: the imports, the tangle command,
 and the entry point compose into `src/main.ts`. The package's manifest and build
 config live in their own looms — `package.loom` and `vite.loom`. Tangling this
 file writes the program.
@@ -15,8 +15,8 @@ filesystem, and the language server supplies the tangler and its document source
 import { Console, Effect } from 'effect'
 import { NodeContext, NodeRuntime } from '@effect/platform-node'
 import { resolve as resolvePath } from 'node:path'
-import { DocumentSource } from '@loom/language-server/LoomCompiler'
-import { LoomTangler } from '@loom/language-server/LoomTangler'
+import { DocumentSource } from '@athrio/loom-lang/LoomCompiler'
+import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
 
 # Tangle command [Tangle]
 

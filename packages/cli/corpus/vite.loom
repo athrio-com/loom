@@ -1,6 +1,6 @@
 {{lang: TypeScript}}
 
-The Vite build for `@loom/cli`. The CLI ships to npm as one self-contained
+The Vite build for `@athrio/loom-cli`. The CLI ships to npm as one self-contained
 file: Vite bundles the program, the language server's tangle path, and Effect
 into a single module with a Node shebang, so an installed `loom` carries no
 runtime dependencies and no TypeScript to resolve. It is the same bundler the

@@ -31,7 +31,7 @@ Consequences:
   correctly. Before publishing, flatten the dep tree first:
 
   ```sh
-  pnpm deploy --filter @loom/language-server <staging-dir>
+  pnpm deploy --filter @athrio/loom-lang <staging-dir>
   ```
 
   Then either run `vsce package` from the staged directory, or have

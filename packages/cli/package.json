@@ -1,5 +1,5 @@
 {
-  "name": "@loom/cli",
+  "name": "@athrio/loom-cli",
   "version": "0.1.0",
   "description": "Tangle Loom literate sources into real source files.",
   "license": "Apache-2.0 OR MIT",
@@ -26,7 +26,7 @@
     "prepack": "vite build"
   },
   "devDependencies": {
-    "@loom/language-server": "workspace:*",
+    "@athrio/loom-lang": "workspace:*",
     "@effect/platform-node": "^0.106.0",
     "effect": "3.21.2",
     "tsx": "^4.22.0",

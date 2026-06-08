@@ -1,4 +1,4 @@
-# @loom/cli
+# @athrio/loom-cli
 
 The command-line interface for [Loom](https://github.com/athrio-com/loom), a
 literate-programming framework built on Effect-TS. A `.loom` document weaves
@@ -8,7 +8,7 @@ real source files on disk.
 ## Install
 
 ```sh
-npm install -g @loom/cli
+npm install -g @athrio/loom-cli
 ```
 
 ## Usage

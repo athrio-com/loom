@@ -1,8 +1,8 @@
 import { Console, Effect } from 'effect'
 import { NodeContext, NodeRuntime } from '@effect/platform-node'
 import { resolve as resolvePath } from 'node:path'
-import { DocumentSource } from '@loom/language-server/LoomCompiler'
-import { LoomTangler } from '@loom/language-server/LoomTangler'
+import { DocumentSource } from '@athrio/loom-lang/LoomCompiler'
+import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
 
 const tangle = (file: string): Effect.Effect<void> =>
   Effect.gen(function* () {

@@ -1,12 +1,12 @@
 {{lang: JSON}}
 
-The packaging for `@loom/cli` — the npm manifest and the TypeScript config —
+The packaging for `@athrio/loom-cli` — the npm manifest and the TypeScript config —
 split out of `cli.loom` so the program and the way it ships are separate
 concerns. Tangling this file writes `package.json` and `tsconfig.json`.
 
 # The manifest {../package.json}
 
-`@loom/cli` ships to npm as one self-contained file. Vite bundles the program,
+`@athrio/loom-cli` ships to npm as one self-contained file. Vite bundles the program,
 the language server, and Effect into `dist/main.js` with a Node shebang, so the
 published package carries no runtime dependencies and no TypeScript: `files`
 ships only `dist`, and `bin` points `loom` at the bundle. The dependencies are
@@ -18,7 +18,7 @@ the language server into a real version.
 =>
 
 {
-  "name": "@loom/cli",
+  "name": "@athrio/loom-cli",
   "version": "0.1.0",
   "description": "Tangle Loom literate sources into real source files.",
   "license": "Apache-2.0 OR MIT",
@@ -45,7 +45,7 @@ the language server into a real version.
     "prepack": "vite build"
   },
   "devDependencies": {
-    "@loom/language-server": "workspace:*",
+    "@athrio/loom-lang": "workspace:*",
     "@effect/platform-node": "^0.106.0",
     "effect": "3.21.2",
     "tsx": "^4.22.0",
