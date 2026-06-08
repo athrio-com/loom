@@ -1,6 +1,6 @@
 {
   "name": "@athrio/loom-cli",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "Tangle Loom literate sources into real source files.",
   "license": "Apache-2.0 OR MIT",
   "type": "module",
