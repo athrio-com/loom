@@ -51,6 +51,44 @@ not one section.
 
 ## How to Work on Loom
 
+### Author in Loom — never hand-write source
+
+Loom is written in Loom. Every package — `@athrio/loom-core` (the service-plugin
+contract), the config package, each `@athrio/loom-service-*`, the CLI, and in
+time the language-server itself — is authored as a `.loom` corpus and tangled to
+source. Never hand-write `.ts` (or any target-language) files, and never edit the
+tangled output: it is a generated artifact. To change emitted code, find the
+section that produced it, edit its prose/`=>` chunk, and re-tangle. Catching
+yourself editing a `.ts` means you opened the wrong file. New work begins as a
+corpus from the first line.
+
+A literate framework that is not itself literate cannot be trusted to compose
+anyone else's code — this is consistency, not ceremony. Commit the tangled output
+so a checkout builds without re-tangling. And because the CLI is itself tangled
+from a corpus, Loom's own packages tangle via the source tangler (`tsx` over
+`LoomTangler`), never the published CLI — using the CLI to build the CLI would be
+circular.
+
+### Write loom prose for the reader
+
+A loom's prose is not commentary on the code — it *is* the literate layer, and its
+reader is a person. That was Knuth's whole premise: "Instead of imagining that our
+main task is to instruct a computer what to do, let us concentrate rather on
+explaining to human beings what we want a computer to do," treating a program as
+"a work of literature" (Knuth, *Literate Programming*, The Computer Journal 27(2),
+1984). Write each section's prose to explain what it is and why it exists, in the
+order best for human understanding — not to narrate the mechanics of assembly.
+
+Keep it declarative and plain: state what a thing is, in ordinary words and short
+sentences, addressed to the reader rather than narrating your own steps. Avoid
+stacked words — piled-up nouns and modifiers like "build-time service registry
+config file" force the reader to untangle the relationships. Break them apart with
+verbs and prepositions ("the registry of services available at build time"), keep
+every antecedent unambiguous, and prefer a plain word to jargon or notation when it
+reads more clearly (Knuth, Larrabee & Roberts, *Mathematical Writing*, MAA Notes
+14, 1989). The prose is part of the product: tangle discards it, but the next
+person to open the loom depends on it.
+
 ### Practice pure FP with Effect
 
 Loom is pure functional programming with Effect, end to end. Model every
