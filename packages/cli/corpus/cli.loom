@@ -46,17 +46,20 @@ const tangle = (file: string): Effect.Effect<void> =>
 
 # Entry point [Main]
 
-Dispatch the one command and start the Effect runtime; the filesystem is the end
-of the world.
+`tangle` is the only command and the default: a bare `loom <path>` tangles it,
+and an explicit `loom tangle <path>` is accepted too. The path is a `.loom` file
+or a directory of them. Starting the runtime, the filesystem is the end of the
+world.
 
 =>
 
 const main = Effect.gen(function* () {
-  const [command, file] = process.argv.slice(2)
-  if (command === 'tangle' && file) {
-    yield* tangle(file)
+  const args = process.argv.slice(2)
+  const target = args[0] === 'tangle' ? args[1] : args[0]
+  if (target) {
+    yield* tangle(target)
   } else {
-    yield* Console.error('usage: loom tangle <file.loom>')
+    yield* Console.error('usage: loom [tangle] <file.loom | dir>')
   }
 })
 

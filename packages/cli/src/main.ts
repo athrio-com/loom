@@ -23,11 +23,12 @@ const tangle = (file: string): Effect.Effect<void> =>
   )
 
 const main = Effect.gen(function* () {
-  const [command, file] = process.argv.slice(2)
-  if (command === 'tangle' && file) {
-    yield* tangle(file)
+  const args = process.argv.slice(2)
+  const target = args[0] === 'tangle' ? args[1] : args[0]
+  if (target) {
+    yield* tangle(target)
   } else {
-    yield* Console.error('usage: loom tangle <file.loom>')
+    yield* Console.error('usage: loom [tangle] <file.loom | dir>')
   }
 })
 
