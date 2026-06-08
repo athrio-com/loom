@@ -17,12 +17,12 @@
     "src/**/*",
     "corpus",
     "*.ts",
-    "packages/language-server/src/ast/index.ts",
-    "packages/language-server/src/ast/LineRanges.ts",
-    "packages/language-server/src/ast/Weft.test.ts",
-    "packages/language-server/src/ast/LineRanges.test.ts",
-    "packages/language-server/src/ast/Weft.ts",
-    "packages/language-server/src/ast/LoomWeftsStream.ts",
-    "packages/language-server/src/ast/LoomAst.ts"
+    "packages/loom-lang/src/ast/index.ts",
+    "packages/loom-lang/src/ast/LineRanges.ts",
+    "packages/loom-lang/src/ast/Weft.test.ts",
+    "packages/loom-lang/src/ast/LineRanges.test.ts",
+    "packages/loom-lang/src/ast/Weft.ts",
+    "packages/loom-lang/src/ast/LoomWeftsStream.ts",
+    "packages/loom-lang/src/ast/LoomAst.ts"
   ]
 }

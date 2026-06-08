@@ -1,11 +1,13 @@
 {{lang: TypeScript}}
 
-The `@athrio/loom-cli` program, written in Loom itself: the imports, the tangle command,
-and the entry point compose into `src/main.ts`. The package's manifest and build
-config live in their own looms — `package.loom` and `vite.loom`. Tangling this
-file writes the program.
+# The Loom CLI
 
-# Imports [Imports]
+`@athrio/loom-cli` is the command-line tool that tangles `.loom` files into
+source, and it is itself written in Loom. Its imports, the tangle command, and the
+entry point compose into `src/main.ts`; the manifest and build config live in
+their own looms, `package.loom` and `vite.loom`.
+
+## Imports [Imports]
 
 The program is built on Effect; the Node platform supplies the runtime and the
 filesystem, and the language server supplies the tangler and its document source.
@@ -18,7 +20,7 @@ import { resolve as resolvePath } from 'node:path'
 import { DocumentSource } from '@athrio/loom-lang/LoomCompiler'
 import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
 
-# Tangle command [Tangle]
+## Tangle command [Tangle]
 
 `tangle <file>` resolves the path against the working directory, runs the tangler
 over the corpus, and reports each emitted file. It owns the filesystem
@@ -44,12 +46,12 @@ const tangle = (file: string): Effect.Effect<void> =>
     Effect.provide(NodeContext.layer),
   )
 
-# Entry point [Main]
+## Entry point [Main]
 
-`tangle` is the only command and the default: a bare `loom <path>` tangles it,
-and an explicit `loom tangle <path>` is accepted too. The path is a `.loom` file
-or a directory of them. Starting the runtime, the filesystem is the end of the
-world.
+`tangle` is the only command, and the default: a bare `loom <path>` tangles that
+path, and `loom tangle <path>` works too. The path is a `.loom` file or a
+directory of them. Running the program starts the runtime — the end of the world,
+where the effects run and the files reach disk.
 
 =>
 
@@ -65,9 +67,9 @@ const main = Effect.gen(function* () {
 
 NodeRuntime.runMain(main)
 
-# The program {../src/main.ts}
+## The program {../src/main.ts}
 
-Imports first, then the command, then the entry point.
+The whole program: the imports, then the command, then the entry point.
 
 {{i: Imports}}
 {{t: Tangle}}

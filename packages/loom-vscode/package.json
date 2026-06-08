@@ -8,7 +8,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/athrio-com/loom.git",
-    "directory": "packages/vscode"
+    "directory": "packages/loom-vscode"
   },
   "engines": {
     "vscode": "^1.120.0"

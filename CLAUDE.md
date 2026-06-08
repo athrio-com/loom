@@ -29,17 +29,17 @@ live in relevant layered documents — read the one before changing the correpso
 layer, and treat it as the source of truth (this file deliberately does not
 duplicate their detail):
 
-- **`packages/language-server/src/ast/how-ast.md`** — *parsing*. Source text →
+- **`packages/loom-lang/src/ast/how-ast.md`** — *parsing*. Source text →
   `LoomDocument` AST: Wefts, Tokens, Warps, label/path specifiers, the health
   model, and the forward-only mode grammar (Preamble → Code → Prose). The AST
   pipeline in `src/ast` conforms to it.
-- **`packages/language-server/src/ast/how-frame.md`** — *the frame pass*. AST
+- **`packages/loom-lang/src/ast/how-frame.md`** — *the frame pass*. AST
   → `Effect.Service` classes: each section is a Service exposing
   `{ name, preamble, code }`; tags determine visibility (tagged = exported,
   tagless = private/hashed); the Warp graph drives dependencies and emission
   order; tangle sections (`{path}` specifier) emit files; the composition root
   is auto-generated.
-- **`packages/language-server/how-lsp.md`** — *tooling*. The
+- **`packages/loom-lang/how-lsp.md`** — *tooling*. The
   composition primitives (`compose`, `tangle` — design-level, not yet built), the runtime entry points (Tangle CLI, LSP server, Vite plugin), and
   the Volar/LSP virtual-code layer (virtual code tree, source mappings, the
   multiplexer, syntax highlighting).

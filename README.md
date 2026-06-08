@@ -11,7 +11,7 @@ readable documentation.
 
 ## Maintainers — packaging assumption
 
-The Vite build for `packages/language-server` and `packages/vscode`
+The Vite build for `packages/loom-lang` and `packages/loom-vscode`
 **externalizes all runtime `dependencies`** rather than bundling them.
 This is deliberate: rolldown (Vite 8's bundler) cannot statically rewrite
 the `require()` calls inside UMD wrappers used by packages such as

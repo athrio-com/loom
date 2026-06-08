@@ -42,7 +42,7 @@ export default defineConfig({
     lib: {
       entry: {
         client: resolve(here, 'src/vscode-extension.ts'),
-        server: resolve(here, '../language-server/src/index.ts'),
+        server: resolve(here, '../loom-lang/src/index.ts'),
       },
       formats: ['cjs'],
     },

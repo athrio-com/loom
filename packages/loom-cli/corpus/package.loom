@@ -1,10 +1,12 @@
 {{lang: JSON}}
 
-The packaging for `@athrio/loom-cli` — the npm manifest and the TypeScript config —
-split out of `cli.loom` so the program and the way it ships are separate
-concerns. Tangling this file writes `package.json` and `tsconfig.json`.
+# Packaging the Loom CLI
 
-# The manifest {../package.json}
+This loom packages `@athrio/loom-cli`, kept apart from `cli.loom` so the program
+stays separate from the way it ships. Tangling it writes the manifest,
+`package.json`, and the TypeScript config, `tsconfig.json`.
+
+## The manifest {../package.json}
 
 `@athrio/loom-cli` ships to npm as one self-contained file. Vite bundles the program,
 the language server, and Effect into `dist/main.js` with a Node shebang, so the
@@ -35,7 +37,7 @@ the language server into a real version.
   "repository": {
     "type": "git",
     "url": "git+https://github.com/athrio-com/loom.git",
-    "directory": "packages/cli"
+    "directory": "packages/loom-cli"
   },
   "publishConfig": {
     "access": "public"
@@ -56,10 +58,10 @@ the language server into a real version.
   }
 }
 
-# The TypeScript config {../tsconfig.json}
+## The TypeScript config {../tsconfig.json}
 
-Extends the workspace base and typechecks `src`. A development tool only — Vite
-produces `dist` — so it is never shipped.
+It extends the workspace base and typechecks `src`. Vite produces `dist`, so this
+config is a development tool only and never ships.
 
 =>
 

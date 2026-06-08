@@ -1,12 +1,14 @@
 {{lang: TypeScript}}
 
-The release task for `@athrio/loom-cli`. Tests gate the release; then, because
-the version lives in `package.loom` and is tangled into `package.json` (so
-`npm version` would be undone by the next tangle), it bumps the minor there,
-re-tangles so the manifest picks it up, and publishes. `pnpm release` runs this.
-Tangling this file writes `scripts/release.ts`.
+# Releasing the Loom CLI
 
-# Release {../scripts/release.ts}
+This loom is the release task for `@athrio/loom-cli`, run by `pnpm release`. It
+tests first, so a failure stops the release; then it bumps the version, re-tangles,
+and publishes. The version lives in `package.loom` and is tangled into
+`package.json`, so a plain `npm version` would be undone by the next tangle — the
+bump has to happen in the loom. Tangling this file writes `scripts/release.ts`.
+
+## Release {../scripts/release.ts}
 
 The script lives in `scripts/`, so it locates the package root and the manifest
 loom from its own path. `run` shells out from the package directory and inherits
@@ -36,8 +38,8 @@ run('pnpm', ['test'])
 
 ~
 
-Bump the minor version in the manifest loom — the patch resets to zero — failing
-loudly if there is no version to bump.
+This bumps the minor version in the manifest loom, resetting the patch to zero,
+and fails loudly when there is no version to bump.
 
 =>
 
@@ -54,8 +56,9 @@ writeFileSync(manifest, after)
 
 ~
 
-Re-tangle so `package.json` carries the new version, then publish (the bump leaves
-the tree dirty, hence `--no-git-checks`; commit the bump afterwards).
+Re-tangling carries the new version into `package.json`, and then it publishes. The
+bump leaves the tree dirty, so publish uses `--no-git-checks`; commit the bump
+afterward.
 
 =>
 

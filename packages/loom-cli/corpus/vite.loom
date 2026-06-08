@@ -1,0 +1,64 @@
+{{lang: TypeScript}}
+
+# Bundling the Loom CLI
+
+This loom is the Vite build for `@athrio/loom-cli`. Vite bundles the program, the
+language server's tangle path, and Effect into one module with a Node shebang, so
+an installed `loom` has no runtime dependencies and no TypeScript to resolve. It is
+the same bundler the language server and the VS Code extension use — library mode
+targeting Node — kept in its own loom so all the Vite configuration sits in one
+place as the CLI grows. Tangling it writes `vite.config.ts`.
+
+## Vite build {../vite.config.ts}
+
+Node built-ins stay external; everything else — the language server's tangle path
+and Effect — is inlined into the single output file. The language server's
+`exports` point at TypeScript source, which the editor and `tsx` read directly, so
+the bundler folds that source in at build time and the published CLI has no `.ts`
+to resolve and nothing to install.
+
+=>
+
+import { defineConfig } from 'vite'
+import { builtinModules } from 'node:module'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const here = dirname(fileURLToPath(import.meta.url))
+
+const nodeBuiltins = [
+  ...builtinModules,
+  ...builtinModules.map((m) => `node:${m}`),
+]
+
+~
+
+Library mode targeting Node: one ESM entry, built to `dist/main.js`. It differs
+from the language server's config only in output format — the CLI is
+`"type": "module"`, so it emits ESM with a `#!/usr/bin/env node` shebang and
+serves as its own `bin`, whereas the VS Code extension host wants CJS.
+
+=>
+
+export default defineConfig({
+  resolve: {
+    conditions: ['node'],
+    mainFields: ['main', 'module'],
+  },
+  build: {
+    target: 'node20',
+    outDir: 'dist',
+    emptyOutDir: true,
+    sourcemap: true,
+    minify: false,
+    lib: {
+      entry: resolve(here, 'src/main.ts'),
+      formats: ['es'],
+      fileName: () => 'main.js',
+    },
+    rollupOptions: {
+      external: nodeBuiltins,
+      output: { banner: '#!/usr/bin/env node' },
+    },
+  },
+})
