@@ -22,7 +22,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsx src/main.ts tangle corpus && vite build",
+    "build": "vite build",
     "test": "vitest run",
     "prepack": "vite build",
     "release": "tsx scripts/release.ts"

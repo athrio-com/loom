@@ -3,8 +3,8 @@
 # Releasing the Loom CLI
 
 This loom is the release task for `@athrio/loom-cli`, run by `pnpm release`. It
-tests first, so a failure stops the release; then it bumps the version, re-tangles,
-and publishes. The version lives in `package.loom` and is tangled into
+tests first, so a failure stops the release; then it builds, bumps the version,
+re-tangles with that built CLI, and publishes. The version lives in `package.loom` and is tangled into
 `package.json`, so a plain `npm version` would be undone by the next tangle — the
 bump has to happen in the loom. Tangling this file writes `scripts/release.ts`.
 
@@ -56,13 +56,14 @@ writeFileSync(manifest, after)
 
 ~
 
-Re-tangling carries the new version into `package.json`, and then it publishes. The
-bump leaves the tree dirty, so publish uses `--no-git-checks`; commit the bump
-afterward.
+Build the CLI, then re-tangle with that built `loom` — never the source — to carry
+the new version into `package.json`, and publish. The bump leaves the tree dirty,
+so publish uses `--no-git-checks`; commit the bump afterward.
 
 =>
 
 const version = after.match(/"version": "([^"]+)"/)?.[1] ?? '?'
-run('tsx', ['src/main.ts', 'tangle', 'corpus'])
+run('pnpm', ['build'])
+run('node', ['dist/main.js', 'tangle', 'corpus'])
 run('pnpm', ['publish', '--no-git-checks'])
 console.log(`released @athrio/loom-cli ${version}`)

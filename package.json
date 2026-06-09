@@ -12,7 +12,7 @@
     "build": "pnpm -r build",
     "watch": "pnpm -r --parallel watch",
     "pack:vsix": "pnpm --filter loom-vscode run pack:vsix",
-    "loom": "tsx packages/loom-cli/src/main.ts",
+    "loom": "node packages/loom-cli/dist/main.js",
     "test": "vitest run",
     "test:watch": "vitest"
   },

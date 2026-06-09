@@ -23,6 +23,7 @@ if (after === before) throw new Error('no "version" to bump in package.loom')
 writeFileSync(manifest, after)
 
 const version = after.match(/"version": "([^"]+)"/)?.[1] ?? '?'
-run('tsx', ['src/main.ts', 'tangle', 'corpus'])
+run('pnpm', ['build'])
+run('node', ['dist/main.js', 'tangle', 'corpus'])
 run('pnpm', ['publish', '--no-git-checks'])
 console.log(`released @athrio/loom-cli ${version}`)

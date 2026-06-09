@@ -65,9 +65,14 @@ corpus from the first line.
 A literate framework that is not itself literate cannot be trusted to compose
 anyone else's code — this is consistency, not ceremony. Commit the tangled output
 so a checkout builds without re-tangling. And because the CLI is itself tangled
-from a corpus, Loom's own packages tangle via the source tangler (`tsx` over
-`LoomTangler`), never the published CLI — using the CLI to build the CLI would be
-circular.
+from a corpus, the tangler of record is the *published* `loom` CLI — the stable,
+released product — not the in-progress source. A published binary is known-good;
+running the source tangler over the corpus that produces it is the circular,
+unstable case (change `LoomTangler`, then tangle `Tangler.loom` with that same
+unverified change, and the build stands on itself). So the cycle is: tangle with
+the published CLI, verify, publish — and the new release is the trusted tool that
+builds the next. The same applies to any package: tangle it with the published
+CLI, not by self-tangling from source.
 
 ### Write loom prose for the reader
 
