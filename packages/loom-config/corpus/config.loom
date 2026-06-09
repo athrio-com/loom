@@ -1,0 +1,102 @@
+{{lang: TypeScript}}
+
+# The config module
+
+A Loom project records the languages it has activated in a `loom.config.json` file
+at its root. `@athrio/loom-config` defines that file's shape and reads and writes
+it: the CLI writes it on `loom activate`, and the language server reads it at
+startup to choose which language services to run. The package is one module,
+`LoomConfig.ts` — the schema, the file name, and the read/write service.
+
+## Imports [Imports]
+
+The shape is an Effect `Schema`. The platform `FileSystem` reads and writes the
+file, and Effect's `Config` module, over a JSON provider, parses the contents.
+
+=>
+
+import { Config, ConfigProvider, Effect, Schema } from 'effect'
+import { FileSystem } from '@effect/platform'
+import { resolve } from 'node:path'
+
+## The model [Model]
+
+A config is just a list of language ids. They are plain strings rather than a
+closed union, so a project can name a service this build of Loom does not yet
+bundle. The `Config` description reads that list from the `languages` key, and
+treats an absent key as empty.
+
+=>
+
+export const LoomConfigSchema = Schema.Struct({
+  languages: Schema.Array(Schema.String),
+})
+
+export type LoomConfigData = typeof LoomConfigSchema.Type
+
+export const configFileName = 'loom.config.json'
+
+const activeLanguages = Config.array(Config.string(), 'languages').pipe(
+  Config.withDefault([]),
+)
+
+## Reading and writing [Source]
+
+`read` looks for the config file under a project root. A missing file reads as the
+empty config; a present one is parsed and run through the `Config` description
+over a JSON provider. `ConfigProvider.fromJson` renders an empty array as a lone
+`<nil>`, so that placeholder is dropped. `write` serialises the config back as
+formatted JSON. Both fail as defects — a malformed config file is a bug to
+surface, not a recoverable condition.
+
+=>
+
+export class LoomConfig extends Effect.Service<LoomConfig>()(
+  'LoomConfig',
+  {
+    effect: Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+
+      const read = (root: string): Effect.Effect<LoomConfigData> =>
+        Effect.gen(function* () {
+          const path = resolve(root, configFileName)
+          const present = yield* fs.exists(path).pipe(Effect.orDie)
+          if (!present) return { languages: [] }
+          const text = yield* fs.readFileString(path).pipe(Effect.orDie)
+          const json = yield* Effect.try(() => JSON.parse(text) as unknown).pipe(
+            Effect.orDie,
+          )
+          const languages = yield* activeLanguages.pipe(
+            Effect.withConfigProvider(ConfigProvider.fromJson(json)),
+            Effect.orDie,
+          )
+          return { languages: languages.filter((id) => id !== '<nil>') }
+        })
+
+      const write = (root: string, config: LoomConfigData): Effect.Effect<void> =>
+        Effect.gen(function* () {
+          const path = resolve(root, configFileName)
+          const text = `${JSON.stringify(config, null, 2)}\n`
+          yield* fs.writeFileString(path, text).pipe(Effect.orDie)
+        })
+
+      return { read, write }
+    }),
+  },
+) {}
+
+## The module {../src/LoomConfig.ts}
+
+The whole module: the imports, then the model, then the service.
+
+{{i: Imports}}
+{{m: Model}}
+{{s: Source}}
+
+=>
+
+{{i}}
+
+{{m}}
+
+{{s}}
