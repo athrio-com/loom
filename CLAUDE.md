@@ -84,15 +84,13 @@ explaining to human beings what we want a computer to do," treating a program as
 1984). Write each section's prose to explain what it is and why it exists, in the
 order best for human understanding — not to narrate the mechanics of assembly.
 
-Keep it declarative and plain: state what a thing is, in ordinary words and short
-sentences, addressed to the reader rather than narrating your own steps. Avoid
-stacked words — piled-up nouns and modifiers like "build-time service registry
-config file" force the reader to untangle the relationships. Break them apart with
-verbs and prepositions ("the registry of services available at build time"), keep
-every antecedent unambiguous, and prefer a plain word to jargon or notation when it
-reads more clearly (Knuth, Larrabee & Roberts, *Mathematical Writing*, MAA Notes
-14, 1989). The prose is part of the product: tangle discards it, but the next
-person to open the loom depends on it.
+The standard is the **`prose` skill** (`.claude/skills/prose/SKILL.md`) — rules
+(put the actor in the subject and the action in the verb; old before new; unstack
+the nouns; ground every abstraction; omit needless words; define what you name;
+prefer natural language), a checklist, and worked examples. A hook surfaces it the
+moment you open a `.loom`, so you write within it and check against it before
+presenting; `/prose` runs the same pass on demand. The prose is part of the
+product: tangle discards it, but the next person to open the loom depends on it.
 
 ### Practice pure FP with Effect
 
