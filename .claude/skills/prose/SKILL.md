@@ -31,6 +31,31 @@ is a bare definition, the next carries all three, each at its own level. It is a
 habit of thought, not a template — keep it implicit, and let the prose read as
 prose.
 
+Keep explanation in the prose, not in `//` comments — tangle drops the prose but
+carries a comment into the output. Use a comment only when you intend it as part of
+the code: there it ships with the source, and at times it is the loom's most precise
+layer.
+
+## A loom is literature
+
+Like a book or an article, a loom may span many domains, and the author chooses
+how to cut it — by category, by concept, however it reads best. Loom imposes no
+shape; the literate experience stays the author's.
+
+That freedom is over structure. However a loom is scoped, its prose must earn its
+place:
+
+- **No housekeeping.** Do not narrate assembly — that a loom sits apart from its
+  siblings, that tangling writes some files, which `{{refs}}` compose where. The
+  `{path}` specifier already shows where code lands; the `=>` block already shows
+  the fields. Restating them is noise.
+- **No water.** Prose says what the code does and why — that is its work. Water is
+  the irrelevant aside, or the babysitting that spells out the obvious. Cut it.
+
+The test: for each sentence, ask whether the reader needs it. If it only restates
+what the code, a heading, or a path already makes obvious, or it strays from the
+point, cut it.
+
 ## The rules
 
 **1. Put the actor in the subject and the action in the verb.** A clear sentence
@@ -70,6 +95,7 @@ Larrabee & Roberts, *Mathematical Writing*).
 
 Run this over each paragraph before it is shown:
 
+- Does the reader need each sentence, or does it restate the obvious or stray off the point?
 - Every *is / are / has*: a true identity, or a verb in hiding?
 - Any run of three or more nouns? Break it with a verb or a preposition.
 - Does each abstraction name a concrete?
@@ -104,8 +130,14 @@ Each pair is a real correction, with the fault named.
 
 *False scope (precision).*
 - ✗ Most languages need no package.
-- ✓ The languages Volar already supports are written here as TS modules; every other
-  language ships as a package.
+- ✓ The languages Volar already supports are written here as TypeScript modules;
+  every other language ships as a package.
+
+*Housekeeping over signal.*
+- ✗ This loom packages `@athrio/loom-services`, apart from the looms that define its
+  modules so the code stays separate from the way it ships. Tangling it writes two
+  files: the manifest, `package.json`, and the TypeScript config, `tsconfig.json`.
+- ✓ `@athrio/loom-services` ships as source — no build of its own.
 
 ## How to apply
 
