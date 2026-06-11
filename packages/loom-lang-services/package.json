@@ -1,5 +1,5 @@
 {
-  "name": "@athrio/loom-language-services",
+  "name": "@athrio/loom-lang-services",
   "version": "0.0.1",
   "description": "Loom's language services and the LanguageService contract they share.",
   "license": "Apache-2.0 OR MIT",

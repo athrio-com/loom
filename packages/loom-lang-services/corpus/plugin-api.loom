@@ -2,7 +2,7 @@
 
 # The Loom language-service contract
 
-`@athrio/loom-language-services` holds Loom's language services and the contract they
+`@athrio/loom-lang-services` holds Loom's language services and the contract they
 all satisfy: the `LanguageService`. A `LanguageService` gives one language its editor
 support: its diagnostics, hover, and completion.
 
@@ -34,18 +34,38 @@ to the right language by its `languageId`. Loom declares the languages; Volar ro
 them.
 
 ```
-  loom.config.json   { languages: [typescript, css, go] }
-          │  host resolves the active set
-          ▼
-  built-in modules (typescript, css, …)  +  loaded loom-service-<id> packages
-          │  index by id and extension
-          ▼
-  LanguageRegistry
-     byId(id)          → a section's declared language
-     byExtension(ext)  → a tangle target's language (a path like main.ts)
-          │  Effect.forEach(registry.all, (s) => s.plugins(ctx))
-          ▼
-  Volar — dispatches each request to its language by languageId
+  loom activate ──►  loom.config.json   { languages: [typescript, css, go] }
+                            │ read on initialize
+                            ▼
+  ┌────────────────────────────────────────────────——─────────────────┐
+  │ @athrio/loom-lang — the language server (host)                    │
+  │                                                                   │
+  │  every language is a LanguageService, from one of two sources:    │
+  │                                                                   │
+  │   built-in (bundled, no package)     loaded (one package each)    │
+  │   ──────────────────────────────    ─────────────────────────     │
+  │   the Loom defaults:                 everything else:             │
+  │   loom typescript javascript         loom-service-go   → gopls    │
+  │   css html markdown json             loom-service-rust → r-a      │
+  │                                      (third-party too)            │
+  │                                                                   │
+  │  for each language id in the active set:                          │
+  │     plugins = run service.plugins(context)                        │
+  │     register plugins under id      ◄── one loop, no per-language  │
+  │                                        branch                     │
+  └─────────────────────────────—───┬─────────────────────────────────┘
+                                    │ both sources satisfy one shape
+                                    ▼
+                   ┌───────────────────────────────────—───┐
+                   │ @athrio/loom-lang-services            │
+                   │   LanguageService {                   │
+                   │     id, displayName,                  │
+                   │     plugins(ctx) → Effect<Plugin[]>   │
+                   │   }                                   │
+                   └────────────────────────────────────—──┘
+
+  Routing: a section tagged id="css" → the css service → hover / diagnostics /
+  completion → mapped back to its span in the .loom.
 ```
 
 The host hands a service its `settings` and runs `plugins`, providing the

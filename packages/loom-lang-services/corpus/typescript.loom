@@ -2,7 +2,7 @@
 
 # The TypeScript service
 
-The TypeScript service is built into `@athrio/loom-language-services` as a module —
+The TypeScript service is built into `@athrio/loom-lang-services` as a module —
 no separate package. It wraps `volar-service-typescript` as a `LanguageService`, the
 same shape every language takes, so the host registers it through the same pass as
 any other. It serves `typescript` sections and `.ts` and `.tsx` files.

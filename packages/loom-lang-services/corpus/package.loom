@@ -1,8 +1,8 @@
 {{lang: JSON}}
 
-# Packaging loom-language-services
+# Packaging loom-lang-services
 
-`@athrio/loom-language-services` ships as source — no build of its own.
+`@athrio/loom-lang-services` ships as source — no build of its own.
 
 ## The manifest {../package.json}
 
@@ -16,7 +16,7 @@ supplied by the bundle that inlines it.
 =>
 
 {
-  "name": "@athrio/loom-language-services",
+  "name": "@athrio/loom-lang-services",
   "version": "0.0.1",
   "description": "Loom's language services and the LanguageService contract they share.",
   "license": "Apache-2.0 OR MIT",
