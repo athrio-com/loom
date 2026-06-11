@@ -1,0 +1,32 @@
+{{lang: TypeScript}}
+
+# The TypeScript service
+
+The TypeScript service is built into `@athrio/loom-language-services` as a module —
+no separate package. It wraps `volar-service-typescript` as a `LanguageService`, the
+same shape every language takes, so the host registers it through the same pass as
+any other. It serves `typescript` sections and `.ts` and `.tsx` files.
+
+## The module {../src/typescript.ts}
+
+`volar-service-typescript`'s `create` builds the Volar plugins from a TypeScript SDK.
+The service takes that SDK from the `TypeScriptSdk` capability rather than bundling
+one, so it analyzes the user's code with their own TypeScript. `create` is
+synchronous, so the Effect does no work beyond drawing the capability.
+
+=>
+
+import { create } from 'volar-service-typescript'
+import { Effect } from 'effect'
+import { defineLanguageService, TypeScriptSdk } from './LanguageService'
+
+export const typescript = defineLanguageService({
+  id: 'typescript',
+  displayName: 'TypeScript',
+  extensions: ['.ts', '.tsx'],
+  plugins: () =>
+    Effect.gen(function* () {
+      const ts = yield* TypeScriptSdk
+      return create(ts)
+    }),
+})

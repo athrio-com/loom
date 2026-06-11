@@ -37,6 +37,7 @@ out/
 # Local scratch
 .scratch/
 temp/
+working-state.md
 
 # Dev-probe output
 packages/language-server/scripts/out.json

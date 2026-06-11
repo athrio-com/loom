@@ -1,11 +1,11 @@
 {
-  "name": "@athrio/loom-services",
+  "name": "@athrio/loom-language-services",
   "version": "0.0.1",
-  "description": "Loom's language services and the LoomService contract they share.",
+  "description": "Loom's language services and the LanguageService contract they share.",
   "license": "Apache-2.0 OR MIT",
   "type": "module",
   "exports": {
-    "./LoomService": "./src/LoomService.ts",
+    "./LanguageService": "./src/LanguageService.ts",
     "./typescript": "./src/typescript.ts"
   },
   "dependencies": {

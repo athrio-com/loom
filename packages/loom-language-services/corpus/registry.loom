@@ -1,0 +1,79 @@
+{{lang: TypeScript}}
+
+# The language registry
+
+The Loom language server resolves which languages a project has activated — built-in
+modules and loaded `loom-service-<id>` packages — into one active set. The
+`LanguageRegistry` indexes that set so the rest of the server finds a language by a
+single lookup, not a scan: by `id` for a section's declared language, by extension
+for a tangle path.
+
+## Imports [Imports]
+
+The registry is built with Effect: `HashMap` for its two indexes, and `Option` for a
+lookup that can miss, over the `LanguageService` it indexes.
+
+=>
+
+import { Effect, HashMap, Option } from 'effect'
+import type { LanguageService } from './LanguageService'
+
+## The active set [Active]
+
+`ActiveLanguages` is the set the language server resolves from `loom.config.json`
+and provides. It is empty until the server fills it — the registry over an empty set
+simply finds nothing.
+
+=>
+
+export class ActiveLanguages extends Effect.Service<ActiveLanguages>()(
+  'ActiveLanguages',
+  {
+    effect: Effect.succeed({ all: [] as ReadonlyArray<LanguageService> }),
+  },
+) {}
+
+## The registry [Registry]
+
+The registry builds two maps over the active set — one keyed by `id`, one by each
+service's `extensions` — and answers a lookup with an `Option`: present when a
+language claims that id or extension, absent otherwise. `all` keeps the set for the
+collect-and-register pass that hands every service's plugins to Volar.
+
+=>
+
+export class LanguageRegistry extends Effect.Service<LanguageRegistry>()(
+  'LanguageRegistry',
+  {
+    effect: Effect.gen(function* () {
+      const { all } = yield* ActiveLanguages
+      const byId = HashMap.fromIterable(all.map((s) => [s.id, s] as const))
+      const byExtension = HashMap.fromIterable(
+        all.flatMap((s) => s.extensions.map((e) => [e, s] as const)),
+      )
+      return {
+        byId: (id: string): Option.Option<LanguageService> =>
+          HashMap.get(byId, id),
+        byExtension: (ext: string): Option.Option<LanguageService> =>
+          HashMap.get(byExtension, ext),
+        all,
+      }
+    }),
+  },
+) {}
+
+## The module {../src/LanguageRegistry.ts}
+
+The imports, the active set, then the registry over it.
+
+{{i: Imports}}
+{{a: Active}}
+{{r: Registry}}
+
+=>
+
+{{i}}
+
+{{a}}
+
+{{r}}

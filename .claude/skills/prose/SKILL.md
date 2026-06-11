@@ -110,8 +110,8 @@ Run this over each paragraph before it is shown:
 Each pair is a real correction, with the fault named.
 
 *A true `is`, not a false one (rule 1).*
-- ✗ Every language's editor support is a `LoomService`.
-- ✓ A `LoomService` *is* the contract each Loom language service implements.
+- ✗ Every language's editor support is a `LanguageService`.
+- ✓ A `LanguageService` *is* the contract each Loom language service implements.
 
 *Noun stack (rule 3).*
 - ✗ a build-time service registry config file
@@ -134,10 +134,10 @@ Each pair is a real correction, with the fault named.
   every other language ships as a package.
 
 *Housekeeping over signal.*
-- ✗ This loom packages `@athrio/loom-services`, apart from the looms that define its
+- ✗ This loom packages `@athrio/loom-language-services`, apart from the looms that define its
   modules so the code stays separate from the way it ships. Tangling it writes two
   files: the manifest, `package.json`, and the TypeScript config, `tsconfig.json`.
-- ✓ `@athrio/loom-services` ships as source — no build of its own.
+- ✓ `@athrio/loom-language-services` ships as source — no build of its own.
 
 ## How to apply
 

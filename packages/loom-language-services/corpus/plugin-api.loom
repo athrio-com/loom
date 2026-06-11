@@ -1,0 +1,166 @@
+{{lang: TypeScript}}
+
+# The Loom language-service contract
+
+`@athrio/loom-language-services` holds Loom's language services and the contract they
+all satisfy: the `LanguageService`. A `LanguageService` gives one language its editor
+support: its diagnostics, hover, and completion.
+
+The languages Volar already supports — TypeScript, JavaScript, JSON, CSS, HTML,
+Markdown — are written here as modules and switched on by `loom activate`. They need
+no separate package, but they are wrapped as `LanguageService`s exactly like any
+other.
+
+Every other language ships as its own `loom-service-<id>` package implementing the
+same shape. This file is the contract itself, tangled to `LanguageService.ts`; each
+built-in service is its own module beside it.
+
+## Architecture
+
+A *service* gives an embedded code section's language its editor support, and every
+service — built-in or loaded — is the same `LanguageService`. The Volar-default
+languages and Loom itself are **built in**: each lives as a module here, with no
+package of its own. All other languages are **loaded**: each in its own
+`@athrio/loom-service-<id>` package, installed on activation.
+
+`@athrio/loom-lang`, the Loom language server, is the host: it resolves the active
+set from `loom.config.json` and indexes it in the `LanguageRegistry` (its own
+module), keyed by `id` for a section's declared language and by extension for a
+tangle path. Finding a language is a lookup, never a branch.
+
+Editor features take a different route. The host runs each service's `plugins` Effect
+to collect its Volar plugins and registers them; Volar then dispatches every request
+to the right language by its `languageId`. Loom declares the languages; Volar routes
+them.
+
+```
+  loom.config.json   { languages: [typescript, css, go] }
+          │  host resolves the active set
+          ▼
+  built-in modules (typescript, css, …)  +  loaded loom-service-<id> packages
+          │  index by id and extension
+          ▼
+  LanguageRegistry
+     byId(id)          → a section's declared language
+     byExtension(ext)  → a tangle target's language (a path like main.ts)
+          │  Effect.forEach(registry.all, (s) => s.plugins(ctx))
+          ▼
+  Volar — dispatches each request to its language by languageId
+```
+
+The host hands a service its `settings` and runs `plugins`, providing the
+capabilities the Effect requires — today, the TypeScript SDK. An in-process service
+builds its plugins in memory; an external one spawns its binary and bridges it —
+both inside the Effect, so the collect-and-register pass is the same for every
+language.
+
+## Imports [Imports]
+
+The contract names Volar's `LanguageServicePlugin`, the unit of editor behavior; and
+from Effect, `Data` for the tagged error and `Effect` itself, since a service builds
+its plugins in an Effect and the TypeScript SDK is an Effect service.
+
+=>
+
+import type { LanguageServicePlugin } from '@volar/language-service'
+import { Data, Effect } from 'effect'
+
+## A service [Service]
+
+A `LanguageService` is one language's entry: the section `id` it serves, a
+`displayName` for the `loom activate` menu, its file `extensions`, and `plugins` —
+the Effect that builds its Volar plugins. That Effect may fail with a `ServiceError`
+— an external binary that will not start, say — which the host reports without
+bringing the other languages down. Building may draw on the host's capabilities
+(`HostCapabilities`): the TypeScript service takes the TypeScript SDK, a CSS service
+takes nothing. A path's extension enables its language — a section that tangles to
+`main.ts` turns on the TypeScript service.
+
+=>
+
+export class ServiceError extends Data.TaggedError('ServiceError')<{
+  readonly service: string
+  readonly reason: string
+}> {}
+
+export interface LanguageService {
+  readonly id: string
+  readonly displayName: string
+  readonly extensions: ReadonlyArray<string>
+  readonly plugins: (
+    context: LanguageServiceContext,
+  ) => Effect.Effect<
+    ReadonlyArray<LanguageServicePlugin>,
+    ServiceError,
+    HostCapabilities
+  >
+}
+
+## Host capabilities [Capabilities]
+
+While building its plugins a service may draw on capabilities the host provides,
+taken through the Effect environment so a service asks only for what it needs. Today
+there is one: `TypeScriptSdk`, the TypeScript compiler itself. It carries no default
+— the host supplies the editor's instance (Volar's `loadTsdkByPath`, the workspace's
+own version), so analysis matches the user's project. Only the TypeScript and
+JavaScript services take it; `create` needs the compiler to build the TS features,
+while a CSS or Go service never asks. `HostCapabilities` is their sum: the
+environment a service's `plugins` Effect may require.
+
+=>
+
+export class TypeScriptSdk extends Effect.Service<TypeScriptSdk>()('TypeScriptSdk', {
+  effect: Effect.die(
+    'TypeScriptSdk must be provided by the host',
+  ) as Effect.Effect<typeof import('typescript')>,
+}) {}
+
+export type HostCapabilities = TypeScriptSdk
+
+## The service settings [Context]
+
+The context is the one input the host hands every service: `settings`, this
+language's own entry in `loom.config.json`. The service decodes it — format options
+for an in-process service, the binary command for an external one. Capabilities like
+the TypeScript SDK do not ride here; they come through the environment, so the
+context keeps the same shape for every language.
+
+=>
+
+export interface LanguageServiceContext {
+  readonly settings: Record<string, unknown>
+}
+
+## Declaring a service [Define]
+
+A service's entry returns `defineLanguageService(...)`: it checks the shape at the
+definition site and returns it unchanged, so a built-in definition and a package's
+default export are the same kind of value.
+
+=>
+
+export const defineLanguageService = (service: LanguageService): LanguageService =>
+  service
+
+## The module {../src/LanguageService.ts}
+
+The imports, the contract and its error, the host capabilities, the settings, and
+the helper.
+
+{{i: Imports}}
+{{s: Service}}
+{{cap: Capabilities}}
+{{c: Context}}
+{{d: Define}}
+
+=>
+
+{{i}}
+
+{{s}}
+
+{{cap}}
+
+{{c}}
+
+{{d}}
