@@ -1,0 +1,57 @@
+{{lang: JSON}}
+
+# Packaging loom-services
+
+`@athrio/loom-services` ships as source — no build of its own.
+
+## The manifest {../package.json}
+
+`exports` is the package's surface — two entries: the `LoomService` contract and
+the built-in `typescript` service.
+
+The built-in service wraps `volar-service-typescript`, the one real dependency.
+The other three — `effect`, `@volar/language-service`, `typescript` — are peers,
+supplied by the bundle that inlines it.
+
+=>
+
+{
+  "name": "@athrio/loom-services",
+  "version": "0.0.1",
+  "description": "Loom's language services and the LoomService contract they share.",
+  "license": "Apache-2.0 OR MIT",
+  "type": "module",
+  "exports": {
+    "./LoomService": "./src/LoomService.ts",
+    "./typescript": "./src/typescript.ts"
+  },
+  "dependencies": {
+    "volar-service-typescript": "^0.0.71"
+  },
+  "peerDependencies": {
+    "@volar/language-service": "^2.4.28",
+    "effect": "3.21.2",
+    "typescript": "^6.0.3"
+  },
+  "devDependencies": {
+    "@volar/language-service": "^2.4.28",
+    "effect": "3.21.2",
+    "typescript": "^6.0.3"
+  }
+}
+
+## The TypeScript config {../tsconfig.json}
+
+This config extends the workspace base — strict mode, the Node types, NodeNext
+modules — and checks `src`. Like the package, it never ships.
+
+=>
+
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "out",
+    "rootDir": "src"
+  },
+  "include": ["src"]
+}

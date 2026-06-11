@@ -1,0 +1,24 @@
+{
+  "name": "@athrio/loom-services",
+  "version": "0.0.1",
+  "description": "Loom's language services and the LoomService contract they share.",
+  "license": "Apache-2.0 OR MIT",
+  "type": "module",
+  "exports": {
+    "./LoomService": "./src/LoomService.ts",
+    "./typescript": "./src/typescript.ts"
+  },
+  "dependencies": {
+    "volar-service-typescript": "^0.0.71"
+  },
+  "peerDependencies": {
+    "@volar/language-service": "^2.4.28",
+    "effect": "3.21.2",
+    "typescript": "^6.0.3"
+  },
+  "devDependencies": {
+    "@volar/language-service": "^2.4.28",
+    "effect": "3.21.2",
+    "typescript": "^6.0.3"
+  }
+}
