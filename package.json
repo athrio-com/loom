@@ -17,24 +17,24 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@effect/cli": "^0.75.1",
+    "@effect/cli": "^0.75.2",
     "@effect/platform": "^0.96.1",
     "@effect/platform-node": "^0.106.0",
     "effect": "3.21.2"
   },
   "devDependencies": {
     "@effect/vitest": "^0.29.0",
-    "@types/node": "^25.8.0",
+    "@types/node": "^25.9.3",
     "@volar/kit": "^2.4.28",
     "@volar/language-core": "^2.4.28",
     "@volar/language-server": "^2.4.28",
     "@volar/typescript": "^2.4.28",
-    "@vscode/vsce": "^3.9.1",
-    "prettier": "^3.8.3",
-    "tsx": "^4.22.0",
+    "@vscode/vsce": "^3.9.2",
+    "prettier": "^3.8.4",
+    "tsx": "^4.22.4",
     "typescript": "^6.0.3",
-    "vite": "^8.0.12",
-    "vitest": "^4.1.6",
+    "vite": "^8.0.16",
+    "vitest": "^4.1.8",
     "volar-service-typescript": "^0.0.71"
   }
 }
