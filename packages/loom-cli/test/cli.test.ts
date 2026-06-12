@@ -42,6 +42,11 @@ const tempDoc = (): { readonly dir: string; readonly doc: string } => {
   return { dir, doc }
 }
 
+// Each case spawns `node --import tsx src/main.ts` cold — transpiling the whole
+// tangler path on the fly takes seconds, and the 5s default flakes when the first
+// cold spawn runs under full-suite load. Give these subprocess tests headroom.
+const SPAWN_TIMEOUT = 30_000
+
 describe('loom cli', () => {
   it('tangles a bare path (tangle is the default command)', () => {
     const { dir, doc } = tempDoc()
@@ -50,7 +55,7 @@ describe('loom cli', () => {
       'export const hi = "hello"',
     )
     rmSync(dir, { recursive: true, force: true })
-  })
+  }, SPAWN_TIMEOUT)
 
   it('tangles with an explicit `tangle` command too', () => {
     const { dir, doc } = tempDoc()
@@ -59,9 +64,9 @@ describe('loom cli', () => {
       'export const hi = "hello"',
     )
     rmSync(dir, { recursive: true, force: true })
-  })
+  }, SPAWN_TIMEOUT)
 
   it('prints usage given no arguments', () => {
     expect(loom([]).stderr).toContain('usage: loom')
-  })
+  }, SPAWN_TIMEOUT)
 })
