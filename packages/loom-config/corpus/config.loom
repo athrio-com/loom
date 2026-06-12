@@ -6,7 +6,7 @@ A Loom project records the languages it has activated in a `loom.config.json` fi
 at its root. `@athrio/loom-config` defines that file's shape and reads and writes
 it: the CLI writes it on `loom activate`, and the language server reads it at
 startup to choose which language services to run. The package is one module,
-`LoomConfig.ts` — the schema, the file name, and the read/write service.
+`LoomConfig.ts`.
 
 ## Imports [Imports]
 
@@ -86,8 +86,6 @@ export class LoomConfig extends Effect.Service<LoomConfig>()(
 ) {}
 
 ## The module {../src/LoomConfig.ts}
-
-The whole module: the imports, then the model, then the service.
 
 {{i: Imports}}
 {{m: Model}}

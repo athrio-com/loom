@@ -4,9 +4,9 @@
 
 This loom is the release task for `@athrio/loom-cli`, run by `pnpm release`. It
 tests first, so a failure stops the release; then it builds, bumps the version,
-re-tangles with that built CLI, and publishes. The version lives in `package.loom` and is tangled into
-`package.json`, so a plain `npm version` would be undone by the next tangle — the
-bump has to happen in the loom. Tangling this file writes `scripts/release.ts`.
+re-tangles with that built CLI, and publishes. The version lives in
+`package.loom` and is tangled into `package.json`, so a plain `npm version` would
+be undone by the next tangle — the bump has to happen in the loom.
 
 ## Release {../scripts/release.ts}
 
@@ -38,8 +38,8 @@ run('pnpm', ['test'])
 
 ~
 
-This bumps the minor version in the manifest loom, resetting the patch to zero,
-and fails loudly when there is no version to bump.
+`bumpMinor` raises the minor version in the manifest loom, resets the patch to
+zero, and fails loudly when there is no version to bump.
 
 =>
 

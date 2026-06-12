@@ -6,7 +6,7 @@
   "type": "module",
   "exports": {
     "./LanguageService": "./src/LanguageService.ts",
-    "./typescript": "./src/typescript.ts"
+    "./typescript": "./src/TypescriptService.ts"
   },
   "dependencies": {
     "volar-service-typescript": "^0.0.71"

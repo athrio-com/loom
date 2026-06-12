@@ -2,20 +2,18 @@
 
 # Packaging the Loom CLI
 
-This loom packages `@athrio/loom-cli`, kept apart from `cli.loom` so the program
-stays separate from the way it ships. Tangling it writes the manifest,
-`package.json`, and the TypeScript config, `tsconfig.json`.
+`@athrio/loom-cli` ships to npm as one self-contained file: Vite bundles the
+program, the language server, and Effect into `dist/main.js` with a Node shebang,
+so the published package carries no runtime dependencies and no TypeScript.
 
 ## The manifest {../package.json}
 
-`@athrio/loom-cli` ships to npm as one self-contained file. Vite bundles the program,
-the language server, and Effect into `dist/main.js` with a Node shebang, so the
-published package carries no runtime dependencies and no TypeScript: `files`
-ships only `dist`, and `bin` points `loom` at the bundle. The dependencies are
-build inputs only — hence `devDependencies` — since the bundle inlines them.
+`files` ships only `dist`, and `bin` points `loom` at the bundle. The dependencies
+are build inputs only — hence `devDependencies` — since the bundle inlines them.
 `build` bundles the committed program (re-tangling is a separate step, run with
-the published `loom`); `prepack` re-bundles before a publish. Publish with `pnpm publish`, which rewrites the `workspace:*` link to
-the language server into a real version.
+the published `loom`); `prepack` re-bundles before a publish. Publish with
+`pnpm publish`, which rewrites the `workspace:*` link to the language server into
+a real version.
 
 =>
 

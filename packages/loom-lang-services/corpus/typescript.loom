@@ -7,7 +7,7 @@ no separate package. It wraps `volar-service-typescript` as a `LanguageService`,
 same shape every language takes, so the host registers it through the same pass as
 any other. It serves `typescript` sections and `.ts` and `.tsx` files.
 
-## The module {../src/typescript.ts}
+## The module {../src/TypescriptService.ts}
 
 `volar-service-typescript`'s `create` builds the Volar plugins from a TypeScript SDK.
 The service takes that SDK from the `TypeScriptSdk` capability rather than bundling

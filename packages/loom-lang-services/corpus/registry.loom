@@ -10,8 +10,8 @@ for a tangle path.
 
 ## Imports [Imports]
 
-The registry is built with Effect: `HashMap` for its two indexes, and `Option` for a
-lookup that can miss, over the `LanguageService` it indexes.
+The registry draws on Effect — `HashMap` for its two indexes, `Option` for a
+lookup that can miss — and on the `LanguageService` type it indexes.
 
 =>
 
@@ -62,9 +62,7 @@ export class LanguageRegistry extends Effect.Service<LanguageRegistry>()(
   },
 ) {}
 
-## The module {../src/LanguageRegistry.ts}
-
-The imports, the active set, then the registry over it.
+## Tangle the module {../src/LanguageRegistry.ts}
 
 {{i: Imports}}
 {{a: Active}}

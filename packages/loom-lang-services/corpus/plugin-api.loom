@@ -12,8 +12,8 @@ no separate package, but they are wrapped as `LanguageService`s exactly like any
 other.
 
 Every other language ships as its own `loom-service-<id>` package implementing the
-same shape. This file is the contract itself, tangled to `LanguageService.ts`; each
-built-in service is its own module beside it.
+same shape. This file is the contract itself; each built-in service is its own
+module beside it.
 
 ## Architecture
 
@@ -23,10 +23,10 @@ languages and Loom itself are **built in**: each lives as a module here, with no
 package of its own. All other languages are **loaded**: each in its own
 `@athrio/loom-service-<id>` package, installed on activation.
 
-`@athrio/loom-lang`, the Loom language server, is the host: it resolves the active
-set from `loom.config.json` and indexes it in the `LanguageRegistry` (its own
-module), keyed by `id` for a section's declared language and by extension for a
-tangle path. Finding a language is a lookup, never a branch.
+`@athrio/loom-lang`, the Loom language server resolves the active set from
+`loom.config.json` and indexes it in the `LanguageRegistry`, keyed by `id` for
+a section's declared language and by extension for a tangle path. Finding a language
+is a lookup, never a branch.
 
 Editor features take a different route. The host runs each service's `plugins` Effect
 to collect its Volar plugins and registers them; Volar then dispatches every request
@@ -38,7 +38,7 @@ them.
                             │ read on initialize
                             ▼
   ┌────────────────────────────────────────────────——─────────────────┐
-  │ @athrio/loom-lang — the language server (host)                    │
+  │ @athrio/loom-lang — the language server                           │
   │                                                                   │
   │  every language is a LanguageService, from one of two sources:    │
   │                                                                   │
@@ -51,7 +51,7 @@ them.
   │                                                                   │
   │  for each language id in the active set:                          │
   │     plugins = run service.plugins(context)                        │
-  │     register plugins under id      ◄── one loop, no per-language  │
+  │     register plugins under id      ◄── lookup, no per-language    │
   │                                        branch                     │
   └─────────────────────────────—───┬─────────────────────────────────┘
                                     │ both sources satisfy one shape
@@ -123,9 +123,9 @@ taken through the Effect environment so a service asks only for what it needs. T
 there is one: `TypeScriptSdk`, the TypeScript compiler itself. It carries no default
 — the host supplies the editor's instance (Volar's `loadTsdkByPath`, the workspace's
 own version), so analysis matches the user's project. Only the TypeScript and
-JavaScript services take it; `create` needs the compiler to build the TS features,
-while a CSS or Go service never asks. `HostCapabilities` is their sum: the
-environment a service's `plugins` Effect may require.
+JavaScript services take it; `create` needs the compiler to build the TypeScript
+features, while a CSS or Go service never asks. `HostCapabilities` is the sum of
+all such capabilities — the environment a service's `plugins` Effect may require.
 
 =>
 
@@ -163,9 +163,6 @@ export const defineLanguageService = (service: LanguageService): LanguageService
   service
 
 ## The module {../src/LanguageService.ts}
-
-The imports, the contract and its error, the host capabilities, the settings, and
-the helper.
 
 {{i: Imports}}
 {{s: Service}}

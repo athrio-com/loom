@@ -50,8 +50,16 @@ beforeAll(async () => {
 describe('e2e — frame diagnostics map back to the .loom via Volar', () => {
   it('a Warp to a missing section errors on the .loom annotation', async () => {
     const diagnostics = await checker.check(fixture)
-    // Show the mapped result — printed against the .loom file, not the frame.
-    console.log(checker.printErrors(fixture, diagnostics))
+    // The fixture Warps to a missing `Ghost` section on purpose, so the checker
+    // emits real tsc diagnostics. Print them under a banner — in one call, so the
+    // label can never drift from the output — marking them as the expected,
+    // asserted result, not a defect in the test run.
+    console.log(
+      '\n[expected — not a test failure] checker.loom intentionally Warps to a\n' +
+        'missing `Ghost` section; the diagnostics below are the asserted result,\n' +
+        'mapped from the generated frame back onto the `.loom`:\n\n' +
+        checker.printErrors(fixture, diagnostics),
+    )
 
     const ghost = diagnostics.find((d) => /Ghost/.test(d.message))
     expect(ghost).toBeDefined()

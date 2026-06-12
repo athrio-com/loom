@@ -2,18 +2,13 @@
 
 # Packaging loom-config
 
-This loom packages `@athrio/loom-config`, kept apart from `config.loom` so the
-module stays separate from the way it ships. Tangling it writes the manifest,
-`package.json`, and the TypeScript config, `tsconfig.json`.
+`@athrio/loom-config` ships as source — no build of its own.
 
 ## The manifest {../package.json}
 
-`@athrio/loom-config` is a source package: its `exports` point at TypeScript, and
-the packages that use it — the CLI and the language server — inline that source
-when they bundle, so it ships no build of its own. `effect` and the platform are
-peer dependencies, provided by whichever bundle consumes it. The corpus is tangled
-by the `loom` CLI directly, so the package carries no tangler and no build step of
-its own.
+`exports` is the package's surface — one entry, the `LoomConfig` module. The CLI
+and the language server inline this source when they bundle; `effect` and the
+platform are peers, supplied by whichever bundle consumes it.
 
 =>
 
@@ -40,8 +35,7 @@ its own.
 
 It extends the workspace base and typechecks `src`. Node's types come from the
 base, which names `types: ['node']` once for every package — pnpm's isolated
-layout does not reliably auto-surface `@types/node`. The config never ships; the
-packages that bundle this source produce any build output themselves.
+layout does not reliably auto-surface `@types/node`. The config never ships.
 
 =>
 

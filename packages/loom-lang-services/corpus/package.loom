@@ -23,7 +23,7 @@ supplied by the bundle that inlines it.
   "type": "module",
   "exports": {
     "./LanguageService": "./src/LanguageService.ts",
-    "./typescript": "./src/typescript.ts"
+    "./typescript": "./src/TypescriptService.ts"
   },
   "dependencies": {
     "volar-service-typescript": "^0.0.71"
@@ -42,8 +42,8 @@ supplied by the bundle that inlines it.
 
 ## The TypeScript config {../tsconfig.json}
 
-This config extends the workspace base — strict mode, the Node types, NodeNext
-modules — and checks `src`. Like the package, it never ships.
+This config extends the workspace base — strict mode, the Node types — and checks
+`src`. Like the package, it never ships.
 
 =>
 

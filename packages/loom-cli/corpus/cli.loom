@@ -3,9 +3,7 @@
 # The Loom CLI
 
 `@athrio/loom-cli` is the command-line tool that tangles `.loom` files into
-source, and it is itself written in Loom. Its imports, the tangle command, and the
-entry point compose into `src/main.ts`; the manifest and build config live in
-their own looms, `package.loom` and `vite.loom`.
+source — and it is itself written in Loom.
 
 ## Imports [Imports]
 
@@ -68,8 +66,6 @@ const main = Effect.gen(function* () {
 NodeRuntime.runMain(main)
 
 ## The program {../src/main.ts}
-
-The whole program: the imports, then the command, then the entry point.
 
 {{i: Imports}}
 {{t: Tangle}}

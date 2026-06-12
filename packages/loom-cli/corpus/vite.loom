@@ -2,12 +2,10 @@
 
 # Bundling the Loom CLI
 
-This loom is the Vite build for `@athrio/loom-cli`. Vite bundles the program, the
-language server's tangle path, and Effect into one module with a Node shebang, so
-an installed `loom` has no runtime dependencies and no TypeScript to resolve. It is
-the same bundler the language server and the VS Code extension use — library mode
-targeting Node — kept in its own loom so all the Vite configuration sits in one
-place as the CLI grows. Tangling it writes `vite.config.ts`.
+Vite bundles the program, the language server's tangle path, and Effect into one
+module with a Node shebang, so an installed `loom` has no runtime dependencies and
+no TypeScript to resolve — the same bundler the language server and the VS Code
+extension use, in library mode targeting Node.
 
 ## Vite build {../vite.config.ts}
 
