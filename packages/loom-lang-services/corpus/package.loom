@@ -6,11 +6,12 @@
 
 ## The manifest {../package.json}
 
-`exports` is the package's surface — two entries: the `LanguageService` contract and
-the built-in `typescript` service.
+`exports` is the package's surface: the `LanguageService` contract, the
+`LanguageRegistry`, and the two built-in services — `LoomLanguage` (the Frame) and
+`TypescriptLanguage` (the TypeScript target).
 
-The built-in service wraps `volar-service-typescript`, the one real dependency.
-The other three — `effect`, `@volar/language-service`, `typescript` — are peers,
+The built-in services wrap `volar-service-typescript`, the one real dependency. The
+other three — `effect`, `@volar/language-service`, `typescript` — are peers,
 supplied by the bundle that inlines it.
 
 =>
@@ -23,7 +24,9 @@ supplied by the bundle that inlines it.
   "type": "module",
   "exports": {
     "./LanguageService": "./src/LanguageService.ts",
-    "./typescript": "./src/TypescriptService.ts"
+    "./LanguageRegistry": "./src/LanguageRegistry.ts",
+    "./LoomLanguage": "./src/LoomLanguage.ts",
+    "./TypescriptLanguage": "./src/TypescriptLanguage.ts"
   },
   "dependencies": {
     "volar-service-typescript": "^0.0.71"

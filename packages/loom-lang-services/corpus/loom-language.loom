@@ -1,0 +1,33 @@
+{{lang: TypeScript}}
+
+# The Loom language
+
+`LoomLanguage` gives the **Frame** its editor support — the de dicto composition
+program Loom builds (the `Effect.Service` classes, the Warp wiring), together with
+any `{Loom}` sections, which become part of the Frame. Loom is TypeScript + Effect,
+so `LoomLanguage` wraps `volar-service-typescript` and draws the `TypescriptSdk` the
+host provides. It is always active: every `.loom` has a Frame.
+
+## The module {../src/LoomLanguage.ts}
+
+The Frame's `languageId` is `loom`, distinct from a product section's `typescript`,
+so the two route to their own services even though they share the tooling.
+`LoomLanguage` claims no `extensions` — the Frame is the substrate, never a tangle
+target.
+
+=>
+
+import { create } from 'volar-service-typescript'
+import { Effect } from 'effect'
+import { defineLanguageService, TypescriptSdk } from './LanguageService'
+
+export const LoomLanguage = defineLanguageService({
+  id: 'loom',
+  displayName: 'Loom',
+  extensions: [],
+  plugins: () =>
+    Effect.gen(function* () {
+      const ts = yield* TypescriptSdk
+      return create(ts)
+    }),
+})

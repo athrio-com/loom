@@ -1,16 +1,17 @@
 {{lang: TypeScript}}
 
-# The TypeScript service
+# The TypeScript language
 
-The TypeScript service is built into `@athrio/loom-lang-services` as a module —
-no separate package. It wraps `volar-service-typescript` as a `LanguageService`, the
-same shape every language takes, so the host registers it through the same pass as
-any other. It serves `typescript` sections and `.ts` and `.tsx` files.
+`TypescriptLanguage` is TypeScript as a *target* — the product a `{TypeScript}`
+section composes to, or a `.ts` / `.tsx` tangle target. It wraps
+`volar-service-typescript`, the shape every language takes, so the host registers it
+through the same pass as any other. It is not `LoomLanguage`: TypeScript is one
+language Loom composes, not Loom itself.
 
-## The module {../src/TypescriptService.ts}
+## The module {../src/TypescriptLanguage.ts}
 
 `volar-service-typescript`'s `create` builds the Volar plugins from a TypeScript SDK.
-The service takes that SDK from the `TypeScriptSdk` capability rather than bundling
+The service takes that SDK from the `TypescriptSdk` capability rather than bundling
 one, so it analyzes the user's code with their own TypeScript. `create` is
 synchronous, so the Effect does no work beyond drawing the capability.
 
@@ -18,15 +19,15 @@ synchronous, so the Effect does no work beyond drawing the capability.
 
 import { create } from 'volar-service-typescript'
 import { Effect } from 'effect'
-import { defineLanguageService, TypeScriptSdk } from './LanguageService'
+import { defineLanguageService, TypescriptSdk } from './LanguageService'
 
-export const typescript = defineLanguageService({
+export const TypescriptLanguage = defineLanguageService({
   id: 'typescript',
   displayName: 'TypeScript',
   extensions: ['.ts', '.tsx'],
   plugins: () =>
     Effect.gen(function* () {
-      const ts = yield* TypeScriptSdk
+      const ts = yield* TypescriptSdk
       return create(ts)
     }),
 })

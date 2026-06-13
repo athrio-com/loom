@@ -19,13 +19,13 @@ export interface LanguageService {
   >
 }
 
-export class TypeScriptSdk extends Effect.Service<TypeScriptSdk>()('TypeScriptSdk', {
+export class TypescriptSdk extends Effect.Service<TypescriptSdk>()('TypescriptSdk', {
   effect: Effect.die(
-    'TypeScriptSdk must be provided by the host',
+    'TypescriptSdk must be provided by the host',
   ) as Effect.Effect<typeof import('typescript')>,
 }) {}
 
-export type HostCapabilities = TypeScriptSdk
+export type HostCapabilities = TypescriptSdk
 
 export interface LanguageServiceContext {
   readonly settings: Record<string, unknown>
