@@ -2,17 +2,13 @@
 
 # Releasing the Loom CLI
 
-This loom is the release task for `@athrio/loom-cli`, run by `pnpm release`. It
-tests first, so a failure stops the release; then it builds, bumps the version,
-re-tangles with that built CLI, and publishes. The version lives in
-`package.loom` and is tangled into `package.json`, so a plain `npm version` would
-be undone by the next tangle — the bump has to happen in the loom.
+The `pnpm release` command runs this script to release the `@athrio/loom-cli` package. The script tests first — a failure aborts before anything changes — then builds, bumps the minor version, re-tangles with the freshly built `loom` binary, and publishes.
+
+The tangle step copies the version field from `package.loom` into `package.json`, which means a bump made via the `npm version` command would be overwritten on the next tangle. The version must therefore be bumped in `package.loom` itself — this script does that.
 
 ## Release {../scripts/release.ts}
 
-The script lives in `scripts/`, so it locates the package root and the manifest
-loom from its own path. `run` shells out from the package directory and inherits
-stdio, so any non-zero exit aborts the release.
+The script lives in the `scripts/` directory and derives the package root and the `package.loom` manifest path from its own file path. The `run` helper invokes each command from the package root via `execFileSync`, inheriting stdio so output streams to the terminal. A non-zero exit code aborts the release.
 
 =>
 
@@ -29,8 +25,7 @@ const run = (cmd: string, args: ReadonlyArray<string>): void =>
 
 ~
 
-Tests gate the release: run them first, so a failure aborts before anything is
-bumped or published.
+The release runs tests first. A test failure aborts the script immediately, before any version is bumped or the package is published.
 
 =>
 
@@ -38,8 +33,7 @@ run('pnpm', ['test'])
 
 ~
 
-`bumpMinor` raises the minor version in the manifest loom, resets the patch to
-zero, and fails loudly when there is no version to bump.
+The `bumpMinor` function increments the minor version in `package.loom`, resets the patch number to zero, and throws an error when the version string is missing.
 
 =>
 
@@ -56,9 +50,7 @@ writeFileSync(manifest, after)
 
 ~
 
-Build the CLI, then re-tangle with that built `loom` — never the source — to carry
-the new version into `package.json`, and publish. The bump leaves the tree dirty,
-so publish uses `--no-git-checks`; commit the bump afterward.
+The script builds the CLI and re-tangles the corpus with the freshly built `loom` binary — never the in-progress source — so the bumped version reaches `package.json`. It then publishes with the `--no-git-checks` flag, since the version bump leaves `package.loom` uncommitted. The caller commits the changed `package.loom` after publishing.
 
 =>
 

@@ -2,18 +2,13 @@
 
 # Packaging the Loom CLI
 
-`@athrio/loom-cli` ships to npm as one self-contained file: Vite bundles the
-program, the language server, and Effect into `dist/main.js` with a Node shebang,
-so the published package carries no runtime dependencies and no TypeScript.
+The `@athrio/loom-cli` package ships to npm as a single self-contained file. Vite bundles the CLI program, the language server, and Effect into `dist/main.js` and adds a Node shebang — a line that makes the file directly executable by Node. The published package is therefore pure JavaScript with no runtime dependencies — every library it needs is already inside the bundle.
 
 ## The manifest {../package.json}
 
-`files` ships only `dist`, and `bin` points `loom` at the bundle. The dependencies
-are build inputs only — hence `devDependencies` — since the bundle inlines them.
-`build` bundles the committed program (re-tangling is a separate step, run with
-the published `loom`); `prepack` re-bundles before a publish. Publish with
-`pnpm publish`, which rewrites the `workspace:*` link to the language server into
-a real version.
+The `files` field restricts the published package to the `dist` directory, and the `bin` field maps the `loom` command to the bundle. The bundle inlines every dependency, so all dependencies belong in the `devDependencies` field.
+
+The `build` script bundles the tangled source files committed to the repository. Tangling the corpus is a separate step, performed with the published `loom` CLI rather than the in-progress source — using an unverified tangler to tangle the corpus that produces it would be circular. The `prepack` script re-bundles automatically before each publish. The `pnpm publish` command rewrites the `workspace:*` specifier for `@athrio/loom-lang` — pnpm's protocol for local package references — into the real published version number.
 
 =>
 
@@ -58,8 +53,7 @@ a real version.
 
 ## The TypeScript config {../tsconfig.json}
 
-It extends the workspace base and typechecks `src`. Vite produces `dist`, so this
-config is a development tool only and never ships.
+The `tsconfig.json` extends the workspace-root `tsconfig.base.json` and covers the `src` directory. Vite produces the `dist` bundle, so the configuration file is a development tool only and never ships with the published package.
 
 =>
 

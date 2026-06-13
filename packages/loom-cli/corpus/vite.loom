@@ -2,18 +2,13 @@
 
 # Bundling the Loom CLI
 
-Vite bundles the program, the language server's tangle path, and Effect into one
-module with a Node shebang, so an installed `loom` has no runtime dependencies and
-no TypeScript to resolve — the same bundler the language server and the VS Code
-extension use, in library mode targeting Node.
+Vite bundles the CLI program, the language server's TypeScript source, and Effect into a single `dist/main.js` module, adding a Node shebang — a line that makes the file directly executable by Node. The installed `loom` binary therefore carries no runtime dependencies and no TypeScript source to compile.
 
 ## Vite build {../vite.config.ts}
 
-Node built-ins stay external; everything else — the language server's tangle path
-and Effect — is inlined into the single output file. The language server's
-`exports` point at TypeScript source, which the editor and `tsx` read directly, so
-the bundler folds that source in at build time and the published CLI has no `.ts`
-to resolve and nothing to install.
+Node's built-in modules stay external — they are available in every Node runtime and need no bundling. Everything else, the language server's TypeScript source and Effect, is inlined into `dist/main.js`.
+
+The language server's `exports` field points to TypeScript source files rather than pre-compiled output. Tools like `tsx` — a TypeScript executor — and code editors read these files directly without compilation. Vite inlines them at build time, so the published CLI is pure JavaScript.
 
 =>
 
@@ -31,10 +26,7 @@ const nodeBuiltins = [
 
 ~
 
-Library mode targeting Node: one ESM entry, built to `dist/main.js`. It differs
-from the language server's config only in output format — the CLI is
-`"type": "module"`, so it emits ESM with a `#!/usr/bin/env node` shebang and
-serves as its own `bin`, whereas the VS Code extension host wants CJS.
+Vite's library mode builds a single entry point to `dist/main.js`, targeting Node 20. The CLI package uses the ESM format — ECMAScript modules — so Vite emits an ESM bundle with a Node shebang, making it directly executable. The VS Code extension host requires CommonJS instead, so its Vite config differs only in output format.
 
 =>
 
