@@ -225,3 +225,51 @@ const helper = 1
     expect(tangle.name.type).toBe('FrameSynthToken') // tangles are always tagless
   })
 })
+
+describe('buildFrame — a name anchor to a duplicated title is an ambiguous-anchor diagnostic', () => {
+  // Two sections share the title "Helper"; a third anchors it by name. A name
+  // anchor resolves exactly one local section, so the clash is reported on the
+  // anchor — error health — rather than silently resolved to the last section.
+  const src = `{{lang: TypeScript}}
+
+# Helper
+
+=>
+
+export const a = 1
+
+# Helper
+
+=>
+
+export const b = 2
+
+# Main [Main]
+
+=>
+
+main = {{Helper}}
+`
+  const frame = buildFrame(parse(src))
+  const main = frame.members
+    .map((m) => m.value)
+    .find(
+      (v): v is ServiceClass =>
+        v.type === 'ServiceClass' && v.name.text === 'Main',
+    )!
+  const code = (main.body as StaticBody).code
+  const args = [code.head, ...code.tail.map((t) => t.value)]
+  const ref = args.find((a) => a?.type === 'CodeRef') as CodeRef
+
+  it('flags the anchor with error health naming the clash', () => {
+    expect(ref.binding.text).toBe('Helper') // the anchor span, not an alias
+    expect(ref.binding.health.status).toBe('error')
+    expect(ref.binding.health.diagnostics[0]!.message).toMatch(
+      /Ambiguous anchor: 2 sections are named `Helper`/,
+    )
+  })
+
+  it('hoists no binding for the ambiguous anchor — the body stays static', () => {
+    expect(main.body.type).toBe('StaticBody')
+  })
+})
