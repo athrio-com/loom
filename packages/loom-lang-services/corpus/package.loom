@@ -6,13 +6,13 @@
 
 ## The manifest {../package.json}
 
-`exports` is the package's surface: the `LanguageService` contract, the
+The `exports` field is the package's surface: the `LanguageService` contract, the
 `LanguageRegistry`, and the two built-in services — `LoomLanguage` (the Frame) and
 `TypescriptLanguage` (the TypeScript target).
 
 The built-in services wrap `volar-service-typescript`, the one real dependency. The
 other three — `effect`, `@volar/language-service`, `typescript` — are peers,
-supplied by the bundle that inlines it.
+supplied by the host bundle.
 
 =>
 
@@ -45,7 +45,7 @@ supplied by the bundle that inlines it.
 
 ## The TypeScript config {../tsconfig.json}
 
-This config extends the workspace base — strict mode, the Node types — and checks
+The TypeScript config extends the workspace base — strict mode, the Node types — and checks
 `src`. Like the package, it never ships.
 
 =>

@@ -4,7 +4,7 @@
 
 The Loom language server resolves which languages a project has activated — built-in
 modules and loaded `loom-service-<id>` packages — into one active set. The
-`LanguageRegistry` indexes that set so the rest of the server finds a language by a
+`LanguageRegistry` indexes that set so the server finds a language by a
 single lookup, not a scan: by `id` for a section's declared language, by extension
 for a tangle path.
 
@@ -20,8 +20,7 @@ import type { LanguageService } from './LanguageService'
 
 ## The active set [Active]
 
-`ActiveLanguages` is the set the language server resolves from `loom.config.json`
-and provides. It is empty until the server fills it — the registry over an empty set
+`ActiveLanguages` holds the language set the server resolves from `loom.config.json`. It is empty until the server fills it — the registry over an empty set
 simply finds nothing.
 
 =>
@@ -36,8 +35,8 @@ export class ActiveLanguages extends Effect.Service<ActiveLanguages>()(
 ## The registry [Registry]
 
 The registry builds two maps over the active set — one keyed by `id`, one by each
-service's `extensions` — and answers a lookup with an `Option`: present when a
-language claims that id or extension, absent otherwise. `all` keeps the set for the
+service's `extensions` — and returns an `Option` for each lookup: present when a
+language claims that id or extension, absent otherwise. The `all` field keeps the full set for the
 collect-and-register pass that hands every service's plugins to Volar.
 
 =>
@@ -62,7 +61,7 @@ export class LanguageRegistry extends Effect.Service<LanguageRegistry>()(
   },
 ) {}
 
-## Tangle the module {../src/LanguageRegistry.ts}
+## The module {../src/LanguageRegistry.ts}
 
 {{i: Imports}}
 {{a: Active}}

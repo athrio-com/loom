@@ -2,16 +2,11 @@
 
 # The config module
 
-A Loom project records the languages it has activated in a `loom.config.json` file
-at its root. `@athrio/loom-config` defines that file's shape and reads and writes
-it: the CLI writes it on `loom activate`, and the language server reads it at
-startup to choose which language services to run. The package is one module,
-`LoomConfig.ts`.
+A Loom project records its activated languages in a `loom.config.json` file at the project root. The `@athrio/loom-config` package defines that file's shape. The CLI writes the file when the user runs the `loom activate` command; the language server reads it at startup to choose which language services to load. The package is a single module, `LoomConfig.ts`.
 
-## Imports [Imports]
+## Effect and the platform [Imports]
 
-The shape is an Effect `Schema`. The platform `FileSystem` reads and writes the
-file, and Effect's `Config` module, over a JSON provider, parses the contents.
+An Effect `Schema` defines the config file's shape. The `FileSystem` service from the `@effect/platform` package reads and writes the file on disk. Effect's `Config` module parses the file's contents with a JSON config provider.
 
 =>
 
@@ -21,10 +16,7 @@ import { resolve } from 'node:path'
 
 ## The model [Model]
 
-A config is just a list of language ids. They are plain strings rather than a
-closed union, so a project can name a service this build of Loom does not yet
-bundle. The `Config` description reads that list from the `languages` key, and
-treats an absent key as empty.
+A config is a list of language identifiers. The identifiers are plain strings rather than an enum, so a project can activate a service that this version of Loom does not yet ship. The `Config` description reads the list from the `languages` key and treats an absent key as an empty array.
 
 =>
 
@@ -42,12 +34,9 @@ const activeLanguages = Config.array(Config.string(), 'languages').pipe(
 
 ## Reading and writing [Source]
 
-`read` looks for the config file under a project root. A missing file reads as the
-empty config; a present one is parsed and run through the `Config` description
-over a JSON provider. `ConfigProvider.fromJson` renders an empty array as a lone
-`<nil>`, so that placeholder is dropped. `write` serialises the config back as
-formatted JSON. Both fail as defects — a malformed config file is a bug to
-surface, not a recoverable condition.
+The `read` function looks for the config file at the project root. If the file is absent, the function returns an empty config. If present, the function parses the file as JSON and runs the result through the `Config` description using the `ConfigProvider.fromJson` function. That function encodes an empty array as a lone `<nil>` entry, which `read` filters out before returning.
+
+The `write` function serializes the config as formatted JSON and writes the result to the project root. Both functions propagate errors as Effect defects — a malformed or unreadable config is a bug to surface, not a condition to recover from.
 
 =>
 

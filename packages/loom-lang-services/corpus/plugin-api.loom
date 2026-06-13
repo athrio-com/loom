@@ -8,22 +8,21 @@ support: its diagnostics, hover, and completion.
 
 The languages Volar already supports — TypeScript, JavaScript, JSON, CSS, HTML,
 Markdown — are written here as modules and switched on by `loom activate`. They need
-no separate package, but they are wrapped as `LanguageService`s exactly like any
-other.
+no separate package, but they are wrapped as `LanguageService`s exactly like any other language.
 
 Every other language ships as its own `loom-service-<id>` package implementing the
-same shape. This file is the contract itself; each built-in service is its own
-module beside it.
+same shape. This module defines the `LanguageService` contract; each built-in service is its own
+module alongside it.
 
 ## Architecture
 
-A *service* gives an embedded code section's language its editor support, and every
+Each service provides editor support — diagnostics, hover, and completion — for one embedded language, and every
 service — built-in or loaded — is the same `LanguageService`. The Volar-default
 languages and Loom itself are **built in**: each lives as a module here, with no
 package of its own. All other languages are **loaded**: each in its own
 `@athrio/loom-service-<id>` package, installed on activation.
 
-`@athrio/loom-lang`, the Loom language server resolves the active set from
+The `@athrio/loom-lang` language server resolves the active set from
 `loom.config.json` and indexes it in the `LanguageRegistry`, keyed by `id` for
 a section's declared language and by extension for a tangle path. Finding a language
 is a lookup, never a branch.
@@ -90,10 +89,10 @@ import { Data, Effect } from 'effect'
 A `LanguageService` is one language's entry: the section `id` it serves, a
 `displayName` for the `loom activate` menu, its file `extensions`, and `plugins` —
 the Effect that builds its Volar plugins. That Effect may fail with a `ServiceError`
-— an external binary that will not start, say — which the host reports without
-bringing the other languages down. Building may draw on the host's capabilities
+— an external binary that will not start — which the host reports without
+bringing the other languages down. A service may draw on the host's capabilities
 (`HostCapabilities`): the Loom and TypeScript services take the TypeScript SDK, a
-CSS service takes nothing. A path's extension enables its language — a section that tangles to
+CSS service takes nothing. A tangle path's extension names its language — a section that tangles to
 `main.ts` turns on the TypeScript service.
 
 =>
@@ -118,13 +117,11 @@ export interface LanguageService {
 
 ## Host capabilities [Capabilities]
 
-While building its plugins a service may draw on capabilities the host provides,
-taken through the Effect environment so a service asks only for what it needs. Today
-there is one: `TypescriptSdk`, the TypeScript compiler itself. It carries no default
-— the host supplies the editor's instance (Volar's `loadTsdkByPath`, the workspace's
-own version), so analysis matches the user's project. The Loom and TypeScript services take it — `create` needs the compiler to check
-the frame and the TypeScript product; a CSS or Go service never asks. `HostCapabilities` is the sum of
-all such capabilities — the environment a service's `plugins` Effect may require.
+A service may draw on capabilities the host provides, taken through the Effect environment so each service asks only for what it needs. Today there is one: `TypescriptSdk`, the TypeScript compiler itself.
+
+`TypescriptSdk` carries no default — the host supplies the editor's own instance (via Volar's `loadTsdkByPath`), so analysis matches the user's project. The Loom and TypeScript services both take it; `create` needs the compiler to check the frame and the TypeScript product. A CSS or Go service never asks.
+
+`HostCapabilities` is the union of all such capabilities — the environment a service's `plugins` Effect may require.
 
 =>
 
@@ -138,10 +135,10 @@ export type HostCapabilities = TypescriptSdk
 
 ## The service settings [Context]
 
-The context is the one input the host hands every service: `settings`, this
+The `LanguageServiceContext` is the one input the host hands every service: `settings`, this
 language's own entry in `loom.config.json`. The service decodes it — format options
 for an in-process service, the binary command for an external one. Capabilities like
-the TypeScript SDK do not ride here; they come through the environment, so the
+the TypeScript SDK do not come through the context; they come through the environment, so the
 context keeps the same shape for every language.
 
 =>
@@ -152,8 +149,8 @@ export interface LanguageServiceContext {
 
 ## Declaring a service [Define]
 
-A service's entry returns `defineLanguageService(...)`: it checks the shape at the
-definition site and returns it unchanged, so a built-in definition and a package's
+Each service calls `defineLanguageService(...)` to declare itself: the function checks the shape at the
+definition site and returns the service unchanged, so a built-in definition and a package's
 default export are the same kind of value.
 
 =>

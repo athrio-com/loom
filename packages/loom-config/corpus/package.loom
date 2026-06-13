@@ -6,9 +6,9 @@
 
 ## The manifest {../package.json}
 
-`exports` is the package's surface — one entry, the `LoomConfig` module. The CLI
+The `exports` field is the package's surface — one entry, the `LoomConfig` module. The CLI
 and the language server inline this source when they bundle; `effect` and the
-platform are peers, supplied by whichever bundle consumes it.
+platform are peers, supplied by the host bundle.
 
 =>
 
@@ -33,9 +33,9 @@ platform are peers, supplied by whichever bundle consumes it.
 
 ## The TypeScript config {../tsconfig.json}
 
-It extends the workspace base and typechecks `src`. Node's types come from the
-base, which names `types: ['node']` once for every package — pnpm's isolated
-layout does not reliably auto-surface `@types/node`. The config never ships.
+The config extends the workspace base and typechecks `src`. Node's types come from the
+base, which declares `types: ['node']` once for every package — pnpm's isolated
+layout does not reliably resolve `@types/node`. The config never ships.
 
 =>
 
