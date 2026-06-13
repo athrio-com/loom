@@ -19,7 +19,7 @@ import {
 // LoomVirtualCodeBuilder — the pass that produces `LoomVirtualCode`, in two
 // flavours because the two planes are walked differently but yield the same model:
 //
-//   fromFrame    : Frame AST   → the `frame` virtual code   (de dicto, TypeScript)
+//   fromFrame    : Frame AST   → the `frame` virtual code   (de dicto; languageId loom)
 //   fromProduct  : a section   → its product virtual code   (de re, per language)
 //
 // `fromFrame` walks the Frame AST in each node's declared `RenderOrder`, emitting
@@ -288,7 +288,7 @@ const inlineComposed =
 export const fromFrame = (frame: FrameAst.FrameModule): LoomVirtualCode => ({
   ...emitNode(frame),
   id: 'frame',
-  languageId: 'typescript',
+  languageId: 'loom',
 })
 
 // fromProduct — de re pass: a section (`root`) → its product virtual code, the

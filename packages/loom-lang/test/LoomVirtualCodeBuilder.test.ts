@@ -38,9 +38,9 @@ describe('fromFrame — Frame AST → the frame virtual code', () => {
   const genCode = vc.code
   const mappings = vc.mappings
 
-  it('is the typescript `frame` document with no children', () => {
+  it('is the loom `frame` document with no children', () => {
     expect(vc.id).toBe('frame')
-    expect(vc.languageId).toBe('typescript')
+    expect(vc.languageId).toBe('loom')
     expect(vc.embeddedCodes).toEqual([])
   })
 

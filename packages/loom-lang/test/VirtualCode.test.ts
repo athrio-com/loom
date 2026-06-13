@@ -38,7 +38,7 @@ describe('VirtualCode — root → frame projection', () => {
 
       const frame = root.embeddedCodes![0]!
       expect(frame.id).toBe('frame')
-      expect(frame.languageId).toBe('typescript')
+      expect(frame.languageId).toBe('loom')
       expect(frame.embeddedCodes).toEqual([]) // the frame has no children
       const gen = frame.snapshot.getText(0, frame.snapshot.getLength())
       expect(gen).toContain('export class Add')

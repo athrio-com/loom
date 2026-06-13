@@ -1,3 +1,22 @@
+{{lang: TypeScript}}
+
+# The language server
+
+The Loom language server is an Effect program. It starts at `NodeRuntime.runMain`, builds
+the pipeline layers once, and captures a warm runtime — Volar's hooks are synchronous,
+so the language plugin runs the projection on it. On `initialize` it loads the editor's
+TypeScript, collects the active languages' Volar plugins, and registers them alongside
+the language plugin.
+
+## Imports [Imports]
+
+The server is built from Volar's toolkit for Node language servers — the connection, the
+project factory, and `loadTsdkByPath` — over the Effect runtime. It imports the pipeline
+services it warms, `Loom` and `FrameAstBuilder`, and the two halves this module
+registers, `loomLanguagePlugin` and `loomServicePlugins`.
+
+=>
+
 import { Effect, Runtime } from 'effect'
 import { NodeRuntime } from '@effect/platform-node'
 import {
@@ -10,6 +29,17 @@ import { fileURLToPath } from 'node:url'
 import { Loom } from '#ast/Loom'
 import { FrameAstBuilder } from '#ast/FrameAstBuilder'
 import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
+
+## The program [Program]
+
+The `Effect.runtime` call captures the warm runtime once the layers are built; the language plugin
+runs the per-keystroke projection on it. The `loadTsdkByPath` call loads the editor's own
+TypeScript from the path the client sends, so the frame checks against the user's
+standard library. Collecting service plugins requires reading `loom.config.json`, so
+the `onInitialize` handler awaits that Effect before it registers the language plugin and the
+collected plugins.
+
+=>
 
 const program = Effect.gen(function* () {
   const runtime = yield* Effect.runtime<Loom | FrameAstBuilder>()
@@ -45,5 +75,16 @@ const program = Effect.gen(function* () {
   Effect.provide(Loom.Default),
   Effect.provide(FrameAstBuilder.Default),
 )
+
+## The module {../src/index.ts}
+
+{{i: Imports}}
+{{p: Program}}
+
+=>
+
+{{i}}
+
+{{p}}
 
 NodeRuntime.runMain(program)

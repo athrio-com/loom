@@ -212,7 +212,7 @@ to reimplement what Volar provides.
 
 ```
 root (languageId: "loom")
-├── frame        (languageId: "typescript")   ← de dicto: the Frame's Service
+├── frame        (languageId: "loom")         ← de dicto: the Frame's Service
 │                                                program, via fromFrame (how-frame)
 ├── tangled-0    (languageId: Loom)           ← de re: resolved product for a
 │                                                {path} tangle, in compose order
@@ -222,7 +222,7 @@ root (languageId: "loom")
 └── …
 ```
 
-- **Frame** — the single TypeScript virtual code for the Frame (`fromFrame`): the
+- **Frame** — the Frame's single virtual code (`fromFrame`), generated TypeScript: the
   `Effect.Service` class per section, the Warp wiring, the tangle calls, and the
   `LoomMain` root. tsc checks it for composition correctness. Heading tags get
   hover, go-to-definition, and type info here (a tag resolves to its exported
