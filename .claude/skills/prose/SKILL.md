@@ -1,23 +1,25 @@
 ---
 name: prose
-description: Loom's prose standard — the rule, its sections, and worked examples for clear, literate prose. Write within it when authoring or refining any .loom prose or documentation, and check against its questions before presenting.
+description: Loom's literate standard for .loom files — the rules, worked examples, and checklist for clear prose and for code cut, ordered, and named to serve the narrative. Always write within it when authoring or refining the prose or the code of any .loom file or its documentation, and check against its questions before presenting.
 ---
 
-# Loom prose — the standard
+# Loom prose and code standard
 
-In Loom, prose and code are equal layers of one product — two halves, not source wrapped in documentation. Prose is the layer a person reads to understand what the program does and why. This skill states the standard that prose must meet. Each section states one rule and closes with questions to check your work. It governs every `.loom` file in the repository, and any documentation written alongside those files.
+In Loom, prose and code are equal layers of one product — two halves, not source wrapped in documentation. Prose is the layer a person reads to understand what the program does and why. This standard governs every `.loom` file in the repository, and any documentation written alongside those files.
 
-The premise is Knuth's: "let us concentrate … on explaining to human beings what we want a computer to do," treating a program as "a work of literature" (Knuth, 1984).
+Most of this standard governs prose. A few sections govern code. Code sections do not govern its quality, only its literate dimension — how code is cut, ordered, and named so it reads as part of the document. Code quality is governed elsewhere, by the project's functional discipline and the language servers that enforce it. Judge code here only by how it reads alongside its prose.
 
-**Write for a reader so that they move through the prose without stumbling and finish knowing what the thing is and why it exists.** Every section below states a rule that serves this principle.
+The main premise for the Loom prose and code standard is Knuth's: "let us concentrate … on explaining to human beings what we want a computer to do," treating a program as "a work of literature" (Knuth, 1984).
 
-Write within these rules as you author a loom's prose. Every rule applies — do not follow some and skip others. Read each section body in full: the body is the rule. The heading names it; the closing question checks it. Neither replaces the body. Before presenting anything, run the questions at the close of each section over your draft sentence by sentence. Run the checklist first, then present.
+**We should always write for people so that they move through the prose without stumbling and finish knowing what the thing is and why it exists.** Every section below states a rule that serves this principle. Follow all of them, not a chosen few.
 
-Do not edit prose by patching. When a passage needs work, rewrite the whole passage from the concept, not the words on the page. Patching a clause here and a word there leaves the seams of the original showing and produces prose that reads as edited, not written. Read the passage, understand what it must convey, then write it again whole. Only then compare against the original and the rules.
+Apply the standard in three passes:
 
-A hook surfaces this skill the moment you open a `.loom` file. Invoke the `/prose` command to run the pass on demand.
+- **Before you write,** read every rule body below in full. A heading only names its rule and a closing question only checks it. The rule is the body.
+- **When you write or edit,** rewrite the whole passage from its concept. Never patch a clause here and a word there. Patched prose leaves the seams of the original showing and reads as edited, not written. Read the passage, grasp what it must convey, write it again, then compare against the original and the rules. Write each paragraph as one line and let the editor wrap it.
+- **Before you present,** run every closing question over your draft, sentence by sentence. Present only when each one passes.
 
-Write each paragraph as a single line. Do not insert line breaks to wrap text — the editor handles wrapping. One paragraph, one line.
+Invoke the `/prose` command to run this pass on demand.
 
 ## Prose defines the code
 
@@ -46,6 +48,44 @@ That freedom is over structure, not over discipline. However a loom is scoped, i
 
 > Does each sentence earn its place, or does it narrate assembly or restate the obvious?
 
+## Cut code where the prose turns
+
+A code block follows the prose, not the compiler. Cut a new block each time the prose turns from one concept to the next.
+
+Cut as finely as the narrative wants. Tangle reassembles the blocks into whole files regardless of where the cuts fall, so a fine cut costs nothing at the output. A single function may span three blocks when the prose has three things to say about it, and three functions may share one block when the prose treats them as one idea.
+
+A block implements exactly the concept its prose defines. Code the surrounding prose has not introduced does not belong in the block. Either the prose introduces it, or the code belongs in another block under its own prose.
+
+*The fault and its fix.*
+- ✗ One block holds the parser, the printer, and the error types, because they sit together in the tangled file.
+- ✓ Three blocks, one per concept, each under the prose that explains it.
+
+> Does each code block hold exactly the concept its prose defines, cut where the narrative turns?
+
+## Order code for the reader
+
+Code blocks appear in the order the narrative sets, not the order the compiler requires. Place each block where the reader needs it. A function may be introduced and explained long before the block that calls it, or long after. The output is the same wherever a block sits, so the only question is what reads best.
+
+Imports are the clearest case. A conventional source file opens with its imports. In a loom, put each import where the prose first reaches for what it brings in, or gather them into a block of their own, whichever reads better.
+
+*The fault and its fix.*
+- ✗ A `.loom` file opens with twelve import lines before its first word of prose.
+- ✓ Each import appears in the block where the prose first needs it.
+
+> Does the code's order follow the narrative rather than the compiler? Are imports placed where they read best, not by habit at the top?
+
+## Code wears the names the prose gives it
+
+The prose and the code name the same things, so they must use the same names. When the prose defines a concept, the code that implements it wears that name. A reader who meets "the frame node" in the prose and `frameNode` in the code binds the two at once. A reader who meets `mkNode` instead must stop and guess that the two are the same.
+
+This carries the prose rule "Define what you name" across into the code. The term you define in the prose is the identifier you write in the code. Rename one and you rename the other, or the two halves drift apart and the reader can no longer cross between them.
+
+*The fault and its fix.*
+- ✗ The prose calls it the frame node; the code calls it `mkNode`.
+- ✓ The prose calls it the frame node; the code calls it `frameNode`.
+
+> Does each code identifier wear the name its prose gives the concept?
+
 ## Section headings carry the narrative
 
 A section heading is the first thing a reader sees. It sets the register for what follows and keeps their attention moving forward. A heading that merely names a technical unit — "Imports", "Handler", "Config" — does the minimum. A heading that signals what the section does, or why it matters, does more.
@@ -54,7 +94,7 @@ Be creative. A heading can carry tone, hint at what's coming, or make the reader
 
 The constraint is honesty: a heading must still describe what follows. Wit that misleads is worse than a flat label.
 
-> Does the heading carry the narrative, or does it just name a technical unit?
+> Does the heading carry the narrative rather than just name a technical unit? Does it still honestly describe what follows?
 
 ## Prose must reflect the code exactly
 
@@ -114,7 +154,7 @@ A sentence that trails off after its point buries what matters. The new informat
 
 The correction splits one overloaded sentence into two. The first lands the concept; the second names the package and its role. Each ends on its point.
 
-> Does the sentence open on the familiar and end on its point?
+> When a sentence introduces something new, does it open on the familiar and end on its point?
 
 ## Unstack the nouns
 
@@ -176,7 +216,7 @@ Needless words come in several forms: the redundant pair (*each and every*, *tru
 - ✗ This loom packages the `@athrio/loom-language-services` package, apart from the looms that define its modules so the code stays separate from the way it ships. Tangling it writes two files: the manifest, `package.json`, and the TypeScript config, `tsconfig.json`.
 - ✓ The `@athrio/loom-language-services` package ships as source, with no separate build step.
 
-> Does each sentence change the reader's understanding, or does it restate what the code, a heading, or a path already shows?
+> Does every word change the meaning, or is it a redundant pair, a throat-clearing opener, or padding that restates what the structure shows?
 
 ## Define what you name
 
@@ -197,6 +237,29 @@ Expand every abbreviation, term of art, and symbol the first time it appears, ev
 Give every backticked identifier an article and a noun. Write "the `=>` operator", "a `.loom` file", "the `LanguageService` interface" — not bare symbols dropped into a sentence. A naked identifier is code; a named one is prose.
 
 > Is each abbreviation, jargon term, or symbol expanded on first use? Could a plain word replace the technical one here? Does every backticked identifier have an article and a noun?
+
+## The final pass
+
+Run every question over your draft, sentence by sentence, before you present. Each question's rule is its section above; when a check is unclear, read that section again.
+
+- Could a developer read the prose alone and understand the program being written?
+- Does each sentence earn its place, or does it narrate assembly or restate the obvious?
+- Does each code block hold exactly the concept its prose defines, cut where the narrative turns?
+- Does the code's order follow the narrative rather than the compiler? Are imports placed where they read best, not by habit at the top?
+- Does each code identifier wear the name its prose gives the concept?
+- Does the heading carry the narrative rather than just name a technical unit? Does it still honestly describe what follows?
+- Does the prose reflect what the code actually does? Was the codebase consulted before writing or editing this passage?
+- Is the prose written in the present tense? Does it state the design as fact rather than intention or history?
+- Does each paragraph hold one idea? Does each sentence carry one clause? Could a colon or dash be a full stop?
+- Who acts in this sentence? Is the actor the subject and the action the verb?
+- When a sentence introduces something new, does it open on the familiar and end on its point?
+- Any run of three or more nouns? Break it with a verb or a preposition.
+- Does each abstraction name a concrete?
+- Is the scope of every claim stated exactly?
+- Does every relational term name its referent?
+- Does every word change the meaning, or is it a redundant pair, a throat-clearing opener, or padding that restates what the structure shows?
+- Is each term defined where it first appears? Is anything important stated twice — once precisely, once plainly? Are named things referred to by their name, not by a pronoun or shorthand?
+- Is each abbreviation, jargon term, or symbol expanded on first use? Could a plain word replace the technical one here? Does every backticked identifier have an article and a noun?
 
 ---
 
