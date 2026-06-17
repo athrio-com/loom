@@ -10,10 +10,12 @@ import {
   FrameSynthTokenSchema,
   LayerRefSchema,
   MemberItemSchema,
+  ProseFragmentSchema,
   renderOrderOf,
   RootSchema,
   ServiceClassSchema,
   StaticBodySchema,
+  WeaveSchema,
 } from '#ast/FrameAst'
 
 // Probe: the Frame AST constructs from the holes alone — every synth token and
@@ -41,6 +43,12 @@ const prose = (text: string) =>
 
 const embedded = (text: string) =>
   EmbeddedCodeSchema.make({ text, position: pos(0, text.length) })
+
+const weave = (text: string) =>
+  WeaveSchema.make({
+    head: ProseFragmentSchema.make({ text, position: pos(0, text.length) }),
+    tail: [],
+  })
 
 describe('FrameAst — construction', () => {
   it('auto-fills type and health on an authored leaf', () => {
@@ -112,8 +120,8 @@ describe('FrameAst — construction', () => {
     })
     const body = StaticBodySchema.make({
       name: prose('Adder'),
-      preamble: prose('Adds two integers.'),
       code,
+      prose: weave('Adds two integers.'),
     })
     const service = ServiceClassSchema.make({
       docPreamble: prose('Adds two integers.'),

@@ -56,9 +56,9 @@ describe('fromFrame — Frame AST → the frame virtual code', () => {
     expect(genCode).toContain(') {}')
   })
 
-  it('carries title → name, preamble, and product code via compose', () => {
+  it('carries title → name, woven prose, and composed code', () => {
     expect(genCode).toContain('name: `Adder`')
-    expect(genCode).toContain('preamble: `')
+    expect(genCode).toContain('prose: core.weave(`')
     expect(genCode).toContain('Adds two integers.')
     expect(genCode).toContain('code: core.compose(`')
     expect(genCode).toContain(

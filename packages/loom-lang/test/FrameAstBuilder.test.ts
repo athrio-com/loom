@@ -6,6 +6,7 @@ import type {
   EffectfulBody,
   EmbeddedCode,
   FrameAuthoredToken,
+  ProseFragment,
   ServiceClass,
   StaticBody,
 } from '#ast/FrameAst'
@@ -59,13 +60,15 @@ describe('buildFrame — trivial section → FrameModule', () => {
     expect(svc.nameTag.text).toBe('Add')
   })
 
-  it('maps title → name, preamble → preamble + TSDoc, code → compose', () => {
+  it('maps title → name, preamble → woven prose + TSDoc, code → compose', () => {
     const svc = frame.members[0]!.value as ServiceClass
     expect(svc.docPreamble.text).toContain('Adds two integers.')
     expect(svc.body.type).toBe('StaticBody')
     const body = svc.body as StaticBody
     expect(body.name.text).toBe('Adder')
-    expect(body.preamble.text).toContain('Adds two integers.')
+    const proseHead = body.prose.head as ProseFragment
+    expect(proseHead.type).toBe('ProseFragment')
+    expect(proseHead.text).toContain('Adds two integers.')
     expect(body.code.head?.type).toBe('EmbeddedCode')
     const head = body.code.head as EmbeddedCode
     expect(head.text).toContain('export const add = (x: number, y: number)')

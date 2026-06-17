@@ -12,6 +12,9 @@ import {
   type Compose,
   ComposeArgItemSchema,
   ComposeSchema,
+  ProseFragmentSchema,
+  type Weave,
+  WeaveSchema,
   type EmbeddedCode,
   EmbeddedCodeSchema,
   type FrameAuthoredToken,
@@ -159,12 +162,12 @@ const bodyOf = (
         ? EffectfulBodySchema.make({
             bindings: items(bindings),
             name: titleField(section),
-            preamble: preambleField(section),
+            prose: proseField(section),
             code: compose,
           })
         : StaticBodySchema.make({
             name: titleField(section),
-            preamble: preambleField(section),
+            prose: proseField(section),
             code: compose,
           }),
   })
@@ -487,8 +490,18 @@ const prose = (text: string, position: Position): FrameAuthoredToken =>
 const docPreamble = (section: LoomSection): FrameAuthoredToken =>
   prose(escapeComment(sourceOf(section.preamble)), preamblePos(section))
 
-const preambleField = (section: LoomSection): FrameAuthoredToken =>
-  prose(escapeTemplate(sourceOf(section.preamble)), preamblePos(section))
+const proseField = (section: LoomSection): Weave => {
+  const src = sourceOf(section.preamble)
+  return src.length === 0
+    ? WeaveSchema.make({ tail: [] })
+    : WeaveSchema.make({
+        head: ProseFragmentSchema.make({
+          text: escapeTemplate(src),
+          position: preamblePos(section),
+        }),
+        tail: [],
+      })
+}
 
 const titleField = (section: LoomSection): FrameAuthoredToken =>
   prose(

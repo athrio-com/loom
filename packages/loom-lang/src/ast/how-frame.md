@@ -31,7 +31,7 @@ synth/authored and unmapped/mapped splits are one line seen twice: a token has a
 
 **Escaping is a `.text`-only transform; `position` stays raw.** A leaf's `text` is
 escaped for the literal it sits in — `` ` ``, `${`, `\` inside a template literal
-(`EmbeddedCode`, the `name` / `preamble` fields); `*/` inside the TSDoc — while
+(`EmbeddedCode`, the `name` / `prose` fields); `*/` inside the TSDoc — while
 its `position` keeps the unescaped `.loom` span. So a leaf still yields one coarse
 mapping over the whole span, never a per-character split. That suffices because
 the only content needing char-precise mapping is **names** (a const/class
@@ -71,13 +71,16 @@ mappings break — so the canonical form *is* the schema.
 
 Every Section in a Loom document projects to an `Effect.Service` class — with
 one exception, the `{Loom}` escape hatch (below), whose code splices into the
-frame unwrapped. The Service exposes three fields: `name` — the heading text as a plain
-string — `preamble` — the section's prose context — and `code` — the
-composed product code (effectful, since composing it may resolve other
-sections). The `code` field is always a `core.compose(…)` call — a section with no
-transclusions composes its single own fragment, and a prose-only section (empty
-code block) composes nothing, `core.compose()` — so the shape stays uniform. This is
-the complete, uniform surface of every section in the Frame.
+frame unwrapped. The Service exposes three fields: `name` — the heading title as
+a plain string — `code` — the composed product code — and `prose` — the woven
+literate layer. Both `code` and `prose` are effectful, since assembling either
+may resolve other sections. The `code` field is always a `core.compose(…)` call,
+and the `prose` field always a `core.weave(…)` call: a section with no
+transclusions composes its own single fragment, and a code-empty or prose-empty
+section assembles nothing — `core.compose()`, `core.weave()` — so the shape stays
+uniform. Code and prose are peers here, the two halves of the literate document
+made queryable side by side. This is the complete, uniform surface of every
+section in the Frame.
 
 A section's fragments are its code runs with surrounding blank lines shed: the
 empty lines after the `=>` Arrow and before the next heading are not part of the
@@ -158,23 +161,30 @@ section is not in the composition graph at all (see The `{Loom}` Specifier): it
 can be neither a Warp nor an anchor target, so it never enters the homogeneity
 check — the rule governs product↔product edges alone.
 
-## Preamble as a First-Class Field
+## Prose as a First-Class Channel
 
 The section's preamble prose — everything written between the heading and
-the `=>` Arrow — becomes the `preamble` field on the Service's `succeed`
-or `return` object, mapped 1:1: the PreambleWefts are transferred
-byte-for-byte, EOLs and blank lines included — one verbatim span. Warp
-declarations are *not* excised — a `{{m: Mul}}` sitting in the prose is
-part of what the author wrote and appears verbatim in the field. (The
-Warp's role as a dependency is carried separately by the `yield*` the
-`FrameAstBuilder` pass emits; excising its span here would only fragment the prose and
-break the 1:1 mapping.) The preamble appears in two places, from the one
-source span: as a raw `/** … */` TSDoc block above the class (minimal — no
-per-line gutter; visible in IDE hover) and as the queryable `preamble` field.
-Each occurrence is escaped where it sits — the TSDoc escapes `*/`, the field
-escapes `` ` `` and `${` — so the two generated texts differ while both map
-back to the same prose span. Post-tilde prose is authoring
-context; it lives in the `.loom` source and is not projected into the
+the `=>` Arrow — becomes the `prose` field on the Service's `succeed` or
+`return` object. The field is a `core.weave(…)` call, the prose counterpart
+of `code`'s `core.compose(…)`: it weaves the section's own prose together
+with any prose transcluded from another section through a `{{…}}` anchor's
+`.prose`. Documentation composes exactly as code does, so a tool can read a
+section's `.prose` as a first-class artifact beside its `.code`.
+
+The preamble is woven in verbatim — the PreambleWefts byte-for-byte, EOLs and
+blank lines included, one span. Warp declarations are *not* excised: a
+`{{m: Mul}}` sitting in the prose is part of what the author wrote and appears
+in the woven text. (The Warp's role as a dependency is carried separately by
+the `yield*` the `FrameAstBuilder` pass emits; excising its span here would
+only fragment the prose and break its 1:1 mapping.)
+
+The same preamble span also appears as a raw `/** … */` TSDoc block above the
+class — minimal, no per-line gutter, visible in IDE hover. So one source span
+reaches the frame twice: woven into the `prose` channel, and shown as the
+class's TSDoc. Each occurrence is escaped where it sits — the TSDoc escapes
+`*/`, the woven template escapes `` ` `` and `${` — so the two generated texts
+differ while both map back to the same prose span. Post-tilde prose is
+authoring context; it lives in the `.loom` source and is not projected into the
 Frame.
 
 ## The Dependency Graph for Free
@@ -193,7 +203,7 @@ actually executes the graph — but the authoritative, traversable source
 is always the AST.
 
 Each node in the Warp graph carries semantic content: the section's
-`preamble` (why it exists and what it does) and the code it produces.
+`prose` (why it exists and what it does) and the code it produces.
 A CLI tool walks from any entry section through its Warp edges, collecting
 structured context and code at every step — for documentation generation,
 impact analysis, LLM prompt construction, or selective execution.
@@ -290,7 +300,7 @@ dereference the bound names to inline the resolved `.code` fields in order.
 The `FrameAstBuilder` pass generates one lazy `yield*` per preamble declaration (no
 `dependencies` array, exactly as for an ordinary section), and wraps the
 composed result in a `core.tangle(path, ...)` call instead of returning
-`{ name, preamble, code }`. No special anchor form, no shortcut —
+`{ name, code, prose }`. No special anchor form, no shortcut —
 consistent Warp syntax throughout.
 
 A tangle section is a sink in the Warp graph: other sections never declare
@@ -436,7 +446,7 @@ language server).
 
 ## What This Enables
 
-The combination — uniform Services, Warp graph in the AST, preamble as
+The combination — uniform Services, Warp graph in the AST, prose as
 data, automatic DI — makes the Frame a semantic index of the document,
 not just a type-checking surface. The IDE uses the Frame for navigation
 and diagnostics. The CLI uses the AST's Warp graph for context-aware
@@ -458,14 +468,15 @@ from the same source document, with no duplication.
 //   - Explicit [Tag]  → name (class + service tag) = the tag label, mapped to it.
 //   - No [Tag]        → name = hash of the heading name; a synth name, unmapped.
 //   - Heading title stored as `name` field on every content section (tangle
-//     sinks return core.tangle(…) — no name/preamble).
+//     sinks return core.tangle(…) — no name/prose).
+//   - Section prose → `prose` field = core.weave(…), the woven peer of `code`.
 //   - Preamble Warp declaration ({{a: Add}}) → lazy yield* inside Effect.gen;
 //     no dependencies[] array (see Order Independence).
 //   - Name anchor ({{Title}}) in code block → internal `_`-aliased yield*, hoisted.
 //   - Tangle section ({path} specifier) → private, core.tangle() return, graph sink.
 //   - {Loom} specifier → code block projected literally (escape hatch only).
 //   - Composition root → auto-generated: merge all layers, provide to self.
-//   - compose / tangle are runtime primitives from #loom/core (a monorepo
+//   - compose / weave / tangle are runtime primitives from #loom/core (a monorepo
 //     module; see how-lsp.md). There is no separate Code value type; product
 //     code is the AST's CodeWeft text.
 // =============================================================================
@@ -481,9 +492,9 @@ import { Effect, Layer } from "effect"
 // # Imports — name anchor target: {{Imports}}
 class S_f1e7d2 extends Effect.Service<S_f1e7d2>()("S_f1e7d2", {
   succeed: {
-    name:     `Imports`,
-    preamble: `Provides the only outside dependency.`,
-    code: core.compose(`import scala.math.pow`)
+    name:  `Imports`,
+    code:  core.compose(`import scala.math.pow`),
+    prose: core.weave(`Provides the only outside dependency.`)
   }
 }) {}
 
@@ -494,18 +505,18 @@ class S_f1e7d2 extends Effect.Service<S_f1e7d2>()("S_f1e7d2", {
 
 export class Add extends Effect.Service<Add>()("Add", {
   succeed: {
-    name:     `Adder`,
-    preamble: `Adds two integers.`,
-    code: core.compose(`def add(x: Int, y: Int): Int = x + y`)
+    name:  `Adder`,
+    code:  core.compose(`def add(x: Int, y: Int): Int = x + y`),
+    prose: core.weave(`Adds two integers.`)
   }
 }) {}
 
 
 export class Mul extends Effect.Service<Mul>()("Mul", {
   succeed: {
-    name:     `Multiplier`,
-    preamble: `Multiplies two integers.`,
-    code: core.compose(`def mul(x: Int, y: Int): Int = x * y`)
+    name:  `Multiplier`,
+    code:  core.compose(`def mul(x: Int, y: Int): Int = x * y`),
+    prose: core.weave(`Multiplies two integers.`)
   }
 }) {}
 
@@ -514,9 +525,9 @@ export class Sq extends Effect.Service<Sq>()("Sq", {
   effect: Effect.gen(function* () {
     const _S_f1e7d2 = yield* S_f1e7d2   // {{Imports}} — hoisted internally
     return {
-      name:     `Square`,
-      preamble: `Built on top of mul.`,
-      code: core.compose(_S_f1e7d2.code, `def square(x: Int): Int = mul(x, x)`)
+      name:  `Square`,
+      code:  core.compose(_S_f1e7d2.code, `def square(x: Int): Int = mul(x, x)`),
+      prose: core.weave(`Built on top of mul.`)
     }
   })
 }) {}
@@ -526,9 +537,9 @@ export class Pow extends Effect.Service<Pow>()("Pow", {
   effect: Effect.gen(function* () {
     const _S_f1e7d2 = yield* S_f1e7d2   // {{Imports}} — hoisted internally
     return {
-      name:     `Power`,
-      preamble: `\`pow\` works in \`Double\`; the result is rounded back to \`Int\`.`,
-      code: core.compose(_S_f1e7d2.code, `def power(base: Int, exp: Int): Int = pow(base, exp).toInt`)
+      name:  `Power`,
+      code:  core.compose(_S_f1e7d2.code, `def power(base: Int, exp: Int): Int = pow(base, exp).toInt`),
+      prose: core.weave(`\`pow\` works in \`Double\`; the result is rounded back to \`Int\`.`)
     }
   })
 }) {}
@@ -540,8 +551,7 @@ export class Main extends Effect.Service<Main>()("Main", {
     const s = yield* Sq
     const p = yield* Pow
     return {
-      name:     `Entry point`,
-      preamble: `Smoke tests for Add, Sq, and Pow.`,
+      name: `Entry point`,
       code: core.compose(
         a.code,
         s.code,
@@ -552,7 +562,8 @@ export class Main extends Effect.Service<Main>()("Main", {
   println(s"square(7)    = ${square(7)}")
   println(s"power(2, 10) = ${power(2, 10)}")
 }`
-      )
+      ),
+      prose: core.weave(`Smoke tests for Add, Sq, and Pow.`)
     }
   })
 }) {}
@@ -560,13 +571,13 @@ export class Main extends Effect.Service<Main>()("Main", {
 
 export class Build extends Effect.Service<Build>()("Build", {
   succeed: {
-    name:     `Build script`,
-    preamble: `Compile the single file, then run the resulting class.`,
+    name: `Build script`,
     code: core.compose(
 `#!/usr/bin/env bash
 scalac src/main/scala/Arithmetic.scala -d out
 scala -cp out Arithmetic`
-    )
+    ),
+    prose: core.weave(`Compile the single file, then run the resulting class.`)
   }
 }) {}
 

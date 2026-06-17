@@ -1,0 +1,439 @@
+{{lang: TypeScript}}
+
+# The Frame AST
+
+The Frame AST is the model of the Loom Virtual Frame — a virtual TypeScript program Loom holds in memory for each `.loom` file. Volar type-checks Loom Virtual Frame, offers completions, and surfaces diagnostics against it, all without writing a file to disk.
+
+Each section in a `.loom` file produces one `Effect.Service` class in the frame. The class exposes two channels: a `code` field, composed from the section's `=>` blocks, and a `prose` field, woven from its paragraphs. The two are distinct fields on the service. A consumer reads whichever it needs, the product code or the prose.
+
+Every span of text in the frame is a typed token in the Frame AST. A token's origin decides whether it carries a source mapping. A synth token is punctuation Loom emits at a fixed position — a keyword, a brace, a separator — with no `.loom` origin, so it never maps. An authored token is a span lifted from the `.loom` source; it carries its origin position, so the language service maps completions, hover, and diagnostics back to where the author wrote it.
+
+Four richer authored leaves carry a section's content. `EmbeddedCode` and `ProseFragment` hold text the section writes directly, each embedded into its own virtual document — product code into the section's language, prose into Markdown — so the right language server can analyse it. `CodeRef` and `ProseRef` hold no text of their own; they transclude another section's content through a Warp binding.
+
+Render order is explicit, not positional. Each node carries a `RenderOrder` annotation that lists its renderable fields in emission order, so reordering the fields in a struct's definition cannot change what the frame renders. Offsets are derived, not stored. The render pass threads a cursor through each node, and a token's generated range is `[cursor, cursor + text.length)`.
+
+## Building on Effect Schema
+
+Effect's `Schema` module defines every Frame AST node type. One `Schema.Struct` does double duty: it validates a node when the builder constructs it, and it carries the `RenderOrder` annotation the render pass reads at emission. A single definition is the source of truth for both. Effect's `SchemaAST` module reads that annotation back off a compiled schema. The `Health` and `Position` types and the `okHealth` default value come from the shared Loom AST base in `#ast/LoomNode`.
+
+=>
+
+import { Option, Schema, SchemaAST } from 'effect'
+import { HealthSchema, okHealth, PositionSchema } from '#ast/LoomNode'
+
+## The frame node
+
+Every Frame AST node schema is built through `frameNode`. It takes a tag string, the node's own fields, and the ordered list of fields the render pass must emit. To every node it adds two universal fields — a `type` literal that discriminates the union, and a `health` field that defaults to `okHealth` — and it records the emission order as the `RenderOrder` annotation on the resulting schema. Metadata fields like `position` and `kind` stay off the render list, because the render pass never emits them; they serve the language service and the builder alone. The `renderOrderOf` helper reads that annotation back, and the list it returns must name exactly the renderable fields, no more and no fewer.
+
+=>
+
+export const RenderOrder: unique symbol = Symbol.for('loom/RenderOrder')
+
+export const renderOrderOf = (
+  schema: Schema.Schema.Any,
+): Option.Option<ReadonlyArray<string>> =>
+  SchemaAST.getAnnotation<ReadonlyArray<string>>(RenderOrder)(schema.ast)
+
+const frameNode = <Tag extends string, Fields extends Schema.Struct.Fields>(
+  tag: Tag,
+  fields: Fields,
+  order: ReadonlyArray<keyof Fields>,
+) =>
+  Schema.Struct({
+    type: Schema.Literal(tag).pipe(
+      Schema.propertySignature,
+      Schema.withConstructorDefault(() => tag),
+    ),
+    health: HealthSchema.pipe(
+      Schema.propertySignature,
+      Schema.withConstructorDefault(() => okHealth),
+    ),
+    ...fields,
+  }).annotations({ [RenderOrder]: order })
+
+## Synth tokens
+
+A synth token is fixed structural punctuation — a keyword, a brace, a separator — that Loom emits at a known position whatever the `.loom` source contains. The `synth(text)` helper defines a schema field whose default is a `FrameSynthToken` holding that text. Because the default is baked into the schema at definition time, the builder never supplies these tokens; it fills only the fields that come from the `.loom` source.
+
+=>
+
+export const FrameSynthTokenSchema = frameNode(
+  'FrameSynthToken',
+  { text: Schema.String },
+  ['text'],
+)
+export type FrameSynthToken = typeof FrameSynthTokenSchema.Type
+
+const synth = (text: string) =>
+  FrameSynthTokenSchema.pipe(
+    Schema.propertySignature,
+    Schema.withConstructorDefault(() => FrameSynthTokenSchema.make({ text })),
+  )
+
+## Authored leaves
+
+An authored leaf is a span of text lifted from the `.loom` source and stored with its source position.
+
+A `FrameAuthoredToken` carries its text and a `kind`. When `kind` is `name`, the token holds an identifier — a tag label or a derived class name — and maps back to its origin span, so the language service offers rename, go-to-definition, and hover there. When `kind` is `prose`, the token holds heading or preamble text and maps into a Markdown virtual document, so Markdown tooling applies to it.
+
+A `FrameCode` carries the body of a `{Loom}` section verbatim. A `{Loom}` section is one whose code blocks are frame-level TypeScript, meant to sit directly in the generated frame rather than inside a service class body. `FrameCode` maps that text into the frame's own virtual TypeScript document, so the compiler type-checks it in place.
+
+=>
+
+export const SpanKindSchema = Schema.Literal('name', 'prose')
+export type SpanKind = typeof SpanKindSchema.Type
+
+export const FrameAuthoredTokenSchema = frameNode(
+  'FrameAuthoredToken',
+  { text: Schema.String, position: PositionSchema, kind: SpanKindSchema },
+  ['text'],
+)
+export type FrameAuthoredToken = typeof FrameAuthoredTokenSchema.Type
+
+export const FrameCodeSchema = frameNode(
+  'FrameCode',
+  { text: Schema.String, position: PositionSchema },
+  ['text'],
+)
+export type FrameCode = typeof FrameCodeSchema.Type
+
+## The service name
+
+A `ServiceName` is a union of `FrameAuthoredToken` and `FrameSynthToken`. The service name appears in three places in the class declaration — the class name, the `<…>` type parameter, and the `"…"` string service tag — and `ServiceClass` holds a separate `ServiceName` field for each, so each occurrence can map back to the source independently.
+
+When a section carries a `[Tag]` label, the name is an authored token: its text is the label, and its position maps back to where the author wrote the label. When a section is tagless, the name is a synth token with no source position, so it never maps.
+
+=>
+
+export const ServiceNameSchema = Schema.Union(
+  FrameAuthoredTokenSchema,
+  FrameSynthTokenSchema,
+)
+export type ServiceName = typeof ServiceNameSchema.Type
+
+## Code and prose fragments
+
+Each channel — code and prose — has two leaf types: one for content the section writes directly, and one for content it transcludes from another section through a Warp.
+
+An `EmbeddedCode` node carries one `=>` run's product code. A `ProseFragment` node carries one prose span — a heading or a paragraph. Both hold a source position, so the language service can map their text. `EmbeddedCode` maps into the section's embedded-language virtual document, where that language's server — Python, Scala, TypeScript, or any other target — analyses it. `ProseFragment` maps into a Markdown virtual document, where Markdown tooling applies.
+
+A `CodeRef` transcludes another section's code channel: it emits the local alias followed by `.code`. A `ProseRef` transcludes the prose channel, emitting the alias followed by `.prose`. In both, the `binding` field is an authored token that carries the alias text and maps back to the `{{…}}` Warp anchor the author wrote. When the anchor cannot resolve its target, the binding's health carries an error, so the diagnostic lands on the anchor in the source rather than on the generated frame.
+
+=>
+
+export const EmbeddedCodeSchema = frameNode(
+  'EmbeddedCode',
+  { open: synth('`'), text: Schema.String, position: PositionSchema, close: synth('`') },
+  ['open', 'text', 'close'],
+)
+export type EmbeddedCode = typeof EmbeddedCodeSchema.Type
+
+export const ProseFragmentSchema = frameNode(
+  'ProseFragment',
+  { open: synth('`'), text: Schema.String, position: PositionSchema, close: synth('`') },
+  ['open', 'text', 'close'],
+)
+export type ProseFragment = typeof ProseFragmentSchema.Type
+
+export const CodeRefSchema = frameNode(
+  'CodeRef',
+  { binding: FrameAuthoredTokenSchema, dot: synth('.code') },
+  ['binding', 'dot'],
+)
+export type CodeRef = typeof CodeRefSchema.Type
+
+export const ProseRefSchema = frameNode(
+  'ProseRef',
+  { binding: FrameAuthoredTokenSchema, dot: synth('.prose') },
+  ['binding', 'dot'],
+)
+export type ProseRef = typeof ProseRefSchema.Type
+
+## Composing and weaving
+
+The `Compose` node represents the `core.compose(…)` call that assembles a section's code channel — its `EmbeddedCode` fragments and `CodeRef` transclusions, in document order, comma-separated. The `Weave` node mirrors it: the `core.weave(…)` call that assembles the prose channel from `ProseFragment` and `ProseRef` nodes. A section with no code renders as `core.compose()` with no arguments, and a section with no prose renders as `core.weave()`.
+
+The comma separators belong to the schema, not to the render pass. The first argument sits in the `head` field with no leading comma. Each later argument is a `ComposeArgItem` or `WeaveArgItem` that owns its leading comma as a synth field. So the render pass emits each node in `RenderOrder` and the punctuation falls out on its own — nothing in the pass needs to know whether an argument is first or last.
+
+=>
+
+const ComposeArgSchema = Schema.Union(EmbeddedCodeSchema, CodeRefSchema)
+
+export const ComposeArgItemSchema = frameNode(
+  'ComposeArgItem',
+  { sep: synth(', '), value: ComposeArgSchema },
+  ['sep', 'value'],
+)
+export type ComposeArgItem = typeof ComposeArgItemSchema.Type
+
+export const ComposeSchema = frameNode(
+  'Compose',
+  {
+    open: synth('core.compose('),
+    head: Schema.optional(ComposeArgSchema),
+    tail: Schema.Array(ComposeArgItemSchema),
+    close: synth(')'),
+  },
+  ['open', 'head', 'tail', 'close'],
+)
+export type Compose = typeof ComposeSchema.Type
+
+const WeaveArgSchema = Schema.Union(ProseFragmentSchema, ProseRefSchema)
+
+export const WeaveArgItemSchema = frameNode(
+  'WeaveArgItem',
+  { sep: synth(', '), value: WeaveArgSchema },
+  ['sep', 'value'],
+)
+export type WeaveArgItem = typeof WeaveArgItemSchema.Type
+
+export const WeaveSchema = frameNode(
+  'Weave',
+  {
+    open: synth('core.weave('),
+    head: Schema.optional(WeaveArgSchema),
+    tail: Schema.Array(WeaveArgItemSchema),
+    close: synth(')'),
+  },
+  ['open', 'head', 'tail', 'close'],
+)
+export type Weave = typeof WeaveSchema.Type
+
+## Effectful plumbing
+
+A `Binding` node represents one `yield*` statement that acquires a service dependency inside an effectful body. The statement reads `const m = yield* Mul`, where `m` is the local alias and `Mul` the service tag. The `name` token carries `m` and maps back to the Warp declaration that introduces the alias. The `tag` token carries `Mul` and maps back to the same Warp. Because each `Binding` declares its own dependency as a field, the frame needs no separate, upfront dependency list, and the bindings may appear in whatever order the section's author chose. A `BindingItem` wraps a `Binding` and owns the newline and indentation in front of it, so the render pass emits only the node and the right whitespace follows from the schema.
+
+=>
+
+export const BindingSchema = frameNode(
+  'Binding',
+  {
+    kw1: synth('const '),
+    name: FrameAuthoredTokenSchema,
+    kw2: synth(' = yield* '),
+    tag: FrameAuthoredTokenSchema,
+  },
+  ['kw1', 'name', 'kw2', 'tag'],
+)
+export type Binding = typeof BindingSchema.Type
+
+export const BindingItemSchema = frameNode(
+  'BindingItem',
+  { sep: synth('\n    '), value: BindingSchema },
+  ['sep', 'value'],
+)
+export type BindingItem = typeof BindingItemSchema.Type
+
+## Service bodies
+
+The service body is the argument passed to `Effect.Service()`. It takes one of three shapes, chosen by whether the section declares dependencies and whether it is a tangle sink — a section whose `{path}` specifier writes an output file.
+
+A `StaticBody` covers a section that declares no dependencies. It renders as a `succeed` object with three named fields: `name`, the heading title; `code`, the assembled `Compose` node; and `prose`, the assembled `Weave` node.
+
+An `EffectfulBody` covers a section that depends on at least one other service. It wraps those same three fields in an `Effect.gen` block that yields each `Binding` first, so every dependency is in scope by the time `name`, `code`, and `prose` are evaluated.
+
+A `TangleBody` covers a tangle sink. It also yields its bindings in an `Effect.gen` block, but it returns a `core.tangle(path, …)` call rather than the three-field object. A tangle sink produces a file, not a composable service output, so it carries no `name` or `prose` field.
+
+The preamble sits outside all three shapes. The frame emits it as the `/** … */` TSDoc comment directly above the class declaration, where the editor shows it as hover documentation. `StaticBody` and `EffectfulBody` also fold it into their `Weave` node, so the composed prose carries the preamble too.
+
+=>
+
+export const StaticBodySchema = frameNode(
+  'StaticBody',
+  {
+    open: synth('{ succeed: { name: `'),
+    name: FrameAuthoredTokenSchema,
+    mid1: synth('`, code: '),
+    code: ComposeSchema,
+    mid2: synth(', prose: '),
+    prose: WeaveSchema,
+    close: synth(' } }'),
+  },
+  ['open', 'name', 'mid1', 'code', 'mid2', 'prose', 'close'],
+)
+export type StaticBody = typeof StaticBodySchema.Type
+
+export const EffectfulBodySchema = frameNode(
+  'EffectfulBody',
+  {
+    open: synth('{\n  effect: Effect.gen(function* () {'),
+    bindings: Schema.Array(BindingItemSchema),
+    mid1: synth('\n    return { name: `'),
+    name: FrameAuthoredTokenSchema,
+    mid2: synth('`, code: '),
+    code: ComposeSchema,
+    mid3: synth(', prose: '),
+    prose: WeaveSchema,
+    close: synth(' }\n  }),\n}'),
+  },
+  ['open', 'bindings', 'mid1', 'name', 'mid2', 'code', 'mid3', 'prose', 'close'],
+)
+export type EffectfulBody = typeof EffectfulBodySchema.Type
+
+export const TangleBodySchema = frameNode(
+  'TangleBody',
+  {
+    open: synth('{\n  effect: Effect.gen(function* () {'),
+    bindings: Schema.Array(BindingItemSchema),
+    mid1: synth('\n    return core.tangle("'),
+    path: FrameAuthoredTokenSchema,
+    mid2: synth('", '),
+    code: ComposeSchema,
+    close: synth(')\n  }),\n}'),
+  },
+  ['open', 'bindings', 'mid1', 'path', 'mid2', 'code', 'close'],
+)
+export type TangleBody = typeof TangleBodySchema.Type
+
+export const ServiceBodySchema = Schema.Union(
+  StaticBodySchema,
+  EffectfulBodySchema,
+  TangleBodySchema,
+)
+export type ServiceBody = typeof ServiceBodySchema.Type
+
+## The service class
+
+A `ServiceClass` represents one complete Loom section as one `Effect.Service` class. Its preamble appears as the `/** … */` TSDoc comment directly above the class, the place Volar reads for hover documentation. The `modifier` field holds the `export` keyword when the section carries a `[Tag]` label, and an empty synth token when the section is tagless and the class stays private to the frame.
+
+The `name`, `nameType`, and `nameTag` fields are all `ServiceName`s, one each for the class name, the `<…>` type parameter, and the string service tag.
+
+The `languageId` field names the section's product language — `"typescript"`, `"python"`, or another identifier. `ProductAstBuilder` reads it to tag the section's embedded virtual document for the right language server. The render pass never emits it, because it is not part of the generated frame text.
+
+=>
+
+export const ServiceClassSchema = frameNode(
+  'ServiceClass',
+  {
+    doc1: synth('/** '),
+    docPreamble: FrameAuthoredTokenSchema,
+    doc2: synth(' */\n'),
+    modifier: FrameSynthTokenSchema,
+    kw1: synth('class '),
+    name: ServiceNameSchema,
+    kw2: synth(' extends Effect.Service<'),
+    nameType: ServiceNameSchema,
+    kw3: synth('>()("'),
+    nameTag: ServiceNameSchema,
+    kw4: synth('", '),
+    body: ServiceBodySchema,
+    kw5: synth(') {}'),
+    languageId: Schema.String,
+  },
+  [
+    'doc1', 'docPreamble', 'doc2', 'modifier', 'kw1', 'name', 'kw2',
+    'nameType', 'kw3', 'nameTag', 'kw4', 'body', 'kw5',
+  ],
+)
+export type ServiceClass = typeof ServiceClassSchema.Type
+
+## The composition root
+
+The `Root` node is present when a `.loom` file declares at least one service, and absent when it declares none. It generates two things: a `layers` constant that merges every service's `.Default` layer into one combined layer, and a `LoomMain` effect that runs the file's tangle sinks against that layer.
+
+`LoomMain` provides `layers` to itself, through `Layer.provide(layers, layers)`. Every service in the merge can then satisfy the dependencies of every other service in the merge, with no manual wiring. When the file has no tangle sink, the `sinks` array is empty and `LoomMain` yields nothing — the file still has services but produces no output file.
+
+Each service-name and sink-name token in the `Root` maps back to its originating section, so renaming a tagged section's label in the editor propagates to every reference in the generated frame.
+
+=>
+
+export const LayerRefSchema = frameNode(
+  'LayerRef',
+  { name: ServiceNameSchema, dot: synth('.Default') },
+  ['name', 'dot'],
+)
+export type LayerRef = typeof LayerRefSchema.Type
+
+export const LayerRefItemSchema = frameNode(
+  'LayerRefItem',
+  { sep: synth(',\n  '), value: LayerRefSchema },
+  ['sep', 'value'],
+)
+export type LayerRefItem = typeof LayerRefItemSchema.Type
+
+export const SinkRefSchema = frameNode(
+  'SinkRef',
+  { kw: synth('yield* '), name: ServiceNameSchema },
+  ['kw', 'name'],
+)
+export type SinkRef = typeof SinkRefSchema.Type
+
+export const SinkItemSchema = frameNode(
+  'SinkItem',
+  { sep: synth('\n    '), value: SinkRefSchema },
+  ['sep', 'value'],
+)
+export type SinkItem = typeof SinkItemSchema.Type
+
+export const RootSchema = frameNode(
+  'Root',
+  {
+    open: synth('\n\nconst layers = Layer.mergeAll(\n  '),
+    head: LayerRefSchema,
+    tail: Schema.Array(LayerRefItemSchema),
+    mid: synth(
+      '\n)\n\nexport const LoomMain = Effect.provide(\n  Effect.gen(function* () {',
+    ),
+    sinks: Schema.Array(SinkItemSchema),
+    close: synth('\n  }),\n  Layer.provide(layers, layers),\n)\n'),
+  },
+  ['open', 'head', 'tail', 'mid', 'sinks', 'close'],
+)
+export type Root = typeof RootSchema.Type
+
+## The module
+
+A `FrameModule` is the top-level node for a `.loom` file's generated frame. The `header` field holds the fixed import block every frame begins with — `import * as core from "#loom/core"` and `import { Effect, Layer } from "effect"`. The `imports` array collects the top-level imports hoisted out of `{Loom}` sections. These must precede every service class in the output, so the render pass emits them right after the header. The `members` array holds the service classes and inline `{Loom}` blocks in document order, each preceded by a blank line. The `root` field carries the composition root when the file has services, and is absent otherwise. An empty `.loom` file is valid and produces a frame with only the header.
+
+=>
+
+const MemberSchema = Schema.Union(ServiceClassSchema, FrameCodeSchema)
+
+export const MemberItemSchema = frameNode(
+  'MemberItem',
+  { sep: synth('\n\n'), value: MemberSchema },
+  ['sep', 'value'],
+)
+export type MemberItem = typeof MemberItemSchema.Type
+
+export const FrameModuleSchema = frameNode(
+  'FrameModule',
+  {
+    header: synth(
+      'import * as core from "#loom/core"\nimport { Effect, Layer } from "effect"\n',
+    ),
+    imports: Schema.Array(FrameCodeSchema),
+    members: Schema.Array(MemberItemSchema),
+    root: Schema.optional(RootSchema),
+  },
+  ['header', 'imports', 'members', 'root'],
+)
+export type FrameModule = typeof FrameModuleSchema.Type
+
+## Tangling the Frame AST {../src/ast/FrameAst.ts}
+
+=>
+
+{{Building on Effect Schema}}
+
+{{The frame node}}
+
+{{Synth tokens}}
+
+{{Authored leaves}}
+
+{{The service name}}
+
+{{Code and prose fragments}}
+
+{{Composing and weaving}}
+
+{{Effectful plumbing}}
+
+{{Service bodies}}
+
+{{The service class}}
+
+{{The composition root}}
+
+{{The module}}
