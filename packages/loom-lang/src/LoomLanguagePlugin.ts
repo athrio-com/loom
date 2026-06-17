@@ -5,8 +5,7 @@ import { Array, Effect, Layer, Option, pipe, Runtime } from 'effect'
 import { NodeFileSystem } from '@effect/platform-node'
 import type * as ts from 'typescript'
 import type { URI } from 'vscode-uri'
-import type { Loom } from '#ast/Loom'
-import type { FrameAstBuilder } from '#ast/FrameAstBuilder'
+import type { LoomCorpusAstBuilder } from '#ast/LoomCorpusAstBuilder'
 import { loomVirtualCode } from './LoomCompiler'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
@@ -21,7 +20,7 @@ import { LoomLanguage } from '@athrio/loom-lang-services/LoomLanguage'
 import { TypescriptLanguage } from '@athrio/loom-lang-services/TypescriptLanguage'
 
 export const loomLanguagePlugin = (
-  runtime: Runtime.Runtime<Loom | FrameAstBuilder>,
+  runtime: Runtime.Runtime<LoomCorpusAstBuilder>,
 ): LanguagePlugin<URI> => ({
   getLanguageId: (uri) => (uri.path.endsWith('.loom') ? 'loom' : undefined),
   createVirtualCode: (_uri, languageId, snapshot) =>

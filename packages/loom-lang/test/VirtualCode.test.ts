@@ -1,7 +1,6 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Layer, Runtime } from 'effect'
-import { Loom } from '#ast/Loom'
-import { FrameAstBuilder } from '#ast/FrameAstBuilder'
+import { Effect, Runtime } from 'effect'
+import { LoomCorpusAstBuilder } from '#ast/LoomCorpusAstBuilder'
 import { loomVirtualCode, stringSnapshot } from '../src/LoomCompiler'
 
 // loomVirtualCode assembles the Volar tree from the two LoomVirtualCodeBuilder
@@ -12,7 +11,7 @@ import { loomVirtualCode, stringSnapshot } from '../src/LoomCompiler'
 // cold runtime would throw on the async layer build; this proves the per-call
 // projection resolves synchronously on a warm one.
 
-const layer = Layer.mergeAll(Loom.Default, FrameAstBuilder.Default)
+const layer = LoomCorpusAstBuilder.Default
 
 const input = `{{lang: TypeScript}}
 
@@ -28,7 +27,7 @@ export const add = (x: number, y: number): number => x + y
 describe('VirtualCode — root → frame projection', () => {
   it.effect('builds the tree via Runtime.runSync on a warm runtime', () =>
     Effect.gen(function* () {
-      const runtime = yield* Effect.runtime<Loom | FrameAstBuilder>()
+      const runtime = yield* Effect.runtime<LoomCorpusAstBuilder>()
       const root = Runtime.runSync(runtime)(loomVirtualCode(stringSnapshot(input)))
 
       expect(root.id).toBe('root')
@@ -57,7 +56,7 @@ describe('VirtualCode — root → frame projection', () => {
 
   it.effect('maps the frame class name back to the [Add] tag in the .loom', () =>
     Effect.gen(function* () {
-      const runtime = yield* Effect.runtime<Loom | FrameAstBuilder>()
+      const runtime = yield* Effect.runtime<LoomCorpusAstBuilder>()
       const root = Runtime.runSync(runtime)(loomVirtualCode(stringSnapshot(input)))
 
       const frame = root.embeddedCodes![0]!

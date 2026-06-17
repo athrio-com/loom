@@ -1,12 +1,11 @@
 import { createTypeScriptInferredChecker } from '@volar/kit'
-import { Effect, Layer } from 'effect'
+import { Effect } from 'effect'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import * as ts from 'typescript'
 import { create as createTypeScriptServices } from 'volar-service-typescript'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { Loom } from '#ast/Loom'
-import { FrameAstBuilder } from '#ast/FrameAstBuilder'
+import { LoomCorpusAstBuilder } from '#ast/LoomCorpusAstBuilder'
 import { loomLanguagePlugin } from '../src/LoomLanguagePlugin'
 
 // End-to-end through Volar: drive a `.loom` through a TypeScript-aware language
@@ -25,10 +24,10 @@ const fixtureText = readFileSync(fixture, 'utf8')
 let checker: ReturnType<typeof createTypeScriptInferredChecker>
 
 beforeAll(async () => {
-  const layer = Layer.mergeAll(Loom.Default, FrameAstBuilder.Default)
+  const layer = LoomCorpusAstBuilder.Default
   // A warm runtime: the loom plugin runs the projection synchronously on it.
   const runtime = await Effect.runPromise(
-    Effect.runtime<Loom | FrameAstBuilder>().pipe(
+    Effect.runtime<LoomCorpusAstBuilder>().pipe(
       Effect.provide(layer),
     ),
   )

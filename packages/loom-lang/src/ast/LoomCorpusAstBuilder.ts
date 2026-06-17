@@ -1,5 +1,8 @@
 import { Array, Effect, Option, pipe } from 'effect'
-import { Loom } from '#ast/Loom'
+import { LoomSourceRanges } from '#ast/LineRanges'
+import { WeftClassifier } from '#ast/WeftClassifier'
+import { WeftTokeniser } from '#ast/WeftTokeniser'
+import { LoomAstBuilder, emptyDocumentFor } from '#ast/LoomAstBuilder'
 import type { FrameModule } from '#ast/FrameAst'
 import { FrameAstBuilder } from '#ast/FrameAstBuilder'
 import { ProductAstBuilder } from '#ast/ProductAstBuilder'
@@ -27,16 +30,34 @@ export class LoomCorpusAstBuilder extends Effect.Service<LoomCorpusAstBuilder>()
   'LoomCorpusAstBuilder',
   {
     effect: Effect.gen(function* () {
-      const loom = yield* Loom
+      const sourceRanges = yield* LoomSourceRanges
+      const classify = yield* WeftClassifier
+      const tokenise = yield* WeftTokeniser
+      const astBuilder = yield* LoomAstBuilder
       const frames = yield* FrameAstBuilder
       const productBuilder = yield* ProductAstBuilder
 
-      // build one module: read → parse → frame pass → its `code`, plus the
-      // resolved `.loom` paths of its `{Loom}` imports.
+      // build one module as a flat chain of passes, each consuming the previous
+      // one's output: read text → line ranges → classify → tokenise → build the
+      // LoomDocument → frame pass → de re `code`, plus the resolved `.loom` paths
+      // of its `{Loom}` imports. `MixedEOL` short-circuits the parse to an empty
+      // document; no stage runs past it.
       const build = (source: Source, path: Path): Effect.Effect<LoomModule> =>
         Effect.gen(function* () {
           const text = yield* source.read(path)
-          const doc = yield* loom.ast(text)
+          const doc = yield* sourceRanges.stream(text).pipe(
+            Effect.flatMap((ranges) =>
+              pipe(
+                ranges,
+                classify.classifyWefts(text),
+                tokenise.tokeniseWefts(text),
+                astBuilder.build,
+              ),
+            ),
+            Effect.catchTag('MixedEOL', (err) =>
+              Effect.succeed(emptyDocumentFor(text, err)),
+            ),
+          )
           const frame = yield* frames.build(doc)
           const imports = pipe(
             frame.imports,
@@ -58,7 +79,14 @@ export class LoomCorpusAstBuilder extends Effect.Service<LoomCorpusAstBuilder>()
 
       return { build }
     }),
-    dependencies: [Loom.Default, FrameAstBuilder.Default, ProductAstBuilder.Default],
+    dependencies: [
+      LoomSourceRanges.Default,
+      WeftClassifier.Default,
+      WeftTokeniser.Default,
+      LoomAstBuilder.Default,
+      FrameAstBuilder.Default,
+      ProductAstBuilder.Default,
+    ],
   },
 ) {}
 

@@ -17,6 +17,7 @@ import {
   type LoomSection,
 } from './LoomAst'
 import { okHealth, type Health, type Position } from './LoomNode'
+import type { MixedEOL } from './LineRanges'
 import type {
   HeadingWeft,
   LoomWeft,
@@ -283,4 +284,52 @@ const makeDocument = (db: DocumentBuilder): LoomDocument => {
     preamble: db.preamble,
     sections: db.sections,
   })
+}
+
+// =============================================================================
+// emptyDocumentFor — the LoomDocument the parse chain returns when `MixedEOL`
+// short-circuits it before any weft exists. With the terminators inconsistent,
+// every line range is meaningless and no stage runs, so no node can carry the
+// problem in its `health`; the document carries it instead. Its position spans
+// the whole input (a position marks a source span, not an error site), both
+// slots stay empty (no partial tree is invented), and the root health holds one
+// error naming the two conventions and the lines they first appear on.
+// =============================================================================
+
+export const emptyDocumentFor = (text: string, err: MixedEOL): LoomDocument => {
+  const docPosition: Position = {
+    start: { line: 1, offset: 0 },
+    end: { line: 1, offset: text.length },
+  }
+  const rootHealth: Health = {
+    status: 'error',
+    diagnostics: [
+      {
+        message: `Mixed line terminators. Line ${err.primaryLine} has ${eolName(err.primary)}, but line ${err.foundLine} has ${eolName(err.found)}. Pick one and stick with it.`,
+        position: docPosition,
+        severity: 'error',
+      },
+    ],
+  }
+  return {
+    type: 'LoomDocument',
+    position: docPosition,
+    source: text,
+    health: rootHealth,
+    preamble: [],
+    sections: [],
+  }
+}
+
+// eolName — a human-readable name for each terminator convention, for the
+// diagnostic message (mixed terminators are invisible on screen).
+const eolName = (kind: 'lf' | 'crlf' | 'cr'): string => {
+  switch (kind) {
+    case 'lf':
+      return 'LF (Unix)'
+    case 'crlf':
+      return 'CRLF (Windows)'
+    case 'cr':
+      return 'CR (classic Mac)'
+  }
 }

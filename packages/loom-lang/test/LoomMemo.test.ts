@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Array, Effect, Ref } from 'effect'
-import { Loom } from '#ast/Loom'
+import { parseDocument, ParseLayer } from './parse'
 import { buildFrame } from '#ast/FrameAstBuilder'
 import { buildCode } from '#ast/ProductAstBuilder'
 import { type LoomModule } from '#ast/LoomCorpusAst'
@@ -14,12 +14,7 @@ import { LoomMemo } from '../src/LoomMemo'
 // times `build` actually runs to tell a hit from a miss.
 
 const parse = (src: string) =>
-  Effect.runSync(
-    Effect.gen(function* () {
-      const loom = yield* Loom
-      return yield* loom.ast(src)
-    }).pipe(Effect.provide(Loom.Default)),
-  )
+  Effect.runSync(parseDocument(src).pipe(Effect.provide(ParseLayer)))
 
 // a real (tiny) module to cache; the parse/frame are shared, the path varies.
 const text = `{{lang: TypeScript}}

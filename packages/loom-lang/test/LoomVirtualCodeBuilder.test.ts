@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { Loom } from '#ast/Loom'
+import { parseDocument, ParseLayer } from './parse'
 import { buildFrame } from '#ast/FrameAstBuilder'
 import { buildCode, type ModuleInput } from '#ast/ProductAstBuilder'
 import { fromFrame, fromProduct } from '#ast/LoomVirtualCodeBuilder'
@@ -13,12 +13,7 @@ import { fromFrame, fromProduct } from '#ast/LoomVirtualCodeBuilder'
 // the dependency.
 
 const parse = (src: string) =>
-  Effect.runSync(
-    Effect.gen(function* () {
-      const loom = yield* Loom
-      return yield* loom.ast(src)
-    }).pipe(Effect.provide(Loom.Default)),
-  )
+  Effect.runSync(parseDocument(src).pipe(Effect.provide(ParseLayer)))
 
 // === de dicto — fromFrame =================================================
 

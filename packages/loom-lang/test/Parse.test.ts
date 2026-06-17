@@ -8,7 +8,7 @@ import {
   type LoomDocument,
   type LoomHeading,
 } from '#ast/LoomAst'
-import { Loom } from '#ast/Loom'
+import { parseDocument, ParseLayer } from './parse'
 import { WeftClassifier } from '#ast/WeftClassifier'
 import { WeftTokeniser } from '#ast/WeftTokeniser'
 import { LoomWeftSchema, type LoomWeft } from '#ast/Weft'
@@ -21,7 +21,7 @@ import { LoomWeftSchema, type LoomWeft } from '#ast/Weft'
 //
 //   Classifier Stage — LoomSourceRanges → WeftClassifier
 //   Tokeniser Stage  — Classifier output → WeftTokeniser
-//   AST Stage        — full pipeline via Loom.ast(text) → LoomDocument
+//   AST Stage        — full parse chain via parseDocument(text) → LoomDocument
 //
 // The model is flat: a Document Preamble (the lines before the first heading,
 // carrying the `{{lang: Scala}}` Warp) plus a list of Sections, one per
@@ -75,12 +75,7 @@ const tokeniseText = (text: string): ReadonlyArray<LoomWeft> =>
   )
 
 const buildDocument = (text: string): LoomDocument =>
-  Effect.runSync(
-    Effect.gen(function* () {
-      const loom = yield* Loom
-      return yield* loom.ast(text)
-    }).pipe(Effect.provide(Loom.Default)),
-  )
+  Effect.runSync(parseDocument(text).pipe(Effect.provide(ParseLayer)))
 
 // =============================================================================
 // Classifier Stage — coverage of every probe kind, line accounting, schema
@@ -264,7 +259,7 @@ describe('Tokeniser Stage — integration against corpus/Fun.loom', () => {
 })
 
 // =============================================================================
-// AST Stage — end-to-end via Loom.ast(text). Asserts the flat document-level
+// AST Stage — end-to-end via parseDocument(text). Asserts the flat document-level
 // structure: the Document Preamble on `document.preamble`, every heading as a
 // flat Section on `document.sections`, and the `{{lang: Scala}}` declaration
 // keeping the document's health `ok`.
@@ -341,13 +336,13 @@ describe('AST Stage — integration against corpus/Fun.loom', () => {
 })
 
 // =============================================================================
-// Loom.ast — orchestrator behaviour. The Service wires the four pipeline
-// stages and catches `MixedEOL` at the boundary, converting it to a minimal
-// empty document with NOK root health. Edge cases (empty source, single-line
-// source without terminator) flow through normally.
+// parseDocument — parse-chain behaviour. The chain wires the four parse stages
+// and catches `MixedEOL` at the boundary, converting it to a minimal empty
+// document with NOK root health. Edge cases (empty source, single-line source
+// without terminator) flow through normally.
 // =============================================================================
 
-describe('Loom.ast — orchestrator behaviour', () => {
+describe('parseDocument — parse-chain behaviour', () => {
   it('recovers MixedEOL as an empty document with NOK root health and a positioned diagnostic', () => {
     // CRLF on line 1, bare LF on line 2 — primary convention is CRLF, the
     // stray LF triggers MixedEOL.
@@ -387,9 +382,9 @@ describe('Loom.ast — orchestrator behaviour', () => {
     expect(doc.sections).toEqual([])
   })
 
-  it('wires all four services — single Loom.Default provides the whole pipeline', () => {
-    // No explicit provides for LoomSourceRanges / Classifier / Tokeniser /
-    // AstBuilder — Loom.Default carries them transitively via `dependencies`.
+  it('ParseLayer provides the whole parse chain — all four stage services', () => {
+    // ParseLayer merges the four stage Defaults (LoomSourceRanges, Classifier,
+    // Tokeniser, AstBuilder); the chain needs nothing else.
     const doc = buildDocument('# T [T]{L}\n')
     expect(doc.sections).toHaveLength(1)
     expect(doc.sections[0].heading.tag?.label.value).toBe('T')
@@ -403,14 +398,14 @@ describe('Loom.ast — orchestrator behaviour', () => {
 })
 
 // =============================================================================
-// Loom.ast — NOK preservation end-to-end. Malformed source flows through the
-// pipeline; the Tokeniser keeps rejected bytes in `unexpected[]` and flips the
+// parseDocument — NOK preservation end-to-end. Malformed source flows through
+// the chain; the Tokeniser keeps rejected bytes in `unexpected[]` and flips the
 // affected leaf to error health, the AstBuilder forwards them onto the
 // resulting `LoomHeading`. Container nodes stay `okHealth`. A tagless heading
 // is NOT an error — it receives a synthetic hash tag.
 // =============================================================================
 
-describe('Loom.ast — NOK preservation end-to-end', () => {
+describe('parseDocument — NOK preservation end-to-end', () => {
   it('a tagless heading receives a synthetic hash tag with ok health (not an error)', () => {
     const doc = buildDocument('{{lang: Scala}}\n\n# JustATitle\n')
     const heading = doc.sections[0].heading

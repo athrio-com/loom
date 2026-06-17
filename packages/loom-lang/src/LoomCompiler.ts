@@ -3,11 +3,8 @@ import { Array, Effect, Option, pipe } from 'effect'
 import { FileSystem } from '@effect/platform'
 import { dirname, resolve as resolvePath } from 'node:path'
 import type * as ts from 'typescript'
-import { Loom } from '#ast/Loom'
 import type { FrameModule } from '#ast/FrameAst'
-import { FrameAstBuilder } from '#ast/FrameAstBuilder'
-import { buildCode } from '#ast/ProductAstBuilder'
-import { LoomCorpusAstBuilder } from '#ast/LoomCorpusAstBuilder'
+import { LoomCorpusAstBuilder, type Source } from '#ast/LoomCorpusAstBuilder'
 import {
   type LoomCorpusAst,
   type LoomModule,
@@ -204,33 +201,38 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
 
 // =============================================================================
 // loomVirtualCode — the single-file editor entry. Volar's hooks are synchronous
-// and hand us a snapshot, so this projects one `.loom` to its Volar tree without
-// the corpus: parse → `FrameAstBuilder` → `buildCode` → `fromFrame` (frame) + `fromProduct`
-// (each section) → assemble → `toVolar`. A lone file is a corpus of one — no
-// imports, so nothing crosses a boundary; cross-file editing arrives when the
-// snapshot is served through a Volar-backed DocumentSource. Total by construction:
-// any failure is logged and degraded to a bare `loom` document, never thrown.
+// and hand us a snapshot, so this projects one `.loom` to its Volar tree. It runs
+// the same per-module spine as the corpus path, `LoomCorpusAstBuilder.build`, over
+// an in-memory source of one file: build → `fromFrame` (frame) + `fromProduct`
+// (each section) → assemble → `toVolar`. A lone file is a corpus of one — its
+// source resolves no imports, so nothing crosses a boundary; cross-file editing
+// arrives when the snapshot is served through a Volar-backed DocumentSource. Total
+// by construction: any failure is logged and degraded to a bare `loom` document,
+// never thrown.
 // =============================================================================
+
+// singleFileSource — an in-memory Source over one snapshot: every read returns the
+// snapshot text, and no specifier resolves (a corpus of one has no imports).
+const singleFileSource = (text: string): Source => ({
+  read: () => Effect.succeed(text),
+  resolve: () => Option.none(),
+})
 
 export const loomVirtualCode = (
   snapshot: ts.IScriptSnapshot,
-): Effect.Effect<VirtualCode, never, Loom | FrameAstBuilder> =>
+): Effect.Effect<VirtualCode, never, LoomCorpusAstBuilder> =>
   Effect.gen(function* () {
-    const loom = yield* Loom
-    const frameBuilder = yield* FrameAstBuilder
+    const builder = yield* LoomCorpusAstBuilder
 
     const text = snapshot.getText(0, snapshot.getLength())
-    const document = yield* loom.ast(text)
-    const frame = yield* frameBuilder.build(document)
+    const mod = yield* builder.build(singleFileSource(text), '')
 
-    const code = buildCode({ path: '', text, frame, imports: new Map() })
-    const codeByPath: CodeByPath = new Map([['', code]])
-
+    const codeByPath: CodeByPath = new Map([['', mod.code]])
     const sections = pipe(
-      Array.fromIterable(code.values()),
+      Array.fromIterable(mod.code.values()),
       Array.map((node) => fromProduct(codeByPath, node.origin)),
     )
-    return rootVirtualCode(text, [fromFrame(frame), ...sections])
+    return rootVirtualCode(text, [fromFrame(mod.frame), ...sections])
   }).pipe(
     Effect.map(toVolar),
     Effect.catchAllCause((cause) =>

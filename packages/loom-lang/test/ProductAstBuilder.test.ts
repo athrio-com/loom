@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Option } from 'effect'
-import { Loom } from '#ast/Loom'
+import { parseDocument, ParseLayer } from './parse'
 import { buildFrame } from '#ast/FrameAstBuilder'
 import { buildCode, type ModuleInput } from '#ast/ProductAstBuilder'
 
@@ -12,12 +12,7 @@ import { buildCode, type ModuleInput } from '#ast/ProductAstBuilder'
 // LoomVirtualCodeBuilder.test); here we check the structure it produces.
 
 const parse = (src: string) =>
-  Effect.runSync(
-    Effect.gen(function* () {
-      const loom = yield* Loom
-      return yield* loom.ast(src)
-    }).pipe(Effect.provide(Loom.Default)),
-  )
+  Effect.runSync(parseDocument(src).pipe(Effect.provide(ParseLayer)))
 
 const sad = `{{lang: TypeScript}}
 

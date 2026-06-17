@@ -7,12 +7,11 @@ import {
   loadTsdkByPath,
 } from '@volar/language-server/node'
 import { fileURLToPath } from 'node:url'
-import { Loom } from '#ast/Loom'
-import { FrameAstBuilder } from '#ast/FrameAstBuilder'
+import { LoomCorpusAstBuilder } from '#ast/LoomCorpusAstBuilder'
 import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
 
 const program = Effect.gen(function* () {
-  const runtime = yield* Effect.runtime<Loom | FrameAstBuilder>()
+  const runtime = yield* Effect.runtime<LoomCorpusAstBuilder>()
 
   const connection = createConnection()
   const server = createServer(connection)
@@ -41,9 +40,6 @@ const program = Effect.gen(function* () {
   connection.listen()
 
   yield* Effect.never
-}).pipe(
-  Effect.provide(Loom.Default),
-  Effect.provide(FrameAstBuilder.Default),
-)
+}).pipe(Effect.provide(LoomCorpusAstBuilder.Default))
 
 NodeRuntime.runMain(program)
