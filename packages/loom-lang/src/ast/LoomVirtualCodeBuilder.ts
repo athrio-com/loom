@@ -206,7 +206,7 @@ export const fromProduct = (
   pipe(
     lookup(codeByPath, root),
     Option.match({
-      onNone: () => leaf(root.name, '', '', []),
+      onNone: () => leaf(root.name.toLowerCase(), '', '', []),
       onSome: (node) => ({
         ...inlineComposed(
           codeByPath,
@@ -214,7 +214,7 @@ export const fromProduct = (
           Option.none(),
           new Set([keyOf(root)]),
         )(node),
-        id: root.name,
+        id: root.name.toLowerCase(),
         languageId: node.languageId,
       }),
     }),

@@ -44,9 +44,9 @@ describe('VirtualCode — root → frame projection', () => {
       expect(frame.mappings.length).toBeGreaterThan(0)
 
       // the de re product for the Add section — its raw code, in its language,
-      // keyed by the section name
+      // keyed by the section name lowercased (Volar requires lowercase ids)
       const product = root.embeddedCodes![1]!
-      expect(product.id).toBe('Add')
+      expect(product.id).toBe('add')
       expect(product.languageId).toBe('typescript')
       expect(
         product.snapshot.getText(0, product.snapshot.getLength()),

@@ -137,9 +137,9 @@ const codeByPath = new Map([
 ])
 
 describe('fromProduct — section → product virtual code (cross-file)', () => {
-  it('is keyed by the section name, in its own language', () => {
+  it('is keyed by the section name lowercased, in its own language', () => {
     const vc = fromProduct(codeByPath, { path: '/Fun.loom', name: 'Negd' })
-    expect(vc.id).toBe('Negd')
+    expect(vc.id).toBe('negd')
     expect(vc.languageId).toBe('typescript')
     expect(vc.embeddedCodes).toEqual([])
   })

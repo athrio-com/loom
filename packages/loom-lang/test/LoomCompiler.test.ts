@@ -57,7 +57,7 @@ describe('LoomCompiler — cross-file de re through the corpus', () => {
     Effect.gen(function* () {
       const c = yield* LoomCompiler
       const docs = yield* c.code('/Fun.loom')
-      const negd = docs.find((d) => d.id === 'Negd')
+      const negd = docs.find((d) => d.id === 'negd')
       expect(negd).toBeDefined()
       expect(negd!.code).toContain('const negate = (x: number) => -x') // from Sad
       expect(negd!.code).toContain('const negDouble') // Fun's own

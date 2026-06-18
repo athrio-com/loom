@@ -214,7 +214,7 @@ const inlineComposed =
 
 ## The passes and the tree
 
-`fromFrame` is the de dicto pass — the frame virtual code, always loom-tagged for the type-checker. `fromProduct` is the de re pass — a section's product, keyed by its name, in its own language; a section absent from the corpus yields an empty document. `rootVirtualCode` assembles a file's tree: the source as the `loom` root, the frame and product documents its children.
+`fromFrame` is the de dicto pass — the frame virtual code, always loom-tagged for the type-checker. `fromProduct` is the de re pass — a section's product in its own language. Its virtual-code id is the section name lowercased, since Volar requires every embedded-code id to be lowercase. A section absent from the corpus yields an empty document. `rootVirtualCode` assembles a file's tree: the source as the `loom` root, the frame and product documents its children.
 
 =>
 
@@ -231,7 +231,7 @@ export const fromProduct = (
   pipe(
     lookup(codeByPath, root),
     Option.match({
-      onNone: () => leaf(root.name, '', '', []),
+      onNone: () => leaf(root.name.toLowerCase(), '', '', []),
       onSome: (node) => ({
         ...inlineComposed(
           codeByPath,
@@ -239,7 +239,7 @@ export const fromProduct = (
           Option.none(),
           new Set([keyOf(root)]),
         )(node),
-        id: root.name,
+        id: root.name.toLowerCase(),
         languageId: node.languageId,
       }),
     }),
