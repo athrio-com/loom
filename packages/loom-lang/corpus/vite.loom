@@ -1,3 +1,15 @@
+{{lang: TypeScript}}
+
+# Bundling the Loom language server
+
+Vite bundles the language server entry, `src/index.ts`, into a single `dist/loom-server.js`. The bundle targets Node 20 in CommonJS form, the shape a Node host loads it as.
+
+## The build {../vite.config.ts}
+
+Some of the server's dependencies — the `vscode-*-languageservice` packages and `jsonc-parser` — ship only UMD bundles, the older module format that rolldown cannot follow statically. The `umd2esm` plugin rewrites each such import to its ESM sibling so the bundler can inline it. This is the same trick volarjs/starter uses.
+
+=>
+
 import { defineConfig } from 'vite'
 import { builtinModules, createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
@@ -23,6 +35,12 @@ const umd2esm = {
     return null
   },
 }
+
+~
+
+Node's built-in modules stay external — they are present in every Node runtime — and everything else is inlined. The single entry builds to `dist/loom-server.js`.
+
+=>
 
 export default defineConfig({
   plugins: [umd2esm],

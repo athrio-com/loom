@@ -31,10 +31,6 @@ export async function activate(context: vscode.ExtensionContext) {
     },
   }
 
-  // The server type-checks the synthesised frame, so it needs a TypeScript
-  // `lib/`. Rather than bundle one, point it at the TypeScript VS Code already
-  // ships (`loadTsdkByPath` on the server loads `typescript.js` and resolves the
-  // `lib.*.d.ts` from this directory).
   const tsdk = path.join(
     vscode.env.appRoot,
     'extensions',

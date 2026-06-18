@@ -1,0 +1,64 @@
+{{lang: JSON}}
+
+# Packaging the Loom language
+
+The `@athrio/loom-lang` package is the language behind every `.loom` file — the Volar extended language and the engine that tangles it. The command-line tool and the VS Code extension both build on it: they import its source and bundle it into their own output, so this package exposes TypeScript source rather than a precompiled library.
+
+## The manifest {../package.json}
+
+Two field groups carry the package's shape. The `imports` field defines Node subpath aliases the package's own modules import by — `#ast/*` for the AST source and `#loom/core` for the composition primitives — so internal imports stay stable rather than relative. The `exports` field names the two public entry points, `./LoomCompiler` and `./LoomTangler`, each pointing at a source file the consumer inlines.
+
+The `main` and `bin` fields point at built output: `dist/loom-server.js` is the bundled language server, and the `loom-language-server` binary launches it. The runtime libraries the server needs — Volar, Effect, the `volar-service-*` plugins — are `dependencies`; `vscode-uri` is a type-only `devDependency`.
+
+=>
+
+{
+  "name": "@athrio/loom-lang",
+  "version": "0.0.1",
+  "main": "./dist/loom-server.js",
+  "bin": {
+    "loom-language-server": "./bin/loom-language-server.js"
+  },
+  "imports": {
+    "#ast/*": "./src/ast/*.ts",
+    "#loom/core": "./src/core.ts"
+  },
+  "exports": {
+    "./LoomCompiler": "./src/LoomCompiler.ts",
+    "./LoomTangler": "./src/LoomTangler.ts"
+  },
+  "scripts": {
+    "build": "vite build",
+    "watch": "vite build --watch"
+  },
+  "dependencies": {
+    "@athrio/loom-config": "workspace:*",
+    "@athrio/loom-lang-services": "workspace:*",
+    "@effect/platform-node": "^0.106.0",
+    "@volar/language-core": "^2.4.28",
+    "@volar/language-server": "^2.4.28",
+    "@volar/language-service": "^2.4.28",
+    "effect": "3.21.2",
+    "volar-service-css": "^0.0.71",
+    "volar-service-html": "^0.0.71",
+    "volar-service-markdown": "^0.0.71",
+    "vscode-html-languageservice": "^5.6.2"
+  },
+  "devDependencies": {
+    "vscode-uri": "^3.1.0"
+  }
+}
+
+## The TypeScript config {../tsconfig.json}
+
+The `tsconfig.json` extends the workspace-root `tsconfig.base.json` and covers both the `src` and `test` directories. Vite produces the `dist` bundle, so the configuration is a development tool only.
+
+=>
+
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "out"
+  },
+  "include": ["src", "test"]
+}
