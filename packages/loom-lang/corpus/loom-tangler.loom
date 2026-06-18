@@ -1,15 +1,25 @@
-import { Array, Effect, Option, pipe } from 'effect'
-import { FileSystem } from '@effect/platform'
-import { dirname, resolve as resolvePath } from 'node:path'
-import { type FrameModule } from '#ast/FrameAst'
-import { type Path } from '#ast/LoomCorpusAst'
-import { fromProduct } from '#ast/LoomVirtualCodeBuilder'
-import { codeOf, LoomCompiler } from './LoomCompiler'
+{{lang: TypeScript}}
+
+# Tangling to disk
+
+`LoomTangler` is the filesystem surface of the de re plane. `tangle` takes a `.loom` file or a directory of them: for each, it builds the reachable corpus, finds the file's `{path}` sinks, composes each — anchors and imports resolved across the corpus by `fromProduct` — and writes the result to disk. It is the half of the pipeline the editor never runs: the editor projects to virtual code, the tangler emits real files.
+
+## A tangled file
+
+A `TangledFile` records one emitted file — the sink section that produced it, and where it landed on disk.
+
+=>
 
 export interface TangledFile {
   readonly section: string
   readonly path: Path
 }
+
+## The tangler service
+
+`LoomTangler` holds the compiler and the filesystem. `tangleFile` builds one file's corpus once, then for each sink composes its content with `fromProduct` and writes it, resolving the output path relative to the `.loom`'s own directory. `loomsUnder` lists every `.loom` beneath a directory. `tangle` dispatches: a directory tangles each file under it, a single path tangles itself.
+
+=>
 
 export class LoomTangler extends Effect.Service<LoomTangler>()('LoomTangler', {
   effect: Effect.gen(function* () {
@@ -69,6 +79,12 @@ export class LoomTangler extends Effect.Service<LoomTangler>()('LoomTangler', {
   dependencies: [LoomCompiler.Default],
 }) {}
 
+## Finding the sinks
+
+`sinksOf` reads a frame's tangle sinks — each service class whose body is a `TangleBody` — pairing the section name to compose with the `{path}` it writes to.
+
+=>
+
 const sinksOf = (
   frame: FrameModule,
 ): ReadonlyArray<{ readonly name: string; readonly path: string }> =>
@@ -81,3 +97,29 @@ const sinksOf = (
         : Option.none(),
     ),
   )
+
+## What this module draws on
+
+It draws on the compiler — `LoomCompiler` and `codeOf` — to build the corpus, `fromProduct` to flatten each sink to text, `@effect/platform`'s `FileSystem` with Node's path module to write, and Effect's primitives. `FrameModule` and `Path` type the frame and paths.
+
+=>
+
+import { Array, Effect, Option, pipe } from 'effect'
+import { FileSystem } from '@effect/platform'
+import { dirname, resolve as resolvePath } from 'node:path'
+import { type FrameModule } from '#ast/FrameAst'
+import { type Path } from '#ast/LoomCorpusAst'
+import { fromProduct } from '#ast/LoomVirtualCodeBuilder'
+import { codeOf, LoomCompiler } from './LoomCompiler'
+
+## The module {../src/LoomTangler.ts}
+
+=>
+
+{{What this module draws on}}
+
+{{A tangled file}}
+
+{{The tangler service}}
+
+{{Finding the sinks}}

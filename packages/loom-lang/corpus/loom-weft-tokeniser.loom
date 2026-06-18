@@ -1,79 +1,14 @@
-import {
-  Effect,
-  Either,
-  Hash,
-  Match,
-  Option,
-  ParseResult,
-  Schema,
-  Stream,
-  pipe,
-} from 'effect'
-import {
-  okHealth,
-  type Health,
-  type Position,
-  type UnexpectedToken,
-  UnexpectedTokenSchema,
-} from './LoomNode'
-import {
-  CodeTokenSchema,
-  HeadingTitleTokenSchema,
-  PathSpecifierLabelTokenSchema,
-  PathSpecifierTokenSchema,
-  ProseTokenSchema,
-  SpecifierCloseTokenSchema,
-  SpecifierLabelTokenSchema,
-  SpecifierOpenTokenSchema,
-  SpecifierTokenSchema,
-  TagCloseTokenSchema,
-  TagLabelTokenSchema,
-  TagOpenTokenSchema,
-  TagTokenSchema,
-  WarpAnchorNameTokenSchema,
-  WarpAnchorTokenSchema,
-  WarpAnnotationTokenSchema,
-  WarpCloseTokenSchema,
-  WarpDefaultTokenSchema,
-  WarpNameTokenSchema,
-  WarpOpenTokenSchema,
-  WarpTokenSchema,
-  getProbe,
-  type PathSpecifierLabelToken,
-  type PathSpecifierToken,
-  type SpecifierCloseToken,
-  type SpecifierLabelToken,
-  type SpecifierOpenToken,
-  type SpecifierToken,
-  type HeadingTitleToken,
-  type TagCloseToken,
-  type TagLabelToken,
-  type TagOpenToken,
-  type TagToken,
-  type WarpAnchorNameToken,
-  type WarpAnchorToken,
-  type WarpAnnotationToken,
-  type WarpCloseToken,
-  type WarpDefaultToken,
-  type WarpNameToken,
-  type WarpOpenToken,
-  type WarpToken,
-} from './LoomTokens'
-import {
-  type ArrowWeft,
-  ArrowWeftSchema,
-  type CodeWeft,
-  CodeWeftSchema,
-  type HeadingWeft,
-  HeadingWeftSchema,
-  type LoomWeft,
-  type PreambleWeft,
-  PreambleWeftSchema,
-  type ProseWeft,
-  ProseWeftSchema,
-  type TildeWeft,
-  TildeWeftSchema,
-} from './Weft'
+{{lang: TypeScript}}
+
+# The tokeniser stage
+
+`WeftTokeniser` is the tokeniser stage: a pure `Stream.map` that fills each weft's subtokens by kind. A heading gets its title, tag, and specifier; a tagless heading gets a hash-derived tag instead. Arrow and tilde wefts get their optional inline content; preamble and prose settle to ok; a code weft gets its `{{name}}` anchors. After this stage no weft remains `incomplete`.
+
+## The tokeniser service
+
+`tokeniseWefts` maps each weft through `tokeniseWeft`, which dispatches by kind to the per-weft handlers below.
+
+=>
 
 export class WeftTokeniser extends Effect.Service<WeftTokeniser>()(
   'WeftTokeniser',
@@ -98,6 +33,12 @@ const tokeniseWeft = (text: string, weft: LoomWeft): LoomWeft =>
     Match.when({ type: 'CodeWeft' }, (w) => tokeniseCode(text, w)),
     Match.exhaustive,
   )
+
+## Body wefts
+
+These handlers fill the body wefts. `inlineAfter` pulls a line's inline content after its marker — the code after `=>`, the prose after `~`. `tokeniseArrow` and `tokeniseCode` also scan the line for `{{name}}` anchors; `tokeniseTilde` fills inline prose; `tokenisePreamble` scans warp declarations; `tokeniseProse` only settles health. Each aggregates its subtokens' health into the weft.
+
+=>
 
 const codeProbe = Option.getOrThrow(getProbe(CodeTokenSchema))
 const proseProbe = Option.getOrThrow(getProbe(ProseTokenSchema))
@@ -211,6 +152,12 @@ const tokeniseCode = (text: string, weft: CodeWeft): LoomWeft => {
   })
 }
 
+## Health and positions
+
+`aggregateStatus` folds a list of statuses up the lattice ok < incomplete < warning < error, the worst winning. `span` builds a position; `missingClosing` is the error health for an unclosed bracket; `errorToHealth` turns a schema parse error into diagnostics.
+
+=>
+
 const statusRank: Record<Health['status'], number> = {
   ok: 0,
   incomplete: 1,
@@ -258,6 +205,12 @@ const errorToHealth = (
     severity: 'error' as const,
   })),
 })
+
+## Label builders
+
+A label that fails its strict pattern must still be kept. `buildTagLabel`, `buildSpecifierLabel`, and `buildPathSpecifierLabel` each try the schema, and on rejection build a valid token with an empty value, error health, and the rejected text stashed in `unexpected` — strict validation stays on, and bytes are never dropped.
+
+=>
 
 const decodeTagLabel = Schema.decodeUnknownEither(TagLabelTokenSchema)
 const decodeSpecifierLabel = Schema.decodeUnknownEither(
@@ -336,6 +289,12 @@ const buildPathSpecifierLabel = (
     ),
   )
 
+## Scanners
+
+`makeScanner` reads a token schema's `Probe` once and returns a per-line scanner that emits a typed token at every match, with real positions and ok health. The scanners for the tag and specifier delimiters are built from it; the schema's literal `value` guards against probe drift.
+
+=>
+
 type Scannable<T> = Schema.Schema<T, any, never>
 
 type Scanner<T> = (lineText: string, linePosition: Position) => ReadonlyArray<T>
@@ -366,6 +325,12 @@ const scanTagOpen = makeScanner(TagOpenTokenSchema)
 const scanTagClose = makeScanner(TagCloseTokenSchema)
 const scanSpecifierOpen = makeScanner(SpecifierOpenTokenSchema)
 const scanSpecifierClose = makeScanner(SpecifierCloseTokenSchema)
+
+## Pairing tags and specifiers
+
+Each scanner finds opens and closes independently; construction pairs them. `partitionFirstClose` matches an open with the first close after it. `constructTag` pairs `[` and `]`, synthesising a close at end-of-line when none follows and routing extras to `unexpected`. `constructSpecifier` does the same for `{` and `}`, then chooses — by `isPathLabel` — a path specifier (a tangle sink) or a label specifier, sharing the open and close subnodes.
+
+=>
 
 type Construction<T> = {
   readonly token: Option.Option<T>
@@ -577,6 +542,12 @@ const constructSpecifier = (
   }
 }
 
+## Pairing warp delimiters
+
+Warps and anchors share the `{{` and `}}` delimiters. `pairWarpDelims` pairs them greedily left to right — pairing an unmatched open with a synthetic `}}` at end-of-line, and surfacing unmatched closes as stray `unexpected` tokens.
+
+=>
+
 const scanWarpOpen = makeScanner(WarpOpenTokenSchema)
 const scanWarpClose = makeScanner(WarpCloseTokenSchema)
 
@@ -625,6 +596,12 @@ const pairWarpDelims = (
 
   return { pairs, stray: remaining.map(toUnexpected) }
 }
+
+## Warp content
+
+A warp's content is `name [: annotation [= default]]`. `sliceTop` cuts at the first top-level `,` or `;`, tracking bracket depth, since a warp declares one parameter; `trimSpan` trims whitespace and reports the trimmed span. `buildWarpName` mirrors the label builders. `buildOpaqueSegment` produces the opaque annotation and default tokens, flagging an empty value and returning any trailing content as `unexpected`.
+
+=>
 
 type SliceAcc = { readonly depth: number; readonly cut: Option.Option<number> }
 
@@ -760,6 +737,12 @@ const buildWarpDefault = (raw: string, rawStart: number, line: number) =>
     rawStart,
     line,
   )
+
+## Building a warp
+
+`buildWarp` splits a warp's content on `:`, then on `=`. With no `:`, the whole content is the name and a zero-width error-health annotation is synthesised, since the annotation is required. `assembleWarp` gathers the parts, aggregates their health, and attaches any extras.
+
+=>
 
 const synthMissingAnnotation = (position: Position): WarpAnnotationToken =>
   WarpAnnotationTokenSchema.make({
@@ -917,6 +900,12 @@ const assembleWarp = (
   })
 }
 
+## Building an anchor
+
+`buildWarpAnchor` reads a `{{…}}` reference's content as its name — an identifier or a multi-word heading name. Content the anchor pattern rejects (empty, or carrying a colon) yields an error-health name and surfaces the text as `unexpected`. `assembleAnchor` gathers the parts.
+
+=>
+
 const unexpectedIfNonEmpty = (
   position: Position,
   value: string,
@@ -1004,6 +993,12 @@ const assembleAnchor = (
   })
 }
 
+## Scanning a line for warps and anchors
+
+`constructWarps` scans a preamble line, pairs the delimiters, and builds a warp per pair. `constructAnchors` does the same for a code line, but keeps only well-formed anchors: a malformed `{{…}}` — unmatched, or a name with a colon or brace — is dropped and its bytes stay literal code, rather than transcluding as a broken reference. A well-formed anchor whose name does not resolve stays an anchor, a diagnostic for the frame pass.
+
+=>
+
 const constructWarps = (
   lineText: string,
   linePosition: Position,
@@ -1040,6 +1035,12 @@ const constructAnchors = (
   }
 }
 
+## The heading title
+
+`headingTitle` is the text between the heading marker and the first structural token, trimmed. It returns nothing when that span is empty, and text after the first structural token is dropped.
+
+=>
+
 const headingTitle = (
   text: string,
   position: Position,
@@ -1073,6 +1074,12 @@ const headingTitle = (
     }),
   )
 }
+
+## Scanning a heading
+
+`scanHeading` builds a heading's subnodes — the tag, the specifier, and the title — from one line, recording the spans they consume so the title knows where to stop.
+
+=>
 
 type HeadingTokens = {
   readonly tag: Option.Option<TagToken>
@@ -1117,6 +1124,12 @@ const scanHeading = (
     unexpected,
   }
 }
+
+## Tokenising a heading
+
+`tokeniseHeading` assembles the heading weft. A real tag wins; a tagless heading gets `synthHashTag`, a hash-derived `[S_…]` tag with ok health, so every section carries a stable identifier — a private section, not an error.
+
+=>
 
 const syntheticTagId = (title: string): string =>
   `S_${(Hash.string(title) >>> 0).toString(36)}`
@@ -1191,3 +1204,120 @@ const tokeniseHeading = (text: string, weft: HeadingWeft): LoomWeft => {
     specifier: Option.getOrUndefined(specifier),
   })
 }
+
+## What this module draws on
+
+Effect supplies `Stream` and `Match` for the per-weft pass, `Schema` and `ParseResult` for decoding, `Hash` for the synthetic tag, and the rest. The token schemas and `getProbe` come from `LoomTokens`, the weft schemas from `Weft`, and the health and `UnexpectedToken` types from the foundation.
+
+=>
+
+import {
+  Effect,
+  Either,
+  Hash,
+  Match,
+  Option,
+  ParseResult,
+  Schema,
+  Stream,
+  pipe,
+} from 'effect'
+import {
+  okHealth,
+  type Health,
+  type Position,
+  type UnexpectedToken,
+  UnexpectedTokenSchema,
+} from './LoomNode'
+import {
+  CodeTokenSchema,
+  HeadingTitleTokenSchema,
+  PathSpecifierLabelTokenSchema,
+  PathSpecifierTokenSchema,
+  ProseTokenSchema,
+  SpecifierCloseTokenSchema,
+  SpecifierLabelTokenSchema,
+  SpecifierOpenTokenSchema,
+  SpecifierTokenSchema,
+  TagCloseTokenSchema,
+  TagLabelTokenSchema,
+  TagOpenTokenSchema,
+  TagTokenSchema,
+  WarpAnchorNameTokenSchema,
+  WarpAnchorTokenSchema,
+  WarpAnnotationTokenSchema,
+  WarpCloseTokenSchema,
+  WarpDefaultTokenSchema,
+  WarpNameTokenSchema,
+  WarpOpenTokenSchema,
+  WarpTokenSchema,
+  getProbe,
+  type PathSpecifierLabelToken,
+  type PathSpecifierToken,
+  type SpecifierCloseToken,
+  type SpecifierLabelToken,
+  type SpecifierOpenToken,
+  type SpecifierToken,
+  type HeadingTitleToken,
+  type TagCloseToken,
+  type TagLabelToken,
+  type TagOpenToken,
+  type TagToken,
+  type WarpAnchorNameToken,
+  type WarpAnchorToken,
+  type WarpAnnotationToken,
+  type WarpCloseToken,
+  type WarpDefaultToken,
+  type WarpNameToken,
+  type WarpOpenToken,
+  type WarpToken,
+} from './LoomTokens'
+import {
+  type ArrowWeft,
+  ArrowWeftSchema,
+  type CodeWeft,
+  CodeWeftSchema,
+  type HeadingWeft,
+  HeadingWeftSchema,
+  type LoomWeft,
+  type PreambleWeft,
+  PreambleWeftSchema,
+  type ProseWeft,
+  ProseWeftSchema,
+  type TildeWeft,
+  TildeWeftSchema,
+} from './Weft'
+
+## The module {../src/ast/WeftTokeniser.ts}
+
+=>
+
+{{What this module draws on}}
+
+{{The tokeniser service}}
+
+{{Body wefts}}
+
+{{Health and positions}}
+
+{{Label builders}}
+
+{{Scanners}}
+
+{{Pairing tags and specifiers}}
+
+{{Pairing warp delimiters}}
+
+{{Warp content}}
+
+{{Building a warp}}
+
+{{Building an anchor}}
+
+{{Scanning a line for warps and anchors}}
+
+{{The heading title}}
+
+{{Scanning a heading}}
+
+{{Tokenising a heading}}

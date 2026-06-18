@@ -1,29 +1,14 @@
-import {
-  Chunk,
-  Effect,
-  Function,
-  Match,
-  Option,
-  Sink,
-  Stream,
-  pipe,
-} from 'effect'
-import {
-  LoomDocumentSchema,
-  LoomHeadingSchema,
-  LoomSectionSchema,
-  type LoomDocument,
-  type LoomHeading,
-  type LoomSection,
-} from './LoomAst'
-import { okHealth, type Health, type Position } from './LoomNode'
-import type { MixedEOL } from './LineRanges'
-import type {
-  HeadingWeft,
-  LoomWeft,
-  PreambleWeft,
-  SectionBodyWeft,
-} from './Weft'
+{{lang: TypeScript}}
+
+# The document builder
+
+`LoomAstBuilder` is the final parse stage: `build` folds a stream of wefts into a `LoomDocument`. It peels one top-level node at a time — a pre-heading preamble weft, or a heading with the body wefts up to the next heading — and routes each into the document. Sections are flat, so there is no second assembly stage. The module also holds `emptyDocumentFor`, the document the chain returns when `MixedEOL` short-circuits it.
+
+## The build
+
+`build` is a transduce then a fold: `nodeSink` peels one node, a `filterMap` drops the empty end-of-input marker, `runFold` routes each node into a growing document, and `makeDocument` finishes it.
+
+=>
 
 export class LoomAstBuilder extends Effect.Service<LoomAstBuilder>()(
   'LoomAstBuilder',
@@ -39,6 +24,12 @@ export class LoomAstBuilder extends Effect.Service<LoomAstBuilder>()(
     },
   },
 ) {}
+
+## Peeling one node
+
+`parsingSink` is the shared shape: peel one input element, dispatch by its type, and wrap the result so an exhausted stream yields nothing. `nodeSink` peels one top-level node, which `dispatchNode` routes by type. A heading goes to `sectionSink`, which collects its body up to the next heading; a pre-heading preamble weft passes straight through. A body weft cannot reach the top level, so it dies as a defect. The predicates classify a weft along the way.
+
+=>
 
 const parsingSink = <In, A>(
   dispatch: (item: In) => Sink.Sink<A, In, In>,
@@ -94,6 +85,12 @@ const sectionSink = (
     Sink.map((body) => buildSection(heading, body)),
   )
 
+## Folding into the document
+
+The fold routes each peeled node. `appendToDocument` appends a `LoomSection` to the document's sections and a `PreambleWeft` to its preamble, starting from the empty `initialDocument`.
+
+=>
+
 type DocumentBuilder = {
   readonly preamble: ReadonlyArray<PreambleWeft>
   readonly sections: ReadonlyArray<LoomSection>
@@ -120,6 +117,12 @@ const appendToDocument = (
     })),
     Match.exhaustive,
   )
+
+## Building a section
+
+`buildSection` turns a heading and its body chunk into a `LoomSection`: it partitions the body into preamble and code wefts, then derives the section's source and span. `headingOf` lifts the heading weft to a `LoomHeading`; `sourceOf` concatenates the children's sources to reconstruct the byte range; `spanFrom` runs the span from the heading's start to the last child's end.
+
+=>
 
 const buildSection = (
   heading: HeadingWeft,
@@ -172,6 +175,12 @@ const spanFrom = (
   }
 }
 
+## Assembling the document
+
+`makeDocument` assembles the final `LoomDocument` from the folded preamble and sections. `documentSpan` spans the whole, `hasLangWarp` checks the preamble for the `{{lang: …}}` declaration, and `documentHealth` raises a warning when it is missing, though parsing still proceeds.
+
+=>
+
 const documentSpan = (db: DocumentBuilder): Position => {
   const all: ReadonlyArray<{ readonly position: Position }> = [
     ...db.preamble,
@@ -211,6 +220,12 @@ const makeDocument = (db: DocumentBuilder): LoomDocument => {
   })
 }
 
+## Recovering from mixed terminators
+
+`emptyDocumentFor` is the document the chain returns when `MixedEOL` short-circuits it before any weft exists: an empty tree whose root health names the two conventions and the lines they appear on. `eolName` gives each convention a human-readable name for that message.
+
+=>
+
 export const emptyDocumentFor = (text: string, err: MixedEOL): LoomDocument => {
   const docPosition: Position = {
     start: { line: 1, offset: 0 },
@@ -246,3 +261,54 @@ const eolName = (kind: 'lf' | 'crlf' | 'cr'): string => {
       return 'CR (classic Mac)'
   }
 }
+
+## What this module draws on
+
+Effect supplies `Stream`, `Sink`, `Chunk`, `Match`, and the rest for the fold. The container schemas come from `LoomAst`; `Health`, `Position`, and `okHealth` from the foundation; the `MixedEOL` type from the line scanner; and the weft types from `Weft`.
+
+=>
+
+import {
+  Chunk,
+  Effect,
+  Function,
+  Match,
+  Option,
+  Sink,
+  Stream,
+  pipe,
+} from 'effect'
+import {
+  LoomDocumentSchema,
+  LoomHeadingSchema,
+  LoomSectionSchema,
+  type LoomDocument,
+  type LoomHeading,
+  type LoomSection,
+} from './LoomAst'
+import { okHealth, type Health, type Position } from './LoomNode'
+import type { MixedEOL } from './LineRanges'
+import type {
+  HeadingWeft,
+  LoomWeft,
+  PreambleWeft,
+  SectionBodyWeft,
+} from './Weft'
+
+## The module {../src/ast/LoomAstBuilder.ts}
+
+=>
+
+{{What this module draws on}}
+
+{{The build}}
+
+{{Peeling one node}}
+
+{{Folding into the document}}
+
+{{Building a section}}
+
+{{Assembling the document}}
+
+{{Recovering from mixed terminators}}

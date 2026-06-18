@@ -1,21 +1,22 @@
-import { Array, Effect, Match, Option, Schema, SchemaAST, pipe } from 'effect'
-import * as FrameAst from '#ast/FrameAst'
-import {
-  keyOf,
-  type ComposedCode,
-  type Fragment,
-  type Ref,
-  type SectionId,
-} from '#ast/ProductAst'
-import { type Position } from '#ast/LoomNode'
-import { type Path } from '#ast/LoomCorpusAst'
-import {
-  type LoomVirtualCode,
-  type Mapping,
-  type MappingKind,
-} from '#ast/LoomVirtualCode'
+{{lang: TypeScript}}
+
+# The projection pass
+
+`LoomVirtualCodeBuilder` produces the `LoomVirtualCode` a `.loom` presents to Volar, in two passes that share one model. `fromFrame` walks the Frame AST in render order and emits the de dicto frame, every authored leaf mapped back to the `.loom`. `fromProduct` walks a section's `ComposedCode` and emits its de re product, inlining transclusions by following `Ref`s across the corpus. Both fold their pieces with the same monoid, and `rootVirtualCode` assembles a file's tree from the two. Pure and total.
+
+## The corpus code view
+
+`CodeByPath` indexes the corpus's per-module `code` maps by path — the view `fromProduct` walks to resolve a `Ref`'s `{ path, name }` target across files.
+
+=>
 
 export type CodeByPath = ReadonlyMap<Path, ReadonlyMap<string, ComposedCode>>
+
+## The render-order table
+
+`fromFrame` emits each frame node's fields in the order the node declares. `typeTagOf` reads a frame schema's `type` literal, and `orderByType` builds the table once — tag → ordered renderable fields — from the `FrameAst` schemas that carry a `RenderOrder` annotation.
+
+=>
 
 const typeTagOf = (schema: Schema.Schema.Any): Option.Option<string> =>
   pipe(
@@ -40,6 +41,12 @@ const orderByType: ReadonlyMap<string, ReadonlyArray<string>> = new Map(
   ),
 )
 
+## The fold monoid
+
+A childless `LoomVirtualCode` is the unit a walk produces and folds. `concat` appends one after another, shifting the later one's mapping offsets past the earlier's code; the first's identity wins. `leaf` makes a unit, and `emptyLeaf` is the seed.
+
+=>
+
 const leaf = (
   id: string,
   languageId: string,
@@ -62,6 +69,12 @@ const concat = (a: LoomVirtualCode, b: LoomVirtualCode): LoomVirtualCode => ({
   ],
   embeddedCodes: a.embeddedCodes,
 })
+
+## Walking the frame
+
+The de dicto walk turns a frame node into its text and mappings. `emitNode` emits a node's fields in render order, and `emitField` handles each by shape: a string becomes a leaf, mapped to its `.loom` span when the node is authored; an array folds its nodes; a sub-node recurses. `emitText` builds that mapped leaf. Synth glue carries no position, so it maps nothing.
+
+=>
 
 const emitText = (parent: any, text: string): LoomVirtualCode =>
   leaf(
@@ -105,6 +118,12 @@ const emitNode = (node: any): LoomVirtualCode =>
     Array.map((name) => emitField(node, node[name])),
     Array.reduce(emptyLeaf, concat),
   )
+
+## Inlining the product
+
+The de re walk inlines a section's parts. `lookup` finds a section's `ComposedCode` across the corpus. `inlineComposed` folds a node's parts. `inlinePart` handles each: a `Fragment` becomes a `product` leaf mapped to its origin; a `Ref` is followed and inlined — pinned onto the consuming `{{…}}` anchor at the first cross-file boundary, and contributing nothing when its target is unresolved, missing, or cyclic. `absorbTrailingNewline`, with `clipMappings`, sheds a transcluded block's trailing newline so the sink's layout becomes the output's.
+
+=>
 
 const lookup = (
   codeByPath: CodeByPath,
@@ -193,6 +212,12 @@ const inlineComposed =
       Array.reduce(emptyLeaf, concat),
     )
 
+## The passes and the tree
+
+`fromFrame` is the de dicto pass — the frame virtual code, always loom-tagged for the type-checker. `fromProduct` is the de re pass — a section's product, keyed by its name, in its own language; a section absent from the corpus yields an empty document. `rootVirtualCode` assembles a file's tree: the source as the `loom` root, the frame and product documents its children.
+
+=>
+
 export const fromFrame = (frame: FrameAst.FrameModule): LoomVirtualCode => ({
   ...emitNode(frame),
   id: 'frame',
@@ -231,6 +256,12 @@ export const rootVirtualCode = (
   embeddedCodes,
 })
 
+## The service
+
+`LoomVirtualCodeBuilder` wraps the two passes as an Effect service for callers already inside Effect — the corpus compiler; the single-file editor path uses the functions directly.
+
+=>
+
 export class LoomVirtualCodeBuilder extends Effect.Service<LoomVirtualCodeBuilder>()(
   'LoomVirtualCodeBuilder',
   {
@@ -245,3 +276,46 @@ export class LoomVirtualCodeBuilder extends Effect.Service<LoomVirtualCodeBuilde
     },
   },
 ) {}
+
+## What this module draws on
+
+Effect supplies `Schema` and `SchemaAST` to read the render-order annotations, and the rest. `FrameAst` is imported whole, since its schemas drive the table; the de re node types and `keyOf` come from `ProductAst`, `Position` and `Path` from the foundation and corpus model, and the virtual-code types from `LoomVirtualCode`.
+
+=>
+
+import { Array, Effect, Match, Option, Schema, SchemaAST, pipe } from 'effect'
+import * as FrameAst from '#ast/FrameAst'
+import {
+  keyOf,
+  type ComposedCode,
+  type Fragment,
+  type Ref,
+  type SectionId,
+} from '#ast/ProductAst'
+import { type Position } from '#ast/LoomNode'
+import { type Path } from '#ast/LoomCorpusAst'
+import {
+  type LoomVirtualCode,
+  type Mapping,
+  type MappingKind,
+} from '#ast/LoomVirtualCode'
+
+## The module {../src/ast/LoomVirtualCodeBuilder.ts}
+
+=>
+
+{{What this module draws on}}
+
+{{The corpus code view}}
+
+{{The render-order table}}
+
+{{The fold monoid}}
+
+{{Walking the frame}}
+
+{{Inlining the product}}
+
+{{The passes and the tree}}
+
+{{The service}}

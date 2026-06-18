@@ -1,6 +1,5 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Layer, Option } from 'effect'
-import { dirname, resolve as resolvePath } from 'node:path'
+import { Effect, Layer } from 'effect'
 import { DocumentSource } from '../src/LoomCompiler'
 import { LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
@@ -43,10 +42,6 @@ const TestDocs = Layer.succeed(
   DocumentSource,
   new DocumentSource({
     read: (path: string) => Effect.succeed(files[path] ?? ''),
-    resolve: (from: string, specifier: string) =>
-      specifier.endsWith('.loom')
-        ? Option.some(resolvePath(dirname(from), specifier))
-        : Option.none(),
   }),
 )
 

@@ -12,8 +12,8 @@ the language plugin.
 
 The server is built from Volar's toolkit for Node language servers — the connection, the
 project factory, and `loadTsdkByPath` — over the Effect runtime. It imports the builder it
-warms, `LoomCorpusAstBuilder` — the spine that runs a `.loom` through every pass — and the
-two halves this module registers, `loomLanguagePlugin` and `loomServicePlugins`.
+warms, `LoomCorpusAstBuilder`, which runs a `.loom` through every pass, and the two halves
+this module registers, `loomLanguagePlugin` and `loomServicePlugins`.
 
 =>
 

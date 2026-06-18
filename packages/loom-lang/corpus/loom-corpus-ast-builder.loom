@@ -1,0 +1,172 @@
+{{lang: TypeScript}}
+
+# Building one module
+
+`LoomCorpusAstBuilder` compiles one `.loom` file. It runs the file through every pass in turn — read its bytes, parse, frame, product — and returns a `LoomModule`: the parsed document, the de dicto frame (the generated composition program), the de re product code (the author's own code), and the paths of the files this one imports.
+
+It builds that one module and no more. It follows no imports and keeps no cache — `LoomCompiler` does both, walking the import paths this builder reports and memoising each result in `LoomMemo`. A cross-file `{{…}}` reference stays unresolved here as well. It is inlined later, at projection, by `fromProduct`.
+
+The builder owns no files. It reads through a `Source` the caller hands it, so the same build runs over a real filesystem for the tangler, a Volar document host for the editor, or an in-memory fake for a test.
+
+## The source it reads through
+
+`Source` is what the builder reads through — a small interface the caller provides, never the filesystem directly. Its one method, `read`, returns a file's text by its path. `LoomCompiler` supplies the real implementation, `DocumentSource`, so the builder reads through the caller rather than the filesystem.
+
+=>
+
+export interface Source {
+  readonly read: (path: Path) => Effect.Effect<string>
+}
+
+## The chain of passes
+
+`build` runs one file through the whole chain, each pass consuming the one before it. `LoomSourceRanges` cuts the text into line ranges, `WeftClassifier` then `WeftTokeniser` turn those into tokenised wefts, and `LoomAstBuilder` folds the wefts into a `LoomDocument`. `FrameAstBuilder` turns the document into the frame, and `ProductAstBuilder` turns the frame into the product code. The passes are peers here — no pass hides another behind a single call.
+
+Parsing never throws. Mixed line terminators are the one failure the parse chain cannot pin to a node, so `LoomSourceRanges` raises `MixedEOL`; `build` catches it and recovers with `emptyDocumentFor`, an empty document carrying the diagnostic. Every other malformation rides in the document's own health.
+
+`build` also reports the file's `{Loom}` imports, in the two shapes its consumers need. `imports`, the field on the returned module, is the list of resolved `.loom` paths `LoomCompiler` walks to pull in the rest of the corpus. The other shape, a map handed to `ProductAstBuilder`, binds each imported name to the file it lives in, so the product pass can record where a cross-file `{{…}}` reference points. Both are read from the same import lines by the functions below.
+
+=>
+
+export class LoomCorpusAstBuilder extends Effect.Service<LoomCorpusAstBuilder>()(
+  'LoomCorpusAstBuilder',
+  {
+    effect: Effect.gen(function* () {
+      const sourceRanges = yield* LoomSourceRanges
+      const classify = yield* WeftClassifier
+      const tokenise = yield* WeftTokeniser
+      const astBuilder = yield* LoomAstBuilder
+      const frames = yield* FrameAstBuilder
+      const productBuilder = yield* ProductAstBuilder
+
+      const build = (source: Source, path: Path): Effect.Effect<LoomModule> =>
+        Effect.gen(function* () {
+          const text = yield* source.read(path)
+          const doc = yield* sourceRanges.stream(text).pipe(
+            Effect.flatMap((ranges) =>
+              pipe(
+                ranges,
+                classify.classifyWefts(text),
+                tokenise.tokeniseWefts(text),
+                astBuilder.build,
+              ),
+            ),
+            Effect.catchTag('MixedEOL', (err) =>
+              Effect.succeed(emptyDocumentFor(text, err)),
+            ),
+          )
+          const frame = yield* frames.build(doc)
+          const imports = pipe(
+            frame.imports,
+            Array.filterMap((i) =>
+              pipe(
+                specifierOf(i.text),
+                Option.flatMap((spec) => locate(path, spec)),
+              ),
+            ),
+          )
+          const code = yield* productBuilder.build({
+            path,
+            text,
+            frame,
+            imports: importBindingsOf(path, frame),
+          })
+          return { path, text, doc, frame, code, imports }
+        })
+
+      return { build }
+    }),
+    dependencies: [
+      LoomSourceRanges.Default,
+      WeftClassifier.Default,
+      WeftTokeniser.Default,
+      LoomAstBuilder.Default,
+      FrameAstBuilder.Default,
+      ProductAstBuilder.Default,
+    ],
+  },
+) {}
+
+## Resolving imports
+
+Four functions turn a `{Loom}` import line — a real `import { Neg } from "./Sad.loom"` the author wrote — into resolved dependencies. `specifierOf` pulls the path string out of the `from` clause, and `namesOf` pulls the bound names from the braces, skipping aliased ones — a `{ X as Y }` degrades to a missed name, not a wrong one. `locate` resolves a path string to an absolute path, but only when it ends in `.loom`; a bare `effect` or `#loom/core` names no corpus file and resolves to nothing. `importBindingsOf` joins them: it resolves each line's path and maps every name the line binds to that file, dropping any import that does not resolve.
+
+=>
+
+const specifierOf = (importLine: string): Option.Option<string> =>
+  pipe(
+    Option.fromNullable(importLine.match(/from\s*["']([^"']+)["']/)),
+    Option.flatMap((m) => Option.fromNullable(m[1])),
+  )
+
+const namesOf = (importLine: string): ReadonlyArray<string> =>
+  pipe(
+    Option.fromNullable(importLine.match(/\{([^}]*)\}/)),
+    Option.flatMap((m) => Option.fromNullable(m[1])),
+    Option.match({
+      onNone: () => [],
+      onSome: (inner) =>
+        pipe(
+          inner.split(','),
+          Array.map((s) => s.trim()),
+          Array.filter((s) => s.length > 0 && !s.includes(' as ')),
+        ),
+    }),
+  )
+
+const locate = (
+  hostFile: Path,
+  importSpecifier: string,
+): Option.Option<Path> =>
+  importSpecifier.endsWith('.loom')
+    ? Option.some(resolvePath(dirname(hostFile), importSpecifier))
+    : Option.none()
+
+const importBindingsOf = (
+  hostFile: Path,
+  frame: FrameModule,
+): ReadonlyMap<string, Path> =>
+  new Map(
+    pipe(
+      frame.imports,
+      Array.flatMap((line) =>
+        pipe(
+          specifierOf(line.text),
+          Option.flatMap((spec) => locate(hostFile, spec)),
+          Option.match({
+            onNone: (): ReadonlyArray<readonly [string, Path]> => [],
+            onSome: (p) => Array.map(namesOf(line.text), (n) => [n, p] as const),
+          }),
+        ),
+      ),
+    ),
+  )
+
+## What the builder draws on
+
+The builder draws the four parse passes — `LoomSourceRanges`, `WeftClassifier`, `WeftTokeniser`, and `LoomAstBuilder`, with `emptyDocumentFor` for the mixed-terminator recovery — then `FrameAstBuilder` and `ProductAstBuilder` for the two passes beyond parsing. The `LoomModule` and `Path` types name what a build returns and how a file is addressed, and `FrameModule` is the frame the import scan reads. Effect supplies the composition primitives, and Node's path module resolves an import to its file.
+
+=>
+
+import { Array, Effect, Option, pipe } from 'effect'
+import { dirname, resolve as resolvePath } from 'node:path'
+import { LoomSourceRanges } from '#ast/LineRanges'
+import { WeftClassifier } from '#ast/WeftClassifier'
+import { WeftTokeniser } from '#ast/WeftTokeniser'
+import { LoomAstBuilder, emptyDocumentFor } from '#ast/LoomAstBuilder'
+import type { FrameModule } from '#ast/FrameAst'
+import { FrameAstBuilder } from '#ast/FrameAstBuilder'
+import { ProductAstBuilder } from '#ast/ProductAstBuilder'
+import type { LoomModule, Path } from '#ast/LoomCorpusAst'
+
+## The module {../src/ast/LoomCorpusAstBuilder.ts}
+
+=>
+
+{{What the builder draws on}}
+
+{{The source it reads through}}
+
+{{The chain of passes}}
+
+{{Resolving imports}}

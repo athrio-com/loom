@@ -1,0 +1,75 @@
+{{lang: TypeScript}}
+
+# The container nodes
+
+`LoomAst` defines the container nodes — the tree the parse pipeline builds from a file's wefts. A `LoomDocument` holds one `LoomSection` per heading, and each section holds a `LoomHeading` plus its body wefts. The tree is flat: heading level is for the reader, never nesting.
+
+## The heading
+
+A `LoomHeading` is a section's heading — the same parts the `HeadingWeft` carried: the start marker, an optional title, an optional tag, and an optional specifier, either a language label or a tangle path.
+
+=>
+
+export const LoomHeadingSchema = loomNode('LoomHeading', {
+  headingStart: HeadingStartTokenSchema,
+  title: Schema.optional(HeadingTitleTokenSchema),
+  tag: Schema.optional(TagTokenSchema),
+  specifier: Schema.optional(
+    Schema.Union(SpecifierTokenSchema, PathSpecifierTokenSchema),
+  ),
+})
+export type LoomHeading = typeof LoomHeadingSchema.Type
+
+## The section
+
+A `LoomSection` is one structural unit, opened by a heading at any level. Its body is two ordered runs of wefts: the `preamble` before the first transition, and the `code` after — the `=>` and `~` chunks in source order.
+
+=>
+
+export const LoomSectionSchema = loomNode('LoomSection', {
+  heading: LoomHeadingSchema,
+  preamble: Schema.Array(PreambleWeftSchema),
+  code: Schema.Array(SectionBodyWeftSchema),
+})
+export type LoomSection = typeof LoomSectionSchema.Type
+
+## The document
+
+A `LoomDocument` is the root, the implicit module named by its file. Its `preamble` is the run of wefts before the first heading — carrying the `{{lang: …}}` declaration — and its `sections` are the flat list that follows. Either slot may be empty.
+
+=>
+
+export const LoomDocumentSchema = loomNode('LoomDocument', {
+  preamble: Schema.Array(PreambleWeftSchema),
+  sections: Schema.Array(LoomSectionSchema),
+})
+export type LoomDocument = typeof LoomDocumentSchema.Type
+
+## What this module draws on
+
+Each container is a `loomNode` built from Effect's `Schema`. The heading's subtokens come from `LoomTokens`; the preamble and body weft types come from `Weft`.
+
+=>
+
+import { Schema } from 'effect'
+import { loomNode } from './LoomNode'
+import {
+  HeadingStartTokenSchema,
+  HeadingTitleTokenSchema,
+  PathSpecifierTokenSchema,
+  SpecifierTokenSchema,
+  TagTokenSchema,
+} from './LoomTokens'
+import { PreambleWeftSchema, SectionBodyWeftSchema } from './Weft'
+
+## The module {../src/ast/LoomAst.ts}
+
+=>
+
+{{What this module draws on}}
+
+{{The heading}}
+
+{{The section}}
+
+{{The document}}

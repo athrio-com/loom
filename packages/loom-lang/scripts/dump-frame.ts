@@ -2,9 +2,7 @@ import { NodeRuntime } from '@effect/platform-node'
 import { Effect } from 'effect'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { Loom } from '#ast/Loom'
-import { FrameAstBuilder } from '#ast/FrameAstBuilder'
-import { buildCode } from '#ast/ProductAstBuilder'
+import { LoomCorpusAstBuilder, type Source } from '#ast/LoomCorpusAstBuilder'
 import {
   fromFrame,
   fromProduct,
@@ -12,10 +10,11 @@ import {
 } from '#ast/LoomVirtualCodeBuilder'
 
 // =============================================================================
-// dump-frame — dev probe. Reads a `.loom`, runs parse → FrameAstBuilder → fromFrame +
-// fromProduct, and prints (1) the frame source mappings as `gen ⟵ src` pairs
-// (a `name` mapped to an empty source span flagged), (2) the resolved de re product documents (one
-// per Service, transclusions inlined), and (3) the full `FrameModule` as JSON
+// dump-frame — dev probe. Reads a `.loom`, runs LoomCorpusAstBuilder (read →
+// parse → frame → de re `code`) then fromFrame + fromProduct, and prints (1)
+// the frame source mappings as `gen ⟵ src` pairs (a `name` mapped to an empty
+// source span flagged), (2) the resolved de re product documents (one per
+// Service, transclusions inlined), and (3) the full `FrameModule` as JSON
 // (health omitted, `position` compacted to offsets).
 //
 //   pnpm tsx scripts/dump-frame.ts [path/to/file.loom]   (default: experimental.loom)
@@ -36,19 +35,12 @@ const compact = (k: string, v: any) => {
   return v
 }
 
-const program = Effect.gen(function* () {
-  const loom = yield* Loom
-  const builder = yield* FrameAstBuilder
+const source: Source = { read: () => Effect.succeed(text) }
 
-  const document = yield* loom.ast(text)
-  const frame = yield* builder.build(document)
+const program = Effect.gen(function* () {
+  const builder = yield* LoomCorpusAstBuilder
+  const { frame, code } = yield* builder.build(source, '')
   const { code: genCode, mappings } = fromFrame(frame)
-  const code = buildCode({
-    path: '',
-    text,
-    frame,
-    imports: new Map<string, string>(),
-  })
   const codeByPath: CodeByPath = new Map([['', code]])
   const products = [...code.values()].map((node) => {
     const vc = fromProduct(codeByPath, node.origin)
@@ -88,9 +80,6 @@ const program = Effect.gen(function* () {
     '// ===== FrameModule (JSON; health omitted, position as offsets) =====\n',
   )
   process.stdout.write(JSON.stringify(frame, compact, 2) + '\n')
-}).pipe(
-  Effect.provide(Loom.Default),
-  Effect.provide(FrameAstBuilder.Default),
-)
+}).pipe(Effect.provide(LoomCorpusAstBuilder.Default))
 
 NodeRuntime.runMain(program)

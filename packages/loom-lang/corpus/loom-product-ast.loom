@@ -1,0 +1,98 @@
+{{lang: TypeScript}}
+
+# The de re structure
+
+`ProductAst` is the de re structure — the author's product code with its transclusions expressed as edges. Its unit is the `ComposedCode` of one section, and the nodes live per module: each `LoomModule` carries a `code` map of them. `ProductAstBuilder` builds a module's nodes from its frame alone; `fromProduct` later flattens a section to text and mappings, following edges across the corpus. An edge holds a target key, not a pointer. So the schema stays flat and serialisable even though the graph it describes recurses — and may hold a cycle, which `fromProduct` cuts.
+
+## The product node
+
+`productNode` is the de re analog of `frameNode`: it stamps a `type` and a defaulted `health` onto each node. There is no render-order annotation — the de re is flattened by a graph walk, not by emitting fields in order.
+
+=>
+
+const productNode = <Tag extends string, Fields extends Schema.Struct.Fields>(
+  tag: Tag,
+  fields: Fields,
+) =>
+  Schema.Struct({
+    type: Schema.Literal(tag).pipe(
+      Schema.propertySignature,
+      Schema.withConstructorDefault(() => tag),
+    ),
+    health: HealthSchema.pipe(
+      Schema.propertySignature,
+      Schema.withConstructorDefault(() => okHealth),
+    ),
+    ...fields,
+  })
+
+## Section identity
+
+A `SectionId` is a node's corpus-wide identity: the `.loom` `path` and the section `name` within it. Two files may each define a `Main`, so identity is module-qualified. `keyOf` JSON-encodes the pair into the key `fromProduct` uses for its cycle-cutting visited set.
+
+=>
+
+export const SectionIdSchema = Schema.Struct({
+  path: Schema.String,
+  name: Schema.String,
+})
+export type SectionId = typeof SectionIdSchema.Type
+
+export const keyOf = (id: SectionId): string => JSON.stringify([id.path, id.name])
+
+## The leaves
+
+A `Fragment` is a literal product span — the code the author wrote — with the `.loom` `origin` it maps 1:1 back to. A `Ref` is a transclusion edge, the de re analog of the frame's `CodeRef`: its `target` is an `Option<SectionId>`, `None` when the anchor resolved to nothing, and its `anchor` is the `{{…}}` site in the consuming section, where a cross-file mapping re-pins and a resolution diagnostic lands.
+
+=>
+
+export const FragmentSchema = productNode('Fragment', {
+  text: Schema.String,
+  origin: PositionSchema,
+})
+export type Fragment = typeof FragmentSchema.Type
+
+export const RefSchema = productNode('Ref', {
+  target: Schema.OptionFromSelf(SectionIdSchema),
+  anchor: PositionSchema,
+})
+export type Ref = typeof RefSchema.Type
+
+## Composed code
+
+A `Part` is a `Fragment` or a `Ref`. A `ComposedCode` is one section's resolved de re: its `origin` identity, its product `languageId`, and its `parts` in composition order — a transcluded section before the code that uses it. A module holds one per section, keyed by name.
+
+=>
+
+export const PartSchema = Schema.Union(FragmentSchema, RefSchema)
+export type Part = typeof PartSchema.Type
+
+export const ComposedCodeSchema = productNode('ComposedCode', {
+  origin: SectionIdSchema,
+  languageId: Schema.String,
+  parts: Schema.Array(PartSchema),
+})
+export type ComposedCode = typeof ComposedCodeSchema.Type
+
+## What this module draws on
+
+Effect's `Schema` defines the nodes, and `Health`, `okHealth`, and `Position` from the foundation give each node its health default and its source spans.
+
+=>
+
+import { Schema } from 'effect'
+import { HealthSchema, okHealth, PositionSchema } from '#ast/LoomNode'
+
+## The module {../src/ast/ProductAst.ts}
+
+=>
+
+{{What this module draws on}}
+
+{{The product node}}
+
+{{Section identity}}
+
+{{The leaves}}
+
+{{Composed code}}

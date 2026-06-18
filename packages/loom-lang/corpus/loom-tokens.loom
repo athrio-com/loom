@@ -1,5 +1,14 @@
-import { Option, Schema, SchemaAST } from 'effect'
-import { loomNode } from './LoomNode'
+{{lang: TypeScript}}
+
+# The leaf tokens
+
+`LoomTokens` defines the AST's leaf nodes — every span the parser recognises inside a line. Each token is built by `loomNode`, so it carries the same `type`, `position`, and `health` as any container, and most carry a `Probe`: the regular expression the classifier and tokeniser recognise it by. The compound tokens — `Tag`, `Specifier`, `Warp` — expose their parts as named subnodes, so a diagnostic can land on the exact part at fault.
+
+## The Probe annotation
+
+A `Probe` is a regular expression annotated onto a token schema. The classifier and tokeniser recognise a token by its `Probe` match, then assemble the typed token from that match. `getProbe` reads the annotation back off a schema.
+
+=>
 
 export const Probe: unique symbol = Symbol.for('loom/Probe')
 
@@ -7,12 +16,24 @@ export const getProbe = (
   schema: Schema.Schema<any, any, never>,
 ): Option.Option<RegExp> => SchemaAST.getAnnotation<RegExp>(Probe)(schema.ast)
 
+## Heading markers
+
+`HeadingStart` marks a heading line — one to six `#` and the mandatory space after. It is position-only: the marker text is its `source`, and the heading level is the hash count, recorded for the reader, since every heading makes a flat section.
+
+=>
+
 export const HeadingStartTokenSchema = loomNode('HeadingStart', {}).annotations(
   {
     [Probe]: /^#{1,6} /,
   },
 )
 export type HeadingStartToken = typeof HeadingStartTokenSchema.Type
+
+## Tags
+
+A `Tag` is `[name]`. Its `open`, `label`, and `close` are separate subnodes, each with its own health, so a missing `]` lands on the `close`. The label's rule is health-aware: a real label matches `[a-zA-Z0-9_-]+`, and an empty value is allowed only on a non-ok node — the placeholder an earlier pass leaves before the tokeniser fills it.
+
+=>
 
 export const TagOpenTokenSchema = loomNode('TagOpen', {
   value: Schema.Literal('['),
@@ -52,6 +73,12 @@ export const TagTokenSchema = loomNode('Tag', {
 })
 export type TagToken = typeof TagTokenSchema.Type
 
+## Specifiers
+
+A `Specifier` is `{name}` — the same open, label, and close anatomy as a `Tag`, with `{ }` for delimiters and the same health-aware label rule.
+
+=>
+
 export const SpecifierOpenTokenSchema = loomNode('SpecifierOpen', {
   value: Schema.Literal('{'),
 }).annotations({
@@ -90,6 +117,12 @@ export const SpecifierTokenSchema = loomNode('Specifier', {
 })
 export type SpecifierToken = typeof SpecifierTokenSchema.Type
 
+## Path specifiers
+
+A `PathSpecifier` is `{path/to/file}`: the same `{ }` delimiters as a `Specifier`, reusing its `open` and `close` subnodes, but its label admits the `.` and `/` of a path. A heading carrying one is a tangle section, the file-emission sink.
+
+=>
+
 export const PathSpecifierLabelTokenSchema = loomNode('PathSpecifierLabel', {
   value: Schema.String,
 }).pipe(
@@ -114,6 +147,12 @@ export const PathSpecifierTokenSchema = loomNode('PathSpecifier', {
 })
 export type PathSpecifierToken = typeof PathSpecifierTokenSchema.Type
 
+## Transition markers
+
+`Arrow` (`=>`) opens a code chunk and `Tilde` (`~`) opens prose. Both are position-only — the marker is recognised here, the content after it elsewhere.
+
+=>
+
 export const ArrowTokenSchema = loomNode('Arrow', {}).annotations({
   [Probe]: /^\s*=>/,
 })
@@ -124,8 +163,20 @@ export const TildeTokenSchema = loomNode('Tilde', {}).annotations({
 })
 export type TildeToken = typeof TildeTokenSchema.Type
 
+## Heading title
+
+`HeadingTitle` is the human-readable title of a heading — the text between the marker and the first structural token, trimmed. It is position-only and computed from positions, not scanned, so it carries no `Probe`.
+
+=>
+
 export const HeadingTitleTokenSchema = loomNode('HeadingTitle', {})
 export type HeadingTitleToken = typeof HeadingTitleTokenSchema.Type
+
+## Code and prose content
+
+`Code` is the content after `=>`, and `Prose` the content after `~`. Both are position-only; each one's `Probe` picks up the run of text following the marker.
+
+=>
 
 export const CodeTokenSchema = loomNode('Code', {}).annotations({
   [Probe]: /(?<=^\s*=>\s*)\S.*$/,
@@ -136,6 +187,12 @@ export const ProseTokenSchema = loomNode('Prose', {}).annotations({
   [Probe]: /(?<=^\s*~+\s*)\S.*$/,
 })
 export type ProseToken = typeof ProseTokenSchema.Type
+
+## Warps and anchors
+
+A `Warp` is a declaration, `{{name: annotation [= default]}}`, written in a preamble line; a `WarpAnchor` is a reference, `{{name}}`, written in a code line. Both expose `open`, `close`, and `name` as subnodes. A declaration's `name` must be a TypeScript identifier; an anchor's `name` is looser — any text without braces or a colon, since it may name either a binding or a section by heading. The `annotation` and `default` are opaque text here; their structure is read by a later pass.
+
+=>
 
 export const WarpOpenTokenSchema = loomNode('WarpOpen', {
   value: Schema.Literal('{{'),
@@ -211,6 +268,12 @@ export const WarpTokenSchema = loomNode('Warp', {
 })
 export type WarpToken = typeof WarpTokenSchema.Type
 
+## The token union
+
+`LoomToken` is the union of every leaf token — the type the tokeniser emits.
+
+=>
+
 export const LoomTokenSchema = Schema.Union(
   HeadingStartTokenSchema,
   TagTokenSchema,
@@ -225,3 +288,38 @@ export const LoomTokenSchema = Schema.Union(
   WarpAnchorTokenSchema,
 )
 export type LoomToken = typeof LoomTokenSchema.Type
+
+## What this module draws on
+
+`LoomTokens` draws `Schema` for the token definitions, `SchemaAST` to read a `Probe` annotation back, and `Option` for its result. `loomNode` from the foundation gives each token its shared shape.
+
+=>
+
+import { Option, Schema, SchemaAST } from 'effect'
+import { loomNode } from './LoomNode'
+
+## The module {../src/ast/LoomTokens.ts}
+
+=>
+
+{{What this module draws on}}
+
+{{The Probe annotation}}
+
+{{Heading markers}}
+
+{{Tags}}
+
+{{Specifiers}}
+
+{{Path specifiers}}
+
+{{Transition markers}}
+
+{{Heading title}}
+
+{{Code and prose content}}
+
+{{Warps and anchors}}
+
+{{The token union}}

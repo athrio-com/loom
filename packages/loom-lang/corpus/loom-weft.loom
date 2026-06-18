@@ -1,0 +1,111 @@
+{{lang: TypeScript}}
+
+# Wefts
+
+`Weft` defines the line-level AST nodes. Each weft is one source line, typed by the mode it sits in and the tokens found on it. Wefts are health-bearing `loomNode`s, so they carry `type`, `position`, and `health` like any node. A weft's position spans exactly one line. `LoomWeft`, the union of them all, is the element the tokeniser streams between passes.
+
+## The heading weft
+
+A `HeadingWeft` is a `#`-heading line. Its `headingStart` records the level for the reader; `title` is the optional trimmed text after the marker; `tag` and `specifier` are optional — the tokeniser synthesises a hash `tag` for a tagless heading, and a heading with no specifier inherits the document's language. The classifier emits the weft with incomplete placeholders for the subtokens it has not recognised, and the tokeniser settles them.
+
+=>
+
+export const HeadingWeftSchema = loomNode('HeadingWeft', {
+  headingStart: HeadingStartTokenSchema,
+  title: Schema.optional(HeadingTitleTokenSchema),
+  tag: Schema.optional(TagTokenSchema),
+  specifier: Schema.optional(
+    Schema.Union(SpecifierTokenSchema, PathSpecifierTokenSchema),
+  ),
+})
+export type HeadingWeft = typeof HeadingWeftSchema.Type
+
+## The body wefts
+
+The five body wefts are the lines inside a section. An `ArrowWeft` is the `=>` line that opens code, carrying any inline `code` and the `{{…}}` anchors in it. A `TildeWeft` is the `~` line that opens prose, carrying any inline `prose`. A `PreambleWeft` is a default-mode line before any transition, carrying the `{{…}}` warp declarations on it. A `ProseWeft` is a line in prose mode, opaque to Loom. A `CodeWeft` is a line in code mode — opaque too, but its `{{…}}` anchors are recognised.
+
+=>
+
+export const ArrowWeftSchema = loomNode('ArrowWeft', {
+  arrow: ArrowTokenSchema,
+  code: Schema.optional(CodeTokenSchema),
+  anchors: Schema.Array(WarpAnchorTokenSchema),
+})
+export type ArrowWeft = typeof ArrowWeftSchema.Type
+
+export const TildeWeftSchema = loomNode('TildeWeft', {
+  tilde: TildeTokenSchema,
+  prose: Schema.optional(ProseTokenSchema),
+})
+export type TildeWeft = typeof TildeWeftSchema.Type
+
+export const PreambleWeftSchema = loomNode('PreambleWeft', {
+  warps: Schema.Array(WarpTokenSchema),
+})
+export type PreambleWeft = typeof PreambleWeftSchema.Type
+
+export const ProseWeftSchema = loomNode('ProseWeft', {})
+export type ProseWeft = typeof ProseWeftSchema.Type
+
+export const CodeWeftSchema = loomNode('CodeWeft', {
+  anchors: Schema.Array(WarpAnchorTokenSchema),
+})
+export type CodeWeft = typeof CodeWeftSchema.Type
+
+## The weft unions
+
+`LoomWeft` is the union of every weft kind — the tokeniser's stream element. `SectionBodyWeft` is the narrower union the grammar admits inside a section body: arrow, code, tilde, and prose, in the forward-only order the classifier enforces.
+
+=>
+
+export const LoomWeftSchema = Schema.Union(
+  HeadingWeftSchema,
+  ArrowWeftSchema,
+  TildeWeftSchema,
+  PreambleWeftSchema,
+  ProseWeftSchema,
+  CodeWeftSchema,
+)
+export type LoomWeft = typeof LoomWeftSchema.Type
+
+export const SectionBodyWeftSchema = Schema.Union(
+  ArrowWeftSchema,
+  CodeWeftSchema,
+  TildeWeftSchema,
+  ProseWeftSchema,
+)
+export type SectionBodyWeft = typeof SectionBodyWeftSchema.Type
+
+## What this module draws on
+
+Each weft is a `loomNode` built from Effect's `Schema`; its subtokens are the heading, arrow, tilde, code, prose, specifier, tag, warp, and anchor schemas from `LoomTokens`.
+
+=>
+
+import { Schema } from 'effect'
+import { loomNode } from './LoomNode'
+import {
+  ArrowTokenSchema,
+  CodeTokenSchema,
+  HeadingStartTokenSchema,
+  PathSpecifierTokenSchema,
+  ProseTokenSchema,
+  HeadingTitleTokenSchema,
+  SpecifierTokenSchema,
+  TagTokenSchema,
+  TildeTokenSchema,
+  WarpAnchorTokenSchema,
+  WarpTokenSchema,
+} from './LoomTokens'
+
+## The module {../src/ast/Weft.ts}
+
+=>
+
+{{What this module draws on}}
+
+{{The heading weft}}
+
+{{The body wefts}}
+
+{{The weft unions}}

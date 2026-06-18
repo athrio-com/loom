@@ -1,0 +1,98 @@
+{{lang: TypeScript}}
+
+# The multi-file AST
+
+`LoomCorpusAst` is the multi-file AST — pure data, no pipeline (that is `LoomCorpusAstBuilder`). Every loaded `.loom` is a `LoomModule` keyed by its path, holding its source, parsed `doc`, `frame`, de re `code`, and import edges. The corpus is just a map of those modules. The cross-file de re graph is distributed — a section's `Ref`s point at other modules by key, and `fromProduct` follows them later.
+
+## The module and the corpus
+
+A `Path` is a resolved `.loom` path, a module's identity. A `LoomModule` carries both planes for one file — the de dicto `frame` and the de re `code` (name → `ComposedCode`) — beside its `text`, parsed `doc`, and resolved `imports`. A `LoomCorpusAst` is the map of modules by path.
+
+=>
+
+export type Path = string
+
+export const LoomModuleSchema = Schema.Struct({
+  path: Schema.String,
+  text: Schema.String,
+  doc: LoomDocumentSchema,
+  frame: FrameModuleSchema,
+  code: Schema.ReadonlyMap({ key: Schema.String, value: ComposedCodeSchema }),
+  imports: Schema.Array(Schema.String),
+})
+export type LoomModule = typeof LoomModuleSchema.Type
+
+export const LoomCorpusAstSchema = Schema.Struct({
+  modules: Schema.ReadonlyMap({ key: Schema.String, value: LoomModuleSchema }),
+})
+export type LoomCorpusAst = typeof LoomCorpusAstSchema.Type
+
+## Graph queries over the imports
+
+Three pure readers walk the import edges. `dependenciesOf` gives the files a module imports, the forward edges; `dependentsOf` gives the files that import it, the reverse edges. `transitiveDependents` grows the reverse-reachable set: every file that inlined this one's code, directly or through a chain. That is the set an edit must re-project.
+
+=>
+
+type Modules = ReadonlyMap<Path, LoomModule>
+
+export const dependenciesOf = (
+  modules: Modules,
+  path: Path,
+): ReadonlyArray<Path> =>
+  pipe(
+    Option.fromNullable(modules.get(path)),
+    Option.match({ onNone: () => [], onSome: (m) => m.imports }),
+  )
+
+export const dependentsOf = (
+  modules: Modules,
+  path: Path,
+): ReadonlyArray<Path> =>
+  pipe(
+    Array.fromIterable(modules.values()),
+    Array.filter((m) => m.imports.includes(path)),
+    Array.map((m) => m.path),
+  )
+
+export const transitiveDependents = (
+  modules: Modules,
+  path: Path,
+): ReadonlyArray<Path> => {
+  const grow = (
+    acc: ReadonlySet<Path>,
+    frontier: ReadonlyArray<Path>,
+  ): ReadonlySet<Path> => {
+    const next = pipe(
+      frontier,
+      Array.flatMap((p) => dependentsOf(modules, p)),
+      Array.filter((d) => !acc.has(d)),
+      Array.dedupe,
+    )
+    return next.length === 0 ? acc : grow(new Set([...acc, ...next]), next)
+  }
+  return pipe(
+    Array.fromIterable(grow(new Set<Path>(), [path])),
+    Array.filter((p) => p !== path),
+  )
+}
+
+## What this module draws on
+
+Effect supplies `Schema` for the model and `Array`, `Option`, and `pipe` for the queries. The module bundles three other models: `LoomDocument` (parse), `FrameModule` (frame), and `ComposedCode` (de re).
+
+=>
+
+import { Array, Option, pipe, Schema } from 'effect'
+import { LoomDocumentSchema } from '#ast/LoomAst'
+import { FrameModuleSchema } from '#ast/FrameAst'
+import { ComposedCodeSchema } from '#ast/ProductAst'
+
+## The module {../src/ast/LoomCorpusAst.ts}
+
+=>
+
+{{What this module draws on}}
+
+{{The module and the corpus}}
+
+{{Graph queries over the imports}}

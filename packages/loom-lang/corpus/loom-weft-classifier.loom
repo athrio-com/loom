@@ -1,24 +1,14 @@
-import { Effect, Match, Option, Stream, pipe } from 'effect'
-import type { LineRange } from './LineRanges'
-import { incompleteHealth, okHealth, type Position } from './LoomNode'
-import {
-  ArrowTokenSchema,
-  HeadingStartTokenSchema,
-  TildeTokenSchema,
-  getProbe,
-} from './LoomTokens'
-import {
-  type ArrowWeft,
-  ArrowWeftSchema,
-  CodeWeftSchema,
-  type HeadingWeft,
-  HeadingWeftSchema,
-  type LoomWeft,
-  PreambleWeftSchema,
-  ProseWeftSchema,
-  type TildeWeft,
-  TildeWeftSchema,
-} from './Weft'
+{{lang: TypeScript}}
+
+# The classifier stage
+
+`WeftClassifier` labels each line with its weft kind by mode. It is a Mealy machine: the state is the previous weft and whether a heading has been seen, the input is a pattern probe of the line, and the output weft also feeds the next state. The wefts it emits are partial — the leading marker filled, the weft `incomplete` — and the tokeniser settles the rest.
+
+## The classifier service
+
+The state opens before the first heading — the Document Preamble — and tracks whether a heading has been emitted. `classifyWefts` threads that state through the line-range stream with `Stream.mapAccum`, classifying each line and carrying the result forward.
+
+=>
 
 type ClassifierState = {
   readonly prev: Option.Option<LoomWeft>
@@ -49,6 +39,12 @@ export class WeftClassifier extends Effect.Service<WeftClassifier>()(
     },
   },
 ) {}
+
+## Classifying one line
+
+`probeWeft` is the decision table. A `#` line is a heading in any mode, and opens a section in preamble mode. Before the first heading every line is a preamble weft, since no transition fires there. After it, the previous weft's mode decides. In preamble, `=>` opens code and `~` opens prose. In code, `~` returns to prose and every other line stays code. In prose, `=>` re-enters code and every other line stays prose. A line of dashes is ordinary content, classified by the current mode like any other line — there is no separator weft.
+
+=>
 
 const probeWeft = (
   lineText: string,
@@ -110,6 +106,12 @@ const probeWeft = (
   )
 }
 
+## Line positions
+
+`linePos` is a whole-line span; `span` is an arbitrary offset range on a line. Both stamp the line number the classifier tracks.
+
+=>
+
 const linePos = (line: number, range: LineRange): Position => ({
   start: { line, offset: range[0] },
   end: { line, offset: range[1] },
@@ -119,6 +121,12 @@ const span = (line: number, start: number, end: number): Position => ({
   start: { line, offset: start },
   end: { line, offset: end },
 })
+
+## Mode and probe
+
+Two axes drive the table. `modeOf` derives the mode — preamble, code, or prose — from the previous weft's type. `probeOf` recognises the line as a heading, arrow, or tilde marker, or plain text, using the same `Probe` regexes the token schemas carry.
+
+=>
 
 type Mode = 'preamble' | 'code' | 'prose'
 
@@ -157,6 +165,12 @@ const probeOf = (lineText: string): Probe => {
   if (t) return { kind: 'tilde', m: t }
   return { kind: 'plain' }
 }
+
+## Building the wefts
+
+Three constructors emit the partial weft for each kind. `makeHeadingWeft` fills the `headingStart` marker and leaves the rest to the tokeniser. `makeArrowWeft` and `makeTildeWeft` fill the `=>` and `~` markers from the probe match. Each weft carries `incompleteHealth`.
+
+=>
 
 const makeHeadingWeft = (
   lineText: string,
@@ -216,3 +230,47 @@ const makeTildeWeft = (
     }),
   })
 }
+
+## What this module draws on
+
+Effect supplies `Stream` for the accumulating scan and `Match` for the dispatch. The `LineRange` type comes from the line scanner, the marker probes and schemas from `LoomTokens`, the weft schemas from `Weft`, and `incompleteHealth`, `okHealth`, and `Position` from the foundation.
+
+=>
+
+import { Effect, Match, Option, Stream, pipe } from 'effect'
+import type { LineRange } from './LineRanges'
+import { incompleteHealth, okHealth, type Position } from './LoomNode'
+import {
+  ArrowTokenSchema,
+  HeadingStartTokenSchema,
+  TildeTokenSchema,
+  getProbe,
+} from './LoomTokens'
+import {
+  type ArrowWeft,
+  ArrowWeftSchema,
+  CodeWeftSchema,
+  type HeadingWeft,
+  HeadingWeftSchema,
+  type LoomWeft,
+  PreambleWeftSchema,
+  ProseWeftSchema,
+  type TildeWeft,
+  TildeWeftSchema,
+} from './Weft'
+
+## The module {../src/ast/WeftClassifier.ts}
+
+=>
+
+{{What this module draws on}}
+
+{{The classifier service}}
+
+{{Classifying one line}}
+
+{{Line positions}}
+
+{{Mode and probe}}
+
+{{Building the wefts}}

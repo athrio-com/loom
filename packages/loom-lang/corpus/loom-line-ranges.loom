@@ -1,4 +1,14 @@
-import { Effect, Option, Stream, Data, Schema } from 'effect'
+{{lang: TypeScript}}
+
+# Line ranges
+
+`LineRanges` is the parser's first pass. `LoomSourceRanges` turns a file's text into a stream of half-open `[start, end)` ranges, one per line — the offsets every later pass slices against and Volar maps from. It detects the file's line-terminator convention once and refuses a file that mixes conventions, the one failure the parse chain cannot pin to a node.
+
+## Terminator conventions
+
+A file ends its lines one of three ways, named by `EolKind`: a line feed (`lf`), a carriage-return and line-feed pair (`crlf`), or a bare carriage return (`cr`). An `Eol` bundles a detected kind with two regexes — `pattern` to find its own terminator, `stray` to spot any other. `MixedEOL` is the error raised when a file uses more than one; it carries human-friendly line numbers, since mixed terminators are invisible on screen.
+
+=>
 
 export type EolKind = 'lf' | 'crlf' | 'cr'
 
@@ -15,6 +25,12 @@ export class MixedEOL extends Data.TaggedError('MixedEOL')<{
   readonly primaryLine: number
   readonly foundLine: number
 }> {}
+
+## Detecting the convention
+
+`detectEol` scans for the first terminator and adopts it as the file's convention, returning nothing for a single line that has none. `eolOf` builds the `Eol` for a kind — the `pattern` that walks its lines and the `stray` that catches a foreign terminator.
+
+=>
 
 export const detectEol = (s: string): Option.Option<Eol> => {
   const lf = s.indexOf('\n')
@@ -39,6 +55,12 @@ const eolOf = (kind: EolKind): Eol => {
       return { kind, pattern: /\r/g, stray: /\n/g }
   }
 }
+
+## Checking for a mix
+
+`checkMixed` confirms a file holds to its convention throughout: it succeeds with the `Eol` when no stray terminator appears, and fails with `MixedEOL` otherwise. `lineOfOffset` counts visual lines up to an offset, treating every terminator kind as one break, so it reports the right line even when terminators are mixed. `strayKind` names the offending terminator from its matched text.
+
+=>
 
 const checkMixed = (text: string, eol: Eol): Effect.Effect<Eol, MixedEOL> => {
   const stray = eol.stray.exec(text)
@@ -77,6 +99,12 @@ const strayKind = (primary: EolKind, match: string): EolKind => {
   return primary
 }
 
+## Streaming the ranges
+
+A `LineRange` is a half-open `[start, end)` pair of byte offsets, terminator included; `LineRangeSchema` mirrors it for schema fields, both offsets non-negative integers. `lineRanges` streams them by walking the text with the convention's `pattern` — each step emits the range up to the end of the next terminator, and the last line, having none, runs to the end of the text. The source string is never split or copied; later passes slice it on demand.
+
+=>
+
 export type LineRange = readonly [start: number, end: number]
 
 const NonNegativeInt = Schema.Number.pipe(
@@ -98,6 +126,12 @@ const lineRanges = (text: string, eol: Eol): Stream.Stream<LineRange> =>
     ])
   })
 
+## The service
+
+`LoomSourceRanges` is the pass as an Effect service. Its `stream` detects the convention, checks for a mix — failing with `MixedEOL` — then streams the ranges. A single line with no terminator yields one range covering the whole text.
+
+=>
+
 export class LoomSourceRanges extends Effect.Service<LoomSourceRanges>()(
   'LoomSourceRanges',
   {
@@ -115,3 +149,27 @@ export class LoomSourceRanges extends Effect.Service<LoomSourceRanges>()(
     },
   },
 ) {}
+
+## What this module draws on
+
+Effect supplies `Stream` for the ranges, `Data` for the tagged `MixedEOL` error, `Schema` for `LineRangeSchema`, and `Option` and `Effect` for the rest.
+
+=>
+
+import { Effect, Option, Stream, Data, Schema } from 'effect'
+
+## The module {../src/ast/LineRanges.ts}
+
+=>
+
+{{What this module draws on}}
+
+{{Terminator conventions}}
+
+{{Detecting the convention}}
+
+{{Checking for a mix}}
+
+{{Streaming the ranges}}
+
+{{The service}}

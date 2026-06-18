@@ -592,14 +592,12 @@ describe('Tokeniser — WarpAnchor references on ArrowWeft / CodeWeft', () => {
     expect(w.anchors[0].name.value).toBe('x')
   })
 
-  it('anchor content carrying `:` (a declaration in code) fails — bad text on weft.unexpected[]', () => {
+  it('anchor content carrying `:` (a declaration in code) is left literal, not an anchor', () => {
     const w = codeWeftFromLines(['## A', '=>', '{{mul: Mul}}'], 2)
-    expect(w.anchors).toHaveLength(1)
-    expect(w.anchors[0].name.value).toBe('')
-    expect(w.anchors[0].name.health.status).toBe('error')
-    expect(w.unexpected).toBeDefined()
-    expect(w.unexpected![0].value).toBe('mul: Mul')
-    expect(w.health.status).toBe('error')
+    expect(w.anchors).toHaveLength(0)
+    expect(w.unexpected).toBeUndefined()
+    expect(w.health.status).toBe('ok')
+    expect(w.source).toContain('{{mul: Mul}}')
   })
 
   it('anchor with whitespace around the name is ok', () => {
@@ -608,9 +606,11 @@ describe('Tokeniser — WarpAnchor references on ArrowWeft / CodeWeft', () => {
     expect(w.anchors[0].health.status).toBe('ok')
   })
 
-  it('unclosed `{{` in code produces a synthetic `}}` at EOL', () => {
+  it('unclosed `{{` in code is left literal, not an anchor', () => {
     const w = codeWeftFromLines(['## A', '=>', '{{x'], 2)
-    expect(w.anchors[0].close.health.status).toBe('error')
+    expect(w.anchors).toHaveLength(0)
+    expect(w.health.status).toBe('ok')
+    expect(w.source).toContain('{{x')
   })
 
   it('post-Tokeniser CodeWeft is never `incomplete`', () => {
