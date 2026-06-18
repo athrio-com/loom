@@ -1,7 +1,6 @@
 import {
   Effect,
   Either,
-  Hash,
   Match,
   Option,
   ParseResult,
@@ -1118,10 +1117,14 @@ const scanHeading = (
   }
 }
 
-const syntheticTagId = (title: string): string =>
-  `S_${(Hash.string(title) >>> 0).toString(36)}`
+const normaliseTitle = (title: string): string => {
+  const pascal = (title.match(/[A-Za-z0-9]+/g) ?? [])
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join('')
+  return /^[A-Za-z]/.test(pascal) ? pascal : `_${pascal}`
+}
 
-const synthHashTag = (
+const synthNameTag = (
   position: Position,
   title: Option.Option<HeadingTitleToken>,
 ): TagToken => {
@@ -1134,7 +1137,7 @@ const synthHashTag = (
     onNone: () => '',
     onSome: (t) => t.source,
   })
-  const value = syntheticTagId(titleText)
+  const value = normaliseTitle(titleText)
   return TagTokenSchema.make({
     position: eol,
     source: '',
@@ -1169,7 +1172,7 @@ const tokeniseHeading = (text: string, weft: HeadingWeft): LoomWeft => {
   )
 
   const resolvedTag = Option.getOrElse(tag, () =>
-    synthHashTag(weft.position, title),
+    synthNameTag(weft.position, title),
   )
 
   const status = aggregateStatus([

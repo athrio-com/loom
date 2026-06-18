@@ -13,8 +13,8 @@ import type {
 import { buildFrame } from '#ast/FrameAstBuilder'
 
 // A ServiceName is authored (tagged → mapped to the `[Tag]`) or synth (tagless →
-// the hash, unmapped). Tests asserting a mapped position narrow to the authored
-// case first.
+// the title-derived name, unmapped). Tests asserting a mapped position narrow to
+// the authored case first.
 const asAuthored = (t: ServiceClass['name']): FrameAuthoredToken => {
   if (t.type !== 'FrameAuthoredToken') {
     throw new Error(`expected an authored token, got ${t.type}`)
@@ -185,7 +185,7 @@ const c = 3
 })
 
 describe('buildFrame — tagless name is synth (unmapped); a tangle is language-agnostic', () => {
-  // A tagless section names itself with a synthesised hash — pure glue, no
+  // A tagless section names itself after its title — pure glue, no
   // `.loom` origin, never mapped. A tangle has no language of its own (it
   // composes any source); it is marked `Loom`, never the `{{lang}}` default and
   // never guessed from the path.
@@ -209,9 +209,9 @@ const helper = 1
   const helper = services.find((v) => v.body.type === 'StaticBody')!
   const tangle = services.find((v) => v.body.type === 'TangleBody')!
 
-  it('names a tagless section with a synth hash, mapped nowhere', () => {
+  it('names a tagless section after its title (synth, mapped nowhere)', () => {
     expect(helper.name.type).toBe('FrameSynthToken')
-    expect(helper.name.text).toMatch(/^S_/)
+    expect(helper.name.text).toBe('Helper')
     expect('position' in helper.name).toBe(false)
     // all three occurrences are synth — no zero-width name mappings
     expect(helper.nameType.type).toBe('FrameSynthToken')

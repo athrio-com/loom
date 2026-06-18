@@ -33,7 +33,7 @@ const fixturePath = resolve(__dirname, 'fixtures/Fun.loom')
 const sampleLoom = readFileSync(fixturePath, 'utf8')
 
 // The heading's title token source — the human-facing title, used to
-// find tagless Sections (whose tag is a synthetic hash). The token is
+// find tagless Sections (whose tag is named after the title). The token is
 // already trimmed by the Tokeniser; absent titles read as "".
 const headingText = (_text: string, heading: LoomHeading): string =>
   heading.title?.source ?? ''
@@ -119,7 +119,7 @@ describe('Classifier Stage — integration against corpus/Fun.loom', () => {
 
 // =============================================================================
 // Tokeniser Stage — heading subtokens, specifier kinds, Warp/Anchor expansion,
-// hash-tag synthesis, post-Tokeniser health invariant.
+// name-tag synthesis, post-Tokeniser health invariant.
 // =============================================================================
 
 describe('Tokeniser Stage — integration against corpus/Fun.loom', () => {
@@ -164,12 +164,12 @@ describe('Tokeniser Stage — integration against corpus/Fun.loom', () => {
     expect(add!.tag?.health.status).toBe('ok')
   })
 
-  it('a tagless heading receives a synthetic hash tag (ok health, `S_` prefix)', () => {
+  it('a tagless heading is named after its title (ok health)', () => {
     const glossary = headingTitled('Glossary')
     expect(glossary).toBeDefined()
     expect(glossary!.tag).toBeDefined()
     expect(glossary!.tag?.health.status).toBe('ok')
-    expect(glossary!.tag?.label.value).toMatch(/^S_/)
+    expect(glossary!.tag?.label.value).toBe('Glossary')
   })
 
   it('`# Build script [Build]{Bash}` carries a label Specifier (not a path)', () => {
@@ -300,12 +300,12 @@ describe('AST Stage — integration against corpus/Fun.loom', () => {
     expect(tags).toContain('Build')
   })
 
-  it('tagless Sections still carry an identifier (synthetic hash tag)', () => {
+  it('tagless Sections still carry an identifier (named after the title)', () => {
     const glossary = doc.sections.find(
       (s) => headingText(sampleLoom, s.heading) === 'Glossary',
     )
     expect(glossary).toBeDefined()
-    expect(glossary!.heading.tag?.label.value).toMatch(/^S_/)
+    expect(glossary!.heading.tag?.label.value).toBe('Glossary')
   })
 
   it('the `Notes` Section carries its body wefts in order', () => {
@@ -402,16 +402,16 @@ describe('parseDocument — parse-chain behaviour', () => {
 // the chain; the Tokeniser keeps rejected bytes in `unexpected[]` and flips the
 // affected leaf to error health, the AstBuilder forwards them onto the
 // resulting `LoomHeading`. Container nodes stay `okHealth`. A tagless heading
-// is NOT an error — it receives a synthetic hash tag.
+// is NOT an error — it is named after its title.
 // =============================================================================
 
 describe('parseDocument — NOK preservation end-to-end', () => {
-  it('a tagless heading receives a synthetic hash tag with ok health (not an error)', () => {
+  it('a tagless heading is named after its title with ok health (not an error)', () => {
     const doc = buildDocument('{{lang: Scala}}\n\n# JustATitle\n')
     const heading = doc.sections[0].heading
     expect(heading.tag).toBeDefined()
     expect(heading.tag?.health.status).toBe('ok')
-    expect(heading.tag?.label.value).toMatch(/^S_/)
+    expect(heading.tag?.label.value).toBe('JustATitle')
   })
 
   it('section tag label with spaces — bytes preserved in unexpected[], empty value, error health', () => {

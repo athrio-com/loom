@@ -110,27 +110,29 @@ describe('Tokeniser — Heading tag/specifier filling', () => {
     expect(w.health.status).toBe('ok')
   })
 
-  it('no tag → a hash-synthesised tag with ok health (`S_` prefix), not an error', () => {
+  it('no tag → a tag named after the title, ok health, not an error', () => {
     const w = headingAt(tokenise(['# Title']), 0)
     expect(w.tag).toBeDefined()
     expect(w.tag?.health.status).toBe('ok')
-    expect(w.tag?.label.value).toMatch(/^S_/)
+    expect(w.tag?.label.value).toBe('Title')
     expect(w.health.status).toBe('ok')
   })
 
-  it('places the synthetic hash tag at a zero-width EOL position', () => {
+  it('places the synthetic name tag at a zero-width EOL position', () => {
     const w = headingAt(tokenise(['# Title']), 0)
     expect(w.tag?.position.start.offset).toBe(w.position.end.offset)
     expect(w.tag?.position.end.offset).toBe(w.position.end.offset)
   })
 
-  it('the hash tag is derived from the heading text (distinct titles → distinct ids)', () => {
-    const a = headingAt(tokenise(['# Alpha']), 0)
-    const b = headingAt(tokenise(['# Beta']), 0)
+  it('the name is the title normalised to an identifier (distinct titles → distinct names)', () => {
+    const a = headingAt(tokenise(['# Alpha one']), 0)
+    const b = headingAt(tokenise(['# Beta two']), 0)
+    expect(a.tag?.label.value).toBe('AlphaOne')
+    expect(b.tag?.label.value).toBe('BetaTwo')
     expect(a.tag?.label.value).not.toBe(b.tag?.label.value)
   })
 
-  it('identical heading text yields a stable hash id', () => {
+  it('identical heading text yields the same name', () => {
     const a = headingAt(tokenise(['# Glossary']), 0)
     const b = headingAt(tokenise(['# Glossary']), 0)
     expect(a.tag?.label.value).toBe(b.tag?.label.value)

@@ -100,11 +100,13 @@ outside; only the construction mechanism differs.
 exported — `export class Add extends Effect.Service...` — and forms part
 of the document's public API, referenceable from other files via Warp
 declarations. A tagless section is private — no `export`, not importable
-across files. Its class name and service tag are derived by hashing the heading
-name; that hash is a synth name — Loom's own, with no `.loom` span — so it is
-never mapped (the section is reached by name anchor, not by the hash). Tagless
-sections are reachable only within the same document via name anchors in code
-blocks.
+across files. Its class name and service tag are the heading title normalised to
+an identifier (`What the compiler draws on` → `WhatTheCompilerDrawsOn`); that name
+is a synth name — Loom's own, with no `.loom` span — so it is never mapped (the
+section is reached by name anchor, not by the name). Naming makes no name unique;
+two titles that normalise alike collide, which the diagnostics mark as a
+duplicate. Tagless sections are reachable only within the same document via name
+anchors in code blocks.
 
 ## Heading Levels and Document Structure
 
@@ -465,7 +467,7 @@ from the same source document, with no duplication.
 //   - Tagless sections → class (no export) — private, same-file only.
 //   - Sections emitted in document order (no eager cross-refs; order is free).
 //   - Explicit [Tag]  → name (class + service tag) = the tag label, mapped to it.
-//   - No [Tag]        → name = hash of the heading name; a synth name, unmapped.
+//   - No [Tag]        → name = heading title normalised to an identifier; a synth name, unmapped.
 //   - Heading title stored as `name` field on every content section (tangle
 //     sinks return core.tangle(…) — no name/prose).
 //   - Section prose → `prose` field = core.weave(…), the woven peer of `code`.
@@ -489,7 +491,7 @@ import { Effect, Layer } from "effect"
 // =============================================================================
 
 // # Imports — name anchor target: {{Imports}}
-class S_f1e7d2 extends Effect.Service<S_f1e7d2>()("S_f1e7d2", {
+class Imports extends Effect.Service<Imports>()("Imports", {
   succeed: {
     name:  `Imports`,
     code:  core.compose(`import scala.math.pow`),
@@ -522,10 +524,10 @@ export class Mul extends Effect.Service<Mul>()("Mul", {
 
 export class Sq extends Effect.Service<Sq>()("Sq", {
   effect: Effect.gen(function* () {
-    const _S_f1e7d2 = yield* S_f1e7d2   // {{Imports}} — hoisted internally
+    const _Imports = yield* Imports   // {{Imports}} — hoisted internally
     return {
       name:  `Square`,
-      code:  core.compose(_S_f1e7d2.code, `def square(x: Int): Int = mul(x, x)`),
+      code:  core.compose(_Imports.code, `def square(x: Int): Int = mul(x, x)`),
       prose: core.weave(`Built on top of mul.`)
     }
   })
@@ -534,10 +536,10 @@ export class Sq extends Effect.Service<Sq>()("Sq", {
 
 export class Pow extends Effect.Service<Pow>()("Pow", {
   effect: Effect.gen(function* () {
-    const _S_f1e7d2 = yield* S_f1e7d2   // {{Imports}} — hoisted internally
+    const _Imports = yield* Imports   // {{Imports}} — hoisted internally
     return {
       name:  `Power`,
-      code:  core.compose(_S_f1e7d2.code, `def power(base: Int, exp: Int): Int = pow(base, exp).toInt`),
+      code:  core.compose(_Imports.code, `def power(base: Int, exp: Int): Int = pow(base, exp).toInt`),
       prose: core.weave(`\`pow\` works in \`Double\`; the result is rounded back to \`Int\`.`)
     }
   })
@@ -582,13 +584,13 @@ scala -cp out Arithmetic`
 
 
 // =============================================================================
-// Tangle sections — private sinks, hash-derived names, no export
+// Tangle sections — private sinks, title-derived names, no export
 // =============================================================================
 
 // # Tangling the library {src/main/scala/Arithmetic.scala}
-class S_d2c5b9 extends Effect.Service<S_d2c5b9>()("S_d2c5b9", {
+class TanglingTheLibrary extends Effect.Service<TanglingTheLibrary>()("TanglingTheLibrary", {
   effect: Effect.gen(function* () {
-    const i = yield* S_f1e7d2
+    const i = yield* Imports
     const m = yield* Main
     return core.tangle("src/main/scala/Arithmetic.scala", core.compose(i.code, m.code))
   })
@@ -596,7 +598,7 @@ class S_d2c5b9 extends Effect.Service<S_d2c5b9>()("S_d2c5b9", {
 
 
 // # Tangling the build script {scripts/build.sh}
-class S_a1b3c7 extends Effect.Service<S_a1b3c7>()("S_a1b3c7", {
+class TanglingTheBuildScript extends Effect.Service<TanglingTheBuildScript>()("TanglingTheBuildScript", {
   effect: Effect.gen(function* () {
     const b = yield* Build
     return core.tangle("scripts/build.sh", b.code)
@@ -606,7 +608,7 @@ class S_a1b3c7 extends Effect.Service<S_a1b3c7>()("S_a1b3c7", {
 
 // =============================================================================
 // Auto-generated composition root — emitted by Loom, not by the user.
-// The program yields the tangle sinks (S_d2c5b9, S_a1b3c7) to run their
+// The program yields the tangle sinks (TanglingTheLibrary, TanglingTheBuildScript) to run their
 // file emission. Because each Service's `.Default` carries unsatisfied
 // requirements (its `yield*` dependencies), the root merges every layer
 // and provides the merge to itself, so each requirement is met by another
@@ -614,21 +616,21 @@ class S_a1b3c7 extends Effect.Service<S_a1b3c7>()("S_a1b3c7", {
 // =============================================================================
 
 const layers = Layer.mergeAll(
-  S_f1e7d2.Default,
+  Imports.Default,
   Add.Default,
   Mul.Default,
   Sq.Default,
   Pow.Default,
   Main.Default,
   Build.Default,
-  S_d2c5b9.Default,
-  S_a1b3c7.Default,
+  TanglingTheLibrary.Default,
+  TanglingTheBuildScript.Default,
 )
 
 export const LoomMain = Effect.provide(
   Effect.gen(function* () {
-    yield* S_d2c5b9
-    yield* S_a1b3c7
+    yield* TanglingTheLibrary
+    yield* TanglingTheBuildScript
   }),
   Layer.provide(layers, layers)
 )

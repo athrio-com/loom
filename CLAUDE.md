@@ -39,7 +39,7 @@ duplicate their detail):
 - **`packages/loom-lang/src/ast/how-frame.md`** — *the frame pass*. AST
   → `Effect.Service` classes: each section is a Service exposing
   `{ name, code, prose }`; tags determine visibility (tagged = exported,
-  tagless = private/hashed); the Warp graph drives dependencies and emission
+  tagless = private, named after the heading); the Warp graph drives dependencies and emission
   order; tangle sections (`{path}` specifier) emit files; the composition root
   is auto-generated.
 - **`packages/loom-lang/how-lsp.md`** — *tooling*. The

@@ -2,7 +2,7 @@
 
 # The tokeniser stage
 
-`WeftTokeniser` is the tokeniser stage: a pure `Stream.map` that fills each weft's subtokens by kind. A heading gets its title, tag, and specifier; a tagless heading gets a hash-derived tag instead. Arrow and tilde wefts get their optional inline content; preamble and prose settle to ok; a code weft gets its `{{name}}` anchors. After this stage no weft remains `incomplete`.
+`WeftTokeniser` is the tokeniser stage: a pure `Stream.map` that fills each weft's subtokens by kind. A heading gets its title, tag, and specifier; a tagless heading gets a tag named after its title instead. Arrow and tilde wefts get their optional inline content; preamble and prose settle to ok; a code weft gets its `{{name}}` anchors. After this stage no weft remains `incomplete`.
 
 ## The tokeniser service
 
@@ -1127,14 +1127,18 @@ const scanHeading = (
 
 ## Tokenising a heading
 
-`tokeniseHeading` assembles the heading weft. A real tag wins; a tagless heading gets `synthHashTag`, a hash-derived `[S_…]` tag with ok health, so every section carries a stable identifier — a private section, not an error.
+`tokeniseHeading` assembles the heading weft. A real tag wins; a tagless heading gets `synthNameTag`, whose label is the title normalised to an identifier — `What the compiler draws on` becomes `WhatTheCompilerDrawsOn` — with ok health, marking a private section rather than an error. Naming makes no name unique; two titles that normalise alike are a duplicate the diagnostics mark.
 
 =>
 
-const syntheticTagId = (title: string): string =>
-  `S_${(Hash.string(title) >>> 0).toString(36)}`
+const normaliseTitle = (title: string): string => {
+  const pascal = (title.match(/[A-Za-z0-9]+/g) ?? [])
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join('')
+  return /^[A-Za-z]/.test(pascal) ? pascal : `_${pascal}`
+}
 
-const synthHashTag = (
+const synthNameTag = (
   position: Position,
   title: Option.Option<HeadingTitleToken>,
 ): TagToken => {
@@ -1147,7 +1151,7 @@ const synthHashTag = (
     onNone: () => '',
     onSome: (t) => t.source,
   })
-  const value = syntheticTagId(titleText)
+  const value = normaliseTitle(titleText)
   return TagTokenSchema.make({
     position: eol,
     source: '',
@@ -1182,7 +1186,7 @@ const tokeniseHeading = (text: string, weft: HeadingWeft): LoomWeft => {
   )
 
   const resolvedTag = Option.getOrElse(tag, () =>
-    synthHashTag(weft.position, title),
+    synthNameTag(weft.position, title),
   )
 
   const status = aggregateStatus([
@@ -1207,14 +1211,13 @@ const tokeniseHeading = (text: string, weft: HeadingWeft): LoomWeft => {
 
 ## What this module draws on
 
-Effect supplies `Stream` and `Match` for the per-weft pass, `Schema` and `ParseResult` for decoding, `Hash` for the synthetic tag, and the rest. The token schemas and `getProbe` come from `LoomTokens`, the weft schemas from `Weft`, and the health and `UnexpectedToken` types from the foundation.
+Effect supplies `Stream` and `Match` for the per-weft pass, `Schema` and `ParseResult` for decoding, and the rest. The token schemas and `getProbe` come from `LoomTokens`, the weft schemas from `Weft`, and the health and `UnexpectedToken` types from the foundation.
 
 =>
 
 import {
   Effect,
   Either,
-  Hash,
   Match,
   Option,
   ParseResult,

@@ -151,8 +151,8 @@ raw TypeScript; it is the escape hatch for what the projection model does not co
 
 **Tags determine visibility.** A section with an explicit `[Tag]` is exported and forms
 part of the document's public API, referenceable from other files. A tagless section is
-private: its class name is derived by hashing the heading title, and it is reachable
-only within the same document, by a name anchor.
+private: its class name is the heading title normalised to an identifier, and it is
+reachable only within the same document, by a name anchor.
 
 **The dependency graph is a parse-time artifact.** Warp declarations are its edges —
 each `{{m: Mul}}` is a named edge to another section — so the graph is traversable
