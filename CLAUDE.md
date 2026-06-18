@@ -12,7 +12,7 @@ composes any language.
 
 Loom is not a templating engine. It is a composition system built on Effect,
 and code is its product. Each section projects to an `Effect.Service`
-exposing `{ name, preamble, code }`; `compose()` orders the composed `code` and
+exposing `{ name, code, prose }`; `compose()` orders the composed `code` and
 `tangle()` binds it to a file path. At the end of the world the Effect program
 resolves to pure text — the output files. The machinery (Effect, Services,
 Layers) never appears in the output unless the author wrote Effect in a
@@ -29,20 +29,24 @@ live in relevant layered documents — read the one before changing the correpso
 layer, and treat it as the source of truth (this file deliberately does not
 duplicate their detail):
 
-- **`packages/loom-lang/src/ast/how-ast.md`** — *parsing*. Source text →
-  `LoomDocument` AST: Wefts, Tokens, Warps, label/path specifiers, the health
-  model, and the forward-only mode grammar (Preamble → Code → Prose). The AST
-  pipeline in `src/ast` conforms to it.
+- **`architecture.md`** (repo root) — *the overview*. The two planes, the end-to-end
+  pipeline, the AST's three-layer/one-shape model, the two-tier health model, the
+  grammar, the frame and editor surfaces, the runtime entry points, and the
+  cross-cutting invariants — the map over the whole system, with detail deferred to the
+  layer specs and the looms. The parsing layer's detail lives in its `corpus/*.loom`
+  files rather than a separate spec; read the relevant loom alongside `architecture.md`
+  before changing it.
 - **`packages/loom-lang/src/ast/how-frame.md`** — *the frame pass*. AST
   → `Effect.Service` classes: each section is a Service exposing
-  `{ name, preamble, code }`; tags determine visibility (tagged = exported,
+  `{ name, code, prose }`; tags determine visibility (tagged = exported,
   tagless = private/hashed); the Warp graph drives dependencies and emission
   order; tangle sections (`{path}` specifier) emit files; the composition root
   is auto-generated.
 - **`packages/loom-lang/how-lsp.md`** — *tooling*. The
-  composition primitives (`compose`, `tangle` — design-level, not yet built), the runtime entry points (Tangle CLI, LSP server, Vite plugin), and
-  the Volar/LSP virtual-code layer (virtual code tree, source mappings, the
-  multiplexer, syntax highlighting).
+  composition primitives (`compose`, `tangle` — in `#loom/core`), the runtime
+  entry points (Tangle CLI, LSP server, Vite plugin), and the Volar/LSP
+  virtual-code layer (virtual code tree, source mappings, the multiplexer,
+  syntax highlighting).
 
 When a spec and the code disagree, the spec is the target: do a full structural
 revision toward it rather than patching the old shape alongside the new. The

@@ -1,10 +1,11 @@
 # Loom LSP & Runtime — Tooling Layer
 
-This is the root of the Loom specification. The AST pipeline (source →
-`LoomDocument`) is `how-ast.md`; the Frame pass is `how-frame.md`. This 
-document covers what sits on top of both: the core type vocabulary the Frame
-is built from, the runtime entry points that execute it, and the Volar/LSP
-integration that surfaces it in the editor.
+This is the tooling layer's spec. The cross-cutting overview — the two planes, the
+pipeline, the runtime entry points, the editor surface — is `architecture.md` at the
+repo root; the AST pipeline (source → `LoomDocument`) lives in the `corpus/` looms;
+the Frame pass is `how-frame.md`. This document carries the tooling detail: the
+projection passes that fold the Frame to text, the Volar/LSP integration that surfaces
+it in the editor, and the source mappings that route a position to the right plane.
 
 Like the other specs, this describes the target architecture. The current code
 may not yet conform; where it does (embedded language resolution, syntax
@@ -15,15 +16,12 @@ preserved, not regressed.
 
 ## The Transformation Pipeline
 
-Loom is a chain of tree transformations — the architecture of a compiler, and
-of literate-programming tangling (Knuth's WEB). Specifically it is a **nanopass
-pipeline**: a sequence of small, total **passes** between *explicitly-defined*
-intermediate models, each a Schema-defined AST — rather than one monolithic
-transform. Every arrow is a pass, and every pass is a **Builder** producing a
-**Model**; the chain is that one shape — `Model + Builder` — repeated end to
-end, so it reads uniformly and no pass reaches past its inputs. The pass roles
-still carry their precise names from the program-transformation literature; the
-names fix both the shape we build and the discipline that keeps it pure.
+`architecture.md` → The transformation pipeline frames the whole chain: a **nanopass
+pipeline** of small, total **passes** between explicitly-defined Schema-defined
+models, each pass a **Builder** producing a **Model**. This section carries the
+detail the overview defers — the role each pass plays in the program-transformation
+literature, the projection family, and the design's pedigree. The names below fix
+both the shape we build and the discipline that keeps it pure.
 
 ```
 text ─parse─▶ LoomDocument ─FrameAstBuilder─▶ FrameModule ─┬─ fromFrame ─▶ LoomVirtualCode             (de dicto frame)
@@ -33,8 +31,9 @@ text ─parse─▶ LoomDocument ─FrameAstBuilder─▶ FrameModule ─┬─ 
 
 Each model, and the pass (its Builder) that produces it:
 
-- **`LoomDocument`** — `parse` (`Loom`, `how-ast.md`): source text → the input
-  AST.
+- **`LoomDocument`** — the parse passes (`LoomSourceRanges` → `WeftClassifier` →
+  `WeftTokeniser` → `LoomAstBuilder`, run as a flat chain in `LoomCorpusAstBuilder`):
+  source text → the input AST.
 - **`FrameModule`** — `FrameAstBuilder` (`how-frame.md`): `LoomDocument` → the
   Frame, the composition program (`FrameAst.ts`). A *macro tree transducer*: a
   tree→tree pass that hoists bindings, resolves anchors, and generates
@@ -102,104 +101,10 @@ when extending the pipeline.
   transformations (lenses); institutionalised for editors by Volar's virtual
   code + mappings, which `fromFrame` / `fromProduct` feed.
 
-The layer specs own their passes: `how-ast.md` the parse, `how-frame.md` the
+The layers own their passes: the `corpus/` looms the parse, `how-frame.md` the
 `FrameAstBuilder` pass and `fromFrame`. This document covers the rest of the
 projection — `ProductAstBuilder` and `fromProduct`, the tangle that writes
-product files, the runtime that executes the Frame, and the Volar virtual-code
-layer that surfaces it.
-
----
-
-## Composition Primitives
-
-There is no separate `Code` value type: a section's product code is the source
-text carried by its `CodeWeft` and `ArrowWeft` nodes (`how-ast.md`), read by
-position, not wrapped in a dedicated value. The runtime primitives the Frame
-*calls*, however, are real and live in `#loom/core` — a monorepo module the
-Frame imports from:
-
-- **`compose`** — orders the code of the sections it references, in argument
-  order, into one composed result.
-- **`tangle`** — binds a composed result to a file path; running it at the end
-  of the world emits the file.
-
-Their exact signatures follow from the AST representation and are fixed in
-`#loom/core`, alongside the projection passes (`fromFrame` / `fromProduct` /
-`tangle`; see The Transformation Pipeline). The output is
-always literal code, concatenated in tangle order — the machinery (Effect,
-Services, Layers) never appears unless the author wrote Effect in a section.
-
-There is no `Template` type and no `needs()` function: every section —
-parameterised or not — projects to one `Effect.Service` exposing
-`{ name, preamble, code }` (see `how-frame.md`), and cross-file dependencies are
-declared by Warp annotations and wired automatically through Effect's DI, which
-derives the full graph from the Warp edges alone.
-
----
-
-## Runtime Entry Points
-
-Every Loom process is an Effect program. Effect drives the process — not
-imperative code that calls Effect occasionally. Each entry point begins from
-`NodeRuntime.runMain()` (or `Effect.runFork()`), provides Layers, and runs to
-the end of the world, where the output is pure text on disk.
-
-```
-NodeRuntime.runMain(                                  ← end of the world
-  Effect.gen(function* () {
-    const doc   = yield* Loom.ast(source)             ← parse   (how-ast)
-    const frame = yield* FrameAstBuilder.build(doc)   ← FrameAstBuilder (how-frame) → FrameModule
-    yield* Tangler.run(frame)                         ← tangle the {path} sinks → files
-  }).pipe(
-    Effect.provide(Loom.Default),
-    Effect.provide(FrameAstBuilder.Default),
-    Effect.provide(Tangler.Default),
-    Effect.provide(NodeFileSystem.layer),
-  )
-)
-```
-
-- **Tangle CLI** (`pnpm tsx tangle.ts <file>.loom`) — parses the document, runs
-  the `FrameAstBuilder` pass to the `FrameModule`, and tangles each `{path}`
-  sink. The end of the world is the emitted files. (Equivalently, the eventual
-  self-hosting path renders the `FrameModule` to a runnable Frame whose
-  auto-generated `LoomMain` composition root tangles the sinks when executed.)
-- **Volar LSP server** — an Effect Platform application. Parsing, the Frame
-  pass, virtual-code assembly, and diagnostics are all Effect services
-  composed via Layers; the server starts as an Effect program.
-- **Vite plugin** (if applicable) — Effect-native; its transform/build hooks are
-  Effect programs.
-
-The rule: start from the runtime entry point and model every concern as a
-Service with a Layer. Do not start with imperative Node code and sprinkle
-Effect inside, and do not call `Effect.runSync` / `runPromise` in the middle of
-an imperative flow.
-
----
-
-## The Two Planes — de dicto and de re
-
-Every `.loom` position belongs to exactly one of two planes, and that
-determines which virtual code the language server consults.
-
-**De dicto — the frame.** The composition machinery: the generated
-`Effect.Service` classes, their `core.compose()` / `core.tangle()` calls, Warp wiring (the
-lazy `const m = yield* Mul` bindings — no eager `dependencies` array, see
-`how-frame.md` on order independence), the author's cross-file `import` lines,
-and the verbatim body of any `{Loom}` section (a `FrameCode` splice). This is
-TypeScript that describes *how* code is composed. tsc checks it
-for composition correctness.
-
-**De re — the product.** The actual code the author wrote in a section's code
-block — `def add(x, y) = x + y`, a JSON manifest, a SQL query. This is the
-thing *being* composed, carried as the `code` field of each section's Service.
-It may be any language the document or a section specifier declares.
-
-The conflation to avoid: when product code happens to be TypeScript, it looks
-identical to frame code. It is not. One describes composition; the other is
-composed. A `.loom` position inside a heading, a Warp declaration, a tangle
-body, or a `{Loom}` section's code maps to the frame; a position inside a
-*product* section's code block maps to the product. They never mix.
+product files, and the Volar virtual-code layer that surfaces it.
 
 ---
 

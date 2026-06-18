@@ -108,11 +108,10 @@ blocks.
 
 ## Heading Levels and Document Structure
 
-All headings — regardless of level — create sections. The document is a
-flat `LoomSection[]` with no nesting, no parent containers. Heading levels
-are prose organisation for the human reader; they carry no structural
-meaning in the Frame. Lines before the first heading form the Document
-Preamble — `document.preamble`.
+The document is a flat `LoomSection[]` — every heading creates a section, levels
+are prose organisation only, and lines before the first heading form the Document
+Preamble (`architecture.md` → The AST). The Frame projects every section the same
+way whatever its heading level.
 
 ## Warp Declarations and Name Anchors
 
@@ -427,7 +426,7 @@ design that warrants a runtime spike before it is relied on.
 Diagnostics live on AST nodes, and there are two tiers — one per AST:
 
 - **Grammatical health — on the Loom AST, at parse.** Orphan brackets, malformed
-  labels, duplicate tags, unclosed delimiters; `how-ast.md`'s health model.
+  labels, duplicate tags, unclosed delimiters; `architecture.md`'s health model.
   `{Loom}` needs no special case here — a `[Tag] {Loom}` heading is
   grammatically fine.
 - **Semantic health — on the Frame AST, at the `FrameAstBuilder` pass.** A tag
