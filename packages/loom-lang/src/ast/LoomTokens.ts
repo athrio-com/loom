@@ -151,6 +151,18 @@ export const WarpCloseTokenSchema = loomNode('WarpClose', {
 })
 export type WarpCloseToken = typeof WarpCloseTokenSchema.Type
 
+export const AnchorOpenTokenSchema = loomNode('AnchorOpen', {
+  value: Schema.Literal('::\u005B'),
+}).annotations({
+  [Probe]: /::\[/g,
+})
+export type AnchorOpenToken = typeof AnchorOpenTokenSchema.Type
+
+export const AnchorCloseTokenSchema = loomNode('AnchorClose', {
+  value: Schema.Literal(']'),
+})
+export type AnchorCloseToken = typeof AnchorCloseTokenSchema.Type
+
 export const WarpNameTokenSchema = loomNode('WarpName', {
   value: Schema.String,
 }).pipe(
@@ -183,8 +195,8 @@ export const WarpAnchorNameTokenSchema = loomNode('WarpAnchorName', {
     if (t.value === '' && t.health.status === 'ok') {
       return 'empty `value` requires non-ok `health.status`'
     }
-    if (t.value !== '' && /[{}:]/.test(t.value)) {
-      return `warp anchor name must not contain { } or :, got \`${t.value}\``
+    if (t.value !== '' && t.value.includes(']')) {
+      return `anchor name must not contain ], got \`${t.value}\``
     }
     return true
   }),
@@ -192,11 +204,11 @@ export const WarpAnchorNameTokenSchema = loomNode('WarpAnchorName', {
 export type WarpAnchorNameToken = typeof WarpAnchorNameTokenSchema.Type
 
 export const WarpAnchorTokenSchema = loomNode('WarpAnchor', {
-  open: WarpOpenTokenSchema,
+  open: AnchorOpenTokenSchema,
   name: WarpAnchorNameTokenSchema,
-  close: WarpCloseTokenSchema,
+  close: AnchorCloseTokenSchema,
 }).annotations({
-  [Probe]: /\{\{[^{}:]+\}\}/g,
+  [Probe]: /::\[[^\]]*\]/g,
 })
 export type WarpAnchorToken = typeof WarpAnchorTokenSchema.Type
 

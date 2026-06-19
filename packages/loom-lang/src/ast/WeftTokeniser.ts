@@ -25,6 +25,8 @@ import {
   SpecifierLabelTokenSchema,
   SpecifierOpenTokenSchema,
   SpecifierTokenSchema,
+  AnchorCloseTokenSchema,
+  AnchorOpenTokenSchema,
   TagCloseTokenSchema,
   TagLabelTokenSchema,
   TagOpenTokenSchema,
@@ -44,6 +46,8 @@ import {
   type SpecifierLabelToken,
   type SpecifierOpenToken,
   type SpecifierToken,
+  type AnchorCloseToken,
+  type AnchorOpenToken,
   type HeadingTitleToken,
   type TagCloseToken,
   type TagLabelToken,
@@ -578,6 +582,7 @@ const constructSpecifier = (
 
 const scanWarpOpen = makeScanner(WarpOpenTokenSchema)
 const scanWarpClose = makeScanner(WarpCloseTokenSchema)
+const scanAnchorOpen = makeScanner(AnchorOpenTokenSchema)
 
 type WarpPair = { readonly open: WarpOpenToken; readonly close: WarpCloseToken }
 
@@ -927,8 +932,8 @@ const decodeWarpAnchorName = Schema.decodeUnknownEither(
 )
 
 const buildWarpAnchor = (
-  open: WarpOpenToken,
-  close: WarpCloseToken,
+  open: AnchorOpenToken,
+  close: AnchorCloseToken,
   lineText: string,
   linePosition: Position,
 ): { anchor: WarpAnchorToken; extras: ReadonlyArray<UnexpectedToken> } => {
@@ -981,8 +986,8 @@ const buildWarpAnchor = (
 }
 
 const assembleAnchor = (
-  open: WarpOpenToken,
-  close: WarpCloseToken,
+  open: AnchorOpenToken,
+  close: AnchorCloseToken,
   name: WarpAnchorNameToken,
   line: number,
   source: string,
@@ -1019,6 +1024,30 @@ const constructWarps = (
   return { tokens, unexpected: stray }
 }
 
+const anchorClose = (
+  open: AnchorOpenToken,
+  lineText: string,
+  linePosition: Position,
+): AnchorCloseToken => {
+  const line = linePosition.start.line
+  const lineStart = linePosition.start.offset
+  const lineEnd = linePosition.end.offset
+  const rel = lineText.indexOf(']', open.position.end.offset - lineStart)
+  return rel < 0
+    ? AnchorCloseTokenSchema.make({
+        position: span(line, lineEnd, lineEnd),
+        source: '',
+        health: missingClosing(line, lineEnd, ']'),
+        value: ']',
+      })
+    : AnchorCloseTokenSchema.make({
+        position: span(line, lineStart + rel, lineStart + rel + 1),
+        source: ']',
+        health: okHealth,
+        value: ']',
+      })
+}
+
 const constructAnchors = (
   lineText: string,
   linePosition: Position,
@@ -1026,16 +1055,17 @@ const constructAnchors = (
   tokens: ReadonlyArray<WarpAnchorToken>
   unexpected: ReadonlyArray<UnexpectedToken>
 } => {
-  const opens = scanWarpOpen(lineText, linePosition)
-  const closes = scanWarpClose(lineText, linePosition)
-  const { pairs } = pairWarpDelims(opens, closes, linePosition)
-  const built = pairs.map(({ open, close }) =>
-    buildWarpAnchor(open, close, lineText, linePosition),
+  const built = scanAnchorOpen(lineText, linePosition).map((open) =>
+    buildWarpAnchor(
+      open,
+      anchorClose(open, lineText, linePosition),
+      lineText,
+      linePosition,
+    ),
   )
-  const wellFormed = built.filter((b) => b.anchor.health.status === 'ok')
   return {
-    tokens: wellFormed.map((b) => b.anchor),
-    unexpected: [],
+    tokens: built.map((b) => b.anchor),
+    unexpected: built.flatMap((b) => b.extras),
   }
 }
 

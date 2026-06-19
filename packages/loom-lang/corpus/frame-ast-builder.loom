@@ -754,20 +754,20 @@ relies on. Each section is referenced by its title — the local anchor form Loo
 
 =>
 
-{{Imports}}
+::[Imports]
 
-{{The builder and its spine}}
+::[The builder and its spine]
 
-{{Resolving names}}
+::[Resolving names]
 
-{{Building a member}}
+::[Building a member]
 
-{{Composing code}}
+::[Composing code]
 
-{{Binding anchors}}
+::[Binding anchors]
 
-{{Folding to a module}}
+::[Folding to a module]
 
-{{Leaves and identity}}
+::[Leaves and identity]
 
-{{Spans and escaping}}
+::[Spans and escaping]

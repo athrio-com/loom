@@ -79,8 +79,8 @@ const program = Effect.gen(function* () {
 
 =>
 
-{{i}}
+::[i]
 
-{{p}}
+::[p]
 
 NodeRuntime.runMain(program)

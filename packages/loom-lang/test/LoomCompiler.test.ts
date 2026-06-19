@@ -33,7 +33,7 @@ import { Neg } from "./Sad.loom"
 
 =>
 
-{{n}}
+::[n]
 const negDouble = (x: number) => negate(x) * 2
 `,
 }

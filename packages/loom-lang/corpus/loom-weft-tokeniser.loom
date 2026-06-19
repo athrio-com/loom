@@ -2,7 +2,7 @@
 
 # The tokeniser stage
 
-`WeftTokeniser` is the tokeniser stage: a pure `Stream.map` that fills each weft's subtokens by kind. A heading gets its title, tag, and specifier; a tagless heading gets a tag named after its title instead. Arrow and tilde wefts get their optional inline content; preamble and prose settle to ok; a code weft gets its `{{name}}` anchors. After this stage no weft remains `incomplete`.
+`WeftTokeniser` is the tokeniser stage: a pure `Stream.map` that fills each weft's subtokens by kind. A heading gets its title, tag, and specifier; a tagless heading gets a tag named after its title instead. Arrow and tilde wefts get their optional inline content; preamble and prose settle to ok; a code weft gets its `::[name]` anchors. After this stage no weft remains `incomplete`.
 
 ## The tokeniser service
 
@@ -36,7 +36,7 @@ const tokeniseWeft = (text: string, weft: LoomWeft): LoomWeft =>
 
 ## Body wefts
 
-These handlers fill the body wefts. `inlineAfter` pulls a line's inline content after its marker — the code after `=>`, the prose after `~`. `tokeniseArrow` and `tokeniseCode` also scan the line for `{{name}}` anchors; `tokeniseTilde` fills inline prose; `tokenisePreamble` scans warp declarations; `tokeniseProse` only settles health. Each aggregates its subtokens' health into the weft.
+These handlers fill the body wefts. `inlineAfter` pulls a line's inline content after its marker — the code after `=>`, the prose after `~`. `tokeniseArrow` and `tokeniseCode` also scan the line for `::[name]` anchors; `tokeniseTilde` fills inline prose; `tokenisePreamble` scans warp declarations; `tokeniseProse` only settles health. Each aggregates its subtokens' health into the weft.
 
 =>
 
@@ -544,12 +544,13 @@ const constructSpecifier = (
 
 ## Pairing warp delimiters
 
-Warps and anchors share the `{{` and `}}` delimiters. `pairWarpDelims` pairs them greedily left to right — pairing an unmatched open with a synthetic `}}` at end-of-line, and surfacing unmatched closes as stray `unexpected` tokens.
+Warps and anchors no longer share delimiters: a warp is `{{…}}` in a preamble line, an anchor is `::[…]` in a code line. `pairWarpDelims` pairs a preamble line's `{{` and `}}` greedily left to right — pairing an unmatched open with a synthetic `}}` at end-of-line, and surfacing unmatched closes as stray `unexpected` tokens. Anchors pair differently: `scanAnchorOpen` finds the `::[` opens, and each closes on the first `]` after it, found directly rather than scanned, because `]` is ordinary in product code — only the one closing an open is structural, and a bare `]` is never a stray.
 
 =>
 
 const scanWarpOpen = makeScanner(WarpOpenTokenSchema)
 const scanWarpClose = makeScanner(WarpCloseTokenSchema)
+const scanAnchorOpen = makeScanner(AnchorOpenTokenSchema)
 
 type WarpPair = { readonly open: WarpOpenToken; readonly close: WarpCloseToken }
 
@@ -902,7 +903,7 @@ const assembleWarp = (
 
 ## Building an anchor
 
-`buildWarpAnchor` reads a `{{…}}` reference's content as its name — an identifier or a multi-word heading name. Content the anchor pattern rejects (empty, or carrying a colon) yields an error-health name and surfaces the text as `unexpected`. `assembleAnchor` gathers the parts.
+`buildWarpAnchor` reads a `::[…]` reference's content as its name — an identifier or a multi-word heading name. Content the anchor pattern rejects (empty) yields an error-health name and surfaces the text as `unexpected`. `assembleAnchor` gathers the parts.
 
 =>
 
@@ -917,8 +918,8 @@ const decodeWarpAnchorName = Schema.decodeUnknownEither(
 )
 
 const buildWarpAnchor = (
-  open: WarpOpenToken,
-  close: WarpCloseToken,
+  open: AnchorOpenToken,
+  close: AnchorCloseToken,
   lineText: string,
   linePosition: Position,
 ): { anchor: WarpAnchorToken; extras: ReadonlyArray<UnexpectedToken> } => {
@@ -971,8 +972,8 @@ const buildWarpAnchor = (
 }
 
 const assembleAnchor = (
-  open: WarpOpenToken,
-  close: WarpCloseToken,
+  open: AnchorOpenToken,
+  close: AnchorCloseToken,
   name: WarpAnchorNameToken,
   line: number,
   source: string,
@@ -995,7 +996,7 @@ const assembleAnchor = (
 
 ## Scanning a line for warps and anchors
 
-`constructWarps` scans a preamble line, pairs the delimiters, and builds a warp per pair. `constructAnchors` does the same for a code line, but keeps only well-formed anchors: a malformed `{{…}}` — unmatched, or a name with a colon or brace — is dropped and its bytes stay literal code, rather than transcluding as a broken reference. A well-formed anchor whose name does not resolve stays an anchor, a diagnostic for the frame pass.
+`constructWarps` scans a preamble line, pairs the `{{`/`}}` delimiters, and builds a warp per pair. `constructAnchors` scans a code line for `::[` opens and builds an anchor for each, closing it on the first `]` that follows. There is no fallback: a token is always a token. A malformed anchor — unclosed, or empty-named — is kept as an anchor carrying error health, never reinterpreted as literal code; an anchor whose name does not resolve likewise stays an anchor. Each is a diagnostic for the frame pass and a hard failure at tangle. The rare literal `::[` in product code is written through the host language's character escape, so the tokeniser never has to guess whether a `::[` was meant.
 
 =>
 
@@ -1015,6 +1016,30 @@ const constructWarps = (
   return { tokens, unexpected: stray }
 }
 
+const anchorClose = (
+  open: AnchorOpenToken,
+  lineText: string,
+  linePosition: Position,
+): AnchorCloseToken => {
+  const line = linePosition.start.line
+  const lineStart = linePosition.start.offset
+  const lineEnd = linePosition.end.offset
+  const rel = lineText.indexOf(']', open.position.end.offset - lineStart)
+  return rel < 0
+    ? AnchorCloseTokenSchema.make({
+        position: span(line, lineEnd, lineEnd),
+        source: '',
+        health: missingClosing(line, lineEnd, ']'),
+        value: ']',
+      })
+    : AnchorCloseTokenSchema.make({
+        position: span(line, lineStart + rel, lineStart + rel + 1),
+        source: ']',
+        health: okHealth,
+        value: ']',
+      })
+}
+
 const constructAnchors = (
   lineText: string,
   linePosition: Position,
@@ -1022,16 +1047,17 @@ const constructAnchors = (
   tokens: ReadonlyArray<WarpAnchorToken>
   unexpected: ReadonlyArray<UnexpectedToken>
 } => {
-  const opens = scanWarpOpen(lineText, linePosition)
-  const closes = scanWarpClose(lineText, linePosition)
-  const { pairs } = pairWarpDelims(opens, closes, linePosition)
-  const built = pairs.map(({ open, close }) =>
-    buildWarpAnchor(open, close, lineText, linePosition),
+  const built = scanAnchorOpen(lineText, linePosition).map((open) =>
+    buildWarpAnchor(
+      open,
+      anchorClose(open, lineText, linePosition),
+      lineText,
+      linePosition,
+    ),
   )
-  const wellFormed = built.filter((b) => b.anchor.health.status === 'ok')
   return {
-    tokens: wellFormed.map((b) => b.anchor),
-    unexpected: [],
+    tokens: built.map((b) => b.anchor),
+    unexpected: built.flatMap((b) => b.extras),
   }
 }
 
@@ -1242,6 +1268,8 @@ import {
   SpecifierLabelTokenSchema,
   SpecifierOpenTokenSchema,
   SpecifierTokenSchema,
+  AnchorCloseTokenSchema,
+  AnchorOpenTokenSchema,
   TagCloseTokenSchema,
   TagLabelTokenSchema,
   TagOpenTokenSchema,
@@ -1261,6 +1289,8 @@ import {
   type SpecifierLabelToken,
   type SpecifierOpenToken,
   type SpecifierToken,
+  type AnchorCloseToken,
+  type AnchorOpenToken,
   type HeadingTitleToken,
   type TagCloseToken,
   type TagLabelToken,
@@ -1295,32 +1325,32 @@ import {
 
 =>
 
-{{What this module draws on}}
+::[What this module draws on]
 
-{{The tokeniser service}}
+::[The tokeniser service]
 
-{{Body wefts}}
+::[Body wefts]
 
-{{Health and positions}}
+::[Health and positions]
 
-{{Label builders}}
+::[Label builders]
 
-{{Scanners}}
+::[Scanners]
 
-{{Pairing tags and specifiers}}
+::[Pairing tags and specifiers]
 
-{{Pairing warp delimiters}}
+::[Pairing warp delimiters]
 
-{{Warp content}}
+::[Warp content]
 
-{{Building a warp}}
+::[Building a warp]
 
-{{Building an anchor}}
+::[Building an anchor]
 
-{{Scanning a line for warps and anchors}}
+::[Scanning a line for warps and anchors]
 
-{{The heading title}}
+::[The heading title]
 
-{{Scanning a heading}}
+::[Scanning a heading]
 
-{{Tokenising a heading}}
+::[Tokenising a heading]

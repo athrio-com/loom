@@ -445,7 +445,7 @@ describe('Tokeniser — body weft subtoken expansion', () => {
 
 // =============================================================================
 // Warp tokenisation — PreambleWeft hosts `{{name: annotation [= default]}}`
-// declarations; ArrowWeft and CodeWeft host `{{name}}` references.
+// declarations; ArrowWeft and CodeWeft host `::[name]` references.
 // =============================================================================
 
 describe('Tokeniser — Warp declarations on PreambleWeft', () => {
@@ -568,28 +568,28 @@ describe('Tokeniser — WarpAnchor references on ArrowWeft / CodeWeft', () => {
     return w
   }
 
-  it('CodeWeft recognises a single anchor `{{name}}`', () => {
-    const w = codeWeftFromLines(['## A', '=>', 'use {{mul}} here'], 2)
+  it('CodeWeft recognises a single anchor `::[name]`', () => {
+    const w = codeWeftFromLines(['## A', '=>', 'use ::[mul] here'], 2)
     expect(w.anchors).toHaveLength(1)
     expect(w.anchors[0].name.value).toBe('mul')
     expect(w.anchors[0].health.status).toBe('ok')
   })
 
   it('CodeWeft recognises multiple anchors on one line', () => {
-    const w = codeWeftFromLines(['## A', '=>', '{{a}} + {{b}}'], 2)
+    const w = codeWeftFromLines(['## A', '=>', '::[a] + ::[b]'], 2)
     expect(w.anchors).toHaveLength(2)
     expect(w.anchors.map((a) => a.name.value)).toEqual(['a', 'b'])
   })
 
-  it('recognises a multi-word heading-name anchor `{{Multiplier Function}}`', () => {
-    const w = codeWeftFromLines(['## A', '=>', '{{Multiplier Function}}'], 2)
+  it('recognises a multi-word heading-name anchor `::[Multiplier Function]`', () => {
+    const w = codeWeftFromLines(['## A', '=>', '::[Multiplier Function]'], 2)
     expect(w.anchors).toHaveLength(1)
     expect(w.anchors[0].name.value).toBe('Multiplier Function')
     expect(w.anchors[0].health.status).toBe('ok')
   })
 
   it("ArrowWeft recognises an anchor inline with the arrow's code", () => {
-    const w = arrowWeftFromLine('=> {{x}}')
+    const w = arrowWeftFromLine('=> ::[x]')
     expect(w.anchors).toHaveLength(1)
     expect(w.anchors[0].name.value).toBe('x')
   })
@@ -603,7 +603,7 @@ describe('Tokeniser — WarpAnchor references on ArrowWeft / CodeWeft', () => {
   })
 
   it('anchor with whitespace around the name is ok', () => {
-    const w = codeWeftFromLines(['## A', '=>', '{{ name }}'], 2)
+    const w = codeWeftFromLines(['## A', '=>', '::[ name ]'], 2)
     expect(w.anchors[0].name.value).toBe('name')
     expect(w.anchors[0].health.status).toBe('ok')
   })
@@ -620,7 +620,7 @@ describe('Tokeniser — WarpAnchor references on ArrowWeft / CodeWeft', () => {
       codeWeftFromLines(['## A', '=>', 'plain code'], 2).health.status,
     ).not.toBe('incomplete')
     expect(
-      codeWeftFromLines(['## A', '=>', '{{a}}'], 2).health.status,
+      codeWeftFromLines(['## A', '=>', '::[a]'], 2).health.status,
     ).not.toBe('incomplete')
   })
 })

@@ -37,7 +37,7 @@ import { Neg } from "./Sad.loom"
 
 =>
 
-{{n}}
+::[n]
 const negDouble = (x: number) => negate(x) * 2
 `
 
@@ -67,7 +67,7 @@ describe('ProductAstBuilder — per-module code map', () => {
     const targets = negd.parts.flatMap((p) =>
       p.type === 'Ref' ? [Option.getOrNull(p.target)] : [],
     )
-    // the {{n}} anchor resolves the binding `n` ↦ tag `Neg` ↦ /Sad.loom.
+    // the ::[n] anchor resolves the binding `n` ↦ tag `Neg` ↦ /Sad.loom.
     expect(targets).toContainEqual({ path: '/Sad.loom', name: 'Neg' })
   })
 

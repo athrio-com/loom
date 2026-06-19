@@ -82,8 +82,8 @@ export class LoomConfig extends Effect.Service<LoomConfig>()(
 
 =>
 
-{{i}}
+::[i]
 
-{{m}}
+::[m]
 
-{{s}}
+::[s]

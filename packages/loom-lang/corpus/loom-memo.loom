@@ -96,8 +96,8 @@ import { type LoomModule, type Path } from '#ast/LoomCorpusAst'
 
 =>
 
-{{What this module draws on}}
+::[What this module draws on]
 
-{{The observable state}}
+::[The observable state]
 
-{{The cache as a service}}
+::[The cache as a service]

@@ -178,14 +178,14 @@ import {
 
 =>
 
-{{What this module draws on}}
+::[What this module draws on]
 
-{{What the builder needs}}
+::[What the builder needs]
 
-{{Node constructors}}
+::[Node constructors]
 
-{{Reading the frame}}
+::[Reading the frame]
 
-{{Resolving a reference}}
+::[Resolving a reference]
 
-{{Building the code map}}
+::[Building the code map]

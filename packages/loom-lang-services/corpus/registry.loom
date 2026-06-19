@@ -69,8 +69,8 @@ export class LanguageRegistry extends Effect.Service<LanguageRegistry>()(
 
 =>
 
-{{i}}
+::[i]
 
-{{a}}
+::[a]
 
-{{r}}
+::[r]

@@ -121,7 +121,7 @@ const emitNode = (node: any): LoomVirtualCode =>
 
 ## Inlining the product
 
-The de re walk inlines a section's parts. `lookup` finds a section's `ComposedCode` across the corpus. `inlineComposed` folds a node's parts. `inlinePart` handles each: a `Fragment` becomes a `product` leaf mapped to its origin; a `Ref` is followed and inlined — pinned onto the consuming `{{…}}` anchor at the first cross-file boundary, and contributing nothing when its target is unresolved, missing, or cyclic. `absorbTrailingNewline`, with `clipMappings`, sheds a transcluded block's trailing newline so the sink's layout becomes the output's.
+The de re walk inlines a section's parts. `lookup` finds a section's `ComposedCode` across the corpus. `inlineComposed` folds a node's parts. `inlinePart` handles each: a `Fragment` becomes a `product` leaf mapped to its origin; a `Ref` is followed and inlined — pinned onto the consuming `::[…]` anchor at the first cross-file boundary, and contributing nothing when its target is unresolved, missing, or cyclic. `absorbTrailingNewline`, with `clipMappings`, sheds a transcluded block's trailing newline so the sink's layout becomes the output's.
 
 =>
 
@@ -304,18 +304,18 @@ import {
 
 =>
 
-{{What this module draws on}}
+::[What this module draws on]
 
-{{The corpus code view}}
+::[The corpus code view]
 
-{{The render-order table}}
+::[The render-order table]
 
-{{The fold monoid}}
+::[The fold monoid]
 
-{{Walking the frame}}
+::[Walking the frame]
 
-{{Inlining the product}}
+::[Inlining the product]
 
-{{The passes and the tree}}
+::[The passes and the tree]
 
-{{The service}}
+::[The service]

@@ -74,7 +74,7 @@ const synth = (text: string) =>
 
 An authored leaf is a span of text lifted from the `.loom` source and stored with its source position.
 
-A `FrameAuthoredToken` carries its text and a `kind`. When `kind` is `name`, the token holds an identifier that stands for itself — a tag label, a Warp's local or its annotation — and maps to the matching identifier in the generated code. The two spans share their text, so the language service offers rename, go-to-definition, and hover there, and the hover reports a real service. A `heading` token and an `anchor` token are the two ends of a name-anchor link. Their spans hold different text — a heading title against the generated `_Heading` alias — so each offers navigation but not hover, which would only describe the synthetic alias rather than the section. The `heading` token is the definition, mapped to the title the author wrote; the `anchor` token is the `{{Heading}}` reference that names it. When `kind` is `prose`, the token holds heading or preamble text and maps into a Markdown virtual document, so Markdown tooling applies to it.
+A `FrameAuthoredToken` carries its text and a `kind`. When `kind` is `name`, the token holds an identifier that stands for itself — a tag label, a Warp's local or its annotation — and maps to the matching identifier in the generated code. The two spans share their text, so the language service offers rename, go-to-definition, and hover there, and the hover reports a real service. A `heading` token and an `anchor` token are the two ends of a name-anchor link. Their spans hold different text — a heading title against the generated `_Heading` alias — so each offers navigation but not hover, which would only describe the synthetic alias rather than the section. The `heading` token is the definition, mapped to the title the author wrote; the `anchor` token is the `::[Heading]` reference that names it. When `kind` is `prose`, the token holds heading or preamble text and maps into a Markdown virtual document, so Markdown tooling applies to it.
 
 A `FrameCode` carries the body of a `{Loom}` section verbatim. A `{Loom}` section is one whose code blocks are frame-level TypeScript, meant to sit directly in the generated frame rather than inside a service class body. `FrameCode` maps that text into the frame's own virtual TypeScript document, so the compiler type-checks it in place.
 
@@ -117,7 +117,7 @@ Each channel — code and prose — has two leaf types: one for content the sect
 
 An `EmbeddedCode` node carries one `=>` run's product code. A `ProseFragment` node carries one prose span — a heading or a paragraph. Both hold a source position, so the language service can map their text. `EmbeddedCode` maps into the section's embedded-language virtual document, where that language's server — Python, Scala, TypeScript, or any other target — analyses it. `ProseFragment` maps into a Markdown virtual document, where Markdown tooling applies.
 
-A `CodeRef` transcludes another section's code channel: it emits the local alias followed by `.code`. A `ProseRef` transcludes the prose channel, emitting the alias followed by `.prose`. In both, the `binding` field is an authored token that carries the alias text and maps back to the `{{…}}` Warp anchor the author wrote. When the anchor cannot resolve its target, the binding's health carries an error, so the diagnostic lands on the anchor in the source rather than on the generated frame.
+A `CodeRef` transcludes another section's code channel: it emits the local alias followed by `.code`. A `ProseRef` transcludes the prose channel, emitting the alias followed by `.prose`. In both, the `binding` field is an authored token that carries the alias text and maps back to the `::[…]` Warp anchor the author wrote. When the anchor cannot resolve its target, the binding's health carries an error, so the diagnostic lands on the anchor in the source rather than on the generated frame.
 
 =>
 
@@ -408,26 +408,26 @@ export type FrameModule = typeof FrameModuleSchema.Type
 
 =>
 
-{{Building on Effect Schema}}
+::[Building on Effect Schema]
 
-{{The frame node}}
+::[The frame node]
 
-{{Synth tokens}}
+::[Synth tokens]
 
-{{Authored leaves}}
+::[Authored leaves]
 
-{{The service name}}
+::[The service name]
 
-{{Code and prose fragments}}
+::[Code and prose fragments]
 
-{{Composing and weaving}}
+::[Composing and weaving]
 
-{{Effectful plumbing}}
+::[Effectful plumbing]
 
-{{Service bodies}}
+::[Service bodies]
 
-{{The service class}}
+::[The service class]
 
-{{The composition root}}
+::[The composition root]
 
-{{The module}}
+::[The module]

@@ -23,7 +23,7 @@ const hi = "hello"
 
 =>
 
-{{g}}
+::[g]
 `
 
 // loomWith — a minimal doc: a tagged section inlined by a {path} sink.
@@ -42,7 +42,7 @@ const x = "${value}"
 
 =>
 
-{{b}}
+::[b]
 `
 
 // LoomTangler over the real Node filesystem (the tangler is the fs consumer);
@@ -64,7 +64,7 @@ describe('LoomTangler — tangle {path} sinks to disk', () => {
       const written = yield* tangler.tangle(entry)
 
       expect(written).toHaveLength(1) // one {path} sink — Bundle
-      // Bundle's `{{g}}` resolves to Greet and inlines its code.
+      // Bundle's `::[g]` resolves to Greet and inlines its code.
       const out = yield* fs.readFileString(`${dir}/out/bundle.ts`)
       expect(out).toContain('const hi = "hello"')
     }).pipe(Effect.provide(layers)),

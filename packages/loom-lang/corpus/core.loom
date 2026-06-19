@@ -58,10 +58,10 @@ Three standalone functions, none calling another, so their order on disk is free
 
 =>
 
-{{Imports}}
+::[Imports]
 
-{{Composing code}}
+::[Composing code]
 
-{{Weaving prose}}
+::[Weaving prose]
 
-{{Emitting a file}}
+::[Emitting a file]

@@ -299,16 +299,16 @@ import type {
 
 =>
 
-{{What this module draws on}}
+::[What this module draws on]
 
-{{The build}}
+::[The build]
 
-{{Peeling one node}}
+::[Peeling one node]
 
-{{Folding into the document}}
+::[Folding into the document]
 
-{{Building a section}}
+::[Building a section]
 
-{{Assembling the document}}
+::[Assembling the document]
 
-{{Recovering from mixed terminators}}
+::[Recovering from mixed terminators]

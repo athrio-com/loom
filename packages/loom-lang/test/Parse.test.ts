@@ -214,7 +214,7 @@ describe('Tokeniser Stage — integration against corpus/Fun.loom', () => {
     expect(names).toEqual(['a', 's', 'p'])
   })
 
-  it('a CodeWeft with `{{m}}` populates anchors with the Mul reference', () => {
+  it('a CodeWeft with `::[m]` populates anchors with the Mul reference', () => {
     const code = filterByType('CodeWeft').find((c) =>
       c.anchors.some((a) => a.name.value === 'm'),
     )
@@ -223,7 +223,7 @@ describe('Tokeniser Stage — integration against corpus/Fun.loom', () => {
     expect(anchor.health.status).toBe('ok')
   })
 
-  it('recognises a multi-word heading-name anchor `{{Entry point}}` (ok health)', () => {
+  it('recognises a multi-word heading-name anchor `::[Entry point]` (ok health)', () => {
     const anchor = filterByType('CodeWeft')
       .flatMap((c) => c.anchors)
       .find((a) => a.name.value === 'Entry point')

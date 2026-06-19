@@ -263,14 +263,14 @@ import {
 
 =>
 
-{{What this module draws on}}
+::[What this module draws on]
 
-{{The classifier service}}
+::[The classifier service]
 
-{{Classifying one line}}
+::[Classifying one line]
 
-{{Line positions}}
+::[Line positions]
 
-{{Mode and probe}}
+::[Mode and probe]
 
-{{Building the wefts}}
+::[Building the wefts]

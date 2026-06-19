@@ -101,10 +101,10 @@ export function deactivate(): Thenable<any> | undefined {
 
 =>
 
-{{What the client is built on}}
+::[What the client is built on]
 
-{{The client handle}}
+::[The client handle]
 
-{{Activating the extension}}
+::[Activating the extension]
 
-{{Deactivating}}
+::[Deactivating]

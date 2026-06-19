@@ -9,7 +9,7 @@ import { fromFrame, fromProduct } from '#ast/LoomVirtualCodeBuilder'
 // fromFrame (de dicto): Frame AST → the `frame` virtual code, the generated
 // composition program tsc checks. fromProduct (de re): a section → its product
 // virtual code, transclusions inlined across the corpus — every cross-file span
-// re-pinned onto the consuming `{{…}}` anchor (per how-lsp), never dangling into
+// re-pinned onto the consuming `::[…]` anchor (per how-lsp), never dangling into
 // the dependency.
 
 const parse = (src: string) =>
@@ -114,7 +114,7 @@ import { Neg } from "./Sad.loom"
 
 =>
 
-{{n}}
+::[n]
 const negDouble = (x: number) => negate(x) * 2
 `
 
@@ -156,7 +156,7 @@ describe('fromProduct — section → product virtual code (cross-file)', () => 
     const vc = fromProduct(codeByPath, { path: '/Fun.loom', name: 'Negd' })
     // negate's *text* is from Sad, but no mapping may point outside Fun's source.
     expect(vc.mappings.every((m) => m.source.end.offset <= fun.length)).toBe(true)
-    // the first emitted span (the inlined `negate`) maps to the {{n}} anchor in
+    // the first emitted span (the inlined `negate`) maps to the ::[n] anchor in
     // Fun, not to the library's own code.
     const first = vc.mappings.find((m) => m.genStart === 0)!
     expect(first).toBeDefined()
@@ -177,7 +177,7 @@ describe('fromProduct — section → product virtual code (cross-file)', () => 
 // === de re — transclusion's newline rule ==================================
 
 // A sink that stacks two blocks with one blank line between the anchors. The rule:
-// each inlined block sheds its own trailing newline, so the sink's `{{x}}⏎⏎{{y}}`
+// each inlined block sheds its own trailing newline, so the sink's `::[x]⏎⏎::[y]`
 // layout produces exactly one blank line between the blocks — never two — and the
 // file ends with a single newline, not a doubled trailing blank.
 const two = `{{lang: TypeScript}}
@@ -201,9 +201,9 @@ const b = 2
 
 =>
 
-{{x}}
+::[x]
 
-{{y}}
+::[y]
 `
 
 const twoMod: ModuleInput = {

@@ -116,10 +116,10 @@ import { codeOf, LoomCompiler } from './LoomCompiler'
 
 =>
 
-{{What this module draws on}}
+::[What this module draws on]
 
-{{A tangled file}}
+::[A tangled file]
 
-{{The tangler service}}
+::[The tangler service]
 
-{{Finding the sinks}}
+::[Finding the sinks]

@@ -32,7 +32,7 @@ export const hi = "hello"
 
 =>
 
-{{g}}
+::[g]
 `
 
 const tempDoc = (): { readonly dir: string; readonly doc: string } => {

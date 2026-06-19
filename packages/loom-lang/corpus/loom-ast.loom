@@ -66,10 +66,10 @@ import { PreambleWeftSchema, SectionBodyWeftSchema } from './Weft'
 
 =>
 
-{{What this module draws on}}
+::[What this module draws on]
 
-{{The heading}}
+::[The heading]
 
-{{The section}}
+::[The section]
 
-{{The document}}
+::[The document]

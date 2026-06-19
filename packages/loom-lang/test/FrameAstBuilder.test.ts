@@ -105,7 +105,7 @@ export const help = 1
 
 =>
 
-main = {{h}}
+main = ::[h]
 `
   const frame = buildFrame(parse(src))
   const main = frame.members
@@ -131,12 +131,12 @@ main = {{h}}
     expect(at(tag.position)).toContain('Help')
   })
 
-  it('a code anchor binds to the inner name of {{name}}, not the braces', () => {
+  it('a code anchor binds to the inner name of ::[name], not the braces', () => {
     const args = [body.code.head, ...body.code.tail.map((t) => t.value)]
     const ref = args.find((a) => a?.type === 'CodeRef') as CodeRef
     expect(ref.binding.text).toBe('h')
-    expect(at(ref.binding.position)).toBe('h') // not "{{h}}"
-    expect(ref.binding.position.start.offset).toBe(src.lastIndexOf('{{h}}') + 2)
+    expect(at(ref.binding.position)).toBe('h') // not "::[h]"
+    expect(ref.binding.position.start.offset).toBe(src.lastIndexOf('::[h]') + 3)
   })
 })
 
@@ -207,7 +207,7 @@ const helper = 1
 
 =>
 
-{{Helper}}
+::[Helper]
 `
   const services = buildFrame(parse(src))
     .members.map((m) => m.value)
@@ -265,7 +265,7 @@ export const b = 2
 
 =>
 
-main = {{Helper}}
+main = ::[Helper]
 `
   const frame = buildFrame(parse(src))
   const main = frame.members

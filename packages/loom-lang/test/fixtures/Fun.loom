@@ -58,7 +58,7 @@ Built on top of {{m: Mul}}.
 
 =>
 
-{{m}}
+::[m]
 
 def square(x: Int): Int = mul(x, x)
 
@@ -76,9 +76,9 @@ Smoke tests for {{a: Add}}, {{s: Sq}}, and {{p: Pow}}.
 
 =>
 
-{{a}}
-{{s}}
-{{p}}
+::[a]
+::[s]
+::[p]
 
 object Arithmetic extends App {
   println(s"add(2, 3)    = ${add(2, 3)}")
@@ -103,7 +103,7 @@ Warp edge. The `yield* Neg` resolves to the imported class.
 
 =>
 
-{{n}}
+::[n]
 
 def negated(x: Int): Int = negate(x)
 
@@ -123,11 +123,11 @@ Pull the imports and the entry point together.
 
 =>
 
-{{Imports}}
-{{Entry point}}
+::[Imports]
+::[Entry point]
 
 # Tangling the build script {build.sh}
 
 =>
 
-{{Build script}}
+::[Build script]

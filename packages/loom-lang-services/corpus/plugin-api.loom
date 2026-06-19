@@ -168,12 +168,12 @@ export const defineLanguageService = (service: LanguageService): LanguageService
 
 =>
 
-{{i}}
+::[i]
 
-{{s}}
+::[s]
 
-{{cap}}
+::[cap]
 
-{{c}}
+::[c]
 
-{{d}}
+::[d]

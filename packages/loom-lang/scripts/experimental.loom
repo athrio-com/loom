@@ -59,7 +59,7 @@ Built on top of `mul`.
 
 =>
 
-{{Multiplier Function}}
+::[Multiplier Function]
 
 def square(x: Int): Int = mul(x, x)
 
@@ -77,9 +77,9 @@ Smoke tests for {{a: Add}}, {{s: Sq}}, and {{p: Pow}}.
 
 =>
 
-{{a}}
-{{s}}
-{{p}}
+::[a]
+::[s]
+::[p]
 
 object Arithmetic extends App {
   println(s"add(2, 3)    = ${add(2, 3)}")
@@ -105,8 +105,8 @@ scala -cp out Arithmetic
 
 =>
 
-{{i}}
-{{m}}
+::[i]
+::[m]
 
 # Tangling the build script {scripts/build.sh}
 
@@ -114,4 +114,4 @@ scala -cp out Arithmetic
 
 =>
 
-{{b}}
+::[b]

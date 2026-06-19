@@ -190,7 +190,7 @@ export type ProseToken = typeof ProseTokenSchema.Type
 
 ## Warps and anchors
 
-A `Warp` is a declaration, `{{name: annotation [= default]}}`, written in a preamble line; a `WarpAnchor` is a reference, `{{name}}`, written in a code line. Both expose `open`, `close`, and `name` as subnodes. A declaration's `name` must be a TypeScript identifier; an anchor's `name` is looser — any text without braces or a colon, since it may name either a binding or a section by heading. The `annotation` and `default` are opaque text here; their structure is read by a later pass.
+A `Warp` is a declaration, `{{name: annotation [= default]}}`, written in a preamble line. A `WarpAnchor` is a reference, `::[name]`, written in a code line. The two use different delimiters on purpose: a warp sits in prose, where `{{` is safe, but an anchor sits inside product code, where `{{` would collide with templating languages that own that syntax — `::[` does not. So a warp opens with `{{` and closes with `}}`, an anchor opens with `::[` and closes with `]`; both expose `open`, `close`, and `name` as subnodes. A declaration's `name` must be a TypeScript identifier; an anchor's `name` is looser — any text up to the closing `]`, since it may name either a binding or a section by heading. The `annotation` and `default` are opaque text here; their structure is read by a later pass.
 
 =>
 
@@ -207,6 +207,18 @@ export const WarpCloseTokenSchema = loomNode('WarpClose', {
   [Probe]: /\}\}/g,
 })
 export type WarpCloseToken = typeof WarpCloseTokenSchema.Type
+
+export const AnchorOpenTokenSchema = loomNode('AnchorOpen', {
+  value: Schema.Literal('::\u005B'),
+}).annotations({
+  [Probe]: /::\[/g,
+})
+export type AnchorOpenToken = typeof AnchorOpenTokenSchema.Type
+
+export const AnchorCloseTokenSchema = loomNode('AnchorClose', {
+  value: Schema.Literal(']'),
+})
+export type AnchorCloseToken = typeof AnchorCloseTokenSchema.Type
 
 export const WarpNameTokenSchema = loomNode('WarpName', {
   value: Schema.String,
@@ -240,8 +252,8 @@ export const WarpAnchorNameTokenSchema = loomNode('WarpAnchorName', {
     if (t.value === '' && t.health.status === 'ok') {
       return 'empty `value` requires non-ok `health.status`'
     }
-    if (t.value !== '' && /[{}:]/.test(t.value)) {
-      return `warp anchor name must not contain { } or :, got \`${t.value}\``
+    if (t.value !== '' && t.value.includes(']')) {
+      return `anchor name must not contain ], got \`${t.value}\``
     }
     return true
   }),
@@ -249,11 +261,11 @@ export const WarpAnchorNameTokenSchema = loomNode('WarpAnchorName', {
 export type WarpAnchorNameToken = typeof WarpAnchorNameTokenSchema.Type
 
 export const WarpAnchorTokenSchema = loomNode('WarpAnchor', {
-  open: WarpOpenTokenSchema,
+  open: AnchorOpenTokenSchema,
   name: WarpAnchorNameTokenSchema,
-  close: WarpCloseTokenSchema,
+  close: AnchorCloseTokenSchema,
 }).annotations({
-  [Probe]: /\{\{[^{}:]+\}\}/g,
+  [Probe]: /::\[[^\]]*\]/g,
 })
 export type WarpAnchorToken = typeof WarpAnchorTokenSchema.Type
 
@@ -302,24 +314,24 @@ import { loomNode } from './LoomNode'
 
 =>
 
-{{What this module draws on}}
+::[What this module draws on]
 
-{{The Probe annotation}}
+::[The Probe annotation]
 
-{{Heading markers}}
+::[Heading markers]
 
-{{Tags}}
+::[Tags]
 
-{{Specifiers}}
+::[Specifiers]
 
-{{Path specifiers}}
+::[Path specifiers]
 
-{{Transition markers}}
+::[Transition markers]
 
-{{Heading title}}
+::[Heading title]
 
-{{Code and prose content}}
+::[Code and prose content]
 
-{{Warps and anchors}}
+::[Warps and anchors]
 
-{{The token union}}
+::[The token union]

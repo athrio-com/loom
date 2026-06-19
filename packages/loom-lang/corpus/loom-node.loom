@@ -121,14 +121,14 @@ export const loomNode = <
 
 =>
 
-{{Built on Effect Schema}}
+::[Built on Effect Schema]
 
-{{Source positions}}
+::[Source positions]
 
-{{Diagnostics}}
+::[Diagnostics]
 
-{{Node health}}
+::[Node health]
 
-{{Rejected fragments}}
+::[Rejected fragments]
 
-{{The node combinator}}
+::[The node combinator]

@@ -258,16 +258,16 @@ describe('Warp probe', () => {
     )
   })
 
-  it('does not match bare `{{name}}` references (no `:`)', () => {
-    expect([...'{{mul}}'.matchAll(probe)]).toHaveLength(0)
+  it('does not match bare `::[name]` references (no `:`)', () => {
+    expect([...'::[mul]'.matchAll(probe)]).toHaveLength(0)
   })
 })
 
 describe('WarpAnchor probe', () => {
   const probe = Option.getOrThrow(getProbe(WarpAnchorTokenSchema))
 
-  it('matches `{{name}}` references', () => {
-    expect([...'{{mul}}'.matchAll(probe)][0]?.[0]).toBe('{{mul}}')
+  it('matches `::[name]` references', () => {
+    expect([...'::[mul]'.matchAll(probe)][0]?.[0]).toBe('::[mul]')
   })
 
   it('does not match declarations (which contain `:`)', () => {
@@ -346,6 +346,21 @@ const warpClose = {
   health: okHealth,
 }
 
+const anchorOpen = {
+  type: 'AnchorOpen' as const,
+  value: '::[' as const,
+  position: samplePosition,
+  source: '',
+  health: okHealth,
+}
+const anchorClose = {
+  type: 'AnchorClose' as const,
+  value: ']' as const,
+  position: samplePosition,
+  source: '',
+  health: okHealth,
+}
+
 const warpAnchorName = (value: string) => ({
   type: 'WarpAnchorName' as const,
   value,
@@ -370,9 +385,9 @@ describe('WarpAnchor schema validation', () => {
         position: samplePosition,
         source: '',
         health: okHealth,
-        open: warpOpen,
+        open: anchorOpen,
         name: warpAnchorName('mul'),
-        close: warpClose,
+        close: anchorClose,
       }),
     ).toBe(true)
   })
@@ -384,23 +399,23 @@ describe('WarpAnchor schema validation', () => {
         position: samplePosition,
         source: '',
         health: okHealth,
-        open: warpOpen,
+        open: anchorOpen,
         name: warpAnchorName('Multiplier Function'),
-        close: warpClose,
+        close: anchorClose,
       }),
     ).toBe(true)
   })
 
-  it('rejects a name containing `:`', () => {
+  it('rejects a name containing `]`', () => {
     expect(
       Schema.is(WarpAnchorTokenSchema)({
         type: 'WarpAnchor',
         position: samplePosition,
         source: '',
         health: okHealth,
-        open: warpOpen,
-        name: warpAnchorName('not:valid'),
-        close: warpClose,
+        open: anchorOpen,
+        name: warpAnchorName('not]valid'),
+        close: anchorClose,
       }),
     ).toBe(false)
   })

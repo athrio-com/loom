@@ -65,8 +65,8 @@ import { PositionSchema } from '#ast/LoomNode'
 
 =>
 
-{{What this module draws on}}
+::[What this module draws on]
 
-{{Mappings}}
+::[Mappings]
 
-{{The virtual-code tree}}
+::[The virtual-code tree]

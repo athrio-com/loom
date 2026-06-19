@@ -4,7 +4,7 @@
 
 `LoomCorpusAstBuilder` compiles one `.loom` file. It runs the file through every pass in turn — read its bytes, parse, frame, product — and returns a `LoomModule`: the parsed document, the de dicto frame (the generated composition program), the de re product code (the author's own code), and the paths of the files this one imports.
 
-It builds that one module and no more. It follows no imports and keeps no cache — `LoomCompiler` does both, walking the import paths this builder reports and memoising each result in `LoomMemo`. A cross-file `{{…}}` reference stays unresolved here as well. It is inlined later, at projection, by `fromProduct`.
+It builds that one module and no more. It follows no imports and keeps no cache — `LoomCompiler` does both, walking the import paths this builder reports and memoising each result in `LoomMemo`. A cross-file `::[…]` reference stays unresolved here as well. It is inlined later, at projection, by `fromProduct`.
 
 The builder owns no files. It reads through a `Source` the caller hands it, so the same build runs over a real filesystem for the tangler, a Volar document host for the editor, or an in-memory fake for a test.
 
@@ -24,7 +24,7 @@ export interface Source {
 
 Parsing never throws. Mixed line terminators are the one failure the parse chain cannot pin to a node, so `LoomSourceRanges` raises `MixedEOL`; `build` catches it and recovers with `emptyDocumentFor`, an empty document carrying the diagnostic. Every other malformation rides in the document's own health.
 
-`build` also reports the file's `{Loom}` imports, in the two shapes its consumers need. `imports`, the field on the returned module, is the list of resolved `.loom` paths `LoomCompiler` walks to pull in the rest of the corpus. The other shape, a map handed to `ProductAstBuilder`, binds each imported name to the file it lives in, so the product pass can record where a cross-file `{{…}}` reference points. Both are read from the same import lines by the functions below.
+`build` also reports the file's `{Loom}` imports, in the two shapes its consumers need. `imports`, the field on the returned module, is the list of resolved `.loom` paths `LoomCompiler` walks to pull in the rest of the corpus. The other shape, a map handed to `ProductAstBuilder`, binds each imported name to the file it lives in, so the product pass can record where a cross-file `::[…]` reference points. Both are read from the same import lines by the functions below.
 
 =>
 
@@ -163,10 +163,10 @@ import type { LoomModule, Path } from '#ast/LoomCorpusAst'
 
 =>
 
-{{What the builder draws on}}
+::[What the builder draws on]
 
-{{The source it reads through}}
+::[The source it reads through]
 
-{{The chain of passes}}
+::[The chain of passes]
 
-{{Resolving imports}}
+::[Resolving imports]

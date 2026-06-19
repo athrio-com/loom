@@ -172,14 +172,14 @@ export const helper = 1
 
 =>
 
-{{Helper}}
+::[Helper]
 `
   const nu = pathToFileURL(resolve(fixturesDir, '__nav__.loom')).toString()
   open(nu, navText)
   await sleep(2000)
   const navLines = navText.split('\n')
-  const anchorLine = navLines.findIndex((l) => l.includes('{{Helper}}'))
-  const anchorCol = navLines[anchorLine].indexOf('{{Helper}}') + 2
+  const anchorLine = navLines.findIndex((l) => l.includes('::[Helper]'))
+  const anchorCol = navLines[anchorLine].indexOf('::[Helper]') + 3
   const headingLine = navLines.findIndex((l) => l === '# Helper')
   const headingCol = navLines[headingLine].indexOf('Helper')
   const lineOf = (d: any) =>
@@ -193,7 +193,7 @@ export const helper = 1
     })
     .catch((e) => ({ error: String(e) }))
   const dlocs = Array.isArray(defn) ? defn : defn ? [defn] : []
-  console.log(`\ngo-to-def on {{Helper}} → ${JSON.stringify(defn)}`)
+  console.log(`\ngo-to-def on ::[Helper] → ${JSON.stringify(defn)}`)
   if (dlocs.some((d: any) => lineOf(d) === headingLine) &&
       !dlocs.some((d: any) => lineOf(d) === anchorLine)) {
     console.log(`PASS: definition is the heading (line ${headingLine}), not the anchor`)

@@ -22,7 +22,7 @@ export type HeadingWeft = typeof HeadingWeftSchema.Type
 
 ## The body wefts
 
-The five body wefts are the lines inside a section. An `ArrowWeft` is the `=>` line that opens code, carrying any inline `code` and the `{{…}}` anchors in it. A `TildeWeft` is the `~` line that opens prose, carrying any inline `prose`. A `PreambleWeft` is a default-mode line before any transition, carrying the `{{…}}` warp declarations on it. A `ProseWeft` is a line in prose mode, opaque to Loom. A `CodeWeft` is a line in code mode — opaque too, but its `{{…}}` anchors are recognised.
+The five body wefts are the lines inside a section. An `ArrowWeft` is the `=>` line that opens code, carrying any inline `code` and the `::[…]` anchors in it. A `TildeWeft` is the `~` line that opens prose, carrying any inline `prose`. A `PreambleWeft` is a default-mode line before any transition, carrying the `::[…]` warp declarations on it. A `ProseWeft` is a line in prose mode, opaque to Loom. A `CodeWeft` is a line in code mode — opaque too, but its `::[…]` anchors are recognised.
 
 =>
 
@@ -102,10 +102,10 @@ import {
 
 =>
 
-{{What this module draws on}}
+::[What this module draws on]
 
-{{The heading weft}}
+::[The heading weft]
 
-{{The body wefts}}
+::[The body wefts]
 
-{{The weft unions}}
+::[The weft unions]

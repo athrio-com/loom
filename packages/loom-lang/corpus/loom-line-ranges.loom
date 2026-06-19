@@ -162,14 +162,14 @@ import { Effect, Option, Stream, Data, Schema } from 'effect'
 
 =>
 
-{{What this module draws on}}
+::[What this module draws on]
 
-{{Terminator conventions}}
+::[Terminator conventions]
 
-{{Detecting the convention}}
+::[Detecting the convention]
 
-{{Checking for a mix}}
+::[Checking for a mix]
 
-{{Streaming the ranges}}
+::[Streaming the ranges]
 
-{{The service}}
+::[The service]

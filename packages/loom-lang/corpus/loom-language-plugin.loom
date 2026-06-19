@@ -170,10 +170,10 @@ export const loomServicePlugins = (
 
 =>
 
-{{i}}
+::[i]
 
-{{p}}
+::[p]
 
-{{a}}
+::[a]
 
-{{c}}
+::[c]
