@@ -2,11 +2,12 @@
 
 # The language server
 
-The Loom language server is an Effect program. It starts at `NodeRuntime.runMain`, builds
-the pipeline layers once, and captures a warm runtime — Volar's hooks are synchronous,
-so the language plugin runs the projection on it. On `initialize` it loads the editor's
-TypeScript, collects the active languages' Volar plugins, and registers them alongside
-the language plugin.
+The Loom language server is an Effect program. `startLanguageServer` runs it on the Node
+runtime: it builds the pipeline layers once and captures a warm runtime — Volar's hooks are
+synchronous, so the language plugin runs the projection on it. On `initialize` it loads the
+editor's TypeScript, collects the active languages' Volar plugins, and registers them
+alongside the language plugin. Two callers start it — a thin entry an editor loads, and the
+`loom lsp` command — so the server lives in the CLI, the one tool every Loom user already has.
 
 ## Imports [Imports]
 
@@ -72,7 +73,11 @@ const program = Effect.gen(function* () {
   yield* Effect.never
 }).pipe(Effect.provide(LoomCorpusAstBuilder.Default))
 
-## The module {../src/index.ts}
+export const startLanguageServer = (): void => NodeRuntime.runMain(program)
+
+## The server module {../src/LoomServer.ts}
+
+The server module assembles the imports and the program and exports `startLanguageServer`. It runs nothing on import — a caller decides when to start the server, so the same module serves both an editor that spawns it and the `loom lsp` command that calls it in-process.
 
 {{i: Imports}}
 {{p: Program}}
@@ -83,4 +88,12 @@ const program = Effect.gen(function* () {
 
 ::[p]
 
-NodeRuntime.runMain(program)
+## The run-on-import entry {../src/index.ts}
+
+This thin entry starts the server the moment it loads. The VS Code extension bundles it as `server.js`, and the `loom-language-server` bin runs it — both expect loading the module to start the server.
+
+=>
+
+import { startLanguageServer } from './LoomServer'
+
+startLanguageServer()

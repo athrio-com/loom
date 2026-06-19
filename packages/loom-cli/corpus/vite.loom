@@ -8,21 +8,35 @@ Vite bundles the CLI program, the language server's TypeScript source, and Effec
 
 Node's built-in modules stay external — they are available in every Node runtime and need no bundling. Everything else, the language server's TypeScript source and Effect, is inlined into `dist/main.js`.
 
-The language server's `exports` field points to TypeScript source files rather than pre-compiled output. Tools like `tsx` — a TypeScript executor — and code editors read these files directly without compilation. Vite inlines them at build time, so the published CLI is pure JavaScript.
+The language server's `exports` field points to TypeScript source files rather than pre-compiled output. Tools like `tsx` — a TypeScript executor — and code editors read these files directly without compilation. Vite inlines them at build time, so the published CLI is pure JavaScript. The `loom lsp` command pulls in the server, and with it Volar; some of Volar's dependencies — the `vscode-*-languageservice` packages and `jsonc-parser` — ship only UMD bundles the bundler cannot follow statically, so the `umd2esm` plugin rewrites each to its ESM sibling, the same trick the language-server build uses.
 
 =>
 
 import { defineConfig } from 'vite'
-import { builtinModules } from 'node:module'
+import { builtinModules, createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
+const requireFromHere = createRequire(import.meta.url)
 
 const nodeBuiltins = [
   ...builtinModules,
   ...builtinModules.map((m) => `node:${m}`),
 ]
+
+const umd2esm = {
+  name: 'umd2esm',
+  enforce: 'pre' as const,
+  resolveId(source: string, importer: string | undefined) {
+    if (/^(vscode-.*-languageservice|jsonc-parser)/.test(source)) {
+      const fromDir = importer ? dirname(importer) : here
+      const resolved = requireFromHere.resolve(source, { paths: [fromDir] })
+      return resolved.replace(/\/umd\//, '/esm/').replace(/\\umd\\/g, '\\esm\\')
+    }
+    return null
+  },
+}
 
 ~
 
@@ -31,6 +45,7 @@ Vite's library mode builds a single entry point to `dist/main.js`, targeting Nod
 =>
 
 export default defineConfig({
+  plugins: [umd2esm],
   resolve: {
     conditions: ['node'],
     mainFields: ['main', 'module'],

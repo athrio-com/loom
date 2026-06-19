@@ -12,7 +12,8 @@
   "exports": {
     "./LoomCompiler": "./src/LoomCompiler.ts",
     "./LoomTangler": "./src/LoomTangler.ts",
-    "./PackageConfig": "./src/PackageConfig.ts"
+    "./PackageConfig": "./src/PackageConfig.ts",
+    "./LoomServer": "./src/LoomServer.ts"
   },
   "scripts": {
     "build": "vite build",

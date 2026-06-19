@@ -35,8 +35,17 @@ const main = Effect.gen(function* () {
   if (target) {
     yield* tangle(target)
   } else {
-    yield* Console.error('usage: loom [tangle] <file.loom | dir>')
+    yield* Console.error(
+      'usage: loom [tangle] <file.loom | dir>\n       loom lsp --stdio',
+    )
   }
 })
 
-NodeRuntime.runMain(main)
+if (process.argv[2] === 'lsp') {
+  const { createRequire } = await import('node:module')
+  ;(globalThis as { require?: unknown }).require = createRequire(import.meta.url)
+  const { startLanguageServer } = await import('@athrio/loom-lang/LoomServer')
+  startLanguageServer()
+} else {
+  NodeRuntime.runMain(main)
+}

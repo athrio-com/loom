@@ -49,9 +49,11 @@ const tangle = (file: string): Effect.Effect<void> =>
 
 ## Where the world ends [Main]
 
-The `tangle` command is currently the CLI's only command. Both `loom <path>` and `loom tangle <path>` work; the path is a `.loom` file or a directory of them.
+The CLI has two commands. `tangle` emits a `.loom`'s files — `loom <path>` and `loom tangle <path>` both work, the path a `.loom` file or a directory of them. `lsp` starts the language server over stdio for any editor: `loom lsp --stdio`.
 
-Running the program starts the Node runtime — the end of the world, where the effects execute and the files reach disk.
+The `lsp` branch sits outside the tangle program. It loads the server lazily, so a plain `tangle` never pays to bundle Volar, and the server runs on its own Node runtime rather than nesting one inside the tangle effect. The `tangle` path is the end of the world for file emission; the `lsp` path hands its runtime to the editor and never returns.
+
+Volar is CommonJS and calls `require` at runtime for Node's built-ins. This bundle is an ES module, where `require` is absent, so before loading the server the branch exposes one through `createRequire` on `globalThis` — the shim Volar's bundled code reaches for. The cost lands only on the `lsp` path; `tangle` never touches it.
 
 =>
 
@@ -61,11 +63,20 @@ const main = Effect.gen(function* () {
   if (target) {
     yield* tangle(target)
   } else {
-    yield* Console.error('usage: loom [tangle] <file.loom | dir>')
+    yield* Console.error(
+      'usage: loom [tangle] <file.loom | dir>\n       loom lsp --stdio',
+    )
   }
 })
 
-NodeRuntime.runMain(main)
+if (process.argv[2] === 'lsp') {
+  const { createRequire } = await import('node:module')
+  ;(globalThis as { require?: unknown }).require = createRequire(import.meta.url)
+  const { startLanguageServer } = await import('@athrio/loom-lang/LoomServer')
+  startLanguageServer()
+} else {
+  NodeRuntime.runMain(main)
+}
 
 ## The program {../src/main.ts}
 
