@@ -3,6 +3,7 @@ import { Array, Effect, pipe } from 'effect'
 import { FileSystem } from '@effect/platform'
 import type * as ts from 'typescript'
 import type { FrameModule } from '#ast/FrameAst'
+import { type AnchorDelims, defaultAnchorDelims } from '#ast/LoomTokens'
 import { LoomCorpusAstBuilder, type Source } from '#ast/LoomCorpusAstBuilder'
 import {
   type LoomCorpusAst,
@@ -150,12 +151,13 @@ const singleFileSource = (text: string): Source => ({
 
 export const loomVirtualCode = (
   snapshot: ts.IScriptSnapshot,
+  delims: AnchorDelims = defaultAnchorDelims,
 ): Effect.Effect<VirtualCode, never, LoomCorpusAstBuilder> =>
   Effect.gen(function* () {
     const builder = yield* LoomCorpusAstBuilder
 
     const text = snapshot.getText(0, snapshot.getLength())
-    const mod = yield* builder.build(singleFileSource(text), '')
+    const mod = yield* builder.build(singleFileSource(text), '', delims)
 
     const codeByPath: CodeByPath = new Map([['', mod.code]])
     const sections = pipe(

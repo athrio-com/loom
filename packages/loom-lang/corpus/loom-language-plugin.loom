@@ -2,57 +2,17 @@
 
 # The Loom language plugin
 
-The Loom language server gives Volar two things for `.loom` files:
+This module is Loom's adapter to Volar, the editor toolkit the Loom language server is built on. It hands Volar two things for every `.loom` file: a language plugin and a set of service plugins.
 
-1. The **language plugin** projects each `.loom` file to a virtual-code tree as
-  a) de dicto TypeScript frame,
-  b) de re embedded code sections in their respective languages,
-which allows Volar to type-check virtual-code composition and map it back to Loom source.
+The language plugin projects a `.loom` file to a virtual-code tree — the de dicto frame, the TypeScript program that composes the file's code, and the de re code sections, each embedded in its own language. Volar type-checks that tree and maps every diagnostic, hover, and definition back to where the author wrote it.
 
-2. The **service plugins** provide Volar's editor features — diagnostics, hover,
-completion. The Loom language server resolves the project's active languages, runs each
-language's `plugins` Effect, and flattens the results into a single list.
+The service plugins are the editor features themselves: diagnostics, hover, completion. The server resolves the project's active languages, runs each one's `plugins` Effect, and flattens the results into the single list Volar registers.
 
-## Imports [Imports]
+## The virtual-code plugin
 
-The plugin draws on Volar's `LanguagePlugin`, the virtual-code contract, and
-`LanguageServicePlugin`, one editor feature; on Effect for the runtime capture and the
-collection pass; and on `@athrio/loom-lang-services` for the `LanguageService` contract,
-the `LanguageRegistry` that indexes the active set, and the two built-in languages —
-`LoomLanguage` for the frame, `TypescriptLanguage` for a TypeScript target.
-`@athrio/loom-config` reads the project's active set from `loom.config.json`.
+`loomLanguagePlugin` is the `LanguagePlugin` Volar asks for: it claims every `.loom` path, projects the snapshot to a virtual-code tree, and exposes the frame as a `.ts` script so TypeScript checks it in place. Before projecting, it resolves the file's anchor delimiter — `resolveAnchorDelims` walks up to the nearest `loom.json` and returns the open/close pair — and hands that pair to `loomVirtualCode`, so the editor reads `::[…]` anchors exactly as the tangler does.
 
-=>
-
-import type { LanguagePlugin } from '@volar/language-core'
-import type { LanguageServicePlugin } from '@volar/language-service'
-import type {} from '@volar/typescript'
-import { Array, Effect, Layer, Option, pipe, Runtime } from 'effect'
-import { NodeFileSystem } from '@effect/platform-node'
-import type * as ts from 'typescript'
-import type { URI } from 'vscode-uri'
-import type { LoomCorpusAstBuilder } from '#ast/LoomCorpusAstBuilder'
-import { loomVirtualCode } from './LoomCompiler'
-import { LoomConfig } from '@athrio/loom-config/LoomConfig'
-import {
-  type LanguageService,
-  TypescriptSdk,
-} from '@athrio/loom-lang-services/LanguageService'
-import {
-  ActiveLanguages,
-  LanguageRegistry,
-} from '@athrio/loom-lang-services/LanguageRegistry'
-import { LoomLanguage } from '@athrio/loom-lang-services/LoomLanguage'
-import { TypescriptLanguage } from '@athrio/loom-lang-services/TypescriptLanguage'
-
-## The virtual-code plugin [Plugin]
-
-`loomLanguagePlugin` is Volar's `LanguagePlugin`: it handles every `.loom` path, projects
-the snapshot to its virtual-code tree, and exposes the frame as a `.ts` service script so
-TypeScript can check it. Volar's hooks are synchronous, so the plugin runs the
-projection on the warm runtime — the Effect runtime built once at startup —
-through `Runtime.runSync`. The projection rebuilds from the snapshot, so an update
-ignores the old code.
+Volar's hooks are synchronous, so the config read and the projection both run on the warm runtime — the one Effect runtime built at startup — through `Runtime.runSync`. An update reprojects from the new snapshot and ignores the old code.
 
 =>
 
@@ -60,12 +20,20 @@ export const loomLanguagePlugin = (
   runtime: Runtime.Runtime<LoomCorpusAstBuilder>,
 ): LanguagePlugin<URI> => ({
   getLanguageId: (uri) => (uri.path.endsWith('.loom') ? 'loom' : undefined),
-  createVirtualCode: (_uri, languageId, snapshot) =>
+  createVirtualCode: (uri, languageId, snapshot) =>
     languageId === 'loom'
-      ? Runtime.runSync(runtime)(loomVirtualCode(snapshot))
+      ? Runtime.runSync(runtime)(
+          resolveAnchorDelims(uri.fsPath).pipe(
+            Effect.flatMap((delims) => loomVirtualCode(snapshot, delims)),
+          ),
+        )
       : undefined,
-  updateVirtualCode: (_uri, _old, snapshot) =>
-    Runtime.runSync(runtime)(loomVirtualCode(snapshot)),
+  updateVirtualCode: (uri, _old, snapshot) =>
+    Runtime.runSync(runtime)(
+      resolveAnchorDelims(uri.fsPath).pipe(
+        Effect.flatMap((delims) => loomVirtualCode(snapshot, delims)),
+      ),
+    ),
   typescript: {
     extraFileExtensions: [
       { extension: 'loom', isMixedContent: true, scriptKind: 7 as ts.ScriptKind },
@@ -79,13 +47,9 @@ export const loomLanguagePlugin = (
   },
 })
 
-## The active set [Active]
+## The active set
 
-Two languages are built in: `LoomLanguage` always, since every `.loom` has a frame, and
-`TypescriptLanguage` when the project activates it. The `resolveActive` function turns the configured
-ids into services — `LoomLanguage` first, then each id the built-in map knows. The function drops a
-redundant `loom` and any id no built-in claims; a loaded `loom-service-<id>` package will
-answer those later.
+Two languages are built in. `LoomLanguage` is always active, since every `.loom` file has a frame, and `TypescriptLanguage` joins it when the project activates TypeScript. `resolveActive` turns the configured language ids into services — `LoomLanguage` first, then each id the built-in map knows — and drops both a redundant `loom` and any id no built-in claims. An unknown id is not yet an error: once dynamic loading lands, a `loom-service-<id>` package answers it.
 
 =>
 
@@ -108,16 +72,9 @@ const resolveActive = (
   ),
 ]
 
-## Collecting the service plugins [Collect]
+## Collecting the service plugins
 
-The `loomServicePlugins` function is the collect-and-register pass: it reads the project's active
-languages, indexes them in the `LanguageRegistry`, and runs each service's `plugins`
-Effect with the host's `TypescriptSdk` provided — the editor's own compiler, so analysis
-matches the user's project. A service that fails to build — an external binary that will
-not start — drops to no plugins rather than taking the others down. Two languages
-can wrap the same Volar service, since the frame and a TypeScript target both use
-`volar-service-typescript`, so the pass dedupes by plugin name and leaves Volar one
-registration per feature.
+`loomServicePlugins` is the collect-and-register pass: it reads the project's active languages, indexes them in the `LanguageRegistry`, and runs each service's `plugins` Effect with the host's `TypescriptSdk` — the editor's own compiler, so analysis matches the user's project. A service that fails to build, an external binary that will not start, drops to no plugins rather than taking the others down. The frame and a TypeScript target both wrap `volar-service-typescript`, so two languages can produce the same Volar service; the pass dedupes by plugin name to leave Volar one registration per feature.
 
 =>
 
@@ -161,19 +118,42 @@ export const loomServicePlugins = (
     Effect.provide(NodeFileSystem.layer),
   )
 
-## The module {../src/LoomLanguagePlugin.ts}
+## What the plugin draws on
 
-{{i: Imports}}
-{{p: Plugin}}
-{{a: Active}}
-{{c: Collect}}
+The plugin draws on Volar for its two contracts — `LanguagePlugin` for the virtual code, `LanguageServicePlugin` for an editor feature — and on Effect to capture the runtime and run the collection pass. From `@athrio/loom-lang-services` it takes the `LanguageService` contract, the `LanguageRegistry` that indexes the active set, and the two built-in languages: `LoomLanguage` for the frame, `TypescriptLanguage` for a TypeScript target. From `@athrio/loom-config` it reads the project's active languages out of `loom.config.json`.
 
 =>
 
-::[i]
+import type { LanguagePlugin } from '@volar/language-core'
+import type { LanguageServicePlugin } from '@volar/language-service'
+import type {} from '@volar/typescript'
+import { Array, Effect, Layer, Option, pipe, Runtime } from 'effect'
+import { NodeFileSystem } from '@effect/platform-node'
+import type * as ts from 'typescript'
+import type { URI } from 'vscode-uri'
+import type { LoomCorpusAstBuilder } from '#ast/LoomCorpusAstBuilder'
+import { loomVirtualCode } from './LoomCompiler'
+import { resolveAnchorDelims } from './PackageConfig'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
+import {
+  type LanguageService,
+  TypescriptSdk,
+} from '@athrio/loom-lang-services/LanguageService'
+import {
+  ActiveLanguages,
+  LanguageRegistry,
+} from '@athrio/loom-lang-services/LanguageRegistry'
+import { LoomLanguage } from '@athrio/loom-lang-services/LoomLanguage'
+import { TypescriptLanguage } from '@athrio/loom-lang-services/TypescriptLanguage'
 
-::[p]
+## The module {../src/LoomLanguagePlugin.ts}
 
-::[a]
+=>
 
-::[c]
+::[What the plugin draws on]
+
+::[The virtual-code plugin]
+
+::[The active set]
+
+::[Collecting the service plugins]

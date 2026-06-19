@@ -23,6 +23,12 @@ const anchorConfig = Config.all({
   close: Config.string('close').pipe(Config.withDefault(defaultAnchorDelims.close)),
 }).pipe(Config.nested('anchor'))
 
+const delimsFromJson = (json: unknown): Effect.Effect<AnchorDelims> =>
+  anchorConfig.pipe(
+    Effect.withConfigProvider(ConfigProvider.fromJson(json)),
+    Effect.orDie,
+  )
+
 ## The service
 
 `PackageConfig` walks up from a file's directory to the nearest `loom.json`, reads its anchor pair, and answers `anchorDelims(path)`. An in-memory file — the editor's single-file projection, whose path is empty — and a file under no `loom.json` both resolve to the default pair, so the common case needs no file at all.
@@ -55,10 +61,7 @@ export class PackageConfig extends Effect.Service<PackageConfig>()(
           const json = yield* Effect.try(
             () => JSON.parse(text) as unknown,
           ).pipe(Effect.orDie)
-          return yield* anchorConfig.pipe(
-            Effect.withConfigProvider(ConfigProvider.fromJson(json)),
-            Effect.orDie,
-          )
+          return yield* delimsFromJson(json)
         })
 
       return { anchorDelims }
@@ -66,14 +69,41 @@ export class PackageConfig extends Effect.Service<PackageConfig>()(
   },
 ) {}
 
+## The synchronous resolver
+
+The editor's projection runs synchronously — Volar hands back a virtual-code tree at once — so it cannot await the `FileSystem` service. `resolveAnchorDelims` answers the same question through Node's synchronous `fs`, wrapped in `Effect.try` so it still composes into the projection. It walks up from a file to the nearest `loom.json`, reads it, and shares `delimsFromJson` with the service, so the editor and the tangler read a config file the same way. An empty path, or no `loom.json`, resolves to the default. It re-reads on each call rather than caching, so editing a `loom.json` takes effect on the next keystroke.
+
+=>
+
+const findConfigSync = (dir: string): string | undefined => {
+  const candidate = resolvePath(dir, configFileName)
+  if (existsSync(candidate)) return candidate
+  const parent = dirname(dir)
+  return parent === dir ? undefined : findConfigSync(parent)
+}
+
+export const resolveAnchorDelims = (
+  path: string,
+): Effect.Effect<AnchorDelims> =>
+  Effect.gen(function* () {
+    if (path === '') return defaultAnchorDelims
+    const found = yield* Effect.sync(() => findConfigSync(dirname(path)))
+    if (found === undefined) return defaultAnchorDelims
+    const json = yield* Effect.try(
+      () => JSON.parse(readFileSync(found, 'utf8')) as unknown,
+    ).pipe(Effect.orElse(() => Effect.succeed({} as unknown)))
+    return yield* delimsFromJson(json)
+  })
+
 ## What this module draws on
 
-Effect's `Config` reads the delimiter pair, `ConfigProvider` feeds it the parsed JSON, and `Option` carries the found-or-not result. The `FileSystem` service walks the directory tree and reads the file. `AnchorDelims` and `defaultAnchorDelims` come from the token layer; `Path` types a file path.
+Effect's `Config` reads the delimiter pair, `ConfigProvider` feeds it the parsed JSON, and `Option` carries the found-or-not result. The `FileSystem` service walks the directory tree and reads the file for the async service; Node's synchronous `fs` — `existsSync` and `readFileSync` — does the same for the editor's resolver. `AnchorDelims` and `defaultAnchorDelims` come from the token layer; `Path` types a file path.
 
 =>
 
 import { Config, ConfigProvider, Effect, Option } from 'effect'
 import { FileSystem } from '@effect/platform'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, resolve as resolvePath } from 'node:path'
 import { type AnchorDelims, defaultAnchorDelims } from '#ast/LoomTokens'
 import { type Path } from '#ast/LoomCorpusAst'
@@ -87,3 +117,5 @@ import { type Path } from '#ast/LoomCorpusAst'
 ::[What the service reads]
 
 ::[The service]
+
+::[The synchronous resolver]

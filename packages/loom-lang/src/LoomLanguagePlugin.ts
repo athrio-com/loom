@@ -7,6 +7,7 @@ import type * as ts from 'typescript'
 import type { URI } from 'vscode-uri'
 import type { LoomCorpusAstBuilder } from '#ast/LoomCorpusAstBuilder'
 import { loomVirtualCode } from './LoomCompiler'
+import { resolveAnchorDelims } from './PackageConfig'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
   type LanguageService,
@@ -23,12 +24,20 @@ export const loomLanguagePlugin = (
   runtime: Runtime.Runtime<LoomCorpusAstBuilder>,
 ): LanguagePlugin<URI> => ({
   getLanguageId: (uri) => (uri.path.endsWith('.loom') ? 'loom' : undefined),
-  createVirtualCode: (_uri, languageId, snapshot) =>
+  createVirtualCode: (uri, languageId, snapshot) =>
     languageId === 'loom'
-      ? Runtime.runSync(runtime)(loomVirtualCode(snapshot))
+      ? Runtime.runSync(runtime)(
+          resolveAnchorDelims(uri.fsPath).pipe(
+            Effect.flatMap((delims) => loomVirtualCode(snapshot, delims)),
+          ),
+        )
       : undefined,
-  updateVirtualCode: (_uri, _old, snapshot) =>
-    Runtime.runSync(runtime)(loomVirtualCode(snapshot)),
+  updateVirtualCode: (uri, _old, snapshot) =>
+    Runtime.runSync(runtime)(
+      resolveAnchorDelims(uri.fsPath).pipe(
+        Effect.flatMap((delims) => loomVirtualCode(snapshot, delims)),
+      ),
+    ),
   typescript: {
     extraFileExtensions: [
       { extension: 'loom', isMixedContent: true, scriptKind: 7 as ts.ScriptKind },
