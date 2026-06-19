@@ -221,6 +221,293 @@ describe('fromProduct — transclusion sheds the block trailing newline', () => 
   })
 })
 
+// === de re — anchor indentation ===========================================
+
+// An anchor carries its own indentation into what it pulls in: an indented
+// `::[…]` indents every line of the transcluded block, not just the first
+// (noweb/org-babel behaviour). The inserted indent is synthetic — it has no
+// `.loom` origin — so no mapping may claim it, and an offset-aligned span still
+// re-derives its source per line.
+const wrapped = `{{lang: TypeScript}}
+
+# Body [Bod]
+
+=>
+
+const x = 1
+const y = 2
+
+# Wrap [Wr]
+
+{{b: Bod}}
+
+=>
+
+function wrap() {
+  ::[b]
+}
+`
+
+const wrappedMod: ModuleInput = {
+  path: '/Wrapped.loom',
+  text: wrapped,
+  frame: buildFrame(parse(wrapped)),
+  imports: new Map(),
+}
+const wrappedCode = new Map([['/Wrapped.loom', buildCode(wrappedMod)]])
+
+describe('fromProduct — an indented anchor indents the whole block', () => {
+  const vc = fromProduct(wrappedCode, { path: '/Wrapped.loom', name: 'Wr' })
+
+  it('indents every continuation line to the anchor column', () => {
+    expect(vc.code).toBe(
+      'function wrap() {\n  const x = 1\n  const y = 2\n}\n',
+    )
+  })
+
+  it('leaves the injected indent unmapped', () => {
+    const indentAt = vc.code.indexOf('\n  const y') + 1
+    const covers = vc.mappings.some(
+      (m) => m.genStart <= indentAt && indentAt < m.genStart + m.genLength,
+    )
+    expect(covers).toBe(false)
+  })
+
+  it('keeps every offset-aligned mapping a 1:1 match to its source text', () => {
+    const misaligned = vc.mappings.filter((m) => {
+      const sourceLen = m.source.end.offset - m.source.start.offset
+      return (
+        sourceLen === m.genLength &&
+        vc.code.slice(m.genStart, m.genStart + m.genLength) !==
+          wrapped.slice(m.source.start.offset, m.source.end.offset)
+      )
+    })
+    expect(misaligned).toEqual([])
+  })
+})
+
+// Indentation must stack through nested anchors — the case that matters for
+// indentation-sensitive languages like Python and Scala 3, where a block at the
+// wrong depth is broken code, not just ugly. Leaf is transcluded into Inner under
+// an `if`, and Inner into Outer under a `def`, so Leaf's lines must land two
+// levels deep. A blank line inside a block stays empty, carrying no indent.
+const python = `{{lang: Python}}
+
+# Leaf [Leaf]
+
+=>
+
+total += n
+
+log(total)
+
+# Inner [Inner]
+
+{{leaf: Leaf}}
+
+=>
+
+if n > 0:
+    ::[leaf]
+
+# Outer [Outer]
+
+{{inner: Inner}}
+
+=>
+
+def run(n):
+    ::[inner]
+    return total
+`
+
+const pythonCode = new Map([
+  [
+    '/Python.loom',
+    buildCode({
+      path: '/Python.loom',
+      text: python,
+      frame: buildFrame(parse(python)),
+      imports: new Map(),
+    }),
+  ],
+])
+
+describe('fromProduct — indentation stacks through nested anchors', () => {
+  it('lands each block at its full nested depth, blank lines empty', () => {
+    const vc = fromProduct(pythonCode, { path: '/Python.loom', name: 'Outer' })
+    expect(vc.code).toBe(
+      'def run(n):\n' +
+        '    if n > 0:\n' +
+        '        total += n\n' +
+        '\n' +
+        '        log(total)\n' +
+        '    return total\n',
+    )
+  })
+})
+
+// Trailing whitespace after the anchor is the spacebar an author taps by habit.
+// It must not disqualify the anchor, and it must not survive into the output: the
+// block still indents, and no line is left with stray trailing spaces.
+const trailing = `{{lang: Python}}
+
+# Body [Bod]
+
+=>
+
+a = 1
+b = 2
+
+# Wrap [Wr]
+
+{{b: Bod}}
+
+=>
+
+def f():
+    ::[b]${'   '}
+    return a
+`
+
+const trailingCode = new Map([
+  [
+    '/Trailing.loom',
+    buildCode({
+      path: '/Trailing.loom',
+      text: trailing,
+      frame: buildFrame(parse(trailing)),
+      imports: new Map(),
+    }),
+  ],
+])
+
+describe('fromProduct — trailing spaces after an anchor still indent, then vanish', () => {
+  it('indents the block and leaves no stray trailing whitespace', () => {
+    const vc = fromProduct(trailingCode, { path: '/Trailing.loom', name: 'Wr' })
+    expect(vc.code).toBe('def f():\n    a = 1\n    b = 2\n    return a\n')
+  })
+})
+
+// Indentation activates only when the anchor owns its line. An anchor with code
+// before it (`result = ::[block]`) or after it (`::[block] more`) is inline: its
+// block is pulled in as written, continuation lines left at column zero — never
+// silently re-indented, which for a free-form language would corrupt the output.
+const inline = `{{lang: TypeScript}}
+
+# Pair [Pair]
+
+=>
+
+a = 1
+b = 2
+
+# Before [Before]
+
+{{p: Pair}}
+
+=>
+
+  const x = ::[p]
+
+# After [After]
+
+{{p: Pair}}
+
+=>
+
+  ::[p] + tail
+`
+
+const inlineCode = new Map([
+  [
+    '/Inline.loom',
+    buildCode({
+      path: '/Inline.loom',
+      text: inline,
+      frame: buildFrame(parse(inline)),
+      imports: new Map(),
+    }),
+  ],
+])
+
+describe('fromProduct — an anchor with code beside it stays inline', () => {
+  it('does not re-indent when code precedes the anchor', () => {
+    const vc = fromProduct(inlineCode, { path: '/Inline.loom', name: 'Before' })
+    expect(vc.code).toBe('  const x = a = 1\nb = 2\n')
+  })
+
+  it('does not re-indent when code follows the anchor', () => {
+    const vc = fromProduct(inlineCode, { path: '/Inline.loom', name: 'After' })
+    expect(vc.code).toBe('  a = 1\nb = 2 + tail\n')
+  })
+})
+
+// A cross-file block indented at its anchor: every line indents, and every span
+// still re-pins onto the consuming file rather than dangling into the dependency.
+const libDep = `{{lang: TypeScript}}
+
+# Lib [Lib]
+
+=>
+
+const p = 1
+const q = 2
+`
+const libHost = `{{lang: TypeScript}}
+
+# Imports {Loom}
+
+=>
+
+import { Lib } from "./Dep.loom"
+
+# Host [Host]
+
+{{l: Lib}}
+
+=>
+
+class C {
+    ::[l]
+}
+`
+
+const libCode = new Map([
+  [
+    '/Dep.loom',
+    buildCode({
+      path: '/Dep.loom',
+      text: libDep,
+      frame: buildFrame(parse(libDep)),
+      imports: new Map(),
+    }),
+  ],
+  [
+    '/Host.loom',
+    buildCode({
+      path: '/Host.loom',
+      text: libHost,
+      frame: buildFrame(parse(libHost)),
+      imports: new Map([['Lib', '/Dep.loom']]),
+    }),
+  ],
+])
+
+describe('fromProduct — an indented cross-file anchor indents the block', () => {
+  const vc = fromProduct(libCode, { path: '/Host.loom', name: 'Host' })
+
+  it('indents every continuation line of the inlined dependency', () => {
+    expect(vc.code).toBe('class C {\n    const p = 1\n    const q = 2\n}\n')
+  })
+
+  it('still re-pins every cross-file span onto the consuming file', () => {
+    expect(vc.mappings.every((m) => m.source.end.offset <= libHost.length)).toBe(
+      true,
+    )
+  })
+})
+
 // === de re — prose ⇄ code alternation =====================================
 
 // A section may interleave prose and code: `=> code ~ prose => code`. The prose

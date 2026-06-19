@@ -121,7 +121,7 @@ const emitNode = (node: any): LoomVirtualCode =>
 
 ## Inlining the product
 
-The de re walk inlines a section's parts. `lookup` finds a section's `ComposedCode` across the corpus. `inlineComposed` folds a node's parts. `inlinePart` handles each: a `Fragment` becomes a `product` leaf mapped to its origin; a `Ref` is followed and inlined — pinned onto the consuming `::[…]` anchor at the first cross-file boundary, and contributing nothing when its target is unresolved, missing, or cyclic. `absorbTrailingNewline`, with `clipMappings`, sheds a transcluded block's trailing newline so the sink's layout becomes the output's.
+The de re walk inlines a section's parts. `lookup` finds a section's `ComposedCode` across the corpus. `inlineComposed` folds a node's parts left to right, carrying both the text emitted so far and each part's successor, so it can tell whether an anchor stands alone on its line; a `Ref` that does is re-indented to that line's indent (the next section), and every other part — an anchor with code beside it among them — is appended as it stands. The fold also carries a flag: after an anchor that owned its line, the fragment that follows opens with the spaces the author left past the anchor, so the fold trims them. `inlinePart` handles each part: a `Fragment` becomes a `product` leaf mapped to its origin; a `Ref` is followed and inlined — pinned onto the consuming `::[…]` anchor at the first cross-file boundary, and contributing nothing when its target is unresolved, missing, or cyclic. `absorbTrailingNewline`, with `clipMappings`, sheds a transcluded block's trailing newline so the sink's layout becomes the output's.
 
 =>
 
@@ -205,12 +205,166 @@ const inlineComposed =
     pin: Option.Option<Position>,
     seen: ReadonlySet<string>,
   ) =>
-  (node: ComposedCode): LoomVirtualCode =>
-    pipe(
+  (node: ComposedCode): LoomVirtualCode => {
+    const build = inlinePart(codeByPath, rootPath, pin, seen)
+    const seed: { vc: LoomVirtualCode; trim: boolean } = {
+      vc: emptyLeaf,
+      trim: false,
+    }
+    return pipe(
       node.parts,
-      Array.map(inlinePart(codeByPath, rootPath, pin, seen)),
-      Array.reduce(emptyLeaf, concat),
+      Array.reduce(seed, (acc, part, i) => {
+        if (part.type !== 'Ref') {
+          return {
+            vc: concat(acc.vc, build(acc.trim ? trimLeadingBlank(part) : part)),
+            trim: false,
+          }
+        }
+        const owns = aloneBefore(acc.vc.code) && aloneAfter(node.parts[i + 1])
+        return {
+          vc: concat(
+            acc.vc,
+            owns
+              ? indentBlock(build(part), lineIndentOf(acc.vc.code))
+              : build(part),
+          ),
+          trim: owns,
+        }
+      }),
+      (acc) => acc.vc,
     )
+  }
+
+## Re-indenting a transcluded block
+
+An anchor that stands alone on its line carries that line's indentation into what it pulls in. Write `::[body]` four spaces deep and every line of the inlined block lands four spaces deep, not just the first. For Python or Scala 3, where indentation marks block structure, this is what lets a transcluded block land at the depth its anchor sits at rather than break the file.
+
+An anchor owns its line when only spaces and tabs sit between the line break and the anchor, and only whitespace between the anchor and the next break. `aloneBefore` and `aloneAfter` test the two sides. The trailing whitespace `aloneAfter` allows is the spacebar an author taps out of habit after the anchor: it never disqualifies the anchor, and `trimLeadingBlank` strikes it from the next fragment so the block's last line carries no stray spaces. An anchor with real code beside it — `result = ::[body]`, or `::[body] more()` — stays inline, its block pulled in as written with no re-indentation.
+
+When the anchor owns its line, the whitespace opening that line is the indent. `lineIndentOf` reads it off the text folded so far, where the current line is whitespace to the anchor, and it is taken verbatim — the spaces and tabs the author wrote, exactly.
+
+`indentBlock` prepends that indent to every line of the block but the first, which already sits after the indent its own fragment wrote. A blank line stays blank — it takes no indent — so the output grows no trailing whitespace.
+
+The inserted indent is synthetic. It has no origin in any `.loom`, so no mapping may claim it, or the editor would map a click on the indent into the source. `reindentMapping` cuts each mapping at the block's line starts, so the indent always falls in the gap between two pieces and never inside one. A piece then shifts by the indentation added on the lines above it. Its source follows by kind: an offset-aligned span — one whose source length covers its generated length — re-derives its source per line through `advance`, walking the block text to the cut; a span pinned to a cross-file anchor keeps that anchor whole, since it never tracked the text one-to-one to begin with.
+
+`lineStartsOf` gives each line's offset in the original block, and `newStartsOf` the offset of its content once the indents are in. `lineIndexOf` finds which line a cut falls on.
+
+=>
+
+const aloneBefore = (code: string): boolean =>
+  /^[\t ]*$/.test(code.slice(code.lastIndexOf('\n') + 1))
+
+const aloneAfter = (next: Fragment | Ref | undefined): boolean =>
+  next === undefined ||
+  (next.type === 'Fragment' && /^[\t ]*(?:\n|$)/.test(next.text))
+
+const lineIndentOf = (code: string): string =>
+  code.slice(code.lastIndexOf('\n') + 1)
+
+const advance = (base: Position['start'], text: string): Position['start'] => {
+  const newlines = text.split('\n').length - 1
+  const lastNewline = text.lastIndexOf('\n')
+  return {
+    line: base.line + newlines,
+    column:
+      base.column === undefined
+        ? undefined
+        : newlines === 0
+          ? base.column + text.length
+          : text.length - lastNewline,
+    offset: base.offset + text.length,
+  }
+}
+
+const trimLeadingBlank = (fragment: Fragment): Fragment => {
+  const blank = /^[\t ]+/.exec(fragment.text)
+  return blank === null
+    ? fragment
+    : {
+        ...fragment,
+        text: fragment.text.slice(blank[0].length),
+        origin: {
+          ...fragment.origin,
+          start: advance(fragment.origin.start, blank[0]),
+        },
+      }
+}
+
+const lineStartsOf = (lines: ReadonlyArray<string>): ReadonlyArray<number> =>
+  Array.mapAccum(lines, 0, (start, line) => [
+    start + line.length + 1,
+    start,
+  ])[1]
+
+const newStartsOf = (
+  lines: ReadonlyArray<string>,
+  oldStarts: ReadonlyArray<number>,
+  width: number,
+): ReadonlyArray<number> =>
+  Array.mapAccum(Array.zip(lines, oldStarts), 0, (indented, [line, start]) => {
+    const next = start !== 0 && line !== '' ? indented + 1 : indented
+    return [next, start + width * next]
+  })[1]
+
+const lineIndexOf = (
+  starts: ReadonlyArray<number>,
+  offset: number,
+): number =>
+  pipe(
+    Array.findLastIndex(starts, (s) => s <= offset),
+    Option.getOrElse(() => 0),
+  )
+
+const reindentMapping = (
+  m: Mapping,
+  block: string,
+  oldStarts: ReadonlyArray<number>,
+  newStarts: ReadonlyArray<number>,
+): ReadonlyArray<Mapping> => {
+  const end = m.genStart + m.genLength
+  const cuts = [
+    m.genStart,
+    ...Array.filter(oldStarts, (s) => s > m.genStart && s < end),
+    end,
+  ]
+  const aligned = m.source.end.offset - m.source.start.offset >= m.genLength
+  return Array.map(Array.zip(cuts, Array.drop(cuts, 1)), ([a, b]) => {
+    const line = lineIndexOf(oldStarts, a)
+    return {
+      genStart: newStarts[line] + (a - oldStarts[line]),
+      genLength: b - a,
+      source: aligned
+        ? {
+            start: advance(m.source.start, block.slice(m.genStart, a)),
+            end: advance(m.source.start, block.slice(m.genStart, b)),
+          }
+        : m.source,
+      kind: m.kind,
+    }
+  })
+}
+
+const indentBlock = (
+  vc: LoomVirtualCode,
+  indent: string,
+): LoomVirtualCode => {
+  if (indent.length === 0) return vc
+  const lines = vc.code.split('\n')
+  if (lines.length <= 1) return vc
+  const oldStarts = lineStartsOf(lines)
+  const newStarts = newStartsOf(lines, oldStarts, indent.length)
+  return {
+    ...vc,
+    code: pipe(
+      lines,
+      Array.map((line, i) => (i === 0 || line === '' ? line : indent + line)),
+      Array.join('\n'),
+    ),
+    mappings: Array.flatMap(vc.mappings, (m) =>
+      reindentMapping(m, vc.code, oldStarts, newStarts),
+    ),
+  }
+}
 
 ## The passes and the tree
 
@@ -315,6 +469,8 @@ import {
 ::[Walking the frame]
 
 ::[Inlining the product]
+
+::[Re-indenting a transcluded block]
 
 ::[The passes and the tree]
 
