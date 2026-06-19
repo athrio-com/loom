@@ -3,6 +3,7 @@ import { NodeContext, NodeRuntime } from '@effect/platform-node'
 import { resolve as resolvePath } from 'node:path'
 import { DocumentSource } from '@athrio/loom-lang/LoomCompiler'
 import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
+import { PackageConfig } from '@athrio/loom-lang/PackageConfig'
 
 const tangle = (file: string): Effect.Effect<void> =>
   Effect.gen(function* () {
@@ -24,6 +25,7 @@ const tangle = (file: string): Effect.Effect<void> =>
     ),
     Effect.provide(LoomTangler.Default),
     Effect.provide(DocumentSource.Default),
+    Effect.provide(PackageConfig.Default),
     Effect.provide(NodeContext.layer),
   )
 

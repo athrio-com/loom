@@ -4,6 +4,7 @@ import { FileSystem } from '@effect/platform'
 import { NodeContext } from '@effect/platform-node'
 import { DocumentSource } from '../src/LoomCompiler'
 import { LoomTangler } from '../src/LoomTangler'
+import { PackageConfig } from '../src/PackageConfig'
 
 // LoomTangler emits a .loom's {path} sinks to disk, each sink's anchors resolved
 // across the corpus. This probe writes a tiny doc to a temp dir, tangles it, and
@@ -49,6 +50,7 @@ const x = "${value}"
 // provideMerge keeps FileSystem visible to the probe for the temp dir.
 const layers = LoomTangler.Default.pipe(
   Layer.provide(DocumentSource.Default),
+  Layer.provide(PackageConfig.Default),
   Layer.provideMerge(NodeContext.layer),
 )
 
@@ -112,6 +114,28 @@ describe('LoomTangler — tangle {path} sinks to disk', () => {
       }
       // the sink is never written — a broken anchor stops the tangle
       expect(yield* fs.exists(`${dir}/out/x.ts`)).toBe(false)
+    }).pipe(Effect.provide(layers)),
+  )
+
+  it.scoped("honours a package's loom.json anchor delimiter", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const dir = yield* fs.makeTempDirectoryScoped()
+      yield* fs.writeFileString(
+        `${dir}/loom.json`,
+        '{ "anchor": { "open": "<<", "close": ">>" } }',
+      )
+      yield* fs.writeFileString(
+        `${dir}/g.loom`,
+        `{{lang: TypeScript}}\n\n# Greeting [Greet]\n\n=>\n\nconst hi = "hi"\n\n# Bundle {out/g.ts}\n\n{{g: Greet}}\n\n=>\n\nexport const g = <<g>>\n`,
+      )
+
+      const tangler = yield* LoomTangler
+      yield* tangler.tangle(`${dir}/g.loom`)
+
+      // `<<g>>` — the configured delimiter — resolves to Greet and inlines it.
+      const out = yield* fs.readFileString(`${dir}/out/g.ts`)
+      expect(out).toContain('const hi = "hi"')
     }).pipe(Effect.provide(layers)),
   )
 })

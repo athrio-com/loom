@@ -190,7 +190,9 @@ export type ProseToken = typeof ProseTokenSchema.Type
 
 ## Warps and anchors
 
-A `Warp` is a declaration, `{{name: annotation [= default]}}`, written in a preamble line. A `WarpAnchor` is a reference, `::[name]`, written in a code line. The two use different delimiters on purpose: a warp sits in prose, where `{{` is safe, but an anchor sits inside product code, where `{{` would collide with templating languages that own that syntax — `::[` does not. So a warp opens with `{{` and closes with `}}`, an anchor opens with `::[` and closes with `]`; both expose `open`, `close`, and `name` as subnodes. A declaration's `name` must be a TypeScript identifier; an anchor's `name` is looser — any text up to the closing `]`, since it may name either a binding or a section by heading. The `annotation` and `default` are opaque text here; their structure is read by a later pass.
+A `Warp` is a declaration, `{{name: annotation [= default]}}`, written in a preamble line. A `WarpAnchor` is a reference, `::[name]`, written in a code line. The two use different delimiters on purpose: a warp sits in prose, where `{{` is safe, but an anchor sits inside product code, where `{{` would collide with templating languages that own that syntax — `::[` does not. So a warp opens with `{{` and closes with `}}`, an anchor opens with `::[` and closes with `]`; both expose `open`, `close`, and `name` as subnodes. A declaration's `name` must be a TypeScript identifier; an anchor's `name` is looser — any text up to the closing delimiter, since it may name either a binding or a section by heading. The `annotation` and `default` are opaque text here; their structure is read by a later pass.
+
+An anchor's `open` and `close` are plain strings rather than fixed literals, because a package may set its own delimiter pair in `loom.json` when `::[` would collide with its product language. `AnchorDelims` is that pair, and `defaultAnchorDelims` holds the built-in `::[` and `]` — written as a concatenation so this corpus, which the tokeniser scans like any other, holds no bare `::[` of its own.
 
 =>
 
@@ -209,16 +211,23 @@ export const WarpCloseTokenSchema = loomNode('WarpClose', {
 export type WarpCloseToken = typeof WarpCloseTokenSchema.Type
 
 export const AnchorOpenTokenSchema = loomNode('AnchorOpen', {
-  value: Schema.Literal('::\u005B'),
+  value: Schema.String,
 }).annotations({
   [Probe]: /::\[/g,
 })
 export type AnchorOpenToken = typeof AnchorOpenTokenSchema.Type
 
 export const AnchorCloseTokenSchema = loomNode('AnchorClose', {
-  value: Schema.Literal(']'),
+  value: Schema.String,
 })
 export type AnchorCloseToken = typeof AnchorCloseTokenSchema.Type
+
+export interface AnchorDelims {
+  readonly open: string
+  readonly close: string
+}
+
+export const defaultAnchorDelims: AnchorDelims = { open: '::' + '[', close: ']' }
 
 export const WarpNameTokenSchema = loomNode('WarpName', {
   value: Schema.String,

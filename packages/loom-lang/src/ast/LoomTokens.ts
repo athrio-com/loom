@@ -152,16 +152,23 @@ export const WarpCloseTokenSchema = loomNode('WarpClose', {
 export type WarpCloseToken = typeof WarpCloseTokenSchema.Type
 
 export const AnchorOpenTokenSchema = loomNode('AnchorOpen', {
-  value: Schema.Literal('::\u005B'),
+  value: Schema.String,
 }).annotations({
   [Probe]: /::\[/g,
 })
 export type AnchorOpenToken = typeof AnchorOpenTokenSchema.Type
 
 export const AnchorCloseTokenSchema = loomNode('AnchorClose', {
-  value: Schema.Literal(']'),
+  value: Schema.String,
 })
 export type AnchorCloseToken = typeof AnchorCloseTokenSchema.Type
+
+export interface AnchorDelims {
+  readonly open: string
+  readonly close: string
+}
+
+export const defaultAnchorDelims: AnchorDelims = { open: '::' + '[', close: ']' }
 
 export const WarpNameTokenSchema = loomNode('WarpName', {
   value: Schema.String,

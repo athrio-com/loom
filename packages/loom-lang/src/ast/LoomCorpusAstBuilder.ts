@@ -1,5 +1,6 @@
 import { Array, Effect, Option, pipe } from 'effect'
 import { dirname, resolve as resolvePath } from 'node:path'
+import { defaultAnchorDelims, type AnchorDelims } from '#ast/LoomTokens'
 import { LoomSourceRanges } from '#ast/LineRanges'
 import { WeftClassifier } from '#ast/WeftClassifier'
 import { WeftTokeniser } from '#ast/WeftTokeniser'
@@ -24,7 +25,11 @@ export class LoomCorpusAstBuilder extends Effect.Service<LoomCorpusAstBuilder>()
       const frames = yield* FrameAstBuilder
       const productBuilder = yield* ProductAstBuilder
 
-      const build = (source: Source, path: Path): Effect.Effect<LoomModule> =>
+      const build = (
+        source: Source,
+        path: Path,
+        delims: AnchorDelims = defaultAnchorDelims,
+      ): Effect.Effect<LoomModule> =>
         Effect.gen(function* () {
           const text = yield* source.read(path)
           const doc = yield* sourceRanges.stream(text).pipe(
@@ -32,7 +37,7 @@ export class LoomCorpusAstBuilder extends Effect.Service<LoomCorpusAstBuilder>()
               pipe(
                 ranges,
                 classify.classifyWefts(text),
-                tokenise.tokeniseWefts(text),
+                tokenise.tokeniseWefts(text, delims),
                 astBuilder.build,
               ),
             ),

@@ -19,6 +19,7 @@ import {
 } from '#ast/LoomVirtualCodeBuilder'
 import { type LoomVirtualCode, type Mapping } from '#ast/LoomVirtualCode'
 import { LoomMemo } from './LoomMemo'
+import { PackageConfig } from './PackageConfig'
 
 export const stringSnapshot = (text: string): ts.IScriptSnapshot => ({
   getText: (start, end) => text.slice(start, end),
@@ -76,9 +77,13 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
       const builder = yield* LoomCorpusAstBuilder
       const vcb = yield* LoomVirtualCodeBuilder
       const memo = yield* LoomMemo
+      const config = yield* PackageConfig
 
       const load = (path: Path): Effect.Effect<void> =>
-        memo.get(path, builder.build(source, path)).pipe(
+        config.anchorDelims(path).pipe(
+          Effect.flatMap((delims) =>
+            memo.get(path, builder.build(source, path, delims)),
+          ),
           Effect.flatMap((m) =>
             Effect.forEach(m.imports, (dep) => load(dep), { discard: true }),
           ),

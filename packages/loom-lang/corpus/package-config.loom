@@ -1,0 +1,89 @@
+{{lang: TypeScript}}
+
+# Per-package configuration
+
+`PackageConfig` reads a package's `loom.json` — the per-package settings file, sibling to its `corpus/`. It answers one question for now: which anchor delimiter pair a file under that package uses. The default is `::[` … `]`; a package overrides it when that pair would collide with its product language.
+
+## What the service reads
+
+A `loom.json` records its anchor delimiter under an `anchor` key:
+
+```json
+{ "anchor": { "open": "<<", "close": ">>" } }
+```
+
+`anchorConfig` reads that pair through Effect's `Config`, the same JSON-provider path the language config uses. Each field falls back to the built-in delimiter, so a file with no `anchor` key, or no `loom.json` at all, resolves to `::[` and `]`.
+
+=>
+
+export const configFileName = 'loom.json'
+
+const anchorConfig = Config.all({
+  open: Config.string('open').pipe(Config.withDefault(defaultAnchorDelims.open)),
+  close: Config.string('close').pipe(Config.withDefault(defaultAnchorDelims.close)),
+}).pipe(Config.nested('anchor'))
+
+## The service
+
+`PackageConfig` walks up from a file's directory to the nearest `loom.json`, reads its anchor pair, and answers `anchorDelims(path)`. An in-memory file — the editor's single-file projection, whose path is empty — and a file under no `loom.json` both resolve to the default pair, so the common case needs no file at all.
+
+=>
+
+export class PackageConfig extends Effect.Service<PackageConfig>()(
+  'PackageConfig',
+  {
+    effect: Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+
+      const findConfig = (
+        dir: string,
+      ): Effect.Effect<Option.Option<string>> =>
+        Effect.gen(function* () {
+          const candidate = resolvePath(dir, configFileName)
+          const present = yield* fs.exists(candidate).pipe(Effect.orDie)
+          if (present) return Option.some(candidate)
+          const parent = dirname(dir)
+          return parent === dir ? Option.none() : yield* findConfig(parent)
+        })
+
+      const anchorDelims = (path: Path): Effect.Effect<AnchorDelims> =>
+        Effect.gen(function* () {
+          if (path === '') return defaultAnchorDelims
+          const found = yield* findConfig(dirname(path))
+          if (Option.isNone(found)) return defaultAnchorDelims
+          const text = yield* fs.readFileString(found.value).pipe(Effect.orDie)
+          const json = yield* Effect.try(
+            () => JSON.parse(text) as unknown,
+          ).pipe(Effect.orDie)
+          return yield* anchorConfig.pipe(
+            Effect.withConfigProvider(ConfigProvider.fromJson(json)),
+            Effect.orDie,
+          )
+        })
+
+      return { anchorDelims }
+    }),
+  },
+) {}
+
+## What this module draws on
+
+Effect's `Config` reads the delimiter pair, `ConfigProvider` feeds it the parsed JSON, and `Option` carries the found-or-not result. The `FileSystem` service walks the directory tree and reads the file. `AnchorDelims` and `defaultAnchorDelims` come from the token layer; `Path` types a file path.
+
+=>
+
+import { Config, ConfigProvider, Effect, Option } from 'effect'
+import { FileSystem } from '@effect/platform'
+import { dirname, resolve as resolvePath } from 'node:path'
+import { type AnchorDelims, defaultAnchorDelims } from '#ast/LoomTokens'
+import { type Path } from '#ast/LoomCorpusAst'
+
+## The module {../src/PackageConfig.ts}
+
+=>
+
+::[What this module draws on]
+
+::[What the service reads]
+
+::[The service]

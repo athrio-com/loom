@@ -6,7 +6,7 @@ The `@athrio/loom-lang` package is the language behind every `.loom` file — th
 
 ## The manifest {../package.json}
 
-Two field groups carry the package's shape. The `imports` field defines Node subpath aliases the package's own modules import by — `#ast/*` for the AST source and `#loom/core` for the composition primitives — so internal imports stay stable rather than relative. The `exports` field names the two public entry points, `./LoomCompiler` and `./LoomTangler`, each pointing at a source file the consumer inlines.
+Two field groups carry the package's shape. The `imports` field defines Node subpath aliases the package's own modules import by — `#ast/*` for the AST source and `#loom/core` for the composition primitives — so internal imports stay stable rather than relative. The `exports` field names the public entry points — `./LoomCompiler`, `./LoomTangler`, and `./PackageConfig` — each pointing at a source file the consumer inlines.
 
 The `main` and `bin` fields point at built output: `dist/loom-server.js` is the bundled language server, and the `loom-language-server` binary launches it. The runtime libraries the server needs — Volar, Effect, the `volar-service-*` plugins — are `dependencies`; `vscode-uri` is a type-only `devDependency`.
 
@@ -25,7 +25,8 @@ The `main` and `bin` fields point at built output: `dist/loom-server.js` is the 
   },
   "exports": {
     "./LoomCompiler": "./src/LoomCompiler.ts",
-    "./LoomTangler": "./src/LoomTangler.ts"
+    "./LoomTangler": "./src/LoomTangler.ts",
+    "./PackageConfig": "./src/PackageConfig.ts"
   },
   "scripts": {
     "build": "vite build",

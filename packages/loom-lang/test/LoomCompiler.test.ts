@@ -3,6 +3,8 @@ import { Effect, Layer } from 'effect'
 import { DocumentSource } from '../src/LoomCompiler'
 import { LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
+import { PackageConfig } from '../src/PackageConfig'
+import { defaultAnchorDelims } from '#ast/LoomTokens'
 
 // Drives the corpus pipeline end-to-end over an in-memory DocumentSource:
 // Fun.loom imports Neg from Sad.loom and transcludes it, so the de re of Fun's
@@ -45,11 +47,18 @@ const TestDocs = Layer.succeed(
   }),
 )
 
+// a stub config: this probe drives the corpus over in-memory paths, so it never
+// touches disk — every file resolves to the default `::[` delimiter.
+const TestConfig = Layer.succeed(
+  PackageConfig,
+  new PackageConfig({ anchorDelims: () => Effect.succeed(defaultAnchorDelims) }),
+)
+
 // merge LoomMemo into the provided context (the same instance the compiler uses,
 // by Effect's layer memoisation) so a probe can read its hit/miss stats.
 const layer = Layer.provide(
   Layer.merge(LoomCompiler.Default, LoomMemo.Default),
-  TestDocs,
+  Layer.merge(TestDocs, TestConfig),
 )
 
 describe('LoomCompiler — cross-file de re through the corpus', () => {

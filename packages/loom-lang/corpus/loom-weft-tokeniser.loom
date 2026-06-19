@@ -15,22 +15,26 @@ export class WeftTokeniser extends Effect.Service<WeftTokeniser>()(
   {
     succeed: {
       tokeniseWefts:
-        (text: string) =>
+        (text: string, delims: AnchorDelims = defaultAnchorDelims) =>
         (source: Stream.Stream<LoomWeft>): Stream.Stream<LoomWeft> =>
-          Stream.map(source, (weft) => tokeniseWeft(text, weft)),
+          Stream.map(source, (weft) => tokeniseWeft(text, weft, delims)),
     },
   },
 ) {}
 
-const tokeniseWeft = (text: string, weft: LoomWeft): LoomWeft =>
+const tokeniseWeft = (
+  text: string,
+  weft: LoomWeft,
+  delims: AnchorDelims,
+): LoomWeft =>
   pipe(
     Match.value(weft),
     Match.when({ type: 'HeadingWeft' }, (w) => tokeniseHeading(text, w)),
-    Match.when({ type: 'ArrowWeft' }, (w) => tokeniseArrow(text, w)),
+    Match.when({ type: 'ArrowWeft' }, (w) => tokeniseArrow(text, w, delims)),
     Match.when({ type: 'TildeWeft' }, (w) => tokeniseTilde(text, w)),
     Match.when({ type: 'PreambleWeft' }, (w) => tokenisePreamble(text, w)),
     Match.when({ type: 'ProseWeft' }, (w) => tokeniseProse(w)),
-    Match.when({ type: 'CodeWeft' }, (w) => tokeniseCode(text, w)),
+    Match.when({ type: 'CodeWeft' }, (w) => tokeniseCode(text, w, delims)),
     Match.exhaustive,
   )
 
@@ -75,11 +79,16 @@ const inlineAfter = <T>(
 const lineSlice = (text: string, position: Position): string =>
   text.slice(position.start.offset, position.end.offset)
 
-const tokeniseArrow = (text: string, weft: ArrowWeft): LoomWeft => {
+const tokeniseArrow = (
+  text: string,
+  weft: ArrowWeft,
+  delims: AnchorDelims,
+): LoomWeft => {
   const code = inlineAfter(CodeTokenSchema, codeProbe, text, weft.position)
   const { tokens: anchors, unexpected } = constructAnchors(
     lineSlice(text, weft.position),
     weft.position,
+    delims,
   )
   const status = aggregateStatus([
     weft.arrow.health.status,
@@ -134,10 +143,15 @@ const tokeniseProse = (weft: ProseWeft): LoomWeft =>
     health: okHealth,
   })
 
-const tokeniseCode = (text: string, weft: CodeWeft): LoomWeft => {
+const tokeniseCode = (
+  text: string,
+  weft: CodeWeft,
+  delims: AnchorDelims,
+): LoomWeft => {
   const { tokens: anchors, unexpected } = constructAnchors(
     lineSlice(text, weft.position),
     weft.position,
+    delims,
   )
   const status = aggregateStatus([
     ...anchors.map((a) => a.health.status),
@@ -182,7 +196,7 @@ const span = (line: number, start: number, end: number): Position => ({
 const missingClosing = (
   line: number,
   lineEnd: number,
-  expected: ']' | '}' | '}}',
+  expected: string,
 ): Health => ({
   status: 'error',
   diagnostics: [
@@ -550,7 +564,6 @@ Warps and anchors no longer share delimiters: a warp is `{{…}}` in a preamble 
 
 const scanWarpOpen = makeScanner(WarpOpenTokenSchema)
 const scanWarpClose = makeScanner(WarpCloseTokenSchema)
-const scanAnchorOpen = makeScanner(AnchorOpenTokenSchema)
 
 type WarpPair = { readonly open: WarpOpenToken; readonly close: WarpCloseToken }
 
@@ -1016,41 +1029,71 @@ const constructWarps = (
   return { tokens, unexpected: stray }
 }
 
+const indicesOf = (text: string, needle: string): ReadonlyArray<number> => {
+  const step = (
+    found: ReadonlyArray<number>,
+    from: number,
+  ): ReadonlyArray<number> => {
+    const at = text.indexOf(needle, from)
+    return at < 0 ? found : step([...found, at], at + needle.length)
+  }
+  return step([], 0)
+}
+
+const scanAnchorOpens = (
+  open: string,
+  lineText: string,
+  linePosition: Position,
+): ReadonlyArray<AnchorOpenToken> => {
+  const line = linePosition.start.line
+  const lineStart = linePosition.start.offset
+  return indicesOf(lineText, open).map((i) =>
+    AnchorOpenTokenSchema.make({
+      position: span(line, lineStart + i, lineStart + i + open.length),
+      source: open,
+      health: okHealth,
+      value: open,
+    }),
+  )
+}
+
 const anchorClose = (
   open: AnchorOpenToken,
+  close: string,
   lineText: string,
   linePosition: Position,
 ): AnchorCloseToken => {
   const line = linePosition.start.line
   const lineStart = linePosition.start.offset
   const lineEnd = linePosition.end.offset
-  const rel = lineText.indexOf(']', open.position.end.offset - lineStart)
+  const rel = lineText.indexOf(close, open.position.end.offset - lineStart)
   return rel < 0
     ? AnchorCloseTokenSchema.make({
         position: span(line, lineEnd, lineEnd),
         source: '',
-        health: missingClosing(line, lineEnd, ']'),
-        value: ']',
+        health: missingClosing(line, lineEnd, close),
+        value: close,
       })
     : AnchorCloseTokenSchema.make({
-        position: span(line, lineStart + rel, lineStart + rel + 1),
-        source: ']',
+        position: span(line, lineStart + rel, lineStart + rel + close.length),
+        source: close,
         health: okHealth,
-        value: ']',
+        value: close,
       })
 }
 
 const constructAnchors = (
   lineText: string,
   linePosition: Position,
+  delims: AnchorDelims,
 ): {
   tokens: ReadonlyArray<WarpAnchorToken>
   unexpected: ReadonlyArray<UnexpectedToken>
 } => {
-  const built = scanAnchorOpen(lineText, linePosition).map((open) =>
+  const built = scanAnchorOpens(delims.open, lineText, linePosition).map((open) =>
     buildWarpAnchor(
       open,
-      anchorClose(open, lineText, linePosition),
+      anchorClose(open, delims.close, lineText, linePosition),
       lineText,
       linePosition,
     ),
@@ -1270,6 +1313,7 @@ import {
   SpecifierTokenSchema,
   AnchorCloseTokenSchema,
   AnchorOpenTokenSchema,
+  defaultAnchorDelims,
   TagCloseTokenSchema,
   TagLabelTokenSchema,
   TagOpenTokenSchema,
@@ -1290,6 +1334,7 @@ import {
   type SpecifierOpenToken,
   type SpecifierToken,
   type AnchorCloseToken,
+  type AnchorDelims,
   type AnchorOpenToken,
   type HeadingTitleToken,
   type TagCloseToken,
