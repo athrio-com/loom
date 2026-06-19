@@ -31,20 +31,24 @@ synth/authored and unmapped/mapped splits are one line seen twice: a token has a
 
 **Escaping is a `.text`-only transform; `position` stays raw.** A leaf's `text` is
 escaped for the literal it sits in — `` ` ``, `${`, `\` inside a template literal
-(`EmbeddedCode`, the `name` / `prose` fields); `*/` inside the TSDoc — while
-its `position` keeps the unescaped `.loom` span. So a leaf still yields one coarse
+(`EmbeddedCode`, the `name` / `prose` fields), `"` and `\` inside a double-quoted
+path string — while its `position` keeps the unescaped `.loom` span. So a leaf still yields one coarse
 mapping over the whole span, never a per-character split. That suffices because
 the only content needing char-precise mapping is **names** (a const/class
 identifier, never escaped — so a name that stands for itself is 1:1 with the
 **label** or name it came from: class `Add` ⟷ tag label `Add`, const `m` ⟷ Warp
 local `m`) and product code *as the language service reads it* — the raw resolved
 composition (`EmbeddedCode.position`, unescaped), not the frame's escaped copy. The
-one name that is *not* 1:1 is a **by-name anchor**: its generated const name is the
-resolved service (`Main`), but it maps to the heading **label** the author wrote
-(`Entry point`) — a coarse whole-span link of different text, all a navigation jump
-to the anchor needs. The
-same prose escaped two ways (field `` ` `` vs TSDoc `*/`) is two leaves, different
-`text`, one `position`.
+one name that is *not* 1:1 is the **name-anchor binding**: a `{{Heading Name}}`
+anchor hoists `const _N = yield* N`, whose alias `_N` maps to the section's heading
+**title** the author wrote (the definition, mapping kind `heading`), while each
+`_N.code` reference maps to the anchor (the referencer, kind `anchor`) — a coarse
+whole-span link of different text, all a navigation jump from an anchor to the
+section it names needs. Because the two spans hold different text, both kinds carry
+navigation but withhold hover: a hover would report the synthetic `_N` alias, never
+the section. The `anchor` kind keeps verification, so an unresolved name still
+reports its error; `heading` is locate-only. A tagless section's class name itself
+is synth glue, never mapped; the alias carries the navigation.
 
 The two **code blocks** are authored as well, so both are mapped — they differ
 only in which virtual code answers for them:
@@ -100,13 +104,15 @@ outside; only the construction mechanism differs.
 exported — `export class Add extends Effect.Service...` — and forms part
 of the document's public API, referenceable from other files via Warp
 declarations. A tagless section is private — no `export`, not importable
-across files. Its class name and service tag are the heading title normalised to
-an identifier (`What the compiler draws on` → `WhatTheCompilerDrawsOn`); that name
-is a synth name — Loom's own, with no `.loom` span — so it is never mapped (the
-section is reached by name anchor, not by the name). Naming makes no name unique;
-two titles that normalise alike collide, which the diagnostics mark as a
-duplicate. Tagless sections are reachable only within the same document via name
-anchors in code blocks.
+across files. Its class name is the heading title normalised to an identifier
+(`What the compiler draws on` → `WhatTheCompilerDrawsOn`); the name itself is synth
+glue, never mapped. A name anchor reaches the section through the hoisted
+`const _N = yield* N` alias, whose declaration maps to the heading (the definition),
+so go-to-def on an anchor jumps there, find-references on the heading lists the
+anchors, and rename on either end carries across — but neither end shows a hover, which
+would only report the `_N` alias. Naming makes no name unique; two titles that normalise alike collide, which
+the diagnostics mark as a duplicate. Tagless sections are reachable only within the
+same document via name anchors in code blocks.
 
 ## Heading Levels and Document Structure
 
@@ -179,14 +185,10 @@ in the woven text. (The Warp's role as a dependency is carried separately by
 the `yield*` the `FrameAstBuilder` pass emits; excising its span here would
 only fragment the prose and break its 1:1 mapping.)
 
-The same preamble span also appears as a raw `/** … */` TSDoc block above the
-class — minimal, no per-line gutter, visible in IDE hover. So one source span
-reaches the frame twice: woven into the `prose` channel, and shown as the
-class's TSDoc. Each occurrence is escaped where it sits — the TSDoc escapes
-`*/`, the woven template escapes `` ` `` and `${` — so the two generated texts
-differ while both map back to the same prose span. Post-tilde prose is
-authoring context; it lives in the `.loom` source and is not projected into the
-Frame.
+The preamble reaches the frame once, woven into the `prose` channel; it is not
+duplicated as a doc comment above the class, because the prose already lives in the
+`.loom` source a reader opens. Post-tilde prose is authoring context; it lives in
+the `.loom` source and is not projected into the Frame.
 
 ## The Dependency Graph for Free
 
@@ -467,7 +469,7 @@ from the same source document, with no duplication.
 //   - Tagless sections → class (no export) — private, same-file only.
 //   - Sections emitted in document order (no eager cross-refs; order is free).
 //   - Explicit [Tag]  → name (class + service tag) = the tag label, mapped to it.
-//   - No [Tag]        → name = heading title normalised to an identifier; a synth name, unmapped.
+//   - No [Tag]        → name = heading title normalised to an identifier, mapped back to the heading.
 //   - Heading title stored as `name` field on every content section (tangle
 //     sinks return core.tangle(…) — no name/prose).
 //   - Section prose → `prose` field = core.weave(…), the woven peer of `code`.

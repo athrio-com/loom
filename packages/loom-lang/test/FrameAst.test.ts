@@ -124,7 +124,6 @@ describe('FrameAst — construction', () => {
       prose: weave('Adds two integers.'),
     })
     const service = ServiceClassSchema.make({
-      docPreamble: prose('Adds two integers.'),
       modifier: FrameSynthTokenSchema.make({ text: 'export ' }),
       name: id('Add'),
       nameType: id('Add'),

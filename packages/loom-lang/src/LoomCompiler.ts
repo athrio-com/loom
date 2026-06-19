@@ -27,15 +27,17 @@ export const stringSnapshot = (text: string): ts.IScriptSnapshot => ({
 })
 
 const featuresOf = (kind: Mapping['kind']): CodeMapping['data'] =>
-  kind === 'prose'
+  kind === 'prose' || kind === 'heading'
     ? { navigation: true, structure: true }
-    : {
-        verification: true,
-        completion: true,
-        semantic: true,
-        navigation: true,
-        structure: true,
-      }
+    : kind === 'anchor'
+      ? { verification: true, navigation: true, structure: true }
+      : {
+          verification: true,
+          completion: true,
+          semantic: true,
+          navigation: true,
+          structure: true,
+        }
 
 const toCodeMapping = (m: Mapping): CodeMapping => ({
   sourceOffsets: [m.source.start.offset],

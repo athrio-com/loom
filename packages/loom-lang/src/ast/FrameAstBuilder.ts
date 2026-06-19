@@ -62,20 +62,21 @@ export const buildFrame = (doc: LoomDocument): FrameModule => {
   )
 }
 
-type NameIndex = ReadonlyMap<string, ReadonlyArray<string>>
+type NameEntry = { readonly name: string; readonly pos: Position }
+type NameIndex = ReadonlyMap<string, ReadonlyArray<NameEntry>>
 
 const nameIndex = (sections: ReadonlyArray<LoomSection>): NameIndex =>
   pipe(
     sections,
     Array.filterMap((s) =>
       Option.map(Option.fromNullable(s.heading.title), (title) =>
-        [title.source, serviceNameOf(s)] as const,
+        [title.source, { name: serviceNameOf(s), pos: title.position }] as const,
       ),
     ),
     Array.reduce(
-      new Map<string, ReadonlyArray<string>>(),
-      (index, [title, name]) =>
-        new Map(index).set(title, [...(index.get(title) ?? []), name]),
+      new Map<string, ReadonlyArray<NameEntry>>(),
+      (index, [title, entry]) =>
+        new Map(index).set(title, [...(index.get(title) ?? []), entry]),
     ),
   )
 
@@ -130,12 +131,12 @@ const buildService = (
   const body = bodyOf(section, path, bindings, compose)
   const exported = Option.isNone(path) && isExported(section)
 
+  const nameRef = FrameSynthTokenSchema.make({ text: name.text })
   const service = ServiceClassSchema.make({
-    docPreamble: docPreamble(section),
     modifier: FrameSynthTokenSchema.make({ text: exported ? 'export ' : '' }),
     name,
-    nameType: name,
-    nameTag: name,
+    nameType: nameRef,
+    nameTag: nameRef,
     body,
     languageId,
   })
@@ -368,11 +369,11 @@ const bindAnchor =
         ref: codeRef(name, at, unresolved(name, at)),
         binding: Option.none(),
       }),
-      onNonEmpty: (service, rest) =>
+      onNonEmpty: (entry, rest) =>
         rest.length === 0
           ? {
-              ref: codeRef(aliasOf(service), at),
-              binding: Option.some(nameBinding(service, at)),
+              ref: codeRef(aliasOf(entry.name), at),
+              binding: Option.some(nameBinding(entry.name, entry.pos)),
             }
           : {
               ref: codeRef(name, at, ambiguous(name, at, rest.length + 1)),
@@ -382,12 +383,15 @@ const bindAnchor =
   }
 
 const codeRef = (name: string, at: Position, health?: Health): CodeRef =>
-  CodeRefSchema.make({ binding: id(name, at, health) })
+  CodeRefSchema.make({ binding: anchorId(name, at, health) })
 
 const aliasOf = (service: string): string => `_${service}`
 
-const nameBinding = (service: string, at: Position): Binding =>
-  BindingSchema.make({ name: id(aliasOf(service), at), tag: id(service, at) })
+const nameBinding = (service: string, headingPos: Position): Binding =>
+  BindingSchema.make({
+    name: headingId(aliasOf(service), headingPos),
+    tag: FrameSynthTokenSchema.make({ text: service }),
+  })
 
 const warpBinding = (warp: WarpToken): Binding =>
   BindingSchema.make({
@@ -484,11 +488,18 @@ const id = (
 ): FrameAuthoredToken =>
   FrameAuthoredTokenSchema.make({ text, position, kind: 'name', health })
 
+const headingId = (text: string, position: Position): FrameAuthoredToken =>
+  FrameAuthoredTokenSchema.make({ text, position, kind: 'heading' })
+
+const anchorId = (
+  text: string,
+  position: Position,
+  health: Health = okHealth,
+): FrameAuthoredToken =>
+  FrameAuthoredTokenSchema.make({ text, position, kind: 'anchor', health })
+
 const prose = (text: string, position: Position): FrameAuthoredToken =>
   FrameAuthoredTokenSchema.make({ text, position, kind: 'prose' })
-
-const docPreamble = (section: LoomSection): FrameAuthoredToken =>
-  prose(escapeComment(sourceOf(section.preamble)), preamblePos(section))
 
 const proseField = (section: LoomSection): Weave => {
   const src = sourceOf(section.preamble)
@@ -503,11 +514,10 @@ const proseField = (section: LoomSection): Weave => {
       })
 }
 
-const titleField = (section: LoomSection): FrameAuthoredToken =>
-  prose(
-    escapeTemplate(section.heading.title?.source ?? ''),
-    section.heading.title?.position ?? section.heading.position,
-  )
+const titleField = (section: LoomSection): ServiceName =>
+  FrameSynthTokenSchema.make({
+    text: escapeTemplate(section.heading.title?.source ?? ''),
+  })
 
 const preamblePos = (section: LoomSection): Position =>
   section.preamble.length > 0 ? spanOf(section.preamble) : endOf(section)
@@ -529,8 +539,6 @@ const between = (start: Point, end: Point): Position => ({ start, end })
 
 const escapeTemplate = (s: string): string =>
   s.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${')
-
-const escapeComment = (s: string): string => s.replace(/\*\//g, '*\\/')
 
 const escapeString = (s: string): string =>
   s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')

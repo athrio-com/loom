@@ -74,13 +74,13 @@ const synth = (text: string) =>
 
 An authored leaf is a span of text lifted from the `.loom` source and stored with its source position.
 
-A `FrameAuthoredToken` carries its text and a `kind`. When `kind` is `name`, the token holds an identifier — a tag label or a derived class name — and maps back to its origin span, so the language service offers rename, go-to-definition, and hover there. When `kind` is `prose`, the token holds heading or preamble text and maps into a Markdown virtual document, so Markdown tooling applies to it.
+A `FrameAuthoredToken` carries its text and a `kind`. When `kind` is `name`, the token holds an identifier that stands for itself — a tag label, a Warp's local or its annotation — and maps to the matching identifier in the generated code. The two spans share their text, so the language service offers rename, go-to-definition, and hover there, and the hover reports a real service. A `heading` token and an `anchor` token are the two ends of a name-anchor link. Their spans hold different text — a heading title against the generated `_Heading` alias — so each offers navigation but not hover, which would only describe the synthetic alias rather than the section. The `heading` token is the definition, mapped to the title the author wrote; the `anchor` token is the `{{Heading}}` reference that names it. When `kind` is `prose`, the token holds heading or preamble text and maps into a Markdown virtual document, so Markdown tooling applies to it.
 
 A `FrameCode` carries the body of a `{Loom}` section verbatim. A `{Loom}` section is one whose code blocks are frame-level TypeScript, meant to sit directly in the generated frame rather than inside a service class body. `FrameCode` maps that text into the frame's own virtual TypeScript document, so the compiler type-checks it in place.
 
 =>
 
-export const SpanKindSchema = Schema.Literal('name', 'prose')
+export const SpanKindSchema = Schema.Literal('name', 'heading', 'anchor', 'prose')
 export type SpanKind = typeof SpanKindSchema.Type
 
 export const FrameAuthoredTokenSchema = frameNode(
@@ -211,7 +211,7 @@ export const BindingSchema = frameNode(
     kw1: synth('const '),
     name: FrameAuthoredTokenSchema,
     kw2: synth(' = yield* '),
-    tag: FrameAuthoredTokenSchema,
+    tag: ServiceNameSchema,
   },
   ['kw1', 'name', 'kw2', 'tag'],
 )
@@ -234,7 +234,7 @@ An `EffectfulBody` covers a section that depends on at least one other service. 
 
 A `TangleBody` covers a tangle sink. It also yields its bindings in an `Effect.gen` block, but it returns a `core.tangle(path, …)` call rather than the three-field object. A tangle sink produces a file, not a composable service output, so it carries no `name` or `prose` field.
 
-The preamble sits outside all three shapes. The frame emits it as the `/** … */` TSDoc comment directly above the class declaration, where the editor shows it as hover documentation. `StaticBody` and `EffectfulBody` also fold it into their `Weave` node, so the composed prose carries the preamble too.
+The preamble sits outside all three shapes. `StaticBody` and `EffectfulBody` fold it into their `Weave` node, so the composed prose carries the preamble. A `TangleBody` has no prose channel, so a sink section's preamble lives only in the `.loom` source.
 
 =>
 
@@ -242,7 +242,7 @@ export const StaticBodySchema = frameNode(
   'StaticBody',
   {
     open: synth('{ succeed: { name: `'),
-    name: FrameAuthoredTokenSchema,
+    name: ServiceNameSchema,
     mid1: synth('`, code: '),
     code: ComposeSchema,
     mid2: synth(', prose: '),
@@ -259,7 +259,7 @@ export const EffectfulBodySchema = frameNode(
     open: synth('{\n  effect: Effect.gen(function* () {'),
     bindings: Schema.Array(BindingItemSchema),
     mid1: synth('\n    return { name: `'),
-    name: FrameAuthoredTokenSchema,
+    name: ServiceNameSchema,
     mid2: synth('`, code: '),
     code: ComposeSchema,
     mid3: synth(', prose: '),
@@ -294,7 +294,7 @@ export type ServiceBody = typeof ServiceBodySchema.Type
 
 ## The service class
 
-A `ServiceClass` represents one complete Loom section as one `Effect.Service` class. Its preamble appears as the `/** … */` TSDoc comment directly above the class, the place Volar reads for hover documentation. The `modifier` field holds the `export` keyword when the section carries a `[Tag]` label, and an empty synth token when the section is tagless and the class stays private to the frame.
+A `ServiceClass` represents one complete Loom section as one `Effect.Service` class. The `modifier` field holds the `export` keyword when the section carries a `[Tag]` label, and an empty synth token when the section is tagless and the class stays private to the frame. The section's preamble is not duplicated here as a doc comment; it travels in the body's `prose` channel and reads from the `.loom` source itself.
 
 The `name`, `nameType`, and `nameTag` fields are all `ServiceName`s, one each for the class name, the `<…>` type parameter, and the string service tag.
 
@@ -305,9 +305,6 @@ The `languageId` field names the section's product language — `"typescript"`, 
 export const ServiceClassSchema = frameNode(
   'ServiceClass',
   {
-    doc1: synth('/** '),
-    docPreamble: FrameAuthoredTokenSchema,
-    doc2: synth(' */\n'),
     modifier: FrameSynthTokenSchema,
     kw1: synth('class '),
     name: ServiceNameSchema,
@@ -320,10 +317,7 @@ export const ServiceClassSchema = frameNode(
     kw5: synth(') {}'),
     languageId: Schema.String,
   },
-  [
-    'doc1', 'docPreamble', 'doc2', 'modifier', 'kw1', 'name', 'kw2',
-    'nameType', 'kw3', 'nameTag', 'kw4', 'body', 'kw5',
-  ],
+  ['modifier', 'kw1', 'name', 'kw2', 'nameType', 'kw3', 'nameTag', 'kw4', 'body', 'kw5'],
 )
 export type ServiceClass = typeof ServiceClassSchema.Type
 

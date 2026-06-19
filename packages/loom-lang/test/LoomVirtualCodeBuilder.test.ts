@@ -80,12 +80,11 @@ describe('fromFrame — Frame AST → the frame virtual code', () => {
     ).toBe('Add')
   })
 
-  it('escapes ` and ${ in the field and product code; TSDoc stays raw', () => {
+  it('escapes ` and ${ in the woven prose field and the product code', () => {
     const escInput =
       '{{lang: TypeScript}}\n\n# Escapes [Esc]\n\nMentions `pow` in prose.\n\n=>\n\nconst greeting = `Hi ${name}`\n'
     const out = fromFrame(buildFrame(parse(escInput))).code
     expect(out).toContain('\\`pow\\`') // field: escaped backticks
-    expect(out).toContain('`pow`') // TSDoc: raw (a comment may contain backticks)
     expect(out).toContain('\\${name}') // product code: escaped ${
   })
 })

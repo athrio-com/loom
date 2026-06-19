@@ -38,7 +38,7 @@ const synth = (text: string) =>
     Schema.withConstructorDefault(() => FrameSynthTokenSchema.make({ text })),
   )
 
-export const SpanKindSchema = Schema.Literal('name', 'prose')
+export const SpanKindSchema = Schema.Literal('name', 'heading', 'anchor', 'prose')
 export type SpanKind = typeof SpanKindSchema.Type
 
 export const FrameAuthoredTokenSchema = frameNode(
@@ -137,7 +137,7 @@ export const BindingSchema = frameNode(
     kw1: synth('const '),
     name: FrameAuthoredTokenSchema,
     kw2: synth(' = yield* '),
-    tag: FrameAuthoredTokenSchema,
+    tag: ServiceNameSchema,
   },
   ['kw1', 'name', 'kw2', 'tag'],
 )
@@ -154,7 +154,7 @@ export const StaticBodySchema = frameNode(
   'StaticBody',
   {
     open: synth('{ succeed: { name: `'),
-    name: FrameAuthoredTokenSchema,
+    name: ServiceNameSchema,
     mid1: synth('`, code: '),
     code: ComposeSchema,
     mid2: synth(', prose: '),
@@ -171,7 +171,7 @@ export const EffectfulBodySchema = frameNode(
     open: synth('{\n  effect: Effect.gen(function* () {'),
     bindings: Schema.Array(BindingItemSchema),
     mid1: synth('\n    return { name: `'),
-    name: FrameAuthoredTokenSchema,
+    name: ServiceNameSchema,
     mid2: synth('`, code: '),
     code: ComposeSchema,
     mid3: synth(', prose: '),
@@ -207,9 +207,6 @@ export type ServiceBody = typeof ServiceBodySchema.Type
 export const ServiceClassSchema = frameNode(
   'ServiceClass',
   {
-    doc1: synth('/** '),
-    docPreamble: FrameAuthoredTokenSchema,
-    doc2: synth(' */\n'),
     modifier: FrameSynthTokenSchema,
     kw1: synth('class '),
     name: ServiceNameSchema,
@@ -222,10 +219,7 @@ export const ServiceClassSchema = frameNode(
     kw5: synth(') {}'),
     languageId: Schema.String,
   },
-  [
-    'doc1', 'docPreamble', 'doc2', 'modifier', 'kw1', 'name', 'kw2',
-    'nameType', 'kw3', 'nameTag', 'kw4', 'body', 'kw5',
-  ],
+  ['modifier', 'kw1', 'name', 'kw2', 'nameType', 'kw3', 'nameTag', 'kw4', 'body', 'kw5'],
 )
 export type ServiceClass = typeof ServiceClassSchema.Type
 
