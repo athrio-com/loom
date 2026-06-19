@@ -76,6 +76,15 @@ describe('buildFrame — trivial section → FrameModule', () => {
     expect(frame.root?.sinks).toHaveLength(0)
   })
 
+  it('the root layer ref repeats the name as a synth token, so the tag has one navigation target', () => {
+    // The class declaration is the one mapped occurrence of the name. The
+    // `Add.Default` in the layer merge repeats it as glue; mapping it too would
+    // give the [Add] tag a second navigation target and find-references would
+    // return both the declaration and the layer merge.
+    expect(frame.root?.head.name.type).toBe('FrameSynthToken')
+    expect(frame.root?.head.name.text).toBe('Add')
+  })
+
   it('maps the class name to the [Add] tag; the field name is a synth display string', () => {
     const svc = frame.members[0]!.value as ServiceClass
     const body = svc.body as StaticBody
@@ -83,6 +92,8 @@ describe('buildFrame — trivial section → FrameModule', () => {
     expect(asAuthored(svc.name).position.start.offset).toBe(
       input.indexOf('[Add]') + 1,
     )
+    // a `tag` span — locate-only, so hovering [Add] shows no generated class
+    expect(asAuthored(svc.name).kind).toBe('tag')
     // the `name:` field carries the title text but is unmapped — a display
     // string, not a navigation target (mapping it self-references the heading)
     expect(body.name.type).toBe('FrameSynthToken')
@@ -240,6 +251,40 @@ const helper = 1
   it('marks a tangle language-agnostic (Loom), neither the doc default nor the path', () => {
     expect(tangle.languageId).toBe('Loom') // agnostic — not `typescript`, not `bash`
     expect(tangle.name.type).toBe('FrameSynthToken') // tagless — glue, unmapped
+  })
+})
+
+describe('buildFrame — a tagged tangle maps its class once; the sink ref repeats the name as synth', () => {
+  // A heading may carry both a tag and a path: `# Title [Tag] {path}`. The tag
+  // makes the class name authored and mapped to `[Tag]`, so it is the one mapped
+  // occurrence. The composition root's sink — `addSink(Bun.Default, …)` — repeats
+  // that name as the synth `nameRef`. Were the sink mapped too, the [Bun] tag would
+  // gain a second navigation target. The tagless tangle above cannot catch this:
+  // its name is synth whether or not the sink reuses it, so only a tagged tangle
+  // tells the fix from the bug apart.
+  const src = `{{lang: TypeScript}}
+
+# Bundle it [Bun] {dist/bundle.sh}
+
+=>
+
+const x = 1
+`
+  const frame = buildFrame(parse(src))
+  const svc = frame.members[0]!.value as ServiceClass
+
+  it('maps the class name to the [Bun] tag — the one mapping', () => {
+    expect(svc.name.type).toBe('FrameAuthoredToken')
+    expect(asAuthored(svc.name).position.start.offset).toBe(
+      src.indexOf('[Bun]') + 1,
+    )
+  })
+
+  it('the sink ref repeats the name as a synth token, so the tag has one navigation target', () => {
+    expect(frame.root?.sinks).toHaveLength(1)
+    const sink = frame.root!.sinks[0]!.value
+    expect(sink.name.type).toBe('FrameSynthToken')
+    expect(sink.name.text).toBe('Bun')
   })
 })
 

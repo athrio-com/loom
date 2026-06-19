@@ -143,8 +143,8 @@ const buildService = (
 
   return {
     member: service,
-    layer: Option.some(LayerRefSchema.make({ name })),
-    sink: Option.map(path, () => SinkRefSchema.make({ name })),
+    layer: Option.some(LayerRefSchema.make({ name: nameRef })),
+    sink: Option.map(path, () => SinkRefSchema.make({ name: nameRef })),
     imports: [],
   }
 }
@@ -469,7 +469,7 @@ const serviceNameOf = (section: LoomSection): string =>
 const serviceName = (section: LoomSection): ServiceName => {
   const tag = section.heading.tag
   return isExported(section) && tag !== undefined
-    ? id(tag.label.value, tag.label.position)
+    ? tagId(tag.label.value, tag.label.position)
     : FrameSynthTokenSchema.make({ text: serviceNameOf(section) })
 }
 
@@ -480,6 +480,9 @@ const isExported = (section: LoomSection): boolean => {
     tag.label.position.end.offset > tag.label.position.start.offset
   )
 }
+
+const tagId = (text: string, position: Position): FrameAuthoredToken =>
+  FrameAuthoredTokenSchema.make({ text, position, kind: 'tag' })
 
 const id = (
   text: string,

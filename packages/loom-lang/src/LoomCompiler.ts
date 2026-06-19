@@ -29,7 +29,7 @@ export const stringSnapshot = (text: string): ts.IScriptSnapshot => ({
 })
 
 const featuresOf = (kind: Mapping['kind']): CodeMapping['data'] =>
-  kind === 'prose' || kind === 'heading'
+  kind === 'prose' || kind === 'heading' || kind === 'tag'
     ? { navigation: true, structure: true }
     : kind === 'anchor'
       ? { verification: true, navigation: true, structure: true }

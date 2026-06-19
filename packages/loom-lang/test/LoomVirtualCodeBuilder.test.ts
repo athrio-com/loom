@@ -68,12 +68,14 @@ describe('fromFrame — Frame AST → the frame virtual code', () => {
     expect(genCode).toContain('Layer.provide(layers, layers)')
   })
 
-  it('maps a generated `Add` name back to the [Add] tag label span', () => {
+  it('maps a generated `Add` name back to the [Add] tag label span, as a `tag` span', () => {
     const at = genCode.indexOf('export class Add') + 'export class '.length
     const mapping = mappings.find(
       (m) => m.genStart <= at && at < m.genStart + m.genLength,
     )
-    expect(mapping?.kind).toBe('name')
+    // `tag`, not `name`: the span navigates and renames but withholds hover, so
+    // the generated service class never shows when hovering the [Add] tag
+    expect(mapping?.kind).toBe('tag')
     expect(mapping?.source.start.offset).toBe(adder.indexOf('[Add]') + 1)
     expect(
       adder.slice(mapping!.source.start.offset, mapping!.source.end.offset),

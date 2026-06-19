@@ -74,13 +74,13 @@ const synth = (text: string) =>
 
 An authored leaf is a span of text lifted from the `.loom` source and stored with its source position.
 
-A `FrameAuthoredToken` carries its text and a `kind`. When `kind` is `name`, the token holds an identifier that stands for itself — a tag label, a Warp's local or its annotation — and maps to the matching identifier in the generated code. The two spans share their text, so the language service offers rename, go-to-definition, and hover there, and the hover reports a real service. A `heading` token and an `anchor` token are the two ends of a name-anchor link. Their spans hold different text — a heading title against the generated `_Heading` alias — so each offers navigation but not hover, which would only describe the synthetic alias rather than the section. The `heading` token is the definition, mapped to the title the author wrote; the `anchor` token is the `::[Heading]` reference that names it. When `kind` is `prose`, the token holds heading or preamble text and maps into a Markdown virtual document, so Markdown tooling applies to it.
+A `FrameAuthoredToken` carries its text and a `kind`. A `tag` token holds a section's `[Tag]` label and maps to the generated service class of the same name. The editor reaches and renames the section through it, but it withholds hover: the only thing a hover could report there is the `Effect.Service` class the frame generates, which restates the name the author already wrote and exposes the runtime Loom keeps invisible. A `name` token holds a Warp's local or its annotation — an identifier that stands for itself and maps to the matching identifier in the generated code. Its two spans share their text, so the language service offers rename, go-to-definition, and hover there, and the hover reports a real service. A `heading` token and an `anchor` token are the two ends of a name-anchor link. Their spans hold different text — a heading title against the generated `_Heading` alias — so each offers navigation but not hover, which would only describe the synthetic alias rather than the section. The `heading` token is the definition, mapped to the title the author wrote; the `anchor` token is the `::[Heading]` reference that names it. When `kind` is `prose`, the token holds heading or preamble text and maps into a Markdown virtual document, so Markdown tooling applies to it.
 
 A `FrameCode` carries the body of a `{Loom}` section verbatim. A `{Loom}` section is one whose code blocks are frame-level TypeScript, meant to sit directly in the generated frame rather than inside a service class body. `FrameCode` maps that text into the frame's own virtual TypeScript document, so the compiler type-checks it in place.
 
 =>
 
-export const SpanKindSchema = Schema.Literal('name', 'heading', 'anchor', 'prose')
+export const SpanKindSchema = Schema.Literal('tag', 'name', 'heading', 'anchor', 'prose')
 export type SpanKind = typeof SpanKindSchema.Type
 
 export const FrameAuthoredTokenSchema = frameNode(

@@ -240,8 +240,8 @@ const buildService = (
 
   return {
     member: service,
-    layer: Option.some(LayerRefSchema.make({ name })),
-    sink: Option.map(path, () => SinkRefSchema.make({ name })),
+    layer: Option.some(LayerRefSchema.make({ name: nameRef })),
+    sink: Option.map(path, () => SinkRefSchema.make({ name: nameRef })),
     imports: [],
   }
 }
@@ -632,22 +632,27 @@ dicto boundary at each leaf.
 A section's service name is its tag label, or the title normalised to an
 identifier when the section is tagless; the tokeniser fills a tag for every heading,
 so the function is total. `serviceName` chooses the token: a tagged section's name
-is authored, mapped to the tag label so the editor can reach it; a tagless name is
-synth, pure glue with no source span — a name anchor reaches such a section through
-the hoisted alias binding, not the class name. The `<…>` type parameter and the
-string tag repeat the name, so both are synth too; only the declaration carries the
-one mapping. `isExported` reads the difference from the span — a real tag covers
-source bytes, a synthesised one is zero-width — and a real tag is what exports the
-service.
+is a `tag` token, mapped to the `[Tag]` label so the editor reaches and renames the
+section through it, while it withholds hover — a hover would only surface the
+generated service class. A tagless name is synth, pure glue with no source span — a
+name anchor reaches such a section through the hoisted alias binding, not the class
+name. The name repeats elsewhere in the frame: the `<…>` type parameter, the string
+tag, and the layer and sink references in the composition root. Every repeat is the
+synth `nameRef`, so the `[Tag]` label maps to the class declaration alone, and the
+section has one navigation target rather than one per repeat. `isExported` reads the
+difference from the span — a real tag covers source bytes, a synthesised one is
+zero-width — and a real tag is what exports the service.
 
-`id` builds a mapped name token, `headingId` and `anchorId` the two ends of a
-name-anchor link, and `prose` a mapped prose token. The three name kinds differ
-only in the editor features their span later carries: a `name` token shares its
-text with the generated identifier, so it earns hover; the `heading` and `anchor`
-tokens map across different text, so they navigate but never hover. A section's
-preamble becomes the fragment `proseField` weaves into the section's `prose`
-channel — its one home in the generated frame, escaped for the backtick literal it
-lands in. A section with no preamble weaves an empty channel.
+`tagId` builds the section-tag token, `id` a mapped name token for a Warp's local or
+annotation, `headingId` and `anchorId` the two ends of a name-anchor link, and
+`prose` a mapped prose token. The kinds differ only in the editor features their
+span later carries. A `name` token shares its text with the generated identifier, so
+it earns hover. A `tag` token shares its text too, but the identifier it names is the
+generated service class, so it navigates and renames yet withholds that hover. The
+`heading` and `anchor` tokens map across different text, so they navigate but never
+hover. A section's preamble becomes the fragment `proseField` weaves into the
+section's `prose` channel — its one home in the generated frame, escaped for the
+backtick literal it lands in. A section with no preamble weaves an empty channel.
 
 =>
 
@@ -657,7 +662,7 @@ const serviceNameOf = (section: LoomSection): string =>
 const serviceName = (section: LoomSection): ServiceName => {
   const tag = section.heading.tag
   return isExported(section) && tag !== undefined
-    ? id(tag.label.value, tag.label.position)
+    ? tagId(tag.label.value, tag.label.position)
     : FrameSynthTokenSchema.make({ text: serviceNameOf(section) })
 }
 
@@ -668,6 +673,9 @@ const isExported = (section: LoomSection): boolean => {
     tag.label.position.end.offset > tag.label.position.start.offset
   )
 }
+
+const tagId = (text: string, position: Position): FrameAuthoredToken =>
+  FrameAuthoredTokenSchema.make({ text, position, kind: 'tag' })
 
 const id = (
   text: string,

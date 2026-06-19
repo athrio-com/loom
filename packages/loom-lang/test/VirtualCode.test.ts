@@ -74,6 +74,12 @@ describe('VirtualCode — root → frame projection', () => {
       expect(
         input.slice(m!.sourceOffsets[0]!, m!.sourceOffsets[0]! + m!.lengths[0]!),
       ).toBe('Add')
+      // the tag is locate-only: navigation reaches and renames the section, but
+      // semantic is off, so hovering [Add] no longer surfaces the generated
+      // `class Add` — the Effect.Service machinery stays out of the author's view
+      expect(m!.data.navigation).toBe(true)
+      expect(m!.data.semantic).toBeFalsy()
+      expect(m!.data.completion).toBeFalsy()
     }).pipe(Effect.provide(layer)),
   )
 })

@@ -2,6 +2,7 @@ import { Schema } from 'effect'
 import { PositionSchema } from '#ast/LoomNode'
 
 export const MappingKindSchema = Schema.Literal(
+  'tag',
   'name',
   'heading',
   'anchor',
