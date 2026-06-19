@@ -17,6 +17,11 @@ const tangle = (file: string): Effect.Effect<void> =>
       )
     }
   }).pipe(
+    Effect.catchTag('TangleError', (e) =>
+      Console.error(e.message).pipe(
+        Effect.zipRight(Effect.sync(() => void (process.exitCode = 1))),
+      ),
+    ),
     Effect.provide(LoomTangler.Default),
     Effect.provide(DocumentSource.Default),
     Effect.provide(NodeContext.layer),

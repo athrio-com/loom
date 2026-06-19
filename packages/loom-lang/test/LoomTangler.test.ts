@@ -91,4 +91,27 @@ describe('LoomTangler — tangle {path} sinks to disk', () => {
       ).toContain('"two"')
     }).pipe(Effect.provide(layers)),
   )
+
+  it.scoped('refuses an unresolved anchor — fails loud, writes nothing', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const dir = yield* fs.makeTempDirectoryScoped()
+      const entry = `${dir}/broken.loom`
+      yield* fs.writeFileString(
+        entry,
+        `{{lang: TypeScript}}\n\n# Sink {out/x.ts}\n\n=>\n\nconst x = ::[Ghost]\n`,
+      )
+
+      const tangler = yield* LoomTangler
+      const result = yield* Effect.either(tangler.tangle(entry))
+
+      expect(result._tag).toBe('Left')
+      if (result._tag === 'Left') {
+        expect(result.left._tag).toBe('TangleError')
+        expect(result.left.message).toMatch(/Ghost/)
+      }
+      // the sink is never written — a broken anchor stops the tangle
+      expect(yield* fs.exists(`${dir}/out/x.ts`)).toBe(false)
+    }).pipe(Effect.provide(layers)),
+  )
 })

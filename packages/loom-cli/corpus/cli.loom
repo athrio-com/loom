@@ -18,7 +18,7 @@ import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
 
 ## Tangling a file [Tangle]
 
-The `tangle` command takes a file path, resolves it against the working directory, and hands it to the tangler. The tangler walks the file and emits each output; the command logs every path it writes. The command provides the filesystem `DocumentSource` — the editor holds files in memory, but the CLI reads from disk.
+The `tangle` command takes a file path, resolves it against the working directory, and hands it to the tangler. The tangler walks the file and emits each output; the command logs every path it writes. The command provides the filesystem `DocumentSource` — the editor holds files in memory, but the CLI reads from disk. When the tangler refuses a file — an unresolved `::[…]` anchor would otherwise drop silently from the output — the command prints the error and exits non-zero, writing nothing.
 
 =>
 
@@ -35,6 +35,11 @@ const tangle = (file: string): Effect.Effect<void> =>
       )
     }
   }).pipe(
+    Effect.catchTag('TangleError', (e) =>
+      Console.error(e.message).pipe(
+        Effect.zipRight(Effect.sync(() => void (process.exitCode = 1))),
+      ),
+    ),
     Effect.provide(LoomTangler.Default),
     Effect.provide(DocumentSource.Default),
     Effect.provide(NodeContext.layer),
