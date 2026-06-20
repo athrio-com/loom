@@ -76,13 +76,53 @@ export const transitiveDependents = (
   )
 }
 
+## Errors across the corpus
+
+`corpusErrors` gathers every error in the corpus, so the tangler can refuse a broken build with one report rather than fail at the first bad file. It walks each module's parsed document and its frame for nodes whose health is an error — a file that could not be read, a malformed parse, an unresolved `::[…]` reference — and returns each failing module with its diagnostics, skipping the healthy ones.
+
+`errorsIn` is the walk underneath. It descends any node, collects the diagnostics of every error-health node, and skips the `health` field itself so a node's own diagnostics are gathered once rather than again at every child.
+
+=>
+
+const errorsIn = (node: unknown): ReadonlyArray<Diagnostic> => {
+  if (Array.isArray(node)) return node.flatMap(errorsIn)
+  if (node === null || typeof node !== 'object') return []
+  const self =
+    'health' in node &&
+    (node as { health?: { status?: string } }).health?.status === 'error'
+      ? (node as { health: { diagnostics: ReadonlyArray<Diagnostic> } }).health
+          .diagnostics
+      : []
+  const nested = Object.entries(node).flatMap(([key, value]) =>
+    key === 'health' ? [] : errorsIn(value),
+  )
+  return [...self, ...nested]
+}
+
+export const corpusErrors = (
+  corpus: LoomCorpusAst,
+): ReadonlyArray<{
+  readonly path: Path
+  readonly diagnostics: ReadonlyArray<Diagnostic>
+}> =>
+  pipe(
+    Array.fromIterable(corpus.modules.values()),
+    Array.filterMap((m) => {
+      const diagnostics = [...errorsIn(m.doc), ...errorsIn(m.frame)]
+      return diagnostics.length === 0
+        ? Option.none()
+        : Option.some({ path: m.path, diagnostics })
+    }),
+  )
+
 ## What this module draws on
 
-Effect supplies `Schema` for the model and `Array`, `Option`, and `pipe` for the queries. The module bundles three other models: `LoomDocument` (parse), `FrameModule` (frame), and `ComposedCode` (de re).
+Effect supplies `Schema` for the model and `Array`, `Option`, and `pipe` for the queries. The module bundles three other models — `LoomDocument` (parse), `FrameModule` (frame), and `ComposedCode` (de re) — and `Diagnostic`, the error a corpus walk gathers.
 
 =>
 
 import { Array, Option, pipe, Schema } from 'effect'
+import { type Diagnostic } from '#ast/LoomNode'
 import { LoomDocumentSchema } from '#ast/LoomAst'
 import { FrameModuleSchema } from '#ast/FrameAst'
 import { ComposedCodeSchema } from '#ast/ProductAst'
@@ -96,3 +136,5 @@ import { ComposedCodeSchema } from '#ast/ProductAst'
 ::[The module and the corpus]
 
 ::[Graph queries over the imports]
+
+::[Errors across the corpus]

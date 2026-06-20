@@ -1,13 +1,17 @@
-import type { LanguagePlugin } from '@volar/language-core'
+import type {
+  CodegenContext,
+  LanguagePlugin,
+  VirtualCode,
+} from '@volar/language-core'
 import type { LanguageServicePlugin } from '@volar/language-service'
 import type {} from '@volar/typescript'
 import { Array, Effect, Layer, Option, pipe, Runtime } from 'effect'
 import { NodeFileSystem } from '@effect/platform-node'
+import { readFileSync } from 'node:fs'
 import type * as ts from 'typescript'
-import type { URI } from 'vscode-uri'
-import type { LoomCorpusAstBuilder } from '#ast/LoomCorpusAstBuilder'
-import { loomVirtualCode } from './LoomCompiler'
-import { resolveAnchorDelims } from './PackageConfig'
+import { URI } from 'vscode-uri'
+import { ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
+import { LoomCompiler } from './LoomCompiler'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
   type LanguageService,
@@ -20,22 +24,73 @@ import {
 import { LoomLanguage } from '@athrio/loom-lang-services/LoomLanguage'
 import { TypescriptLanguage } from '@athrio/loom-lang-services/TypescriptLanguage'
 
+const editorSource = (
+  uri: URI,
+  snapshot: ts.IScriptSnapshot,
+): Source => ({
+  read: (path) =>
+    Effect.try({
+      try: () =>
+        path === uri.fsPath
+          ? snapshot.getText(0, snapshot.getLength())
+          : readFileSync(path, 'utf8'),
+      catch: (cause) => new ReadError({ path, cause }),
+    }),
+})
+
+const associate = (
+  compiler: LoomCompiler,
+  ctx: CodegenContext<URI>,
+  entry: string,
+): Effect.Effect<void> =>
+  compiler.corpus(entry).pipe(
+    Effect.flatMap((corpus) =>
+      Effect.forEach(
+        pipe(
+          Array.fromIterable(corpus.modules.keys()),
+          Array.filter((dep) => dep !== entry),
+        ),
+        (dep) => Effect.sync(() => ctx.getAssociatedScript(URI.file(dep))),
+        { discard: true },
+      ),
+    ),
+  )
+
+const changed = (previous: VirtualCode, next: ts.IScriptSnapshot): boolean =>
+  previous.snapshot.getText(0, previous.snapshot.getLength()) !==
+  next.getText(0, next.getLength())
+
 export const loomLanguagePlugin = (
-  runtime: Runtime.Runtime<LoomCorpusAstBuilder>,
+  runtime: Runtime.Runtime<LoomCompiler>,
 ): LanguagePlugin<URI> => ({
   getLanguageId: (uri) => (uri.path.endsWith('.loom') ? 'loom' : undefined),
-  createVirtualCode: (uri, languageId, snapshot) =>
+  createVirtualCode: (uri, languageId, snapshot, ctx) =>
     languageId === 'loom'
       ? Runtime.runSync(runtime)(
-          resolveAnchorDelims(uri.fsPath).pipe(
-            Effect.flatMap((delims) => loomVirtualCode(snapshot, delims)),
+          LoomCompiler.pipe(
+            Effect.flatMap((compiler) =>
+              compiler
+                .virtualCode(editorSource(uri, snapshot), uri.fsPath)
+                .pipe(Effect.tap(() => associate(compiler, ctx, uri.fsPath))),
+            ),
           ),
         )
       : undefined,
-  updateVirtualCode: (uri, _old, snapshot) =>
+  updateVirtualCode: (uri, previous, snapshot, ctx) =>
     Runtime.runSync(runtime)(
-      resolveAnchorDelims(uri.fsPath).pipe(
-        Effect.flatMap((delims) => loomVirtualCode(snapshot, delims)),
+      LoomCompiler.pipe(
+        Effect.flatMap((compiler) =>
+          (changed(previous, snapshot)
+            ? Effect.asVoid(compiler.change(uri.fsPath))
+            : Effect.void
+          ).pipe(
+            Effect.zipRight(
+              compiler
+                .virtualCode(editorSource(uri, snapshot), uri.fsPath)
+                .pipe(Effect.tap(() => associate(compiler, ctx, uri.fsPath))),
+            ),
+          ),
+        ),
       ),
     ),
   typescript: {

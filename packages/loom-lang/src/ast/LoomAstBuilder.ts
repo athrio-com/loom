@@ -211,30 +211,29 @@ const makeDocument = (db: DocumentBuilder): LoomDocument => {
   })
 }
 
-export const emptyDocumentFor = (text: string, err: MixedEOL): LoomDocument => {
-  const docPosition: Position = {
+export const emptyDocument = (text: string, message: string): LoomDocument => {
+  const position: Position = {
     start: { line: 1, offset: 0 },
     end: { line: 1, offset: text.length },
   }
-  const rootHealth: Health = {
-    status: 'error',
-    diagnostics: [
-      {
-        message: `Mixed line terminators. Line ${err.primaryLine} has ${eolName(err.primary)}, but line ${err.foundLine} has ${eolName(err.found)}. Pick one and stick with it.`,
-        position: docPosition,
-        severity: 'error',
-      },
-    ],
-  }
   return {
     type: 'LoomDocument',
-    position: docPosition,
+    position,
     source: text,
-    health: rootHealth,
+    health: {
+      status: 'error',
+      diagnostics: [{ message, position, severity: 'error' }],
+    },
     preamble: [],
     sections: [],
   }
 }
+
+export const emptyDocumentFor = (text: string, err: MixedEOL): LoomDocument =>
+  emptyDocument(
+    text,
+    `Mixed line terminators. Line ${err.primaryLine} has ${eolName(err.primary)}, but line ${err.foundLine} has ${eolName(err.found)}. Pick one and stick with it.`,
+  )
 
 const eolName = (kind: 'lf' | 'crlf' | 'cr'): string => {
   switch (kind) {

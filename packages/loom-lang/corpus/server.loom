@@ -12,9 +12,10 @@ alongside the language plugin. Two callers start it — a thin entry an editor l
 ## Imports [Imports]
 
 The server is built from Volar's toolkit for Node language servers — the connection, the
-project factory, and `loadTsdkByPath` — over the Effect runtime. It imports the builder it
-warms, `LoomCorpusAstBuilder`, which runs a `.loom` through every pass, and the two halves
-this module registers, `loomLanguagePlugin` and `loomServicePlugins`.
+project factory, and `loadTsdkByPath` — over the Effect runtime. It imports `LoomCompiler`,
+the projector and cache the runtime warms, with the `DocumentSource` and `PackageConfig` it
+requires, and the two halves this module registers, `loomLanguagePlugin` and
+`loomServicePlugins`.
 
 =>
 
@@ -27,7 +28,8 @@ import {
   loadTsdkByPath,
 } from '@volar/language-server/node'
 import { fileURLToPath } from 'node:url'
-import { LoomCorpusAstBuilder } from '#ast/LoomCorpusAstBuilder'
+import { LoomCompiler, DocumentSource } from './LoomCompiler'
+import { PackageConfig } from './PackageConfig'
 import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
 
 ## The program [Program]
@@ -42,7 +44,7 @@ collected plugins.
 =>
 
 const program = Effect.gen(function* () {
-  const runtime = yield* Effect.runtime<LoomCorpusAstBuilder>()
+  const runtime = yield* Effect.runtime<LoomCompiler>()
 
   const connection = createConnection()
   const server = createServer(connection)
@@ -71,7 +73,11 @@ const program = Effect.gen(function* () {
   connection.listen()
 
   yield* Effect.never
-}).pipe(Effect.provide(LoomCorpusAstBuilder.Default))
+}).pipe(
+  Effect.provide(LoomCompiler.Default),
+  Effect.provide(DocumentSource.Default),
+  Effect.provide(PackageConfig.Default),
+)
 
 export const startLanguageServer = (): void => NodeRuntime.runMain(program)
 

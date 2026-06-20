@@ -1,0 +1,7 @@
+{{lang: TypeScript}}
+
+# Negate [Neg]
+
+=>
+
+const negate = (x: number) => -x

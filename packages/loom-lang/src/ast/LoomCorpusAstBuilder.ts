@@ -1,17 +1,29 @@
-import { Array, Effect, Option, pipe } from 'effect'
+import { Array, Data, Effect, Option, pipe } from 'effect'
 import { dirname, resolve as resolvePath } from 'node:path'
 import { defaultAnchorDelims, type AnchorDelims } from '#ast/LoomTokens'
 import { LoomSourceRanges } from '#ast/LineRanges'
 import { WeftClassifier } from '#ast/WeftClassifier'
 import { WeftTokeniser } from '#ast/WeftTokeniser'
-import { LoomAstBuilder, emptyDocumentFor } from '#ast/LoomAstBuilder'
+import { LoomAstBuilder, emptyDocument, emptyDocumentFor } from '#ast/LoomAstBuilder'
+import type { LoomDocument } from '#ast/LoomAst'
 import type { FrameModule } from '#ast/FrameAst'
 import { FrameAstBuilder } from '#ast/FrameAstBuilder'
 import { ProductAstBuilder } from '#ast/ProductAstBuilder'
 import type { LoomModule, Path } from '#ast/LoomCorpusAst'
 
 export interface Source {
-  readonly read: (path: Path) => Effect.Effect<string>
+  readonly read: (path: Path) => Effect.Effect<string, ReadError>
+}
+
+export class ReadError extends Data.TaggedError('ReadError')<{
+  readonly path: Path
+  readonly cause: unknown
+}> {
+  get message(): string {
+    return `Cannot read ${this.path}: ${
+      this.cause instanceof Error ? this.cause.message : String(this.cause)
+    }`
+  }
 }
 
 export class LoomCorpusAstBuilder extends Effect.Service<LoomCorpusAstBuilder>()(
@@ -25,26 +37,40 @@ export class LoomCorpusAstBuilder extends Effect.Service<LoomCorpusAstBuilder>()
       const frames = yield* FrameAstBuilder
       const productBuilder = yield* ProductAstBuilder
 
+      const parsed = (
+        source: Source,
+        path: Path,
+        delims: AnchorDelims,
+      ): Effect.Effect<{ readonly text: string; readonly doc: LoomDocument }> =>
+        source.read(path).pipe(
+          Effect.flatMap((text) =>
+            sourceRanges.stream(text).pipe(
+              Effect.flatMap((ranges) =>
+                pipe(
+                  ranges,
+                  classify.classifyWefts(text),
+                  tokenise.tokeniseWefts(text, delims),
+                  astBuilder.build,
+                ),
+              ),
+              Effect.catchTag('MixedEOL', (err) =>
+                Effect.succeed(emptyDocumentFor(text, err)),
+              ),
+              Effect.map((doc) => ({ text, doc })),
+            ),
+          ),
+          Effect.catchTag('ReadError', (err) =>
+            Effect.succeed({ text: '', doc: emptyDocument('', err.message) }),
+          ),
+        )
+
       const build = (
         source: Source,
         path: Path,
         delims: AnchorDelims = defaultAnchorDelims,
       ): Effect.Effect<LoomModule> =>
         Effect.gen(function* () {
-          const text = yield* source.read(path)
-          const doc = yield* sourceRanges.stream(text).pipe(
-            Effect.flatMap((ranges) =>
-              pipe(
-                ranges,
-                classify.classifyWefts(text),
-                tokenise.tokeniseWefts(text, delims),
-                astBuilder.build,
-              ),
-            ),
-            Effect.catchTag('MixedEOL', (err) =>
-              Effect.succeed(emptyDocumentFor(text, err)),
-            ),
-          )
+          const { text, doc } = yield* parsed(source, path, delims)
           const frame = yield* frames.build(doc)
           const imports = pipe(
             frame.imports,

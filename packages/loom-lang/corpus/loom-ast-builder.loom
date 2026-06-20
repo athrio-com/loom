@@ -2,7 +2,7 @@
 
 # The document builder
 
-`LoomAstBuilder` is the final parse stage: `build` folds a stream of wefts into a `LoomDocument`. It peels one top-level node at a time — a pre-heading preamble weft, or a heading with the body wefts up to the next heading — and routes each into the document. Sections are flat, so there is no second assembly stage. The module also holds `emptyDocumentFor`, the document the chain returns when `MixedEOL` short-circuits it.
+`LoomAstBuilder` is the final parse stage: `build` folds a stream of wefts into a `LoomDocument`. It peels one top-level node at a time — a pre-heading preamble weft, or a heading with the body wefts up to the next heading — and routes each into the document. Sections are flat, so there is no second assembly stage. The module also holds `emptyDocument`, the empty error-carrying tree a caller falls back to when it cannot produce a real one.
 
 ## The build
 
@@ -220,36 +220,37 @@ const makeDocument = (db: DocumentBuilder): LoomDocument => {
   })
 }
 
-## Recovering from mixed terminators
+## Recovering to an empty document
 
-`emptyDocumentFor` is the document the chain returns when `MixedEOL` short-circuits it before any weft exists: an empty tree whose root health names the two conventions and the lines they appear on. `eolName` gives each convention a human-readable name for that message.
+Some failures leave the chain with no tree to fold. `emptyDocument` is the recovery: an empty document — no preamble, no sections — whose root health carries one error diagnostic at the document's span. A caller that cannot produce a real document returns this one. So a `.loom` always parses to a tree, and the error rides in that tree's own health rather than being thrown.
+
+`emptyDocumentFor` is the mixed-terminator case. The parse chain cannot pin a mixed line terminator to any node, so it raises `MixedEOL`. `emptyDocumentFor` names the two conventions and the lines they sit on, then builds the empty document from that message. `eolName` gives each convention — `LF`, `CRLF`, or `CR` — a name a person reads.
 
 =>
 
-export const emptyDocumentFor = (text: string, err: MixedEOL): LoomDocument => {
-  const docPosition: Position = {
+export const emptyDocument = (text: string, message: string): LoomDocument => {
+  const position: Position = {
     start: { line: 1, offset: 0 },
     end: { line: 1, offset: text.length },
   }
-  const rootHealth: Health = {
-    status: 'error',
-    diagnostics: [
-      {
-        message: `Mixed line terminators. Line ${err.primaryLine} has ${eolName(err.primary)}, but line ${err.foundLine} has ${eolName(err.found)}. Pick one and stick with it.`,
-        position: docPosition,
-        severity: 'error',
-      },
-    ],
-  }
   return {
     type: 'LoomDocument',
-    position: docPosition,
+    position,
     source: text,
-    health: rootHealth,
+    health: {
+      status: 'error',
+      diagnostics: [{ message, position, severity: 'error' }],
+    },
     preamble: [],
     sections: [],
   }
 }
+
+export const emptyDocumentFor = (text: string, err: MixedEOL): LoomDocument =>
+  emptyDocument(
+    text,
+    `Mixed line terminators. Line ${err.primaryLine} has ${eolName(err.primary)}, but line ${err.foundLine} has ${eolName(err.found)}. Pick one and stick with it.`,
+  )
 
 const eolName = (kind: 'lf' | 'crlf' | 'cr'): string => {
   switch (kind) {
@@ -311,4 +312,4 @@ import type {
 
 ::[Assembling the document]
 
-::[Recovering from mixed terminators]
+::[Recovering to an empty document]

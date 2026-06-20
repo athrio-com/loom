@@ -1,10 +1,9 @@
 import type { CodeMapping, VirtualCode } from '@volar/language-core'
 import { Array, Effect, pipe } from 'effect'
-import { FileSystem } from '@effect/platform'
+import { readFileSync } from 'node:fs'
 import type * as ts from 'typescript'
 import type { FrameModule } from '#ast/FrameAst'
-import { type AnchorDelims, defaultAnchorDelims } from '#ast/LoomTokens'
-import { LoomCorpusAstBuilder, type Source } from '#ast/LoomCorpusAstBuilder'
+import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import {
   type LoomCorpusAst,
   type LoomModule,
@@ -60,13 +59,13 @@ export const toVolar = (vc: LoomVirtualCode): VirtualCode => ({
 export class DocumentSource extends Effect.Service<DocumentSource>()(
   'DocumentSource',
   {
-    effect: Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem
-      return {
-        read: (path: Path): Effect.Effect<string> =>
-          fs.readFileString(path).pipe(Effect.orDie),
-      }
-    }),
+    succeed: {
+      read: (path: Path): Effect.Effect<string, ReadError> =>
+        Effect.try({
+          try: () => readFileSync(path, 'utf8'),
+          catch: (cause) => new ReadError({ path, cause }),
+        }),
+    },
   },
 ) {}
 
@@ -74,34 +73,38 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
   'LoomCompiler',
   {
     effect: Effect.gen(function* () {
-      const source = yield* DocumentSource
+      const documents = yield* DocumentSource
       const builder = yield* LoomCorpusAstBuilder
       const vcb = yield* LoomVirtualCodeBuilder
       const memo = yield* LoomMemo
       const config = yield* PackageConfig
 
-      const load = (path: Path): Effect.Effect<void> =>
+      const load = (source: Source, path: Path): Effect.Effect<void> =>
         config.anchorDelims(path).pipe(
           Effect.flatMap((delims) =>
             memo.get(path, builder.build(source, path, delims)),
           ),
           Effect.flatMap((m) =>
-            Effect.forEach(m.imports, (dep) => load(dep), { discard: true }),
+            Effect.forEach(m.imports, (dep) => load(source, dep), {
+              discard: true,
+            }),
           ),
         )
 
       const ensureModules = (
+        source: Source,
         entry: Path,
       ): Effect.Effect<ReadonlyMap<Path, LoomModule>> =>
-        load(entry).pipe(Effect.zipRight(memo.entries))
+        load(source, entry).pipe(Effect.zipRight(memo.entries))
 
       const ensureEntry = (
+        source: Source,
         path: Path,
       ): Effect.Effect<{
         readonly modules: ReadonlyMap<Path, LoomModule>
         readonly entry: LoomModule
       }> =>
-        ensureModules(path).pipe(
+        ensureModules(source, path).pipe(
           Effect.flatMap((modules) =>
             Effect.fromNullable(modules.get(path)).pipe(
               Effect.orDie,
@@ -112,10 +115,10 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
 
       return {
         frame: (path: Path): Effect.Effect<FrameModule> =>
-          ensureEntry(path).pipe(Effect.map(({ entry }) => entry.frame)),
+          ensureEntry(documents, path).pipe(Effect.map(({ entry }) => entry.frame)),
 
         code: (path: Path): Effect.Effect<ReadonlyArray<LoomVirtualCode>> =>
-          ensureEntry(path).pipe(
+          ensureEntry(documents, path).pipe(
             Effect.flatMap(({ modules, entry }) => {
               const codeByPath = codeOf(modules)
               return Effect.forEach(
@@ -126,7 +129,29 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
           ),
 
         corpus: (entry: Path): Effect.Effect<LoomCorpusAst> =>
-          ensureModules(entry).pipe(Effect.map((modules) => ({ modules }))),
+          ensureModules(documents, entry).pipe(
+            Effect.map((modules) => ({ modules })),
+          ),
+
+        virtualCode: (source: Source, path: Path): Effect.Effect<VirtualCode> =>
+          ensureEntry(source, path).pipe(
+            Effect.map(({ modules, entry }) =>
+              toVolar(projectTree(codeOf(modules), entry)),
+            ),
+            Effect.catchAllCause((cause) =>
+              Effect.logError(
+                'loom: projection failed; serving bare document',
+                cause,
+              ).pipe(
+                Effect.zipRight(
+                  source.read(path).pipe(
+                    Effect.orElseSucceed(() => ''),
+                    Effect.map((text) => toVolar(rootVirtualCode(text, []))),
+                  ),
+                ),
+              ),
+            ),
+          ),
 
         change: (path: Path): Effect.Effect<ReadonlyArray<Path>> =>
           Effect.gen(function* () {
@@ -145,38 +170,17 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
   },
 ) {}
 
-const singleFileSource = (text: string): Source => ({
-  read: () => Effect.succeed(text),
-})
-
-export const loomVirtualCode = (
-  snapshot: ts.IScriptSnapshot,
-  delims: AnchorDelims = defaultAnchorDelims,
-): Effect.Effect<VirtualCode, never, LoomCorpusAstBuilder> =>
-  Effect.gen(function* () {
-    const builder = yield* LoomCorpusAstBuilder
-
-    const text = snapshot.getText(0, snapshot.getLength())
-    const mod = yield* builder.build(singleFileSource(text), '', delims)
-
-    const codeByPath: CodeByPath = new Map([['', mod.code]])
-    const sections = pipe(
-      Array.fromIterable(mod.code.values()),
+const projectTree = (
+  codeByPath: CodeByPath,
+  entry: LoomModule,
+): LoomVirtualCode =>
+  rootVirtualCode(entry.text, [
+    fromFrame(entry.frame),
+    ...pipe(
+      Array.fromIterable(entry.code.values()),
       Array.map((node) => fromProduct(codeByPath, node.origin)),
-    )
-    return rootVirtualCode(text, [fromFrame(mod.frame), ...sections])
-  }).pipe(
-    Effect.map(toVolar),
-    Effect.catchAllCause((cause) =>
-      Effect.logError('loom: projection failed; serving bare document', cause).pipe(
-        Effect.as(
-          toVolar(
-            rootVirtualCode(snapshot.getText(0, snapshot.getLength()), []),
-          ),
-        ),
-      ),
     ),
-  )
+  ])
 
 export const codeOf = (modules: ReadonlyMap<Path, LoomModule>): CodeByPath =>
   new Map(

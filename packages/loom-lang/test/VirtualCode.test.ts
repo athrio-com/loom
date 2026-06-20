@@ -1,17 +1,15 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Runtime } from 'effect'
-import { LoomCorpusAstBuilder } from '#ast/LoomCorpusAstBuilder'
-import { loomVirtualCode, stringSnapshot } from '../src/LoomCompiler'
+import { Effect, Layer, Runtime } from 'effect'
+import type { Source } from '#ast/LoomCorpusAstBuilder'
+import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { PackageConfig } from '../src/PackageConfig'
 
-// loomVirtualCode assembles the Volar tree from the two LoomVirtualCodeBuilder
+// compiler.virtualCode assembles the Volar tree from the two LoomVirtualCodeBuilder
 // passes — root (loom) → frame (typescript, fromFrame) + one product per section
 // (fromProduct) — and `toVolar` adapts it to Volar's runtime VirtualCode. The
 // probes capture a *warm* runtime (layers built) and then `Runtime.runSync` the
-// projection — exactly what the plugin does on Volar's synchronous callback. A
-// cold runtime would throw on the async layer build; this proves the per-call
-// projection resolves synchronously on a warm one.
-
-const layer = LoomCorpusAstBuilder.Default
+// projection — exactly what the plugin does on Volar's synchronous callback. The
+// source imports nothing, so the corpus is one file.
 
 const input = `{{lang: TypeScript}}
 
@@ -24,11 +22,20 @@ Adds two integers.
 export const add = (x: number, y: number): number => x + y
 `
 
+const source: Source = { read: () => Effect.succeed(input) }
+
+const layer = Layer.provide(
+  LoomCompiler.Default,
+  Layer.merge(DocumentSource.Default, PackageConfig.Default),
+)
+
 describe('VirtualCode — root → frame projection', () => {
   it.effect('builds the tree via Runtime.runSync on a warm runtime', () =>
     Effect.gen(function* () {
-      const runtime = yield* Effect.runtime<LoomCorpusAstBuilder>()
-      const root = Runtime.runSync(runtime)(loomVirtualCode(stringSnapshot(input)))
+      const runtime = yield* Effect.runtime<LoomCompiler>()
+      const root = Runtime.runSync(runtime)(
+        LoomCompiler.pipe(Effect.flatMap((c) => c.virtualCode(source, ''))),
+      )
 
       expect(root.id).toBe('root')
       expect(root.languageId).toBe('loom')
@@ -56,8 +63,10 @@ describe('VirtualCode — root → frame projection', () => {
 
   it.effect('maps the frame class name back to the [Add] tag in the .loom', () =>
     Effect.gen(function* () {
-      const runtime = yield* Effect.runtime<LoomCorpusAstBuilder>()
-      const root = Runtime.runSync(runtime)(loomVirtualCode(stringSnapshot(input)))
+      const runtime = yield* Effect.runtime<LoomCompiler>()
+      const root = Runtime.runSync(runtime)(
+        LoomCompiler.pipe(Effect.flatMap((c) => c.virtualCode(source, ''))),
+      )
 
       const frame = root.embeddedCodes![0]!
       const gen = frame.snapshot.getText(0, frame.snapshot.getLength())

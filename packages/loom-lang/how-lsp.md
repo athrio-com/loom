@@ -198,9 +198,54 @@ Frame, every section is interconnected and diagnosable on its own composition,
 and a library `.loom` with no tangle is still fully resolved within itself.
 
 **Syntax highlighting (Tree-sitter) is the floor** — always available, and the
-only product signal when a composition cannot be resolved: a missing grammar,
-or a transcluded Service that lives in another file (cross-file resolution
-arrives with multi-file builds).
+only product signal when a composition cannot be resolved, as when a section's
+grammar is missing or an anchor names a file that cannot be read.
+
+---
+
+## Resolving the Corpus in the Editor
+
+A section's resolved composition reaches across files. A `::[…]` anchor can name a section in another `.loom`, and resolving it inlines that section's code into the consuming document. So the editor cannot check the open file by itself. It reads, parses, and composes every `.loom` the open file imports, and checks the open file's sections against that whole corpus.
+
+That corpus build runs on every keystroke, inside Volar's projection hook. The hook is synchronous: Volar hands over a snapshot and wants a virtual-code tree back in the same tick, because TypeScript's checker pulls the hook on the stack while it type-checks the frame. Every constraint below follows from that one fact.
+
+### One Synchronous Pipeline
+
+The editor runs the corpus build through `Runtime.runSync`, and `runSync` forbids async suspension — the hook has no point at which it can await a file read and resume later. So the build is synchronous from end to end. Each pass from parse through projection is pure computation over data already in hand, and the one piece of input and output, reading a file's bytes, goes through Node's synchronous `fs`. The precedent already sits in the tree: commit 49e91ab made `loom.json` resolution synchronous for this same reason.
+
+The rule is "no suspension", not "no input and output". A synchronous file read is legal under `runSync`; an async one is not. Reading files synchronously is therefore the choice that lets the corpus build run under the hook at all.
+
+The tangler runs the same build. Both the editor and the tangler read through one `Source` — the seam `LoomCorpusAstBuilder` reads each file's text through. Both builds are synchronous. Async now survives only in the server's shell — the JSON-RPC message loop between the editor and the server, the `onInitialize` handler, and the file-watch handlers. The build itself never suspends.
+
+### Reading a File
+
+The open file arrives as a Volar snapshot; its imports are read from disk. The editor's `Source` is *passive*: the open file from the snapshot, each import through a synchronous disk read, and nothing else. Passivity is the rule, not a convenience. Reading an import through a Volar API such as `getAssociatedScript` would *project* that import — re-entering the projector mid-build and deadlocking the synchronous run, since to build a file it would have to build that file. The build reads bytes; whatever touches Volar's own machine stays out of it.
+
+Reading imports from disk means cross-file content reflects the *saved* file. An unsaved edit to an imported file appears when it is saved. A server-maintained snapshot map — read passively, the way the disk is — would close that gap without re-entering Volar; it is a later refinement, not a change to this shape.
+
+### A Memoised Walk
+
+`LoomCorpusAstBuilder` builds one module: it reads a file, parses it, frames it, and composes its product code. `LoomCompiler` follows that module's imports to build the rest of the corpus, and `LoomMemo` keeps each built module so a keystroke rebuilds only the file that changed. The walk takes one file at a time, depth first, and it is cycle-safe because a module is cached before its imports are followed.
+
+The walk discovers the corpus as it parses. A module's import edges live on the module and are read out of its parsed text, so the walk must parse a file to learn which files it reaches next. Resolving the whole graph first and building it second would have to parse every file to find those edges — the same work — so the build stays one memoised walk with no separate graph to resolve.
+
+### Total Over Failure
+
+Every failure is a value in a node's health, never a thrown exception. A file that cannot be read becomes a placeholder module carrying an error diagnostic, the same recovery a malformed parse takes through `emptyDocumentFor`. The build never throws, so one unreadable import degrades to a diagnostic on that import rather than crashing the open file's projection.
+
+Two consumers read that health and apply their own policy. The editor surfaces it: an anchor into a file that cannot be read reports its error at the `::[…]` site the author wrote. The tangler refuses it: it gathers every error-health node across the corpus and fails with one `TangleError`, rather than write a file with a silently dropped reference.
+
+### Invalidation Belongs to Volar
+
+Caching the corpus is simple until a file changes. When `B.loom` changes, every file that transcludes it holds a stale composition and must be re-projected — and Loom delegates that to Volar. After projecting a file, the plugin calls `getAssociatedScript` for every module the file *transitively* imports, registering on Volar's association graph that the file depends on them. The registration runs after the build, on the warm corpus, so the projection it incidentally triggers is a cache hit — not the re-entrant build that reading *through* it would cause.
+
+When `B.loom`'s snapshot then changes, Volar marks every registered dependent stale and re-projects it. Re-projecting *runs the composition*, so the output is fresh by construction. The registration is transitive because Volar propagates dirtiness one hop at a time on a snapshot change: a change deep in a chain reaches the files at the top only when each has declared the whole chain it reaches.
+
+Loom's one remaining duty is cache coherence. `LoomMemo` is Loom's cache, not Volar's, so a `B.loom` change must evict `B.loom`'s build — `updateVirtualCode` does this when the file's own text changed — or a dependent's re-projection would recompose against a stale `B.loom`. A module's build holds only its own code, since a transclusion is inlined at projection rather than baked into the build, so evicting the single changed file is enough.
+
+### Loom Builds No Graph
+
+The import relationships form a directed graph, but Loom never materialises one, and never computes the reverse direction. Forward edges are read off each module during the walk, and declared to Volar as associations. The reverse direction — which dependents a change invalidates — is Volar's, derived from those forward associations: Loom asks Volar to re-project, it does not decide what re-projects. A transclusion cycle is caught by the visited set `fromProduct` threads as it inlines. Effect's `Graph` module would add a second structure, keyed by its own node indices, for needs already met, so Loom declines it.
 
 ---
 
@@ -220,7 +265,7 @@ Routing is by plane:
   │     → frame virtual code (tsc) → frame annotations
   └─ a product section's code block (EmbeddedCode)
         → the section's resolved composition → product annotations
-           (unresolved, e.g. cross-file dep → Tree-sitter syntax tokens only)
+           (unresolved, e.g. an anchor to a file that cannot be read → Tree-sitter syntax tokens only)
 ```
 
 Frame annotations (a tag's resolved Service, a Warp's resolved target, a

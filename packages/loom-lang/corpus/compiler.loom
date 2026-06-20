@@ -6,9 +6,9 @@ Loom compiles a `.loom` file along two planes at once — the "de dicto" frame a
 
 ## The cached compiler
 
-`LoomCompiler` answers four queries about a `.loom` file. `frame` gives its de dicto composition program. `code` gives its de re product documents, one per section. `corpus` gives every module the file reaches. `change` gives the files to refresh after an edit — the file itself, and the dependents that inlined its code.
+`LoomCompiler` answers five queries about a `.loom` file. `frame` gives its de dicto composition program. `code` gives its de re product documents, one per section. `corpus` gives every module the file reaches. `virtualCode` gives the whole Volar tree — the frame and the de re sections under one root — for the editor. `change` gives the files to refresh after an edit: the file itself, and the dependents that inlined its code.
 
-Each query works over a cached corpus. `LoomCompiler` builds a module once through `LoomCorpusAstBuilder`, keeps it in `LoomMemo`, and follows its imports to pull in the rest — cycle-safe, because a module is cached before its imports are walked.
+Each query reads through a `Source` and works over a cached corpus. `LoomCompiler` builds a module once through `LoomCorpusAstBuilder`, keeps it in `LoomMemo`, and follows its imports to pull in the rest — cycle-safe, because a module is cached before its imports are walked. The disk-backed `DocumentSource` is injected, and `frame`, `code`, and `corpus` read through it. `virtualCode` takes its `Source` from the caller, so the editor can hand in one that reads the open document from Volar. The build is total, so `virtualCode` cannot fail outright, yet it still guards the synchronous hook: a defect degrades to a bare `loom` document carrying the file's text, and the editor keeps working rather than crashing.
 
 =>
 
@@ -16,34 +16,38 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
   'LoomCompiler',
   {
     effect: Effect.gen(function* () {
-      const source = yield* DocumentSource
+      const documents = yield* DocumentSource
       const builder = yield* LoomCorpusAstBuilder
       const vcb = yield* LoomVirtualCodeBuilder
       const memo = yield* LoomMemo
       const config = yield* PackageConfig
 
-      const load = (path: Path): Effect.Effect<void> =>
+      const load = (source: Source, path: Path): Effect.Effect<void> =>
         config.anchorDelims(path).pipe(
           Effect.flatMap((delims) =>
             memo.get(path, builder.build(source, path, delims)),
           ),
           Effect.flatMap((m) =>
-            Effect.forEach(m.imports, (dep) => load(dep), { discard: true }),
+            Effect.forEach(m.imports, (dep) => load(source, dep), {
+              discard: true,
+            }),
           ),
         )
 
       const ensureModules = (
+        source: Source,
         entry: Path,
       ): Effect.Effect<ReadonlyMap<Path, LoomModule>> =>
-        load(entry).pipe(Effect.zipRight(memo.entries))
+        load(source, entry).pipe(Effect.zipRight(memo.entries))
 
       const ensureEntry = (
+        source: Source,
         path: Path,
       ): Effect.Effect<{
         readonly modules: ReadonlyMap<Path, LoomModule>
         readonly entry: LoomModule
       }> =>
-        ensureModules(path).pipe(
+        ensureModules(source, path).pipe(
           Effect.flatMap((modules) =>
             Effect.fromNullable(modules.get(path)).pipe(
               Effect.orDie,
@@ -54,10 +58,10 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
 
       return {
         frame: (path: Path): Effect.Effect<FrameModule> =>
-          ensureEntry(path).pipe(Effect.map(({ entry }) => entry.frame)),
+          ensureEntry(documents, path).pipe(Effect.map(({ entry }) => entry.frame)),
 
         code: (path: Path): Effect.Effect<ReadonlyArray<LoomVirtualCode>> =>
-          ensureEntry(path).pipe(
+          ensureEntry(documents, path).pipe(
             Effect.flatMap(({ modules, entry }) => {
               const codeByPath = codeOf(modules)
               return Effect.forEach(
@@ -68,7 +72,29 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
           ),
 
         corpus: (entry: Path): Effect.Effect<LoomCorpusAst> =>
-          ensureModules(entry).pipe(Effect.map((modules) => ({ modules }))),
+          ensureModules(documents, entry).pipe(
+            Effect.map((modules) => ({ modules })),
+          ),
+
+        virtualCode: (source: Source, path: Path): Effect.Effect<VirtualCode> =>
+          ensureEntry(source, path).pipe(
+            Effect.map(({ modules, entry }) =>
+              toVolar(projectTree(codeOf(modules), entry)),
+            ),
+            Effect.catchAllCause((cause) =>
+              Effect.logError(
+                'loom: projection failed; serving bare document',
+                cause,
+              ).pipe(
+                Effect.zipRight(
+                  source.read(path).pipe(
+                    Effect.orElseSucceed(() => ''),
+                    Effect.map((text) => toVolar(rootVirtualCode(text, []))),
+                  ),
+                ),
+              ),
+            ),
+          ),
 
         change: (path: Path): Effect.Effect<ReadonlyArray<Path>> =>
           Effect.gen(function* () {
@@ -89,20 +115,20 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
 
 ## The document source
 
-`DocumentSource` is the compiler's I/O seam which reads a loom file's source by path.
+`DocumentSource` is the compiler's disk seam. It reads a `.loom` file's text by path through Node's synchronous `fs`, and fails with `ReadError` when the file cannot be read. The read is synchronous because the editor projects inside Volar's synchronous hook, which cannot await. The tangler injects this source; the editor injects one of its own.
 
 =>
 
 export class DocumentSource extends Effect.Service<DocumentSource>()(
   'DocumentSource',
   {
-    effect: Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem
-      return {
-        read: (path: Path): Effect.Effect<string> =>
-          fs.readFileString(path).pipe(Effect.orDie),
-      }
-    }),
+    succeed: {
+      read: (path: Path): Effect.Effect<string, ReadError> =>
+        Effect.try({
+          try: () => readFileSync(path, 'utf8'),
+          catch: (cause) => new ReadError({ path, cause }),
+        }),
+    },
   },
 ) {}
 
@@ -117,46 +143,23 @@ export const codeOf = (modules: ReadonlyMap<Path, LoomModule>): CodeByPath =>
     Array.map(Array.fromIterable(modules), ([p, m]) => [p, m.code] as const),
   )
 
-## Projecting a single file
+## Projecting a file's tree
 
-Volar's hooks for creating and updating virtual code are synchronous: they hand over a snapshot and want a tree back at once. `loomVirtualCode` is that entry. It runs `LoomCorpusAstBuilder`, the same builder the corpus path uses, over a corpus of one — `singleFileSource` answers every read with the snapshot's text, and no imports are followed, so a lone file pulls in nothing else. From the built module it projects the de dicto frame with `fromFrame` and one de re document per section with `fromProduct`, gathers them under a `loom` root with `rootVirtualCode`, and hands the tree to `toVolar`.
-
-The projection is total by construction. A synchronous hook has nowhere to put an error, so any failure is caught, logged, and degraded to a bare `loom` document carrying only the source text. The editor keeps working — with no virtual code for that file — rather than crashing.
+`projectTree` assembles a file's virtual-code tree. It emits the de dicto frame with `fromFrame`, one de re document per section with `fromProduct`, and gathers them under a `loom` root with `rootVirtualCode`. It follows cross-file `::[…]` references through the `codeByPath` it is handed, so it projects a lone file and a whole corpus the same way. `virtualCode` hands it the corpus the compiler walked; a file that imports nothing is simply a corpus of one.
 
 =>
 
-const singleFileSource = (text: string): Source => ({
-  read: () => Effect.succeed(text),
-})
-
-export const loomVirtualCode = (
-  snapshot: ts.IScriptSnapshot,
-  delims: AnchorDelims = defaultAnchorDelims,
-): Effect.Effect<VirtualCode, never, LoomCorpusAstBuilder> =>
-  Effect.gen(function* () {
-    const builder = yield* LoomCorpusAstBuilder
-
-    const text = snapshot.getText(0, snapshot.getLength())
-    const mod = yield* builder.build(singleFileSource(text), '', delims)
-
-    const codeByPath: CodeByPath = new Map([['', mod.code]])
-    const sections = pipe(
-      Array.fromIterable(mod.code.values()),
+const projectTree = (
+  codeByPath: CodeByPath,
+  entry: LoomModule,
+): LoomVirtualCode =>
+  rootVirtualCode(entry.text, [
+    fromFrame(entry.frame),
+    ...pipe(
+      Array.fromIterable(entry.code.values()),
       Array.map((node) => fromProduct(codeByPath, node.origin)),
-    )
-    return rootVirtualCode(text, [fromFrame(mod.frame), ...sections])
-  }).pipe(
-    Effect.map(toVolar),
-    Effect.catchAllCause((cause) =>
-      Effect.logError('loom: projection failed; serving bare document', cause).pipe(
-        Effect.as(
-          toVolar(
-            rootVirtualCode(snapshot.getText(0, snapshot.getLength()), []),
-          ),
-        ),
-      ),
     ),
-  )
+  ])
 
 ## Crossing to Volar
 
@@ -203,17 +206,16 @@ export const toVolar = (vc: LoomVirtualCode): VirtualCode => ({
 
 ## What the compiler draws on
 
-From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` and its abstract `Source`; `LoomVirtualCodeBuilder`, with its `fromFrame`, `fromProduct`, and `rootVirtualCode` passes; the corpus model — `LoomModule`, `LoomCorpusAst`, and the `transitiveDependents` walk; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache. Effect supplies the composition primitives, and `@effect/platform` backs the file reads.
+From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; `LoomVirtualCodeBuilder`, with its `fromFrame`, `fromProduct`, and `rootVirtualCode` passes; the corpus model — `LoomModule`, `LoomCorpusAst`, and the `transitiveDependents` walk; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache. Effect supplies the composition primitives, and Node's synchronous `fs` reads each file.
 
 =>
 
 import type { CodeMapping, VirtualCode } from '@volar/language-core'
 import { Array, Effect, pipe } from 'effect'
-import { FileSystem } from '@effect/platform'
+import { readFileSync } from 'node:fs'
 import type * as ts from 'typescript'
 import type { FrameModule } from '#ast/FrameAst'
-import { type AnchorDelims, defaultAnchorDelims } from '#ast/LoomTokens'
-import { LoomCorpusAstBuilder, type Source } from '#ast/LoomCorpusAstBuilder'
+import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import {
   type LoomCorpusAst,
   type LoomModule,
@@ -243,6 +245,6 @@ import { PackageConfig } from './PackageConfig'
 
 ::[The cached compiler]
 
-::[Projecting a single file]
+::[Projecting a file's tree]
 
 ::[The corpus code view]

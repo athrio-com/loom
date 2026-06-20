@@ -3,7 +3,7 @@ import { FileSystem } from '@effect/platform'
 import { dirname, resolve as resolvePath } from 'node:path'
 import { type FrameModule } from '#ast/FrameAst'
 import { type Diagnostic } from '#ast/LoomNode'
-import { type Path } from '#ast/LoomCorpusAst'
+import { corpusErrors, type Path } from '#ast/LoomCorpusAst'
 import { fromProduct } from '#ast/LoomVirtualCodeBuilder'
 import { codeOf, LoomCompiler } from './LoomCompiler'
 
@@ -21,18 +21,16 @@ export class LoomTangler extends Effect.Service<LoomTangler>()('LoomTangler', {
       entry: Path,
     ): Effect.Effect<ReadonlyArray<TangledFile>, TangleError> =>
       Effect.gen(function* () {
-        const { modules } = yield* compiler.corpus(entry)
-        const codeByPath = codeOf(modules)
-        const entryModule = yield* Effect.fromNullable(modules.get(entry)).pipe(
-          Effect.orDie,
-        )
-
-        const errors = collectErrors(entryModule.frame)
-        if (errors.length > 0) {
-          return yield* Effect.fail(
-            new TangleError({ path: entry, diagnostics: errors }),
-          )
+        const corpus = yield* compiler.corpus(entry)
+        const failures = corpusErrors(corpus)
+        if (failures.length > 0) {
+          return yield* Effect.fail(new TangleError({ entry, failures }))
         }
+
+        const codeByPath = codeOf(corpus.modules)
+        const entryModule = yield* Effect.fromNullable(
+          corpus.modules.get(entry),
+        ).pipe(Effect.orDie)
 
         return yield* Effect.forEach(sinksOf(entryModule.frame), (sink) =>
           Effect.gen(function* () {
@@ -91,28 +89,19 @@ const sinksOf = (
   )
 
 export class TangleError extends Data.TaggedError('TangleError')<{
-  readonly path: Path
-  readonly diagnostics: ReadonlyArray<Diagnostic>
+  readonly entry: Path
+  readonly failures: ReadonlyArray<{
+    readonly path: Path
+    readonly diagnostics: ReadonlyArray<Diagnostic>
+  }>
 }> {
   get message(): string {
-    const lines = this.diagnostics.map(
-      (d) => `  ${this.path}:${d.position.start.line}: ${d.message}`,
+    const count = this.failures.reduce((n, f) => n + f.diagnostics.length, 0)
+    const lines = this.failures.flatMap((f) =>
+      f.diagnostics.map(
+        (d) => `  ${f.path}:${d.position.start.line}: ${d.message}`,
+      ),
     )
-    return `loom: refusing to tangle ${this.path} — ${this.diagnostics.length} unresolved or malformed anchor(s):\n${lines.join('\n')}`
+    return `loom: refusing to tangle ${this.entry} — ${count} error(s) across the corpus:\n${lines.join('\n')}`
   }
-}
-
-const collectErrors = (node: unknown): ReadonlyArray<Diagnostic> => {
-  if (Array.isArray(node)) return node.flatMap(collectErrors)
-  if (node === null || typeof node !== 'object') return []
-  const self =
-    'health' in node &&
-    (node as { health?: { status?: string } }).health?.status === 'error'
-      ? (node as { health: { diagnostics: ReadonlyArray<Diagnostic> } }).health
-          .diagnostics
-      : []
-  const nested = Object.entries(node).flatMap(([key, value]) =>
-    key === 'health' ? [] : collectErrors(value),
-  )
-  return [...self, ...nested]
 }

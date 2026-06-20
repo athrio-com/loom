@@ -1,0 +1,16 @@
+{{lang: TypeScript}}
+
+# Imports {Loom}
+
+=>
+
+import { Neg } from "./sad.loom"
+
+# Negated double [Negd]
+
+{{n: Neg}}
+
+=>
+
+::[n]
+const negDouble = (x: number) => negate(x) * 2

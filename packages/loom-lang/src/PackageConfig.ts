@@ -1,5 +1,4 @@
-import { Config, ConfigProvider, Effect, Option } from 'effect'
-import { FileSystem } from '@effect/platform'
+import { Config, ConfigProvider, Effect } from 'effect'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, resolve as resolvePath } from 'node:path'
 import { type AnchorDelims, defaultAnchorDelims } from '#ast/LoomTokens'
@@ -17,40 +16,6 @@ const delimsFromJson = (json: unknown): Effect.Effect<AnchorDelims> =>
     Effect.withConfigProvider(ConfigProvider.fromJson(json)),
     Effect.orDie,
   )
-
-export class PackageConfig extends Effect.Service<PackageConfig>()(
-  'PackageConfig',
-  {
-    effect: Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem
-
-      const findConfig = (
-        dir: string,
-      ): Effect.Effect<Option.Option<string>> =>
-        Effect.gen(function* () {
-          const candidate = resolvePath(dir, configFileName)
-          const present = yield* fs.exists(candidate).pipe(Effect.orDie)
-          if (present) return Option.some(candidate)
-          const parent = dirname(dir)
-          return parent === dir ? Option.none() : yield* findConfig(parent)
-        })
-
-      const anchorDelims = (path: Path): Effect.Effect<AnchorDelims> =>
-        Effect.gen(function* () {
-          if (path === '') return defaultAnchorDelims
-          const found = yield* findConfig(dirname(path))
-          if (Option.isNone(found)) return defaultAnchorDelims
-          const text = yield* fs.readFileString(found.value).pipe(Effect.orDie)
-          const json = yield* Effect.try(
-            () => JSON.parse(text) as unknown,
-          ).pipe(Effect.orDie)
-          return yield* delimsFromJson(json)
-        })
-
-      return { anchorDelims }
-    }),
-  },
-) {}
 
 const findConfigSync = (dir: string): string | undefined => {
   const candidate = resolvePath(dir, configFileName)
@@ -71,3 +36,13 @@ export const resolveAnchorDelims = (
     ).pipe(Effect.orElse(() => Effect.succeed({} as unknown)))
     return yield* delimsFromJson(json)
   })
+
+export class PackageConfig extends Effect.Service<PackageConfig>()(
+  'PackageConfig',
+  {
+    succeed: {
+      anchorDelims: (path: Path): Effect.Effect<AnchorDelims> =>
+        resolveAnchorDelims(path),
+    },
+  },
+) {}

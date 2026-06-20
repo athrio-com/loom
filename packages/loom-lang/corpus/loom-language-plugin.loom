@@ -10,28 +10,83 @@ The service plugins are the editor features themselves: diagnostics, hover, comp
 
 ## The virtual-code plugin
 
-`loomLanguagePlugin` is the `LanguagePlugin` Volar asks for: it claims every `.loom` path, projects the snapshot to a virtual-code tree, and exposes the frame as a `.ts` script so TypeScript checks it in place. Before projecting, it resolves the file's anchor delimiter — `resolveAnchorDelims` walks up to the nearest `loom.json` and returns the open/close pair — and hands that pair to `loomVirtualCode`, so the editor reads `::[…]` anchors exactly as the tangler does.
+`loomLanguagePlugin` is the `LanguagePlugin` Volar asks for. It claims every `.loom` path, projects the file to a virtual-code tree, and exposes the frame as a `.ts` script so TypeScript checks it in place. It projects through `LoomCompiler`, whose `virtualCode` runs the file's composition — walking imports and inlining cross-file `::[…]` transclusions — so the editor resolves a corpus the way the tangler does.
 
-Volar's hooks are synchronous, so the config read and the projection both run on the warm runtime — the one Effect runtime built at startup — through `Runtime.runSync`. An update reprojects from the new snapshot and ignores the old code.
+The file's text comes through a passive `Source`. `editorSource` reads the open file from the snapshot Volar hands over and each imported file from disk. It never calls back into Volar, so running the composition cannot re-enter the projector.
+
+After projecting, the plugin tells Volar what the file depends on, and Volar re-projects the file when any dependency changes. `associate` reads the corpus the projection reached and calls `ctx.getAssociatedScript` for every module the file transitively imports. The registration runs on the warm corpus, after the build, so the projection it triggers is a cache hit rather than a re-entrant build. It registers the whole transitive reach, not the direct imports alone, because Volar marks a dependent dirty one hop at a time on a snapshot change — so a change deep in a chain reaches every file that transcludes it only when each has declared the whole chain.
+
+Volar's hooks are synchronous, so the projection runs through `Runtime.runSync` on the warm runtime built at startup. When a file's own text changes, `updateVirtualCode` evicts its build through `change`, then reprojects and re-registers. A reprojection Volar triggered because a dependency changed leaves the build cache alone — the file's own text is unchanged — and the changed dependency, evicted by its own update, rebuilds when the composition runs over it.
 
 =>
 
+const editorSource = (
+  uri: URI,
+  snapshot: ts.IScriptSnapshot,
+): Source => ({
+  read: (path) =>
+    Effect.try({
+      try: () =>
+        path === uri.fsPath
+          ? snapshot.getText(0, snapshot.getLength())
+          : readFileSync(path, 'utf8'),
+      catch: (cause) => new ReadError({ path, cause }),
+    }),
+})
+
+const associate = (
+  compiler: LoomCompiler,
+  ctx: CodegenContext<URI>,
+  entry: string,
+): Effect.Effect<void> =>
+  compiler.corpus(entry).pipe(
+    Effect.flatMap((corpus) =>
+      Effect.forEach(
+        pipe(
+          Array.fromIterable(corpus.modules.keys()),
+          Array.filter((dep) => dep !== entry),
+        ),
+        (dep) => Effect.sync(() => ctx.getAssociatedScript(URI.file(dep))),
+        { discard: true },
+      ),
+    ),
+  )
+
+const changed = (previous: VirtualCode, next: ts.IScriptSnapshot): boolean =>
+  previous.snapshot.getText(0, previous.snapshot.getLength()) !==
+  next.getText(0, next.getLength())
+
 export const loomLanguagePlugin = (
-  runtime: Runtime.Runtime<LoomCorpusAstBuilder>,
+  runtime: Runtime.Runtime<LoomCompiler>,
 ): LanguagePlugin<URI> => ({
   getLanguageId: (uri) => (uri.path.endsWith('.loom') ? 'loom' : undefined),
-  createVirtualCode: (uri, languageId, snapshot) =>
+  createVirtualCode: (uri, languageId, snapshot, ctx) =>
     languageId === 'loom'
       ? Runtime.runSync(runtime)(
-          resolveAnchorDelims(uri.fsPath).pipe(
-            Effect.flatMap((delims) => loomVirtualCode(snapshot, delims)),
+          LoomCompiler.pipe(
+            Effect.flatMap((compiler) =>
+              compiler
+                .virtualCode(editorSource(uri, snapshot), uri.fsPath)
+                .pipe(Effect.tap(() => associate(compiler, ctx, uri.fsPath))),
+            ),
           ),
         )
       : undefined,
-  updateVirtualCode: (uri, _old, snapshot) =>
+  updateVirtualCode: (uri, previous, snapshot, ctx) =>
     Runtime.runSync(runtime)(
-      resolveAnchorDelims(uri.fsPath).pipe(
-        Effect.flatMap((delims) => loomVirtualCode(snapshot, delims)),
+      LoomCompiler.pipe(
+        Effect.flatMap((compiler) =>
+          (changed(previous, snapshot)
+            ? Effect.asVoid(compiler.change(uri.fsPath))
+            : Effect.void
+          ).pipe(
+            Effect.zipRight(
+              compiler
+                .virtualCode(editorSource(uri, snapshot), uri.fsPath)
+                .pipe(Effect.tap(() => associate(compiler, ctx, uri.fsPath))),
+            ),
+          ),
+        ),
       ),
     ),
   typescript: {
@@ -120,20 +175,24 @@ export const loomServicePlugins = (
 
 ## What the plugin draws on
 
-The plugin draws on Volar for its two contracts — `LanguagePlugin` for the virtual code, `LanguageServicePlugin` for an editor feature — and on Effect to capture the runtime and run the collection pass. From `@athrio/loom-lang-services` it takes the `LanguageService` contract, the `LanguageRegistry` that indexes the active set, and the two built-in languages: `LoomLanguage` for the frame, `TypescriptLanguage` for a TypeScript target. From `@athrio/loom-config` it reads the project's active languages out of `loom.config.json`.
+The plugin draws on Volar for its contracts — `LanguagePlugin` and `LanguageServicePlugin` — and its `CodegenContext` and `VirtualCode`, which the per-call source and the cache check read. Effect captures the runtime and runs the collection pass. From the pipeline it takes `LoomCompiler`, which projects and caches the corpus, and the `Source` seam with its `ReadError`. From `@athrio/loom-lang-services` it takes the `LanguageService` contract, the `LanguageRegistry` that indexes the active set, and the two built-in languages: `LoomLanguage` for the frame, `TypescriptLanguage` for a TypeScript target. From `@athrio/loom-config` it reads the project's active languages out of `loom.config.json`. `URI` keys a script for `getAssociatedScript`, and Node's `fs` reads an unopened import.
 
 =>
 
-import type { LanguagePlugin } from '@volar/language-core'
+import type {
+  CodegenContext,
+  LanguagePlugin,
+  VirtualCode,
+} from '@volar/language-core'
 import type { LanguageServicePlugin } from '@volar/language-service'
 import type {} from '@volar/typescript'
 import { Array, Effect, Layer, Option, pipe, Runtime } from 'effect'
 import { NodeFileSystem } from '@effect/platform-node'
+import { readFileSync } from 'node:fs'
 import type * as ts from 'typescript'
-import type { URI } from 'vscode-uri'
-import type { LoomCorpusAstBuilder } from '#ast/LoomCorpusAstBuilder'
-import { loomVirtualCode } from './LoomCompiler'
-import { resolveAnchorDelims } from './PackageConfig'
+import { URI } from 'vscode-uri'
+import { ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
+import { LoomCompiler } from './LoomCompiler'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
   type LanguageService,

@@ -1,4 +1,5 @@
 import { Array, Option, pipe, Schema } from 'effect'
+import { type Diagnostic } from '#ast/LoomNode'
 import { LoomDocumentSchema } from '#ast/LoomAst'
 import { FrameModuleSchema } from '#ast/FrameAst'
 import { ComposedCodeSchema } from '#ast/ProductAst'
@@ -62,3 +63,34 @@ export const transitiveDependents = (
     Array.filter((p) => p !== path),
   )
 }
+
+const errorsIn = (node: unknown): ReadonlyArray<Diagnostic> => {
+  if (Array.isArray(node)) return node.flatMap(errorsIn)
+  if (node === null || typeof node !== 'object') return []
+  const self =
+    'health' in node &&
+    (node as { health?: { status?: string } }).health?.status === 'error'
+      ? (node as { health: { diagnostics: ReadonlyArray<Diagnostic> } }).health
+          .diagnostics
+      : []
+  const nested = Object.entries(node).flatMap(([key, value]) =>
+    key === 'health' ? [] : errorsIn(value),
+  )
+  return [...self, ...nested]
+}
+
+export const corpusErrors = (
+  corpus: LoomCorpusAst,
+): ReadonlyArray<{
+  readonly path: Path
+  readonly diagnostics: ReadonlyArray<Diagnostic>
+}> =>
+  pipe(
+    Array.fromIterable(corpus.modules.values()),
+    Array.filterMap((m) => {
+      const diagnostics = [...errorsIn(m.doc), ...errorsIn(m.frame)]
+      return diagnostics.length === 0
+        ? Option.none()
+        : Option.some({ path: m.path, diagnostics })
+    }),
+  )
