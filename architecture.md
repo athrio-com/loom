@@ -104,8 +104,8 @@ error health and the bad bytes in `unexpected`.
 Health is two-tier, one tier per AST. **Grammatical health** lives on the Loom AST at
 parse — orphan brackets, malformed labels, duplicate tags, unclosed delimiters.
 **Semantic health** lives on the frame AST at the `FrameAstBuilder` pass — a tag on a
-`{Loom}` section, a cross-language composition edge, a warp cycle, an unresolved
-anchor — diagnostics that need _meaning_, which the frame pass has and parse does not.
+`{Loom}` section, a cross-language composition edge, an unresolved anchor —
+diagnostics that need _meaning_, which the frame pass has and parse does not.
 Both surface at source: grammatical health is already on nodes that carry their
 `position`, and semantic health rides the mapping back to its originating `.loom` span.
 The editor merges the two tiers and withholds neither.
@@ -165,12 +165,13 @@ rather than blocking output.
 A section whose specifier is a file path is a **tangle sink**: it composes its members
 and wraps the result in a `core.tangle(path, …)` call instead of returning the
 `{ name, code, prose }` object. It is a sink in the warp graph — it consumes the graph
-and nothing consumes it. Loom owns the **composition root**: it merges every service's
-layer into one set and provides that set to itself, so each requirement is met by
-another member of the merge. The root is generated for every file with services; the
-author never writes imports, assembles layers, or touches the entry point.
-`how-frame.md` carries the full treatment — the projection rules, order independence,
-cross-module imports, and a worked example frame.
+and nothing consumes it. Loom owns the **composition root**: the frame exports
+`__services` (each service with its layer and the classes it depends on) and `__run`
+(which yields every section), and the runner wires each dependency cone in order and
+runs it — no service self-provides. The root is generated for every file with
+services; the author never writes imports, assembles layers, or touches the entry
+point. `how-frame.md` carries the full treatment — the projection rules, order
+independence, and cross-module imports.
 
 ## The editor surface
 
@@ -202,29 +203,35 @@ output is pure text. Effect drives the process — not imperative code that call
 occasionally, and never an `Effect.runSync` / `runPromise` in the middle of an
 imperative flow.
 
-- **The LSP server** (`src/index.ts`) is an Effect Platform application. Parsing, the
-  frame pass, virtual-code assembly, and diagnostics are all services composed via
-  Layers, provided through `LoomCorpusAstBuilder.Default`; the server starts as an
-  Effect program and yields `Effect.never` to stay alive.
-- **The tangle CLI** loads a file through `LoomCorpusAstBuilder`, walks its `{path}`
-  sinks with `LoomTangler`, and writes the composed results. The end of the world is
+- **The LSP server** (`src/LoomServer.ts`, launched by the thin `src/index.ts`) is an
+  Effect Platform application. Parsing, the frame pass, the runner, virtual-code
+  assembly, and diagnostics are all services composed via Layers, provided through
+  `LoomCompiler.Default`; the server starts as an Effect program and yields
+  `Effect.never` to stay alive.
+- **The tangle CLI** drives `LoomTangler`, which builds the corpus, runs the frame for
+  the de re, and writes each `{path}` sink's composed result. The end of the world is
   the emitted files.
 - **A Vite plugin**, where applicable, is Effect-native — its transform and build hooks
   are Effect programs.
 
 ## Composition primitives
 
-There is no separate `Code` value type: a section's product code is the source text its
-`CodeWeft` and `ArrowWeft` nodes carry, read by position. The primitives the frame
-_calls_ are real and live in `#loom/core`, the module the frame imports from:
+The frame imports `#loom/core` and calls its primitives to build the de re. They
+construct `ProductAst` values — a `ComposedCode` per section — not strings:
 
-- **`compose`** orders the code of the sections it references, in argument order, into
-  one composed result.
-- **`tangle`** binds a composed result to a file path; running it at the end of the
-  world emits the file.
+- **`fragment`** wraps one span of product code with the `.loom` position it maps back
+  to.
+- **`refer`** is the transclusion edge: it reads another section's `ComposedCode` and
+  records its identity, never a copy of its parts.
+- **`compose`** assembles a section's fragments and references, in argument order, into
+  one `ComposedCode`, stamped with the section's identity and language.
+- **`weave`** is `compose`'s peer for prose, assembling a `WovenProse`.
+- **`tangle`** binds a composed result to a file path as a pure descriptor — it writes
+  nothing; the tangler does the writing at the end of the world.
 
-The output is always literal code in tangle order. The machinery — Effect, Services,
-Layers — never appears unless the author wrote Effect in a section.
+Running the frame calls these to produce the de re (`how-run.md`). The output is always
+literal code in tangle order, and the machinery — Effect, Services, Layers — never
+appears unless the author wrote Effect in a section.
 
 ## Invariants
 
