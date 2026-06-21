@@ -44,7 +44,7 @@ Each model, and the pass (its Builder) that produces it:
   structure, one `ComposedCode` per section — its product code with transclusions
   expressed as resolved edges. The runner runs the whole reachable corpus; the
   cross-file graph is followed later, at projection. (`how-run.md` covers the run.)
-- **`LoomVirtualCode`** — `LoomVirtualCodeBuilder` (`LoomVirtualCode.ts`), the
+- **`LoomVirtualCode`** — `LoomVirtualCodeBuilder` (`LoomVirtualCodeBuilder.ts`), the
   projection: a *family* of passes that fold a model to text + source mappings,
   each a *catamorphism*, differing only in its algebra:
   - **`fromFrame`** : `FrameModule` → the de dicto frame virtual code (generated
@@ -131,9 +131,10 @@ root (languageId: "loom")
 
 - **Frame** — the Frame's single virtual code (`fromFrame`), generated TypeScript: the
   `Effect.Service` class per section, the Warp wiring, the tangle calls, and the
-  `LoomMain` root. tsc checks it for composition correctness. Heading tags get
-  hover, go-to-definition, and type info here (a tag resolves to its exported
-  Service; a tagless heading to its hash-named class).
+  composition root (the `__services` map and the `__run` effect). tsc checks it for
+  composition correctness. A heading tag maps to its generated Service class, so it
+  offers go-to-definition and rename — but not hover, which would only surface that
+  generated class. A tagless heading takes the class named after its normalized title.
 - **Tangled** — one per tangle section. The member sections' `code` composed in
   tangle order, producing the assembled file as a virtual document. A tangle is
   **language-agnostic**: it composes any source — possibly several languages —
@@ -227,7 +228,7 @@ Reading imports from disk means cross-file content reflects the *saved* file. An
 
 ### A Memoised Walk
 
-`LoomCorpusAstBuilder` builds one module: it reads a file, parses it, frames it, and composes its product code. `LoomCompiler` follows that module's imports to build the rest of the corpus, and `LoomMemo` keeps each built module so a keystroke rebuilds only the file that changed. The walk takes one file at a time, depth first, and it is cycle-safe because a module is cached before its imports are followed.
+`LoomCorpusAstBuilder` builds one module: it reads a file, parses it, and frames it. `LoomCompiler` follows that module's imports to build the rest of the corpus, runs the assembled frames for the de re, and keeps each built module in `LoomMemo` so a keystroke rebuilds only the file that changed. The walk takes one file at a time, depth first, and it is cycle-safe because a module is cached before its imports are followed.
 
 The walk discovers the corpus as it parses. A module's import edges live on the module and are read out of its parsed text, so the walk must parse a file to learn which files it reaches next. Resolving the whole graph first and building it second would have to parse every file to find those edges — the same work — so the build stays one memoised walk with no separate graph to resolve.
 
@@ -243,7 +244,7 @@ Caching the corpus is simple until a file changes. When `B.loom` changes, every 
 
 When `B.loom`'s snapshot then changes, Volar marks every registered dependent stale and re-projects it. Re-projecting *runs the composition*, so the output is fresh by construction. The registration is transitive because Volar propagates dirtiness one hop at a time on a snapshot change: a change deep in a chain reaches the files at the top only when each has declared the whole chain it reaches.
 
-Loom's one remaining duty is cache coherence. `LoomMemo` is Loom's cache, not Volar's, so a `B.loom` change must evict `B.loom`'s build — `updateVirtualCode` does this when the file's own text changed — or a dependent's re-projection would recompose against a stale `B.loom`. A module's build holds only its own code, since a transclusion is inlined at projection rather than baked into the build, so evicting the single changed file is enough.
+Loom's one remaining duty is cache coherence. `LoomMemo` is Loom's cache, not Volar's, so a `B.loom` change must evict `B.loom`'s build — `updateVirtualCode` does this when the file's own text changed — or a dependent's re-projection would recompose against a stale `B.loom`. A module's build holds only its own frame, since a transclusion is inlined at projection rather than baked into the build, so evicting the single changed file is enough.
 
 ### Loom Builds No Graph
 

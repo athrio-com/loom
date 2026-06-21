@@ -18,10 +18,11 @@ generated frame is a **token**, of one of two kinds by origin:
   the `FrameAstBuilder` pass supplies only the holes.)
 - **`FrameAuthoredToken`** — a span lifted from the `.loom` (a name, a tag, a
   bound variable, a preamble) that resolves into the frame. It carries its
-  `position`, hence **one mapping**. Its `kind` (`name` | `prose`) selects
-  which features the language service forwards there — a `name` is a const/class
-  identifier the frame generates, mapping back to the source `label` or name it
-  came from; `prose` is title / preamble text.
+  `position`, hence **one mapping**. Its `kind` — `tag`, `name`, `heading`,
+  `anchor`, or `prose` — selects which features the language service forwards
+  there: a `name` is a const/class identifier the frame generates, mapping back to
+  the source label or name it came from; `tag`, `heading`, and `anchor` carry
+  navigation; `prose` is title / preamble text.
 
 **Mapping belongs to authored tokens, never to synth.** A mapping links a
 generated span to its `.loom` origin; synth glue has no origin, so it can be no
@@ -77,14 +78,15 @@ Every Section in a Loom document projects to an `Effect.Service` class — with
 one exception, the `{Loom}` escape hatch (below), whose code splices into the
 frame unwrapped. The Service exposes three fields: `name` — the heading title as
 a plain string — `code` — the composed product code — and `prose` — the woven
-literate layer. Both `code` and `prose` are effectful, since assembling either
-may resolve other sections. The `code` field is always a `core.compose(…)` call,
-and the `prose` field always a `core.weave(…)` call: a section with no
-transclusions composes its own single fragment, and a code-empty or prose-empty
-section assembles nothing — `core.compose()`, `core.weave()` — so the shape stays
-uniform. Code and prose are peers here, the two halves of the literate document
-made queryable side by side. This is the complete, uniform surface of every
-section in the Frame.
+literate layer. The `code` field is always a `core.compose(…)` value and the
+`prose` field always a `core.weave(…)` value, built from the section's fragments
+and the references it transcludes. A section with dependencies yields them in an
+`Effect.gen` body and then composes; a section with none composes statically. A
+section with no transclusions composes its own single fragment, and a code-empty
+or prose-empty section composes just its identity and language —
+`core.compose(id, "lang")`, `core.weave(id)` — so the shape stays uniform. Code
+and prose are peers here, the two halves of the literate document made queryable
+side by side. This is the complete, uniform surface of every section in the Frame.
 
 A section's fragments are its code runs with surrounding blank lines shed: the
 empty lines after the `=>` Arrow and before the next heading are not part of the
@@ -113,6 +115,13 @@ anchors, and rename on either end carries across — but neither end shows a hov
 would only report the `_N` alias. Naming makes no name unique; two titles that normalise alike collide, which
 the diagnostics mark as a duplicate. Tagless sections are reachable only within the
 same document via name anchors in code blocks.
+
+The class name and the `Effect.Service<…>()("…")` string tag are different things.
+The tag is the service's runtime identity, not its name. The `FrameAstBuilder` pass
+fills it with the section's module-qualified key, `<path>#<name>`, so two files that
+each define a section named `Bit` resolve to distinct services rather than colliding
+on the bare name. It is synth glue, mapped to nothing. The snippets in this spec
+show it bare, eliding the path for readability.
 
 ## Heading Levels and Document Structure
 
@@ -263,15 +272,17 @@ is invisible to the author.
 
 Cycles. A genuine same-file cycle (A's Warp names B, B's names A) is a
 real error — Effect cannot build a layer set with a circular
-requirement. But detecting it is now decoupled from emission: the Frame
-emits in document order regardless, and the cycle surfaces as an LSP
-diagnostic on the offending Warp anchors, walked from the AST's Warp
-graph. Loom's principle holds — always produce the best possible
+requirement. Detecting it stays decoupled from emission: the Frame emits
+in document order regardless, and the cycle surfaces as a type error on
+the frame. TypeScript cannot resolve the circular `Effect.Service` types,
+so the `yield*` site fails to check, and the diagnostic maps back to the
+offending Warp. At run time the runner cannot build the cyclic cone
+either, so that module yields no de re while its neighbours are untouched
+(`how-run.md`). Loom's principle holds — always produce the best possible
 projection and speak through the language server, never withhold output.
 
 The lazy-`yield*` mechanism is plain JavaScript and Effect semantics; the
-root-wiring form it depends on is noted as pending confirmation in
-Providing Dependencies.
+runner wires the root from it, dependency-first (see Providing Dependencies).
 
 ## Tangle Sections
 
@@ -373,12 +384,11 @@ the form; Loom never decides value-vs-type or guesses a path. The path carries
 the dependency's `.loom` extension — `import { Neg } from "./Sad.loom"` — which
 the tooling resolves to that document's frame, exactly as Volar resolves
 `"./Foo.vue"` (the same `extraFileExtensions` mechanism, no custom resolver). The
-tangle CLI resolves composition from the AST and never runs the frame, so the
-`.loom` import (which vanilla Node could not load) costs nothing there; only a
-self-hosting runtime would add a `.loom` loader. An
-imported Service's `.Default` participates in the root's layer wiring
-exactly as a same-file one does (the precise shape of multi-file root
-composition is settled when multi-file builds land).
+runner executes the frame and resolves that same import itself: its injected
+`require` answers a sibling `.loom` path with the module it has already evaluated,
+so a `.loom` import vanilla Node could not load costs nothing, and no `.loom`
+loader is needed. An imported Service's `.Default` participates in the runner's
+cross-file dependency cone exactly as a same-file one does.
 
 The `FrameAstBuilder` pass hoists the `import` lines from `{Loom}` sections to the
 head of the Frame, regardless of where their sections sit in the
@@ -387,43 +397,51 @@ only the logical tag edge.
 
 ## Providing Dependencies
 
-Loom owns the composition root. Because each Service's `.Default` layer
-carries unsatisfied requirements — the dependencies its `yield*` calls
-declare — the root's job is to satisfy them all at once. It merges every
-Service's layer into one set and provides that set back to itself, so
-each requirement is met by another member of the same merge:
+Loom owns the composition root, but the root does not run itself. Each Service's
+`.Default` layer carries unsatisfied requirements — the dependencies its `yield*`
+calls declare — so something must satisfy them before the services run. The frame
+does not wire them. It *exports* what a wiring needs, and the runner does the rest.
+
+The `FrameAstBuilder` pass emits two members at the foot of every file that
+declares a service. `__services` names each service, paired with its `.Default`
+layer, the service class itself, and the classes it depends on. `__run` is an
+`Effect.gen` that yields every section — exported and tagless alike — and returns
+the module's composed code, its woven prose, and its tangle files.
 
 ```typescript
-const layers = Layer.mergeAll(Add.Default, Mul.Default, Sq.Default, /* … */)
+export const __services = {
+  Add: { layer: Add.Default, self: Add, deps: [] },
+  Sq:  { layer: Sq.Default,  self: Sq,  deps: [Imports] },
+  // … one entry per service, the private sections included
+}
 
-export const LoomMain = Effect.provide(
-  program,                       // yields the tangle sinks to run them
-  Layer.provide(layers, layers), // feed the merge into itself to self-wire
-)
+export const __run = Effect.gen(function* () {
+  return {
+    sections: new Map([["Add", (yield* Add).code], /* … */]),
+    prose:    new Map([["Add", (yield* Add).prose], /* … */]),
+    files:    [yield* TanglingTheLibrary, /* … */],
+  }
+})
 ```
 
-`Layer.mergeAll` is commutative — the order layers are listed in does
-not matter — so the root, like the emission, is order-free. The user
-writes sections and declares Warps; Loom derives the full wiring and
-generates it into the Frame. The user never writes imports, never
-assembles layers manually, and never touches the entry point.
+The runner reads those two members and wires the graph (`how-run.md`). It indexes
+every service across the corpus by its module-qualified tag, walks each module's
+dependency cone, sorts it so a dependency builds before what needs it, and folds
+the layers with `Layer.provideMerge`. Providing the merged set to itself does not
+close the loop — building the provided copy still demands the very services it
+should supply — so the fold goes dependency-first instead. The graph is acyclic,
+since a Warp cycle is a diagnostic rather than a built layer, so the fold always
+closes. The author writes sections and declares Warps; the runner derives the
+order and the wiring from the graph the frame already carries, and never asks the
+author for an import, a layer assembly, or an entry point.
 
 The root is generated for every file **with Services**, not only those that
-tangle: a file with `{path}` sinks runs them, and a library file's root still
-merges and self-provides, ready to be composed by an importer. A service-less
-file — empty, or only `{Loom}` blocks — has **no** root (nothing to merge,
-nothing to run); an empty `.loom` is a valid file. Where a root exists it is
-what makes a document's sections one interconnected, checkable whole — the basis
-for cross-section resolution of product code in the editor (`how-lsp.md` →
-Composition Drives Type Resolution). The shape of merging an *imported*
-Service's layer is settled with multi-file builds.
-
-The self-provision form (`Layer.provide(layers, layers)`) is pending
-confirmation against Effect's actual layer-resolution behaviour. The
-mechanism is sound in principle — Effect memoises each service and
-resolves the requirement DAG independent of merge order — but the exact
-API spelling may differ. This is the one piece of the order-independent
-design that warrants a runtime spike before it is relied on.
+tangle: a file with `{path}` sinks runs them, and a library file still exports its
+`__services` and `__run` so an importer can run it. A service-less file — empty, or
+only `{Loom}` blocks — has **no** root; an empty `.loom` is a valid file. Where a
+root exists it makes a document's sections one interconnected, checkable whole —
+the basis for cross-section resolution of product code in the editor (`how-lsp.md`
+→ Composition Drives Type Resolution).
 
 ## Health Is Two-Tier
 
@@ -455,188 +473,3 @@ not just a type-checking surface. The IDE uses the Frame for navigation
 and diagnostics. The CLI uses the AST's Warp graph for context-aware
 tooling. Effect uses the Frame for execution. All three consumers read
 from the same source document, with no duplication.
-
-## Example Loom Document Frame
-
-```typescript
-// =============================================================================
-// GeneratedFrameExample.ts
-//
-// Generated Frame for arithmetic.loom.
-//
-// Projection rules:
-//   - Tagged sections  → export class — public API, importable cross-file.
-//   - Tagless sections → class (no export) — private, same-file only.
-//   - Sections emitted in document order (no eager cross-refs; order is free).
-//   - Explicit [Tag]  → class name = the tag label, mapped to it.
-//   - No [Tag]        → class name = heading title normalised to an identifier, mapped back to the heading.
-//   - Service tag (the "…" string) = the section's module-qualified key <path>#<name>.
-//     Two modules that each define a `Bit` stay distinct. Unmapped: identity, not a
-//     name. The examples below show it bare, eliding the path for readability.
-//   - Heading title stored as `name` field on every content section (tangle
-//     sinks return core.tangle(…) — no name/prose).
-//   - Section prose → `prose` field = core.weave(…), the woven peer of `code`.
-//   - Preamble Warp declaration ({{a: Add}}) → lazy yield* inside Effect.gen;
-//     no dependencies[] array (see Order Independence).
-//   - Name anchor ({{Title}}) in code block → internal `_`-aliased yield*, hoisted.
-//   - Tangle section ({path} specifier) → private, core.tangle() return, graph sink.
-//   - {Loom} specifier → code block projected literally (escape hatch only).
-//   - Composition root → auto-generated: merge all layers, provide to self.
-//   - compose / weave / tangle are runtime primitives from #loom/core (a monorepo
-//     module; see how-lsp.md). There is no separate Code value type; product
-//     code is the AST's CodeWeft text.
-// =============================================================================
-
-import * as core from "#loom/core"
-import { Effect, Layer } from "effect"
-
-
-// =============================================================================
-// Private sections — tagless, no export, same-file only
-// =============================================================================
-
-// # Imports — name anchor target: {{Imports}}
-class Imports extends Effect.Service<Imports>()("Imports", {
-  succeed: {
-    name:  `Imports`,
-    code:  core.compose(`import scala.math.pow`),
-    prose: core.weave(`Provides the only outside dependency.`)
-  }
-}) {}
-
-
-// =============================================================================
-// Public sections — tagged, exported
-// =============================================================================
-
-export class Add extends Effect.Service<Add>()("Add", {
-  succeed: {
-    name:  `Adder`,
-    code:  core.compose(`def add(x: Int, y: Int): Int = x + y`),
-    prose: core.weave(`Adds two integers.`)
-  }
-}) {}
-
-
-export class Mul extends Effect.Service<Mul>()("Mul", {
-  succeed: {
-    name:  `Multiplier`,
-    code:  core.compose(`def mul(x: Int, y: Int): Int = x * y`),
-    prose: core.weave(`Multiplies two integers.`)
-  }
-}) {}
-
-
-export class Sq extends Effect.Service<Sq>()("Sq", {
-  effect: Effect.gen(function* () {
-    const _Imports = yield* Imports   // {{Imports}} — hoisted internally
-    return {
-      name:  `Square`,
-      code:  core.compose(_Imports.code, `def square(x: Int): Int = mul(x, x)`),
-      prose: core.weave(`Built on top of mul.`)
-    }
-  })
-}) {}
-
-
-export class Pow extends Effect.Service<Pow>()("Pow", {
-  effect: Effect.gen(function* () {
-    const _Imports = yield* Imports   // {{Imports}} — hoisted internally
-    return {
-      name:  `Power`,
-      code:  core.compose(_Imports.code, `def power(base: Int, exp: Int): Int = pow(base, exp).toInt`),
-      prose: core.weave(`\`pow\` works in \`Double\`; the result is rounded back to \`Int\`.`)
-    }
-  })
-}) {}
-
-
-export class Main extends Effect.Service<Main>()("Main", {
-  effect: Effect.gen(function* () {
-    const a = yield* Add
-    const s = yield* Sq
-    const p = yield* Pow
-    return {
-      name: `Entry point`,
-      code: core.compose(
-        a.code,
-        s.code,
-        p.code,
-        `object Arithmetic extends App {
-  println(s"add(2, 3)    = ${add(2, 3)}")
-  println(s"mul(4, 5)    = ${mul(4, 5)}")
-  println(s"square(7)    = ${square(7)}")
-  println(s"power(2, 10) = ${power(2, 10)}")
-}`
-      ),
-      prose: core.weave(`Smoke tests for Add, Sq, and Pow.`)
-    }
-  })
-}) {}
-
-
-export class Build extends Effect.Service<Build>()("Build", {
-  succeed: {
-    name: `Build script`,
-    code: core.compose(
-`#!/usr/bin/env bash
-scalac src/main/scala/Arithmetic.scala -d out
-scala -cp out Arithmetic`
-    ),
-    prose: core.weave(`Compile the single file, then run the resulting class.`)
-  }
-}) {}
-
-
-// =============================================================================
-// Tangle sections — private sinks, title-derived names, no export
-// =============================================================================
-
-// # Tangling the library {src/main/scala/Arithmetic.scala}
-class TanglingTheLibrary extends Effect.Service<TanglingTheLibrary>()("TanglingTheLibrary", {
-  effect: Effect.gen(function* () {
-    const i = yield* Imports
-    const m = yield* Main
-    return core.tangle("src/main/scala/Arithmetic.scala", core.compose(i.code, m.code))
-  })
-}) {}
-
-
-// # Tangling the build script {scripts/build.sh}
-class TanglingTheBuildScript extends Effect.Service<TanglingTheBuildScript>()("TanglingTheBuildScript", {
-  effect: Effect.gen(function* () {
-    const b = yield* Build
-    return core.tangle("scripts/build.sh", b.code)
-  })
-}) {}
-
-
-// =============================================================================
-// Auto-generated composition root — emitted by Loom, not by the user.
-// The program yields the tangle sinks (TanglingTheLibrary, TanglingTheBuildScript) to run their
-// file emission. Because each Service's `.Default` carries unsatisfied
-// requirements (its `yield*` dependencies), the root merges every layer
-// and provides the merge to itself, so each requirement is met by another
-// member of the same merge. Merge is commutative — listing order is free.
-// =============================================================================
-
-const layers = Layer.mergeAll(
-  Imports.Default,
-  Add.Default,
-  Mul.Default,
-  Sq.Default,
-  Pow.Default,
-  Main.Default,
-  Build.Default,
-  TanglingTheLibrary.Default,
-  TanglingTheBuildScript.Default,
-)
-
-export const LoomMain = Effect.provide(
-  Effect.gen(function* () {
-    yield* TanglingTheLibrary
-    yield* TanglingTheBuildScript
-  }),
-  Layer.provide(layers, layers)
-)
-```
