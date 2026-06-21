@@ -165,6 +165,14 @@ with its transcluded sections inlined in composition order; that document is
 what the language service checks, and its results map back to the `.loom`
 sections that contributed them.
 
+Which sections reach a language service is the package's choice. A `loom.json`
+lists the languages a package activates, and the editor hands a section's
+resolved document to a TypeScript program — through Volar's
+`getExtraServiceScripts` — only when the package activates that section's
+language. A package that activates nothing keeps the frame alone, and its product
+sections fall back to syntax highlighting. The frame is never gated: every `.loom`
+has one, projected as the file's primary service script and always checked.
+
 A **composition diagnostic** — one that exists only because sections are spliced:
 a duplicated binding, a name a mid-section anchor pulls into scope, a type that
 clashes only when composed — is emergent. No section produces it alone, only the
@@ -172,20 +180,20 @@ consuming document does, so it is reported once. By default it maps to the actua
 offending span, in whichever contributing section's `.loom` wrote it — the
 language service's own order, run backward through the mappings. The exception is
 **cross-file** transclusion: when the offending span was inlined from another
-file's library section, the diagnostic re-pins to the `{{…}}` **anchor** in the
+file's library section, the diagnostic re-pins to the `::[…]` **anchor** in the
 consuming section — the composition is the consumer's to own, and the library
 author never sees it — not to the library's own source.
 
 Composition order — not document order — is what the language service sees, so a
 section may reference another defined later in the source without error. The
 order is the transclusion graph: a section's code follows the code of the
-sections it transcludes through `{{…}}` anchors.
+sections it transcludes through `::[…]` anchors.
 
 **Transclusion absorbs the block's trailing newline.** An anchor stands for the
 transcluded block's *lines*; the line break that ends the anchor's own line
 supplies the block's last terminator, so an inlined block sheds its trailing
-newline and the consuming section's literal layout becomes the output's: `{{a}}`
-then `{{b}}` stacked places the blocks on consecutive lines, one blank line
+newline and the consuming section's literal layout becomes the output's: `::[a]`
+then `::[b]` stacked places the blocks on consecutive lines, one blank line
 between the anchors yields exactly one blank line between the blocks, and the
 final anchor's break is the file's single trailing newline — no doubled gaps, no
 trailing blank (noweb's chunk-reference semantics). It is generated-side only: the
