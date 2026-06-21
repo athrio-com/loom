@@ -1,0 +1,11 @@
+{{lang: TypeScript}}
+
+# A typed value
+
+The de re below holds a deliberate type error. It type-checks only when the
+package activates TypeScript, so the editor reports it through the product
+section, not the frame.
+
+=>
+
+export const n: number = 'not a number'

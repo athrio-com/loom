@@ -6,7 +6,6 @@ import type {
 import type { LanguageServicePlugin } from '@volar/language-service'
 import type {} from '@volar/typescript'
 import { Array, Effect, Layer, Option, pipe, Runtime } from 'effect'
-import { NodeFileSystem } from '@effect/platform-node'
 import { readFileSync } from 'node:fs'
 import type * as ts from 'typescript'
 import { URI } from 'vscode-uri'
@@ -61,7 +60,7 @@ const changed = (previous: VirtualCode, next: ts.IScriptSnapshot): boolean =>
   next.getText(0, next.getLength())
 
 export const loomLanguagePlugin = (
-  runtime: Runtime.Runtime<LoomCompiler>,
+  runtime: Runtime.Runtime<LoomCompiler | LoomConfig>,
 ): LanguagePlugin<URI> => ({
   getLanguageId: (uri) => (uri.path.endsWith('.loom') ? 'loom' : undefined),
   createVirtualCode: (uri, languageId, snapshot, ctx) =>
@@ -103,8 +102,56 @@ export const loomLanguagePlugin = (
         ? { code: frame, extension: '.ts', scriptKind: 3 as ts.ScriptKind }
         : undefined
     },
+    getExtraServiceScripts: (fileName, root) =>
+      extraProductScripts(runtime, fileName, root),
   },
 })
+
+const tsScriptKinds: ReadonlyMap<
+  string,
+  { readonly extension: string; readonly scriptKind: ts.ScriptKind }
+> = new Map([
+  ['typescript', { extension: '.ts', scriptKind: 3 as ts.ScriptKind }],
+  ['tsx', { extension: '.tsx', scriptKind: 4 as ts.ScriptKind }],
+  ['javascript', { extension: '.js', scriptKind: 1 as ts.ScriptKind }],
+  ['jsx', { extension: '.jsx', scriptKind: 2 as ts.ScriptKind }],
+])
+
+const activatedLanguages = (
+  runtime: Runtime.Runtime<LoomCompiler | LoomConfig>,
+  fileName: string,
+): ReadonlyArray<string> =>
+  Runtime.runSync(runtime)(
+    LoomConfig.pipe(
+      Effect.flatMap((config) => config.resolve(fileName)),
+      Effect.map((resolved) => resolved.languages),
+    ),
+  )
+
+const extraProductScripts = (
+  runtime: Runtime.Runtime<LoomCompiler | LoomConfig>,
+  fileName: string,
+  root: VirtualCode,
+) => {
+  const languages = activatedLanguages(runtime, fileName)
+  const activates = (id: string): boolean =>
+    languages.includes('typescript') || languages.includes(id)
+  return pipe(
+    root.embeddedCodes ?? [],
+    Array.filter((code) => code.id !== 'frame'),
+    Array.filterMap((code) =>
+      Option.fromNullable(tsScriptKinds.get(code.languageId)).pipe(
+        Option.filter(() => activates(code.languageId)),
+        Option.map((kind) => ({
+          fileName: `${fileName}.${code.id}${kind.extension}`,
+          code,
+          extension: kind.extension,
+          scriptKind: kind.scriptKind,
+        })),
+      ),
+    ),
+  )
+}
 
 const builtIns: ReadonlyMap<string, LanguageService> = new Map([
   [LoomLanguage.id, LoomLanguage],
@@ -155,12 +202,9 @@ const collect = (
 export const loomServicePlugins = (
   tsdk: typeof import('typescript'),
   root: string,
-): Effect.Effect<ReadonlyArray<LanguageServicePlugin>> =>
+): Effect.Effect<ReadonlyArray<LanguageServicePlugin>, never, LoomConfig> =>
   Effect.gen(function* () {
     const config = yield* LoomConfig
     const { languages } = yield* config.resolve(root)
     return yield* collect(resolveActive(languages), tsdk)
-  }).pipe(
-    Effect.provide(LoomConfig.Default),
-    Effect.provide(NodeFileSystem.layer),
-  )
+  })

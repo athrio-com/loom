@@ -7,6 +7,7 @@ import { create as createTypeScriptServices } from 'volar-service-typescript'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { PackageConfig } from '../src/PackageConfig'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { loomLanguagePlugin } from '../src/LoomLanguagePlugin'
 
 // End-to-end through Volar: drive a `.loom` through a TypeScript-aware language
@@ -27,10 +28,11 @@ let checker: ReturnType<typeof createTypeScriptInferredChecker>
 beforeAll(async () => {
   // A warm runtime: the loom plugin runs the projection synchronously on it.
   const runtime = await Effect.runPromise(
-    Effect.runtime<LoomCompiler>().pipe(
+    Effect.runtime<LoomCompiler | LoomConfig>().pipe(
       Effect.provide(LoomCompiler.Default),
       Effect.provide(DocumentSource.Default),
       Effect.provide(PackageConfig.Default),
+      Effect.provide(LoomConfig.Default),
     ),
   )
   checker = createTypeScriptInferredChecker(

@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { URI } from 'vscode-uri'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { PackageConfig } from '../src/PackageConfig'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { loomLanguagePlugin } from '../src/LoomLanguagePlugin'
 
 // Q1 check: does the import-association registration survive a frame TYPE error?
@@ -53,10 +54,11 @@ beforeAll(async () => {
   writeFileSync(sad, sadOrig)
   writeFileSync(fun, funSrc)
   const runtime = await Effect.runPromise(
-    Effect.runtime<LoomCompiler>().pipe(
+    Effect.runtime<LoomCompiler | LoomConfig>().pipe(
       Effect.provide(LoomCompiler.Default),
       Effect.provide(DocumentSource.Default),
       Effect.provide(PackageConfig.Default),
+      Effect.provide(LoomConfig.Default),
     ),
   )
   checker = createTypeScriptInferredChecker(

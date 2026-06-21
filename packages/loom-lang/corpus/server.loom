@@ -13,8 +13,8 @@ alongside the language plugin. Two callers start it — a thin entry an editor l
 
 The server is built from Volar's toolkit for Node language servers — the connection, the
 project factory, and `loadTsdkByPath` — over the Effect runtime. It imports `LoomCompiler`,
-the projector and cache the runtime warms, with the `DocumentSource` and `PackageConfig` it
-requires, and the two halves this module registers, `loomLanguagePlugin` and
+the projector and cache the runtime warms, with the `DocumentSource`, `PackageConfig`, and
+`LoomConfig` it requires, and the two halves this module registers, `loomLanguagePlugin` and
 `loomServicePlugins`.
 
 =>
@@ -30,21 +30,23 @@ import {
 import { fileURLToPath } from 'node:url'
 import { LoomCompiler, DocumentSource } from './LoomCompiler'
 import { PackageConfig } from './PackageConfig'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
 
 ## The program [Program]
 
 The `Effect.runtime` call captures the warm runtime once the layers are built; the language plugin
-runs the per-keystroke projection on it. The `loadTsdkByPath` call loads the editor's own
+runs the per-keystroke projection on it, and resolves each file's activated languages from
+`LoomConfig` on it too. The `loadTsdkByPath` call loads the editor's own
 TypeScript from the path the client sends, so the frame checks against the user's
-standard library. Collecting service plugins requires reading `loom.config.json`, so
+standard library. Collecting service plugins requires reading `loom.json`, so
 the `onInitialize` handler awaits that Effect before it registers the language plugin and the
 collected plugins.
 
 =>
 
 const program = Effect.gen(function* () {
-  const runtime = yield* Effect.runtime<LoomCompiler>()
+  const runtime = yield* Effect.runtime<LoomCompiler | LoomConfig>()
 
   const connection = createConnection()
   const server = createServer(connection)
@@ -77,6 +79,7 @@ const program = Effect.gen(function* () {
   Effect.provide(LoomCompiler.Default),
   Effect.provide(DocumentSource.Default),
   Effect.provide(PackageConfig.Default),
+  Effect.provide(LoomConfig.Default),
 )
 
 export const startLanguageServer = (): void => NodeRuntime.runMain(program)

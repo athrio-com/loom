@@ -9,10 +9,11 @@ import {
 import { fileURLToPath } from 'node:url'
 import { LoomCompiler, DocumentSource } from './LoomCompiler'
 import { PackageConfig } from './PackageConfig'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
 
 const program = Effect.gen(function* () {
-  const runtime = yield* Effect.runtime<LoomCompiler>()
+  const runtime = yield* Effect.runtime<LoomCompiler | LoomConfig>()
 
   const connection = createConnection()
   const server = createServer(connection)
@@ -45,6 +46,7 @@ const program = Effect.gen(function* () {
   Effect.provide(LoomCompiler.Default),
   Effect.provide(DocumentSource.Default),
   Effect.provide(PackageConfig.Default),
+  Effect.provide(LoomConfig.Default),
 )
 
 export const startLanguageServer = (): void => NodeRuntime.runMain(program)

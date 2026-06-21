@@ -10,7 +10,7 @@ The service plugins are the editor features themselves: diagnostics, hover, comp
 
 ## The virtual-code plugin
 
-`loomLanguagePlugin` is the `LanguagePlugin` Volar asks for. It claims every `.loom` path, projects the file to a virtual-code tree, and exposes the frame as a `.ts` script so TypeScript checks it in place. It projects through `LoomCompiler`, whose `virtualCode` runs the file's composition — walking imports and inlining cross-file `::[…]` transclusions — so the editor resolves a corpus the way the tangler does.
+`loomLanguagePlugin` is the `LanguagePlugin` Volar asks for. It claims every `.loom` path, projects the file to a virtual-code tree, and exposes the frame as a `.ts` script so TypeScript checks it in place. It hands the de re sections to a TypeScript program too, through `getExtraServiceScripts`, but only when the package activates their language. It projects through `LoomCompiler`, whose `virtualCode` runs the file's composition — walking imports and inlining cross-file `::[…]` transclusions — so the editor resolves a corpus the way the tangler does.
 
 The file's text comes through a passive `Source`. `editorSource` reads the open file from the snapshot Volar hands over and each imported file from disk. It never calls back into Volar, so running the composition cannot re-enter the projector.
 
@@ -57,7 +57,7 @@ const changed = (previous: VirtualCode, next: ts.IScriptSnapshot): boolean =>
   next.getText(0, next.getLength())
 
 export const loomLanguagePlugin = (
-  runtime: Runtime.Runtime<LoomCompiler>,
+  runtime: Runtime.Runtime<LoomCompiler | LoomConfig>,
 ): LanguagePlugin<URI> => ({
   getLanguageId: (uri) => (uri.path.endsWith('.loom') ? 'loom' : undefined),
   createVirtualCode: (uri, languageId, snapshot, ctx) =>
@@ -99,8 +99,64 @@ export const loomLanguagePlugin = (
         ? { code: frame, extension: '.ts', scriptKind: 3 as ts.ScriptKind }
         : undefined
     },
+    getExtraServiceScripts: (fileName, root) =>
+      extraProductScripts(runtime, fileName, root),
   },
 })
+
+## Activating product code
+
+Volar gives a `.loom` file one primary TypeScript program, the frame, through `getServiceScript`, and type-checks it always. The de re sections are separate. Each is its own embedded code, and a section reaches a TypeScript program only when the plugin hands it over through `getExtraServiceScripts`. `extraProductScripts` is that hand-over, gated by the package's `loom.json`. It resolves the file's activated languages, then offers Volar every product section a TypeScript program can hold — one written in `typescript`, `tsx`, `javascript`, or `jsx` — but only when the package activates TypeScript or names that language outright. A package that activates nothing keeps the frame alone: its product sections still highlight, yet draw no diagnostics, hover, or completion.
+
+`tsScriptKinds` maps each TypeScript-family language to the extension and script kind Volar labels a program entry with. `activatedLanguages` reads the file's package config through `LoomConfig`. The read is synchronous, since Volar's hook cannot await, and runs on the warm runtime the projection already uses.
+
+=>
+
+const tsScriptKinds: ReadonlyMap<
+  string,
+  { readonly extension: string; readonly scriptKind: ts.ScriptKind }
+> = new Map([
+  ['typescript', { extension: '.ts', scriptKind: 3 as ts.ScriptKind }],
+  ['tsx', { extension: '.tsx', scriptKind: 4 as ts.ScriptKind }],
+  ['javascript', { extension: '.js', scriptKind: 1 as ts.ScriptKind }],
+  ['jsx', { extension: '.jsx', scriptKind: 2 as ts.ScriptKind }],
+])
+
+const activatedLanguages = (
+  runtime: Runtime.Runtime<LoomCompiler | LoomConfig>,
+  fileName: string,
+): ReadonlyArray<string> =>
+  Runtime.runSync(runtime)(
+    LoomConfig.pipe(
+      Effect.flatMap((config) => config.resolve(fileName)),
+      Effect.map((resolved) => resolved.languages),
+    ),
+  )
+
+const extraProductScripts = (
+  runtime: Runtime.Runtime<LoomCompiler | LoomConfig>,
+  fileName: string,
+  root: VirtualCode,
+) => {
+  const languages = activatedLanguages(runtime, fileName)
+  const activates = (id: string): boolean =>
+    languages.includes('typescript') || languages.includes(id)
+  return pipe(
+    root.embeddedCodes ?? [],
+    Array.filter((code) => code.id !== 'frame'),
+    Array.filterMap((code) =>
+      Option.fromNullable(tsScriptKinds.get(code.languageId)).pipe(
+        Option.filter(() => activates(code.languageId)),
+        Option.map((kind) => ({
+          fileName: `${fileName}.${code.id}${kind.extension}`,
+          code,
+          extension: kind.extension,
+          scriptKind: kind.scriptKind,
+        })),
+      ),
+    ),
+  )
+}
 
 ## The active set
 
@@ -163,15 +219,12 @@ const collect = (
 export const loomServicePlugins = (
   tsdk: typeof import('typescript'),
   root: string,
-): Effect.Effect<ReadonlyArray<LanguageServicePlugin>> =>
+): Effect.Effect<ReadonlyArray<LanguageServicePlugin>, never, LoomConfig> =>
   Effect.gen(function* () {
     const config = yield* LoomConfig
     const { languages } = yield* config.resolve(root)
     return yield* collect(resolveActive(languages), tsdk)
-  }).pipe(
-    Effect.provide(LoomConfig.Default),
-    Effect.provide(NodeFileSystem.layer),
-  )
+  })
 
 ## What the plugin draws on
 
@@ -187,7 +240,6 @@ import type {
 import type { LanguageServicePlugin } from '@volar/language-service'
 import type {} from '@volar/typescript'
 import { Array, Effect, Layer, Option, pipe, Runtime } from 'effect'
-import { NodeFileSystem } from '@effect/platform-node'
 import { readFileSync } from 'node:fs'
 import type * as ts from 'typescript'
 import { URI } from 'vscode-uri'
@@ -212,6 +264,8 @@ import { TypescriptLanguage } from '@athrio/loom-lang-services/TypescriptLanguag
 ::[What the plugin draws on]
 
 ::[The virtual-code plugin]
+
+::[Activating product code]
 
 ::[The active set]
 
