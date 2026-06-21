@@ -91,6 +91,8 @@ const toEvalable = (frame: string): string => {
 
 `evalFrame` turns the rewritten text into a live module. It builds a function of `require`, `module`, and `exports`, runs it with the caller's resolver, and returns the populated exports. This is the one place the runner executes generated code, so the resolver is the only channel through which a frame reaches anything outside itself.
 
+A service-less file exports neither `__services` nor `__run`, because the builder writes a root only when the file declares at least one service. `evalFrame` spreads the live exports over `emptyEvaled`, so a real member wins while a service-less module still carries the empty pair. The frame's own service classes survive the spread, so a sibling that imports one still finds it. Every later pass then reads both members on any module, service-less or not.
+
 =>
 
 const evalFrame = (
@@ -103,7 +105,7 @@ const evalFrame = (
     module,
     module.exports,
   )
-  return module.exports as unknown as EvaledFrame
+  return { ...emptyEvaled, ...module.exports } as unknown as EvaledFrame
 }
 
 ## Reading a frame's imports

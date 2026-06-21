@@ -74,7 +74,7 @@ const evalFrame = (
     module,
     module.exports,
   )
-  return module.exports as unknown as EvaledFrame
+  return { ...emptyEvaled, ...module.exports } as unknown as EvaledFrame
 }
 
 const importsOf = (path: string, frame: string): ReadonlyArray<string> =>
