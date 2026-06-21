@@ -1,6 +1,11 @@
 import { Array, Data, Effect, Option, pipe } from 'effect'
 import { dirname, resolve as resolvePath } from 'node:path'
-import { defaultAnchorDelims, type AnchorDelims } from '#ast/LoomTokens'
+import {
+  checkAnchorDelims,
+  defaultAnchorDelims,
+  type AnchorDelims,
+  type InvalidAnchorDelims,
+} from '#ast/LoomTokens'
 import { LoomSourceRanges } from '#ast/LineRanges'
 import { WeftClassifier } from '#ast/WeftClassifier'
 import { WeftTokeniser } from '#ast/WeftTokeniser'
@@ -40,8 +45,11 @@ export class LoomCorpusAstBuilder extends Effect.Service<LoomCorpusAstBuilder>()
         delims: AnchorDelims,
       ): Effect.Effect<{ readonly text: string; readonly doc: LoomDocument }> =>
         source.read(path).pipe(
-          Effect.flatMap((text) =>
-            sourceRanges.stream(text).pipe(
+          Effect.flatMap((text) => {
+            const onBadDelims = (err: InvalidAnchorDelims) =>
+              Effect.succeed(emptyDocument(text, err.message))
+            return checkAnchorDelims(delims).pipe(
+              Effect.zipRight(sourceRanges.stream(text)),
               Effect.flatMap((ranges) =>
                 pipe(
                   ranges,
@@ -53,9 +61,15 @@ export class LoomCorpusAstBuilder extends Effect.Service<LoomCorpusAstBuilder>()
               Effect.catchTag('MixedEOL', (err) =>
                 Effect.succeed(emptyDocumentFor(text, err)),
               ),
+              Effect.catchTags({
+                EmptyAnchorDelims: onBadDelims,
+                IdenticalAnchorDelims: onBadDelims,
+                WhitespaceAnchorDelims: onBadDelims,
+                ReservedAnchorDelims: onBadDelims,
+              }),
               Effect.map((doc) => ({ text, doc })),
-            ),
-          ),
+            )
+          }),
           Effect.catchTag('ReadError', (err) =>
             Effect.succeed({ text: '', doc: emptyDocument('', err.message) }),
           ),
@@ -65,10 +79,11 @@ export class LoomCorpusAstBuilder extends Effect.Service<LoomCorpusAstBuilder>()
         source: Source,
         path: Path,
         delims: AnchorDelims = defaultAnchorDelims,
+        primaryLanguage?: string,
       ): Effect.Effect<LoomModule> =>
         Effect.gen(function* () {
           const { text, doc } = yield* parsed(source, path, delims)
-          const frame = yield* frames.build(doc, path)
+          const frame = yield* frames.build(doc, path, primaryLanguage)
           const imports = pipe(
             frame.imports,
             Array.filterMap((i) =>

@@ -1,48 +1,35 @@
-import { Config, ConfigProvider, Effect } from 'effect'
-import { existsSync, readFileSync } from 'node:fs'
-import { dirname, resolve as resolvePath } from 'node:path'
+import { Effect } from 'effect'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { type AnchorDelims, defaultAnchorDelims } from '#ast/LoomTokens'
 import { type Path } from '#ast/LoomCorpusAst'
 
-export const configFileName = 'loom.json'
-
-const anchorConfig = Config.all({
-  open: Config.string('open').pipe(Config.withDefault(defaultAnchorDelims.open)),
-  close: Config.string('close').pipe(Config.withDefault(defaultAnchorDelims.close)),
-}).pipe(Config.nested('anchor'))
-
-const delimsFromJson = (json: unknown): Effect.Effect<AnchorDelims> =>
-  anchorConfig.pipe(
-    Effect.withConfigProvider(ConfigProvider.fromJson(json)),
-    Effect.orDie,
-  )
-
-const findConfigSync = (dir: string): string | undefined => {
-  const candidate = resolvePath(dir, configFileName)
-  if (existsSync(candidate)) return candidate
-  const parent = dirname(dir)
-  return parent === dir ? undefined : findConfigSync(parent)
+export interface BuildSettings {
+  readonly delims: AnchorDelims
+  readonly primaryLanguage: string | undefined
 }
 
-export const resolveAnchorDelims = (
-  path: string,
-): Effect.Effect<AnchorDelims> =>
-  Effect.gen(function* () {
-    if (path === '') return defaultAnchorDelims
-    const found = yield* Effect.sync(() => findConfigSync(dirname(path)))
-    if (found === undefined) return defaultAnchorDelims
-    const json = yield* Effect.try(
-      () => JSON.parse(readFileSync(found, 'utf8')) as unknown,
-    ).pipe(Effect.orElse(() => Effect.succeed({} as unknown)))
-    return yield* delimsFromJson(json)
-  })
+const anchorDelimsOf = (
+  anchor: { readonly open?: string; readonly close?: string } | undefined,
+): AnchorDelims => ({
+  open: anchor?.open ?? defaultAnchorDelims.open,
+  close: anchor?.close ?? defaultAnchorDelims.close,
+})
 
 export class PackageConfig extends Effect.Service<PackageConfig>()(
   'PackageConfig',
   {
-    succeed: {
-      anchorDelims: (path: Path): Effect.Effect<AnchorDelims> =>
-        resolveAnchorDelims(path),
-    },
+    effect: Effect.gen(function* () {
+      const config = yield* LoomConfig
+      return {
+        resolve: (path: Path): Effect.Effect<BuildSettings> =>
+          config.resolve(path).pipe(
+            Effect.map((c) => ({
+              delims: anchorDelimsOf(c.anchor),
+              primaryLanguage: c.language,
+            })),
+          ),
+      }
+    }),
+    dependencies: [LoomConfig.Default],
   },
 ) {}

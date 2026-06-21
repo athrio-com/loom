@@ -158,7 +158,7 @@ export const loomServicePlugins = (
 ): Effect.Effect<ReadonlyArray<LanguageServicePlugin>> =>
   Effect.gen(function* () {
     const config = yield* LoomConfig
-    const { languages } = yield* config.read(root)
+    const { languages } = yield* config.resolve(root)
     return yield* collect(resolveActive(languages), tsdk)
   }).pipe(
     Effect.provide(LoomConfig.Default),

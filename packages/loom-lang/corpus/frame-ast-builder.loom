@@ -82,15 +82,16 @@ import {
 `build`, wraps the pure `buildFrame` in an Effect so callers compose it like any
 other step. It takes the document's file path alongside the document, because a
 section's `core.compose` stamps the section's corpus-wide identity — its path and
-name — and the path is known only to the caller.
+name — and the path is known only to the caller. It also takes the package's
+primary language, the default the document inherits when it declares no `lang`
+Warp, which the caller resolves from the file's configuration.
 
-`buildFrame` is the spine, and it runs from the document's head to its tail. It reads the document
-preamble for the primary language — the default a specifier-less section inherits
-— and indexes the sections by name. Then it maps each section to a Frame member,
+`buildFrame` is the spine, and it runs from the document's head to its tail. It
+resolves the primary language — the default a specifier-less section inherits —
+then indexes the sections by name. Then it maps each section to a Frame member,
 folds the members into the three lists a module is made of, and finalises by
-building the composition root from the collected services. The document's
-own health — a missing language declaration, say — lives on `doc.health`; a later
-pass carries it forward.
+building the composition root from the collected services. The document's own
+health lives on `doc.health`, and a later pass carries it forward.
 
 =>
 
@@ -98,14 +99,22 @@ export class FrameAstBuilder extends Effect.Service<FrameAstBuilder>()(
   'FrameAstBuilder',
   {
     succeed: {
-      build: (doc: LoomDocument, path: string): Effect.Effect<FrameModule> =>
-        Effect.sync(() => buildFrame(doc, path)),
+      build: (
+        doc: LoomDocument,
+        path: string,
+        packageLanguage?: string,
+      ): Effect.Effect<FrameModule> =>
+        Effect.sync(() => buildFrame(doc, path, packageLanguage)),
     },
   },
 ) {}
 
-export const buildFrame = (doc: LoomDocument, modulePath: string): FrameModule => {
-  const lang = primaryLanguage(doc.preamble)
+export const buildFrame = (
+  doc: LoomDocument,
+  modulePath: string,
+  packageLanguage?: string,
+): FrameModule => {
+  const lang = documentLanguage(doc.preamble) ?? packageLanguage ?? 'plaintext'
   const index = nameIndex(doc.sections)
   return pipe(
     doc.sections,
@@ -128,9 +137,13 @@ letting the last one overwrite the rest. So a title maps to a *list* of services
 single one. A list of one is a clean resolution; a longer list is an ambiguity the
 anchor reports rather than resolves by guessing (see Binding anchors).
 
-The primary language is the document preamble's `lang` Warp, lowercased to a
-language id. The parser already warned on a missing declaration through the
-document's health, so a missing one here falls back to `'plaintext'`.
+The primary language is the language a specifier-less section inherits, resolved
+from three sources in order. The document's `lang` Warp sets it, lowercased to a
+language id. The Warp is optional: when the document omits it, the language falls
+back to the package's configured language, passed in as `packageLanguage`, and
+then to `plaintext` when the package configures none. `documentLanguage` reads the
+Warp and yields nothing when it is absent, so the `??` chain walks the three
+sources in turn.
 
 =>
 
@@ -152,12 +165,14 @@ const nameIndex = (sections: ReadonlyArray<LoomSection>): NameIndex =>
     ),
   )
 
-const primaryLanguage = (preamble: ReadonlyArray<PreambleWeft>): string =>
+const documentLanguage = (
+  preamble: ReadonlyArray<PreambleWeft>,
+): string | undefined =>
   preamble
     .flatMap((w) => w.warps)
     .find((w) => w.name.value === 'lang')
     ?.annotation.value.trim()
-    .toLowerCase() ?? 'plaintext'
+    .toLowerCase()
 
 ## Building a member
 

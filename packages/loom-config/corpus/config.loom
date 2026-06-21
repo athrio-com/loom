@@ -1,89 +1,132 @@
 {{lang: TypeScript}}
 
-# The config module
+# Per-package configuration
 
-A Loom project records its activated languages in a `loom.config.json` file at the project root. The `@athrio/loom-config` package defines that file's shape. The CLI writes the file when the user runs the `loom activate` command; the language server reads it at startup to choose which language services to load. The package is a single module, `LoomConfig.ts`.
+Every Loom package carries its own `loom.json` at its root. The file holds three things: the anchor delimiters a package's `.loom` files use, the primary language its sections default to, and the languages the editor activates services for. Configuration is a package property, not a repository one — a monorepo holds packages written in different languages, each with its own activation.
 
-## Effect and the platform [Imports]
+`@athrio/loom-config` defines that file's shape and resolves it for any path. A `.loom` file finds its config by walking up to the nearest `loom.json`, the same way a tool finds the nearest `package.json`. The whole package is one module, `LoomConfig.ts`.
 
-An Effect `Schema` defines the config file's shape. The `FileSystem` service from the `@effect/platform` package reads and writes the file on disk. Effect's `Config` module parses the file's contents with a JSON config provider.
+The read is synchronous. The editor resolves a file's config inside Volar's synchronous projection hook, which cannot await, so the resolver reads through Node's synchronous filesystem rather than the asynchronous `@effect/platform` one. A missing, unreadable, or malformed `loom.json` resolves to the empty config rather than failing — a project without a config still opens.
 
-=>
+## What the config holds
 
-import { Config, ConfigProvider, Effect, Schema } from 'effect'
-import { FileSystem } from '@effect/platform'
-import { resolve } from 'node:path'
+`PackageConfig` is the resolved shape every reader works with. Its `anchor` is the delimiter pair a package overrides, or `undefined` where the file leaves it to the default the reader supplies. Its `language` is the primary language a specifier-less section inherits, replacing the document `lang` Warp as the source of the default — so the Warp becomes optional, an in-document override rather than a requirement. Its `languages` is the list of activated language ids, empty when none are.
 
-## The model [Model]
-
-A config is a list of language identifiers. The identifiers are plain strings rather than an enum, so a project can activate a service that this version of Loom does not yet ship. The `Config` description reads the list from the `languages` key and treats an absent key as an empty array.
+`LoomConfigSchema` is the on-disk shape: every field optional, since a `loom.json` may set only the keys it cares about. `Schema.decodeUnknownOption` validates a parsed file against it and yields nothing when the JSON does not fit, so a malformed config degrades to the empty resolution.
 
 =>
+
+export const configFileName = 'loom.json'
 
 export const LoomConfigSchema = Schema.Struct({
-  languages: Schema.Array(Schema.String),
+  anchor: Schema.optional(
+    Schema.Struct({
+      open: Schema.optional(Schema.String),
+      close: Schema.optional(Schema.String),
+    }),
+  ),
+  language: Schema.optional(Schema.String),
+  languages: Schema.optional(Schema.Array(Schema.String)),
 })
 
-export type LoomConfigData = typeof LoomConfigSchema.Type
+export type LoomConfigFile = typeof LoomConfigSchema.Type
 
-export const configFileName = 'loom.config.json'
+export interface PackageConfig {
+  readonly anchor: { readonly open?: string; readonly close?: string } | undefined
+  readonly language: string | undefined
+  readonly languages: ReadonlyArray<string>
+}
 
-const activeLanguages = Config.array(Config.string(), 'languages').pipe(
-  Config.withDefault([]),
-)
+const empty: PackageConfig = {
+  anchor: undefined,
+  language: undefined,
+  languages: [],
+}
 
-## Reading and writing [Source]
+## Finding and reading the file
 
-The `read` function looks for the config file at the project root. If the file is absent, the function returns an empty config. If present, the function parses the file as JSON and runs the result through the `Config` description using the `ConfigProvider.fromJson` function. That function encodes an empty array as a lone `<nil>` entry, which `read` filters out before returning.
+`findConfig` walks up from a directory to the nearest `loom.json`, stopping at the filesystem root. It is the same ancestor search a package manager runs for `package.json`, so a `.loom` file deep in a package resolves to that package's config.
 
-The `write` function serializes the config as formatted JSON and writes the result to the project root. Both functions propagate errors as Effect defects — a malformed or unreadable config is a bug to surface, not a condition to recover from.
+`readConfig` reads one found file and decodes it. A read or parse failure, or JSON that the schema rejects, returns the empty config — the editor must not crash on a bad config file. A successful decode normalises the optional `languages` to an array.
 
 =>
 
-export class LoomConfig extends Effect.Service<LoomConfig>()(
-  'LoomConfig',
-  {
-    effect: Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem
+const findConfig = (dir: string): string | undefined => {
+  const candidate = resolvePath(dir, configFileName)
+  if (existsSync(candidate)) return candidate
+  const parent = dirname(dir)
+  return parent === dir ? undefined : findConfig(parent)
+}
 
-      const read = (root: string): Effect.Effect<LoomConfigData> =>
-        Effect.gen(function* () {
-          const path = resolve(root, configFileName)
-          const present = yield* fs.exists(path).pipe(Effect.orDie)
-          if (!present) return { languages: [] }
-          const text = yield* fs.readFileString(path).pipe(Effect.orDie)
-          const json = yield* Effect.try(() => JSON.parse(text) as unknown).pipe(
-            Effect.orDie,
-          )
-          const languages = yield* activeLanguages.pipe(
-            Effect.withConfigProvider(ConfigProvider.fromJson(json)),
-            Effect.orDie,
-          )
-          return { languages: languages.filter((id) => id !== '<nil>') }
-        })
+const decode = Schema.decodeUnknownOption(LoomConfigSchema)
 
-      const write = (root: string, config: LoomConfigData): Effect.Effect<void> =>
-        Effect.gen(function* () {
-          const path = resolve(root, configFileName)
-          const text = `${JSON.stringify(config, null, 2)}\n`
-          yield* fs.writeFileString(path, text).pipe(Effect.orDie)
-        })
+const readConfig = (file: string): PackageConfig => {
+  try {
+    const json = JSON.parse(readFileSync(file, 'utf8')) as unknown
+    return Option.match(decode(json), {
+      onNone: () => empty,
+      onSome: (config) => ({
+        anchor: config.anchor,
+        language: config.language,
+        languages: config.languages ?? [],
+      }),
+    })
+  } catch {
+    return empty
+  }
+}
 
-      return { read, write }
-    }),
+## The service
+
+`LoomConfig` is the service the rest of Loom calls. Its `resolve` takes any path inside a package — a `.loom` file, usually — and returns that package's config, found by walking up from the path's own directory. A path that names no package, the empty string among them, resolves to the empty config.
+
+Its `write` serialises a config and writes it to a directory's `loom.json`, creating the directory if it is absent. The `loom activate` command calls it to record a newly activated language. Writing happens outside the projection hook, so it too is synchronous and needs no asynchronous filesystem.
+
+=>
+
+export class LoomConfig extends Effect.Service<LoomConfig>()('LoomConfig', {
+  succeed: {
+    resolve: (fromPath: string): Effect.Effect<PackageConfig> =>
+      Effect.sync(() => {
+        if (fromPath === '') return empty
+        const file = findConfig(dirname(fromPath))
+        return file === undefined ? empty : readConfig(file)
+      }),
+
+    write: (dir: string, config: LoomConfigFile): Effect.Effect<void> =>
+      Effect.sync(() => {
+        mkdirSync(dir, { recursive: true })
+        writeFileSync(
+          resolvePath(dir, configFileName),
+          `${JSON.stringify(config, null, 2)}\n`,
+        )
+      }),
   },
-) {}
+}) {}
+
+## What the module draws on
+
+Effect supplies `Schema` for the file shape, `Option` for a decode that may yield nothing, and the effect type. Node's synchronous filesystem reads, writes, and creates directories; its path module resolves and walks directories.
+
+=>
+
+import { Effect, Option, Schema } from 'effect'
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs'
+import { dirname, resolve as resolvePath } from 'node:path'
 
 ## The module {../src/LoomConfig.ts}
 
-{{i: Imports}}
-{{m: Model}}
-{{s: Source}}
-
 =>
 
-::[i]
+::[What the module draws on]
 
-::[m]
+::[What the config holds]
 
-::[s]
+::[Finding and reading the file]
+
+::[The service]

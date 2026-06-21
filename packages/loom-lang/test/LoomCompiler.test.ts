@@ -48,10 +48,14 @@ const TestDocs = Layer.succeed(
 )
 
 // a stub config: this probe drives the corpus over in-memory paths, so it never
-// touches disk — every file resolves to the default `::[` delimiter.
+// touches disk — every file resolves to the default `::[` delimiters and no
+// configured primary language.
 const TestConfig = Layer.succeed(
   PackageConfig,
-  new PackageConfig({ anchorDelims: () => Effect.succeed(defaultAnchorDelims) }),
+  new PackageConfig({
+    resolve: () =>
+      Effect.succeed({ delims: defaultAnchorDelims, primaryLanguage: undefined }),
+  }),
 )
 
 // merge LoomMemo into the provided context (the same instance the compiler uses,

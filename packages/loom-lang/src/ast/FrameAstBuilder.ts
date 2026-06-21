@@ -41,14 +41,22 @@ export class FrameAstBuilder extends Effect.Service<FrameAstBuilder>()(
   'FrameAstBuilder',
   {
     succeed: {
-      build: (doc: LoomDocument, path: string): Effect.Effect<FrameModule> =>
-        Effect.sync(() => buildFrame(doc, path)),
+      build: (
+        doc: LoomDocument,
+        path: string,
+        packageLanguage?: string,
+      ): Effect.Effect<FrameModule> =>
+        Effect.sync(() => buildFrame(doc, path, packageLanguage)),
     },
   },
 ) {}
 
-export const buildFrame = (doc: LoomDocument, modulePath: string): FrameModule => {
-  const lang = primaryLanguage(doc.preamble)
+export const buildFrame = (
+  doc: LoomDocument,
+  modulePath: string,
+  packageLanguage?: string,
+): FrameModule => {
+  const lang = documentLanguage(doc.preamble) ?? packageLanguage ?? 'plaintext'
   const index = nameIndex(doc.sections)
   return pipe(
     doc.sections,
@@ -76,12 +84,14 @@ const nameIndex = (sections: ReadonlyArray<LoomSection>): NameIndex =>
     ),
   )
 
-const primaryLanguage = (preamble: ReadonlyArray<PreambleWeft>): string =>
+const documentLanguage = (
+  preamble: ReadonlyArray<PreambleWeft>,
+): string | undefined =>
   preamble
     .flatMap((w) => w.warps)
     .find((w) => w.name.value === 'lang')
     ?.annotation.value.trim()
-    .toLowerCase() ?? 'plaintext'
+    .toLowerCase()
 
 interface ServiceInfo {
   readonly name: string

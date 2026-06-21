@@ -166,7 +166,7 @@ export const loomServicePlugins = (
 ): Effect.Effect<ReadonlyArray<LanguageServicePlugin>> =>
   Effect.gen(function* () {
     const config = yield* LoomConfig
-    const { languages } = yield* config.read(root)
+    const { languages } = yield* config.resolve(root)
     return yield* collect(resolveActive(languages), tsdk)
   }).pipe(
     Effect.provide(LoomConfig.Default),
@@ -175,7 +175,7 @@ export const loomServicePlugins = (
 
 ## What the plugin draws on
 
-The plugin draws on Volar for its contracts — `LanguagePlugin` and `LanguageServicePlugin` — and its `CodegenContext` and `VirtualCode`, which the per-call source and the cache check read. Effect captures the runtime and runs the collection pass. From the pipeline it takes `LoomCompiler`, which projects and caches the corpus, and the `Source` seam with its `ReadError`. From `@athrio/loom-lang-services` it takes the `LanguageService` contract, the `LanguageRegistry` that indexes the active set, and the two built-in languages: `LoomLanguage` for the frame, `TypescriptLanguage` for a TypeScript target. From `@athrio/loom-config` it reads the project's active languages out of `loom.config.json`. `URI` keys a script for `getAssociatedScript`, and Node's `fs` reads an unopened import.
+The plugin draws on Volar for its contracts — `LanguagePlugin` and `LanguageServicePlugin` — and its `CodegenContext` and `VirtualCode`, which the per-call source and the cache check read. Effect captures the runtime and runs the collection pass. From the pipeline it takes `LoomCompiler`, which projects and caches the corpus, and the `Source` seam with its `ReadError`. From `@athrio/loom-lang-services` it takes the `LanguageService` contract, the `LanguageRegistry` that indexes the active set, and the two built-in languages: `LoomLanguage` for the frame, `TypescriptLanguage` for a TypeScript target. From `@athrio/loom-config` it reads active languages out of `loom.json`. `URI` keys a script for `getAssociatedScript`, and Node's `fs` reads an unopened import.
 
 =>
 

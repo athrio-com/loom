@@ -1,83 +1,64 @@
 {{lang: TypeScript}}
 
-# Per-package configuration
+# Per-package build settings
 
-`PackageConfig` reads a package's `loom.json` — the per-package settings file, sibling to its `corpus/`. It answers one question for now: which anchor delimiter pair a file under that package uses. The default is `::[` … `]`; a package overrides it when that pair would collide with its product language.
+`PackageConfig` reads a `.loom` file's package configuration and gives the compiler the two settings it needs to build that file: the anchor delimiters its sections cut with, and the primary language a section without a specifier inherits. It reads through `@athrio/loom-config`, which finds the file's `loom.json` and parses it. This service turns that raw configuration into the compiler's own terms.
 
-## What the service reads
+## What the compiler reads
 
-A `loom.json` records its anchor delimiter under an `anchor` key:
+`BuildSettings` is the answer the compiler gets for one file. It holds a full anchor delimiter pair and the primary language of that file's package.
 
-```json
-{ "anchor": { "open": "<<", "close": ">>" } }
-```
+The anchor delimiters are always a complete pair. A `loom.json` may set one side, both, or neither, so `anchorDelimsOf` fills each missing side from `defaultAnchorDelims`, the built-in `::[` and `]`. A package overrides a delimiter only where the default would collide with its own product language.
 
-`anchorConfig` reads that pair through Effect's `Config`, the same JSON-provider path the language config uses. Each field falls back to the built-in delimiter, so a file with no `anchor` key, or no `loom.json` at all, resolves to `::[` and `]`.
+The primary language is the language a specifier-less section inherits. It comes straight from the package configuration, and is absent when the configuration names none. The frame builder reads it as the default beneath the document's own `lang` Warp, so a package can name its language once in `loom.json` and let every document drop the Warp.
 
 =>
 
-export const configFileName = 'loom.json'
-
-const anchorConfig = Config.all({
-  open: Config.string('open').pipe(Config.withDefault(defaultAnchorDelims.open)),
-  close: Config.string('close').pipe(Config.withDefault(defaultAnchorDelims.close)),
-}).pipe(Config.nested('anchor'))
-
-const delimsFromJson = (json: unknown): Effect.Effect<AnchorDelims> =>
-  anchorConfig.pipe(
-    Effect.withConfigProvider(ConfigProvider.fromJson(json)),
-    Effect.orDie,
-  )
-
-## The resolver, and the service that exposes it
-
-One synchronous resolver answers which delimiter pair a file uses. `resolveAnchorDelims` walks up from a file's directory to the nearest `loom.json`, reads it, and shares `delimsFromJson` with the config reader above, so the editor and the tangler resolve a file's delimiters the same way. An empty path, or a file under no `loom.json`, resolves to the default `::[` and `]`. The resolver re-reads on each call rather than caching, so editing a `loom.json` takes effect on the next keystroke.
-
-The resolver reads synchronously, by design. The editor projects a `.loom` inside Volar's synchronous hook, which cannot await a file read, so `resolveAnchorDelims` reaches `loom.json` through Node's `existsSync` and `readFileSync`, wrapped in `Effect.try` so a malformed file degrades to the default rather than throwing. `findConfigSync` is the walk up the directory tree.
-
-`PackageConfig` exposes the resolver as a service, so the compiler reaches anchor resolution through the same dependency injection it uses for every pass. The service holds no logic of its own. Its `anchorDelims` delegates straight to `resolveAnchorDelims`.
-
-=>
-
-const findConfigSync = (dir: string): string | undefined => {
-  const candidate = resolvePath(dir, configFileName)
-  if (existsSync(candidate)) return candidate
-  const parent = dirname(dir)
-  return parent === dir ? undefined : findConfigSync(parent)
+export interface BuildSettings {
+  readonly delims: AnchorDelims
+  readonly primaryLanguage: string | undefined
 }
 
-export const resolveAnchorDelims = (
-  path: string,
-): Effect.Effect<AnchorDelims> =>
-  Effect.gen(function* () {
-    if (path === '') return defaultAnchorDelims
-    const found = yield* Effect.sync(() => findConfigSync(dirname(path)))
-    if (found === undefined) return defaultAnchorDelims
-    const json = yield* Effect.try(
-      () => JSON.parse(readFileSync(found, 'utf8')) as unknown,
-    ).pipe(Effect.orElse(() => Effect.succeed({} as unknown)))
-    return yield* delimsFromJson(json)
-  })
+const anchorDelimsOf = (
+  anchor: { readonly open?: string; readonly close?: string } | undefined,
+): AnchorDelims => ({
+  open: anchor?.open ?? defaultAnchorDelims.open,
+  close: anchor?.close ?? defaultAnchorDelims.close,
+})
+
+## The service
+
+`PackageConfig` is the service the compiler depends on, so it reaches build settings through the same dependency injection it uses for every other pass. It depends on `LoomConfig` and reads through it, holding no file logic of its own. Its `resolve` takes a file's path, asks `LoomConfig` for that file's package configuration, and maps the answer to a `BuildSettings`.
+
+=>
 
 export class PackageConfig extends Effect.Service<PackageConfig>()(
   'PackageConfig',
   {
-    succeed: {
-      anchorDelims: (path: Path): Effect.Effect<AnchorDelims> =>
-        resolveAnchorDelims(path),
-    },
+    effect: Effect.gen(function* () {
+      const config = yield* LoomConfig
+      return {
+        resolve: (path: Path): Effect.Effect<BuildSettings> =>
+          config.resolve(path).pipe(
+            Effect.map((c) => ({
+              delims: anchorDelimsOf(c.anchor),
+              primaryLanguage: c.language,
+            })),
+          ),
+      }
+    }),
+    dependencies: [LoomConfig.Default],
   },
 ) {}
 
 ## What this module draws on
 
-Effect's `Config` reads the delimiter pair and `ConfigProvider` feeds it the parsed JSON. Node's synchronous `fs` — `existsSync` and `readFileSync` — walks the directory tree and reads the file. `AnchorDelims` and `defaultAnchorDelims` come from the token layer, and `Path` types a file path.
+Effect supplies the service and the effect type. `LoomConfig`, from `@athrio/loom-config`, finds and reads a file's `loom.json`. `AnchorDelims` and `defaultAnchorDelims` come from the token layer, where the built-in delimiters live, and `Path` types a file path.
 
 =>
 
-import { Config, ConfigProvider, Effect } from 'effect'
-import { existsSync, readFileSync } from 'node:fs'
-import { dirname, resolve as resolvePath } from 'node:path'
+import { Effect } from 'effect'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { type AnchorDelims, defaultAnchorDelims } from '#ast/LoomTokens'
 import { type Path } from '#ast/LoomCorpusAst'
 
@@ -87,6 +68,6 @@ import { type Path } from '#ast/LoomCorpusAst'
 
 ::[What this module draws on]
 
-::[What the service reads]
+::[What the compiler reads]
 
-::[The resolver, and the service that exposes it]
+::[The service]

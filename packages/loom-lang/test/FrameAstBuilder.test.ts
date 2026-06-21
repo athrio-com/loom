@@ -341,3 +341,42 @@ main = ::[Helper]
     expect(main.body.type).toBe('StaticBody')
   })
 })
+
+describe('buildFrame — primary language: doc Warp → package language → plaintext', () => {
+  // The lang Warp is optional. A specifier-less section takes the document's lang
+  // Warp when present, otherwise the package language buildFrame is handed, and
+  // finally plaintext when neither is set.
+  const langOf = (src: string, packageLanguage?: string): string => {
+    const svc = buildFrame(parse(src), '/x.loom', packageLanguage)
+      .members.map((m) => m.value)
+      .find((v): v is ServiceClass => v.type === 'ServiceClass')!
+    return svc.languageId
+  }
+
+  const noWarp = `# Helper
+
+=>
+
+const helper = 1
+`
+  const withWarp = `{{lang: TypeScript}}
+
+# Helper
+
+=>
+
+const helper = 1
+`
+
+  it('falls back to the package language when the document omits the lang Warp', () => {
+    expect(langOf(noWarp, 'bash')).toBe('bash')
+  })
+
+  it('lets the document lang Warp override the package language', () => {
+    expect(langOf(withWarp, 'bash')).toBe('typescript')
+  })
+
+  it('falls back to plaintext when neither the Warp nor a package language is set', () => {
+    expect(langOf(noWarp)).toBe('plaintext')
+  })
+})

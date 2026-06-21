@@ -1,49 +1,80 @@
-import { Config, ConfigProvider, Effect, Schema } from 'effect'
-import { FileSystem } from '@effect/platform'
-import { resolve } from 'node:path'
+import { Effect, Option, Schema } from 'effect'
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs'
+import { dirname, resolve as resolvePath } from 'node:path'
+
+export const configFileName = 'loom.json'
 
 export const LoomConfigSchema = Schema.Struct({
-  languages: Schema.Array(Schema.String),
+  anchor: Schema.optional(
+    Schema.Struct({
+      open: Schema.optional(Schema.String),
+      close: Schema.optional(Schema.String),
+    }),
+  ),
+  language: Schema.optional(Schema.String),
+  languages: Schema.optional(Schema.Array(Schema.String)),
 })
 
-export type LoomConfigData = typeof LoomConfigSchema.Type
+export type LoomConfigFile = typeof LoomConfigSchema.Type
 
-export const configFileName = 'loom.config.json'
+export interface PackageConfig {
+  readonly anchor: { readonly open?: string; readonly close?: string } | undefined
+  readonly language: string | undefined
+  readonly languages: ReadonlyArray<string>
+}
 
-const activeLanguages = Config.array(Config.string(), 'languages').pipe(
-  Config.withDefault([]),
-)
+const empty: PackageConfig = {
+  anchor: undefined,
+  language: undefined,
+  languages: [],
+}
 
-export class LoomConfig extends Effect.Service<LoomConfig>()(
-  'LoomConfig',
-  {
-    effect: Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem
+const findConfig = (dir: string): string | undefined => {
+  const candidate = resolvePath(dir, configFileName)
+  if (existsSync(candidate)) return candidate
+  const parent = dirname(dir)
+  return parent === dir ? undefined : findConfig(parent)
+}
 
-      const read = (root: string): Effect.Effect<LoomConfigData> =>
-        Effect.gen(function* () {
-          const path = resolve(root, configFileName)
-          const present = yield* fs.exists(path).pipe(Effect.orDie)
-          if (!present) return { languages: [] }
-          const text = yield* fs.readFileString(path).pipe(Effect.orDie)
-          const json = yield* Effect.try(() => JSON.parse(text) as unknown).pipe(
-            Effect.orDie,
-          )
-          const languages = yield* activeLanguages.pipe(
-            Effect.withConfigProvider(ConfigProvider.fromJson(json)),
-            Effect.orDie,
-          )
-          return { languages: languages.filter((id) => id !== '<nil>') }
-        })
+const decode = Schema.decodeUnknownOption(LoomConfigSchema)
 
-      const write = (root: string, config: LoomConfigData): Effect.Effect<void> =>
-        Effect.gen(function* () {
-          const path = resolve(root, configFileName)
-          const text = `${JSON.stringify(config, null, 2)}\n`
-          yield* fs.writeFileString(path, text).pipe(Effect.orDie)
-        })
+const readConfig = (file: string): PackageConfig => {
+  try {
+    const json = JSON.parse(readFileSync(file, 'utf8')) as unknown
+    return Option.match(decode(json), {
+      onNone: () => empty,
+      onSome: (config) => ({
+        anchor: config.anchor,
+        language: config.language,
+        languages: config.languages ?? [],
+      }),
+    })
+  } catch {
+    return empty
+  }
+}
 
-      return { read, write }
-    }),
+export class LoomConfig extends Effect.Service<LoomConfig>()('LoomConfig', {
+  succeed: {
+    resolve: (fromPath: string): Effect.Effect<PackageConfig> =>
+      Effect.sync(() => {
+        if (fromPath === '') return empty
+        const file = findConfig(dirname(fromPath))
+        return file === undefined ? empty : readConfig(file)
+      }),
+
+    write: (dir: string, config: LoomConfigFile): Effect.Effect<void> =>
+      Effect.sync(() => {
+        mkdirSync(dir, { recursive: true })
+        writeFileSync(
+          resolvePath(dir, configFileName),
+          `${JSON.stringify(config, null, 2)}\n`,
+        )
+      }),
   },
-) {}
+}) {}

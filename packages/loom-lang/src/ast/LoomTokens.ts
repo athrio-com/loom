@@ -1,4 +1,4 @@
-import { Option, Schema, SchemaAST } from 'effect'
+import { Data, Effect, Option, Schema, SchemaAST } from 'effect'
 import { loomNode } from './LoomNode'
 
 export const Probe: unique symbol = Symbol.for('loom/Probe')
@@ -229,6 +229,68 @@ export const WarpTokenSchema = loomNode('Warp', {
   [Probe]: /\{\{[^{}]*:[^{}]*\}\}/g,
 })
 export type WarpToken = typeof WarpTokenSchema.Type
+
+const suggestAnchorDelims = `Choose a distinct open that Loom does not use and that does not occur in your product code — for example \`${defaultAnchorDelims.open}\` and \`${defaultAnchorDelims.close}\` — in this package's loom.json.`
+
+const reservedOpen: ReadonlyArray<string> = ['{{', '}}', '=>', '~', '#', '<', '>', '[', ']']
+
+export class EmptyAnchorDelims extends Data.TaggedError('EmptyAnchorDelims')<{
+  readonly open: string
+  readonly close: string
+}> {
+  get message(): string {
+    return `Anchor delimiters cannot be empty (got \`${this.open}\` and \`${this.close}\`). ${suggestAnchorDelims}`
+  }
+}
+
+export class IdenticalAnchorDelims extends Data.TaggedError('IdenticalAnchorDelims')<{
+  readonly delim: string
+}> {
+  get message(): string {
+    return `Anchor open and close must differ; both are \`${this.delim}\`. A symmetric pair cannot be paired unambiguously. ${suggestAnchorDelims}`
+  }
+}
+
+export class WhitespaceAnchorDelims extends Data.TaggedError('WhitespaceAnchorDelims')<{
+  readonly open: string
+  readonly close: string
+}> {
+  get message(): string {
+    return `Anchor delimiters cannot contain whitespace (got \`${this.open}\` and \`${this.close}\`). ${suggestAnchorDelims}`
+  }
+}
+
+export class ReservedAnchorDelims extends Data.TaggedError('ReservedAnchorDelims')<{
+  readonly marker: string
+}> {
+  get message(): string {
+    return `Anchor open \`${this.marker}\` is one of Loom's reserved markers. ${suggestAnchorDelims}`
+  }
+}
+
+export type InvalidAnchorDelims =
+  | EmptyAnchorDelims
+  | IdenticalAnchorDelims
+  | WhitespaceAnchorDelims
+  | ReservedAnchorDelims
+
+export const checkAnchorDelims = (
+  delims: AnchorDelims,
+): Effect.Effect<AnchorDelims, InvalidAnchorDelims> => {
+  if (delims.open === '' || delims.close === '')
+    return Effect.fail(
+      new EmptyAnchorDelims({ open: delims.open, close: delims.close }),
+    )
+  if (delims.open === delims.close)
+    return Effect.fail(new IdenticalAnchorDelims({ delim: delims.open }))
+  if (/\s/.test(delims.open) || /\s/.test(delims.close))
+    return Effect.fail(
+      new WhitespaceAnchorDelims({ open: delims.open, close: delims.close }),
+    )
+  if (reservedOpen.includes(delims.open))
+    return Effect.fail(new ReservedAnchorDelims({ marker: delims.open }))
+  return Effect.succeed(delims)
+}
 
 export const LoomTokenSchema = Schema.Union(
   HeadingStartTokenSchema,

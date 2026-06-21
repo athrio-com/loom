@@ -289,6 +289,74 @@ export const WarpTokenSchema = loomNode('Warp', {
 })
 export type WarpToken = typeof WarpTokenSchema.Type
 
+## Validating the anchor delimiters
+
+A package may choose its own anchor delimiter pair, so a bad pair must fail the way a mixed line terminator does: a parse-level error the editor and the tangler both report, never a silent misparse. `checkAnchorDelims` is that gate, and it raises a distinct, self-describing error for each fault. It rejects an empty delimiter, an open equal to its close, and whitespace inside either. It holds the open to more, since the open is what triggers anchor scanning: the open may not be one of Loom's own markers — the warp braces, the `=>` arrow, the `~` prose line, the `#` heading — nor a bracket or angle that pervades product code: `<`, `>`, `[`, or `]`. The close escapes that list, so the built-in `]` stays a valid close. Each error carries its own `message` naming the fault and suggesting a sound pair, so the recovery reads `emptyDocument(text, err.message)` and needs no separate message builder.
+
+=>
+
+const suggestAnchorDelims = `Choose a distinct open that Loom does not use and that does not occur in your product code — for example \`${defaultAnchorDelims.open}\` and \`${defaultAnchorDelims.close}\` — in this package's loom.json.`
+
+const reservedOpen: ReadonlyArray<string> = ['{{', '}}', '=>', '~', '#', '<', '>', '[', ']']
+
+export class EmptyAnchorDelims extends Data.TaggedError('EmptyAnchorDelims')<{
+  readonly open: string
+  readonly close: string
+}> {
+  get message(): string {
+    return `Anchor delimiters cannot be empty (got \`${this.open}\` and \`${this.close}\`). ${suggestAnchorDelims}`
+  }
+}
+
+export class IdenticalAnchorDelims extends Data.TaggedError('IdenticalAnchorDelims')<{
+  readonly delim: string
+}> {
+  get message(): string {
+    return `Anchor open and close must differ; both are \`${this.delim}\`. A symmetric pair cannot be paired unambiguously. ${suggestAnchorDelims}`
+  }
+}
+
+export class WhitespaceAnchorDelims extends Data.TaggedError('WhitespaceAnchorDelims')<{
+  readonly open: string
+  readonly close: string
+}> {
+  get message(): string {
+    return `Anchor delimiters cannot contain whitespace (got \`${this.open}\` and \`${this.close}\`). ${suggestAnchorDelims}`
+  }
+}
+
+export class ReservedAnchorDelims extends Data.TaggedError('ReservedAnchorDelims')<{
+  readonly marker: string
+}> {
+  get message(): string {
+    return `Anchor open \`${this.marker}\` is one of Loom's reserved markers. ${suggestAnchorDelims}`
+  }
+}
+
+export type InvalidAnchorDelims =
+  | EmptyAnchorDelims
+  | IdenticalAnchorDelims
+  | WhitespaceAnchorDelims
+  | ReservedAnchorDelims
+
+export const checkAnchorDelims = (
+  delims: AnchorDelims,
+): Effect.Effect<AnchorDelims, InvalidAnchorDelims> => {
+  if (delims.open === '' || delims.close === '')
+    return Effect.fail(
+      new EmptyAnchorDelims({ open: delims.open, close: delims.close }),
+    )
+  if (delims.open === delims.close)
+    return Effect.fail(new IdenticalAnchorDelims({ delim: delims.open }))
+  if (/\s/.test(delims.open) || /\s/.test(delims.close))
+    return Effect.fail(
+      new WhitespaceAnchorDelims({ open: delims.open, close: delims.close }),
+    )
+  if (reservedOpen.includes(delims.open))
+    return Effect.fail(new ReservedAnchorDelims({ marker: delims.open }))
+  return Effect.succeed(delims)
+}
+
 ## The token union
 
 `LoomToken` is the union of every leaf token — the type the tokeniser emits.
@@ -312,11 +380,11 @@ export type LoomToken = typeof LoomTokenSchema.Type
 
 ## What this module draws on
 
-`LoomTokens` draws `Schema` for the token definitions, `SchemaAST` to read a `Probe` annotation back, and `Option` for its result. `loomNode` from the foundation gives each token its shared shape.
+`LoomTokens` draws `Schema` for the token definitions, `SchemaAST` to read a `Probe` annotation back, and `Option` for its result. `Effect` and `Data` build the delimiter check and the tagged error it fails with. `loomNode` from the foundation gives each token its shared shape.
 
 =>
 
-import { Option, Schema, SchemaAST } from 'effect'
+import { Data, Effect, Option, Schema, SchemaAST } from 'effect'
 import { loomNode } from './LoomNode'
 
 ## The module {../src/ast/LoomTokens.ts}
@@ -342,5 +410,7 @@ import { loomNode } from './LoomNode'
 ::[Code and prose content]
 
 ::[Warps and anchors]
+
+::[Validating the anchor delimiters]
 
 ::[The token union]

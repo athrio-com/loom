@@ -82,9 +82,9 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
       const runner = yield* LoomRunner
 
       const load = (source: Source, path: Path): Effect.Effect<void> =>
-        config.anchorDelims(path).pipe(
-          Effect.flatMap((delims) =>
-            memo.get(path, builder.build(source, path, delims)),
+        config.resolve(path).pipe(
+          Effect.flatMap(({ delims, primaryLanguage }) =>
+            memo.get(path, builder.build(source, path, delims, primaryLanguage)),
           ),
           Effect.flatMap((m) =>
             Effect.forEach(m.imports, (dep) => load(source, dep), {
