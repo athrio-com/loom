@@ -468,8 +468,11 @@ from the same source document, with no duplication.
 //   - Tagged sections  → export class — public API, importable cross-file.
 //   - Tagless sections → class (no export) — private, same-file only.
 //   - Sections emitted in document order (no eager cross-refs; order is free).
-//   - Explicit [Tag]  → name (class + service tag) = the tag label, mapped to it.
-//   - No [Tag]        → name = heading title normalised to an identifier, mapped back to the heading.
+//   - Explicit [Tag]  → class name = the tag label, mapped to it.
+//   - No [Tag]        → class name = heading title normalised to an identifier, mapped back to the heading.
+//   - Service tag (the "…" string) = the section's module-qualified key <path>#<name>.
+//     Two modules that each define a `Bit` stay distinct. Unmapped: identity, not a
+//     name. The examples below show it bare, eliding the path for readability.
 //   - Heading title stored as `name` field on every content section (tangle
 //     sinks return core.tangle(…) — no name/prose).
 //   - Section prose → `prose` field = core.weave(…), the woven peer of `code`.

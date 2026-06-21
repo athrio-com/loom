@@ -3,6 +3,7 @@ import type { LoomDocument, LoomSection } from '#ast/LoomAst'
 import { okHealth, type Health, type Point, type Position } from '#ast/LoomNode'
 import type { WarpAnchorToken, WarpToken } from '#ast/LoomTokens'
 import type { PreambleWeft, SectionBodyWeft } from '#ast/Weft'
+import type { SectionId } from '#ast/ProductAst'
 import {
   type Binding,
   BindingItemSchema,
@@ -14,6 +15,7 @@ import {
   ComposeSchema,
   ProseFragmentSchema,
   type Weave,
+  WeaveArgItemSchema,
   WeaveSchema,
   type EmbeddedCode,
   EmbeddedCodeSchema,
@@ -25,18 +27,12 @@ import {
   FrameModuleSchema,
   FrameSynthTokenSchema,
   EffectfulBodySchema,
-  type LayerRef,
-  LayerRefItemSchema,
-  LayerRefSchema,
   MemberItemSchema,
   RootSchema,
   type ServiceBody,
   type ServiceClass,
   ServiceClassSchema,
   type ServiceName,
-  type SinkRef,
-  SinkItemSchema,
-  SinkRefSchema,
   StaticBodySchema,
   TangleBodySchema,
 } from '#ast/FrameAst'
@@ -45,18 +41,18 @@ export class FrameAstBuilder extends Effect.Service<FrameAstBuilder>()(
   'FrameAstBuilder',
   {
     succeed: {
-      build: (doc: LoomDocument): Effect.Effect<FrameModule> =>
-        Effect.sync(() => buildFrame(doc)),
+      build: (doc: LoomDocument, path: string): Effect.Effect<FrameModule> =>
+        Effect.sync(() => buildFrame(doc, path)),
     },
   },
 ) {}
 
-export const buildFrame = (doc: LoomDocument): FrameModule => {
+export const buildFrame = (doc: LoomDocument, modulePath: string): FrameModule => {
   const lang = primaryLanguage(doc.preamble)
   const index = nameIndex(doc.sections)
   return pipe(
     doc.sections,
-    Array.map(buildMember(index, lang)),
+    Array.map(buildMember(index, lang, modulePath)),
     Array.reduce(emptyFrame, appendMember),
     finaliseModule,
   )
@@ -87,40 +83,47 @@ const primaryLanguage = (preamble: ReadonlyArray<PreambleWeft>): string =>
     ?.annotation.value.trim()
     .toLowerCase() ?? 'plaintext'
 
+interface ServiceInfo {
+  readonly name: string
+  readonly deps: ReadonlyArray<string>
+  readonly sink: boolean
+}
+
 interface Built {
   readonly member: ServiceClass | FrameCode
-  readonly layer: Option.Option<LayerRef>
-  readonly sink: Option.Option<SinkRef>
+  readonly service: Option.Option<ServiceInfo>
   readonly imports: ReadonlyArray<FrameCode>
 }
 
 const buildMember =
-  (index: NameIndex, lang: string) =>
+  (index: NameIndex, lang: string, modulePath: string) =>
   (section: LoomSection): Built =>
     pipe(
       Match.value(section.heading.specifier),
       Match.when({ type: 'PathSpecifier' }, (spec) =>
-        buildService(index, lang, section, Option.some(pathOf(spec))),
+        buildService(index, lang, section, modulePath, Option.some(pathOf(spec))),
       ),
       Match.when({ type: 'Specifier', label: { value: 'Loom' } }, () =>
         buildSplice(section),
       ),
-      Match.orElse(() => buildService(index, lang, section, Option.none())),
+      Match.orElse(() =>
+        buildService(index, lang, section, modulePath, Option.none()),
+      ),
     )
 
 const buildService = (
   index: NameIndex,
   defaultLang: string,
   section: LoomSection,
-  path: Option.Option<FrameAuthoredToken>,
+  modulePath: string,
+  tanglePath: Option.Option<FrameAuthoredToken>,
 ): Built => {
   const warps = section.preamble.flatMap((w) => w.warps)
   const warpNames = new Set(warps.map((w) => w.name.value))
-  const { compose, internals } = buildCompose(section, warpNames, index)
-  const bindings = [...warps.map(warpBinding), ...internals]
 
-  const name = serviceName(section)
-  const languageId = Option.match(path, {
+  const name = serviceNameOf(section)
+  const origin: SectionId = { path: modulePath, name }
+  const languageId = Option.match(tanglePath, {
     onSome: () => 'Loom',
     onNone: () =>
       section.heading.specifier?.type === 'Specifier'
@@ -128,34 +131,46 @@ const buildService = (
         : defaultLang,
   })
 
-  const body = bodyOf(section, path, bindings, compose)
-  const exported = Option.isNone(path) && isExported(section)
+  const { compose, internals } = buildCompose(
+    section,
+    warpNames,
+    index,
+    origin,
+    languageId,
+  )
+  const bindings = [...warps.map(warpBinding), ...internals]
 
-  const nameRef = FrameSynthTokenSchema.make({ text: name.text })
+  const nameRef = FrameSynthTokenSchema.make({ text: name })
   const service = ServiceClassSchema.make({
-    modifier: FrameSynthTokenSchema.make({ text: exported ? 'export ' : '' }),
-    name,
+    modifier: FrameSynthTokenSchema.make({
+      text: Option.isNone(tanglePath) && isExported(section) ? 'export ' : '',
+    }),
+    name: serviceName(section),
     nameType: nameRef,
-    nameTag: nameRef,
-    body,
+    nameTag: tok(serviceTag(origin)),
+    body: bodyOf(section, tanglePath, bindings, compose, origin),
     languageId,
   })
 
   return {
     member: service,
-    layer: Option.some(LayerRefSchema.make({ name: nameRef })),
-    sink: Option.map(path, () => SinkRefSchema.make({ name: nameRef })),
+    service: Option.some({
+      name,
+      deps: bindings.map((b) => b.tag.text),
+      sink: Option.isSome(tanglePath),
+    }),
     imports: [],
   }
 }
 
 const bodyOf = (
   section: LoomSection,
-  path: Option.Option<FrameAuthoredToken>,
+  tanglePath: Option.Option<FrameAuthoredToken>,
   bindings: ReadonlyArray<Binding>,
   compose: Compose,
+  origin: SectionId,
 ): ServiceBody =>
-  Option.match(path, {
+  Option.match(tanglePath, {
     onSome: (p) =>
       TangleBodySchema.make({ bindings: items(bindings), path: p, code: compose }),
     onNone: () =>
@@ -163,12 +178,12 @@ const bodyOf = (
         ? EffectfulBodySchema.make({
             bindings: items(bindings),
             name: titleField(section),
-            prose: proseField(section),
+            prose: proseField(section, origin),
             code: compose,
           })
         : StaticBodySchema.make({
             name: titleField(section),
-            prose: proseField(section),
+            prose: proseField(section, origin),
             code: compose,
           }),
   })
@@ -187,8 +202,7 @@ const buildSplice = (section: LoomSection): Built => {
       onNonEmpty: () =>
         FrameCodeSchema.make({ text: sourceOf(body), position: spanOf(body) }),
     }),
-    layer: Option.none(),
-    sink: Option.none(),
+    service: Option.none(),
     imports: pipe(
       pieces,
       Array.filter(isImport),
@@ -201,18 +215,17 @@ const buildCompose = (
   section: LoomSection,
   warps: ReadonlySet<string>,
   index: NameIndex,
+  origin: SectionId,
+  languageId: string,
 ): { readonly compose: Compose; readonly internals: ReadonlyArray<Binding> } => {
   const walked = Array.map(codeRuns(section.code), walkRun(bindAnchor(index, warps)))
   const args = Array.flatMap(walked, (w) => w.args)
   const internals = dedupeByName(Array.flatMap(walked, (w) => w.bindings))
 
-  const compose = Array.matchLeft(args, {
-    onEmpty: () => ComposeSchema.make({ tail: [] }),
-    onNonEmpty: (head, tail) =>
-      ComposeSchema.make({
-        head,
-        tail: Array.map(tail, (value) => ComposeArgItemSchema.make({ value })),
-      }),
+  const compose = ComposeSchema.make({
+    origin: tok(sectionIdLiteral(origin)),
+    lang: tok(JSON.stringify(languageId)),
+    args: Array.map(args, (value) => ComposeArgItemSchema.make({ value })),
   })
   return { compose, internals }
 }
@@ -303,12 +316,14 @@ const walkRun =
       text.slice(from.offset - start.offset, to.offset - start.offset)
     const fragment = (from: Point, to: Point): ReadonlyArray<EmbeddedCode> => {
       const lit = slice(from, to)
+      const position = between(from, to)
       return lit.length === 0
         ? []
         : [
             EmbeddedCodeSchema.make({
               text: escapeTemplate(lit),
-              position: between(from, to),
+              position,
+              origin: tok(posLiteral(position)),
             }),
           ]
     }
@@ -382,8 +397,11 @@ const bindAnchor =
     })
   }
 
-const codeRef = (name: string, at: Position, health?: Health): CodeRef =>
-  CodeRefSchema.make({ binding: anchorId(name, at, health) })
+const codeRef = (name: string, at: Position, health: Health = okHealth): CodeRef =>
+  CodeRefSchema.make({
+    binding: anchorId(name, at, health),
+    anchor: tok(posLiteral(at)),
+  })
 
 const aliasOf = (service: string): string => `_${service}`
 
@@ -424,44 +442,73 @@ const ambiguous = (name: string, at: Position, count: number): Health => ({
 interface FrameBuilder {
   readonly imports: ReadonlyArray<FrameCode>
   readonly members: ReadonlyArray<ReturnType<typeof MemberItemSchema.make>>
-  readonly layers: ReadonlyArray<LayerRef>
-  readonly sinks: ReadonlyArray<SinkRef>
+  readonly services: ReadonlyArray<ServiceInfo>
 }
 
 const emptyFrame: FrameBuilder = {
   imports: [],
   members: [],
-  layers: [],
-  sinks: [],
+  services: [],
 }
 
 const appendMember = (b: FrameBuilder, built: Built): FrameBuilder => ({
   imports: [...b.imports, ...built.imports],
   members: [...b.members, MemberItemSchema.make({ value: built.member })],
-  layers: [...b.layers, ...Option.toArray(built.layer)],
-  sinks: [...b.sinks, ...Option.toArray(built.sink)],
+  services: [...b.services, ...Option.toArray(built.service)],
 })
 
 const finaliseModule = (b: FrameBuilder): FrameModule =>
   FrameModuleSchema.make({
     imports: b.imports,
     members: b.members,
-    root: buildRoot(b.layers, b.sinks),
+    root: buildRoot(b.services),
   })
 
-const buildRoot = (
-  layers: ReadonlyArray<LayerRef>,
-  sinks: ReadonlyArray<SinkRef>,
-) =>
-  Array.matchLeft(layers, {
+const buildRoot = (services: ReadonlyArray<ServiceInfo>) =>
+  Array.matchLeft(services, {
     onEmpty: () => undefined,
-    onNonEmpty: (head, tail) =>
+    onNonEmpty: () =>
       RootSchema.make({
-        head,
-        tail: tail.map((value) => LayerRefItemSchema.make({ value })),
-        sinks: sinks.map((value) => SinkItemSchema.make({ value })),
+        services: FrameSynthTokenSchema.make({ text: servicesLiteral(services) }),
+        run: FrameSynthTokenSchema.make({ text: runLiteral(services) }),
       }),
   })
+
+const servicesLiteral = (services: ReadonlyArray<ServiceInfo>): string => {
+  const entries = Array.map(
+    services,
+    (s) =>
+      `  ${s.name}: { layer: ${s.name}.Default, self: ${s.name}, deps: [${s.deps.join(', ')}] }`,
+  )
+  return `{\n${entries.join(',\n')}\n}`
+}
+
+const runLiteral = (services: ReadonlyArray<ServiceInfo>): string => {
+  const content = Array.filter(services, (s) => !s.sink)
+  const sinks = Array.filter(services, (s) => s.sink)
+  const codeEntries = Array.map(
+    services,
+    (s) => `      [${JSON.stringify(s.name)}, (yield* ${s.name}).code]`,
+  ).join(',\n')
+  const proseEntries = Array.map(
+    content,
+    (s) => `      [${JSON.stringify(s.name)}, (yield* ${s.name}).prose]`,
+  ).join(',\n')
+  const fileEntries = Array.map(sinks, (s) => `      yield* ${s.name}`).join(',\n')
+  return `Effect.gen(function* () {
+  return {
+    sections: new Map([
+${codeEntries}
+    ]),
+    prose: new Map([
+${proseEntries}
+    ]),
+    files: [
+${fileEntries}
+    ],
+  }
+})`
+}
 
 const serviceNameOf = (section: LoomSection): string =>
   section.heading.tag?.label.value ?? ''
@@ -480,6 +527,8 @@ const isExported = (section: LoomSection): boolean => {
     tag.label.position.end.offset > tag.label.position.start.offset
   )
 }
+
+const tok = (text: string) => FrameSynthTokenSchema.make({ text })
 
 const tagId = (text: string, position: Position): FrameAuthoredToken =>
   FrameAuthoredTokenSchema.make({ text, position, kind: 'tag' })
@@ -504,17 +553,23 @@ const anchorId = (
 const prose = (text: string, position: Position): FrameAuthoredToken =>
   FrameAuthoredTokenSchema.make({ text, position, kind: 'prose' })
 
-const proseField = (section: LoomSection): Weave => {
+const proseField = (section: LoomSection, origin: SectionId): Weave => {
   const src = sourceOf(section.preamble)
-  return src.length === 0
-    ? WeaveSchema.make({ tail: [] })
-    : WeaveSchema.make({
-        head: ProseFragmentSchema.make({
+  const originTok = tok(sectionIdLiteral(origin))
+  if (src.length === 0) return WeaveSchema.make({ origin: originTok, args: [] })
+  const position = preamblePos(section)
+  return WeaveSchema.make({
+    origin: originTok,
+    args: [
+      WeaveArgItemSchema.make({
+        value: ProseFragmentSchema.make({
           text: escapeTemplate(src),
-          position: preamblePos(section),
+          position,
+          origin: FrameSynthTokenSchema.make({ text: posLiteral(position) }),
         }),
-        tail: [],
-      })
+      }),
+    ],
+  })
 }
 
 const titleField = (section: LoomSection): ServiceName =>
@@ -539,6 +594,20 @@ const spanOf = (
 })
 
 const between = (start: Point, end: Point): Position => ({ start, end })
+
+const sectionIdLiteral = (id: SectionId): string =>
+  `{ path: ${JSON.stringify(id.path)}, name: ${JSON.stringify(id.name)} }`
+
+const serviceTag = (id: SectionId): string =>
+  escapeString(`${id.path}#${id.name}`)
+
+const pointLiteral = (p: Point): string =>
+  p.column === undefined
+    ? `{ line: ${p.line}, offset: ${p.offset} }`
+    : `{ line: ${p.line}, column: ${p.column}, offset: ${p.offset} }`
+
+const posLiteral = (position: Position): string =>
+  `{ start: ${pointLiteral(position.start)}, end: ${pointLiteral(position.end)} }`
 
 const escapeTemplate = (s: string): string =>
   s.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${')

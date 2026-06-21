@@ -1,11 +1,10 @@
-import { Array, Data, Effect, Option, pipe } from 'effect'
+import { Array, Data, Effect, pipe } from 'effect'
 import { FileSystem } from '@effect/platform'
 import { dirname, resolve as resolvePath } from 'node:path'
-import { type FrameModule } from '#ast/FrameAst'
 import { type Diagnostic } from '#ast/LoomNode'
 import { corpusErrors, type Path } from '#ast/LoomCorpusAst'
 import { fromProduct } from '#ast/LoomVirtualCodeBuilder'
-import { codeOf, LoomCompiler } from './LoomCompiler'
+import { LoomCompiler } from './LoomCompiler'
 
 export interface TangledFile {
   readonly section: string
@@ -21,29 +20,26 @@ export class LoomTangler extends Effect.Service<LoomTangler>()('LoomTangler', {
       entry: Path,
     ): Effect.Effect<ReadonlyArray<TangledFile>, TangleError> =>
       Effect.gen(function* () {
-        const corpus = yield* compiler.corpus(entry)
+        const { corpus, output } = yield* compiler.composed(entry)
         const failures = corpusErrors(corpus)
         if (failures.length > 0) {
           return yield* Effect.fail(new TangleError({ entry, failures }))
         }
 
-        const codeByPath = codeOf(corpus.modules)
-        const entryModule = yield* Effect.fromNullable(
-          corpus.modules.get(entry),
-        ).pipe(Effect.orDie)
+        const sinks = Array.filter(
+          output.files,
+          (file) => file.code.origin.path === entry,
+        )
 
-        return yield* Effect.forEach(sinksOf(entryModule.frame), (sink) =>
+        return yield* Effect.forEach(sinks, (file) =>
           Effect.gen(function* () {
-            const content = fromProduct(codeByPath, {
-              path: entry,
-              name: sink.name,
-            }).code
-            const target = resolvePath(dirname(entry), sink.path)
+            const content = fromProduct(output.code, file.code.origin).code
+            const target = resolvePath(dirname(entry), file.path)
             yield* fs
               .makeDirectory(dirname(target), { recursive: true })
               .pipe(Effect.orDie)
             yield* fs.writeFileString(target, content).pipe(Effect.orDie)
-            return { section: sink.name, path: target }
+            return { section: file.code.origin.name, path: target }
           }),
         )
       })
@@ -74,19 +70,6 @@ export class LoomTangler extends Effect.Service<LoomTangler>()('LoomTangler', {
   }),
   dependencies: [LoomCompiler.Default],
 }) {}
-
-const sinksOf = (
-  frame: FrameModule,
-): ReadonlyArray<{ readonly name: string; readonly path: string }> =>
-  pipe(
-    frame.members,
-    Array.map((m) => m.value),
-    Array.filterMap((v) =>
-      v.type === 'ServiceClass' && v.body.type === 'TangleBody'
-        ? Option.some({ name: v.name.text, path: v.body.path.text })
-        : Option.none(),
-    ),
-  )
 
 export class TangleError extends Data.TaggedError('TangleError')<{
   readonly entry: Path

@@ -6,9 +6,7 @@ import { WeftClassifier } from '#ast/WeftClassifier'
 import { WeftTokeniser } from '#ast/WeftTokeniser'
 import { LoomAstBuilder, emptyDocument, emptyDocumentFor } from '#ast/LoomAstBuilder'
 import type { LoomDocument } from '#ast/LoomAst'
-import type { FrameModule } from '#ast/FrameAst'
 import { FrameAstBuilder } from '#ast/FrameAstBuilder'
-import { ProductAstBuilder } from '#ast/ProductAstBuilder'
 import type { LoomModule, Path } from '#ast/LoomCorpusAst'
 
 export interface Source {
@@ -35,7 +33,6 @@ export class LoomCorpusAstBuilder extends Effect.Service<LoomCorpusAstBuilder>()
       const tokenise = yield* WeftTokeniser
       const astBuilder = yield* LoomAstBuilder
       const frames = yield* FrameAstBuilder
-      const productBuilder = yield* ProductAstBuilder
 
       const parsed = (
         source: Source,
@@ -71,7 +68,7 @@ export class LoomCorpusAstBuilder extends Effect.Service<LoomCorpusAstBuilder>()
       ): Effect.Effect<LoomModule> =>
         Effect.gen(function* () {
           const { text, doc } = yield* parsed(source, path, delims)
-          const frame = yield* frames.build(doc)
+          const frame = yield* frames.build(doc, path)
           const imports = pipe(
             frame.imports,
             Array.filterMap((i) =>
@@ -81,13 +78,7 @@ export class LoomCorpusAstBuilder extends Effect.Service<LoomCorpusAstBuilder>()
               ),
             ),
           )
-          const code = yield* productBuilder.build({
-            path,
-            text,
-            frame,
-            imports: importBindingsOf(path, frame),
-          })
-          return { path, text, doc, frame, code, imports }
+          return { path, text, doc, frame, imports }
         })
 
       return { build }
@@ -98,7 +89,6 @@ export class LoomCorpusAstBuilder extends Effect.Service<LoomCorpusAstBuilder>()
       WeftTokeniser.Default,
       LoomAstBuilder.Default,
       FrameAstBuilder.Default,
-      ProductAstBuilder.Default,
     ],
   },
 ) {}
@@ -109,21 +99,6 @@ const specifierOf = (importLine: string): Option.Option<string> =>
     Option.flatMap((m) => Option.fromNullable(m[1])),
   )
 
-const namesOf = (importLine: string): ReadonlyArray<string> =>
-  pipe(
-    Option.fromNullable(importLine.match(/\{([^}]*)\}/)),
-    Option.flatMap((m) => Option.fromNullable(m[1])),
-    Option.match({
-      onNone: () => [],
-      onSome: (inner) =>
-        pipe(
-          inner.split(','),
-          Array.map((s) => s.trim()),
-          Array.filter((s) => s.length > 0 && !s.includes(' as ')),
-        ),
-    }),
-  )
-
 const locate = (
   hostFile: Path,
   importSpecifier: string,
@@ -131,23 +106,3 @@ const locate = (
   importSpecifier.endsWith('.loom')
     ? Option.some(resolvePath(dirname(hostFile), importSpecifier))
     : Option.none()
-
-const importBindingsOf = (
-  hostFile: Path,
-  frame: FrameModule,
-): ReadonlyMap<string, Path> =>
-  new Map(
-    pipe(
-      frame.imports,
-      Array.flatMap((line) =>
-        pipe(
-          specifierOf(line.text),
-          Option.flatMap((spec) => locate(hostFile, spec)),
-          Option.match({
-            onNone: (): ReadonlyArray<readonly [string, Path]> => [],
-            onSome: (p) => Array.map(namesOf(line.text), (n) => [n, p] as const),
-          }),
-        ),
-      ),
-    ),
-  )

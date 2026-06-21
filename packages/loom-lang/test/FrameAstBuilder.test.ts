@@ -23,8 +23,9 @@ const asAuthored = (t: ServiceClass['name']): FrameAuthoredToken => {
 }
 
 // buildFrame over the trivial fixture: one tagged, static section, no Warps.
-// Assertions are structural (no renderer yet) — the right nodes, fields, and
-// source mappings.
+// Assertions are structural (no renderer here) — the right nodes, fields, and
+// source mappings. The frame is runnable: code is a compose of positioned
+// core.fragment / core.refer args, and the root is the __services / __run exports.
 
 const input = `{{lang: TypeScript}}
 
@@ -40,8 +41,11 @@ export const add = (x: number, y: number): number => x + y
 const parse = (src: string) =>
   Effect.runSync(parseDocument(src).pipe(Effect.provide(ParseLayer)))
 
+const argsOf = (code: { args: ReadonlyArray<{ value: unknown }> }) =>
+  code.args.map((a) => a.value)
+
 describe('buildFrame — trivial section → FrameModule', () => {
-  const frame = buildFrame(parse(input))
+  const frame = buildFrame(parse(input), '/x.loom')
 
   it('produces one exported ServiceClass named after the tag', () => {
     expect(frame.type).toBe('FrameModule')
@@ -50,9 +54,11 @@ describe('buildFrame — trivial section → FrameModule', () => {
     expect(member.type).toBe('ServiceClass')
     const svc = member as ServiceClass
     expect(svc.modifier.text).toBe('export ')
+    // class name and type parameter are the bare name; the string tag is the
+    // section's module-qualified identity, so two modules' `Add`s stay distinct
     expect(svc.name.text).toBe('Add')
     expect(svc.nameType.text).toBe('Add')
-    expect(svc.nameTag.text).toBe('Add')
+    expect(svc.nameTag.text).toBe('/x.loom#Add')
   })
 
   it('maps title → name, preamble → woven prose, code → compose', () => {
@@ -60,29 +66,30 @@ describe('buildFrame — trivial section → FrameModule', () => {
     expect(svc.body.type).toBe('StaticBody')
     const body = svc.body as StaticBody
     expect(body.name.text).toBe('Adder')
-    const proseHead = body.prose.head as ProseFragment
+    const proseHead = body.prose.args[0]!.value as ProseFragment
     expect(proseHead.type).toBe('ProseFragment')
     expect(proseHead.text).toContain('Adds two integers.')
-    expect(body.code.head?.type).toBe('EmbeddedCode')
-    const head = body.code.head as EmbeddedCode
+    const head = body.code.args[0]!.value as EmbeddedCode
+    expect(head.type).toBe('EmbeddedCode')
     expect(head.text).toContain('export const add = (x: number, y: number)')
-    expect(body.code.tail).toHaveLength(0)
+    expect(body.code.args).toHaveLength(1)
   })
 
-  it('synthesises a Root merging the one service, no sinks', () => {
+  it('synthesises a Root listing the one service, no sinks', () => {
     expect(frame.root?.type).toBe('Root')
-    expect(frame.root?.head.name.text).toBe('Add')
-    expect(frame.root?.tail).toHaveLength(0)
-    expect(frame.root?.sinks).toHaveLength(0)
+    expect(frame.root?.services.text).toContain('Add: { layer: Add.Default, self: Add, deps: [] }')
+    // a content section contributes to sections/prose; no sink reaches files
+    expect(frame.root?.run.text).toContain('(yield* Add).code')
+    expect(frame.root?.run.text).toContain('files: [')
+    expect(frame.root?.run.text).not.toContain('yield* Add\n') // not a sink yield
   })
 
-  it('the root layer ref repeats the name as a synth token, so the tag has one navigation target', () => {
-    // The class declaration is the one mapped occurrence of the name. The
-    // `Add.Default` in the layer merge repeats it as glue; mapping it too would
-    // give the [Add] tag a second navigation target and find-references would
-    // return both the declaration and the layer merge.
-    expect(frame.root?.head.name.type).toBe('FrameSynthToken')
-    expect(frame.root?.head.name.text).toBe('Add')
+  it('keeps the root pure synth glue, so the name maps only at its class declaration', () => {
+    // __services and __run repeat each name as plain text. Mapping those repeats
+    // would give the [Add] tag extra navigation targets; the class declaration is
+    // the one mapped occurrence.
+    expect(frame.root?.services.type).toBe('FrameSynthToken')
+    expect(frame.root?.run.type).toBe('FrameSynthToken')
   })
 
   it('maps the class name to the [Add] tag; the field name is a synth display string', () => {
@@ -118,7 +125,7 @@ export const help = 1
 
 main = ::[h]
 `
-  const frame = buildFrame(parse(src))
+  const frame = buildFrame(parse(src), '/x.loom')
   const main = frame.members
     .map((m) => m.value)
     .find(
@@ -143,8 +150,9 @@ main = ::[h]
   })
 
   it('a code anchor binds to the inner name of ::[name], not the braces', () => {
-    const args = [body.code.head, ...body.code.tail.map((t) => t.value)]
-    const ref = args.find((a) => a?.type === 'CodeRef') as CodeRef
+    const ref = argsOf(body.code).find(
+      (a): a is CodeRef => (a as CodeRef).type === 'CodeRef',
+    )!
     expect(ref.binding.text).toBe('h')
     expect(at(ref.binding.position)).toBe('h') // not "::[h]"
     expect(ref.binding.position.start.offset).toBe(src.lastIndexOf('::[h]') + 3)
@@ -169,7 +177,7 @@ prose between — not code
 =>
 const c = 3
 `
-  const frame = buildFrame(parse(src))
+  const frame = buildFrame(parse(src), '/x.loom')
   const composed = (name: string): string => {
     const svc = frame.members
       .map((m) => m.value)
@@ -178,12 +186,8 @@ const c = 3
           v.type === 'ServiceClass' && v.name.text === name,
       )!
     const { code } = svc.body as StaticBody
-    const args =
-      code.head === undefined
-        ? code.tail.map((t) => t.value)
-        : [code.head, ...code.tail.map((t) => t.value)]
-    return args
-      .filter((a): a is EmbeddedCode => a.type === 'EmbeddedCode')
+    return argsOf(code)
+      .filter((a): a is EmbeddedCode => (a as EmbeddedCode).type === 'EmbeddedCode')
       .map((e) => e.text)
       .join('')
   }
@@ -220,7 +224,7 @@ const helper = 1
 
 ::[Helper]
 `
-  const services = buildFrame(parse(src))
+  const services = buildFrame(parse(src), '/x.loom')
     .members.map((m) => m.value)
     .filter((v): v is ServiceClass => v.type === 'ServiceClass')
   const helper = services.find((v) => v.body.type === 'StaticBody')!
@@ -254,14 +258,13 @@ const helper = 1
   })
 })
 
-describe('buildFrame — a tagged tangle maps its class once; the sink ref repeats the name as synth', () => {
+describe('buildFrame — a tagged tangle maps its class once; the sink yield repeats the name as synth', () => {
   // A heading may carry both a tag and a path: `# Title [Tag] {path}`. The tag
   // makes the class name authored and mapped to `[Tag]`, so it is the one mapped
-  // occurrence. The composition root's sink — `addSink(Bun.Default, …)` — repeats
-  // that name as the synth `nameRef`. Were the sink mapped too, the [Bun] tag would
-  // gain a second navigation target. The tagless tangle above cannot catch this:
-  // its name is synth whether or not the sink reuses it, so only a tagged tangle
-  // tells the fix from the bug apart.
+  // occurrence. The composition root's __run yields the sink — `yield* Bun` — as
+  // plain text. Were the sink mapped too, the [Bun] tag would gain a second
+  // navigation target. The tagless tangle above cannot catch this: its name is
+  // synth regardless, so only a tagged tangle tells the fix from the bug apart.
   const src = `{{lang: TypeScript}}
 
 # Bundle it [Bun] {dist/bundle.sh}
@@ -270,7 +273,7 @@ describe('buildFrame — a tagged tangle maps its class once; the sink ref repea
 
 const x = 1
 `
-  const frame = buildFrame(parse(src))
+  const frame = buildFrame(parse(src), '/x.loom')
   const svc = frame.members[0]!.value as ServiceClass
 
   it('maps the class name to the [Bun] tag — the one mapping', () => {
@@ -280,18 +283,18 @@ const x = 1
     )
   })
 
-  it('the sink ref repeats the name as a synth token, so the tag has one navigation target', () => {
-    expect(frame.root?.sinks).toHaveLength(1)
-    const sink = frame.root!.sinks[0]!.value
-    expect(sink.name.type).toBe('FrameSynthToken')
-    expect(sink.name.text).toBe('Bun')
+  it('yields the sink in __run as plain text, so the tag has one navigation target', () => {
+    expect(frame.root?.run.text).toContain('yield* Bun')
+    expect(frame.root?.services.text).toContain('Bun: { layer: Bun.Default')
+    expect(frame.root?.run.type).toBe('FrameSynthToken') // glue, unmapped
   })
 })
 
 describe('buildFrame — a name anchor to a duplicated title is an ambiguous-anchor diagnostic', () => {
   // Two sections share the title "Helper"; a third anchors it by name. A name
   // anchor resolves exactly one local section, so the clash is reported on the
-  // anchor — error health — rather than silently resolved to the last section.
+  // anchor — a CodeRef against the unresolved name, carrying error health —
+  // rather than silently resolved to the last section.
   const src = `{{lang: TypeScript}}
 
 # Helper
@@ -312,7 +315,7 @@ export const b = 2
 
 main = ::[Helper]
 `
-  const frame = buildFrame(parse(src))
+  const frame = buildFrame(parse(src), '/x.loom')
   const main = frame.members
     .map((m) => m.value)
     .find(
@@ -320,11 +323,13 @@ main = ::[Helper]
         v.type === 'ServiceClass' && v.name.text === 'Main',
     )!
   const code = (main.body as StaticBody).code
-  const args = [code.head, ...code.tail.map((t) => t.value)]
-  const ref = args.find((a) => a?.type === 'CodeRef') as CodeRef
+  const ref = argsOf(code).find(
+    (a): a is CodeRef => (a as CodeRef).type === 'CodeRef',
+  )!
 
   it('flags the anchor with error health naming the clash', () => {
-    expect(ref.binding.text).toBe('Helper') // the anchor span, not an alias
+    expect(ref.type).toBe('CodeRef')
+    expect(ref.binding.text).toBe('Helper') // the anchor span (the unresolved name), not an alias
     expect(ref.binding.kind).toBe('anchor') // referencer span — navigation, no hover
     expect(ref.binding.health.status).toBe('error')
     expect(ref.binding.health.diagnostics[0]!.message).toMatch(

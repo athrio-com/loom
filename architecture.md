@@ -45,15 +45,14 @@ text
   → WeftClassifier      mode-classified wefts
   → WeftTokeniser       tokenised wefts
   → LoomAstBuilder      LoomDocument          (the parse result)
-  → FrameAstBuilder     FrameModule           (de dicto)
-  → ProductAstBuilder   ComposedCode          (de re, one per section)
+  → FrameAstBuilder     FrameModule           (de dicto; the de re is the frame run — see how-run.md)
 ```
 
-From the `FrameModule` the pipeline fans out into **projections** — folds that emit
-text and source mappings, differing only in what they emit. `fromFrame` projects the
-frame to the TypeScript an editor type-checks; `fromProduct` projects each section's
-product code with its transclusions inlined; `tangle` writes each `{path}` sink's
-composed result to disk. The projections are a family, not stages — further editor
+From the `FrameModule` the pipeline fans out two ways. `fromFrame` projects the frame
+straight to the TypeScript an editor type-checks. The de re takes one step more: the
+**runner** (`LoomRunner`) executes the frame to a `ComposedCode` per section, then
+`fromProduct` projects each section's product code with its transclusions inlined, and
+`tangle` writes each `{path}` sink's composed result to disk. The projections are a family, not stages — further editor
 surfaces are just more folds over the same models. The Models are kept rather than
 fused into one pass precisely because the frame is projected so many ways: one
 inspectable, mappable source of truth feeds them all.
@@ -250,7 +249,7 @@ Each module is a literate program in `packages/loom-lang/corpus/`:
 | line scanning | `loom-line-ranges` | — |
 | classify, tokenise, build | `loom-weft-classifier`, `loom-weft-tokeniser`, `loom-ast-builder` | — |
 | frame pass | `frame-ast`, `frame-ast-builder` | `packages/loom-lang/src/ast/how-frame.md` |
-| product pass | `loom-product-ast`, `loom-product-ast-builder` | `packages/loom-lang/src/ast/how-frame.md` |
+| de re model, runner | `loom-product-ast`, `frame-runner` | `packages/loom-lang/how-run.md` |
 | corpus, cache, compiler | `loom-corpus-ast`, `loom-corpus-ast-builder`, `loom-memo`, `compiler` | `packages/loom-lang/how-lsp.md` |
 | virtual code, tangle | `loom-virtual-code`, `loom-virtual-code-builder`, `loom-tangler` | `packages/loom-lang/how-lsp.md` |
 | language server, plugin | `server`, `loom-language-plugin` | `packages/loom-lang/how-lsp.md` |

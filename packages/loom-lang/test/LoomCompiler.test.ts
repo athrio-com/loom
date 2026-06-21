@@ -73,18 +73,19 @@ describe('LoomCompiler — cross-file de re through the corpus', () => {
     }).pipe(Effect.provide(layer)),
   )
 
-  it.effect('carries both planes as data — modules with frame + code', () =>
+  it.effect('carries the frame per module; the de re comes from running the corpus', () =>
     Effect.gen(function* () {
       const c = yield* LoomCompiler
-      const corpus = yield* c.corpus('/Fun.loom')
-      // both files loaded along the import edge
+      const { corpus, output } = yield* c.composed('/Fun.loom')
+      // both files loaded along the import edge, each carrying its de dicto frame
       expect([...corpus.modules.keys()].sort()).toEqual([
         '/Fun.loom',
         '/Sad.loom',
       ])
-      // each module carries its own de re `code` — Sad's Neg, Fun's Negd
-      expect([...corpus.modules.get('/Sad.loom')!.code.keys()]).toEqual(['Neg'])
-      expect([...corpus.modules.get('/Fun.loom')!.code.keys()]).toEqual(['Negd'])
+      expect(corpus.modules.get('/Sad.loom')!.frame.type).toBe('FrameModule')
+      // the de re is the run's output — Sad's Neg, Fun's Negd
+      expect([...output.code.get('/Sad.loom')!.keys()]).toEqual(['Neg'])
+      expect([...output.code.get('/Fun.loom')!.keys()]).toEqual(['Negd'])
     }).pipe(Effect.provide(layer)),
   )
 

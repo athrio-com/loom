@@ -6,7 +6,7 @@ Loom compiles a `.loom` file along two planes at once — the "de dicto" frame a
 
 ## The cached compiler
 
-`LoomCompiler` answers five queries about a `.loom` file. `frame` gives its de dicto composition program. `code` gives its de re product documents, one per section. `corpus` gives every module the file reaches. `virtualCode` gives the whole Volar tree — the frame and the de re sections under one root — for the editor. `change` gives the files to refresh after an edit: the file itself, and the dependents that inlined its code.
+`LoomCompiler` answers six queries about a `.loom` file. `frame` gives its de dicto composition program. `code` gives its de re product documents, one per section. `corpus` gives every module the file reaches. `composed` runs the corpus and gives its product map and tangle files — what the tangler writes. `virtualCode` gives the whole Volar tree — the frame and the de re sections under one root — for the editor. `change` gives the files to refresh after an edit: the file itself, and the dependents that inlined its code.
 
 Each query reads through a `Source` and works over a cached corpus. `LoomCompiler` builds a module once through `LoomCorpusAstBuilder`, keeps it in `LoomMemo`, and follows its imports to pull in the rest — cycle-safe, because a module is cached before its imports are walked. The disk-backed `DocumentSource` is injected, and `frame`, `code`, and `corpus` read through it. `virtualCode` takes its `Source` from the caller, so the editor can hand in one that reads the open document from Volar. The build is total, so `virtualCode` cannot fail outright, yet it still guards the synchronous hook: a defect degrades to a bare `loom` document carrying the file's text, and the editor keeps working rather than crashing.
 
@@ -21,6 +21,7 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
       const vcb = yield* LoomVirtualCodeBuilder
       const memo = yield* LoomMemo
       const config = yield* PackageConfig
+      const runner = yield* LoomRunner
 
       const load = (source: Source, path: Path): Effect.Effect<void> =>
         config.anchorDelims(path).pipe(
@@ -34,11 +35,26 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
           ),
         )
 
+      const runCorpus = (
+        modules: ReadonlyMap<Path, LoomModule>,
+      ): Effect.Effect<RunOutput> =>
+        runner.run(
+          new Map(
+            Array.map(
+              Array.fromIterable(modules),
+              ([p, m]) => [p, fromFrame(m.frame).code] as const,
+            ),
+          ),
+        )
+
       const ensureModules = (
         source: Source,
         entry: Path,
       ): Effect.Effect<ReadonlyMap<Path, LoomModule>> =>
-        load(source, entry).pipe(Effect.zipRight(memo.entries))
+        load(source, entry).pipe(
+          Effect.zipRight(memo.entries),
+          Effect.map((all) => reachableFrom(all, entry)),
+        )
 
       const ensureEntry = (
         source: Source,
@@ -62,13 +78,15 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
 
         code: (path: Path): Effect.Effect<ReadonlyArray<LoomVirtualCode>> =>
           ensureEntry(documents, path).pipe(
-            Effect.flatMap(({ modules, entry }) => {
-              const codeByPath = codeOf(modules)
-              return Effect.forEach(
-                Array.fromIterable(entry.code.values()),
-                (node) => vcb.fromProduct(codeByPath, node.origin),
-              )
-            }),
+            Effect.flatMap(({ modules, entry }) =>
+              runCorpus(modules).pipe(
+                Effect.flatMap((out) =>
+                  Effect.forEach(namesAt(out.code, entry.path), (name) =>
+                    vcb.fromProduct(out.code, { path: entry.path, name }),
+                  ),
+                ),
+              ),
+            ),
           ),
 
         corpus: (entry: Path): Effect.Effect<LoomCorpusAst> =>
@@ -76,10 +94,26 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
             Effect.map((modules) => ({ modules })),
           ),
 
+        composed: (
+          entry: Path,
+        ): Effect.Effect<{
+          readonly corpus: LoomCorpusAst
+          readonly output: RunOutput
+        }> =>
+          ensureModules(documents, entry).pipe(
+            Effect.flatMap((modules) =>
+              runCorpus(modules).pipe(
+                Effect.map((output) => ({ corpus: { modules }, output })),
+              ),
+            ),
+          ),
+
         virtualCode: (source: Source, path: Path): Effect.Effect<VirtualCode> =>
           ensureEntry(source, path).pipe(
-            Effect.map(({ modules, entry }) =>
-              toVolar(projectTree(codeOf(modules), entry)),
+            Effect.flatMap(({ modules, entry }) =>
+              runCorpus(modules).pipe(
+                Effect.map((out) => toVolar(projectTree(out.code, entry))),
+              ),
             ),
             Effect.catchAllCause((cause) =>
               Effect.logError(
@@ -109,6 +143,7 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
       LoomCorpusAstBuilder.Default,
       LoomVirtualCodeBuilder.Default,
       LoomMemo.Default,
+      LoomRunner.Default,
     ],
   },
 ) {}
@@ -132,22 +167,37 @@ export class DocumentSource extends Effect.Service<DocumentSource>()(
   },
 ) {}
 
-## The corpus code view
+## The reachable corpus
 
-The `code` method and the tangler both project across the corpus, and both need the same view of it: each module's product code, indexed by its path. `codeOf` builds that map. `fromProduct` walks it to follow a `::[…]` reference out of one module and into the module it imports.
+A query operates on the corpus the entry actually reaches — itself and the files it transitively imports — never every module the memo holds. `reachableFrom` walks the import edges from the entry and keeps that set. So two unrelated files left in the cache never compose together: each entry sees only its own corpus, and the runner wires only the services that corpus declares.
 
 =>
 
-export const codeOf = (modules: ReadonlyMap<Path, LoomModule>): CodeByPath =>
-  new Map(
-    Array.map(Array.fromIterable(modules), ([p, m]) => [p, m.code] as const),
-  )
+const reachableFrom = (
+  modules: ReadonlyMap<Path, LoomModule>,
+  entry: Path,
+): ReadonlyMap<Path, LoomModule> => {
+  const visit = (
+    acc: ReadonlyMap<Path, LoomModule>,
+    path: Path,
+  ): ReadonlyMap<Path, LoomModule> => {
+    if (acc.has(path)) return acc
+    const m = modules.get(path)
+    return m === undefined
+      ? acc
+      : Array.reduce(m.imports, new Map(acc).set(path, m), visit)
+  }
+  return visit(new Map<Path, LoomModule>(), entry)
+}
 
 ## Projecting a file's tree
 
 `projectTree` assembles a file's virtual-code tree. It emits the de dicto frame with `fromFrame`, one de re document per section with `fromProduct`, and gathers them under a `loom` root with `rootVirtualCode`. It follows cross-file `::[…]` references through the `codeByPath` it is handed, so it projects a lone file and a whole corpus the same way. `virtualCode` hands it the corpus the compiler walked; a file that imports nothing is simply a corpus of one.
 
 =>
+
+const namesAt = (codeByPath: CodeByPath, path: Path): ReadonlyArray<string> =>
+  Array.fromIterable((codeByPath.get(path) ?? new Map<string, never>()).keys())
 
 const projectTree = (
   codeByPath: CodeByPath,
@@ -156,8 +206,8 @@ const projectTree = (
   rootVirtualCode(entry.text, [
     fromFrame(entry.frame),
     ...pipe(
-      Array.fromIterable(entry.code.values()),
-      Array.map((node) => fromProduct(codeByPath, node.origin)),
+      namesAt(codeByPath, entry.path),
+      Array.map((name) => fromProduct(codeByPath, { path: entry.path, name })),
     ),
   ])
 
@@ -230,6 +280,7 @@ import {
   rootVirtualCode,
 } from '#ast/LoomVirtualCodeBuilder'
 import { type LoomVirtualCode, type Mapping } from '#ast/LoomVirtualCode'
+import { LoomRunner, type RunOutput } from '#ast/FrameRunner'
 import { LoomMemo } from './LoomMemo'
 import { PackageConfig } from './PackageConfig'
 
@@ -247,4 +298,4 @@ import { PackageConfig } from './PackageConfig'
 
 ::[Projecting a file's tree]
 
-::[The corpus code view]
+::[The reachable corpus]

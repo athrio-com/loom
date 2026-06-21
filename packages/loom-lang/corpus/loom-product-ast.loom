@@ -2,7 +2,11 @@
 
 # The de re structure
 
-`ProductAst` is the de re structure — the author's product code with its transclusions expressed as edges. Its unit is the `ComposedCode` of one section, and the nodes live per module: each `LoomModule` carries a `code` map of them. `ProductAstBuilder` builds a module's nodes from its frame alone; `fromProduct` later flattens a section to text and mappings, following edges across the corpus. An edge holds a target key, not a pointer. So the schema stays flat and serialisable even though the graph it describes recurses — and may hold a cycle, which `fromProduct` cuts.
+`ProductAst` is the de re structure — the author's product code with its transclusions expressed as edges. Its unit is the `ComposedCode` of one section. Running a module's frame returns one `ComposedCode` per section, and `fromProduct` later flattens a section to text and mappings, following its edges across the corpus.
+
+An edge holds a target key, not a pointer. So the schema stays flat and serialisable even though the graph it describes recurses — and may hold a cycle, which `fromProduct` cuts.
+
+Code is one of two channels. Prose is its peer, a `WovenProse` woven from the same parts. A tangle section returns neither: it binds a composed result to a file path as a `TangledFile`, the descriptor the tangler writes.
 
 ## The product node
 
@@ -60,7 +64,7 @@ export type Ref = typeof RefSchema.Type
 
 ## Composed code
 
-A `Part` is a `Fragment` or a `Ref`. A `ComposedCode` is one section's resolved de re: its `origin` identity, its product `languageId`, and its `parts` in composition order — a transcluded section before the code that uses it. A module holds one per section, keyed by name.
+A `Part` is a `Fragment` or a `Ref`. A `ComposedCode` is one section's resolved de re: its `origin` identity, its product `languageId`, and its `parts` in composition order — a transcluded section before the code that uses it. The runner returns one per section, keyed by name.
 
 =>
 
@@ -73,6 +77,30 @@ export const ComposedCodeSchema = productNode('ComposedCode', {
   parts: Schema.Array(PartSchema),
 })
 export type ComposedCode = typeof ComposedCodeSchema.Type
+
+## The prose peer
+
+A `WovenProse` is the prose channel's `ComposedCode`. It carries the same `origin` and the same `parts`, so one part type serves both channels. A fragment is a span of the section's prose, and a reference transcludes another section's prose. The channel a part belongs to is the field that holds it, never the part itself. Prose is always Markdown, so a `WovenProse` declares no `languageId`.
+
+=>
+
+export const WovenProseSchema = productNode('WovenProse', {
+  origin: SectionIdSchema,
+  parts: Schema.Array(PartSchema),
+})
+export type WovenProse = typeof WovenProseSchema.Type
+
+## A tangled file
+
+A `TangledFile` is what a tangle section composes to: a file `path` paired with the `ComposedCode` bound to it. It is a value, not an effect — the tangler flattens the `code` across the corpus and performs the write, so running the frame that produces a `TangledFile` touches no disk.
+
+=>
+
+export const TangledFileSchema = productNode('TangledFile', {
+  path: Schema.String,
+  code: ComposedCodeSchema,
+})
+export type TangledFile = typeof TangledFileSchema.Type
 
 ## What this module draws on
 
@@ -96,3 +124,7 @@ import { HealthSchema, okHealth, PositionSchema } from '#ast/LoomNode'
 ::[The leaves]
 
 ::[Composed code]
+
+::[The prose peer]
+
+::[A tangled file]

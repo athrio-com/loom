@@ -1,54 +1,75 @@
-import { FileSystem } from '@effect/platform'
-import { NodeContext } from '@effect/platform-node'
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
-import { compose, tangle, weave } from '#loom/core'
+import { Option } from 'effect'
+import { compose, fragment, refer, tangle, weave } from '#loom/core'
+import type { Position } from '#ast/LoomNode'
+import type { SectionId } from '#ast/ProductAst'
 
-// The runtime primitives the generated Frame imports from #loom/core. compose
-// assembles a code target and weave assembles a prose target — one join under two
-// names, since a section exposes its code and prose as separate fields. tangle is
-// the one effectful sink: it writes the assembled result to disk, creating parent
-// directories.
+// The runnable composition language the generated Frame imports from #loom/core.
+// Its verbs construct the de re ProductAst rather than joining strings: fragment
+// and refer build the leaves, compose and weave assemble them, and tangle binds a
+// composed result to a path as a pure descriptor — no I/O happens here.
+
+const pos = (offset: number, len: number): Position => ({
+  start: { line: 1, column: offset, offset },
+  end: { line: 1, column: offset + len, offset: offset + len },
+})
+
+const here: SectionId = { path: '/x.loom', name: 'Main' }
+
+describe('fragment', () => {
+  it('wraps a literal span with the source origin it maps back to', () => {
+    const f = fragment('const x = 1', pos(0, 11))
+    expect(f.type).toBe('Fragment')
+    expect(f.text).toBe('const x = 1')
+    expect(f.origin).toEqual(pos(0, 11))
+    expect(f.health.status).toBe('ok')
+  })
+})
 
 describe('compose', () => {
-  it('joins its parts in order, verbatim', () => {
-    expect(compose('a', 'b', 'c')).toBe('abc')
+  it("assembles a section's parts under its identity and language", () => {
+    const c = compose(here, 'typescript', fragment('a', pos(0, 1)), fragment('b', pos(1, 1)))
+    expect(c.type).toBe('ComposedCode')
+    expect(c.origin).toEqual(here)
+    expect(c.languageId).toBe('typescript')
+    expect(c.parts.map((p) => p.type)).toEqual(['Fragment', 'Fragment'])
   })
 
-  it('inserts nothing between parts — fragments carry their own whitespace', () => {
-    expect(compose('\nx = 1\n', 'y = 2\n')).toBe('\nx = 1\ny = 2\n')
+  it('composes an empty section, still stamped with identity and language', () => {
+    const c = compose(here, 'json')
+    expect(c.parts).toEqual([])
+    expect(c.origin).toEqual(here)
+    expect(c.languageId).toBe('json')
   })
+})
 
-  it('is the empty string for a section with no code', () => {
-    expect(compose()).toBe('')
+describe('refer', () => {
+  it('edges to the referenced section by its origin, never by value', () => {
+    const target: SectionId = { path: '/dep.loom', name: 'Mul' }
+    const dep = compose(target, 'typescript', fragment('mul', pos(0, 3)))
+    const r = refer(dep, pos(10, 5))
+    expect(r.type).toBe('Ref')
+    expect(r.anchor).toEqual(pos(10, 5))
+    expect(Option.getOrNull(r.target)).toEqual(target)
   })
 })
 
 describe('weave', () => {
-  it('joins its prose parts in order, verbatim', () => {
-    expect(weave('## Title\n', 'a paragraph')).toBe('## Title\na paragraph')
-  })
-
-  it('mirrors compose — the same join under a prose-shaped name', () => {
-    expect(weave('a', 'b')).toBe(compose('a', 'b'))
-  })
-
-  it('is the empty string for a section with no prose', () => {
-    expect(weave()).toBe('')
+  it('assembles prose under the section identity, with no language', () => {
+    const w = weave(here, fragment('A paragraph.', pos(0, 12)))
+    expect(w.type).toBe('WovenProse')
+    expect(w.origin).toEqual(here)
+    expect(w).not.toHaveProperty('languageId')
+    expect(w.parts.map((p) => p.type)).toEqual(['Fragment'])
   })
 })
 
 describe('tangle', () => {
-  it.effect('emits the composed code to the path, creating parent dirs', () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem
-      const dir = yield* fs.makeTempDirectory()
-      const path = `${dir}/main/scala/Arithmetic.scala`
-
-      const written = yield* tangle(path, compose('object A ', '{ }'))
-
-      expect(written).toBe(path)
-      expect(yield* fs.readFileString(path)).toBe('object A { }')
-    }).pipe(Effect.provide(NodeContext.layer)),
-  )
+  it('binds a composed result to a path as a pure descriptor — no I/O', () => {
+    const code = compose(here, 'scala', fragment('object A', pos(0, 8)))
+    const file = tangle('out/A.scala', code)
+    expect(file.type).toBe('TangledFile')
+    expect(file.path).toBe('out/A.scala')
+    expect(file.code).toBe(code)
+  })
 })

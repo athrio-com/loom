@@ -25,8 +25,8 @@ both the shape we build and the discipline that keeps it pure.
 
 ```
 text ─parse─▶ LoomDocument ─FrameAstBuilder─▶ FrameModule ─┬─ fromFrame ─▶ LoomVirtualCode             (de dicto frame)
-                                                           └─ ProductAstBuilder ─▶ ComposedCode ─┬─ fromProduct ─▶ LoomVirtualCode  (de re product)
-                                                                                                 └─ tangle ─▶ product files          (filesystem)
+                                                           └─ run (LoomRunner) ─▶ ComposedCode ─┬─ fromProduct ─▶ LoomVirtualCode  (de re product)
+                                                                                                └─ tangle ─▶ product files          (filesystem)
 ```
 
 Each model, and the pass (its Builder) that produces it:
@@ -39,10 +39,11 @@ Each model, and the pass (its Builder) that produces it:
   tree→tree pass that hoists bindings, resolves anchors, and generates
   scaffolding — strictly more than a structure-preserving homomorphism. No
   surface text is emitted here; emitting is projection.
-- **`ComposedCode`** — `ProductAstBuilder` (`ProductAst.ts`): `FrameModule` →
-  the de re structure, one per section — its product code with transclusions
-  expressed as resolved edges. Built per module and pure of every other module;
-  the cross-file graph is followed later, at projection.
+- **`ComposedCode`** — produced by **running**, not by a Builder: the runner
+  (`LoomRunner`, `FrameRunner.ts`) executes the rendered `FrameModule` to the de re
+  structure, one `ComposedCode` per section — its product code with transclusions
+  expressed as resolved edges. The runner runs the whole reachable corpus; the
+  cross-file graph is followed later, at projection. (`how-run.md` covers the run.)
 - **`LoomVirtualCode`** — `LoomVirtualCodeBuilder` (`LoomVirtualCode.ts`), the
   projection: a *family* of passes that fold a model to text + source mappings,
   each a *catamorphism*, differing only in its algebra:
@@ -103,8 +104,9 @@ when extending the pipeline.
 
 The layers own their passes: the `corpus/` looms the parse, `how-frame.md` the
 `FrameAstBuilder` pass and `fromFrame`. This document covers the rest of the
-projection — `ProductAstBuilder` and `fromProduct`, the tangle that writes
-product files, and the Volar virtual-code layer that surfaces it.
+projection — `fromProduct`, the tangle that writes product files, and the Volar
+virtual-code layer that surfaces the product. The runner that produces the de re is in
+`how-run.md`.
 
 ---
 

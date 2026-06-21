@@ -18,6 +18,7 @@ import {
   rootVirtualCode,
 } from '#ast/LoomVirtualCodeBuilder'
 import { type LoomVirtualCode, type Mapping } from '#ast/LoomVirtualCode'
+import { LoomRunner, type RunOutput } from '#ast/FrameRunner'
 import { LoomMemo } from './LoomMemo'
 import { PackageConfig } from './PackageConfig'
 
@@ -78,6 +79,7 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
       const vcb = yield* LoomVirtualCodeBuilder
       const memo = yield* LoomMemo
       const config = yield* PackageConfig
+      const runner = yield* LoomRunner
 
       const load = (source: Source, path: Path): Effect.Effect<void> =>
         config.anchorDelims(path).pipe(
@@ -91,11 +93,26 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
           ),
         )
 
+      const runCorpus = (
+        modules: ReadonlyMap<Path, LoomModule>,
+      ): Effect.Effect<RunOutput> =>
+        runner.run(
+          new Map(
+            Array.map(
+              Array.fromIterable(modules),
+              ([p, m]) => [p, fromFrame(m.frame).code] as const,
+            ),
+          ),
+        )
+
       const ensureModules = (
         source: Source,
         entry: Path,
       ): Effect.Effect<ReadonlyMap<Path, LoomModule>> =>
-        load(source, entry).pipe(Effect.zipRight(memo.entries))
+        load(source, entry).pipe(
+          Effect.zipRight(memo.entries),
+          Effect.map((all) => reachableFrom(all, entry)),
+        )
 
       const ensureEntry = (
         source: Source,
@@ -119,13 +136,15 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
 
         code: (path: Path): Effect.Effect<ReadonlyArray<LoomVirtualCode>> =>
           ensureEntry(documents, path).pipe(
-            Effect.flatMap(({ modules, entry }) => {
-              const codeByPath = codeOf(modules)
-              return Effect.forEach(
-                Array.fromIterable(entry.code.values()),
-                (node) => vcb.fromProduct(codeByPath, node.origin),
-              )
-            }),
+            Effect.flatMap(({ modules, entry }) =>
+              runCorpus(modules).pipe(
+                Effect.flatMap((out) =>
+                  Effect.forEach(namesAt(out.code, entry.path), (name) =>
+                    vcb.fromProduct(out.code, { path: entry.path, name }),
+                  ),
+                ),
+              ),
+            ),
           ),
 
         corpus: (entry: Path): Effect.Effect<LoomCorpusAst> =>
@@ -133,10 +152,26 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
             Effect.map((modules) => ({ modules })),
           ),
 
+        composed: (
+          entry: Path,
+        ): Effect.Effect<{
+          readonly corpus: LoomCorpusAst
+          readonly output: RunOutput
+        }> =>
+          ensureModules(documents, entry).pipe(
+            Effect.flatMap((modules) =>
+              runCorpus(modules).pipe(
+                Effect.map((output) => ({ corpus: { modules }, output })),
+              ),
+            ),
+          ),
+
         virtualCode: (source: Source, path: Path): Effect.Effect<VirtualCode> =>
           ensureEntry(source, path).pipe(
-            Effect.map(({ modules, entry }) =>
-              toVolar(projectTree(codeOf(modules), entry)),
+            Effect.flatMap(({ modules, entry }) =>
+              runCorpus(modules).pipe(
+                Effect.map((out) => toVolar(projectTree(out.code, entry))),
+              ),
             ),
             Effect.catchAllCause((cause) =>
               Effect.logError(
@@ -166,9 +201,13 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
       LoomCorpusAstBuilder.Default,
       LoomVirtualCodeBuilder.Default,
       LoomMemo.Default,
+      LoomRunner.Default,
     ],
   },
 ) {}
+
+const namesAt = (codeByPath: CodeByPath, path: Path): ReadonlyArray<string> =>
+  Array.fromIterable((codeByPath.get(path) ?? new Map<string, never>()).keys())
 
 const projectTree = (
   codeByPath: CodeByPath,
@@ -177,12 +216,24 @@ const projectTree = (
   rootVirtualCode(entry.text, [
     fromFrame(entry.frame),
     ...pipe(
-      Array.fromIterable(entry.code.values()),
-      Array.map((node) => fromProduct(codeByPath, node.origin)),
+      namesAt(codeByPath, entry.path),
+      Array.map((name) => fromProduct(codeByPath, { path: entry.path, name })),
     ),
   ])
 
-export const codeOf = (modules: ReadonlyMap<Path, LoomModule>): CodeByPath =>
-  new Map(
-    Array.map(Array.fromIterable(modules), ([p, m]) => [p, m.code] as const),
-  )
+const reachableFrom = (
+  modules: ReadonlyMap<Path, LoomModule>,
+  entry: Path,
+): ReadonlyMap<Path, LoomModule> => {
+  const visit = (
+    acc: ReadonlyMap<Path, LoomModule>,
+    path: Path,
+  ): ReadonlyMap<Path, LoomModule> => {
+    if (acc.has(path)) return acc
+    const m = modules.get(path)
+    return m === undefined
+      ? acc
+      : Array.reduce(m.imports, new Map(acc).set(path, m), visit)
+  }
+  return visit(new Map<Path, LoomModule>(), entry)
+}

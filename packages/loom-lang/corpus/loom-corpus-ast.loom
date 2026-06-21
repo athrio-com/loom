@@ -2,11 +2,11 @@
 
 # The multi-file AST
 
-`LoomCorpusAst` is the multi-file AST — pure data, no pipeline (that is `LoomCorpusAstBuilder`). Every loaded `.loom` is a `LoomModule` keyed by its path, holding its source, parsed `doc`, `frame`, de re `code`, and import edges. The corpus is just a map of those modules. The cross-file de re graph is distributed — a section's `Ref`s point at other modules by key, and `fromProduct` follows them later.
+`LoomCorpusAst` is the multi-file AST — pure data, no pipeline (that is `LoomCorpusAstBuilder`). Every loaded `.loom` is a `LoomModule` keyed by its path, holding its source, parsed `doc`, `frame`, and import edges. The corpus is just a map of those modules. The de re is not stored here. The runner executes each module's frame to produce it, leaving a cross-file reference as an edge that `fromProduct` inlines later, at projection.
 
 ## The module and the corpus
 
-A `Path` is a resolved `.loom` path, a module's identity. A `LoomModule` carries both planes for one file — the de dicto `frame` and the de re `code` (name → `ComposedCode`) — beside its `text`, parsed `doc`, and resolved `imports`. A `LoomCorpusAst` is the map of modules by path.
+A `Path` is a resolved `.loom` path, a module's identity. A `LoomModule` carries one file's de dicto `frame` beside its `text`, parsed `doc`, and resolved `imports`. The de re is the frame run, not a stored field. A `LoomCorpusAst` is the map of modules by path.
 
 =>
 
@@ -17,7 +17,6 @@ export const LoomModuleSchema = Schema.Struct({
   text: Schema.String,
   doc: LoomDocumentSchema,
   frame: FrameModuleSchema,
-  code: Schema.ReadonlyMap({ key: Schema.String, value: ComposedCodeSchema }),
   imports: Schema.Array(Schema.String),
 })
 export type LoomModule = typeof LoomModuleSchema.Type
@@ -117,7 +116,7 @@ export const corpusErrors = (
 
 ## What this module draws on
 
-Effect supplies `Schema` for the model and `Array`, `Option`, and `pipe` for the queries. The module bundles three other models — `LoomDocument` (parse), `FrameModule` (frame), and `ComposedCode` (de re) — and `Diagnostic`, the error a corpus walk gathers.
+Effect supplies `Schema` for the model and `Array`, `Option`, and `pipe` for the queries. The module bundles two other models — `LoomDocument` (parse) and `FrameModule` (frame) — and `Diagnostic`, the error a corpus walk gathers.
 
 =>
 
@@ -125,7 +124,6 @@ import { Array, Option, pipe, Schema } from 'effect'
 import { type Diagnostic } from '#ast/LoomNode'
 import { LoomDocumentSchema } from '#ast/LoomAst'
 import { FrameModuleSchema } from '#ast/FrameAst'
-import { ComposedCodeSchema } from '#ast/ProductAst'
 
 ## The module {../src/ast/LoomCorpusAst.ts}
 

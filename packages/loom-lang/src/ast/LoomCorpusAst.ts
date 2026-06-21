@@ -2,7 +2,6 @@ import { Array, Option, pipe, Schema } from 'effect'
 import { type Diagnostic } from '#ast/LoomNode'
 import { LoomDocumentSchema } from '#ast/LoomAst'
 import { FrameModuleSchema } from '#ast/FrameAst'
-import { ComposedCodeSchema } from '#ast/ProductAst'
 
 export type Path = string
 
@@ -11,7 +10,6 @@ export const LoomModuleSchema = Schema.Struct({
   text: Schema.String,
   doc: LoomDocumentSchema,
   frame: FrameModuleSchema,
-  code: Schema.ReadonlyMap({ key: Schema.String, value: ComposedCodeSchema }),
   imports: Schema.Array(Schema.String),
 })
 export type LoomModule = typeof LoomModuleSchema.Type

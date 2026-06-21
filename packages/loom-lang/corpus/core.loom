@@ -1,67 +1,125 @@
 {{lang: TypeScript}}
 
-# Loom's composition DSL
+# Loom's composition language
 
-Loom transpiles each `.loom` file into virtual frame source code. Frame code is written in a domain-specific language. This module is that language — `#loom/core`, the import at the head of every generated frame.
+Loom transpiles each `.loom` file into a virtual frame: a small program written in the composition language this module defines. `#loom/core` is that language — the import at the head of every generated frame — and running the frame is what produces the product.
 
-The language has three verbs — two that gather, one that ships. `compose` joins a section's code, `weave` joins its prose, and `tangle` writes the result to a file.
+The language has five verbs. Two build the leaves of a section's de re structure: `fragment` carries a literal span of the author's code, and `refer` carries an edge to another section. Two assemble those leaves: `compose` gathers a section's code, `weave` gathers its prose. One ships the result: `tangle` binds a composed result to a file path.
 
-A section's product is literal text of code and prose assembled in composition order.
+The verbs construct, they do not concatenate. Where the old language joined strings, this one returns the `ProductAst` nodes — `Fragment`, `Ref`, `ComposedCode` — that `fromProduct` later flattens to text and mappings. The frame is a program that builds a value, and the value is the de re.
 
-## Imports
+## A literal fragment
 
-`FileSystem` and `Path` come from `@effect/platform`. `FileSystem` writes the tangled file; `Path` derives the file's parent directory.
+`fragment` wraps a span of product code the author wrote together with the `.loom` position it came from. The frame bakes both into the call, so the running frame reconstructs a `Fragment` that maps 1:1 back to its source.
 
 =>
 
-import { FileSystem, Path } from '@effect/platform'
-import { Effect } from 'effect'
+export const fragment = (text: string, origin: Position): Fragment => ({
+  type: 'Fragment',
+  health: okHealth,
+  text,
+  origin,
+})
+
+## A transclusion edge
+
+`refer` is the rule that composition refers and never inlines by value. A section reaches another section by yielding it as a dependency, so `refer` receives that section's own composed result — its code or its prose, since each carries an `origin` — and keeps only that identity. The edge it builds holds the target's identity, not a copy of the target's parts. Running the reference proves the wiring, because the result it reads came from a `yield*` that Effect had to resolve against a real layer.
+
+A reference whose target the frame cannot bind is a frame error, not a runtime concern. The frame renders `core.refer(name.code, …)` against a name nothing defines, the type checker rejects it on the anchor, and the run never produces that section's de re. So `refer` needs no missing case: an unbound reference fails the frame before it composes.
+
+=>
+
+export const refer = (
+  code: { readonly origin: SectionId },
+  anchor: Position,
+): Ref => ({
+  type: 'Ref',
+  health: okHealth,
+  target: Option.some(code.origin),
+  anchor,
+})
 
 ## Composing code
 
-`compose` assembles a code product. It concatenates its parts in order. Composing no parts yields the empty string.
+`compose` assembles a section's code channel. It takes the section's corpus-wide identity and its product language, then its parts in composition order, and returns one `ComposedCode`. A section with no parts composes an empty one. The identity and language still stamp it.
 
 =>
 
-export const compose = (...parts: ReadonlyArray<string>): string =>
-  parts.join('')
+export const compose = (
+  origin: SectionId,
+  languageId: string,
+  ...parts: ReadonlyArray<Part>
+): ComposedCode => ({
+  type: 'ComposedCode',
+  health: okHealth,
+  origin,
+  languageId,
+  parts,
+})
 
 ## Weaving prose
 
-`weave` is `compose`'s mirror for prose. It joins a section's prose the same way `compose` joins code: the heading, the preamble, and the documents the section transcludes.
-
-Joining does not care whether its parts are code or prose, so one body serves both. The channels are kept apart upstream, when the frame is built — code with code, prose with prose — not by these functions. The two names only carry that split into the generated frame.
+`weave` is `compose`'s peer for the prose channel. It takes the same identity and the same parts — a prose fragment, a prose reference — and returns a `WovenProse`. Prose is always Markdown, so `weave` needs no language argument. One part type serves both channels; the verb that gathers it decides which channel it joins.
 
 =>
 
-export const weave = (...parts: ReadonlyArray<string>): string =>
-  parts.join('')
+export const weave = (
+  origin: SectionId,
+  ...parts: ReadonlyArray<Part>
+): WovenProse => ({
+  type: 'WovenProse',
+  health: okHealth,
+  origin,
+  parts,
+})
 
-## Emitting a file
+## Binding a file
 
-`tangle` writes a composed result to disk. Where `compose` and `weave` are pure joins, `tangle` is the one effectful operation: it binds the result to a file path and returns an `Effect` that describes the write rather than performing it. Running it creates the parent directories, writes the file, and returns the path, so the caller can report what it wrote.
+`tangle` binds a composed result to a file path. Where `compose` and `weave` gather, `tangle` ships — but it ships a value, not a side effect. It returns a `TangledFile`, the path paired with its `ComposedCode`, and writes nothing.
+
+The write moves out of the language and into the tangler, which flattens the `code` across the corpus and emits the file at the end of the world. A pure `tangle` is what lets the editor run a frame to compose its sections without ever touching the disk.
 
 =>
 
-export const tangle = (path: string, code: string) =>
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem
-    const p = yield* Path.Path
-    yield* fs.makeDirectory(p.dirname(path), { recursive: true })
-    yield* fs.writeFileString(path, code)
-    return path
-  })
+export const tangle = (path: string, code: ComposedCode): TangledFile => ({
+  type: 'TangledFile',
+  health: okHealth,
+  path,
+  code,
+})
+
+## What this module draws on
+
+The five verbs build `ProductAst` nodes, so the de re node types come from there. `Option` wraps a reference's target, and `okHealth` and `Position` come from the foundation.
+
+=>
+
+import { Option } from 'effect'
+import { okHealth, type Position } from '#ast/LoomNode'
+import type {
+  ComposedCode,
+  Fragment,
+  Part,
+  Ref,
+  SectionId,
+  TangledFile,
+  WovenProse,
+} from '#ast/ProductAst'
 
 ## The module {../src/core.ts}
 
-Three standalone functions, none calling another, so their order on disk is free. Here it follows the story: the two joins, then the write.
+Five standalone constructors, none calling another, so their order on disk is free. Here it follows the story: what they draw on, the leaves, then the two gathers and the ship.
 
 =>
 
-::[Imports]
+::[What this module draws on]
+
+::[A literal fragment]
+
+::[A transclusion edge]
 
 ::[Composing code]
 
 ::[Weaving prose]
 
-::[Emitting a file]
+::[Binding a file]

@@ -99,9 +99,11 @@ export type FrameCode = typeof FrameCodeSchema.Type
 
 ## The service name
 
-A `ServiceName` is a union of `FrameAuthoredToken` and `FrameSynthToken`. The service name appears in three places in the class declaration — the class name, the `<…>` type parameter, and the `"…"` string service tag — and `ServiceClass` holds a separate `ServiceName` field for each, so each occurrence can map back to the source independently.
+A `ServiceName` is a union of `FrameAuthoredToken` and `FrameSynthToken`. It fills three fields of the class declaration: the class name, the `<…>` type parameter, and the `"…"` string service tag. `ServiceClass` holds a separate field for each, so each maps back to the source independently.
 
-When a section carries a `[Tag]` label, the name is an authored token: its text is the label, and its position maps back to where the author wrote the label. When a section is tagless, the name is a synth token with no source position, so it never maps.
+The class name and the type parameter carry the section's name. When the section carries a `[Tag]` label, that name is an authored token: its text is the label, and its position maps back to where the author wrote it. When the section is tagless, the name is a synth token with no source position, so it never maps.
+
+The string service tag carries the service's identity instead of its name. The builder fills it with the section's module-qualified key — its path and name — so two modules that each define a `Bit` resolve to distinct services. It is a synth token, mapping nothing.
 
 =>
 
@@ -113,47 +115,75 @@ export type ServiceName = typeof ServiceNameSchema.Type
 
 ## Code and prose fragments
 
-Each channel — code and prose — has two leaf types: one for content the section writes directly, and one for content it transcludes from another section through a Warp.
+Each channel — code and prose — has two leaf kinds: a fragment the section writes directly, and a reference it transcludes from another section through a Warp. The runnable frame builds each by calling `#loom/core`.
 
-An `EmbeddedCode` node carries one `=>` run's product code. A `ProseFragment` node carries one prose span — a heading or a paragraph. Both hold a source position, so the language service can map their text. `EmbeddedCode` maps into the section's embedded-language virtual document, where that language's server — Python, Scala, TypeScript, or any other target — analyses it. `ProseFragment` maps into a Markdown virtual document, where Markdown tooling applies.
+A fragment is one positioned span. An `EmbeddedCode` node carries one `=>` run's product code, a `ProseFragment` one prose span — a heading or a paragraph. Each renders a `core.fragment(text, origin)` call. The `text` is the literal span, mapped back to the `.loom` for its language service: the embedded language's for code, Markdown's for prose. The `origin` is that same span written out as a value the run reads — a position literal the builder bakes into the call — so it carries no mapping of its own.
 
-A `CodeRef` transcludes another section's code channel: it emits the local alias followed by `.code`. A `ProseRef` transcludes the prose channel, emitting the alias followed by `.prose`. In both, the `binding` field is an authored token that carries the alias text and maps back to the `::[…]` Warp anchor the author wrote. When the anchor cannot resolve its target, the binding's health carries an error, so the diagnostic lands on the anchor in the source rather than on the generated frame.
+A reference renders a `core.refer(…)` call. A `CodeRef` refers to another section's code channel as `core.refer(alias.code, anchor)`, and a `ProseRef` to its prose as `core.refer(alias.prose, anchor)`. The `binding` is an authored token carrying the alias, mapped back to the `::[…]` anchor the author wrote, so navigation and rename reach the anchor. The `anchor` is the anchor's position literal the run reads.
+
+A reference the frame cannot resolve stays a `CodeRef`, against the unresolved name itself. `core.refer(Ghost.code, anchor)` names something nothing in scope defines, so the type checker rejects it on the anchor — the same frame error a Warp to a missing tag raises — and the run never produces that section's de re. An unresolved reference is a frame fault the checker surfaces, not a de re node.
 
 =>
 
 export const EmbeddedCodeSchema = frameNode(
   'EmbeddedCode',
-  { open: synth('`'), text: Schema.String, position: PositionSchema, close: synth('`') },
-  ['open', 'text', 'close'],
+  {
+    open: synth('core.fragment(`'),
+    text: Schema.String,
+    position: PositionSchema,
+    mid: synth('`, '),
+    origin: FrameSynthTokenSchema,
+    close: synth(')'),
+  },
+  ['open', 'text', 'mid', 'origin', 'close'],
 )
 export type EmbeddedCode = typeof EmbeddedCodeSchema.Type
 
 export const ProseFragmentSchema = frameNode(
   'ProseFragment',
-  { open: synth('`'), text: Schema.String, position: PositionSchema, close: synth('`') },
-  ['open', 'text', 'close'],
+  {
+    open: synth('core.fragment(`'),
+    text: Schema.String,
+    position: PositionSchema,
+    mid: synth('`, '),
+    origin: FrameSynthTokenSchema,
+    close: synth(')'),
+  },
+  ['open', 'text', 'mid', 'origin', 'close'],
 )
 export type ProseFragment = typeof ProseFragmentSchema.Type
 
 export const CodeRefSchema = frameNode(
   'CodeRef',
-  { binding: FrameAuthoredTokenSchema, dot: synth('.code') },
-  ['binding', 'dot'],
+  {
+    open: synth('core.refer('),
+    binding: FrameAuthoredTokenSchema,
+    dot: synth('.code, '),
+    anchor: FrameSynthTokenSchema,
+    close: synth(')'),
+  },
+  ['open', 'binding', 'dot', 'anchor', 'close'],
 )
 export type CodeRef = typeof CodeRefSchema.Type
 
 export const ProseRefSchema = frameNode(
   'ProseRef',
-  { binding: FrameAuthoredTokenSchema, dot: synth('.prose') },
-  ['binding', 'dot'],
+  {
+    open: synth('core.refer('),
+    binding: FrameAuthoredTokenSchema,
+    dot: synth('.prose, '),
+    anchor: FrameSynthTokenSchema,
+    close: synth(')'),
+  },
+  ['open', 'binding', 'dot', 'anchor', 'close'],
 )
 export type ProseRef = typeof ProseRefSchema.Type
 
 ## Composing and weaving
 
-The `Compose` node represents the `core.compose(…)` call that assembles a section's code channel — its `EmbeddedCode` fragments and `CodeRef` transclusions, in document order, comma-separated. The `Weave` node mirrors it: the `core.weave(…)` call that assembles the prose channel from `ProseFragment` and `ProseRef` nodes. A section with no code renders as `core.compose()` with no arguments, and a section with no prose renders as `core.weave()`.
+The `Compose` node is the `core.compose(…)` call that assembles a section's code channel. It opens with the section's identity and its product language, then the arguments in document order — the `EmbeddedCode` fragments and the `CodeRef` references. The `Weave` node mirrors it for prose: `core.weave(…)` over `ProseFragment` and `ProseRef` arguments, carrying the identity but no language, since prose is always Markdown. A section with no code renders `core.compose(id, "lang")`, one with no prose `core.weave(id)`.
 
-The comma separators belong to the schema, not to the render pass. The first argument sits in the `head` field with no leading comma. Each later argument is a `ComposeArgItem` or `WeaveArgItem` that owns its leading comma as a synth field. So the render pass emits each node in `RenderOrder` and the punctuation falls out on its own — nothing in the pass needs to know whether an argument is first or last.
+The identity is a `SectionId` literal and the language a quoted string, both glue the builder fills. Each argument owns its leading comma as a synth field, so the render pass emits every node in `RenderOrder` and the commas fall out on their own — nothing in the pass tracks which argument is first.
 
 =>
 
@@ -170,11 +200,13 @@ export const ComposeSchema = frameNode(
   'Compose',
   {
     open: synth('core.compose('),
-    head: Schema.optional(ComposeArgSchema),
-    tail: Schema.Array(ComposeArgItemSchema),
+    origin: FrameSynthTokenSchema,
+    mid: synth(', '),
+    lang: FrameSynthTokenSchema,
+    args: Schema.Array(ComposeArgItemSchema),
     close: synth(')'),
   },
-  ['open', 'head', 'tail', 'close'],
+  ['open', 'origin', 'mid', 'lang', 'args', 'close'],
 )
 export type Compose = typeof ComposeSchema.Type
 
@@ -191,11 +223,11 @@ export const WeaveSchema = frameNode(
   'Weave',
   {
     open: synth('core.weave('),
-    head: Schema.optional(WeaveArgSchema),
-    tail: Schema.Array(WeaveArgItemSchema),
+    origin: FrameSynthTokenSchema,
+    args: Schema.Array(WeaveArgItemSchema),
     close: synth(')'),
   },
-  ['open', 'head', 'tail', 'close'],
+  ['open', 'origin', 'args', 'close'],
 )
 export type Weave = typeof WeaveSchema.Type
 
@@ -298,7 +330,7 @@ A `ServiceClass` represents one complete Loom section as one `Effect.Service` cl
 
 The `name`, `nameType`, and `nameTag` fields are all `ServiceName`s, one each for the class name, the `<…>` type parameter, and the string service tag.
 
-The `languageId` field names the section's product language — `"typescript"`, `"python"`, or another identifier. `ProductAstBuilder` reads it to tag the section's embedded virtual document for the right language server. The render pass never emits it, because it is not part of the generated frame text.
+The `languageId` field names the section's product language — `"typescript"`, `"python"`, or another identifier. The section's `core.compose(…)` call carries the same language, so the de re the runner builds is tagged for the right language server. The render pass never emits the field, because it is not part of the generated frame text.
 
 =>
 
@@ -323,55 +355,22 @@ export type ServiceClass = typeof ServiceClassSchema.Type
 
 ## The composition root
 
-The `Root` node is present when a `.loom` file declares at least one service, and absent when it declares none. It generates two things: a `layers` constant that merges every service's `.Default` layer into one combined layer, and a `LoomMain` effect that runs the file's tangle sinks against that layer.
+The `Root` is present when a `.loom` file declares at least one service, and absent when it declares none. It exports two generated members the runner reads. The `__services` member names every service, including the private sections, and pairs each with the `.Default` layer that builds it, the service class, and the classes it depends on. The runner reads each class's tag key to order the services and wire their layers. The `__run` member yields every section under that wiring and returns the module's composed code, its woven prose, and its tangle files.
 
-`LoomMain` provides `layers` to itself, through `Layer.provide(layers, layers)`. Every service in the merge can then satisfy the dependencies of every other service in the merge, with no manual wiring. When the file has no tangle sink, the `sinks` array is empty and `LoomMain` yields nothing — the file still has services but produces no output file.
-
-Each service-name and sink-name token in the `Root` maps back to its originating section, so renaming a tagged section's label in the editor propagates to every reference in the generated frame.
+Both are runtime glue with no `.loom` origin, so neither maps. A service name is mapped at its class declaration alone, never again here, so a rename still reaches every use. The `Root` carries each member as one synth token the builder fills with the computed text — the object literal for `__services`, the `Effect.gen` for `__run` — since the shape is fixed and only the contents vary by file.
 
 =>
-
-export const LayerRefSchema = frameNode(
-  'LayerRef',
-  { name: ServiceNameSchema, dot: synth('.Default') },
-  ['name', 'dot'],
-)
-export type LayerRef = typeof LayerRefSchema.Type
-
-export const LayerRefItemSchema = frameNode(
-  'LayerRefItem',
-  { sep: synth(',\n  '), value: LayerRefSchema },
-  ['sep', 'value'],
-)
-export type LayerRefItem = typeof LayerRefItemSchema.Type
-
-export const SinkRefSchema = frameNode(
-  'SinkRef',
-  { kw: synth('yield* '), name: ServiceNameSchema },
-  ['kw', 'name'],
-)
-export type SinkRef = typeof SinkRefSchema.Type
-
-export const SinkItemSchema = frameNode(
-  'SinkItem',
-  { sep: synth('\n    '), value: SinkRefSchema },
-  ['sep', 'value'],
-)
-export type SinkItem = typeof SinkItemSchema.Type
 
 export const RootSchema = frameNode(
   'Root',
   {
-    open: synth('\n\nconst layers = Layer.mergeAll(\n  '),
-    head: LayerRefSchema,
-    tail: Schema.Array(LayerRefItemSchema),
-    mid: synth(
-      '\n)\n\nexport const LoomMain = Effect.provide(\n  Effect.gen(function* () {',
-    ),
-    sinks: Schema.Array(SinkItemSchema),
-    close: synth('\n  }),\n  Layer.provide(layers, layers),\n)\n'),
+    open: synth('\n\nexport const __services = '),
+    services: FrameSynthTokenSchema,
+    mid: synth('\n\nexport const __run = '),
+    run: FrameSynthTokenSchema,
+    close: synth('\n'),
   },
-  ['open', 'head', 'tail', 'mid', 'sinks', 'close'],
+  ['open', 'services', 'mid', 'run', 'close'],
 )
 export type Root = typeof RootSchema.Type
 

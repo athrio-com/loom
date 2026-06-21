@@ -2,8 +2,12 @@ import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import { parseDocument, ParseLayer } from './parse'
 import { buildFrame } from '#ast/FrameAstBuilder'
-import { buildCode, type ModuleInput } from '#ast/ProductAstBuilder'
-import { fromFrame, fromProduct } from '#ast/LoomVirtualCodeBuilder'
+import { LoomRunner } from '#ast/FrameRunner'
+import {
+  type CodeByPath,
+  fromFrame,
+  fromProduct,
+} from '#ast/LoomVirtualCodeBuilder'
 
 // LoomVirtualCodeBuilder's two passes, both yielding a LoomVirtualCode.
 // fromFrame (de dicto): Frame AST → the `frame` virtual code, the generated
@@ -14,6 +18,25 @@ import { fromFrame, fromProduct } from '#ast/LoomVirtualCodeBuilder'
 
 const parse = (src: string) =>
   Effect.runSync(parseDocument(src).pipe(Effect.provide(ParseLayer)))
+
+// fromProduct's input is the de re map a corpus run produces, so these fixtures run
+// the frames through the LoomRunner — the one composition implementation — to get a
+// CodeByPath.
+const codeByPathOf = (
+  ...mods: ReadonlyArray<{ readonly path: string; readonly text: string }>
+): CodeByPath =>
+  Effect.runSync(
+    Effect.gen(function* () {
+      const runner = yield* LoomRunner
+      const frames = new Map(
+        mods.map(
+          (m) =>
+            [m.path, fromFrame(buildFrame(parse(m.text), m.path)).code] as const,
+        ),
+      )
+      return (yield* runner.run(frames)).code
+    }).pipe(Effect.provide(LoomRunner.Default)),
+  )
 
 // === de dicto — fromFrame =================================================
 
@@ -29,7 +52,7 @@ export const add = (x: number, y: number): number => x + y
 `
 
 describe('fromFrame — Frame AST → the frame virtual code', () => {
-  const vc = fromFrame(buildFrame(parse(adder)))
+  const vc = fromFrame(buildFrame(parse(adder), '/Adder.loom'))
   const genCode = vc.code
   const mappings = vc.mappings
 
@@ -46,26 +69,27 @@ describe('fromFrame — Frame AST → the frame virtual code', () => {
 
   it('emits an exported Service class named after the tag', () => {
     expect(genCode).toContain(
-      'export class Add extends Effect.Service<Add>()("Add", ',
+      'export class Add extends Effect.Service<Add>()("/Adder.loom#Add", ',
     )
     expect(genCode).toContain(') {}')
   })
 
   it('carries title → name, woven prose, and composed code', () => {
     expect(genCode).toContain('name: `Adder`')
-    expect(genCode).toContain('prose: core.weave(`')
+    expect(genCode).toContain('prose: core.weave(')
     expect(genCode).toContain('Adds two integers.')
-    expect(genCode).toContain('code: core.compose(`')
+    expect(genCode).toContain('code: core.compose(')
+    expect(genCode).toContain('core.fragment(`') // a fragment is a positioned core call
     expect(genCode).toContain(
       'export const add = (x: number, y: number): number => x + y',
     )
   })
 
-  it('emits the self-provided composition root', () => {
-    expect(genCode).toContain('const layers = Layer.mergeAll(')
-    expect(genCode).toContain('Add.Default')
-    expect(genCode).toContain('export const LoomMain = Effect.provide(')
-    expect(genCode).toContain('Layer.provide(layers, layers)')
+  it('emits the __services and __run exports the runner reads', () => {
+    expect(genCode).toContain('export const __services = ')
+    expect(genCode).toContain('Add: { layer: Add.Default, self: Add, deps: [] }')
+    expect(genCode).toContain('export const __run = Effect.gen(')
+    expect(genCode).toContain('(yield* Add).code')
   })
 
   it('maps a generated `Add` name back to the [Add] tag label span, as a `tag` span', () => {
@@ -85,7 +109,7 @@ describe('fromFrame — Frame AST → the frame virtual code', () => {
   it('escapes ` and ${ in the woven prose field and the product code', () => {
     const escInput =
       '{{lang: TypeScript}}\n\n# Escapes [Esc]\n\nMentions `pow` in prose.\n\n=>\n\nconst greeting = `Hi ${name}`\n'
-    const out = fromFrame(buildFrame(parse(escInput))).code
+    const out = fromFrame(buildFrame(parse(escInput), '/Esc.loom')).code
     expect(out).toContain('\\`pow\\`') // field: escaped backticks
     expect(out).toContain('\\${name}') // product code: escaped ${
   })
@@ -120,22 +144,10 @@ import { Neg } from "./Sad.loom"
 const negDouble = (x: number) => negate(x) * 2
 `
 
-const sadMod: ModuleInput = {
-  path: '/Sad.loom',
-  text: sad,
-  frame: buildFrame(parse(sad)),
-  imports: new Map(),
-}
-const funMod: ModuleInput = {
-  path: '/Fun.loom',
-  text: fun,
-  frame: buildFrame(parse(fun)),
-  imports: new Map([['Neg', '/Sad.loom']]),
-}
-const codeByPath = new Map([
-  ['/Sad.loom', buildCode(sadMod)],
-  ['/Fun.loom', buildCode(funMod)],
-])
+const codeByPath = codeByPathOf(
+  { path: '/Sad.loom', text: sad },
+  { path: '/Fun.loom', text: fun },
+)
 
 describe('fromProduct — section → product virtual code (cross-file)', () => {
   it('is keyed by the section name lowercased, in its own language', () => {
@@ -208,13 +220,7 @@ const b = 2
 ::[y]
 `
 
-const twoMod: ModuleInput = {
-  path: '/Two.loom',
-  text: two,
-  frame: buildFrame(parse(two)),
-  imports: new Map(),
-}
-const twoCode = new Map([['/Two.loom', buildCode(twoMod)]])
+const twoCode = codeByPathOf({ path: '/Two.loom', text: two })
 
 describe('fromProduct — transclusion sheds the block trailing newline', () => {
   it('one blank line between anchors yields one blank line between blocks', () => {
@@ -250,13 +256,7 @@ function wrap() {
 }
 `
 
-const wrappedMod: ModuleInput = {
-  path: '/Wrapped.loom',
-  text: wrapped,
-  frame: buildFrame(parse(wrapped)),
-  imports: new Map(),
-}
-const wrappedCode = new Map([['/Wrapped.loom', buildCode(wrappedMod)]])
+const wrappedCode = codeByPathOf({ path: '/Wrapped.loom', text: wrapped })
 
 describe('fromProduct — an indented anchor indents the whole block', () => {
   const vc = fromProduct(wrappedCode, { path: '/Wrapped.loom', name: 'Wr' })
@@ -323,17 +323,7 @@ def run(n):
     return total
 `
 
-const pythonCode = new Map([
-  [
-    '/Python.loom',
-    buildCode({
-      path: '/Python.loom',
-      text: python,
-      frame: buildFrame(parse(python)),
-      imports: new Map(),
-    }),
-  ],
-])
+const pythonCode = codeByPathOf({ path: '/Python.loom', text: python })
 
 describe('fromProduct — indentation stacks through nested anchors', () => {
   it('lands each block at its full nested depth, blank lines empty', () => {
@@ -372,17 +362,7 @@ def f():
     return a
 `
 
-const trailingCode = new Map([
-  [
-    '/Trailing.loom',
-    buildCode({
-      path: '/Trailing.loom',
-      text: trailing,
-      frame: buildFrame(parse(trailing)),
-      imports: new Map(),
-    }),
-  ],
-])
+const trailingCode = codeByPathOf({ path: '/Trailing.loom', text: trailing })
 
 describe('fromProduct — trailing spaces after an anchor still indent, then vanish', () => {
   it('indents the block and leaves no stray trailing whitespace', () => {
@@ -421,17 +401,7 @@ b = 2
   ::[p] + tail
 `
 
-const inlineCode = new Map([
-  [
-    '/Inline.loom',
-    buildCode({
-      path: '/Inline.loom',
-      text: inline,
-      frame: buildFrame(parse(inline)),
-      imports: new Map(),
-    }),
-  ],
-])
+const inlineCode = codeByPathOf({ path: '/Inline.loom', text: inline })
 
 describe('fromProduct — an anchor with code beside it stays inline', () => {
   it('does not re-indent when code precedes the anchor', () => {
@@ -475,26 +445,10 @@ class C {
 }
 `
 
-const libCode = new Map([
-  [
-    '/Dep.loom',
-    buildCode({
-      path: '/Dep.loom',
-      text: libDep,
-      frame: buildFrame(parse(libDep)),
-      imports: new Map(),
-    }),
-  ],
-  [
-    '/Host.loom',
-    buildCode({
-      path: '/Host.loom',
-      text: libHost,
-      frame: buildFrame(parse(libHost)),
-      imports: new Map([['Lib', '/Dep.loom']]),
-    }),
-  ],
-])
+const libCode = codeByPathOf(
+  { path: '/Dep.loom', text: libDep },
+  { path: '/Host.loom', text: libHost },
+)
 
 describe('fromProduct — an indented cross-file anchor indents the block', () => {
   const vc = fromProduct(libCode, { path: '/Host.loom', name: 'Host' })
@@ -537,13 +491,7 @@ narrative between the chunks
 const b = 2
 `
 
-const altMod: ModuleInput = {
-  path: '/Alt.loom',
-  text: alt,
-  frame: buildFrame(parse(alt)),
-  imports: new Map(),
-}
-const altCode = new Map([['/Alt.loom', buildCode(altMod)]])
+const altCode = codeByPathOf({ path: '/Alt.loom', text: alt })
 
 describe('fromProduct — prose seam between code chunks', () => {
   it('drops the prose and leaves one blank line between the chunks', () => {

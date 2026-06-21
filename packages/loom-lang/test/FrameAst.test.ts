@@ -8,24 +8,28 @@ import {
   FrameAuthoredTokenSchema,
   FrameModuleSchema,
   FrameSynthTokenSchema,
-  LayerRefSchema,
   MemberItemSchema,
   ProseFragmentSchema,
   renderOrderOf,
   RootSchema,
   ServiceClassSchema,
   StaticBodySchema,
+  WeaveArgItemSchema,
   WeaveSchema,
 } from '#ast/FrameAst'
 
 // Probe: the Frame AST constructs from the holes alone — every synth token and
 // `health` auto-fills — and every child is a typed node (no bare strings).
 // Separated lists are built bottom-up: an Item's `sep` fills at its own `.make`.
+// The runnable frame's leaves are positioned core calls, so a fragment carries an
+// `origin` literal and a compose call its identity and language.
 
 const pos = (start: number, end: number) => ({
   start: { line: 1, offset: start },
   end: { line: 1, offset: end },
 })
+
+const tok = (text: string) => FrameSynthTokenSchema.make({ text })
 
 const id = (text: string) =>
   FrameAuthoredTokenSchema.make({
@@ -42,12 +46,31 @@ const prose = (text: string) =>
   })
 
 const embedded = (text: string) =>
-  EmbeddedCodeSchema.make({ text, position: pos(0, text.length) })
+  EmbeddedCodeSchema.make({
+    text,
+    position: pos(0, text.length),
+    origin: tok('{}'),
+  })
+
+const compose = (...args: ReadonlyArray<ReturnType<typeof embedded>>) =>
+  ComposeSchema.make({
+    origin: tok('{ path: "/x", name: "Add" }'),
+    lang: tok('"typescript"'),
+    args: args.map((value) => ComposeArgItemSchema.make({ value })),
+  })
 
 const weave = (text: string) =>
   WeaveSchema.make({
-    head: ProseFragmentSchema.make({ text, position: pos(0, text.length) }),
-    tail: [],
+    origin: tok('{ path: "/x", name: "Add" }'),
+    args: [
+      WeaveArgItemSchema.make({
+        value: ProseFragmentSchema.make({
+          text,
+          position: pos(0, text.length),
+          origin: tok('{}'),
+        }),
+      }),
+    ],
   })
 
 describe('FrameAst — construction', () => {
@@ -58,11 +81,11 @@ describe('FrameAst — construction', () => {
   })
 
   it('auto-fills synth tokens as typed siblings', () => {
-    const c = ComposeSchema.make({ head: embedded('x'), tail: [] })
+    const c = compose(embedded('x'))
     expect(c.open.type).toBe('FrameSynthToken')
     expect(c.open.text).toBe('core.compose(')
     expect(c.close.text).toBe(')')
-    expect(embedded('x').open.text).toBe('`') // EmbeddedCode owns its backtick
+    expect(embedded('x').open.text).toBe('core.fragment(`') // a fragment is a core call
   })
 
   it('auto-fills the separator inside an Item built bottom-up', () => {
@@ -74,13 +97,17 @@ describe('FrameAst — construction', () => {
   it('pins an explicit render order on each node (not field position)', () => {
     expect(Option.getOrThrow(renderOrderOf(ComposeSchema))).toEqual([
       'open',
-      'head',
-      'tail',
+      'origin',
+      'mid',
+      'lang',
+      'args',
       'close',
     ])
     expect(Option.getOrThrow(renderOrderOf(EmbeddedCodeSchema))).toEqual([
       'open',
       'text',
+      'mid',
+      'origin',
       'close',
     ])
     // position / kind are metadata — excluded from the render order.
@@ -114,13 +141,9 @@ describe('FrameAst — construction', () => {
   })
 
   it('constructs a complete trivial FrameModule', () => {
-    const code = ComposeSchema.make({
-      head: embedded('export const add = …'),
-      tail: [],
-    })
     const body = StaticBodySchema.make({
       name: prose('Adder'),
-      code,
+      code: compose(embedded('export const add = …')),
       prose: weave('Adds two integers.'),
     })
     const service = ServiceClassSchema.make({
@@ -132,9 +155,8 @@ describe('FrameAst — construction', () => {
       languageId: 'typescript',
     })
     const root = RootSchema.make({
-      head: LayerRefSchema.make({ name: id('Add') }),
-      tail: [],
-      sinks: [],
+      services: tok('{ Add: { layer: Add.Default, deps: [] } }'),
+      run: tok('Effect.gen(function* () {})'),
     })
     const frame = FrameModuleSchema.make({
       imports: [],
@@ -144,16 +166,16 @@ describe('FrameAst — construction', () => {
 
     expect(frame.type).toBe('FrameModule')
     expect(frame.header.text).toContain('#loom/core')
-    expect(frame.root?.open.text).toContain('Layer.mergeAll')
+    expect(frame.root?.open.text).toContain('__services')
     expect(frame.members[0].value.type).toBe('ServiceClass')
     expect(frame.members[0].sep.text).toBe('\n\n')
   })
 
-  it('renders empty code as compose() — head absent', () => {
-    const c = ComposeSchema.make({ tail: [] })
-    expect(c.head).toBeUndefined()
-    expect(c.tail).toEqual([])
+  it('renders empty code as compose(id, "lang") — no arguments', () => {
+    const c = compose()
+    expect(c.args).toEqual([])
     expect(c.open.text).toBe('core.compose(')
+    expect(c.lang.text).toBe('"typescript"')
   })
 
   it('a service-less file is valid — no root', () => {

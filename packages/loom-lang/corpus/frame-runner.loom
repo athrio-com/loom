@@ -1,0 +1,349 @@
+{{lang: TypeScript}}
+
+# The frame runner
+
+The frame is a program, and this module runs it. Running a corpus of frames produces the de re — one `ComposedCode` per section. So the frame is the composition itself, executed, not a structure a second pass reads to derive the same result.
+
+A run takes four steps. It **strips** each frame's types, **evaluates** it to a live module, **wires** the corpus's services into one context where every dependency is built before what needs it, and **runs** each module's manifest under that context to collect every section's composed code. The steps are pure computation over frame text the build already produced. The run writes no file and calls nothing in Volar, so it is safe inside the synchronous projection hook.
+
+## What a run produces
+
+A run returns three things. The `code` is the `CodeByPath` `fromProduct` flattens — each module's sections keyed by name. The `prose` is its woven peer. The `files` are the `TangledFile` descriptors the tangle sinks composed, which the tangler later writes.
+
+A frame, once evaluated, exposes two generated members the runner reads. Its `__services` map names every service the module defines, the private sections included. Each entry pairs the service with three things: the `.Default` layer that builds it, the service class itself, and the classes it depends on. Its `__run` effect yields every section and returns the module's composed code, prose, and tangle files.
+
+=>
+
+export interface RunOutput {
+  readonly code: ReadonlyMap<string, ReadonlyMap<string, ComposedCode>>
+  readonly prose: ReadonlyMap<string, ReadonlyMap<string, WovenProse>>
+  readonly files: ReadonlyArray<TangledFile>
+}
+
+type AnyLayer = Layer.Layer<never, never, never>
+
+interface ServiceTag {
+  readonly key: string
+}
+
+interface ServiceNode {
+  readonly layer: AnyLayer
+  readonly self: ServiceTag
+  readonly deps: ReadonlyArray<ServiceTag | undefined>
+}
+
+interface ManifestResult {
+  readonly sections: ReadonlyMap<string, ComposedCode>
+  readonly prose: ReadonlyMap<string, WovenProse>
+  readonly files: ReadonlyArray<TangledFile>
+}
+
+interface EvaledFrame {
+  readonly __services: Record<string, ServiceNode>
+  readonly __run: Effect.Effect<ManifestResult>
+}
+
+## Stripping a frame
+
+The frame is TypeScript, and the runtime evaluates JavaScript, so the runner strips the types first. Node's built-in `stripTypeScriptTypes` does this synchronously and removes only the type syntax — the runtime-erased `Effect.Service<T>()` parameter, the annotations — leaving the program intact. The product code rides as opaque string literals, untouched.
+
+=>
+
+const stripFrame = (frame: string): string =>
+  stripTypeScriptTypes(frame, { mode: 'strip' })
+
+## From a module to a function
+
+A frame opens with `import` lines — `#loom/core`, `effect`, and a cross-file frame's siblings — and exports its services. The runner evaluates it as a function instead, so it rewrites those lines into forms a function body allows: each `import` becomes a `require` call the runner resolves, and each `export` assigns onto the function's `module.exports`.
+
+The rewrite must reach the frame's own statements and never the product code. A section's code rides inside `core.fragment(\`…\`)` template literals, and that product may itself open a line with `import` or `export` — most real source does. So `maskTemplates` first hides every template literal behind a placeholder, the rewrites run against the scaffolding that remains, and `restore` puts the literals back untouched. The placeholder is a null character, which generated TypeScript never holds, so nothing else can match it. Masking leans on the builder having escaped every backtick inside a fragment, so a fragment's own delimiters are the only bare backticks left.
+
+=>
+
+const maskTemplates = (
+  source: string,
+): { readonly masked: string; readonly restore: (s: string) => string } => {
+  const literals: Array<string> = []
+  const masked = source.replace(/`(?:\\.|[^`\\])*`/g, (literal) => {
+    literals.push(literal)
+    return `\u0000${literals.length - 1}\u0000`
+  })
+  const restore = (s: string): string =>
+    s.replace(/\u0000(\d+)\u0000/g, (_, i) => literals[Number(i)]!)
+  return { masked, restore }
+}
+
+const toEvalable = (frame: string): string => {
+  const { masked, restore } = maskTemplates(stripFrame(frame))
+  const names = pipe(
+    [...masked.matchAll(/^export (?:class|const|function|async function) (\w+)/gm)],
+    Arr.map((m) => m[1]),
+  )
+  const cjs = masked
+    .replace(/^import \* as (\w+) from ["']([^"']+)["'];?\s*$/gm, 'const $1 = require("$2");')
+    .replace(/^import \{([^}]+)\} from ["']([^"']+)["'];?\s*$/gm, 'const {$1} = require("$2");')
+    .replace(/^import ["']([^"']+)["'];?\s*$/gm, 'require("$1");')
+    .replace(/^export (class|const|function|async function) /gm, '$1 ')
+  return `${restore(cjs)}\nObject.assign(module.exports, {${names.join(', ')}})`
+}
+
+## Evaluating a frame
+
+`evalFrame` turns the rewritten text into a live module. It builds a function of `require`, `module`, and `exports`, runs it with the caller's resolver, and returns the populated exports. This is the one place the runner executes generated code, so the resolver is the only channel through which a frame reaches anything outside itself.
+
+=>
+
+const evalFrame = (
+  frame: string,
+  require: (id: string) => unknown,
+): EvaledFrame => {
+  const module = { exports: {} as Record<string, unknown> }
+  new Function('require', 'module', 'exports', toEvalable(frame))(
+    require,
+    module,
+    module.exports,
+  )
+  return module.exports as unknown as EvaledFrame
+}
+
+## Reading a frame's imports
+
+To evaluate a frame the runner must first evaluate the siblings it imports, so it reads those edges off the text. A cross-file import names a `.loom` sibling by a relative path, which the runner resolves against the importing file to the absolute path the corpus is keyed by.
+
+=>
+
+const importsOf = (path: string, frame: string): ReadonlyArray<string> =>
+  pipe(
+    [...frame.matchAll(/from ["'](\.[^"']*\.loom)["']/g)],
+    Arr.map((m) => resolvePath(dirname(path), m[1])),
+  )
+
+## Ordering by dependency
+
+Two passes need a dependency order. The modules evaluate in one, the services build in the other, and both are the same shape — a node, its key, and the keys it depends on — so one sort serves both. `topoSort` visits each node's dependencies before the node, depth first. A key already placed is skipped, which both dedupes the result and keeps a cycle from looping forever. A dependency outside the node set is left where it is; over a whole corpus, none falls outside.
+
+=>
+
+const topoSort = <A>(
+  nodes: ReadonlyArray<A>,
+  keyOf: (a: A) => string,
+  depsOf: (a: A) => ReadonlyArray<string>,
+): ReadonlyArray<A> => {
+  const byKey = new Map(nodes.map((n) => [keyOf(n), n] as const))
+  type Acc = { readonly order: ReadonlyArray<A>; readonly seen: ReadonlySet<string> }
+  const visit = (acc: Acc, key: string): Acc => {
+    if (acc.seen.has(key)) return acc
+    const node = byKey.get(key)
+    const seen = new Set(acc.seen).add(key)
+    return node === undefined
+      ? { order: acc.order, seen }
+      : pipe(
+          Arr.reduce(depsOf(node), { order: acc.order, seen } as Acc, visit),
+          (after) => ({ order: [...after.order, node], seen: after.seen }),
+        )
+  }
+  return Arr.reduce(
+    nodes,
+    { order: [], seen: new Set<string>() } as Acc,
+    (acc, n) => visit(acc, keyOf(n)),
+  ).order
+}
+
+## Evaluating the corpus
+
+`evalCorpus` evaluates every frame in dependency order, threading the modules built so far. Each frame's resolver answers `#loom/core` with the runnable core and `effect` with Effect — the two the runner injects — and a sibling import with the module already built for its resolved path. Because the order is dependencies first, a sibling is always present by the time a frame asks for it.
+
+`evalFrameSafe` keeps one frame's fault from sinking the corpus. A frame whose top level throws — a Warp left a name nothing defines, so its `__services` reads an undefined identifier — degrades to an empty module rather than aborting the evaluation. The faulted module loses its de re, and its siblings keep theirs.
+
+=>
+
+const emptyEvaled: EvaledFrame = {
+  __services: {},
+  __run: Effect.suspend(() => Effect.succeed(emptyManifest)),
+}
+
+const evalFrameSafe = (
+  frame: string,
+  require: (id: string) => unknown,
+): EvaledFrame => {
+  try {
+    return evalFrame(frame, require)
+  } catch {
+    return emptyEvaled
+  }
+}
+
+const evalCorpus = (
+  frames: ReadonlyMap<string, string>,
+): ReadonlyMap<string, EvaledFrame> =>
+  pipe(
+    topoSort(
+      [...frames.keys()],
+      (p) => p,
+      (p) => importsOf(p, frames.get(p) ?? ''),
+    ),
+    Arr.reduce(new Map<string, EvaledFrame>(), (evaled, path) => {
+      const require = (id: string): unknown =>
+        id === '#loom/core'
+          ? core
+          : id === 'effect'
+            ? effect
+            : evaled.get(resolvePath(dirname(path), id))
+      return new Map(evaled).set(
+        path,
+        evalFrameSafe(frames.get(path) ?? '', require),
+      )
+    }),
+  )
+
+## Wiring the services
+
+A broken frame must cost only its own module's de re, never the corpus's. So the runner gives each module its own context, not one context shared across all of them. A single shared context builds every service at once, so one service that fails to build takes down every module's run. One unresolved Warp anywhere would blank the whole corpus.
+
+A module's manifest yields its own sections, and building a section pulls the services it depends on across files. `coneOf` walks that dependency cone from the module's services, following each service's dependency keys to their transitive closure. `wireCone` folds the cone into one context. It sorts the services so a dependency builds before what needs it, then merges each with the context built so far (`Layer.provideMerge`). The graph is acyclic, since a Warp cycle is a diagnostic, not a built layer. So the fold always ends in a context that provides the module's whole cone.
+
+The runner identifies each service by its tag key, the module-qualified string its `Effect.Service` declares, so two modules that each define a `Bit` stay distinct. Providing a merged set to itself cannot replace the fold. Building the provided copy still demands the services it is meant to supply, so the build fails with the dependency unmet.
+
+=>
+
+type Services = ReadonlyMap<string, ServiceNode>
+
+const depKeys = (node: ServiceNode): ReadonlyArray<string> =>
+  node.deps.flatMap((d) => (d ? [d.key] : []))
+
+const indexServices = (evaled: ReadonlyMap<string, EvaledFrame>): Services =>
+  new Map(
+    pipe(
+      [...evaled.values()],
+      Arr.flatMap((m) => Object.values(m.__services)),
+      Arr.map((node) => [node.self.key, node] as const),
+    ),
+  )
+
+const coneOf = (
+  services: Services,
+  seeds: ReadonlyArray<string>,
+): ReadonlyArray<ServiceNode> => {
+  const visit = (seen: ReadonlySet<string>, key: string): ReadonlySet<string> => {
+    if (seen.has(key)) return seen
+    const node = services.get(key)
+    return node === undefined
+      ? seen
+      : Arr.reduce(depKeys(node), new Set(seen).add(key), visit)
+  }
+  return pipe(
+    Arr.reduce(seeds, new Set<string>(), visit),
+    (keys) =>
+      Arr.flatMap([...keys], (key) => {
+        const node = services.get(key)
+        return node === undefined ? [] : [node]
+      }),
+  )
+}
+
+const wireCone = (cone: ReadonlyArray<ServiceNode>): AnyLayer =>
+  pipe(
+    topoSort(cone, (node) => node.self.key, depKeys),
+    Arr.map((node) => node.layer),
+    Arr.matchLeft({
+      onEmpty: () => Layer.empty as AnyLayer,
+      onNonEmpty: (head, tail) =>
+        Arr.reduce(tail, head, (ctx, layer) => Layer.provideMerge(layer, ctx)),
+    }),
+  )
+
+## Running the manifests
+
+`collect` indexes every service in the corpus by key, then runs each module's manifest under its own cone. For one module it walks the cone from the module's services, folds it, provides it to that module's `__run`, and catches the result. Each `__run` yields the module's sections and returns their composed code, prose, and tangle files.
+
+The catch is what contains a fault. It wraps the provide as well as the run. A cone may fail to build for several reasons: a `{Loom}` section that throws, a Warp whose target no import brings into scope, a dependency that yields undefined. Any of these degrades that one module to an empty result, and its neighbours run on untouched. The de dicto frame the editor type-checks is produced by rendering, not running, so it survives a failed run and still carries its diagnostics. Only the de re of the failed module is lost.
+
+=>
+
+const emptyManifest: ManifestResult = {
+  sections: new Map(),
+  prose: new Map(),
+  files: [],
+}
+
+const collect = (
+  evaled: ReadonlyMap<string, EvaledFrame>,
+): Effect.Effect<RunOutput> => {
+  const services = indexServices(evaled)
+  return pipe(
+    Effect.forEach([...evaled.entries()], ([path, m]) => {
+      const seeds = Object.values(m.__services).map((node) => node.self.key)
+      const wired = wireCone(coneOf(services, seeds))
+      return m.__run.pipe(
+        Effect.provide(wired),
+        Effect.map((result) => [path, result] as const),
+        Effect.catchAllCause(() => Effect.succeed([path, emptyManifest] as const)),
+      )
+    }),
+    Effect.map((results) => ({
+      code: new Map(results.map(([path, r]) => [path, r.sections])),
+      prose: new Map(results.map(([path, r]) => [path, r.prose])),
+      files: Arr.flatMap(results, ([, r]) => [...r.files]),
+    })),
+  )
+}
+
+## The runner service
+
+`LoomRunner` is the service the corpus build and the tangler call. Its one method, `run`, takes the corpus as a map of file path to frame text and returns the `RunOutput`. Evaluating the corpus runs inside `Effect.suspend`. Each module's run is already caught on its own. The final `catchAllCause` guards the one fault left, the evaluation itself throwing on a malformed corpus. It degrades the whole run to an empty result rather than throwing. So `run` never fails. The caller always receives a `RunOutput`, even when it is empty.
+
+=>
+
+const emptyOutput: RunOutput = {
+  code: new Map(),
+  prose: new Map(),
+  files: [],
+}
+
+export class LoomRunner extends Effect.Service<LoomRunner>()('LoomRunner', {
+  succeed: {
+    run: (frames: ReadonlyMap<string, string>): Effect.Effect<RunOutput> =>
+      Effect.suspend(() => collect(evalCorpus(frames))).pipe(
+        Effect.catchAllCause(() => Effect.succeed(emptyOutput)),
+      ),
+  },
+}) {}
+
+## What this module draws on
+
+Effect supplies the array and layer combinators and the effect type. The runner injects the runnable `core` and the `effect` namespace into every frame it evaluates. `stripTypeScriptTypes` from `node:module` strips the types, and `node:path` resolves a sibling import. The de re node types — what a run produces — come from `ProductAst`.
+
+=>
+
+import { Array as Arr, Effect, Layer, pipe } from 'effect'
+import * as effect from 'effect'
+import * as core from '#loom/core'
+import { stripTypeScriptTypes } from 'node:module'
+import { dirname, resolve as resolvePath } from 'node:path'
+import type { ComposedCode, TangledFile, WovenProse } from '#ast/ProductAst'
+
+## The module {../src/ast/FrameRunner.ts}
+
+=>
+
+::[What this module draws on]
+
+::[What a run produces]
+
+::[Stripping a frame]
+
+::[From a module to a function]
+
+::[Evaluating a frame]
+
+::[Reading a frame's imports]
+
+::[Ordering by dependency]
+
+::[Evaluating the corpus]
+
+::[Wiring the services]
+
+::[Running the manifests]
+
+::[The runner service]

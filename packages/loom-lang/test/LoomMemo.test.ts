@@ -2,7 +2,6 @@ import { describe, expect, it } from '@effect/vitest'
 import { Array, Effect, Ref } from 'effect'
 import { parseDocument, ParseLayer } from './parse'
 import { buildFrame } from '#ast/FrameAstBuilder'
-import { buildCode } from '#ast/ProductAstBuilder'
 import { type LoomModule } from '#ast/LoomCorpusAst'
 import { LoomMemo } from '../src/LoomMemo'
 
@@ -26,13 +25,12 @@ const text = `{{lang: TypeScript}}
 const x = 1
 `
 const doc = parse(text)
-const frame = buildFrame(doc)
+const frame = buildFrame(doc, '/Bit.loom')
 const moduleAt = (path: string): LoomModule => ({
   path,
   text,
   doc,
   frame,
-  code: buildCode({ path, text, frame, imports: new Map() }),
   imports: [],
 })
 

@@ -63,29 +63,55 @@ export type ServiceName = typeof ServiceNameSchema.Type
 
 export const EmbeddedCodeSchema = frameNode(
   'EmbeddedCode',
-  { open: synth('`'), text: Schema.String, position: PositionSchema, close: synth('`') },
-  ['open', 'text', 'close'],
+  {
+    open: synth('core.fragment(`'),
+    text: Schema.String,
+    position: PositionSchema,
+    mid: synth('`, '),
+    origin: FrameSynthTokenSchema,
+    close: synth(')'),
+  },
+  ['open', 'text', 'mid', 'origin', 'close'],
 )
 export type EmbeddedCode = typeof EmbeddedCodeSchema.Type
 
 export const ProseFragmentSchema = frameNode(
   'ProseFragment',
-  { open: synth('`'), text: Schema.String, position: PositionSchema, close: synth('`') },
-  ['open', 'text', 'close'],
+  {
+    open: synth('core.fragment(`'),
+    text: Schema.String,
+    position: PositionSchema,
+    mid: synth('`, '),
+    origin: FrameSynthTokenSchema,
+    close: synth(')'),
+  },
+  ['open', 'text', 'mid', 'origin', 'close'],
 )
 export type ProseFragment = typeof ProseFragmentSchema.Type
 
 export const CodeRefSchema = frameNode(
   'CodeRef',
-  { binding: FrameAuthoredTokenSchema, dot: synth('.code') },
-  ['binding', 'dot'],
+  {
+    open: synth('core.refer('),
+    binding: FrameAuthoredTokenSchema,
+    dot: synth('.code, '),
+    anchor: FrameSynthTokenSchema,
+    close: synth(')'),
+  },
+  ['open', 'binding', 'dot', 'anchor', 'close'],
 )
 export type CodeRef = typeof CodeRefSchema.Type
 
 export const ProseRefSchema = frameNode(
   'ProseRef',
-  { binding: FrameAuthoredTokenSchema, dot: synth('.prose') },
-  ['binding', 'dot'],
+  {
+    open: synth('core.refer('),
+    binding: FrameAuthoredTokenSchema,
+    dot: synth('.prose, '),
+    anchor: FrameSynthTokenSchema,
+    close: synth(')'),
+  },
+  ['open', 'binding', 'dot', 'anchor', 'close'],
 )
 export type ProseRef = typeof ProseRefSchema.Type
 
@@ -102,11 +128,13 @@ export const ComposeSchema = frameNode(
   'Compose',
   {
     open: synth('core.compose('),
-    head: Schema.optional(ComposeArgSchema),
-    tail: Schema.Array(ComposeArgItemSchema),
+    origin: FrameSynthTokenSchema,
+    mid: synth(', '),
+    lang: FrameSynthTokenSchema,
+    args: Schema.Array(ComposeArgItemSchema),
     close: synth(')'),
   },
-  ['open', 'head', 'tail', 'close'],
+  ['open', 'origin', 'mid', 'lang', 'args', 'close'],
 )
 export type Compose = typeof ComposeSchema.Type
 
@@ -123,11 +151,11 @@ export const WeaveSchema = frameNode(
   'Weave',
   {
     open: synth('core.weave('),
-    head: Schema.optional(WeaveArgSchema),
-    tail: Schema.Array(WeaveArgItemSchema),
+    origin: FrameSynthTokenSchema,
+    args: Schema.Array(WeaveArgItemSchema),
     close: synth(')'),
   },
-  ['open', 'head', 'tail', 'close'],
+  ['open', 'origin', 'args', 'close'],
 )
 export type Weave = typeof WeaveSchema.Type
 
@@ -223,47 +251,16 @@ export const ServiceClassSchema = frameNode(
 )
 export type ServiceClass = typeof ServiceClassSchema.Type
 
-export const LayerRefSchema = frameNode(
-  'LayerRef',
-  { name: ServiceNameSchema, dot: synth('.Default') },
-  ['name', 'dot'],
-)
-export type LayerRef = typeof LayerRefSchema.Type
-
-export const LayerRefItemSchema = frameNode(
-  'LayerRefItem',
-  { sep: synth(',\n  '), value: LayerRefSchema },
-  ['sep', 'value'],
-)
-export type LayerRefItem = typeof LayerRefItemSchema.Type
-
-export const SinkRefSchema = frameNode(
-  'SinkRef',
-  { kw: synth('yield* '), name: ServiceNameSchema },
-  ['kw', 'name'],
-)
-export type SinkRef = typeof SinkRefSchema.Type
-
-export const SinkItemSchema = frameNode(
-  'SinkItem',
-  { sep: synth('\n    '), value: SinkRefSchema },
-  ['sep', 'value'],
-)
-export type SinkItem = typeof SinkItemSchema.Type
-
 export const RootSchema = frameNode(
   'Root',
   {
-    open: synth('\n\nconst layers = Layer.mergeAll(\n  '),
-    head: LayerRefSchema,
-    tail: Schema.Array(LayerRefItemSchema),
-    mid: synth(
-      '\n)\n\nexport const LoomMain = Effect.provide(\n  Effect.gen(function* () {',
-    ),
-    sinks: Schema.Array(SinkItemSchema),
-    close: synth('\n  }),\n  Layer.provide(layers, layers),\n)\n'),
+    open: synth('\n\nexport const __services = '),
+    services: FrameSynthTokenSchema,
+    mid: synth('\n\nexport const __run = '),
+    run: FrameSynthTokenSchema,
+    close: synth('\n'),
   },
-  ['open', 'head', 'tail', 'mid', 'sinks', 'close'],
+  ['open', 'services', 'mid', 'run', 'close'],
 )
 export type Root = typeof RootSchema.Type
 

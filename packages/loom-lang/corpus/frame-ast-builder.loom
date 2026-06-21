@@ -5,15 +5,23 @@
 Loom's pipeline is a chain of small passes between explicit intermediate models.
 This module is one of them: it folds a parsed `.loom` document — a `LoomDocument`
 of sections — into the Frame, the `FrameModule` that projects to the de dicto layer: the TypeScript
-the editor type-checks and the tangler walks.
+the editor type-checks and the runner executes.
 
 The pass is a *build*, the same shape as the parser before it. The parser folds a
 stream of wefts into the Loom AST; this folds that AST's sections into the Frame
 AST. It is total by construction. Every section becomes a member, every binding
-list runs from none to many, and an edge that fails to resolve becomes error
-*health on the node* rather than a thrown exception. Health travels with each node back to its source through the mapping. Grammatical
+list runs from none to many, and an edge that fails to resolve becomes a `CodeRef`
+to an unbound name carrying error *health on its node* — a frame fault the type
+checker reports, not a thrown exception. Health travels with each node back to its source through the mapping. Grammatical
 health — a malformed token, say — is lifted from the Loom AST; semantic health,
 such as an anchor that resolves to nothing, is attached here as the frame is built.
+
+The frame the pass emits is runnable. Each section's code is a `core.compose(…)`
+of positioned `core.fragment` and `core.refer` calls, and the module ends in two
+generated exports the runner reads. `__services` lists each service's layer and the
+tags it depends on, and `__run` is the effect that yields every section to collect
+its composed code. The builder bakes the source positions into those calls, since
+running the frame loses them unless they are written into it.
 
 ## Imports
 
@@ -24,7 +32,8 @@ main pipeline. From the Loom side come the document and section types, the token
 an anchor is lifted from, the weft a code block is made of, and the health model a
 diagnostic attaches to. From the Frame side come the schema constructors for every
 node this pass builds — the service class, its bodies, the compose call, the
-bindings, and the module root.
+references, and the bindings. A section's corpus-wide identity is a `SectionId`, which
+`core.compose` and `core.weave` stamp onto each composed result.
 
 =>
 
@@ -33,6 +42,7 @@ import type { LoomDocument, LoomSection } from '#ast/LoomAst'
 import { okHealth, type Health, type Point, type Position } from '#ast/LoomNode'
 import type { WarpAnchorToken, WarpToken } from '#ast/LoomTokens'
 import type { PreambleWeft, SectionBodyWeft } from '#ast/Weft'
+import type { SectionId } from '#ast/ProductAst'
 import {
   type Binding,
   BindingItemSchema,
@@ -44,6 +54,7 @@ import {
   ComposeSchema,
   ProseFragmentSchema,
   type Weave,
+  WeaveArgItemSchema,
   WeaveSchema,
   type EmbeddedCode,
   EmbeddedCodeSchema,
@@ -55,18 +66,12 @@ import {
   FrameModuleSchema,
   FrameSynthTokenSchema,
   EffectfulBodySchema,
-  type LayerRef,
-  LayerRefItemSchema,
-  LayerRefSchema,
   MemberItemSchema,
   RootSchema,
   type ServiceBody,
   type ServiceClass,
   ServiceClassSchema,
   type ServiceName,
-  type SinkRef,
-  SinkItemSchema,
-  SinkRefSchema,
   StaticBodySchema,
   TangleBodySchema,
 } from '#ast/FrameAst'
@@ -75,13 +80,15 @@ import {
 
 `FrameAstBuilder` is the service the rest of the pipeline calls. Its one method,
 `build`, wraps the pure `buildFrame` in an Effect so callers compose it like any
-other step.
+other step. It takes the document's file path alongside the document, because a
+section's `core.compose` stamps the section's corpus-wide identity — its path and
+name — and the path is known only to the caller.
 
 `buildFrame` is the spine, and it runs from the document's head to its tail. It reads the document
 preamble for the primary language — the default a specifier-less section inherits
 — and indexes the sections by name. Then it maps each section to a Frame member,
-folds the members into the four lists a module is made of, and finalises by
-building the composition root from the collected layers and sinks. The document's
+folds the members into the three lists a module is made of, and finalises by
+building the composition root from the collected services. The document's
 own health — a missing language declaration, say — lives on `doc.health`; a later
 pass carries it forward.
 
@@ -91,18 +98,18 @@ export class FrameAstBuilder extends Effect.Service<FrameAstBuilder>()(
   'FrameAstBuilder',
   {
     succeed: {
-      build: (doc: LoomDocument): Effect.Effect<FrameModule> =>
-        Effect.sync(() => buildFrame(doc)),
+      build: (doc: LoomDocument, path: string): Effect.Effect<FrameModule> =>
+        Effect.sync(() => buildFrame(doc, path)),
     },
   },
 ) {}
 
-export const buildFrame = (doc: LoomDocument): FrameModule => {
+export const buildFrame = (doc: LoomDocument, modulePath: string): FrameModule => {
   const lang = primaryLanguage(doc.preamble)
   const index = nameIndex(doc.sections)
   return pipe(
     doc.sections,
-    Array.map(buildMember(index, lang)),
+    Array.map(buildMember(index, lang, modulePath)),
     Array.reduce(emptyFrame, appendMember),
     finaliseModule,
   )
@@ -113,7 +120,7 @@ export const buildFrame = (doc: LoomDocument): FrameModule => {
 A name anchor names a section by its heading title — the one identifier every
 section always has. A tag is never reachable this way; only a Warp reaches a tag.
 So the index is keyed by title alone, and each title maps to the service that
-title names: the tag label when the section is tagged, or the synthesised hash
+title names: the tag label when the section is tagged, or the synthesised name
 when it is not.
 
 A title can repeat, and the index keeps every section that claims one rather than
@@ -160,17 +167,20 @@ in turn. A file-path specifier makes a tangle — a private sink that returns a
 unwrapped, with its imports hoisted. Anything else makes an ordinary product
 service, exported when the section carries a real tag.
 
-A `Built` is a member plus what it contributes to the root: a layer, since every
-service merges its default; a sink, when the member is a tangle to run; and any
-imports a `Loom` section hoists to the file head.
+A `Built` is a member plus what it contributes to the root: a `service` record —
+its name, the tags it depends on, and whether it is a tangle sink — and any
+imports a `Loom` section hoists to the file head. A `{Loom}` splice contributes no
+service, since it is not one.
 
 `buildService` turns one section into one service class. It reads the section's
 Warp declarations into bindings, walks the code into a compose call and the
 internal bindings its name anchors hoist, and resolves the language id. A tangle is
 language-agnostic — it composes any source, possibly several languages, into one
 file — so it claims no language of its own and is marked `Loom`; an ordinary
-section takes its specifier's language, or the document default. The body is
-static when the section declares no dependency and effectful when it declares any.
+section takes its specifier's language, or the document default. The section's
+identity — its path and name — and that language stamp the `core.compose` call. The
+body is static when the section declares no dependency and effectful when it
+declares any.
 
 `bodyOf` derives the body shape from the model: a tangle is always effectful; an ordinary section is effectful
 when it has any bindings and static when it has none. The bindings field is a list that may be empty,
@@ -178,46 +188,52 @@ so the binding-less case needs no special representation. `items` wraps each
 binding in the list node that owns its leading separator.
 
 `buildSplice` handles a `Loom` section. Its import lines hoist to the file head;
-the rest of its code splices in verbatim as frame code. It contributes neither a
-layer nor a sink, since it is not a service, and an empty splice is a zero-width
-node at the heading's end.
+the rest of its code splices in verbatim as frame code. It contributes no service,
+since it is not one, and an empty splice is a zero-width node at the heading's end.
 
 =>
 
+interface ServiceInfo {
+  readonly name: string
+  readonly deps: ReadonlyArray<string>
+  readonly sink: boolean
+}
+
 interface Built {
   readonly member: ServiceClass | FrameCode
-  readonly layer: Option.Option<LayerRef>
-  readonly sink: Option.Option<SinkRef>
+  readonly service: Option.Option<ServiceInfo>
   readonly imports: ReadonlyArray<FrameCode>
 }
 
 const buildMember =
-  (index: NameIndex, lang: string) =>
+  (index: NameIndex, lang: string, modulePath: string) =>
   (section: LoomSection): Built =>
     pipe(
       Match.value(section.heading.specifier),
       Match.when({ type: 'PathSpecifier' }, (spec) =>
-        buildService(index, lang, section, Option.some(pathOf(spec))),
+        buildService(index, lang, section, modulePath, Option.some(pathOf(spec))),
       ),
       Match.when({ type: 'Specifier', label: { value: 'Loom' } }, () =>
         buildSplice(section),
       ),
-      Match.orElse(() => buildService(index, lang, section, Option.none())),
+      Match.orElse(() =>
+        buildService(index, lang, section, modulePath, Option.none()),
+      ),
     )
 
 const buildService = (
   index: NameIndex,
   defaultLang: string,
   section: LoomSection,
-  path: Option.Option<FrameAuthoredToken>,
+  modulePath: string,
+  tanglePath: Option.Option<FrameAuthoredToken>,
 ): Built => {
   const warps = section.preamble.flatMap((w) => w.warps)
   const warpNames = new Set(warps.map((w) => w.name.value))
-  const { compose, internals } = buildCompose(section, warpNames, index)
-  const bindings = [...warps.map(warpBinding), ...internals]
 
-  const name = serviceName(section)
-  const languageId = Option.match(path, {
+  const name = serviceNameOf(section)
+  const origin: SectionId = { path: modulePath, name }
+  const languageId = Option.match(tanglePath, {
     onSome: () => 'Loom',
     onNone: () =>
       section.heading.specifier?.type === 'Specifier'
@@ -225,34 +241,46 @@ const buildService = (
         : defaultLang,
   })
 
-  const body = bodyOf(section, path, bindings, compose)
-  const exported = Option.isNone(path) && isExported(section)
+  const { compose, internals } = buildCompose(
+    section,
+    warpNames,
+    index,
+    origin,
+    languageId,
+  )
+  const bindings = [...warps.map(warpBinding), ...internals]
 
-  const nameRef = FrameSynthTokenSchema.make({ text: name.text })
+  const nameRef = FrameSynthTokenSchema.make({ text: name })
   const service = ServiceClassSchema.make({
-    modifier: FrameSynthTokenSchema.make({ text: exported ? 'export ' : '' }),
-    name,
+    modifier: FrameSynthTokenSchema.make({
+      text: Option.isNone(tanglePath) && isExported(section) ? 'export ' : '',
+    }),
+    name: serviceName(section),
     nameType: nameRef,
-    nameTag: nameRef,
-    body,
+    nameTag: tok(serviceTag(origin)),
+    body: bodyOf(section, tanglePath, bindings, compose, origin),
     languageId,
   })
 
   return {
     member: service,
-    layer: Option.some(LayerRefSchema.make({ name: nameRef })),
-    sink: Option.map(path, () => SinkRefSchema.make({ name: nameRef })),
+    service: Option.some({
+      name,
+      deps: bindings.map((b) => b.tag.text),
+      sink: Option.isSome(tanglePath),
+    }),
     imports: [],
   }
 }
 
 const bodyOf = (
   section: LoomSection,
-  path: Option.Option<FrameAuthoredToken>,
+  tanglePath: Option.Option<FrameAuthoredToken>,
   bindings: ReadonlyArray<Binding>,
   compose: Compose,
+  origin: SectionId,
 ): ServiceBody =>
-  Option.match(path, {
+  Option.match(tanglePath, {
     onSome: (p) =>
       TangleBodySchema.make({ bindings: items(bindings), path: p, code: compose }),
     onNone: () =>
@@ -260,12 +288,12 @@ const bodyOf = (
         ? EffectfulBodySchema.make({
             bindings: items(bindings),
             name: titleField(section),
-            prose: proseField(section),
+            prose: proseField(section, origin),
             code: compose,
           })
         : StaticBodySchema.make({
             name: titleField(section),
-            prose: proseField(section),
+            prose: proseField(section, origin),
             code: compose,
           }),
   })
@@ -284,8 +312,7 @@ const buildSplice = (section: LoomSection): Built => {
       onNonEmpty: () =>
         FrameCodeSchema.make({ text: sourceOf(body), position: spanOf(body) }),
     }),
-    layer: Option.none(),
-    sink: Option.none(),
+    service: Option.none(),
     imports: pipe(
       pieces,
       Array.filter(isImport),
@@ -299,8 +326,9 @@ const buildSplice = (section: LoomSection): Built => {
 `buildCompose` turns a section's code into a `core.compose` call. It walks each
 code run, gathers the compose arguments — the product fragments and the resolved
 references — together with the bindings the name anchors hoist, dedupes those
-bindings by name, and assembles the call. An empty argument list composes nothing:
-`core.compose()`.
+bindings by name, and assembles the call. The call opens with the section's
+identity and its language, then its arguments. A section with no arguments composes
+just those two, `core.compose(id, "lang")`.
 
 A *code piece* is the unit of composition: one line from a code weft, or the inline code
 after an arrow, extended to the line's end so its trailing newline is preserved. `pieceOf` lifts a
@@ -315,7 +343,7 @@ prose between them is discarded.
 
 `walkRun` turns one run into its compose arguments and the bindings its anchors
 hoist. The run's anchors, sorted by position, partition its text: each anchor
-contributes the fragment before it and then its reference, and a closing fragment runs to the run's end. Each boundary is computed from the
+contributes the fragment before it and then its reference, and a closing fragment runs to the run's end. Each fragment becomes a `core.fragment(text, origin)`, carrying its `.loom` position both as the span its text maps from and as the origin literal the run reads. Each boundary is computed from the
 anchor's index — no cursor tracks position through the text. An
 anchor named twice still hoists one binding, so `dedupeByName` keeps the first.
 
@@ -325,18 +353,17 @@ const buildCompose = (
   section: LoomSection,
   warps: ReadonlySet<string>,
   index: NameIndex,
+  origin: SectionId,
+  languageId: string,
 ): { readonly compose: Compose; readonly internals: ReadonlyArray<Binding> } => {
   const walked = Array.map(codeRuns(section.code), walkRun(bindAnchor(index, warps)))
   const args = Array.flatMap(walked, (w) => w.args)
   const internals = dedupeByName(Array.flatMap(walked, (w) => w.bindings))
 
-  const compose = Array.matchLeft(args, {
-    onEmpty: () => ComposeSchema.make({ tail: [] }),
-    onNonEmpty: (head, tail) =>
-      ComposeSchema.make({
-        head,
-        tail: Array.map(tail, (value) => ComposeArgItemSchema.make({ value })),
-      }),
+  const compose = ComposeSchema.make({
+    origin: tok(sectionIdLiteral(origin)),
+    lang: tok(JSON.stringify(languageId)),
+    args: Array.map(args, (value) => ComposeArgItemSchema.make({ value })),
   })
   return { compose, internals }
 }
@@ -427,12 +454,14 @@ const walkRun =
       text.slice(from.offset - start.offset, to.offset - start.offset)
     const fragment = (from: Point, to: Point): ReadonlyArray<EmbeddedCode> => {
       const lit = slice(from, to)
+      const position = between(from, to)
       return lit.length === 0
         ? []
         : [
             EmbeddedCodeSchema.make({
               text: escapeTemplate(lit),
-              position: between(from, to),
+              position,
+              origin: tok(posLiteral(position)),
             }),
           ]
     }
@@ -478,16 +507,19 @@ const dedupeByName = (
 ## Binding anchors
 
 An anchor resolves one of two ways, and the two paths are never mixed. An anchor that
-resolves to nothing becomes error health on the reference — not a crash, and not a
-silent unbound reference.
+resolves to nothing becomes a `CodeRef` against the unresolved name, carrying error
+health. The frame then references a name nothing defines, so the type checker rejects
+it on the anchor, and the run — reaching that undefined name — does not produce the
+section's de re. An unresolved anchor is a frame fault the checker reports, the same
+way a Warp to a missing tag is.
 
 When the anchor's name is a Warp the section declared, the binding already exists,
-so the reference uses it directly: `m.code`. No new binding.
+so the reference uses it directly: `core.refer(m.code, anchor)`. No new binding.
 
 Otherwise the name is looked up among the section titles, and the count of matches
 decides the outcome. One match resolves by name: the builder hoists
 `const _N = yield* N` under an underscore alias, so the constant cannot shadow the
-service's own class, and each reference reads `_N.code`. The hoisted binding maps
+service's own class, and each reference reads `core.refer(_N.code, anchor)`. The hoisted binding maps
 to the section's heading — it is the definition — while each `_N.code` reference
 maps to the anchor that wrote it. So go-to-def on an anchor jumps to the heading,
 and find-references on the heading lists every anchor, one definition to many
@@ -497,8 +529,8 @@ anchor: several sections claim the same title, and a name anchor resolves exactl
 one section, so the builder reports the clash rather than guessing.
 
 `unresolved` and `ambiguous` each build a positioned diagnostic the moment a
-reference fails. The reference's anchor token carries both the mapping and the
-error health, so either diagnostic lands on the anchor the author wrote.
+reference fails. The `CodeRef`'s binding carries the unresolved name, its mapping,
+and the error health, so either diagnostic lands on the anchor the author wrote.
 
 =>
 
@@ -533,8 +565,11 @@ const bindAnchor =
     })
   }
 
-const codeRef = (name: string, at: Position, health?: Health): CodeRef =>
-  CodeRefSchema.make({ binding: anchorId(name, at, health) })
+const codeRef = (name: string, at: Position, health: Health = okHealth): CodeRef =>
+  CodeRefSchema.make({
+    binding: anchorId(name, at, health),
+    anchor: tok(posLiteral(at)),
+  })
 
 const aliasOf = (service: string): string => `_${service}`
 
@@ -574,55 +609,99 @@ const ambiguous = (name: string, at: Position, count: number): Health => ({
 
 ## Folding to a module
 
-`appendMember` routes each `Built` into the four lists the module collects —
-imports, members, layers, sinks. `finaliseModule` assembles them and builds the
+`appendMember` routes each `Built` into the three lists the module collects —
+imports, members, services. `finaliseModule` assembles them and builds the
 composition root. `buildRoot` builds that root only when the file has at least one
-layer, so presence is the guard: a service-less file yields no root, exactly as it
+service, so presence is the guard: a service-less file yields no root, exactly as it
 yields no sections.
+
+The root is two generated exports. `servicesLiteral` writes the `__services` object.
+It pairs each service with its `.Default` layer, the service class itself, and the
+classes it depends on. The runner reads each class's tag, its module-qualified key,
+to order the graph and fold the layers.
+
+`runLiteral` writes the `__run` effect. The effect is an `Effect.gen` that builds
+three results. It yields every section's composed code into a `sections` map keyed
+by name. A sink's code is the file it composes, so sinks belong there too. It
+collects every content section's prose into a `prose` map. And it gathers every sink
+into a `files` array, each entry a `TangledFile` that pairs the composed code with
+its output path.
+
+Both exports are computed text, since they carry no mapping. A service name is
+mapped at its class declaration alone.
 
 =>
 
 interface FrameBuilder {
   readonly imports: ReadonlyArray<FrameCode>
   readonly members: ReadonlyArray<ReturnType<typeof MemberItemSchema.make>>
-  readonly layers: ReadonlyArray<LayerRef>
-  readonly sinks: ReadonlyArray<SinkRef>
+  readonly services: ReadonlyArray<ServiceInfo>
 }
 
 const emptyFrame: FrameBuilder = {
   imports: [],
   members: [],
-  layers: [],
-  sinks: [],
+  services: [],
 }
 
 const appendMember = (b: FrameBuilder, built: Built): FrameBuilder => ({
   imports: [...b.imports, ...built.imports],
   members: [...b.members, MemberItemSchema.make({ value: built.member })],
-  layers: [...b.layers, ...Option.toArray(built.layer)],
-  sinks: [...b.sinks, ...Option.toArray(built.sink)],
+  services: [...b.services, ...Option.toArray(built.service)],
 })
 
 const finaliseModule = (b: FrameBuilder): FrameModule =>
   FrameModuleSchema.make({
     imports: b.imports,
     members: b.members,
-    root: buildRoot(b.layers, b.sinks),
+    root: buildRoot(b.services),
   })
 
-const buildRoot = (
-  layers: ReadonlyArray<LayerRef>,
-  sinks: ReadonlyArray<SinkRef>,
-) =>
-  Array.matchLeft(layers, {
+const buildRoot = (services: ReadonlyArray<ServiceInfo>) =>
+  Array.matchLeft(services, {
     onEmpty: () => undefined,
-    onNonEmpty: (head, tail) =>
+    onNonEmpty: () =>
       RootSchema.make({
-        head,
-        tail: tail.map((value) => LayerRefItemSchema.make({ value })),
-        sinks: sinks.map((value) => SinkItemSchema.make({ value })),
+        services: FrameSynthTokenSchema.make({ text: servicesLiteral(services) }),
+        run: FrameSynthTokenSchema.make({ text: runLiteral(services) }),
       }),
   })
+
+const servicesLiteral = (services: ReadonlyArray<ServiceInfo>): string => {
+  const entries = Array.map(
+    services,
+    (s) =>
+      `  ${s.name}: { layer: ${s.name}.Default, self: ${s.name}, deps: [${s.deps.join(', ')}] }`,
+  )
+  return `{\n${entries.join(',\n')}\n}`
+}
+
+const runLiteral = (services: ReadonlyArray<ServiceInfo>): string => {
+  const content = Array.filter(services, (s) => !s.sink)
+  const sinks = Array.filter(services, (s) => s.sink)
+  const codeEntries = Array.map(
+    services,
+    (s) => `      [${JSON.stringify(s.name)}, (yield* ${s.name}).code]`,
+  ).join(',\n')
+  const proseEntries = Array.map(
+    content,
+    (s) => `      [${JSON.stringify(s.name)}, (yield* ${s.name}).prose]`,
+  ).join(',\n')
+  const fileEntries = Array.map(sinks, (s) => `      yield* ${s.name}`).join(',\n')
+  return `Effect.gen(function* () {
+  return {
+    sections: new Map([
+${codeEntries}
+    ]),
+    prose: new Map([
+${proseEntries}
+    ]),
+    files: [
+${fileEntries}
+    ],
+  }
+})`
+}
 
 ## Leaves and identity
 
@@ -630,18 +709,22 @@ These build the atomic leaves the pass inserts into the tree, marking the de re 
 dicto boundary at each leaf.
 
 A section's service name is its tag label, or the title normalised to an
-identifier when the section is tagless; the tokeniser fills a tag for every heading,
-so the function is total. `serviceName` chooses the token: a tagged section's name
-is a `tag` token, mapped to the `[Tag]` label so the editor reaches and renames the
-section through it, while it withholds hover — a hover would only surface the
-generated service class. A tagless name is synth, pure glue with no source span — a
-name anchor reaches such a section through the hoisted alias binding, not the class
-name. The name repeats elsewhere in the frame: the `<…>` type parameter, the string
-tag, and the layer and sink references in the composition root. Every repeat is the
-synth `nameRef`, so the `[Tag]` label maps to the class declaration alone, and the
-section has one navigation target rather than one per repeat. `isExported` reads the
-difference from the span — a real tag covers source bytes, a synthesised one is
-zero-width — and a real tag is what exports the service.
+identifier when the section is tagless. The tokeniser fills a tag for every heading,
+so the function is total. `serviceName` chooses the token that carries the name. A
+tagged section's name is a `tag` token, mapped to the `[Tag]` label so the editor
+reaches and renames the section through it. It withholds hover, since a hover would
+only surface the generated service class. A tagless name is a synth token, pure glue
+with no source span. A name anchor reaches such a section through the hoisted alias
+binding, not the class name.
+
+The name reappears as the `<…>` type parameter, which must read back as the class
+name, so it stays the synth `nameRef`. The string tag is not the name but the
+service's identity. `serviceTag` fills it with the section's module-qualified key,
+its path and name, so two modules that each define a `Bit` resolve to distinct
+services. Both tokens are synth and map nothing, so the `[Tag]` label still maps to
+the class declaration alone, and the section keeps one navigation target.
+`isExported` reads the difference from the span. A real tag covers source bytes,
+while a synthesised one is zero-width. A real tag is what exports the service.
 
 `tagId` builds the section-tag token, `id` a mapped name token for a Warp's local or
 annotation, `headingId` and `anchorId` the two ends of a name-anchor link, and
@@ -652,7 +735,7 @@ generated service class, so it navigates and renames yet withholds that hover. T
 `heading` and `anchor` tokens map across different text, so they navigate but never
 hover. A section's preamble becomes the fragment `proseField` weaves into the
 section's `prose` channel — its one home in the generated frame, escaped for the
-backtick literal it lands in. A section with no preamble weaves an empty channel.
+backtick literal it lands in, and carrying its position as the origin the run reads. A section with no preamble weaves an empty channel.
 
 =>
 
@@ -673,6 +756,8 @@ const isExported = (section: LoomSection): boolean => {
     tag.label.position.end.offset > tag.label.position.start.offset
   )
 }
+
+const tok = (text: string) => FrameSynthTokenSchema.make({ text })
 
 const tagId = (text: string, position: Position): FrameAuthoredToken =>
   FrameAuthoredTokenSchema.make({ text, position, kind: 'tag' })
@@ -697,17 +782,23 @@ const anchorId = (
 const prose = (text: string, position: Position): FrameAuthoredToken =>
   FrameAuthoredTokenSchema.make({ text, position, kind: 'prose' })
 
-const proseField = (section: LoomSection): Weave => {
+const proseField = (section: LoomSection, origin: SectionId): Weave => {
   const src = sourceOf(section.preamble)
-  return src.length === 0
-    ? WeaveSchema.make({ tail: [] })
-    : WeaveSchema.make({
-        head: ProseFragmentSchema.make({
+  const originTok = tok(sectionIdLiteral(origin))
+  if (src.length === 0) return WeaveSchema.make({ origin: originTok, args: [] })
+  const position = preamblePos(section)
+  return WeaveSchema.make({
+    origin: originTok,
+    args: [
+      WeaveArgItemSchema.make({
+        value: ProseFragmentSchema.make({
           text: escapeTemplate(src),
-          position: preamblePos(section),
+          position,
+          origin: FrameSynthTokenSchema.make({ text: posLiteral(position) }),
         }),
-        tail: [],
-      })
+      }),
+    ],
+  })
 }
 
 const titleField = (section: LoomSection): ServiceName =>
@@ -721,10 +812,18 @@ const preamblePos = (section: LoomSection): Position =>
 const endOf = (section: LoomSection): Position =>
   between(section.heading.position.end, section.heading.position.end)
 
-## Spans and escaping
+## Spans, identity literals, and escaping
 
 `sourceOf` joins a node list's source, `spanOf` takes the span from its first and
 last positions, and `between` pairs two points into a span.
+
+A section's identity and a fragment's position travel into the frame as literals the
+run reads. `sectionIdLiteral` writes a `SectionId` — its path and name — and
+`posLiteral` a `Position` through `pointLiteral`, both as object literals the
+stripped frame evaluates back to the values `core.compose` and `core.fragment` need.
+`serviceTag` writes that same identity as one string — the path and name joined — for
+the `Effect.Service` tag. It escapes the string, so a path holding a backslash or a
+quote stays a valid literal.
 
 Escaping rewrites a leaf's text to fit the literal that will contain it, leaving the position unchanged,
 so one span mapping still covers the whole rewritten text. A template literal escapes
@@ -744,6 +843,20 @@ const spanOf = (
 })
 
 const between = (start: Point, end: Point): Position => ({ start, end })
+
+const sectionIdLiteral = (id: SectionId): string =>
+  `{ path: ${JSON.stringify(id.path)}, name: ${JSON.stringify(id.name)} }`
+
+const serviceTag = (id: SectionId): string =>
+  escapeString(`${id.path}#${id.name}`)
+
+const pointLiteral = (p: Point): string =>
+  p.column === undefined
+    ? `{ line: ${p.line}, offset: ${p.offset} }`
+    : `{ line: ${p.line}, column: ${p.column}, offset: ${p.offset} }`
+
+const posLiteral = (position: Position): string =>
+  `{ start: ${pointLiteral(position.start)}, end: ${pointLiteral(position.end)} }`
 
 const escapeTemplate = (s: string): string =>
   s.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${')
@@ -778,4 +891,4 @@ relies on. Each section is referenced by its title — the local anchor form Loo
 
 ::[Leaves and identity]
 
-::[Spans and escaping]
+::[Spans, identity literals, and escaping]

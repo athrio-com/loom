@@ -46,3 +46,15 @@ export const ComposedCodeSchema = productNode('ComposedCode', {
   parts: Schema.Array(PartSchema),
 })
 export type ComposedCode = typeof ComposedCodeSchema.Type
+
+export const WovenProseSchema = productNode('WovenProse', {
+  origin: SectionIdSchema,
+  parts: Schema.Array(PartSchema),
+})
+export type WovenProse = typeof WovenProseSchema.Type
+
+export const TangledFileSchema = productNode('TangledFile', {
+  path: Schema.String,
+  code: ComposedCodeSchema,
+})
+export type TangledFile = typeof TangledFileSchema.Type
