@@ -558,7 +558,7 @@ const constructSpecifier = (
 
 ## Pairing warp delimiters
 
-Warps and anchors no longer share delimiters: a warp is `{{…}}` in a preamble line, an anchor is `::[…]` in a code line. `pairWarpDelims` pairs a preamble line's `{{` and `}}` greedily left to right — pairing an unmatched open with a synthetic `}}` at end-of-line, and surfacing unmatched closes as stray `unexpected` tokens. Anchors pair differently: `scanAnchorOpen` finds the `::[` opens, and each closes on the first `]` after it, found directly rather than scanned, because `]` is ordinary in product code — only the one closing an open is structural, and a bare `]` is never a stray.
+Warps and anchors no longer share delimiters: a warp is `&#123;&#123;…&#125;&#125;` in a preamble line, an anchor is `::[…]` in a code line. `pairWarpDelims` pairs a preamble line's `&#123;&#123;` and `&#125;&#125;` greedily left to right — pairing an unmatched open with a synthetic `&#125;&#125;` at end-of-line, and surfacing unmatched closes as stray `unexpected` tokens. Anchors pair differently: `scanAnchorOpen` finds the `::[` opens, and each closes on the first `]` after it, found directly rather than scanned, because `]` is ordinary in product code — only the one closing an open is structural, and a bare `]` is never a stray.
 
 =>
 
@@ -1009,7 +1009,7 @@ const assembleAnchor = (
 
 ## Scanning a line for warps and anchors
 
-`constructWarps` scans a preamble line, pairs the `{{`/`}}` delimiters, and builds a warp per pair. `constructAnchors` scans a code line for `::[` opens and builds an anchor for each, closing it on the first `]` that follows. There is no fallback: a token is always a token. A malformed anchor — unclosed, or empty-named — is kept as an anchor carrying error health, never reinterpreted as literal code; an anchor whose name does not resolve likewise stays an anchor. Each is a diagnostic for the frame pass and a hard failure at tangle. The rare literal `::[` in product code is written through the host language's character escape, so the tokeniser never has to guess whether a `::[` was meant.
+`constructWarps` scans a preamble line, pairs the `&#123;&#123;`/`&#125;&#125;` delimiters, and builds a warp per pair. `constructAnchors` scans a code line for `::[` opens and builds an anchor for each, closing it on the first `]` that follows. There is no fallback: a token is always a token. A malformed anchor — unclosed, or empty-named — is kept as an anchor carrying error health, never reinterpreted as literal code; an anchor whose name does not resolve likewise stays an anchor. Each is a diagnostic for the frame pass and a hard failure at tangle. The rare literal `::[` in product code is written through the host language's character escape, so the tokeniser never has to guess whether a `::[` was meant.
 
 =>
 
