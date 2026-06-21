@@ -5,10 +5,12 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-// The CLI is a thin Effect program over the tangler; this exercises it as a real
-// process. We run it from the package dir (so the tsx loader resolves) and pass
-// absolute paths — the tangler writes each `{path}` sink next to the .loom it
-// came from, so a doc in a temp dir emits its output there.
+// The CLI is an Effect program over the tangler and the config writer; this
+// exercises it as a real process. We run it from the package dir (so the tsx
+// loader resolves) and pass absolute paths — the tangler writes each `{path}`
+// sink next to the .loom it came from, so a doc in a temp dir emits its output
+// there. The interactive `init` prompts need a real terminal, so they are
+// verified by hand; here we cover the command surface a subprocess can reach.
 const cli = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const main = resolve(cli, 'src/main.ts')
 
@@ -48,16 +50,7 @@ const tempDoc = (): { readonly dir: string; readonly doc: string } => {
 const SPAWN_TIMEOUT = 30_000
 
 describe('loom cli', () => {
-  it('tangles a bare path (tangle is the default command)', () => {
-    const { dir, doc } = tempDoc()
-    loom([doc])
-    expect(readFileSync(join(dir, 'out.ts'), 'utf8')).toContain(
-      'export const hi = "hello"',
-    )
-    rmSync(dir, { recursive: true, force: true })
-  }, SPAWN_TIMEOUT)
-
-  it('tangles with an explicit `tangle` command too', () => {
+  it('tangles a file through the `tangle` command', () => {
     const { dir, doc } = tempDoc()
     loom(['tangle', doc])
     expect(readFileSync(join(dir, 'out.ts'), 'utf8')).toContain(
@@ -66,7 +59,9 @@ describe('loom cli', () => {
     rmSync(dir, { recursive: true, force: true })
   }, SPAWN_TIMEOUT)
 
-  it('prints usage given no arguments', () => {
-    expect(loom([]).stderr).toContain('usage: loom')
+  it('prints help listing its commands given no arguments', () => {
+    const { stdout } = loom([])
+    expect(stdout).toContain('tangle')
+    expect(stdout).toContain('init')
   }, SPAWN_TIMEOUT)
 })
