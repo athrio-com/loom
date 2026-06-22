@@ -16,7 +16,7 @@ import {
   type LoomHeading,
   type LoomSection,
 } from './LoomAst'
-import { okHealth, type Health, type Position } from './LoomNode'
+import { okHealth, type Health, type Position } from '@athrio/loom-core/LoomNode'
 import type { MixedEOL } from './LineRanges'
 import type {
   HeadingWeft,

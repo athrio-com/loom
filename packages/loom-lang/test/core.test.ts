@@ -1,13 +1,13 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Option } from 'effect'
-import { compose, fragment, refer, tangle, weave } from '#loom/core'
-import type { Position } from '#ast/LoomNode'
-import type { SectionId } from '#ast/ProductAst'
+import { compose, fragment, referName, referTag, tangle, weave } from '@athrio/loom-core'
+import type { Position } from '@athrio/loom-core/LoomNode'
+import type { SectionId } from '@athrio/loom-core/ProductAst'
 
-// The runnable composition language the generated Frame imports from #loom/core.
-// Its verbs construct the de re ProductAst rather than joining strings: fragment
-// and refer build the leaves, compose and weave assemble them, and tangle binds a
-// composed result to a path as a pure descriptor — no I/O happens here.
+// The runnable composition language the generated Frame imports from @athrio/loom-core.
+// Its verbs construct the de re ProductAst rather than joining strings: fragment,
+// referName, and referTag build the leaves, compose and weave assemble them, and
+// tangle binds a composed result to a path as a pure descriptor — no I/O here.
 
 const pos = (offset: number, len: number): Position => ({
   start: { line: 1, column: offset, offset },
@@ -43,12 +43,23 @@ describe('compose', () => {
   })
 })
 
-describe('refer', () => {
-  it('edges to the referenced section by its origin, never by value', () => {
+describe('referName', () => {
+  it('edges to a same-document section by its origin, for shared scope', () => {
+    const target: SectionId = { path: '/x.loom', name: 'Helper' }
+    const dep = compose(target, 'typescript', fragment('helper', pos(0, 6)))
+    const r = referName(dep, pos(10, 5))
+    expect(r.type).toBe('NameRef')
+    expect(r.anchor).toEqual(pos(10, 5))
+    expect(Option.getOrNull(r.target)).toEqual(target)
+  })
+})
+
+describe('referTag', () => {
+  it('edges to a tagged section by its origin, taken by value downstream', () => {
     const target: SectionId = { path: '/dep.loom', name: 'Mul' }
     const dep = compose(target, 'typescript', fragment('mul', pos(0, 3)))
-    const r = refer(dep, pos(10, 5))
-    expect(r.type).toBe('Ref')
+    const r = referTag(dep, pos(10, 5))
+    expect(r.type).toBe('TagRef')
     expect(r.anchor).toEqual(pos(10, 5))
     expect(Option.getOrNull(r.target)).toEqual(target)
   })

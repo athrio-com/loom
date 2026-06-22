@@ -204,19 +204,19 @@ const c = 3
   })
 })
 
-describe('buildFrame — an anchor refers to its section heading; a tangle is language-agnostic', () => {
+describe('buildFrame — an anchor refers to its section heading; a tangle takes its path extension', () => {
   // A tagless section's class name is synthetic glue (no source span). A name
   // anchor reaches the section through the hoisted `const _N = yield* N` binding:
   // the alias maps to the heading (the definition), `yield* N` is synth glue, and
-  // each `_N.code` reference maps to the anchor (the referencer). A tangle has no
-  // language of its own; it is marked `Loom`, never the `{{lang}}` default nor the path.
+  // each `_N.code` reference maps to the anchor (the referencer). A tangle reads its
+  // language from its path extension, not the document default.
   const src = `{{lang: TypeScript}}
 
-# Helper
+# Helper {sh}
 
 =>
 
-const helper = 1
+echo hi
 
 # Bundle it {dist/bundle.sh}
 
@@ -252,8 +252,8 @@ const helper = 1
     expect(binding.tag.type).toBe('FrameSynthToken')
   })
 
-  it('marks a tangle language-agnostic (Loom), neither the doc default nor the path', () => {
-    expect(tangle.languageId).toBe('Loom') // agnostic — not `typescript`, not `bash`
+  it('marks a tangle with the language its path extension names', () => {
+    expect(tangle.languageId).toBe('sh') // from `dist/bundle.sh` — not the doc default `typescript`
     expect(tangle.name.type).toBe('FrameSynthToken') // tagless — glue, unmapped
   })
 })
@@ -378,5 +378,40 @@ const helper = 1
 
   it('falls back to plaintext when neither the Warp nor a package language is set', () => {
     expect(langOf(noWarp)).toBe('plaintext')
+  })
+})
+
+describe('buildFrame — cross-language composition is a diagnostic', () => {
+  // A TypeScript section name-composes a JSON section. The two languages cannot
+  // share one composed file, so the anchor carries error health naming the clash.
+  const src = `{{lang: TypeScript}}
+
+# Config {json}
+
+=>
+
+{ "port": 8080 }
+
+# Main [Main]
+
+=>
+
+const config = ::[Config]
+`
+  const main = buildFrame(parse(src), '/x.loom')
+    .members.map((m) => m.value)
+    .find(
+      (v): v is ServiceClass =>
+        v.type === 'ServiceClass' && v.name.text === 'Main',
+    )!
+  const ref = argsOf(main.body.code).find(
+    (a): a is CodeRef => (a as CodeRef).type === 'CodeRef',
+  )!
+
+  it('flags a TypeScript section that name-composes a JSON section', () => {
+    expect(ref.binding.health.status).toBe('error')
+    expect(ref.binding.health.diagnostics[0]!.message).toMatch(
+      /Cross-language transclusion: `Config` is json, but this section composes typescript/,
+    )
   })
 })

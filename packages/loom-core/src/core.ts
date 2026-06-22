@@ -3,9 +3,10 @@ import { okHealth, type Position } from '#ast/LoomNode'
 import type {
   ComposedCode,
   Fragment,
+  NameRef,
   Part,
-  Ref,
   SectionId,
+  TagRef,
   TangledFile,
   WovenProse,
 } from '#ast/ProductAst'
@@ -17,11 +18,21 @@ export const fragment = (text: string, origin: Position): Fragment => ({
   origin,
 })
 
-export const refer = (
+export const referName = (
   code: { readonly origin: SectionId },
   anchor: Position,
-): Ref => ({
-  type: 'Ref',
+): NameRef => ({
+  type: 'NameRef',
+  health: okHealth,
+  target: Option.some(code.origin),
+  anchor,
+})
+
+export const referTag = (
+  code: { readonly origin: SectionId },
+  anchor: Position,
+): TagRef => ({
+  type: 'TagRef',
   health: okHealth,
   target: Option.some(code.origin),
   anchor,

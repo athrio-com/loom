@@ -163,12 +163,15 @@ Warp binding first; if no match is found, heading name lookup follows.
 
 ## Composition Is Homogeneous
 
-A composition edge — a Warp declaration or a name anchor — inlines one section's
-code into another's. That is only meaningful when both sections carry the
-**same specifier**: Scala composes Scala, JSON composes JSON. A cross-specifier
-edge has no valid product — there is no single language in which both fragments
-form one program — so it is a diagnostic on the offending anchor, not a silent
-splice.
+A composition edge — a name anchor, or a Warp binding to a tag — inlines one
+section's code into another. That is only meaningful when both sections share a
+**language**: TypeScript composes TypeScript, JSON composes JSON. The language is the
+one the section resolves to — its specifier, a sink's path extension, or the document
+default — so two specifier-less sections still agree. A cross-language edge has no
+valid product, since no single language holds both fragments as one program, so the
+builder marks it a diagnostic on the offending anchor rather than splicing silently.
+The frame pass compares the two languages as it binds a name anchor; a Warp to an
+imported tag is checked once the corpus resolves its target.
 
 The specifier is the whole key; there is no separate plane axis. `{Loom}` is its
 own specifier — TypeScript de facto, but never interchangeable with

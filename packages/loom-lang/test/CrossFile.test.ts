@@ -84,6 +84,19 @@ describe('cross-file transclusion in the editor', () => {
     expect(code).toContain('const negDouble') // fun's own
   })
 
+  it('isolates each section as a module, so transclusion does not redeclare', async () => {
+    // fun's `negd` inlines sad's `negate` through `::[n]`, so both fun's negd
+    // script and sad's neg script declare `negate` at top level. In one shared
+    // TypeScript program, global scripts would collide — "Cannot redeclare
+    // block-scoped variable 'negate'" (TS 2451). Each de re section is its own
+    // module, so the names stay private and the two never clash.
+    const diagnostics = await checker.check(fun)
+    const redeclare = diagnostics.filter(
+      (d) => d.code === 2451 || /redeclare/i.test(d.message),
+    )
+    expect(redeclare).toEqual([])
+  })
+
   it('re-projects via the association when the imported file changes', async () => {
     await checker.check(fun) // registers fun's dependency on sad
     expect(negdOf(fun)).toContain('const negate = (x: number) => -x')

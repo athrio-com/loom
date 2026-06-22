@@ -1,0 +1,51 @@
+{{lang: JSON}}
+
+# Packaging the composition language
+
+`@athrio/loom-core` is the composition language every generated frame imports. It holds the verbs a frame calls — `fragment`, `compose`, `weave`, `referName`, `referTag`, and `tangle` — together with the de re model they build and the foundation both rest on. A frame opens with `import * as core from "@athrio/loom-core"`, so the package resolves the same way for the toolchain and for a consumer who installs it: through `node_modules` and the `exports` map. Like `@athrio/loom-config`, it ships TypeScript source with no build step.
+
+## The manifest {../package.json}
+
+The `exports` map names three entry points. The default entry is the composition language — the verbs a frame calls. `./LoomNode` and `./ProductAst` expose the foundation and the de re model: the source positions, the health vocabulary, and the node types those verbs return, which `@athrio/loom-lang` imports to build a frame and read what it produces. The `imports` map defines one internal alias, `#ast/*`, so the model and the verbs reach the foundation by a stable name rather than a relative path. `effect` is a peer dependency, because a frame runs on the consumer's Effect — the package shares it rather than carrying its own.
+
+=>
+
+{
+  "name": "@athrio/loom-core",
+  "version": "0.0.1",
+  "description": "The Loom composition language: the primitives a generated frame runs to build its product.",
+  "license": "Apache-2.0 OR MIT",
+  "type": "module",
+  "imports": {
+    "#ast/*": "./src/ast/*.ts"
+  },
+  "exports": {
+    ".": "./src/core.ts",
+    "./LoomNode": "./src/ast/LoomNode.ts",
+    "./ProductAst": "./src/ast/ProductAst.ts"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "effect": "3.21.2"
+  },
+  "devDependencies": {
+    "effect": "3.21.2"
+  }
+}
+
+## The TypeScript config {../tsconfig.json}
+
+The `tsconfig.json` extends the workspace-root `tsconfig.base.json` and covers `src`. The package ships source with no build step, so the configuration type-checks the verbs and the model and emits nothing.
+
+=>
+
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "out",
+    "rootDir": "src"
+  },
+  "include": ["src"]
+}

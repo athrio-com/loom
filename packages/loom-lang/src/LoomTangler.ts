@@ -1,7 +1,7 @@
 import { Array, Data, Effect, pipe } from 'effect'
 import { FileSystem } from '@effect/platform'
 import { dirname, resolve as resolvePath } from 'node:path'
-import { type Diagnostic } from '#ast/LoomNode'
+import { type Diagnostic } from '@athrio/loom-core/LoomNode'
 import { corpusErrors, type Path } from '#ast/LoomCorpusAst'
 import { fromProduct } from '#ast/LoomVirtualCodeBuilder'
 import { LoomCompiler } from './LoomCompiler'

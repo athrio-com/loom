@@ -6,8 +6,8 @@ import {
   type Fragment,
   type Ref,
   type SectionId,
-} from '#ast/ProductAst'
-import { type Position } from '#ast/LoomNode'
+} from '@athrio/loom-core/ProductAst'
+import { type Position } from '@athrio/loom-core/LoomNode'
 import { type Path } from '#ast/LoomCorpusAst'
 import {
   type LoomVirtualCode,
@@ -139,7 +139,6 @@ const absorbTrailingNewline = (vc: LoomVirtualCode): LoomVirtualCode => {
 const inlinePart =
   (
     codeByPath: CodeByPath,
-    rootPath: Path,
     pin: Option.Option<Position>,
     seen: ReadonlySet<string>,
   ) =>
@@ -154,6 +153,10 @@ const inlinePart =
         },
       ])
     }
+    const childPin =
+      part.type === 'TagRef'
+        ? Option.orElse(pin, () => Option.some(part.anchor))
+        : pin
     return pipe(
       part.target,
       Option.filter((t) => !seen.has(keyOf(t))),
@@ -166,12 +169,7 @@ const inlinePart =
           absorbTrailingNewline(
             inlineComposed(
               codeByPath,
-              rootPath,
-              Option.orElse(pin, () =>
-                t.path === rootPath
-                  ? Option.none<Position>()
-                  : Option.some(part.anchor),
-              ),
+              childPin,
               new Set([...seen, keyOf(t)]),
             )(node),
           ),
@@ -182,12 +180,11 @@ const inlinePart =
 const inlineComposed =
   (
     codeByPath: CodeByPath,
-    rootPath: Path,
     pin: Option.Option<Position>,
     seen: ReadonlySet<string>,
   ) =>
   (node: ComposedCode): LoomVirtualCode => {
-    const build = inlinePart(codeByPath, rootPath, pin, seen)
+    const build = inlinePart(codeByPath, pin, seen)
     const seed: { vc: LoomVirtualCode; trim: boolean } = {
       vc: emptyLeaf,
       trim: false,
@@ -195,7 +192,7 @@ const inlineComposed =
     return pipe(
       node.parts,
       Array.reduce(seed, (acc, part, i) => {
-        if (part.type !== 'Ref') {
+        if (part.type === 'Fragment') {
           return {
             vc: concat(acc.vc, build(acc.trim ? trimLeadingBlank(part) : part)),
             trim: false,
@@ -348,7 +345,6 @@ export const fromProduct = (
       onSome: (node) => ({
         ...inlineComposed(
           codeByPath,
-          root.path,
           Option.none(),
           new Set([keyOf(root)]),
         )(node),
@@ -368,6 +364,34 @@ export const rootVirtualCode = (
   mappings: [],
   embeddedCodes,
 })
+
+export const rootNamesAt = (
+  codeByPath: CodeByPath,
+  path: Path,
+): ReadonlySet<string> => {
+  const here = codeByPath.get(path) ?? new Map<string, ComposedCode>()
+  const named = new Set(
+    pipe(
+      Array.fromIterable(here.values()),
+      Array.flatMap((code) => code.parts),
+      Array.filterMap((part) =>
+        part.type === 'NameRef'
+          ? part.target.pipe(
+              Option.filter((t) => t.path === path),
+              Option.map((t) => t.name.toLowerCase()),
+            )
+          : Option.none(),
+      ),
+    ),
+  )
+  return new Set(
+    pipe(
+      Array.fromIterable(here.keys()),
+      Array.map((name) => name.toLowerCase()),
+      Array.filter((id) => !named.has(id)),
+    ),
+  )
+}
 
 export class LoomVirtualCodeBuilder extends Effect.Service<LoomVirtualCodeBuilder>()(
   'LoomVirtualCodeBuilder',

@@ -177,7 +177,7 @@ const spanFrom = (
 
 ## Assembling the document
 
-`makeDocument` assembles the final `LoomDocument` from the folded preamble and sections. `documentSpan` spans the whole, `hasLangWarp` checks the preamble for the `{{lang: …}}` declaration, and `documentHealth` raises a warning when it is missing, though parsing still proceeds.
+`makeDocument` assembles the final `LoomDocument` from the folded preamble and sections. `documentSpan` spans the whole, `hasLangWarp` checks the preamble for the `lang` Warp, and `documentHealth` raises a warning when it is missing, though parsing still proceeds.
 
 =>
 
@@ -287,7 +287,7 @@ import {
   type LoomHeading,
   type LoomSection,
 } from './LoomAst'
-import { okHealth, type Health, type Position } from './LoomNode'
+import { okHealth, type Health, type Position } from '@athrio/loom-core/LoomNode'
 import type { MixedEOL } from './LineRanges'
 import type {
   HeadingWeft,

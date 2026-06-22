@@ -57,10 +57,10 @@ not one section.
 
 ### Author in Loom — never hand-write source
 
-Loom is written in Loom. Every package — `@athrio/loom-core` (the service-plugin
-contract), the config package, each `@athrio/loom-service-*`, the CLI, and in
-time the language-server itself — is authored as a `.loom` corpus and tangled to
-source. Never hand-write `.ts` (or any target-language) files, and never edit the
+Loom is written in Loom. Every package — `@athrio/loom-core` (the composition
+language a frame imports), the config package, each `@athrio/loom-service-*`, the
+CLI, and in time the language-server itself — is authored as a `.loom` corpus and
+tangled to source. Never hand-write `.ts` (or any target-language) files, and never edit the
 tangled output: it is a generated artifact. To change emitted code, find the
 section that produced it, edit its prose/`=>` chunk, and re-tangle. Catching
 yourself editing a `.ts` means you opened the wrong file. New work begins as a

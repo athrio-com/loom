@@ -36,7 +36,12 @@ const checkerActivating = (languages: ReadonlyArray<string>) =>
         LoomConfig,
         new LoomConfig({
           resolve: () =>
-            Effect.succeed({ anchor: undefined, language: 'typescript', languages }),
+            Effect.succeed({
+              anchor: undefined,
+              language: 'typescript',
+              languages,
+              settings: {},
+            }),
           write: () => Effect.void,
         }),
       ),

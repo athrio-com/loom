@@ -6,7 +6,7 @@ Loom compiles a `.loom` file along two planes at once — the "de dicto" frame a
 
 ## The cached compiler
 
-`LoomCompiler` answers six queries about a `.loom` file. `frame` gives its de dicto composition program. `code` gives its de re product documents, one per section. `corpus` gives every module the file reaches. `composed` runs the corpus and gives its product map and tangle files — what the tangler writes. `virtualCode` gives the whole Volar tree — the frame and the de re sections under one root — for the editor. `change` gives the files to refresh after an edit: the file itself, and the dependents that inlined its code.
+`LoomCompiler` answers seven queries about a `.loom` file. `frame` gives its de dicto composition program. `code` gives its de re product documents, one per section. `roots` gives the names of the file's composition roots — the sections no same-file name anchor transcludes, which are the units the editor type-checks. `corpus` gives every module the file reaches. `composed` runs the corpus and gives its product map and tangle files — what the tangler writes. `virtualCode` gives the whole Volar tree — the frame and the de re sections under one root — for the editor. `change` gives the files to refresh after an edit: the file itself, and the dependents that inlined its code.
 
 Each query reads through a `Source` and works over a cached corpus. `LoomCompiler` builds a module once through `LoomCorpusAstBuilder`, keeps it in `LoomMemo`, and follows its imports to pull in the rest — cycle-safe, because a module is cached before its imports are walked. The disk-backed `DocumentSource` is injected, and `frame`, `code`, and `corpus` read through it. `virtualCode` takes its `Source` from the caller, so the editor can hand in one that reads the open document from Volar. The build is total, so `virtualCode` cannot fail outright, yet it still guards the synchronous hook: a defect degrades to a bare `loom` document carrying the file's text, and the editor keeps working rather than crashing.
 
@@ -85,6 +85,15 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
                     vcb.fromProduct(out.code, { path: entry.path, name }),
                   ),
                 ),
+              ),
+            ),
+          ),
+
+        roots: (path: Path): Effect.Effect<ReadonlySet<string>> =>
+          ensureEntry(documents, path).pipe(
+            Effect.flatMap(({ modules, entry }) =>
+              runCorpus(modules).pipe(
+                Effect.map((out) => rootNamesAt(out.code, entry.path)),
               ),
             ),
           ),
@@ -277,6 +286,7 @@ import {
   fromFrame,
   fromProduct,
   LoomVirtualCodeBuilder,
+  rootNamesAt,
   rootVirtualCode,
 } from '#ast/LoomVirtualCodeBuilder'
 import { type LoomVirtualCode, type Mapping } from '#ast/LoomVirtualCode'

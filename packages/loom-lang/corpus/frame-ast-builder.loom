@@ -39,10 +39,10 @@ references, and the bindings. A section's corpus-wide identity is a `SectionId`,
 
 import { Array, Effect, Match, Option, Order, pipe } from 'effect'
 import type { LoomDocument, LoomSection } from '#ast/LoomAst'
-import { okHealth, type Health, type Point, type Position } from '#ast/LoomNode'
+import { okHealth, type Health, type Point, type Position } from '@athrio/loom-core/LoomNode'
 import type { WarpAnchorToken, WarpToken } from '#ast/LoomTokens'
 import type { PreambleWeft, SectionBodyWeft } from '#ast/Weft'
-import type { SectionId } from '#ast/ProductAst'
+import type { SectionId } from '@athrio/loom-core/ProductAst'
 import {
   type Binding,
   BindingItemSchema,
@@ -115,7 +115,7 @@ export const buildFrame = (
   packageLanguage?: string,
 ): FrameModule => {
   const lang = documentLanguage(doc.preamble) ?? packageLanguage ?? 'plaintext'
-  const index = nameIndex(doc.sections)
+  const index = nameIndex(doc.sections, lang)
   return pipe(
     doc.sections,
     Array.map(buildMember(index, lang, modulePath)),
@@ -145,17 +145,54 @@ then to `plaintext` when the package configures none. `documentLanguage` reads t
 Warp and yields nothing when it is absent, so the `??` chain walks the three
 sources in turn.
 
+A tangle sink resolves its language a fourth way: it has no language specifier,
+only a path, so `extensionLanguage` reads the language off the path's extension. It
+maps `.ts` and its siblings to `typescript`, `.tsx` to `tsx`, the JavaScript
+extensions to `javascript` and `jsx`, and `.json` to `json`. An unlisted extension
+falls back to itself, so a new language reads as its bare extension until a service
+claims it. A `.json` sink composes as JSON even in a TypeScript document, and the
+editor checks the tangled file in the language it becomes.
+
+`sectionLanguage` resolves any section's language by these rules — its specifier, a
+sink's extension, or the document default — and `nameIndex` records it beside each
+title. So when an anchor binds, the builder compares the composing section's
+language to the section it reaches and reports a cross-language transclusion when
+they differ (see Binding anchors).
+
 =>
 
-type NameEntry = { readonly name: string; readonly pos: Position }
+type NameEntry = {
+  readonly name: string
+  readonly pos: Position
+  readonly language: string
+}
 type NameIndex = ReadonlyMap<string, ReadonlyArray<NameEntry>>
 
-const nameIndex = (sections: ReadonlyArray<LoomSection>): NameIndex =>
+const sectionLanguage = (section: LoomSection, defaultLang: string): string => {
+  const spec = section.heading.specifier
+  return spec?.type === 'PathSpecifier'
+    ? extensionLanguage(spec.label.value)
+    : spec?.type === 'Specifier'
+      ? spec.label.value.toLowerCase()
+      : defaultLang
+}
+
+const nameIndex = (
+  sections: ReadonlyArray<LoomSection>,
+  defaultLang: string,
+): NameIndex =>
   pipe(
     sections,
     Array.filterMap((s) =>
       Option.map(Option.fromNullable(s.heading.title), (title) =>
-        [title.source, { name: serviceNameOf(s), pos: title.position }] as const,
+        [
+          title.source,
+          {
+            name: serviceNameOf(s),
+            pos: title.position,
+            language: sectionLanguage(s, defaultLang),
+          },
+        ] as const,
       ),
     ),
     Array.reduce(
@@ -174,6 +211,23 @@ const documentLanguage = (
     ?.annotation.value.trim()
     .toLowerCase()
 
+const languageByExtension: ReadonlyMap<string, string> = new Map([
+  ['ts', 'typescript'],
+  ['mts', 'typescript'],
+  ['cts', 'typescript'],
+  ['tsx', 'tsx'],
+  ['js', 'javascript'],
+  ['mjs', 'javascript'],
+  ['cjs', 'javascript'],
+  ['jsx', 'jsx'],
+  ['json', 'json'],
+])
+
+const extensionLanguage = (path: string): string => {
+  const ext = path.slice(path.lastIndexOf('.') + 1).toLowerCase()
+  return languageByExtension.get(ext) ?? ext
+}
+
 ## Building a member
 
 A section's specifier decides what it becomes, and `Match` reads the three cases
@@ -189,13 +243,12 @@ service, since it is not one.
 
 `buildService` turns one section into one service class. It reads the section's
 Warp declarations into bindings, walks the code into a compose call and the
-internal bindings its name anchors hoist, and resolves the language id. A tangle is
-language-agnostic — it composes any source, possibly several languages, into one
-file — so it claims no language of its own and is marked `Loom`; an ordinary
-section takes its specifier's language, or the document default. The section's
-identity — its path and name — and that language stamp the `core.compose` call. The
-body is static when the section declares no dependency and effectful when it
-declares any.
+internal bindings its name anchors hoist, and resolves the language id. A tangle
+sink reads its language from its path extension through `extensionLanguage`; a
+section with a language specifier takes that language; every other section takes the
+document default. The section's identity — its path and name — and that language
+stamp the `core.compose` call. The body is static when the section declares no
+dependency and effectful when it declares any.
 
 `bodyOf` derives the body shape from the model: a tangle is always effectful; an ordinary section is effectful
 when it has any bindings and static when it has none. The bindings field is a list that may be empty,
@@ -248,13 +301,7 @@ const buildService = (
 
   const name = serviceNameOf(section)
   const origin: SectionId = { path: modulePath, name }
-  const languageId = Option.match(tanglePath, {
-    onSome: () => 'Loom',
-    onNone: () =>
-      section.heading.specifier?.type === 'Specifier'
-        ? section.heading.specifier.label.value.toLowerCase()
-        : defaultLang,
-  })
+  const languageId = sectionLanguage(section, defaultLang)
 
   const { compose, internals } = buildCompose(
     section,
@@ -371,7 +418,10 @@ const buildCompose = (
   origin: SectionId,
   languageId: string,
 ): { readonly compose: Compose; readonly internals: ReadonlyArray<Binding> } => {
-  const walked = Array.map(codeRuns(section.code), walkRun(bindAnchor(index, warps)))
+  const walked = Array.map(
+    codeRuns(section.code),
+    walkRun(bindAnchor(index, warps, languageId)),
+  )
   const args = Array.flatMap(walked, (w) => w.args)
   const internals = dedupeByName(Array.flatMap(walked, (w) => w.bindings))
 
@@ -529,23 +579,27 @@ section's de re. An unresolved anchor is a frame fault the checker reports, the 
 way a Warp to a missing tag is.
 
 When the anchor's name is a Warp the section declared, the binding already exists,
-so the reference uses it directly: `core.refer(m.code, anchor)`. No new binding.
+so the reference uses it directly through `referTag`, the by-value verb:
+`core.referTag(m.code, anchor)`. No new binding.
 
 Otherwise the name is looked up among the section titles, and the count of matches
-decides the outcome. One match resolves by name: the builder hoists
-`const _N = yield* N` under an underscore alias, so the constant cannot shadow the
-service's own class, and each reference reads `core.refer(_N.code, anchor)`. The hoisted binding maps
+decides the outcome. One match resolves by name through `referName`, the
+shared-scope verb: the builder hoists `const _N = yield* N` under an underscore
+alias, so the constant cannot shadow the service's own class, and each reference
+reads `core.referName(_N.code, anchor)`. The hoisted binding maps
 to the section's heading — it is the definition — while each `_N.code` reference
 maps to the anchor that wrote it. So go-to-def on an anchor jumps to the heading,
 and find-references on the heading lists every anchor, one definition to many
-referencers. No match is an unresolved anchor — a tag label is reachable only
+referencers. A match in another language is a cross-language transclusion: the
+builder marks the anchor, since a JSON section composed into a TypeScript one cannot
+share its file. No match is an unresolved anchor — a tag label is reachable only
 through a Warp, so a bare tag is a name miss. More than one match is an ambiguous
 anchor: several sections claim the same title, and a name anchor resolves exactly
 one section, so the builder reports the clash rather than guessing.
 
-`unresolved` and `ambiguous` each build a positioned diagnostic the moment a
-reference fails. The `CodeRef`'s binding carries the unresolved name, its mapping,
-and the error health, so either diagnostic lands on the anchor the author wrote.
+`unresolved`, `ambiguous`, and `crossLanguage` each build a positioned diagnostic
+the moment a reference fails. The `CodeRef`'s binding carries the name, its mapping,
+and the error health, so each diagnostic lands on the anchor the author wrote.
 
 =>
 
@@ -555,33 +609,46 @@ interface Bound {
 }
 
 const bindAnchor =
-  (index: NameIndex, warps: ReadonlySet<string>) =>
+  (index: NameIndex, warps: ReadonlySet<string>, host: string) =>
   (anchor: WarpAnchorToken): Bound => {
     const name = anchor.name.value
     const at = anchor.name.position
     if (warps.has(name)) {
-      return { ref: codeRef(name, at), binding: Option.none() }
+      return { ref: codeRef('referTag', name, at), binding: Option.none() }
     }
     return Array.matchLeft(index.get(name) ?? [], {
       onEmpty: () => ({
-        ref: codeRef(name, at, unresolved(name, at)),
+        ref: codeRef('referName', name, at, unresolved(name, at)),
         binding: Option.none(),
       }),
       onNonEmpty: (entry, rest) =>
         rest.length === 0
           ? {
-              ref: codeRef(aliasOf(entry.name), at),
+              ref: codeRef(
+                'referName',
+                aliasOf(entry.name),
+                at,
+                entry.language === host
+                  ? okHealth
+                  : crossLanguage(name, at, host, entry.language),
+              ),
               binding: Option.some(nameBinding(entry.name, entry.pos)),
             }
           : {
-              ref: codeRef(name, at, ambiguous(name, at, rest.length + 1)),
+              ref: codeRef('referName', name, at, ambiguous(name, at, rest.length + 1)),
               binding: Option.none(),
             },
     })
   }
 
-const codeRef = (name: string, at: Position, health: Health = okHealth): CodeRef =>
+const codeRef = (
+  verb: 'referName' | 'referTag',
+  name: string,
+  at: Position,
+  health: Health = okHealth,
+): CodeRef =>
   CodeRefSchema.make({
+    open: tok(`core.${verb}(`),
     binding: anchorId(name, at, health),
     anchor: tok(posLiteral(at)),
   })
@@ -616,6 +683,22 @@ const ambiguous = (name: string, at: Position, count: number): Health => ({
   diagnostics: [
     {
       message: `Ambiguous anchor: ${count} sections are named \`${name}\`. A name anchor resolves one local section; rename to disambiguate.`,
+      position: at,
+      severity: 'error',
+    },
+  ],
+})
+
+const crossLanguage = (
+  name: string,
+  at: Position,
+  host: string,
+  found: string,
+): Health => ({
+  status: 'error',
+  diagnostics: [
+    {
+      message: `Cross-language transclusion: \`${name}\` is ${found}, but this section composes ${host}. A section composes one language.`,
       position: at,
       severity: 'error',
     },

@@ -35,7 +35,7 @@ export type LoomSection = typeof LoomSectionSchema.Type
 
 ## The document
 
-A `LoomDocument` is the root, the implicit module named by its file. Its `preamble` is the run of wefts before the first heading — carrying the `{{lang: …}}` declaration — and its `sections` are the flat list that follows. Either slot may be empty.
+A `LoomDocument` is the root, the implicit module named by its file. Its `preamble` is the run of wefts before the first heading — carrying the `lang` Warp — and its `sections` are the flat list that follows. Either slot may be empty.
 
 =>
 
@@ -52,7 +52,7 @@ Each container is a `loomNode` built from Effect's `Schema`. The heading's subto
 =>
 
 import { Schema } from 'effect'
-import { loomNode } from './LoomNode'
+import { loomNode } from '@athrio/loom-core/LoomNode'
 import {
   HeadingStartTokenSchema,
   HeadingTitleTokenSchema,

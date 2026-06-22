@@ -1,6 +1,6 @@
 import { Effect, Match, Option, Stream, pipe } from 'effect'
 import type { LineRange } from './LineRanges'
-import { incompleteHealth, okHealth, type Position } from './LoomNode'
+import { incompleteHealth, okHealth, type Position } from '@athrio/loom-core/LoomNode'
 import {
   ArrowTokenSchema,
   HeadingStartTokenSchema,

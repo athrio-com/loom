@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Chunk, Effect, Stream } from 'effect'
 import type { LineRange } from '#ast/LineRanges'
-import { okHealth } from '#ast/LoomNode'
+import { okHealth } from '@athrio/loom-core/LoomNode'
 import { WeftClassifier } from '#ast/WeftClassifier'
 import { WeftTokeniser } from '#ast/WeftTokeniser'
 import type { ArrowWeft, HeadingWeft, LoomWeft } from '#ast/Weft'

@@ -81,7 +81,7 @@ afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
 const refTargetOf = (path: string, name: string) => {
   const composed = output.code.get(path)?.get(name)
-  const ref = composed?.parts.find((p) => p.type === 'Ref') as
+  const ref = composed?.parts.find((p) => p.type !== 'Fragment') as
     | { readonly target: Option.Option<{ path: string; name: string }> }
     | undefined
   return ref ? Option.getOrNull(ref.target) : undefined

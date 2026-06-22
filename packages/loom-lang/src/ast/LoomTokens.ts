@@ -1,5 +1,5 @@
 import { Data, Effect, Option, Schema, SchemaAST } from 'effect'
-import { loomNode } from './LoomNode'
+import { loomNode } from '@athrio/loom-core/LoomNode'
 
 export const Probe: unique symbol = Symbol.for('loom/Probe')
 

@@ -6,8 +6,7 @@
     "loom-language-server": "./bin/loom-language-server.js"
   },
   "imports": {
-    "#ast/*": "./src/ast/*.ts",
-    "#loom/core": "./src/core.ts"
+    "#ast/*": "./src/ast/*.ts"
   },
   "exports": {
     "./LoomCompiler": "./src/LoomCompiler.ts",
@@ -21,6 +20,7 @@
   },
   "dependencies": {
     "@athrio/loom-config": "workspace:*",
+    "@athrio/loom-core": "workspace:*",
     "@athrio/loom-lang-services": "workspace:*",
     "@effect/platform-node": "^0.106.0",
     "@volar/language-core": "^2.4.28",

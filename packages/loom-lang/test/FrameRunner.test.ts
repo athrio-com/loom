@@ -3,7 +3,7 @@ import { Effect, Option } from 'effect'
 import { LoomRunner } from '#ast/FrameRunner'
 
 // The runner executes a corpus of frames to produce the de re. These fixtures are
-// hand-written in the new #loom/core contract (positioned constructors, a __services
+// hand-written in the new @athrio/loom-core contract (positioned constructors, a __services
 // map for wiring, a __run manifest), as FrameAstBuilder will emit. The test proves the
 // runner in real code before the emitter is revised: cross-file refer by origin, a
 // private (tagless) section collected, the corpus layer wired dependency-first, and a
@@ -12,7 +12,7 @@ import { LoomRunner } from '#ast/FrameRunner'
 const POS = '{start:{line:1,column:0,offset:0},end:{line:1,column:1,offset:1}}'
 
 const frameB = `
-import * as core from "#loom/core"
+import * as core from "@athrio/loom-core"
 import { Effect, Layer } from "effect"
 export class Mul extends Effect.Service<Mul>()("/b.loom#Mul", {
   succeed: {
@@ -28,7 +28,7 @@ export const __run = Effect.gen(function* () {
 `
 
 const frameA = `
-import * as core from "#loom/core"
+import * as core from "@athrio/loom-core"
 import { Effect, Layer } from "effect"
 import { Mul } from "./b.loom"
 class Helper extends Effect.Service<Helper>()("/a.loom#Helper", {
@@ -45,8 +45,8 @@ export class Sq extends Effect.Service<Sq>()("/a.loom#Sq", {
     return {
       name: \`Sq\`,
       code: core.compose({path:"/a.loom",name:"Sq"}, "typescript",
-        core.refer(m.code, ${POS}),
-        core.refer(_Helper.code, ${POS}),
+        core.referTag(m.code, ${POS}),
+        core.referName(_Helper.code, ${POS}),
         core.fragment(\`const sq = (x) => mul(x,x)\`, ${POS})
       ),
       prose: core.weave({path:"/a.loom",name:"Sq"})
@@ -89,7 +89,7 @@ describe('LoomRunner', () => {
 
     const a = out.code.get('/a.loom')!
     const sq = a.get('Sq')!
-    expect(sq.parts.map((p) => p.type)).toEqual(['Ref', 'Ref', 'Fragment'])
+    expect(sq.parts.map((p) => p.type)).toEqual(['TagRef', 'NameRef', 'Fragment'])
     // refer captured each target's identity (by origin), never its parts
     expect(Option.getOrNull((sq.parts[0] as any).target)).toEqual({ path: '/b.loom', name: 'Mul' })
     expect(Option.getOrNull((sq.parts[1] as any).target)).toEqual({ path: '/a.loom', name: 'Helper' })

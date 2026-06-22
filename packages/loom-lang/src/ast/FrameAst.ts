@@ -1,5 +1,5 @@
 import { Option, Schema, SchemaAST } from 'effect'
-import { HealthSchema, okHealth, PositionSchema } from '#ast/LoomNode'
+import { HealthSchema, okHealth, PositionSchema } from '@athrio/loom-core/LoomNode'
 
 export const RenderOrder: unique symbol = Symbol.for('loom/RenderOrder')
 
@@ -92,7 +92,7 @@ export type ProseFragment = typeof ProseFragmentSchema.Type
 export const CodeRefSchema = frameNode(
   'CodeRef',
   {
-    open: synth('core.refer('),
+    open: FrameSynthTokenSchema,
     binding: FrameAuthoredTokenSchema,
     dot: synth('.code, '),
     anchor: FrameSynthTokenSchema,
@@ -105,7 +105,7 @@ export type CodeRef = typeof CodeRefSchema.Type
 export const ProseRefSchema = frameNode(
   'ProseRef',
   {
-    open: synth('core.refer('),
+    open: synth('core.referName('),
     binding: FrameAuthoredTokenSchema,
     dot: synth('.prose, '),
     anchor: FrameSynthTokenSchema,
@@ -277,7 +277,7 @@ export const FrameModuleSchema = frameNode(
   'FrameModule',
   {
     header: synth(
-      'import * as core from "#loom/core"\nimport { Effect, Layer } from "effect"\n',
+      'import * as core from "@athrio/loom-core"\nimport { Effect, Layer } from "effect"\n',
     ),
     imports: Schema.Array(FrameCodeSchema),
     members: Schema.Array(MemberItemSchema),

@@ -1,4 +1,4 @@
-export * from './LoomNode'
+export * from '@athrio/loom-core/LoomNode'
 export * from './LoomAst'
 export * from './LineRanges'
 export * from './LoomTokens'

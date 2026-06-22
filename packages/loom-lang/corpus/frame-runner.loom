@@ -54,7 +54,7 @@ const stripFrame = (frame: string): string =>
 
 ## From a module to a function
 
-A frame opens with `import` lines — `#loom/core`, `effect`, and a cross-file frame's siblings — and exports its services. The runner evaluates it as a function instead, so it rewrites those lines into forms a function body allows: each `import` becomes a `require` call the runner resolves, and each `export` assigns onto the function's `module.exports`.
+A frame opens with `import` lines — `@athrio/loom-core`, `effect`, and a cross-file frame's siblings — and exports its services. The runner evaluates it as a function instead, so it rewrites those lines into forms a function body allows: each `import` becomes a `require` call the runner resolves, and each `export` assigns onto the function's `module.exports`.
 
 The rewrite must reach the frame's own statements and never the product code. A section's code rides inside `core.fragment(\`…\`)` template literals, and that product may itself open a line with `import` or `export` — most real source does. So `maskTemplates` first hides every template literal behind a placeholder, the rewrites run against the scaffolding that remains, and `restore` puts the literals back untouched. The placeholder is a null character, which generated TypeScript never holds, so nothing else can match it. Masking leans on the builder having escaped every backtick inside a fragment, so a fragment's own delimiters are the only bare backticks left.
 
@@ -153,7 +153,7 @@ const topoSort = <A>(
 
 ## Evaluating the corpus
 
-`evalCorpus` evaluates every frame in dependency order, threading the modules built so far. Each frame's resolver answers `#loom/core` with the runnable core and `effect` with Effect — the two the runner injects — and a sibling import with the module already built for its resolved path. Because the order is dependencies first, a sibling is always present by the time a frame asks for it.
+`evalCorpus` evaluates every frame in dependency order, threading the modules built so far. Each frame's resolver answers `@athrio/loom-core` with the runnable core and `effect` with Effect — the two the runner injects — and a sibling import with the module already built for its resolved path. Because the order is dependencies first, a sibling is always present by the time a frame asks for it.
 
 `evalFrameSafe` keeps one frame's fault from sinking the corpus. A frame whose top level throws — a Warp left a name nothing defines, so its `__services` reads an undefined identifier — degrades to an empty module rather than aborting the evaluation. The faulted module loses its de re, and its siblings keep theirs.
 
@@ -186,7 +186,7 @@ const evalCorpus = (
     ),
     Arr.reduce(new Map<string, EvaledFrame>(), (evaled, path) => {
       const require = (id: string): unknown =>
-        id === '#loom/core'
+        id === '@athrio/loom-core'
           ? core
           : id === 'effect'
             ? effect
@@ -319,10 +319,10 @@ Effect supplies the array and layer combinators and the effect type. The runner 
 
 import { Array as Arr, Effect, Layer, pipe } from 'effect'
 import * as effect from 'effect'
-import * as core from '#loom/core'
+import * as core from '@athrio/loom-core'
 import { stripTypeScriptTypes } from 'node:module'
 import { dirname, resolve as resolvePath } from 'node:path'
-import type { ComposedCode, TangledFile, WovenProse } from '#ast/ProductAst'
+import type { ComposedCode, TangledFile, WovenProse } from '@athrio/loom-core/ProductAst'
 
 ## The module {../src/ast/FrameRunner.ts}
 

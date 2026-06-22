@@ -1,5 +1,5 @@
 import { Schema } from 'effect'
-import { loomNode } from './LoomNode'
+import { loomNode } from '@athrio/loom-core/LoomNode'
 import {
   HeadingStartTokenSchema,
   HeadingTitleTokenSchema,

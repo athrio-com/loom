@@ -15,6 +15,12 @@ The service takes that SDK from the `TypescriptSdk` capability rather than bundl
 its own TypeScript SDK, so it analyzes the user's code with their own TypeScript. `create` is
 synchronous, so the Effect does no work beyond yielding the `TypescriptSdk` from the environment.
 
+The service never filters TypeScript's diagnostics. Whether a product section draws
+the unused-declaration lint is the consumer's call, made in their `tsconfig.json` — a
+package that sets `noUnusedLocals` sees it on its product sections too, at the level
+it chose. The service hands Volar the plain `volar-service-typescript` plugins, so
+what the program reports is what the editor shows.
+
 =>
 
 import { create } from 'volar-service-typescript'

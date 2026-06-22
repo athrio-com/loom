@@ -1,9 +1,9 @@
 import { Array as Arr, Effect, Layer, pipe } from 'effect'
 import * as effect from 'effect'
-import * as core from '#loom/core'
+import * as core from '@athrio/loom-core'
 import { stripTypeScriptTypes } from 'node:module'
 import { dirname, resolve as resolvePath } from 'node:path'
-import type { ComposedCode, TangledFile, WovenProse } from '#ast/ProductAst'
+import type { ComposedCode, TangledFile, WovenProse } from '@athrio/loom-core/ProductAst'
 
 export interface RunOutput {
   readonly code: ReadonlyMap<string, ReadonlyMap<string, ComposedCode>>
@@ -135,7 +135,7 @@ const evalCorpus = (
     ),
     Arr.reduce(new Map<string, EvaledFrame>(), (evaled, path) => {
       const require = (id: string): unknown =>
-        id === '#loom/core'
+        id === '@athrio/loom-core'
           ? core
           : id === 'effect'
             ? effect

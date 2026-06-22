@@ -15,6 +15,7 @@ import {
   fromFrame,
   fromProduct,
   LoomVirtualCodeBuilder,
+  rootNamesAt,
   rootVirtualCode,
 } from '#ast/LoomVirtualCodeBuilder'
 import { type LoomVirtualCode, type Mapping } from '#ast/LoomVirtualCode'
@@ -143,6 +144,15 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
                     vcb.fromProduct(out.code, { path: entry.path, name }),
                   ),
                 ),
+              ),
+            ),
+          ),
+
+        roots: (path: Path): Effect.Effect<ReadonlySet<string>> =>
+          ensureEntry(documents, path).pipe(
+            Effect.flatMap(({ modules, entry }) =>
+              runCorpus(modules).pipe(
+                Effect.map((out) => rootNamesAt(out.code, entry.path)),
               ),
             ),
           ),

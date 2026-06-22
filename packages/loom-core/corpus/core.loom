@@ -2,9 +2,9 @@
 
 # Loom's composition language
 
-Loom transpiles each `.loom` file into a virtual frame: a small program written in the composition language this module defines. `#loom/core` is that language — the import at the head of every generated frame — and running the frame is what produces the product.
+Loom transpiles each `.loom` file into a virtual frame: a small program written in the composition language this module defines. `@athrio/loom-core` is that language — the import at the head of every generated frame — and running the frame is what produces the product.
 
-The language has five verbs. Two build the leaves of a section's de re structure: `fragment` carries a literal span of the author's code, and `refer` carries an edge to another section. Two assemble those leaves: `compose` gathers a section's code, `weave` gathers its prose. One ships the result: `tangle` binds a composed result to a file path.
+The language has six verbs. Three build the leaves of a section's de re structure: `fragment` carries a literal span of the author's code, and `referName` and `referTag` carry the two kinds of edge to another section. Two assemble those leaves: `compose` gathers a section's code, `weave` gathers its prose. One ships the result: `tangle` binds a composed result to a file path.
 
 The verbs construct, they do not concatenate. Where the old language joined strings, this one returns the `ProductAst` nodes — `Fragment`, `Ref`, `ComposedCode` — that `fromProduct` later flattens to text and mappings. The frame is a program that builds a value, and the value is the de re.
 
@@ -21,19 +21,29 @@ export const fragment = (text: string, origin: Position): Fragment => ({
   origin,
 })
 
-## A transclusion edge
+## Two transclusion edges
 
-`refer` is the rule that composition refers and never inlines by value. A section reaches another section by yielding it as a dependency, so `refer` receives that section's own composed result — its code or its prose, since each carries an `origin` — and keeps only that identity. The edge it builds holds the target's identity, not a copy of the target's parts. Running the reference proves the wiring, because the result it reads came from a `yield*` that Effect had to resolve against a real layer.
+Both verbs keep an identity, never a copy. A section reaches another by yielding it as a dependency, so each verb receives that section's own composed result — its code or its prose, each carrying an `origin` — and records that origin alone. `referName` builds a `NameRef`, the edge a name anchor leaves; `referTag` builds a `TagRef`, the edge a tag binding leaves. The frame picks the verb from how the author reached the section: `::[Heading]` names one in the same document, a Warp reaches one through its tag. The projection later reads the kind, composing a `NameRef` into a shared scope and copying a `TagRef` by value. Running either edge proves the wiring, because the result it reads came from a `yield*` Effect had to resolve against a real layer.
 
-A reference whose target the frame cannot bind is a frame error, not a runtime concern. The frame renders `core.refer(name.code, …)` against a name nothing defines, the type checker rejects it on the anchor, and the run never produces that section's de re. So `refer` needs no missing case: an unbound reference fails the frame before it composes.
+A reference whose target the frame cannot bind is a frame error, not a runtime concern. The frame renders the verb against a name nothing defines, the type checker rejects it on the anchor, and the run never produces that section's de re. So neither verb needs a missing case: an unbound reference fails the frame before it composes.
 
 =>
 
-export const refer = (
+export const referName = (
   code: { readonly origin: SectionId },
   anchor: Position,
-): Ref => ({
-  type: 'Ref',
+): NameRef => ({
+  type: 'NameRef',
+  health: okHealth,
+  target: Option.some(code.origin),
+  anchor,
+})
+
+export const referTag = (
+  code: { readonly origin: SectionId },
+  anchor: Position,
+): TagRef => ({
+  type: 'TagRef',
   health: okHealth,
   target: Option.some(code.origin),
   anchor,
@@ -99,16 +109,17 @@ import { okHealth, type Position } from '#ast/LoomNode'
 import type {
   ComposedCode,
   Fragment,
+  NameRef,
   Part,
-  Ref,
   SectionId,
+  TagRef,
   TangledFile,
   WovenProse,
 } from '#ast/ProductAst'
 
 ## The module {../src/core.ts}
 
-Five standalone constructors, none calling another, so their order on disk is free. Here it follows the story: what they draw on, the leaves, then the two gathers and the ship.
+Six standalone constructors, none calling another, so their order on disk is free. Here it follows the story: what they draw on, the leaves, then the two gathers and the ship.
 
 =>
 
@@ -116,7 +127,7 @@ Five standalone constructors, none calling another, so their order on disk is fr
 
 ::[A literal fragment]
 
-::[A transclusion edge]
+::[Two transclusion edges]
 
 ::[Composing code]
 

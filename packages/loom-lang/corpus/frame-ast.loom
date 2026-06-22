@@ -14,12 +14,12 @@ Render order is explicit, not positional. Each node carries a `RenderOrder` anno
 
 ## Building on Effect Schema
 
-Effect's `Schema` module defines every Frame AST node type. One `Schema.Struct` does double duty: it validates a node when the builder constructs it, and it carries the `RenderOrder` annotation the render pass reads at emission. A single definition is the source of truth for both. Effect's `SchemaAST` module reads that annotation back off a compiled schema. The `Health` and `Position` types and the `okHealth` default value come from the shared Loom AST base in `#ast/LoomNode`.
+Effect's `Schema` module defines every Frame AST node type. One `Schema.Struct` does double duty: it validates a node when the builder constructs it, and it carries the `RenderOrder` annotation the render pass reads at emission. A single definition is the source of truth for both. Effect's `SchemaAST` module reads that annotation back off a compiled schema. The `Health` and `Position` types and the `okHealth` default value come from the foundation, `@athrio/loom-core/LoomNode`.
 
 =>
 
 import { Option, Schema, SchemaAST } from 'effect'
-import { HealthSchema, okHealth, PositionSchema } from '#ast/LoomNode'
+import { HealthSchema, okHealth, PositionSchema } from '@athrio/loom-core/LoomNode'
 
 ## The frame node
 
@@ -115,13 +115,13 @@ export type ServiceName = typeof ServiceNameSchema.Type
 
 ## Code and prose fragments
 
-Each channel — code and prose — has two leaf kinds: a fragment the section writes directly, and a reference it transcludes from another section through a Warp. The runnable frame builds each by calling `#loom/core`.
+Each channel — code and prose — has two leaf kinds: a fragment the section writes directly, and a reference it transcludes from another section through a Warp. The runnable frame builds each by calling `@athrio/loom-core`.
 
 A fragment is one positioned span. An `EmbeddedCode` node carries one `=>` run's product code, a `ProseFragment` one prose span — a heading or a paragraph. Each renders a `core.fragment(text, origin)` call. The `text` is the literal span, mapped back to the `.loom` for its language service: the embedded language's for code, Markdown's for prose. The `origin` is that same span written out as a value the run reads — a position literal the builder bakes into the call — so it carries no mapping of its own.
 
-A reference renders a `core.refer(…)` call. A `CodeRef` refers to another section's code channel as `core.refer(alias.code, anchor)`, and a `ProseRef` to its prose as `core.refer(alias.prose, anchor)`. The `binding` is an authored token carrying the alias, mapped back to the `::[…]` anchor the author wrote, so navigation and rename reach the anchor. The `anchor` is the anchor's position literal the run reads.
+A reference renders a `core.referName(…)` or `core.referTag(…)` call, and the `open` token holds which. The frame writes `referName` when the anchor names a heading in the same document and `referTag` when a Warp binds the anchor to a tag, so the de re records the kind the projection later reads. A `CodeRef` refers to another section's code channel, `core.referName(alias.code, anchor)`; a `ProseRef` refers to its prose. The `binding` is an authored token carrying the alias, mapped back to the `::[…]` anchor the author wrote, so navigation and rename reach the anchor. The `anchor` is the anchor's position literal the run reads.
 
-A reference the frame cannot resolve stays a `CodeRef`, against the unresolved name itself. `core.refer(Ghost.code, anchor)` names something nothing in scope defines, so the type checker rejects it on the anchor — the same frame error a Warp to a missing tag raises — and the run never produces that section's de re. An unresolved reference is a frame fault the checker surfaces, not a de re node.
+A reference the frame cannot resolve stays a `CodeRef`, against the unresolved name itself. The verb names something nothing in scope defines — `core.referName(Ghost.code, anchor)` — so the type checker rejects it on the anchor, the same frame error a Warp to a missing tag raises, and the run never produces that section's de re. An unresolved reference is a frame fault the checker surfaces, not a de re node.
 
 =>
 
@@ -156,7 +156,7 @@ export type ProseFragment = typeof ProseFragmentSchema.Type
 export const CodeRefSchema = frameNode(
   'CodeRef',
   {
-    open: synth('core.refer('),
+    open: FrameSynthTokenSchema,
     binding: FrameAuthoredTokenSchema,
     dot: synth('.code, '),
     anchor: FrameSynthTokenSchema,
@@ -169,7 +169,7 @@ export type CodeRef = typeof CodeRefSchema.Type
 export const ProseRefSchema = frameNode(
   'ProseRef',
   {
-    open: synth('core.refer('),
+    open: synth('core.referName('),
     binding: FrameAuthoredTokenSchema,
     dot: synth('.prose, '),
     anchor: FrameSynthTokenSchema,
@@ -376,7 +376,7 @@ export type Root = typeof RootSchema.Type
 
 ## The module
 
-A `FrameModule` is the top-level node for a `.loom` file's generated frame. The `header` field holds the fixed import block every frame begins with — `import * as core from "#loom/core"` and `import { Effect, Layer } from "effect"`. The `imports` array collects the top-level imports hoisted out of `{Loom}` sections. These must precede every service class in the output, so the render pass emits them right after the header. The `members` array holds the service classes and inline `{Loom}` blocks in document order, each preceded by a blank line. The `root` field carries the composition root when the file has services, and is absent otherwise. An empty `.loom` file is valid and produces a frame with only the header.
+A `FrameModule` is the top-level node for a `.loom` file's generated frame. The `header` field holds the fixed import block every frame begins with — `import * as core from "@athrio/loom-core"` and `import { Effect, Layer } from "effect"`. The `imports` array collects the top-level imports hoisted out of `{Loom}` sections. These must precede every service class in the output, so the render pass emits them right after the header. The `members` array holds the service classes and inline `{Loom}` blocks in document order, each preceded by a blank line. The `root` field carries the composition root when the file has services, and is absent otherwise. An empty `.loom` file is valid and produces a frame with only the header.
 
 =>
 
@@ -393,7 +393,7 @@ export const FrameModuleSchema = frameNode(
   'FrameModule',
   {
     header: synth(
-      'import * as core from "#loom/core"\nimport { Effect, Layer } from "effect"\n',
+      'import * as core from "@athrio/loom-core"\nimport { Effect, Layer } from "effect"\n',
     ),
     imports: Schema.Array(FrameCodeSchema),
     members: Schema.Array(MemberItemSchema),

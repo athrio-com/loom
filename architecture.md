@@ -177,18 +177,24 @@ independence, and cross-module imports.
 
 Loom is a Volar extended language: code sections are first-class embedded code with
 their own language services. A `.loom` file projects to a tree of virtual codes — one
-`frame` (the generated TypeScript, type-checked by tsc), one per `{path}` tangle (the
-assembled file, language-agnostic), and one per content section (its resolved
-composition, in that section's language). Volar owns embedded languages, virtual codes,
-and dispatch; Loom's job is to declare the tree and supply the mappings.
+`frame` (the generated TypeScript, type-checked by tsc), and one per content section:
+its resolved composition, in that section's language. A `{path}` tangle sink is a
+content section too, in the language its path extension names — a `.json` sink is
+JSON even in a TypeScript document. Volar owns embedded languages, virtual codes, and
+dispatch; Loom's job is to declare the tree and supply the mappings.
 
-Type-checking of product code works through the **composition**, not the raw section: a
-section's resolved document is its code with its transcluded sections inlined in
-composition order, and the language service checks that document and maps its results
-back to the `.loom` sections that contributed them. A diagnostic that exists only
-because sections are spliced is reported once, against the offending span. Composition
-order — not document order — is what the service sees, so a section may reference
-another defined later in the source. **Syntax highlighting is the floor**: always
+Type-checking runs on the **composition roots** — the sections no other section
+transcludes by name — each checked as one isolated module. A root's resolved document
+is its code with its transclusions inlined: a name anchor folds a same-document
+section into the root's shared scope, so split sections compose and resolve together;
+a Warp copies a tagged section in by value, kept apart from the original. A section
+reached by a name anchor is a fragment, checked inside the root that names it and
+never alone — so the names it borrows from sibling sections resolve, and a diagnostic
+that exists only because sections are spliced is reported once, against the offending
+span. Composition order, not document order, is what the service sees, so a section
+may reference another defined later in the source. A section composes one language; a
+name anchor that crosses languages is an authoring error the frame pass reports.
+**Syntax highlighting is the floor**: always
 available per code section, and the only product signal when no composition resolves —
 a missing grammar, or a cross-file dependency. For languages Volar does not handle
 natively, a **multiplexer** dispatches hover, completion, and go-to-definition to
@@ -221,8 +227,12 @@ construct `ProductAst` values — a `ComposedCode` per section — not strings:
 
 - **`fragment`** wraps one span of product code with the `.loom` position it maps back
   to.
-- **`refer`** is the transclusion edge: it reads another section's `ComposedCode` and
-  records its identity, never a copy of its parts.
+- **`referName`** and **`referTag`** are the two transclusion edges: each reads another
+  section's `ComposedCode` and records its identity, never a copy of its parts. The
+  frame writes `referName` for a name anchor into the same document — its target shares
+  the consuming section's scope — and `referTag` for a Warp binding to a tag — its
+  target is taken by value, a copy. The projection reads the kind: it folds a `NameRef`
+  into shared scope and copies a `TagRef`.
 - **`compose`** assembles a section's fragments and references, in argument order, into
   one `ComposedCode`, stamped with the section's identity and language.
 - **`weave`** is `compose`'s peer for prose, assembling a `WovenProse`.

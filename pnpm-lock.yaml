@@ -97,11 +97,20 @@ importers:
         specifier: 3.21.2
         version: 3.21.2
 
+  packages/loom-core:
+    devDependencies:
+      effect:
+        specifier: 3.21.2
+        version: 3.21.2
+
   packages/loom-lang:
     dependencies:
       '@athrio/loom-config':
         specifier: workspace:*
         version: link:../loom-config
+      '@athrio/loom-core':
+        specifier: workspace:*
+        version: link:../loom-core
       '@athrio/loom-lang-services':
         specifier: workspace:*
         version: link:../loom-lang-services

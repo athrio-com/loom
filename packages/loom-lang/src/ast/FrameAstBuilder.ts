@@ -1,9 +1,9 @@
 import { Array, Effect, Match, Option, Order, pipe } from 'effect'
 import type { LoomDocument, LoomSection } from '#ast/LoomAst'
-import { okHealth, type Health, type Point, type Position } from '#ast/LoomNode'
+import { okHealth, type Health, type Point, type Position } from '@athrio/loom-core/LoomNode'
 import type { WarpAnchorToken, WarpToken } from '#ast/LoomTokens'
 import type { PreambleWeft, SectionBodyWeft } from '#ast/Weft'
-import type { SectionId } from '#ast/ProductAst'
+import type { SectionId } from '@athrio/loom-core/ProductAst'
 import {
   type Binding,
   BindingItemSchema,
@@ -57,7 +57,7 @@ export const buildFrame = (
   packageLanguage?: string,
 ): FrameModule => {
   const lang = documentLanguage(doc.preamble) ?? packageLanguage ?? 'plaintext'
-  const index = nameIndex(doc.sections)
+  const index = nameIndex(doc.sections, lang)
   return pipe(
     doc.sections,
     Array.map(buildMember(index, lang, modulePath)),
@@ -66,15 +66,38 @@ export const buildFrame = (
   )
 }
 
-type NameEntry = { readonly name: string; readonly pos: Position }
+type NameEntry = {
+  readonly name: string
+  readonly pos: Position
+  readonly language: string
+}
 type NameIndex = ReadonlyMap<string, ReadonlyArray<NameEntry>>
 
-const nameIndex = (sections: ReadonlyArray<LoomSection>): NameIndex =>
+const sectionLanguage = (section: LoomSection, defaultLang: string): string => {
+  const spec = section.heading.specifier
+  return spec?.type === 'PathSpecifier'
+    ? extensionLanguage(spec.label.value)
+    : spec?.type === 'Specifier'
+      ? spec.label.value.toLowerCase()
+      : defaultLang
+}
+
+const nameIndex = (
+  sections: ReadonlyArray<LoomSection>,
+  defaultLang: string,
+): NameIndex =>
   pipe(
     sections,
     Array.filterMap((s) =>
       Option.map(Option.fromNullable(s.heading.title), (title) =>
-        [title.source, { name: serviceNameOf(s), pos: title.position }] as const,
+        [
+          title.source,
+          {
+            name: serviceNameOf(s),
+            pos: title.position,
+            language: sectionLanguage(s, defaultLang),
+          },
+        ] as const,
       ),
     ),
     Array.reduce(
@@ -92,6 +115,23 @@ const documentLanguage = (
     .find((w) => w.name.value === 'lang')
     ?.annotation.value.trim()
     .toLowerCase()
+
+const languageByExtension: ReadonlyMap<string, string> = new Map([
+  ['ts', 'typescript'],
+  ['mts', 'typescript'],
+  ['cts', 'typescript'],
+  ['tsx', 'tsx'],
+  ['js', 'javascript'],
+  ['mjs', 'javascript'],
+  ['cjs', 'javascript'],
+  ['jsx', 'jsx'],
+  ['json', 'json'],
+])
+
+const extensionLanguage = (path: string): string => {
+  const ext = path.slice(path.lastIndexOf('.') + 1).toLowerCase()
+  return languageByExtension.get(ext) ?? ext
+}
 
 interface ServiceInfo {
   readonly name: string
@@ -133,13 +173,7 @@ const buildService = (
 
   const name = serviceNameOf(section)
   const origin: SectionId = { path: modulePath, name }
-  const languageId = Option.match(tanglePath, {
-    onSome: () => 'Loom',
-    onNone: () =>
-      section.heading.specifier?.type === 'Specifier'
-        ? section.heading.specifier.label.value.toLowerCase()
-        : defaultLang,
-  })
+  const languageId = sectionLanguage(section, defaultLang)
 
   const { compose, internals } = buildCompose(
     section,
@@ -228,7 +262,10 @@ const buildCompose = (
   origin: SectionId,
   languageId: string,
 ): { readonly compose: Compose; readonly internals: ReadonlyArray<Binding> } => {
-  const walked = Array.map(codeRuns(section.code), walkRun(bindAnchor(index, warps)))
+  const walked = Array.map(
+    codeRuns(section.code),
+    walkRun(bindAnchor(index, warps, languageId)),
+  )
   const args = Array.flatMap(walked, (w) => w.args)
   const internals = dedupeByName(Array.flatMap(walked, (w) => w.bindings))
 
@@ -382,33 +419,46 @@ interface Bound {
 }
 
 const bindAnchor =
-  (index: NameIndex, warps: ReadonlySet<string>) =>
+  (index: NameIndex, warps: ReadonlySet<string>, host: string) =>
   (anchor: WarpAnchorToken): Bound => {
     const name = anchor.name.value
     const at = anchor.name.position
     if (warps.has(name)) {
-      return { ref: codeRef(name, at), binding: Option.none() }
+      return { ref: codeRef('referTag', name, at), binding: Option.none() }
     }
     return Array.matchLeft(index.get(name) ?? [], {
       onEmpty: () => ({
-        ref: codeRef(name, at, unresolved(name, at)),
+        ref: codeRef('referName', name, at, unresolved(name, at)),
         binding: Option.none(),
       }),
       onNonEmpty: (entry, rest) =>
         rest.length === 0
           ? {
-              ref: codeRef(aliasOf(entry.name), at),
+              ref: codeRef(
+                'referName',
+                aliasOf(entry.name),
+                at,
+                entry.language === host
+                  ? okHealth
+                  : crossLanguage(name, at, host, entry.language),
+              ),
               binding: Option.some(nameBinding(entry.name, entry.pos)),
             }
           : {
-              ref: codeRef(name, at, ambiguous(name, at, rest.length + 1)),
+              ref: codeRef('referName', name, at, ambiguous(name, at, rest.length + 1)),
               binding: Option.none(),
             },
     })
   }
 
-const codeRef = (name: string, at: Position, health: Health = okHealth): CodeRef =>
+const codeRef = (
+  verb: 'referName' | 'referTag',
+  name: string,
+  at: Position,
+  health: Health = okHealth,
+): CodeRef =>
   CodeRefSchema.make({
+    open: tok(`core.${verb}(`),
     binding: anchorId(name, at, health),
     anchor: tok(posLiteral(at)),
   })
@@ -443,6 +493,22 @@ const ambiguous = (name: string, at: Position, count: number): Health => ({
   diagnostics: [
     {
       message: `Ambiguous anchor: ${count} sections are named \`${name}\`. A name anchor resolves one local section; rename to disambiguate.`,
+      position: at,
+      severity: 'error',
+    },
+  ],
+})
+
+const crossLanguage = (
+  name: string,
+  at: Position,
+  host: string,
+  found: string,
+): Health => ({
+  status: 'error',
+  diagnostics: [
+    {
+      message: `Cross-language transclusion: \`${name}\` is ${found}, but this section composes ${host}. A section composes one language.`,
       position: at,
       severity: 'error',
     },

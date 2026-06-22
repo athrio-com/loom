@@ -165,7 +165,7 @@ describe('FrameAst — construction', () => {
     })
 
     expect(frame.type).toBe('FrameModule')
-    expect(frame.header.text).toContain('#loom/core')
+    expect(frame.header.text).toContain('@athrio/loom-core')
     expect(frame.root?.open.text).toContain('__services')
     expect(frame.members[0].value.type).toBe('ServiceClass')
     expect(frame.members[0].sep.text).toBe('\n\n')
@@ -182,6 +182,6 @@ describe('FrameAst — construction', () => {
     const empty = FrameModuleSchema.make({ imports: [], members: [] })
     expect(empty.root).toBeUndefined()
     expect(empty.members).toEqual([])
-    expect(empty.header.text).toContain('#loom/core')
+    expect(empty.header.text).toContain('@athrio/loom-core')
   })
 })

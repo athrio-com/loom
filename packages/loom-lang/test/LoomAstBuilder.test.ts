@@ -7,7 +7,7 @@ import {
   UnexpectedTokenSchema,
   type Health,
   type Position,
-} from '#ast/LoomNode'
+} from '@athrio/loom-core/LoomNode'
 import {
   ArrowTokenSchema,
   HeadingStartTokenSchema,

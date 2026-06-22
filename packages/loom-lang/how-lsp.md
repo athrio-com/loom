@@ -121,11 +121,10 @@ to reimplement what Volar provides.
 root (languageId: "loom")
 ├── frame        (languageId: "loom")         ← de dicto: the Frame's Service
 │                                                program, via fromFrame (how-frame)
-├── tangled-0    (languageId: Loom)           ← de re: resolved product for a
-│                                                {path} tangle, in compose order
-├── tangled-1    (languageId: Loom)           ← one per tangle section
 ├── section-0    (languageId: per section)    ← de re: a section's resolved
 │                                                composition (code + transclusions)
+├── section-1    (languageId: per section)    ← a {path} sink is a section too,
+│                                                in the language its extension names
 └── …
 ```
 
@@ -135,54 +134,62 @@ root (languageId: "loom")
   composition correctness. A heading tag maps to its generated Service class, so it
   offers go-to-definition and rename — but not hover, which would only surface that
   generated class. A tagless heading takes the class named after its normalized title.
-- **Tangled** — one per tangle section. The member sections' `code` composed in
-  tangle order, producing the assembled file as a virtual document. A tangle is
-  **language-agnostic**: it composes any source — possibly several languages —
-  into one file, so it claims no product language of its own; it is marked `Loom`
-  and is not type-checked as a single language. Type-checking is per contributing
-  section (below); the tangle's mappings only carry each line back to the `.loom`
-  section it came from.
 - **Embedded section compositions** — each content section projects to its
   *resolved composition*: its code with its transcluded sections inlined in
-  composition order, in its own `languageId` (the document's `{{lang: …}}`
-  default, or a per-section label specifier such as `{Bash}`). The language
-  service resolves cross-section references against it; syntax highlighting is
-  the floor when no composition resolves.
+  composition order, in its own `languageId`. The id is the document's `{{lang: …}}`
+  default, a per-section label specifier such as `{Bash}`, or — for a `{path}` tangle
+  sink — the language its path extension names, so a `.json` sink is JSON. Syntax
+  highlighting is the floor for every section; type-checking is narrower (below).
 
-The default `languageId` comes from the document's `lang` Warp; a section's
-label specifier overrides it for that section. A `{Loom}` section is projected
-literally into the frame rather than carried as composed product (see
-`how-frame.md`).
+A `{Loom}` section is projected literally into the frame rather than carried as
+composed product (see `how-frame.md`).
 
 ---
 
 ## Composition Drives Type Resolution
 
 Type checking and semantic analysis of *product* code work through the
-*composition* — the de re projection of the Frame, anchored by the file's
-`Root` (generated where the file has Services; see `how-frame.md`). A section's resolved product document is its code
-with its transcluded sections inlined in composition order; that document is
-what the language service checks, and its results map back to the `.loom`
-sections that contributed them.
+*composition* — the de re projection of the Frame, anchored by the file's `Root`
+(generated where the file has Services; see `how-frame.md`). The unit is the
+**composition root**: a section no other section transcludes by name. A root's
+resolved document is its code with its transclusions inlined — a name anchor folds a
+same-document section into the root's shared scope, a Warp copies a tagged section in
+by value — and that document is what the language service checks. A section reached by
+a name anchor is a fragment of the root that names it; it is never checked alone, so
+the names it borrows from sibling sections resolve rather than read as undefined. The
+check's results map back to the `.loom` sections that contributed them.
 
-Which sections reach a language service is the package's choice. A `loom.json`
-lists the languages a package activates, and the editor hands a section's
-resolved document to a TypeScript program — through Volar's
-`getExtraServiceScripts` — only when the package activates that section's
-language. A package that activates nothing keeps the frame alone, and its product
-sections fall back to syntax highlighting. The frame is never gated: every `.loom`
-has one, projected as the file's primary service script and always checked.
+Which roots reach a language service is the package's choice. A `loom.json` lists the
+languages a package activates, and the editor hands a root to a TypeScript program —
+through Volar's `getExtraServiceScripts` — only when the package activates that root's
+language. Each root is handed over as its own module, so two roots that share a
+top-level name never collide. A package that activates nothing keeps the frame alone,
+and its product sections fall back to syntax highlighting. The frame is never gated:
+every `.loom` has one, projected as the file's primary service script and always
+checked.
+
+`loom.json` also carries a per-language `settings` bag — language id to that
+service's own configuration — which the host hands each service alongside its
+plugins. It is how a language tunes itself per package without the host knowing the
+keys. The TypeScript service uses it for the planes' one real divergence: the de re
+product is a template, so by default it drops the unused-declaration lint (TS 6133
+and its family) from product documents, telling product from frame by language id,
+while the frame and the real tangled source stay strict. A package sets
+`product.lintUnused` to `true` to put the lint back. This is the logical separation
+the two planes need — the frame and the product share Volar's one TypeScript program
+but answer to their own configuration.
 
 A **composition diagnostic** — one that exists only because sections are spliced:
 a duplicated binding, a name a mid-section anchor pulls into scope, a type that
 clashes only when composed — is emergent. No section produces it alone, only the
 consuming document does, so it is reported once. By default it maps to the actual
 offending span, in whichever contributing section's `.loom` wrote it — the
-language service's own order, run backward through the mappings. The exception is
-**cross-file** transclusion: when the offending span was inlined from another
-file's library section, the diagnostic re-pins to the `::[…]` **anchor** in the
-consuming section — the composition is the consumer's to own, and the library
-author never sees it — not to the library's own source.
+language service's own order, run backward through the mappings. The exception is a
+**by-value** transclusion: when the offending span was copied in through a Warp to a
+tagged section, the diagnostic re-pins to the `::[…]` **anchor** in the consuming
+section — the composition is the consumer's to own, and the tagged section's author
+never sees it — not to that section's own source. A cross-file transclusion is always
+by value, so this is the path a library's inlined code takes.
 
 Composition order — not document order — is what the language service sees, so a
 section may reference another defined later in the source without error. The
@@ -200,13 +207,13 @@ trailing blank (noweb's chunk-reference semantics). It is generated-side only: t
 shed newline's `.loom` origin stops being mapped — a newline is never a hover or
 diagnostic target — and every source span is left exact.
 
-A **tangle** is the composition whose unit is a file-output target: a `{path}`
-section assembles its members into one document — language-agnostic (marked
-`Loom`), so not type-checked as a single language, but mapped back to its sources
-*and*, at the end of the world, written to disk. But resolution is not gated on a
-tangle. Because the whole file projects to one
-Frame, every section is interconnected and diagnosable on its own composition,
-and a library `.loom` with no tangle is still fully resolved within itself.
+A **tangle sink** is a composition root whose unit is a file-output target: a
+`{path}` section assembles its members into one document, in the language its path
+extension names — type-checked as that language and, at the end of the world, written
+to disk. A library `.loom` with no sink still has roots: any section nothing
+transcludes by name is one, checked within itself. A section composes one language; a
+name anchor that pulls in a section of another language is an authoring error,
+reported on the anchor.
 
 **Syntax highlighting (Tree-sitter) is the floor** — always available, and the
 only product signal when a composition cannot be resolved, as when a section's

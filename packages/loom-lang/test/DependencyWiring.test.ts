@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import type { ComposedCode } from '#ast/ProductAst'
+import type { ComposedCode } from '@athrio/loom-core/ProductAst'
 import { LoomCompiler, DocumentSource } from '../src/LoomCompiler'
 import { PackageConfig } from '../src/PackageConfig'
 
@@ -43,7 +43,7 @@ const refCount = (
   path: string,
   name: string,
 ): number =>
-  (out.code.get(path)?.get(name)?.parts ?? []).filter((p) => p.type === 'Ref')
+  (out.code.get(path)?.get(name)?.parts ?? []).filter((p) => p.type !== 'Fragment')
     .length
 
 afterAll(() => rmSync(dir, { recursive: true, force: true }))

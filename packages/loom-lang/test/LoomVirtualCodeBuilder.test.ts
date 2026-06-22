@@ -62,8 +62,8 @@ describe('fromFrame — Frame AST → the frame virtual code', () => {
     expect(vc.embeddedCodes).toEqual([])
   })
 
-  it('opens with the #loom/core + effect header', () => {
-    expect(genCode.startsWith('import * as core from "#loom/core"')).toBe(true)
+  it('opens with the @athrio/loom-core + effect header', () => {
+    expect(genCode.startsWith('import * as core from "@athrio/loom-core"')).toBe(true)
     expect(genCode).toContain('import { Effect, Layer } from "effect"')
   })
 

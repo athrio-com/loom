@@ -114,7 +114,7 @@ It draws on `LoomCompiler` to run the corpus and hand back its product map and t
 import { Array, Data, Effect, pipe } from 'effect'
 import { FileSystem } from '@effect/platform'
 import { dirname, resolve as resolvePath } from 'node:path'
-import { type Diagnostic } from '#ast/LoomNode'
+import { type Diagnostic } from '@athrio/loom-core/LoomNode'
 import { corpusErrors, type Path } from '#ast/LoomCorpusAst'
 import { fromProduct } from '#ast/LoomVirtualCodeBuilder'
 import { LoomCompiler } from './LoomCompiler'

@@ -1,5 +1,5 @@
 import { Array, Option, pipe, Schema } from 'effect'
-import { type Diagnostic } from '#ast/LoomNode'
+import { type Diagnostic } from '@athrio/loom-core/LoomNode'
 import { LoomDocumentSchema } from '#ast/LoomAst'
 import { FrameModuleSchema } from '#ast/FrameAst'
 

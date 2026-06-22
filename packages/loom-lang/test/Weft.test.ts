@@ -11,7 +11,7 @@ import {
   WarpTokenSchema,
   getProbe,
 } from '#ast/LoomTokens'
-import { okHealth } from '#ast/LoomNode'
+import { okHealth } from '@athrio/loom-core/LoomNode'
 import {
   ArrowWeftSchema,
   HeadingWeftSchema,
