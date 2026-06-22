@@ -22,6 +22,7 @@
     "@athrio/loom-config": "workspace:*",
     "@athrio/loom-core": "workspace:*",
     "@athrio/loom-lang-services": "workspace:*",
+    "@athrio/loom-tsconfig": "workspace:*",
     "@effect/platform-node": "^0.106.0",
     "@volar/language-core": "^2.4.28",
     "@volar/language-server": "^2.4.28",

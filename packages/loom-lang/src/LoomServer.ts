@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url'
 import { LoomCompiler, DocumentSource } from './LoomCompiler'
 import { PackageConfig } from './PackageConfig'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
+import { withLoomBaseline } from '@athrio/loom-tsconfig'
 import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
 
 const program = Effect.gen(function* () {
@@ -31,13 +32,18 @@ const program = Effect.gen(function* () {
     )
     return server.initialize(
       params,
-      createTypeScriptProject(tsdk.typescript, tsdk.diagnosticMessages, () => ({
-        languagePlugins: [loomLanguagePlugin(runtime)],
-      })),
+      createTypeScriptProject(
+        withLoomBaseline(tsdk.typescript),
+        tsdk.diagnosticMessages,
+        () => ({ languagePlugins: [loomLanguagePlugin(runtime)] }),
+      ),
       [...servicePlugins],
     )
   })
-  connection.onInitialized(server.initialized)
+  connection.onInitialized(() => {
+    server.initialized()
+    void server.fileWatcher.watchFiles(['**/tsconfig.json', '**/jsconfig.json'])
+  })
   connection.onShutdown(server.shutdown)
   connection.listen()
 

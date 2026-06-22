@@ -1,0 +1,19 @@
+{
+  "name": "@athrio/loom-tsconfig",
+  "version": "0.0.1",
+  "description": "Loom's TypeScript baseline, layered under a consumer's tsconfig for the Volar TypeScript program.",
+  "license": "Apache-2.0 OR MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/LoomBaseline.ts"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "typescript": "^6.0.3"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}
