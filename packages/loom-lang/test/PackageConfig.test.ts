@@ -25,7 +25,7 @@ describe('PackageConfig.resolve — per-file build settings', () => {
     const dir = tempDir()
     writeFileSync(
       join(dir, 'loom.json'),
-      '{ "anchor": { "open": "<<", "close": ">>" }, "language": "typescript" }',
+      '{ "anchor": { "open": "<<", "close": ">>" }, "primary": "typescript" }',
     )
     expect(run(join(dir, 'a.loom'))).toEqual({
       delims: { open: '<<', close: '>>' },
@@ -44,7 +44,7 @@ describe('PackageConfig.resolve — per-file build settings', () => {
 
   it('walks up to a parent loom.json', () => {
     const dir = tempDir()
-    writeFileSync(join(dir, 'loom.json'), '{ "language": "bash" }')
+    writeFileSync(join(dir, 'loom.json'), '{ "primary": "bash" }')
     const nested = join(dir, 'sub')
     mkdirSync(nested)
     expect(run(join(nested, 'b.loom'))).toEqual({

@@ -10,7 +10,7 @@ The read is synchronous. The editor resolves a file's config inside Volar's sync
 
 ## What the config holds
 
-`PackageConfig` is the resolved shape every reader works with. Its `anchor` is the delimiter pair a package overrides, or `undefined` where the file leaves it to the default the reader supplies. Its `language` is the primary language a specifier-less section inherits, replacing the document `lang` Warp as the source of the default — so the Warp becomes optional, an in-document override rather than a requirement. Its `languages` is the list of activated language ids, empty when none are. Its `settings` maps each language id to that service's own configuration — a bag the host passes through untouched and the service reads — empty when the file sets none.
+`PackageConfig` is the resolved shape every reader works with. Its `anchor` is the delimiter pair a package overrides, or `undefined` where the file leaves it to the default the reader supplies. Its `primary` is the language a specifier-less section inherits, replacing the document `lang` Warp as the source of the default — so the Warp becomes optional, an in-document override rather than a requirement. Its `languages` is the list of activated language ids, empty when none are. Its `settings` maps each language id to that service's own configuration — a bag the host passes through untouched and the service reads — empty when the file sets none.
 
 `LoomConfigSchema` is the on-disk shape: every field optional, since a `loom.json` may set only the keys it cares about. `Schema.decodeUnknownOption` validates a parsed file against it and yields nothing when the JSON does not fit, so a malformed config degrades to the empty resolution.
 
@@ -25,7 +25,7 @@ export const LoomConfigSchema = Schema.Struct({
       close: Schema.optional(Schema.String),
     }),
   ),
-  language: Schema.optional(Schema.String),
+  primary: Schema.optional(Schema.String),
   languages: Schema.optional(Schema.Array(Schema.String)),
   settings: Schema.optional(
     Schema.Record({
@@ -39,14 +39,14 @@ export type LoomConfigFile = typeof LoomConfigSchema.Type
 
 export interface PackageConfig {
   readonly anchor: { readonly open?: string; readonly close?: string } | undefined
-  readonly language: string | undefined
+  readonly primary: string | undefined
   readonly languages: ReadonlyArray<string>
   readonly settings: Record<string, Record<string, unknown>>
 }
 
 const empty: PackageConfig = {
   anchor: undefined,
-  language: undefined,
+  primary: undefined,
   languages: [],
   settings: {},
 }
@@ -75,7 +75,7 @@ const readConfig = (file: string): PackageConfig => {
       onNone: () => empty,
       onSome: (config) => ({
         anchor: config.anchor,
-        language: config.language,
+        primary: config.primary,
         languages: config.languages ?? [],
         settings: config.settings ?? {},
       }),

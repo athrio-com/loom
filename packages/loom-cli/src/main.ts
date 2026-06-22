@@ -79,7 +79,7 @@ const init = (dir: Option.Option<string>) =>
     )
     const languages = activation.split(/\s+/).filter((id) => id.length > 0)
 
-    yield* config.write(root, { language, languages })
+    yield* config.write(root, { primary: language, languages })
     yield* Console.log(
       `\n   ${teal('✓')} wrote ${resolvePath(root, 'loom.json')}\n` +
         `   ${dim(`primary language: ${language}`)}\n` +

@@ -38,7 +38,7 @@ const checkerActivating = (languages: ReadonlyArray<string>) =>
           resolve: () =>
             Effect.succeed({
               anchor: undefined,
-              language: 'typescript',
+              primary: 'typescript',
               languages,
               settings: {},
             }),

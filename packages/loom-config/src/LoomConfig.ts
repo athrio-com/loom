@@ -16,7 +16,7 @@ export const LoomConfigSchema = Schema.Struct({
       close: Schema.optional(Schema.String),
     }),
   ),
-  language: Schema.optional(Schema.String),
+  primary: Schema.optional(Schema.String),
   languages: Schema.optional(Schema.Array(Schema.String)),
   settings: Schema.optional(
     Schema.Record({
@@ -30,14 +30,14 @@ export type LoomConfigFile = typeof LoomConfigSchema.Type
 
 export interface PackageConfig {
   readonly anchor: { readonly open?: string; readonly close?: string } | undefined
-  readonly language: string | undefined
+  readonly primary: string | undefined
   readonly languages: ReadonlyArray<string>
   readonly settings: Record<string, Record<string, unknown>>
 }
 
 const empty: PackageConfig = {
   anchor: undefined,
-  language: undefined,
+  primary: undefined,
   languages: [],
   settings: {},
 }
@@ -58,7 +58,7 @@ const readConfig = (file: string): PackageConfig => {
       onNone: () => empty,
       onSome: (config) => ({
         anchor: config.anchor,
-        language: config.language,
+        primary: config.primary,
         languages: config.languages ?? [],
         settings: config.settings ?? {},
       }),

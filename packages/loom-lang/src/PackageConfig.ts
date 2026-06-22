@@ -25,7 +25,7 @@ export class PackageConfig extends Effect.Service<PackageConfig>()(
           config.resolve(path).pipe(
             Effect.map((c) => ({
               delims: anchorDelimsOf(c.anchor),
-              primaryLanguage: c.language,
+              primaryLanguage: c.primary,
             })),
           ),
       }
