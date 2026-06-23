@@ -2,8 +2,10 @@
 
 Loom turns one `.loom` file into two things from a single source: the real files
 its sections compose into on disk, and a live language an editor type-checks and
-navigates. `@athrio/loom-lang` holds both — the Volar extended language the editor
-loads and the engine the command-line tool tangles with. This document is the
+navigates. Tangling makes Loom a build step; the live language makes it a language —
+and because Loom composes any language, the editor serves each section in the language
+it was written in, not only TypeScript. `@athrio/loom-lang` holds both — the Volar
+extended language the editor loads and the engine the command-line tool tangles with. This document is the
 cross-cutting overview: the planes the system works in, the pipeline that drives
 it, and the rules that span layers. Vision and working directives are in
 `CLAUDE.md`; each module's own detail is a literate program in
@@ -180,8 +182,11 @@ their own language services. A `.loom` file projects to a tree of virtual codes 
 `frame` (the generated TypeScript, type-checked by tsc), and one per content section:
 its resolved composition, in that section's language. A `{path}` tangle sink is a
 content section too, in the language its path extension names — a `.json` sink is
-JSON even in a TypeScript document. Volar owns embedded languages, virtual codes, and
-dispatch; Loom's job is to declare the tree and supply the mappings.
+JSON even in a TypeScript document. Volar's language-agnostic core owns embedded languages, virtual codes, and the
+position mapping between a `.loom` and its projections; Loom declares the tree and
+supplies the mappings. Volar's bundled TypeScript is one service this core hosts, not
+its foundation — which is what lets the product plane reach past TypeScript to any
+language.
 
 Type-checking runs on the **composition roots** — the sections no other section
 transcludes by name — each checked as one isolated module. A root's resolved document
@@ -194,12 +199,27 @@ that exists only because sections are spliced is reported once, against the offe
 span. Composition order, not document order, is what the service sees, so a section
 may reference another defined later in the source. A section composes one language; a
 name anchor that crosses languages is an authoring error the frame pass reports.
-**Syntax highlighting is the floor**: always
-available per code section, and the only product signal when no composition resolves —
-a missing grammar, or a cross-file dependency. For languages Volar does not handle
-natively, a **multiplexer** dispatches hover, completion, and go-to-definition to
-external language servers. `how-lsp.md` carries the full treatment — the virtual-code
-tree, plane routing of source mappings, and syntax highlighting.
+**Syntax highlighting is the floor**: always available per code section, and the only
+product signal when no composition resolves — a missing grammar, or a cross-file
+dependency.
+
+Above that floor, each plane is served by the engine that fits what it is. The
+**frame** is permanently TypeScript — every `.loom` has one — so it keeps Volar's
+built-in TypeScript program, pinned to a baked Loom baseline. The consumer's own
+`tsconfig.json` never reaches the frame, so it checks the same way in every package.
+The **product** is poly-lingual — a section is TypeScript, Python, or Scala — so each
+activated language is served by its own package, a `@athrio/loom-service-<id>`. The
+TypeScript package re-attaches Volar's TypeScript service to the product's own program,
+which the consumer's `tsconfig.json` governs; every other language forwards to its
+external server, such as Pyright for Python. These packages together are the
+**multiplexer**, and each one layers the shared Loom features — go-to-definition from an
+anchor to its section, completion of section names — over whatever its language's
+backend provides. TypeScript is the first such package, not a privileged built-in. Loom
+composes any language, so it must treat any language as first-class in the editor —
+otherwise the promise holds for only one.
+
+`how-lsp.md` carries the full treatment — the virtual-code tree, the plane routing of
+source mappings, the language-package model, and syntax highlighting.
 
 ## Runtime entry points
 

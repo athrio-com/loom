@@ -5,11 +5,12 @@ pipeline, the runtime entry points, the editor surface — is `architecture.md` 
 repo root; the AST pipeline (source → `LoomDocument`) lives in the `corpus/` looms;
 the Frame pass is `how-frame.md`. This document carries the tooling detail: the
 projection passes that fold the Frame to text, the Volar/LSP integration that surfaces
-it in the editor, and the source mappings that route a position to the right plane.
+it in the editor, the language packages that serve the product plane, and the source
+mappings that route a position to the right plane.
 
 Like the other specs, this describes the target architecture. The current code
 may not yet conform; where it does (embedded language resolution, syntax
-highlighting, source mappings, the multiplexer), that behaviour must be
+highlighting, source mappings, frame projection), that behaviour must be
 preserved, not regressed.
 
 ---
@@ -160,24 +161,31 @@ the names it borrows from sibling sections resolve rather than read as undefined
 check's results map back to the `.loom` sections that contributed them.
 
 Which roots reach a language service is the package's choice. A `loom.json` lists the
-languages a package activates, and the editor hands a root to a TypeScript program —
-through Volar's `getExtraServiceScripts` — only when the package activates that root's
-language. Each root is handed over as its own module, so two roots that share a
-top-level name never collide. A package that activates nothing keeps the frame alone,
-and its product sections fall back to syntax highlighting. The frame is never gated:
-every `.loom` has one, projected as the file's primary service script and always
-checked.
+languages a package activates, and a root is served only when its package activates that
+root's language. A package that activates nothing keeps the frame alone, and its product
+sections fall back to syntax highlighting. The frame is never gated: every `.loom` has
+one, and it is always checked.
 
-`loom.json` also carries a per-language `settings` bag — language id to that
-service's own configuration — which the host hands each service alongside its
-plugins. It is how a language tunes itself per package without the host knowing the
-keys. The TypeScript service uses it for the planes' one real divergence: the de re
-product is a template, so by default it drops the unused-declaration lint (TS 6133
-and its family) from product documents, telling product from frame by language id,
-while the frame and the real tangled source stay strict. A package sets
-`product.lintUnused` to `true` to put the lint back. This is the logical separation
-the two planes need — the frame and the product share Volar's one TypeScript program
-but answer to their own configuration.
+The two planes are checked by different engines, and the split follows what each plane
+is. The **frame** is permanently TypeScript, so it keeps Volar's built-in TypeScript
+program. That program is pinned to a baked Loom baseline — fixed compiler options and
+the `@athrio/loom-core` import roots — so the consumer's own `tsconfig.json` never
+reaches the frame, and it checks the same way in every package. The frame is the file's
+primary service script, the one Volar's TypeScript type-checks in place.
+
+The **product** is poly-lingual, so each activated language is served by its own
+package, a `@athrio/loom-service-<id>`. The package checks that language's roots against
+the language's own backend: the TypeScript package re-attaches Volar's TypeScript
+service to a program the consumer's `tsconfig.json` governs, so the product carries the
+consumer's lints in full; every other language forwards to its external server. A root
+is checked as its own module, so two roots that share a top-level name never collide.
+The *Language Packages* section below covers this model — its three tiers, the per-range
+feature gating, and the synchronous boundary that puts every external round-trip in an
+async feature call.
+
+A `loom.json` also carries a per-language `settings` bag — a language id mapped to that
+service's own configuration — which the host hands each service alongside its plugins.
+It is how a language tunes itself per package without the host knowing the keys.
 
 A **composition diagnostic** — one that exists only because sections are spliced:
 a duplicated binding, a name a mid-section anchor pulls into scope, a type that
@@ -293,16 +301,100 @@ which virtual code answers.
 
 ---
 
-## Multiplexer
+## Language Packages
 
-The LSP multiplexer (`src/multiplexer.ts`) dispatches requests to external
-language servers for languages Volar does not handle natively (Go, Rust,
-Python, …). It covers hover, completion, and go-to-definition for those
-languages. It does **not** intercept `textDocument/semanticTokens` — those flow
-through Volar's plugin pipeline.
+The product plane is poly-lingual, and each language it activates is served by its own
+package — a `@athrio/loom-service-<id>`, installed as a dev dependency and named in the
+package's `loom.json`. These packages together are the **multiplexer**: the layer that
+routes each product section to the service for its language. TypeScript is one such
+package, not a built-in exception.
 
-Volar handles its known languages natively; the multiplexer extends that to
-external servers. They are complementary, not competing.
+This rests on what Volar actually provides. Volar's enduring value is its
+language-agnostic core: `@volar/language-core` maps a `.loom` position to the embedded
+code that answers it, and `@volar/language-service` hosts feature providers and merges
+their results. Its bundled TypeScript service, `volar-service-typescript`, is one
+provider this core hosts, not the foundation. A language package is therefore a
+`LanguageService` the core hosts, and `resolveActive` turns the ids a `loom.json`
+activates into the services that run — `LoomLanguage` always, then each activated id,
+with an unknown id reserved for the `loom-service-<id>` package that will answer it.
+
+### Three tiers in a package
+
+A package composes its features in three tiers, sorted by who computes each one.
+
+The first tier is **Loom-structural**, and it is shared across every language.
+Go-to-definition from a `::[…]` anchor to its section, completion of section names and
+tags, hover on a Warp, the diagnostic a cross-language anchor raises — these read the
+corpus AST and the mappings Loom already builds, so they are identical whether the
+section is Python or Scala. They are written once and ride in every package.
+
+The second tier is **language-semantic**, and it differs per language. Real
+type-checking, real identifier completion, and real hover come from a backend. The
+TypeScript package re-attaches `volar-service-typescript` to an in-process
+`ts.LanguageService` — the standalone assembly `@volar/kit` already builds for the
+checker tests. Every other language forwards the request to its external server: Pyright
+for Python, gopls for Go, Metals for Scala.
+
+The third tier is the **escape hatch** — a plugin for something genuinely specific to one
+language. A package rarely needs it.
+
+### How the core serves features
+
+The core is a position mapper wrapped around these plugins, so a package never writes
+mapping logic of its own. For any request, the core finds the embedded code that covers
+the `.loom` position, translates the position into that code's space, calls each
+plugin's `provide*`, and translates the returned ranges back to the `.loom`.
+
+Which features are live on a span is a per-range declaration. Each mapping carries a
+`CodeInformation` flag set, and the core routes a feature only where its flag is set:
+`verification` gates diagnostics and code actions, `completion` gates completion,
+`semantic` gates hover and semantic tokens, `navigation` gates definition, references,
+and rename, `structure` gates document symbols and folding, and `format` gates
+formatting. A heading maps with `navigation` set and `verification` clear, so it offers
+go-to-definition and rename yet raises no raw type error. This one mechanism is most of
+how the core helps; a package supplies only the analysis behind it.
+
+### The synchronous boundary
+
+Projection is synchronous and feature provision is not, and that difference is what makes
+forwarding clean. The projection hook runs under `Runtime.runSync` and cannot await, so
+it must build the virtual-code tree in one tick (see *Resolving the Corpus in the
+Editor*). A `provide*` call runs off the JSON-RPC loop and may return a promise. So a
+round-trip to an external server lives inside a plugin's `provide*`, never in the
+projection hook — and the core still maps every position for it through the embedded
+code's mappings. Forwarding is a backend behind an async feature call, not a second
+dispatch path.
+
+The genuine cost is per-language and irreducible: an external server answers well only
+against a faithful project — Pyright a resolvable import environment, Metals a build — so
+the package must synthesize that project and keep the server's view of the document in
+sync. Encapsulating each server's project model in its own package, rather than in one
+layer that pretends they are uniform, is the strongest reason the package is the
+boundary.
+
+### Where the frame sits, and how this is built
+
+The frame does not pass through a language package. It stays in Volar's built-in
+TypeScript program against the baked Loom baseline (see *Composition Drives Type
+Resolution*) — the one plane that earns Volar's single per-file TypeScript program,
+because it is the one plane that is always TypeScript.
+
+Today the frame and the product TypeScript share that one program: the frame as the
+primary service script, the product roots handed in through `getExtraServiceScripts`.
+That shared program is the interim. Moving the product TypeScript into its own
+`loom-service-typescript` program is the step that separates the planes, and the same
+step makes the frame hermetic — once the product no longer rides the frame's program,
+that program answers to the baked baseline alone. The `@athrio/loom-tsconfig` baseline,
+which today merges under the consumer's `tsconfig.json` so the shared program keeps the
+product's lints, becomes the frame's fixed configuration at that point.
+
+The packages are built one at a time, and the shared forwarder is extracted rather than
+designed up front. `loom-service-typescript` comes first: it separates the planes, it
+makes the frame hermetic, and its backend is the in-process re-attach already proven in
+the tests. `loom-service-python`, forwarding to Pyright, comes next as the first external
+server — the first real test of project reproduction and document sync. A shared
+forwarding library is worth extracting once a second external server confirms its shape,
+not before.
 
 ---
 
