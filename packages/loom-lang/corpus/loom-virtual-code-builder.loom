@@ -365,7 +365,7 @@ const indentBlock = (
 
 ## The passes and the tree
 
-`fromFrame` is the de dicto pass — the frame virtual code, always loom-tagged for the type-checker. `fromProduct` is the de re pass — a section's product in its own language. Its virtual-code id is the section name lowercased, since Volar requires every embedded-code id to be lowercase. A section absent from the corpus yields an empty document. `rootVirtualCode` assembles a file's tree: the source as the `loom` root, the frame and product documents its children.
+`fromFrame` is the de dicto pass — the frame virtual code, always loom-tagged for the type-checker. `fromProduct` is the de re pass — a section's product in its own language. Its virtual-code id is the section name lowercased, since Volar requires every embedded-code id to be lowercase. A section absent from the corpus yields an empty document. `rootVirtualCode` assembles a file's tree: the source as the `loom` root, the frame and product documents its children. The root maps to itself, a whole-file identity span of the `source` kind, so Loom's own diagnostics reach the editor on the file the author opened.
 
 `rootNamesAt` names a file's composition roots — the sections no same-file `NameRef` transcludes. A `NameRef` folds its target into the referring section's scope, so a named section is a fragment of that section's module, not a unit of its own; a `TagRef` takes its target by value, so the target stays its own root. The editor type-checks the roots and lets each fold in the fragments it names. The names come back lowercased, to match the de re ids `fromProduct` assigns.
 
@@ -404,7 +404,17 @@ export const rootVirtualCode = (
   id: 'root',
   languageId: 'loom',
   code: text,
-  mappings: [],
+  mappings: [
+    {
+      genStart: 0,
+      genLength: text.length,
+      source: {
+        start: { line: 1, offset: 0 },
+        end: { line: 1, offset: text.length },
+      },
+      kind: 'source',
+    },
+  ],
   embeddedCodes,
 })
 

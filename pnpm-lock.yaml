@@ -155,6 +155,9 @@ importers:
         specifier: ^0.0.71
         version: 0.0.71(@volar/language-service@2.4.28)
     devDependencies:
+      '@athrio/loom-core':
+        specifier: workspace:*
+        version: link:../loom-core
       '@volar/language-service':
         specifier: ^2.4.28
         version: 2.4.28
@@ -164,6 +167,9 @@ importers:
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
+      vscode-uri:
+        specifier: ^3.1.0
+        version: 3.1.0
 
   packages/loom-tsconfig:
     devDependencies:

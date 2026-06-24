@@ -1,0 +1,8 @@
+{{lang: TypeScript}}
+
+# Open
+
+=>
+
+::[]
+const negDouble = (x: number): number => negate(x) * 2

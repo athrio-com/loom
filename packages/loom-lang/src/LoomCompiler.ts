@@ -1,5 +1,5 @@
 import type { CodeMapping, VirtualCode } from '@volar/language-core'
-import { Array, Effect, pipe } from 'effect'
+import { Array, Effect, Match, pipe } from 'effect'
 import { readFileSync } from 'node:fs'
 import type * as ts from 'typescript'
 import type { FrameModule } from '#ast/FrameAst'
@@ -30,17 +30,25 @@ export const stringSnapshot = (text: string): ts.IScriptSnapshot => ({
 })
 
 const featuresOf = (kind: Mapping['kind']): CodeMapping['data'] =>
-  kind === 'prose' || kind === 'heading' || kind === 'tag'
-    ? { navigation: true, structure: true }
-    : kind === 'anchor'
-      ? { verification: true, navigation: true, structure: true }
-      : {
-          verification: true,
-          completion: true,
-          semantic: true,
-          navigation: true,
-          structure: true,
-        }
+  Match.value(kind).pipe(
+    Match.whenOr('prose', 'heading', 'tag', () => ({
+      navigation: true,
+      structure: true,
+    })),
+    Match.when('anchor', () => ({
+      verification: true,
+      navigation: true,
+      structure: true,
+    })),
+    Match.when('source', () => ({ verification: true })),
+    Match.orElse(() => ({
+      verification: true,
+      completion: true,
+      semantic: true,
+      navigation: true,
+      structure: true,
+    })),
+  )
 
 const toCodeMapping = (m: Mapping): CodeMapping => ({
   sourceOffsets: [m.source.start.offset],

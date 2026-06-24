@@ -1,0 +1,7 @@
+{{lang: TypeScript}}
+
+# Broken [Tag
+
+=>
+
+export const x: number = 1

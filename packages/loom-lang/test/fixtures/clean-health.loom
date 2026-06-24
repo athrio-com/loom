@@ -1,0 +1,7 @@
+{{lang: TypeScript}}
+
+# Open
+
+=>
+
+export const x: number = 1

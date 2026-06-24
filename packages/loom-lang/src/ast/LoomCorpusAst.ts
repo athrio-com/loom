@@ -62,20 +62,26 @@ export const transitiveDependents = (
   )
 }
 
-const errorsIn = (node: unknown): ReadonlyArray<Diagnostic> => {
-  if (Array.isArray(node)) return node.flatMap(errorsIn)
+const diagnosticsIn = (node: unknown): ReadonlyArray<Diagnostic> => {
+  if (Array.isArray(node)) return node.flatMap(diagnosticsIn)
   if (node === null || typeof node !== 'object') return []
   const self =
-    'health' in node &&
-    (node as { health?: { status?: string } }).health?.status === 'error'
+    'health' in node
       ? (node as { health: { diagnostics: ReadonlyArray<Diagnostic> } }).health
           .diagnostics
       : []
   const nested = Object.entries(node).flatMap(([key, value]) =>
-    key === 'health' ? [] : errorsIn(value),
+    key === 'health' ? [] : diagnosticsIn(value),
   )
   return [...self, ...nested]
 }
+
+export const moduleDiagnostics = (
+  module: LoomModule,
+): ReadonlyArray<Diagnostic> => [
+  ...diagnosticsIn(module.doc),
+  ...diagnosticsIn(module.frame),
+]
 
 export const corpusErrors = (
   corpus: LoomCorpusAst,
@@ -86,7 +92,10 @@ export const corpusErrors = (
   pipe(
     Array.fromIterable(corpus.modules.values()),
     Array.filterMap((m) => {
-      const diagnostics = [...errorsIn(m.doc), ...errorsIn(m.frame)]
+      const diagnostics = Array.filter(
+        moduleDiagnostics(m),
+        (d) => d.severity === 'error',
+      )
       return diagnostics.length === 0
         ? Option.none()
         : Option.some({ path: m.path, diagnostics })

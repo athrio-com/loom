@@ -1,0 +1,8 @@
+{{lang: TypeScript}}
+
+# Open
+
+=>
+
+::[n
+export const x = 1

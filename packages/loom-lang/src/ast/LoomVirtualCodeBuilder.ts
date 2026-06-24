@@ -361,7 +361,17 @@ export const rootVirtualCode = (
   id: 'root',
   languageId: 'loom',
   code: text,
-  mappings: [],
+  mappings: [
+    {
+      genStart: 0,
+      genLength: text.length,
+      source: {
+        start: { line: 1, offset: 0 },
+        end: { line: 1, offset: text.length },
+      },
+      kind: 'source',
+    },
+  ],
   embeddedCodes,
 })
 

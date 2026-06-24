@@ -3,23 +3,81 @@
 # The Loom language
 
 `LoomLanguage` gives the **Frame** its editor support — the de dicto composition
-program Loom builds (the `Effect.Service` classes, the Warp wiring), together with
-any `{Loom}` sections, which become part of the Frame. Loom is TypeScript + Effect,
-so `LoomLanguage` wraps `volar-service-typescript` and takes the `TypescriptSdk` the
-host provides. It is always active: every `.loom` has a Frame.
+program Loom builds (the `Effect.Service` classes, the Warp wiring), together with any
+`{Loom}` sections, which become part of the Frame. Loom is TypeScript + Effect, so
+`LoomLanguage` wraps `volar-service-typescript` and takes the `TypescriptSdk` the host
+provides. It is always active: every `.loom` has a Frame.
 
-## The module {../src/LoomLanguage.ts}
+The Frame's `languageId` is `loom`, distinct from a product section's `typescript`, so
+the frame and the product section route to their own services even though they share
+the tooling. `LoomLanguage` declares no `extensions` — the Frame is the substrate,
+never a tangle target.
 
-The Frame's `languageId` is `loom`, distinct from a product section's `typescript`,
-so the frame and the product section route to their own services even though they share the tooling.
-`LoomLanguage` declares no `extensions` — the Frame is the substrate, never a tangle
-target.
+## Loom's own diagnostics
+
+`volar-service-typescript` checks the Frame for composition correctness, but it speaks
+TypeScript, not Loom. It cannot report a malformed tag or an anchor that names no
+section — those are Loom's own health, and `loomDiagnostics` surfaces them.
+
+The diagnostics arrive in `.loom` coordinates, so they belong to the source itself.
+Volar dispatches a diagnostic request to each of a file's projected documents, and
+`loomDiagnostics` answers only for the root — the whole-file mirror whose map to the
+source is the identity. It returns nothing for the frame and the product documents,
+whose generated spans are not where a source diagnostic lives. For the root it reads
+the file path from the embedded uri, asks `FrameQuery` for that file's health, and
+turns each Loom diagnostic into Volar's shape. A Loom severity becomes its editor code
+— `error` is 1, `warning` is 2, `info` is 3 — and a diagnostic's source offsets become
+a range through the document's own `positionAt`, which lands the squiggle on the exact
+span the parser flagged.
 
 =>
 
-import { create } from 'volar-service-typescript'
-import { Effect } from 'effect'
-import { defineLanguageService, TypescriptSdk } from './LanguageService'
+const lspSeverity = (
+  severity: Diagnostic['severity'],
+): LspDiagnostic['severity'] =>
+  severity === 'error' ? 1 : severity === 'warning' ? 2 : 3
+
+const toLspDiagnostic = (
+  at: (offset: number) => LspDiagnostic['range']['start'],
+  diagnostic: Diagnostic,
+): LspDiagnostic => ({
+  range: {
+    start: at(diagnostic.position.start.offset),
+    end: at(diagnostic.position.end.offset),
+  },
+  message: diagnostic.message,
+  severity: lspSeverity(diagnostic.severity),
+  source: 'loom',
+})
+
+const loomDiagnostics = (frame: FrameQueryApi): LanguageServicePlugin => ({
+  name: 'loom-diagnostics',
+  capabilities: {
+    diagnosticProvider: {
+      interFileDependencies: true,
+      workspaceDiagnostics: false,
+    },
+  },
+  create: (context) => ({
+    provideDiagnostics: (document) => {
+      const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
+      if (!decoded || decoded[1] !== 'root') return undefined
+      const at = (offset: number) => document.positionAt(offset)
+      return pipe(
+        frame.diagnostics(decoded[0].fsPath),
+        Array.map((diagnostic) => toLspDiagnostic(at, diagnostic)),
+      )
+    },
+  }),
+})
+
+## Composing the services
+
+`LoomLanguage` composes two plugin sources: the `volar-service-typescript` plugins that
+check the Frame, and `loomDiagnostics` over the `FrameQuery` the host provides. Volar
+registers them all under the `loom` id.
+
+=>
 
 export const LoomLanguage = defineLanguageService({
   id: 'loom',
@@ -28,6 +86,44 @@ export const LoomLanguage = defineLanguageService({
   plugins: () =>
     Effect.gen(function* () {
       const ts = yield* TypescriptSdk
-      return create(ts)
+      const frame = yield* FrameQuery
+      return [...create(ts), loomDiagnostics(frame)]
     }),
 })
+
+## What this module draws on
+
+`volar-service-typescript` supplies the Frame's TypeScript plugins. From Volar's
+language service come the `LanguageServicePlugin` contract and the editor's own
+`Diagnostic` type, aliased `LspDiagnostic` to keep it apart from Loom's. Effect supplies
+`Array`, `pipe`, and the `Effect` the service builds in. `@athrio/loom-core` types a
+Loom `Diagnostic`, `vscode-uri` parses an embedded document's uri, and the
+`LanguageService` module gives `defineLanguageService` with the `TypescriptSdk` and
+`FrameQuery` capabilities.
+
+=>
+
+import { create } from 'volar-service-typescript'
+import { Array, Effect, pipe } from 'effect'
+import type {
+  Diagnostic as LspDiagnostic,
+  LanguageServicePlugin,
+} from '@volar/language-service'
+import { URI } from 'vscode-uri'
+import { type Diagnostic } from '@athrio/loom-core/LoomNode'
+import {
+  defineLanguageService,
+  FrameQuery,
+  type FrameQueryApi,
+  TypescriptSdk,
+} from './LanguageService'
+
+## The module {../src/LoomLanguage.ts}
+
+=>
+
+::[What this module draws on]
+
+::[Loom's own diagnostics]
+
+::[Composing the services]

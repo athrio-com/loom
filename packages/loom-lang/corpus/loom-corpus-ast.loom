@@ -75,28 +75,36 @@ export const transitiveDependents = (
   )
 }
 
-## Errors across the corpus
+## Diagnostics across the corpus
 
-`corpusErrors` gathers every error in the corpus, so the tangler can refuse a broken build with one report rather than fail at the first bad file. It walks each module's parsed document and its frame for nodes whose health is an error — a file that could not be read, a malformed parse, an unresolved `::[…]` reference — and returns each failing module with its diagnostics, skipping the healthy ones.
+Every node carries a health, and a health holds diagnostics. `diagnosticsIn` is the walk that reads them out. It descends any node, gathers the diagnostics it carries, and skips the `health` field itself, so a node's diagnostics are collected once rather than again at every child. It keeps every severity — error, warning, and informational note alike — because the editor surfaces them all.
 
-`errorsIn` is the walk underneath. It descends any node, collects the diagnostics of every error-health node, and skips the `health` field itself so a node's own diagnostics are gathered once rather than again at every child.
+`moduleDiagnostics` is the per-file view: one module's diagnostics from both tiers, the grammatical health on its parsed document and the semantic health on its frame. This is what the editor reads for an open `.loom`.
+
+`corpusErrors` is the whole-corpus view the tangler takes, narrowed to errors. It keeps each module's error-severity diagnostics and returns every failing module with them, so the tangler refuses a broken build with one report rather than failing at the first bad file. A warning never blocks a tangle; only an error does.
 
 =>
 
-const errorsIn = (node: unknown): ReadonlyArray<Diagnostic> => {
-  if (Array.isArray(node)) return node.flatMap(errorsIn)
+const diagnosticsIn = (node: unknown): ReadonlyArray<Diagnostic> => {
+  if (Array.isArray(node)) return node.flatMap(diagnosticsIn)
   if (node === null || typeof node !== 'object') return []
   const self =
-    'health' in node &&
-    (node as { health?: { status?: string } }).health?.status === 'error'
+    'health' in node
       ? (node as { health: { diagnostics: ReadonlyArray<Diagnostic> } }).health
           .diagnostics
       : []
   const nested = Object.entries(node).flatMap(([key, value]) =>
-    key === 'health' ? [] : errorsIn(value),
+    key === 'health' ? [] : diagnosticsIn(value),
   )
   return [...self, ...nested]
 }
+
+export const moduleDiagnostics = (
+  module: LoomModule,
+): ReadonlyArray<Diagnostic> => [
+  ...diagnosticsIn(module.doc),
+  ...diagnosticsIn(module.frame),
+]
 
 export const corpusErrors = (
   corpus: LoomCorpusAst,
@@ -107,7 +115,10 @@ export const corpusErrors = (
   pipe(
     Array.fromIterable(corpus.modules.values()),
     Array.filterMap((m) => {
-      const diagnostics = [...errorsIn(m.doc), ...errorsIn(m.frame)]
+      const diagnostics = Array.filter(
+        moduleDiagnostics(m),
+        (d) => d.severity === 'error',
+      )
       return diagnostics.length === 0
         ? Option.none()
         : Option.some({ path: m.path, diagnostics })
@@ -135,4 +146,4 @@ import { FrameModuleSchema } from '#ast/FrameAst'
 
 ::[Graph queries over the imports]
 
-::[Errors across the corpus]
+::[Diagnostics across the corpus]

@@ -14,13 +14,17 @@
     "volar-service-typescript": "^0.0.71"
   },
   "peerDependencies": {
+    "@athrio/loom-core": "workspace:*",
     "@volar/language-service": "^2.4.28",
     "effect": "3.21.2",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vscode-uri": "^3.1.0"
   },
   "devDependencies": {
+    "@athrio/loom-core": "workspace:*",
     "@volar/language-service": "^2.4.28",
     "effect": "3.21.2",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vscode-uri": "^3.1.0"
   }
 }

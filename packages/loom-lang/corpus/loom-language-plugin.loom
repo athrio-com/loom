@@ -221,7 +221,9 @@ const resolveActive = (
 
 ## Collecting the service plugins
 
-`loomServicePlugins` is the collect-and-register pass: it reads the project's active languages, indexes them in the `LanguageRegistry`, and runs each service's `plugins` Effect with the host's `TypescriptSdk` — the editor's own compiler, so analysis matches the user's project. It hands each service its slice of the package's `settings`, keyed by language id, so a service tunes itself from `loom.json` — the TypeScript service reads whether to lint a product section's unused declarations there. A service that fails to build, an external binary that will not start, drops to no plugins rather than taking the others down. The frame and a TypeScript target both wrap `volar-service-typescript`, so two languages can produce the same Volar service; the pass dedupes by plugin name to leave Volar one registration per feature.
+`loomServicePlugins` is the collect-and-register pass. It reads the project's active languages, indexes them in the `LanguageRegistry`, and runs each service's `plugins` Effect with the host's capabilities. It provides two: the `TypescriptSdk`, the editor's own compiler, so analysis matches the user's project; and a `FrameQuery`, built over the warm corpus by `frameQueryOver`, so the frame service can read a file's Loom diagnostics. Each service also gets its slice of the package's `settings`, keyed by language id, so it tunes itself from `loom.json`. A service that fails to build — an external binary that will not start — drops to no plugins rather than taking the others down. The frame and a TypeScript target both wrap `volar-service-typescript`, so two languages can produce the same Volar service; the pass dedupes by plugin name to leave Volar one registration per feature.
+
+`frameQueryOver` builds the capability from the runtime. Its `diagnostics` reader composes the file's corpus, finds the open module, and returns that module's health — synchronously, on the same warm runtime the projection uses. The reader closes over the runtime, so a service can call it long after this pass, when the editor asks on a keystroke.
 
 =>
 
@@ -236,6 +238,7 @@ const collect = (
   active: ReadonlyArray<LanguageService>,
   tsdk: typeof import('typescript'),
   settings: Record<string, Record<string, unknown>>,
+  frameQuery: FrameQueryApi,
 ): Effect.Effect<ReadonlyArray<LanguageServicePlugin>> =>
   Effect.gen(function* () {
     const registry = yield* LanguageRegistry
@@ -251,21 +254,49 @@ const collect = (
     Effect.provide(LanguageRegistry.Default),
     Effect.provide(Layer.succeed(ActiveLanguages, ActiveLanguages.make({ all: active }))),
     Effect.provideService(TypescriptSdk, TypescriptSdk.make(tsdk)),
+    Effect.provideService(FrameQuery, FrameQuery.make(frameQuery)),
   )
+
+const frameQueryOver = (
+  runtime: Runtime.Runtime<LoomCompiler>,
+): FrameQueryApi => ({
+  diagnostics: (path) =>
+    Runtime.runSync(runtime)(
+      LoomCompiler.pipe(
+        Effect.flatMap((compiler) => compiler.corpus(path)),
+        Effect.map((corpus) =>
+          Option.match(Option.fromNullable(corpus.modules.get(path)), {
+            onNone: () => [],
+            onSome: moduleDiagnostics,
+          }),
+        ),
+      ),
+    ),
+})
 
 export const loomServicePlugins = (
   tsdk: typeof import('typescript'),
   root: string,
-): Effect.Effect<ReadonlyArray<LanguageServicePlugin>, never, LoomConfig> =>
+): Effect.Effect<
+  ReadonlyArray<LanguageServicePlugin>,
+  never,
+  LoomConfig | LoomCompiler
+> =>
   Effect.gen(function* () {
     const config = yield* LoomConfig
     const { languages, settings } = yield* config.resolve(root)
-    return yield* collect(resolveActive(languages), tsdk, settings)
+    const runtime = yield* Effect.runtime<LoomCompiler>()
+    return yield* collect(
+      resolveActive(languages),
+      tsdk,
+      settings,
+      frameQueryOver(runtime),
+    )
   })
 
 ## What the plugin draws on
 
-The plugin draws on Volar for its contracts — `LanguagePlugin` and `LanguageServicePlugin` — and its `CodegenContext` and `VirtualCode`, which the per-call source and the cache check read. Effect captures the runtime and runs the collection pass. From the pipeline it takes `LoomCompiler`, which projects and caches the corpus, and the `Source` seam with its `ReadError`. From `@athrio/loom-lang-services` it takes the `LanguageService` contract, the `LanguageRegistry` that indexes the active set, and the two built-in languages: `LoomLanguage` for the frame, `TypescriptLanguage` for a TypeScript target. From `@athrio/loom-config` it reads active languages out of `loom.json`. `URI` keys a script for `getAssociatedScript`, and Node's `fs` reads an unopened import.
+The plugin draws on Volar for its contracts — `LanguagePlugin` and `LanguageServicePlugin` — and its `CodegenContext` and `VirtualCode`, which the per-call source and the cache check read. Effect captures the runtime and runs the collection pass. From the pipeline it takes `LoomCompiler`, which projects and caches the corpus, `moduleDiagnostics`, which reads a module's health out of the corpus, and the `Source` seam with its `ReadError`. From `@athrio/loom-lang-services` it takes the `LanguageService` contract, the `FrameQuery` capability the collect pass provides, the `LanguageRegistry` that indexes the active set, and the two built-in languages: `LoomLanguage` for the frame, `TypescriptLanguage` for a TypeScript target. From `@athrio/loom-config` it reads active languages out of `loom.json`. `URI` keys a script for `getAssociatedScript`, and Node's `fs` reads an unopened import.
 
 =>
 
@@ -280,10 +311,13 @@ import { Array, Effect, Layer, Option, pipe, Runtime } from 'effect'
 import { readFileSync } from 'node:fs'
 import type * as ts from 'typescript'
 import { URI } from 'vscode-uri'
+import { moduleDiagnostics } from '#ast/LoomCorpusAst'
 import { ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import { LoomCompiler, stringSnapshot } from './LoomCompiler'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
+  FrameQuery,
+  type FrameQueryApi,
   type LanguageService,
   TypescriptSdk,
 } from '@athrio/loom-lang-services/LanguageService'

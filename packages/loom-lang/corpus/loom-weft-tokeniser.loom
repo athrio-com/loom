@@ -168,7 +168,7 @@ const tokeniseCode = (
 
 ## Health and positions
 
-`aggregateStatus` folds a list of statuses up the lattice ok < incomplete < warning < error, the worst winning. `span` builds a position; `missingClosing` is the error health for an unclosed bracket; `errorToHealth` turns a schema parse error into diagnostics.
+`aggregateStatus` folds a list of statuses up the lattice ok < incomplete < warning < error, the worst winning. `span` builds a position; `contentEnd` is the offset where a line's content ends, before its newline terminator, and is the bound every construct slices and positions against, so the EOL never leaks into a label, an anchor, or a diagnostic; `missingClosing` is the error health for an unclosed bracket, its diagnostic spanning the open delimiter to that content end so the squiggle lands on the construct rather than the gap after it. `brokenLabel` is the error health for a label the schema rejected. It raises an `EmptyLabel` or a `MalformedLabel` fault through the catalog, keyed by construct, so the same wording reaches the editor wherever a label is built.
 
 =>
 
@@ -193,36 +193,31 @@ const span = (line: number, start: number, end: number): Position => ({
   end: { line, offset: end },
 })
 
+const contentEnd = (lineText: string, lineStart: number): number =>
+  lineStart + lineText.replace(/\r?\n$/, '').length
+
 const missingClosing = (
   line: number,
+  from: number,
   lineEnd: number,
   expected: string,
-): Health => ({
-  status: 'error',
-  diagnostics: [
-    {
-      message: `expected closing \`${expected}\``,
-      position: span(line, lineEnd, lineEnd),
-      severity: 'error',
-    },
-  ],
-})
+): Health => faulty(UnclosedDelimiter({ expected }), span(line, from, lineEnd))
 
-const errorToHealth = (
-  err: ParseResult.ParseError,
+const brokenLabel = (
+  construct: MalformedConstruct,
+  value: string,
   position: Position,
-): Health => ({
-  status: 'error',
-  diagnostics: ParseResult.ArrayFormatter.formatErrorSync(err).map((issue) => ({
-    message: issue.message,
+): Health =>
+  faulty(
+    value === ''
+      ? EmptyLabel({ construct })
+      : MalformedLabel({ construct, value }),
     position,
-    severity: 'error' as const,
-  })),
-})
+  )
 
 ## Label builders
 
-A label that fails its strict pattern must still be kept. `buildTagLabel`, `buildSpecifierLabel`, and `buildPathSpecifierLabel` each try the schema, and on rejection build a valid token with an empty value, error health, and the rejected text stashed in `unexpected` — strict validation stays on, and bytes are never dropped.
+A label that fails its strict pattern must still be kept. `buildTagLabel`, `buildSpecifierLabel`, and `buildPathSpecifierLabel` each try the schema, and on rejection build a valid token with an empty value, the error health `brokenLabel` renders, and the rejected text stashed in `unexpected` — strict validation stays on, and bytes are never dropped.
 
 =>
 
@@ -243,12 +238,12 @@ const buildTagLabel = (value: string, position: Position): TagLabelToken =>
       health: okHealth,
       value,
     }),
-    Either.getOrElse((e) =>
+    Either.getOrElse(() =>
       TagLabelTokenSchema.make({
         type: 'TagLabel',
         position,
         source: value,
-        health: errorToHealth(e, position),
+        health: brokenLabel('tag', value, position),
         value: '',
         unexpected: [UnexpectedTokenSchema.make({ position, value })],
       }),
@@ -267,12 +262,12 @@ const buildSpecifierLabel = (
       health: okHealth,
       value,
     }),
-    Either.getOrElse((e) =>
+    Either.getOrElse(() =>
       SpecifierLabelTokenSchema.make({
         type: 'SpecifierLabel',
         position,
         source: value,
-        health: errorToHealth(e, position),
+        health: brokenLabel('specifier', value, position),
         value: '',
         unexpected: [UnexpectedTokenSchema.make({ position, value })],
       }),
@@ -291,12 +286,12 @@ const buildPathSpecifierLabel = (
       health: okHealth,
       value,
     }),
-    Either.getOrElse((e) =>
+    Either.getOrElse(() =>
       PathSpecifierLabelTokenSchema.make({
         type: 'PathSpecifierLabel',
         position,
         source: value,
-        health: errorToHealth(e, position),
+        health: brokenLabel('path', value, position),
         value: '',
         unexpected: [UnexpectedTokenSchema.make({ position, value })],
       }),
@@ -342,7 +337,7 @@ const scanSpecifierClose = makeScanner(SpecifierCloseTokenSchema)
 
 ## Pairing tags and specifiers
 
-Each scanner finds opens and closes independently; construction pairs them. `partitionFirstClose` matches an open with the first close after it. `constructTag` pairs `[` and `]`, synthesising a close at end-of-line when none follows and routing extras to `unexpected`. `constructSpecifier` does the same for `{` and `}`, then chooses — by `isPathLabel` — a path specifier (a tangle sink) or a label specifier, sharing the open and close subnodes.
+Each scanner finds opens and closes independently; construction pairs them. `partitionFirstClose` matches an open with the first close after it. `constructTag` pairs `[` and `]`, synthesising a close at end-of-line when none follows and routing extras to `unexpected`. `constructSpecifier` does the same for `{` and `}`, then chooses — by `isPathLabel` — a path specifier (a tangle sink) or a label specifier, sharing the open and close subnodes. When no close follows, the construction synthesises one at the line's content end — the offset before the newline — so a missing `]` or `}` reports once, as `expected closing`, and the captured label never swallows the line's terminator.
 
 =>
 
@@ -383,7 +378,7 @@ const constructTag = (
 
   const line = linePosition.start.line
   const lineStart = linePosition.start.offset
-  const lineEnd = linePosition.end.offset
+  const lineEnd = contentEnd(lineText, lineStart)
 
   const [open, ...extraOpens] = opens
   const { match, rest: extraCloses } = partitionFirstClose(open, closes)
@@ -393,7 +388,7 @@ const constructTag = (
     TagCloseTokenSchema.make({
       position: span(line, lineEnd, lineEnd),
       source: '',
-      health: missingClosing(line, lineEnd, ']'),
+      health: missingClosing(line, open.position.start.offset, lineEnd, ']'),
       value: ']',
     })
 
@@ -501,7 +496,7 @@ const constructSpecifier = (
 
   const line = linePosition.start.line
   const lineStart = linePosition.start.offset
-  const lineEnd = linePosition.end.offset
+  const lineEnd = contentEnd(lineText, lineStart)
 
   const [open, ...extraOpens] = opens
   const { match, rest: extraCloses } = partitionFirstClose(open, closes)
@@ -511,7 +506,7 @@ const constructSpecifier = (
     SpecifierCloseTokenSchema.make({
       position: span(line, lineEnd, lineEnd),
       source: '',
-      health: missingClosing(line, lineEnd, '}'),
+      health: missingClosing(line, open.position.start.offset, lineEnd, '}'),
       value: '}',
     })
 
@@ -575,18 +570,19 @@ type PairAcc = {
 const pairWarpDelims = (
   opens: ReadonlyArray<WarpOpenToken>,
   closes: ReadonlyArray<WarpCloseToken>,
+  lineText: string,
   linePosition: Position,
 ): {
   readonly pairs: ReadonlyArray<WarpPair>
   readonly stray: ReadonlyArray<UnexpectedToken>
 } => {
   const line = linePosition.start.line
-  const lineEnd = linePosition.end.offset
-  const synthClose = (): WarpCloseToken =>
+  const lineEnd = contentEnd(lineText, linePosition.start.offset)
+  const synthClose = (open: WarpOpenToken): WarpCloseToken =>
     WarpCloseTokenSchema.make({
       position: span(line, lineEnd, lineEnd),
       source: '',
-      health: missingClosing(line, lineEnd, '}}'),
+      health: missingClosing(line, open.position.start.offset, lineEnd, '}}'),
       value: '}}',
     })
 
@@ -597,7 +593,7 @@ const pairWarpDelims = (
       )
       return idx < 0
         ? {
-            pairs: [...acc.pairs, { open, close: synthClose() }],
+            pairs: [...acc.pairs, { open, close: synthClose(open) }],
             remaining: acc.remaining,
           }
         : {
@@ -665,12 +661,12 @@ const buildWarpName = (value: string, position: Position): WarpNameToken =>
       health: okHealth,
       value,
     }),
-    Either.getOrElse((e) =>
+    Either.getOrElse(() =>
       WarpNameTokenSchema.make({
         type: 'WarpName',
         position,
         source: value,
-        health: errorToHealth(e, position),
+        health: brokenLabel('warpName', value, position),
         value: '',
         unexpected: [UnexpectedTokenSchema.make({ position, value })],
       }),
@@ -688,7 +684,7 @@ type OpaqueMake<T> = (args: {
 const buildOpaqueSegment = <T>(
   make: OpaqueMake<T>,
   typeName: string,
-  emptyMessage: string,
+  construct: EmptyConstruct,
   raw: string,
   rawStart: number,
   line: number,
@@ -698,18 +694,7 @@ const buildOpaqueSegment = <T>(
 
   const tokenPos = span(line, start, end)
   const health: Health =
-    value === ''
-      ? {
-          status: 'error',
-          diagnostics: [
-            {
-              message: emptyMessage,
-              position: tokenPos,
-              severity: 'error',
-            },
-          ],
-        }
-      : okHealth
+    value === '' ? faulty(EmptyLabel({ construct }), tokenPos) : okHealth
 
   const token = make({
     type: typeName,
@@ -736,7 +721,7 @@ const buildWarpAnnotation = (raw: string, rawStart: number, line: number) =>
   buildOpaqueSegment<WarpAnnotationToken>(
     (args) => WarpAnnotationTokenSchema.make(args as any),
     'WarpAnnotation',
-    'Warp annotation cannot be empty',
+    'warpAnnotation',
     raw,
     rawStart,
     line,
@@ -746,7 +731,7 @@ const buildWarpDefault = (raw: string, rawStart: number, line: number) =>
   buildOpaqueSegment<WarpDefaultToken>(
     (args) => WarpDefaultTokenSchema.make(args as any),
     'WarpDefault',
-    'Warp default value cannot be empty',
+    'warpDefault',
     raw,
     rawStart,
     line,
@@ -763,16 +748,7 @@ const synthMissingAnnotation = (position: Position): WarpAnnotationToken =>
     type: 'WarpAnnotation',
     position,
     source: '',
-    health: {
-      status: 'error',
-      diagnostics: [
-        {
-          message: 'Warp declaration requires `:` annotation',
-          position,
-          severity: 'error',
-        },
-      ],
-    },
+    health: faulty(MissingWarpAnnotation(), position),
     value: '',
   })
 
@@ -960,7 +936,7 @@ const buildWarpAnchor = (
       value,
     }),
     Either.match({
-      onLeft: (e) => ({
+      onLeft: () => ({
         anchor: assembleAnchor(
           open,
           close,
@@ -968,7 +944,7 @@ const buildWarpAnchor = (
             type: 'WarpAnchorName',
             position: namePos,
             source: value,
-            health: errorToHealth(e, namePos),
+            health: brokenLabel('anchorName', value, namePos),
             value: '',
           }),
           line,
@@ -1022,7 +998,7 @@ const constructWarps = (
 } => {
   const opens = scanWarpOpen(lineText, linePosition)
   const closes = scanWarpClose(lineText, linePosition)
-  const { pairs, stray } = pairWarpDelims(opens, closes, linePosition)
+  const { pairs, stray } = pairWarpDelims(opens, closes, lineText, linePosition)
   const tokens = pairs.map(({ open, close }) =>
     buildWarp(open, close, lineText, linePosition),
   )
@@ -1065,13 +1041,13 @@ const anchorClose = (
 ): AnchorCloseToken => {
   const line = linePosition.start.line
   const lineStart = linePosition.start.offset
-  const lineEnd = linePosition.end.offset
+  const lineEnd = contentEnd(lineText, lineStart)
   const rel = lineText.indexOf(close, open.position.end.offset - lineStart)
   return rel < 0
     ? AnchorCloseTokenSchema.make({
         position: span(line, lineEnd, lineEnd),
         source: '',
-        health: missingClosing(line, lineEnd, close),
+        health: missingClosing(line, open.position.start.offset, lineEnd, close),
         value: close,
       })
     : AnchorCloseTokenSchema.make({
@@ -1280,7 +1256,7 @@ const tokeniseHeading = (text: string, weft: HeadingWeft): LoomWeft => {
 
 ## What this module draws on
 
-Effect supplies `Stream` and `Match` for the per-weft pass, `Schema` and `ParseResult` for decoding, and the rest. The token schemas and `getProbe` come from `LoomTokens`, the weft schemas from `Weft`, and the health and `UnexpectedToken` types from the foundation.
+Effect supplies `Stream` and `Match` for the per-weft pass, `Schema` for decoding, and the rest. The token schemas and `getProbe` come from `LoomTokens`, the weft schemas from `Weft`, and the health and `UnexpectedToken` types from the foundation. `LoomFault` gives `faulty` and the fault constructors each diagnostic here is built from.
 
 =>
 
@@ -1289,7 +1265,6 @@ import {
   Either,
   Match,
   Option,
-  ParseResult,
   Schema,
   Stream,
   pipe,
@@ -1350,6 +1325,15 @@ import {
   type WarpOpenToken,
   type WarpToken,
 } from './LoomTokens'
+import {
+  EmptyLabel,
+  faulty,
+  MalformedLabel,
+  MissingWarpAnnotation,
+  UnclosedDelimiter,
+  type EmptyConstruct,
+  type MalformedConstruct,
+} from './LoomFault'
 import {
   type ArrowWeft,
   ArrowWeftSchema,

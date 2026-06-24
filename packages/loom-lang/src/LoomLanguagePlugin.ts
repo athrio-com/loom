@@ -9,10 +9,13 @@ import { Array, Effect, Layer, Option, pipe, Runtime } from 'effect'
 import { readFileSync } from 'node:fs'
 import type * as ts from 'typescript'
 import { URI } from 'vscode-uri'
+import { moduleDiagnostics } from '#ast/LoomCorpusAst'
 import { ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import { LoomCompiler, stringSnapshot } from './LoomCompiler'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
+  FrameQuery,
+  type FrameQueryApi,
   type LanguageService,
   TypescriptSdk,
 } from '@athrio/loom-lang-services/LanguageService'
@@ -217,6 +220,7 @@ const collect = (
   active: ReadonlyArray<LanguageService>,
   tsdk: typeof import('typescript'),
   settings: Record<string, Record<string, unknown>>,
+  frameQuery: FrameQueryApi,
 ): Effect.Effect<ReadonlyArray<LanguageServicePlugin>> =>
   Effect.gen(function* () {
     const registry = yield* LanguageRegistry
@@ -232,14 +236,42 @@ const collect = (
     Effect.provide(LanguageRegistry.Default),
     Effect.provide(Layer.succeed(ActiveLanguages, ActiveLanguages.make({ all: active }))),
     Effect.provideService(TypescriptSdk, TypescriptSdk.make(tsdk)),
+    Effect.provideService(FrameQuery, FrameQuery.make(frameQuery)),
   )
+
+const frameQueryOver = (
+  runtime: Runtime.Runtime<LoomCompiler>,
+): FrameQueryApi => ({
+  diagnostics: (path) =>
+    Runtime.runSync(runtime)(
+      LoomCompiler.pipe(
+        Effect.flatMap((compiler) => compiler.corpus(path)),
+        Effect.map((corpus) =>
+          Option.match(Option.fromNullable(corpus.modules.get(path)), {
+            onNone: () => [],
+            onSome: moduleDiagnostics,
+          }),
+        ),
+      ),
+    ),
+})
 
 export const loomServicePlugins = (
   tsdk: typeof import('typescript'),
   root: string,
-): Effect.Effect<ReadonlyArray<LanguageServicePlugin>, never, LoomConfig> =>
+): Effect.Effect<
+  ReadonlyArray<LanguageServicePlugin>,
+  never,
+  LoomConfig | LoomCompiler
+> =>
   Effect.gen(function* () {
     const config = yield* LoomConfig
     const { languages, settings } = yield* config.resolve(root)
-    return yield* collect(resolveActive(languages), tsdk, settings)
+    const runtime = yield* Effect.runtime<LoomCompiler>()
+    return yield* collect(
+      resolveActive(languages),
+      tsdk,
+      settings,
+      frameQueryOver(runtime),
+    )
   })

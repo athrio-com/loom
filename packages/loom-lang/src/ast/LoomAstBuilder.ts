@@ -17,6 +17,7 @@ import {
   type LoomSection,
 } from './LoomAst'
 import { okHealth, type Health, type Position } from '@athrio/loom-core/LoomNode'
+import { faulty, MissingLanguageWarp } from './LoomFault'
 import type { MixedEOL } from './LineRanges'
 import type {
   HeadingWeft,
@@ -188,17 +189,10 @@ const hasLangWarp = (preamble: ReadonlyArray<PreambleWeft>): boolean =>
 const documentHealth = (db: DocumentBuilder, position: Position): Health =>
   hasLangWarp(db.preamble)
     ? okHealth
-    : {
-        status: 'warning',
-        diagnostics: [
-          {
-            message:
-              'No `{{lang: …}}` declaration in the Document Preamble; the primary language is unknown.',
-            position: { start: position.start, end: position.start },
-            severity: 'warning',
-          },
-        ],
-      }
+    : faulty(MissingLanguageWarp(), {
+        start: position.start,
+        end: position.start,
+      })
 
 const makeDocument = (db: DocumentBuilder): LoomDocument => {
   const position = documentSpan(db)

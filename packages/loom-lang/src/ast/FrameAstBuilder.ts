@@ -5,6 +5,12 @@ import type { WarpAnchorToken, WarpToken } from '#ast/LoomTokens'
 import type { PreambleWeft, SectionBodyWeft } from '#ast/Weft'
 import type { SectionId } from '@athrio/loom-core/ProductAst'
 import {
+  AmbiguousAnchor,
+  CrossLanguageAnchor,
+  faulty,
+  UnresolvedAnchor,
+} from '#ast/LoomFault'
+import {
   type Binding,
   BindingItemSchema,
   BindingSchema,
@@ -414,7 +420,7 @@ const dedupeByName = (
   [...new Map(bindings.map((b) => [b.name.text, b])).values()]
 
 interface Bound {
-  readonly ref: CodeRef
+  readonly ref: ComposeArg
   readonly binding: Option.Option<Binding>
 }
 
@@ -423,6 +429,9 @@ const bindAnchor =
   (anchor: WarpAnchorToken): Bound => {
     const name = anchor.name.value
     const at = anchor.name.position
+    if (anchor.name.health.status !== 'ok') {
+      return { ref: blankFragment(anchor.position), binding: Option.none() }
+    }
     if (warps.has(name)) {
       return { ref: codeRef('referTag', name, at), binding: Option.none() }
     }
@@ -463,6 +472,13 @@ const codeRef = (
     anchor: tok(posLiteral(at)),
   })
 
+const blankFragment = (at: Position): EmbeddedCode =>
+  EmbeddedCodeSchema.make({
+    text: '',
+    position: at,
+    origin: tok(posLiteral(at)),
+  })
+
 const aliasOf = (service: string): string => `_${service}`
 
 const nameBinding = (service: string, headingPos: Position): Binding =>
@@ -477,43 +493,18 @@ const warpBinding = (warp: WarpToken): Binding =>
     tag: id(warp.annotation.value.trim(), warp.annotation.position),
   })
 
-const unresolved = (name: string, at: Position): Health => ({
-  status: 'error',
-  diagnostics: [
-    {
-      message: `Unresolved anchor: no section named \`${name}\`. A tagged section is reachable only through a Warp.`,
-      position: at,
-      severity: 'error',
-    },
-  ],
-})
+const unresolved = (name: string, at: Position): Health =>
+  faulty(UnresolvedAnchor({ name }), at)
 
-const ambiguous = (name: string, at: Position, count: number): Health => ({
-  status: 'error',
-  diagnostics: [
-    {
-      message: `Ambiguous anchor: ${count} sections are named \`${name}\`. A name anchor resolves one local section; rename to disambiguate.`,
-      position: at,
-      severity: 'error',
-    },
-  ],
-})
+const ambiguous = (name: string, at: Position, count: number): Health =>
+  faulty(AmbiguousAnchor({ name, count }), at)
 
 const crossLanguage = (
   name: string,
   at: Position,
   host: string,
   found: string,
-): Health => ({
-  status: 'error',
-  diagnostics: [
-    {
-      message: `Cross-language transclusion: \`${name}\` is ${found}, but this section composes ${host}. A section composes one language.`,
-      position: at,
-      severity: 'error',
-    },
-  ],
-})
+): Health => faulty(CrossLanguageAnchor({ name, host, found }), at)
 
 interface FrameBuilder {
   readonly imports: ReadonlyArray<FrameCode>

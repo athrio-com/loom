@@ -1,5 +1,6 @@
 import type { LanguageServicePlugin } from '@volar/language-service'
 import { Data, Effect } from 'effect'
+import { type Diagnostic } from '@athrio/loom-core/LoomNode'
 
 export class ServiceError extends Data.TaggedError('ServiceError')<{
   readonly service: string
@@ -25,7 +26,17 @@ export class TypescriptSdk extends Effect.Service<TypescriptSdk>()('TypescriptSd
   ) as Effect.Effect<typeof import('typescript')>,
 }) {}
 
-export type HostCapabilities = TypescriptSdk
+export interface FrameQueryApi {
+  readonly diagnostics: (path: string) => ReadonlyArray<Diagnostic>
+}
+
+export class FrameQuery extends Effect.Service<FrameQuery>()('FrameQuery', {
+  effect: Effect.die(
+    'FrameQuery must be provided by the host',
+  ) as Effect.Effect<FrameQueryApi>,
+}) {}
+
+export type HostCapabilities = TypescriptSdk | FrameQuery
 
 export interface LanguageServiceContext {
   readonly settings: Record<string, unknown>

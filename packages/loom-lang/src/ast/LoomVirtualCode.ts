@@ -8,6 +8,7 @@ export const MappingKindSchema = Schema.Literal(
   'anchor',
   'prose',
   'product',
+  'source',
 )
 export type MappingKind = typeof MappingKindSchema.Type
 

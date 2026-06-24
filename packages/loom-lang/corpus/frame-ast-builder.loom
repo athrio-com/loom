@@ -30,7 +30,7 @@ This pass reads the Loom AST and writes the Frame AST, so it draws from both. Fr
 section's specifier, `Order` for sorting anchors by position, and `pipe` for the
 main pipeline. From the Loom side come the document and section types, the token a Warp or
 an anchor is lifted from, the weft a code block is made of, and the health model a
-diagnostic attaches to. From the Frame side come the schema constructors for every
+diagnostic attaches to. The fault catalog gives `faulty` and the anchor faults this pass raises. From the Frame side come the schema constructors for every
 node this pass builds — the service class, its bodies, the compose call, the
 references, and the bindings. A section's corpus-wide identity is a `SectionId`, which
 `core.compose` and `core.weave` stamp onto each composed result.
@@ -43,6 +43,12 @@ import { okHealth, type Health, type Point, type Position } from '@athrio/loom-c
 import type { WarpAnchorToken, WarpToken } from '#ast/LoomTokens'
 import type { PreambleWeft, SectionBodyWeft } from '#ast/Weft'
 import type { SectionId } from '@athrio/loom-core/ProductAst'
+import {
+  AmbiguousAnchor,
+  CrossLanguageAnchor,
+  faulty,
+  UnresolvedAnchor,
+} from '#ast/LoomFault'
 import {
   type Binding,
   BindingItemSchema,
@@ -597,14 +603,24 @@ through a Warp, so a bare tag is a name miss. More than one match is an ambiguou
 anchor: several sections claim the same title, and a name anchor resolves exactly
 one section, so the builder reports the clash rather than guessing.
 
+An empty anchor, `::[]`, is already a grammatical fault: its name carries the
+error the parser found. In its place `bindAnchor` puts an empty fragment — valid
+frame code that transcludes nothing — not a reference to a name that is not there.
+A reference would be broken code the run cannot execute. The whole section would
+then lose its de re, and the product code around the anchor its language service.
+The empty fragment keeps the run whole, and `bindAnchor` raises no fault of its
+own. So the one fault on the name stands. It does not cascade into a spurious
+report that the empty name resolves to nothing.
+
 `unresolved`, `ambiguous`, and `crossLanguage` each build a positioned diagnostic
-the moment a reference fails. The `CodeRef`'s binding carries the name, its mapping,
-and the error health, so each diagnostic lands on the anchor the author wrote.
+the moment a healthy name fails to resolve. The `CodeRef`'s binding carries the
+name, its mapping, and the error health, so each diagnostic lands on the anchor
+the author wrote.
 
 =>
 
 interface Bound {
-  readonly ref: CodeRef
+  readonly ref: ComposeArg
   readonly binding: Option.Option<Binding>
 }
 
@@ -613,6 +629,9 @@ const bindAnchor =
   (anchor: WarpAnchorToken): Bound => {
     const name = anchor.name.value
     const at = anchor.name.position
+    if (anchor.name.health.status !== 'ok') {
+      return { ref: blankFragment(anchor.position), binding: Option.none() }
+    }
     if (warps.has(name)) {
       return { ref: codeRef('referTag', name, at), binding: Option.none() }
     }
@@ -653,6 +672,13 @@ const codeRef = (
     anchor: tok(posLiteral(at)),
   })
 
+const blankFragment = (at: Position): EmbeddedCode =>
+  EmbeddedCodeSchema.make({
+    text: '',
+    position: at,
+    origin: tok(posLiteral(at)),
+  })
+
 const aliasOf = (service: string): string => `_${service}`
 
 const nameBinding = (service: string, headingPos: Position): Binding =>
@@ -667,43 +693,18 @@ const warpBinding = (warp: WarpToken): Binding =>
     tag: id(warp.annotation.value.trim(), warp.annotation.position),
   })
 
-const unresolved = (name: string, at: Position): Health => ({
-  status: 'error',
-  diagnostics: [
-    {
-      message: `Unresolved anchor: no section named \`${name}\`. A tagged section is reachable only through a Warp.`,
-      position: at,
-      severity: 'error',
-    },
-  ],
-})
+const unresolved = (name: string, at: Position): Health =>
+  faulty(UnresolvedAnchor({ name }), at)
 
-const ambiguous = (name: string, at: Position, count: number): Health => ({
-  status: 'error',
-  diagnostics: [
-    {
-      message: `Ambiguous anchor: ${count} sections are named \`${name}\`. A name anchor resolves one local section; rename to disambiguate.`,
-      position: at,
-      severity: 'error',
-    },
-  ],
-})
+const ambiguous = (name: string, at: Position, count: number): Health =>
+  faulty(AmbiguousAnchor({ name, count }), at)
 
 const crossLanguage = (
   name: string,
   at: Position,
   host: string,
   found: string,
-): Health => ({
-  status: 'error',
-  diagnostics: [
-    {
-      message: `Cross-language transclusion: \`${name}\` is ${found}, but this section composes ${host}. A section composes one language.`,
-      position: at,
-      severity: 'error',
-    },
-  ],
-})
+): Health => faulty(CrossLanguageAnchor({ name, host, found }), at)
 
 ## Folding to a module
 

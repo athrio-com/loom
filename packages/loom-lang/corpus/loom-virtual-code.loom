@@ -6,7 +6,7 @@
 
 ## Mappings
 
-A `Mapping` pairs a generated span — `genStart` and `genLength`, offsets into this node's `code` — with the `.loom` `source` span it projects from. Its `kind`, one of `tag`, `name`, `heading`, `anchor`, `prose`, or `product`, chooses which editor features Volar forwards at that span.
+A `Mapping` pairs a generated span — `genStart` and `genLength`, offsets into this node's `code` — with the `.loom` `source` span it projects from. Its `kind`, one of `tag`, `name`, `heading`, `anchor`, `prose`, `product`, or `source`, chooses which editor features Volar forwards at that span. The `source` kind marks the root's whole-file identity mapping, the one Loom's own diagnostics ride back to the editor.
 
 =>
 
@@ -17,6 +17,7 @@ export const MappingKindSchema = Schema.Literal(
   'anchor',
   'prose',
   'product',
+  'source',
 )
 export type MappingKind = typeof MappingKindSchema.Type
 

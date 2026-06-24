@@ -88,6 +88,34 @@ describe('Tokeniser — scanning + construction (happy paths)', () => {
 })
 
 // =============================================================================
+// Faults — a broken label keeps its token but carries the catalog's wording,
+// never the internal schema invariant. `[]` is the empty-tag case the editor
+// once surfaced as `empty value requires non-ok health.status`.
+// =============================================================================
+
+describe('Tokeniser — label faults read from the catalog', () => {
+  it('an empty tag label reads "cannot be empty", not the model invariant', () => {
+    const w = headingAt(tokenise(['## Section []']), 0)
+    expect(w.tag?.label.value).toBe('')
+    expect(w.tag?.label.health.status).toBe('error')
+    expect(w.tag?.label.health.diagnostics[0]?.message).toBe(
+      'Tag label cannot be empty.',
+    )
+    expect(w.tag?.label.health.diagnostics[0]?.message).not.toMatch(
+      /non-ok|health\.status/,
+    )
+  })
+
+  it('a malformed tag label names the rule it broke', () => {
+    const w = headingAt(tokenise(['## Section [a b]']), 0)
+    expect(w.tag?.label.health.status).toBe('error')
+    expect(w.tag?.label.health.diagnostics[0]?.message).toBe(
+      'Tag label may contain only letters, digits, hyphen, and underscore; got `a b`.',
+    )
+  })
+})
+
+// =============================================================================
 // Heading — one weft kind for every `#{1,6}` line. Tag and specifier are both
 // optional. A tagless heading receives a HASH-SYNTHESISED tag (ok health) — a
 // private section, not an error — so every Section has a stable identifier.
