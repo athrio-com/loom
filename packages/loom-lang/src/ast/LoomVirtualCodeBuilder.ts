@@ -385,12 +385,12 @@ export const rootNamesAt = (
       Array.fromIterable(here.values()),
       Array.flatMap((code) => code.parts),
       Array.filterMap((part) =>
-        part.type === 'NameRef'
-          ? part.target.pipe(
+        part.type === 'Fragment'
+          ? Option.none()
+          : part.target.pipe(
               Option.filter((t) => t.path === path),
               Option.map((t) => t.name.toLowerCase()),
-            )
-          : Option.none(),
+            ),
       ),
     ),
   )

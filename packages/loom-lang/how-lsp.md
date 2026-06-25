@@ -152,13 +152,24 @@ composed product (see `how-frame.md`).
 Type checking and semantic analysis of *product* code work through the
 *composition* — the de re projection of the Frame, anchored by the file's `Root`
 (generated where the file has Services; see `how-frame.md`). The unit is the
-**composition root**: a section no other section transcludes by name. A root's
-resolved document is its code with its transclusions inlined — a name anchor folds a
-same-document section into the root's shared scope, a Warp copies a tagged section in
-by value — and that document is what the language service checks. A section reached by
-a name anchor is a fragment of the root that names it; it is never checked alone, so
-the names it borrows from sibling sections resolve rather than read as undefined. The
-check's results map back to the `.loom` sections that contributed them.
+**composition root**. Every section is a root until another section in the same module
+folds it in — through a `::[…]` name anchor or a Warp to its tag. Folding demotes the
+target: it becomes a fragment of the root that pulls it in, not a unit of its own. So
+the broadest section in a module wins — the one nothing folds in is the root, and the
+sections it pulls in, directly or through a chain, are its fragments.
+
+A name anchor and a Warp fold the same way but map differently. A name anchor shares
+the root's scope, so its fragment maps to the named section's own source. A Warp copies
+its target in by value, so the fragment pins to the `::[…]` anchor instead. A Warp also
+reaches across files, and a cross-file Warp is the one reference that does not fold: it
+leaves that tag a root of its own module, a library this file reuses rather than
+absorbs. A tagged section reused by value carries its own `::[…]` fragments with it,
+composing exactly as it would alone.
+
+A root's resolved document is its code with its fragments inlined, and that document is
+what the language service checks. A fragment is never checked alone, so the names it
+borrows from sibling sections resolve rather than read as undefined. The check's
+results map back to the `.loom` sections that contributed them.
 
 Which roots reach a language service is the package's choice. A `loom.json` lists the
 languages a package activates, and a root is served only when its package activates that

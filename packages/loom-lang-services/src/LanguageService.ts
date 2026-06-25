@@ -36,7 +36,17 @@ export class FrameQuery extends Effect.Service<FrameQuery>()('FrameQuery', {
   ) as Effect.Effect<FrameQueryApi>,
 }) {}
 
-export type HostCapabilities = TypescriptSdk | FrameQuery
+export interface ProductQueryApi {
+  readonly roots: (path: string) => ReadonlySet<string>
+}
+
+export class ProductQuery extends Effect.Service<ProductQuery>()('ProductQuery', {
+  effect: Effect.die(
+    'ProductQuery must be provided by the host',
+  ) as Effect.Effect<ProductQueryApi>,
+}) {}
+
+export type HostCapabilities = TypescriptSdk | FrameQuery | ProductQuery
 
 export interface LanguageServiceContext {
   readonly settings: Record<string, unknown>
