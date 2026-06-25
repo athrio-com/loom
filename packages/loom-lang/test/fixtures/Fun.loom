@@ -54,7 +54,7 @@ def mul(x: Int, y: Int): Int = x * y
 
 ## Square [Sq]
 
-Built on top of {{m: Mul}}.
+Built on top of {{m = Mul}}.
 
 =>
 
@@ -72,7 +72,7 @@ def power(base: Int, exp: Int): Int = pow(base, exp).toInt
 
 ## Entry point [Main]
 
-Smoke tests for {{a: Add}}, {{s: Sq}}, and {{p: Pow}}.
+Smoke tests for {{a = Add}}, {{s = Sq}}, and {{p = Pow}}.
 
 =>
 
@@ -98,7 +98,7 @@ import { Neg } from "./Sad.loom"
 
 ## Negated [Negd]
 
-Built on `Neg` from the companion document via {{n: Neg}} — a cross-file
+Built on `Neg` from the companion document via {{n = Neg}} — a cross-file
 Warp edge. The `yield* Neg` resolves to the imported class.
 
 =>

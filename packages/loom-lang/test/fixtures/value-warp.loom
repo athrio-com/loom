@@ -1,0 +1,10 @@
+{{lang: TypeScript}}
+
+# Doubled [Doubled]
+
+{{kw = "const"}}
+
+=>
+
+::[kw] doubled = (x: number) => x * 2
+export const result = doubled(21)

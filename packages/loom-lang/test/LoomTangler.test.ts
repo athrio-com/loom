@@ -20,7 +20,7 @@ const hi = "hello"
 
 # Bundle {out/bundle.ts}
 
-{{g: Greet}}
+{{g = Greet}}
 
 =>
 
@@ -39,7 +39,7 @@ const x = "${value}"
 
 # Sink {${out}}
 
-{{b: Bit}}
+{{b = Bit}}
 
 =>
 
@@ -127,7 +127,7 @@ describe('LoomTangler — tangle {path} sinks to disk', () => {
       )
       yield* fs.writeFileString(
         `${dir}/g.loom`,
-        `{{lang: TypeScript}}\n\n# Greeting [Greet]\n\n=>\n\nconst hi = "hi"\n\n# Bundle {out/g.ts}\n\n{{g: Greet}}\n\n=>\n\nexport const g = <<g>>\n`,
+        `{{lang: TypeScript}}\n\n# Greeting [Greet]\n\n=>\n\nconst hi = "hi"\n\n# Bundle {out/g.ts}\n\n{{g = Greet}}\n\n=>\n\nexport const g = <<g>>\n`,
       )
 
       const tangler = yield* LoomTangler

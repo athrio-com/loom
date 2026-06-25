@@ -119,7 +119,7 @@ export const help = 1
 
 # Main [Main]
 
-{{h: Help}}
+{{h = Help}}
 
 =>
 
@@ -133,14 +133,14 @@ main = ::[h]
         v.type === 'ServiceClass' && v.name.text === 'Main',
     )!
   const body = main.body as EffectfulBody
-  const binding = body.bindings[0]!.value // the one Warp, `{{h: Help}}`
+  const binding = body.bindings[0]!.value // the one Warp, `{{h = Help}}`
   const at = (p: { start: { offset: number }; end: { offset: number } }) =>
     src.slice(p.start.offset, p.end.offset)
 
-  it('a Warp binds name and annotation to the inner spans of {{name: Tag}}', () => {
+  it('a Warp binds name and value to the inner spans of {{name = Tag}}', () => {
     expect(binding.name.text).toBe('h')
-    expect(at(binding.name.position)).toBe('h') // not "{{h: Help}}"
-    // a Warp's tag is authored — it maps to the `Help` annotation span
+    expect(at(binding.name.position)).toBe('h') // not "{{h = Help}}"
+    // a service Warp's tag is authored — it maps to the `Help` value span
     const tag = binding.tag
     expect(tag.type).toBe('FrameAuthoredToken')
     if (tag.type !== 'FrameAuthoredToken') return
@@ -323,16 +323,17 @@ main = ::[Helper]
         v.type === 'ServiceClass' && v.name.text === 'Main',
     )!
   const code = (main.body as StaticBody).code
-  const ref = argsOf(code).find(
-    (a): a is CodeRef => (a as CodeRef).type === 'CodeRef',
+  const faulted = argsOf(code).find(
+    (a): a is EmbeddedCode =>
+      (a as EmbeddedCode).type === 'EmbeddedCode' &&
+      (a as EmbeddedCode).health.status === 'error',
   )!
 
-  it('flags the anchor with error health naming the clash', () => {
-    expect(ref.type).toBe('CodeRef')
-    expect(ref.binding.text).toBe('Helper') // the anchor span (the unresolved name), not an alias
-    expect(ref.binding.kind).toBe('anchor') // referencer span — navigation, no hover
-    expect(ref.binding.health.status).toBe('error')
-    expect(ref.binding.health.diagnostics[0]!.message).toMatch(
+  it('leaves an inert fragment carrying the ambiguous-anchor diagnostic', () => {
+    expect(faulted.type).toBe('EmbeddedCode') // not a dangling reference
+    expect(faulted.text).toBe('') // transcludes nothing, so the run stays whole
+    expect(faulted.health.status).toBe('error')
+    expect(faulted.health.diagnostics[0]!.message).toMatch(
       /Ambiguous anchor: 2 sections are named `Helper`/,
     )
   })

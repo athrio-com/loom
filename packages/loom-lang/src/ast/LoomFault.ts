@@ -20,7 +20,7 @@ export type LoomFault = Data.TaggedEnum<{
     readonly construct: MalformedConstruct
     readonly value: string
   }
-  MissingWarpAnnotation: {}
+  MissingWarpValue: { readonly name: string }
   MissingLanguageWarp: {}
   UnresolvedAnchor: { readonly name: string }
   AmbiguousAnchor: { readonly name: string; readonly count: number }
@@ -35,7 +35,7 @@ export const {
   UnclosedDelimiter,
   EmptyLabel,
   MalformedLabel,
-  MissingWarpAnnotation,
+  MissingWarpValue,
   MissingLanguageWarp,
   UnresolvedAnchor,
   AmbiguousAnchor,
@@ -79,8 +79,8 @@ export const describe = (fault: LoomFault): Note =>
     Match.tag('MalformedLabel', ({ construct, value }) =>
       error(`${cap(noun[construct])} ${rule[construct]}; got \`${value}\`.`),
     ),
-    Match.tag('MissingWarpAnnotation', () =>
-      error('A Warp declaration requires a `:` annotation.'),
+    Match.tag('MissingWarpValue', ({ name }) =>
+      error(`Warp \`${name}\` has no value; a Warp binds a value, as in \`${name} = …\`.`),
     ),
     Match.tag('MissingLanguageWarp', () =>
       warning(

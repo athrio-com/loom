@@ -14,8 +14,8 @@ import { loomLanguagePlugin } from '../src/LoomLanguagePlugin'
 // service built from the *same* loom language plugin VS Code will use, and
 // confirm a frame type error maps back to the `.loom` line that caused it.
 //
-// The fixture's `{{x: Ghost}}` Warp names a section that does not exist, so the
-// generated frame emits `const x = yield* Ghost` — which tsc rejects with
+// The fixture's `{{x = Ghost}}` Warp binds a value naming nothing in scope, so the
+// generated frame emits `core.referValue(Ghost, …)` — which tsc rejects with
 // "Cannot find name 'Ghost'". The whole point of the virtual-code mapping is
 // that Volar surfaces that on the `Ghost` token in the `.loom`, not on
 // generated frame code the author never sees.
@@ -51,7 +51,7 @@ beforeAll(async () => {
 })
 
 describe('e2e — frame diagnostics map back to the .loom via Volar', () => {
-  it('a Warp to a missing section errors on the .loom annotation', async () => {
+  it('a Warp to a missing name errors on the .loom value', async () => {
     const diagnostics = await checker.check(fixture)
     // The fixture Warps to a missing `Ghost` section on purpose, so the checker
     // emits real tsc diagnostics. Print them under a banner — in one call, so the
@@ -67,7 +67,7 @@ describe('e2e — frame diagnostics map back to the .loom via Volar', () => {
     const ghost = diagnostics.find((d) => /Ghost/.test(d.message))
     expect(ghost).toBeDefined()
 
-    // The diagnostic lands on the `{{x: Ghost}}` line in the .loom.
+    // The diagnostic lands on the `{{x = Ghost}}` line in the .loom.
     const ghostLine = fixtureText
       .split('\n')
       .findIndex((line) => line.includes('Ghost'))

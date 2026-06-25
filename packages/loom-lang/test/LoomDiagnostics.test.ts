@@ -160,4 +160,81 @@ describe('Loom diagnostics — the editor surfaces Loom health', () => {
       ),
     ).toBe(true)
   }, SLOW)
+
+  it('an unresolved anchor reports the miss but still type-checks the code under it', async () => {
+    const fixture = resolve(__dirname, 'fixtures/unresolved-keeps-ts.loom')
+    const checker = await checkerFor(fixture)
+    const diagnostics = await checker.check(fixture)
+    console.log(
+      '\n[expected — not a test failure] unresolved-keeps-ts.loom `::[Missing]` diagnostics:\n' +
+        diagnostics
+          .map(
+            (d) =>
+              `  ${d.range.start.line + 1}:${d.range.start.character + 1} [${d.source}] ${d.message.split('\n')[0]}`,
+          )
+          .join('\n'),
+    )
+    // Loom reports the unresolved anchor — the author's miss.
+    expect(
+      diagnostics.some(
+        (d) => d.source === 'loom' && /Unresolved anchor/.test(d.message),
+      ),
+    ).toBe(true)
+    // The product TypeScript under it stays active: the inert fragment keeps the
+    // run whole, so the section still has a de re and `negate` is reported.
+    expect(
+      diagnostics.some(
+        (d) => d.source === 'ts' && /Cannot find name 'negate'/.test(d.message),
+      ),
+    ).toBe(true)
+  }, SLOW)
+
+  it('a value warp templates its value as text, so `::[kw]` becomes `const`', async () => {
+    const fixture = resolve(__dirname, 'fixtures/value-warp.loom')
+    const checker = await checkerFor(fixture)
+    const diagnostics = await checker.check(fixture)
+    console.log(
+      '\n[expected — not a test failure] value-warp.loom `{{kw = "const"}}` + `::[kw] doubled = …`:\n' +
+        diagnostics
+          .map(
+            (d) =>
+              `  ${d.range.start.line + 1}:${d.range.start.character + 1} [${d.source}] ${d.message.split('\n')[0]}`,
+          )
+          .join('\n'),
+    )
+    // The value warp resolves — no unresolved-anchor miss.
+    expect(
+      diagnostics.some(
+        (d) => d.source === 'loom' && /Unresolved anchor/.test(d.message),
+      ),
+    ).toBe(false)
+    // `::[kw]` templates the value `const` in, so the line composes to
+    // `const doubled = …` and `doubled` is in scope where `result` uses it. Had
+    // it composed `"const"`, `doubled` would be undeclared — "Cannot find name".
+    expect(
+      diagnostics.some((d) => /Cannot find name 'doubled'/.test(d.message)),
+    ).toBe(false)
+  }, SLOW)
+
+  it('a value warp is type-checked where it lands — a number in a string slot', async () => {
+    const fixture = resolve(__dirname, 'fixtures/value-typed.loom')
+    const checker = await checkerFor(fixture)
+    const diagnostics = await checker.check(fixture)
+    console.log(
+      '\n[expected — not a test failure] value-typed.loom `{{port = 8080}}` in a string slot:\n' +
+        diagnostics
+          .map(
+            (d) =>
+              `  ${d.range.start.line + 1}:${d.range.start.character + 1} [${d.source}] ${d.message.split('\n')[0]}`,
+          )
+          .join('\n'),
+    )
+    // `8080` templates into a `string` slot, so TypeScript rejects it at the anchor.
+    expect(
+      diagnostics.some(
+        (d) =>
+          d.source === 'ts' && /not assignable to type 'string'/.test(d.message),
+      ),
+    ).toBe(true)
+  }, SLOW)
 })

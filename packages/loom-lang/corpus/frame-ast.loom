@@ -115,13 +115,15 @@ export type ServiceName = typeof ServiceNameSchema.Type
 
 ## Code and prose fragments
 
-Each channel — code and prose — has two leaf kinds: a fragment the section writes directly, and a reference it transcludes from another section through a Warp. The runnable frame builds each by calling `@athrio/loom-core`.
+Each channel — code and prose — has a fragment the section writes directly and a reference it transcludes from another section through a Warp. The code channel adds a third leaf, a value Warp's composed literal. The runnable frame builds each by calling `@athrio/loom-core`.
 
 A fragment is one positioned span. An `EmbeddedCode` node carries one `=>` run's product code, a `ProseFragment` one prose span — a heading or a paragraph. Each renders a `core.fragment(text, origin)` call. The `text` is the literal span, mapped back to the `.loom` for its language service: the embedded language's for code, Markdown's for prose. The `origin` is that same span written out as a value the run reads — a position literal the builder bakes into the call — so it carries no mapping of its own.
 
 A reference renders a `core.referName(…)` or `core.referTag(…)` call, and the `open` token holds which. The frame writes `referName` when the anchor names a heading in the same document and `referTag` when a Warp binds the anchor to a tag, so the de re records the kind the projection later reads. A `CodeRef` refers to another section's code channel, `core.referName(alias.code, anchor)`; a `ProseRef` refers to its prose. The `binding` is an authored token carrying the alias, mapped back to the `::[…]` anchor the author wrote, so navigation and rename reach the anchor. The `anchor` is the anchor's position literal the run reads.
 
-A reference the frame cannot resolve stays a `CodeRef`, against the unresolved name itself. The verb names something nothing in scope defines — `core.referName(Ghost.code, anchor)` — so the type checker rejects it on the anchor, the same frame error a Warp to a missing tag raises, and the run never produces that section's de re. An unresolved reference is a frame fault the checker surfaces, not a de re node.
+A `ValueRef` composes a value Warp rather than a section. It renders `core.referValue(value, anchor)`: `value` is an authored token holding the Warp's value expression, mapped back to the Warp so the frame's check of that expression lands on the `.loom`, and `anchor` is the position literal the resulting fragment maps back to. It names no section and hoists no binding — a value Warp templates a value — so the frame evaluates the expression and writes the result as text where the `::[…]` anchor stood.
+
+Every `CodeRef` the frame emits is backed by a binding — a Warp tag, or the alias a name match hoists — so its verb always names something in scope. An anchor that resolves to nothing, or to more than one section, is not a `CodeRef` at all: the builder leaves an inert fragment in its place and carries Loom's own diagnostic on it, so the frame stays runnable and the checker keeps analysing the code around the anchor. A cross-language match stays a `CodeRef`, since its binding is real, and carries its diagnostic there.
 
 =>
 
@@ -166,6 +168,19 @@ export const CodeRefSchema = frameNode(
 )
 export type CodeRef = typeof CodeRefSchema.Type
 
+export const ValueRefSchema = frameNode(
+  'ValueRef',
+  {
+    open: synth('core.referValue('),
+    value: FrameAuthoredTokenSchema,
+    mid: synth(', '),
+    anchor: FrameSynthTokenSchema,
+    close: synth(')'),
+  },
+  ['open', 'value', 'mid', 'anchor', 'close'],
+)
+export type ValueRef = typeof ValueRefSchema.Type
+
 export const ProseRefSchema = frameNode(
   'ProseRef',
   {
@@ -181,13 +196,17 @@ export type ProseRef = typeof ProseRefSchema.Type
 
 ## Composing and weaving
 
-The `Compose` node is the `core.compose(…)` call that assembles a section's code channel. It opens with the section's identity and its product language, then the arguments in document order — the `EmbeddedCode` fragments and the `CodeRef` references. The `Weave` node mirrors it for prose: `core.weave(…)` over `ProseFragment` and `ProseRef` arguments, carrying the identity but no language, since prose is always Markdown. A section with no code renders `core.compose(id, "lang")`, one with no prose `core.weave(id)`.
+The `Compose` node is the `core.compose(…)` call that assembles a section's code channel. It opens with the section's identity and its product language, then the arguments in document order — the `EmbeddedCode` fragments, the `CodeRef` references, and the `ValueRef` values. The `Weave` node mirrors it for prose: `core.weave(…)` over `ProseFragment` and `ProseRef` arguments, carrying the identity but no language, since prose is always Markdown. A section with no code renders `core.compose(id, "lang")`, one with no prose `core.weave(id)`.
 
 The identity is a `SectionId` literal and the language a quoted string, both glue the builder fills. Each argument owns its leading comma as a synth field, so the render pass emits every node in `RenderOrder` and the commas fall out on their own — nothing in the pass tracks which argument is first.
 
 =>
 
-const ComposeArgSchema = Schema.Union(EmbeddedCodeSchema, CodeRefSchema)
+const ComposeArgSchema = Schema.Union(
+  EmbeddedCodeSchema,
+  CodeRefSchema,
+  ValueRefSchema,
+)
 
 export const ComposeArgItemSchema = frameNode(
   'ComposeArgItem',

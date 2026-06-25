@@ -40,7 +40,7 @@ import { Double } from "./lib.loom"
 
 # The program {out/app.ts}
 
-{{d: Double}}
+{{d = Double}}
 
 =>
 

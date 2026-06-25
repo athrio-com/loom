@@ -52,7 +52,7 @@ describe('runner wires the service cone over real graph shapes', () => {
   it('resolves a diamond: A→B,C and B,C→D, the shared D reached both ways', async () => {
     const dia = w(
       'dia.loom',
-      `{{lang: TypeScript}}\n\n# Dee [D]\n\n=>\n\nconst d = 0\n\n# Bee [B]\n\n{{d: D}}\n\n=>\n\n::[d]\nconst b = 1\n\n# Cee [C]\n\n{{d: D}}\n\n=>\n\n::[d]\nconst c = 1\n\n# Aaa [A]\n\n{{b: B}}\n{{c: C}}\n\n=>\n\n::[b]\n::[c]\nconst a = 1\n`,
+      `{{lang: TypeScript}}\n\n# Dee [D]\n\n=>\n\nconst d = 0\n\n# Bee [B]\n\n{{d = D}}\n\n=>\n\n::[d]\nconst b = 1\n\n# Cee [C]\n\n{{d = D}}\n\n=>\n\n::[d]\nconst c = 1\n\n# Aaa [A]\n\n{{b = B}}\n{{c = C}}\n\n=>\n\n::[b]\n::[c]\nconst a = 1\n`,
     )
     const { output } = await composedOf(dia)
     // every node composed — the fold built the shared D without conflict
@@ -66,7 +66,7 @@ describe('runner wires the service cone over real graph shapes', () => {
   it('resolves a deep chain A→B→C→D end to end', async () => {
     const deep = w(
       'deep.loom',
-      `{{lang: TypeScript}}\n\n# Dee [D]\n\n=>\n\nconst d = 0\n\n# Cee [C]\n\n{{d: D}}\n\n=>\n\n::[d]\nconst c = 1\n\n# Bee [B]\n\n{{c: C}}\n\n=>\n\n::[c]\nconst b = 1\n\n# Aaa [A]\n\n{{b: B}}\n\n=>\n\n::[b]\nconst a = 1\n`,
+      `{{lang: TypeScript}}\n\n# Dee [D]\n\n=>\n\nconst d = 0\n\n# Cee [C]\n\n{{d = D}}\n\n=>\n\n::[d]\nconst c = 1\n\n# Bee [B]\n\n{{c = C}}\n\n=>\n\n::[c]\nconst b = 1\n\n# Aaa [A]\n\n{{b = B}}\n\n=>\n\n::[b]\nconst a = 1\n`,
     )
     const { output } = await composedOf(deep)
     expect(sectionsOf(output, deep).sort()).toEqual(['A', 'B', 'C', 'D'])
@@ -80,7 +80,7 @@ describe('runner wires the service cone over real graph shapes', () => {
     // frame, ts2488 at the `yield*`, the same way an unbound Warp does.)
     const cyc = w(
       'cyc.loom',
-      `{{lang: TypeScript}}\n\n# Aaa [A]\n\n{{b: B}}\n\n=>\n\n::[b]\nconst a = 1\n\n# Bbb [B]\n\n{{a: A}}\n\n=>\n\n::[a]\nconst b = 1\n`,
+      `{{lang: TypeScript}}\n\n# Aaa [A]\n\n{{b = B}}\n\n=>\n\n::[b]\nconst a = 1\n\n# Bbb [B]\n\n{{a = A}}\n\n=>\n\n::[a]\nconst b = 1\n`,
     )
     const { output } = await composedOf(cyc)
     expect(output.code.has(cyc)).toBe(true) // the run completed, no crash

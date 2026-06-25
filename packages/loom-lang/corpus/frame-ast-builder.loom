@@ -64,6 +64,8 @@ import {
   WeaveSchema,
   type EmbeddedCode,
   EmbeddedCodeSchema,
+  type ValueRef,
+  ValueRefSchema,
   type FrameAuthoredToken,
   FrameAuthoredTokenSchema,
   type FrameCode,
@@ -122,9 +124,10 @@ export const buildFrame = (
 ): FrameModule => {
   const lang = documentLanguage(doc.preamble) ?? packageLanguage ?? 'plaintext'
   const index = nameIndex(doc.sections, lang)
+  const known = knownServices(doc.sections)
   return pipe(
     doc.sections,
-    Array.map(buildMember(index, lang, modulePath)),
+    Array.map(buildMember(index, known, lang, modulePath)),
     Array.reduce(emptyFrame, appendMember),
     finaliseModule,
   )
@@ -214,7 +217,7 @@ const documentLanguage = (
   preamble
     .flatMap((w) => w.warps)
     .find((w) => w.name.value === 'lang')
-    ?.annotation.value.trim()
+    ?.annotation?.value.trim()
     .toLowerCase()
 
 const languageByExtension: ReadonlyMap<string, string> = new Map([
@@ -234,6 +237,121 @@ const extensionLanguage = (path: string): string => {
   return languageByExtension.get(ext) ?? ext
 }
 
+## Service warps and value warps
+
+A Warp binds a name its section's anchors reach, and its value decides how the name
+binds. When the value names a section service — a tag imported from a `.loom`
+module, or a heading in the same document — the Warp is a service binding:
+`const n = yield* Neg` acquires that service through Effect, and `::[n]` transcludes
+its code. When the value is anything else — a string, a number, an expression — the
+Warp is a value binding, a named literal, and `::[n]` composes that value where the
+anchor stood.
+
+The set of section services tells the two apart, so `knownServices` gathers it:
+every name a `{Loom}` section imports, and every section's own service name.
+`importedSymbols` reads the imports. It walks each `{Loom}` section's import lines
+and collects their bound names — a default import, a `* as` namespace, and every
+name a brace list binds, taking the alias after `as` when one is written.
+`serviceNames` adds the sections themselves. `isLoomSection` picks the
+import-bearing sections out, and `importNamesOf` pulls the names from one.
+
+=>
+
+const isLoomSection = (section: LoomSection): boolean =>
+  section.heading.specifier?.type === 'Specifier' &&
+  section.heading.specifier.label.value === 'Loom'
+
+const importBindings = (line: string): ReadonlyArray<string> => {
+  const brace = /\{([^}]*)\}/.exec(line)
+  const named = brace
+    ? pipe(
+        brace[1].split(','),
+        Array.filterMap((part) => {
+          const m = /(?:[\w$]+\s+as\s+)?([\w$]+)/.exec(part.trim())
+          return m ? Option.some(m[1]) : Option.none()
+        }),
+      )
+    : []
+  const namespace = /\*\s+as\s+([\w$]+)/.exec(line)
+  const fallback = /import\s+(?:type\s+)?([\w$]+)\s*(?:,|from)/.exec(line)
+  return [
+    ...(fallback ? [fallback[1]] : []),
+    ...(namespace ? [namespace[1]] : []),
+    ...named,
+  ]
+}
+
+const importNamesOf = (section: LoomSection): ReadonlyArray<string> =>
+  pipe(
+    Array.filterMap(section.code, pieceOf),
+    Array.filter((p) => /^\s*import\s/.test(p.source)),
+    Array.flatMap((p) => importBindings(p.source)),
+  )
+
+const importedSymbols = (
+  sections: ReadonlyArray<LoomSection>,
+): ReadonlySet<string> =>
+  new Set(
+    Array.flatMap(sections, (s) => (isLoomSection(s) ? importNamesOf(s) : [])),
+  )
+
+const serviceNames = (
+  sections: ReadonlyArray<LoomSection>,
+): ReadonlyArray<string> => Array.map(sections, serviceNameOf)
+
+const knownServices = (
+  sections: ReadonlyArray<LoomSection>,
+): ReadonlySet<string> =>
+  new Set([...importedSymbols(sections), ...serviceNames(sections)])
+
+~
+
+A `WarpScope` sorts a section's Warps into the two kinds: the service names its
+anchors resolve through `referTag`, and the value names mapped to the literal each
+one composes. `scopeOf` sorts the Warps that carry a value — a value-less Warp binds
+nothing, a fault the tokeniser already raised. A Warp is a service binding when its
+value is a bare identifier naming a known service; every other Warp with a value is
+a value binding.
+
+=>
+
+interface ValueWarp {
+  readonly text: string
+  readonly pos: Position
+}
+
+interface WarpScope {
+  readonly services: ReadonlySet<string>
+  readonly values: ReadonlyMap<string, ValueWarp>
+}
+
+const isIdentifier = (s: string): boolean => /^[A-Za-z_$][\w$]*$/.test(s)
+
+const scopeOf = (
+  warps: ReadonlyArray<WarpToken>,
+  known: ReadonlySet<string>,
+): WarpScope => {
+  const bound = warps.filter((w) => w.default !== undefined)
+  const isService = (w: WarpToken): boolean => {
+    const value = w.default?.value.trim() ?? ''
+    return isIdentifier(value) && known.has(value)
+  }
+  const [values, services] = Array.partition(bound, isService)
+  return {
+    services: new Set(services.map((w) => w.name.value)),
+    values: new Map(
+      Array.filterMap(values, (w) =>
+        w.default
+          ? Option.some([
+              w.name.value,
+              { text: w.default.value, pos: w.default.position },
+            ] as const)
+          : Option.none(),
+      ),
+    ),
+  }
+}
+
 ## Building a member
 
 A section's specifier decides what it becomes, and `Match` reads the three cases
@@ -247,9 +365,11 @@ its name, the tags it depends on, and whether it is a tangle sink — and any
 imports a `Loom` section hoists to the file head. A `{Loom}` splice contributes no
 service, since it is not one.
 
-`buildService` turns one section into one service class. It reads the section's
-Warp declarations into bindings, walks the code into a compose call and the
-internal bindings its name anchors hoist, and resolves the language id. A tangle
+`buildService` turns one section into one service class. It sorts the section's
+Warp declarations into a scope, walks the code into a compose call and the internal
+bindings its name anchors hoist, and resolves the language id. Only service Warps
+become `yield*` bindings; a value Warp hoists nothing, since its anchors compose a
+literal rather than acquire a service. A tangle
 sink reads its language from its path extension through `extensionLanguage`; a
 section with a language specifier takes that language; every other section takes the
 document default. The section's identity — its path and name — and that language
@@ -280,30 +400,43 @@ interface Built {
 }
 
 const buildMember =
-  (index: NameIndex, lang: string, modulePath: string) =>
+  (
+    index: NameIndex,
+    known: ReadonlySet<string>,
+    lang: string,
+    modulePath: string,
+  ) =>
   (section: LoomSection): Built =>
     pipe(
       Match.value(section.heading.specifier),
       Match.when({ type: 'PathSpecifier' }, (spec) =>
-        buildService(index, lang, section, modulePath, Option.some(pathOf(spec))),
+        buildService(
+          index,
+          known,
+          lang,
+          section,
+          modulePath,
+          Option.some(pathOf(spec)),
+        ),
       ),
       Match.when({ type: 'Specifier', label: { value: 'Loom' } }, () =>
         buildSplice(section),
       ),
       Match.orElse(() =>
-        buildService(index, lang, section, modulePath, Option.none()),
+        buildService(index, known, lang, section, modulePath, Option.none()),
       ),
     )
 
 const buildService = (
   index: NameIndex,
+  known: ReadonlySet<string>,
   defaultLang: string,
   section: LoomSection,
   modulePath: string,
   tanglePath: Option.Option<FrameAuthoredToken>,
 ): Built => {
   const warps = section.preamble.flatMap((w) => w.warps)
-  const warpNames = new Set(warps.map((w) => w.name.value))
+  const scope = scopeOf(warps, known)
 
   const name = serviceNameOf(section)
   const origin: SectionId = { path: modulePath, name }
@@ -311,12 +444,13 @@ const buildService = (
 
   const { compose, internals } = buildCompose(
     section,
-    warpNames,
+    scope,
     index,
     origin,
     languageId,
   )
-  const bindings = [...warps.map(warpBinding), ...internals]
+  const serviceWarps = warps.filter((w) => scope.services.has(w.name.value))
+  const bindings = [...serviceWarps.map(warpBinding), ...internals]
 
   const nameRef = FrameSynthTokenSchema.make({ text: name })
   const service = ServiceClassSchema.make({
@@ -419,14 +553,14 @@ anchor named twice still hoists one binding, so `dedupeByName` keeps the first.
 
 const buildCompose = (
   section: LoomSection,
-  warps: ReadonlySet<string>,
+  scope: WarpScope,
   index: NameIndex,
   origin: SectionId,
   languageId: string,
 ): { readonly compose: Compose; readonly internals: ReadonlyArray<Binding> } => {
   const walked = Array.map(
     codeRuns(section.code),
-    walkRun(bindAnchor(index, warps, languageId)),
+    walkRun(bindAnchor(index, scope, languageId)),
   )
   const args = Array.flatMap(walked, (w) => w.args)
   const internals = dedupeByName(Array.flatMap(walked, (w) => w.bindings))
@@ -439,7 +573,7 @@ const buildCompose = (
   return { compose, internals }
 }
 
-type ComposeArg = EmbeddedCode | CodeRef
+type ComposeArg = EmbeddedCode | CodeRef | ValueRef
 
 interface CodePiece {
   readonly source: string
@@ -577,45 +711,45 @@ const dedupeByName = (
 
 ## Binding anchors
 
-An anchor resolves one of two ways, and the two paths are never mixed. An anchor that
-resolves to nothing becomes a `CodeRef` against the unresolved name, carrying error
-health. The frame then references a name nothing defines, so the type checker rejects
-it on the anchor, and the run — reaching that undefined name — does not produce the
-section's de re. An unresolved anchor is a frame fault the checker reports, the same
-way a Warp to a missing tag is.
+The builder turns each anchor into one compose argument. A value Warp composes its
+value, a service or a named section composes that section's code, and an anchor that
+resolves to nothing composes nothing — an inert fragment in its place. So a broken or
+unresolvable anchor never leaves a dangling name for the run to execute: the run
+always completes, and the product code around the anchor keeps its language service.
+The author owns the program's correctness, and an invalid anchor does not switch the
+checker off.
 
-When the anchor's name is a Warp the section declared, the binding already exists,
-so the reference uses it directly through `referTag`, the by-value verb:
-`core.referTag(m.code, anchor)`. No new binding.
+A resolved anchor takes one of three paths. When the name is a value Warp — one bound
+to a literal, not a section — the anchor composes that value: it emits a
+`core.referValue(value, anchor)` call, a `ValueRef`, that the running frame evaluates
+and lands where the anchor stood. No binding backs it, since a literal needs none.
+When the name is a service Warp the section declared, the binding already exists, so
+the anchor composes the service's code by tag — `core.referTag(n.code, anchor)` — and
+adds no new binding. Otherwise the name is looked up among the section titles. One
+match resolves by name through `referName`, the shared-scope verb: the builder hoists
+`const _N = yield* N` under an underscore alias, so the constant cannot shadow the
+service's own class, and each reference reads `core.referName(_N.code, anchor)`. The
+hoisted binding maps to the section's heading — it is the definition — while each
+`_N.code` reference maps to the anchor that wrote it. So go-to-def on an anchor jumps
+to the heading, and find-references on the heading lists every anchor, one definition
+to many referencers. A match in another language is a cross-language transclusion: the
+binding is real, so the reference stands, but the builder marks the anchor, since a
+JSON section composed into a TypeScript one cannot share its file.
 
-Otherwise the name is looked up among the section titles, and the count of matches
-decides the outcome. One match resolves by name through `referName`, the
-shared-scope verb: the builder hoists `const _N = yield* N` under an underscore
-alias, so the constant cannot shadow the service's own class, and each reference
-reads `core.referName(_N.code, anchor)`. The hoisted binding maps
-to the section's heading — it is the definition — while each `_N.code` reference
-maps to the anchor that wrote it. So go-to-def on an anchor jumps to the heading,
-and find-references on the heading lists every anchor, one definition to many
-referencers. A match in another language is a cross-language transclusion: the
-builder marks the anchor, since a JSON section composed into a TypeScript one cannot
-share its file. No match is an unresolved anchor — a tag label is reachable only
-through a Warp, so a bare tag is a name miss. More than one match is an ambiguous
-anchor: several sections claim the same title, and a name anchor resolves exactly
-one section, so the builder reports the clash rather than guessing.
+An anchor that cannot resolve leaves an empty fragment instead — valid frame code
+that transcludes nothing — so the run stays whole. What rides on that fragment
+depends on why the anchor failed. A grammatically broken anchor — an empty `::[]` or
+an unclosed `::[n` — already carries the parser's fault on its own span, so the
+fragment adds none and the one fault stands. A well-formed name that matches no
+section is an unresolved anchor; one that matches more than one is ambiguous. A tag
+label is reachable only through a Warp, so a bare tag is a name miss; and a name
+anchor resolves exactly one section, so the builder reports a clash rather than
+guessing. The fragment carries that diagnostic and lands it on the anchor.
 
-An empty anchor, `::[]`, is already a grammatical fault: its name carries the
-error the parser found. In its place `bindAnchor` puts an empty fragment — valid
-frame code that transcludes nothing — not a reference to a name that is not there.
-A reference would be broken code the run cannot execute. The whole section would
-then lose its de re, and the product code around the anchor its language service.
-The empty fragment keeps the run whole, and `bindAnchor` raises no fault of its
-own. So the one fault on the name stands. It does not cascade into a spurious
-report that the empty name resolves to nothing.
-
-`unresolved`, `ambiguous`, and `crossLanguage` each build a positioned diagnostic
-the moment a healthy name fails to resolve. The `CodeRef`'s binding carries the
-name, its mapping, and the error health, so each diagnostic lands on the anchor
-the author wrote.
+`unresolved`, `ambiguous`, and `crossLanguage` each build a positioned diagnostic.
+The cross-language diagnostic rides on its `CodeRef`; the other two ride on the
+inert fragment that stands in for the anchor. Each lands on the anchor the author
+wrote.
 
 =>
 
@@ -625,19 +759,23 @@ interface Bound {
 }
 
 const bindAnchor =
-  (index: NameIndex, warps: ReadonlySet<string>, host: string) =>
+  (index: NameIndex, scope: WarpScope, host: string) =>
   (anchor: WarpAnchorToken): Bound => {
     const name = anchor.name.value
     const at = anchor.name.position
-    if (anchor.name.health.status !== 'ok') {
+    if (anchor.health.status !== 'ok') {
       return { ref: blankFragment(anchor.position), binding: Option.none() }
     }
-    if (warps.has(name)) {
+    const value = scope.values.get(name)
+    if (value !== undefined) {
+      return { ref: valueRef(value, at), binding: Option.none() }
+    }
+    if (scope.services.has(name)) {
       return { ref: codeRef('referTag', name, at), binding: Option.none() }
     }
     return Array.matchLeft(index.get(name) ?? [], {
       onEmpty: () => ({
-        ref: codeRef('referName', name, at, unresolved(name, at)),
+        ref: blankFragment(anchor.position, unresolved(name, at)),
         binding: Option.none(),
       }),
       onNonEmpty: (entry, rest) =>
@@ -654,7 +792,7 @@ const bindAnchor =
               binding: Option.some(nameBinding(entry.name, entry.pos)),
             }
           : {
-              ref: codeRef('referName', name, at, ambiguous(name, at, rest.length + 1)),
+              ref: blankFragment(anchor.position, ambiguous(name, at, rest.length + 1)),
               binding: Option.none(),
             },
     })
@@ -672,11 +810,18 @@ const codeRef = (
     anchor: tok(posLiteral(at)),
   })
 
-const blankFragment = (at: Position): EmbeddedCode =>
+const blankFragment = (at: Position, health: Health = okHealth): EmbeddedCode =>
   EmbeddedCodeSchema.make({
     text: '',
     position: at,
     origin: tok(posLiteral(at)),
+    health,
+  })
+
+const valueRef = (value: ValueWarp, at: Position): ValueRef =>
+  ValueRefSchema.make({
+    value: id(value.text, value.pos),
+    anchor: tok(posLiteral(at)),
   })
 
 const aliasOf = (service: string): string => `_${service}`
@@ -690,7 +835,9 @@ const nameBinding = (service: string, headingPos: Position): Binding =>
 const warpBinding = (warp: WarpToken): Binding =>
   BindingSchema.make({
     name: id(warp.name.value, warp.name.position),
-    tag: id(warp.annotation.value.trim(), warp.annotation.position),
+    tag: warp.default
+      ? id(warp.default.value.trim(), warp.default.position)
+      : tok(''),
   })
 
 const unresolved = (name: string, at: Position): Health =>
@@ -979,6 +1126,8 @@ relies on. Each section is referenced by its title — the local anchor form Loo
 ::[The builder and its spine]
 
 ::[Resolving names]
+
+::[Service warps and value warps]
 
 ::[Building a member]
 

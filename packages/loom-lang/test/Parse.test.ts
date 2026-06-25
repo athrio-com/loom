@@ -186,14 +186,14 @@ describe('Tokeniser Stage — integration against corpus/Fun.loom', () => {
     )
   })
 
-  it('a PreambleWeft with `{{m: Mul}}` populates warps with the Mul reference', () => {
+  it('a PreambleWeft with `{{m = Mul}}` populates warps with the Mul reference', () => {
     const preamble = filterByType('PreambleWeft').find((w) =>
       w.warps.some((wp) => wp.name.value === 'm'),
     )
     if (!preamble) throw new Error('expected a PreambleWeft binding `m`')
     const warp = preamble.warps.find((wp) => wp.name.value === 'm')!
-    expect(warp.annotation.value).toBe('Mul')
-    expect(warp.default).toBeUndefined()
+    expect(warp.default?.value).toBe('Mul')
+    expect(warp.annotation).toBeUndefined()
     expect(warp.health.status).toBe('ok')
   })
 
@@ -202,7 +202,7 @@ describe('Tokeniser Stage — integration against corpus/Fun.loom', () => {
       .flatMap((w) => w.warps)
       .find((wp) => wp.name.value === 'lang')
     expect(lang).toBeDefined()
-    expect(lang!.annotation.value).toBe('Scala')
+    expect(lang!.annotation?.value).toBe('Scala')
   })
 
   it('the entry-point preamble declares three warps in one line (a, s, p)', () => {

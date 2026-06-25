@@ -30,7 +30,7 @@ const bit = "${mark}"
 
 # Use it [${use}]
 
-{{x: Bit}}
+{{x = Bit}}
 
 =>
 
@@ -49,8 +49,8 @@ import { UseB } from "./b.loom"
 
 # Both of them [Both]
 
-{{a: UseA}}
-{{b: UseB}}
+{{a = UseA}}
+{{b = UseB}}
 
 =>
 

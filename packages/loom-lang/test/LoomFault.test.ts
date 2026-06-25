@@ -7,7 +7,7 @@ import {
   faulty,
   MalformedLabel,
   MissingLanguageWarp,
-  MissingWarpAnnotation,
+  MissingWarpValue,
   UnclosedDelimiter,
   UnresolvedAnchor,
   type EmptyConstruct,
@@ -96,6 +96,6 @@ describe('LoomFault — the diagnostic catalog', () => {
   it('lets a warning fault leave the node short of error', () => {
     expect(renderFault(MissingLanguageWarp()).severity).toBe('warning')
     expect(faulty(MissingLanguageWarp(), POS).status).toBe('warning')
-    expect(faulty(MissingWarpAnnotation(), POS).status).toBe('error')
+    expect(faulty(MissingWarpValue({ name: 'n' }), POS).status).toBe('error')
   })
 })

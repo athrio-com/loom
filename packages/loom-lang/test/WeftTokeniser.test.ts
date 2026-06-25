@@ -485,79 +485,101 @@ describe('Tokeniser — Warp declarations on PreambleWeft', () => {
     return w
   }
 
-  it('recognises a single `{{name: annotation}}`', () => {
-    const w = preambleWeft('Uses {{mul: Mul}} to multiply.')
+  it('recognises a service warp `{{name = Service}}`', () => {
+    const w = preambleWeft('Uses {{mul = Mul}} to multiply.')
     expect(w.warps).toHaveLength(1)
     expect(w.warps[0].name.value).toBe('mul')
-    expect(w.warps[0].annotation.value).toBe('Mul')
-    expect(w.warps[0].default).toBeUndefined()
+    expect(w.warps[0].annotation).toBeUndefined()
+    expect(w.warps[0].default?.value).toBe('Mul')
     expect(w.warps[0].health.status).toBe('ok')
   })
 
-  it('recognises a declaration with a default', () => {
+  it('recognises a value warp with a type, `{{name: type = value}}`', () => {
     const w = preambleWeft(`Port {{port: string = "8080"}}.`)
     expect(w.warps[0].name.value).toBe('port')
-    expect(w.warps[0].annotation.value).toBe('string')
+    expect(w.warps[0].annotation?.value).toBe('string')
     expect(w.warps[0].default?.value).toBe(`"8080"`)
+    expect(w.warps[0].health.status).toBe('ok')
+  })
+
+  it('recognises a value warp with no type, `{{name = value}}`', () => {
+    const w = preambleWeft('{{greeting = "hi"}}')
+    expect(w.warps[0].name.value).toBe('greeting')
+    expect(w.warps[0].annotation).toBeUndefined()
+    expect(w.warps[0].default?.value).toBe('"hi"')
+    expect(w.warps[0].health.status).toBe('ok')
   })
 
   it('recognises multiple warps on one line', () => {
-    const w = preambleWeft('first {{a: A}} then {{b: B}}.')
+    const w = preambleWeft('first {{a = A}} then {{b = B}}.')
     expect(w.warps).toHaveLength(2)
     expect(w.warps[0].name.value).toBe('a')
     expect(w.warps[1].name.value).toBe('b')
   })
 
-  it('preserves nested commas inside `<>` brackets in annotation', () => {
-    const w = preambleWeft('hold {{r: Record<string, number>}}.')
-    expect(w.warps[0].annotation.value).toBe('Record<string, number>')
+  it('exempts the `{{lang: …}}` directive from the value requirement', () => {
+    const w = preambleWeft('{{lang: TypeScript}}')
+    expect(w.warps[0].name.value).toBe('lang')
+    expect(w.warps[0].annotation?.value).toBe('TypeScript')
+    expect(w.warps[0].default).toBeUndefined()
     expect(w.warps[0].health.status).toBe('ok')
   })
 
-  it('top-level `,` in annotation surfaces as warp.unexpected[]', () => {
-    const w = preambleWeft('multi {{a: B, }}.')
-    expect(w.warps[0].annotation.value).toBe('B')
+  it('preserves nested commas inside `<>` brackets in the type', () => {
+    const w = preambleWeft('hold {{r: Record<string, number> = rec}}.')
+    expect(w.warps[0].annotation?.value).toBe('Record<string, number>')
+    expect(w.warps[0].default?.value).toBe('rec')
+  })
+
+  it('top-level `,` in the value surfaces as warp.unexpected[]', () => {
+    const w = preambleWeft('multi {{a = B, }}.')
+    expect(w.warps[0].default?.value).toBe('B')
     expect(w.warps[0].unexpected).toBeDefined()
     expect(w.warps[0].unexpected![0].value).toBe(', ')
     expect(w.warps[0].health.status).toBe('error')
   })
 
-  it('top-level `;` in annotation surfaces as warp.unexpected[]', () => {
-    const w = preambleWeft('{{a: B; C}}')
-    expect(w.warps[0].annotation.value).toBe('B')
-    expect(w.warps[0].health.status).toBe('error')
-  })
-
-  it('missing `:` synthesises an error-health annotation', () => {
+  it('a warp with no value is a missing-value error', () => {
     const w = preambleWeft('bad {{onlyName}}')
     expect(w.warps[0].name.value).toBe('onlyName')
-    expect(w.warps[0].annotation.value).toBe('')
-    expect(w.warps[0].annotation.health.status).toBe('error')
+    expect(w.warps[0].annotation).toBeUndefined()
+    expect(w.warps[0].default).toBeUndefined()
     expect(w.warps[0].health.status).toBe('error')
+    expect(w.warps[0].health.diagnostics[0].message).toMatch(/has no value/)
   })
 
-  it('empty annotation after `:` is error-health', () => {
-    const w = preambleWeft('{{a: }}')
-    expect(w.warps[0].annotation.value).toBe('')
-    expect(w.warps[0].annotation.health.status).toBe('error')
+  it('a typed warp with no value is also a missing-value error', () => {
+    const w = preambleWeft('{{p: string}}')
+    expect(w.warps[0].name.value).toBe('p')
+    expect(w.warps[0].annotation?.value).toBe('string')
+    expect(w.warps[0].default).toBeUndefined()
+    expect(w.warps[0].health.status).toBe('error')
+    expect(w.warps[0].health.diagnostics[0].message).toMatch(/has no value/)
   })
 
-  it('empty default after `=` is error-health (preserves the `=` evidence)', () => {
-    const w = preambleWeft('{{a: B = }}')
+  it('empty type after `:` is error-health', () => {
+    const w = preambleWeft('{{a: = x}}')
+    expect(w.warps[0].annotation?.value).toBe('')
+    expect(w.warps[0].annotation?.health.status).toBe('error')
+    expect(w.warps[0].default?.value).toBe('x')
+  })
+
+  it('empty value after `=` is error-health (preserves the `=` evidence)', () => {
+    const w = preambleWeft('{{a = }}')
     expect(w.warps[0].default).toBeDefined()
     expect(w.warps[0].default!.value).toBe('')
     expect(w.warps[0].default!.health.status).toBe('error')
   })
 
   it('invalid name routes the bad text to name.unexpected[]', () => {
-    const w = preambleWeft('{{not-an-id: Tag}}')
+    const w = preambleWeft('{{not-an-id = Tag}}')
     expect(w.warps[0].name.value).toBe('')
     expect(w.warps[0].name.health.status).toBe('error')
     expect(w.warps[0].name.unexpected?.[0].value).toBe('not-an-id')
   })
 
   it('unclosed `{{` produces a synthetic `}}` at EOL with error health', () => {
-    const w = preambleWeft('{{a: B')
+    const w = preambleWeft('{{a = B')
     expect(w.warps[0].close.health.status).toBe('error')
     expect(w.warps[0].close.health.diagnostics[0].message).toMatch(
       /expected closing/i,
@@ -574,7 +596,7 @@ describe('Tokeniser — Warp declarations on PreambleWeft', () => {
 
   it('post-Tokeniser PreambleWeft is never `incomplete`', () => {
     expect(preambleWeft('plain text').health.status).not.toBe('incomplete')
-    expect(preambleWeft('{{a: B}}').health.status).not.toBe('incomplete')
+    expect(preambleWeft('{{a = B}}').health.status).not.toBe('incomplete')
     expect(preambleWeft('{{bad').health.status).not.toBe('incomplete')
   })
 })
@@ -622,12 +644,12 @@ describe('Tokeniser — WarpAnchor references on ArrowWeft / CodeWeft', () => {
     expect(w.anchors[0].name.value).toBe('x')
   })
 
-  it('anchor content carrying `:` (a declaration in code) is left literal, not an anchor', () => {
-    const w = codeWeftFromLines(['## A', '=>', '{{mul: Mul}}'], 2)
+  it('a warp-shaped run in code is left literal, not an anchor', () => {
+    const w = codeWeftFromLines(['## A', '=>', '{{mul = Mul}}'], 2)
     expect(w.anchors).toHaveLength(0)
     expect(w.unexpected).toBeUndefined()
     expect(w.health.status).toBe('ok')
-    expect(w.source).toContain('{{mul: Mul}}')
+    expect(w.source).toContain('{{mul = Mul}}')
   })
 
   it('anchor with whitespace around the name is ok', () => {

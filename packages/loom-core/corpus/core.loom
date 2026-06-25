@@ -4,7 +4,7 @@
 
 Loom transpiles each `.loom` file into a virtual frame: a small program written in the composition language this module defines. `@athrio/loom-core` is that language — the import at the head of every generated frame — and running the frame is what produces the product.
 
-The language has six verbs. Three build the leaves of a section's de re structure: `fragment` carries a literal span of the author's code, and `referName` and `referTag` carry the two kinds of edge to another section. Two assemble those leaves: `compose` gathers a section's code, `weave` gathers its prose. One ships the result: `tangle` binds a composed result to a file path.
+The language has seven verbs. Four build the leaves of a section's de re structure: `fragment` carries a literal span of the author's code and `referValue` a Warp's literal value, while `referName` and `referTag` carry the two kinds of edge to another section. Two assemble those leaves: `compose` gathers a section's code, `weave` gathers its prose. One ships the result: `tangle` binds a composed result to a file path.
 
 The verbs construct, they do not concatenate. Where the old language joined strings, this one returns the `ProductAst` nodes — `Fragment`, `Ref`, `ComposedCode` — that `fromProduct` later flattens to text and mappings. The frame is a program that builds a value, and the value is the de re.
 
@@ -19,6 +19,19 @@ export const fragment = (text: string, origin: Position): Fragment => ({
   health: okHealth,
   text,
   origin,
+})
+
+## A Warp's value
+
+`referValue` composes a Warp's value into the product. A value Warp binds a value its section's `::[…]` anchors reach — a string, a number, an expression over other values. The frame evaluates that value when it runs and passes the result here. `referValue` writes the result as text where the anchor stood, so a value Warp templates: `::[n]` substitutes the value itself, and the author writes any surrounding syntax — quotes for a string, brackets for an array — around the anchor. It is `fragment`'s peer: `fragment` carries the code an author wrote, `referValue` a value the frame computed.
+
+=>
+
+export const referValue = (value: unknown, anchor: Position): Fragment => ({
+  type: 'Fragment',
+  health: okHealth,
+  text: String(value),
+  origin: anchor,
 })
 
 ## Two transclusion edges
@@ -126,6 +139,8 @@ Six standalone constructors, none calling another, so their order on disk is fre
 ::[What this module draws on]
 
 ::[A literal fragment]
+
+::[A Warp's value]
 
 ::[Two transclusion edges]
 

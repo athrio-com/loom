@@ -30,7 +30,7 @@ export const hi = "hello"
 
 # Out {out.ts}
 
-{{g: Greet}}
+{{g = Greet}}
 
 =>
 

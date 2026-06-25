@@ -63,9 +63,9 @@ export class LanguageRegistry extends Effect.Service<LanguageRegistry>()(
 
 ## The module {../src/LanguageRegistry.ts}
 
-{{i: Imports}}
-{{a: Active}}
-{{r: Registry}}
+{{i = Imports}}
+{{a = Active}}
+{{r = Registry}}
 
 =>
 

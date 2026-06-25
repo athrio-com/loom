@@ -2,7 +2,7 @@
 
 # Entry [Main]
 
-{{x: Ghost}}
+{{x = Ghost}}
 
 =>
 

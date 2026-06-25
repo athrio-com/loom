@@ -31,7 +31,7 @@ import { Neg } from "./Sad.loom"
 
 # Negated double [Negd]
 
-{{n: Neg}}
+{{n = Neg}}
 
 =>
 

@@ -102,6 +102,19 @@ export const CodeRefSchema = frameNode(
 )
 export type CodeRef = typeof CodeRefSchema.Type
 
+export const ValueRefSchema = frameNode(
+  'ValueRef',
+  {
+    open: synth('core.referValue('),
+    value: FrameAuthoredTokenSchema,
+    mid: synth(', '),
+    anchor: FrameSynthTokenSchema,
+    close: synth(')'),
+  },
+  ['open', 'value', 'mid', 'anchor', 'close'],
+)
+export type ValueRef = typeof ValueRefSchema.Type
+
 export const ProseRefSchema = frameNode(
   'ProseRef',
   {
@@ -115,7 +128,11 @@ export const ProseRefSchema = frameNode(
 )
 export type ProseRef = typeof ProseRefSchema.Type
 
-const ComposeArgSchema = Schema.Union(EmbeddedCodeSchema, CodeRefSchema)
+const ComposeArgSchema = Schema.Union(
+  EmbeddedCodeSchema,
+  CodeRefSchema,
+  ValueRefSchema,
+)
 
 export const ComposeArgItemSchema = frameNode(
   'ComposeArgItem',

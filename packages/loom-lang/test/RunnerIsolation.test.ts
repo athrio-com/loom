@@ -25,11 +25,11 @@ const w = (name: string, src: string): string => {
 // composes good. entry's reachable corpus therefore holds a broken module.
 const baddep = w(
   'baddep.loom',
-  `{{lang: TypeScript}}\n\n# Bad [BadDep]\n\n{{x: Ghost}}\n\n=>\n\n::[x]\nexport const bad = 1\n`,
+  `{{lang: TypeScript}}\n\n# Bad [BadDep]\n\n{{x = Ghost}}\n\n=>\n\n::[x]\nexport const bad = 1\n`,
 )
 const importer = w(
   'importer.loom',
-  `{{lang: TypeScript}}\n\n# Pull {Loom}\n\n=>\n\nimport { BadDep } from "./baddep.loom"\n\n# Imp [Imp]\n\n{{b: BadDep}}\n\n=>\n\n::[b]\nexport const imp = 1\n`,
+  `{{lang: TypeScript}}\n\n# Pull {Loom}\n\n=>\n\nimport { BadDep } from "./baddep.loom"\n\n# Imp [Imp]\n\n{{b = BadDep}}\n\n=>\n\n::[b]\nexport const imp = 1\n`,
 )
 const good = w(
   'good.loom',
@@ -37,7 +37,7 @@ const good = w(
 )
 const entry = w(
   'entry.loom',
-  `{{lang: TypeScript}}\n\n# Pull {Loom}\n\n=>\n\nimport { Imp } from "./importer.loom"\nimport { Good } from "./good.loom"\n\n# Entry [Entry]\n\n{{g: Good}}\n\n=>\n\n::[g]\nexport const e = 1\n`,
+  `{{lang: TypeScript}}\n\n# Pull {Loom}\n\n=>\n\nimport { Imp } from "./importer.loom"\nimport { Good } from "./good.loom"\n\n# Entry [Entry]\n\n{{g = Good}}\n\n=>\n\n::[g]\nexport const e = 1\n`,
 )
 
 const composedOf = (path: string) =>
@@ -88,7 +88,7 @@ describe('runner — realistic product passes the rewrite opaque', () => {
   it('composes two sinks from one file, each its own file', async () => {
     const twosinks = w(
       'twosinks.loom',
-      `{{lang: TypeScript}}\n\n# Shared [Shared]\n\n=>\n\nexport const shared = 1\n\n# First {out/a.ts}\n\n{{s: Shared}}\n\n=>\n\n::[s]\nexport const a = shared\n\n# Second {out/b.ts}\n\n{{s: Shared}}\n\n=>\n\n::[s]\nexport const b = shared + 1\n`,
+      `{{lang: TypeScript}}\n\n# Shared [Shared]\n\n=>\n\nexport const shared = 1\n\n# First {out/a.ts}\n\n{{s = Shared}}\n\n=>\n\n::[s]\nexport const a = shared\n\n# Second {out/b.ts}\n\n{{s = Shared}}\n\n=>\n\n::[s]\nexport const b = shared + 1\n`,
     )
     const { output } = await composedOf(twosinks)
     const files = [...(output.code.get(twosinks)?.keys() ?? [])]
@@ -134,7 +134,7 @@ describe('runner — a faulting {Loom} escape hatch is contained to its own file
     const sib = w('esib.loom', `{{lang: TypeScript}}\n\n# Sib [ESib]\n\n=>\n\nexport const s = 1\n`)
     const entry = w(
       'eentry.loom',
-      `{{lang: TypeScript}}\n\n# Pull {Loom}\n\n=>\n\nimport { EnumOk } from "./enum.loom"\nimport { ESib } from "./esib.loom"\n\n# Entry [EEntry]\n\n{{s: ESib}}\n\n=>\n\n::[s]\nconst e = 1\n`,
+      `{{lang: TypeScript}}\n\n# Pull {Loom}\n\n=>\n\nimport { EnumOk } from "./enum.loom"\nimport { ESib } from "./esib.loom"\n\n# Entry [EEntry]\n\n{{s = ESib}}\n\n=>\n\n::[s]\nconst e = 1\n`,
     )
     const { output } = await composedOf(entry)
     expect(output.code.get(en)?.size ?? 0).toBe(0) // the enum file lost its de re
@@ -150,7 +150,7 @@ describe('runner — a faulting {Loom} escape hatch is contained to its own file
     const good = w('bgood.loom', `{{lang: TypeScript}}\n\n# Good [BGood]\n\n=>\n\nexport const bg = 1\n`)
     const entry = w(
       'bentry.loom',
-      `{{lang: TypeScript}}\n\n# Pull {Loom}\n\n=>\n\nimport { BoomOk } from "./boom.loom"\nimport { BGood } from "./bgood.loom"\n\n# Entry [BEntry]\n\n{{g: BGood}}\n\n=>\n\n::[g]\nconst e = 1\n`,
+      `{{lang: TypeScript}}\n\n# Pull {Loom}\n\n=>\n\nimport { BoomOk } from "./boom.loom"\nimport { BGood } from "./bgood.loom"\n\n# Entry [BEntry]\n\n{{g = BGood}}\n\n=>\n\n::[g]\nconst e = 1\n`,
     )
     const { output } = await composedOf(entry)
     expect(output.code.get(boom)?.size ?? 0).toBe(0) // the throwing file lost its de re

@@ -18,6 +18,13 @@ export const fragment = (text: string, origin: Position): Fragment => ({
   origin,
 })
 
+export const referValue = (value: unknown, anchor: Position): Fragment => ({
+  type: 'Fragment',
+  health: okHealth,
+  text: String(value),
+  origin: anchor,
+})
+
 export const referName = (
   code: { readonly origin: SectionId },
   anchor: Position,

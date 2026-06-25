@@ -136,7 +136,7 @@ import { Neg } from "./Sad.loom"
 
 # Negated double [Negd]
 
-{{n: Neg}}
+{{n = Neg}}
 
 =>
 
@@ -210,8 +210,8 @@ const b = 2
 
 # Bundle [Bun]
 
-{{x: A}}
-{{y: B}}
+{{x = A}}
+{{y = B}}
 
 =>
 
@@ -247,7 +247,7 @@ const y = 2
 
 # Wrap [Wr]
 
-{{b: Bod}}
+{{b = Bod}}
 
 =>
 
@@ -305,7 +305,7 @@ log(total)
 
 # Inner [Inner]
 
-{{leaf: Leaf}}
+{{leaf = Leaf}}
 
 =>
 
@@ -314,7 +314,7 @@ if n > 0:
 
 # Outer [Outer]
 
-{{inner: Inner}}
+{{inner = Inner}}
 
 =>
 
@@ -353,7 +353,7 @@ b = 2
 
 # Wrap [Wr]
 
-{{b: Bod}}
+{{b = Bod}}
 
 =>
 
@@ -386,7 +386,7 @@ b = 2
 
 # Before [Before]
 
-{{p: Pair}}
+{{p = Pair}}
 
 =>
 
@@ -394,7 +394,7 @@ b = 2
 
 # After [After]
 
-{{p: Pair}}
+{{p = Pair}}
 
 =>
 
@@ -436,7 +436,7 @@ import { Lib } from "./Dep.loom"
 
 # Host [Host]
 
-{{l: Lib}}
+{{l = Lib}}
 
 =>
 

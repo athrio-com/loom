@@ -246,19 +246,19 @@ describe('PathSpecifier probe', () => {
 describe('Warp probe', () => {
   const probe = Option.getOrThrow(getProbe(WarpTokenSchema))
 
-  it('matches `{{name: type}}` declarations', () => {
-    expect([...'Uses {{mul: Mul}} to multiply.'.matchAll(probe)][0]?.[0]).toBe(
-      '{{mul: Mul}}',
+  it('matches `{{name = value}}` declarations', () => {
+    expect([...'Uses {{mul = Mul}} to multiply.'.matchAll(probe)][0]?.[0]).toBe(
+      '{{mul = Mul}}',
     )
   })
 
-  it('matches `{{name: type = default}}` declarations', () => {
+  it('matches `{{name: type = value}}` declarations', () => {
     expect([...'port {{port: string = "8080"}}'.matchAll(probe)][0]?.[0]).toBe(
       `{{port: string = "8080"}}`,
     )
   })
 
-  it('does not match bare `::[name]` references (no `:`)', () => {
+  it('does not match bare `::[name]` references (no `{{`)', () => {
     expect([...'::[mul]'.matchAll(probe)]).toHaveLength(0)
   })
 })
@@ -270,8 +270,8 @@ describe('WarpAnchor probe', () => {
     expect([...'::[mul]'.matchAll(probe)][0]?.[0]).toBe('::[mul]')
   })
 
-  it('does not match declarations (which contain `:`)', () => {
-    expect([...'{{mul: Mul}}'.matchAll(probe)]).toHaveLength(0)
+  it('does not match warp declarations', () => {
+    expect([...'{{mul = Mul}}'.matchAll(probe)]).toHaveLength(0)
   })
 })
 
@@ -468,7 +468,7 @@ describe('Warp schema validation', () => {
     ).toBe(true)
   })
 
-  it('rejects when annotation is missing', () => {
+  it('accepts a declaration without an annotation', () => {
     expect(
       Schema.is(WarpTokenSchema)({
         type: 'Warp',
@@ -477,9 +477,10 @@ describe('Warp schema validation', () => {
         health: okHealth,
         open: warpOpen,
         name: warpName('mul'),
+        default: defaultToken,
         close: warpClose,
       }),
-    ).toBe(false)
+    ).toBe(true)
   })
 })
 

@@ -40,7 +40,7 @@ const bad: number = "oops"
 
 # Negated double [Negd]
 
-{{n: Neg}}
+{{n = Neg}}
 
 =>
 

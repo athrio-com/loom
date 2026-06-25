@@ -133,13 +133,16 @@ names the section's language; a path specifier (`{src/main.ts}`), told apart by 
 path separators, marks the section as a tangle sink. `{Loom}` is an escape hatch whose
 meaning is a frame concern; the AST records only the token.
 
-A warp unifies the `{{…}}` forms. A declaration, `{{name: annotation [= default]}}`,
-is recognised in a preamble line and binds a local name; an anchor, `{{name}}` or
-`{{Heading Name}}`, is recognised in a code line and references one. The same source
-shape resolves by host weft, not by sniffing for a colon. What an annotation means — a
-tag reference, a typed parameter — is a frame concern; at the AST a warp is a
-declaration and an anchor a reference. A `{{…}}` that is not a well-formed anchor falls
-back to literal code, so product code may contain a literal `{{`.
+A warp declares a binding and an anchor references it. A declaration,
+`{{ name [: type] = value }}`, is recognised in a preamble line and binds a local name
+to a value; an anchor, `::[name]` or `::[Heading Name]`, is recognised in a code line
+and composes one. The two use distinct delimiters — `{{…}}` for a declaration, `::[…]`
+for a reference — because an anchor sits inside product code, where `{{` would collide
+with templating languages that own that syntax. What a declaration's value names — a
+section service, or a plain literal — is a frame concern; at the AST a warp is a
+declaration and an anchor a reference. A value is required: a value-less warp is a
+diagnostic, with the one exception of the `{{lang: …}}` directive that names the
+document's language.
 
 ## The frame: sections as services
 
@@ -155,8 +158,8 @@ part of the document's public API, referenceable from other files. A tagless sec
 private: its class name is the heading title normalised to an identifier, and it is
 reachable only within the same document, by a name anchor.
 
-**The dependency graph is a parse-time artifact.** Warp declarations are its edges —
-each `{{m: Mul}}` is a named edge to another section — so the graph is traversable
+**The dependency graph is a parse-time artifact.** Service-warp declarations are its
+edges — each `{{m = Mul}}` is a named edge to another section — so the graph is traversable
 straight from the AST, with no analysis pass. The frame projects each edge to a lazy
 `const m = yield* Mul` inside the service's `Effect.gen` body; that `yield*` _is_ the
 dependency, lifted into the layer type by Effect, so the frame emits no eager

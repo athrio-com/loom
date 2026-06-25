@@ -190,7 +190,7 @@ export type ProseToken = typeof ProseTokenSchema.Type
 
 ## Warps and anchors
 
-A `Warp` is a declaration, `&#123;&#123;name: annotation [= default]&#125;&#125;`, written in a preamble line. A `WarpAnchor` is a reference, `::[name]`, written in a code line. The two use different delimiters on purpose: a warp sits in prose, where `&#123;&#123;` is safe, but an anchor sits inside product code, where `&#123;&#123;` would collide with templating languages that own that syntax — `::[` does not. So a warp opens with `&#123;&#123;` and closes with `&#125;&#125;`, an anchor opens with `::[` and closes with `]`; both expose `open`, `close`, and `name` as subnodes. A declaration's `name` must be a TypeScript identifier; an anchor's `name` is looser — any text up to the closing delimiter, since it may name either a binding or a section by heading. The `annotation` and `default` are opaque text here; their structure is read by a later pass.
+A `Warp` is a declaration, `&#123;&#123; name [: type] = value &#125;&#125;`, written in a preamble line. A `WarpAnchor` is a reference, `::[name]`, written in a code line. The two use different delimiters on purpose: a warp sits in prose, where `&#123;&#123;` is safe, but an anchor sits inside product code, where `&#123;&#123;` would collide with templating languages that own that syntax — `::[` does not. So a warp opens with `&#123;&#123;` and closes with `&#125;&#125;`, an anchor opens with `::[` and closes with `]`; both expose `open`, `close`, and `name` as subnodes. A declaration's `name` must be a TypeScript identifier; an anchor's `name` is looser — any text up to the closing delimiter, since it may name either a binding or a section by heading. A declaration also carries an optional `annotation` — the `: type` before the value — and a `default` — the `= value` it binds. Both are opaque text here; a later pass reads their structure and decides how the name binds.
 
 An anchor's `open` and `close` are plain strings rather than fixed literals, because a package may set its own delimiter pair in `loom.json` when `::[` would collide with its product language. `AnchorDelims` is that pair, and `defaultAnchorDelims` holds the built-in `::[` and `]` — written as a concatenation so this corpus, which the tokeniser scans like any other, holds no bare `::[` of its own. For the same reason, this section writes the warp braces as the numeric character references `&#123;` and `&#125;`: a literal `&#123;&#123;` on a preamble line would tokenise as a Warp.
 
@@ -281,11 +281,11 @@ export type WarpAnchorToken = typeof WarpAnchorTokenSchema.Type
 export const WarpTokenSchema = loomNode('Warp', {
   open: WarpOpenTokenSchema,
   name: WarpNameTokenSchema,
-  annotation: WarpAnnotationTokenSchema,
+  annotation: Schema.optional(WarpAnnotationTokenSchema),
   default: Schema.optional(WarpDefaultTokenSchema),
   close: WarpCloseTokenSchema,
 }).annotations({
-  [Probe]: /\{\{[^{}]*:[^{}]*\}\}/g,
+  [Probe]: /\{\{[^{}]*\}\}/g,
 })
 export type WarpToken = typeof WarpTokenSchema.Type
 

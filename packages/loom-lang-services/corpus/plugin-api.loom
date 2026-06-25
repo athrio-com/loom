@@ -174,11 +174,11 @@ export const defineLanguageService = (service: LanguageService): LanguageService
 
 ## The module {../src/LanguageService.ts}
 
-{{i: Imports}}
-{{s: Service}}
-{{cap: Capabilities}}
-{{c: Context}}
-{{d: Define}}
+{{i = Imports}}
+{{s = Service}}
+{{cap = Capabilities}}
+{{c = Context}}
+{{d = Define}}
 
 =>
 

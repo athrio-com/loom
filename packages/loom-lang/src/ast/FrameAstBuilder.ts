@@ -25,6 +25,8 @@ import {
   WeaveSchema,
   type EmbeddedCode,
   EmbeddedCodeSchema,
+  type ValueRef,
+  ValueRefSchema,
   type FrameAuthoredToken,
   FrameAuthoredTokenSchema,
   type FrameCode,
@@ -64,9 +66,10 @@ export const buildFrame = (
 ): FrameModule => {
   const lang = documentLanguage(doc.preamble) ?? packageLanguage ?? 'plaintext'
   const index = nameIndex(doc.sections, lang)
+  const known = knownServices(doc.sections)
   return pipe(
     doc.sections,
-    Array.map(buildMember(index, lang, modulePath)),
+    Array.map(buildMember(index, known, lang, modulePath)),
     Array.reduce(emptyFrame, appendMember),
     finaliseModule,
   )
@@ -119,7 +122,7 @@ const documentLanguage = (
   preamble
     .flatMap((w) => w.warps)
     .find((w) => w.name.value === 'lang')
-    ?.annotation.value.trim()
+    ?.annotation?.value.trim()
     .toLowerCase()
 
 const languageByExtension: ReadonlyMap<string, string> = new Map([
@@ -139,6 +142,90 @@ const extensionLanguage = (path: string): string => {
   return languageByExtension.get(ext) ?? ext
 }
 
+const isLoomSection = (section: LoomSection): boolean =>
+  section.heading.specifier?.type === 'Specifier' &&
+  section.heading.specifier.label.value === 'Loom'
+
+const importBindings = (line: string): ReadonlyArray<string> => {
+  const brace = /\{([^}]*)\}/.exec(line)
+  const named = brace
+    ? pipe(
+        brace[1].split(','),
+        Array.filterMap((part) => {
+          const m = /(?:[\w$]+\s+as\s+)?([\w$]+)/.exec(part.trim())
+          return m ? Option.some(m[1]) : Option.none()
+        }),
+      )
+    : []
+  const namespace = /\*\s+as\s+([\w$]+)/.exec(line)
+  const fallback = /import\s+(?:type\s+)?([\w$]+)\s*(?:,|from)/.exec(line)
+  return [
+    ...(fallback ? [fallback[1]] : []),
+    ...(namespace ? [namespace[1]] : []),
+    ...named,
+  ]
+}
+
+const importNamesOf = (section: LoomSection): ReadonlyArray<string> =>
+  pipe(
+    Array.filterMap(section.code, pieceOf),
+    Array.filter((p) => /^\s*import\s/.test(p.source)),
+    Array.flatMap((p) => importBindings(p.source)),
+  )
+
+const importedSymbols = (
+  sections: ReadonlyArray<LoomSection>,
+): ReadonlySet<string> =>
+  new Set(
+    Array.flatMap(sections, (s) => (isLoomSection(s) ? importNamesOf(s) : [])),
+  )
+
+const serviceNames = (
+  sections: ReadonlyArray<LoomSection>,
+): ReadonlyArray<string> => Array.map(sections, serviceNameOf)
+
+const knownServices = (
+  sections: ReadonlyArray<LoomSection>,
+): ReadonlySet<string> =>
+  new Set([...importedSymbols(sections), ...serviceNames(sections)])
+
+interface ValueWarp {
+  readonly text: string
+  readonly pos: Position
+}
+
+interface WarpScope {
+  readonly services: ReadonlySet<string>
+  readonly values: ReadonlyMap<string, ValueWarp>
+}
+
+const isIdentifier = (s: string): boolean => /^[A-Za-z_$][\w$]*$/.test(s)
+
+const scopeOf = (
+  warps: ReadonlyArray<WarpToken>,
+  known: ReadonlySet<string>,
+): WarpScope => {
+  const bound = warps.filter((w) => w.default !== undefined)
+  const isService = (w: WarpToken): boolean => {
+    const value = w.default?.value.trim() ?? ''
+    return isIdentifier(value) && known.has(value)
+  }
+  const [values, services] = Array.partition(bound, isService)
+  return {
+    services: new Set(services.map((w) => w.name.value)),
+    values: new Map(
+      Array.filterMap(values, (w) =>
+        w.default
+          ? Option.some([
+              w.name.value,
+              { text: w.default.value, pos: w.default.position },
+            ] as const)
+          : Option.none(),
+      ),
+    ),
+  }
+}
+
 interface ServiceInfo {
   readonly name: string
   readonly deps: ReadonlyArray<string>
@@ -152,30 +239,43 @@ interface Built {
 }
 
 const buildMember =
-  (index: NameIndex, lang: string, modulePath: string) =>
+  (
+    index: NameIndex,
+    known: ReadonlySet<string>,
+    lang: string,
+    modulePath: string,
+  ) =>
   (section: LoomSection): Built =>
     pipe(
       Match.value(section.heading.specifier),
       Match.when({ type: 'PathSpecifier' }, (spec) =>
-        buildService(index, lang, section, modulePath, Option.some(pathOf(spec))),
+        buildService(
+          index,
+          known,
+          lang,
+          section,
+          modulePath,
+          Option.some(pathOf(spec)),
+        ),
       ),
       Match.when({ type: 'Specifier', label: { value: 'Loom' } }, () =>
         buildSplice(section),
       ),
       Match.orElse(() =>
-        buildService(index, lang, section, modulePath, Option.none()),
+        buildService(index, known, lang, section, modulePath, Option.none()),
       ),
     )
 
 const buildService = (
   index: NameIndex,
+  known: ReadonlySet<string>,
   defaultLang: string,
   section: LoomSection,
   modulePath: string,
   tanglePath: Option.Option<FrameAuthoredToken>,
 ): Built => {
   const warps = section.preamble.flatMap((w) => w.warps)
-  const warpNames = new Set(warps.map((w) => w.name.value))
+  const scope = scopeOf(warps, known)
 
   const name = serviceNameOf(section)
   const origin: SectionId = { path: modulePath, name }
@@ -183,12 +283,13 @@ const buildService = (
 
   const { compose, internals } = buildCompose(
     section,
-    warpNames,
+    scope,
     index,
     origin,
     languageId,
   )
-  const bindings = [...warps.map(warpBinding), ...internals]
+  const serviceWarps = warps.filter((w) => scope.services.has(w.name.value))
+  const bindings = [...serviceWarps.map(warpBinding), ...internals]
 
   const nameRef = FrameSynthTokenSchema.make({ text: name })
   const service = ServiceClassSchema.make({
@@ -263,14 +364,14 @@ const buildSplice = (section: LoomSection): Built => {
 
 const buildCompose = (
   section: LoomSection,
-  warps: ReadonlySet<string>,
+  scope: WarpScope,
   index: NameIndex,
   origin: SectionId,
   languageId: string,
 ): { readonly compose: Compose; readonly internals: ReadonlyArray<Binding> } => {
   const walked = Array.map(
     codeRuns(section.code),
-    walkRun(bindAnchor(index, warps, languageId)),
+    walkRun(bindAnchor(index, scope, languageId)),
   )
   const args = Array.flatMap(walked, (w) => w.args)
   const internals = dedupeByName(Array.flatMap(walked, (w) => w.bindings))
@@ -283,7 +384,7 @@ const buildCompose = (
   return { compose, internals }
 }
 
-type ComposeArg = EmbeddedCode | CodeRef
+type ComposeArg = EmbeddedCode | CodeRef | ValueRef
 
 interface CodePiece {
   readonly source: string
@@ -425,19 +526,23 @@ interface Bound {
 }
 
 const bindAnchor =
-  (index: NameIndex, warps: ReadonlySet<string>, host: string) =>
+  (index: NameIndex, scope: WarpScope, host: string) =>
   (anchor: WarpAnchorToken): Bound => {
     const name = anchor.name.value
     const at = anchor.name.position
-    if (anchor.name.health.status !== 'ok') {
+    if (anchor.health.status !== 'ok') {
       return { ref: blankFragment(anchor.position), binding: Option.none() }
     }
-    if (warps.has(name)) {
+    const value = scope.values.get(name)
+    if (value !== undefined) {
+      return { ref: valueRef(value, at), binding: Option.none() }
+    }
+    if (scope.services.has(name)) {
       return { ref: codeRef('referTag', name, at), binding: Option.none() }
     }
     return Array.matchLeft(index.get(name) ?? [], {
       onEmpty: () => ({
-        ref: codeRef('referName', name, at, unresolved(name, at)),
+        ref: blankFragment(anchor.position, unresolved(name, at)),
         binding: Option.none(),
       }),
       onNonEmpty: (entry, rest) =>
@@ -454,7 +559,7 @@ const bindAnchor =
               binding: Option.some(nameBinding(entry.name, entry.pos)),
             }
           : {
-              ref: codeRef('referName', name, at, ambiguous(name, at, rest.length + 1)),
+              ref: blankFragment(anchor.position, ambiguous(name, at, rest.length + 1)),
               binding: Option.none(),
             },
     })
@@ -472,11 +577,18 @@ const codeRef = (
     anchor: tok(posLiteral(at)),
   })
 
-const blankFragment = (at: Position): EmbeddedCode =>
+const blankFragment = (at: Position, health: Health = okHealth): EmbeddedCode =>
   EmbeddedCodeSchema.make({
     text: '',
     position: at,
     origin: tok(posLiteral(at)),
+    health,
+  })
+
+const valueRef = (value: ValueWarp, at: Position): ValueRef =>
+  ValueRefSchema.make({
+    value: id(value.text, value.pos),
+    anchor: tok(posLiteral(at)),
   })
 
 const aliasOf = (service: string): string => `_${service}`
@@ -490,7 +602,9 @@ const nameBinding = (service: string, headingPos: Position): Binding =>
 const warpBinding = (warp: WarpToken): Binding =>
   BindingSchema.make({
     name: id(warp.name.value, warp.name.position),
-    tag: id(warp.annotation.value.trim(), warp.annotation.position),
+    tag: warp.default
+      ? id(warp.default.value.trim(), warp.default.position)
+      : tok(''),
   })
 
 const unresolved = (name: string, at: Position): Health =>

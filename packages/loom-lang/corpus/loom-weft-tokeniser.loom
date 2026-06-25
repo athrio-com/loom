@@ -609,7 +609,7 @@ const pairWarpDelims = (
 
 ## Warp content
 
-A warp's content is `name [: annotation [= default]]`. `sliceTop` cuts at the first top-level `,` or `;`, tracking bracket depth, since a warp declares one parameter; `trimSpan` trims whitespace and reports the trimmed span. `buildWarpName` mirrors the label builders. `buildOpaqueSegment` produces the opaque annotation and default tokens, flagging an empty value and returning any trailing content as `unexpected`.
+A warp's content is `name [: type] = value`. `sliceTop` cuts at the first top-level `,` or `;`, tracking bracket depth, since a warp declares one binding; `trimSpan` trims whitespace and reports the trimmed span. `buildWarpName` mirrors the label builders. `buildOpaqueSegment` produces the opaque annotation and default tokens, flagging an empty value and returning any trailing content as `unexpected`.
 
 =>
 
@@ -739,23 +739,62 @@ const buildWarpDefault = (raw: string, rawStart: number, line: number) =>
 
 ## Building a warp
 
-`buildWarp` splits a warp's content on `:`, then on `=`. With no `:`, the whole content is the name and a zero-width error-health annotation is synthesised, since the annotation is required. `assembleWarp` gathers the parts, aggregates their health, and attaches any extras.
+`buildWarp` reads a warp's content as `name [: type] = value`. It splits on the binding `=` first — the value is what a Warp binds — then splits the part before it on `:` to separate the name from an optional type. `findAssign` finds that binding `=`: the first one that is a plain assignment, never part of `=>`, `==`, `>=`, `<=`, or `!=`, so a value that holds those operators is read whole. A Warp with no value binds nothing, so `buildWarp` faults it with `MissingWarpValue` — except for the reserved `lang` warp, which names the document's language and binds no value. `splitDecl` separates the name from its optional type, and `assembleWarp` gathers the parts, aggregates their health, and carries the missing-value fault and any extras.
 
 =>
 
-const synthMissingAnnotation = (position: Position): WarpAnnotationToken =>
-  WarpAnnotationTokenSchema.make({
-    type: 'WarpAnnotation',
-    position,
-    source: '',
-    health: faulty(MissingWarpAnnotation(), position),
-    value: '',
-  })
+const findAssign = (s: string): Option.Option<number> => {
+  const isCompound = (i: number): boolean => {
+    const prev = s[i - 1]
+    const next = s[i + 1]
+    return (
+      prev === '=' ||
+      prev === '!' ||
+      prev === '<' ||
+      prev === '>' ||
+      next === '=' ||
+      next === '>'
+    )
+  }
+  const idx = [...s].findIndex((c, i) => c === '=' && !isCompound(i))
+  return idx < 0 ? Option.none() : Option.some(idx)
+}
 
 const findChar = (s: string, c: string): Option.Option<number> => {
   const idx = s.indexOf(c)
   return idx < 0 ? Option.none() : Option.some(idx)
 }
+
+interface WarpDecl {
+  readonly name: WarpNameToken
+  readonly annotation: WarpAnnotationToken | undefined
+  readonly extras: ReadonlyArray<UnexpectedToken>
+}
+
+const splitDecl = (decl: string, declStart: number, line: number): WarpDecl =>
+  Option.match(findChar(decl, ':'), {
+    onNone: () => {
+      const n = trimSpan(decl, declStart)
+      return {
+        name: buildWarpName(n.value, span(line, n.start, n.end)),
+        annotation: undefined,
+        extras: [],
+      }
+    },
+    onSome: (colonIdx) => {
+      const n = trimSpan(decl.slice(0, colonIdx), declStart)
+      const { token: annotation, extras } = buildWarpAnnotation(
+        decl.slice(colonIdx + 1),
+        declStart + colonIdx + 1,
+        line,
+      )
+      return {
+        name: buildWarpName(n.value, span(line, n.start, n.end)),
+        annotation,
+        extras,
+      }
+    },
+  })
 
 const buildWarp = (
   open: WarpOpenToken,
@@ -775,82 +814,52 @@ const buildWarp = (
     open.position.start.offset - lineStart,
     close.position.end.offset - lineStart,
   )
+  const warpPos = span(
+    line,
+    open.position.start.offset,
+    close.position.end.offset,
+  )
 
-  return Option.match(findChar(content, ':'), {
-    onNone: () => {
-      const nameSpan = trimSpan(content, contentStart)
-      const name = buildWarpName(
-        nameSpan.value,
-        span(line, nameSpan.start, nameSpan.end),
+  return Option.match(findAssign(content), {
+    onSome: (eqIdx) => {
+      const { name, annotation, extras } = splitDecl(
+        content.slice(0, eqIdx),
+        contentStart,
+        line,
       )
-      const annotation = synthMissingAnnotation(
-        span(line, contentEnd, contentEnd),
+      const { token: defaultToken, extras: defExtras } = buildWarpDefault(
+        content.slice(eqIdx + 1),
+        contentStart + eqIdx + 1,
+        line,
       )
       return assembleWarp(
         open,
         close,
         name,
         annotation,
-        undefined,
-        [],
+        defaultToken,
+        [...extras, ...defExtras],
         line,
         warpSource,
       )
     },
-    onSome: (colonIdx) => {
-      const nameRaw = content.slice(0, colonIdx)
-      const restRaw = content.slice(colonIdx + 1)
-      const restStart = contentStart + colonIdx + 1
-      const nameSpanned = trimSpan(nameRaw, contentStart)
-      const name = buildWarpName(
-        nameSpanned.value,
-        span(line, nameSpanned.start, nameSpanned.end),
+    onNone: () => {
+      const { name, annotation, extras } = splitDecl(content, contentStart, line)
+      const own =
+        name.health.status === 'ok' && name.value !== 'lang'
+          ? faulty(MissingWarpValue({ name: name.value }), warpPos)
+          : okHealth
+      return assembleWarp(
+        open,
+        close,
+        name,
+        annotation,
+        undefined,
+        extras,
+        line,
+        warpSource,
+        own,
       )
-
-      return Option.match(findChar(restRaw, '='), {
-        onNone: () => {
-          const { token: annotation, extras } = buildWarpAnnotation(
-            restRaw,
-            restStart,
-            line,
-          )
-          return assembleWarp(
-            open,
-            close,
-            name,
-            annotation,
-            undefined,
-            extras,
-            line,
-            warpSource,
-          )
-        },
-        onSome: (eqIdx) => {
-          const annotationRaw = restRaw.slice(0, eqIdx)
-          const defaultRaw = restRaw.slice(eqIdx + 1)
-          const defaultStart = restStart + eqIdx + 1
-          const { token: annotation, extras: annoExtras } = buildWarpAnnotation(
-            annotationRaw,
-            restStart,
-            line,
-          )
-          const { token: defaultToken, extras: defExtras } = buildWarpDefault(
-            defaultRaw,
-            defaultStart,
-            line,
-          )
-          return assembleWarp(
-            open,
-            close,
-            name,
-            annotation,
-            defaultToken,
-            [...annoExtras, ...defExtras],
-            line,
-            warpSource,
-          )
-        },
-      })
     },
   })
 }
@@ -859,28 +868,30 @@ const assembleWarp = (
   open: WarpOpenToken,
   close: WarpCloseToken,
   name: WarpNameToken,
-  annotation: WarpAnnotationToken,
+  annotation: WarpAnnotationToken | undefined,
   defaultToken: WarpDefaultToken | undefined,
   extras: ReadonlyArray<UnexpectedToken>,
   line: number,
   source: string,
+  own: Health = okHealth,
 ): WarpToken => {
   const subStatuses = [
     open.health.status,
     name.health.status,
-    annotation.health.status,
+    ...(annotation ? [annotation.health.status] : []),
     ...(defaultToken ? [defaultToken.health.status] : []),
     close.health.status,
   ]
   const status = aggregateStatus([
     ...subStatuses,
     ...extras.map(() => 'error' as const),
+    own.status,
   ])
   return WarpTokenSchema.make({
     type: 'Warp',
     position: span(line, open.position.start.offset, close.position.end.offset),
     source,
-    health: { status, diagnostics: [] },
+    health: { status, diagnostics: own.diagnostics },
     unexpected: extras.length > 0 ? extras : undefined,
     open,
     name,
@@ -1329,7 +1340,7 @@ import {
   EmptyLabel,
   faulty,
   MalformedLabel,
-  MissingWarpAnnotation,
+  MissingWarpValue,
   UnclosedDelimiter,
   type EmptyConstruct,
   type MalformedConstruct,

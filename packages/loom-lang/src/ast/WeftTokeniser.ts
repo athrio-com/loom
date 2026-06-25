@@ -67,7 +67,7 @@ import {
   EmptyLabel,
   faulty,
   MalformedLabel,
-  MissingWarpAnnotation,
+  MissingWarpValue,
   UnclosedDelimiter,
   type EmptyConstruct,
   type MalformedConstruct,
@@ -773,19 +773,58 @@ const buildWarpDefault = (raw: string, rawStart: number, line: number) =>
     line,
   )
 
-const synthMissingAnnotation = (position: Position): WarpAnnotationToken =>
-  WarpAnnotationTokenSchema.make({
-    type: 'WarpAnnotation',
-    position,
-    source: '',
-    health: faulty(MissingWarpAnnotation(), position),
-    value: '',
-  })
+const findAssign = (s: string): Option.Option<number> => {
+  const isCompound = (i: number): boolean => {
+    const prev = s[i - 1]
+    const next = s[i + 1]
+    return (
+      prev === '=' ||
+      prev === '!' ||
+      prev === '<' ||
+      prev === '>' ||
+      next === '=' ||
+      next === '>'
+    )
+  }
+  const idx = [...s].findIndex((c, i) => c === '=' && !isCompound(i))
+  return idx < 0 ? Option.none() : Option.some(idx)
+}
 
 const findChar = (s: string, c: string): Option.Option<number> => {
   const idx = s.indexOf(c)
   return idx < 0 ? Option.none() : Option.some(idx)
 }
+
+interface WarpDecl {
+  readonly name: WarpNameToken
+  readonly annotation: WarpAnnotationToken | undefined
+  readonly extras: ReadonlyArray<UnexpectedToken>
+}
+
+const splitDecl = (decl: string, declStart: number, line: number): WarpDecl =>
+  Option.match(findChar(decl, ':'), {
+    onNone: () => {
+      const n = trimSpan(decl, declStart)
+      return {
+        name: buildWarpName(n.value, span(line, n.start, n.end)),
+        annotation: undefined,
+        extras: [],
+      }
+    },
+    onSome: (colonIdx) => {
+      const n = trimSpan(decl.slice(0, colonIdx), declStart)
+      const { token: annotation, extras } = buildWarpAnnotation(
+        decl.slice(colonIdx + 1),
+        declStart + colonIdx + 1,
+        line,
+      )
+      return {
+        name: buildWarpName(n.value, span(line, n.start, n.end)),
+        annotation,
+        extras,
+      }
+    },
+  })
 
 const buildWarp = (
   open: WarpOpenToken,
@@ -805,82 +844,52 @@ const buildWarp = (
     open.position.start.offset - lineStart,
     close.position.end.offset - lineStart,
   )
+  const warpPos = span(
+    line,
+    open.position.start.offset,
+    close.position.end.offset,
+  )
 
-  return Option.match(findChar(content, ':'), {
-    onNone: () => {
-      const nameSpan = trimSpan(content, contentStart)
-      const name = buildWarpName(
-        nameSpan.value,
-        span(line, nameSpan.start, nameSpan.end),
+  return Option.match(findAssign(content), {
+    onSome: (eqIdx) => {
+      const { name, annotation, extras } = splitDecl(
+        content.slice(0, eqIdx),
+        contentStart,
+        line,
       )
-      const annotation = synthMissingAnnotation(
-        span(line, contentEnd, contentEnd),
+      const { token: defaultToken, extras: defExtras } = buildWarpDefault(
+        content.slice(eqIdx + 1),
+        contentStart + eqIdx + 1,
+        line,
       )
       return assembleWarp(
         open,
         close,
         name,
         annotation,
-        undefined,
-        [],
+        defaultToken,
+        [...extras, ...defExtras],
         line,
         warpSource,
       )
     },
-    onSome: (colonIdx) => {
-      const nameRaw = content.slice(0, colonIdx)
-      const restRaw = content.slice(colonIdx + 1)
-      const restStart = contentStart + colonIdx + 1
-      const nameSpanned = trimSpan(nameRaw, contentStart)
-      const name = buildWarpName(
-        nameSpanned.value,
-        span(line, nameSpanned.start, nameSpanned.end),
+    onNone: () => {
+      const { name, annotation, extras } = splitDecl(content, contentStart, line)
+      const own =
+        name.health.status === 'ok' && name.value !== 'lang'
+          ? faulty(MissingWarpValue({ name: name.value }), warpPos)
+          : okHealth
+      return assembleWarp(
+        open,
+        close,
+        name,
+        annotation,
+        undefined,
+        extras,
+        line,
+        warpSource,
+        own,
       )
-
-      return Option.match(findChar(restRaw, '='), {
-        onNone: () => {
-          const { token: annotation, extras } = buildWarpAnnotation(
-            restRaw,
-            restStart,
-            line,
-          )
-          return assembleWarp(
-            open,
-            close,
-            name,
-            annotation,
-            undefined,
-            extras,
-            line,
-            warpSource,
-          )
-        },
-        onSome: (eqIdx) => {
-          const annotationRaw = restRaw.slice(0, eqIdx)
-          const defaultRaw = restRaw.slice(eqIdx + 1)
-          const defaultStart = restStart + eqIdx + 1
-          const { token: annotation, extras: annoExtras } = buildWarpAnnotation(
-            annotationRaw,
-            restStart,
-            line,
-          )
-          const { token: defaultToken, extras: defExtras } = buildWarpDefault(
-            defaultRaw,
-            defaultStart,
-            line,
-          )
-          return assembleWarp(
-            open,
-            close,
-            name,
-            annotation,
-            defaultToken,
-            [...annoExtras, ...defExtras],
-            line,
-            warpSource,
-          )
-        },
-      })
     },
   })
 }
@@ -889,28 +898,30 @@ const assembleWarp = (
   open: WarpOpenToken,
   close: WarpCloseToken,
   name: WarpNameToken,
-  annotation: WarpAnnotationToken,
+  annotation: WarpAnnotationToken | undefined,
   defaultToken: WarpDefaultToken | undefined,
   extras: ReadonlyArray<UnexpectedToken>,
   line: number,
   source: string,
+  own: Health = okHealth,
 ): WarpToken => {
   const subStatuses = [
     open.health.status,
     name.health.status,
-    annotation.health.status,
+    ...(annotation ? [annotation.health.status] : []),
     ...(defaultToken ? [defaultToken.health.status] : []),
     close.health.status,
   ]
   const status = aggregateStatus([
     ...subStatuses,
     ...extras.map(() => 'error' as const),
+    own.status,
   ])
   return WarpTokenSchema.make({
     type: 'Warp',
     position: span(line, open.position.start.offset, close.position.end.offset),
     source,
-    health: { status, diagnostics: [] },
+    health: { status, diagnostics: own.diagnostics },
     unexpected: extras.length > 0 ? extras : undefined,
     open,
     name,

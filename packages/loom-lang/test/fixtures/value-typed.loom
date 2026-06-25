@@ -1,0 +1,9 @@
+{{lang: TypeScript}}
+
+# Host [Host]
+
+{{port = 8080}}
+
+=>
+
+export const host: string = ::[port]

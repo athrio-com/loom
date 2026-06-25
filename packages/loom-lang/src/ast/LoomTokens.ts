@@ -222,11 +222,11 @@ export type WarpAnchorToken = typeof WarpAnchorTokenSchema.Type
 export const WarpTokenSchema = loomNode('Warp', {
   open: WarpOpenTokenSchema,
   name: WarpNameTokenSchema,
-  annotation: WarpAnnotationTokenSchema,
+  annotation: Schema.optional(WarpAnnotationTokenSchema),
   default: Schema.optional(WarpDefaultTokenSchema),
   close: WarpCloseTokenSchema,
 }).annotations({
-  [Probe]: /\{\{[^{}]*:[^{}]*\}\}/g,
+  [Probe]: /\{\{[^{}]*\}\}/g,
 })
 export type WarpToken = typeof WarpTokenSchema.Type
 
