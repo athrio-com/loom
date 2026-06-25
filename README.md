@@ -19,7 +19,7 @@
 </div>
 
 > [!NOTE]
-> **Loom is a work in progress, not an experiment.** The parser, the frame, and
+> **Loom is a work in progress.** The parser, the frame, and
 > the `loom` command-line tool work today; the editor language and the
 > multi-language support are landing now. We are aiming for a first public
 > release by the end of summer 2026. Until then, the syntax and the tangled
