@@ -75,6 +75,9 @@ importers:
       '@athrio/loom-lang':
         specifier: workspace:*
         version: link:../loom-lang
+      '@athrio/loom-lang-services':
+        specifier: workspace:*
+        version: link:../loom-lang-services
       '@effect/cli':
         specifier: ^0.75.2
         version: 0.75.2(@effect/platform@0.96.1(effect@3.21.2))(@effect/printer-ansi@0.49.0(@effect/typeclass@0.40.0(effect@3.21.2))(effect@3.21.2))(@effect/printer@0.49.0(@effect/typeclass@0.40.0(effect@3.21.2))(effect@3.21.2))(effect@3.21.2)

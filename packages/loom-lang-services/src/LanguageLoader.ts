@@ -1,33 +1,17 @@
 import { Array, Effect, Option, pipe } from 'effect'
-import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { servicePackage, storeDir } from './LoomStore'
 import { isLanguageService, type LanguageService } from './LanguageService'
 import { LoomLanguage } from './LoomLanguage'
-
-const servicePackage = (id: string): string => `@athrio/loom-service-${id}`
-
-const userStore = (): string =>
-  join(process.env.LOOM_HOME ?? join(homedir(), '.loom'), 'services')
-
-const storeFor = (root: string): string => {
-  const seek = (dir: string): string | undefined => {
-    const local = join(dir, '.loom', 'services')
-    if (existsSync(local)) return local
-    const parent = dirname(dir)
-    return parent === dir ? undefined : seek(parent)
-  }
-  return seek(dirname(root)) ?? userStore()
-}
 
 const loadService = (
   id: string,
   root: string,
 ): Effect.Effect<Option.Option<LanguageService>> =>
   Effect.tryPromise(async () => {
-    const from = join(storeFor(root), 'index.js')
+    const from = join(storeDir(dirname(root)), 'index.js')
     const entry = createRequire(from).resolve(servicePackage(id))
     const loaded = (await import(pathToFileURL(entry).href)) as {
       readonly default?: unknown
@@ -43,7 +27,7 @@ const loadService = (
     ),
     Effect.catchAll(() =>
       Effect.logWarning(
-        `language "${id}" is activated but ${servicePackage(id)} is not installed — run \`loom activate ${id}\``,
+        `language "${id}" is activated but ${servicePackage(id)} is not installed — run \`loom add ${id}\``,
       ).pipe(Effect.as(Option.none<LanguageService>())),
     ),
   )

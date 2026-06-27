@@ -8,6 +8,7 @@
     "./LanguageService": "./src/LanguageService.ts",
     "./LanguageRegistry": "./src/LanguageRegistry.ts",
     "./LanguageLoader": "./src/LanguageLoader.ts",
+    "./LoomStore": "./src/LoomStore.ts",
     "./LoomLanguage": "./src/LoomLanguage.ts"
   },
   "dependencies": {

@@ -30,6 +30,7 @@
   "devDependencies": {
     "@athrio/loom-config": "workspace:*",
     "@athrio/loom-lang": "workspace:*",
+    "@athrio/loom-lang-services": "workspace:*",
     "@effect/cli": "^0.75.2",
     "@effect/platform-node": "^0.106.0",
     "effect": "3.21.2",

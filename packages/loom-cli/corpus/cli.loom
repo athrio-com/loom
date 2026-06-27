@@ -2,7 +2,7 @@
 
 # The Loom CLI
 
-The `@athrio/loom-cli` package is the command-line tool for Loom — it tangles `.loom` files into source and scaffolds a package's configuration — and it is itself written in Loom.
+The `@athrio/loom-cli` package is the command-line tool for Loom: it tangles `.loom` files into source, scaffolds a package's configuration, and activates the language services a package uses. The tool is itself written in Loom.
 
 ## The wordmark
 
@@ -105,9 +105,96 @@ const init = (dir: Option.Option<string>) =>
     Effect.catchTag('QuitException', () => Console.log(dim('\n   Cancelled.\n'))),
   )
 
+## Activating a language
+
+`loom add <language>` turns a language on: it installs that language's service into the store and records the language among the package's activated set. `loom remove <language>` turns it off, taking the service out of the store and the id out of the config.
+
+The install runs only when the store lacks the service, so re-adding an installed language just records it, with no package manager and no network. An install that fails leaves with the reason and a non-zero exit, the config untouched, because a language whose service never arrived must not read as activated.
+
+Both commands record the change the same way. `updateLanguages` reads the package's current `loom.json`, rewrites its activated set, and writes it back. It keeps the primary language, the anchor, and the per-language settings the file already holds, so turning a language on or off changes only the list of languages.
+
+=>
+
+const updateLanguages = (
+  config: LoomConfig,
+  dir: string,
+  change: (ids: ReadonlyArray<string>) => ReadonlyArray<string>,
+): Effect.Effect<void> =>
+  config.resolve(resolvePath(dir, configFileName)).pipe(
+    Effect.flatMap((current) => {
+      const file: LoomConfigFile = {
+        languages: change(current.languages),
+        ...(current.primary !== undefined ? { primary: current.primary } : {}),
+        ...(current.anchor ? { anchor: current.anchor } : {}),
+        ...(Object.keys(current.settings).length > 0
+          ? { settings: current.settings }
+          : {}),
+      }
+      return config.write(dir, file)
+    }),
+  )
+
+const add = (language: string) =>
+  Effect.gen(function* () {
+    const config = yield* LoomConfig
+    const dir = process.cwd()
+    yield* addService(language, dir)
+    yield* updateLanguages(config, dir, (ids) => [
+      ...new Set([...ids, language]),
+    ])
+    yield* Console.log(
+      `\n   ${teal('✓')} activated ${language}\n` +
+        `   ${dim(`store: ${storeDir(dir)}`)}\n`,
+    )
+  }).pipe(
+    Effect.catchTag('StoreError', (error) =>
+      Console.error(
+        `loom: could not install ${servicePackage(error.id)} — ${String(error.cause)}`,
+      ).pipe(Effect.zipRight(Effect.sync(() => void (process.exitCode = 1)))),
+    ),
+  )
+
+const remove = (language: string) =>
+  Effect.gen(function* () {
+    const config = yield* LoomConfig
+    const dir = process.cwd()
+    yield* removeService(language, dir)
+    yield* updateLanguages(config, dir, (ids) =>
+      ids.filter((id) => id !== language),
+    )
+    yield* Console.log(`\n   ${teal('✓')} removed ${language}\n`)
+  })
+
+## Reporting the workspace
+
+`loom status` shows the state of activation at a glance: where the store sits, the primary language a specifier-less section inherits, and the activated languages. Beside each activated language it marks whether the service is installed — a filled dot when the store holds it, a hollow one and the `loom add` that would fix it when the store does not.
+
+=>
+
+const status = Effect.gen(function* () {
+  const config = yield* LoomConfig
+  const dir = process.cwd()
+  const { primary, languages } = yield* config.resolve(
+    resolvePath(dir, configFileName),
+  )
+  const installed = new Set(yield* installedServices(dir))
+  const mark = (id: string): string =>
+    installed.has(id)
+      ? `   ${teal('●')} ${id}`
+      : `   ${dim('○')} ${id}${dim(`  — run \`loom add ${id}\``)}`
+  yield* Console.log(
+    `\n   ${dim('store')}      ${storeDir(dir)}\n` +
+      `   ${dim('primary')}    ${primary ?? dim('(none)')}\n` +
+      `   ${dim('activated')}  ${
+        languages.length === 0 ? dim('(none)') : languages.join(', ')
+      }\n`,
+  )
+  if (languages.length > 0) yield* Console.log(`${languages.map(mark).join('\n')}\n`)
+})
+
 ## Where the world ends
 
-The CLI is three commands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them. `loom init [dir]` scaffolds a `loom.json`, defaulting to the working directory. `loom lsp --stdio` starts the language server for any editor. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the package config, the configuration writer, and the Node platform behind the prompts and the filesystem.
+The CLI is six commands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them. `loom init [dir]` scaffolds a `loom.json`, defaulting to the working directory. `loom add <language>` and `loom remove <language>` turn a language's service on and off. `loom status` reports what the package has activated and what the store holds. `loom lsp --stdio` starts the language server for any editor. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the package config, the configuration writer, and the Node platform behind the prompts and the filesystem.
 
 The `lsp` branch sits outside the command program. It loads the server lazily, so a plain `tangle` never pays to bundle Volar, and the server runs on its own Node runtime rather than nesting one inside a command. Volar is CommonJS and calls `require` at runtime for Node's built-ins; this bundle is an ES module, where `require` is absent, so before loading the server the branch exposes one through `createRequire` on `globalThis` — the shim Volar's bundled code reaches for. The cost lands only on the `lsp` path.
 
@@ -125,8 +212,28 @@ const initCommand = Command.make(
   ({ dir }) => init(dir),
 )
 
+const addCommand = Command.make(
+  'add',
+  { language: Args.text({ name: 'language' }) },
+  ({ language }) => add(language),
+)
+
+const removeCommand = Command.make(
+  'remove',
+  { language: Args.text({ name: 'language' }) },
+  ({ language }) => remove(language),
+)
+
+const statusCommand = Command.make('status', {}, () => status)
+
 const loom = Command.make('loom').pipe(
-  Command.withSubcommands([tangleCommand, initCommand]),
+  Command.withSubcommands([
+    tangleCommand,
+    initCommand,
+    addCommand,
+    removeCommand,
+    statusCommand,
+  ]),
 )
 
 const program = Command.run(loom, {
@@ -151,7 +258,7 @@ if (process.argv[2] === 'lsp') {
 
 ## What the program needs
 
-The program is built on Effect, a functional TypeScript library for composing and running effectful programs. `@effect/cli` parses the command line and drives the interactive prompts, and the Node platform supplies the runtime, the terminal, and filesystem access. The language server contributes two services: `LoomTangler`, which walks a `.loom` file and emits the tangled output, and `DocumentSource`, which feeds it source text from disk. From `@athrio/loom-config` comes `LoomConfig`, which writes a package's `loom.json`.
+The program is built on Effect, a functional TypeScript library for composing and running effectful programs. `@effect/cli` parses the command line and drives the interactive prompts, and the Node platform supplies the runtime, the terminal, and filesystem access. The language server contributes three services: `LoomTangler`, which walks a `.loom` file and emits the tangled output; `DocumentSource`, which feeds it source text from disk; and `PackageConfig`, which resolves a `.loom`'s package settings. From `@athrio/loom-config` comes `LoomConfig`, which reads and writes a package's `loom.json`, with `configFileName` naming that file and `LoomConfigFile` typing its contents. From `@athrio/loom-lang-services` come the store operations behind activation: `addService` and `removeService` install and uninstall a language's package, `installedServices` lists what the store holds, `storeDir` locates it, and `servicePackage` names a language's package.
 
 =>
 
@@ -163,7 +270,18 @@ import { resolve as resolvePath } from 'node:path'
 import { DocumentSource } from '@athrio/loom-lang/LoomCompiler'
 import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
 import { PackageConfig } from '@athrio/loom-lang/PackageConfig'
-import { LoomConfig } from '@athrio/loom-config/LoomConfig'
+import {
+  LoomConfig,
+  configFileName,
+  type LoomConfigFile,
+} from '@athrio/loom-config/LoomConfig'
+import {
+  addService,
+  installedServices,
+  removeService,
+  servicePackage,
+  storeDir,
+} from '@athrio/loom-lang-services/LoomStore'
 
 ## The program {../src/main.ts}
 
@@ -176,5 +294,9 @@ import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 ::[Tangling a file]
 
 ::[Scaffolding a package]
+
+::[Activating a language]
+
+::[Reporting the workspace]
 
 ::[Where the world ends]

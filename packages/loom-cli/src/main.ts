@@ -6,7 +6,18 @@ import { resolve as resolvePath } from 'node:path'
 import { DocumentSource } from '@athrio/loom-lang/LoomCompiler'
 import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
 import { PackageConfig } from '@athrio/loom-lang/PackageConfig'
-import { LoomConfig } from '@athrio/loom-config/LoomConfig'
+import {
+  LoomConfig,
+  configFileName,
+  type LoomConfigFile,
+} from '@athrio/loom-config/LoomConfig'
+import {
+  addService,
+  installedServices,
+  removeService,
+  servicePackage,
+  storeDir,
+} from '@athrio/loom-lang-services/LoomStore'
 
 const reset = '\x1b[0m'
 const teal = (s: string): string => `\x1b[38;5;44m${s}${reset}`
@@ -89,6 +100,77 @@ const init = (dir: Option.Option<string>) =>
     Effect.catchTag('QuitException', () => Console.log(dim('\n   Cancelled.\n'))),
   )
 
+const updateLanguages = (
+  config: LoomConfig,
+  dir: string,
+  change: (ids: ReadonlyArray<string>) => ReadonlyArray<string>,
+): Effect.Effect<void> =>
+  config.resolve(resolvePath(dir, configFileName)).pipe(
+    Effect.flatMap((current) => {
+      const file: LoomConfigFile = {
+        languages: change(current.languages),
+        ...(current.primary !== undefined ? { primary: current.primary } : {}),
+        ...(current.anchor ? { anchor: current.anchor } : {}),
+        ...(Object.keys(current.settings).length > 0
+          ? { settings: current.settings }
+          : {}),
+      }
+      return config.write(dir, file)
+    }),
+  )
+
+const add = (language: string) =>
+  Effect.gen(function* () {
+    const config = yield* LoomConfig
+    const dir = process.cwd()
+    yield* addService(language, dir)
+    yield* updateLanguages(config, dir, (ids) => [
+      ...new Set([...ids, language]),
+    ])
+    yield* Console.log(
+      `\n   ${teal('✓')} activated ${language}\n` +
+        `   ${dim(`store: ${storeDir(dir)}`)}\n`,
+    )
+  }).pipe(
+    Effect.catchTag('StoreError', (error) =>
+      Console.error(
+        `loom: could not install ${servicePackage(error.id)} — ${String(error.cause)}`,
+      ).pipe(Effect.zipRight(Effect.sync(() => void (process.exitCode = 1)))),
+    ),
+  )
+
+const remove = (language: string) =>
+  Effect.gen(function* () {
+    const config = yield* LoomConfig
+    const dir = process.cwd()
+    yield* removeService(language, dir)
+    yield* updateLanguages(config, dir, (ids) =>
+      ids.filter((id) => id !== language),
+    )
+    yield* Console.log(`\n   ${teal('✓')} removed ${language}\n`)
+  })
+
+const status = Effect.gen(function* () {
+  const config = yield* LoomConfig
+  const dir = process.cwd()
+  const { primary, languages } = yield* config.resolve(
+    resolvePath(dir, configFileName),
+  )
+  const installed = new Set(yield* installedServices(dir))
+  const mark = (id: string): string =>
+    installed.has(id)
+      ? `   ${teal('●')} ${id}`
+      : `   ${dim('○')} ${id}${dim(`  — run \`loom add ${id}\``)}`
+  yield* Console.log(
+    `\n   ${dim('store')}      ${storeDir(dir)}\n` +
+      `   ${dim('primary')}    ${primary ?? dim('(none)')}\n` +
+      `   ${dim('activated')}  ${
+        languages.length === 0 ? dim('(none)') : languages.join(', ')
+      }\n`,
+  )
+  if (languages.length > 0) yield* Console.log(`${languages.map(mark).join('\n')}\n`)
+})
+
 const tangleCommand = Command.make(
   'tangle',
   { path: Args.text({ name: 'path' }) },
@@ -101,8 +183,28 @@ const initCommand = Command.make(
   ({ dir }) => init(dir),
 )
 
+const addCommand = Command.make(
+  'add',
+  { language: Args.text({ name: 'language' }) },
+  ({ language }) => add(language),
+)
+
+const removeCommand = Command.make(
+  'remove',
+  { language: Args.text({ name: 'language' }) },
+  ({ language }) => remove(language),
+)
+
+const statusCommand = Command.make('status', {}, () => status)
+
 const loom = Command.make('loom').pipe(
-  Command.withSubcommands([tangleCommand, initCommand]),
+  Command.withSubcommands([
+    tangleCommand,
+    initCommand,
+    addCommand,
+    removeCommand,
+    statusCommand,
+  ]),
 )
 
 const program = Command.run(loom, {
