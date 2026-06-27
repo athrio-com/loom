@@ -9,7 +9,6 @@ import { Array, Effect, Layer, Option, pipe, Runtime } from 'effect'
 import { readFileSync } from 'node:fs'
 import type * as ts from 'typescript'
 import { URI } from 'vscode-uri'
-import { moduleDiagnostics } from '#ast/LoomCorpusAst'
 import { ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import { LoomCompiler, stringSnapshot } from './LoomCompiler'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
@@ -24,7 +23,7 @@ import {
   LanguageRegistry,
 } from '@athrio/loom-lang-services/LanguageRegistry'
 import { LoomLanguage } from '@athrio/loom-lang-services/LoomLanguage'
-import { TypescriptLanguage } from '@athrio/loom-lang-services/TypescriptLanguage'
+import { TypescriptService } from '@athrio/loom-service-typescript/TypescriptService'
 
 const editorSource = (
   uri: URI,
@@ -45,13 +44,10 @@ const associate = (
   ctx: CodegenContext<URI>,
   entry: string,
 ): Effect.Effect<void> =>
-  compiler.corpus(entry).pipe(
-    Effect.flatMap((corpus) =>
+  compiler.reach(entry).pipe(
+    Effect.flatMap((deps) =>
       Effect.forEach(
-        pipe(
-          Array.fromIterable(corpus.modules.keys()),
-          Array.filter((dep) => dep !== entry),
-        ),
+        deps,
         (dep) => Effect.sync(() => ctx.getAssociatedScript(URI.file(dep))),
         { discard: true },
       ),
@@ -68,13 +64,9 @@ const projectIsolated = (
   snapshot: ts.IScriptSnapshot,
   ctx: CodegenContext<URI>,
 ): Effect.Effect<VirtualCode> =>
-  compiler.virtualCode(editorSource(uri, snapshot), uri.fsPath).pipe(
+  compiler.compile(editorSource(uri, snapshot), uri.fsPath).pipe(
     Effect.tap(() => associate(compiler, ctx, uri.fsPath)),
-    Effect.flatMap((tree) =>
-      compiler
-        .roots(uri.fsPath)
-        .pipe(Effect.map((roots) => isolateRoots(roots, tree))),
-    ),
+    Effect.map((tree) => isolateRoots(tree)),
   )
 
 export const loomLanguagePlugin = (
@@ -96,7 +88,7 @@ export const loomLanguagePlugin = (
       LoomCompiler.pipe(
         Effect.flatMap((compiler) =>
           (changed(previous, snapshot)
-            ? Effect.asVoid(compiler.change(uri.fsPath))
+            ? Effect.asVoid(compiler.invalidate(uri.fsPath))
             : Effect.void
           ).pipe(Effect.zipRight(projectIsolated(compiler, uri, snapshot, ctx))),
         ),
@@ -112,87 +104,33 @@ export const loomLanguagePlugin = (
         ? { code: frame, extension: '.ts', scriptKind: 3 as ts.ScriptKind }
         : undefined
     },
-    getExtraServiceScripts: (fileName, root) =>
-      extraProductScripts(runtime, fileName, root),
   },
 })
 
-const tsScriptKinds: ReadonlyMap<
-  string,
-  { readonly extension: string; readonly scriptKind: ts.ScriptKind }
-> = new Map([
-  ['typescript', { extension: '.ts', scriptKind: 3 as ts.ScriptKind }],
-  ['tsx', { extension: '.tsx', scriptKind: 4 as ts.ScriptKind }],
-  ['javascript', { extension: '.js', scriptKind: 1 as ts.ScriptKind }],
-  ['jsx', { extension: '.jsx', scriptKind: 2 as ts.ScriptKind }],
+const tsLanguages: ReadonlySet<string> = new Set([
+  'typescript',
+  'tsx',
+  'javascript',
+  'jsx',
 ])
-
-const activatedLanguages = (
-  runtime: Runtime.Runtime<LoomCompiler | LoomConfig>,
-  fileName: string,
-): ReadonlyArray<string> =>
-  Runtime.runSync(runtime)(
-    LoomConfig.pipe(
-      Effect.flatMap((config) => config.resolve(fileName)),
-      Effect.map((resolved) => resolved.languages),
-    ),
-  )
-
-const rootSectionIds = (
-  runtime: Runtime.Runtime<LoomCompiler | LoomConfig>,
-  fileName: string,
-): ReadonlySet<string> =>
-  Runtime.runSync(runtime)(
-    LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.roots(fileName))),
-  )
-
-const extraProductScripts = (
-  runtime: Runtime.Runtime<LoomCompiler | LoomConfig>,
-  fileName: string,
-  root: VirtualCode,
-) => {
-  const languages = activatedLanguages(runtime, fileName)
-  const roots = rootSectionIds(runtime, fileName)
-  const activates = (id: string): boolean =>
-    languages.includes('typescript') || languages.includes(id)
-  return pipe(
-    root.embeddedCodes ?? [],
-    Array.filter((code) => roots.has(code.id)),
-    Array.filterMap((code) =>
-      Option.fromNullable(tsScriptKinds.get(code.languageId)).pipe(
-        Option.filter(() => activates(code.languageId)),
-        Option.map((kind) => ({
-          fileName: `${fileName}.${code.id}${kind.extension}`,
-          code,
-          extension: kind.extension,
-          scriptKind: kind.scriptKind,
-        })),
-      ),
-    ),
-  )
-}
 
 const moduleMarker = '\nexport {}\n'
 
-const isolateRoots = (
-  roots: ReadonlySet<string>,
-  code: VirtualCode,
-): VirtualCode => ({
+const isolateRoots = (code: VirtualCode): VirtualCode => ({
   ...code,
-  snapshot:
-    roots.has(code.id) && tsScriptKinds.has(code.languageId)
-      ? stringSnapshot(
-          code.snapshot.getText(0, code.snapshot.getLength()) + moduleMarker,
-        )
-      : code.snapshot,
+  snapshot: tsLanguages.has(code.languageId)
+    ? stringSnapshot(
+        code.snapshot.getText(0, code.snapshot.getLength()) + moduleMarker,
+      )
+    : code.snapshot,
   embeddedCodes: Array.map(code.embeddedCodes ?? [], (child) =>
-    isolateRoots(roots, child),
+    isolateRoots(child),
   ),
 })
 
 const builtIns: ReadonlyMap<string, LanguageService> = new Map([
   [LoomLanguage.id, LoomLanguage],
-  [TypescriptLanguage.id, TypescriptLanguage],
+  [TypescriptService.id, TypescriptService],
 ])
 
 const resolveActive = (
@@ -244,15 +182,7 @@ const frameQueryOver = (
 ): FrameQueryApi => ({
   diagnostics: (path) =>
     Runtime.runSync(runtime)(
-      LoomCompiler.pipe(
-        Effect.flatMap((compiler) => compiler.corpus(path)),
-        Effect.map((corpus) =>
-          Option.match(Option.fromNullable(corpus.modules.get(path)), {
-            onNone: () => [],
-            onSome: moduleDiagnostics,
-          }),
-        ),
-      ),
+      LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.diagnose(path))),
     ),
 })
 

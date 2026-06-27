@@ -13,7 +13,7 @@ import {
   type Position,
   type UnexpectedToken,
   UnexpectedTokenSchema,
-} from '@athrio/loom-core/LoomNode'
+} from '@athrio/loom-ast/LoomNode'
 import {
   CodeTokenSchema,
   HeadingTitleTokenSchema,
@@ -62,7 +62,7 @@ import {
   type WarpNameToken,
   type WarpOpenToken,
   type WarpToken,
-} from './LoomTokens'
+} from '@athrio/loom-ast/LoomTokens'
 import {
   EmptyLabel,
   faulty,
@@ -71,7 +71,7 @@ import {
   UnclosedDelimiter,
   type EmptyConstruct,
   type MalformedConstruct,
-} from './LoomFault'
+} from '#ast/LoomFault'
 import {
   type ArrowWeft,
   ArrowWeftSchema,
@@ -86,7 +86,7 @@ import {
   ProseWeftSchema,
   type TildeWeft,
   TildeWeftSchema,
-} from './Weft'
+} from '@athrio/loom-ast/Weft'
 
 export class WeftTokeniser extends Effect.Service<WeftTokeniser>()(
   'WeftTokeniser',

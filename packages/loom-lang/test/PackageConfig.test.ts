@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PackageConfig } from '../src/PackageConfig'
-import { defaultAnchorDelims } from '#ast/LoomTokens'
+import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
 // PackageConfig.resolve is the compiler's per-file settings read: given a file
 // path, it walks up to the nearest loom.json (through @athrio/loom-config) and

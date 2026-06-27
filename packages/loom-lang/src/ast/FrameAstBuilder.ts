@@ -1,9 +1,9 @@
 import { Array, Effect, Match, Option, Order, pipe } from 'effect'
-import type { LoomDocument, LoomSection } from '#ast/LoomAst'
-import { okHealth, type Health, type Point, type Position } from '@athrio/loom-core/LoomNode'
-import type { WarpAnchorToken, WarpToken } from '#ast/LoomTokens'
-import type { PreambleWeft, SectionBodyWeft } from '#ast/Weft'
-import type { SectionId } from '@athrio/loom-core/ProductAst'
+import type { LoomDocument, LoomSection } from '@athrio/loom-ast/LoomAst'
+import { okHealth, type Health, type Point, type Position } from '@athrio/loom-ast/LoomNode'
+import type { WarpAnchorToken, WarpToken } from '@athrio/loom-ast/LoomTokens'
+import type { PreambleWeft, SectionBodyWeft } from '@athrio/loom-ast/Weft'
+import type { SectionId } from '@athrio/loom-ast/ProductAst'
 import {
   AmbiguousAnchor,
   CrossLanguageAnchor,
@@ -43,7 +43,7 @@ import {
   type ServiceName,
   StaticBodySchema,
   TangleBodySchema,
-} from '#ast/FrameAst'
+} from '@athrio/loom-ast/FrameAst'
 
 export class FrameAstBuilder extends Effect.Service<FrameAstBuilder>()(
   'FrameAstBuilder',
@@ -572,7 +572,7 @@ const codeRef = (
   health: Health = okHealth,
 ): CodeRef =>
   CodeRefSchema.make({
-    open: tok(`core.${verb}(`),
+    open: tok(`dsl.${verb}(`),
     binding: anchorId(name, at, health),
     anchor: tok(posLiteral(at)),
   })

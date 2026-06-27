@@ -2,7 +2,7 @@
 
 # Packaging the TypeScript baseline
 
-`@athrio/loom-tsconfig` settles the one tension in driving TypeScript through Volar: the editor builds a single `ts.Program` from a single set of compiler options, yet a `.loom` file holds two things at once — the generated frame, whose `@athrio/loom-core` import must resolve, and the author's product code, which the package's own `tsconfig.json` governs. This package supplies a Loom baseline and layers the consumer's `tsconfig.json` on top, so both hold. It ships TypeScript source, like the other Loom packages.
+`@athrio/loom-tsconfig` settles the one tension in driving TypeScript through Volar: the editor builds a single `ts.Program` from a single set of compiler options, yet a `.loom` file holds two things at once — the generated frame, whose `@athrio/loom-lang/dsl` import must resolve, and the author's product code, which the package's own `tsconfig.json` governs. This package supplies a Loom baseline and layers the consumer's `tsconfig.json` on top, so both hold. It ships TypeScript source, like the other Loom packages.
 
 ## The manifest {../package.json}
 

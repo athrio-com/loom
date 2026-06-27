@@ -3,7 +3,7 @@ import { LoomSourceRanges } from '#ast/LineRanges'
 import { WeftClassifier } from '#ast/WeftClassifier'
 import { WeftTokeniser } from '#ast/WeftTokeniser'
 import { LoomAstBuilder, emptyDocumentFor } from '#ast/LoomAstBuilder'
-import type { LoomDocument } from '#ast/LoomAst'
+import type { LoomDocument } from '@athrio/loom-ast/LoomAst'
 
 // Test support: parse `.loom` source to a LoomDocument through the four parse
 // stages as a flat chain — the same composition the production spine

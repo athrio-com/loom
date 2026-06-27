@@ -11,33 +11,12 @@ const loomBaseline = (ts: TypeScript): CompilerOptions => ({
   noEmit: true,
 })
 
-const resolvesPackageExports = (
-  ts: TypeScript,
-  mode: CompilerOptions['moduleResolution'],
-): boolean =>
-  mode === ts.ModuleResolutionKind.Bundler ||
-  mode === ts.ModuleResolutionKind.Node16 ||
-  mode === ts.ModuleResolutionKind.NodeNext
-
-const mergeBaseline = (
-  ts: TypeScript,
-  consumer: CompilerOptions,
-): CompilerOptions => {
-  const base = loomBaseline(ts)
-  const merged: CompilerOptions = { ...base, ...consumer, noEmit: true }
-  if (!resolvesPackageExports(ts, consumer.moduleResolution)) {
-    merged.module = base.module
-    merged.moduleResolution = base.moduleResolution
-  }
-  return merged
-}
-
-const mergingParse = <A extends ReadonlyArray<unknown>, R extends { options: CompilerOptions }>(
+const bakedParse = <A extends ReadonlyArray<unknown>, R extends { options: CompilerOptions }>(
   ts: TypeScript,
   parse: (...args: A) => R,
 ) => (...args: A): R => {
   const parsed = parse(...args)
-  return { ...parsed, options: mergeBaseline(ts, parsed.options) }
+  return { ...parsed, options: loomBaseline(ts) }
 }
 
 export const withLoomBaseline = (ts: TypeScript): TypeScript =>
@@ -46,12 +25,12 @@ export const withLoomBaseline = (ts: TypeScript): TypeScript =>
       enumerable: true,
       configurable: true,
       writable: true,
-      value: mergingParse(ts, ts.parseJsonConfigFileContent),
+      value: bakedParse(ts, ts.parseJsonConfigFileContent),
     },
     parseJsonSourceFileConfigFileContent: {
       enumerable: true,
       configurable: true,
       writable: true,
-      value: mergingParse(ts, ts.parseJsonSourceFileConfigFileContent),
+      value: bakedParse(ts, ts.parseJsonSourceFileConfigFileContent),
     },
   })

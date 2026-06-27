@@ -15,16 +15,16 @@ import {
   type LoomDocument,
   type LoomHeading,
   type LoomSection,
-} from './LoomAst'
-import { okHealth, type Health, type Position } from '@athrio/loom-core/LoomNode'
-import { faulty, MissingLanguageWarp } from './LoomFault'
+} from '@athrio/loom-ast/LoomAst'
+import { okHealth, type Health, type Position } from '@athrio/loom-ast/LoomNode'
+import { faulty, MissingLanguageWarp } from '#ast/LoomFault'
 import type { MixedEOL } from './LineRanges'
 import type {
   HeadingWeft,
   LoomWeft,
   PreambleWeft,
   SectionBodyWeft,
-} from './Weft'
+} from '@athrio/loom-ast/Weft'
 
 export class LoomAstBuilder extends Effect.Service<LoomAstBuilder>()(
   'LoomAstBuilder',

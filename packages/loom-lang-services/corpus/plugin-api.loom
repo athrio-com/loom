@@ -2,30 +2,15 @@
 
 # The Loom language-service contract
 
-`@athrio/loom-lang-services` holds Loom's language services and the contract they
-all satisfy: the `LanguageService`. A `LanguageService` gives one language its editor
-support: its diagnostics, hover, and completion.
+`@athrio/loom-lang-services` holds the contract every Loom language service satisfies — the `LanguageService` — together with the loader that finds them and the one service built into the server. A `LanguageService` gives one language its editor support: its diagnostics, hover, and completion.
 
-The languages Volar already supports — TypeScript, JavaScript, JSON, CSS, HTML,
-Markdown — are written here as modules and switched on by `loom activate`. They need
-no separate package, but they are wrapped as `LanguageService`s exactly like any other language.
-
-Every other language ships as its own `loom-service-<id>` package implementing the
-same shape. This module defines the `LanguageService` contract; each built-in service is its own
-module alongside it.
+Loom is the one language built in. `LoomLanguage` serves the frame, and every `.loom` has a frame, so its service is always present and needs no package. Every other language — TypeScript first among them — ships as a `@athrio/loom-service-<id>` package the project installs and the loader resolves by id. This module defines the contract both kinds satisfy; `LanguageLoader` turns an activated id into the service that serves it.
 
 ## Architecture
 
-Each service provides editor support — diagnostics, hover, and completion — for one embedded language, and every
-service — built-in or loaded — is the same `LanguageService`. The Volar-default
-languages and Loom itself are **built in**: each lives as a module here, with no
-package of its own. All other languages are **loaded**: each in its own
-`@athrio/loom-service-<id>` package, installed on activation.
+Each service gives one embedded language its editor support — diagnostics, hover, completion — and every service, built in or loaded, is the same `LanguageService`. Loom is the one **built-in**: `LoomLanguage` lives here as a module, with no package. Every other language is **loaded**: each ships in its own `@athrio/loom-service-<id>` package, installed on activation and imported by id. TypeScript is the first such package, not a privileged built-in; it goes through the loader like any other language.
 
-The `@athrio/loom-lang` language server resolves the active set from
-`loom.config.json` and indexes it in the `LanguageRegistry`, keyed by `id` for
-a section's declared language and by extension for a tangle path. Finding a language
-is a lookup, never a branch.
+The `@athrio/loom-lang` language server reads the active ids from `loom.config.json`, and `LanguageLoader` resolves each one to its service — Loom from this module, the rest from their packages. The server indexes the resolved set in the `LanguageRegistry`, keyed by `id` for a section's declared language and by extension for a tangle path, so finding a language is a lookup, never a branch.
 
 Editor features take a different route. The host runs each service's `plugins` Effect
 to collect its Volar plugins and registers them; Volar then dispatches every request
@@ -36,32 +21,28 @@ them.
   loom activate ──►  loom.config.json   { languages: [typescript, css, go] }
                             │ read on initialize
                             ▼
-  ┌────────────────────────────────────────────────——─────────────────┐
-  │ @athrio/loom-lang — the language server                           │
-  │                                                                   │
-  │  every language is a LanguageService, from one of two sources:    │
-  │                                                                   │
-  │   built-in (bundled, no package)     loaded (one package each)    │
-  │   ──────────────────────────────    ─────────────────────────     │
-  │   the Loom defaults:                 everything else:             │
-  │   loom typescript javascript         loom-service-go   → gopls    │
-  │   css html markdown json             loom-service-rust → r-a      │
-  │                                      (third-party too)            │
-  │                                                                   │
-  │  for each language id in the active set:                          │
-  │     plugins = run service.plugins(context)                        │
-  │     register plugins under id      ◄── lookup, no per-language    │
-  │                                        branch                     │
-  └─────────────────────────────—───┬─────────────────────────────────┘
-                                    │ both sources satisfy one shape
-                                    ▼
-                   ┌───────────────────────────────────—───┐
-                   │ @athrio/loom-lang-services            │
-                   │   LanguageService {                   │
-                   │     id, displayName,                  │
-                   │     plugins(ctx) → Effect<Plugin[]>   │
-                   │   }                                   │
-                   └────────────────────────────────────—──┘
+  @athrio/loom-lang — the language server
+
+    LanguageLoader resolves each active id to a LanguageService:
+
+      built-in, in the server:   loom — the frame
+      loaded, one package each:  everything else, by id —
+        typescript → @athrio/loom-service-typescript → tsc
+        go         → @athrio/loom-service-go         → gopls
+        rust       → @athrio/loom-service-rust       → rust-analyzer
+        (third-party packages too)
+
+    for each active id: take loom, or import @athrio/loom-service-<id>;
+    run service.plugins(ctx) and register its plugins under the id — a
+    lookup, never a per-language branch.
+
+                            │ both kinds satisfy one shape
+                            ▼
+
+  @athrio/loom-lang-services
+    LanguageService { id, displayName, extensions, plugins(ctx) → Effect<Plugin[]> }
+    isLanguageService · defineLanguageService
+    LanguageLoader.loadActive(ids, root)
 
   Routing: a section tagged id="css" → the css service → hover / diagnostics /
   completion → mapped back to its span in the .loom.
@@ -78,13 +59,13 @@ language.
 The contract names Volar's `LanguageServicePlugin`, the unit of editor behavior; from
 Effect, `Data` for the tagged error and `Effect` itself, since a service builds its
 plugins in an Effect and a capability is an Effect service; and from
-`@athrio/loom-core`, the `Diagnostic` the frame query returns.
+`@athrio/loom-ast`, the `Diagnostic` the frame query returns.
 
 =>
 
 import type { LanguageServicePlugin } from '@volar/language-service'
 import { Data, Effect } from 'effect'
-import { type Diagnostic } from '@athrio/loom-core/LoomNode'
+import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
 
 ## A service [Service]
 
@@ -119,13 +100,13 @@ export interface LanguageService {
 
 ## Host capabilities [Capabilities]
 
-A service may draw on capabilities the host provides, taken through the Effect environment so each service asks only for what it needs. There are three.
+A service may draw on capabilities the host provides, taken through the Effect environment so each service asks only for what it needs. There are two.
 
 `TypescriptSdk` is the TypeScript compiler itself. It carries no default — the host supplies the editor's own instance (via Volar's `loadTsdkByPath`), so analysis matches the user's project. The Loom and TypeScript services both take it; `create` needs the compiler to check the frame and the TypeScript product. A CSS or Go service never asks.
 
 `FrameQuery` is the host's read into the frame — the questions Loom can answer about a file from the composition it built. Its first reader, `diagnostics`, returns that file's Loom diagnostics, the grammatical and semantic health in Loom's own terms, so the frame service can surface them. The host builds it over the warm corpus, and like `TypescriptSdk` it carries no default. Only the Loom service takes it.
 
-`ProductQuery` is the host's read into the product — which of a file's sections are composition roots. Its reader, `roots`, returns the root ids for a path: the sections a language package checks, each as its own module, not the fragments those roots fold in. A product language service takes it to tell a root it must check from a fragment already folded into one. The Loom service, handed the whole frame, never asks.
+A product language service does not ask a capability which of a file's sections are roots. The editor hands it a Product — a resolved root, its members already folded in — so the answer travels with the data, never a query.
 
 `HostCapabilities` is the union of these capabilities — the environment a service's `plugins` Effect may require.
 
@@ -147,17 +128,7 @@ export class FrameQuery extends Effect.Service<FrameQuery>()('FrameQuery', {
   ) as Effect.Effect<FrameQueryApi>,
 }) {}
 
-export interface ProductQueryApi {
-  readonly roots: (path: string) => ReadonlySet<string>
-}
-
-export class ProductQuery extends Effect.Service<ProductQuery>()('ProductQuery', {
-  effect: Effect.die(
-    'ProductQuery must be provided by the host',
-  ) as Effect.Effect<ProductQueryApi>,
-}) {}
-
-export type HostCapabilities = TypescriptSdk | FrameQuery | ProductQuery
+export type HostCapabilities = TypescriptSdk | FrameQuery
 
 ## The service settings [Context]
 
@@ -175,14 +146,26 @@ export interface LanguageServiceContext {
 
 ## Declaring a service [Define]
 
-Each service calls `defineLanguageService(...)` to declare itself: the function checks the shape at the
-definition site and returns the service unchanged, so a built-in definition and a package's
-default export are the same kind of value.
+Each service declares itself with `defineLanguageService`, which checks the value against the contract and returns it unchanged. A built-in module and a package's default export pass through the same check, so the two are the same kind of value however they reach the server. `isLanguageService` is that check, and the loader reuses it on a package it imports — there the value is unknown until proven. The guard holds when the value carries a string `id` and `displayName`, an array of `extensions`, and a `plugins` function.
 
 =>
 
-export const defineLanguageService = (service: LanguageService): LanguageService =>
-  service
+export const isLanguageService = (value: unknown): value is LanguageService =>
+  typeof value === 'object' &&
+  value !== null &&
+  typeof (value as LanguageService).id === 'string' &&
+  typeof (value as LanguageService).displayName === 'string' &&
+  Array.isArray((value as LanguageService).extensions) &&
+  typeof (value as LanguageService).plugins === 'function'
+
+export const defineLanguageService = (service: LanguageService): LanguageService => {
+  if (!isLanguageService(service)) {
+    throw new Error(
+      'defineLanguageService: the value does not satisfy the LanguageService contract',
+    )
+  }
+  return service
+}
 
 ## The module {../src/LanguageService.ts}
 

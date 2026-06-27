@@ -1,9 +1,9 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Chunk, Effect, Stream } from 'effect'
 import type { LineRange } from '#ast/LineRanges'
-import { incompleteHealth, okHealth } from '@athrio/loom-core/LoomNode'
+import { incompleteHealth, okHealth } from '@athrio/loom-ast/LoomNode'
 import { WeftClassifier } from '#ast/WeftClassifier'
-import type { LoomWeft } from '#ast/Weft'
+import type { LoomWeft } from '@athrio/loom-ast/Weft'
 
 // =============================================================================
 // Test harness — feed the classifier multi-line input via its Service and

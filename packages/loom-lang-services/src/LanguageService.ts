@@ -1,6 +1,6 @@
 import type { LanguageServicePlugin } from '@volar/language-service'
 import { Data, Effect } from 'effect'
-import { type Diagnostic } from '@athrio/loom-core/LoomNode'
+import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
 
 export class ServiceError extends Data.TaggedError('ServiceError')<{
   readonly service: string
@@ -36,21 +36,25 @@ export class FrameQuery extends Effect.Service<FrameQuery>()('FrameQuery', {
   ) as Effect.Effect<FrameQueryApi>,
 }) {}
 
-export interface ProductQueryApi {
-  readonly roots: (path: string) => ReadonlySet<string>
-}
-
-export class ProductQuery extends Effect.Service<ProductQuery>()('ProductQuery', {
-  effect: Effect.die(
-    'ProductQuery must be provided by the host',
-  ) as Effect.Effect<ProductQueryApi>,
-}) {}
-
-export type HostCapabilities = TypescriptSdk | FrameQuery | ProductQuery
+export type HostCapabilities = TypescriptSdk | FrameQuery
 
 export interface LanguageServiceContext {
   readonly settings: Record<string, unknown>
 }
 
-export const defineLanguageService = (service: LanguageService): LanguageService =>
-  service
+export const isLanguageService = (value: unknown): value is LanguageService =>
+  typeof value === 'object' &&
+  value !== null &&
+  typeof (value as LanguageService).id === 'string' &&
+  typeof (value as LanguageService).displayName === 'string' &&
+  Array.isArray((value as LanguageService).extensions) &&
+  typeof (value as LanguageService).plugins === 'function'
+
+export const defineLanguageService = (service: LanguageService): LanguageService => {
+  if (!isLanguageService(service)) {
+    throw new Error(
+      'defineLanguageService: the value does not satisfy the LanguageService contract',
+    )
+  }
+  return service
+}

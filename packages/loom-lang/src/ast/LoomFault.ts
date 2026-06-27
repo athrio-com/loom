@@ -1,5 +1,5 @@
 import { Data, Match } from 'effect'
-import type { Health, Position, Severity } from '@athrio/loom-core/LoomNode'
+import type { Health, Position, Severity } from '@athrio/loom-ast/LoomNode'
 
 export type MalformedConstruct =
   | 'tag'

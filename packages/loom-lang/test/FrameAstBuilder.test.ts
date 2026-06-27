@@ -9,7 +9,7 @@ import type {
   ProseFragment,
   ServiceClass,
   StaticBody,
-} from '#ast/FrameAst'
+} from '@athrio/loom-ast/FrameAst'
 import { buildFrame } from '#ast/FrameAstBuilder'
 
 // A ServiceName is authored (tagged → mapped to the `[Tag]`) or synth (tagless →
@@ -25,7 +25,7 @@ const asAuthored = (t: ServiceClass['name']): FrameAuthoredToken => {
 // buildFrame over the trivial fixture: one tagged, static section, no Warps.
 // Assertions are structural (no renderer here) — the right nodes, fields, and
 // source mappings. The frame is runnable: code is a compose of positioned
-// core.fragment / core.refer args, and the root is the __services / __run exports.
+// dsl.fragment / dsl.refer args, and the root is the __services / __run exports.
 
 const input = `{{lang: TypeScript}}
 

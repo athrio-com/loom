@@ -1,14 +1,5 @@
-{{lang: TypeScript}}
-
-# The leaf tokens
-
-`LoomTokens` defines the AST's leaf nodes — every span the parser recognises inside a line. Each token is built by `loomNode`, so it carries the same `type`, `position`, and `health` as any container, and most carry a `Probe`: the regular expression the classifier and tokeniser recognise it by. The compound tokens — `Tag`, `Specifier`, `Warp` — expose their parts as named subnodes, so a diagnostic can land on the exact part at fault.
-
-## The Probe annotation
-
-A `Probe` is a regular expression annotated onto a token schema. The classifier and tokeniser recognise a token by its `Probe` match, then assemble the typed token from that match. `getProbe` reads the annotation back off a schema.
-
-=>
+import { Data, Effect, Option, Schema, SchemaAST } from 'effect'
+import { loomNode } from '#ast/LoomNode'
 
 export const Probe: unique symbol = Symbol.for('loom/Probe')
 
@@ -16,24 +7,12 @@ export const getProbe = (
   schema: Schema.Schema<any, any, never>,
 ): Option.Option<RegExp> => SchemaAST.getAnnotation<RegExp>(Probe)(schema.ast)
 
-## Heading markers
-
-`HeadingStart` marks a heading line — one to six `#` and the mandatory space after. It is position-only: the marker text is its `source`, and the heading level is the hash count, recorded for the reader, since every heading makes a flat section.
-
-=>
-
 export const HeadingStartTokenSchema = loomNode('HeadingStart', {}).annotations(
   {
     [Probe]: /^#{1,6} /,
   },
 )
 export type HeadingStartToken = typeof HeadingStartTokenSchema.Type
-
-## Tags
-
-A `Tag` is `[name]`. Its `open`, `label`, and `close` are separate subnodes, each with its own health, so a missing `]` lands on the `close`. The label's rule is health-aware: a real label matches `[a-zA-Z0-9_-]+`, and an empty value is allowed only on a non-ok node — the placeholder an earlier pass leaves before the tokeniser fills it.
-
-=>
 
 export const TagOpenTokenSchema = loomNode('TagOpen', {
   value: Schema.Literal('['),
@@ -73,12 +52,6 @@ export const TagTokenSchema = loomNode('Tag', {
 })
 export type TagToken = typeof TagTokenSchema.Type
 
-## Specifiers
-
-A `Specifier` is `{name}` — the same open, label, and close anatomy as a `Tag`, with `{ }` for delimiters and the same health-aware label rule.
-
-=>
-
 export const SpecifierOpenTokenSchema = loomNode('SpecifierOpen', {
   value: Schema.Literal('{'),
 }).annotations({
@@ -117,12 +90,6 @@ export const SpecifierTokenSchema = loomNode('Specifier', {
 })
 export type SpecifierToken = typeof SpecifierTokenSchema.Type
 
-## Path specifiers
-
-A `PathSpecifier` is `{path/to/file}`: the same `{ }` delimiters as a `Specifier`, reusing its `open` and `close` subnodes, but its label admits the `.` and `/` of a path. A heading carrying one is a tangle section, the file-emission sink.
-
-=>
-
 export const PathSpecifierLabelTokenSchema = loomNode('PathSpecifierLabel', {
   value: Schema.String,
 }).pipe(
@@ -147,12 +114,6 @@ export const PathSpecifierTokenSchema = loomNode('PathSpecifier', {
 })
 export type PathSpecifierToken = typeof PathSpecifierTokenSchema.Type
 
-## Transition markers
-
-`Arrow` (`=>`) opens a code chunk and `Tilde` (`~`) opens prose. Both are position-only — the marker is recognised here, the content after it elsewhere.
-
-=>
-
 export const ArrowTokenSchema = loomNode('Arrow', {}).annotations({
   [Probe]: /^\s*=>/,
 })
@@ -163,20 +124,8 @@ export const TildeTokenSchema = loomNode('Tilde', {}).annotations({
 })
 export type TildeToken = typeof TildeTokenSchema.Type
 
-## Heading title
-
-`HeadingTitle` is the human-readable title of a heading — the text between the marker and the first structural token, trimmed. It is position-only and computed from positions, not scanned, so it carries no `Probe`.
-
-=>
-
 export const HeadingTitleTokenSchema = loomNode('HeadingTitle', {})
 export type HeadingTitleToken = typeof HeadingTitleTokenSchema.Type
-
-## Code and prose content
-
-`Code` is the content after `=>`, and `Prose` the content after `~`. Both are position-only; each one's `Probe` picks up the run of text following the marker.
-
-=>
 
 export const CodeTokenSchema = loomNode('Code', {}).annotations({
   [Probe]: /(?<=^\s*=>\s*)\S.*$/,
@@ -187,14 +136,6 @@ export const ProseTokenSchema = loomNode('Prose', {}).annotations({
   [Probe]: /(?<=^\s*~+\s*)\S.*$/,
 })
 export type ProseToken = typeof ProseTokenSchema.Type
-
-## Warps and anchors
-
-A `Warp` is a declaration, `&#123;&#123; name [: type] = value &#125;&#125;`, written in a preamble line. A `WarpAnchor` is a reference, `::[name]`, written in a code line. The two use different delimiters on purpose: a warp sits in prose, where `&#123;&#123;` is safe, but an anchor sits inside product code, where `&#123;&#123;` would collide with templating languages that own that syntax — `::[` does not. So a warp opens with `&#123;&#123;` and closes with `&#125;&#125;`, an anchor opens with `::[` and closes with `]`; both expose `open`, `close`, and `name` as subnodes. A declaration's `name` must be a TypeScript identifier; an anchor's `name` is looser — any text up to the closing delimiter, since it may name either a binding or a section by heading. A declaration also carries an optional `annotation` — the `: type` before the value — and a `default` — the `= value` it binds. Both are opaque text here; a later pass reads their structure and decides how the name binds.
-
-An anchor's `open` and `close` are plain strings rather than fixed literals, because a package may set its own delimiter pair in `loom.json` when `::[` would collide with its product language. `AnchorDelims` is that pair, and `defaultAnchorDelims` holds the built-in `::[` and `]` — written as a concatenation so this corpus, which the tokeniser scans like any other, holds no bare `::[` of its own. For the same reason, this section writes the warp braces as the numeric character references `&#123;` and `&#125;`: a literal `&#123;&#123;` on a preamble line would tokenise as a Warp.
-
-=>
 
 export const WarpOpenTokenSchema = loomNode('WarpOpen', {
   value: Schema.Literal('{{'),
@@ -289,12 +230,6 @@ export const WarpTokenSchema = loomNode('Warp', {
 })
 export type WarpToken = typeof WarpTokenSchema.Type
 
-## Validating the anchor delimiters
-
-A package may choose its own anchor delimiter pair, so a bad pair must fail the way a mixed line terminator does: a parse-level error the editor and the tangler both report, never a silent misparse. `checkAnchorDelims` is that gate, and it raises a distinct, self-describing error for each fault. It rejects an empty delimiter, an open equal to its close, and whitespace inside either. It holds the open to more, since the open is what triggers anchor scanning: the open may not be one of Loom's own markers — the warp braces, the `=>` arrow, the `~` prose line, the `#` heading — nor a bracket or angle that pervades product code: `<`, `>`, `[`, or `]`. The close escapes that list, so the built-in `]` stays a valid close. Each error carries its own `message` naming the fault and suggesting a sound pair, so the recovery reads `emptyDocument(text, err.message)` and needs no separate message builder.
-
-=>
-
 const suggestAnchorDelims = `Choose a distinct open that Loom does not use and that does not occur in your product code — for example \`${defaultAnchorDelims.open}\` and \`${defaultAnchorDelims.close}\` — in this package's loom.json.`
 
 const reservedOpen: ReadonlyArray<string> = ['{{', '}}', '=>', '~', '#', '<', '>', '[', ']']
@@ -357,12 +292,6 @@ export const checkAnchorDelims = (
   return Effect.succeed(delims)
 }
 
-## The token union
-
-`LoomToken` is the union of every leaf token — the type the tokeniser emits.
-
-=>
-
 export const LoomTokenSchema = Schema.Union(
   HeadingStartTokenSchema,
   TagTokenSchema,
@@ -377,40 +306,3 @@ export const LoomTokenSchema = Schema.Union(
   WarpAnchorTokenSchema,
 )
 export type LoomToken = typeof LoomTokenSchema.Type
-
-## What this module draws on
-
-`LoomTokens` draws `Schema` for the token definitions, `SchemaAST` to read a `Probe` annotation back, and `Option` for its result. `Effect` and `Data` build the delimiter check and the tagged error it fails with. `loomNode` from the foundation gives each token its shared shape.
-
-=>
-
-import { Data, Effect, Option, Schema, SchemaAST } from 'effect'
-import { loomNode } from '@athrio/loom-core/LoomNode'
-
-## The module {../src/ast/LoomTokens.ts}
-
-=>
-
-::[What this module draws on]
-
-::[The Probe annotation]
-
-::[Heading markers]
-
-::[Tags]
-
-::[Specifiers]
-
-::[Path specifiers]
-
-::[Transition markers]
-
-::[Heading title]
-
-::[Code and prose content]
-
-::[Warps and anchors]
-
-::[Validating the anchor delimiters]
-
-::[The token union]

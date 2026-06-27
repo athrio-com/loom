@@ -122,7 +122,7 @@ export class LoomCorpusAstBuilder extends Effect.Service<LoomCorpusAstBuilder>()
 
 ## Resolving imports
 
-Two functions turn a `{Loom}` import line — a real `import { Neg } from "./Sad.loom"` the author wrote — into a resolved dependency path. `specifierOf` pulls the path string out of the `from` clause. `locate` resolves that string to an absolute path, but only when it ends in `.loom`; a bare `effect` or `@athrio/loom-core` names no corpus file and resolves to nothing. `build` maps them over the frame's import lines to list the corpus files this module depends on.
+Two functions turn a `{Loom}` import line — a real `import { Neg } from "./Sad.loom"` the author wrote — into a resolved dependency path. `specifierOf` pulls the path string out of the `from` clause. `locate` resolves that string to an absolute path, but only when it ends in `.loom`; a bare `effect` or `@athrio/loom-lang/dsl` names no corpus file and resolves to nothing. `build` maps them over the frame's import lines to list the corpus files this module depends on.
 
 =>
 
@@ -153,14 +153,14 @@ import {
   defaultAnchorDelims,
   type AnchorDelims,
   type InvalidAnchorDelims,
-} from '#ast/LoomTokens'
+} from '@athrio/loom-ast/LoomTokens'
 import { LoomSourceRanges } from '#ast/LineRanges'
 import { WeftClassifier } from '#ast/WeftClassifier'
 import { WeftTokeniser } from '#ast/WeftTokeniser'
 import { LoomAstBuilder, emptyDocument, emptyDocumentFor } from '#ast/LoomAstBuilder'
-import type { LoomDocument } from '#ast/LoomAst'
+import type { LoomDocument } from '@athrio/loom-ast/LoomAst'
 import { FrameAstBuilder } from '#ast/FrameAstBuilder'
-import type { LoomModule, Path } from '#ast/LoomCorpusAst'
+import type { LoomModule, Path } from '@athrio/loom-ast/LoomCorpusAst'
 
 ## The module {../src/ast/LoomCorpusAstBuilder.ts}
 

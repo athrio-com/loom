@@ -1,12 +1,12 @@
 import { Effect, Match, Option, Stream, pipe } from 'effect'
 import type { LineRange } from './LineRanges'
-import { incompleteHealth, okHealth, type Position } from '@athrio/loom-core/LoomNode'
+import { incompleteHealth, okHealth, type Position } from '@athrio/loom-ast/LoomNode'
 import {
   ArrowTokenSchema,
   HeadingStartTokenSchema,
   TildeTokenSchema,
   getProbe,
-} from './LoomTokens'
+} from '@athrio/loom-ast/LoomTokens'
 import {
   type ArrowWeft,
   ArrowWeftSchema,
@@ -18,7 +18,7 @@ import {
   ProseWeftSchema,
   type TildeWeft,
   TildeWeftSchema,
-} from './Weft'
+} from '@athrio/loom-ast/Weft'
 
 type ClassifierState = {
   readonly prev: Option.Option<LoomWeft>

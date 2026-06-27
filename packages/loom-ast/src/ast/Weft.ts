@@ -1,5 +1,5 @@
 import { Schema } from 'effect'
-import { loomNode } from '@athrio/loom-core/LoomNode'
+import { loomNode } from '#ast/LoomNode'
 import {
   ArrowTokenSchema,
   CodeTokenSchema,

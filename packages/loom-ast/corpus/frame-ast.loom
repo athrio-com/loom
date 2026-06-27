@@ -14,12 +14,12 @@ Render order is explicit, not positional. Each node carries a `RenderOrder` anno
 
 ## Building on Effect Schema
 
-Effect's `Schema` module defines every Frame AST node type. One `Schema.Struct` does double duty: it validates a node when the builder constructs it, and it carries the `RenderOrder` annotation the render pass reads at emission. A single definition is the source of truth for both. Effect's `SchemaAST` module reads that annotation back off a compiled schema. The `Health` and `Position` types and the `okHealth` default value come from the foundation, `@athrio/loom-core/LoomNode`.
+Effect's `Schema` module defines every Frame AST node type. One `Schema.Struct` does double duty: it validates a node when the builder constructs it, and it carries the `RenderOrder` annotation the render pass reads at emission. A single definition is the source of truth for both. Effect's `SchemaAST` module reads that annotation back off a compiled schema. The `Health` and `Position` types and the `okHealth` default value come from the foundation, `#ast/LoomNode`.
 
 =>
 
 import { Option, Schema, SchemaAST } from 'effect'
-import { HealthSchema, okHealth, PositionSchema } from '@athrio/loom-core/LoomNode'
+import { HealthSchema, okHealth, PositionSchema } from '#ast/LoomNode'
 
 ## The frame node
 
@@ -115,13 +115,13 @@ export type ServiceName = typeof ServiceNameSchema.Type
 
 ## Code and prose fragments
 
-Each channel — code and prose — has a fragment the section writes directly and a reference it transcludes from another section through a Warp. The code channel adds a third leaf, a value Warp's composed literal. The runnable frame builds each by calling `@athrio/loom-core`.
+Each channel — code and prose — has a fragment the section writes directly and a reference it transcludes from another section through a Warp. The code channel adds a third leaf, a value Warp's composed literal. The runnable frame builds each by calling `@athrio/loom-lang/dsl`.
 
-A fragment is one positioned span. An `EmbeddedCode` node carries one `=>` run's product code, a `ProseFragment` one prose span — a heading or a paragraph. Each renders a `core.fragment(text, origin)` call. The `text` is the literal span, mapped back to the `.loom` for its language service: the embedded language's for code, Markdown's for prose. The `origin` is that same span written out as a value the run reads — a position literal the builder bakes into the call — so it carries no mapping of its own.
+A fragment is one positioned span. An `EmbeddedCode` node carries one `=>` run's product code, a `ProseFragment` one prose span — a heading or a paragraph. Each renders a `dsl.fragment(text, origin)` call. The `text` is the literal span, mapped back to the `.loom` for its language service: the embedded language's for code, Markdown's for prose. The `origin` is that same span written out as a value the run reads — a position literal the builder bakes into the call — so it carries no mapping of its own.
 
-A reference renders a `core.referName(…)` or `core.referTag(…)` call, and the `open` token holds which. The frame writes `referName` when the anchor names a heading in the same document and `referTag` when a Warp binds the anchor to a tag, so the de re records the kind the projection later reads. A `CodeRef` refers to another section's code channel, `core.referName(alias.code, anchor)`; a `ProseRef` refers to its prose. The `binding` is an authored token carrying the alias, mapped back to the `::[…]` anchor the author wrote, so navigation and rename reach the anchor. The `anchor` is the anchor's position literal the run reads.
+A reference renders a `dsl.referName(…)` or `dsl.referTag(…)` call, and the `open` token holds which. The frame writes `referName` when the anchor names a heading in the same document and `referTag` when a Warp binds the anchor to a tag, so the de re records the kind the projection later reads. A `CodeRef` refers to another section's code channel, `dsl.referName(alias.code, anchor)`; a `ProseRef` refers to its prose. The `binding` is an authored token carrying the alias, mapped back to the `::[…]` anchor the author wrote, so navigation and rename reach the anchor. The `anchor` is the anchor's position literal the run reads.
 
-A `ValueRef` composes a value Warp rather than a section. It renders `core.referValue(value, anchor)`: `value` is an authored token holding the Warp's value expression, mapped back to the Warp so the frame's check of that expression lands on the `.loom`, and `anchor` is the position literal the resulting fragment maps back to. It names no section and hoists no binding — a value Warp templates a value — so the frame evaluates the expression and writes the result as text where the `::[…]` anchor stood.
+A `ValueRef` composes a value Warp rather than a section. It renders `dsl.referValue(value, anchor)`: `value` is an authored token holding the Warp's value expression, mapped back to the Warp so the frame's check of that expression lands on the `.loom`, and `anchor` is the position literal the resulting fragment maps back to. It names no section and hoists no binding — a value Warp templates a value — so the frame evaluates the expression and writes the result as text where the `::[…]` anchor stood.
 
 Every `CodeRef` the frame emits is backed by a binding — a Warp tag, or the alias a name match hoists — so its verb always names something in scope. An anchor that resolves to nothing, or to more than one section, is not a `CodeRef` at all: the builder leaves an inert fragment in its place and carries Loom's own diagnostic on it, so the frame stays runnable and the checker keeps analysing the code around the anchor. A cross-language match stays a `CodeRef`, since its binding is real, and carries its diagnostic there.
 
@@ -130,7 +130,7 @@ Every `CodeRef` the frame emits is backed by a binding — a Warp tag, or the al
 export const EmbeddedCodeSchema = frameNode(
   'EmbeddedCode',
   {
-    open: synth('core.fragment(`'),
+    open: synth('dsl.fragment(`'),
     text: Schema.String,
     position: PositionSchema,
     mid: synth('`, '),
@@ -144,7 +144,7 @@ export type EmbeddedCode = typeof EmbeddedCodeSchema.Type
 export const ProseFragmentSchema = frameNode(
   'ProseFragment',
   {
-    open: synth('core.fragment(`'),
+    open: synth('dsl.fragment(`'),
     text: Schema.String,
     position: PositionSchema,
     mid: synth('`, '),
@@ -171,7 +171,7 @@ export type CodeRef = typeof CodeRefSchema.Type
 export const ValueRefSchema = frameNode(
   'ValueRef',
   {
-    open: synth('core.referValue('),
+    open: synth('dsl.referValue('),
     value: FrameAuthoredTokenSchema,
     mid: synth(', '),
     anchor: FrameSynthTokenSchema,
@@ -184,7 +184,7 @@ export type ValueRef = typeof ValueRefSchema.Type
 export const ProseRefSchema = frameNode(
   'ProseRef',
   {
-    open: synth('core.referName('),
+    open: synth('dsl.referName('),
     binding: FrameAuthoredTokenSchema,
     dot: synth('.prose, '),
     anchor: FrameSynthTokenSchema,
@@ -196,7 +196,7 @@ export type ProseRef = typeof ProseRefSchema.Type
 
 ## Composing and weaving
 
-The `Compose` node is the `core.compose(…)` call that assembles a section's code channel. It opens with the section's identity and its product language, then the arguments in document order — the `EmbeddedCode` fragments, the `CodeRef` references, and the `ValueRef` values. The `Weave` node mirrors it for prose: `core.weave(…)` over `ProseFragment` and `ProseRef` arguments, carrying the identity but no language, since prose is always Markdown. A section with no code renders `core.compose(id, "lang")`, one with no prose `core.weave(id)`.
+The `Compose` node is the `dsl.compose(…)` call that assembles a section's code channel. It opens with the section's identity and its product language, then the arguments in document order — the `EmbeddedCode` fragments, the `CodeRef` references, and the `ValueRef` values. The `Weave` node mirrors it for prose: `dsl.weave(…)` over `ProseFragment` and `ProseRef` arguments, carrying the identity but no language, since prose is always Markdown. A section with no code renders `dsl.compose(id, "lang")`, one with no prose `dsl.weave(id)`.
 
 The identity is a `SectionId` literal and the language a quoted string, both glue the builder fills. Each argument owns its leading comma as a synth field, so the render pass emits every node in `RenderOrder` and the commas fall out on their own — nothing in the pass tracks which argument is first.
 
@@ -218,7 +218,7 @@ export type ComposeArgItem = typeof ComposeArgItemSchema.Type
 export const ComposeSchema = frameNode(
   'Compose',
   {
-    open: synth('core.compose('),
+    open: synth('dsl.compose('),
     origin: FrameSynthTokenSchema,
     mid: synth(', '),
     lang: FrameSynthTokenSchema,
@@ -241,7 +241,7 @@ export type WeaveArgItem = typeof WeaveArgItemSchema.Type
 export const WeaveSchema = frameNode(
   'Weave',
   {
-    open: synth('core.weave('),
+    open: synth('dsl.weave('),
     origin: FrameSynthTokenSchema,
     args: Schema.Array(WeaveArgItemSchema),
     close: synth(')'),
@@ -283,7 +283,7 @@ A `StaticBody` covers a section that declares no dependencies. It renders as a `
 
 An `EffectfulBody` covers a section that depends on at least one other service. It wraps those same three fields in an `Effect.gen` block that yields each `Binding` first, so every dependency is in scope by the time `name`, `code`, and `prose` are evaluated.
 
-A `TangleBody` covers a tangle sink. It also yields its bindings in an `Effect.gen` block, but it returns a `core.tangle(path, …)` call rather than the three-field object. A tangle sink produces a file, not a composable service output, so it carries no `name` or `prose` field.
+A `TangleBody` covers a tangle sink. It also yields its bindings in an `Effect.gen` block, but it returns a `dsl.tangle(path, …)` call rather than the three-field object. A tangle sink produces a file, not a composable service output, so it carries no `name` or `prose` field.
 
 The preamble sits outside all three shapes. `StaticBody` and `EffectfulBody` fold it into their `Weave` node, so the composed prose carries the preamble. A `TangleBody` has no prose channel, so a sink section's preamble lives only in the `.loom` source.
 
@@ -326,7 +326,7 @@ export const TangleBodySchema = frameNode(
   {
     open: synth('{\n  effect: Effect.gen(function* () {'),
     bindings: Schema.Array(BindingItemSchema),
-    mid1: synth('\n    return core.tangle("'),
+    mid1: synth('\n    return dsl.tangle("'),
     path: FrameAuthoredTokenSchema,
     mid2: synth('", '),
     code: ComposeSchema,
@@ -349,7 +349,7 @@ A `ServiceClass` represents one complete Loom section as one `Effect.Service` cl
 
 The `name`, `nameType`, and `nameTag` fields are all `ServiceName`s, one each for the class name, the `<…>` type parameter, and the string service tag.
 
-The `languageId` field names the section's product language — `"typescript"`, `"python"`, or another identifier. The section's `core.compose(…)` call carries the same language, so the de re the runner builds is tagged for the right language server. The render pass never emits the field, because it is not part of the generated frame text.
+The `languageId` field names the section's product language — `"typescript"`, `"python"`, or another identifier. The section's `dsl.compose(…)` call carries the same language, so the de re the runner builds is tagged for the right language server. The render pass never emits the field, because it is not part of the generated frame text.
 
 =>
 
@@ -395,7 +395,7 @@ export type Root = typeof RootSchema.Type
 
 ## The module
 
-A `FrameModule` is the top-level node for a `.loom` file's generated frame. The `header` field holds the fixed import block every frame begins with — `import * as core from "@athrio/loom-core"` and `import { Effect, Layer } from "effect"`. The `imports` array collects the top-level imports hoisted out of `{Loom}` sections. These must precede every service class in the output, so the render pass emits them right after the header. The `members` array holds the service classes and inline `{Loom}` blocks in document order, each preceded by a blank line. The `root` field carries the composition root when the file has services, and is absent otherwise. An empty `.loom` file is valid and produces a frame with only the header.
+A `FrameModule` is the top-level node for a `.loom` file's generated frame. The `header` field holds the fixed import block every frame begins with — `import * as dsl from "@athrio/loom-lang/dsl"` and `import { Effect, Layer } from "effect"`. The `imports` array collects the top-level imports hoisted out of `{Loom}` sections. These must precede every service class in the output, so the render pass emits them right after the header. The `members` array holds the service classes and inline `{Loom}` blocks in document order, each preceded by a blank line. The `root` field carries the composition root when the file has services, and is absent otherwise. An empty `.loom` file is valid and produces a frame with only the header.
 
 =>
 
@@ -412,7 +412,7 @@ export const FrameModuleSchema = frameNode(
   'FrameModule',
   {
     header: synth(
-      'import * as core from "@athrio/loom-core"\nimport { Effect, Layer } from "effect"\n',
+      'import * as dsl from "@athrio/loom-lang/dsl"\nimport { Effect, Layer } from "effect"\n',
     ),
     imports: Schema.Array(FrameCodeSchema),
     members: Schema.Array(MemberItemSchema),

@@ -2,33 +2,17 @@
 
 # The fault catalog
 
-A fault is something the author got wrong that Loom can name: a bracket left
-open, a label left empty, an anchor that resolves to no section. `LoomFault` is
-the closed set of them, and this module is the one place that spells out each
-fault's wording and severity.
+A fault is something the author got wrong that Loom can name: a bracket left open, a label left empty, an anchor that resolves to no section. `LoomFault` is the closed set of them, and this module is the one place that spells out each fault's wording and severity.
 
-Writing them once is the point. A reader sees everything Loom can say, gathered
-in one place. A detection site — in the tokeniser, the AST builder, or the frame
-pass — names a fault and the span it covers, and never writes the words itself.
-`describe` turns a fault into the message a person reads, and `faulty` wraps that
-message, positioned, as the `Health` a node carries. Adding a fault is adding a
-line to the table. The table is exhaustive, so a fault with no line does not
-compile.
+Writing them once is the point. A reader sees everything Loom can say, gathered in one place. A detection site — in the tokeniser, the AST builder, or the frame pass — names a fault and the span it covers, and never writes the words itself. `describe` turns a fault into the message a person reads, and `faulty` wraps that message, positioned, as the `Health` a node carries. Adding a fault is adding a line to the table. The table is exhaustive, so a fault with no line does not compile.
 
 ## What Loom can get wrong
 
-A `LoomFault` is a tagged union, and each variant names one fault and carries
-only what its message needs. An `UnclosedDelimiter` carries the delimiter it
-expected to find. An `UnresolvedAnchor` carries the name that matched no section,
-and an `AmbiguousAnchor` adds the count that made it ambiguous. A
-`MissingWarpValue` carries the name of a Warp that bound nothing.
+A `LoomFault` is a tagged union, and each variant names one fault and carries only what its message needs. An `UnclosedDelimiter` carries the delimiter it expected to find. An `UnresolvedAnchor` carries the name that matched no section, and an `AmbiguousAnchor` adds the count that made it ambiguous. A `MissingWarpValue` carries the name of a Warp that bound nothing. A `CrossLanguageAnchor` carries the anchor name, the language found at the target, and the language the host section composes.
 
-The label faults fold many constructs into two variants. A construct is a named
-span the grammar validates — a tag, a specifier, a file path, a warp name, an
-anchor name. `EmptyLabel` is one with no text. `MalformedLabel` is one whose text
-breaks the construct's rule. Two further constructs — a warp annotation and a warp
-default — can only be empty, never malformed. `EmptyConstruct` is the malformed
-set widened by those two.
+`MissingLanguageWarp` carries nothing, and it alone is a warning, not an error. A document with no `{{lang: …}}` still composes; only its primary language stays unknown.
+
+The label faults fold many constructs into two variants. A construct is a named span the grammar validates — a tag, a specifier, a file path, a warp name, an anchor name. `EmptyLabel` is one with no text. `MalformedLabel` is one whose text breaks the construct's rule. Two further constructs — a warp annotation and a warp default — can only be empty, never malformed, so `EmptyConstruct` adds those two to `MalformedConstruct`.
 
 =>
 
@@ -64,9 +48,7 @@ export type LoomFault = Data.TaggedEnum<{
 
 ~
 
-Destructuring `taggedEnum` gives one constructor per variant, so a detection site
-builds a fault by name — `EmptyLabel({ construct: 'tag' })`, or
-`MissingLanguageWarp()` for a variant that carries nothing.
+Destructuring `taggedEnum` gives one constructor per variant, so a detection site builds a fault by name — `EmptyLabel({ construct: 'tag' })`, or `MissingLanguageWarp()` for a variant that carries nothing.
 
 =>
 
@@ -83,15 +65,9 @@ export const {
 
 ## The table
 
-`describe` reads a fault aloud. It maps each variant to a `severity` and the
-`message` a person sees, and it is exhaustive over the union — a new fault does
-not compile until it has a line here. The table cannot drift from the faults it
-describes.
+`describe` reads a fault aloud. It maps each variant to a `severity` and the `message` a person sees, and it is exhaustive over the union — a new fault does not compile until it has a line here. The table cannot drift from the faults it describes.
 
-Two small lookups carry the wording that varies by construct. `noun` gives each
-construct the name a reader knows it by, and `rule` gives each malformable
-construct the rule its text broke. An empty label then reads `<noun> cannot be
-empty`, and a malformed one reads `<noun> <rule>; got <value>`.
+Two small lookups carry the wording that varies by construct. `noun` gives each construct the name a reader knows it by, and `rule` gives each construct that can be malformed the rule its text broke. An empty label then reads `<noun> cannot be empty`, and a malformed one reads `<noun> <rule>; got <value>`.
 
 =>
 
@@ -160,11 +136,7 @@ export const describe = (fault: LoomFault): Note =>
 
 ## Raising a fault
 
-A detection site holds a fault and the span it covers, and wants the `Health` to
-hang on the node. `faulty` is that step. It reads the fault through the catalog
-and returns a health carrying the one diagnostic, positioned where the fault was
-found. An error or a warning fails the node. An informational note leaves it
-healthy, because `info` is not a failure.
+A detection site holds a fault and the span it covers, and needs a `Health` for the node. `faulty` is that step: it describes the fault through the catalog and returns a health carrying the one diagnostic, positioned where the fault was found. The severity sets the node's status: an error or a warning fails it. An informational note would leave it healthy, but the catalog raises only errors and warnings — never `info`.
 
 =>
 
@@ -181,14 +153,12 @@ export const faulty = (fault: LoomFault, position: Position): Health => {
 
 ## What this module draws on
 
-`Data` builds the tagged union and a constructor for each fault, and `Match`
-builds the exhaustive table. `@athrio/loom-core` types what a fault becomes — the
-`Severity` and `Position` a diagnostic carries, and the `Health` a node holds.
+`Data` builds the tagged union and a constructor for each fault, and `Match` builds the exhaustive table. `@athrio/loom-ast` types what a fault becomes — the `Severity` and `Position` a diagnostic carries, and the `Health` a node holds.
 
 =>
 
 import { Data, Match } from 'effect'
-import type { Health, Position, Severity } from '@athrio/loom-core/LoomNode'
+import type { Health, Position, Severity } from '@athrio/loom-ast/LoomNode'
 
 ## The module {../src/ast/LoomFault.ts}
 

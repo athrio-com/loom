@@ -1,15 +1,9 @@
 import { Array as Arr, Effect, Layer, pipe } from 'effect'
 import * as effect from 'effect'
-import * as core from '@athrio/loom-core'
+import * as dsl from '../dsl'
 import { stripTypeScriptTypes } from 'node:module'
 import { dirname, resolve as resolvePath } from 'node:path'
-import type { ComposedCode, TangledFile, WovenProse } from '@athrio/loom-core/ProductAst'
-
-export interface RunOutput {
-  readonly code: ReadonlyMap<string, ReadonlyMap<string, ComposedCode>>
-  readonly prose: ReadonlyMap<string, ReadonlyMap<string, WovenProse>>
-  readonly files: ReadonlyArray<TangledFile>
-}
+import type { Code, File, Product } from '@athrio/loom-ast/ProductAst'
 
 type AnyLayer = Layer.Layer<never, never, never>
 
@@ -24,9 +18,8 @@ interface ServiceNode {
 }
 
 interface ManifestResult {
-  readonly sections: ReadonlyMap<string, ComposedCode>
-  readonly prose: ReadonlyMap<string, WovenProse>
-  readonly files: ReadonlyArray<TangledFile>
+  readonly sections: ReadonlyMap<string, Code>
+  readonly files: ReadonlyArray<File>
 }
 
 interface EvaledFrame {
@@ -135,8 +128,8 @@ const evalCorpus = (
     ),
     Arr.reduce(new Map<string, EvaledFrame>(), (evaled, path) => {
       const require = (id: string): unknown =>
-        id === '@athrio/loom-core'
-          ? core
+        id === '@athrio/loom-lang/dsl'
+          ? dsl
           : id === 'effect'
             ? effect
             : evaled.get(resolvePath(dirname(path), id))
@@ -195,13 +188,12 @@ const wireCone = (cone: ReadonlyArray<ServiceNode>): AnyLayer =>
 
 const emptyManifest: ManifestResult = {
   sections: new Map(),
-  prose: new Map(),
   files: [],
 }
 
 const collect = (
   evaled: ReadonlyMap<string, EvaledFrame>,
-): Effect.Effect<RunOutput> => {
+): Effect.Effect<ReadonlyMap<string, Product>> => {
   const services = indexServices(evaled)
   return pipe(
     Effect.forEach([...evaled.entries()], ([path, m]) => {
@@ -213,25 +205,25 @@ const collect = (
         Effect.catchAllCause(() => Effect.succeed([path, emptyManifest] as const)),
       )
     }),
-    Effect.map((results) => ({
-      code: new Map(results.map(([path, r]) => [path, r.sections])),
-      prose: new Map(results.map(([path, r]) => [path, r.prose])),
-      files: Arr.flatMap(results, ([, r]) => [...r.files]),
-    })),
+    Effect.map(
+      (results) =>
+        new Map(
+          results.map(([path, r]) => [
+            path,
+            { code: [...r.sections.values()], files: [...r.files] },
+          ]),
+        ),
+    ),
   )
 }
 
-const emptyOutput: RunOutput = {
-  code: new Map(),
-  prose: new Map(),
-  files: [],
-}
-
-export class LoomRunner extends Effect.Service<LoomRunner>()('LoomRunner', {
+export class FrameRunner extends Effect.Service<FrameRunner>()('FrameRunner', {
   succeed: {
-    run: (frames: ReadonlyMap<string, string>): Effect.Effect<RunOutput> =>
+    produce: (
+      frames: ReadonlyMap<string, string>,
+    ): Effect.Effect<ReadonlyMap<string, Product>> =>
       Effect.suspend(() => collect(evalCorpus(frames))).pipe(
-        Effect.catchAllCause(() => Effect.succeed(emptyOutput)),
+        Effect.catchAllCause(() => Effect.succeed(new Map<string, Product>())),
       ),
   },
 }) {}

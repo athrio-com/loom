@@ -52,7 +52,7 @@ const productLanguage = (
       const fileName = uri.fsPath
       const root = roots.get(fileName)
       if (root) {
-        language.scripts.set(uri, root, 'typescript')
+        language.scripts.set(uri, root)
         return
       }
       if (!includeFsFiles) return
@@ -106,7 +106,7 @@ export const createProductProgram = (
   const setRoot = (fileName: string, text: string): void => {
     const snapshot = ts.ScriptSnapshot.fromString(text)
     roots.set(fileName, snapshot)
-    language.scripts.set(asUri(fileName), snapshot, 'typescript')
+    language.scripts.set(asUri(fileName), snapshot)
     projectVersion++
   }
 

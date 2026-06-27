@@ -2,11 +2,11 @@
 
 # Loom's composition language
 
-Loom transpiles each `.loom` file into a virtual frame: a small program written in the composition language this module defines. `@athrio/loom-core` is that language — the import at the head of every generated frame — and running the frame is what produces the product.
+Loom transpiles each `.loom` file into a virtual frame: a small program written in the composition language this module defines. The frame imports it as `@athrio/loom-lang/dsl` at its head, and running the frame produces the product.
 
 The language has seven verbs. Four build the leaves of a section's de re structure: `fragment` carries a literal span of the author's code and `referValue` a Warp's literal value, while `referName` and `referTag` carry the two kinds of edge to another section. Two assemble those leaves: `compose` gathers a section's code, `weave` gathers its prose. One ships the result: `tangle` binds a composed result to a file path.
 
-The verbs construct, they do not concatenate. Where the old language joined strings, this one returns the `ProductAst` nodes — `Fragment`, `Ref`, `ComposedCode` — that `fromProduct` later flattens to text and mappings. The frame is a program that builds a value, and the value is the de re.
+The verbs construct, they do not concatenate. Where the old language joined strings, this one returns the `ProductAst` nodes — `Fragment`, `Ref`, `Code` — that `fromProduct` later flattens to text and mappings. The frame is a program that builds a value, and the value is the de re.
 
 ## A literal fragment
 
@@ -64,48 +64,48 @@ export const referTag = (
 
 ## Composing code
 
-`compose` assembles a section's code channel. It takes the section's corpus-wide identity and its product language, then its parts in composition order, and returns one `ComposedCode`. A section with no parts composes an empty one. The identity and language still stamp it.
+`compose` assembles a section's code channel. It takes the section's corpus-wide identity and its product language, then its fragments in composition order, and returns one `Code`. A section with no fragments composes an empty one. The identity and language still stamp it.
 
 =>
 
 export const compose = (
   origin: SectionId,
   languageId: string,
-  ...parts: ReadonlyArray<Part>
-): ComposedCode => ({
-  type: 'ComposedCode',
+  ...fragments: ReadonlyArray<Part>
+): Code => ({
+  type: 'Code',
   health: okHealth,
   origin,
   languageId,
-  parts,
+  fragments,
 })
 
 ## Weaving prose
 
-`weave` is `compose`'s peer for the prose channel. It takes the same identity and the same parts — a prose fragment, a prose reference — and returns a `WovenProse`. Prose is always Markdown, so `weave` needs no language argument. One part type serves both channels; the verb that gathers it decides which channel it joins.
+`weave` is `compose`'s peer for the prose channel. It takes the same identity and the same fragments — a prose fragment, a prose reference — and returns a `WovenProse`. Prose is always Markdown, so `weave` needs no language argument. One `Part` type serves both channels; the verb that gathers it decides which channel it joins.
 
 =>
 
 export const weave = (
   origin: SectionId,
-  ...parts: ReadonlyArray<Part>
+  ...fragments: ReadonlyArray<Part>
 ): WovenProse => ({
   type: 'WovenProse',
   health: okHealth,
   origin,
-  parts,
+  fragments,
 })
 
 ## Binding a file
 
-`tangle` binds a composed result to a file path. Where `compose` and `weave` gather, `tangle` ships — but it ships a value, not a side effect. It returns a `TangledFile`, the path paired with its `ComposedCode`, and writes nothing.
+`tangle` binds a composed result to a file path. Where `compose` and `weave` gather, `tangle` ships — but it ships a value, not a side effect. It returns a `File`, the path paired with its `Code`, and writes nothing.
 
 The write moves out of the language and into the tangler, which flattens the `code` across the corpus and emits the file at the end of the world. A pure `tangle` is what lets the editor run a frame to compose its sections without ever touching the disk.
 
 =>
 
-export const tangle = (path: string, code: ComposedCode): TangledFile => ({
-  type: 'TangledFile',
+export const tangle = (path: string, code: Code): File => ({
+  type: 'File',
   health: okHealth,
   path,
   code,
@@ -113,26 +113,26 @@ export const tangle = (path: string, code: ComposedCode): TangledFile => ({
 
 ## What this module draws on
 
-The five verbs build `ProductAst` nodes, so the de re node types come from there. `Option` wraps a reference's target, and `okHealth` and `Position` come from the foundation.
+The verbs build `ProductAst` nodes, so the de re node types come from `@athrio/loom-ast`. `Option` wraps a reference's target, and `okHealth` and `Position` come from the foundation.
 
 =>
 
 import { Option } from 'effect'
-import { okHealth, type Position } from '#ast/LoomNode'
+import { okHealth, type Position } from '@athrio/loom-ast/LoomNode'
 import type {
-  ComposedCode,
+  Code,
+  File,
   Fragment,
   NameRef,
   Part,
   SectionId,
   TagRef,
-  TangledFile,
   WovenProse,
-} from '#ast/ProductAst'
+} from '@athrio/loom-ast/ProductAst'
 
-## The module {../src/core.ts}
+## The module {../src/dsl.ts}
 
-Six standalone constructors, none calling another, so their order on disk is free. Here it follows the story: what they draw on, the leaves, then the two gathers and the ship.
+Seven standalone constructors, none calling another, so their order on disk is free. Here it follows the story: what they draw on, the leaves, then the two gathers and the ship.
 
 =>
 

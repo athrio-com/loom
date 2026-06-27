@@ -5,7 +5,7 @@ import {
   LoomHeadingSchema,
   LoomSectionSchema,
 } from '#ast/LoomAst'
-import { okHealth, type Position } from '@athrio/loom-core/LoomNode'
+import { okHealth, type Position } from '#ast/LoomNode'
 
 const pos: Position = {
   start: { line: 1, column: 1, offset: 0 },

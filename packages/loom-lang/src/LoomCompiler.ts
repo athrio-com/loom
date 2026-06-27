@@ -1,27 +1,134 @@
 import type { CodeMapping, VirtualCode } from '@volar/language-core'
-import { Array, Effect, Match, pipe } from 'effect'
+import { Array, Data, Effect, Match, Option, pipe } from 'effect'
 import { readFileSync } from 'node:fs'
+import { dirname, resolve as resolvePath } from 'node:path'
 import type * as ts from 'typescript'
-import type { FrameModule } from '#ast/FrameAst'
+import type { Product } from '@athrio/loom-ast/ProductAst'
+import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
 import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import {
-  type LoomCorpusAst,
+  corpusErrors,
+  moduleDiagnostics,
+  transitiveDependents,
   type LoomModule,
   type Path,
-  transitiveDependents,
-} from '#ast/LoomCorpusAst'
+} from '@athrio/loom-ast/LoomCorpusAst'
 import {
-  type CodeByPath,
   fromFrame,
   fromProduct,
-  LoomVirtualCodeBuilder,
   rootNamesAt,
   rootVirtualCode,
 } from '#ast/LoomVirtualCodeBuilder'
-import { type LoomVirtualCode, type Mapping } from '#ast/LoomVirtualCode'
-import { LoomRunner, type RunOutput } from '#ast/FrameRunner'
+import { type LoomVirtualCode, type Mapping } from '@athrio/loom-ast/LoomVirtualCode'
+import { FrameRunner } from '#ast/FrameRunner'
 import { LoomMemo } from './LoomMemo'
 import { PackageConfig } from './PackageConfig'
+
+type Modules = ReadonlyMap<Path, LoomModule>
+
+const reachableFrom = (modules: Modules, entry: Path): Modules => {
+  const visit = (acc: Modules, path: Path): Modules => {
+    if (acc.has(path)) return acc
+    const m = modules.get(path)
+    return m === undefined
+      ? acc
+      : Array.reduce(m.imports, new Map(acc).set(path, m), visit)
+  }
+  return visit(new Map<Path, LoomModule>(), entry)
+}
+
+const emptyProduct: Product = { code: [], files: [] }
+
+const framesOf = (modules: Modules): ReadonlyMap<Path, string> =>
+  new Map(
+    Array.map(
+      Array.fromIterable(modules),
+      ([p, m]) => [p, fromFrame(m.frame).code] as const,
+    ),
+  )
+
+const withProducts = (
+  modules: Modules,
+  products: ReadonlyMap<Path, Product>,
+): Modules =>
+  new Map(
+    Array.map(
+      Array.fromIterable(modules),
+      ([p, m]) => [p, { ...m, product: products.get(p) ?? emptyProduct }] as const,
+    ),
+  )
+
+const allProduced = (modules: Modules): boolean =>
+  Array.every(
+    Array.fromIterable(modules.values()),
+    (m) => m.product !== undefined,
+  )
+
+const entryOf = (
+  modules: Modules,
+  path: Path,
+): Effect.Effect<{ readonly modules: Modules; readonly entry: LoomModule }> =>
+  Effect.fromNullable(modules.get(path)).pipe(
+    Effect.orDie,
+    Effect.map((entry) => ({ modules, entry })),
+  )
+
+export interface TangledFile {
+  readonly section: string
+  readonly path: Path
+  readonly content: string
+}
+
+const resolveSinks = (modules: Modules, entry: Path): ReadonlyArray<TangledFile> =>
+  pipe(
+    modules.get(entry)?.product?.files ?? [],
+    Array.map((file) => ({
+      section: file.code.origin.name,
+      path: resolvePath(dirname(entry), file.path),
+      content: fromProduct(modules, file.code.origin).code,
+    })),
+  )
+
+export class TangleError extends Data.TaggedError('TangleError')<{
+  readonly entry: Path
+  readonly failures: ReadonlyArray<{
+    readonly path: Path
+    readonly diagnostics: ReadonlyArray<Diagnostic>
+  }>
+}> {
+  get message(): string {
+    const count = this.failures.reduce((n, f) => n + f.diagnostics.length, 0)
+    const lines = this.failures.flatMap((f) =>
+      f.diagnostics.map(
+        (d) => `  ${f.path}:${d.position.start.line}: ${d.message}`,
+      ),
+    )
+    return `loom: refusing to tangle ${this.entry} — ${count} error(s) across the corpus:\n${lines.join('\n')}`
+  }
+}
+
+const namesAt = (modules: Modules, path: Path): ReadonlyArray<string> => {
+  const product = modules.get(path)?.product
+  return product === undefined
+    ? []
+    : Array.map(product.code, (c) => c.origin.name)
+}
+
+const rootsAt = (modules: Modules, path: Path): ReadonlyArray<string> => {
+  const roots = rootNamesAt(modules, path)
+  return Array.filter(namesAt(modules, path), (name) =>
+    roots.has(name.toLowerCase()),
+  )
+}
+
+const projectTree = (modules: Modules, entry: LoomModule): LoomVirtualCode =>
+  rootVirtualCode(entry.text, [
+    fromFrame(entry.frame),
+    ...pipe(
+      rootsAt(modules, entry.path),
+      Array.map((name) => fromProduct(modules, { path: entry.path, name })),
+    ),
+  ])
 
 export const stringSnapshot = (text: string): ts.IScriptSnapshot => ({
   getText: (start, end) => text.slice(start, end),
@@ -85,10 +192,9 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
     effect: Effect.gen(function* () {
       const documents = yield* DocumentSource
       const builder = yield* LoomCorpusAstBuilder
-      const vcb = yield* LoomVirtualCodeBuilder
       const memo = yield* LoomMemo
       const config = yield* PackageConfig
-      const runner = yield* LoomRunner
+      const frames = yield* FrameRunner
 
       const load = (source: Source, path: Path): Effect.Effect<void> =>
         config.resolve(path).pipe(
@@ -102,94 +208,33 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
           ),
         )
 
-      const runCorpus = (
-        modules: ReadonlyMap<Path, LoomModule>,
-      ): Effect.Effect<RunOutput> =>
-        runner.run(
-          new Map(
-            Array.map(
-              Array.fromIterable(modules),
-              ([p, m]) => [p, fromFrame(m.frame).code] as const,
-            ),
-          ),
-        )
-
-      const ensureModules = (
-        source: Source,
-        entry: Path,
-      ): Effect.Effect<ReadonlyMap<Path, LoomModule>> =>
+      const buildCorpus = (source: Source, entry: Path): Effect.Effect<Modules> =>
         load(source, entry).pipe(
           Effect.zipRight(memo.entries),
           Effect.map((all) => reachableFrom(all, entry)),
         )
 
-      const ensureEntry = (
+      const produceCorpus = (
         source: Source,
-        path: Path,
-      ): Effect.Effect<{
-        readonly modules: ReadonlyMap<Path, LoomModule>
-        readonly entry: LoomModule
-      }> =>
-        ensureModules(source, path).pipe(
+        entry: Path,
+      ): Effect.Effect<Modules> =>
+        buildCorpus(source, entry).pipe(
           Effect.flatMap((modules) =>
-            Effect.fromNullable(modules.get(path)).pipe(
-              Effect.orDie,
-              Effect.map((entry) => ({ modules, entry })),
-            ),
+            allProduced(modules)
+              ? Effect.succeed(modules)
+              : frames.produce(framesOf(modules)).pipe(
+                  Effect.map((products) => withProducts(modules, products)),
+                  Effect.tap(memo.fill),
+                ),
           ),
         )
 
       return {
-        frame: (path: Path): Effect.Effect<FrameModule> =>
-          ensureEntry(documents, path).pipe(Effect.map(({ entry }) => entry.frame)),
-
-        code: (path: Path): Effect.Effect<ReadonlyArray<LoomVirtualCode>> =>
-          ensureEntry(documents, path).pipe(
-            Effect.flatMap(({ modules, entry }) =>
-              runCorpus(modules).pipe(
-                Effect.flatMap((out) =>
-                  Effect.forEach(namesAt(out.code, entry.path), (name) =>
-                    vcb.fromProduct(out.code, { path: entry.path, name }),
-                  ),
-                ),
-              ),
-            ),
-          ),
-
-        roots: (path: Path): Effect.Effect<ReadonlySet<string>> =>
-          ensureEntry(documents, path).pipe(
-            Effect.flatMap(({ modules, entry }) =>
-              runCorpus(modules).pipe(
-                Effect.map((out) => rootNamesAt(out.code, entry.path)),
-              ),
-            ),
-          ),
-
-        corpus: (entry: Path): Effect.Effect<LoomCorpusAst> =>
-          ensureModules(documents, entry).pipe(
-            Effect.map((modules) => ({ modules })),
-          ),
-
-        composed: (
-          entry: Path,
-        ): Effect.Effect<{
-          readonly corpus: LoomCorpusAst
-          readonly output: RunOutput
-        }> =>
-          ensureModules(documents, entry).pipe(
-            Effect.flatMap((modules) =>
-              runCorpus(modules).pipe(
-                Effect.map((output) => ({ corpus: { modules }, output })),
-              ),
-            ),
-          ),
-
-        virtualCode: (source: Source, path: Path): Effect.Effect<VirtualCode> =>
-          ensureEntry(source, path).pipe(
-            Effect.flatMap(({ modules, entry }) =>
-              runCorpus(modules).pipe(
-                Effect.map((out) => toVolar(projectTree(out.code, entry))),
-              ),
+        compile: (source: Source, path: Path): Effect.Effect<VirtualCode> =>
+          produceCorpus(source, path).pipe(
+            Effect.flatMap((modules) => entryOf(modules, path)),
+            Effect.map(({ modules, entry }) =>
+              toVolar(projectTree(modules, entry)),
             ),
             Effect.catchAllCause((cause) =>
               Effect.logError(
@@ -206,7 +251,39 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
             ),
           ),
 
-        change: (path: Path): Effect.Effect<ReadonlyArray<Path>> =>
+        tangle: (
+          path: Path,
+        ): Effect.Effect<ReadonlyArray<TangledFile>, TangleError> =>
+          produceCorpus(documents, path).pipe(
+            Effect.flatMap((modules) => {
+              const failures = corpusErrors({ modules })
+              return failures.length > 0
+                ? Effect.fail(new TangleError({ entry: path, failures }))
+                : Effect.succeed(resolveSinks(modules, path))
+            }),
+          ),
+
+        diagnose: (path: Path): Effect.Effect<ReadonlyArray<Diagnostic>> =>
+          buildCorpus(documents, path).pipe(
+            Effect.map((modules) =>
+              pipe(
+                Option.fromNullable(modules.get(path)),
+                Option.match({ onNone: () => [], onSome: moduleDiagnostics }),
+              ),
+            ),
+          ),
+
+        reach: (path: Path): Effect.Effect<ReadonlyArray<Path>> =>
+          buildCorpus(documents, path).pipe(
+            Effect.map((modules) =>
+              Array.filter(
+                Array.fromIterable(modules.keys()),
+                (p) => p !== path,
+              ),
+            ),
+          ),
+
+        invalidate: (path: Path): Effect.Effect<ReadonlyArray<Path>> =>
           Effect.gen(function* () {
             const modules = yield* memo.entries
             const dependents = transitiveDependents(modules, path)
@@ -217,41 +294,8 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
     }),
     dependencies: [
       LoomCorpusAstBuilder.Default,
-      LoomVirtualCodeBuilder.Default,
       LoomMemo.Default,
-      LoomRunner.Default,
+      FrameRunner.Default,
     ],
   },
 ) {}
-
-const namesAt = (codeByPath: CodeByPath, path: Path): ReadonlyArray<string> =>
-  Array.fromIterable((codeByPath.get(path) ?? new Map<string, never>()).keys())
-
-const projectTree = (
-  codeByPath: CodeByPath,
-  entry: LoomModule,
-): LoomVirtualCode =>
-  rootVirtualCode(entry.text, [
-    fromFrame(entry.frame),
-    ...pipe(
-      namesAt(codeByPath, entry.path),
-      Array.map((name) => fromProduct(codeByPath, { path: entry.path, name })),
-    ),
-  ])
-
-const reachableFrom = (
-  modules: ReadonlyMap<Path, LoomModule>,
-  entry: Path,
-): ReadonlyMap<Path, LoomModule> => {
-  const visit = (
-    acc: ReadonlyMap<Path, LoomModule>,
-    path: Path,
-  ): ReadonlyMap<Path, LoomModule> => {
-    if (acc.has(path)) return acc
-    const m = modules.get(path)
-    return m === undefined
-      ? acc
-      : Array.reduce(m.imports, new Map(acc).set(path, m), visit)
-  }
-  return visit(new Map<Path, LoomModule>(), entry)
-}

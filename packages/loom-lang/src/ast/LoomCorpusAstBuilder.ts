@@ -5,14 +5,14 @@ import {
   defaultAnchorDelims,
   type AnchorDelims,
   type InvalidAnchorDelims,
-} from '#ast/LoomTokens'
+} from '@athrio/loom-ast/LoomTokens'
 import { LoomSourceRanges } from '#ast/LineRanges'
 import { WeftClassifier } from '#ast/WeftClassifier'
 import { WeftTokeniser } from '#ast/WeftTokeniser'
 import { LoomAstBuilder, emptyDocument, emptyDocumentFor } from '#ast/LoomAstBuilder'
-import type { LoomDocument } from '#ast/LoomAst'
+import type { LoomDocument } from '@athrio/loom-ast/LoomAst'
 import { FrameAstBuilder } from '#ast/FrameAstBuilder'
-import type { LoomModule, Path } from '#ast/LoomCorpusAst'
+import type { LoomModule, Path } from '@athrio/loom-ast/LoomCorpusAst'
 
 export interface Source {
   readonly read: (path: Path) => Effect.Effect<string, ReadError>

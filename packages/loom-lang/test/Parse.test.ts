@@ -7,11 +7,11 @@ import {
   LoomDocumentSchema,
   type LoomDocument,
   type LoomHeading,
-} from '#ast/LoomAst'
+} from '@athrio/loom-ast/LoomAst'
 import { parseDocument, ParseLayer } from './parse'
 import { WeftClassifier } from '#ast/WeftClassifier'
 import { WeftTokeniser } from '#ast/WeftTokeniser'
-import { LoomWeftSchema, type LoomWeft } from '#ast/Weft'
+import { LoomWeftSchema, type LoomWeft } from '@athrio/loom-ast/Weft'
 
 // =============================================================================
 // Loom AST — integration tests against `corpus/Fun.loom`.

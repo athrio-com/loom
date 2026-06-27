@@ -5,8 +5,6 @@ import { dirname } from 'node:path'
 import type { CompilerOptions } from 'typescript'
 import {
   defineLanguageService,
-  ProductQuery,
-  type ProductQueryApi,
   TypescriptSdk,
 } from '@athrio/loom-lang-services/LanguageService'
 import { createProductProgram, type ProductProgram } from './ProductProgram'
@@ -35,26 +33,30 @@ export interface ProductTarget {
   readonly fileName: string
 }
 
+const tsExtension: ReadonlyMap<string, string> = new Map([
+  ['typescript', '.ts'],
+  ['tsx', '.tsx'],
+  ['javascript', '.js'],
+  ['jsx', '.jsx'],
+])
+
 export const productTarget = (
   decoded: readonly [URI, string] | undefined,
+  languageId: string,
   text: string,
-  productQuery: ProductQueryApi,
   programFor: (loomPath: string) => ProductProgram,
 ): ProductTarget | undefined => {
-  if (decoded === undefined) return undefined
+  const extension = tsExtension.get(languageId)
+  if (decoded === undefined || extension === undefined) return undefined
   const [loomUri, rootId] = decoded
   const loomPath = loomUri.fsPath
-  if (!productQuery.roots(loomPath).has(rootId)) return undefined
   const program = programFor(loomPath)
-  const fileName = `${loomPath}.${rootId}.ts`
+  const fileName = `${loomPath}.${rootId}${extension}`
   program.setRoot(fileName, text)
   return { program, fileName }
 }
 
-const productPlugin = (
-  ts: TypeScript,
-  productQuery: ProductQueryApi,
-): LanguageServicePlugin => ({
+const productPlugin = (ts: TypeScript): LanguageServicePlugin => ({
   name: 'loom-typescript-product',
   capabilities: {
     diagnosticProvider: { interFileDependencies: false, workspaceDiagnostics: false },
@@ -71,34 +73,38 @@ const productPlugin = (
       programs.set(loomPath, program)
       return program
     }
-    const targetOf = (uri: string, text: string): ProductTarget | undefined =>
+    const targetOf = (
+      uri: string,
+      languageId: string,
+      text: string,
+    ): ProductTarget | undefined =>
       productTarget(
         context.decodeEmbeddedDocumentUri(URI.parse(uri)),
+        languageId,
         text,
-        productQuery,
         programFor,
       )
     return {
       provideDiagnostics: (document) => {
-        const target = targetOf(document.uri, document.getText())
+        const target = targetOf(document.uri, document.languageId, document.getText())
         return target === undefined
           ? undefined
           : target.program.diagnostics(target.fileName)
       },
       provideHover: (document, position) => {
-        const target = targetOf(document.uri, document.getText())
+        const target = targetOf(document.uri, document.languageId, document.getText())
         return target === undefined
           ? undefined
           : target.program.hover(target.fileName, position)
       },
       provideCompletionItems: (document, position) => {
-        const target = targetOf(document.uri, document.getText())
+        const target = targetOf(document.uri, document.languageId, document.getText())
         return target === undefined
           ? undefined
           : target.program.completions(target.fileName, position)
       },
       provideDefinition: (document, position) => {
-        const target = targetOf(document.uri, document.getText())
+        const target = targetOf(document.uri, document.languageId, document.getText())
         return target === undefined
           ? undefined
           : target.program.definition(target.fileName, position)
@@ -115,7 +121,6 @@ export const TypescriptService = defineLanguageService({
   plugins: () =>
     Effect.gen(function* () {
       const ts = yield* TypescriptSdk
-      const productQuery = yield* ProductQuery
-      return [productPlugin(ts, productQuery)]
+      return [productPlugin(ts)]
     }),
 })

@@ -1,5 +1,5 @@
 import { Option, Schema, SchemaAST } from 'effect'
-import { HealthSchema, okHealth, PositionSchema } from '@athrio/loom-core/LoomNode'
+import { HealthSchema, okHealth, PositionSchema } from '#ast/LoomNode'
 
 export const RenderOrder: unique symbol = Symbol.for('loom/RenderOrder')
 
@@ -64,7 +64,7 @@ export type ServiceName = typeof ServiceNameSchema.Type
 export const EmbeddedCodeSchema = frameNode(
   'EmbeddedCode',
   {
-    open: synth('core.fragment(`'),
+    open: synth('dsl.fragment(`'),
     text: Schema.String,
     position: PositionSchema,
     mid: synth('`, '),
@@ -78,7 +78,7 @@ export type EmbeddedCode = typeof EmbeddedCodeSchema.Type
 export const ProseFragmentSchema = frameNode(
   'ProseFragment',
   {
-    open: synth('core.fragment(`'),
+    open: synth('dsl.fragment(`'),
     text: Schema.String,
     position: PositionSchema,
     mid: synth('`, '),
@@ -105,7 +105,7 @@ export type CodeRef = typeof CodeRefSchema.Type
 export const ValueRefSchema = frameNode(
   'ValueRef',
   {
-    open: synth('core.referValue('),
+    open: synth('dsl.referValue('),
     value: FrameAuthoredTokenSchema,
     mid: synth(', '),
     anchor: FrameSynthTokenSchema,
@@ -118,7 +118,7 @@ export type ValueRef = typeof ValueRefSchema.Type
 export const ProseRefSchema = frameNode(
   'ProseRef',
   {
-    open: synth('core.referName('),
+    open: synth('dsl.referName('),
     binding: FrameAuthoredTokenSchema,
     dot: synth('.prose, '),
     anchor: FrameSynthTokenSchema,
@@ -144,7 +144,7 @@ export type ComposeArgItem = typeof ComposeArgItemSchema.Type
 export const ComposeSchema = frameNode(
   'Compose',
   {
-    open: synth('core.compose('),
+    open: synth('dsl.compose('),
     origin: FrameSynthTokenSchema,
     mid: synth(', '),
     lang: FrameSynthTokenSchema,
@@ -167,7 +167,7 @@ export type WeaveArgItem = typeof WeaveArgItemSchema.Type
 export const WeaveSchema = frameNode(
   'Weave',
   {
-    open: synth('core.weave('),
+    open: synth('dsl.weave('),
     origin: FrameSynthTokenSchema,
     args: Schema.Array(WeaveArgItemSchema),
     close: synth(')'),
@@ -232,7 +232,7 @@ export const TangleBodySchema = frameNode(
   {
     open: synth('{\n  effect: Effect.gen(function* () {'),
     bindings: Schema.Array(BindingItemSchema),
-    mid1: synth('\n    return core.tangle("'),
+    mid1: synth('\n    return dsl.tangle("'),
     path: FrameAuthoredTokenSchema,
     mid2: synth('", '),
     code: ComposeSchema,
@@ -294,7 +294,7 @@ export const FrameModuleSchema = frameNode(
   'FrameModule',
   {
     header: synth(
-      'import * as core from "@athrio/loom-core"\nimport { Effect, Layer } from "effect"\n',
+      'import * as dsl from "@athrio/loom-lang/dsl"\nimport { Effect, Layer } from "effect"\n',
     ),
     imports: Schema.Array(FrameCodeSchema),
     members: Schema.Array(MemberItemSchema),

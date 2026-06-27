@@ -28,6 +28,8 @@ const empty: MemoState = { modules: new Map(), hits: 0, misses: 0 }
 
 `LoomMemo` is that cache as a service — one instance is the project's build cache. `get` is a hit (return the kept module) or a miss (run `build`, keep it, count it), checked and built in one atomic step so a module builds at most once under concurrent gets. The `build` it runs may itself `get` the cache for its imports. `entries` exposes the kept modules for the compiler to project and to walk. `evict` forgets a set of paths by copy-and-change, never mutating the kept map. `stats` reports the counters.
 
+`get` caches the parse and the frame, but not the de re — that comes from running the whole corpus, which one module cannot do alone. `fill` closes the gap: the compiler runs the corpus once, then writes each produced module back over its kept entry, so the de re is cached beside the frame and the next projection reuses it instead of running again. `fill` updates only paths still kept, so an edit that evicted a module in the meantime never sees it resurrected with a stale de re.
+
 =>
 
 export class LoomMemo extends Effect.Service<LoomMemo>()('LoomMemo', {
@@ -56,6 +58,17 @@ export class LoomMemo extends Effect.Service<LoomMemo>()('LoomMemo', {
         ),
 
       entries: SynchronizedRef.get(state).pipe(Effect.map((s) => s.modules)),
+
+      fill: (produced: ReadonlyMap<Path, LoomModule>): Effect.Effect<void> =>
+        SynchronizedRef.update(state, (s) => ({
+          ...s,
+          modules: new Map(
+            Array.map(
+              Array.fromIterable(s.modules),
+              ([path, kept]) => [path, produced.get(path) ?? kept] as const,
+            ),
+          ),
+        })),
 
       evict: (paths: Iterable<Path>): Effect.Effect<void> => {
         const drop = new Set(paths)
@@ -90,7 +103,7 @@ Effect supplies `SynchronizedRef` for the atomic state, and `Array`, `Option`, a
 =>
 
 import { Array, Effect, Option, SynchronizedRef, pipe } from 'effect'
-import { type LoomModule, type Path } from '#ast/LoomCorpusAst'
+import { type LoomModule, type Path } from '@athrio/loom-ast/LoomCorpusAst'
 
 ## The module {../src/LoomMemo.ts}
 

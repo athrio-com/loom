@@ -1,0 +1,29 @@
+{
+  "name": "@athrio/loom-ast",
+  "version": "0.0.1",
+  "description": "Loom's domain model: the foundation node and the de re AST a frame builds.",
+  "license": "Apache-2.0 OR MIT",
+  "type": "module",
+  "imports": {
+    "#ast/*": "./src/ast/*.ts"
+  },
+  "exports": {
+    "./LoomNode": "./src/ast/LoomNode.ts",
+    "./ProductAst": "./src/ast/ProductAst.ts",
+    "./LoomAst": "./src/ast/LoomAst.ts",
+    "./FrameAst": "./src/ast/FrameAst.ts",
+    "./LoomCorpusAst": "./src/ast/LoomCorpusAst.ts",
+    "./LoomVirtualCode": "./src/ast/LoomVirtualCode.ts",
+    "./Weft": "./src/ast/Weft.ts",
+    "./LoomTokens": "./src/ast/LoomTokens.ts"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "effect": "3.21.2"
+  },
+  "devDependencies": {
+    "effect": "3.21.2"
+  }
+}

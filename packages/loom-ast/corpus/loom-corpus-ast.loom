@@ -2,11 +2,11 @@
 
 # The multi-file AST
 
-`LoomCorpusAst` is the multi-file AST — pure data, no pipeline (that is `LoomCorpusAstBuilder`). Every loaded `.loom` is a `LoomModule` keyed by its path, holding its source, parsed `doc`, `frame`, and import edges. The corpus is just a map of those modules. The de re is not stored here. The runner executes each module's frame to produce it, leaving a cross-file reference as an edge that `fromProduct` inlines later, at projection.
+`LoomCorpusAst` is the multi-file AST — pure data, no pipeline (that is `LoomCorpusAstBuilder`). Every loaded `.loom` is a `LoomModule` keyed by its path, holding its source, parsed `doc`, `frame`, its de re `product`, and import edges. The corpus is just a map of those modules. The de re is the `product` the run fills onto each module; a cross-file reference stays an edge there that `fromProduct` resolves later, at projection.
 
 ## The module and the corpus
 
-A `Path` is a resolved `.loom` path, a module's identity. A `LoomModule` carries one file's de dicto `frame` beside its `text`, parsed `doc`, and resolved `imports`. The de re is the frame run, not a stored field. A `LoomCorpusAst` is the map of modules by path.
+A `Path` is a resolved `.loom` path, a module's identity. A `LoomModule` carries one file's de dicto `frame` and its de re `product`, beside its `text`, parsed `doc`, and resolved `imports`. The `product` is the module's de re graph, filled by the run; before the run, a module carries none. A `LoomCorpusAst` is the map of modules by path.
 
 =>
 
@@ -17,6 +17,7 @@ export const LoomModuleSchema = Schema.Struct({
   text: Schema.String,
   doc: LoomDocumentSchema,
   frame: FrameModuleSchema,
+  product: Schema.optional(ProductSchema),
   imports: Schema.Array(Schema.String),
 })
 export type LoomModule = typeof LoomModuleSchema.Type
@@ -132,7 +133,8 @@ Effect supplies `Schema` for the model and `Array`, `Option`, and `pipe` for the
 =>
 
 import { Array, Option, pipe, Schema } from 'effect'
-import { type Diagnostic } from '@athrio/loom-core/LoomNode'
+import { type Diagnostic } from '#ast/LoomNode'
+import { ProductSchema } from '#ast/ProductAst'
 import { LoomDocumentSchema } from '#ast/LoomAst'
 import { FrameModuleSchema } from '#ast/FrameAst'
 

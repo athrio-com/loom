@@ -1,13 +1,13 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Stream } from 'effect'
-import type { LoomDocument } from '#ast/LoomAst'
+import type { LoomDocument } from '@athrio/loom-ast/LoomAst'
 import { LoomAstBuilder } from '#ast/LoomAstBuilder'
 import {
   okHealth,
   UnexpectedTokenSchema,
   type Health,
   type Position,
-} from '@athrio/loom-core/LoomNode'
+} from '@athrio/loom-ast/LoomNode'
 import {
   ArrowTokenSchema,
   HeadingStartTokenSchema,
@@ -25,7 +25,7 @@ import {
   WarpNameTokenSchema,
   WarpOpenTokenSchema,
   WarpTokenSchema,
-} from '#ast/LoomTokens'
+} from '@athrio/loom-ast/LoomTokens'
 import {
   ArrowWeftSchema,
   CodeWeftSchema,
@@ -34,7 +34,7 @@ import {
   ProseWeftSchema,
   TildeWeftSchema,
   type LoomWeft,
-} from '#ast/Weft'
+} from '@athrio/loom-ast/Weft'
 
 // =============================================================================
 // LoomAstBuilder — unit tests against synthetic weft streams.

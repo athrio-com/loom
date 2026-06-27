@@ -1,15 +1,15 @@
 import { Option } from 'effect'
-import { okHealth, type Position } from '#ast/LoomNode'
+import { okHealth, type Position } from '@athrio/loom-ast/LoomNode'
 import type {
-  ComposedCode,
+  Code,
+  File,
   Fragment,
   NameRef,
   Part,
   SectionId,
   TagRef,
-  TangledFile,
   WovenProse,
-} from '#ast/ProductAst'
+} from '@athrio/loom-ast/ProductAst'
 
 export const fragment = (text: string, origin: Position): Fragment => ({
   type: 'Fragment',
@@ -48,27 +48,27 @@ export const referTag = (
 export const compose = (
   origin: SectionId,
   languageId: string,
-  ...parts: ReadonlyArray<Part>
-): ComposedCode => ({
-  type: 'ComposedCode',
+  ...fragments: ReadonlyArray<Part>
+): Code => ({
+  type: 'Code',
   health: okHealth,
   origin,
   languageId,
-  parts,
+  fragments,
 })
 
 export const weave = (
   origin: SectionId,
-  ...parts: ReadonlyArray<Part>
+  ...fragments: ReadonlyArray<Part>
 ): WovenProse => ({
   type: 'WovenProse',
   health: okHealth,
   origin,
-  parts,
+  fragments,
 })
 
-export const tangle = (path: string, code: ComposedCode): TangledFile => ({
-  type: 'TangledFile',
+export const tangle = (path: string, code: Code): File => ({
+  type: 'File',
   health: okHealth,
   path,
   code,

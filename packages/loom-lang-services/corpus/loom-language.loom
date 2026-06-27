@@ -96,7 +96,7 @@ export const LoomLanguage = defineLanguageService({
 `volar-service-typescript` supplies the Frame's TypeScript plugins. From Volar's
 language service come the `LanguageServicePlugin` contract and the editor's own
 `Diagnostic` type, aliased `LspDiagnostic` to keep it apart from Loom's. Effect supplies
-`Array`, `pipe`, and the `Effect` the service builds in. `@athrio/loom-core` types a
+`Array`, `pipe`, and the `Effect` the service builds in. `@athrio/loom-ast` types a
 Loom `Diagnostic`, `vscode-uri` parses an embedded document's uri, and the
 `LanguageService` module gives `defineLanguageService` with the `TypescriptSdk` and
 `FrameQuery` capabilities.
@@ -110,7 +110,7 @@ import type {
   LanguageServicePlugin,
 } from '@volar/language-service'
 import { URI } from 'vscode-uri'
-import { type Diagnostic } from '@athrio/loom-core/LoomNode'
+import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
 import {
   defineLanguageService,
   FrameQuery,

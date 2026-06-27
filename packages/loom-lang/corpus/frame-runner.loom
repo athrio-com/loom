@@ -2,23 +2,17 @@
 
 # The frame runner
 
-The frame is a program, and this module runs it. Running a corpus of frames produces the de re — one `ComposedCode` per section. So the frame is the composition itself, executed, not a structure a second pass reads to derive the same result.
+The frame is a program, and this module runs it. Running a corpus of frames produces the de re — one `Product` per module. So the frame is the composition itself, executed, not a structure a second pass reads to derive the same result.
 
 A run takes four steps. It **strips** each frame's types, **evaluates** it to a live module, **wires** the corpus's services into one context where every dependency is built before what needs it, and **runs** each module's manifest under that context to collect every section's composed code. The steps are pure computation over frame text the build already produced. The run writes no file and calls nothing in Volar, so it is safe inside the synchronous projection hook.
 
 ## What a run produces
 
-A run returns three things. The `code` is the `CodeByPath` `fromProduct` flattens — each module's sections keyed by name. The `prose` is its woven peer. The `files` are the `TangledFile` descriptors the tangle sinks composed, which the tangler later writes.
+A run returns one `Product` per module — that module's de re. A `Product` holds the module's `code`, one `Code` per section, and its `files`, one `File` per tangle sink. The de re carries no prose: narration is read from the parse, woven later in document order, never composed here.
 
-A frame, once evaluated, exposes two generated members the runner reads. Its `__services` map names every service the module defines, the private sections included. Each entry pairs the service with three things: the `.Default` layer that builds it, the service class itself, and the classes it depends on. Its `__run` effect yields every section and returns the module's composed code, prose, and tangle files.
+A frame, once evaluated, exposes two generated members the runner reads. Its `__services` map names every service the module defines, the private sections included. Each entry pairs the service with three things: the `.Default` layer that builds it, the service class itself, and the classes it depends on. Its `__run` effect yields every section and returns one `ManifestResult`: the module's composed code, keyed by section name, and its tangle files.
 
 =>
-
-export interface RunOutput {
-  readonly code: ReadonlyMap<string, ReadonlyMap<string, ComposedCode>>
-  readonly prose: ReadonlyMap<string, ReadonlyMap<string, WovenProse>>
-  readonly files: ReadonlyArray<TangledFile>
-}
 
 type AnyLayer = Layer.Layer<never, never, never>
 
@@ -33,9 +27,8 @@ interface ServiceNode {
 }
 
 interface ManifestResult {
-  readonly sections: ReadonlyMap<string, ComposedCode>
-  readonly prose: ReadonlyMap<string, WovenProse>
-  readonly files: ReadonlyArray<TangledFile>
+  readonly sections: ReadonlyMap<string, Code>
+  readonly files: ReadonlyArray<File>
 }
 
 interface EvaledFrame {
@@ -54,9 +47,9 @@ const stripFrame = (frame: string): string =>
 
 ## From a module to a function
 
-A frame opens with `import` lines — `@athrio/loom-core`, `effect`, and a cross-file frame's siblings — and exports its services. The runner evaluates it as a function instead, so it rewrites those lines into forms a function body allows: each `import` becomes a `require` call the runner resolves, and each `export` assigns onto the function's `module.exports`.
+A frame opens with `import` lines — `@athrio/loom-lang/dsl`, `effect`, and a cross-file frame's siblings — and exports its services. The runner evaluates it as a function instead, so it rewrites those lines into forms a function body allows: each `import` becomes a `require` call the runner resolves, and each `export` assigns onto the function's `module.exports`.
 
-The rewrite must reach the frame's own statements and never the product code. A section's code rides inside `core.fragment(\`…\`)` template literals, and that product may itself open a line with `import` or `export` — most real source does. So `maskTemplates` first hides every template literal behind a placeholder, the rewrites run against the scaffolding that remains, and `restore` puts the literals back untouched. The placeholder is a null character, which generated TypeScript never holds, so nothing else can match it. Masking leans on the builder having escaped every backtick inside a fragment, so a fragment's own delimiters are the only bare backticks left.
+The rewrite must reach the frame's own statements and never the product code. A section's code rides inside `dsl.fragment(\`…\`)` template literals, and that product may itself open a line with `import` or `export` — most real source does. So `maskTemplates` first hides every template literal behind a placeholder, the rewrites run against the scaffolding that remains, and `restore` puts the literals back untouched. The placeholder is a null character, which generated TypeScript never holds, so nothing else can match it. Masking leans on the builder having escaped every backtick inside a fragment, so a fragment's own delimiters are the only bare backticks left.
 
 =>
 
@@ -153,7 +146,7 @@ const topoSort = <A>(
 
 ## Evaluating the corpus
 
-`evalCorpus` evaluates every frame in dependency order, threading the modules built so far. Each frame's resolver answers `@athrio/loom-core` with the runnable core and `effect` with Effect — the two the runner injects — and a sibling import with the module already built for its resolved path. Because the order is dependencies first, a sibling is always present by the time a frame asks for it.
+`evalCorpus` evaluates every frame in dependency order, threading the modules built so far. Each frame's resolver answers `@athrio/loom-lang/dsl` with the runnable dsl and `effect` with Effect — the two the runner injects — and a sibling import with the module already built for its resolved path. Because the order is dependencies first, a sibling is always present by the time a frame asks for it.
 
 `evalFrameSafe` keeps one frame's fault from sinking the corpus. A frame whose top level throws — a Warp left a name nothing defines, so its `__services` reads an undefined identifier — degrades to an empty module rather than aborting the evaluation. The faulted module loses its de re, and its siblings keep theirs.
 
@@ -186,8 +179,8 @@ const evalCorpus = (
     ),
     Arr.reduce(new Map<string, EvaledFrame>(), (evaled, path) => {
       const require = (id: string): unknown =>
-        id === '@athrio/loom-core'
-          ? core
+        id === '@athrio/loom-lang/dsl'
+          ? dsl
           : id === 'effect'
             ? effect
             : evaled.get(resolvePath(dirname(path), id))
@@ -256,7 +249,7 @@ const wireCone = (cone: ReadonlyArray<ServiceNode>): AnyLayer =>
 
 ## Running the manifests
 
-`collect` indexes every service in the corpus by key, then runs each module's manifest under its own cone. For one module it walks the cone from the module's services, folds it, provides it to that module's `__run`, and catches the result. Each `__run` yields the module's sections and returns their composed code, prose, and tangle files.
+`collect` indexes every service in the corpus by key, then runs each module's manifest under its own cone. For one module it walks the cone from the module's services, folds it, provides it to that module's `__run`, and catches the result. The result becomes that module's `Product`: its sections folded into a `code` array, its tangle files alongside. `collect` returns one `Product` per module path.
 
 The catch is what contains a fault. It wraps the provide as well as the run. A cone may fail to build for several reasons: a `{Loom}` section that throws, a Warp whose target no import brings into scope, a dependency that yields undefined. Any of these degrades that one module to an empty result, and its neighbours run on untouched. The de dicto frame the editor type-checks is produced by rendering, not running, so it survives a failed run and still carries its diagnostics. Only the de re of the failed module is lost.
 
@@ -264,13 +257,12 @@ The catch is what contains a fault. It wraps the provide as well as the run. A c
 
 const emptyManifest: ManifestResult = {
   sections: new Map(),
-  prose: new Map(),
   files: [],
 }
 
 const collect = (
   evaled: ReadonlyMap<string, EvaledFrame>,
-): Effect.Effect<RunOutput> => {
+): Effect.Effect<ReadonlyMap<string, Product>> => {
   const services = indexServices(evaled)
   return pipe(
     Effect.forEach([...evaled.entries()], ([path, m]) => {
@@ -282,47 +274,47 @@ const collect = (
         Effect.catchAllCause(() => Effect.succeed([path, emptyManifest] as const)),
       )
     }),
-    Effect.map((results) => ({
-      code: new Map(results.map(([path, r]) => [path, r.sections])),
-      prose: new Map(results.map(([path, r]) => [path, r.prose])),
-      files: Arr.flatMap(results, ([, r]) => [...r.files]),
-    })),
+    Effect.map(
+      (results) =>
+        new Map(
+          results.map(([path, r]) => [
+            path,
+            { code: [...r.sections.values()], files: [...r.files] },
+          ]),
+        ),
+    ),
   )
 }
 
 ## The runner service
 
-`LoomRunner` is the service the corpus build and the tangler call. Its one method, `run`, takes the corpus as a map of file path to frame text and returns the `RunOutput`. Evaluating the corpus runs inside `Effect.suspend`. Each module's run is already caught on its own. The final `catchAllCause` guards the one fault left, the evaluation itself throwing on a malformed corpus. It degrades the whole run to an empty result rather than throwing. So `run` never fails. The caller always receives a `RunOutput`, even when it is empty.
+`FrameRunner` is the service the compiler's produce step calls. Its one method, `produce`, takes the corpus as a map of file path to frame text and returns one `Product` per path. Evaluating the corpus runs inside `Effect.suspend`. Each module's run is already caught on its own. The final `catchAllCause` guards the one fault left, the evaluation itself throwing on a malformed corpus. It degrades the whole run to an empty map rather than throwing. So `produce` never fails. The caller always receives a product map, even when it is empty.
 
 =>
 
-const emptyOutput: RunOutput = {
-  code: new Map(),
-  prose: new Map(),
-  files: [],
-}
-
-export class LoomRunner extends Effect.Service<LoomRunner>()('LoomRunner', {
+export class FrameRunner extends Effect.Service<FrameRunner>()('FrameRunner', {
   succeed: {
-    run: (frames: ReadonlyMap<string, string>): Effect.Effect<RunOutput> =>
+    produce: (
+      frames: ReadonlyMap<string, string>,
+    ): Effect.Effect<ReadonlyMap<string, Product>> =>
       Effect.suspend(() => collect(evalCorpus(frames))).pipe(
-        Effect.catchAllCause(() => Effect.succeed(emptyOutput)),
+        Effect.catchAllCause(() => Effect.succeed(new Map<string, Product>())),
       ),
   },
 }) {}
 
 ## What this module draws on
 
-Effect supplies the array and layer combinators and the effect type. The runner injects the runnable `core` and the `effect` namespace into every frame it evaluates. `stripTypeScriptTypes` from `node:module` strips the types, and `node:path` resolves a sibling import. The de re node types — what a run produces — come from `ProductAst`.
+Effect supplies the array and layer combinators and the effect type. The runner injects the runnable `dsl` and the `effect` namespace into every frame it evaluates. `stripTypeScriptTypes` from `node:module` strips the types, and `node:path` resolves a sibling import. The de re node types — what a run produces — come from `ProductAst`: the `Product` a run returns, and the `Code` and `File` it gathers.
 
 =>
 
 import { Array as Arr, Effect, Layer, pipe } from 'effect'
 import * as effect from 'effect'
-import * as core from '@athrio/loom-core'
+import * as dsl from '../dsl'
 import { stripTypeScriptTypes } from 'node:module'
 import { dirname, resolve as resolvePath } from 'node:path'
-import type { ComposedCode, TangledFile, WovenProse } from '@athrio/loom-core/ProductAst'
+import type { Code, File, Product } from '@athrio/loom-ast/ProductAst'
 
 ## The module {../src/ast/FrameRunner.ts}
 

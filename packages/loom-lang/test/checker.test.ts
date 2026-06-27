@@ -15,7 +15,7 @@ import { loomLanguagePlugin } from '../src/LoomLanguagePlugin'
 // confirm a frame type error maps back to the `.loom` line that caused it.
 //
 // The fixture's `{{x = Ghost}}` Warp binds a value naming nothing in scope, so the
-// generated frame emits `core.referValue(Ghost, …)` — which tsc rejects with
+// generated frame emits `dsl.referValue(Ghost, …)` — which tsc rejects with
 // "Cannot find name 'Ghost'". The whole point of the virtual-code mapping is
 // that Volar surfaces that on the `Ghost` token in the `.loom`, not on
 // generated frame code the author never sees.

@@ -1,5 +1,5 @@
 import { Array, Effect, Option, SynchronizedRef, pipe } from 'effect'
-import { type LoomModule, type Path } from '#ast/LoomCorpusAst'
+import { type LoomModule, type Path } from '@athrio/loom-ast/LoomCorpusAst'
 
 export interface MemoStats {
   readonly hits: number
@@ -41,6 +41,17 @@ export class LoomMemo extends Effect.Service<LoomMemo>()('LoomMemo', {
         ),
 
       entries: SynchronizedRef.get(state).pipe(Effect.map((s) => s.modules)),
+
+      fill: (produced: ReadonlyMap<Path, LoomModule>): Effect.Effect<void> =>
+        SynchronizedRef.update(state, (s) => ({
+          ...s,
+          modules: new Map(
+            Array.map(
+              Array.fromIterable(s.modules),
+              ([path, kept]) => [path, produced.get(path) ?? kept] as const,
+            ),
+          ),
+        })),
 
       evict: (paths: Iterable<Path>): Effect.Effect<void> => {
         const drop = new Set(paths)

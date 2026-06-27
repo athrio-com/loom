@@ -1,5 +1,5 @@
 import { Schema } from 'effect'
-import { PositionSchema } from '@athrio/loom-core/LoomNode'
+import { PositionSchema } from '#ast/LoomNode'
 
 export const MappingKindSchema = Schema.Literal(
   'tag',

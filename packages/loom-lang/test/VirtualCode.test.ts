@@ -4,7 +4,7 @@ import type { Source } from '#ast/LoomCorpusAstBuilder'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { PackageConfig } from '../src/PackageConfig'
 
-// compiler.virtualCode assembles the Volar tree from the two LoomVirtualCodeBuilder
+// compiler.compile assembles the Volar tree from the two LoomVirtualCodeBuilder
 // passes — root (loom) → frame (typescript, fromFrame) + one product per section
 // (fromProduct) — and `toVolar` adapts it to Volar's runtime VirtualCode. The
 // probes capture a *warm* runtime (layers built) and then `Runtime.runSync` the
@@ -34,7 +34,7 @@ describe('VirtualCode — root → frame projection', () => {
     Effect.gen(function* () {
       const runtime = yield* Effect.runtime<LoomCompiler>()
       const root = Runtime.runSync(runtime)(
-        LoomCompiler.pipe(Effect.flatMap((c) => c.virtualCode(source, ''))),
+        LoomCompiler.pipe(Effect.flatMap((c) => c.compile(source, ''))),
       )
 
       expect(root.id).toBe('root')
@@ -65,7 +65,7 @@ describe('VirtualCode — root → frame projection', () => {
     Effect.gen(function* () {
       const runtime = yield* Effect.runtime<LoomCompiler>()
       const root = Runtime.runSync(runtime)(
-        LoomCompiler.pipe(Effect.flatMap((c) => c.virtualCode(source, ''))),
+        LoomCompiler.pipe(Effect.flatMap((c) => c.compile(source, ''))),
       )
 
       const frame = root.embeddedCodes![0]!

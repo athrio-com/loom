@@ -2,11 +2,11 @@
 
 # The de re structure
 
-`ProductAst` is the de re structure — the author's product code with its transclusions expressed as edges. Its unit is the `ComposedCode` of one section. Running a module's frame returns one `ComposedCode` per section, and `fromProduct` later flattens a section to text and mappings, following its edges across the corpus.
+`ProductAst` is the de re structure — the author's product code with its transclusions expressed as edges. Its unit is the `Code` of one section. Running a module's frame returns one `Code` per section, and `fromProduct` later flattens a section to text and mappings, following its edges across the corpus.
 
 An edge holds a target key, not a pointer. So the schema stays flat and serialisable even though the graph it describes recurses — and may hold a cycle, which `fromProduct` cuts.
 
-Code is one of two channels. Prose is its peer, a `WovenProse` woven from the same parts. A tangle section returns neither: it binds a composed result to a file path as a `TangledFile`, the descriptor the tangler writes.
+Code is one of two channels. Prose is its peer, a `WovenProse` woven from the same fragments. A tangle section returns neither: it binds a composed result to a file path as a `File`, the descriptor the tangler writes.
 
 ## The product node
 
@@ -74,43 +74,57 @@ export type Ref = typeof RefSchema.Type
 
 ## Composed code
 
-A `Part` is a `Fragment` or a `Ref`. A `ComposedCode` is one section's resolved de re: its `origin` identity, its product `languageId`, and its `parts` in composition order — a transcluded section before the code that uses it. The runner returns one per section, keyed by name.
+A `Code` is one section's resolved de re: its `origin` identity, its product `languageId`, and its `fragments` in composition order — a transcluded section before the code that uses it. Each fragment is a `Fragment`, a literal span, or a `Ref`, a transclusion edge; `Part` is the union of the two. The runner returns one `Code` per section, keyed by name.
 
 =>
 
 export const PartSchema = Schema.Union(FragmentSchema, RefSchema)
 export type Part = typeof PartSchema.Type
 
-export const ComposedCodeSchema = productNode('ComposedCode', {
+export const CodeSchema = productNode('Code', {
   origin: SectionIdSchema,
   languageId: Schema.String,
-  parts: Schema.Array(PartSchema),
+  fragments: Schema.Array(PartSchema),
 })
-export type ComposedCode = typeof ComposedCodeSchema.Type
+export type Code = typeof CodeSchema.Type
 
 ## The prose peer
 
-A `WovenProse` is the prose channel's `ComposedCode`. It carries the same `origin` and the same `parts`, so one part type serves both channels. A fragment is a span of the section's prose, and a reference transcludes another section's prose. The channel a part belongs to is the field that holds it, never the part itself. Prose is always Markdown, so a `WovenProse` declares no `languageId`.
+A `WovenProse` is the prose channel's `Code`. It carries the same `origin` and the same `fragments`, so one `Part` type serves both channels. A fragment is a span of the section's prose, and a reference transcludes another section's prose. The channel a fragment belongs to is the field that holds it, never the fragment itself. Prose is always Markdown, so a `WovenProse` declares no `languageId`.
 
 =>
 
 export const WovenProseSchema = productNode('WovenProse', {
   origin: SectionIdSchema,
-  parts: Schema.Array(PartSchema),
+  fragments: Schema.Array(PartSchema),
 })
 export type WovenProse = typeof WovenProseSchema.Type
 
 ## A tangled file
 
-A `TangledFile` is what a tangle section composes to: a file `path` paired with the `ComposedCode` bound to it. It is a value, not an effect — the tangler flattens the `code` across the corpus and performs the write, so running the frame that produces a `TangledFile` touches no disk.
+A `File` is what a tangle section composes to: a file `path` paired with the `Code` bound to it. It is a value, not an effect — the tangler flattens the `code` across the corpus and performs the write, so running the frame that produces a `File` touches no disk.
 
 =>
 
-export const TangledFileSchema = productNode('TangledFile', {
+export const FileSchema = productNode('File', {
   path: Schema.String,
-  code: ComposedCodeSchema,
+  code: CodeSchema,
 })
-export type TangledFile = typeof TangledFileSchema.Type
+export type File = typeof FileSchema.Type
+
+## The module's product
+
+`Product` is a module's whole de re — the graph the runner produces for one `.loom`. A module has many roots, so a `Product` holds many nodes: its `code`, one `Code` per ordinary section, and its `files`, one `File` per tangle sink. The edges are the refs those nodes carry. A node no same-module ref folds in is a root; the rest are members, reached only through an edge.
+
+The graph is what `compile` resolves. It reads a `Product`, takes the roots, and flattens each by following its edges across the corpus. So a `Product` is left unresolved here — it carries the whole graph, not the flattened roots — and resolving it is the next pass's work, not this structure's. Prose is no part of it: the narration is read from the parse, in document order, never composed here.
+
+=>
+
+export const ProductSchema = Schema.Struct({
+  code: Schema.Array(CodeSchema),
+  files: Schema.Array(FileSchema),
+})
+export type Product = typeof ProductSchema.Type
 
 ## What this module draws on
 
@@ -138,3 +152,5 @@ import { HealthSchema, okHealth, PositionSchema } from '#ast/LoomNode'
 ::[The prose peer]
 
 ::[A tangled file]
+
+::[The module's product]

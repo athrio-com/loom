@@ -12,7 +12,8 @@
     "./LoomCompiler": "./src/LoomCompiler.ts",
     "./LoomTangler": "./src/LoomTangler.ts",
     "./PackageConfig": "./src/PackageConfig.ts",
-    "./LoomServer": "./src/LoomServer.ts"
+    "./LoomServer": "./src/LoomServer.ts",
+    "./dsl": "./src/dsl.ts"
   },
   "scripts": {
     "build": "vite build",
@@ -20,8 +21,9 @@
   },
   "dependencies": {
     "@athrio/loom-config": "workspace:*",
-    "@athrio/loom-core": "workspace:*",
+    "@athrio/loom-ast": "workspace:*",
     "@athrio/loom-lang-services": "workspace:*",
+    "@athrio/loom-service-typescript": "workspace:*",
     "@athrio/loom-tsconfig": "workspace:*",
     "@effect/platform-node": "^0.106.0",
     "@volar/language-core": "^2.4.28",

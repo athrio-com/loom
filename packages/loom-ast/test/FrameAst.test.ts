@@ -83,9 +83,9 @@ describe('FrameAst — construction', () => {
   it('auto-fills synth tokens as typed siblings', () => {
     const c = compose(embedded('x'))
     expect(c.open.type).toBe('FrameSynthToken')
-    expect(c.open.text).toBe('core.compose(')
+    expect(c.open.text).toBe('dsl.compose(')
     expect(c.close.text).toBe(')')
-    expect(embedded('x').open.text).toBe('core.fragment(`') // a fragment is a core call
+    expect(embedded('x').open.text).toBe('dsl.fragment(`') // a fragment is a core call
   })
 
   it('auto-fills the separator inside an Item built bottom-up', () => {
@@ -165,7 +165,7 @@ describe('FrameAst — construction', () => {
     })
 
     expect(frame.type).toBe('FrameModule')
-    expect(frame.header.text).toContain('@athrio/loom-core')
+    expect(frame.header.text).toContain('@athrio/loom-lang/dsl')
     expect(frame.root?.open.text).toContain('__services')
     expect(frame.members[0].value.type).toBe('ServiceClass')
     expect(frame.members[0].sep.text).toBe('\n\n')
@@ -174,7 +174,7 @@ describe('FrameAst — construction', () => {
   it('renders empty code as compose(id, "lang") — no arguments', () => {
     const c = compose()
     expect(c.args).toEqual([])
-    expect(c.open.text).toBe('core.compose(')
+    expect(c.open.text).toBe('dsl.compose(')
     expect(c.lang.text).toBe('"typescript"')
   })
 
@@ -182,6 +182,6 @@ describe('FrameAst — construction', () => {
     const empty = FrameModuleSchema.make({ imports: [], members: [] })
     expect(empty.root).toBeUndefined()
     expect(empty.members).toEqual([])
-    expect(empty.header.text).toContain('@athrio/loom-core')
+    expect(empty.header.text).toContain('@athrio/loom-lang/dsl')
   })
 })

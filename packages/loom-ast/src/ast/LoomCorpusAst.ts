@@ -1,5 +1,6 @@
 import { Array, Option, pipe, Schema } from 'effect'
-import { type Diagnostic } from '@athrio/loom-core/LoomNode'
+import { type Diagnostic } from '#ast/LoomNode'
+import { ProductSchema } from '#ast/ProductAst'
 import { LoomDocumentSchema } from '#ast/LoomAst'
 import { FrameModuleSchema } from '#ast/FrameAst'
 
@@ -10,6 +11,7 @@ export const LoomModuleSchema = Schema.Struct({
   text: Schema.String,
   doc: LoomDocumentSchema,
   frame: FrameModuleSchema,
+  product: Schema.optional(ProductSchema),
   imports: Schema.Array(Schema.String),
 })
 export type LoomModule = typeof LoomModuleSchema.Type

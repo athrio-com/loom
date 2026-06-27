@@ -1,10 +1,10 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Chunk, Effect, Stream } from 'effect'
 import type { LineRange } from '#ast/LineRanges'
-import { okHealth } from '@athrio/loom-core/LoomNode'
+import { okHealth } from '@athrio/loom-ast/LoomNode'
 import { WeftClassifier } from '#ast/WeftClassifier'
 import { WeftTokeniser } from '#ast/WeftTokeniser'
-import type { ArrowWeft, HeadingWeft, LoomWeft } from '#ast/Weft'
+import type { ArrowWeft, HeadingWeft, LoomWeft } from '@athrio/loom-ast/Weft'
 
 // =============================================================================
 // Harness — drive lines through Classifier → Tokeniser and collect the

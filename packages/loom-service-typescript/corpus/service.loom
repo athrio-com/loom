@@ -4,7 +4,7 @@
 
 `TypescriptService` is the loadable language service for product TypeScript. Where `LoomLanguage` checks the frame in Volar's built-in program, this service checks each TypeScript section against a `ProductProgram` of its own — one the consumer's `tsconfig.json` governs, not the frame's baseline. A package activates it by naming `typescript` in its `loom.json`.
 
-For each request the editor sends, the service decodes which section the position falls in, asks `ProductQuery` whether that section is a composition root it should check, and if so hands the section's resolved TypeScript to the program and forwards the request there. The program answers in the section's own coordinates, and Volar maps the answer back to the `.loom`.
+For each request the editor sends, the service finds the Product the document belongs to — a composition root with its members folded in — hands that Product's resolved TypeScript to the program, and forwards the request there. The program answers in the Product's own coordinates, and Volar maps the answer back to the `.loom`.
 
 ## Finding the consumer's options
 
@@ -31,7 +31,7 @@ const consumerOptions = (ts: TypeScript, loomPath: string): CompilerOptions => {
 
 ## Choosing a program for a section
 
-A request arrives on an embedded document — one TypeScript section of a `.loom`. `productTarget` decodes that document's URI back to the `.loom` path and the section id, then asks `ProductQuery` whether the id names a composition root. A root it serves; a fragment, already folded into the root that names it, it declines, so the fragment never draws a diagnostic of its own. For a root, it hands the section's current text to the program under a synthetic file name — `<loom>.<id>.ts`, one per section — and returns the program and that name for the caller to query.
+A request arrives on an embedded document — one Product of a `.loom`, a composition root with its members already folded in. `productTarget` decodes that document's URI back to the `.loom` path and the Product's id. It serves only a TypeScript-family document — `typescript`, `tsx`, `javascript`, or `jsx` — and declines the rest, so a JSON or CSS Product the `.loom` also holds is left to its own service. It asks nothing about which documents are roots: the tree emits one document per root, so every document it is handed is already a Product to check. It hands the document's current text to the program under a synthetic file name — `<loom>.<id>` with the language's extension, one per Product — and returns the program and that name for the caller to query.
 
 =>
 
@@ -40,32 +40,36 @@ export interface ProductTarget {
   readonly fileName: string
 }
 
+const tsExtension: ReadonlyMap<string, string> = new Map([
+  ['typescript', '.ts'],
+  ['tsx', '.tsx'],
+  ['javascript', '.js'],
+  ['jsx', '.jsx'],
+])
+
 export const productTarget = (
   decoded: readonly [URI, string] | undefined,
+  languageId: string,
   text: string,
-  productQuery: ProductQueryApi,
   programFor: (loomPath: string) => ProductProgram,
 ): ProductTarget | undefined => {
-  if (decoded === undefined) return undefined
+  const extension = tsExtension.get(languageId)
+  if (decoded === undefined || extension === undefined) return undefined
   const [loomUri, rootId] = decoded
   const loomPath = loomUri.fsPath
-  if (!productQuery.roots(loomPath).has(rootId)) return undefined
   const program = programFor(loomPath)
-  const fileName = `${loomPath}.${rootId}.ts`
+  const fileName = `${loomPath}.${rootId}${extension}`
   program.setRoot(fileName, text)
   return { program, fileName }
 }
 
 ## The editor plugin
 
-`productPlugin` is the Volar plugin the host registers. It keeps one `ProductProgram` per `.loom` file — built on first use from that file's consumer options — and disposes them all when the service shuts down. Each feature routes its document through `productTarget`: when the document resolves to a root, the feature forwards to that root's program; otherwise it returns nothing, and the section falls back to syntax highlighting. The TypeScript analysis itself is `volar-service-typescript`'s, run inside the program.
+`productPlugin` is the Volar plugin the host registers. It keeps one `ProductProgram` per `.loom` file — built on first use from that file's consumer options — and disposes them all when the service shuts down. Each feature routes its document through `productTarget`: when the document is a TypeScript Product, the feature forwards to its program; otherwise it returns nothing, and a document in another language falls to its own service or to syntax highlighting. The TypeScript analysis itself is `volar-service-typescript`'s, run inside the program.
 
 =>
 
-const productPlugin = (
-  ts: TypeScript,
-  productQuery: ProductQueryApi,
-): LanguageServicePlugin => ({
+const productPlugin = (ts: TypeScript): LanguageServicePlugin => ({
   name: 'loom-typescript-product',
   capabilities: {
     diagnosticProvider: { interFileDependencies: false, workspaceDiagnostics: false },
@@ -82,34 +86,38 @@ const productPlugin = (
       programs.set(loomPath, program)
       return program
     }
-    const targetOf = (uri: string, text: string): ProductTarget | undefined =>
+    const targetOf = (
+      uri: string,
+      languageId: string,
+      text: string,
+    ): ProductTarget | undefined =>
       productTarget(
         context.decodeEmbeddedDocumentUri(URI.parse(uri)),
+        languageId,
         text,
-        productQuery,
         programFor,
       )
     return {
       provideDiagnostics: (document) => {
-        const target = targetOf(document.uri, document.getText())
+        const target = targetOf(document.uri, document.languageId, document.getText())
         return target === undefined
           ? undefined
           : target.program.diagnostics(target.fileName)
       },
       provideHover: (document, position) => {
-        const target = targetOf(document.uri, document.getText())
+        const target = targetOf(document.uri, document.languageId, document.getText())
         return target === undefined
           ? undefined
           : target.program.hover(target.fileName, position)
       },
       provideCompletionItems: (document, position) => {
-        const target = targetOf(document.uri, document.getText())
+        const target = targetOf(document.uri, document.languageId, document.getText())
         return target === undefined
           ? undefined
           : target.program.completions(target.fileName, position)
       },
       provideDefinition: (document, position) => {
-        const target = targetOf(document.uri, document.getText())
+        const target = targetOf(document.uri, document.languageId, document.getText())
         return target === undefined
           ? undefined
           : target.program.definition(target.fileName, position)
@@ -121,7 +129,7 @@ const productPlugin = (
 
 ## The service
 
-`TypescriptService` is the `LanguageService` the host activates for `typescript`. Its `plugins` Effect takes the editor's TypeScript compiler from `TypescriptSdk` and the root query from `ProductQuery`, then builds the one plugin. Unlike the built-in `TypescriptLanguage`, which rides the frame's shared program, this service owns a program of its own.
+`TypescriptService` is the `LanguageService` the host activates for `typescript`. Its `plugins` Effect takes the editor's TypeScript compiler from `TypescriptSdk`, then builds the one plugin. Unlike the built-in `TypescriptLanguage`, which rides the frame's shared program, this service owns a program of its own.
 
 =>
 
@@ -132,8 +140,7 @@ export const TypescriptService = defineLanguageService({
   plugins: () =>
     Effect.gen(function* () {
       const ts = yield* TypescriptSdk
-      const productQuery = yield* ProductQuery
-      return [productPlugin(ts, productQuery)]
+      return [productPlugin(ts)]
     }),
 })
 
@@ -153,7 +160,7 @@ export const TypescriptService = defineLanguageService({
 
 ## What the service draws on
 
-The service builds on `@athrio/loom-lang-services` for the `LanguageService` contract and the `TypescriptSdk` and `ProductQuery` capabilities, and on its own `ProductProgram`. From Effect it takes `Effect` for the `plugins` body; from Volar, the `LanguageServicePlugin` type; the `URI` type to decode an embedded document back to its `.loom`; and Node's `dirname` to walk for a `tsconfig.json`.
+The service builds on `@athrio/loom-lang-services` for the `LanguageService` contract and the `TypescriptSdk` capability, and on its own `ProductProgram`. From Effect it takes `Effect` for the `plugins` body; from Volar, the `LanguageServicePlugin` type; the `URI` type to decode an embedded document back to its `.loom`; and Node's `dirname` to walk for a `tsconfig.json`.
 
 =>
 
@@ -164,8 +171,6 @@ import { dirname } from 'node:path'
 import type { CompilerOptions } from 'typescript'
 import {
   defineLanguageService,
-  ProductQuery,
-  type ProductQueryApi,
   TypescriptSdk,
 } from '@athrio/loom-lang-services/LanguageService'
 import { createProductProgram, type ProductProgram } from './ProductProgram'

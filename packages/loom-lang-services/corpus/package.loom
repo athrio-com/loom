@@ -11,7 +11,7 @@ The `exports` field is the package's surface: the `LanguageService` contract, th
 `TypescriptLanguage` (the TypeScript target).
 
 The built-in services wrap `volar-service-typescript`, the one real dependency. The
-other peers — `@athrio/loom-core` for Loom's shared types, `effect`,
+other peers — `@athrio/loom-ast` for Loom's shared types, `effect`,
 `@volar/language-service`, `typescript`, and `vscode-uri` for decoding an embedded
 document's uri — are supplied by the host bundle.
 
@@ -33,14 +33,14 @@ document's uri — are supplied by the host bundle.
     "volar-service-typescript": "^0.0.71"
   },
   "peerDependencies": {
-    "@athrio/loom-core": "workspace:*",
+    "@athrio/loom-ast": "workspace:*",
     "@volar/language-service": "^2.4.28",
     "effect": "3.21.2",
     "typescript": "^6.0.3",
     "vscode-uri": "^3.1.0"
   },
   "devDependencies": {
-    "@athrio/loom-core": "workspace:*",
+    "@athrio/loom-ast": "workspace:*",
     "@volar/language-service": "^2.4.28",
     "effect": "3.21.2",
     "typescript": "^6.0.3",

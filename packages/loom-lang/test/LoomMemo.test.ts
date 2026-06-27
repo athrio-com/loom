@@ -2,7 +2,7 @@ import { describe, expect, it } from '@effect/vitest'
 import { Array, Effect, Ref } from 'effect'
 import { parseDocument, ParseLayer } from './parse'
 import { buildFrame } from '#ast/FrameAstBuilder'
-import { type LoomModule } from '#ast/LoomCorpusAst'
+import { type LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
 import { LoomMemo } from '../src/LoomMemo'
 
 // LoomMemo is the incremental build cache: a `get` is a hit (return the kept

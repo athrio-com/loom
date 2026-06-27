@@ -2,12 +2,9 @@ import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import { parseDocument, ParseLayer } from './parse'
 import { buildFrame } from '#ast/FrameAstBuilder'
-import { LoomRunner } from '#ast/FrameRunner'
-import {
-  type CodeByPath,
-  fromFrame,
-  fromProduct,
-} from '#ast/LoomVirtualCodeBuilder'
+import { FrameRunner } from '#ast/FrameRunner'
+import { type LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
+import { fromFrame, fromProduct } from '#ast/LoomVirtualCodeBuilder'
 
 // LoomVirtualCodeBuilder's two passes, both yielding a LoomVirtualCode.
 // fromFrame (de dicto): Frame AST → the `frame` virtual code, the generated
@@ -19,23 +16,35 @@ import {
 const parse = (src: string) =>
   Effect.runSync(parseDocument(src).pipe(Effect.provide(ParseLayer)))
 
-// fromProduct's input is the de re map a corpus run produces, so these fixtures run
-// the frames through the LoomRunner — the one composition implementation — to get a
-// CodeByPath.
-const codeByPathOf = (
+// fromProduct resolves against the corpus, so these fixtures run the frames through
+// the FrameRunner — the one composition implementation — and fold each module's
+// Product back onto it, the same shape the compiler hands the builder.
+const corpusOf = (
   ...mods: ReadonlyArray<{ readonly path: string; readonly text: string }>
-): CodeByPath =>
+): ReadonlyMap<string, LoomModule> =>
   Effect.runSync(
     Effect.gen(function* () {
-      const runner = yield* LoomRunner
+      const runner = yield* FrameRunner
+      const built = mods.map((m) => {
+        const doc = parse(m.text)
+        return {
+          path: m.path,
+          text: m.text,
+          doc,
+          frame: buildFrame(doc, m.path),
+          imports: [] as ReadonlyArray<string>,
+        }
+      })
       const frames = new Map(
-        mods.map(
-          (m) =>
-            [m.path, fromFrame(buildFrame(parse(m.text), m.path)).code] as const,
+        built.map((m) => [m.path, fromFrame(m.frame).code] as const),
+      )
+      const products = yield* runner.produce(frames)
+      return new Map(
+        built.map(
+          (m) => [m.path, { ...m, product: products.get(m.path) }] as const,
         ),
       )
-      return (yield* runner.run(frames)).code
-    }).pipe(Effect.provide(LoomRunner.Default)),
+    }).pipe(Effect.provide(FrameRunner.Default)),
   )
 
 // === de dicto — fromFrame =================================================
@@ -62,8 +71,8 @@ describe('fromFrame — Frame AST → the frame virtual code', () => {
     expect(vc.embeddedCodes).toEqual([])
   })
 
-  it('opens with the @athrio/loom-core + effect header', () => {
-    expect(genCode.startsWith('import * as core from "@athrio/loom-core"')).toBe(true)
+  it('opens with the @athrio/loom-lang/dsl + effect header', () => {
+    expect(genCode.startsWith('import * as dsl from "@athrio/loom-lang/dsl"')).toBe(true)
     expect(genCode).toContain('import { Effect, Layer } from "effect"')
   })
 
@@ -76,10 +85,10 @@ describe('fromFrame — Frame AST → the frame virtual code', () => {
 
   it('carries title → name, woven prose, and composed code', () => {
     expect(genCode).toContain('name: `Adder`')
-    expect(genCode).toContain('prose: core.weave(')
+    expect(genCode).toContain('prose: dsl.weave(')
     expect(genCode).toContain('Adds two integers.')
-    expect(genCode).toContain('code: core.compose(')
-    expect(genCode).toContain('core.fragment(`') // a fragment is a positioned core call
+    expect(genCode).toContain('code: dsl.compose(')
+    expect(genCode).toContain('dsl.fragment(`') // a fragment is a positioned core call
     expect(genCode).toContain(
       'export const add = (x: number, y: number): number => x + y',
     )
@@ -144,7 +153,7 @@ import { Neg } from "./Sad.loom"
 const negDouble = (x: number) => negate(x) * 2
 `
 
-const codeByPath = codeByPathOf(
+const codeByPath = corpusOf(
   { path: '/Sad.loom', text: sad },
   { path: '/Fun.loom', text: fun },
 )
@@ -220,7 +229,7 @@ const b = 2
 ::[y]
 `
 
-const twoCode = codeByPathOf({ path: '/Two.loom', text: two })
+const twoCode = corpusOf({ path: '/Two.loom', text: two })
 
 describe('fromProduct — transclusion sheds the block trailing newline', () => {
   it('one blank line between anchors yields one blank line between blocks', () => {
@@ -256,7 +265,7 @@ function wrap() {
 }
 `
 
-const wrappedCode = codeByPathOf({ path: '/Wrapped.loom', text: wrapped })
+const wrappedCode = corpusOf({ path: '/Wrapped.loom', text: wrapped })
 
 describe('fromProduct — an indented anchor indents the whole block', () => {
   const vc = fromProduct(wrappedCode, { path: '/Wrapped.loom', name: 'Wr' })
@@ -323,7 +332,7 @@ def run(n):
     return total
 `
 
-const pythonCode = codeByPathOf({ path: '/Python.loom', text: python })
+const pythonCode = corpusOf({ path: '/Python.loom', text: python })
 
 describe('fromProduct — indentation stacks through nested anchors', () => {
   it('lands each block at its full nested depth, blank lines empty', () => {
@@ -362,7 +371,7 @@ def f():
     return a
 `
 
-const trailingCode = codeByPathOf({ path: '/Trailing.loom', text: trailing })
+const trailingCode = corpusOf({ path: '/Trailing.loom', text: trailing })
 
 describe('fromProduct — trailing spaces after an anchor still indent, then vanish', () => {
   it('indents the block and leaves no stray trailing whitespace', () => {
@@ -401,7 +410,7 @@ b = 2
   ::[p] + tail
 `
 
-const inlineCode = codeByPathOf({ path: '/Inline.loom', text: inline })
+const inlineCode = corpusOf({ path: '/Inline.loom', text: inline })
 
 describe('fromProduct — an anchor with code beside it stays inline', () => {
   it('does not re-indent when code precedes the anchor', () => {
@@ -445,7 +454,7 @@ class C {
 }
 `
 
-const libCode = codeByPathOf(
+const libCode = corpusOf(
   { path: '/Dep.loom', text: libDep },
   { path: '/Host.loom', text: libHost },
 )
@@ -491,7 +500,7 @@ narrative between the chunks
 const b = 2
 `
 
-const altCode = codeByPathOf({ path: '/Alt.loom', text: alt })
+const altCode = corpusOf({ path: '/Alt.loom', text: alt })
 
 describe('fromProduct — prose seam between code chunks', () => {
   it('drops the prose and leaves one blank line between the chunks', () => {

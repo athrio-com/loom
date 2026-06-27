@@ -48,21 +48,27 @@ export type Ref = typeof RefSchema.Type
 export const PartSchema = Schema.Union(FragmentSchema, RefSchema)
 export type Part = typeof PartSchema.Type
 
-export const ComposedCodeSchema = productNode('ComposedCode', {
+export const CodeSchema = productNode('Code', {
   origin: SectionIdSchema,
   languageId: Schema.String,
-  parts: Schema.Array(PartSchema),
+  fragments: Schema.Array(PartSchema),
 })
-export type ComposedCode = typeof ComposedCodeSchema.Type
+export type Code = typeof CodeSchema.Type
 
 export const WovenProseSchema = productNode('WovenProse', {
   origin: SectionIdSchema,
-  parts: Schema.Array(PartSchema),
+  fragments: Schema.Array(PartSchema),
 })
 export type WovenProse = typeof WovenProseSchema.Type
 
-export const TangledFileSchema = productNode('TangledFile', {
+export const FileSchema = productNode('File', {
   path: Schema.String,
-  code: ComposedCodeSchema,
+  code: CodeSchema,
 })
-export type TangledFile = typeof TangledFileSchema.Type
+export type File = typeof FileSchema.Type
+
+export const ProductSchema = Schema.Struct({
+  code: Schema.Array(CodeSchema),
+  files: Schema.Array(FileSchema),
+})
+export type Product = typeof ProductSchema.Type

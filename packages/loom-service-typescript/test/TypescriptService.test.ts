@@ -1,15 +1,16 @@
 import * as ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 import { URI } from 'vscode-uri'
-import type { ProductQueryApi } from '@athrio/loom-lang-services/LanguageService'
 import { createProductProgram } from '../src/ProductProgram'
 import { productTarget } from '../src/TypescriptService'
 
 // productTarget is the delegation core of the service plugin: it gates an embedded
-// document on the host's root query and, for a root, hands the section's text to a
-// ProductProgram. These tests drive it with a fixture ProductQuery and a real
-// program — no Volar server — and confirm a root is served while a fragment and a
-// non-embedded uri are declined.
+// document on its language, and for a TypeScript Product hands its text to a
+// ProductProgram. The tree emits one document per composition root, members folded
+// in, so productTarget no longer asks which documents are roots — every TypeScript
+// document it is handed is already a Product to check. These tests drive it with a
+// real program, no Volar server, and confirm a TypeScript Product is served while a
+// non-TypeScript document and a non-embedded uri are declined.
 
 const options: ts.CompilerOptions = {
   target: ts.ScriptTarget.ES2022,
@@ -21,18 +22,15 @@ const options: ts.CompilerOptions = {
 }
 
 const loomPath = '/project/doc.loom'
-const queryWith = (roots: ReadonlyArray<string>): ProductQueryApi => ({
-  roots: () => new Set(roots),
-})
 const decoded = (id: string): readonly [URI, string] => [URI.file(loomPath), id]
 
-describe('productTarget routes a section to its program', () => {
-  it('serves a root: the program reports the section it set', async () => {
+describe('productTarget routes a Product to its program', () => {
+  it('serves a TypeScript Product: the program reports the section it set', async () => {
     const program = createProductProgram(ts, options)
     const target = productTarget(
       decoded('main'),
+      'typescript',
       'export const x: string = 123\n',
-      queryWith(['main']),
       () => program,
     )
     expect(target).toBeDefined()
@@ -41,12 +39,24 @@ describe('productTarget routes a section to its program', () => {
     expect(diagnostics.some((d) => /not assignable/.test(d.message))).toBe(true)
   })
 
-  it('declines a fragment the root query does not list', () => {
+  it('names a tsx Product with a .tsx synthetic file', () => {
     const program = createProductProgram(ts, options)
     const target = productTarget(
-      decoded('helper'),
-      'export const y = 1\n',
-      queryWith(['main']),
+      decoded('view'),
+      'tsx',
+      'export const v = 1\n',
+      () => program,
+    )
+    program.dispose()
+    expect(target?.fileName).toBe('/project/doc.loom.view.tsx')
+  })
+
+  it('declines a non-TypeScript document', () => {
+    const program = createProductProgram(ts, options)
+    const target = productTarget(
+      decoded('config'),
+      'json',
+      '{ "a": 1 }\n',
       () => program,
     )
     program.dispose()
@@ -55,7 +65,7 @@ describe('productTarget routes a section to its program', () => {
 
   it('declines a uri that is not an embedded document', () => {
     const program = createProductProgram(ts, options)
-    const target = productTarget(undefined, '', queryWith(['main']), () => program)
+    const target = productTarget(undefined, 'typescript', '', () => program)
     program.dispose()
     expect(target).toBeUndefined()
   })

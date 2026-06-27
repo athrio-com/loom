@@ -61,6 +61,12 @@ importers:
         specifier: ^0.0.71
         version: 0.0.71(@volar/language-service@2.4.28)
 
+  packages/loom-ast:
+    devDependencies:
+      effect:
+        specifier: 3.21.2
+        version: 3.21.2
+
   packages/loom-cli:
     devDependencies:
       '@athrio/loom-config':
@@ -97,23 +103,20 @@ importers:
         specifier: 3.21.2
         version: 3.21.2
 
-  packages/loom-core:
-    devDependencies:
-      effect:
-        specifier: 3.21.2
-        version: 3.21.2
-
   packages/loom-lang:
     dependencies:
+      '@athrio/loom-ast':
+        specifier: workspace:*
+        version: link:../loom-ast
       '@athrio/loom-config':
         specifier: workspace:*
         version: link:../loom-config
-      '@athrio/loom-core':
-        specifier: workspace:*
-        version: link:../loom-core
       '@athrio/loom-lang-services':
         specifier: workspace:*
         version: link:../loom-lang-services
+      '@athrio/loom-service-typescript':
+        specifier: workspace:*
+        version: link:../loom-service-typescript
       '@athrio/loom-tsconfig':
         specifier: workspace:*
         version: link:../loom-tsconfig
@@ -155,9 +158,9 @@ importers:
         specifier: ^0.0.71
         version: 0.0.71(@volar/language-service@2.4.28)
     devDependencies:
-      '@athrio/loom-core':
+      '@athrio/loom-ast':
         specifier: workspace:*
-        version: link:../loom-core
+        version: link:../loom-ast
       '@volar/language-service':
         specifier: ^2.4.28
         version: 2.4.28

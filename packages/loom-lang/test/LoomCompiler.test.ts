@@ -2,9 +2,10 @@ import { describe, expect, it } from '@effect/vitest'
 import { Effect, Layer } from 'effect'
 import { DocumentSource } from '../src/LoomCompiler'
 import { LoomCompiler } from '../src/LoomCompiler'
+import { type Source } from '#ast/LoomCorpusAstBuilder'
 import { LoomMemo } from '../src/LoomMemo'
 import { PackageConfig } from '../src/PackageConfig'
-import { defaultAnchorDelims } from '#ast/LoomTokens'
+import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
 // Drives the corpus pipeline end-to-end over an in-memory DocumentSource:
 // Fun.loom imports Neg from Sad.loom and transcludes it, so the de re of Fun's
@@ -65,39 +66,36 @@ const layer = Layer.provide(
   Layer.merge(TestDocs, TestConfig),
 )
 
-describe('LoomCompiler — cross-file de re through the corpus', () => {
-  it.effect('inlines an imported section into the consuming product', () =>
+const source: Source = {
+  read: (path: string) => Effect.succeed(files[path] ?? ''),
+}
+
+describe('LoomCompiler — the chain projected for each consumer', () => {
+  it.effect('compile inlines an imported section into the consuming product', () =>
     Effect.gen(function* () {
       const c = yield* LoomCompiler
-      const docs = yield* c.code('/Fun.loom')
-      const negd = docs.find((d) => d.id === 'negd')
+      const tree = yield* c.compile(source, '/Fun.loom')
+      const negd = tree.embeddedCodes?.find((e) => e.id === 'negd')
       expect(negd).toBeDefined()
-      expect(negd!.code).toContain('const negate = (x: number) => -x') // from Sad
-      expect(negd!.code).toContain('const negDouble') // Fun's own
+      const text = negd!.snapshot.getText(0, negd!.snapshot.getLength())
+      expect(text).toContain('const negate = (x: number) => -x') // from Sad
+      expect(text).toContain('const negDouble') // Fun's own
     }).pipe(Effect.provide(layer)),
   )
 
-  it.effect('carries the frame per module; the de re comes from running the corpus', () =>
+  it.effect('reach reports the files an entry pulls in along the import edge', () =>
     Effect.gen(function* () {
       const c = yield* LoomCompiler
-      const { corpus, output } = yield* c.composed('/Fun.loom')
-      // both files loaded along the import edge, each carrying its de dicto frame
-      expect([...corpus.modules.keys()].sort()).toEqual([
-        '/Fun.loom',
-        '/Sad.loom',
-      ])
-      expect(corpus.modules.get('/Sad.loom')!.frame.type).toBe('FrameModule')
-      // the de re is the run's output — Sad's Neg, Fun's Negd
-      expect([...output.code.get('/Sad.loom')!.keys()]).toEqual(['Neg'])
-      expect([...output.code.get('/Fun.loom')!.keys()]).toEqual(['Negd'])
+      // Fun imports Neg from Sad, so the corpus walk reaches Sad
+      expect([...(yield* c.reach('/Fun.loom'))]).toEqual(['/Sad.loom'])
     }).pipe(Effect.provide(layer)),
   )
 
-  it.effect('reports dependents to refresh when a dependency changes', () =>
+  it.effect('invalidate names the file and the dependents that inlined it', () =>
     Effect.gen(function* () {
       const c = yield* LoomCompiler
-      yield* c.corpus('/Fun.loom') // warm the cache (loads Fun + Sad)
-      const dirty = yield* c.change('/Sad.loom')
+      yield* c.reach('/Fun.loom') // warm the cache (loads Fun + Sad)
+      const dirty = yield* c.invalidate('/Sad.loom')
       // Sad itself, plus Fun which transcluded it
       expect([...dirty].sort()).toEqual(['/Fun.loom', '/Sad.loom'])
     }).pipe(Effect.provide(layer)),
@@ -107,11 +105,11 @@ describe('LoomCompiler — cross-file de re through the corpus', () => {
     Effect.gen(function* () {
       const c = yield* LoomCompiler
       const memo = yield* LoomMemo
-      yield* c.corpus('/Fun.loom') // builds Fun + Sad — two misses
+      yield* c.reach('/Fun.loom') // builds Fun + Sad — two misses
       const first = yield* memo.stats
       expect(first).toMatchObject({ misses: 2, size: 2 })
 
-      yield* c.corpus('/Fun.loom') // again — all hits, nothing rebuilt
+      yield* c.reach('/Fun.loom') // again — all hits, nothing rebuilt
       const second = yield* memo.stats
       expect(second.misses).toBe(2) // no new builds
       expect(second.hits).toBeGreaterThan(first.hits)

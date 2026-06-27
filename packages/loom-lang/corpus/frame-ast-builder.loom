@@ -16,8 +16,8 @@ checker reports, not a thrown exception. Health travels with each node back to i
 health — a malformed token, say — is lifted from the Loom AST; semantic health,
 such as an anchor that resolves to nothing, is attached here as the frame is built.
 
-The frame the pass emits is runnable. Each section's code is a `core.compose(…)`
-of positioned `core.fragment` and `core.refer` calls, and the module ends in two
+The frame the pass emits is runnable. Each section's code is a `dsl.compose(…)`
+of positioned `dsl.fragment` and `dsl.refer` calls, and the module ends in two
 generated exports the runner reads. `__services` lists each service's layer and the
 tags it depends on, and `__run` is the effect that yields every section to collect
 its composed code. The builder bakes the source positions into those calls, since
@@ -33,16 +33,16 @@ an anchor is lifted from, the weft a code block is made of, and the health model
 diagnostic attaches to. The fault catalog gives `faulty` and the anchor faults this pass raises. From the Frame side come the schema constructors for every
 node this pass builds — the service class, its bodies, the compose call, the
 references, and the bindings. A section's corpus-wide identity is a `SectionId`, which
-`core.compose` and `core.weave` stamp onto each composed result.
+`dsl.compose` and `dsl.weave` stamp onto each composed result.
 
 =>
 
 import { Array, Effect, Match, Option, Order, pipe } from 'effect'
-import type { LoomDocument, LoomSection } from '#ast/LoomAst'
-import { okHealth, type Health, type Point, type Position } from '@athrio/loom-core/LoomNode'
-import type { WarpAnchorToken, WarpToken } from '#ast/LoomTokens'
-import type { PreambleWeft, SectionBodyWeft } from '#ast/Weft'
-import type { SectionId } from '@athrio/loom-core/ProductAst'
+import type { LoomDocument, LoomSection } from '@athrio/loom-ast/LoomAst'
+import { okHealth, type Health, type Point, type Position } from '@athrio/loom-ast/LoomNode'
+import type { WarpAnchorToken, WarpToken } from '@athrio/loom-ast/LoomTokens'
+import type { PreambleWeft, SectionBodyWeft } from '@athrio/loom-ast/Weft'
+import type { SectionId } from '@athrio/loom-ast/ProductAst'
 import {
   AmbiguousAnchor,
   CrossLanguageAnchor,
@@ -82,14 +82,14 @@ import {
   type ServiceName,
   StaticBodySchema,
   TangleBodySchema,
-} from '#ast/FrameAst'
+} from '@athrio/loom-ast/FrameAst'
 
 ## The builder and its spine
 
 `FrameAstBuilder` is the service the rest of the pipeline calls. Its one method,
 `build`, wraps the pure `buildFrame` in an Effect so callers compose it like any
 other step. It takes the document's file path alongside the document, because a
-section's `core.compose` stamps the section's corpus-wide identity — its path and
+section's `dsl.compose` stamps the section's corpus-wide identity — its path and
 name — and the path is known only to the caller. It also takes the package's
 primary language, the default the document inherits when it declares no `lang`
 Warp, which the caller resolves from the file's configuration.
@@ -356,7 +356,7 @@ const scopeOf = (
 
 A section's specifier decides what it becomes, and `Match` reads the three cases
 in turn. A file-path specifier makes a tangle — a private sink that returns a
-`core.tangle` call. A `Loom` specifier makes a splice — raw frame code spliced in
+`dsl.tangle` call. A `Loom` specifier makes a splice — raw frame code spliced in
 unwrapped, with its imports hoisted. Anything else makes an ordinary product
 service, exported when the section carries a real tag.
 
@@ -373,7 +373,7 @@ literal rather than acquire a service. A tangle
 sink reads its language from its path extension through `extensionLanguage`; a
 section with a language specifier takes that language; every other section takes the
 document default. The section's identity — its path and name — and that language
-stamp the `core.compose` call. The body is static when the section declares no
+stamp the `dsl.compose` call. The body is static when the section declares no
 dependency and effectful when it declares any.
 
 `bodyOf` derives the body shape from the model: a tangle is always effectful; an ordinary section is effectful
@@ -525,12 +525,12 @@ const buildSplice = (section: LoomSection): Built => {
 
 ## Composing code
 
-`buildCompose` turns a section's code into a `core.compose` call. It walks each
+`buildCompose` turns a section's code into a `dsl.compose` call. It walks each
 code run, gathers the compose arguments — the product fragments and the resolved
 references — together with the bindings the name anchors hoist, dedupes those
 bindings by name, and assembles the call. The call opens with the section's
 identity and its language, then its arguments. A section with no arguments composes
-just those two, `core.compose(id, "lang")`.
+just those two, `dsl.compose(id, "lang")`.
 
 A *code piece* is the unit of composition: one line from a code weft, or the inline code
 after an arrow, extended to the line's end so its trailing newline is preserved. `pieceOf` lifts a
@@ -545,7 +545,7 @@ prose between them is discarded.
 
 `walkRun` turns one run into its compose arguments and the bindings its anchors
 hoist. The run's anchors, sorted by position, partition its text: each anchor
-contributes the fragment before it and then its reference, and a closing fragment runs to the run's end. Each fragment becomes a `core.fragment(text, origin)`, carrying its `.loom` position both as the span its text maps from and as the origin literal the run reads. Each boundary is computed from the
+contributes the fragment before it and then its reference, and a closing fragment runs to the run's end. Each fragment becomes a `dsl.fragment(text, origin)`, carrying its `.loom` position both as the span its text maps from and as the origin literal the run reads. Each boundary is computed from the
 anchor's index — no cursor tracks position through the text. An
 anchor named twice still hoists one binding, so `dedupeByName` keeps the first.
 
@@ -721,14 +721,14 @@ checker off.
 
 A resolved anchor takes one of three paths. When the name is a value Warp — one bound
 to a literal, not a section — the anchor composes that value: it emits a
-`core.referValue(value, anchor)` call, a `ValueRef`, that the running frame evaluates
+`dsl.referValue(value, anchor)` call, a `ValueRef`, that the running frame evaluates
 and lands where the anchor stood. No binding backs it, since a literal needs none.
 When the name is a service Warp the section declared, the binding already exists, so
-the anchor composes the service's code by tag — `core.referTag(n.code, anchor)` — and
+the anchor composes the service's code by tag — `dsl.referTag(n.code, anchor)` — and
 adds no new binding. Otherwise the name is looked up among the section titles. One
 match resolves by name through `referName`, the shared-scope verb: the builder hoists
 `const _N = yield* N` under an underscore alias, so the constant cannot shadow the
-service's own class, and each reference reads `core.referName(_N.code, anchor)`. The
+service's own class, and each reference reads `dsl.referName(_N.code, anchor)`. The
 hoisted binding maps to the section's heading — it is the definition — while each
 `_N.code` reference maps to the anchor that wrote it. So go-to-def on an anchor jumps
 to the heading, and find-references on the heading lists every anchor, one definition
@@ -805,7 +805,7 @@ const codeRef = (
   health: Health = okHealth,
 ): CodeRef =>
   CodeRefSchema.make({
-    open: tok(`core.${verb}(`),
+    open: tok(`dsl.${verb}(`),
     binding: anchorId(name, at, health),
     anchor: tok(posLiteral(at)),
   })
@@ -870,7 +870,7 @@ to order the graph and fold the layers.
 three results. It yields every section's composed code into a `sections` map keyed
 by name. A sink's code is the file it composes, so sinks belong there too. It
 collects every content section's prose into a `prose` map. And it gathers every sink
-into a `files` array, each entry a `TangledFile` that pairs the composed code with
+into a `files` array, each entry a `File` that pairs the composed code with
 its output path.
 
 Both exports are computed text, since they carry no mapping. A service name is
@@ -1066,7 +1066,7 @@ last positions, and `between` pairs two points into a span.
 A section's identity and a fragment's position travel into the frame as literals the
 run reads. `sectionIdLiteral` writes a `SectionId` — its path and name — and
 `posLiteral` a `Position` through `pointLiteral`, both as object literals the
-stripped frame evaluates back to the values `core.compose` and `core.fragment` need.
+stripped frame evaluates back to the values `dsl.compose` and `dsl.fragment` need.
 `serviceTag` writes that same identity as one string — the path and name joined — for
 the `Effect.Service` tag. It escapes the string, so a path holding a backslash or a
 quote stays a valid literal.

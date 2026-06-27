@@ -2,22 +2,11 @@
 
 # Tangling to disk
 
-`LoomTangler` is the filesystem surface of the de re plane. `tangle` takes a `.loom` file or a directory of them: for each, it runs the reachable corpus, takes the file's `{path}` sinks the run composed, flattens each — anchors and imports resolved across the corpus by `fromProduct` — and writes the result to disk. It is the half of the pipeline the editor never runs: the editor projects to virtual code, the tangler emits real files.
-
-## A tangled file
-
-A `TangledFile` records one emitted file — the sink section that produced it, and where it landed on disk.
-
-=>
-
-export interface TangledFile {
-  readonly section: string
-  readonly path: Path
-}
+`LoomTangler` is the filesystem surface of the de re plane. The compiler resolves a `.loom` file's `{path}` sinks to their content and target; the tangler writes them to disk. `tangle` takes a single file or a directory of them: for each `.loom`, it asks the compiler to tangle the file, then writes every resolved sink. It is the half of the pipeline the editor never runs — the editor projects to virtual code, the tangler emits real files.
 
 ## The tangler service
 
-`LoomTangler` holds the compiler and the filesystem. `tangleFile` runs one file's corpus once through the compiler. It refuses to write if any module carries an error. Otherwise it takes the run's tangle files — the sinks the corpus composed — keeps those the entry itself produced, flattens each with `fromProduct`, and writes it, resolving the output path relative to the `.loom`'s own directory. `loomsUnder` lists every `.loom` beneath a directory. `tangle` dispatches: a directory tangles each file under it, a single path tangles itself.
+`LoomTangler` holds the compiler and the filesystem. `tangleFile` asks the compiler to resolve one file's sinks — which fails with a `TangleError` if any module in the corpus carries an error — then `writeFile` creates each target's directory and writes its content, returning the file it wrote. `loomsUnder` lists every `.loom` beneath a directory. `tangle` dispatches: a directory tangles each file under it, a single path tangles itself.
 
 =>
 
@@ -26,33 +15,21 @@ export class LoomTangler extends Effect.Service<LoomTangler>()('LoomTangler', {
     const compiler = yield* LoomCompiler
     const fs = yield* FileSystem.FileSystem
 
+    const writeFile = (file: TangledFile): Effect.Effect<TangledFile> =>
+      fs
+        .makeDirectory(dirname(file.path), { recursive: true })
+        .pipe(
+          Effect.zipRight(fs.writeFileString(file.path, file.content)),
+          Effect.orDie,
+          Effect.as(file),
+        )
+
     const tangleFile = (
       entry: Path,
     ): Effect.Effect<ReadonlyArray<TangledFile>, TangleError> =>
-      Effect.gen(function* () {
-        const { corpus, output } = yield* compiler.composed(entry)
-        const failures = corpusErrors(corpus)
-        if (failures.length > 0) {
-          return yield* Effect.fail(new TangleError({ entry, failures }))
-        }
-
-        const sinks = Array.filter(
-          output.files,
-          (file) => file.code.origin.path === entry,
-        )
-
-        return yield* Effect.forEach(sinks, (file) =>
-          Effect.gen(function* () {
-            const content = fromProduct(output.code, file.code.origin).code
-            const target = resolvePath(dirname(entry), file.path)
-            yield* fs
-              .makeDirectory(dirname(target), { recursive: true })
-              .pipe(Effect.orDie)
-            yield* fs.writeFileString(target, content).pipe(Effect.orDie)
-            return { section: file.code.origin.name, path: target }
-          }),
-        )
-      })
+      compiler
+        .tangle(entry)
+        .pipe(Effect.flatMap((files) => Effect.forEach(files, writeFile)))
 
     const loomsUnder = (dir: Path): Effect.Effect<ReadonlyArray<Path>> =>
       fs.readDirectory(dir, { recursive: true }).pipe(
@@ -81,43 +58,17 @@ export class LoomTangler extends Effect.Service<LoomTangler>()('LoomTangler', {
   dependencies: [LoomCompiler.Default],
 }) {}
 
-## Refusing a broken tangle
-
-A tangle must never emit an anchor it could not resolve, nor build on a file it could not read. `tangleFile` runs `corpusErrors` over the whole corpus before writing anything — every module's document and frame, not the entry's alone — and fails with a `TangleError` the moment any module carries an error. A missing import, a malformed parse, or an unresolved `::[…]` reference each stops the build, rather than leaving a file with a silently dropped reference. The failure is loud, and it names every file and line.
-
-=>
-
-export class TangleError extends Data.TaggedError('TangleError')<{
-  readonly entry: Path
-  readonly failures: ReadonlyArray<{
-    readonly path: Path
-    readonly diagnostics: ReadonlyArray<Diagnostic>
-  }>
-}> {
-  get message(): string {
-    const count = this.failures.reduce((n, f) => n + f.diagnostics.length, 0)
-    const lines = this.failures.flatMap((f) =>
-      f.diagnostics.map(
-        (d) => `  ${f.path}:${d.position.start.line}: ${d.message}`,
-      ),
-    )
-    return `loom: refusing to tangle ${this.entry} — ${count} error(s) across the corpus:\n${lines.join('\n')}`
-  }
-}
-
 ## What this module draws on
 
-It draws on `LoomCompiler` to run the corpus and hand back its product map and tangle files, the corpus model's `corpusErrors` to gather any failure across it, `fromProduct` to flatten each sink to text, `@effect/platform`'s `FileSystem` with Node's path module to write, and Effect's primitives, `Data` among them for the tagged `TangleError`. `Diagnostic` types an error's message and place, and `Path` a file path.
+It draws on `LoomCompiler` to resolve each file's sinks to content and target, and to gate a broken corpus with its `TangleError`. `@effect/platform`'s `FileSystem`, with Node's path module, writes each file and lists a directory's looms. Effect supplies the array and effect primitives. `TangledFile` is the resolved sink the compiler hands back, and `Path` a file path.
 
 =>
 
-import { Array, Data, Effect, pipe } from 'effect'
+import { Array, Effect, pipe } from 'effect'
 import { FileSystem } from '@effect/platform'
 import { dirname, resolve as resolvePath } from 'node:path'
-import { type Diagnostic } from '@athrio/loom-core/LoomNode'
-import { corpusErrors, type Path } from '#ast/LoomCorpusAst'
-import { fromProduct } from '#ast/LoomVirtualCodeBuilder'
-import { LoomCompiler } from './LoomCompiler'
+import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
+import { LoomCompiler, type TangledFile, type TangleError } from './LoomCompiler'
 
 ## The module {../src/LoomTangler.ts}
 
@@ -125,8 +76,4 @@ import { LoomCompiler } from './LoomCompiler'
 
 ::[What this module draws on]
 
-::[A tangled file]
-
 ::[The tangler service]
-
-::[Refusing a broken tangle]

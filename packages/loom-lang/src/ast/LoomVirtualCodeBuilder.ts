@@ -1,21 +1,31 @@
 import { Array, Effect, Match, Option, Schema, SchemaAST, pipe } from 'effect'
-import * as FrameAst from '#ast/FrameAst'
+import * as FrameAst from '@athrio/loom-ast/FrameAst'
 import {
   keyOf,
-  type ComposedCode,
+  type Code,
   type Fragment,
   type Ref,
   type SectionId,
-} from '@athrio/loom-core/ProductAst'
-import { type Position } from '@athrio/loom-core/LoomNode'
-import { type Path } from '#ast/LoomCorpusAst'
+} from '@athrio/loom-ast/ProductAst'
+import { type Position } from '@athrio/loom-ast/LoomNode'
+import { type LoomModule, type Path } from '@athrio/loom-ast/LoomCorpusAst'
 import {
   type LoomVirtualCode,
   type Mapping,
   type MappingKind,
-} from '#ast/LoomVirtualCode'
+} from '@athrio/loom-ast/LoomVirtualCode'
 
-export type CodeByPath = ReadonlyMap<Path, ReadonlyMap<string, ComposedCode>>
+const lookup = (
+  modules: ReadonlyMap<Path, LoomModule>,
+  id: SectionId,
+): Option.Option<Code> =>
+  pipe(
+    Option.fromNullable(modules.get(id.path)),
+    Option.flatMapNullable((m) => m.product),
+    Option.flatMap((product) =>
+      Array.findFirst(product.code, (c) => c.origin.name === id.name),
+    ),
+  )
 
 const typeTagOf = (schema: Schema.Schema.Any): Option.Option<string> =>
   pipe(
@@ -106,15 +116,6 @@ const emitNode = (node: any): LoomVirtualCode =>
     Array.reduce(emptyLeaf, concat),
   )
 
-const lookup = (
-  codeByPath: CodeByPath,
-  id: SectionId,
-): Option.Option<ComposedCode> =>
-  pipe(
-    Option.fromNullable(codeByPath.get(id.path)),
-    Option.flatMap((code) => Option.fromNullable(code.get(id.name))),
-  )
-
 const clipMappings = (
   mappings: ReadonlyArray<Mapping>,
   genLen: number,
@@ -138,7 +139,7 @@ const absorbTrailingNewline = (vc: LoomVirtualCode): LoomVirtualCode => {
 
 const inlinePart =
   (
-    codeByPath: CodeByPath,
+    modules: ReadonlyMap<Path, LoomModule>,
     pin: Option.Option<Position>,
     seen: ReadonlySet<string>,
   ) =>
@@ -161,14 +162,14 @@ const inlinePart =
       part.target,
       Option.filter((t) => !seen.has(keyOf(t))),
       Option.flatMap((t) =>
-        Option.map(lookup(codeByPath, t), (node) => [t, node] as const),
+        Option.map(lookup(modules, t), (node) => [t, node] as const),
       ),
       Option.match({
         onNone: () => emptyLeaf,
         onSome: ([t, node]) =>
           absorbTrailingNewline(
             inlineComposed(
-              codeByPath,
+              modules,
               childPin,
               new Set([...seen, keyOf(t)]),
             )(node),
@@ -179,18 +180,18 @@ const inlinePart =
 
 const inlineComposed =
   (
-    codeByPath: CodeByPath,
+    modules: ReadonlyMap<Path, LoomModule>,
     pin: Option.Option<Position>,
     seen: ReadonlySet<string>,
   ) =>
-  (node: ComposedCode): LoomVirtualCode => {
-    const build = inlinePart(codeByPath, pin, seen)
+  (node: Code): LoomVirtualCode => {
+    const build = inlinePart(modules, pin, seen)
     const seed: { vc: LoomVirtualCode; trim: boolean } = {
       vc: emptyLeaf,
       trim: false,
     }
     return pipe(
-      node.parts,
+      node.fragments,
       Array.reduce(seed, (acc, part, i) => {
         if (part.type === 'Fragment') {
           return {
@@ -198,7 +199,7 @@ const inlineComposed =
             trim: false,
           }
         }
-        const owns = aloneBefore(acc.vc.code) && aloneAfter(node.parts[i + 1])
+        const owns = aloneBefore(acc.vc.code) && aloneAfter(node.fragments[i + 1])
         return {
           vc: concat(
             acc.vc,
@@ -335,16 +336,16 @@ export const fromFrame = (frame: FrameAst.FrameModule): LoomVirtualCode => ({
 })
 
 export const fromProduct = (
-  codeByPath: CodeByPath,
+  modules: ReadonlyMap<Path, LoomModule>,
   root: SectionId,
 ): LoomVirtualCode =>
   pipe(
-    lookup(codeByPath, root),
+    lookup(modules, root),
     Option.match({
       onNone: () => leaf(root.name.toLowerCase(), '', '', []),
       onSome: (node) => ({
         ...inlineComposed(
-          codeByPath,
+          modules,
           Option.none(),
           new Set([keyOf(root)]),
         )(node),
@@ -376,14 +377,14 @@ export const rootVirtualCode = (
 })
 
 export const rootNamesAt = (
-  codeByPath: CodeByPath,
+  modules: ReadonlyMap<Path, LoomModule>,
   path: Path,
 ): ReadonlySet<string> => {
-  const here = codeByPath.get(path) ?? new Map<string, ComposedCode>()
+  const here = modules.get(path)?.product?.code ?? []
   const named = new Set(
     pipe(
-      Array.fromIterable(here.values()),
-      Array.flatMap((code) => code.parts),
+      here,
+      Array.flatMap((code) => code.fragments),
       Array.filterMap((part) =>
         part.type === 'Fragment'
           ? Option.none()
@@ -396,8 +397,8 @@ export const rootNamesAt = (
   )
   return new Set(
     pipe(
-      Array.fromIterable(here.keys()),
-      Array.map((name) => name.toLowerCase()),
+      here,
+      Array.map((code) => code.origin.name.toLowerCase()),
       Array.filter((id) => !named.has(id)),
     ),
   )
@@ -410,10 +411,10 @@ export class LoomVirtualCodeBuilder extends Effect.Service<LoomVirtualCodeBuilde
       fromFrame: (frame: FrameAst.FrameModule): Effect.Effect<LoomVirtualCode> =>
         Effect.sync(() => fromFrame(frame)),
       fromProduct: (
-        codeByPath: CodeByPath,
+        modules: ReadonlyMap<Path, LoomModule>,
         root: SectionId,
       ): Effect.Effect<LoomVirtualCode> =>
-        Effect.sync(() => fromProduct(codeByPath, root)),
+        Effect.sync(() => fromProduct(modules, root)),
     },
   },
 ) {}

@@ -52,7 +52,7 @@ Each container is a `loomNode` built from Effect's `Schema`. The heading's subto
 =>
 
 import { Schema } from 'effect'
-import { loomNode } from '@athrio/loom-core/LoomNode'
+import { loomNode } from '#ast/LoomNode'
 import {
   HeadingStartTokenSchema,
   HeadingTitleTokenSchema,

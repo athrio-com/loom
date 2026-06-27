@@ -2,11 +2,11 @@
 
 # The Loom TypeScript baseline
 
-A generated frame opens with `import * as core from "@athrio/loom-core"`, and that import resolves only under a module resolution that reads a package's `exports` map. The consumer's `tsconfig.json` may set anything — or be absent. So Loom carries a baseline of the options the frame needs and layers the consumer's options over it, leaving one merged set for the single TypeScript program Volar builds.
+A generated frame opens with `import * as core from "@athrio/loom-lang/dsl"`, and that import resolves only under a module resolution that reads a package's `exports` map. Loom generates the frame the same way in every package, so it must check the same way everywhere, whatever the consumer's `tsconfig.json` says — or whether one is present at all. So Loom holds a fixed baseline of the options the frame needs and gives Volar's frame program that baseline alone. The consumer's own options reach the product, which a language package checks against a program of its own; they never reach the frame.
 
 ## The baseline
 
-`loomBaseline` is the set the frame depends on: ECMAScript modules resolved the way a bundler resolves them, a recent language target, and no emit, since the editor only type-checks. It deliberately omits the lints. Whether a product section draws the unused-declaration warning is the consumer's call, kept from their `tsconfig.json`. The baseline reads its enums off the editor's own TypeScript, the one passed in, rather than a bundled copy.
+`loomBaseline` is the fixed set the frame checks under: ECMAScript modules resolved the way a bundler resolves them, so the `@athrio/loom-lang/dsl` import resolves; a recent language target; and no emit, since the editor only type-checks. It carries `strict` but no project-specific lints. Whether a product section draws the unused-declaration warning is the consumer's call, settled in their `tsconfig.json` against the product's program, not here. The baseline reads its enums off the editor's own TypeScript, the one passed in, rather than a bundled copy.
 
 =>
 
@@ -19,45 +19,18 @@ const loomBaseline = (ts: TypeScript): CompilerOptions => ({
   noEmit: true,
 })
 
-## Merging the consumer's options
+## Baking it into the parse
 
-`mergeBaseline` lays the consumer's options over the baseline, so their target, their paths, and their lints win — a package that sets `noUnusedLocals` sees it on its product sections too. Two options resist a plain merge. `noEmit` is forced, because the editor never writes output whatever the consumer's build does. And `module` with `moduleResolution` move as a pair: a bundler resolution paired with a CommonJS module is incoherent, so the consumer's pair is kept only when their resolution already reads `exports`, the frame's one requirement; otherwise the baseline's coherent pair stands. `resolvesPackageExports` names that test — the three resolutions that read an `exports` map.
-
-=>
-
-const resolvesPackageExports = (
-  ts: TypeScript,
-  mode: CompilerOptions['moduleResolution'],
-): boolean =>
-  mode === ts.ModuleResolutionKind.Bundler ||
-  mode === ts.ModuleResolutionKind.Node16 ||
-  mode === ts.ModuleResolutionKind.NodeNext
-
-const mergeBaseline = (
-  ts: TypeScript,
-  consumer: CompilerOptions,
-): CompilerOptions => {
-  const base = loomBaseline(ts)
-  const merged: CompilerOptions = { ...base, ...consumer, noEmit: true }
-  if (!resolvesPackageExports(ts, consumer.moduleResolution)) {
-    merged.module = base.module
-    merged.moduleResolution = base.moduleResolution
-  }
-  return merged
-}
-
-## Wrapping the editor's TypeScript
-
-Volar reads compiler options by parsing a `tsconfig.json` — `parseJsonSourceFileConfigFileContent` for a discovered config, `parseJsonConfigFileContent` for an inferred one — and builds the program from the result. `withLoomBaseline` returns the editor's TypeScript with those two functions decorated to merge the baseline into the options they return, and every other member inherited untouched. Volar keeps finding the config, watching it, and building the program; only the options it lands on pass through the baseline first. `mergingParse` is the one decoration both functions share: run the real parse, then merge the baseline into its `options`.
+Volar reads compiler options by parsing a `tsconfig.json` — `parseJsonSourceFileConfigFileContent` for a discovered config, `parseJsonConfigFileContent` for an inferred one — and builds the frame program from the result. `withLoomBaseline` returns the editor's TypeScript with those two functions decorated to discard the parsed options for the baseline, and every other member inherited untouched. Volar keeps finding the config, watching it, and building the program over the files the config lists; only the options become Loom's fixed set. `bakedParse` is the one decoration both functions share: run the real parse, then replace its `options` with the baseline, keeping the file list it found.
 
 =>
 
-const mergingParse = <A extends ReadonlyArray<unknown>, R extends { options: CompilerOptions }>(
+const bakedParse = <A extends ReadonlyArray<unknown>, R extends { options: CompilerOptions }>(
   ts: TypeScript,
   parse: (...args: A) => R,
 ) => (...args: A): R => {
   const parsed = parse(...args)
-  return { ...parsed, options: mergeBaseline(ts, parsed.options) }
+  return { ...parsed, options: loomBaseline(ts) }
 }
 
 export const withLoomBaseline = (ts: TypeScript): TypeScript =>
@@ -66,19 +39,19 @@ export const withLoomBaseline = (ts: TypeScript): TypeScript =>
       enumerable: true,
       configurable: true,
       writable: true,
-      value: mergingParse(ts, ts.parseJsonConfigFileContent),
+      value: bakedParse(ts, ts.parseJsonConfigFileContent),
     },
     parseJsonSourceFileConfigFileContent: {
       enumerable: true,
       configurable: true,
       writable: true,
-      value: mergingParse(ts, ts.parseJsonSourceFileConfigFileContent),
+      value: bakedParse(ts, ts.parseJsonSourceFileConfigFileContent),
     },
   })
 
 ## What this module draws on
 
-The wrap decorates the editor's TypeScript, so `TypeScript` is its module type and `CompilerOptions` the shape it adjusts. Both are types only — the values come from the TypeScript passed in at runtime.
+The wrap decorates the editor's TypeScript, so `TypeScript` is its module type and `CompilerOptions` the shape it returns. Both are types only — the values come from the TypeScript passed in at runtime.
 
 =>
 
@@ -94,6 +67,4 @@ type TypeScript = typeof import('typescript')
 
 ::[The baseline]
 
-::[Merging the consumer's options]
-
-::[Wrapping the editor's TypeScript]
+::[Baking it into the parse]

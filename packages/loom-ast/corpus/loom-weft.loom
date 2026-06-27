@@ -83,7 +83,7 @@ Each weft is a `loomNode` built from Effect's `Schema`; its subtokens are the he
 =>
 
 import { Schema } from 'effect'
-import { loomNode } from '@athrio/loom-core/LoomNode'
+import { loomNode } from '#ast/LoomNode'
 import {
   ArrowTokenSchema,
   CodeTokenSchema,

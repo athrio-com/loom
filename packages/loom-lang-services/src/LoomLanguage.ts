@@ -5,7 +5,7 @@ import type {
   LanguageServicePlugin,
 } from '@volar/language-service'
 import { URI } from 'vscode-uri'
-import { type Diagnostic } from '@athrio/loom-core/LoomNode'
+import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
 import {
   defineLanguageService,
   FrameQuery,

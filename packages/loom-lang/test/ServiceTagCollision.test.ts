@@ -1,11 +1,6 @@
-import { Effect, Option } from 'effect'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { type RunOutput } from '#ast/FrameRunner'
-import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
-import { PackageConfig } from '../src/PackageConfig'
+import { Option } from 'effect'
+import { describe, expect, it } from 'vitest'
+import { producedOf, type Mod } from './frames'
 
 // Two modules in one corpus each define a section named `Bit`. The frame's
 // Effect.Service tag was once the bare section name, so the two `Bit` services
@@ -15,10 +10,7 @@ import { PackageConfig } from '../src/PackageConfig'
 // The proof: a.loom's `UseA` must refer to a.loom's `Bit`, b.loom's `UseB` to
 // b.loom's — never each other's.
 
-const dir = mkdtempSync(join(tmpdir(), 'loom-collide-'))
-const a = join(dir, 'a.loom')
-const b = join(dir, 'b.loom')
-const main = join(dir, 'main.loom')
+const m = (name: string, text: string): Mod => ({ path: `/collide/${name}`, text })
 
 const moduleSrc = (mark: string, use: string) => `{{lang: TypeScript}}
 
@@ -59,29 +51,18 @@ import { UseB } from "./b.loom"
 const both = 1
 `
 
-let output: RunOutput
+const a = m('a.loom', moduleSrc('A', 'UseA'))
+const b = m('b.loom', moduleSrc('B', 'UseB'))
+const main = m('main.loom', mainSrc)
 
-beforeAll(async () => {
-  writeFileSync(a, moduleSrc('A', 'UseA'))
-  writeFileSync(b, moduleSrc('B', 'UseB'))
-  writeFileSync(main, mainSrc)
-  output = await Effect.runPromise(
-    Effect.gen(function* () {
-      const compiler = yield* LoomCompiler
-      return (yield* compiler.composed(main)).output
-    }).pipe(
-      Effect.provide(LoomCompiler.Default),
-      Effect.provide(DocumentSource.Default),
-      Effect.provide(PackageConfig.Default),
-    ),
-  )
-})
+const products = producedOf(a, b, main)
 
-afterAll(() => rmSync(dir, { recursive: true, force: true }))
+const codeAt = (path: string, name: string) =>
+  products.get(path)?.code.find((c) => c.origin.name === name)
 
 const refTargetOf = (path: string, name: string) => {
-  const composed = output.code.get(path)?.get(name)
-  const ref = composed?.parts.find((p) => p.type !== 'Fragment') as
+  const composed = codeAt(path, name)
+  const ref = composed?.fragments.find((p) => p.type !== 'Fragment') as
     | { readonly target: Option.Option<{ path: string; name: string }> }
     | undefined
   return ref ? Option.getOrNull(ref.target) : undefined
@@ -89,16 +70,14 @@ const refTargetOf = (path: string, name: string) => {
 
 describe('two modules defining the same section name do not collide', () => {
   it('runs the whole corpus — every module produces its de re', () => {
-    expect(output.code.has(a)).toBe(true)
-    expect(output.code.has(b)).toBe(true)
-    expect(output.code.get(a)!.has('UseA')).toBe(true)
-    expect(output.code.get(b)!.has('UseB')).toBe(true)
+    expect(codeAt(a.path, 'UseA')).toBeDefined()
+    expect(codeAt(b.path, 'UseB')).toBeDefined()
   })
 
   it('each section refers to its own Bit, not the neighbour with the same name', () => {
     // Were the bare-name tag still in use, both UseA and UseB would resolve to a
     // single shared `Bit`, and one of these targets would name the wrong file.
-    expect(refTargetOf(a, 'UseA')).toEqual({ path: a, name: 'Bit' })
-    expect(refTargetOf(b, 'UseB')).toEqual({ path: b, name: 'Bit' })
+    expect(refTargetOf(a.path, 'UseA')).toEqual({ path: a.path, name: 'Bit' })
+    expect(refTargetOf(b.path, 'UseB')).toEqual({ path: b.path, name: 'Bit' })
   })
 })

@@ -1,7 +1,7 @@
 import { Effect } from 'effect'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
-import { type AnchorDelims, defaultAnchorDelims } from '#ast/LoomTokens'
-import { type Path } from '#ast/LoomCorpusAst'
+import { type AnchorDelims, defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
+import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
 
 export interface BuildSettings {
   readonly delims: AnchorDelims

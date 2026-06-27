@@ -1,10 +1,10 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Option } from 'effect'
-import { compose, fragment, referName, referTag, tangle, weave } from '@athrio/loom-core'
-import type { Position } from '@athrio/loom-core/LoomNode'
-import type { SectionId } from '@athrio/loom-core/ProductAst'
+import { compose, fragment, referName, referTag, tangle, weave } from '@athrio/loom-lang/dsl'
+import type { Position } from '@athrio/loom-ast/LoomNode'
+import type { SectionId } from '@athrio/loom-ast/ProductAst'
 
-// The runnable composition language the generated Frame imports from @athrio/loom-core.
+// The runnable composition language the generated Frame imports from @athrio/loom-lang/dsl.
 // Its verbs construct the de re ProductAst rather than joining strings: fragment,
 // referName, and referTag build the leaves, compose and weave assemble them, and
 // tangle binds a composed result to a path as a pure descriptor — no I/O here.
@@ -27,17 +27,17 @@ describe('fragment', () => {
 })
 
 describe('compose', () => {
-  it("assembles a section's parts under its identity and language", () => {
+  it("assembles a section's fragments under its identity and language", () => {
     const c = compose(here, 'typescript', fragment('a', pos(0, 1)), fragment('b', pos(1, 1)))
-    expect(c.type).toBe('ComposedCode')
+    expect(c.type).toBe('Code')
     expect(c.origin).toEqual(here)
     expect(c.languageId).toBe('typescript')
-    expect(c.parts.map((p) => p.type)).toEqual(['Fragment', 'Fragment'])
+    expect(c.fragments.map((p) => p.type)).toEqual(['Fragment', 'Fragment'])
   })
 
   it('composes an empty section, still stamped with identity and language', () => {
     const c = compose(here, 'json')
-    expect(c.parts).toEqual([])
+    expect(c.fragments).toEqual([])
     expect(c.origin).toEqual(here)
     expect(c.languageId).toBe('json')
   })
@@ -71,7 +71,7 @@ describe('weave', () => {
     expect(w.type).toBe('WovenProse')
     expect(w.origin).toEqual(here)
     expect(w).not.toHaveProperty('languageId')
-    expect(w.parts.map((p) => p.type)).toEqual(['Fragment'])
+    expect(w.fragments.map((p) => p.type)).toEqual(['Fragment'])
   })
 })
 
@@ -79,7 +79,7 @@ describe('tangle', () => {
   it('binds a composed result to a path as a pure descriptor — no I/O', () => {
     const code = compose(here, 'scala', fragment('object A', pos(0, 8)))
     const file = tangle('out/A.scala', code)
-    expect(file.type).toBe('TangledFile')
+    expect(file.type).toBe('File')
     expect(file.path).toBe('out/A.scala')
     expect(file.code).toBe(code)
   })

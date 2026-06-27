@@ -1,0 +1,117 @@
+{{lang: TypeScript}}
+
+# Loading a language by id
+
+A package turns a language on by naming its id in `loom.json` — `typescript`, `python`, `go`. Loom itself is the one language built into the server. Every other language ships as a `@athrio/loom-service-<id>` package the project installs. This module turns each activated id into the `LanguageService` that serves it: it finds the package the project installed, imports it, and confirms the package exports a service for that id.
+
+A language that fails to load costs only itself. Its sections stay at syntax highlighting — the floor every section keeps, with or without a service — while every other language serves on. Activating a language whose package is missing degrades the editor; it never breaks it.
+
+## The package a language ships in
+
+Loom resolves an id to a package name by one rule: the id `python` names the package `@athrio/loom-service-python`. The id the author activates, the package the loader imports, and the `id` the loaded service declares are one string from end to end, so finding a language's package is a substitution, not a lookup table to keep in step.
+
+=>
+
+const servicePackage = (id: string): string => `@athrio/loom-service-${id}`
+
+## Where activated packages live
+
+A language service is editor tooling, not a dependency of the code a project ships. A Loom project need not even be a Node project. Loom composes Python or SQL as readily as TypeScript, and a `package.json` at the root of such a project would be a foreign artifact. So Loom keeps activated packages in a store of its own and never writes to the consumer's `package.json`.
+
+The per-user store under `~/.loom` is the default, shared across a user's projects the way a language server is installed once and serves them all. `LOOM_HOME` relocates it. A project that needs to pin a version keeps its own store under `.loom`, and the loader prefers it when it walks up from the file and finds one.
+
+=>
+
+const userStore = (): string =>
+  join(process.env.LOOM_HOME ?? join(homedir(), '.loom'), 'services')
+
+const storeFor = (root: string): string => {
+  const seek = (dir: string): string | undefined => {
+    const local = join(dir, '.loom', 'services')
+    if (existsSync(local)) return local
+    const parent = dirname(dir)
+    return parent === dir ? undefined : seek(parent)
+  }
+  return seek(dirname(root)) ?? userStore()
+}
+
+## Importing one language's package
+
+The loader resolves a package from the store, imports it, and reads the package's default export. The import is dynamic — by name, at runtime — because a package is a unit the consumer installs after the editor ships, never one a build could fold in.
+
+What the import returns is unknown until checked. `isLanguageService` confirms the default export has the shape the contract requires, and the loader confirms the service's declared `id` is the one activated. A package that answers to another id, or exports something that is not a service at all, is not the language the project asked for. When the package is missing or fails either check, the loader logs the reason and yields nothing.
+
+=>
+
+const loadService = (
+  id: string,
+  root: string,
+): Effect.Effect<Option.Option<LanguageService>> =>
+  Effect.tryPromise(async () => {
+    const from = join(storeFor(root), 'index.js')
+    const entry = createRequire(from).resolve(servicePackage(id))
+    const loaded = (await import(pathToFileURL(entry).href)) as {
+      readonly default?: unknown
+    }
+    return loaded.default
+  }).pipe(
+    Effect.flatMap((exported) =>
+      isLanguageService(exported) && exported.id === id
+        ? Effect.succeed(Option.some(exported))
+        : Effect.logWarning(
+            `${servicePackage(id)} does not export a language service for "${id}"`,
+          ).pipe(Effect.as(Option.none<LanguageService>())),
+    ),
+    Effect.catchAll(() =>
+      Effect.logWarning(
+        `language "${id}" is activated but ${servicePackage(id)} is not installed — run \`loom activate ${id}\``,
+      ).pipe(Effect.as(Option.none<LanguageService>())),
+    ),
+  )
+
+## The active set
+
+`loadActive` produces the services a project has turned on. Loom leads the set — every `.loom` has a frame, so its service is always present — and each activated id follows, loaded by `loadService`. The loader drops an id equal to Loom's, so naming `loom` in the config never doubles it, and drops a repeated id, so activating a language twice loads it once. An id whose package does not load contributes nothing, and the set carries the languages that did.
+
+=>
+
+export const loadActive = (
+  ids: ReadonlyArray<string>,
+  root: string,
+): Effect.Effect<ReadonlyArray<LanguageService>> =>
+  pipe(
+    ids,
+    Array.filter((id) => id !== LoomLanguage.id),
+    Array.dedupe,
+    (rest) => Effect.forEach(rest, (id) => loadService(id, root)),
+    Effect.map((loaded) => [LoomLanguage, ...Array.getSomes(loaded)]),
+  )
+
+## What this module draws on
+
+The loader works in Effect: `Effect` runs the load, `Option` carries a language that may not load, and `Array` with `pipe` build the set. Node locates and loads the package — `homedir` with `join` and `dirname` form the store path, `existsSync` finds a project-local store, `createRequire` resolves the package within the store, and `pathToFileURL` forms the specifier the dynamic import takes. From the contract module come the `LanguageService` type and the `isLanguageService` guard; `LoomLanguage` is the built-in service that always leads the set.
+
+=>
+
+import { Array, Effect, Option, pipe } from 'effect'
+import { existsSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { homedir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { isLanguageService, type LanguageService } from './LanguageService'
+import { LoomLanguage } from './LoomLanguage'
+
+## The module {../src/LanguageLoader.ts}
+
+=>
+
+::[What this module draws on]
+
+::[The package a language ships in]
+
+::[Where activated packages live]
+
+::[Importing one language's package]
+
+::[The active set]

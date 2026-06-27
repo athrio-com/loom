@@ -1,6 +1,6 @@
 import { Effect, Either } from 'effect'
 import { describe, expect, it } from 'vitest'
-import { checkAnchorDelims, defaultAnchorDelims } from '#ast/LoomTokens'
+import { checkAnchorDelims, defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import { LoomCorpusAstBuilder, type Source } from '#ast/LoomCorpusAstBuilder'
 
 // A package configures its anchor delimiters in loom.json, so a bad pair is a
