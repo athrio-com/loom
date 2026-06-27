@@ -138,7 +138,7 @@ import { ProductSchema } from '#ast/ProductAst'
 import { LoomDocumentSchema } from '#ast/LoomAst'
 import { FrameModuleSchema } from '#ast/FrameAst'
 
-## The module {../src/ast/LoomCorpusAst.ts}
+## The module {src/ast/LoomCorpusAst.ts}
 
 =>
 

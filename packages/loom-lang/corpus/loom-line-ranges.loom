@@ -158,7 +158,7 @@ Effect supplies `Stream` for the ranges, `Data` for the tagged `MixedEOL` error,
 
 import { Effect, Option, Stream, Data, Schema } from 'effect'
 
-## The module {../src/ast/LineRanges.ts}
+## The module {src/ast/LineRanges.ts}
 
 =>
 

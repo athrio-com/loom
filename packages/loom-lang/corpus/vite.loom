@@ -4,7 +4,7 @@
 
 Vite bundles the language server entry, `src/index.ts`, into a single `dist/loom-server.js`. The bundle targets Node 20 in CommonJS form, the shape a Node host loads it as.
 
-## The build {../vite.config.ts}
+## The build {vite.config.ts}
 
 Some of the server's dependencies — the `vscode-*-languageservice` packages and `jsonc-parser` — ship only UMD bundles, the older module format that rolldown cannot follow statically. The `umd2esm` plugin rewrites each such import to its ESM sibling so the bundler can inline it. This is the same trick volarjs/starter uses.
 

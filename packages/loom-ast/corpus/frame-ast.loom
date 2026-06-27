@@ -422,7 +422,7 @@ export const FrameModuleSchema = frameNode(
 )
 export type FrameModule = typeof FrameModuleSchema.Type
 
-## Tangling the Frame AST {../src/ast/FrameAst.ts}
+## Tangling the Frame AST {src/ast/FrameAst.ts}
 
 =>
 

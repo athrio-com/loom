@@ -4,11 +4,12 @@
 
 `@athrio/loom-config` ships as source — no build of its own.
 
-## The manifest {../package.json}
+## The manifest {package.json}
 
 The `exports` field is the package's surface — one entry, the `LoomConfig` module. The CLI
 and the language server inline this source when they bundle; `effect` and the
-platform are peers, supplied by the host bundle.
+platform are peers, supplied by the host bundle. The `yaml` parser, which reads the
+compiled configuration, is a real dependency, bundled along with the source.
 
 =>
 
@@ -28,10 +29,13 @@ platform are peers, supplied by the host bundle.
   "devDependencies": {
     "@effect/platform": "^0.96.1",
     "effect": "3.21.2"
+  },
+  "dependencies": {
+    "yaml": "^2.9.0"
   }
 }
 
-## The TypeScript config {../tsconfig.json}
+## The TypeScript config {tsconfig.json}
 
 The config extends the workspace base and typechecks `src`. Node's types come from the
 base, which declares `types: ['node']` once for every package — pnpm's isolated

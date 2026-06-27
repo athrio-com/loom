@@ -59,7 +59,7 @@ import type { CompilerOptions } from 'typescript'
 
 type TypeScript = typeof import('typescript')
 
-## The module {../src/LoomBaseline.ts}
+## The module {src/LoomBaseline.ts}
 
 =>
 

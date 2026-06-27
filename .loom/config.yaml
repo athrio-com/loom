@@ -1,0 +1,4 @@
+corpus: corpus
+languages:
+  typescript: {}
+primary: typescript

@@ -357,7 +357,7 @@ import {
 } from 'node:fs'
 import { basename, dirname, resolve as resolvePath, sep } from 'node:path'
 
-## The module {../src/LoomConfig.ts}
+## The module {src/LoomConfig.ts}
 
 =>
 

@@ -70,7 +70,7 @@ import { dirname, resolve as resolvePath } from 'node:path'
 import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
 import { LoomCompiler, type TangledFile, type TangleError } from './LoomCompiler'
 
-## The module {../src/LoomTangler.ts}
+## The module {src/LoomTangler.ts}
 
 =>
 

@@ -1113,7 +1113,7 @@ const escapeString = (s: string): string =>
 const pathOf = (spec: { label: { value: string; position: Position } }) =>
   prose(escapeString(spec.label.value), spec.label.position)
 
-## The module {../src/ast/FrameAstBuilder.ts}
+## The module {src/ast/FrameAstBuilder.ts}
 
 The tangle composes the sections in the source's own order, so a function defined
 below a caller still binds at run time — the same order-independence the Frame

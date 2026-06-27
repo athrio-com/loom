@@ -130,7 +130,7 @@ import type {
   WovenProse,
 } from '@athrio/loom-ast/ProductAst'
 
-## The module {../src/dsl.ts}
+## The module {src/dsl.ts}
 
 Seven standalone constructors, none calling another, so their order on disk is free. Here it follows the story: what they draw on, the leaves, then the two gathers and the ship.
 

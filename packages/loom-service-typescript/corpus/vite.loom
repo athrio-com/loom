@@ -98,7 +98,7 @@ const runtimeSpecifiers = [
   'typescript',
 ]
 
-## The module {../vite.config.ts}
+## The module {vite.config.ts}
 
 =>
 

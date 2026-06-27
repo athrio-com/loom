@@ -4,7 +4,7 @@
 
 The `loom-vscode` package ships to the VS Code Marketplace as a `.vsix` bundle. Vite bundles the client and the language server into `dist/client.js` and `dist/server.js`, and `vsce` — the Marketplace packaging tool — wraps the result into the `.vsix`. Every library the extension needs is inlined into the bundle, so the published package carries no runtime dependencies.
 
-## The manifest {../package.json}
+## The manifest {package.json}
 
 VS Code reads the manifest to learn what the extension is and when to run it. The `activationEvents` field loads the extension the first time a `loom` file opens, and the `contributes.languages` field registers the `.loom` extension as the `loom` language so that event can fire. The `main` field points the extension host at the bundled client.
 
@@ -54,7 +54,7 @@ The `pack:vsix` script builds the bundle and then packages it with `vsce`. The b
   }
 }
 
-## The TypeScript config {../tsconfig.json}
+## The TypeScript config {tsconfig.json}
 
 The `tsconfig.json` extends the workspace-root `tsconfig.base.json` and covers the `src` directory. It adds the `node` and `vscode` type packages, since the extension runs in the VS Code host. Vite produces the `dist` bundle, so the configuration is a development tool only and never ships in the `.vsix`.
 

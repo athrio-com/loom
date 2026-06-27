@@ -4,7 +4,7 @@
 
 Vite bundles the CLI program, the language server's TypeScript source, and Effect into a single `dist/main.js` module, adding a Node shebang — a line that makes the file directly executable by Node. The installed `loom` binary therefore carries no runtime dependencies and no TypeScript source to compile.
 
-## Vite build {../vite.config.ts}
+## Vite build {vite.config.ts}
 
 Node's built-in modules stay external — they are available in every Node runtime and need no bundling. Everything else, the language server's TypeScript source and Effect, is inlined into `dist/main.js`.
 

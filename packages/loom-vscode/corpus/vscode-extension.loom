@@ -97,7 +97,7 @@ export function deactivate(): Thenable<any> | undefined {
   return client?.stop()
 }
 
-## The module {../src/vscode-extension.ts}
+## The module {src/vscode-extension.ts}
 
 =>
 

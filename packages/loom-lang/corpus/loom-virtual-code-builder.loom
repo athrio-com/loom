@@ -491,7 +491,7 @@ import {
   type MappingKind,
 } from '@athrio/loom-ast/LoomVirtualCode'
 
-## The module {../src/ast/LoomVirtualCodeBuilder.ts}
+## The module {src/ast/LoomVirtualCodeBuilder.ts}
 
 =>
 

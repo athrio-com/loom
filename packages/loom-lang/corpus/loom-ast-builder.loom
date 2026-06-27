@@ -290,7 +290,7 @@ import type {
   SectionBodyWeft,
 } from '@athrio/loom-ast/Weft'
 
-## The module {../src/ast/LoomAstBuilder.ts}
+## The module {src/ast/LoomAstBuilder.ts}
 
 =>
 

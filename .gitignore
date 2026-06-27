@@ -37,7 +37,7 @@ out/
 # Local scratch
 .scratch/
 temp/
-working-state.md
+last-session.md
 
 # Dev-probe output
 packages/language-server/scripts/out.json
@@ -53,5 +53,5 @@ zed-extension/target/
 *.tgz
 *.vsix
 
-# Loom workspace store (generated)
-.loom/
+# Loom workspace store — installed services are generated; config.yaml is committed
+.loom/services/

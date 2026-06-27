@@ -98,7 +98,7 @@ import {
   WarpTokenSchema,
 } from './LoomTokens'
 
-## The module {../src/ast/Weft.ts}
+## The module {src/ast/Weft.ts}
 
 =>
 

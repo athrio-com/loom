@@ -395,7 +395,7 @@ import { FrameRunner } from '#ast/FrameRunner'
 import { LoomMemo } from './LoomMemo'
 import { PackageConfig } from './PackageConfig'
 
-## The module {../src/LoomCompiler.ts}
+## The module {src/LoomCompiler.ts}
 
 =>
 

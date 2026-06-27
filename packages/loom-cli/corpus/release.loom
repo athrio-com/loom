@@ -6,7 +6,7 @@ The `pnpm release` command runs this script to release the `@athrio/loom-cli` pa
 
 The tangle step copies the version field from `package.loom` into `package.json`, which means a bump made via the `npm version` command would be overwritten on the next tangle. The version must therefore be bumped in `package.loom` itself — this script does that.
 
-## Release {../scripts/release.ts}
+## Release {scripts/release.ts}
 
 The script lives in the `scripts/` directory and derives the package root and the `package.loom` manifest path from its own file path. The `run` helper invokes each command from the package root via `execFileSync`, inheriting stdio so output streams to the terminal. A non-zero exit code aborts the release.
 

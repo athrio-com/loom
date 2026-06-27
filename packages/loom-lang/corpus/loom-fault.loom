@@ -160,7 +160,7 @@ export const faulty = (fault: LoomFault, position: Position): Health => {
 import { Data, Match } from 'effect'
 import type { Health, Position, Severity } from '@athrio/loom-ast/LoomNode'
 
-## The module {../src/ast/LoomFault.ts}
+## The module {src/ast/LoomFault.ts}
 
 =>
 
