@@ -6,18 +6,17 @@
   "type": "module",
   "main": "./dist/index.js",
   "exports": {
-    ".": "./dist/index.js",
-    "./TypescriptService": "./src/TypescriptService.ts",
-    "./ProductProgram": "./src/ProductProgram.ts"
+    ".": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "build": "vite build",
     "watch": "vite build --watch"
-  },
-  "peerDependencies": {
-    "@athrio/loom-lang-services": "workspace:*",
-    "effect": "3.21.2",
-    "typescript": "^6.0.3"
   },
   "devDependencies": {
     "@athrio/loom-lang-services": "workspace:*",

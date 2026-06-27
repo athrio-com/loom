@@ -6,9 +6,9 @@
 
 ## The manifest {../package.json}
 
-The `exports` field names the package's surface. The default entry, `.`, is the built `dist/index.js` — the loadable artifact whose default export is the service the loader reads. The `./TypescriptService` and `./ProductProgram` subpaths expose the source: `TypescriptService` is the language service a host activates, and `ProductProgram` is the TypeScript program it runs the product on.
+The `exports` field names the package's surface, and it is a single entry: the default `.`, the built `dist/index.js` whose default export is the service the loader reads. The `files` field ships only `dist`, so the published package is that one built file and its source map, and `publishConfig` makes the scoped package public.
 
-The build bundles `volar-service-typescript` and Volar's language layers into the package, so the store needs nothing beyond the one file. Three things stay peers, supplied by the host that loads the service: `effect`, the `@athrio/loom-lang-services` contract that keys the `TypescriptSdk` capability, and the TypeScript compiler the editor runs. The build's runtime bridge reads those from the host instead of bundling a second copy that the dependency injection would never meet.
+The package carries no dependencies. The build bundles `volar-service-typescript` and Volar's language layers into `dist/index.js`, and the runtime bridge reads `effect`, the `@athrio/loom-lang-services` contract, and the editor's TypeScript from the host at load. Those three are neither bundled nor installed — the host lends them, so a second copy never shadows the `TypescriptSdk` the host provides. The `devDependencies` exist only to build and type-check the source; what the running service shares with the host is fixed by the runtime version `Runtime` declares, not by an npm range.
 
 =>
 
@@ -20,18 +20,17 @@ The build bundles `volar-service-typescript` and Volar's language layers into th
   "type": "module",
   "main": "./dist/index.js",
   "exports": {
-    ".": "./dist/index.js",
-    "./TypescriptService": "./src/TypescriptService.ts",
-    "./ProductProgram": "./src/ProductProgram.ts"
+    ".": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "build": "vite build",
     "watch": "vite build --watch"
-  },
-  "peerDependencies": {
-    "@athrio/loom-lang-services": "workspace:*",
-    "effect": "3.21.2",
-    "typescript": "^6.0.3"
   },
   "devDependencies": {
     "@athrio/loom-lang-services": "workspace:*",
