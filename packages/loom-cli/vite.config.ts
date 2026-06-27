@@ -29,6 +29,12 @@ export default defineConfig({
   resolve: {
     conditions: ['node'],
     mainFields: ['main', 'module'],
+    alias: {
+      yaml: resolve(
+        dirname(requireFromHere.resolve('yaml/package.json')),
+        'browser/index.js',
+      ),
+    },
   },
   build: {
     target: 'node20',
