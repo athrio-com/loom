@@ -42,6 +42,16 @@ export type WorkspaceConfig = typeof WorkspaceConfigSchema.Type
 export type PackageConfig = typeof PackageConfigSchema.Type
 export type Config = typeof ConfigSchema.Type
 
+const decodeConfig = Schema.decodeUnknownOption(ConfigSchema)
+
+export const parseConfig = (text: string): Config | undefined => {
+  try {
+    return Option.getOrUndefined(decodeConfig(parseYaml(text)))
+  } catch {
+    return undefined
+  }
+}
+
 const PackageEntrySchema = Schema.Struct({
   corpus: Schema.String,
   output: Schema.String,
@@ -63,7 +73,7 @@ export const WorkspaceManifestSchema = Schema.Struct({
 })
 
 export type WorkspaceManifest = typeof WorkspaceManifestSchema.Type
-type PackageEntry = typeof PackageEntrySchema.Type
+export type PackageEntry = typeof PackageEntrySchema.Type
 
 export interface ResolvedConfig {
   readonly anchor: { readonly open?: string; readonly close?: string } | undefined

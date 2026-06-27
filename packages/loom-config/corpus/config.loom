@@ -56,6 +56,22 @@ export type WorkspaceConfig = typeof WorkspaceConfigSchema.Type
 export type PackageConfig = typeof PackageConfigSchema.Type
 export type Config = typeof ConfigSchema.Type
 
+## Reading a configuration source
+
+`parseConfig` reads the YAML body of a `{Config}` section and decodes it into a workspace or package configuration. It parses the text as YAML and validates the result against the union, yielding nothing when the text is not YAML or its shape fits neither kind. The compiler's configuration pass calls it for every `{Config}` source it gathers, before compiling them into the manifest.
+
+=>
+
+const decodeConfig = Schema.decodeUnknownOption(ConfigSchema)
+
+export const parseConfig = (text: string): Config | undefined => {
+  try {
+    return Option.getOrUndefined(decodeConfig(parseYaml(text)))
+  } catch {
+    return undefined
+  }
+}
+
 ## The compiled manifest
 
 `.loom/config.yaml` is the compiled form the compiler writes and this package reads. It holds the workspace defaults — the activated languages, the primary, the anchor, the settings — beside a `packages` map that folds every package configuration into one place. Each entry in the map records its package's `corpus` directory, so the resolver can tell which package a `.loom` file belongs to, and its `output` directory, the root every sink in that package tangles under. The same overrides a package configuration may carry — the primary, the anchor, the settings — ride on the entry.
@@ -83,7 +99,7 @@ export const WorkspaceManifestSchema = Schema.Struct({
 })
 
 export type WorkspaceManifest = typeof WorkspaceManifestSchema.Type
-type PackageEntry = typeof PackageEntrySchema.Type
+export type PackageEntry = typeof PackageEntrySchema.Type
 
 ## What a reader receives
 
@@ -329,6 +345,8 @@ import { dirname, resolve as resolvePath, sep } from 'node:path'
 ::[The pieces a configuration is built from]
 
 ::[What a configuration declares]
+
+::[Reading a configuration source]
 
 ::[The compiled manifest]
 
