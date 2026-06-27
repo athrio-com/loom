@@ -6,7 +6,7 @@ import {
   readFileSync,
   writeFileSync,
 } from 'node:fs'
-import { dirname, resolve as resolvePath, sep } from 'node:path'
+import { basename, dirname, resolve as resolvePath, sep } from 'node:path'
 
 const AnchorSchema = Schema.Struct({
   open: Schema.optional(Schema.String),
@@ -24,6 +24,7 @@ const SettingsSchema = Schema.Record({
 
 export const WorkspaceConfigSchema = Schema.Struct({
   languages: Schema.Record({ key: Schema.String, value: LanguageSchema }),
+  corpus: Schema.optional(Schema.String),
   primary: Schema.optional(Schema.String),
   anchor: Schema.optional(AnchorSchema),
   settings: Schema.optional(SettingsSchema),
@@ -64,6 +65,7 @@ export const WorkspaceManifestSchema = Schema.Struct({
   languages: Schema.optional(
     Schema.Record({ key: Schema.String, value: LanguageSchema }),
   ),
+  corpus: Schema.optional(Schema.String),
   primary: Schema.optional(Schema.String),
   anchor: Schema.optional(AnchorSchema),
   settings: Schema.optional(SettingsSchema),
@@ -95,6 +97,7 @@ const empty: ResolvedConfig = {
 
 const storeDirName = '.loom'
 const manifestName = 'config.yaml'
+const defaultCorpus = 'corpus'
 
 const findWorkspace = (dir: string): string | undefined => {
   if (existsSync(resolvePath(dir, storeDirName))) return dir
@@ -152,12 +155,25 @@ const nearestPackage = (
       undefined,
     )
 
+const containerRoot = (
+  dir: string,
+  container: string,
+  workspace: string,
+): string | undefined => {
+  if (basename(dir) === container) return dirname(dir)
+  const parent = dirname(dir)
+  return dir === workspace || parent === dir
+    ? undefined
+    : containerRoot(parent, container, workspace)
+}
+
 const resolveFromManifest = (
   manifest: WorkspaceManifest,
   workspace: string,
   fromPath: string,
 ): ResolvedConfig => {
   const pkg = nearestPackage(manifest, workspace, fromPath)
+  const container = manifest.corpus ?? defaultCorpus
   return {
     anchor: pkg?.anchor ?? manifest.anchor,
     primary: pkg?.primary ?? manifest.primary,
@@ -165,7 +181,9 @@ const resolveFromManifest = (
     settings: mergeSettings(manifest.settings, pkg?.settings),
     services: servicesOf(manifest.languages),
     packageRoot:
-      pkg === undefined ? undefined : resolvePath(workspace, pkg.output),
+      pkg !== undefined
+        ? resolvePath(workspace, pkg.output)
+        : containerRoot(dirname(fromPath), container, workspace),
   }
 }
 

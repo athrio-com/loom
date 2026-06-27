@@ -91,4 +91,25 @@ describe('LoomConfig.resolve — workspace manifest', () => {
       packageRoot: undefined,
     })
   })
+
+  it('derives the package root from the corpus directory with no package mapped', () => {
+    const dir = workspace(
+      'corpus: corpus\nlanguages:\n  typescript: {}\nprimary: typescript\n',
+    )
+    expect(
+      run(join(dir, 'packages', 'loom-ast', 'corpus', 'node.loom')),
+    ).toEqual({
+      anchor: undefined,
+      primary: 'typescript',
+      languages: ['typescript'],
+      settings: {},
+      services: { typescript: '@athrio/loom-service-typescript' },
+      packageRoot: join(dir, 'packages', 'loom-ast'),
+    })
+  })
+
+  it('carries no package root for a file outside any corpus directory', () => {
+    const dir = workspace('corpus: corpus\nlanguages:\n  typescript: {}\n')
+    expect(run(join(dir, 'notes', 'scratch.loom')).packageRoot).toBeUndefined()
+  })
 })

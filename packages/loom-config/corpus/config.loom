@@ -38,6 +38,7 @@ The two are a discriminated union: a configuration that declares `languages` is 
 
 export const WorkspaceConfigSchema = Schema.Struct({
   languages: Schema.Record({ key: Schema.String, value: LanguageSchema }),
+  corpus: Schema.optional(Schema.String),
   primary: Schema.optional(Schema.String),
   anchor: Schema.optional(AnchorSchema),
   settings: Schema.optional(SettingsSchema),
@@ -74,7 +75,7 @@ export const parseConfig = (text: string): Config | undefined => {
 
 ## The compiled manifest
 
-`.loom/config.yaml` is the compiled form the compiler writes and this package reads. It holds the workspace defaults — the activated languages, the primary, the anchor, the settings — beside a `packages` map that folds every package configuration into one place. Each entry in the map records its package's `corpus` directory, so the resolver can tell which package a `.loom` file belongs to, and its `output` directory, the root every sink in that package tangles under. The same overrides a package configuration may carry — the primary, the anchor, the settings — ride on the entry.
+`.loom/config.yaml` is the compiled form the compiler writes and this package reads. It holds the workspace defaults — the activated languages, the primary, the anchor, the settings, and the name of the corpus directory looms sit in — beside an optional `packages` map of per-package overrides. Each entry in the map records its package's `corpus` directory, so the resolver can tell which package a `.loom` file belongs to, and its `output` directory, the root every sink in that package tangles under. The same overrides a package configuration may carry — the primary, the anchor, the settings — ride on the entry. A project that keeps each package's looms under the corpus directory needs no entry at all.
 
 =>
 
@@ -90,6 +91,7 @@ export const WorkspaceManifestSchema = Schema.Struct({
   languages: Schema.optional(
     Schema.Record({ key: Schema.String, value: LanguageSchema }),
   ),
+  corpus: Schema.optional(Schema.String),
   primary: Schema.optional(Schema.String),
   anchor: Schema.optional(AnchorSchema),
   settings: Schema.optional(SettingsSchema),
@@ -103,7 +105,7 @@ export type PackageEntry = typeof PackageEntrySchema.Type
 
 ## What a reader receives
 
-`ResolvedConfig` is the resolved shape every reader works with, the workspace defaults already merged with the one package that applies. Its `anchor`, `primary`, `languages`, and `settings` are the same four a reader has always read. Two fields are new. The `services` map names, for each activated language, the package that serves it — the one the language declared, or the conventional `@athrio/loom-service-<id>` when it declared none. The `packageRoot` is the absolute path of the tangle root of the package the resolved file belongs to, resolved against the workspace, or `undefined` when the file belongs to no package.
+`ResolvedConfig` is the resolved shape every reader works with, the workspace defaults already merged with the one package that applies. Its `anchor`, `primary`, `languages`, and `settings` are the same four a reader has always read. Two fields are new. The `services` map names, for each activated language, the package that serves it — the one the language declared, or the conventional `@athrio/loom-service-<id>` when it declared none. The `packageRoot` is the absolute path of the tangle root of the package the resolved file belongs to — the package's explicit `output`, or the directory above its corpus folder by default — or `undefined` when the file sits in no corpus folder and names no package.
 
 A file that resolves to nothing — no workspace, no configuration — receives the empty configuration: no anchor, no primary, no languages, no services, no root.
 
@@ -135,6 +137,7 @@ A workspace is the directory that holds the generated `.loom/` store. `findWorks
 
 const storeDirName = '.loom'
 const manifestName = 'config.yaml'
+const defaultCorpus = 'corpus'
 
 const findWorkspace = (dir: string): string | undefined => {
   if (existsSync(resolvePath(dir, storeDirName))) return dir
@@ -192,7 +195,9 @@ const mergeSettings = (
 
 To resolve a file, the resolver first finds the package the file belongs to. `nearestPackage` keeps the entries whose `corpus` directory contains the file and, among those, returns the deepest — the one whose corpus path is longest — so a package nested inside another wins over its container.
 
-Resolving then merges the workspace defaults under that package's overrides. The anchor and primary take the package's value when it sets one and the workspace's otherwise; the languages are the workspace's, since only the workspace activates them; the settings merge per language; the services resolve from the activated languages; and the package root is the matched package's `output`. A file in no package merges nothing and carries no root.
+Resolving then merges the workspace defaults under that package's overrides. The anchor and primary take the package's value when it sets one and the workspace's otherwise; the languages are the workspace's, since only the workspace activates them; the settings merge per language; and the services resolve from the activated languages.
+
+The package root is where the file's sinks tangle. A matched package gives it directly, in its `output`. With no match, `containerRoot` derives it by convention: it walks up from the file to the nearest directory named like the corpus — `corpus` by default — and takes the directory above it, so a loom in `pkg/corpus/` tangles into `pkg/` with no package entry. A file inside no corpus directory carries no root and tangles beside itself.
 
 =>
 
@@ -212,12 +217,25 @@ const nearestPackage = (
       undefined,
     )
 
+const containerRoot = (
+  dir: string,
+  container: string,
+  workspace: string,
+): string | undefined => {
+  if (basename(dir) === container) return dirname(dir)
+  const parent = dirname(dir)
+  return dir === workspace || parent === dir
+    ? undefined
+    : containerRoot(parent, container, workspace)
+}
+
 const resolveFromManifest = (
   manifest: WorkspaceManifest,
   workspace: string,
   fromPath: string,
 ): ResolvedConfig => {
   const pkg = nearestPackage(manifest, workspace, fromPath)
+  const container = manifest.corpus ?? defaultCorpus
   return {
     anchor: pkg?.anchor ?? manifest.anchor,
     primary: pkg?.primary ?? manifest.primary,
@@ -225,7 +243,9 @@ const resolveFromManifest = (
     settings: mergeSettings(manifest.settings, pkg?.settings),
     services: servicesOf(manifest.languages),
     packageRoot:
-      pkg === undefined ? undefined : resolvePath(workspace, pkg.output),
+      pkg !== undefined
+        ? resolvePath(workspace, pkg.output)
+        : containerRoot(dirname(fromPath), container, workspace),
   }
 }
 
@@ -335,7 +355,7 @@ import {
   readFileSync,
   writeFileSync,
 } from 'node:fs'
-import { dirname, resolve as resolvePath, sep } from 'node:path'
+import { basename, dirname, resolve as resolvePath, sep } from 'node:path'
 
 ## The module {../src/LoomConfig.ts}
 
