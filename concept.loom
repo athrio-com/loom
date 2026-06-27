@@ -8,7 +8,7 @@ One idea runs through all of it. The literate document is the source, and everyt
 
 ## A Loom workspace
 
-A workspace is the directory a person opens to work on a project. Loom marks one with a single committed file, `conf.loom`, at its root — the literate configuration, and the sign that says Loom lives here. Beside it sits `.loom/`, a directory Loom generates and Git ignores: the store of installed language services, the caches, the materialized configuration. The committed file is small and read by a human; the generated directory is disposable and rebuilt on demand.
+A workspace is the directory a person opens to work on a project. Loom marks one with a single committed file, `conf.loom`, at its root — the literate configuration, and the sign that says Loom lives here. Beside it sits `.loom/`, the directory Loom generates: the store of installed language services, the caches, and the compiled `config.yaml`. Git ignores the store and the caches, which Loom rebuilds on demand, while the compiled configuration is committed, so a checkout carries it.
 
 The workspace, not the package, is the unit. One `conf.loom` governs the project: it names the languages the project uses, and Loom installs the service for each of them once, to serve the whole workspace. A monorepo whose parts differ may still override the authoring defaults per package — the primary language, the anchor delimiters. The set of languages is not one of those per-package choices, though. It is fixed for the whole workspace, because the editor runs a single language server over the project, and that one server has to know every language any part of the project uses.
 
