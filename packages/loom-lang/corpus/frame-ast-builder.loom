@@ -163,10 +163,13 @@ claims it. A `.json` sink composes as JSON even in a TypeScript document, and th
 editor checks the tangled file in the language it becomes.
 
 `sectionLanguage` resolves any section's language by these rules — its specifier, a
-sink's extension, or the document default — and `nameIndex` records it beside each
-title. So when an anchor binds, the builder compares the composing section's
-language to the section it reaches and reports a cross-language transclusion when
-they differ (see Binding anchors).
+sink's extension, or the document default — with one reserved specifier: `{Config}`
+is the workspace or package configuration, whose body is YAML, so it reads and
+highlights as YAML even though Loom reads the configuration from the compiled
+`.loom/config.yaml` rather than this section. `nameIndex` records the language
+beside each title, so when an anchor binds, the builder compares the composing
+section's language to the section it reaches and reports a cross-language
+transclusion when they differ (see Binding anchors).
 
 =>
 
@@ -177,14 +180,23 @@ type NameEntry = {
 }
 type NameIndex = ReadonlyMap<string, ReadonlyArray<NameEntry>>
 
-const sectionLanguage = (section: LoomSection, defaultLang: string): string => {
-  const spec = section.heading.specifier
-  return spec?.type === 'PathSpecifier'
-    ? extensionLanguage(spec.label.value)
-    : spec?.type === 'Specifier'
-      ? spec.label.value.toLowerCase()
-      : defaultLang
+const reservedLanguage: Record<string, string> = { config: 'yaml' }
+
+const specifierLanguage = (label: string): string => {
+  const id = label.toLowerCase()
+  return reservedLanguage[id] ?? id
 }
+
+const sectionLanguage = (section: LoomSection, defaultLang: string): string =>
+  Match.value(section.heading.specifier).pipe(
+    Match.when({ type: 'PathSpecifier' }, (spec) =>
+      extensionLanguage(spec.label.value),
+    ),
+    Match.when({ type: 'Specifier' }, (spec) =>
+      specifierLanguage(spec.label.value),
+    ),
+    Match.orElse(() => defaultLang),
+  )
 
 const nameIndex = (
   sections: ReadonlyArray<LoomSection>,

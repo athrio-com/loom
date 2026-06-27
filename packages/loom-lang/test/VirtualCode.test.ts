@@ -91,4 +91,22 @@ describe('VirtualCode — root → frame projection', () => {
       expect(m!.data.completion).toBeFalsy()
     }).pipe(Effect.provide(layer)),
   )
+
+  it.effect('projects a {Config} section as YAML for highlighting', () =>
+    Effect.gen(function* () {
+      const runtime = yield* Effect.runtime<LoomCompiler>()
+      const cfg: Source = {
+        read: () =>
+          Effect.succeed(
+            `{{lang: TypeScript}}\n\n# Workspace {Config}\n\nThe project's languages.\n\n=>\n\nlanguages:\n  typescript: {}\n`,
+          ),
+      }
+      const root = Runtime.runSync(runtime)(
+        LoomCompiler.pipe(Effect.flatMap((c) => c.compile(cfg, ''))),
+      )
+      // root → [frame, the {Config} product]; its body reads as YAML
+      const product = root.embeddedCodes![1]!
+      expect(product.languageId).toBe('yaml')
+    }).pipe(Effect.provide(layer)),
+  )
 })

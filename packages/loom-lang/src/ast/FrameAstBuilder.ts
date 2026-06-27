@@ -82,14 +82,23 @@ type NameEntry = {
 }
 type NameIndex = ReadonlyMap<string, ReadonlyArray<NameEntry>>
 
-const sectionLanguage = (section: LoomSection, defaultLang: string): string => {
-  const spec = section.heading.specifier
-  return spec?.type === 'PathSpecifier'
-    ? extensionLanguage(spec.label.value)
-    : spec?.type === 'Specifier'
-      ? spec.label.value.toLowerCase()
-      : defaultLang
+const reservedLanguage: Record<string, string> = { config: 'yaml' }
+
+const specifierLanguage = (label: string): string => {
+  const id = label.toLowerCase()
+  return reservedLanguage[id] ?? id
 }
+
+const sectionLanguage = (section: LoomSection, defaultLang: string): string =>
+  Match.value(section.heading.specifier).pipe(
+    Match.when({ type: 'PathSpecifier' }, (spec) =>
+      extensionLanguage(spec.label.value),
+    ),
+    Match.when({ type: 'Specifier' }, (spec) =>
+      specifierLanguage(spec.label.value),
+    ),
+    Match.orElse(() => defaultLang),
+  )
 
 const nameIndex = (
   sections: ReadonlyArray<LoomSection>,
