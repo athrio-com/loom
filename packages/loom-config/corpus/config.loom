@@ -103,7 +103,7 @@ export type PackageEntry = typeof PackageEntrySchema.Type
 
 ## What a reader receives
 
-`ResolvedConfig` is the resolved shape every reader works with, the workspace defaults already merged with the one package that applies. Its `anchor`, `primary`, `languages`, and `settings` are the same four a reader has always read. Two fields are new. The `services` map names, for each activated language, the package that serves it — the one the language declared, or the conventional `@athrio/loom-service-<id>` when it declared none. The `packageRoot` is the tangle root of the package the resolved file belongs to, or `undefined` when the file belongs to no package.
+`ResolvedConfig` is the resolved shape every reader works with, the workspace defaults already merged with the one package that applies. Its `anchor`, `primary`, `languages`, and `settings` are the same four a reader has always read. Two fields are new. The `services` map names, for each activated language, the package that serves it — the one the language declared, or the conventional `@athrio/loom-service-<id>` when it declared none. The `packageRoot` is the absolute path of the tangle root of the package the resolved file belongs to, resolved against the workspace, or `undefined` when the file belongs to no package.
 
 A file that resolves to nothing — no workspace, no configuration — receives the empty configuration: no anchor, no primary, no languages, no services, no root.
 
@@ -224,7 +224,8 @@ const resolveFromManifest = (
     languages: Object.keys(manifest.languages ?? {}),
     settings: mergeSettings(manifest.settings, pkg?.settings),
     services: servicesOf(manifest.languages),
-    packageRoot: pkg?.output,
+    packageRoot:
+      pkg === undefined ? undefined : resolvePath(workspace, pkg.output),
   }
 }
 

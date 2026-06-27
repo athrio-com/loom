@@ -6,6 +6,7 @@ import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
 export interface BuildSettings {
   readonly delims: AnchorDelims
   readonly primaryLanguage: string | undefined
+  readonly packageRoot: string | undefined
 }
 
 const anchorDelimsOf = (
@@ -26,6 +27,7 @@ export class PackageConfig extends Effect.Service<PackageConfig>()(
             Effect.map((c) => ({
               delims: anchorDelimsOf(c.anchor),
               primaryLanguage: c.primary,
+              packageRoot: c.packageRoot,
             })),
           ),
       }

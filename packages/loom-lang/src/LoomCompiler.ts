@@ -79,12 +79,25 @@ export interface TangledFile {
   readonly content: string
 }
 
-const resolveSinks = (modules: Modules, entry: Path): ReadonlyArray<TangledFile> =>
+const outputPath = (
+  packageRoot: string | undefined,
+  entry: Path,
+  sink: string,
+): Path =>
+  packageRoot === undefined
+    ? resolvePath(dirname(entry), sink)
+    : resolvePath(packageRoot, sink)
+
+const resolveSinks = (
+  modules: Modules,
+  entry: Path,
+  packageRoot: string | undefined,
+): ReadonlyArray<TangledFile> =>
   pipe(
     modules.get(entry)?.product?.files ?? [],
     Array.map((file) => ({
       section: file.code.origin.name,
-      path: resolvePath(dirname(entry), file.path),
+      path: outputPath(packageRoot, entry, file.path),
       content: fromProduct(modules, file.code.origin).code,
     })),
   )
@@ -259,7 +272,11 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
               const failures = corpusErrors({ modules })
               return failures.length > 0
                 ? Effect.fail(new TangleError({ entry: path, failures }))
-                : Effect.succeed(resolveSinks(modules, path))
+                : config.resolve(path).pipe(
+                    Effect.map(({ packageRoot }) =>
+                      resolveSinks(modules, path, packageRoot),
+                    ),
+                  )
             }),
           ),
 

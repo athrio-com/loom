@@ -164,7 +164,8 @@ const resolveFromManifest = (
     languages: Object.keys(manifest.languages ?? {}),
     settings: mergeSettings(manifest.settings, pkg?.settings),
     services: servicesOf(manifest.languages),
-    packageRoot: pkg?.output,
+    packageRoot:
+      pkg === undefined ? undefined : resolvePath(workspace, pkg.output),
   }
 }
 

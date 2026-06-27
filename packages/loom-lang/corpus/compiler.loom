@@ -91,7 +91,11 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
               const failures = corpusErrors({ modules })
               return failures.length > 0
                 ? Effect.fail(new TangleError({ entry: path, failures }))
-                : Effect.succeed(resolveSinks(modules, path))
+                : config.resolve(path).pipe(
+                    Effect.map(({ packageRoot }) =>
+                      resolveSinks(modules, path, packageRoot),
+                    ),
+                  )
             }),
           ),
 
@@ -207,7 +211,7 @@ const entryOf = (
 
 `tangle` is the de re's file projection, the sibling of `compile`. It produces the corpus, refuses a broken build, and resolves the entry's sinks to the content and target a writer emits.
 
-`resolveSinks` takes the entry module's tangle sinks — one per `{path}` section — and for each flattens its composed code across the corpus with `fromProduct`, then resolves the output path against the `.loom`'s own directory. It returns a `TangledFile` per sink: the section that produced it, where it lands, and its content. `LoomTangler` performs the writes; `tangle` itself touches no disk.
+`resolveSinks` takes the entry module's tangle sinks — one per `{path}` section — and for each flattens its composed code across the corpus with `fromProduct`, then resolves where the file lands. `outputPath` places a sink under the entry's package root — the absolute directory its package tangles into — so a sink names its file relative to that root rather than climbing out of the corpus. A file the workspace assigns to no package falls back to the `.loom`'s own directory. `resolveSinks` returns a `TangledFile` per sink: the section that produced it, where it lands, and its content. `LoomTangler` performs the writes; `tangle` itself touches no disk.
 
 A tangle must never emit an anchor it could not resolve, nor build on a file it could not read. So `tangle` runs `corpusErrors` over the whole corpus first — every module's document and frame — and fails with a `TangleError` the moment any module carries an error. A missing import, a malformed parse, an unresolved `::[…]` reference each stops the build rather than leaving a file with a silently dropped reference. The failure is loud, and names every file and line.
 
@@ -219,12 +223,25 @@ export interface TangledFile {
   readonly content: string
 }
 
-const resolveSinks = (modules: Modules, entry: Path): ReadonlyArray<TangledFile> =>
+const outputPath = (
+  packageRoot: string | undefined,
+  entry: Path,
+  sink: string,
+): Path =>
+  packageRoot === undefined
+    ? resolvePath(dirname(entry), sink)
+    : resolvePath(packageRoot, sink)
+
+const resolveSinks = (
+  modules: Modules,
+  entry: Path,
+  packageRoot: string | undefined,
+): ReadonlyArray<TangledFile> =>
   pipe(
     modules.get(entry)?.product?.files ?? [],
     Array.map((file) => ({
       section: file.code.origin.name,
-      path: resolvePath(dirname(entry), file.path),
+      path: outputPath(packageRoot, entry, file.path),
       content: fromProduct(modules, file.code.origin).code,
     })),
   )

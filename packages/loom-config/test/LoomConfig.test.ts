@@ -54,7 +54,7 @@ describe('LoomConfig.resolve — workspace manifest', () => {
         typescript: '@athrio/loom-service-typescript',
         python: 'custom-py',
       },
-      packageRoot: 'packages/core',
+      packageRoot: join(dir, 'packages', 'core'),
     })
   })
 

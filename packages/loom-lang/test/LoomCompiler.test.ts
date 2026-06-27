@@ -55,7 +55,11 @@ const TestConfig = Layer.succeed(
   PackageConfig,
   new PackageConfig({
     resolve: () =>
-      Effect.succeed({ delims: defaultAnchorDelims, primaryLanguage: undefined }),
+      Effect.succeed({
+        delims: defaultAnchorDelims,
+        primaryLanguage: undefined,
+        packageRoot: undefined,
+      }),
   }),
 )
 

@@ -105,7 +105,7 @@ describe('ManifestBuilder — compiling {Config} sources', () => {
         typescript: '@athrio/loom-service-typescript',
         python: 'custom-py',
       },
-      packageRoot: 'packages/core',
+      packageRoot: join(ws, 'packages', 'core'),
     })
   })
 })
