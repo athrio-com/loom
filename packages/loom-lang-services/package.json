@@ -7,8 +7,8 @@
   "exports": {
     "./LanguageService": "./src/LanguageService.ts",
     "./LanguageRegistry": "./src/LanguageRegistry.ts",
-    "./LoomLanguage": "./src/LoomLanguage.ts",
-    "./TypescriptLanguage": "./src/TypescriptLanguage.ts"
+    "./LanguageLoader": "./src/LanguageLoader.ts",
+    "./LoomLanguage": "./src/LoomLanguage.ts"
   },
   "dependencies": {
     "volar-service-typescript": "^0.0.71"

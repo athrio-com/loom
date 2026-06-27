@@ -2,11 +2,12 @@ import { createTypeScriptInferredChecker } from '@volar/kit'
 import { Effect, Layer, Runtime } from 'effect'
 import { dirname, resolve } from 'node:path'
 import * as ts from 'typescript'
-import { describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { PackageConfig } from '../src/PackageConfig'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { loomLanguagePlugin, loomServicePlugins } from '../src/LoomLanguagePlugin'
+import { serviceStore } from './store'
 
 // End-to-end through Volar: Loom's own health — the grammatical and semantic
 // diagnostics Loom finds, which TypeScript knows nothing about — must reach the
@@ -16,6 +17,14 @@ import { loomLanguagePlugin, loomServicePlugins } from '../src/LoomLanguagePlugi
 // it must surface on the `.loom`; a clean file must surface none.
 
 const SLOW = 30_000
+
+// The TypeScript service the checker uses is loaded from a Loom store; build it
+// and stand one up under LOOM_HOME for the run.
+let teardown: () => void
+beforeAll(() => {
+  teardown = serviceStore()
+})
+afterAll(() => teardown())
 
 const tsOptions = {
   module: ts.ModuleKind.ESNext,

@@ -5,7 +5,7 @@ import type {
 } from '@volar/language-core'
 import type { LanguageServicePlugin } from '@volar/language-service'
 import type {} from '@volar/typescript'
-import { Array, Effect, Layer, Option, pipe, Runtime } from 'effect'
+import { Array, Effect, Layer, Runtime } from 'effect'
 import { readFileSync } from 'node:fs'
 import type * as ts from 'typescript'
 import { URI } from 'vscode-uri'
@@ -22,8 +22,7 @@ import {
   ActiveLanguages,
   LanguageRegistry,
 } from '@athrio/loom-lang-services/LanguageRegistry'
-import { LoomLanguage } from '@athrio/loom-lang-services/LoomLanguage'
-import { TypescriptService } from '@athrio/loom-service-typescript/TypescriptService'
+import { loadActive } from '@athrio/loom-lang-services/LanguageLoader'
 
 const editorSource = (
   uri: URI,
@@ -128,25 +127,6 @@ const isolateRoots = (code: VirtualCode): VirtualCode => ({
   ),
 })
 
-const builtIns: ReadonlyMap<string, LanguageService> = new Map([
-  [LoomLanguage.id, LoomLanguage],
-  [TypescriptService.id, TypescriptService],
-])
-
-const resolveActive = (
-  ids: ReadonlyArray<string>,
-): ReadonlyArray<LanguageService> => [
-  LoomLanguage,
-  ...pipe(
-    ids,
-    Array.filterMap((id) =>
-      id === LoomLanguage.id
-        ? Option.none()
-        : Option.fromNullable(builtIns.get(id)),
-    ),
-  ),
-]
-
 const dedupeByName = (
   plugins: ReadonlyArray<LanguageServicePlugin>,
 ): ReadonlyArray<LanguageServicePlugin> =>
@@ -198,10 +178,6 @@ export const loomServicePlugins = (
     const config = yield* LoomConfig
     const { languages, settings } = yield* config.resolve(root)
     const runtime = yield* Effect.runtime<LoomCompiler>()
-    return yield* collect(
-      resolveActive(languages),
-      tsdk,
-      settings,
-      frameQueryOver(runtime),
-    )
+    const active = yield* loadActive(languages, root)
+    return yield* collect(active, tsdk, settings, frameQueryOver(runtime))
   })

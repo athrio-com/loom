@@ -2,15 +2,17 @@ import { createTypeScriptInferredChecker } from '@volar/kit'
 import { Effect, Layer, Runtime } from 'effect'
 import { resolve } from 'node:path'
 import * as ts from 'typescript'
-import { describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { PackageConfig } from '../src/PackageConfig'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { loomLanguagePlugin, loomServicePlugins } from '../src/LoomLanguagePlugin'
+import { serviceStore } from './store'
 
-// End-to-end through Volar: activating `typescript` in loom.json registers
-// TypescriptService, which checks the file's product sections against a program
-// of its own — Volar's frame program never holds them. typed.loom carries a
+// End-to-end through Volar: activating `typescript` in loom.json makes loadActive
+// load @athrio/loom-service-typescript from the store, whose service checks the
+// file's product sections against a program of its own — Volar's frame program
+// never holds them. typed.loom carries a
 // deliberate de re type error (`const n: number = 'not a number'`). With
 // TypeScript activated, the error surfaces on the `.loom`; with nothing activated,
 // no product service is registered and only the frame is checked, so it stays
@@ -24,6 +26,14 @@ const typeMismatch = /not assignable to type 'number'/
 // library cold; under full-suite load that runs past the 5s default, so give
 // these the same headroom the other Volar checker tests take.
 const SLOW = 30_000
+
+// loadActive imports the built service from a Loom store; serviceStore builds it
+// and stands one up under LOOM_HOME for the run.
+let teardown: () => void
+beforeAll(() => {
+  teardown = serviceStore()
+})
+afterAll(() => teardown())
 
 const checkerActivating = async (languages: ReadonlyArray<string>) => {
   const runtime = await Effect.runtime<LoomCompiler | LoomConfig>().pipe(

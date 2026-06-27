@@ -7,11 +7,11 @@
 ## The manifest {../package.json}
 
 The `exports` field is the package's surface: the `LanguageService` contract, the
-`LanguageRegistry`, and the two built-in services — `LoomLanguage` (the Frame) and
-`TypescriptLanguage` (the TypeScript target).
+`LanguageRegistry`, the `LanguageLoader` that resolves a project's active services
+from the Loom store, and `LoomLanguage`, the Frame's built-in service.
 
-The built-in services wrap `volar-service-typescript`, the one real dependency. The
-other peers — `@athrio/loom-ast` for Loom's shared types, `effect`,
+`LoomLanguage` wraps `volar-service-typescript`, the one real dependency. The other
+peers — `@athrio/loom-ast` for Loom's shared types, `effect`,
 `@volar/language-service`, `typescript`, and `vscode-uri` for decoding an embedded
 document's uri — are supplied by the host bundle.
 
@@ -26,8 +26,8 @@ document's uri — are supplied by the host bundle.
   "exports": {
     "./LanguageService": "./src/LanguageService.ts",
     "./LanguageRegistry": "./src/LanguageRegistry.ts",
-    "./LoomLanguage": "./src/LoomLanguage.ts",
-    "./TypescriptLanguage": "./src/TypescriptLanguage.ts"
+    "./LanguageLoader": "./src/LanguageLoader.ts",
+    "./LoomLanguage": "./src/LoomLanguage.ts"
   },
   "dependencies": {
     "volar-service-typescript": "^0.0.71"
