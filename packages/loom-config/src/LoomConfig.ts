@@ -187,62 +187,27 @@ const resolveFromManifest = (
   }
 }
 
-export const configFileName = 'loom.json'
-
-export const LoomConfigSchema = Schema.Struct({
-  anchor: Schema.optional(AnchorSchema),
-  primary: Schema.optional(Schema.String),
-  languages: Schema.optional(Schema.Array(Schema.String)),
-  settings: Schema.optional(SettingsSchema),
-})
-
-export type LoomConfigFile = typeof LoomConfigSchema.Type
-
-const findLegacy = (dir: string): string | undefined => {
-  const candidate = resolvePath(dir, configFileName)
-  if (existsSync(candidate)) return candidate
-  const parent = dirname(dir)
-  return parent === dir ? undefined : findLegacy(parent)
-}
-
-const decodeLegacy = Schema.decodeUnknownOption(LoomConfigSchema)
-
-const readLegacy = (file: string): ResolvedConfig => {
-  try {
-    return Option.match(decodeLegacy(JSON.parse(readFileSync(file, 'utf8'))), {
-      onNone: () => empty,
-      onSome: (config) => ({
-        anchor: config.anchor,
-        primary: config.primary,
-        languages: config.languages ?? [],
-        settings: config.settings ?? {},
-        services: Object.fromEntries(
-          (config.languages ?? []).map((id) => [id, `@athrio/loom-service-${id}`]),
-        ),
-        packageRoot: undefined,
-      }),
-    })
-  } catch {
-    return empty
-  }
-}
-
 export class LoomConfig extends Effect.Service<LoomConfig>()('LoomConfig', {
   succeed: {
     resolve: (fromPath: string): Effect.Effect<ResolvedConfig> =>
       Effect.sync(() => {
         if (fromPath === '') return empty
-        const dir = dirname(fromPath)
-        const workspace = findWorkspace(dir)
-        const manifest =
-          workspace === undefined
-            ? undefined
-            : readManifest(resolvePath(workspace, storeDirName, manifestName))
-        if (workspace !== undefined && manifest !== undefined) {
-          return resolveFromManifest(manifest, workspace, fromPath)
-        }
-        const legacy = findLegacy(dir)
-        return legacy === undefined ? empty : readLegacy(legacy)
+        const workspace = findWorkspace(dirname(fromPath))
+        if (workspace === undefined) return empty
+        const manifest = readManifest(
+          resolvePath(workspace, storeDirName, manifestName),
+        )
+        return manifest === undefined
+          ? empty
+          : resolveFromManifest(manifest, workspace, fromPath)
+      }),
+
+    manifest: (fromDir: string): Effect.Effect<WorkspaceManifest | undefined> =>
+      Effect.sync(() => {
+        const workspace = findWorkspace(fromDir)
+        return workspace === undefined
+          ? undefined
+          : readManifest(resolvePath(workspace, storeDirName, manifestName))
       }),
 
     materialize: (workspace: string, manifest: WorkspaceManifest): Effect.Effect<void> =>
@@ -250,15 +215,6 @@ export class LoomConfig extends Effect.Service<LoomConfig>()('LoomConfig', {
         const store = resolvePath(workspace, storeDirName)
         mkdirSync(store, { recursive: true })
         writeFileSync(resolvePath(store, manifestName), stringifyYaml(manifest))
-      }),
-
-    write: (dir: string, config: LoomConfigFile): Effect.Effect<void> =>
-      Effect.sync(() => {
-        mkdirSync(dir, { recursive: true })
-        writeFileSync(
-          resolvePath(dir, configFileName),
-          `${JSON.stringify(config, null, 2)}\n`,
-        )
       }),
   },
 }) {}

@@ -1,17 +1,12 @@
 import { Console, Effect, Option } from 'effect'
 import { Args, Command, Prompt } from '@effect/cli'
 import { NodeContext, NodeRuntime } from '@effect/platform-node'
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, writeFileSync } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
 import { DocumentSource } from '@athrio/loom-lang/LoomCompiler'
 import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
 import { PackageConfig } from '@athrio/loom-lang/PackageConfig'
-import { ManifestBuilder } from '@athrio/loom-lang/ManifestBuilder'
-import {
-  LoomConfig,
-  configFileName,
-  type LoomConfigFile,
-} from '@athrio/loom-config/LoomConfig'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
   addService,
   installedServices,
@@ -64,17 +59,19 @@ const init = (dir: Option.Option<string>) =>
     yield* banner
 
     const exists = yield* Effect.sync(() =>
-      existsSync(resolvePath(root, 'loom.json')),
+      existsSync(resolvePath(root, '.loom', 'config.yaml')),
     )
     if (exists) {
       const overwrite = yield* Prompt.run(
         Prompt.confirm({
-          message: `loom.json already exists in ${root} — overwrite it?`,
+          message: `.loom/config.yaml already exists in ${root} — overwrite it?`,
           initial: false,
         }),
       )
       if (!overwrite) {
-        return yield* Console.log(dim('   Left the existing loom.json untouched.\n'))
+        return yield* Console.log(
+          dim('   Left the existing configuration untouched.\n'),
+        )
       }
     }
 
@@ -90,19 +87,20 @@ const init = (dir: Option.Option<string>) =>
         default: language,
       }),
     )
-    const languages = activation.split(/\s+/).filter((id) => id.length > 0)
+    const ids = activation.split(/\s+/).filter((id) => id.length > 0)
 
-    yield* config.write(root, { primary: language, languages })
-    const store = resolvePath(root, '.loom')
-    yield* Effect.sync(() => {
-      mkdirSync(store, { recursive: true })
-      writeFileSync(resolvePath(store, '.gitignore'), '*\n')
+    yield* config.materialize(root, {
+      corpus: 'corpus',
+      languages: Object.fromEntries(ids.map((id) => [id, {}])),
+      primary: language,
     })
+    yield* Effect.sync(() =>
+      writeFileSync(resolvePath(root, '.loom', '.gitignore'), 'services/\n'),
+    )
     yield* Console.log(
-      `\n   ${teal('✓')} wrote ${resolvePath(root, 'loom.json')}\n` +
-        `   ${teal('✓')} created ${store}/\n` +
+      `\n   ${teal('✓')} wrote ${resolvePath(root, '.loom', 'config.yaml')}\n` +
         `   ${dim(`primary language: ${language}`)}\n` +
-        `   ${dim(`activated: ${languages.join(', ') || 'none'}`)}\n`,
+        `   ${dim(`activated: ${ids.join(', ') || 'none'}`)}\n`,
     )
   }).pipe(
     Effect.catchTag('QuitException', () => Console.log(dim('\n   Cancelled.\n'))),
@@ -113,19 +111,15 @@ const updateLanguages = (
   dir: string,
   change: (ids: ReadonlyArray<string>) => ReadonlyArray<string>,
 ): Effect.Effect<void> =>
-  config.resolve(resolvePath(dir, configFileName)).pipe(
-    Effect.flatMap((current) => {
-      const file: LoomConfigFile = {
-        languages: change(current.languages),
-        ...(current.primary !== undefined ? { primary: current.primary } : {}),
-        ...(current.anchor ? { anchor: current.anchor } : {}),
-        ...(Object.keys(current.settings).length > 0
-          ? { settings: current.settings }
-          : {}),
-      }
-      return config.write(dir, file)
-    }),
-  )
+  Effect.gen(function* () {
+    const workspace = workspaceRoot(dir)
+    const current = yield* config.manifest(workspace)
+    const ids = change(Object.keys(current?.languages ?? {}))
+    const languages = Object.fromEntries(
+      ids.map((id) => [id, current?.languages?.[id] ?? {}]),
+    )
+    yield* config.materialize(workspace, { ...(current ?? {}), languages })
+  })
 
 const add = (language: string) =>
   Effect.gen(function* () {
@@ -161,9 +155,9 @@ const remove = (language: string) =>
 const status = Effect.gen(function* () {
   const config = yield* LoomConfig
   const dir = process.cwd()
-  const { primary, languages } = yield* config.resolve(
-    resolvePath(dir, configFileName),
-  )
+  const manifest = yield* config.manifest(workspaceRoot(dir))
+  const primary = manifest?.primary
+  const languages = Object.keys(manifest?.languages ?? {})
   const installed = new Set(yield* installedServices(dir))
   const mark = (id: string): string =>
     installed.has(id)
@@ -178,29 +172,6 @@ const status = Effect.gen(function* () {
   )
   if (languages.length > 0) yield* Console.log(`${languages.map(mark).join('\n')}\n`)
 })
-
-const materialize = (dir: Option.Option<string>) =>
-  Effect.gen(function* () {
-    const manifests = yield* ManifestBuilder
-    const config = yield* LoomConfig
-    const ws = workspaceRoot(
-      resolvePath(process.cwd(), Option.getOrElse(dir, () => '.')),
-    )
-    const manifest = yield* manifests.build(ws)
-    const languages = Object.keys(manifest.languages ?? {})
-    const packages = Object.keys(manifest.packages ?? {})
-    if (languages.length === 0 && packages.length === 0) {
-      return yield* Console.log(
-        'loom: no {Config} sources found — nothing to materialize',
-      )
-    }
-    yield* config.materialize(ws, manifest)
-    yield* Console.log(
-      `\n   ${teal('✓')} wrote ${resolvePath(ws, '.loom', 'config.yaml')}\n` +
-        `   ${dim(`languages: ${languages.join(', ') || 'none'}`)}\n` +
-        `   ${dim(`packages: ${packages.join(', ') || 'none'}`)}\n`,
-    )
-  })
 
 const tangleCommand = Command.make(
   'tangle',
@@ -228,19 +199,12 @@ const removeCommand = Command.make(
 
 const statusCommand = Command.make('status', {}, () => status)
 
-const materializeCommand = Command.make(
-  'materialize',
-  { dir: Args.optional(Args.directory({ name: 'dir' })) },
-  ({ dir }) => materialize(dir),
-)
-
 const loom = Command.make('loom').pipe(
   Command.withSubcommands([
     tangleCommand,
     initCommand,
     addCommand,
     removeCommand,
-    materializeCommand,
     statusCommand,
   ]),
 )
@@ -252,7 +216,6 @@ const program = Command.run(loom, {
   Effect.provide(LoomTangler.Default),
   Effect.provide(DocumentSource.Default),
   Effect.provide(PackageConfig.Default),
-  Effect.provide(ManifestBuilder.Default),
   Effect.provide(LoomConfig.Default),
   Effect.provide(NodeContext.layer),
 )

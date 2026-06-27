@@ -177,7 +177,9 @@ export const loomServicePlugins = (
 > =>
   Effect.gen(function* () {
     const config = yield* LoomConfig
-    const { languages, settings } = yield* config.resolve(root)
+    const manifest = yield* config.manifest(root)
+    const languages = Object.keys(manifest?.languages ?? {})
+    const settings = manifest?.settings ?? {}
     const runtime = yield* Effect.runtime<LoomCompiler>()
     yield* Effect.sync(() => installHostRuntime(tsdk))
     const active = yield* loadActive(languages, root)

@@ -53,8 +53,11 @@ const checkerActivating = async (languages: ReadonlyArray<string>) => {
               services: {},
               packageRoot: undefined,
             }),
+          manifest: () =>
+            Effect.succeed({
+              languages: Object.fromEntries(languages.map((id) => [id, {}])),
+            }),
           materialize: () => Effect.void,
-          write: () => Effect.void,
         }),
       ),
     ),

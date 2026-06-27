@@ -117,13 +117,14 @@ describe('LoomTangler — tangle {path} sinks to disk', () => {
     }).pipe(Effect.provide(layers)),
   )
 
-  it.scoped("honours a package's loom.json anchor delimiter", () =>
+  it.scoped('honours the workspace anchor delimiter', () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const dir = yield* fs.makeTempDirectoryScoped()
+      yield* fs.makeDirectory(`${dir}/.loom`, { recursive: true })
       yield* fs.writeFileString(
-        `${dir}/loom.json`,
-        '{ "anchor": { "open": "<<", "close": ">>" } }',
+        `${dir}/.loom/config.yaml`,
+        'anchor:\n  open: "<<"\n  close: ">>"\n',
       )
       yield* fs.writeFileString(
         `${dir}/g.loom`,

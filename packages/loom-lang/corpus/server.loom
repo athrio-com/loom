@@ -29,10 +29,9 @@ import {
   loadTsdkByPath,
 } from '@volar/language-server/node'
 import { fileURLToPath } from 'node:url'
-import { resolve } from 'node:path'
 import { LoomCompiler, DocumentSource } from './LoomCompiler'
 import { PackageConfig } from './PackageConfig'
-import { LoomConfig, configFileName } from '@athrio/loom-config/LoomConfig'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { withLoomBaseline } from '@athrio/loom-tsconfig'
 import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
 
@@ -43,12 +42,10 @@ runs the per-keystroke projection on it, and resolves each file's activated lang
 `LoomConfig` on it too. The `loadTsdkByPath` call loads the editor's own
 TypeScript from the path the client sends, so the frame checks against the user's
 standard library; `withLoomBaseline` wraps it, so the one program Volar builds layers
-Loom's baseline under the package's own `tsconfig.json`. Collecting service plugins requires reading `loom.json`, so
-the `onInitialize` handler resolves the workspace's config path and awaits that Effect —
-which finds the config and the service store by walking up from it — before it registers the
-language plugin and the collected plugins. Anchoring on the workspace's config path rather
-than the bare folder is what lets a config or store at the workspace root be found instead of
-skipped. On `initialized`, the server watches every `tsconfig.json` and
+Loom's baseline under the package's own `tsconfig.json`. Collecting service plugins requires reading the workspace configuration, so
+the `onInitialize` handler hands the workspace folder to `loomServicePlugins` and awaits that Effect —
+which finds the `.loom/` store and its `config.yaml` by walking up from the folder — before it registers the
+language plugin and the collected plugins. On `initialized`, the server watches every `tsconfig.json` and
 `jsconfig.json`, so editing a package's compiler options disposes its project and the next
 request rebuilds it — the consumer's options take effect without an editor reload.
 
@@ -69,7 +66,7 @@ const program = Effect.gen(function* () {
     const folder = params.workspaceFolders?.[0]?.uri
     const root = folder ? fileURLToPath(folder) : process.cwd()
     const servicePlugins = await Runtime.runPromise(runtime)(
-      loomServicePlugins(tsdk.typescript, resolve(root, configFileName)),
+      loomServicePlugins(tsdk.typescript, root),
     )
     return server.initialize(
       params,

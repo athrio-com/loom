@@ -14,13 +14,13 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
-// The CLI is an Effect program over the tangler, the config writer, and the
-// service store; this exercises it as a real process. The `tsx` loader is passed
-// by its resolved path rather than by name, so a case can run the CLI from a temp
-// workspace — `add`, `remove`, and `status` read `process.cwd()` — while tsx still
-// resolves from this package. The interactive `init` prompts need a real terminal,
-// so they are verified by hand; here we cover the command surface a subprocess can
-// reach.
+// The CLI is an Effect program over the tangler, the config, and the service
+// store; this exercises it as a real process. The `tsx` loader is passed by its
+// resolved path rather than by name, so a case can run the CLI from a temp
+// workspace — `add`, `remove`, and `status` read `process.cwd()` — while tsx
+// still resolves from this package. The interactive `init` prompts need a real
+// terminal, so they are verified by hand; here we cover the command surface a
+// subprocess can reach.
 const cli = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const main = resolve(cli, 'src/main.ts')
 const tsx = pathToFileURL(
@@ -61,14 +61,19 @@ const tempDoc = (): { readonly dir: string; readonly doc: string } => {
   return { dir, doc }
 }
 
-// A workspace under a temp dir, with a loom.json the activation commands read and
-// write. realpathSync resolves the macOS /var → /private/var symlink so the path
-// the child prints (from its resolved cwd) matches what the test compares against.
-const workspace = (config: Record<string, unknown>): string => {
+// A workspace under a temp dir, with a committed .loom/config.yaml the
+// activation commands read and write. realpathSync resolves the macOS
+// /var → /private/var symlink so the path the child prints (from its resolved
+// cwd) matches what the test compares against.
+const workspace = (configYaml: string): string => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'loom-proj-')))
-  writeFileSync(join(dir, 'loom.json'), `${JSON.stringify(config, null, 2)}\n`)
+  mkdirSync(join(dir, '.loom'), { recursive: true })
+  writeFileSync(join(dir, '.loom', 'config.yaml'), configYaml)
   return dir
 }
+
+const configText = (dir: string): string =>
+  readFileSync(join(dir, '.loom', 'config.yaml'), 'utf8')
 
 const userStore = (): string =>
   realpathSync(mkdtempSync(join(tmpdir(), 'loom-home-')))
@@ -91,12 +96,9 @@ const installFake = (home: string, id: string): void => {
   )
 }
 
-const configOf = (dir: string): { languages?: ReadonlyArray<string> } =>
-  JSON.parse(readFileSync(join(dir, 'loom.json'), 'utf8'))
-
 // Each case spawns `node --import tsx src/main.ts` cold — transpiling the whole
-// tangler path on the fly takes seconds, and the 5s default flakes when the first
-// cold spawn runs under full-suite load. Give these subprocess tests headroom.
+// tangler path on the fly takes seconds, and the 5s default flakes when the
+// first cold spawn runs under full-suite load. Give these subprocess tests headroom.
 const SPAWN_TIMEOUT = 30_000
 
 describe('loom cli', () => {
@@ -119,7 +121,9 @@ describe('loom cli', () => {
 
   it('status reports the store, the primary language, and what is activated', () => {
     const home = userStore()
-    const dir = workspace({ primary: 'typescript', languages: ['typescript'] })
+    const dir = workspace(
+      'corpus: corpus\nlanguages:\n  typescript: {}\nprimary: typescript\n',
+    )
     installFake(home, 'typescript')
     const { stdout } = loom(['status'], { cwd: dir, env: { LOOM_HOME: home } })
     expect(stdout).toContain('typescript')
@@ -130,7 +134,7 @@ describe('loom cli', () => {
 
   it('add records the language and skips install when the service is present', () => {
     const home = userStore()
-    const dir = workspace({ primary: 'typescript', languages: [] })
+    const dir = workspace('corpus: corpus\nlanguages: {}\nprimary: typescript\n')
     installFake(home, 'typescript')
     const { status, stdout } = loom(['add', 'typescript'], {
       cwd: dir,
@@ -138,20 +142,21 @@ describe('loom cli', () => {
     })
     expect(status).toBe(0)
     expect(stdout).toContain('activated typescript')
-    expect(configOf(dir).languages).toContain('typescript')
+    expect(configText(dir)).toContain('typescript')
     rmSync(home, { recursive: true, force: true })
     rmSync(dir, { recursive: true, force: true })
   }, SPAWN_TIMEOUT)
 
   it('remove drops the language and deletes its package from the store', () => {
     const home = userStore()
-    const dir = workspace({
-      primary: 'typescript',
-      languages: ['typescript', 'python'],
-    })
+    const dir = workspace(
+      'corpus: corpus\nlanguages:\n  typescript: {}\n  python: {}\nprimary: python\n',
+    )
     installFake(home, 'typescript')
     loom(['remove', 'typescript'], { cwd: dir, env: { LOOM_HOME: home } })
-    expect(configOf(dir).languages).toEqual(['python'])
+    const text = configText(dir)
+    expect(text).toContain('python')
+    expect(text).not.toContain('typescript')
     expect(
       existsSync(
         join(home, 'services', 'node_modules', '@athrio', 'loom-service-typescript'),
@@ -162,30 +167,15 @@ describe('loom cli', () => {
   }, SPAWN_TIMEOUT)
 
   it('status uses the workspace .loom/services store when LOOM_HOME is unset', () => {
-    const dir = workspace({ primary: 'typescript', languages: ['typescript'] })
+    const dir = workspace(
+      'corpus: corpus\nlanguages:\n  typescript: {}\nprimary: typescript\n',
+    )
     mkdirSync(
       join(dir, '.loom', 'services', 'node_modules', '@athrio', 'loom-service-typescript'),
       { recursive: true },
     )
     const { stdout } = loom(['status'], { cwd: dir })
     expect(stdout).toContain(join(dir, '.loom', 'services'))
-    rmSync(dir, { recursive: true, force: true })
-  }, SPAWN_TIMEOUT)
-
-  it('materialize compiles a {Config} source into .loom/config.yaml', () => {
-    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'loom-mat-')))
-    mkdirSync(join(dir, '.loom'), { recursive: true })
-    writeFileSync(
-      join(dir, 'config.loom'),
-      `# Workspace {Config}\n\nThe project's languages.\n\n=>\n\nlanguages:\n  typescript: {}\nprimary: typescript\n`,
-    )
-    const { status, stdout } = loom(['materialize'], { cwd: dir })
-    expect(status).toBe(0)
-    expect(stdout).toContain('config.yaml')
-    expect(existsSync(join(dir, '.loom', 'config.yaml'))).toBe(true)
-    expect(readFileSync(join(dir, '.loom', 'config.yaml'), 'utf8')).toContain(
-      'typescript',
-    )
     rmSync(dir, { recursive: true, force: true })
   }, SPAWN_TIMEOUT)
 })

@@ -7,9 +7,10 @@ import { PackageConfig } from '../src/PackageConfig'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
 // PackageConfig.resolve is the compiler's per-file settings read: given a file
-// path, it walks up to the nearest loom.json (through @athrio/loom-config) and
-// returns that package's anchor delimiters and primary language. The same read
-// serves the editor's synchronous projection hook and the CLI tangler.
+// path, it walks up to the workspace's .loom/config.yaml (through
+// @athrio/loom-config) and returns that file's anchor delimiters and primary
+// language. The same read serves the editor's synchronous projection hook and
+// the CLI tangler.
 const run = (path: string) =>
   Effect.runSync(
     PackageConfig.pipe(
@@ -20,43 +21,49 @@ const run = (path: string) =>
 
 const tempDir = () => mkdtempSync(join(tmpdir(), 'loom-cfg-'))
 
+const writeConfig = (dir: string, yaml: string): void => {
+  mkdirSync(join(dir, '.loom'), { recursive: true })
+  writeFileSync(join(dir, '.loom', 'config.yaml'), yaml)
+}
+
 describe('PackageConfig.resolve — per-file build settings', () => {
-  it("reads a package's anchor delimiters and primary language", () => {
+  it("reads the workspace's anchor delimiters and primary language", () => {
     const dir = tempDir()
-    writeFileSync(
-      join(dir, 'loom.json'),
-      '{ "anchor": { "open": "<<", "close": ">>" }, "primary": "typescript" }',
-    )
+    writeConfig(dir, 'anchor:\n  open: "<<"\n  close: ">>"\nprimary: typescript\n')
     expect(run(join(dir, 'a.loom'))).toEqual({
       delims: { open: '<<', close: '>>' },
       primaryLanguage: 'typescript',
+      packageRoot: undefined,
     })
   })
 
   it('fills each missing anchor side from the default pair', () => {
     const dir = tempDir()
-    writeFileSync(join(dir, 'loom.json'), '{ "anchor": { "open": "<<" } }')
+    writeConfig(dir, 'anchor:\n  open: "<<"\n')
     expect(run(join(dir, 'a.loom'))).toEqual({
       delims: { open: '<<', close: defaultAnchorDelims.close },
       primaryLanguage: undefined,
+      packageRoot: undefined,
     })
   })
 
-  it('walks up to a parent loom.json', () => {
+  it('walks up to the workspace configuration', () => {
     const dir = tempDir()
-    writeFileSync(join(dir, 'loom.json'), '{ "primary": "bash" }')
+    writeConfig(dir, 'primary: bash\n')
     const nested = join(dir, 'sub')
     mkdirSync(nested)
     expect(run(join(nested, 'b.loom'))).toEqual({
       delims: defaultAnchorDelims,
       primaryLanguage: 'bash',
+      packageRoot: undefined,
     })
   })
 
-  it('defaults when no loom.json is found', () => {
+  it('defaults when no workspace is found', () => {
     expect(run(join(tempDir(), 'c.loom'))).toEqual({
       delims: defaultAnchorDelims,
       primaryLanguage: undefined,
+      packageRoot: undefined,
     })
   })
 

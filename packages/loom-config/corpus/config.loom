@@ -2,7 +2,7 @@
 
 # A project's configuration
 
-`@athrio/loom-config` reads a Loom project's configuration. A project authors that configuration in `{Config}` sections — one for the workspace, one for each package — and Loom compiles them into a single machine file, `.loom/config.yaml`, under the workspace's generated store. This package reads that compiled file and answers, for any `.loom` file, the configuration that applies to it.
+`@athrio/loom-config` reads a Loom project's configuration. A project keeps it in one compiled file, `.loom/config.yaml`, under the workspace's generated store — the activation commands write it, and a project may also compile it from literate `{Config}` sources. This package reads that file and answers, for any `.loom` file, the configuration that applies to it.
 
 It reads the compiled file rather than the `{Config}` source for one reason: it is a leaf. Reading the source would mean parsing a `.loom` file, which would pull in the language compiler, and the compiler already depends on this package. The compiled `.loom/config.yaml` breaks that cycle. The pass that compiles the `{Config}` sources runs inside the compiler, where the parser already lives, and writes the file this package reads.
 
@@ -249,59 +249,11 @@ const resolveFromManifest = (
   }
 }
 
-## The configuration still kept as JSON
-
-_Transitional. Until every package moves to a `{Config}` source and a compiled manifest, a project may still carry the older per-package `loom.json`._
-
-The older configuration is one JSON file per package, `loom.json`, holding the anchor, the primary, a flat list of activated languages, and the settings. `findLegacy` walks up to the nearest one, and `readLegacy` decodes it into the same `ResolvedConfig`, deriving the services from the conventional package of each listed language and leaving the package root unset. A read, parse, or decode failure yields the empty configuration.
-
-=>
-
-export const configFileName = 'loom.json'
-
-export const LoomConfigSchema = Schema.Struct({
-  anchor: Schema.optional(AnchorSchema),
-  primary: Schema.optional(Schema.String),
-  languages: Schema.optional(Schema.Array(Schema.String)),
-  settings: Schema.optional(SettingsSchema),
-})
-
-export type LoomConfigFile = typeof LoomConfigSchema.Type
-
-const findLegacy = (dir: string): string | undefined => {
-  const candidate = resolvePath(dir, configFileName)
-  if (existsSync(candidate)) return candidate
-  const parent = dirname(dir)
-  return parent === dir ? undefined : findLegacy(parent)
-}
-
-const decodeLegacy = Schema.decodeUnknownOption(LoomConfigSchema)
-
-const readLegacy = (file: string): ResolvedConfig => {
-  try {
-    return Option.match(decodeLegacy(JSON.parse(readFileSync(file, 'utf8'))), {
-      onNone: () => empty,
-      onSome: (config) => ({
-        anchor: config.anchor,
-        primary: config.primary,
-        languages: config.languages ?? [],
-        settings: config.settings ?? {},
-        services: Object.fromEntries(
-          (config.languages ?? []).map((id) => [id, `@athrio/loom-service-${id}`]),
-        ),
-        packageRoot: undefined,
-      }),
-    })
-  } catch {
-    return empty
-  }
-}
-
 ## The service
 
-`LoomConfig` is the service the rest of Loom calls. Its `resolve` takes any path inside a project — a `.loom` file, usually — and returns the configuration that applies to it. It finds the workspace, reads the compiled manifest, and resolves against it; when there is no workspace or no manifest, it falls back to the nearest `loom.json`; and a path that names nothing resolves to the empty configuration.
+`LoomConfig` is the service the rest of Loom calls. Its `resolve` takes any path inside a project — a `.loom` file, usually — and returns the configuration that applies to it: it finds the workspace, reads the compiled manifest, and resolves against it. A path with no workspace, no manifest, or no name at all resolves to the empty configuration.
 
-Its `materialize` writes a compiled manifest to a workspace's `.loom/config.yaml`, creating the store directory if it is absent — the call the compiler's configuration pass makes once it has gathered every `{Config}` source. Its `write` serialises the older `loom.json` for a package, the call the CLI still makes to record a newly activated language.
+Its `manifest` reads a workspace's whole compiled manifest, found by walking up from a directory — the read the activation commands and the editor's service loader share. Its `materialize` writes a manifest back to the workspace's `.loom/config.yaml`, creating the store directory if it is absent.
 
 =>
 
@@ -310,17 +262,22 @@ export class LoomConfig extends Effect.Service<LoomConfig>()('LoomConfig', {
     resolve: (fromPath: string): Effect.Effect<ResolvedConfig> =>
       Effect.sync(() => {
         if (fromPath === '') return empty
-        const dir = dirname(fromPath)
-        const workspace = findWorkspace(dir)
-        const manifest =
-          workspace === undefined
-            ? undefined
-            : readManifest(resolvePath(workspace, storeDirName, manifestName))
-        if (workspace !== undefined && manifest !== undefined) {
-          return resolveFromManifest(manifest, workspace, fromPath)
-        }
-        const legacy = findLegacy(dir)
-        return legacy === undefined ? empty : readLegacy(legacy)
+        const workspace = findWorkspace(dirname(fromPath))
+        if (workspace === undefined) return empty
+        const manifest = readManifest(
+          resolvePath(workspace, storeDirName, manifestName),
+        )
+        return manifest === undefined
+          ? empty
+          : resolveFromManifest(manifest, workspace, fromPath)
+      }),
+
+    manifest: (fromDir: string): Effect.Effect<WorkspaceManifest | undefined> =>
+      Effect.sync(() => {
+        const workspace = findWorkspace(fromDir)
+        return workspace === undefined
+          ? undefined
+          : readManifest(resolvePath(workspace, storeDirName, manifestName))
       }),
 
     materialize: (workspace: string, manifest: WorkspaceManifest): Effect.Effect<void> =>
@@ -328,15 +285,6 @@ export class LoomConfig extends Effect.Service<LoomConfig>()('LoomConfig', {
         const store = resolvePath(workspace, storeDirName)
         mkdirSync(store, { recursive: true })
         writeFileSync(resolvePath(store, manifestName), stringifyYaml(manifest))
-      }),
-
-    write: (dir: string, config: LoomConfigFile): Effect.Effect<void> =>
-      Effect.sync(() => {
-        mkdirSync(dir, { recursive: true })
-        writeFileSync(
-          resolvePath(dir, configFileName),
-          `${JSON.stringify(config, null, 2)}\n`,
-        )
       }),
   },
 }) {}
@@ -380,7 +328,5 @@ import { basename, dirname, resolve as resolvePath, sep } from 'node:path'
 ::[Combining the workspace with a package]
 
 ::[Resolving a file's configuration]
-
-::[The configuration still kept as JSON]
 
 ::[The service]

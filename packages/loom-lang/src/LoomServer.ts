@@ -7,10 +7,9 @@ import {
   loadTsdkByPath,
 } from '@volar/language-server/node'
 import { fileURLToPath } from 'node:url'
-import { resolve } from 'node:path'
 import { LoomCompiler, DocumentSource } from './LoomCompiler'
 import { PackageConfig } from './PackageConfig'
-import { LoomConfig, configFileName } from '@athrio/loom-config/LoomConfig'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { withLoomBaseline } from '@athrio/loom-tsconfig'
 import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
 
@@ -29,7 +28,7 @@ const program = Effect.gen(function* () {
     const folder = params.workspaceFolders?.[0]?.uri
     const root = folder ? fileURLToPath(folder) : process.cwd()
     const servicePlugins = await Runtime.runPromise(runtime)(
-      loomServicePlugins(tsdk.typescript, resolve(root, configFileName)),
+      loomServicePlugins(tsdk.typescript, root),
     )
     return server.initialize(
       params,
