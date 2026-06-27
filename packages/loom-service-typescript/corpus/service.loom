@@ -131,6 +131,8 @@ const productPlugin = (ts: TypeScript): LanguageServicePlugin => ({
 
 `TypescriptService` is the `LanguageService` the host activates for `typescript`. Its `plugins` Effect takes the editor's TypeScript compiler from `TypescriptSdk`, then builds the one plugin. Unlike the built-in `TypescriptLanguage`, which rides the frame's shared program, this service owns a program of its own.
 
+The package exports the service as its default. That default is the entry the dynamic loader reads: `LanguageLoader` imports the built package and takes `default`, expecting a value that satisfies the `LanguageService` contract under the id `typescript`.
+
 =>
 
 export const TypescriptService = defineLanguageService({
@@ -143,6 +145,8 @@ export const TypescriptService = defineLanguageService({
       return [productPlugin(ts)]
     }),
 })
+
+export default TypescriptService
 
 ## The module {../src/TypescriptService.ts}
 

@@ -124,3 +124,5 @@ export const TypescriptService = defineLanguageService({
       return [productPlugin(ts)]
     }),
 })
+
+export default TypescriptService

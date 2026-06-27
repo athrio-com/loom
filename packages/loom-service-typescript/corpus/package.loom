@@ -2,11 +2,11 @@
 
 # Packaging the TypeScript service
 
-`@athrio/loom-service-typescript` is the first loadable language service. A project installs it to give its TypeScript product an editor program of its own, held apart from the frame's. The package ships as source, with no build of its own: the language server inlines it when it bundles.
+`@athrio/loom-service-typescript` is the first loadable language service. A project installs it to give its TypeScript product an editor program of its own, held apart from the frame's. The package builds to one ES module, `dist/index.js`, whose default export is the service — the artifact the dynamic loader imports at runtime.
 
 ## The manifest {../package.json}
 
-The `exports` field names the package's surface. `TypescriptService` is the language service a host activates; `ProductProgram` is the TypeScript program that service runs the product on. The package draws on `volar-service-typescript` for TypeScript's editor features and on `@athrio/loom-lang-services` for the `LanguageService` contract every service satisfies. Volar's language layers, the TypeScript compiler, Effect, and the `URI` type are peers, supplied by the host that loads the package.
+The `exports` field names the package's surface. The default entry, `.`, is the built `dist/index.js` — the loadable artifact whose default export is the service the loader reads. The `./TypescriptService` and `./ProductProgram` subpaths expose the source: `TypescriptService` is the language service a host activates, and `ProductProgram` is the TypeScript program it runs the product on. The package draws on `volar-service-typescript` for TypeScript's editor features and on `@athrio/loom-lang-services` for the `LanguageService` contract every service satisfies. Volar's language layers, the TypeScript compiler, Effect, and the `URI` type are peers, supplied by the host that loads the package.
 
 =>
 
@@ -16,9 +16,15 @@ The `exports` field names the package's surface. `TypescriptService` is the lang
   "description": "The loadable TypeScript language service: the product's own editor program, held apart from the frame.",
   "license": "Apache-2.0 OR MIT",
   "type": "module",
+  "main": "./dist/index.js",
   "exports": {
+    ".": "./dist/index.js",
     "./TypescriptService": "./src/TypescriptService.ts",
     "./ProductProgram": "./src/ProductProgram.ts"
+  },
+  "scripts": {
+    "build": "vite build",
+    "watch": "vite build --watch"
   },
   "dependencies": {
     "volar-service-typescript": "^0.0.71"

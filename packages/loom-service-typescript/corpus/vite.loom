@@ -1,0 +1,37 @@
+{{lang: TypeScript}}
+
+# Bundling the loadable service
+
+The dynamic loader imports a built JavaScript file, not TypeScript source, so the package builds to one. Vite bundles `src/TypescriptService.ts` together with the service's own modules into `dist/index.js`, an ES module whose default export is the `TypescriptService`.
+
+## The build {../vite.config.ts}
+
+The host that loads the service already runs the shared runtime every service draws on — Effect, Volar, the TypeScript compiler, `vscode-uri`, and `@athrio/loom-lang-services`. Bundling a second copy would give the service its own `TypescriptSdk` tag, distinct from the one the host provides, and the dependency injection would never meet. So the build inlines only the package's own modules and leaves every imported package external. The shared runtime then resolves to the host's single copy, and `volar-service-typescript` — the TypeScript editor features the service carries — resolves from the service's own install, loaded natively rather than flattened into an ES module its CommonJS internals cannot survive.
+
+A bare specifier marks an external: an import that names a package or a Node built-in, never a relative path. The one entry builds to `dist/index.js` as an ES module, the form the loader's dynamic `import` reads.
+
+=>
+
+import { defineConfig } from 'vite'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const here = dirname(fileURLToPath(import.meta.url))
+
+export default defineConfig({
+  build: {
+    target: 'node20',
+    outDir: 'dist',
+    emptyOutDir: true,
+    sourcemap: true,
+    minify: false,
+    lib: {
+      entry: resolve(here, 'src/TypescriptService.ts'),
+      formats: ['es'],
+      fileName: () => 'index.js',
+    },
+    rollupOptions: {
+      external: (id) => !id.startsWith('.') && !id.startsWith('/'),
+    },
+  },
+})
