@@ -15,7 +15,7 @@ const run = promisify(execFile)
 export const servicePackage = (id: string): string =>
   `@athrio/loom-service-${id}`
 
-const workspaceRoot = (dir: string): string => {
+export const workspaceRoot = (dir: string): string => {
   const seek = (at: string): string | undefined => {
     if (existsSync(join(at, '.loom'))) return at
     const parent = dirname(at)

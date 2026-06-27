@@ -171,4 +171,21 @@ describe('loom cli', () => {
     expect(stdout).toContain(join(dir, '.loom', 'services'))
     rmSync(dir, { recursive: true, force: true })
   }, SPAWN_TIMEOUT)
+
+  it('materialize compiles a {Config} source into .loom/config.yaml', () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'loom-mat-')))
+    mkdirSync(join(dir, '.loom'), { recursive: true })
+    writeFileSync(
+      join(dir, 'config.loom'),
+      `# Workspace {Config}\n\nThe project's languages.\n\n=>\n\nlanguages:\n  typescript: {}\nprimary: typescript\n`,
+    )
+    const { status, stdout } = loom(['materialize'], { cwd: dir })
+    expect(status).toBe(0)
+    expect(stdout).toContain('config.yaml')
+    expect(existsSync(join(dir, '.loom', 'config.yaml'))).toBe(true)
+    expect(readFileSync(join(dir, '.loom', 'config.yaml'), 'utf8')).toContain(
+      'typescript',
+    )
+    rmSync(dir, { recursive: true, force: true })
+  }, SPAWN_TIMEOUT)
 })

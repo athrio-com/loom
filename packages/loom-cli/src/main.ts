@@ -6,6 +6,7 @@ import { resolve as resolvePath } from 'node:path'
 import { DocumentSource } from '@athrio/loom-lang/LoomCompiler'
 import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
 import { PackageConfig } from '@athrio/loom-lang/PackageConfig'
+import { ManifestBuilder } from '@athrio/loom-lang/ManifestBuilder'
 import {
   LoomConfig,
   configFileName,
@@ -17,6 +18,7 @@ import {
   removeService,
   servicePackage,
   storeDir,
+  workspaceRoot,
 } from '@athrio/loom-lang-services/LoomStore'
 
 const reset = '\x1b[0m'
@@ -177,6 +179,29 @@ const status = Effect.gen(function* () {
   if (languages.length > 0) yield* Console.log(`${languages.map(mark).join('\n')}\n`)
 })
 
+const materialize = (dir: Option.Option<string>) =>
+  Effect.gen(function* () {
+    const manifests = yield* ManifestBuilder
+    const config = yield* LoomConfig
+    const ws = workspaceRoot(
+      resolvePath(process.cwd(), Option.getOrElse(dir, () => '.')),
+    )
+    const manifest = yield* manifests.build(ws)
+    const languages = Object.keys(manifest.languages ?? {})
+    const packages = Object.keys(manifest.packages ?? {})
+    if (languages.length === 0 && packages.length === 0) {
+      return yield* Console.log(
+        'loom: no {Config} sources found — nothing to materialize',
+      )
+    }
+    yield* config.materialize(ws, manifest)
+    yield* Console.log(
+      `\n   ${teal('✓')} wrote ${resolvePath(ws, '.loom', 'config.yaml')}\n` +
+        `   ${dim(`languages: ${languages.join(', ') || 'none'}`)}\n` +
+        `   ${dim(`packages: ${packages.join(', ') || 'none'}`)}\n`,
+    )
+  })
+
 const tangleCommand = Command.make(
   'tangle',
   { path: Args.text({ name: 'path' }) },
@@ -203,12 +228,19 @@ const removeCommand = Command.make(
 
 const statusCommand = Command.make('status', {}, () => status)
 
+const materializeCommand = Command.make(
+  'materialize',
+  { dir: Args.optional(Args.directory({ name: 'dir' })) },
+  ({ dir }) => materialize(dir),
+)
+
 const loom = Command.make('loom').pipe(
   Command.withSubcommands([
     tangleCommand,
     initCommand,
     addCommand,
     removeCommand,
+    materializeCommand,
     statusCommand,
   ]),
 )
@@ -220,6 +252,7 @@ const program = Command.run(loom, {
   Effect.provide(LoomTangler.Default),
   Effect.provide(DocumentSource.Default),
   Effect.provide(PackageConfig.Default),
+  Effect.provide(ManifestBuilder.Default),
   Effect.provide(LoomConfig.Default),
   Effect.provide(NodeContext.layer),
 )

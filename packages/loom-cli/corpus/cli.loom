@@ -198,9 +198,38 @@ const status = Effect.gen(function* () {
   if (languages.length > 0) yield* Console.log(`${languages.map(mark).join('\n')}\n`)
 })
 
+## Compiling the configuration
+
+`loom materialize` compiles the workspace's `{Config}` sources into `.loom/config.yaml`, the file the editor and the tangler read. It finds the workspace by walking up for `.loom/`, gathers every `{Config}` source through `ManifestBuilder`, and writes the compiled manifest. Finding no source, it writes nothing and says so, rather than leaving an empty manifest that would shadow a real configuration.
+
+=>
+
+const materialize = (dir: Option.Option<string>) =>
+  Effect.gen(function* () {
+    const manifests = yield* ManifestBuilder
+    const config = yield* LoomConfig
+    const ws = workspaceRoot(
+      resolvePath(process.cwd(), Option.getOrElse(dir, () => '.')),
+    )
+    const manifest = yield* manifests.build(ws)
+    const languages = Object.keys(manifest.languages ?? {})
+    const packages = Object.keys(manifest.packages ?? {})
+    if (languages.length === 0 && packages.length === 0) {
+      return yield* Console.log(
+        'loom: no {Config} sources found — nothing to materialize',
+      )
+    }
+    yield* config.materialize(ws, manifest)
+    yield* Console.log(
+      `\n   ${teal('✓')} wrote ${resolvePath(ws, '.loom', 'config.yaml')}\n` +
+        `   ${dim(`languages: ${languages.join(', ') || 'none'}`)}\n` +
+        `   ${dim(`packages: ${packages.join(', ') || 'none'}`)}\n`,
+    )
+  })
+
 ## Where the world ends
 
-The CLI is six commands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them. `loom init [dir]` scaffolds a `loom.json`, defaulting to the working directory. `loom add <language>` and `loom remove <language>` turn a language's service on and off. `loom status` reports what the package has activated and what the store holds. `loom lsp --stdio` starts the language server for any editor. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the package config, the configuration writer, and the Node platform behind the prompts and the filesystem.
+The CLI is seven commands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them. `loom init [dir]` scaffolds a `loom.json`, defaulting to the working directory. `loom add <language>` and `loom remove <language>` turn a language's service on and off. `loom materialize [dir]` compiles the workspace's `{Config}` sources into `.loom/config.yaml`. `loom status` reports what the package has activated and what the store holds. `loom lsp --stdio` starts the language server for any editor. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the package config, the configuration writer, and the Node platform behind the prompts and the filesystem.
 
 The `lsp` branch sits outside the command program. It loads the server lazily, so a plain `tangle` never pays to bundle Volar, and the server runs on its own Node runtime rather than nesting one inside a command. Volar is CommonJS and calls `require` at runtime for Node's built-ins; this bundle is an ES module, where `require` is absent, so before loading the server the branch exposes one through `createRequire` on `globalThis` — the shim Volar's bundled code reaches for. The cost lands only on the `lsp` path.
 
@@ -232,12 +261,19 @@ const removeCommand = Command.make(
 
 const statusCommand = Command.make('status', {}, () => status)
 
+const materializeCommand = Command.make(
+  'materialize',
+  { dir: Args.optional(Args.directory({ name: 'dir' })) },
+  ({ dir }) => materialize(dir),
+)
+
 const loom = Command.make('loom').pipe(
   Command.withSubcommands([
     tangleCommand,
     initCommand,
     addCommand,
     removeCommand,
+    materializeCommand,
     statusCommand,
   ]),
 )
@@ -249,6 +285,7 @@ const program = Command.run(loom, {
   Effect.provide(LoomTangler.Default),
   Effect.provide(DocumentSource.Default),
   Effect.provide(PackageConfig.Default),
+  Effect.provide(ManifestBuilder.Default),
   Effect.provide(LoomConfig.Default),
   Effect.provide(NodeContext.layer),
 )
@@ -264,7 +301,7 @@ if (process.argv[2] === 'lsp') {
 
 ## What the program needs
 
-The program is built on Effect, a functional TypeScript library for composing and running effectful programs. `@effect/cli` parses the command line and drives the interactive prompts, and the Node platform supplies the runtime, the terminal, and filesystem access. The language server contributes three services: `LoomTangler`, which walks a `.loom` file and emits the tangled output; `DocumentSource`, which feeds it source text from disk; and `PackageConfig`, which resolves a `.loom`'s package settings. From `@athrio/loom-config` comes `LoomConfig`, which reads and writes a package's `loom.json`, with `configFileName` naming that file and `LoomConfigFile` typing its contents. From `@athrio/loom-lang-services` come the store operations behind activation: `addService` and `removeService` install and uninstall a language's package, `installedServices` lists what the store holds, `storeDir` locates it, and `servicePackage` names a language's package.
+The program is built on Effect, a functional TypeScript library for composing and running effectful programs. `@effect/cli` parses the command line and drives the interactive prompts, and the Node platform supplies the runtime, the terminal, and filesystem access. The language server contributes four services: `LoomTangler`, which walks a `.loom` file and emits the tangled output; `DocumentSource`, which feeds it source text from disk; `PackageConfig`, which resolves a `.loom`'s package settings; and `ManifestBuilder`, which compiles the workspace's `{Config}` sources into the manifest. From `@athrio/loom-config` comes `LoomConfig`, which resolves the compiled configuration and writes it, with `configFileName` naming the older per-package file and `LoomConfigFile` typing its contents. From `@athrio/loom-lang-services` come the store operations behind activation: `addService` and `removeService` install and uninstall a language's package, `installedServices` lists what the store holds, `storeDir` locates it, `workspaceRoot` finds the workspace it sits in, and `servicePackage` names a language's package.
 
 =>
 
@@ -276,6 +313,7 @@ import { resolve as resolvePath } from 'node:path'
 import { DocumentSource } from '@athrio/loom-lang/LoomCompiler'
 import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
 import { PackageConfig } from '@athrio/loom-lang/PackageConfig'
+import { ManifestBuilder } from '@athrio/loom-lang/ManifestBuilder'
 import {
   LoomConfig,
   configFileName,
@@ -287,6 +325,7 @@ import {
   removeService,
   servicePackage,
   storeDir,
+  workspaceRoot,
 } from '@athrio/loom-lang-services/LoomStore'
 
 ## The program {../src/main.ts}
@@ -304,5 +343,7 @@ import {
 ::[Activating a language]
 
 ::[Reporting the workspace]
+
+::[Compiling the configuration]
 
 ::[Where the world ends]

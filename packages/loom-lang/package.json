@@ -12,6 +12,7 @@
     "./LoomCompiler": "./src/LoomCompiler.ts",
     "./LoomTangler": "./src/LoomTangler.ts",
     "./PackageConfig": "./src/PackageConfig.ts",
+    "./ManifestBuilder": "./src/ManifestBuilder.ts",
     "./LoomServer": "./src/LoomServer.ts",
     "./dsl": "./src/dsl.ts"
   },
