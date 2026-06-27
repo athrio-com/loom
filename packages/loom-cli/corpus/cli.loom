@@ -52,11 +52,11 @@ const tangle = (file: string) =>
     ),
   )
 
-## Scaffolding a package
+## Scaffolding a workspace
 
-`loom init` writes a package's `loom.json`. It asks for the primary language a specifier-less section inherits, and for the languages the editor activates services for, then records the pair. When a `loom.json` is already there, it asks before overwriting, so a stray `init` never erases a configured package.
+`loom init` sets up a workspace. It writes the workspace's `loom.json` and creates `.loom/` beside it — the generated directory that holds the installed-service store, which a `.gitignore` it writes there keeps out of version control. It asks for the primary language a specifier-less section inherits, and for the languages the editor activates services for, then records the pair. When a `loom.json` is already there, it asks before overwriting, so a stray `init` never erases a configured workspace.
 
-The primary language defaults to TypeScript, and the activation answer defaults to that same language, so a TypeScript package is two key-presses away. The activation answer is a space-separated list, since one package may run several languages. A prompt the author quits — with `Ctrl-C` — fails with `QuitException`, which `init` catches to leave with a word rather than a stack trace.
+The primary language defaults to TypeScript, and the activation answer defaults to that same language, so a TypeScript workspace is two key-presses away. The activation answer is a space-separated list, since one workspace may run several languages. A prompt the author quits — with `Ctrl-C` — fails with `QuitException`, which `init` catches to leave with a word rather than a stack trace.
 
 =>
 
@@ -96,8 +96,14 @@ const init = (dir: Option.Option<string>) =>
     const languages = activation.split(/\s+/).filter((id) => id.length > 0)
 
     yield* config.write(root, { primary: language, languages })
+    const store = resolvePath(root, '.loom')
+    yield* Effect.sync(() => {
+      mkdirSync(store, { recursive: true })
+      writeFileSync(resolvePath(store, '.gitignore'), '*\n')
+    })
     yield* Console.log(
       `\n   ${teal('✓')} wrote ${resolvePath(root, 'loom.json')}\n` +
+        `   ${teal('✓')} created ${store}/\n` +
         `   ${dim(`primary language: ${language}`)}\n` +
         `   ${dim(`activated: ${languages.join(', ') || 'none'}`)}\n`,
     )
@@ -265,7 +271,7 @@ The program is built on Effect, a functional TypeScript library for composing an
 import { Console, Effect, Option } from 'effect'
 import { Args, Command, Prompt } from '@effect/cli'
 import { NodeContext, NodeRuntime } from '@effect/platform-node'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
 import { DocumentSource } from '@athrio/loom-lang/LoomCompiler'
 import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
@@ -293,7 +299,7 @@ import {
 
 ::[Tangling a file]
 
-::[Scaffolding a package]
+::[Scaffolding a workspace]
 
 ::[Activating a language]
 

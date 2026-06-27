@@ -148,20 +148,6 @@ export const TypescriptService = defineLanguageService({
 
 export default TypescriptService
 
-## The module {../src/TypescriptService.ts}
-
-=>
-
-::[What the service draws on]
-
-::[Finding the consumer's options]
-
-::[Choosing a program for a section]
-
-::[The editor plugin]
-
-::[The service]
-
 ## What the service draws on
 
 The service builds on `@athrio/loom-lang-services` for the `LanguageService` contract and the `TypescriptSdk` capability, and on its own `ProductProgram`. From Effect it takes `Effect` for the `plugins` body; from Volar, the `LanguageServicePlugin` type; the `URI` type to decode an embedded document back to its `.loom`; and Node's `dirname` to walk for a `tsconfig.json`.
@@ -180,3 +166,17 @@ import {
 import { createProductProgram, type ProductProgram } from './ProductProgram'
 
 type TypeScript = typeof import('typescript')
+
+## The module {../src/TypescriptService.ts}
+
+=>
+
+::[What the service draws on]
+
+::[Finding the consumer's options]
+
+::[Choosing a program for a section]
+
+::[The editor plugin]
+
+::[The service]

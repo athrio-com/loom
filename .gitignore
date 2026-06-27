@@ -52,3 +52,6 @@ zed-extension/target/
 # Packed tarballs and VSIX
 *.tgz
 *.vsix
+
+# Loom workspace store (generated)
+.loom/

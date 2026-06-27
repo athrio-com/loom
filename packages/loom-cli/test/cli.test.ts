@@ -161,16 +161,14 @@ describe('loom cli', () => {
     rmSync(dir, { recursive: true, force: true })
   }, SPAWN_TIMEOUT)
 
-  it('status prefers a project-local .loom store over the user store', () => {
-    const home = userStore()
+  it('status uses the workspace .loom/services store when LOOM_HOME is unset', () => {
     const dir = workspace({ primary: 'typescript', languages: ['typescript'] })
     mkdirSync(
       join(dir, '.loom', 'services', 'node_modules', '@athrio', 'loom-service-typescript'),
       { recursive: true },
     )
-    const { stdout } = loom(['status'], { cwd: dir, env: { LOOM_HOME: home } })
+    const { stdout } = loom(['status'], { cwd: dir })
     expect(stdout).toContain(join(dir, '.loom', 'services'))
-    rmSync(home, { recursive: true, force: true })
     rmSync(dir, { recursive: true, force: true })
   }, SPAWN_TIMEOUT)
 })

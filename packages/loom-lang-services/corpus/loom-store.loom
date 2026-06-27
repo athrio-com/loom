@@ -17,24 +17,25 @@ export const servicePackage = (id: string): string =>
 
 ## Where the store lives
 
-The per-user store under `~/.loom` is the default, shared across a user's projects the way a language server is installed once and serves them all. `LOOM_HOME` relocates it. A project that needs to pin a version keeps its own store under `.loom`, and `storeDir` prefers it when it walks up from the given directory and finds one.
+The store lives in the workspace, under `.loom/` at its root — the directory `loom init` generates and Git ignores, beside the workspace's configuration. Loom installs each language's service there once, to serve the whole workspace, and never under the user's home directory: a project's tools belong to the project, not to the machine.
 
-`storeDir` is the single answer both halves resolve against. The loader passes the directory holding a `.loom` file; the commands pass the working directory. Either way the walk up reaches the same store, so a service the loader looks for is the service `loom add` placed.
+`storeDir` is the single answer both halves resolve against. It finds the workspace root by walking up for the `.loom/` directory, then names the store `services` within it. The loader passes the directory holding a `.loom` file and the commands pass the working directory; either way the walk reaches the one workspace store, so a service the loader looks for is the service `loom add` placed. `LOOM_HOME` overrides the search with an explicit store — the hook a test or a shared setup uses to point every resolver at one directory.
 
 =>
 
-const userStore = (): string =>
-  join(process.env.LOOM_HOME ?? join(homedir(), '.loom'), 'services')
-
-export const storeDir = (dir: string): string => {
+const workspaceRoot = (dir: string): string => {
   const seek = (at: string): string | undefined => {
-    const local = join(at, '.loom', 'services')
-    if (existsSync(local)) return local
+    if (existsSync(join(at, '.loom'))) return at
     const parent = dirname(at)
     return parent === at ? undefined : seek(parent)
   }
-  return seek(dir) ?? userStore()
+  return seek(dir) ?? dir
 }
+
+export const storeDir = (dir: string): string =>
+  process.env.LOOM_HOME === undefined
+    ? join(workspaceRoot(dir), '.loom', 'services')
+    : join(process.env.LOOM_HOME, 'services')
 
 ## What the store holds
 
@@ -119,7 +120,7 @@ export const removeService = (id: string, dir: string): Effect.Effect<void> =>
 
 ## What this module draws on
 
-The store works in Effect: `Effect` runs each read and write, and `Data` gives `StoreError` its tag. Node supplies the rest — `child_process` runs the package manager, which `promisify` turns into a promise `Effect.tryPromise` can await; `fs` reads the store's contents and adds and removes packages; `homedir`, `join`, and `dirname` form and walk the store path.
+The store works in Effect: `Effect` runs each read and write, and `Data` gives `StoreError` its tag. Node supplies the rest — `child_process` runs the package manager, which `promisify` turns into a promise `Effect.tryPromise` can await; `fs` reads the store's contents and adds and removes packages; `join` and `dirname` form and walk the store path up to the workspace root.
 
 =>
 
@@ -132,7 +133,6 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
-import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 

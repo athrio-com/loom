@@ -7,7 +7,6 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
-import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 
@@ -16,18 +15,19 @@ const run = promisify(execFile)
 export const servicePackage = (id: string): string =>
   `@athrio/loom-service-${id}`
 
-const userStore = (): string =>
-  join(process.env.LOOM_HOME ?? join(homedir(), '.loom'), 'services')
-
-export const storeDir = (dir: string): string => {
+const workspaceRoot = (dir: string): string => {
   const seek = (at: string): string | undefined => {
-    const local = join(at, '.loom', 'services')
-    if (existsSync(local)) return local
+    if (existsSync(join(at, '.loom'))) return at
     const parent = dirname(at)
     return parent === at ? undefined : seek(parent)
   }
-  return seek(dir) ?? userStore()
+  return seek(dir) ?? dir
 }
+
+export const storeDir = (dir: string): string =>
+  process.env.LOOM_HOME === undefined
+    ? join(workspaceRoot(dir), '.loom', 'services')
+    : join(process.env.LOOM_HOME, 'services')
 
 const servicePrefix = 'loom-service-'
 

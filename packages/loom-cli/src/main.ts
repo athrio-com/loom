@@ -1,7 +1,7 @@
 import { Console, Effect, Option } from 'effect'
 import { Args, Command, Prompt } from '@effect/cli'
 import { NodeContext, NodeRuntime } from '@effect/platform-node'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
 import { DocumentSource } from '@athrio/loom-lang/LoomCompiler'
 import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
@@ -91,8 +91,14 @@ const init = (dir: Option.Option<string>) =>
     const languages = activation.split(/\s+/).filter((id) => id.length > 0)
 
     yield* config.write(root, { primary: language, languages })
+    const store = resolvePath(root, '.loom')
+    yield* Effect.sync(() => {
+      mkdirSync(store, { recursive: true })
+      writeFileSync(resolvePath(store, '.gitignore'), '*\n')
+    })
     yield* Console.log(
       `\n   ${teal('✓')} wrote ${resolvePath(root, 'loom.json')}\n` +
+        `   ${teal('✓')} created ${store}/\n` +
         `   ${dim(`primary language: ${language}`)}\n` +
         `   ${dim(`activated: ${languages.join(', ') || 'none'}`)}\n`,
     )
