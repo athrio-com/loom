@@ -1,0 +1,60 @@
+{{lang: TypeScript}}
+
+# The runtime the host lends
+
+A loaded language service ships only its own code. It carries no Effect, no service contract, and no TypeScript compiler of its own — it borrows the host's, so the capability the host provides and the one the service asks for are the same instance rather than two copies that never meet. This module is the boundary where the host lends that runtime.
+
+The host writes its live modules to a global the moment it starts. A service built to read that global, instead of importing the runtime by name, then runs on the host's exact instances. This is the literal form of the rule from `services.loom` — the host owns the runtime — made mechanical: one Effect, one contract, one compiler, shared across the load.
+
+## The contract
+
+Three names fix the boundary. `runtimeKey` is the global property the host writes and a service reads. `runtimeVersion` marks the shape of what is shared, so a service built against a newer host can tell. `runtimeSpecifiers` is the exact set of module specifiers the bridge covers — the imports a service resolves from the host rather than from its own files.
+
+The set is deliberately small. It holds only what must be one shared instance: `effect`, because the host runs the service's `plugins` in its own runtime; the `LanguageService` contract, because the `TypescriptSdk` capability and the service brand are keyed by it; and `typescript`, so a service analyzes the product with the editor's compiler. Everything else a service needs — Volar's machinery, the `URI` type — it bundles, because those cross the boundary as plain data, not as identities.
+
+=>
+
+export const runtimeKey = '__loomRuntime'
+
+export const runtimeVersion = '1'
+
+export const runtimeSpecifiers: ReadonlyArray<string> = [
+  'effect',
+  '@athrio/loom-lang-services/LanguageService',
+  'typescript',
+]
+
+## Lending the runtime
+
+`installHostRuntime` writes the host's live modules to the global, once, before the first service loads. Effect and the service contract are the host's own imports, inlined in its bundle. The TypeScript compiler is the editor's, handed in — the same `tsdk` the host analyzes the frame with — so a service checks the product against the user's TypeScript, never a second copy.
+
+=>
+
+import * as EffectNS from 'effect'
+import * as LanguageServiceNS from './LanguageService'
+
+interface HostRuntime {
+  readonly version: string
+  readonly modules: Record<string, unknown>
+}
+
+export const installHostRuntime = (
+  tsdk: typeof import('typescript'),
+): void => {
+  ;(globalThis as Record<string, unknown>)[runtimeKey] = {
+    version: runtimeVersion,
+    modules: {
+      effect: EffectNS,
+      '@athrio/loom-lang-services/LanguageService': LanguageServiceNS,
+      typescript: tsdk,
+    },
+  } satisfies HostRuntime
+}
+
+## The module {../src/Runtime.ts}
+
+=>
+
+::[The contract]
+
+::[Lending the runtime]

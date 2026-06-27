@@ -6,7 +6,9 @@
 
 ## The manifest {../package.json}
 
-The `exports` field names the package's surface. The default entry, `.`, is the built `dist/index.js` — the loadable artifact whose default export is the service the loader reads. The `./TypescriptService` and `./ProductProgram` subpaths expose the source: `TypescriptService` is the language service a host activates, and `ProductProgram` is the TypeScript program it runs the product on. The package draws on `volar-service-typescript` for TypeScript's editor features and on `@athrio/loom-lang-services` for the `LanguageService` contract every service satisfies. Volar's language layers, the TypeScript compiler, Effect, and the `URI` type are peers, supplied by the host that loads the package.
+The `exports` field names the package's surface. The default entry, `.`, is the built `dist/index.js` — the loadable artifact whose default export is the service the loader reads. The `./TypescriptService` and `./ProductProgram` subpaths expose the source: `TypescriptService` is the language service a host activates, and `ProductProgram` is the TypeScript program it runs the product on.
+
+The build bundles `volar-service-typescript` and Volar's language layers into the package, so the store needs nothing beyond the one file. Three things stay peers, supplied by the host that loads the service: `effect`, the `@athrio/loom-lang-services` contract that keys the `TypescriptSdk` capability, and the TypeScript compiler the editor runs. The build's runtime bridge reads those from the host instead of bundling a second copy that the dependency injection would never meet.
 
 =>
 
@@ -26,17 +28,10 @@ The `exports` field names the package's surface. The default entry, `.`, is the 
     "build": "vite build",
     "watch": "vite build --watch"
   },
-  "dependencies": {
-    "volar-service-typescript": "^0.0.71"
-  },
   "peerDependencies": {
     "@athrio/loom-lang-services": "workspace:*",
-    "@volar/language-core": "^2.4.28",
-    "@volar/language-service": "^2.4.28",
-    "@volar/typescript": "^2.4.28",
     "effect": "3.21.2",
-    "typescript": "^6.0.3",
-    "vscode-uri": "^3.1.0"
+    "typescript": "^6.0.3"
   },
   "devDependencies": {
     "@athrio/loom-lang-services": "workspace:*",
@@ -45,6 +40,7 @@ The `exports` field names the package's surface. The default entry, `.`, is the 
     "@volar/typescript": "^2.4.28",
     "effect": "3.21.2",
     "typescript": "^6.0.3",
+    "volar-service-typescript": "^0.0.71",
     "vscode-uri": "^3.1.0"
   }
 }

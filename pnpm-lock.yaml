@@ -178,10 +178,6 @@ importers:
         version: 3.1.0
 
   packages/loom-service-typescript:
-    dependencies:
-      volar-service-typescript:
-        specifier: ^0.0.71
-        version: 0.0.71(@volar/language-service@2.4.28)
     devDependencies:
       '@athrio/loom-lang-services':
         specifier: workspace:*
@@ -201,6 +197,9 @@ importers:
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
+      volar-service-typescript:
+        specifier: ^0.0.71
+        version: 0.0.71(@volar/language-service@2.4.28)
       vscode-uri:
         specifier: ^3.1.0
         version: 3.1.0

@@ -8,8 +8,9 @@
 
 The `exports` field is the package's surface: the `LanguageService` contract, the
 `LanguageRegistry`, the `LanguageLoader` that resolves a project's active services
-from the Loom store, the `LoomStore` that installs and holds them, and
-`LoomLanguage`, the Frame's built-in service.
+from the Loom store, the `LoomStore` that installs and holds them, the
+`Runtime` the host lends a loaded service, and `LoomLanguage`, the Frame's
+built-in service.
 
 `LoomLanguage` wraps `volar-service-typescript`, the one real dependency. The other
 peers — `@athrio/loom-ast` for Loom's shared types, `effect`,
@@ -29,6 +30,7 @@ document's uri — are supplied by the host bundle.
     "./LanguageRegistry": "./src/LanguageRegistry.ts",
     "./LanguageLoader": "./src/LanguageLoader.ts",
     "./LoomStore": "./src/LoomStore.ts",
+    "./Runtime": "./src/Runtime.ts",
     "./LoomLanguage": "./src/LoomLanguage.ts"
   },
   "dependencies": {

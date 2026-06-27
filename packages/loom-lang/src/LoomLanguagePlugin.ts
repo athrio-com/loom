@@ -23,6 +23,7 @@ import {
   LanguageRegistry,
 } from '@athrio/loom-lang-services/LanguageRegistry'
 import { loadActive } from '@athrio/loom-lang-services/LanguageLoader'
+import { installHostRuntime } from '@athrio/loom-lang-services/Runtime'
 
 const editorSource = (
   uri: URI,
@@ -178,6 +179,7 @@ export const loomServicePlugins = (
     const config = yield* LoomConfig
     const { languages, settings } = yield* config.resolve(root)
     const runtime = yield* Effect.runtime<LoomCompiler>()
+    yield* Effect.sync(() => installHostRuntime(tsdk))
     const active = yield* loadActive(languages, root)
     return yield* collect(active, tsdk, settings, frameQueryOver(runtime))
   })
