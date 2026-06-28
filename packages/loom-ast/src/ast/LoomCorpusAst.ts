@@ -357,6 +357,108 @@ export const sinkTreeFaults = (
   ]
 }
 
+export type CorpusLocation = { readonly path: Path; readonly position: Position }
+
+const anchorAt = (
+  modules: Modules,
+  path: Path,
+  offset: number,
+): Option.Option<WarpAnchorToken> =>
+  pipe(
+    Option.fromNullable(modules.get(path)),
+    Option.flatMap((m) =>
+      Array.findFirst(
+        Array.flatMap(m.doc.sections, anchorsOf),
+        (anchor) =>
+          anchor.position.start.offset <= offset &&
+          offset <= anchor.position.end.offset,
+      ),
+    ),
+  )
+
+const titleAt = (
+  modules: Modules,
+  path: Path,
+  offset: number,
+): Option.Option<string> =>
+  pipe(
+    Option.fromNullable(modules.get(path)),
+    Option.flatMap((m) =>
+      Array.findFirst(m.doc.sections, (section) => {
+        const title = section.heading.title
+        return (
+          title !== undefined &&
+          title.position.start.offset <= offset &&
+          offset <= title.position.end.offset
+        )
+      }),
+    ),
+    Option.flatMapNullable((section) => section.heading.title),
+    Option.map((title) => title.source),
+  )
+
+const headingNamed = (
+  index: ReadonlyMap<string, SectionRef>,
+  name: string,
+): Option.Option<CorpusLocation> =>
+  pipe(
+    Option.fromNullable(index.get(name)),
+    Option.flatMap((ref) =>
+      Option.map(
+        Option.fromNullable(ref.section.heading.title),
+        (title): CorpusLocation => ({ path: ref.module, position: title.position }),
+      ),
+    ),
+  )
+
+const anchorsNamed = (
+  modules: Modules,
+  name: string,
+): ReadonlyArray<CorpusLocation> =>
+  pipe(
+    Array.fromIterable(modules.values()),
+    Array.flatMap((m) =>
+      Array.filterMap(Array.flatMap(m.doc.sections, anchorsOf), (anchor) =>
+        anchor.name.value === name
+          ? Option.some<CorpusLocation>({ path: m.path, position: anchor.position })
+          : Option.none(),
+      ),
+    ),
+  )
+
+export const definitionAt = (
+  corpus: LoomCorpusAst,
+  path: Path,
+  offset: number,
+): Option.Option<CorpusLocation> =>
+  pipe(
+    anchorAt(corpus.modules, path, offset),
+    Option.flatMap((anchor) =>
+      headingNamed(sectionTitles(corpus.modules), anchor.name.value),
+    ),
+  )
+
+export const referencesAt = (
+  corpus: LoomCorpusAst,
+  path: Path,
+  offset: number,
+): ReadonlyArray<CorpusLocation> => {
+  const modules = corpus.modules
+  const name = Option.orElse(titleAt(modules, path, offset), () =>
+    Option.map(anchorAt(modules, path, offset), (anchor) => anchor.name.value),
+  )
+  return Option.match(name, {
+    onNone: () => [],
+    onSome: (n) => [
+      ...Option.match(headingNamed(sectionTitles(modules), n), {
+        onNone: () => [],
+        onSome: (loc) => [loc],
+      }),
+      ...anchorsNamed(modules, n),
+    ],
+  })
+}
+
 const diagnosticsIn = (node: unknown): ReadonlyArray<Diagnostic> => {
   if (Array.isArray(node)) return node.flatMap(diagnosticsIn)
   if (node === null || typeof node !== 'object') return []

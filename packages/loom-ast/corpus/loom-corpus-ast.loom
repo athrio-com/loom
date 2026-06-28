@@ -432,6 +432,132 @@ export const sinkTreeFaults = (
   ]
 }
 
+## Navigation over the corpus
+
+An anchor reaches a section, and a section is reached by anchors — the editor follows both edges. A `CorpusLocation` is where a step lands: the module and the span, in the source's own offsets, which the editor turns into its own coordinates.
+
+=>
+
+export type CorpusLocation = { readonly path: Path; readonly position: Position }
+
+~
+
+Each step starts from the node under a cursor. `anchorAt` finds the anchor whose `::[…]` span covers a source offset. `titleAt` finds the heading whose title covers it, and reads that title's text.
+
+=>
+
+const anchorAt = (
+  modules: Modules,
+  path: Path,
+  offset: number,
+): Option.Option<WarpAnchorToken> =>
+  pipe(
+    Option.fromNullable(modules.get(path)),
+    Option.flatMap((m) =>
+      Array.findFirst(
+        Array.flatMap(m.doc.sections, anchorsOf),
+        (anchor) =>
+          anchor.position.start.offset <= offset &&
+          offset <= anchor.position.end.offset,
+      ),
+    ),
+  )
+
+const titleAt = (
+  modules: Modules,
+  path: Path,
+  offset: number,
+): Option.Option<string> =>
+  pipe(
+    Option.fromNullable(modules.get(path)),
+    Option.flatMap((m) =>
+      Array.findFirst(m.doc.sections, (section) => {
+        const title = section.heading.title
+        return (
+          title !== undefined &&
+          title.position.start.offset <= offset &&
+          offset <= title.position.end.offset
+        )
+      }),
+    ),
+    Option.flatMapNullable((section) => section.heading.title),
+    Option.map((title) => title.source),
+  )
+
+~
+
+A name then locates the sections and anchors that wear it. `headingNamed` finds a name's section through the title index and points at its heading. `anchorsNamed` gathers every anchor across the corpus that carries the name.
+
+=>
+
+const headingNamed = (
+  index: ReadonlyMap<string, SectionRef>,
+  name: string,
+): Option.Option<CorpusLocation> =>
+  pipe(
+    Option.fromNullable(index.get(name)),
+    Option.flatMap((ref) =>
+      Option.map(
+        Option.fromNullable(ref.section.heading.title),
+        (title): CorpusLocation => ({ path: ref.module, position: title.position }),
+      ),
+    ),
+  )
+
+const anchorsNamed = (
+  modules: Modules,
+  name: string,
+): ReadonlyArray<CorpusLocation> =>
+  pipe(
+    Array.fromIterable(modules.values()),
+    Array.flatMap((m) =>
+      Array.filterMap(Array.flatMap(m.doc.sections, anchorsOf), (anchor) =>
+        anchor.name.value === name
+          ? Option.some<CorpusLocation>({ path: m.path, position: anchor.position })
+          : Option.none(),
+      ),
+    ),
+  )
+
+~
+
+`definitionAt` reads the anchor under a cursor and returns the heading its name resolves to, by the same raw-title match the frame composes by. `referencesAt` reads a heading title or an anchor under a cursor, takes the section's name either way, and returns that heading beside every anchor that names it.
+
+=>
+
+export const definitionAt = (
+  corpus: LoomCorpusAst,
+  path: Path,
+  offset: number,
+): Option.Option<CorpusLocation> =>
+  pipe(
+    anchorAt(corpus.modules, path, offset),
+    Option.flatMap((anchor) =>
+      headingNamed(sectionTitles(corpus.modules), anchor.name.value),
+    ),
+  )
+
+export const referencesAt = (
+  corpus: LoomCorpusAst,
+  path: Path,
+  offset: number,
+): ReadonlyArray<CorpusLocation> => {
+  const modules = corpus.modules
+  const name = Option.orElse(titleAt(modules, path, offset), () =>
+    Option.map(anchorAt(modules, path, offset), (anchor) => anchor.name.value),
+  )
+  return Option.match(name, {
+    onNone: () => [],
+    onSome: (n) => [
+      ...Option.match(headingNamed(sectionTitles(modules), n), {
+        onNone: () => [],
+        onSome: (loc) => [loc],
+      }),
+      ...anchorsNamed(modules, n),
+    ],
+  })
+}
+
 ## Diagnostics across the corpus
 
 Every node carries a health, and a health holds diagnostics. `diagnosticsIn` is the walk that reads them out. It descends any node, gathers the diagnostics it carries, and skips the `health` field itself, so a node's diagnostics are collected once rather than again at every child. It keeps every severity — error, warning, and informational note alike — because the editor surfaces them all.
@@ -508,5 +634,7 @@ import { FrameModuleSchema } from '#ast/FrameAst'
 ::[The sink tree]
 
 ::[Faults in the sink tree]
+
+::[Navigation over the corpus]
 
 ::[Diagnostics across the corpus]

@@ -12,9 +12,9 @@ Its spine is two steps, threaded top to bottom. `buildCorpus` runs `parse |> fra
 
 The run fires once per chain call. `produceCorpus` runs the corpus only when a reachable module still lacks its de re, then writes the products back through `LoomMemo.fill`, so a second projection of an unedited file reuses them. An edit evicts the file and its dependents, dropping their products, so the next projection reruns the corpus once and refills — the memo is what keeps the run from repeating.
 
-Five verbs project the corpus for the consumers. `compile` gives the editor its Volar tree, the frame and the de re sections under one `loom` root. `tangle` resolves a file's `{path}` sinks to the content and target the CLI writes. `diagnose` gives a file's Loom health, the diagnostics the editor shows. `reach` gives the files an entry pulls in, so the editor associates their scripts. `invalidate` evicts a file and the dependents that inlined it, naming what an edit must reproject.
+Seven verbs project the corpus for the consumers. `compile` gives the editor its Volar tree, the frame and the de re sections under one `loom` root. `tangle` resolves a file's `{path}` sinks to the content and target the CLI writes. `diagnose` gives a file's Loom health, the diagnostics the editor shows. `definition` follows an anchor to the section it names, and `references` finds every anchor that names the section under the cursor. `reach` gives the files an entry pulls in, so the editor associates their scripts. `invalidate` evicts a file and the dependents that inlined it, naming what an edit must reproject.
 
-The verbs part ways at the run. `compile` and `tangle` produce; `diagnose` and `reach` read the framed corpus alone, since Loom health and the import graph need no de re. `compile` takes its `Source` from the caller, so the editor reads the open buffer, and it guards Volar's synchronous hook: a defect degrades to a bare `loom` document carrying the file's text, and the editor keeps working rather than crashing. The other verbs read from disk through `DocumentSource`.
+The verbs part ways at the run. `compile` and `tangle` produce; `diagnose`, `definition`, `references`, and `reach` read the framed corpus alone, since Loom health, navigation, and the import graph need no de re. `compile` takes its `Source` from the caller, so the editor reads the open buffer, and it guards Volar's synchronous hook: a defect degrades to a bare `loom` document carrying the file's text, and the editor keeps working rather than crashing. The other verbs read from disk through `DocumentSource`.
 
 =>
 
@@ -127,6 +127,32 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
                     ),
                   ],
                 }),
+              ),
+            ),
+          ),
+
+        definition: (
+          path: Path,
+          offset: number,
+        ): Effect.Effect<FrameLocation | undefined> =>
+          buildCorpus(documents, path).pipe(
+            Effect.map((modules) =>
+              Option.getOrUndefined(
+                Option.flatMap(definitionAt({ modules }, path, offset), (loc) =>
+                  frameLocationOf(modules, loc),
+                ),
+              ),
+            ),
+          ),
+
+        references: (
+          path: Path,
+          offset: number,
+        ): Effect.Effect<ReadonlyArray<FrameLocation>> =>
+          buildCorpus(documents, path).pipe(
+            Effect.map((modules) =>
+              Array.filterMap(referencesAt({ modules }, path, offset), (loc) =>
+                frameLocationOf(modules, loc),
               ),
             ),
           ),
@@ -333,6 +359,35 @@ const sinkDiagnostics = (
     ),
   )
 
+## Locating a source span
+
+The navigation verbs answer in `FrameLocation`s — a path and a line-and-character range — so the editor places a result without re-reading the file. `definitionAt` and `referencesAt` give a `CorpusLocation` in the source's own offsets, since the corpus walks in offsets. `frameLocationOf` converts one to the other, reading the target module's text to turn each offset into a line and a character. `lineCharAt` counts the newlines before an offset for the line, and the distance from the last newline for the character — the zero-based pair the editor speaks.
+
+=>
+
+const lineCharAt = (
+  text: string,
+  offset: number,
+): { readonly line: number; readonly character: number } => {
+  const before = text.slice(0, offset)
+  return {
+    line: before.split('\n').length - 1,
+    character: offset - (before.lastIndexOf('\n') + 1),
+  }
+}
+
+const frameLocationOf = (
+  modules: Modules,
+  location: CorpusLocation,
+): Option.Option<FrameLocation> =>
+  Option.map(Option.fromNullable(modules.get(location.path)?.text), (text) => ({
+    path: location.path,
+    range: {
+      start: lineCharAt(text, location.position.start.offset),
+      end: lineCharAt(text, location.position.end.offset),
+    },
+  }))
+
 ## Projecting a file's tree
 
 `projectTree` assembles a file's virtual-code tree. It emits the de dicto frame with `fromFrame`, one de re document per composition root with `fromProduct`, and gathers them under a `loom` root with `rootVirtualCode`. A root is a section that no same-file anchor pulls into another, and `rootsAt` keeps those names and drops the members. `fromProduct` inlines the members a root pulls in, so each emitted document is a whole resolved Product — and a member's span maps into the root that carries it, rather than standing as a document of its own. The projection follows cross-file `::[…]` references through the corpus modules it is handed, so it treats a lone file and a whole corpus the same way.
@@ -434,7 +489,7 @@ export class DocumentSource extends Effect.Service<DocumentSource>()(
 
 ## What the compiler draws on
 
-From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; `FrameRunner`, the produce engine; the projection functions `fromFrame`, `fromProduct`, `rootNamesAt`, and `rootVirtualCode`; the corpus model — `LoomModule`, the `corpusErrors` and `moduleDiagnostics` readers, the `sinkTreeRouting` and `sinkTreeFaults` walks with the `SinkFault` they yield, and the `transitiveDependents` walk; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache. The fault catalog supplies `faulty` and the `LoomFault` constructors that word a sink fault, and `normaliseTitle` gives the detector its one missing rule. `Product` is the de re a run folds onto each module, `Diagnostic` an error's message and place. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError`, and Node's `fs` and `path` read each file and resolve each sink.
+From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; `FrameRunner`, the produce engine; the projection functions `fromFrame`, `fromProduct`, `rootNamesAt`, and `rootVirtualCode`; the corpus model — `LoomModule`, the `corpusErrors` and `moduleDiagnostics` readers, the `sinkTreeRouting` and `sinkTreeFaults` walks with the `SinkFault` they yield, the `definitionAt` and `referencesAt` navigation walks with the `CorpusLocation` they yield, and the `transitiveDependents` walk; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache. The fault catalog supplies `faulty` and the `LoomFault` constructors that word a sink fault, and `normaliseTitle` gives the detector its one missing rule. From the language-service contract comes `FrameLocation`, the editor-shaped range the navigation verbs return. `Product` is the de re a run folds onto each module, `Diagnostic` an error's message and place. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError`, and Node's `fs` and `path` read each file and resolve each sink.
 
 =>
 
@@ -448,14 +503,18 @@ import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
 import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import {
   corpusErrors,
+  definitionAt,
   moduleDiagnostics,
+  referencesAt,
   sinkTreeFaults,
   sinkTreeRouting,
   transitiveDependents,
+  type CorpusLocation,
   type LoomModule,
   type Path,
   type SinkFault,
 } from '@athrio/loom-ast/LoomCorpusAst'
+import { type FrameLocation } from '@athrio/loom-lang-services/LanguageService'
 import {
   CollidingTitles,
   EmptySink,
@@ -492,6 +551,8 @@ import { PackageConfig } from './PackageConfig'
 ::[Tangling a file]
 
 ::[Sink-tree diagnostics]
+
+::[Locating a source span]
 
 ::[Projecting a file's tree]
 

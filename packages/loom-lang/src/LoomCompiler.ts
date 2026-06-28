@@ -8,14 +8,18 @@ import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
 import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import {
   corpusErrors,
+  definitionAt,
   moduleDiagnostics,
+  referencesAt,
   sinkTreeFaults,
   sinkTreeRouting,
   transitiveDependents,
+  type CorpusLocation,
   type LoomModule,
   type Path,
   type SinkFault,
 } from '@athrio/loom-ast/LoomCorpusAst'
+import { type FrameLocation } from '@athrio/loom-lang-services/LanguageService'
 import {
   CollidingTitles,
   EmptySink,
@@ -171,6 +175,29 @@ const sinkDiagnostics = (
       (diagnostic) => ({ path: fault.path, diagnostic }),
     ),
   )
+
+const lineCharAt = (
+  text: string,
+  offset: number,
+): { readonly line: number; readonly character: number } => {
+  const before = text.slice(0, offset)
+  return {
+    line: before.split('\n').length - 1,
+    character: offset - (before.lastIndexOf('\n') + 1),
+  }
+}
+
+const frameLocationOf = (
+  modules: Modules,
+  location: CorpusLocation,
+): Option.Option<FrameLocation> =>
+  Option.map(Option.fromNullable(modules.get(location.path)?.text), (text) => ({
+    path: location.path,
+    range: {
+      start: lineCharAt(text, location.position.start.offset),
+      end: lineCharAt(text, location.position.end.offset),
+    },
+  }))
 
 const namesAt = (modules: Modules, path: Path): ReadonlyArray<string> => {
   const product = modules.get(path)?.product
@@ -360,6 +387,32 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
                     ),
                   ],
                 }),
+              ),
+            ),
+          ),
+
+        definition: (
+          path: Path,
+          offset: number,
+        ): Effect.Effect<FrameLocation | undefined> =>
+          buildCorpus(documents, path).pipe(
+            Effect.map((modules) =>
+              Option.getOrUndefined(
+                Option.flatMap(definitionAt({ modules }, path, offset), (loc) =>
+                  frameLocationOf(modules, loc),
+                ),
+              ),
+            ),
+          ),
+
+        references: (
+          path: Path,
+          offset: number,
+        ): Effect.Effect<ReadonlyArray<FrameLocation>> =>
+          buildCorpus(documents, path).pipe(
+            Effect.map((modules) =>
+              Array.filterMap(referencesAt({ modules }, path, offset), (loc) =>
+                frameLocationOf(modules, loc),
               ),
             ),
           ),

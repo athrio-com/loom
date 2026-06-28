@@ -26,8 +26,18 @@ export class TypescriptSdk extends Effect.Service<TypescriptSdk>()('TypescriptSd
   ) as Effect.Effect<typeof import('typescript')>,
 }) {}
 
+export interface FrameLocation {
+  readonly path: string
+  readonly range: {
+    readonly start: { readonly line: number; readonly character: number }
+    readonly end: { readonly line: number; readonly character: number }
+  }
+}
+
 export interface FrameQueryApi {
   readonly diagnostics: (path: string) => ReadonlyArray<Diagnostic>
+  readonly definition: (path: string, offset: number) => FrameLocation | undefined
+  readonly references: (path: string, offset: number) => ReadonlyArray<FrameLocation>
 }
 
 export class FrameQuery extends Effect.Service<FrameQuery>()('FrameQuery', {

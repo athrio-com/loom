@@ -3,11 +3,13 @@ import { Array, Effect, pipe } from 'effect'
 import type {
   Diagnostic as LspDiagnostic,
   LanguageServicePlugin,
+  LocationLink,
 } from '@volar/language-service'
 import { URI } from 'vscode-uri'
 import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
 import {
   defineLanguageService,
+  type FrameLocation,
   FrameQuery,
   type FrameQueryApi,
   TypescriptSdk,
@@ -52,6 +54,43 @@ const loomDiagnostics = (frame: FrameQueryApi): LanguageServicePlugin => ({
   }),
 })
 
+const toLocationLink = (location: FrameLocation): LocationLink => ({
+  targetUri: URI.file(location.path).toString(),
+  targetRange: location.range,
+  targetSelectionRange: location.range,
+})
+
+const loomDefinition = (frame: FrameQueryApi): LanguageServicePlugin => ({
+  name: 'loom-definition',
+  capabilities: { definitionProvider: true },
+  create: (context) => ({
+    provideDefinition: (document, position) => {
+      const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
+      if (!decoded || decoded[1] !== 'root') return undefined
+      const target = frame.definition(decoded[0].fsPath, document.offsetAt(position))
+      return target === undefined ? undefined : [toLocationLink(target)]
+    },
+  }),
+})
+
+const loomReferences = (frame: FrameQueryApi): LanguageServicePlugin => ({
+  name: 'loom-references',
+  capabilities: { referencesProvider: true },
+  create: (context) => ({
+    provideReferences: (document, position) => {
+      const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
+      if (!decoded || decoded[1] !== 'root') return undefined
+      return pipe(
+        frame.references(decoded[0].fsPath, document.offsetAt(position)),
+        Array.map((location) => ({
+          uri: URI.file(location.path).toString(),
+          range: location.range,
+        })),
+      )
+    },
+  }),
+})
+
 export const LoomLanguage = defineLanguageService({
   id: 'loom',
   displayName: 'Loom',
@@ -60,6 +99,11 @@ export const LoomLanguage = defineLanguageService({
     Effect.gen(function* () {
       const ts = yield* TypescriptSdk
       const frame = yield* FrameQuery
-      return [...create(ts), loomDiagnostics(frame)]
+      return [
+        ...create(ts),
+        loomDiagnostics(frame),
+        loomDefinition(frame),
+        loomReferences(frame),
+      ]
     }),
 })
