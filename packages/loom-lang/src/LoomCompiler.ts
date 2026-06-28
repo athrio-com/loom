@@ -11,6 +11,8 @@ import {
   definitionAt,
   moduleDiagnostics,
   referencesAt,
+  renameAt,
+  renameRangeAt,
   sinkTreeFaults,
   sinkTreeRouting,
   transitiveDependents,
@@ -413,6 +415,32 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
             Effect.map((modules) =>
               Array.filterMap(referencesAt({ modules }, path, offset), (loc) =>
                 frameLocationOf(modules, loc),
+              ),
+            ),
+          ),
+
+        rename: (
+          path: Path,
+          offset: number,
+        ): Effect.Effect<ReadonlyArray<FrameLocation>> =>
+          buildCorpus(documents, path).pipe(
+            Effect.map((modules) =>
+              Array.filterMap(renameAt({ modules }, path, offset), (loc) =>
+                frameLocationOf(modules, loc),
+              ),
+            ),
+          ),
+
+        renameRange: (
+          path: Path,
+          offset: number,
+        ): Effect.Effect<FrameLocation | undefined> =>
+          buildCorpus(documents, path).pipe(
+            Effect.map((modules) =>
+              Option.getOrUndefined(
+                Option.flatMap(renameRangeAt({ modules }, path, offset), (loc) =>
+                  frameLocationOf(modules, loc),
+                ),
               ),
             ),
           ),

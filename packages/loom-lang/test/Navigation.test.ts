@@ -81,4 +81,25 @@ describe('LoomCompiler — navigation over anchors and sections', () => {
       expect(target).toBeUndefined()
     }).pipe(Effect.provide(layer)),
   )
+
+  it.effect('rename gathers the heading title and every anchor name', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const edits = yield* c.rename('/doc.loom', titleOffset)
+      expect(edits.map((e) => e.range.start.line).sort((a, b) => a - b)).toEqual([2, 12])
+      // the anchor name span starts after `::[`, so the brackets are left alone
+      const anchorEdit = edits.find((e) => e.range.start.line === 12)
+      expect(anchorEdit?.range.start.character).toBe(3)
+    }).pipe(Effect.provide(layer)),
+  )
+
+  it.effect('renameRange covers the whole multi-word title under the cursor', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const span = yield* c.renameRange('/doc.loom', titleOffset)
+      // "The greeting" — twelve characters, after the "# " marker
+      expect(span?.range.start).toEqual({ line: 2, character: 2 })
+      expect(span?.range.end).toEqual({ line: 2, character: 14 })
+    }).pipe(Effect.provide(layer)),
+  )
 })

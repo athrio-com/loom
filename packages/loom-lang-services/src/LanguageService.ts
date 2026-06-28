@@ -38,6 +38,8 @@ export interface FrameQueryApi {
   readonly diagnostics: (path: string) => ReadonlyArray<Diagnostic>
   readonly definition: (path: string, offset: number) => FrameLocation | undefined
   readonly references: (path: string, offset: number) => ReadonlyArray<FrameLocation>
+  readonly rename: (path: string, offset: number) => ReadonlyArray<FrameLocation>
+  readonly renameRange: (path: string, offset: number) => FrameLocation | undefined
 }
 
 export class FrameQuery extends Effect.Service<FrameQuery>()('FrameQuery', {

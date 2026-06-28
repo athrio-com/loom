@@ -4,6 +4,7 @@ import type {
   Diagnostic as LspDiagnostic,
   LanguageServicePlugin,
   LocationLink,
+  TextEdit,
 } from '@volar/language-service'
 import { URI } from 'vscode-uri'
 import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
@@ -91,6 +92,38 @@ const loomReferences = (frame: FrameQueryApi): LanguageServicePlugin => ({
   }),
 })
 
+const groupEdits = (
+  locations: ReadonlyArray<FrameLocation>,
+  newName: string,
+): Record<string, TextEdit[]> =>
+  Object.fromEntries(
+    Object.entries(
+      Array.groupBy(locations, (location) => URI.file(location.path).toString()),
+    ).map(([uri, locs]) => [
+      uri,
+      locs.map((location) => ({ range: location.range, newText: newName })),
+    ]),
+  )
+
+const loomRename = (frame: FrameQueryApi): LanguageServicePlugin => ({
+  name: 'loom-rename',
+  capabilities: { renameProvider: { prepareProvider: true } },
+  create: (context) => ({
+    provideRenameRange: (document, position) => {
+      const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
+      if (!decoded || decoded[1] !== 'root') return undefined
+      const span = frame.renameRange(decoded[0].fsPath, document.offsetAt(position))
+      return span === undefined ? undefined : span.range
+    },
+    provideRenameEdits: (document, position, newName) => {
+      const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
+      if (!decoded || decoded[1] !== 'root') return undefined
+      const edits = frame.rename(decoded[0].fsPath, document.offsetAt(position))
+      return edits.length === 0 ? undefined : { changes: groupEdits(edits, newName) }
+    },
+  }),
+})
+
 export const LoomLanguage = defineLanguageService({
   id: 'loom',
   displayName: 'Loom',
@@ -104,6 +137,7 @@ export const LoomLanguage = defineLanguageService({
         loomDiagnostics(frame),
         loomDefinition(frame),
         loomReferences(frame),
+        loomRename(frame),
       ]
     }),
 })

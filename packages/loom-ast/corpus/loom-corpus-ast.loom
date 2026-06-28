@@ -442,7 +442,7 @@ export type CorpusLocation = { readonly path: Path; readonly position: Position 
 
 ~
 
-Each step starts from the node under a cursor. `anchorAt` finds the anchor whose `::[…]` span covers a source offset. `titleAt` finds the heading whose title covers it, and reads that title's text.
+Each step starts from the node under a cursor. `anchorAt` finds the anchor whose `::[…]` span covers a source offset. `titledSectionAt` finds the heading whose title covers it, and `titleAt` reads that title's text.
 
 =>
 
@@ -463,11 +463,11 @@ const anchorAt = (
     ),
   )
 
-const titleAt = (
+const titledSectionAt = (
   modules: Modules,
   path: Path,
   offset: number,
-): Option.Option<string> =>
+): Option.Option<LoomSection> =>
   pipe(
     Option.fromNullable(modules.get(path)),
     Option.flatMap((m) =>
@@ -480,6 +480,15 @@ const titleAt = (
         )
       }),
     ),
+  )
+
+const titleAt = (
+  modules: Modules,
+  path: Path,
+  offset: number,
+): Option.Option<string> =>
+  pipe(
+    titledSectionAt(modules, path, offset),
     Option.flatMapNullable((section) => section.heading.title),
     Option.map((title) => title.source),
   )
@@ -556,6 +565,86 @@ export const referencesAt = (
       ...anchorsNamed(modules, n),
     ],
   })
+}
+
+## Renaming a section
+
+Renaming a section is one edit across the corpus: its heading title and every anchor that names it move together, so the name and its references never drift. `renameAt` gathers the spans that change — each section's title carrying the name, and each anchor's name carrying it. An anchor span is the name alone, inside the `::[…]`, so the brackets stay put.
+
+=>
+
+const headingTitlesNamed = (
+  modules: Modules,
+  name: string,
+): ReadonlyArray<CorpusLocation> =>
+  pipe(
+    Array.fromIterable(modules.values()),
+    Array.flatMap((m) =>
+      Array.filterMap(m.doc.sections, (section) => {
+        const title = section.heading.title
+        return title !== undefined && title.source === name
+          ? Option.some<CorpusLocation>({ path: m.path, position: title.position })
+          : Option.none()
+      }),
+    ),
+  )
+
+const anchorNamesNamed = (
+  modules: Modules,
+  name: string,
+): ReadonlyArray<CorpusLocation> =>
+  pipe(
+    Array.fromIterable(modules.values()),
+    Array.flatMap((m) =>
+      Array.filterMap(Array.flatMap(m.doc.sections, anchorsOf), (anchor) =>
+        anchor.name.value === name
+          ? Option.some<CorpusLocation>({ path: m.path, position: anchor.name.position })
+          : Option.none(),
+      ),
+    ),
+  )
+
+export const renameAt = (
+  corpus: LoomCorpusAst,
+  path: Path,
+  offset: number,
+): ReadonlyArray<CorpusLocation> => {
+  const modules = corpus.modules
+  const name = Option.orElse(titleAt(modules, path, offset), () =>
+    Option.map(anchorAt(modules, path, offset), (anchor) => anchor.name.value),
+  )
+  return Option.match(name, {
+    onNone: () => [],
+    onSome: (n) => [
+      ...headingTitlesNamed(modules, n),
+      ...anchorNamesNamed(modules, n),
+    ],
+  })
+}
+
+~
+
+`renameRangeAt` is the span the rename box covers — the title or the anchor name under the cursor, whichever the offset falls in. The editor reads it before the edit, so the box wraps the whole multi-word name rather than the one word the cursor sits in.
+
+=>
+
+export const renameRangeAt = (
+  corpus: LoomCorpusAst,
+  path: Path,
+  offset: number,
+): Option.Option<CorpusLocation> => {
+  const modules = corpus.modules
+  const titleSpan = pipe(
+    titledSectionAt(modules, path, offset),
+    Option.flatMapNullable((section) => section.heading.title),
+    Option.map((title): CorpusLocation => ({ path, position: title.position })),
+  )
+  return Option.orElse(titleSpan, () =>
+    Option.map(
+      anchorAt(modules, path, offset),
+      (anchor): CorpusLocation => ({ path, position: anchor.name.position }),
+    ),
+  )
 }
 
 ## Diagnostics across the corpus
@@ -636,5 +725,7 @@ import { FrameModuleSchema } from '#ast/FrameAst'
 ::[Faults in the sink tree]
 
 ::[Navigation over the corpus]
+
+::[Renaming a section]
 
 ::[Diagnostics across the corpus]

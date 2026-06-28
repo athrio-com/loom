@@ -133,7 +133,7 @@ const isolateRoots = (code: VirtualCode): VirtualCode => ({
 
 `loomServicePlugins` is the collect-and-register pass. Before it loads anything, it installs the host runtime on the global — Effect, the service contract, and the editor's TypeScript compiler — so a loaded service reads the host's instances rather than bundling its own and missing the capabilities the host provides. It then reads the project's active languages, loads each through `loadActive` — `LoomLanguage` always, and a `@athrio/loom-service-<id>` package for every other id, imported from the Loom store — then indexes them in the `LanguageRegistry` and runs each service's `plugins` Effect with the host's capabilities. A language activated but not installed in the store drops with a warning, and the rest load on. It provides two capabilities. The `TypescriptSdk` is the editor's own compiler, so analysis matches the user's project. A `FrameQuery`, built over the warm corpus by `frameQueryOver`, lets the frame service read a file's Loom diagnostics. A product service needs neither a root query nor any capability of its own: the editor hands it Products, each a resolved root with its members folded in. Each service also gets its slice of the workspace's `settings`, keyed by language id, so it tunes itself from the configuration. A service that fails to build — an external binary that will not start — drops to no plugins rather than taking the others down. The pass dedupes by plugin name, so a plugin two services happen to share registers with Volar once.
 
-`frameQueryOver` builds the one capability from the runtime. Each reader composes a file's corpus and answers from it: `diagnostics` returns the open module's Loom health, `definition` follows an anchor to the section it names, and `references` finds every anchor that names the section under the cursor. All three read synchronously, on the same warm runtime the projection uses, and close over it, so the frame service can call them long after this pass, when the editor asks on a keystroke.
+`frameQueryOver` builds the one capability from the runtime. Each reader composes a file's corpus and answers from it: `diagnostics` returns the open module's Loom health, `definition` follows an anchor to the section it names, `references` finds every anchor that names the section under the cursor, and `rename` and `renameRange` give the spans a rename rewrites and the one the rename box covers. They read synchronously, on the same warm runtime the projection uses, and close over it, so the frame service can call them long after this pass, when the editor asks on a keystroke.
 
 =>
 
@@ -184,6 +184,18 @@ const frameQueryOver = (
     Runtime.runSync(runtime)(
       LoomCompiler.pipe(
         Effect.flatMap((compiler) => compiler.references(path, offset)),
+      ),
+    ),
+  rename: (path, offset) =>
+    Runtime.runSync(runtime)(
+      LoomCompiler.pipe(
+        Effect.flatMap((compiler) => compiler.rename(path, offset)),
+      ),
+    ),
+  renameRange: (path, offset) =>
+    Runtime.runSync(runtime)(
+      LoomCompiler.pipe(
+        Effect.flatMap((compiler) => compiler.renameRange(path, offset)),
       ),
     ),
 })

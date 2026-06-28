@@ -130,12 +130,56 @@ const loomReferences = (frame: FrameQueryApi): LanguageServicePlugin => ({
   }),
 })
 
+## Renaming a section
+
+`volar-service-typescript` renames a TypeScript symbol; it does not know that a Loom
+section's name lives in its heading and in every anchor that composes it. `loomRename`
+renames the section as one symbol. `provideRenameRange` gives the editor the span its
+rename box covers — the title or anchor name under the cursor — so the box wraps the
+whole name. `provideRenameEdits` returns the edit: it asks `FrameQuery` for every span
+the rename touches, and `groupEdits` turns them into a workspace edit, each span set to
+the new name and keyed by its file's uri.
+
+=>
+
+const groupEdits = (
+  locations: ReadonlyArray<FrameLocation>,
+  newName: string,
+): Record<string, TextEdit[]> =>
+  Object.fromEntries(
+    Object.entries(
+      Array.groupBy(locations, (location) => URI.file(location.path).toString()),
+    ).map(([uri, locs]) => [
+      uri,
+      locs.map((location) => ({ range: location.range, newText: newName })),
+    ]),
+  )
+
+const loomRename = (frame: FrameQueryApi): LanguageServicePlugin => ({
+  name: 'loom-rename',
+  capabilities: { renameProvider: { prepareProvider: true } },
+  create: (context) => ({
+    provideRenameRange: (document, position) => {
+      const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
+      if (!decoded || decoded[1] !== 'root') return undefined
+      const span = frame.renameRange(decoded[0].fsPath, document.offsetAt(position))
+      return span === undefined ? undefined : span.range
+    },
+    provideRenameEdits: (document, position, newName) => {
+      const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
+      if (!decoded || decoded[1] !== 'root') return undefined
+      const edits = frame.rename(decoded[0].fsPath, document.offsetAt(position))
+      return edits.length === 0 ? undefined : { changes: groupEdits(edits, newName) }
+    },
+  }),
+})
+
 ## Composing the services
 
 `LoomLanguage` composes its plugin sources: the `volar-service-typescript` plugins that
 check the Frame, and over the `FrameQuery` the host provides, `loomDiagnostics` for
-Loom's own health and `loomDefinition` and `loomReferences` for its navigation. Volar
-registers them all under the `loom` id.
+Loom's own health, `loomDefinition` and `loomReferences` for its navigation, and
+`loomRename` for renaming a section. Volar registers them all under the `loom` id.
 
 =>
 
@@ -152,6 +196,7 @@ export const LoomLanguage = defineLanguageService({
         loomDiagnostics(frame),
         loomDefinition(frame),
         loomReferences(frame),
+        loomRename(frame),
       ]
     }),
 })
@@ -160,8 +205,8 @@ export const LoomLanguage = defineLanguageService({
 
 `volar-service-typescript` supplies the Frame's TypeScript plugins. From Volar's
 language service come the `LanguageServicePlugin` contract, the `LocationLink` a
-definition returns, and the editor's own `Diagnostic` type, aliased `LspDiagnostic` to
-keep it apart from Loom's. Effect supplies `Array`, `pipe`, and the `Effect` the service
+definition returns, the `TextEdit` a rename produces, and the editor's own `Diagnostic`
+type, aliased `LspDiagnostic` to keep it apart from Loom's. Effect supplies `Array`, `pipe`, and the `Effect` the service
 builds in. `@athrio/loom-ast` types a Loom `Diagnostic`, `vscode-uri` parses an embedded
 document's uri, and the `LanguageService` module gives `defineLanguageService` with the
 `TypescriptSdk` and `FrameQuery` capabilities and the `FrameLocation` navigation answers
@@ -175,6 +220,7 @@ import type {
   Diagnostic as LspDiagnostic,
   LanguageServicePlugin,
   LocationLink,
+  TextEdit,
 } from '@volar/language-service'
 import { URI } from 'vscode-uri'
 import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
@@ -195,5 +241,7 @@ import {
 ::[Loom's own diagnostics]
 
 ::[Navigating the frame]
+
+::[Renaming a section]
 
 ::[Composing the services]

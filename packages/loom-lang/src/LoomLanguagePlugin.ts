@@ -177,6 +177,18 @@ const frameQueryOver = (
         Effect.flatMap((compiler) => compiler.references(path, offset)),
       ),
     ),
+  rename: (path, offset) =>
+    Runtime.runSync(runtime)(
+      LoomCompiler.pipe(
+        Effect.flatMap((compiler) => compiler.rename(path, offset)),
+      ),
+    ),
+  renameRange: (path, offset) =>
+    Runtime.runSync(runtime)(
+      LoomCompiler.pipe(
+        Effect.flatMap((compiler) => compiler.renameRange(path, offset)),
+      ),
+    ),
 })
 
 export const loomServicePlugins = (

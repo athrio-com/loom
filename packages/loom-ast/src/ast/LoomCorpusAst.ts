@@ -376,11 +376,11 @@ const anchorAt = (
     ),
   )
 
-const titleAt = (
+const titledSectionAt = (
   modules: Modules,
   path: Path,
   offset: number,
-): Option.Option<string> =>
+): Option.Option<LoomSection> =>
   pipe(
     Option.fromNullable(modules.get(path)),
     Option.flatMap((m) =>
@@ -393,6 +393,15 @@ const titleAt = (
         )
       }),
     ),
+  )
+
+const titleAt = (
+  modules: Modules,
+  path: Path,
+  offset: number,
+): Option.Option<string> =>
+  pipe(
+    titledSectionAt(modules, path, offset),
     Option.flatMapNullable((section) => section.heading.title),
     Option.map((title) => title.source),
   )
@@ -457,6 +466,74 @@ export const referencesAt = (
       ...anchorsNamed(modules, n),
     ],
   })
+}
+
+const headingTitlesNamed = (
+  modules: Modules,
+  name: string,
+): ReadonlyArray<CorpusLocation> =>
+  pipe(
+    Array.fromIterable(modules.values()),
+    Array.flatMap((m) =>
+      Array.filterMap(m.doc.sections, (section) => {
+        const title = section.heading.title
+        return title !== undefined && title.source === name
+          ? Option.some<CorpusLocation>({ path: m.path, position: title.position })
+          : Option.none()
+      }),
+    ),
+  )
+
+const anchorNamesNamed = (
+  modules: Modules,
+  name: string,
+): ReadonlyArray<CorpusLocation> =>
+  pipe(
+    Array.fromIterable(modules.values()),
+    Array.flatMap((m) =>
+      Array.filterMap(Array.flatMap(m.doc.sections, anchorsOf), (anchor) =>
+        anchor.name.value === name
+          ? Option.some<CorpusLocation>({ path: m.path, position: anchor.name.position })
+          : Option.none(),
+      ),
+    ),
+  )
+
+export const renameAt = (
+  corpus: LoomCorpusAst,
+  path: Path,
+  offset: number,
+): ReadonlyArray<CorpusLocation> => {
+  const modules = corpus.modules
+  const name = Option.orElse(titleAt(modules, path, offset), () =>
+    Option.map(anchorAt(modules, path, offset), (anchor) => anchor.name.value),
+  )
+  return Option.match(name, {
+    onNone: () => [],
+    onSome: (n) => [
+      ...headingTitlesNamed(modules, n),
+      ...anchorNamesNamed(modules, n),
+    ],
+  })
+}
+
+export const renameRangeAt = (
+  corpus: LoomCorpusAst,
+  path: Path,
+  offset: number,
+): Option.Option<CorpusLocation> => {
+  const modules = corpus.modules
+  const titleSpan = pipe(
+    titledSectionAt(modules, path, offset),
+    Option.flatMapNullable((section) => section.heading.title),
+    Option.map((title): CorpusLocation => ({ path, position: title.position })),
+  )
+  return Option.orElse(titleSpan, () =>
+    Option.map(
+      anchorAt(modules, path, offset),
+      (anchor): CorpusLocation => ({ path, position: anchor.name.position }),
+    ),
+  )
 }
 
 const diagnosticsIn = (node: unknown): ReadonlyArray<Diagnostic> => {
