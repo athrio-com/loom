@@ -13,7 +13,7 @@ import { PackageConfig } from '../src/PackageConfig'
 
 const input = `{{lang: TypeScript}}
 
-# Adder [Add]
+# Adder
 
 Adds two integers.
 
@@ -47,48 +47,17 @@ describe('VirtualCode — root → frame projection', () => {
       expect(frame.languageId).toBe('loom')
       expect(frame.embeddedCodes).toEqual([]) // the frame has no children
       const gen = frame.snapshot.getText(0, frame.snapshot.getLength())
-      expect(gen).toContain('export class Add')
+      expect(gen).toContain('export class Adder')
       expect(frame.mappings.length).toBeGreaterThan(0)
 
-      // the de re product for the Add section — its raw code, in its language,
+      // the de re product for the Adder section — its raw code, in its language,
       // keyed by the section name lowercased (Volar requires lowercase ids)
       const product = root.embeddedCodes![1]!
-      expect(product.id).toBe('add')
+      expect(product.id).toBe('adder')
       expect(product.languageId).toBe('typescript')
       expect(
         product.snapshot.getText(0, product.snapshot.getLength()),
       ).toContain('export const add = (x: number, y: number)')
-    }).pipe(Effect.provide(layer)),
-  )
-
-  it.effect('maps the frame class name back to the [Add] tag in the .loom', () =>
-    Effect.gen(function* () {
-      const runtime = yield* Effect.runtime<LoomCompiler>()
-      const root = Runtime.runSync(runtime)(
-        LoomCompiler.pipe(Effect.flatMap((c) => c.compile(source, ''))),
-      )
-
-      const frame = root.embeddedCodes![0]!
-      const gen = frame.snapshot.getText(0, frame.snapshot.getLength())
-      const genAt = gen.indexOf('class Add') + 'class '.length
-
-      const m = frame.mappings.find(
-        (cm) =>
-          cm.generatedOffsets[0]! <= genAt &&
-          genAt < cm.generatedOffsets[0]! + cm.generatedLengths![0]!,
-      )
-      expect(m).toBeDefined()
-      // source side hugs the inner label of `[Add]`, not the whole tag
-      expect(m!.sourceOffsets[0]).toBe(input.indexOf('[Add]') + 1)
-      expect(
-        input.slice(m!.sourceOffsets[0]!, m!.sourceOffsets[0]! + m!.lengths[0]!),
-      ).toBe('Add')
-      // the tag is locate-only: navigation reaches and renames the section, but
-      // semantic is off, so hovering [Add] no longer surfaces the generated
-      // `class Add` — the Effect.Service machinery stays out of the author's view
-      expect(m!.data.navigation).toBe(true)
-      expect(m!.data.semantic).toBeFalsy()
-      expect(m!.data.completion).toBeFalsy()
     }).pipe(Effect.provide(layer)),
   )
 

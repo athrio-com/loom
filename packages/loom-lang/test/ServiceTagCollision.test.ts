@@ -14,48 +14,24 @@ const m = (name: string, text: string): Mod => ({ path: `/collide/${name}`, text
 
 const moduleSrc = (mark: string, use: string) => `{{lang: TypeScript}}
 
-# A bit [Bit]
+# Bit
 
 =>
 
 const bit = "${mark}"
 
-# Use it [${use}]
-
-{{x = Bit}}
+# ${use}
 
 =>
 
-::[x]
+::[Bit]
 const ${use.toLowerCase()} = bit
-`
-
-const mainSrc = `{{lang: TypeScript}}
-
-# Imports {Loom}
-
-=>
-
-import { UseA } from "./a.loom"
-import { UseB } from "./b.loom"
-
-# Both of them [Both]
-
-{{a = UseA}}
-{{b = UseB}}
-
-=>
-
-::[a]
-::[b]
-const both = 1
 `
 
 const a = m('a.loom', moduleSrc('A', 'UseA'))
 const b = m('b.loom', moduleSrc('B', 'UseB'))
-const main = m('main.loom', mainSrc)
 
-const products = producedOf(a, b, main)
+const products = producedOf(a, b)
 
 const codeAt = (path: string, name: string) =>
   products.get(path)?.code.find((c) => c.origin.name === name)

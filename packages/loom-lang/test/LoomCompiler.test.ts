@@ -2,21 +2,20 @@ import { describe, expect, it } from '@effect/vitest'
 import { Effect, Layer } from 'effect'
 import { DocumentSource } from '../src/LoomCompiler'
 import { LoomCompiler } from '../src/LoomCompiler'
-import { type Source } from '#ast/LoomCorpusAstBuilder'
 import { LoomMemo } from '../src/LoomMemo'
 import { PackageConfig } from '../src/PackageConfig'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
 // Drives the corpus pipeline end-to-end over an in-memory DocumentSource:
-// Fun.loom imports Neg from Sad.loom and transcludes it, so the de re of Fun's
-// section must inline Sad's code across the file boundary — the path the
-// single-file editor projection can't take. DocumentSource is a free
-// requirement, so the test injects a fake one without touching the filesystem.
+// Fun.loom imports Negate from Sad.loom in a {Loom} section, so the corpus walk
+// reaches Sad and a change to Sad invalidates Fun — the import graph the
+// single-file editor projection can't see. DocumentSource is a free requirement,
+// so the test injects a fake one without touching the filesystem.
 
 const files: Record<string, string> = {
   '/Sad.loom': `{{lang: TypeScript}}
 
-# Negate [Neg]
+# Negate
 
 =>
 
@@ -28,16 +27,13 @@ const negate = (x: number) => -x
 
 =>
 
-import { Neg } from "./Sad.loom"
+import { Negate } from "./Sad.loom"
 
-# Negated double [Negd]
-
-{{n = Neg}}
+# Negated double
 
 =>
 
-::[n]
-const negDouble = (x: number) => negate(x) * 2
+const negDouble = (x: number) => -x * 2
 `,
 }
 
@@ -71,23 +67,7 @@ const layer = Layer.provide(
   Layer.merge(TestDocs, TestConfig),
 )
 
-const source: Source = {
-  read: (path: string) => Effect.succeed(files[path] ?? ''),
-}
-
 describe('LoomCompiler — the chain projected for each consumer', () => {
-  it.effect('compile inlines an imported section into the consuming product', () =>
-    Effect.gen(function* () {
-      const c = yield* LoomCompiler
-      const tree = yield* c.compile(source, '/Fun.loom')
-      const negd = tree.embeddedCodes?.find((e) => e.id === 'negd')
-      expect(negd).toBeDefined()
-      const text = negd!.snapshot.getText(0, negd!.snapshot.getLength())
-      expect(text).toContain('const negate = (x: number) => -x') // from Sad
-      expect(text).toContain('const negDouble') // Fun's own
-    }).pipe(Effect.provide(layer)),
-  )
-
   it.effect('reach reports the files an entry pulls in along the import edge', () =>
     Effect.gen(function* () {
       const c = yield* LoomCompiler
@@ -96,12 +76,12 @@ describe('LoomCompiler — the chain projected for each consumer', () => {
     }).pipe(Effect.provide(layer)),
   )
 
-  it.effect('invalidate names the file and the dependents that inlined it', () =>
+  it.effect('invalidate names the file and the dependents that import it', () =>
     Effect.gen(function* () {
       const c = yield* LoomCompiler
       yield* c.reach('/Fun.loom') // warm the cache (loads Fun + Sad)
       const dirty = yield* c.invalidate('/Sad.loom')
-      // Sad itself, plus Fun which transcluded it
+      // Sad itself, plus Fun which imports it
       expect([...dirty].sort()).toEqual(['/Fun.loom', '/Sad.loom'])
     }).pipe(Effect.provide(layer)),
   )

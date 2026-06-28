@@ -6,7 +6,8 @@ import { codeView, producedOf, type Mod } from './frames'
 // layers (Layer.provideMerge). These fixtures exercise the graph shapes the fold
 // must handle: a shared dependency reached two ways (a diamond), a chain several
 // levels deep, and a cycle — which Effect cannot build, so the run must contain it
-// rather than hang or crash. Each drives FrameRunner.produce over one in-memory file.
+// rather than hang or crash. Each is one in-memory file whose sections name one
+// another with same-file `::[Title]` anchors, driven through FrameRunner.produce.
 
 type CodeView = ReadonlyMap<string, ReadonlyMap<string, Code>>
 
@@ -25,7 +26,7 @@ describe('runner wires the service cone over real graph shapes', () => {
   it('resolves a diamond: A→B,C and B,C→D, the shared D reached both ways', () => {
     const dia = m(
       'dia.loom',
-      `{{lang: TypeScript}}\n\n# Dee [D]\n\n=>\n\nconst d = 0\n\n# Bee [B]\n\n{{d = D}}\n\n=>\n\n::[d]\nconst b = 1\n\n# Cee [C]\n\n{{d = D}}\n\n=>\n\n::[d]\nconst c = 1\n\n# Aaa [A]\n\n{{b = B}}\n{{c = C}}\n\n=>\n\n::[b]\n::[c]\nconst a = 1\n`,
+      `{{lang: TypeScript}}\n\n# D\n\n=>\n\nconst d = 0\n\n# B\n\n=>\n\n::[D]\nconst b = 1\n\n# C\n\n=>\n\n::[D]\nconst c = 1\n\n# A\n\n=>\n\n::[B]\n::[C]\nconst a = 1\n`,
     )
     const code = view(dia)
     // every node composed — the fold built the shared D without conflict
@@ -39,21 +40,21 @@ describe('runner wires the service cone over real graph shapes', () => {
   it('resolves a deep chain A→B→C→D end to end', () => {
     const deep = m(
       'deep.loom',
-      `{{lang: TypeScript}}\n\n# Dee [D]\n\n=>\n\nconst d = 0\n\n# Cee [C]\n\n{{d = D}}\n\n=>\n\n::[d]\nconst c = 1\n\n# Bee [B]\n\n{{c = C}}\n\n=>\n\n::[c]\nconst b = 1\n\n# Aaa [A]\n\n{{b = B}}\n\n=>\n\n::[b]\nconst a = 1\n`,
+      `{{lang: TypeScript}}\n\n# D\n\n=>\n\nconst d = 0\n\n# C\n\n=>\n\n::[D]\nconst c = 1\n\n# B\n\n=>\n\n::[C]\nconst b = 1\n\n# A\n\n=>\n\n::[B]\nconst a = 1\n`,
     )
     const code = view(deep)
     expect(sectionsOf(code, deep.path).sort()).toEqual(['A', 'B', 'C', 'D'])
     expect(refCount(code, deep.path, 'A')).toBe(1)
   })
 
-  it('contains a Warp cycle: the cyclic file yields no de re, the run does not crash', () => {
-    // A's Warp names B, B's names A — Effect cannot build a circular layer set.
+  it('contains an anchor cycle: the cyclic file yields no de re, the run does not crash', () => {
+    // A anchors B, B anchors A — Effect cannot build a circular layer set.
     // The cyclic module's run fails and is caught, so it composes nothing; the
     // run still returns. (The cycle also surfaces as a TS diagnostic on the
-    // frame, ts2488 at the `yield*`, the same way an unbound Warp does.)
+    // frame, ts2488 at the `yield*`, the same way an unresolved anchor does.)
     const cyc = m(
       'cyc.loom',
-      `{{lang: TypeScript}}\n\n# Aaa [A]\n\n{{b = B}}\n\n=>\n\n::[b]\nconst a = 1\n\n# Bbb [B]\n\n{{a = A}}\n\n=>\n\n::[a]\nconst b = 1\n`,
+      `{{lang: TypeScript}}\n\n# A\n\n=>\n\n::[B]\nconst a = 1\n\n# B\n\n=>\n\n::[A]\nconst b = 1\n`,
     )
     const code = view(cyc)
     expect(code.has(cyc.path)).toBe(true) // the run completed, no crash

@@ -12,7 +12,7 @@ import { PackageConfig } from '../src/PackageConfig'
 
 const fixture = `{{lang: TypeScript}}
 
-# Greeting [Greet]
+# Greeting
 
 =>
 
@@ -20,18 +20,16 @@ const hi = "hello"
 
 # Bundle {out/bundle.ts}
 
-{{g = Greet}}
-
 =>
 
-::[g]
+::[Greeting]
 `
 
-// loomWith — a minimal doc: a tagged section inlined by a {path} sink.
+// loomWith — a minimal doc: a section inlined by a {path} sink through a name anchor.
 const loomWith = (value: string, out: string): string =>
   `{{lang: TypeScript}}
 
-# Bit [Bit]
+# Bit
 
 =>
 
@@ -39,11 +37,9 @@ const x = "${value}"
 
 # Sink {${out}}
 
-{{b = Bit}}
-
 =>
 
-::[b]
+::[Bit]
 `
 
 // LoomTangler over the real Node filesystem (the tangler is the fs consumer);
@@ -128,13 +124,13 @@ describe('LoomTangler — tangle {path} sinks to disk', () => {
       )
       yield* fs.writeFileString(
         `${dir}/g.loom`,
-        `{{lang: TypeScript}}\n\n# Greeting [Greet]\n\n=>\n\nconst hi = "hi"\n\n# Bundle {out/g.ts}\n\n{{g = Greet}}\n\n=>\n\nexport const g = <<g>>\n`,
+        `{{lang: TypeScript}}\n\n# Greeting\n\n=>\n\nconst hi = "hi"\n\n# Bundle {out/g.ts}\n\n=>\n\nexport const g = <<Greeting>>\n`,
       )
 
       const tangler = yield* LoomTangler
       yield* tangler.tangle(`${dir}/g.loom`)
 
-      // `<<g>>` — the configured delimiter — resolves to Greet and inlines it.
+      // `<<Greeting>>` — the configured delimiter — resolves to Greeting and inlines it.
       const out = yield* fs.readFileString(`${dir}/out/g.ts`)
       expect(out).toContain('const hi = "hi"')
     }).pipe(Effect.provide(layers)),

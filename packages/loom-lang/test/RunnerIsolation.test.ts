@@ -11,32 +11,26 @@ import { codeView, producedOf, type Mod } from './frames'
 const m = (name: string, text: string): Mod => ({ path: `/iso/${name}`, text })
 const view = (...mods: ReadonlyArray<Mod>) => codeView(producedOf(...mods))
 
-// good is healthy and standalone. baddep is broken — a Warp to a tag nothing defines.
-// importer references the broken module. entry imports both importer and good, and
-// composes good. entry's corpus therefore holds a broken module.
+// baddep is broken — its {Loom} splice throws at module load, so the frame never
+// evaluates. good and entry are healthy, standalone modules in the same corpus.
 const baddep = m(
   'baddep.loom',
-  `{{lang: TypeScript}}\n\n# Bad [BadDep]\n\n{{x = Ghost}}\n\n=>\n\n::[x]\nexport const bad = 1\n`,
-)
-const importer = m(
-  'importer.loom',
-  `{{lang: TypeScript}}\n\n# Pull {Loom}\n\n=>\n\nimport { BadDep } from "./baddep.loom"\n\n# Imp [Imp]\n\n{{b = BadDep}}\n\n=>\n\n::[b]\nexport const imp = 1\n`,
+  `{{lang: TypeScript}}\n\n# Throws {Loom}\n\n=>\n\nthrow new Error("frame boom")\n\n# Bad [BadDep]\n\n=>\n\nexport const bad = 1\n`,
 )
 const good = m(
   'good.loom',
-  `{{lang: TypeScript}}\n\n# Good [Good]\n\n=>\n\nexport const good = 1\n`,
+  `{{lang: TypeScript}}\n\n# Good\n\n=>\n\nexport const good = 1\n`,
 )
 const entry = m(
   'entry.loom',
-  `{{lang: TypeScript}}\n\n# Pull {Loom}\n\n=>\n\nimport { Imp } from "./importer.loom"\nimport { Good } from "./good.loom"\n\n# Entry [Entry]\n\n{{g = Good}}\n\n=>\n\n::[g]\nexport const e = 1\n`,
+  `{{lang: TypeScript}}\n\n# Entry\n\n=>\n\nexport const e = 1\n`,
 )
 
 describe('runner isolation — a broken frame is contained, not contagious', () => {
   it('keeps a healthy module’s de re when a sibling in the corpus is broken', () => {
-    const code = view(baddep, importer, good, entry)
-    // the broken module and the one that references it lose their de re
+    const code = view(baddep, good, entry)
+    // the broken module composes nothing — its whole frame failed to evaluate
     expect(code.get(baddep.path)?.has('BadDep') ?? false).toBe(false)
-    expect(code.get(importer.path)?.has('Imp') ?? false).toBe(false)
     // the healthy modules keep theirs — no corpus-wide collapse
     expect(code.get(good.path)?.has('Good')).toBe(true)
     expect(code.get(entry.path)?.has('Entry')).toBe(true)
@@ -102,12 +96,12 @@ describe('runner — a faulting {Loom} escape hatch is contained to its own file
     // degrades the file to an empty module rather than aborting the corpus.
     const en = m(
       'enum.loom',
-      `{{lang: TypeScript}}\n\n# Bad enum {Loom}\n\n=>\n\nexport enum Color { Red, Green }\n\n# Ok [EnumOk]\n\n=>\n\nexport const ok = 1\n`,
+      `{{lang: TypeScript}}\n\n# Bad enum {Loom}\n\n=>\n\nexport enum Color { Red, Green }\n\n# Ok\n\n=>\n\nexport const ok = 1\n`,
     )
-    const sib = m('esib.loom', `{{lang: TypeScript}}\n\n# Sib [ESib]\n\n=>\n\nexport const s = 1\n`)
+    const sib = m('esib.loom', `{{lang: TypeScript}}\n\n# ESib\n\n=>\n\nexport const s = 1\n`)
     const eentry = m(
       'eentry.loom',
-      `{{lang: TypeScript}}\n\n# Pull {Loom}\n\n=>\n\nimport { EnumOk } from "./enum.loom"\nimport { ESib } from "./esib.loom"\n\n# Entry [EEntry]\n\n{{s = ESib}}\n\n=>\n\n::[s]\nconst e = 1\n`,
+      `{{lang: TypeScript}}\n\n# EEntry\n\n=>\n\nconst e = 1\n`,
     )
     const code = view(en, sib, eentry)
     expect(code.get(en.path)?.size ?? 0).toBe(0) // the enum file lost its de re
@@ -118,12 +112,12 @@ describe('runner — a faulting {Loom} escape hatch is contained to its own file
   it('contains a {Loom} that throws at module load', () => {
     const boom = m(
       'boom.loom',
-      `{{lang: TypeScript}}\n\n# Boom {Loom}\n\n=>\n\nthrow new Error("load-time boom")\n\n# Never [BoomOk]\n\n=>\n\nexport const n = 1\n`,
+      `{{lang: TypeScript}}\n\n# Boom {Loom}\n\n=>\n\nthrow new Error("load-time boom")\n\n# Never\n\n=>\n\nexport const n = 1\n`,
     )
-    const bgood = m('bgood.loom', `{{lang: TypeScript}}\n\n# Good [BGood]\n\n=>\n\nexport const bg = 1\n`)
+    const bgood = m('bgood.loom', `{{lang: TypeScript}}\n\n# BGood\n\n=>\n\nexport const bg = 1\n`)
     const bentry = m(
       'bentry.loom',
-      `{{lang: TypeScript}}\n\n# Pull {Loom}\n\n=>\n\nimport { BoomOk } from "./boom.loom"\nimport { BGood } from "./bgood.loom"\n\n# Entry [BEntry]\n\n{{g = BGood}}\n\n=>\n\n::[g]\nconst e = 1\n`,
+      `{{lang: TypeScript}}\n\n# BEntry\n\n=>\n\nconst e = 1\n`,
     )
     const code = view(boom, bgood, bentry)
     expect(code.get(boom.path)?.size ?? 0).toBe(0) // the throwing file lost its de re

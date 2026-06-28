@@ -19,7 +19,7 @@ such as an anchor that resolves to nothing, is attached here as the frame is bui
 The frame the pass emits is runnable. Each section's code is a `dsl.compose(…)`
 of positioned `dsl.fragment` and `dsl.refer` calls, and the module ends in two
 generated exports the runner reads. `__services` lists each service's layer and the
-tags it depends on, and `__run` is the effect that yields every section to collect
+services it depends on, and `__run` is the effect that yields every section to collect
 its composed code. The builder bakes the source positions into those calls, since
 running the frame loses them unless they are written into it.
 
@@ -30,7 +30,7 @@ This pass reads the Loom AST and writes the Frame AST, so it draws from both. Fr
 section's specifier, `Order` for sorting anchors by position, and `pipe` for the
 main pipeline. From the Loom side come the document and section types, the token a Warp or
 an anchor is lifted from, the weft a code block is made of, and the health model a
-diagnostic attaches to. The fault catalog gives `faulty` and the anchor faults this pass raises. From the Frame side come the schema constructors for every
+diagnostic attaches to. The fault catalog gives `faulty` and the anchor faults this pass raises. The tokeniser's `normaliseTitle` turns a heading into the identifier that names its section. From the Frame side come the schema constructors for every
 node this pass builds — the service class, its bodies, the compose call, the
 references, and the bindings. A section's corpus-wide identity is a `SectionId`, which
 `dsl.compose` and `dsl.weave` stamp onto each composed result.
@@ -49,6 +49,7 @@ import {
   faulty,
   UnresolvedAnchor,
 } from '#ast/LoomFault'
+import { normaliseTitle } from '#ast/WeftTokeniser'
 import {
   type Binding,
   BindingItemSchema,
@@ -124,10 +125,9 @@ export const buildFrame = (
 ): FrameModule => {
   const lang = documentLanguage(doc.preamble) ?? packageLanguage ?? 'plaintext'
   const index = nameIndex(doc.sections, lang)
-  const known = knownServices(doc.sections)
   return pipe(
     doc.sections,
-    Array.map(buildMember(index, known, lang, modulePath)),
+    Array.map(buildMember(index, lang, modulePath)),
     Array.reduce(emptyFrame, appendMember),
     finaliseModule,
   )
@@ -135,11 +135,9 @@ export const buildFrame = (
 
 ## Resolving names
 
-A name anchor names a section by its heading title — the one identifier every
-section always has. A tag is never reachable this way; only a Warp reaches a tag.
-So the index is keyed by title alone, and each title maps to the service that
-title names: the tag label when the section is tagged, or the synthesised name
-when it is not.
+A name anchor names a section by its heading title — the one handle every section
+has. The index is keyed by that title, and each title maps to the service the title
+names: the title normalised to an identifier.
 
 A title can repeat, and the index keeps every section that claims one rather than
 letting the last one overwrite the rest. So a title maps to a *list* of services, not a
@@ -249,81 +247,17 @@ const extensionLanguage = (path: string): string => {
   return languageByExtension.get(ext) ?? ext
 }
 
-## Service warps and value warps
+## Value warps
 
-A Warp binds a name its section's anchors reach, and its value decides how the name
-binds. When the value names a section service — a tag imported from a `.loom`
-module, or a heading in the same document — the Warp is a service binding:
-`const n = yield* Neg` acquires that service through Effect, and `::[n]` transcludes
-its code. When the value is anything else — a string, a number, an expression — the
-Warp is a value binding, a named literal, and `::[n]` composes that value where the
-anchor stood.
+A Warp binds a name its section's anchors compose. A value warp binds the name to a
+literal — a string, a number, any expression — and `::[n]` composes that value where
+the anchor stood. A value needs no service and no dependency. The running frame
+evaluates it in place.
 
-The set of section services tells the two apart, so `knownServices` gathers it:
-every name a `{Loom}` section imports, and every section's own service name.
-`importedSymbols` reads the imports. It walks each `{Loom}` section's import lines
-and collects their bound names — a default import, a `* as` namespace, and every
-name a brace list binds, taking the alias after `as` when one is written.
-`serviceNames` adds the sections themselves. `isLoomSection` picks the
-import-bearing sections out, and `importNamesOf` pulls the names from one.
-
-=>
-
-const isLoomSection = (section: LoomSection): boolean =>
-  section.heading.specifier?.type === 'Specifier' &&
-  section.heading.specifier.label.value === 'Loom'
-
-const importBindings = (line: string): ReadonlyArray<string> => {
-  const brace = /\{([^}]*)\}/.exec(line)
-  const named = brace
-    ? pipe(
-        brace[1].split(','),
-        Array.filterMap((part) => {
-          const m = /(?:[\w$]+\s+as\s+)?([\w$]+)/.exec(part.trim())
-          return m ? Option.some(m[1]) : Option.none()
-        }),
-      )
-    : []
-  const namespace = /\*\s+as\s+([\w$]+)/.exec(line)
-  const fallback = /import\s+(?:type\s+)?([\w$]+)\s*(?:,|from)/.exec(line)
-  return [
-    ...(fallback ? [fallback[1]] : []),
-    ...(namespace ? [namespace[1]] : []),
-    ...named,
-  ]
-}
-
-const importNamesOf = (section: LoomSection): ReadonlyArray<string> =>
-  pipe(
-    Array.filterMap(section.code, pieceOf),
-    Array.filter((p) => /^\s*import\s/.test(p.source)),
-    Array.flatMap((p) => importBindings(p.source)),
-  )
-
-const importedSymbols = (
-  sections: ReadonlyArray<LoomSection>,
-): ReadonlySet<string> =>
-  new Set(
-    Array.flatMap(sections, (s) => (isLoomSection(s) ? importNamesOf(s) : [])),
-  )
-
-const serviceNames = (
-  sections: ReadonlyArray<LoomSection>,
-): ReadonlyArray<string> => Array.map(sections, serviceNameOf)
-
-const knownServices = (
-  sections: ReadonlyArray<LoomSection>,
-): ReadonlySet<string> =>
-  new Set([...importedSymbols(sections), ...serviceNames(sections)])
-
-~
-
-A `WarpScope` sorts a section's Warps into the two kinds: the service names its
-anchors resolve through `referTag`, and the value names mapped to the literal each
-one composes. `scopeOf` sorts the Warps that carry a value — a value-less Warp binds
-nothing, a fault the tokeniser already raised. A Warp is a service binding when its
-value is a bare identifier naming a known service; every other Warp with a value is
-a value binding.
+`valueWarps` gathers them. It keeps each Warp that carries a value, mapped to the
+literal's text and its position. A Warp with no value binds nothing — a fault the
+tokeniser already raised. The document's `lang` Warp carries an annotation rather
+than a value, so neither enters the map.
 
 =>
 
@@ -332,37 +266,19 @@ interface ValueWarp {
   readonly pos: Position
 }
 
-interface WarpScope {
-  readonly services: ReadonlySet<string>
-  readonly values: ReadonlyMap<string, ValueWarp>
-}
-
-const isIdentifier = (s: string): boolean => /^[A-Za-z_$][\w$]*$/.test(s)
-
-const scopeOf = (
+const valueWarps = (
   warps: ReadonlyArray<WarpToken>,
-  known: ReadonlySet<string>,
-): WarpScope => {
-  const bound = warps.filter((w) => w.default !== undefined)
-  const isService = (w: WarpToken): boolean => {
-    const value = w.default?.value.trim() ?? ''
-    return isIdentifier(value) && known.has(value)
-  }
-  const [values, services] = Array.partition(bound, isService)
-  return {
-    services: new Set(services.map((w) => w.name.value)),
-    values: new Map(
-      Array.filterMap(values, (w) =>
-        w.default
-          ? Option.some([
-              w.name.value,
-              { text: w.default.value, pos: w.default.position },
-            ] as const)
-          : Option.none(),
-      ),
+): ReadonlyMap<string, ValueWarp> =>
+  new Map(
+    Array.filterMap(warps, (w) =>
+      w.default
+        ? Option.some([
+            w.name.value,
+            { text: w.default.value, pos: w.default.position },
+          ] as const)
+        : Option.none(),
     ),
-  }
-}
+  )
 
 ## Building a member
 
@@ -370,23 +286,22 @@ A section's specifier decides what it becomes, and `Match` reads the three cases
 in turn. A file-path specifier makes a tangle — a private sink that returns a
 `dsl.tangle` call. A `Loom` specifier makes a splice — raw frame code spliced in
 unwrapped, with its imports hoisted. Anything else makes an ordinary product
-service, exported when the section carries a real tag.
+service, which the frame exports.
 
 A `Built` is a member plus what it contributes to the root: a `service` record —
-its name, the tags it depends on, and whether it is a tangle sink — and any
+its name, the services it depends on, and whether it is a tangle sink — and any
 imports a `Loom` section hoists to the file head. A `{Loom}` splice contributes no
 service, since it is not one.
 
-`buildService` turns one section into one service class. It sorts the section's
-Warp declarations into a scope, walks the code into a compose call and the internal
-bindings its name anchors hoist, and resolves the language id. Only service Warps
-become `yield*` bindings; a value Warp hoists nothing, since its anchors compose a
-literal rather than acquire a service. A tangle
-sink reads its language from its path extension through `extensionLanguage`; a
-section with a language specifier takes that language; every other section takes the
-document default. The section's identity — its path and name — and that language
-stamp the `dsl.compose` call. The body is static when the section declares no
-dependency and effectful when it declares any.
+`buildService` turns one section into one service class. It collects the section's
+value Warps, walks the code into a compose call and the bindings its name anchors
+hoist, and resolves the language id. A name anchor hoists a `yield*` binding; a value
+Warp hoists nothing, since its anchors compose a literal rather than reach a section.
+A tangle sink reads its language from its path extension through `extensionLanguage`;
+a section with a language specifier takes that language; every other section takes the
+document default. The section's identity — its path and name — and that language stamp
+the `dsl.compose` call. The body is static when the section declares no dependency and
+effectful when it declares any.
 
 `bodyOf` derives the body shape from the model: a tangle is always effectful; an ordinary section is effectful
 when it has any bindings and static when it has none. The bindings field is a list that may be empty,
@@ -412,19 +327,13 @@ interface Built {
 }
 
 const buildMember =
-  (
-    index: NameIndex,
-    known: ReadonlySet<string>,
-    lang: string,
-    modulePath: string,
-  ) =>
+  (index: NameIndex, lang: string, modulePath: string) =>
   (section: LoomSection): Built =>
     pipe(
       Match.value(section.heading.specifier),
       Match.when({ type: 'PathSpecifier' }, (spec) =>
         buildService(
           index,
-          known,
           lang,
           section,
           modulePath,
@@ -435,20 +344,19 @@ const buildMember =
         buildSplice(section),
       ),
       Match.orElse(() =>
-        buildService(index, known, lang, section, modulePath, Option.none()),
+        buildService(index, lang, section, modulePath, Option.none()),
       ),
     )
 
 const buildService = (
   index: NameIndex,
-  known: ReadonlySet<string>,
   defaultLang: string,
   section: LoomSection,
   modulePath: string,
   tanglePath: Option.Option<FrameAuthoredToken>,
 ): Built => {
   const warps = section.preamble.flatMap((w) => w.warps)
-  const scope = scopeOf(warps, known)
+  const values = valueWarps(warps)
 
   const name = serviceNameOf(section)
   const origin: SectionId = { path: modulePath, name }
@@ -456,23 +364,20 @@ const buildService = (
 
   const { compose, internals } = buildCompose(
     section,
-    scope,
+    values,
     index,
     origin,
     languageId,
   )
-  const serviceWarps = warps.filter((w) => scope.services.has(w.name.value))
-  const bindings = [...serviceWarps.map(warpBinding), ...internals]
 
-  const nameRef = FrameSynthTokenSchema.make({ text: name })
   const service = ServiceClassSchema.make({
     modifier: FrameSynthTokenSchema.make({
-      text: Option.isNone(tanglePath) && isExported(section) ? 'export ' : '',
+      text: Option.isNone(tanglePath) ? 'export ' : '',
     }),
     name: serviceName(section),
-    nameType: nameRef,
+    nameType: FrameSynthTokenSchema.make({ text: name }),
     nameTag: tok(serviceTag(origin)),
-    body: bodyOf(section, tanglePath, bindings, compose, origin),
+    body: bodyOf(section, tanglePath, internals, compose, origin),
     languageId,
   })
 
@@ -480,7 +385,7 @@ const buildService = (
     member: service,
     service: Option.some({
       name,
-      deps: bindings.map((b) => b.tag.text),
+      deps: internals.map((b) => b.tag.text),
       sink: Option.isSome(tanglePath),
     }),
     imports: [],
@@ -565,14 +470,14 @@ anchor named twice still hoists one binding, so `dedupeByName` keeps the first.
 
 const buildCompose = (
   section: LoomSection,
-  scope: WarpScope,
+  values: ReadonlyMap<string, ValueWarp>,
   index: NameIndex,
   origin: SectionId,
   languageId: string,
 ): { readonly compose: Compose; readonly internals: ReadonlyArray<Binding> } => {
   const walked = Array.map(
     codeRuns(section.code),
-    walkRun(bindAnchor(index, scope, languageId)),
+    walkRun(bindAnchor(index, values, languageId)),
   )
   const args = Array.flatMap(walked, (w) => w.args)
   const internals = dedupeByName(Array.flatMap(walked, (w) => w.bindings))
@@ -724,39 +629,35 @@ const dedupeByName = (
 ## Binding anchors
 
 The builder turns each anchor into one compose argument. A value Warp composes its
-value, a service or a named section composes that section's code, and an anchor that
-resolves to nothing composes nothing — an inert fragment in its place. So a broken or
+value, a named section composes that section's code, and an anchor that resolves to
+nothing composes nothing — an inert fragment in its place. So a broken or
 unresolvable anchor never leaves a dangling name for the run to execute: the run
 always completes, and the product code around the anchor keeps its language service.
 The author owns the program's correctness, and an invalid anchor does not switch the
 checker off.
 
-A resolved anchor takes one of three paths. When the name is a value Warp — one bound
+A resolved anchor takes one of two paths. When the name is a value Warp — one bound
 to a literal, not a section — the anchor composes that value: it emits a
 `dsl.referValue(value, anchor)` call, a `ValueRef`, that the running frame evaluates
 and lands where the anchor stood. No binding backs it, since a literal needs none.
-When the name is a service Warp the section declared, the binding already exists, so
-the anchor composes the service's code by tag — `dsl.referTag(n.code, anchor)` — and
-adds no new binding. Otherwise the name is looked up among the section titles. One
-match resolves by name through `referName`, the shared-scope verb: the builder hoists
-`const _N = yield* N` under an underscore alias, so the constant cannot shadow the
-service's own class, and each reference reads `dsl.referName(_N.code, anchor)`. The
-hoisted binding maps to the section's heading — it is the definition — while each
-`_N.code` reference maps to the anchor that wrote it. So go-to-def on an anchor jumps
-to the heading, and find-references on the heading lists every anchor, one definition
-to many referencers. A match in another language is a cross-language transclusion: the
-binding is real, so the reference stands, but the builder marks the anchor, since a
-JSON section composed into a TypeScript one cannot share its file.
+Otherwise the name is looked up among the section titles. One match resolves through
+`referName`: the builder hoists `const _N = yield* N` under an underscore alias, so the
+constant cannot shadow the service's own class, and each reference reads
+`dsl.referName(_N.code, anchor)`. The hoisted binding maps to the section's heading —
+it is the definition — while each `_N.code` reference maps to the anchor that wrote it.
+So go-to-def on an anchor jumps to the heading, and find-references on the heading lists
+every anchor, one definition to many referencers. A match in another language is a
+cross-language transclusion: the binding is real, so the reference stands, but the
+builder marks the anchor, since a JSON section composed into a TypeScript one cannot
+share its file.
 
 An anchor that cannot resolve leaves an empty fragment instead — valid frame code
 that transcludes nothing — so the run stays whole. What rides on that fragment
 depends on why the anchor failed. A grammatically broken anchor — an empty `::[]` or
 an unclosed `::[n` — already carries the parser's fault on its own span, so the
-fragment adds none and the one fault stands. A well-formed name that matches no
-section is an unresolved anchor; one that matches more than one is ambiguous. A tag
-label is reachable only through a Warp, so a bare tag is a name miss; and a name
-anchor resolves exactly one section, so the builder reports a clash rather than
-guessing. The fragment carries that diagnostic and lands it on the anchor.
+fragment adds none and the one fault stands. A well-formed name that matches no section
+is an unresolved anchor; one that matches more than one is ambiguous. The fragment
+carries that diagnostic and lands it on the anchor.
 
 `unresolved`, `ambiguous`, and `crossLanguage` each build a positioned diagnostic.
 The cross-language diagnostic rides on its `CodeRef`; the other two ride on the
@@ -771,19 +672,16 @@ interface Bound {
 }
 
 const bindAnchor =
-  (index: NameIndex, scope: WarpScope, host: string) =>
+  (index: NameIndex, values: ReadonlyMap<string, ValueWarp>, host: string) =>
   (anchor: WarpAnchorToken): Bound => {
     const name = anchor.name.value
     const at = anchor.name.position
     if (anchor.health.status !== 'ok') {
       return { ref: blankFragment(anchor.position), binding: Option.none() }
     }
-    const value = scope.values.get(name)
+    const value = values.get(name)
     if (value !== undefined) {
       return { ref: valueRef(value, at), binding: Option.none() }
-    }
-    if (scope.services.has(name)) {
-      return { ref: codeRef('referTag', name, at), binding: Option.none() }
     }
     return Array.matchLeft(index.get(name) ?? [], {
       onEmpty: () => ({
@@ -794,7 +692,6 @@ const bindAnchor =
         rest.length === 0
           ? {
               ref: codeRef(
-                'referName',
                 aliasOf(entry.name),
                 at,
                 entry.language === host
@@ -811,13 +708,12 @@ const bindAnchor =
   }
 
 const codeRef = (
-  verb: 'referName' | 'referTag',
   name: string,
   at: Position,
   health: Health = okHealth,
 ): CodeRef =>
   CodeRefSchema.make({
-    open: tok(`dsl.${verb}(`),
+    open: tok('dsl.referName('),
     binding: anchorId(name, at, health),
     anchor: tok(posLiteral(at)),
   })
@@ -842,14 +738,6 @@ const nameBinding = (service: string, headingPos: Position): Binding =>
   BindingSchema.make({
     name: headingId(aliasOf(service), headingPos),
     tag: FrameSynthTokenSchema.make({ text: service }),
-  })
-
-const warpBinding = (warp: WarpToken): Binding =>
-  BindingSchema.make({
-    name: id(warp.name.value, warp.name.position),
-    tag: warp.default
-      ? id(warp.default.value.trim(), warp.default.position)
-      : tok(''),
   })
 
 const unresolved = (name: string, at: Position): Health =>
@@ -966,59 +854,37 @@ ${fileEntries}
 These build the atomic leaves the pass inserts into the tree, marking the de re / de
 dicto boundary at each leaf.
 
-A section's service name is its tag label, or the title normalised to an
-identifier when the section is tagless. The tokeniser fills a tag for every heading,
-so the function is total. `serviceName` chooses the token that carries the name. A
-tagged section's name is a `tag` token, mapped to the `[Tag]` label so the editor
-reaches and renames the section through it. It withholds hover, since a hover would
-only surface the generated service class. A tagless name is a synth token, pure glue
-with no source span. A name anchor reaches such a section through the hoisted alias
-binding, not the class name.
+A section's service name is its heading title normalised to an identifier, through
+the tokeniser's `normaliseTitle` — `What the compiler draws on` becomes
+`WhatTheCompilerDrawsOn`. Every heading has a title, so the function is total. The
+name is synth glue, with no source span: a name anchor reaches the section through its
+hoisted alias binding, not the class name. `serviceName` builds that synth token.
 
 The name reappears as the `<…>` type parameter, which must read back as the class
-name, so it stays the synth `nameRef`. The string tag is not the name but the
-service's identity. `serviceTag` fills it with the section's module-qualified key,
-its path and name, so two modules that each define a `Bit` resolve to distinct
-services. Both tokens are synth and map nothing, so the `[Tag]` label still maps to
-the class declaration alone, and the section keeps one navigation target.
-`isExported` reads the difference from the span. A real tag covers source bytes,
-while a synthesised one is zero-width. A real tag is what exports the service.
+name, so it too is synth. The string tag is not the name but the service's identity.
+`serviceTag` fills it with the section's module-qualified key, its path and name, so
+two modules that each define a `Bit` resolve to distinct services. It is synth and
+maps nothing.
 
-`tagId` builds the section-tag token, `id` a mapped name token for a Warp's local or
-annotation, `headingId` and `anchorId` the two ends of a name-anchor link, and
-`prose` a mapped prose token. The kinds differ only in the editor features their
-span later carries. A `name` token shares its text with the generated identifier, so
-it earns hover. A `tag` token shares its text too, but the identifier it names is the
-generated service class, so it navigates and renames yet withholds that hover. The
-`heading` and `anchor` tokens map across different text, so they navigate but never
-hover. A section's preamble becomes the fragment `proseField` weaves into the
-section's `prose` channel — its one home in the generated frame, escaped for the
-backtick literal it lands in, and carrying its position as the origin the run reads. A section with no preamble weaves an empty channel.
+`id` builds a mapped name token for a Warp's local or annotation, `headingId` and
+`anchorId` the two ends of a name-anchor link, and `prose` a mapped prose token. The
+kinds differ only in the editor features their span later carries. A `name` token
+shares its text with the generated identifier, so it earns hover. The `heading` and
+`anchor` tokens map across different text, so they navigate but never hover. A
+section's preamble becomes the fragment `proseField` weaves into the section's `prose`
+channel — its one home in the generated frame, escaped for the backtick literal it
+lands in, and carrying its position as the origin the run reads. A section with no
+preamble weaves an empty channel.
 
 =>
 
 const serviceNameOf = (section: LoomSection): string =>
-  section.heading.tag?.label.value ?? ''
+  normaliseTitle(section.heading.title?.source ?? '')
 
-const serviceName = (section: LoomSection): ServiceName => {
-  const tag = section.heading.tag
-  return isExported(section) && tag !== undefined
-    ? tagId(tag.label.value, tag.label.position)
-    : FrameSynthTokenSchema.make({ text: serviceNameOf(section) })
-}
-
-const isExported = (section: LoomSection): boolean => {
-  const tag = section.heading.tag
-  return (
-    tag !== undefined &&
-    tag.label.position.end.offset > tag.label.position.start.offset
-  )
-}
+const serviceName = (section: LoomSection): ServiceName =>
+  FrameSynthTokenSchema.make({ text: serviceNameOf(section) })
 
 const tok = (text: string) => FrameSynthTokenSchema.make({ text })
-
-const tagId = (text: string, position: Position): FrameAuthoredToken =>
-  FrameAuthoredTokenSchema.make({ text, position, kind: 'tag' })
 
 const id = (
   text: string,
@@ -1139,7 +1005,7 @@ relies on. Each section is referenced by its title — the local anchor form Loo
 
 ::[Resolving names]
 
-::[Service warps and value warps]
+::[Value warps]
 
 ::[Building a member]
 

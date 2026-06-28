@@ -13,24 +13,16 @@ import { PackageConfig } from '../src/PackageConfig'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { loomLanguagePlugin } from '../src/LoomLanguagePlugin'
 
-// Q1 check: does the import-association registration survive a frame TYPE error?
-// `funtype` imports Neg from sad and transcludes it, AND carries a {Loom} type
-// error (`const bad: number = "oops"`). tsc rejects the frame; the run strips types
-// and produces the de re anyway. The claim under test: the frame's type error does
-// not gate the registration — editing sad must still re-project funtype, because
-// `associate` reads the import graph from the (total) build, not from the run.
+// Does a frame TYPE error gate the de re? `funtype` carries a {Loom} type error
+// (`const bad: number = "oops"`) alongside a normal section. tsc rejects the frame
+// and the diagnostic maps back to the .loom; the run strips types and produces the
+// section's de re anyway. The claim under test: the de dicto (the type-checked
+// frame) and the de re (the stripped, composed product) are independent — a frame
+// type error surfaces in the editor, yet the section still composes.
 
 const dir = mkdtempSync(join(tmpdir(), 'loom-typeerr-'))
-const sad = join(dir, 'sad.loom')
 const fun = join(dir, 'funtype.loom')
-const sadOrig = `{{lang: TypeScript}}\n\n# Negate [Neg]\n\n=>\n\nconst negate = (x: number) => -x\n`
 const funSrc = `{{lang: TypeScript}}
-
-# Imports {Loom}
-
-=>
-
-import { Neg } from "./sad.loom"
 
 # Typed badly {Loom}
 
@@ -38,20 +30,17 @@ import { Neg } from "./sad.loom"
 
 const bad: number = "oops"
 
-# Negated double [Negd]
-
-{{n = Neg}}
+# Negated double
 
 =>
 
-::[n]
+const negate = (x: number) => -x
 const negDouble = (x: number) => negate(x) * 2
 `
 
 let checker: ReturnType<typeof createTypeScriptInferredChecker>
 
 beforeAll(async () => {
-  writeFileSync(sad, sadOrig)
   writeFileSync(fun, funSrc)
   const runtime = await Effect.runPromise(
     Effect.runtime<LoomCompiler | LoomConfig>().pipe(
@@ -64,7 +53,7 @@ beforeAll(async () => {
   checker = createTypeScriptInferredChecker(
     [loomLanguagePlugin(runtime)],
     createTypeScriptServices(ts),
-    () => [fun, sad],
+    () => [fun],
     {
       module: ts.ModuleKind.ESNext,
       moduleResolution: ts.ModuleResolutionKind.Bundler,
@@ -91,13 +80,15 @@ const embedded = (
   return undefined
 }
 
+// `# Negated double` normalises to the section name NegatedDouble, so its de re
+// product virtual code is keyed by that name lowercased.
 const negdOf = (path: string): string | undefined => {
   const root = checker.language.scripts.get(URI.file(path))?.generated?.root
-  const negd = embedded(root, 'negd')
+  const negd = embedded(root, 'negateddouble')
   return negd?.snapshot.getText(0, negd.snapshot.getLength())
 }
 
-describe('a frame type error does not break the import association', () => {
+describe('a frame type error does not gate the de re', () => {
   it('surfaces the frame type error, yet still produces the de re', async () => {
     const diagnostics = await checker.check(fun)
     console.log(
@@ -107,20 +98,8 @@ describe('a frame type error does not break the import association', () => {
     )
     // de dicto: tsc rejects the frame and the diagnostic maps back to the .loom
     expect(diagnostics.some((d) => /not assignable|number/.test(d.message))).toBe(true)
-    // de re: the run strips types, so the section still composes — sad inlined
+    // de re: the run strips types, so the section still composes
     expect(negdOf(fun)).toContain('const negate = (x: number) => -x')
-  })
-
-  it('re-projects when the dependency changes, despite the frame type error', async () => {
-    await checker.check(fun) // projects funtype → registers funtype depends on sad
-    expect(negdOf(fun)).toContain('-x')
-
-    writeFileSync(sad, sadOrig.replace('-x', '-x * 7'))
-    checker.fileUpdated(sad)
-    await checker.check(sad) // dirties funtype via the association; evicts sad's build
-
-    // The association held even though funtype's frame has a type error: reading
-    // funtype re-projects it, and the re-projection inlines the fresh sad.
-    expect(negdOf(fun)).toContain('-x * 7')
+    expect(negdOf(fun)).toContain('const negDouble')
   })
 })

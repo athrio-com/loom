@@ -39,7 +39,7 @@ const loom = (
 
 const fixture = `{{lang: TypeScript}}
 
-# Greeting [Greet]
+# Greeting
 
 =>
 
@@ -47,11 +47,9 @@ export const hi = "hello"
 
 # Out {out.ts}
 
-{{g = Greet}}
-
 =>
 
-::[g]
+::[Greeting]
 `
 
 const tempDoc = (): { readonly dir: string; readonly doc: string } => {

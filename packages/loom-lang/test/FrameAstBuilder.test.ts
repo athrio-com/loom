@@ -5,31 +5,23 @@ import type {
   CodeRef,
   EffectfulBody,
   EmbeddedCode,
-  FrameAuthoredToken,
   ProseFragment,
   ServiceClass,
   StaticBody,
 } from '@athrio/loom-ast/FrameAst'
 import { buildFrame } from '#ast/FrameAstBuilder'
 
-// A ServiceName is authored (tagged → mapped to the `[Tag]`) or synth (tagless →
-// the title-derived name, unmapped). Tests asserting a mapped position narrow to
-// the authored case first.
-const asAuthored = (t: ServiceClass['name']): FrameAuthoredToken => {
-  if (t.type !== 'FrameAuthoredToken') {
-    throw new Error(`expected an authored token, got ${t.type}`)
-  }
-  return t
-}
+// Every section's class name is synth glue: the title normalised to an identifier,
+// with no source span. Tests read it as text, not as a mapped position.
 
-// buildFrame over the trivial fixture: one tagged, static section, no Warps.
+// buildFrame over the trivial fixture: one static section, no anchors.
 // Assertions are structural (no renderer here) — the right nodes, fields, and
 // source mappings. The frame is runnable: code is a compose of positioned
 // dsl.fragment / dsl.refer args, and the root is the __services / __run exports.
 
 const input = `{{lang: TypeScript}}
 
-# Adder [Add]
+# Adder
 
 Adds two integers.
 
@@ -47,18 +39,18 @@ const argsOf = (code: { args: ReadonlyArray<{ value: unknown }> }) =>
 describe('buildFrame — trivial section → FrameModule', () => {
   const frame = buildFrame(parse(input), '/x.loom')
 
-  it('produces one exported ServiceClass named after the tag', () => {
+  it('produces one exported ServiceClass named after the title', () => {
     expect(frame.type).toBe('FrameModule')
     expect(frame.members).toHaveLength(1)
     const member = frame.members[0]!.value
     expect(member.type).toBe('ServiceClass')
     const svc = member as ServiceClass
     expect(svc.modifier.text).toBe('export ')
-    // class name and type parameter are the bare name; the string tag is the
-    // section's module-qualified identity, so two modules' `Add`s stay distinct
-    expect(svc.name.text).toBe('Add')
-    expect(svc.nameType.text).toBe('Add')
-    expect(svc.nameTag.text).toBe('/x.loom#Add')
+    // class name and type parameter are the title-derived name; the string tag is
+    // the section's module-qualified identity, so two modules' `Adder`s stay distinct
+    expect(svc.name.text).toBe('Adder')
+    expect(svc.nameType.text).toBe('Adder')
+    expect(svc.nameTag.text).toBe('/x.loom#Adder')
   })
 
   it('maps title → name, preamble → woven prose, code → compose', () => {
@@ -77,30 +69,24 @@ describe('buildFrame — trivial section → FrameModule', () => {
 
   it('synthesises a Root listing the one service, no sinks', () => {
     expect(frame.root?.type).toBe('Root')
-    expect(frame.root?.services.text).toContain('Add: { layer: Add.Default, self: Add, deps: [] }')
+    expect(frame.root?.services.text).toContain('Adder: { layer: Adder.Default, self: Adder, deps: [] }')
     // a content section contributes to sections/prose; no sink reaches files
-    expect(frame.root?.run.text).toContain('(yield* Add).code')
+    expect(frame.root?.run.text).toContain('(yield* Adder).code')
     expect(frame.root?.run.text).toContain('files: [')
-    expect(frame.root?.run.text).not.toContain('yield* Add\n') // not a sink yield
+    expect(frame.root?.run.text).not.toContain('yield* Adder\n') // not a sink yield
   })
 
-  it('keeps the root pure synth glue, so the name maps only at its class declaration', () => {
-    // __services and __run repeat each name as plain text. Mapping those repeats
-    // would give the [Add] tag extra navigation targets; the class declaration is
-    // the one mapped occurrence.
+  it('keeps the root pure synth glue, like the class name itself', () => {
+    // The class name, __services, and __run are all synth text — the title-derived
+    // name repeated, with no source span. None is a navigation target.
+    expect((frame.members[0]!.value as ServiceClass).name.type).toBe('FrameSynthToken')
     expect(frame.root?.services.type).toBe('FrameSynthToken')
     expect(frame.root?.run.type).toBe('FrameSynthToken')
   })
 
-  it('maps the class name to the [Add] tag; the field name is a synth display string', () => {
+  it('carries the title text in the `name:` field as a synth display string', () => {
     const svc = frame.members[0]!.value as ServiceClass
     const body = svc.body as StaticBody
-    // class name ⇒ the tag label inside `[Add]`, not the title "Adder"
-    expect(asAuthored(svc.name).position.start.offset).toBe(
-      input.indexOf('[Add]') + 1,
-    )
-    // a `tag` span — locate-only, so hovering [Add] shows no generated class
-    expect(asAuthored(svc.name).kind).toBe('tag')
     // the `name:` field carries the title text but is unmapped — a display
     // string, not a navigation target (mapping it self-references the heading)
     expect(body.name.type).toBe('FrameSynthToken')
@@ -111,19 +97,17 @@ describe('buildFrame — trivial section → FrameModule', () => {
 describe('buildFrame — mapped spans hug the inner payload, not delimiters', () => {
   const src = `{{lang: TypeScript}}
 
-# Helper [Help]
+# Help
 
 =>
 
 export const help = 1
 
-# Main [Main]
-
-{{h = Help}}
+# Main
 
 =>
 
-main = ::[h]
+main = ::[Help]
 `
   const frame = buildFrame(parse(src), '/x.loom')
   const main = frame.members
@@ -133,29 +117,26 @@ main = ::[h]
         v.type === 'ServiceClass' && v.name.text === 'Main',
     )!
   const body = main.body as EffectfulBody
-  const binding = body.bindings[0]!.value // the one Warp, `{{h = Help}}`
+  const binding = body.bindings[0]!.value // the hoisted `const _Help = yield* Help`
   const at = (p: { start: { offset: number }; end: { offset: number } }) =>
     src.slice(p.start.offset, p.end.offset)
 
-  it('a Warp binds name and value to the inner spans of {{name = Tag}}', () => {
-    expect(binding.name.text).toBe('h')
-    expect(at(binding.name.position)).toBe('h') // not "{{h = Help}}"
-    // a service Warp's tag is authored — it maps to the `Help` value span
-    const tag = binding.tag
-    expect(tag.type).toBe('FrameAuthoredToken')
-    if (tag.type !== 'FrameAuthoredToken') return
-    expect(tag.text).toBe('Help')
-    expect(at(tag.position)).not.toMatch(/[{}]/) // no delimiters
-    expect(at(tag.position)).toContain('Help')
+  it('hoists a binding whose alias maps to the heading title', () => {
+    expect(binding.name.text).toBe('_Help')
+    // the alias is the definition: mapped to the `# Help` heading title
+    expect(at(binding.name.position)).toBe('Help')
+    expect(binding.name.kind).toBe('heading')
+    expect(binding.tag.type).toBe('FrameSynthToken') // `yield* Help` is glue
   })
 
   it('a code anchor binds to the inner name of ::[name], not the braces', () => {
     const ref = argsOf(body.code).find(
       (a): a is CodeRef => (a as CodeRef).type === 'CodeRef',
     )!
-    expect(ref.binding.text).toBe('h')
-    expect(at(ref.binding.position)).toBe('h') // not "::[h]"
-    expect(ref.binding.position.start.offset).toBe(src.lastIndexOf('::[h]') + 3)
+    // the reference resolves through the hoisted alias `_Help`
+    expect(ref.binding.text).toBe('_Help')
+    expect(at(ref.binding.position)).toBe('Help') // not "::[Help]"
+    expect(ref.binding.position.start.offset).toBe(src.lastIndexOf('::[Help]') + 3)
   })
 })
 
@@ -164,11 +145,11 @@ describe('buildFrame — inline-arrow and multi-chunk code reach the compose', (
   // both compose — the chunks join, the interleaved prose drops.
   const src = `{{lang: TypeScript}}
 
-# Inline [Inline]
+# Inline
 
 => export const a = 1
 
-# Multi [Multi]
+# Multi
 
 =>
 const b = 2
@@ -258,34 +239,22 @@ echo hi
   })
 })
 
-describe('buildFrame — a tagged tangle maps its class once; the sink yield repeats the name as synth', () => {
-  // A heading may carry both a tag and a path: `# Title [Tag] {path}`. The tag
-  // makes the class name authored and mapped to `[Tag]`, so it is the one mapped
-  // occurrence. The composition root's __run yields the sink — `yield* Bun` — as
-  // plain text. Were the sink mapped too, the [Bun] tag would gain a second
-  // navigation target. The tagless tangle above cannot catch this: its name is
-  // synth regardless, so only a tagged tangle tells the fix from the bug apart.
+describe('buildFrame — a tangle yields its sink in __run as plain text', () => {
+  // A {path} section is a sink. The composition root's __run yields it —
+  // `yield* BundleIt` — as plain synth text, an unmapped glue reference.
   const src = `{{lang: TypeScript}}
 
-# Bundle it [Bun] {dist/bundle.sh}
+# Bundle it {dist/bundle.sh}
 
 =>
 
 const x = 1
 `
   const frame = buildFrame(parse(src), '/x.loom')
-  const svc = frame.members[0]!.value as ServiceClass
 
-  it('maps the class name to the [Bun] tag — the one mapping', () => {
-    expect(svc.name.type).toBe('FrameAuthoredToken')
-    expect(asAuthored(svc.name).position.start.offset).toBe(
-      src.indexOf('[Bun]') + 1,
-    )
-  })
-
-  it('yields the sink in __run as plain text, so the tag has one navigation target', () => {
-    expect(frame.root?.run.text).toContain('yield* Bun')
-    expect(frame.root?.services.text).toContain('Bun: { layer: Bun.Default')
+  it('yields the sink in __run as plain text', () => {
+    expect(frame.root?.run.text).toContain('yield* BundleIt')
+    expect(frame.root?.services.text).toContain('BundleIt: { layer: BundleIt.Default')
     expect(frame.root?.run.type).toBe('FrameSynthToken') // glue, unmapped
   })
 })
@@ -309,7 +278,7 @@ export const a = 1
 
 export const b = 2
 
-# Main [Main]
+# Main
 
 =>
 
@@ -393,7 +362,7 @@ describe('buildFrame — cross-language composition is a diagnostic', () => {
 
 { "port": 8080 }
 
-# Main [Main]
+# Main
 
 =>
 

@@ -10,6 +10,7 @@ import {
   faulty,
   UnresolvedAnchor,
 } from '#ast/LoomFault'
+import { normaliseTitle } from '#ast/WeftTokeniser'
 import {
   type Binding,
   BindingItemSchema,
@@ -66,10 +67,9 @@ export const buildFrame = (
 ): FrameModule => {
   const lang = documentLanguage(doc.preamble) ?? packageLanguage ?? 'plaintext'
   const index = nameIndex(doc.sections, lang)
-  const known = knownServices(doc.sections)
   return pipe(
     doc.sections,
-    Array.map(buildMember(index, known, lang, modulePath)),
+    Array.map(buildMember(index, lang, modulePath)),
     Array.reduce(emptyFrame, appendMember),
     finaliseModule,
   )
@@ -151,89 +151,24 @@ const extensionLanguage = (path: string): string => {
   return languageByExtension.get(ext) ?? ext
 }
 
-const isLoomSection = (section: LoomSection): boolean =>
-  section.heading.specifier?.type === 'Specifier' &&
-  section.heading.specifier.label.value === 'Loom'
-
-const importBindings = (line: string): ReadonlyArray<string> => {
-  const brace = /\{([^}]*)\}/.exec(line)
-  const named = brace
-    ? pipe(
-        brace[1].split(','),
-        Array.filterMap((part) => {
-          const m = /(?:[\w$]+\s+as\s+)?([\w$]+)/.exec(part.trim())
-          return m ? Option.some(m[1]) : Option.none()
-        }),
-      )
-    : []
-  const namespace = /\*\s+as\s+([\w$]+)/.exec(line)
-  const fallback = /import\s+(?:type\s+)?([\w$]+)\s*(?:,|from)/.exec(line)
-  return [
-    ...(fallback ? [fallback[1]] : []),
-    ...(namespace ? [namespace[1]] : []),
-    ...named,
-  ]
-}
-
-const importNamesOf = (section: LoomSection): ReadonlyArray<string> =>
-  pipe(
-    Array.filterMap(section.code, pieceOf),
-    Array.filter((p) => /^\s*import\s/.test(p.source)),
-    Array.flatMap((p) => importBindings(p.source)),
-  )
-
-const importedSymbols = (
-  sections: ReadonlyArray<LoomSection>,
-): ReadonlySet<string> =>
-  new Set(
-    Array.flatMap(sections, (s) => (isLoomSection(s) ? importNamesOf(s) : [])),
-  )
-
-const serviceNames = (
-  sections: ReadonlyArray<LoomSection>,
-): ReadonlyArray<string> => Array.map(sections, serviceNameOf)
-
-const knownServices = (
-  sections: ReadonlyArray<LoomSection>,
-): ReadonlySet<string> =>
-  new Set([...importedSymbols(sections), ...serviceNames(sections)])
-
 interface ValueWarp {
   readonly text: string
   readonly pos: Position
 }
 
-interface WarpScope {
-  readonly services: ReadonlySet<string>
-  readonly values: ReadonlyMap<string, ValueWarp>
-}
-
-const isIdentifier = (s: string): boolean => /^[A-Za-z_$][\w$]*$/.test(s)
-
-const scopeOf = (
+const valueWarps = (
   warps: ReadonlyArray<WarpToken>,
-  known: ReadonlySet<string>,
-): WarpScope => {
-  const bound = warps.filter((w) => w.default !== undefined)
-  const isService = (w: WarpToken): boolean => {
-    const value = w.default?.value.trim() ?? ''
-    return isIdentifier(value) && known.has(value)
-  }
-  const [values, services] = Array.partition(bound, isService)
-  return {
-    services: new Set(services.map((w) => w.name.value)),
-    values: new Map(
-      Array.filterMap(values, (w) =>
-        w.default
-          ? Option.some([
-              w.name.value,
-              { text: w.default.value, pos: w.default.position },
-            ] as const)
-          : Option.none(),
-      ),
+): ReadonlyMap<string, ValueWarp> =>
+  new Map(
+    Array.filterMap(warps, (w) =>
+      w.default
+        ? Option.some([
+            w.name.value,
+            { text: w.default.value, pos: w.default.position },
+          ] as const)
+        : Option.none(),
     ),
-  }
-}
+  )
 
 interface ServiceInfo {
   readonly name: string
@@ -248,19 +183,13 @@ interface Built {
 }
 
 const buildMember =
-  (
-    index: NameIndex,
-    known: ReadonlySet<string>,
-    lang: string,
-    modulePath: string,
-  ) =>
+  (index: NameIndex, lang: string, modulePath: string) =>
   (section: LoomSection): Built =>
     pipe(
       Match.value(section.heading.specifier),
       Match.when({ type: 'PathSpecifier' }, (spec) =>
         buildService(
           index,
-          known,
           lang,
           section,
           modulePath,
@@ -271,20 +200,19 @@ const buildMember =
         buildSplice(section),
       ),
       Match.orElse(() =>
-        buildService(index, known, lang, section, modulePath, Option.none()),
+        buildService(index, lang, section, modulePath, Option.none()),
       ),
     )
 
 const buildService = (
   index: NameIndex,
-  known: ReadonlySet<string>,
   defaultLang: string,
   section: LoomSection,
   modulePath: string,
   tanglePath: Option.Option<FrameAuthoredToken>,
 ): Built => {
   const warps = section.preamble.flatMap((w) => w.warps)
-  const scope = scopeOf(warps, known)
+  const values = valueWarps(warps)
 
   const name = serviceNameOf(section)
   const origin: SectionId = { path: modulePath, name }
@@ -292,23 +220,20 @@ const buildService = (
 
   const { compose, internals } = buildCompose(
     section,
-    scope,
+    values,
     index,
     origin,
     languageId,
   )
-  const serviceWarps = warps.filter((w) => scope.services.has(w.name.value))
-  const bindings = [...serviceWarps.map(warpBinding), ...internals]
 
-  const nameRef = FrameSynthTokenSchema.make({ text: name })
   const service = ServiceClassSchema.make({
     modifier: FrameSynthTokenSchema.make({
-      text: Option.isNone(tanglePath) && isExported(section) ? 'export ' : '',
+      text: Option.isNone(tanglePath) ? 'export ' : '',
     }),
     name: serviceName(section),
-    nameType: nameRef,
+    nameType: FrameSynthTokenSchema.make({ text: name }),
     nameTag: tok(serviceTag(origin)),
-    body: bodyOf(section, tanglePath, bindings, compose, origin),
+    body: bodyOf(section, tanglePath, internals, compose, origin),
     languageId,
   })
 
@@ -316,7 +241,7 @@ const buildService = (
     member: service,
     service: Option.some({
       name,
-      deps: bindings.map((b) => b.tag.text),
+      deps: internals.map((b) => b.tag.text),
       sink: Option.isSome(tanglePath),
     }),
     imports: [],
@@ -373,14 +298,14 @@ const buildSplice = (section: LoomSection): Built => {
 
 const buildCompose = (
   section: LoomSection,
-  scope: WarpScope,
+  values: ReadonlyMap<string, ValueWarp>,
   index: NameIndex,
   origin: SectionId,
   languageId: string,
 ): { readonly compose: Compose; readonly internals: ReadonlyArray<Binding> } => {
   const walked = Array.map(
     codeRuns(section.code),
-    walkRun(bindAnchor(index, scope, languageId)),
+    walkRun(bindAnchor(index, values, languageId)),
   )
   const args = Array.flatMap(walked, (w) => w.args)
   const internals = dedupeByName(Array.flatMap(walked, (w) => w.bindings))
@@ -535,19 +460,16 @@ interface Bound {
 }
 
 const bindAnchor =
-  (index: NameIndex, scope: WarpScope, host: string) =>
+  (index: NameIndex, values: ReadonlyMap<string, ValueWarp>, host: string) =>
   (anchor: WarpAnchorToken): Bound => {
     const name = anchor.name.value
     const at = anchor.name.position
     if (anchor.health.status !== 'ok') {
       return { ref: blankFragment(anchor.position), binding: Option.none() }
     }
-    const value = scope.values.get(name)
+    const value = values.get(name)
     if (value !== undefined) {
       return { ref: valueRef(value, at), binding: Option.none() }
-    }
-    if (scope.services.has(name)) {
-      return { ref: codeRef('referTag', name, at), binding: Option.none() }
     }
     return Array.matchLeft(index.get(name) ?? [], {
       onEmpty: () => ({
@@ -558,7 +480,6 @@ const bindAnchor =
         rest.length === 0
           ? {
               ref: codeRef(
-                'referName',
                 aliasOf(entry.name),
                 at,
                 entry.language === host
@@ -575,13 +496,12 @@ const bindAnchor =
   }
 
 const codeRef = (
-  verb: 'referName' | 'referTag',
   name: string,
   at: Position,
   health: Health = okHealth,
 ): CodeRef =>
   CodeRefSchema.make({
-    open: tok(`dsl.${verb}(`),
+    open: tok('dsl.referName('),
     binding: anchorId(name, at, health),
     anchor: tok(posLiteral(at)),
   })
@@ -606,14 +526,6 @@ const nameBinding = (service: string, headingPos: Position): Binding =>
   BindingSchema.make({
     name: headingId(aliasOf(service), headingPos),
     tag: FrameSynthTokenSchema.make({ text: service }),
-  })
-
-const warpBinding = (warp: WarpToken): Binding =>
-  BindingSchema.make({
-    name: id(warp.name.value, warp.name.position),
-    tag: warp.default
-      ? id(warp.default.value.trim(), warp.default.position)
-      : tok(''),
   })
 
 const unresolved = (name: string, at: Position): Health =>
@@ -701,27 +613,12 @@ ${fileEntries}
 }
 
 const serviceNameOf = (section: LoomSection): string =>
-  section.heading.tag?.label.value ?? ''
+  normaliseTitle(section.heading.title?.source ?? '')
 
-const serviceName = (section: LoomSection): ServiceName => {
-  const tag = section.heading.tag
-  return isExported(section) && tag !== undefined
-    ? tagId(tag.label.value, tag.label.position)
-    : FrameSynthTokenSchema.make({ text: serviceNameOf(section) })
-}
-
-const isExported = (section: LoomSection): boolean => {
-  const tag = section.heading.tag
-  return (
-    tag !== undefined &&
-    tag.label.position.end.offset > tag.label.position.start.offset
-  )
-}
+const serviceName = (section: LoomSection): ServiceName =>
+  FrameSynthTokenSchema.make({ text: serviceNameOf(section) })
 
 const tok = (text: string) => FrameSynthTokenSchema.make({ text })
-
-const tagId = (text: string, position: Position): FrameAuthoredToken =>
-  FrameAuthoredTokenSchema.make({ text, position, kind: 'tag' })
 
 const id = (
   text: string,

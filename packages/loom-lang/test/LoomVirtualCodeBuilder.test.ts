@@ -9,9 +9,8 @@ import { fromFrame, fromProduct } from '#ast/LoomVirtualCodeBuilder'
 // LoomVirtualCodeBuilder's two passes, both yielding a LoomVirtualCode.
 // fromFrame (de dicto): Frame AST → the `frame` virtual code, the generated
 // composition program tsc checks. fromProduct (de re): a section → its product
-// virtual code, transclusions inlined across the corpus — every cross-file span
-// re-pinned onto the consuming `::[…]` anchor (per how-lsp), never dangling into
-// the dependency.
+// virtual code, the sections it names with `::[…]` inlined in composition order,
+// each block re-indented to its anchor column.
 
 const parse = (src: string) =>
   Effect.runSync(parseDocument(src).pipe(Effect.provide(ParseLayer)))
@@ -51,7 +50,7 @@ const corpusOf = (
 
 const adder = `{{lang: TypeScript}}
 
-# Adder [Add]
+# Adder
 
 Adds two integers.
 
@@ -63,7 +62,6 @@ export const add = (x: number, y: number): number => x + y
 describe('fromFrame — Frame AST → the frame virtual code', () => {
   const vc = fromFrame(buildFrame(parse(adder), '/Adder.loom'))
   const genCode = vc.code
-  const mappings = vc.mappings
 
   it('is the loom `frame` document with no children', () => {
     expect(vc.id).toBe('frame')
@@ -76,9 +74,9 @@ describe('fromFrame — Frame AST → the frame virtual code', () => {
     expect(genCode).toContain('import { Effect, Layer } from "effect"')
   })
 
-  it('emits an exported Service class named after the tag', () => {
+  it('emits an exported Service class named after the title', () => {
     expect(genCode).toContain(
-      'export class Add extends Effect.Service<Add>()("/Adder.loom#Add", ',
+      'export class Adder extends Effect.Service<Adder>()("/Adder.loom#Adder", ',
     )
     expect(genCode).toContain(') {}')
   })
@@ -96,99 +94,62 @@ describe('fromFrame — Frame AST → the frame virtual code', () => {
 
   it('emits the __services and __run exports the runner reads', () => {
     expect(genCode).toContain('export const __services = ')
-    expect(genCode).toContain('Add: { layer: Add.Default, self: Add, deps: [] }')
+    expect(genCode).toContain('Adder: { layer: Adder.Default, self: Adder, deps: [] }')
     expect(genCode).toContain('export const __run = Effect.gen(')
-    expect(genCode).toContain('(yield* Add).code')
-  })
-
-  it('maps a generated `Add` name back to the [Add] tag label span, as a `tag` span', () => {
-    const at = genCode.indexOf('export class Add') + 'export class '.length
-    const mapping = mappings.find(
-      (m) => m.genStart <= at && at < m.genStart + m.genLength,
-    )
-    // `tag`, not `name`: the span navigates and renames but withholds hover, so
-    // the generated service class never shows when hovering the [Add] tag
-    expect(mapping?.kind).toBe('tag')
-    expect(mapping?.source.start.offset).toBe(adder.indexOf('[Add]') + 1)
-    expect(
-      adder.slice(mapping!.source.start.offset, mapping!.source.end.offset),
-    ).toBe('Add')
+    expect(genCode).toContain('(yield* Adder).code')
   })
 
   it('escapes ` and ${ in the woven prose field and the product code', () => {
     const escInput =
-      '{{lang: TypeScript}}\n\n# Escapes [Esc]\n\nMentions `pow` in prose.\n\n=>\n\nconst greeting = `Hi ${name}`\n'
+      '{{lang: TypeScript}}\n\n# Escapes\n\nMentions `pow` in prose.\n\n=>\n\nconst greeting = `Hi ${name}`\n'
     const out = fromFrame(buildFrame(parse(escInput), '/Esc.loom')).code
     expect(out).toContain('\\`pow\\`') // field: escaped backticks
     expect(out).toContain('\\${name}') // product code: escaped ${
   })
 })
 
-// === de re (cross-file) — fromProduct =====================================
+// === de re — fromProduct ==================================================
 
+// One file with a leaf section and a section that names it with `::[Negate]`. The
+// de re of the referencing section inlines the leaf's code; the leaf's own de re
+// maps back to its origin.
 const sad = `{{lang: TypeScript}}
 
-# Negate [Neg]
+# Negate
 
 =>
 
 const negate = (x: number) => -x
-`
 
-const fun = `{{lang: TypeScript}}
-
-# Imports {Loom}
+# Negated double
 
 =>
 
-import { Neg } from "./Sad.loom"
-
-# Negated double [Negd]
-
-{{n = Neg}}
-
-=>
-
-::[n]
+::[Negate]
 const negDouble = (x: number) => negate(x) * 2
 `
 
-const codeByPath = corpusOf(
-  { path: '/Sad.loom', text: sad },
-  { path: '/Fun.loom', text: fun },
-)
+const codeByPath = corpusOf({ path: '/Sad.loom', text: sad })
 
-describe('fromProduct — section → product virtual code (cross-file)', () => {
+describe('fromProduct — section → product virtual code', () => {
   it('is keyed by the section name lowercased, in its own language', () => {
-    const vc = fromProduct(codeByPath, { path: '/Fun.loom', name: 'Negd' })
-    expect(vc.id).toBe('negd')
+    const vc = fromProduct(codeByPath, { path: '/Sad.loom', name: 'NegatedDouble' })
+    expect(vc.id).toBe('negateddouble')
     expect(vc.languageId).toBe('typescript')
     expect(vc.embeddedCodes).toEqual([])
   })
 
-  it('inlines an imported section across files, in composition order', () => {
-    const vc = fromProduct(codeByPath, { path: '/Fun.loom', name: 'Negd' })
-    expect(vc.code).toContain('const negate = (x: number) => -x') // pulled from Sad
-    expect(vc.code).toContain('const negDouble') // Fun's own
+  it('inlines the referenced section in composition order', () => {
+    const vc = fromProduct(codeByPath, { path: '/Sad.loom', name: 'NegatedDouble' })
+    expect(vc.code).toContain('const negate = (x: number) => -x') // pulled from Negate
+    expect(vc.code).toContain('const negDouble') // the section's own
     expect(vc.code.indexOf('const negate')).toBeLessThan(
       vc.code.indexOf('const negDouble'),
     )
   })
 
-  it('re-pins every cross-file span onto the consuming file (never into the dep)', () => {
-    const vc = fromProduct(codeByPath, { path: '/Fun.loom', name: 'Negd' })
-    // negate's *text* is from Sad, but no mapping may point outside Fun's source.
-    expect(vc.mappings.every((m) => m.source.end.offset <= fun.length)).toBe(true)
-    // the first emitted span (the inlined `negate`) maps to the ::[n] anchor in
-    // Fun, not to the library's own code.
-    const first = vc.mappings.find((m) => m.genStart === 0)!
-    expect(first).toBeDefined()
-    const span = fun.slice(first.source.start.offset, first.source.end.offset)
-    expect(span).not.toContain('negate')
-  })
-
-  it('a same-file leaf maps back to its own origin', () => {
-    const vc = fromProduct(codeByPath, { path: '/Sad.loom', name: 'Neg' })
+  it('a leaf maps back to its own origin', () => {
+    const vc = fromProduct(codeByPath, { path: '/Sad.loom', name: 'Negate' })
     expect(vc.code).toContain('const negate')
     const m0 = vc.mappings.find((m) => m.genStart === 0)!
     expect(sad.slice(m0.source.start.offset, m0.source.end.offset)).toContain(
@@ -205,35 +166,32 @@ describe('fromProduct — section → product virtual code (cross-file)', () => 
 // file ends with a single newline, not a doubled trailing blank.
 const two = `{{lang: TypeScript}}
 
-# Alpha [A]
+# Alpha
 
 =>
 
 const a = 1
 
-# Beta [B]
+# Beta
 
 =>
 
 const b = 2
 
-# Bundle [Bun]
-
-{{x = A}}
-{{y = B}}
+# Bundle
 
 =>
 
-::[x]
+::[Alpha]
 
-::[y]
+::[Beta]
 `
 
 const twoCode = corpusOf({ path: '/Two.loom', text: two })
 
 describe('fromProduct — transclusion sheds the block trailing newline', () => {
   it('one blank line between anchors yields one blank line between blocks', () => {
-    const vc = fromProduct(twoCode, { path: '/Two.loom', name: 'Bun' })
+    const vc = fromProduct(twoCode, { path: '/Two.loom', name: 'Bundle' })
     expect(vc.code).toBe('const a = 1\n\nconst b = 2\n')
   })
 })
@@ -247,28 +205,26 @@ describe('fromProduct — transclusion sheds the block trailing newline', () => 
 // re-derives its source per line.
 const wrapped = `{{lang: TypeScript}}
 
-# Body [Bod]
+# Body
 
 =>
 
 const x = 1
 const y = 2
 
-# Wrap [Wr]
-
-{{b = Bod}}
+# Wrap
 
 =>
 
 function wrap() {
-  ::[b]
+  ::[Body]
 }
 `
 
 const wrappedCode = corpusOf({ path: '/Wrapped.loom', text: wrapped })
 
 describe('fromProduct — an indented anchor indents the whole block', () => {
-  const vc = fromProduct(wrappedCode, { path: '/Wrapped.loom', name: 'Wr' })
+  const vc = fromProduct(wrappedCode, { path: '/Wrapped.loom', name: 'Wrap' })
 
   it('indents every continuation line to the anchor column', () => {
     expect(vc.code).toBe(
@@ -304,7 +260,7 @@ describe('fromProduct — an indented anchor indents the whole block', () => {
 // levels deep. A blank line inside a block stays empty, carrying no indent.
 const python = `{{lang: Python}}
 
-# Leaf [Leaf]
+# Leaf
 
 =>
 
@@ -312,23 +268,19 @@ total += n
 
 log(total)
 
-# Inner [Inner]
-
-{{leaf = Leaf}}
+# Inner
 
 =>
 
 if n > 0:
-    ::[leaf]
+    ::[Leaf]
 
-# Outer [Outer]
-
-{{inner = Inner}}
+# Outer
 
 =>
 
 def run(n):
-    ::[inner]
+    ::[Inner]
     return total
 `
 
@@ -353,21 +305,19 @@ describe('fromProduct — indentation stacks through nested anchors', () => {
 // block still indents, and no line is left with stray trailing spaces.
 const trailing = `{{lang: Python}}
 
-# Body [Bod]
+# Body
 
 =>
 
 a = 1
 b = 2
 
-# Wrap [Wr]
-
-{{b = Bod}}
+# Wrap
 
 =>
 
 def f():
-    ::[b]${'   '}
+    ::[Body]${'   '}
     return a
 `
 
@@ -375,7 +325,7 @@ const trailingCode = corpusOf({ path: '/Trailing.loom', text: trailing })
 
 describe('fromProduct — trailing spaces after an anchor still indent, then vanish', () => {
   it('indents the block and leaves no stray trailing whitespace', () => {
-    const vc = fromProduct(trailingCode, { path: '/Trailing.loom', name: 'Wr' })
+    const vc = fromProduct(trailingCode, { path: '/Trailing.loom', name: 'Wrap' })
     expect(vc.code).toBe('def f():\n    a = 1\n    b = 2\n    return a\n')
   })
 })
@@ -386,28 +336,24 @@ describe('fromProduct — trailing spaces after an anchor still indent, then van
 // silently re-indented, which for a free-form language would corrupt the output.
 const inline = `{{lang: TypeScript}}
 
-# Pair [Pair]
+# Pair
 
 =>
 
 a = 1
 b = 2
 
-# Before [Before]
-
-{{p = Pair}}
+# Before
 
 =>
 
-  const x = ::[p]
+  const x = ::[Pair]
 
-# After [After]
-
-{{p = Pair}}
+# After
 
 =>
 
-  ::[p] + tail
+  ::[Pair] + tail
 `
 
 const inlineCode = corpusOf({ path: '/Inline.loom', text: inline })
@@ -424,55 +370,6 @@ describe('fromProduct — an anchor with code beside it stays inline', () => {
   })
 })
 
-// A cross-file block indented at its anchor: every line indents, and every span
-// still re-pins onto the consuming file rather than dangling into the dependency.
-const libDep = `{{lang: TypeScript}}
-
-# Lib [Lib]
-
-=>
-
-const p = 1
-const q = 2
-`
-const libHost = `{{lang: TypeScript}}
-
-# Imports {Loom}
-
-=>
-
-import { Lib } from "./Dep.loom"
-
-# Host [Host]
-
-{{l = Lib}}
-
-=>
-
-class C {
-    ::[l]
-}
-`
-
-const libCode = corpusOf(
-  { path: '/Dep.loom', text: libDep },
-  { path: '/Host.loom', text: libHost },
-)
-
-describe('fromProduct — an indented cross-file anchor indents the block', () => {
-  const vc = fromProduct(libCode, { path: '/Host.loom', name: 'Host' })
-
-  it('indents every continuation line of the inlined dependency', () => {
-    expect(vc.code).toBe('class C {\n    const p = 1\n    const q = 2\n}\n')
-  })
-
-  it('still re-pins every cross-file span onto the consuming file', () => {
-    expect(vc.mappings.every((m) => m.source.end.offset <= libHost.length)).toBe(
-      true,
-    )
-  })
-})
-
 // === de re — prose ⇄ code alternation =====================================
 
 // A section may interleave prose and code: `=> code ~ prose => code`. The prose
@@ -483,7 +380,7 @@ describe('fromProduct — an indented cross-file anchor indents the block', () =
 // second chunk into the first run, dragging the prose's source span into the code.
 const alt = `{{lang: TypeScript}}
 
-# Alternating [Alt]
+# Alternating
 
 opening prose
 
@@ -504,7 +401,7 @@ const altCode = corpusOf({ path: '/Alt.loom', text: alt })
 
 describe('fromProduct — prose seam between code chunks', () => {
   it('drops the prose and leaves one blank line between the chunks', () => {
-    const vc = fromProduct(altCode, { path: '/Alt.loom', name: 'Alt' })
+    const vc = fromProduct(altCode, { path: '/Alt.loom', name: 'Alternating' })
     expect(vc.code).toBe('const a = 1\n\nconst b = 2\n')
     expect(vc.code).not.toContain('narrative')
   })
