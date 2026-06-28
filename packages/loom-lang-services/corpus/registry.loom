@@ -8,7 +8,7 @@ modules and loaded `loom-service-<id>` packages — into one active set. The
 single lookup, not a scan: by `id` for a section's declared language, by extension
 for a tangle path.
 
-## Imports [Imports]
+## Imports
 
 The registry draws on Effect — `HashMap` for its two indexes, `Option` for a
 lookup that can miss — and on the `LanguageService` type it indexes.
@@ -18,7 +18,7 @@ lookup that can miss — and on the `LanguageService` type it indexes.
 import { Effect, HashMap, Option } from 'effect'
 import type { LanguageService } from './LanguageService'
 
-## The active set [Active]
+## The active set
 
 `ActiveLanguages` holds the language set the server resolves from `loom.config.json`. It is empty until the server fills it — the registry over an empty set
 simply finds nothing.
@@ -32,7 +32,7 @@ export class ActiveLanguages extends Effect.Service<ActiveLanguages>()(
   },
 ) {}
 
-## The registry [Registry]
+## The registry
 
 The registry builds two maps over the active set — one keyed by `id`, one by each
 service's `extensions` — and returns an `Option` for each lookup: present when a
@@ -63,14 +63,10 @@ export class LanguageRegistry extends Effect.Service<LanguageRegistry>()(
 
 ## The module {src/LanguageRegistry.ts}
 
-{{i = Imports}}
-{{a = Active}}
-{{r = Registry}}
-
 =>
 
-::[i]
+::[Imports]
 
-::[a]
+::[The active set]
 
-::[r]
+::[The registry]

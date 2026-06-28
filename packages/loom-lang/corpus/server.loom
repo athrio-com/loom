@@ -9,7 +9,7 @@ editor's TypeScript, collects the active languages' Volar plugins, and registers
 alongside the language plugin. Two callers start it — a thin entry an editor loads, and the
 `loom lsp` command — so the server lives in the CLI, the one tool every Loom user already has.
 
-## Imports [Imports]
+## Imports
 
 The server is built from Volar's toolkit for Node language servers — the connection, the
 project factory, and `loadTsdkByPath` — over the Effect runtime. `withLoomBaseline`, from
@@ -35,7 +35,7 @@ import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { withLoomBaseline } from '@athrio/loom-tsconfig'
 import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
 
-## The program [Program]
+## The program
 
 The `Effect.runtime` call captures the warm runtime once the layers are built; the language plugin
 runs the per-keystroke projection on it, and resolves each file's activated languages from
@@ -99,14 +99,11 @@ export const startLanguageServer = (): void => NodeRuntime.runMain(program)
 
 The server module assembles the imports and the program and exports `startLanguageServer`. It runs nothing on import — a caller decides when to start the server, so the same module serves both an editor that spawns it and the `loom lsp` command that calls it in-process.
 
-{{i = Imports}}
-{{p = Program}}
-
 =>
 
-::[i]
+::[Imports]
 
-::[p]
+::[The program]
 
 ## The run-on-import entry {src/index.ts}
 
