@@ -1,18 +1,18 @@
 {{lang: TypeScript}}
 
-# Per-package build settings
+# Build settings for a file
 
-`PackageConfig` reads a `.loom` file's package configuration and gives the compiler the settings it needs to build that file: the anchor delimiters its sections cut with, the primary language a section without a specifier inherits, and the root its sinks tangle under. It reads through `@athrio/loom-config`, which resolves the file's configuration from the workspace manifest. This service turns that resolved configuration into the compiler's own terms.
+`PackageConfig` reads a `.loom` file's configuration and gives the compiler the settings it needs to build that file: the anchor delimiters its sections cut with, the primary language a section without a specifier inherits, and the root its sinks tangle under. It reads through `@athrio/loom-config`, which resolves the file's configuration from the one workspace manifest — a project has no per-package configuration. This service turns that resolved configuration into the compiler's own terms.
 
 ## What the compiler reads
 
-`BuildSettings` is the answer the compiler gets for one file. It holds a full anchor delimiter pair, the primary language of that file's package, the root the package tangles under, and the workspace root a book's higher-order sink resolves its directories against.
+`BuildSettings` is the answer the compiler gets for one file. It holds a full anchor delimiter pair, the file's primary language, the root the file's package tangles under, and the workspace root a book's higher-order sink resolves its directories against.
 
 The anchor delimiters are always a complete pair. A `loom.json` may set one side, both, or neither, so `anchorDelimsOf` fills each missing side from `defaultAnchorDelims`, the built-in `::[` and `]`. A package overrides a delimiter only where the default would collide with its own product language.
 
-The primary language is the language a specifier-less section inherits. It comes straight from the package configuration, and is absent when the configuration names none. The frame builder reads it as the default beneath the document's own `lang` Warp, so a package can name its language once and let every document drop the Warp.
+The primary language is the language a specifier-less section inherits. It comes from the workspace configuration, and is absent when the configuration names none. The frame builder reads it as the default beneath the document's own `lang` Warp, so a project can name its language once and let every document drop the Warp.
 
-The package root is the absolute directory the file's package tangles into. It comes from the workspace manifest, which records where each package lands, and is absent when the file belongs to no package.
+The package root is the absolute directory the file's package tangles into — the directory holding the file's `corpus/`. `@athrio/loom-config` derives it from that convention, and it is absent when the file sits in no corpus directory.
 
 =>
 

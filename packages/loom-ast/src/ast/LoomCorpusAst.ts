@@ -72,8 +72,14 @@ const dirLabelOf = (section: LoomSection): Option.Option<string> =>
     ? Option.some(section.heading.specifier.label.value)
     : Option.none()
 
+const isDirSink = (section: LoomSection): boolean =>
+  Option.isSome(dirLabelOf(section))
+
 const joinDir = (parent: string, child: string): string =>
   parent === '' ? child : `${parent.replace(/\/$/, '')}/${child}`
+
+const headingLevel = (section: LoomSection): number =>
+  section.heading.headingStart.source.match(/^#+/)?.[0].length ?? 0
 
 const sectionTitles = (modules: Modules): ReadonlyMap<string, SectionRef> =>
   pipe(
@@ -93,21 +99,11 @@ const sectionTitles = (modules: Modules): ReadonlyMap<string, SectionRef> =>
     ),
   )
 
-type Member = { readonly name: string; readonly reroute: Option.Option<string> }
-
-const membersOf = (section: LoomSection): ReadonlyArray<Member> =>
+const anchorsOf = (section: LoomSection): ReadonlyArray<WarpAnchorToken> =>
   pipe(
     section.code,
     Array.flatMap((weft) =>
-      weft.type === 'ArrowWeft' || weft.type === 'CodeWeft'
-        ? Array.map(weft.anchors, (a) => ({
-            name: a.name.value,
-            reroute:
-              a.specifier?.type === 'DirSpecifier'
-                ? Option.some(a.specifier.label.value)
-                : Option.none<string>(),
-          }))
-        : [],
+      weft.type === 'ArrowWeft' || weft.type === 'CodeWeft' ? weft.anchors : [],
     ),
   )
 
@@ -116,91 +112,167 @@ const dirSinks = (modules: Modules): ReadonlyArray<SectionRef> =>
     Array.fromIterable(modules.values()),
     Array.flatMap((m) =>
       Array.filterMap(m.doc.sections, (section) =>
-        Option.isSome(dirLabelOf(section))
+        isDirSink(section)
           ? Option.some<SectionRef>({ module: m.path, section })
           : Option.none<SectionRef>(),
       ),
     ),
   )
 
-const rootSinks = (
+type Pointing = {
+  readonly sink: SectionRef
+  readonly anchor: WarpAnchorToken
+  readonly target: SectionRef
+}
+
+const pointings = (
   modules: Modules,
   index: ReadonlyMap<string, SectionRef>,
-): ReadonlyArray<SectionRef> => {
-  const sinks = dirSinks(modules)
-  const nested = pipe(
-    sinks,
-    Array.flatMap((d) =>
-      Array.filterMap(membersOf(d.section), (member) =>
-        pipe(
-          Option.fromNullable(index.get(member.name)),
-          Option.filter((ref) => Option.isSome(dirLabelOf(ref.section))),
-          Option.map((ref) => ref.section),
+): ReadonlyArray<Pointing> =>
+  pipe(
+    dirSinks(modules),
+    Array.flatMap((sink) =>
+      Array.filterMap(anchorsOf(sink.section), (anchor) =>
+        Option.map(
+          Option.fromNullable(index.get(anchor.name.value)),
+          (target) => ({ sink, anchor, target }),
         ),
       ),
     ),
-    (reached) => new Set(reached),
   )
-  return Array.filter(sinks, (d) => !nested.has(d.section))
+
+const sinkPrefixes = (
+  modules: Modules,
+  index: ReadonlyMap<string, SectionRef>,
+): ReadonlyMap<LoomSection, string> => {
+  const parentOf = pipe(
+    pointings(modules, index),
+    Array.filter((p) => isDirSink(p.target.section)),
+    Array.reduce(
+      new Map<LoomSection, SectionRef>(),
+      (acc, p) => new Map(acc).set(p.target.section, p.sink),
+    ),
+  )
+  const prefixOf = (sink: SectionRef, seen: ReadonlySet<LoomSection>): string => {
+    const own = Option.getOrElse(dirLabelOf(sink.section), () => '')
+    const parent = parentOf.get(sink.section)
+    return parent === undefined || seen.has(sink.section)
+      ? own
+      : joinDir(prefixOf(parent, new Set([...seen, sink.section])), own)
+  }
+  return new Map(
+    dirSinks(modules).map(
+      (sink) => [sink.section, prefixOf(sink, new Set())] as const,
+    ),
+  )
+}
+
+type Chapter = {
+  readonly owner: SectionRef
+  readonly anchor: WarpAnchorToken
+  readonly start: SectionRef
+  readonly prefix: string
+  readonly sections: ReadonlyArray<LoomSection>
+}
+
+const docIndex = (modules: Modules, ref: SectionRef): number =>
+  modules.get(ref.module)?.doc.sections.indexOf(ref.section) ?? -1
+
+const bookChapters = (corpus: LoomCorpusAst): ReadonlyArray<Chapter> => {
+  const modules = corpus.modules
+  const index = sectionTitles(modules)
+  const prefixes = sinkPrefixes(modules, index)
+  const starts = Array.filter(
+    pointings(modules, index),
+    (p) => !isDirSink(p.target.section),
+  )
+  const boundariesIn = (module: Path): ReadonlyArray<number> =>
+    pipe(
+      starts,
+      Array.filter((p) => p.target.module === module),
+      Array.map((p) => docIndex(modules, p.target)),
+    )
+  return Array.map(starts, (p): Chapter => {
+    const sections = modules.get(p.target.module)?.doc.sections ?? []
+    const startAt = docIndex(modules, p.target)
+    const next = pipe(
+      boundariesIn(p.target.module),
+      Array.filter((i) => i > startAt),
+      Array.reduce(sections.length, (lo, i) => Math.min(lo, i)),
+    )
+    return {
+      owner: p.sink,
+      anchor: p.anchor,
+      start: p.target,
+      prefix: Option.getOrElse(
+        Option.fromNullable(prefixes.get(p.sink.section)),
+        () => '',
+      ),
+      sections: sections.slice(startAt, next),
+    }
+  })
 }
 
 export const sinkTreeRouting = (
   corpus: LoomCorpusAst,
-): ReadonlyMap<Path, string> => {
-  const modules = corpus.modules
-  const index = sectionTitles(modules)
-
-  const routeMember = (
-    prefix: string,
-    seen: ReadonlySet<LoomSection>,
-    acc: ReadonlyMap<Path, string>,
-    member: Member,
-  ): ReadonlyMap<Path, string> => {
-    const ref = index.get(member.name)
-    if (ref === undefined) return acc
-    const at = Option.getOrElse(member.reroute, () => prefix)
-    const label = dirLabelOf(ref.section)
-    if (Option.isNone(label)) return new Map(acc).set(ref.module, at)
-    if (seen.has(ref.section)) return acc
-    return walk(
-      ref.section,
-      joinDir(at, label.value),
-      new Set([...seen, ref.section]),
-      acc,
-    )
-  }
-
-  const walk = (
-    section: LoomSection,
-    prefix: string,
-    seen: ReadonlySet<LoomSection>,
-    routing: ReadonlyMap<Path, string>,
-  ): ReadonlyMap<Path, string> =>
-    Array.reduce(membersOf(section), routing, (acc, member) =>
-      routeMember(prefix, seen, acc, member),
-    )
-
-  return Array.reduce(
-    rootSinks(modules, index),
-    new Map<Path, string>() as ReadonlyMap<Path, string>,
-    (acc, root) =>
-      walk(
-        root.section,
-        Option.getOrElse(dirLabelOf(root.section), () => ''),
-        new Set([root.section]),
-        acc,
+): ReadonlyMap<Path, ReadonlyMap<string, string>> => {
+  const placements = pipe(
+    bookChapters(corpus),
+    Array.flatMap((chapter) =>
+      Array.filterMap(chapter.sections, (section) =>
+        section.heading.specifier?.type === 'PathSpecifier'
+          ? Option.some({
+              module: chapter.start.module,
+              path: section.heading.specifier.label.value,
+              prefix: chapter.prefix,
+            })
+          : Option.none(),
       ),
+    ),
+  )
+  return new Map(
+    Object.entries(Array.groupBy(placements, (place) => place.module)).map(
+      ([module, places]) =>
+        [
+          module,
+          new Map(places.map((place) => [place.path, place.prefix])),
+        ] as const,
+    ),
   )
 }
+
+export type TangleSink = {
+  readonly module: Path
+  readonly position: Position
+  readonly path: string
+}
+
+export const tangleSinks = (corpus: LoomCorpusAst): ReadonlyArray<TangleSink> =>
+  pipe(
+    Array.fromIterable(corpus.modules.values()),
+    Array.flatMap((m) =>
+      Array.filterMap(m.doc.sections, (section) =>
+        section.heading.specifier?.type === 'PathSpecifier'
+          ? Option.some<TangleSink>({
+              module: m.path,
+              position: section.heading.specifier.position,
+              path: section.heading.specifier.label.value,
+            })
+          : Option.none(),
+      ),
+    ),
+  )
 
 export type SinkFault =
   | { readonly kind: 'CollidingTitles'; readonly path: Path; readonly position: Position; readonly name: string }
   | { readonly kind: 'SinkCycle'; readonly path: Path; readonly position: Position; readonly name: string }
   | { readonly kind: 'EmptySink'; readonly path: Path; readonly position: Position; readonly directory: string }
-  | { readonly kind: 'UnresolvedReroute'; readonly path: Path; readonly position: Position; readonly directory: string }
   | { readonly kind: 'MisplacedSpecifier'; readonly path: Path; readonly position: Position; readonly specifier: string }
   | { readonly kind: 'SelfRoutingSink'; readonly path: Path; readonly position: Position; readonly name: string }
-  | { readonly kind: 'SinklessMember'; readonly path: Path; readonly position: Position; readonly name: string }
+  | { readonly kind: 'SinklessChapter'; readonly path: Path; readonly position: Position; readonly name: string }
+  | { readonly kind: 'PointedNotH1'; readonly path: Path; readonly position: Position; readonly name: string }
+  | { readonly kind: 'OrphanedOpening'; readonly path: Path; readonly position: Position; readonly name: string }
+  | { readonly kind: 'DuplicateChapter'; readonly path: Path; readonly position: Position; readonly name: string }
 
 type Located = { readonly path: Path; readonly section: LoomSection }
 
@@ -216,14 +288,6 @@ const headingPosition = (section: LoomSection): Position =>
   section.heading.title?.position ??
   section.heading.specifier?.position ??
   section.heading.position
-
-const anchorsOf = (section: LoomSection): ReadonlyArray<WarpAnchorToken> =>
-  pipe(
-    section.code,
-    Array.flatMap((weft) =>
-      weft.type === 'ArrowWeft' || weft.type === 'CodeWeft' ? weft.anchors : [],
-    ),
-  )
 
 const collidingTitles = (
   sections: ReadonlyArray<Located>,
@@ -259,7 +323,6 @@ const misplacedSpecifiers = (
 ): ReadonlyArray<SinkFault> =>
   pipe(
     sections,
-    Array.filter((loc) => Option.isNone(dirLabelOf(loc.section))),
     Array.flatMap((loc) =>
       Array.filterMap(anchorsOf(loc.section), (anchor) =>
         Option.map(
@@ -277,7 +340,7 @@ const misplacedSpecifiers = (
 
 const emptySinks = (modules: Modules): ReadonlyArray<SinkFault> =>
   Array.filterMap(dirSinks(modules), (ref) =>
-    membersOf(ref.section).length === 0
+    anchorsOf(ref.section).length === 0
       ? Option.some<SinkFault>({
           kind: 'EmptySink',
           path: ref.module,
@@ -287,35 +350,13 @@ const emptySinks = (modules: Modules): ReadonlyArray<SinkFault> =>
       : Option.none(),
   )
 
-const unresolvedReroutes = (modules: Modules): ReadonlyArray<SinkFault> => {
-  const declared = new Set(
-    Array.filterMap(dirSinks(modules), (ref) => dirLabelOf(ref.section)),
-  )
-  return pipe(
-    dirSinks(modules),
-    Array.flatMap((ref) =>
-      Array.filterMap(anchorsOf(ref.section), (anchor) =>
-        anchor.specifier?.type === 'DirSpecifier' &&
-        !declared.has(anchor.specifier.label.value)
-          ? Option.some<SinkFault>({
-              kind: 'UnresolvedReroute',
-              path: ref.module,
-              position: anchor.specifier.position,
-              directory: anchor.specifier.label.value,
-            })
-          : Option.none(),
-      ),
-    ),
-  )
-}
-
 const sinkCycles = (modules: Modules): ReadonlyArray<SinkFault> => {
   const index = sectionTitles(modules)
   const childSinks = (section: LoomSection): ReadonlyArray<SectionRef> =>
-    Array.filterMap(membersOf(section), (member) =>
+    Array.filterMap(anchorsOf(section), (anchor) =>
       pipe(
-        Option.fromNullable(index.get(member.name)),
-        Option.filter((ref) => Option.isSome(dirLabelOf(ref.section))),
+        Option.fromNullable(index.get(anchor.name.value)),
+        Option.filter((ref) => isDirSink(ref.section)),
       ),
     )
   const reaches = (
@@ -344,58 +385,78 @@ const sinkCycles = (modules: Modules): ReadonlyArray<SinkFault> => {
   )
 }
 
-const hasTangleSink = (module: LoomModule | undefined): boolean =>
-  module !== undefined &&
-  Array.some(
-    module.doc.sections,
-    (section) => section.heading.specifier?.type === 'PathSpecifier',
-  )
+const isTangleSink = (section: LoomSection): boolean =>
+  section.heading.specifier?.type === 'PathSpecifier'
 
-const membershipFaults = (modules: Modules): ReadonlyArray<SinkFault> => {
-  const index = sectionTitles(modules)
-  const memberFault = (
-    sink: SectionRef,
-    anchor: WarpAnchorToken,
-    ref: SectionRef,
-  ): Option.Option<SinkFault> => {
-    const fault = (kind: 'SelfRoutingSink' | 'SinklessMember'): SinkFault => ({
-      kind,
-      path: sink.module,
-      position: anchor.position,
-      name: anchor.name.value,
-    })
-    if (ref.module === sink.module) return Option.some(fault('SelfRoutingSink'))
-    if (!hasTangleSink(modules.get(ref.module)))
-      return Option.some(fault('SinklessMember'))
-    return Option.none()
-  }
-  return pipe(
-    dirSinks(modules),
-    Array.flatMap((sink) =>
-      Array.filterMap(anchorsOf(sink.section), (anchor) =>
-        pipe(
-          Option.fromNullable(index.get(anchor.name.value)),
-          Option.filter((ref) => Option.isNone(dirLabelOf(ref.section))),
-          Option.flatMap((ref) => memberFault(sink, anchor, ref)),
-        ),
-      ),
+const chapterFaults = (corpus: LoomCorpusAst): ReadonlyArray<SinkFault> => {
+  const modules = corpus.modules
+  const chapters = bookChapters(corpus)
+  const named = (
+    kind:
+      | 'PointedNotH1'
+      | 'SelfRoutingSink'
+      | 'SinklessChapter'
+      | 'OrphanedOpening'
+      | 'DuplicateChapter',
+    chapter: Chapter,
+  ): SinkFault => ({
+    kind,
+    path: chapter.owner.module,
+    position: chapter.anchor.position,
+    name: chapter.anchor.name.value,
+  })
+  const notH1 = Array.filterMap(chapters, (chapter) =>
+    headingLevel(chapter.start.section) === 1
+      ? Option.none()
+      : Option.some(named('PointedNotH1', chapter)),
+  )
+  const selfRouting = Array.filterMap(chapters, (chapter) =>
+    chapter.start.module === chapter.owner.module
+      ? Option.some(named('SelfRoutingSink', chapter))
+      : Option.none(),
+  )
+  const sinkless = Array.filterMap(chapters, (chapter) =>
+    Array.some(chapter.sections, isTangleSink)
+      ? Option.none()
+      : Option.some(named('SinklessChapter', chapter)),
+  )
+  const duplicate = pipe(
+    Array.groupBy(
+      chapters,
+      (chapter) => `${chapter.start.module}\n${docIndex(modules, chapter.start)}`,
+    ),
+    (groups) => Object.values(groups),
+    Array.filter((group) => group.length > 1),
+    Array.flatMap((group) =>
+      Array.map(group, (chapter) => named('DuplicateChapter', chapter)),
     ),
   )
+  const orphaned = pipe(
+    Array.groupBy(chapters, (chapter) => chapter.start.module),
+    (groups) => Object.values(groups),
+    Array.filterMap((group) => {
+      const earliest = group.reduce((a, b) =>
+        docIndex(modules, a.start) <= docIndex(modules, b.start) ? a : b,
+      )
+      return docIndex(modules, earliest.start) > 0
+        ? Option.some(named('OrphanedOpening', earliest))
+        : Option.none()
+    }),
+  )
+  return [...notH1, ...selfRouting, ...sinkless, ...duplicate, ...orphaned]
 }
 
 export const sinkTreeFaults = (
   corpus: LoomCorpusAst,
   normalise: (title: string) => string,
 ): ReadonlyArray<SinkFault> => {
-  const modules = corpus.modules
-  const sections = located(modules)
+  const sections = located(corpus.modules)
   return [
     ...collidingTitles(sections, normalise),
     ...misplacedSpecifiers(sections),
-    ...emptySinks(modules),
-    ...unresolvedReroutes(modules),
-    ...sinkCycles(modules),
-    ...membershipFaults(modules),
+    ...emptySinks(corpus.modules),
+    ...sinkCycles(corpus.modules),
+    ...chapterFaults(corpus),
   ]
 }
 

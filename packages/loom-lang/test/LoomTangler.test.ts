@@ -140,6 +140,28 @@ describe('LoomTangler — tangle {path} sinks to disk', () => {
     }).pipe(Effect.provide(layers)),
   )
 
+  it.scoped('refuses to tangle two sinks that resolve to one path', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const dir = yield* fs.makeTempDirectoryScoped()
+      const entry = `${dir}/dup.loom`
+      yield* fs.writeFileString(
+        entry,
+        '{{lang: TypeScript}}\n\n# A {out.ts}\n\n=>\n\nexport const a = 1\n\n# B {out.ts}\n\n=>\n\nexport const b = 2\n',
+      )
+
+      const tangler = yield* LoomTangler
+      const result = yield* Effect.either(tangler.tangle(entry))
+
+      expect(result._tag).toBe('Left')
+      if (result._tag === 'Left') {
+        expect((result.left as { message: string }).message).toContain(
+          'Two sinks tangle to',
+        )
+      }
+    }).pipe(Effect.provide(layers)),
+  )
+
   it.scoped('refuses to tangle a book whose higher-order sinks form a cycle', () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem

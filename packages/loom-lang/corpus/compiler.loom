@@ -87,46 +87,63 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
           path: Path,
         ): Effect.Effect<ReadonlyArray<TangledFile>, TangleError> =>
           produceCorpus(documents, path).pipe(
-            Effect.flatMap((modules) => {
-              const sinkErrors = Array.filterMap(sinkDiagnostics(modules), (d) =>
-                d.diagnostic.severity === 'error'
-                  ? Option.some({ path: d.path, diagnostics: [d.diagnostic] })
-                  : Option.none(),
-              )
-              const failures = [...corpusErrors({ modules }), ...sinkErrors]
-              return failures.length > 0
-                ? Effect.fail(new TangleError({ entry: path, failures }))
-                : config.resolve(path).pipe(
-                    Effect.map(({ packageRoot, workspaceRoot }) =>
-                      resolveSinks(
-                        modules,
-                        path,
-                        sinkRoot(
-                          modules,
-                          path,
-                          Option.fromNullable(packageRoot),
-                          Option.fromNullable(workspaceRoot),
-                        ),
-                      ),
-                    ),
+            Effect.flatMap((modules) =>
+              collisionDiagnostics(config, modules).pipe(
+                Effect.flatMap((collisions) => {
+                  const sinkErrors = Array.filterMap(
+                    sinkDiagnostics(modules),
+                    (d) =>
+                      d.diagnostic.severity === 'error'
+                        ? Option.some({ path: d.path, diagnostics: [d.diagnostic] })
+                        : Option.none(),
                   )
-            }),
+                  const collisionErrors = Array.map(collisions, (d) => ({
+                    path: d.path,
+                    diagnostics: [d.diagnostic],
+                  }))
+                  const failures = [
+                    ...corpusErrors({ modules }),
+                    ...sinkErrors,
+                    ...collisionErrors,
+                  ]
+                  return failures.length > 0
+                    ? Effect.fail(new TangleError({ entry: path, failures }))
+                    : config.resolve(path).pipe(
+                        Effect.map(({ packageRoot, workspaceRoot }) =>
+                          resolveSinks(
+                            modules,
+                            path,
+                            Option.fromNullable(packageRoot),
+                            Option.fromNullable(workspaceRoot),
+                          ),
+                        ),
+                      )
+                }),
+              ),
+            ),
           ),
 
         diagnose: (path: Path): Effect.Effect<ReadonlyArray<Diagnostic>> =>
           buildCorpus(documents, path).pipe(
-            Effect.map((modules) =>
-              pipe(
-                Option.fromNullable(modules.get(path)),
-                Option.match({
-                  onNone: () => [],
-                  onSome: (module) => [
-                    ...moduleDiagnostics(module),
-                    ...Array.filterMap(sinkDiagnostics(modules), (d) =>
-                      d.path === path ? Option.some(d.diagnostic) : Option.none(),
-                    ),
-                  ],
-                }),
+            Effect.flatMap((modules) =>
+              collisionDiagnostics(config, modules).pipe(
+                Effect.map((collisions) =>
+                  pipe(
+                    Option.fromNullable(modules.get(path)),
+                    Option.match({
+                      onNone: () => [],
+                      onSome: (module) => [
+                        ...moduleDiagnostics(module),
+                        ...Array.filterMap(sinkDiagnostics(modules), (d) =>
+                          d.path === path ? Option.some(d.diagnostic) : Option.none(),
+                        ),
+                        ...Array.filterMap(collisions, (d) =>
+                          d.path === path ? Option.some(d.diagnostic) : Option.none(),
+                        ),
+                      ],
+                    }),
+                  ),
+                ),
               ),
             ),
           ),
@@ -285,7 +302,7 @@ const entryOf = (
 
 `tangle` is the de re's file projection, the sibling of `compile`. It produces the corpus, refuses a broken build, and resolves the entry's sinks to the content and target a writer emits.
 
-`resolveSinks` takes the entry module's tangle sinks — one per `{path}` section — and for each flattens its composed code across the corpus with `fromProduct`, then resolves where the file lands. `outputPath` places a sink under the entry's package root — the absolute directory its package tangles into — so a sink names its file relative to that root rather than climbing out of the corpus. `sinkRoot` chooses that root: the directory a book's higher-order sink routes the entry to, resolved against the workspace, or the package root the configuration gives when no book reaches it. A file the workspace assigns to no package falls back to the `.loom`'s own directory. `resolveSinks` returns a `TangledFile` per sink: the section that produced it, where it lands, and its content. `LoomTangler` performs the writes; `tangle` itself touches no disk.
+`resolveSinks` takes the entry module's tangle sinks — one per `{path}` section — and for each flattens its composed code across the corpus with `fromProduct`, then resolves where the file lands. `outputPath` places a sink under a root, so a sink names its file relative to that root rather than climbing out of the corpus. `fileRoot` chooses that root for each sink: the chapter prefix a book places the sink under, resolved against the workspace, or the package root the configuration gives when no chapter places it. A file the workspace assigns to no package falls back to the `.loom`'s own directory. `resolveSinks` returns a `TangledFile` per sink: the section that produced it, where it lands, and its content. `LoomTangler` performs the writes; `tangle` itself touches no disk.
 
 A tangle must never emit an anchor it could not resolve, nor build on a file it could not read. So `tangle` runs `corpusErrors` over the whole corpus first — every module's document and frame — and fails with a `TangleError` the moment any module carries an error. A missing import, a malformed parse, an unresolved `::[…]` reference each stops the build rather than leaving a file with a silently dropped reference. The failure is loud, and names every file and line.
 
@@ -307,17 +324,14 @@ const outputPath = (
     onSome: (root) => resolvePath(root, sink),
   })
 
-const sinkRoot = (
-  modules: Modules,
-  entry: Path,
+const fileRoot = (
+  routed: ReadonlyMap<string, string> | undefined,
+  sink: string,
   packageRoot: Option.Option<string>,
   workspaceRoot: Option.Option<string>,
 ): Option.Option<string> =>
-  Option.all([
-    Option.fromNullable(sinkTreeRouting({ modules }).get(entry)),
-    workspaceRoot,
-  ]).pipe(
-    Option.map(([routed, workspace]) => resolvePath(workspace, routed)),
+  Option.all([Option.fromNullable(routed?.get(sink)), workspaceRoot]).pipe(
+    Option.map(([prefix, workspace]) => resolvePath(workspace, prefix)),
     Option.orElse(() => packageRoot),
   )
 
@@ -325,15 +339,22 @@ const resolveSinks = (
   modules: Modules,
   entry: Path,
   packageRoot: Option.Option<string>,
-): ReadonlyArray<TangledFile> =>
-  pipe(
+  workspaceRoot: Option.Option<string>,
+): ReadonlyArray<TangledFile> => {
+  const routed = sinkTreeRouting({ modules }).get(entry)
+  return pipe(
     modules.get(entry)?.product?.files ?? [],
     Array.map((file) => ({
       section: file.code.origin.name,
-      path: outputPath(packageRoot, entry, file.path),
+      path: outputPath(
+        fileRoot(routed, file.path, packageRoot, workspaceRoot),
+        entry,
+        file.path,
+      ),
       content: fromProduct(modules, file.code.origin).code,
     })),
   )
+}
 
 export class TangleError extends Data.TaggedError('TangleError')<{
   readonly entry: Path
@@ -357,7 +378,7 @@ export class TangleError extends Data.TaggedError('TangleError')<{
 
 The sink tree detects its own faults as structure — `sinkTreeFaults` returns a kind, a position, and one value each — and the catalog words them. `wordSinkFault` is the bridge: it maps a `SinkFault` to its `LoomFault` and reads the message back through `faulty`, the same catalog the parser and the frame already speak through. It hands the detector the one rule it lacks, `normaliseTitle`, so a colliding title folds the way every section name does.
 
-`sinkDiagnostics` runs the detector over a corpus and pairs each diagnostic with the module it lands on. The tangle verb refuses on the error-severity ones, and the diagnose verb surfaces the ones for the file in hand, so a malformed sink tree fails the build and lights up the editor alike.
+`sinkDiagnostics` runs the detector over a corpus and pairs each diagnostic with the module it lands on. `collisionDiagnostics` is the one fault the corpus walk cannot find: it resolves every tangle sink to its output path — each sink's chapter prefix, or its package default when no chapter places it — and reports two that land on one path. The tangle verb refuses on the error-severity ones, and the diagnose verb surfaces the ones for the file in hand, so a malformed sink tree fails the build and lights up the editor alike.
 
 =>
 
@@ -366,14 +387,14 @@ const wordSinkFault = (fault: SinkFault): LoomFault =>
     Match.when({ kind: 'CollidingTitles' }, ({ name }) => CollidingTitles({ name })),
     Match.when({ kind: 'SinkCycle' }, ({ name }) => SinkCycle({ name })),
     Match.when({ kind: 'EmptySink' }, ({ directory }) => EmptySink({ directory })),
-    Match.when({ kind: 'UnresolvedReroute' }, ({ directory }) =>
-      UnresolvedReroute({ directory }),
-    ),
     Match.when({ kind: 'MisplacedSpecifier' }, ({ specifier }) =>
       MisplacedSpecifier({ specifier }),
     ),
     Match.when({ kind: 'SelfRoutingSink' }, ({ name }) => SelfRoutingSink({ name })),
-    Match.when({ kind: 'SinklessMember' }, ({ name }) => SinklessMember({ name })),
+    Match.when({ kind: 'SinklessChapter' }, ({ name }) => SinklessChapter({ name })),
+    Match.when({ kind: 'PointedNotH1' }, ({ name }) => PointedNotH1({ name })),
+    Match.when({ kind: 'OrphanedOpening' }, ({ name }) => OrphanedOpening({ name })),
+    Match.when({ kind: 'DuplicateChapter' }, ({ name }) => DuplicateChapter({ name })),
     Match.exhaustive,
   )
 
@@ -384,6 +405,53 @@ const sinkDiagnostics = (
     Array.map(
       faulty(wordSinkFault(fault), fault.position).diagnostics,
       (diagnostic) => ({ path: fault.path, diagnostic }),
+    ),
+  )
+
+const collisionDiagnostics = (
+  config: PackageConfig,
+  modules: Modules,
+): Effect.Effect<
+  ReadonlyArray<{ readonly path: Path; readonly diagnostic: Diagnostic }>
+> =>
+  Effect.forEach(
+    Object.entries(Array.groupBy(tangleSinks({ modules }), (sink) => sink.module)),
+    ([module, sinks]) =>
+      config.resolve(module).pipe(
+        Effect.map(({ packageRoot, workspaceRoot }) => {
+          const routed = sinkTreeRouting({ modules }).get(module)
+          return Array.map(sinks, (sink) => ({
+            module,
+            position: sink.position,
+            at: outputPath(
+              fileRoot(
+                routed,
+                sink.path,
+                Option.fromNullable(packageRoot),
+                Option.fromNullable(workspaceRoot),
+              ),
+              module,
+              sink.path,
+            ),
+          }))
+        }),
+      ),
+  ).pipe(
+    Effect.map((perModule) =>
+      pipe(
+        Array.flatten(perModule),
+        Array.groupBy((sink) => sink.at),
+        (groups) => Object.values(groups),
+        Array.filter((group) => group.length > 1),
+        Array.flatMap((group) =>
+          Array.flatMap(group, (sink) =>
+            Array.map(
+              faulty(CollidingSinks({ path: sink.at }), sink.position).diagnostics,
+              (diagnostic) => ({ path: sink.module, diagnostic }),
+            ),
+          ),
+        ),
+      ),
     ),
   )
 
@@ -517,7 +585,7 @@ export class DocumentSource extends Effect.Service<DocumentSource>()(
 
 ## What the compiler draws on
 
-From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; `FrameRunner`, the produce engine; the projection functions `fromFrame`, `fromProduct`, `rootNamesAt`, and `rootVirtualCode`; the corpus model — `LoomModule`, the `corpusErrors` and `moduleDiagnostics` readers, the `sinkTreeRouting` and `sinkTreeFaults` walks with the `SinkFault` they yield, the `definitionAt`, `referencesAt`, `renameAt`, and `renameRangeAt` navigation walks with the `CorpusLocation` they yield, and the `transitiveDependents` walk; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache. The fault catalog supplies `faulty` and the `LoomFault` constructors that word a sink fault, and `normaliseTitle` gives the detector its one missing rule. From the language-service contract comes `FrameLocation`, the editor-shaped range the navigation verbs return. `Product` is the de re a run folds onto each module, `Diagnostic` an error's message and place. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError`, and Node's `fs` and `path` read each file and resolve each sink.
+From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; `FrameRunner`, the produce engine; the projection functions `fromFrame`, `fromProduct`, `rootNamesAt`, and `rootVirtualCode`; the corpus model — `LoomModule`, the `corpusErrors` and `moduleDiagnostics` readers, the `sinkTreeRouting` and `sinkTreeFaults` walks with the `SinkFault` they yield, the `tangleSinks` list the collision check resolves, the `definitionAt`, `referencesAt`, `renameAt`, and `renameRangeAt` navigation walks with the `CorpusLocation` they yield, and the `transitiveDependents` walk; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache. The fault catalog supplies `faulty` and the `LoomFault` constructors that word a sink fault, and `normaliseTitle` gives the detector its one missing rule. From the language-service contract comes `FrameLocation`, the editor-shaped range the navigation verbs return. `Product` is the de re a run folds onto each module, `Diagnostic` an error's message and place. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError`, and Node's `fs` and `path` read each file and resolve each sink.
 
 =>
 
@@ -538,6 +606,7 @@ import {
   renameRangeAt,
   sinkTreeFaults,
   sinkTreeRouting,
+  tangleSinks,
   transitiveDependents,
   type CorpusLocation,
   type LoomModule,
@@ -546,14 +615,17 @@ import {
 } from '@athrio/loom-ast/LoomCorpusAst'
 import { type FrameLocation } from '@athrio/loom-lang-services/LanguageService'
 import {
+  CollidingSinks,
   CollidingTitles,
+  DuplicateChapter,
   EmptySink,
   faulty,
   MisplacedSpecifier,
+  OrphanedOpening,
+  PointedNotH1,
   SelfRoutingSink,
   SinkCycle,
-  SinklessMember,
-  UnresolvedReroute,
+  SinklessChapter,
   type LoomFault,
 } from '#ast/LoomFault'
 import { normaliseTitle } from '#ast/WeftTokeniser'

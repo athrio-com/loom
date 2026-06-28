@@ -32,10 +32,13 @@ export type LoomFault = Data.TaggedEnum<{
   CollidingTitles: { readonly name: string }
   SinkCycle: { readonly name: string }
   EmptySink: { readonly directory: string }
-  UnresolvedReroute: { readonly directory: string }
   MisplacedSpecifier: { readonly specifier: string }
   SelfRoutingSink: { readonly name: string }
-  SinklessMember: { readonly name: string }
+  SinklessChapter: { readonly name: string }
+  PointedNotH1: { readonly name: string }
+  OrphanedOpening: { readonly name: string }
+  DuplicateChapter: { readonly name: string }
+  CollidingSinks: { readonly path: string }
 }>
 
 export const {
@@ -50,10 +53,13 @@ export const {
   CollidingTitles,
   SinkCycle,
   EmptySink,
-  UnresolvedReroute,
   MisplacedSpecifier,
   SelfRoutingSink,
-  SinklessMember,
+  SinklessChapter,
+  PointedNotH1,
+  OrphanedOpening,
+  DuplicateChapter,
+  CollidingSinks,
 } = Data.taggedEnum<LoomFault>()
 
 type Note = { readonly severity: Severity; readonly message: string }
@@ -131,24 +137,39 @@ export const describe = (fault: LoomFault): Note =>
         `The higher-order sink \`${directory}\` composes nothing; it routes no files. Compose a sink beneath it, or remove it.`,
       ),
     ),
-    Match.tag('UnresolvedReroute', ({ directory }) =>
-      error(
-        `Reroute to \`${directory}\`, which no higher-order sink declares. A member reroutes only to a directory the book defines.`,
-      ),
-    ),
     Match.tag('MisplacedSpecifier', ({ specifier }) =>
       error(
-        `Specifier \`${specifier}\` on an anchor outside a higher-order sink. An anchor carries a specifier only as a member of a higher-order sink, where it routes.`,
+        `Specifier \`${specifier}\` on an anchor. A member names a chapter and never overrides, so an anchor carries no specifier.`,
       ),
     ),
     Match.tag('SelfRoutingSink', ({ name }) =>
       error(
-        `A higher-order sink routes its own module through \`${name}\`. A book routes content, never itself; move the section to its own file.`,
+        `A book points the chapter \`${name}\` into its own file. A book routes content, never itself; move the chapter to another loom.`,
       ),
     ),
-    Match.tag('SinklessMember', ({ name }) =>
+    Match.tag('SinklessChapter', ({ name }) =>
       warning(
-        `The member \`${name}\` resolves to a module that tangles no file; the route places nothing. Give the module a file sink, or drop the member.`,
+        `The chapter \`${name}\` tangles no file; its higher-order sink places nothing. Give the chapter a file sink, or drop the member.`,
+      ),
+    ),
+    Match.tag('PointedNotH1', ({ name }) =>
+      warning(
+        `The chapter \`${name}\` opens below a top-level heading. A higher-order sink points at an H1; promote the heading, or point at one.`,
+      ),
+    ),
+    Match.tag('OrphanedOpening', ({ name }) =>
+      warning(
+        `The first chapter \`${name}\` is not its module's first section, leaving the sections before it unplaced. Open the book's first chapter at the module's first heading.`,
+      ),
+    ),
+    Match.tag('DuplicateChapter', ({ name }) =>
+      error(
+        `Two higher-order sinks point the chapter \`${name}\`; its files would have two homes. Point it from one sink only.`,
+      ),
+    ),
+    Match.tag('CollidingSinks', ({ path }) =>
+      error(
+        `Two sinks tangle to \`${path}\`. An output file has one source; give one sink a different path or prefix.`,
       ),
     ),
     Match.exhaustive,

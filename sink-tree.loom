@@ -1,8 +1,8 @@
 # Loom — the sink tree
 
-Loom composes code along the frame and writes it out through sinks. A sink today names one file, and where that file lands comes from configuration kept beside the document, not in it. This document lifts tangling into the document itself. A section may name a directory rather than a file, and so become a vertex in a tree that decides where every file beneath it lands. The book that orders the corpus for a reader is the same tree that routes it to disk.
+Loom composes code along the frame and writes it out through sinks. A sink names the file it produces; where that file lands is the author's to compose, in the document, not a configuration kept beside it. A section may name a directory rather than a file, and so become a vertex that places a whole chapter of files beneath it. The book that orders the corpus for a reader is the same structure that routes it to disk.
 
-_The present tense states the design. It is not yet built; this is the target the implementation moves toward._
+_The present tense states the design. The grammar and a first per-module routing are built; the chapter model below revises that routing — a higher-order sink places a chapter, not a whole module — and is the target the next revision moves toward._
 
 ## Sinks have orders
 
@@ -10,15 +10,17 @@ A sink binds composed code to an output location. Loom has one kind today and ga
 
 A **tangle sink** is a section whose specifier is a file path, `{src/Main.ts}`. It composes its members and emits one file. It is a leaf of the tree: it consumes the composition graph, and nothing consumes it. This is the sink Loom already has.
 
-A **higher-order sink** is a section whose specifier is a directory, `{packages/loom-cli/}`, told apart from a file path by its trailing slash. It emits no file of its own. It is an interior vertex: it predefines the directory, and the language, for every tangle sink reached beneath it. A tangle sink names one file; a higher-order sink names the place a whole subtree of files lands.
+A **higher-order sink** is a section whose specifier is a directory, `{packages/loom-cli/}`, told apart from a file path by its trailing slash. It emits no file of its own and inlines no code. It is an interior vertex: it points at a chapter and places that chapter's tangle sinks under its directory, in its language. A tangle sink names one file; a higher-order sink names where a whole chapter of files lands.
 
-## The tangling tree
+## Chapters and the tangling tree
 
-The two sinks, and the anchors between them, form a tree. A higher-order sink is a vertex. A tangle sink is a leaf. An anchor — `::[A cli module]` — is an edge. It composes a child under the vertex: a tangle sink, a section that holds tangle sinks, or another higher-order sink one level down. An anchor is never a file, and its name is never a filename; it is the edge and the symbol, nothing more.
+A higher-order sink points at a chapter. An anchor in the sink — `::[Parsing the line]` — names a section by its title, and that section must be a top-level heading, an H1. The H1 opens a chapter: itself and every section after it, in document order, until the next pointed H1 short-circuits the range and opens the next chapter. The pointed H1s partition a module into chapters; a heading between them, at any level, is absorbed into the chapter it falls in. An author nests headings however reads best — only the H1s a book points at are structural.
 
-A file's path is the prefixes of the higher-order sinks from the root down to the leaf, joined to the leaf's own path. The higher-order sink `{packages/loom-cli/}` over the tangle sink `{src/main.ts}` writes `packages/loom-cli/src/main.ts`. Prefixes accumulate down the tree, so a directory vertex nested in another nests its files in turn. A member that carries its own directory specifier reroutes instead: it leaves the accumulated prefix and lands at the directory it names, the way a chapter that reads in one part can tangle into another part's package.
+A higher-order sink places its chapter's tangle sinks under its directory, in its language. Where a chapter declares `{src/main.ts}`, the sink `{packages/loom-cli/}` over it writes `packages/loom-cli/src/main.ts`. The sink inlines nothing and emits nothing; it prefixes and places, one hop down. Prefixes accumulate when one higher-order sink points at another, so a directory nested in a directory nests its files in turn.
 
-A higher-order sink may not, through its members, reach itself. A cycle is a fault, named and refused before any file is written, the same way an unresolved anchor is.
+The first chapter a book points into a module should open at the module's first section, an H1, so no section is stranded ahead of it, outside every chapter. A higher-order sink may not, through its members, reach itself; a cycle is refused before any file is written, the same way an unresolved anchor is.
+
+A member names a chapter; it carries no specifier of its own. The sink's directory and language place the whole chapter at once, so there is nothing to override per member — the per-section reroute an earlier draft allowed only added noise. An anchor is never a file, and its name is never a filename; it is the edge and the symbol, nothing more.
 
 ## The book is a pattern, not a name
 
@@ -33,13 +35,13 @@ A heading's specifier carries the output, and its shape names the role:
 - a path with a trailing slash is a **higher-order sink** — `{packages/loom-cli/}`;
 - two parts are a **language and a location** — `{rust, loom/cli/}`.
 
-A member overrides its vertex's defaults where it must: an explicit filename a slug cannot give (`::[The manifest]{package.json}`), a different language, or a reroute to another directory. Such an override belongs only to a member of a higher-order sink, where an anchor routes. On a regular sink or a plain section an anchor inlines code, and an override says nothing — so Loom faults a specifier there rather than ignore it, until a use case earns one.
+A higher-order sink wears the two-part specifier — its directory and its default language, `{rust, loom/cli/}`. Its members do not: a member is a plain `::[Chapter]` anchor naming a chapter's H1, and the sink's directory and language place the whole chapter, so a member has nothing to override. An anchor that carries a specifier outside this — on a tangle sink, a plain section, anywhere a specifier cannot route — is a fault, not a thing Loom ignores.
 
-The specifier is output, and output is never a symbol. A section's identity — what an anchor resolves to, what go-to-definition reaches, what rename renames — is its title, folded through `normaliseTitle`, the one function that already names every tagless section. So go-to-definition on a member lands on its heading by title; the `{packages/loom-cli/}` prefix navigates no more than `{src/Main.ts}` does, because both are paths.
+The specifier is output, and output is never a symbol. A section's identity — what an anchor resolves to, what go-to-definition reaches, what rename renames — is its title, folded through `normaliseTitle`, the one function that already names every tagless section. So go-to-definition on a member lands on its chapter's heading by title; the `{packages/loom-cli/}` prefix navigates no more than `{src/Main.ts}` does, because both are paths.
 
 ## A higher-order sink is the package root
 
-The tree is not a new mechanism beside tangling. It is where the old `packageRoot` comes from. Today a file resolves to a `BuildSettings` — its delimiters, its primary language, and the `packageRoot` its sinks tangle under — and `outputPath(packageRoot, entry, sink)` places each file. The higher-order sink is that `packageRoot`, and its language is that primary language, composed in the document instead of resolved from configuration. The tangle does not change. Its `packageRoot` simply arrives from the sink tree, and falls back to the workspace default when no book claims the file.
+The tree is not a new mechanism beside tangling. It is where the old `packageRoot` comes from. A file resolves to a `BuildSettings` — its delimiters, its primary language, and the `packageRoot` its sinks tangle under — and `outputPath(packageRoot, entry, sink)` places each file. A chapter's higher-order sink is that `packageRoot`, and its language is that primary language, composed in the document instead of resolved from configuration. A tangle sink in no chapter keeps the default `packageRoot` — the directory holding its `corpus/` — so a bookless corpus tangles as it does today, and a book overrides the default only for the chapters it places.
 
 ## Three orders, never conflated
 
@@ -47,17 +49,20 @@ A corpus is read in three orders, and the sink tree is one of them. The **narrat
 
 ## Sinks are symbols
 
-A higher-order sink and its members are Loom symbols, served by Loom's own language service beside the diagnostics and the frame queries it already answers. An anchor resolves to a section by title; a section reports every anchor that composes it. Renaming a chapter renames the symbol. One edit renames the file, rewrites the heading, and rewrites every anchor — the slug regenerated through `normaliseTitle`, so the file and its references cannot drift. The reverse — a file renamed in the editor — rides the file-rename hook the TypeScript service already uses to mend imports on a move. The prefix, being a path, takes part in none of this.
+A higher-order sink and its members are Loom symbols, served by Loom's own language service beside the diagnostics and the frame queries it already answers. An anchor resolves to a section by title; a section reports every anchor that composes it. Renaming a section rewrites its heading and every anchor that names it in one edit, the name and its references kept in step. A file renamed in the editor is the other direction: it rides a file-rename hook that mends the `import "./old.loom"` references naming it. A section's title and its file stay separate — the title is a symbol, the path a specifier the author writes — so renaming one never moves the other.
 
 ## Health
 
-The sink tree adds its own entries to the one fault catalog: a member that resolves to nothing, two titles that normalise alike, a vertex that reaches itself, a higher-order sink with no members, a member rerouted to a directory that does not exist, an anchor that carries a specifier outside a higher-order sink, a higher-order sink that routes its own module, and a member whose module tangles no file. Each is a leaf diagnostic with a position and a message, surfaced in the editor and refused at tangle, exactly as a grammatical or a semantic fault is.
+The sink tree adds its own entries to the one fault catalog, each a leaf diagnostic with a position and a message, in the editor and at the tangle alike.
 
-Two of these guard the membership edge, because the sink tree routes whole modules. A book routes content, never itself, so a higher-order sink may not route its own module — a leaf member resolving into the book's own file is refused. A route must also land a file, so a member whose module declares no tangle sink is a warning: the route places nothing. A nested higher-order sink is exempt from both — it recurses rather than routing a module.
+Some are errors, refused before any file is written. A member that resolves to no section. Two titles that normalise alike. A higher-order sink that reaches itself through its members. Two higher-order sinks that point the same chapter — its files would have two homes. Two sinks that tangle to one path. An anchor that carries a specifier where none can route. A book that points into its own file.
+
+Some are warnings, surfaced but not fatal. A pointed section that is not an H1 — a chapter should open at a top-level heading. A book whose first chapter into a module does not open that module's first section, stranding the sections ahead of it outside every chapter. A higher-order sink with no members. A chapter that places no file, because nothing in its range is a tangle sink.
 
 ## Invariants
 
 - One normalisation names titles, anchors, slugs, and symbols — `normaliseTitle`, nowhere a second rule.
 - A specifier is output; a title is identity. Paths never navigate; titles always do.
-- The sink tree is derived from the parse AST — higher-order sink sections and their anchors — never from a configuration kept alongside.
+- A chapter is a contiguous run of sections in document order, opened by a pointed H1 and closed by the next; it belongs to one higher-order sink, never two.
+- The sink tree is derived from the parse AST — higher-order sinks, the chapters their anchors point at, and the tangle sinks in range — never from a configuration kept alongside.
 - A broken sink tree refuses the tangle and degrades the editor; a corpus with no book tangles as it does today.

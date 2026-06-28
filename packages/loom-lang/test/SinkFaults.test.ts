@@ -9,9 +9,10 @@ import { normaliseTitle } from '../src/ast/WeftTokeniser'
 import { ParseLayer, parseDocument } from './parse'
 
 // `sinkTreeFaults` reads a module's parsed `doc` alone, so a test module is a
-// real parsed document with the frame/product left off — the cast names exactly
-// that. The detector takes `normaliseTitle` so the whole corpus folds titles by
-// one rule; here it is the real one.
+// real parsed document with the frame/product left off. The detector takes
+// `normaliseTitle` so the whole corpus folds titles by one rule; here it is the
+// real one. Each test names a corpus that trips one chapter fault and filters to
+// its kind.
 
 const corpusOf = (
   files: Record<string, string>,
@@ -30,7 +31,11 @@ const corpusOf = (
     return { modules: new Map(entries) }
   }).pipe(Effect.provide(ParseLayer))
 
-const widget = '# The widget\n\n## The module {src/Widget.ts}\n\n=>\n\nexport const x = 1\n'
+const widget =
+  '# The widget\n\n## The module {src/Widget.ts}\n\n=>\n\nexport const x = 1\n'
+
+const of = (corpus: LoomCorpusAst, kind: string) =>
+  sinkTreeFaults(corpus, normaliseTitle).filter((f) => f.kind === kind)
 
 describe('Sink tree — faults the detector raises', () => {
   it.effect('flags two titles that fold to one name', () =>
@@ -39,9 +44,7 @@ describe('Sink tree — faults the detector raises', () => {
         'a.loom': '# The widget\n\n=>\n\nexport const a = 1\n',
         'b.loom': '# the widget\n\n=>\n\nexport const b = 2\n',
       })
-      const found = sinkTreeFaults(corpus, normaliseTitle).filter(
-        (f) => f.kind === 'CollidingTitles',
-      )
+      const found = of(corpus, 'CollidingTitles')
       expect(found.length).toBe(2)
       expect(found.every((f) => f.kind === 'CollidingTitles' && f.name === 'TheWidget')).toBe(
         true,
@@ -55,10 +58,9 @@ describe('Sink tree — faults the detector raises', () => {
         'book.loom':
           '# Book\n\n## R {r/}\n\n=>\n\n::[A]\n\n## A {a/}\n\n=>\n\n::[B]\n\n## B {b/}\n\n=>\n\n::[A]\n',
       })
-      const cycles = sinkTreeFaults(corpus, normaliseTitle).filter(
-        (f) => f.kind === 'SinkCycle',
+      const names = of(corpus, 'SinkCycle').flatMap((f) =>
+        f.kind === 'SinkCycle' ? [f.name] : [],
       )
-      const names = cycles.flatMap((f) => (f.kind === 'SinkCycle' ? [f.name] : []))
       expect(names.sort()).toEqual(['A', 'B'])
     }),
   )
@@ -68,74 +70,85 @@ describe('Sink tree — faults the detector raises', () => {
       const corpus = yield* corpusOf({
         'book.loom': '# Book\n\n## Solo {solo/}\n\n=>\n\nconst nothing = true\n',
       })
-      const empties = sinkTreeFaults(corpus, normaliseTitle).filter(
-        (f) => f.kind === 'EmptySink',
-      )
-      expect(empties.length).toBe(1)
-      expect(empties[0]?.kind === 'EmptySink' && empties[0].directory).toBe('solo/')
+      const found = of(corpus, 'EmptySink')
+      expect(found.length).toBe(1)
+      expect(found[0]?.kind === 'EmptySink' && found[0].directory).toBe('solo/')
     }),
   )
 
-  it.effect('flags a member rerouted to an undeclared directory', () =>
-    Effect.gen(function* () {
-      const corpus = yield* corpusOf({
-        'book.loom':
-          '# Book\n\n## Core {packages/core/}\n\n=>\n\n::[The widget]{libs/special/}\n',
-        'widget.loom': widget,
-      })
-      const reroutes = sinkTreeFaults(corpus, normaliseTitle).filter(
-        (f) => f.kind === 'UnresolvedReroute',
-      )
-      expect(reroutes.length).toBe(1)
-      expect(
-        reroutes[0]?.kind === 'UnresolvedReroute' && reroutes[0].directory,
-      ).toBe('libs/special/')
-    }),
-  )
-
-  it.effect('flags a specifier on an anchor outside a higher-order sink', () =>
+  it.effect('flags a specifier worn by an anchor', () =>
     Effect.gen(function* () {
       const corpus = yield* corpusOf({
         'a.loom': '# Plain\n\n=>\n\n::[The widget]{out.ts}\n',
         'widget.loom': widget,
       })
-      const misplaced = sinkTreeFaults(corpus, normaliseTitle).filter(
-        (f) => f.kind === 'MisplacedSpecifier',
-      )
-      expect(misplaced.length).toBe(1)
-      expect(
-        misplaced[0]?.kind === 'MisplacedSpecifier' && misplaced[0].specifier,
-      ).toBe('out.ts')
+      const found = of(corpus, 'MisplacedSpecifier')
+      expect(found.length).toBe(1)
+      expect(found[0]?.kind === 'MisplacedSpecifier' && found[0].specifier).toBe('out.ts')
     }),
   )
 
-  it.effect('flags a higher-order sink that routes its own module', () =>
+  it.effect('flags a book that points a chapter into its own file', () =>
     Effect.gen(function* () {
       const corpus = yield* corpusOf({
         'book.loom':
           '# Book\n\n## Core {packages/core/}\n\n=>\n\n::[Inline]\n\n# Inline {src/x.ts}\n\n=>\n\nexport const x = 1\n',
       })
-      const self = sinkTreeFaults(corpus, normaliseTitle).filter(
-        (f) => f.kind === 'SelfRoutingSink',
-      )
-      expect(self.length).toBe(1)
-      expect(self[0]?.kind === 'SelfRoutingSink' && self[0].name).toBe('Inline')
+      const found = of(corpus, 'SelfRoutingSink')
+      expect(found.length).toBe(1)
+      expect(found[0]?.kind === 'SelfRoutingSink' && found[0].name).toBe('Inline')
     }),
   )
 
-  it.effect('flags a member whose module tangles no file', () =>
+  it.effect('flags a chapter whose range tangles no file', () =>
     Effect.gen(function* () {
       const corpus = yield* corpusOf({
         'book.loom': '# Book\n\n## Core {packages/core/}\n\n=>\n\n::[Prose chapter]\n',
         'prose.loom': '# Prose chapter\n\n=>\n\nexport const note = 1\n',
       })
-      const sinkless = sinkTreeFaults(corpus, normaliseTitle).filter(
-        (f) => f.kind === 'SinklessMember',
-      )
-      expect(sinkless.length).toBe(1)
-      expect(sinkless[0]?.kind === 'SinklessMember' && sinkless[0].name).toBe(
-        'Prose chapter',
-      )
+      const found = of(corpus, 'SinklessChapter')
+      expect(found.length).toBe(1)
+      expect(found[0]?.kind === 'SinklessChapter' && found[0].name).toBe('Prose chapter')
+    }),
+  )
+
+  it.effect('flags a chapter opened below a top-level heading', () =>
+    Effect.gen(function* () {
+      const corpus = yield* corpusOf({
+        'book.loom': '# Book\n\n## Core {packages/core/}\n\n=>\n\n::[Sub thing]\n',
+        'content.loom': '## Sub thing {x.ts}\n\n=>\n\nexport const y = 1\n',
+      })
+      const found = of(corpus, 'PointedNotH1')
+      expect(found.length).toBe(1)
+      expect(found[0]?.kind === 'PointedNotH1' && found[0].name).toBe('Sub thing')
+    }),
+  )
+
+  it.effect('flags a first chapter that strands a module opening', () =>
+    Effect.gen(function* () {
+      const corpus = yield* corpusOf({
+        'book.loom': '# Book\n\n## Core {packages/core/}\n\n=>\n\n::[Chapter two]\n',
+        'content.loom':
+          '# Intro\n\n=>\n\nconst a = 1\n\n# Chapter two {x.ts}\n\n=>\n\nexport const b = 2\n',
+      })
+      const found = of(corpus, 'OrphanedOpening')
+      expect(found.length).toBe(1)
+      expect(found[0]?.kind === 'OrphanedOpening' && found[0].name).toBe('Chapter two')
+    }),
+  )
+
+  it.effect('flags a chapter two higher-order sinks both claim', () =>
+    Effect.gen(function* () {
+      const corpus = yield* corpusOf({
+        'book.loom':
+          '# Book\n\n## A {a/}\n\n=>\n\n::[The widget]\n\n## B {b/}\n\n=>\n\n::[The widget]\n',
+        'widget.loom': widget,
+      })
+      const found = of(corpus, 'DuplicateChapter')
+      expect(found.length).toBe(2)
+      expect(
+        found.every((f) => f.kind === 'DuplicateChapter' && f.name === 'The widget'),
+      ).toBe(true)
     }),
   )
 

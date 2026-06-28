@@ -4,6 +4,7 @@ import {
   CollidingTitles,
   CrossLanguageAnchor,
   describe as renderFault,
+  DuplicateChapter,
   EmptyLabel,
   EmptySink,
   faulty,
@@ -11,12 +12,13 @@ import {
   MisplacedSpecifier,
   MissingLanguageWarp,
   MissingWarpValue,
+  OrphanedOpening,
+  PointedNotH1,
   SelfRoutingSink,
   SinkCycle,
-  SinklessMember,
+  SinklessChapter,
   UnclosedDelimiter,
   UnresolvedAnchor,
-  UnresolvedReroute,
   type EmptyConstruct,
 } from '#ast/LoomFault'
 
@@ -100,30 +102,41 @@ describe('LoomFault — the diagnostic catalog', () => {
       /^Sink cycle: the higher-order sink `The CLI` reaches itself/,
     )
     expect(
-      renderFault(UnresolvedReroute({ directory: 'packages/missing/' })).message,
-    ).toMatch(/^Reroute to `packages\/missing\/`, which no higher-order sink declares\./)
-    expect(
       renderFault(MisplacedSpecifier({ specifier: 'package.json' })).message,
-    ).toMatch(/^Specifier `package.json` on an anchor outside a higher-order sink\./)
+    ).toMatch(/^Specifier `package.json` on an anchor\./)
     expect(renderFault(SelfRoutingSink({ name: 'Inline' })).message).toMatch(
-      /^A higher-order sink routes its own module through `Inline`\./,
+      /^A book points the chapter `Inline` into its own file\./,
     )
-    expect(renderFault(SinklessMember({ name: 'Prose chapter' })).message).toMatch(
-      /^The member `Prose chapter` resolves to a module that tangles no file/,
+    expect(renderFault(SinklessChapter({ name: 'Prose chapter' })).message).toMatch(
+      /^The chapter `Prose chapter` tangles no file/,
+    )
+    expect(renderFault(PointedNotH1({ name: 'Sub thing' })).message).toMatch(
+      /^The chapter `Sub thing` opens below a top-level heading\./,
+    )
+    expect(renderFault(OrphanedOpening({ name: 'Chapter two' })).message).toMatch(
+      /^The first chapter `Chapter two` is not its module's first section/,
+    )
+    expect(renderFault(DuplicateChapter({ name: 'The widget' })).message).toMatch(
+      /^Two higher-order sinks point the chapter `The widget`/,
     )
   })
 
-  it('makes an empty sink and a sinkless member warnings, not errors', () => {
+  it('sorts the sink-tree faults into warnings and errors', () => {
     expect(renderFault(EmptySink({ directory: 'packages/loom-cli/' })).severity).toBe(
       'warning',
     )
     expect(faulty(EmptySink({ directory: 'packages/loom-cli/' }), POS).status).toBe(
       'warning',
     )
-    expect(renderFault(SinklessMember({ name: 'Prose chapter' })).severity).toBe(
+    expect(renderFault(SinklessChapter({ name: 'Prose chapter' })).severity).toBe(
+      'warning',
+    )
+    expect(renderFault(PointedNotH1({ name: 'Sub thing' })).severity).toBe('warning')
+    expect(renderFault(OrphanedOpening({ name: 'Chapter two' })).severity).toBe(
       'warning',
     )
     expect(renderFault(SelfRoutingSink({ name: 'Inline' })).severity).toBe('error')
+    expect(renderFault(DuplicateChapter({ name: 'The widget' })).severity).toBe('error')
   })
 
   it('wraps a fault as positioned node health', () => {
