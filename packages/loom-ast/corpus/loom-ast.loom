@@ -6,7 +6,7 @@
 
 ## The heading
 
-A `LoomHeading` is a section's heading — the same parts the `HeadingWeft` carried: the start marker, an optional title, an optional tag, and an optional specifier, either a language label or a tangle path.
+A `LoomHeading` is a section's heading — the same parts the `HeadingWeft` carried: the start marker, an optional title, an optional tag, and an optional specifier, which is a language label, a tangle path, or a directory.
 
 =>
 
@@ -15,7 +15,11 @@ export const LoomHeadingSchema = loomNode('LoomHeading', {
   title: Schema.optional(HeadingTitleTokenSchema),
   tag: Schema.optional(TagTokenSchema),
   specifier: Schema.optional(
-    Schema.Union(SpecifierTokenSchema, PathSpecifierTokenSchema),
+    Schema.Union(
+      SpecifierTokenSchema,
+      PathSpecifierTokenSchema,
+      DirSpecifierTokenSchema,
+    ),
   ),
 })
 export type LoomHeading = typeof LoomHeadingSchema.Type
@@ -54,6 +58,7 @@ Each container is a `loomNode` built from Effect's `Schema`. The heading's subto
 import { Schema } from 'effect'
 import { loomNode } from '#ast/LoomNode'
 import {
+  DirSpecifierTokenSchema,
   HeadingStartTokenSchema,
   HeadingTitleTokenSchema,
   PathSpecifierTokenSchema,

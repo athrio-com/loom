@@ -34,6 +34,7 @@ describe('PackageConfig.resolve — per-file build settings', () => {
       delims: { open: '<<', close: '>>' },
       primaryLanguage: 'typescript',
       packageRoot: undefined,
+      workspaceRoot: dir,
     })
   })
 
@@ -44,6 +45,7 @@ describe('PackageConfig.resolve — per-file build settings', () => {
       delims: { open: '<<', close: defaultAnchorDelims.close },
       primaryLanguage: undefined,
       packageRoot: undefined,
+      workspaceRoot: dir,
     })
   })
 
@@ -56,6 +58,7 @@ describe('PackageConfig.resolve — per-file build settings', () => {
       delims: defaultAnchorDelims,
       primaryLanguage: 'bash',
       packageRoot: undefined,
+      workspaceRoot: dir,
     })
   })
 

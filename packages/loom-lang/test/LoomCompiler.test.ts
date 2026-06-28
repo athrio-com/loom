@@ -59,6 +59,7 @@ const TestConfig = Layer.succeed(
         delims: defaultAnchorDelims,
         primaryLanguage: undefined,
         packageRoot: undefined,
+        workspaceRoot: undefined,
       }),
   }),
 )

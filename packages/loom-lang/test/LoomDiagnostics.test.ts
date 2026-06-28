@@ -56,6 +56,7 @@ const checkerFor = (fixture: string) =>
                 settings: {},
                 services: {},
                 packageRoot: undefined,
+                workspaceRoot: undefined,
               }),
             manifest: () => Effect.succeed({ languages: { typescript: {} } }),
             materialize: () => Effect.void,

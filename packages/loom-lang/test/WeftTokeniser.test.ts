@@ -187,9 +187,10 @@ describe('Tokeniser — Heading tag/specifier filling', () => {
 })
 
 // =============================================================================
-// Specifier kind — label vs path. A label without path separators (`{Bash}`)
-// builds a `Specifier`; a label carrying `.` or `/` (`{src/x.ts}`) builds a
-// `PathSpecifier`, marking the Section as a tangle (file-emission) sink.
+// Specifier kind — label vs path vs directory. A label without path separators
+// (`{Bash}`) builds a `Specifier`; a label carrying `.` or `/` (`{src/x.ts}`)
+// builds a `PathSpecifier`, the tangle (file-emission) sink; a label closed by a
+// trailing slash (`{pkg/}`) builds a `DirSpecifier`, the higher-order sink.
 // =============================================================================
 
 describe('Tokeniser — label vs path specifier', () => {
@@ -216,6 +217,24 @@ describe('Tokeniser — label vs path specifier', () => {
     const w = headingAt(tokenise(['# Tangle {build.sh}']), 0)
     expect(w.specifier?.type).toBe('PathSpecifier')
     expect(w.specifier?.label.value).toBe('build.sh')
+  })
+
+  it('`{packages/loom-cli/}` is a DirSpecifier (trailing slash)', () => {
+    const w = headingAt(tokenise(['# CLI {packages/loom-cli/}']), 0)
+    expect(w.specifier?.type).toBe('DirSpecifier')
+    expect(w.specifier?.label.value).toBe('packages/loom-cli/')
+    expect(w.specifier?.health.status).toBe('ok')
+  })
+
+  it('`{lib/}` is a DirSpecifier (single segment, trailing slash)', () => {
+    const w = headingAt(tokenise(['# Group {lib/}']), 0)
+    expect(w.specifier?.type).toBe('DirSpecifier')
+    expect(w.specifier?.label.value).toBe('lib/')
+  })
+
+  it('a trailing slash wins over the path reading (`{src/main.ts}` stays a file)', () => {
+    const w = headingAt(tokenise(['# File {src/main.ts}']), 0)
+    expect(w.specifier?.type).toBe('PathSpecifier')
   })
 
   it('a path specifier with a space fails its pattern (bad text in unexpected)', () => {
@@ -672,6 +691,44 @@ describe('Tokeniser — WarpAnchor references on ArrowWeft / CodeWeft', () => {
     expect(
       codeWeftFromLines(['## A', '=>', '::[a]'], 2).health.status,
     ).not.toBe('incomplete')
+  })
+
+  it('an anchor with no trailing `{…}` has no specifier', () => {
+    const w = codeWeftFromLines(['## A', '=>', '::[mul]'], 2)
+    expect(w.anchors[0].specifier).toBeUndefined()
+  })
+
+  it('attaches a directory specifier `::[A cli module]{packages/loom-cli/}`', () => {
+    const w = codeWeftFromLines(['## A', '=>', '::[A cli module]{packages/loom-cli/}'], 2)
+    expect(w.anchors).toHaveLength(1)
+    expect(w.anchors[0].name.value).toBe('A cli module')
+    expect(w.anchors[0].specifier?.type).toBe('DirSpecifier')
+    expect(w.anchors[0].specifier?.label.value).toBe('packages/loom-cli/')
+    expect(w.anchors[0].health.status).toBe('ok')
+    expect(w.anchors[0].source).toBe('::[A cli module]{packages/loom-cli/}')
+  })
+
+  it('attaches a file specifier `::[The manifest]{package.json}`', () => {
+    const w = codeWeftFromLines(['## A', '=>', '::[The manifest]{package.json}'], 2)
+    expect(w.anchors[0].specifier?.type).toBe('PathSpecifier')
+    expect(w.anchors[0].specifier?.label.value).toBe('package.json')
+  })
+
+  it('attaches a label specifier `::[base]{rust}`', () => {
+    const w = codeWeftFromLines(['## A', '=>', '::[base]{rust}'], 2)
+    expect(w.anchors[0].specifier?.type).toBe('Specifier')
+    expect(w.anchors[0].specifier?.label.value).toBe('rust')
+  })
+
+  it('a `{` not adjacent to the close is not a specifier', () => {
+    const w = codeWeftFromLines(['## A', '=>', '::[x] {y}'], 2)
+    expect(w.anchors[0].specifier).toBeUndefined()
+  })
+
+  it('a `{` with no `}` after the close stays product code', () => {
+    const w = codeWeftFromLines(['## A', '=>', '::[base]{ override'], 2)
+    expect(w.anchors[0].specifier).toBeUndefined()
+    expect(w.anchors[0].health.status).toBe('ok')
   })
 })
 

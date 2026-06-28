@@ -55,6 +55,7 @@ describe('LoomConfig.resolve — workspace manifest', () => {
         python: 'custom-py',
       },
       packageRoot: join(dir, 'packages', 'core'),
+      workspaceRoot: dir,
     })
   })
 
@@ -70,6 +71,7 @@ describe('LoomConfig.resolve — workspace manifest', () => {
         python: 'custom-py',
       },
       packageRoot: undefined,
+      workspaceRoot: dir,
     })
   })
 
@@ -89,6 +91,7 @@ describe('LoomConfig.resolve — workspace manifest', () => {
       settings: {},
       services: {},
       packageRoot: undefined,
+      workspaceRoot: undefined,
     })
   })
 
@@ -105,6 +108,7 @@ describe('LoomConfig.resolve — workspace manifest', () => {
       settings: {},
       services: { typescript: '@athrio/loom-service-typescript' },
       packageRoot: join(dir, 'packages', 'loom-ast'),
+      workspaceRoot: dir,
     })
   })
 

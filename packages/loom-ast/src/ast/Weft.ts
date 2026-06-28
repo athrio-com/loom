@@ -3,6 +3,7 @@ import { loomNode } from '#ast/LoomNode'
 import {
   ArrowTokenSchema,
   CodeTokenSchema,
+  DirSpecifierTokenSchema,
   HeadingStartTokenSchema,
   PathSpecifierTokenSchema,
   ProseTokenSchema,
@@ -19,7 +20,11 @@ export const HeadingWeftSchema = loomNode('HeadingWeft', {
   title: Schema.optional(HeadingTitleTokenSchema),
   tag: Schema.optional(TagTokenSchema),
   specifier: Schema.optional(
-    Schema.Union(SpecifierTokenSchema, PathSpecifierTokenSchema),
+    Schema.Union(
+      SpecifierTokenSchema,
+      PathSpecifierTokenSchema,
+      DirSpecifierTokenSchema,
+    ),
   ),
 })
 export type HeadingWeft = typeof HeadingWeftSchema.Type

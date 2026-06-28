@@ -92,8 +92,17 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
               return failures.length > 0
                 ? Effect.fail(new TangleError({ entry: path, failures }))
                 : config.resolve(path).pipe(
-                    Effect.map(({ packageRoot }) =>
-                      resolveSinks(modules, path, packageRoot),
+                    Effect.map(({ packageRoot, workspaceRoot }) =>
+                      resolveSinks(
+                        modules,
+                        path,
+                        sinkRoot(
+                          modules,
+                          path,
+                          Option.fromNullable(packageRoot),
+                          Option.fromNullable(workspaceRoot),
+                        ),
+                      ),
                     ),
                   )
             }),
@@ -211,7 +220,7 @@ const entryOf = (
 
 `tangle` is the de re's file projection, the sibling of `compile`. It produces the corpus, refuses a broken build, and resolves the entry's sinks to the content and target a writer emits.
 
-`resolveSinks` takes the entry module's tangle sinks — one per `{path}` section — and for each flattens its composed code across the corpus with `fromProduct`, then resolves where the file lands. `outputPath` places a sink under the entry's package root — the absolute directory its package tangles into — so a sink names its file relative to that root rather than climbing out of the corpus. A file the workspace assigns to no package falls back to the `.loom`'s own directory. `resolveSinks` returns a `TangledFile` per sink: the section that produced it, where it lands, and its content. `LoomTangler` performs the writes; `tangle` itself touches no disk.
+`resolveSinks` takes the entry module's tangle sinks — one per `{path}` section — and for each flattens its composed code across the corpus with `fromProduct`, then resolves where the file lands. `outputPath` places a sink under the entry's package root — the absolute directory its package tangles into — so a sink names its file relative to that root rather than climbing out of the corpus. `sinkRoot` chooses that root: the directory a book's higher-order sink routes the entry to, resolved against the workspace, or the package root the configuration gives when no book reaches it. A file the workspace assigns to no package falls back to the `.loom`'s own directory. `resolveSinks` returns a `TangledFile` per sink: the section that produced it, where it lands, and its content. `LoomTangler` performs the writes; `tangle` itself touches no disk.
 
 A tangle must never emit an anchor it could not resolve, nor build on a file it could not read. So `tangle` runs `corpusErrors` over the whole corpus first — every module's document and frame — and fails with a `TangleError` the moment any module carries an error. A missing import, a malformed parse, an unresolved `::[…]` reference each stops the build rather than leaving a file with a silently dropped reference. The failure is loud, and names every file and line.
 
@@ -224,18 +233,33 @@ export interface TangledFile {
 }
 
 const outputPath = (
-  packageRoot: string | undefined,
+  packageRoot: Option.Option<string>,
   entry: Path,
   sink: string,
 ): Path =>
-  packageRoot === undefined
-    ? resolvePath(dirname(entry), sink)
-    : resolvePath(packageRoot, sink)
+  Option.match(packageRoot, {
+    onNone: () => resolvePath(dirname(entry), sink),
+    onSome: (root) => resolvePath(root, sink),
+  })
+
+const sinkRoot = (
+  modules: Modules,
+  entry: Path,
+  packageRoot: Option.Option<string>,
+  workspaceRoot: Option.Option<string>,
+): Option.Option<string> =>
+  Option.all([
+    Option.fromNullable(sinkTreeRouting({ modules }).get(entry)),
+    workspaceRoot,
+  ]).pipe(
+    Option.map(([routed, workspace]) => resolvePath(workspace, routed)),
+    Option.orElse(() => packageRoot),
+  )
 
 const resolveSinks = (
   modules: Modules,
   entry: Path,
-  packageRoot: string | undefined,
+  packageRoot: Option.Option<string>,
 ): ReadonlyArray<TangledFile> =>
   pipe(
     modules.get(entry)?.product?.files ?? [],
@@ -380,6 +404,7 @@ import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAst
 import {
   corpusErrors,
   moduleDiagnostics,
+  sinkTreeRouting,
   transitiveDependents,
   type LoomModule,
   type Path,

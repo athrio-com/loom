@@ -9,6 +9,7 @@ import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAst
 import {
   corpusErrors,
   moduleDiagnostics,
+  sinkTreeRouting,
   transitiveDependents,
   type LoomModule,
   type Path,
@@ -80,18 +81,33 @@ export interface TangledFile {
 }
 
 const outputPath = (
-  packageRoot: string | undefined,
+  packageRoot: Option.Option<string>,
   entry: Path,
   sink: string,
 ): Path =>
-  packageRoot === undefined
-    ? resolvePath(dirname(entry), sink)
-    : resolvePath(packageRoot, sink)
+  Option.match(packageRoot, {
+    onNone: () => resolvePath(dirname(entry), sink),
+    onSome: (root) => resolvePath(root, sink),
+  })
+
+const sinkRoot = (
+  modules: Modules,
+  entry: Path,
+  packageRoot: Option.Option<string>,
+  workspaceRoot: Option.Option<string>,
+): Option.Option<string> =>
+  Option.all([
+    Option.fromNullable(sinkTreeRouting({ modules }).get(entry)),
+    workspaceRoot,
+  ]).pipe(
+    Option.map(([routed, workspace]) => resolvePath(workspace, routed)),
+    Option.orElse(() => packageRoot),
+  )
 
 const resolveSinks = (
   modules: Modules,
   entry: Path,
-  packageRoot: string | undefined,
+  packageRoot: Option.Option<string>,
 ): ReadonlyArray<TangledFile> =>
   pipe(
     modules.get(entry)?.product?.files ?? [],
@@ -273,8 +289,17 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
               return failures.length > 0
                 ? Effect.fail(new TangleError({ entry: path, failures }))
                 : config.resolve(path).pipe(
-                    Effect.map(({ packageRoot }) =>
-                      resolveSinks(modules, path, packageRoot),
+                    Effect.map(({ packageRoot, workspaceRoot }) =>
+                      resolveSinks(
+                        modules,
+                        path,
+                        sinkRoot(
+                          modules,
+                          path,
+                          Option.fromNullable(packageRoot),
+                          Option.fromNullable(workspaceRoot),
+                        ),
+                      ),
                     ),
                   )
             }),

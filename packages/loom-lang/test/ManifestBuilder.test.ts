@@ -106,6 +106,7 @@ describe('ManifestBuilder — compiling {Config} sources', () => {
         python: 'custom-py',
       },
       packageRoot: join(ws, 'packages', 'core'),
+      workspaceRoot: ws,
     })
   })
 })

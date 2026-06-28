@@ -76,6 +76,166 @@ export const transitiveDependents = (
   )
 }
 
+## The sink tree
+
+The sink tree decides where each file lands. A section whose specifier is a directory is a higher-order sink — a vertex — and its member anchors compose the sinks beneath it, every one tangling under the directory it names. `sinkTreeRouting` returns, for each module a sink reaches, the directory its tangle sinks resolve under; a module no sink reaches is absent, and tangles under the workspace default instead.
+
+A `SectionRef` locates a section by the module it lives in. `dirLabelOf` reads a section's directory when the section is a higher-order sink, and `joinDir` nests one directory under another, so a prefix grows down a branch.
+
+=>
+
+type SectionRef = { readonly module: Path; readonly section: LoomSection }
+
+const dirLabelOf = (section: LoomSection): Option.Option<string> =>
+  section.heading.specifier?.type === 'DirSpecifier'
+    ? Option.some(section.heading.specifier.label.value)
+    : Option.none()
+
+const joinDir = (parent: string, child: string): string =>
+  parent === '' ? child : `${parent.replace(/\/$/, '')}/${child}`
+
+~
+
+A member names a section by its raw title — the same match the frame resolves an anchor by — so a member reaches a section wherever it lives. `sectionTitles` indexes every titled section across the corpus by that title. The first of any duplicate wins here; the duplicate itself is a fault the diagnostics raise.
+
+=>
+
+const sectionTitles = (modules: Modules): ReadonlyMap<string, SectionRef> =>
+  pipe(
+    Array.fromIterable(modules.values()),
+    Array.flatMap((m) =>
+      Array.filterMap(m.doc.sections, (section) =>
+        Option.map(
+          Option.fromNullable(section.heading.title),
+          (title) => [title.source, { module: m.path, section }] as const,
+        ),
+      ),
+    ),
+    Array.reduce(
+      new Map<string, SectionRef>(),
+      (index, [title, ref]) =>
+        index.has(title) ? index : new Map(index).set(title, ref),
+    ),
+  )
+
+~
+
+A higher-order sink's members are the `::[…]` anchors in its code. Each is a name and, when it overrides, a directory of its own — the reroute that sends a member out of its parent's branch to a directory elsewhere.
+
+=>
+
+type Member = { readonly name: string; readonly reroute: Option.Option<string> }
+
+const membersOf = (section: LoomSection): ReadonlyArray<Member> =>
+  pipe(
+    section.code,
+    Array.flatMap((weft) =>
+      weft.type === 'ArrowWeft' || weft.type === 'CodeWeft'
+        ? Array.map(weft.anchors, (a) => ({
+            name: a.name.value,
+            reroute:
+              a.specifier?.type === 'DirSpecifier'
+                ? Option.some(a.specifier.label.value)
+                : Option.none<string>(),
+          }))
+        : [],
+    ),
+  )
+
+~
+
+The walk starts at the roots — the higher-order sinks no other sink composes. `dirSinks` gathers every higher-order sink, and `rootSinks` drops the ones reached as a member of another, leaving the tops of the forest.
+
+=>
+
+const dirSinks = (modules: Modules): ReadonlyArray<SectionRef> =>
+  pipe(
+    Array.fromIterable(modules.values()),
+    Array.flatMap((m) =>
+      Array.filterMap(m.doc.sections, (section) =>
+        Option.isSome(dirLabelOf(section))
+          ? Option.some<SectionRef>({ module: m.path, section })
+          : Option.none<SectionRef>(),
+      ),
+    ),
+  )
+
+const rootSinks = (
+  modules: Modules,
+  index: ReadonlyMap<string, SectionRef>,
+): ReadonlyArray<SectionRef> => {
+  const sinks = dirSinks(modules)
+  const nested = pipe(
+    sinks,
+    Array.flatMap((d) =>
+      Array.filterMap(membersOf(d.section), (member) =>
+        pipe(
+          Option.fromNullable(index.get(member.name)),
+          Option.filter((ref) => Option.isSome(dirLabelOf(ref.section))),
+          Option.map((ref) => ref.section),
+        ),
+      ),
+    ),
+    (reached) => new Set(reached),
+  )
+  return Array.filter(sinks, (d) => !nested.has(d.section))
+}
+
+~
+
+`routeMember` places one member, in the three cases it handles. An unresolved name changes nothing. A member that resolves to a leaf records its module under the directory in force — its own reroute, or the inherited prefix. A member that resolves to another higher-order sink recurses with the prefix extended, unless the branch already holds that sink, where the walk stops rather than loops. `sinkTreeRouting` runs the walk from each root.
+
+=>
+
+export const sinkTreeRouting = (
+  corpus: LoomCorpusAst,
+): ReadonlyMap<Path, string> => {
+  const modules = corpus.modules
+  const index = sectionTitles(modules)
+
+  const routeMember = (
+    prefix: string,
+    seen: ReadonlySet<LoomSection>,
+    acc: ReadonlyMap<Path, string>,
+    member: Member,
+  ): ReadonlyMap<Path, string> => {
+    const ref = index.get(member.name)
+    if (ref === undefined) return acc
+    const at = Option.getOrElse(member.reroute, () => prefix)
+    const label = dirLabelOf(ref.section)
+    if (Option.isNone(label)) return new Map(acc).set(ref.module, at)
+    if (seen.has(ref.section)) return acc
+    return walk(
+      ref.section,
+      joinDir(at, label.value),
+      new Set([...seen, ref.section]),
+      acc,
+    )
+  }
+
+  const walk = (
+    section: LoomSection,
+    prefix: string,
+    seen: ReadonlySet<LoomSection>,
+    routing: ReadonlyMap<Path, string>,
+  ): ReadonlyMap<Path, string> =>
+    Array.reduce(membersOf(section), routing, (acc, member) =>
+      routeMember(prefix, seen, acc, member),
+    )
+
+  return Array.reduce(
+    rootSinks(modules, index),
+    new Map<Path, string>() as ReadonlyMap<Path, string>,
+    (acc, root) =>
+      walk(
+        root.section,
+        Option.getOrElse(dirLabelOf(root.section), () => ''),
+        new Set([root.section]),
+        acc,
+      ),
+  )
+}
+
 ## Diagnostics across the corpus
 
 Every node carries a health, and a health holds diagnostics. `diagnosticsIn` is the walk that reads them out. It descends any node, gathers the diagnostics it carries, and skips the `health` field itself, so a node's diagnostics are collected once rather than again at every child. It keeps every severity — error, warning, and informational note alike — because the editor surfaces them all.
@@ -128,14 +288,14 @@ export const corpusErrors = (
 
 ## What this module draws on
 
-Effect supplies `Schema` for the model and `Array`, `Option`, and `pipe` for the queries. The module bundles two other models — `LoomDocument` (parse) and `FrameModule` (frame) — and `Diagnostic`, the error a corpus walk gathers.
+Effect supplies `Schema` for the model and `Array`, `Option`, and `pipe` for the queries. The module bundles two other models — `LoomDocument` (parse) and `FrameModule` (frame) — `LoomSection`, the unit the sink tree walks, and `Diagnostic`, the error a corpus walk gathers.
 
 =>
 
 import { Array, Option, pipe, Schema } from 'effect'
 import { type Diagnostic } from '#ast/LoomNode'
 import { ProductSchema } from '#ast/ProductAst'
-import { LoomDocumentSchema } from '#ast/LoomAst'
+import { LoomDocumentSchema, type LoomSection } from '#ast/LoomAst'
 import { FrameModuleSchema } from '#ast/FrameAst'
 
 ## The module {src/ast/LoomCorpusAst.ts}
@@ -147,5 +307,7 @@ import { FrameModuleSchema } from '#ast/FrameAst'
 ::[The module and the corpus]
 
 ::[Graph queries over the imports]
+
+::[The sink tree]
 
 ::[Diagnostics across the corpus]

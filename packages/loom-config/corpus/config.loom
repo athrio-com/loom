@@ -105,7 +105,7 @@ export type PackageEntry = typeof PackageEntrySchema.Type
 
 ## What a reader receives
 
-`ResolvedConfig` is the resolved shape every reader works with, the workspace defaults already merged with the one package that applies. Its `anchor`, `primary`, `languages`, and `settings` are the same four a reader has always read. Two fields are new. The `services` map names, for each activated language, the package that serves it — the one the language declared, or the conventional `@athrio/loom-service-<id>` when it declared none. The `packageRoot` is the absolute path of the tangle root of the package the resolved file belongs to — the package's explicit `output`, or the directory above its corpus folder by default — or `undefined` when the file sits in no corpus folder and names no package.
+`ResolvedConfig` is the resolved shape every reader works with, the workspace defaults already merged with the one package that applies. Its `anchor`, `primary`, `languages`, and `settings` are the same four a reader has always read. Two fields are new. The `services` map names, for each activated language, the package that serves it — the one the language declared, or the conventional `@athrio/loom-service-<id>` when it declared none. The `packageRoot` is the absolute path of the tangle root of the package the resolved file belongs to — the package's explicit `output`, or the directory above its corpus folder by default — or `undefined` when the file sits in no corpus folder and names no package. The `workspaceRoot` is the absolute path of the workspace itself, the directory a book's higher-order sink resolves its directories against; it is `undefined` only when the file belongs to no workspace.
 
 A file that resolves to nothing — no workspace, no configuration — receives the empty configuration: no anchor, no primary, no languages, no services, no root.
 
@@ -118,6 +118,7 @@ export interface ResolvedConfig {
   readonly settings: Record<string, Record<string, unknown>>
   readonly services: Record<string, string>
   readonly packageRoot: string | undefined
+  readonly workspaceRoot: string | undefined
 }
 
 const empty: ResolvedConfig = {
@@ -127,6 +128,7 @@ const empty: ResolvedConfig = {
   settings: {},
   services: {},
   packageRoot: undefined,
+  workspaceRoot: undefined,
 }
 
 ## Finding the workspace
@@ -246,6 +248,7 @@ const resolveFromManifest = (
       pkg !== undefined
         ? resolvePath(workspace, pkg.output)
         : containerRoot(dirname(fromPath), container, workspace),
+    workspaceRoot: workspace,
   }
 }
 

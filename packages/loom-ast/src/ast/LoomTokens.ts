@@ -114,6 +114,30 @@ export const PathSpecifierTokenSchema = loomNode('PathSpecifier', {
 })
 export type PathSpecifierToken = typeof PathSpecifierTokenSchema.Type
 
+export const DirSpecifierLabelTokenSchema = loomNode('DirSpecifierLabel', {
+  value: Schema.String,
+}).pipe(
+  Schema.filter((t) => {
+    if (t.value === '' && t.health.status === 'ok') {
+      return 'empty `value` requires non-ok `health.status`'
+    }
+    if (t.value !== '' && !/^[a-zA-Z0-9_\-./]+\/$/.test(t.value)) {
+      return `directory specifier label must be a path ending in /, got \`${t.value}\``
+    }
+    return true
+  }),
+)
+export type DirSpecifierLabelToken = typeof DirSpecifierLabelTokenSchema.Type
+
+export const DirSpecifierTokenSchema = loomNode('DirSpecifier', {
+  open: SpecifierOpenTokenSchema,
+  label: DirSpecifierLabelTokenSchema,
+  close: SpecifierCloseTokenSchema,
+}).annotations({
+  [Probe]: /\{[a-zA-Z0-9_\-./]+\/\}/g,
+})
+export type DirSpecifierToken = typeof DirSpecifierTokenSchema.Type
+
 export const ArrowTokenSchema = loomNode('Arrow', {}).annotations({
   [Probe]: /^\s*=>/,
 })
@@ -214,6 +238,13 @@ export const WarpAnchorTokenSchema = loomNode('WarpAnchor', {
   open: AnchorOpenTokenSchema,
   name: WarpAnchorNameTokenSchema,
   close: AnchorCloseTokenSchema,
+  specifier: Schema.optional(
+    Schema.Union(
+      SpecifierTokenSchema,
+      PathSpecifierTokenSchema,
+      DirSpecifierTokenSchema,
+    ),
+  ),
 }).annotations({
   [Probe]: /::\[[^\]]*\]/g,
 })
@@ -297,6 +328,7 @@ export const LoomTokenSchema = Schema.Union(
   TagTokenSchema,
   SpecifierTokenSchema,
   PathSpecifierTokenSchema,
+  DirSpecifierTokenSchema,
   ArrowTokenSchema,
   TildeTokenSchema,
   HeadingTitleTokenSchema,

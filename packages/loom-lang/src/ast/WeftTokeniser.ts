@@ -16,6 +16,8 @@ import {
 } from '@athrio/loom-ast/LoomNode'
 import {
   CodeTokenSchema,
+  DirSpecifierLabelTokenSchema,
+  DirSpecifierTokenSchema,
   HeadingTitleTokenSchema,
   PathSpecifierLabelTokenSchema,
   PathSpecifierTokenSchema,
@@ -40,6 +42,8 @@ import {
   WarpOpenTokenSchema,
   WarpTokenSchema,
   getProbe,
+  type DirSpecifierLabelToken,
+  type DirSpecifierToken,
   type PathSpecifierLabelToken,
   type PathSpecifierToken,
   type SpecifierCloseToken,
@@ -288,6 +292,9 @@ const decodeSpecifierLabel = Schema.decodeUnknownEither(
 const decodePathSpecifierLabel = Schema.decodeUnknownEither(
   PathSpecifierLabelTokenSchema,
 )
+const decodeDirSpecifierLabel = Schema.decodeUnknownEither(
+  DirSpecifierLabelTokenSchema,
+)
 
 const buildTagLabel = (value: string, position: Position): TagLabelToken =>
   pipe(
@@ -349,6 +356,30 @@ const buildPathSpecifierLabel = (
     Either.getOrElse(() =>
       PathSpecifierLabelTokenSchema.make({
         type: 'PathSpecifierLabel',
+        position,
+        source: value,
+        health: brokenLabel('path', value, position),
+        value: '',
+        unexpected: [UnexpectedTokenSchema.make({ position, value })],
+      }),
+    ),
+  )
+
+const buildDirSpecifierLabel = (
+  value: string,
+  position: Position,
+): DirSpecifierLabelToken =>
+  pipe(
+    decodeDirSpecifierLabel({
+      type: 'DirSpecifierLabel',
+      position,
+      source: value,
+      health: okHealth,
+      value,
+    }),
+    Either.getOrElse(() =>
+      DirSpecifierLabelTokenSchema.make({
+        type: 'DirSpecifierLabel',
         position,
         source: value,
         health: brokenLabel('path', value, position),
@@ -481,6 +512,8 @@ const constructTag = (
 
 const isPathLabel = (label: string): boolean => /[./]/.test(label)
 
+const isDirLabel = (label: string): boolean => label.endsWith('/')
+
 const buildLabelSpecifier = (
   open: SpecifierOpenToken,
   close: SpecifierCloseToken,
@@ -529,12 +562,36 @@ const buildPathSpecifier = (
   })
 }
 
+const buildDirSpecifier = (
+  open: SpecifierOpenToken,
+  close: SpecifierCloseToken,
+  labelText: string,
+  labelPos: Position,
+  specifierPos: Position,
+  specifierSource: string,
+): DirSpecifierToken => {
+  const label = buildDirSpecifierLabel(labelText, labelPos)
+  const status = aggregateStatus([
+    open.health.status,
+    label.health.status,
+    close.health.status,
+  ])
+  return DirSpecifierTokenSchema.make({
+    position: specifierPos,
+    source: specifierSource,
+    health: { status, diagnostics: [] },
+    open,
+    label,
+    close,
+  })
+}
+
 const constructSpecifier = (
   opens: ReadonlyArray<SpecifierOpenToken>,
   closes: ReadonlyArray<SpecifierCloseToken>,
   lineText: string,
   linePosition: Position,
-): Construction<SpecifierToken | PathSpecifierToken> => {
+): Construction<SpecifierToken | PathSpecifierToken | DirSpecifierToken> => {
   if (opens.length === 0) {
     return {
       token: Option.none(),
@@ -572,23 +629,38 @@ const constructSpecifier = (
     specifierPos.end.offset - lineStart,
   )
 
-  const token = isPathLabel(labelText)
-    ? buildPathSpecifier(
+  const token = Match.value(labelText).pipe(
+    Match.when(isDirLabel, () =>
+      buildDirSpecifier(
         open,
         close,
         labelText,
         labelPos,
         specifierPos,
         specifierSource,
-      )
-    : buildLabelSpecifier(
+      ),
+    ),
+    Match.when(isPathLabel, () =>
+      buildPathSpecifier(
         open,
         close,
         labelText,
         labelPos,
         specifierPos,
         specifierSource,
-      )
+      ),
+    ),
+    Match.orElse(() =>
+      buildLabelSpecifier(
+        open,
+        close,
+        labelText,
+        labelPos,
+        specifierPos,
+        specifierSource,
+      ),
+    ),
+  )
 
   return {
     token: Option.some(token),
@@ -941,6 +1013,38 @@ const decodeWarpAnchorName = Schema.decodeUnknownEither(
   WarpAnchorNameTokenSchema,
 )
 
+type AnchorSpecifier = SpecifierToken | PathSpecifierToken | DirSpecifierToken
+
+const anchorSpecifierAt = (
+  close: AnchorCloseToken,
+  lineText: string,
+  linePosition: Position,
+): Option.Option<{ specifier: AnchorSpecifier; end: number }> => {
+  const line = linePosition.start.line
+  const lineStart = linePosition.start.offset
+  const openAt = close.position.end.offset
+  if (lineText[openAt - lineStart] !== '{') return Option.none()
+  const closeRel = lineText.indexOf('}', openAt - lineStart)
+  if (closeRel < 0) return Option.none()
+  const closeAt = lineStart + closeRel
+  const open = SpecifierOpenTokenSchema.make({
+    position: span(line, openAt, openAt + 1),
+    source: '{',
+    health: okHealth,
+    value: '{',
+  })
+  const closeTok = SpecifierCloseTokenSchema.make({
+    position: span(line, closeAt, closeAt + 1),
+    source: '}',
+    health: okHealth,
+    value: '}',
+  })
+  return Option.map(
+    constructSpecifier([open], [closeTok], lineText, linePosition).token,
+    (specifier) => ({ specifier, end: closeAt + 1 }),
+  )
+}
+
 const buildWarpAnchor = (
   open: AnchorOpenToken,
   close: AnchorCloseToken,
@@ -957,10 +1061,16 @@ const buildWarpAnchor = (
   )
   const { value, start, end } = trimSpan(content, contentStart)
   const namePos = span(line, start, end)
+  const spec = anchorSpecifierAt(close, lineText, linePosition)
+  const anchorEnd = Option.match(spec, {
+    onNone: () => close.position.end.offset,
+    onSome: (s) => s.end,
+  })
   const anchorSource = lineText.slice(
     open.position.start.offset - lineStart,
-    close.position.end.offset - lineStart,
+    anchorEnd - lineStart,
   )
+  const specifier = Option.getOrUndefined(Option.map(spec, (s) => s.specifier))
 
   return pipe(
     decodeWarpAnchorName({
@@ -984,11 +1094,12 @@ const buildWarpAnchor = (
           }),
           line,
           anchorSource,
+          specifier,
         ),
         extras: unexpectedIfNonEmpty(namePos, value),
       }),
       onRight: (name) => ({
-        anchor: assembleAnchor(open, close, name, line, anchorSource),
+        anchor: assembleAnchor(open, close, name, line, anchorSource, specifier),
         extras: [],
       }),
     }),
@@ -1001,20 +1112,26 @@ const assembleAnchor = (
   name: WarpAnchorNameToken,
   line: number,
   source: string,
+  specifier: AnchorSpecifier | undefined,
 ): WarpAnchorToken => {
+  const end = specifier
+    ? specifier.position.end.offset
+    : close.position.end.offset
   const status = aggregateStatus([
     open.health.status,
     name.health.status,
     close.health.status,
+    ...(specifier ? [specifier.health.status] : []),
   ])
   return WarpAnchorTokenSchema.make({
     type: 'WarpAnchor',
-    position: span(line, open.position.start.offset, close.position.end.offset),
+    position: span(line, open.position.start.offset, end),
     source,
     health: { status, diagnostics: [] },
     open,
     name,
     close,
+    specifier,
   })
 }
 
@@ -1145,7 +1262,9 @@ const headingTitle = (
 
 type HeadingTokens = {
   readonly tag: Option.Option<TagToken>
-  readonly specifier: Option.Option<SpecifierToken | PathSpecifierToken>
+  readonly specifier: Option.Option<
+    SpecifierToken | PathSpecifierToken | DirSpecifierToken
+  >
   readonly title: Option.Option<HeadingTitleToken>
   readonly unexpected: ReadonlyArray<UnexpectedToken>
 }

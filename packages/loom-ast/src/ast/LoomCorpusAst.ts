@@ -1,7 +1,7 @@
 import { Array, Option, pipe, Schema } from 'effect'
 import { type Diagnostic } from '#ast/LoomNode'
 import { ProductSchema } from '#ast/ProductAst'
-import { LoomDocumentSchema } from '#ast/LoomAst'
+import { LoomDocumentSchema, type LoomSection } from '#ast/LoomAst'
 import { FrameModuleSchema } from '#ast/FrameAst'
 
 export type Path = string
@@ -61,6 +61,134 @@ export const transitiveDependents = (
   return pipe(
     Array.fromIterable(grow(new Set<Path>(), [path])),
     Array.filter((p) => p !== path),
+  )
+}
+
+type SectionRef = { readonly module: Path; readonly section: LoomSection }
+
+const dirLabelOf = (section: LoomSection): Option.Option<string> =>
+  section.heading.specifier?.type === 'DirSpecifier'
+    ? Option.some(section.heading.specifier.label.value)
+    : Option.none()
+
+const joinDir = (parent: string, child: string): string =>
+  parent === '' ? child : `${parent.replace(/\/$/, '')}/${child}`
+
+const sectionTitles = (modules: Modules): ReadonlyMap<string, SectionRef> =>
+  pipe(
+    Array.fromIterable(modules.values()),
+    Array.flatMap((m) =>
+      Array.filterMap(m.doc.sections, (section) =>
+        Option.map(
+          Option.fromNullable(section.heading.title),
+          (title) => [title.source, { module: m.path, section }] as const,
+        ),
+      ),
+    ),
+    Array.reduce(
+      new Map<string, SectionRef>(),
+      (index, [title, ref]) =>
+        index.has(title) ? index : new Map(index).set(title, ref),
+    ),
+  )
+
+type Member = { readonly name: string; readonly reroute: Option.Option<string> }
+
+const membersOf = (section: LoomSection): ReadonlyArray<Member> =>
+  pipe(
+    section.code,
+    Array.flatMap((weft) =>
+      weft.type === 'ArrowWeft' || weft.type === 'CodeWeft'
+        ? Array.map(weft.anchors, (a) => ({
+            name: a.name.value,
+            reroute:
+              a.specifier?.type === 'DirSpecifier'
+                ? Option.some(a.specifier.label.value)
+                : Option.none<string>(),
+          }))
+        : [],
+    ),
+  )
+
+const dirSinks = (modules: Modules): ReadonlyArray<SectionRef> =>
+  pipe(
+    Array.fromIterable(modules.values()),
+    Array.flatMap((m) =>
+      Array.filterMap(m.doc.sections, (section) =>
+        Option.isSome(dirLabelOf(section))
+          ? Option.some<SectionRef>({ module: m.path, section })
+          : Option.none<SectionRef>(),
+      ),
+    ),
+  )
+
+const rootSinks = (
+  modules: Modules,
+  index: ReadonlyMap<string, SectionRef>,
+): ReadonlyArray<SectionRef> => {
+  const sinks = dirSinks(modules)
+  const nested = pipe(
+    sinks,
+    Array.flatMap((d) =>
+      Array.filterMap(membersOf(d.section), (member) =>
+        pipe(
+          Option.fromNullable(index.get(member.name)),
+          Option.filter((ref) => Option.isSome(dirLabelOf(ref.section))),
+          Option.map((ref) => ref.section),
+        ),
+      ),
+    ),
+    (reached) => new Set(reached),
+  )
+  return Array.filter(sinks, (d) => !nested.has(d.section))
+}
+
+export const sinkTreeRouting = (
+  corpus: LoomCorpusAst,
+): ReadonlyMap<Path, string> => {
+  const modules = corpus.modules
+  const index = sectionTitles(modules)
+
+  const routeMember = (
+    prefix: string,
+    seen: ReadonlySet<LoomSection>,
+    acc: ReadonlyMap<Path, string>,
+    member: Member,
+  ): ReadonlyMap<Path, string> => {
+    const ref = index.get(member.name)
+    if (ref === undefined) return acc
+    const at = Option.getOrElse(member.reroute, () => prefix)
+    const label = dirLabelOf(ref.section)
+    if (Option.isNone(label)) return new Map(acc).set(ref.module, at)
+    if (seen.has(ref.section)) return acc
+    return walk(
+      ref.section,
+      joinDir(at, label.value),
+      new Set([...seen, ref.section]),
+      acc,
+    )
+  }
+
+  const walk = (
+    section: LoomSection,
+    prefix: string,
+    seen: ReadonlySet<LoomSection>,
+    routing: ReadonlyMap<Path, string>,
+  ): ReadonlyMap<Path, string> =>
+    Array.reduce(membersOf(section), routing, (acc, member) =>
+      routeMember(prefix, seen, acc, member),
+    )
+
+  return Array.reduce(
+    rootSinks(modules, index),
+    new Map<Path, string>() as ReadonlyMap<Path, string>,
+    (acc, root) =>
+      walk(
+        root.section,
+        Option.getOrElse(dirLabelOf(root.section), () => ''),
+        new Set([root.section]),
+        acc,
+      ),
   )
 }
 

@@ -84,6 +84,7 @@ export interface ResolvedConfig {
   readonly settings: Record<string, Record<string, unknown>>
   readonly services: Record<string, string>
   readonly packageRoot: string | undefined
+  readonly workspaceRoot: string | undefined
 }
 
 const empty: ResolvedConfig = {
@@ -93,6 +94,7 @@ const empty: ResolvedConfig = {
   settings: {},
   services: {},
   packageRoot: undefined,
+  workspaceRoot: undefined,
 }
 
 const storeDirName = '.loom'
@@ -184,6 +186,7 @@ const resolveFromManifest = (
       pkg !== undefined
         ? resolvePath(workspace, pkg.output)
         : containerRoot(dirname(fromPath), container, workspace),
+    workspaceRoot: workspace,
   }
 }
 

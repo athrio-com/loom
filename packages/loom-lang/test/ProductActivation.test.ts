@@ -52,6 +52,7 @@ const checkerActivating = async (languages: ReadonlyArray<string>) => {
               settings: {},
               services: {},
               packageRoot: undefined,
+              workspaceRoot: undefined,
             }),
           manifest: () =>
             Effect.succeed({

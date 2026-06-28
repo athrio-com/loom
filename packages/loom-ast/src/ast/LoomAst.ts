@@ -1,6 +1,7 @@
 import { Schema } from 'effect'
 import { loomNode } from '#ast/LoomNode'
 import {
+  DirSpecifierTokenSchema,
   HeadingStartTokenSchema,
   HeadingTitleTokenSchema,
   PathSpecifierTokenSchema,
@@ -14,7 +15,11 @@ export const LoomHeadingSchema = loomNode('LoomHeading', {
   title: Schema.optional(HeadingTitleTokenSchema),
   tag: Schema.optional(TagTokenSchema),
   specifier: Schema.optional(
-    Schema.Union(SpecifierTokenSchema, PathSpecifierTokenSchema),
+    Schema.Union(
+      SpecifierTokenSchema,
+      PathSpecifierTokenSchema,
+      DirSpecifierTokenSchema,
+    ),
   ),
 })
 export type LoomHeading = typeof LoomHeadingSchema.Type
