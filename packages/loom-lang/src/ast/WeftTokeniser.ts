@@ -1306,7 +1306,7 @@ const scanHeading = (
   }
 }
 
-const normaliseTitle = (title: string): string => {
+export const normaliseTitle = (title: string): string => {
   const pascal = (title.match(/[A-Za-z0-9]+/g) ?? [])
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join('')

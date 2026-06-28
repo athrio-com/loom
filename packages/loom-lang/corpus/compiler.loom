@@ -88,7 +88,12 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
         ): Effect.Effect<ReadonlyArray<TangledFile>, TangleError> =>
           produceCorpus(documents, path).pipe(
             Effect.flatMap((modules) => {
-              const failures = corpusErrors({ modules })
+              const sinkErrors = Array.filterMap(sinkDiagnostics(modules), (d) =>
+                d.diagnostic.severity === 'error'
+                  ? Option.some({ path: d.path, diagnostics: [d.diagnostic] })
+                  : Option.none(),
+              )
+              const failures = [...corpusErrors({ modules }), ...sinkErrors]
               return failures.length > 0
                 ? Effect.fail(new TangleError({ entry: path, failures }))
                 : config.resolve(path).pipe(
@@ -113,7 +118,15 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
             Effect.map((modules) =>
               pipe(
                 Option.fromNullable(modules.get(path)),
-                Option.match({ onNone: () => [], onSome: moduleDiagnostics }),
+                Option.match({
+                  onNone: () => [],
+                  onSome: (module) => [
+                    ...moduleDiagnostics(module),
+                    ...Array.filterMap(sinkDiagnostics(modules), (d) =>
+                      d.path === path ? Option.some(d.diagnostic) : Option.none(),
+                    ),
+                  ],
+                }),
               ),
             ),
           ),
@@ -288,6 +301,38 @@ export class TangleError extends Data.TaggedError('TangleError')<{
   }
 }
 
+## Sink-tree diagnostics
+
+The sink tree detects its own faults as structure — `sinkTreeFaults` returns a kind, a position, and one value each — and the catalog words them. `wordSinkFault` is the bridge: it maps a `SinkFault` to its `LoomFault` and reads the message back through `faulty`, the same catalog the parser and the frame already speak through. It hands the detector the one rule it lacks, `normaliseTitle`, so a colliding title folds the way every section name does.
+
+`sinkDiagnostics` runs the detector over a corpus and pairs each diagnostic with the module it lands on. The tangle verb refuses on the error-severity ones, and the diagnose verb surfaces the ones for the file in hand, so a malformed sink tree fails the build and lights up the editor alike.
+
+=>
+
+const wordSinkFault = (fault: SinkFault): LoomFault =>
+  Match.value(fault).pipe(
+    Match.when({ kind: 'CollidingTitles' }, ({ name }) => CollidingTitles({ name })),
+    Match.when({ kind: 'SinkCycle' }, ({ name }) => SinkCycle({ name })),
+    Match.when({ kind: 'EmptySink' }, ({ directory }) => EmptySink({ directory })),
+    Match.when({ kind: 'UnresolvedReroute' }, ({ directory }) =>
+      UnresolvedReroute({ directory }),
+    ),
+    Match.when({ kind: 'MisplacedSpecifier' }, ({ specifier }) =>
+      MisplacedSpecifier({ specifier }),
+    ),
+    Match.exhaustive,
+  )
+
+const sinkDiagnostics = (
+  modules: Modules,
+): ReadonlyArray<{ readonly path: Path; readonly diagnostic: Diagnostic }> =>
+  Array.flatMap(sinkTreeFaults({ modules }, normaliseTitle), (fault) =>
+    Array.map(
+      faulty(wordSinkFault(fault), fault.position).diagnostics,
+      (diagnostic) => ({ path: fault.path, diagnostic }),
+    ),
+  )
+
 ## Projecting a file's tree
 
 `projectTree` assembles a file's virtual-code tree. It emits the de dicto frame with `fromFrame`, one de re document per composition root with `fromProduct`, and gathers them under a `loom` root with `rootVirtualCode`. A root is a section that no same-file anchor pulls into another, and `rootsAt` keeps those names and drops the members. `fromProduct` inlines the members a root pulls in, so each emitted document is a whole resolved Product — and a member's span maps into the root that carries it, rather than standing as a document of its own. The projection follows cross-file `::[…]` references through the corpus modules it is handed, so it treats a lone file and a whole corpus the same way.
@@ -389,7 +434,7 @@ export class DocumentSource extends Effect.Service<DocumentSource>()(
 
 ## What the compiler draws on
 
-From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; `FrameRunner`, the produce engine; the projection functions `fromFrame`, `fromProduct`, `rootNamesAt`, and `rootVirtualCode`; the corpus model — `LoomModule`, the `corpusErrors` and `moduleDiagnostics` readers, and the `transitiveDependents` walk; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache. `Product` is the de re a run folds onto each module, `Diagnostic` an error's message and place. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError`, and Node's `fs` and `path` read each file and resolve each sink.
+From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; `FrameRunner`, the produce engine; the projection functions `fromFrame`, `fromProduct`, `rootNamesAt`, and `rootVirtualCode`; the corpus model — `LoomModule`, the `corpusErrors` and `moduleDiagnostics` readers, the `sinkTreeRouting` and `sinkTreeFaults` walks with the `SinkFault` they yield, and the `transitiveDependents` walk; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache. The fault catalog supplies `faulty` and the `LoomFault` constructors that word a sink fault, and `normaliseTitle` gives the detector its one missing rule. `Product` is the de re a run folds onto each module, `Diagnostic` an error's message and place. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError`, and Node's `fs` and `path` read each file and resolve each sink.
 
 =>
 
@@ -404,11 +449,23 @@ import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAst
 import {
   corpusErrors,
   moduleDiagnostics,
+  sinkTreeFaults,
   sinkTreeRouting,
   transitiveDependents,
   type LoomModule,
   type Path,
+  type SinkFault,
 } from '@athrio/loom-ast/LoomCorpusAst'
+import {
+  CollidingTitles,
+  EmptySink,
+  faulty,
+  MisplacedSpecifier,
+  SinkCycle,
+  UnresolvedReroute,
+  type LoomFault,
+} from '#ast/LoomFault'
+import { normaliseTitle } from '#ast/WeftTokeniser'
 import {
   fromFrame,
   fromProduct,
@@ -433,6 +490,8 @@ import { PackageConfig } from './PackageConfig'
 ::[Resolving the entry]
 
 ::[Tangling a file]
+
+::[Sink-tree diagnostics]
 
 ::[Projecting a file's tree]
 

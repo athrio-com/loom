@@ -14,6 +14,8 @@ A `LoomFault` is a tagged union, and each variant names one fault and carries on
 
 The label faults fold many constructs into two variants. A construct is a named span the grammar validates — a tag, a specifier, a file path, a warp name, an anchor name. `EmptyLabel` is one with no text. `MalformedLabel` is one whose text breaks the construct's rule. Two further constructs — a warp annotation and a warp default — can only be empty, never malformed, so `EmptyConstruct` adds those two to `MalformedConstruct`.
 
+The sink tree contributes five faults, each arising where a higher-order sink routes files to disk. `CollidingTitles` carries a name two sections both normalise to, where each name must reach a single section. `SinkCycle` carries a higher-order sink that reaches itself through its members. `EmptySink` carries the directory of a higher-order sink that composes nothing; it alone among the five is a warning, since an empty vertex routes nothing yet breaks nothing. `UnresolvedReroute` carries a directory a member reroutes to that no higher-order sink declares. `MisplacedSpecifier` carries a specifier an anchor wears outside a higher-order sink, where an override cannot route.
+
 =>
 
 export type MalformedConstruct =
@@ -44,6 +46,11 @@ export type LoomFault = Data.TaggedEnum<{
     readonly host: string
     readonly found: string
   }
+  CollidingTitles: { readonly name: string }
+  SinkCycle: { readonly name: string }
+  EmptySink: { readonly directory: string }
+  UnresolvedReroute: { readonly directory: string }
+  MisplacedSpecifier: { readonly specifier: string }
 }>
 
 ~
@@ -61,6 +68,11 @@ export const {
   UnresolvedAnchor,
   AmbiguousAnchor,
   CrossLanguageAnchor,
+  CollidingTitles,
+  SinkCycle,
+  EmptySink,
+  UnresolvedReroute,
+  MisplacedSpecifier,
 } = Data.taggedEnum<LoomFault>()
 
 ## The table
@@ -129,6 +141,31 @@ export const describe = (fault: LoomFault): Note =>
     Match.tag('CrossLanguageAnchor', ({ name, host, found }) =>
       error(
         `Cross-language transclusion: \`${name}\` is ${found}, but this section composes ${host}. A section composes one language.`,
+      ),
+    ),
+    Match.tag('CollidingTitles', ({ name }) =>
+      error(
+        `Two sections normalise to the same name \`${name}\`. One name reaches one section; rename one to disambiguate.`,
+      ),
+    ),
+    Match.tag('SinkCycle', ({ name }) =>
+      error(
+        `Sink cycle: the higher-order sink \`${name}\` reaches itself through its members. A sink tree is acyclic; break the cycle.`,
+      ),
+    ),
+    Match.tag('EmptySink', ({ directory }) =>
+      warning(
+        `The higher-order sink \`${directory}\` composes nothing; it routes no files. Compose a sink beneath it, or remove it.`,
+      ),
+    ),
+    Match.tag('UnresolvedReroute', ({ directory }) =>
+      error(
+        `Reroute to \`${directory}\`, which no higher-order sink declares. A member reroutes only to a directory the book defines.`,
+      ),
+    ),
+    Match.tag('MisplacedSpecifier', ({ specifier }) =>
+      error(
+        `Specifier \`${specifier}\` on an anchor outside a higher-order sink. An anchor carries a specifier only as a member of a higher-order sink, where it routes.`,
       ),
     ),
     Match.exhaustive,

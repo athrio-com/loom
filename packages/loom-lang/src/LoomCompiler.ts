@@ -9,11 +9,23 @@ import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAst
 import {
   corpusErrors,
   moduleDiagnostics,
+  sinkTreeFaults,
   sinkTreeRouting,
   transitiveDependents,
   type LoomModule,
   type Path,
+  type SinkFault,
 } from '@athrio/loom-ast/LoomCorpusAst'
+import {
+  CollidingTitles,
+  EmptySink,
+  faulty,
+  MisplacedSpecifier,
+  SinkCycle,
+  UnresolvedReroute,
+  type LoomFault,
+} from '#ast/LoomFault'
+import { normaliseTitle } from '#ast/WeftTokeniser'
 import {
   fromFrame,
   fromProduct,
@@ -135,6 +147,30 @@ export class TangleError extends Data.TaggedError('TangleError')<{
     return `loom: refusing to tangle ${this.entry} — ${count} error(s) across the corpus:\n${lines.join('\n')}`
   }
 }
+
+const wordSinkFault = (fault: SinkFault): LoomFault =>
+  Match.value(fault).pipe(
+    Match.when({ kind: 'CollidingTitles' }, ({ name }) => CollidingTitles({ name })),
+    Match.when({ kind: 'SinkCycle' }, ({ name }) => SinkCycle({ name })),
+    Match.when({ kind: 'EmptySink' }, ({ directory }) => EmptySink({ directory })),
+    Match.when({ kind: 'UnresolvedReroute' }, ({ directory }) =>
+      UnresolvedReroute({ directory }),
+    ),
+    Match.when({ kind: 'MisplacedSpecifier' }, ({ specifier }) =>
+      MisplacedSpecifier({ specifier }),
+    ),
+    Match.exhaustive,
+  )
+
+const sinkDiagnostics = (
+  modules: Modules,
+): ReadonlyArray<{ readonly path: Path; readonly diagnostic: Diagnostic }> =>
+  Array.flatMap(sinkTreeFaults({ modules }, normaliseTitle), (fault) =>
+    Array.map(
+      faulty(wordSinkFault(fault), fault.position).diagnostics,
+      (diagnostic) => ({ path: fault.path, diagnostic }),
+    ),
+  )
 
 const namesAt = (modules: Modules, path: Path): ReadonlyArray<string> => {
   const product = modules.get(path)?.product
@@ -285,7 +321,12 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
         ): Effect.Effect<ReadonlyArray<TangledFile>, TangleError> =>
           produceCorpus(documents, path).pipe(
             Effect.flatMap((modules) => {
-              const failures = corpusErrors({ modules })
+              const sinkErrors = Array.filterMap(sinkDiagnostics(modules), (d) =>
+                d.diagnostic.severity === 'error'
+                  ? Option.some({ path: d.path, diagnostics: [d.diagnostic] })
+                  : Option.none(),
+              )
+              const failures = [...corpusErrors({ modules }), ...sinkErrors]
               return failures.length > 0
                 ? Effect.fail(new TangleError({ entry: path, failures }))
                 : config.resolve(path).pipe(
@@ -310,7 +351,15 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
             Effect.map((modules) =>
               pipe(
                 Option.fromNullable(modules.get(path)),
-                Option.match({ onNone: () => [], onSome: moduleDiagnostics }),
+                Option.match({
+                  onNone: () => [],
+                  onSome: (module) => [
+                    ...moduleDiagnostics(module),
+                    ...Array.filterMap(sinkDiagnostics(modules), (d) =>
+                      d.path === path ? Option.some(d.diagnostic) : Option.none(),
+                    ),
+                  ],
+                }),
               ),
             ),
           ),

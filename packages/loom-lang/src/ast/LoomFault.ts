@@ -29,6 +29,11 @@ export type LoomFault = Data.TaggedEnum<{
     readonly host: string
     readonly found: string
   }
+  CollidingTitles: { readonly name: string }
+  SinkCycle: { readonly name: string }
+  EmptySink: { readonly directory: string }
+  UnresolvedReroute: { readonly directory: string }
+  MisplacedSpecifier: { readonly specifier: string }
 }>
 
 export const {
@@ -40,6 +45,11 @@ export const {
   UnresolvedAnchor,
   AmbiguousAnchor,
   CrossLanguageAnchor,
+  CollidingTitles,
+  SinkCycle,
+  EmptySink,
+  UnresolvedReroute,
+  MisplacedSpecifier,
 } = Data.taggedEnum<LoomFault>()
 
 type Note = { readonly severity: Severity; readonly message: string }
@@ -100,6 +110,31 @@ export const describe = (fault: LoomFault): Note =>
     Match.tag('CrossLanguageAnchor', ({ name, host, found }) =>
       error(
         `Cross-language transclusion: \`${name}\` is ${found}, but this section composes ${host}. A section composes one language.`,
+      ),
+    ),
+    Match.tag('CollidingTitles', ({ name }) =>
+      error(
+        `Two sections normalise to the same name \`${name}\`. One name reaches one section; rename one to disambiguate.`,
+      ),
+    ),
+    Match.tag('SinkCycle', ({ name }) =>
+      error(
+        `Sink cycle: the higher-order sink \`${name}\` reaches itself through its members. A sink tree is acyclic; break the cycle.`,
+      ),
+    ),
+    Match.tag('EmptySink', ({ directory }) =>
+      warning(
+        `The higher-order sink \`${directory}\` composes nothing; it routes no files. Compose a sink beneath it, or remove it.`,
+      ),
+    ),
+    Match.tag('UnresolvedReroute', ({ directory }) =>
+      error(
+        `Reroute to \`${directory}\`, which no higher-order sink declares. A member reroutes only to a directory the book defines.`,
+      ),
+    ),
+    Match.tag('MisplacedSpecifier', ({ specifier }) =>
+      error(
+        `Specifier \`${specifier}\` on an anchor outside a higher-order sink. An anchor carries a specifier only as a member of a higher-order sink, where it routes.`,
       ),
     ),
     Match.exhaustive,

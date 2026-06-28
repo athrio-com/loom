@@ -1,5 +1,6 @@
 import { Array, Option, pipe, Schema } from 'effect'
-import { type Diagnostic } from '#ast/LoomNode'
+import { type Diagnostic, type Position } from '#ast/LoomNode'
+import { type WarpAnchorToken } from '#ast/LoomTokens'
 import { ProductSchema } from '#ast/ProductAst'
 import { LoomDocumentSchema, type LoomSection } from '#ast/LoomAst'
 import { FrameModuleSchema } from '#ast/FrameAst'
@@ -190,6 +191,170 @@ export const sinkTreeRouting = (
         acc,
       ),
   )
+}
+
+export type SinkFault =
+  | { readonly kind: 'CollidingTitles'; readonly path: Path; readonly position: Position; readonly name: string }
+  | { readonly kind: 'SinkCycle'; readonly path: Path; readonly position: Position; readonly name: string }
+  | { readonly kind: 'EmptySink'; readonly path: Path; readonly position: Position; readonly directory: string }
+  | { readonly kind: 'UnresolvedReroute'; readonly path: Path; readonly position: Position; readonly directory: string }
+  | { readonly kind: 'MisplacedSpecifier'; readonly path: Path; readonly position: Position; readonly specifier: string }
+
+type Located = { readonly path: Path; readonly section: LoomSection }
+
+const located = (modules: Modules): ReadonlyArray<Located> =>
+  pipe(
+    Array.fromIterable(modules.values()),
+    Array.flatMap((m) =>
+      Array.map(m.doc.sections, (section) => ({ path: m.path, section })),
+    ),
+  )
+
+const headingPosition = (section: LoomSection): Position =>
+  section.heading.title?.position ??
+  section.heading.specifier?.position ??
+  section.heading.position
+
+const anchorsOf = (section: LoomSection): ReadonlyArray<WarpAnchorToken> =>
+  pipe(
+    section.code,
+    Array.flatMap((weft) =>
+      weft.type === 'ArrowWeft' || weft.type === 'CodeWeft' ? weft.anchors : [],
+    ),
+  )
+
+const collidingTitles = (
+  sections: ReadonlyArray<Located>,
+  normalise: (title: string) => string,
+): ReadonlyArray<SinkFault> =>
+  pipe(
+    sections,
+    Array.filterMap((loc) =>
+      Option.map(Option.fromNullable(loc.section.heading.title), (title) => ({
+        loc,
+        title,
+        name: normalise(title.source),
+      })),
+    ),
+    Array.groupBy((s) => s.name),
+    (groups) => Object.values(groups),
+    Array.filter((group) => group.length > 1),
+    Array.flatMap((group) =>
+      Array.map(
+        group,
+        (s): SinkFault => ({
+          kind: 'CollidingTitles',
+          path: s.loc.path,
+          position: s.title.position,
+          name: s.name,
+        }),
+      ),
+    ),
+  )
+
+const misplacedSpecifiers = (
+  sections: ReadonlyArray<Located>,
+): ReadonlyArray<SinkFault> =>
+  pipe(
+    sections,
+    Array.filter((loc) => Option.isNone(dirLabelOf(loc.section))),
+    Array.flatMap((loc) =>
+      Array.filterMap(anchorsOf(loc.section), (anchor) =>
+        Option.map(
+          Option.fromNullable(anchor.specifier),
+          (specifier): SinkFault => ({
+            kind: 'MisplacedSpecifier',
+            path: loc.path,
+            position: specifier.position,
+            specifier: specifier.label.value,
+          }),
+        ),
+      ),
+    ),
+  )
+
+const emptySinks = (modules: Modules): ReadonlyArray<SinkFault> =>
+  Array.filterMap(dirSinks(modules), (ref) =>
+    membersOf(ref.section).length === 0
+      ? Option.some<SinkFault>({
+          kind: 'EmptySink',
+          path: ref.module,
+          position: headingPosition(ref.section),
+          directory: Option.getOrElse(dirLabelOf(ref.section), () => ''),
+        })
+      : Option.none(),
+  )
+
+const unresolvedReroutes = (modules: Modules): ReadonlyArray<SinkFault> => {
+  const declared = new Set(
+    Array.filterMap(dirSinks(modules), (ref) => dirLabelOf(ref.section)),
+  )
+  return pipe(
+    dirSinks(modules),
+    Array.flatMap((ref) =>
+      Array.filterMap(anchorsOf(ref.section), (anchor) =>
+        anchor.specifier?.type === 'DirSpecifier' &&
+        !declared.has(anchor.specifier.label.value)
+          ? Option.some<SinkFault>({
+              kind: 'UnresolvedReroute',
+              path: ref.module,
+              position: anchor.specifier.position,
+              directory: anchor.specifier.label.value,
+            })
+          : Option.none(),
+      ),
+    ),
+  )
+}
+
+const sinkCycles = (modules: Modules): ReadonlyArray<SinkFault> => {
+  const index = sectionTitles(modules)
+  const childSinks = (section: LoomSection): ReadonlyArray<SectionRef> =>
+    Array.filterMap(membersOf(section), (member) =>
+      pipe(
+        Option.fromNullable(index.get(member.name)),
+        Option.filter((ref) => Option.isSome(dirLabelOf(ref.section))),
+      ),
+    )
+  const reaches = (
+    from: LoomSection,
+    target: LoomSection,
+    seen: ReadonlySet<LoomSection>,
+  ): boolean =>
+    Array.some(childSinks(from), (ref) =>
+      ref.section === target
+        ? true
+        : seen.has(ref.section)
+          ? false
+          : reaches(ref.section, target, new Set([...seen, ref.section])),
+    )
+  return Array.filterMap(dirSinks(modules), (ref) =>
+    reaches(ref.section, ref.section, new Set([ref.section]))
+      ? Option.some<SinkFault>({
+          kind: 'SinkCycle',
+          path: ref.module,
+          position: headingPosition(ref.section),
+          name:
+            ref.section.heading.title?.source ??
+            Option.getOrElse(dirLabelOf(ref.section), () => ''),
+        })
+      : Option.none(),
+  )
+}
+
+export const sinkTreeFaults = (
+  corpus: LoomCorpusAst,
+  normalise: (title: string) => string,
+): ReadonlyArray<SinkFault> => {
+  const modules = corpus.modules
+  const sections = located(modules)
+  return [
+    ...collidingTitles(sections, normalise),
+    ...misplacedSpecifiers(sections),
+    ...emptySinks(modules),
+    ...unresolvedReroutes(modules),
+    ...sinkCycles(modules),
+  ]
 }
 
 const diagnosticsIn = (node: unknown): ReadonlyArray<Diagnostic> => {

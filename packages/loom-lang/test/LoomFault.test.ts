@@ -1,15 +1,20 @@
 import { describe, expect, it } from '@effect/vitest'
 import {
   AmbiguousAnchor,
+  CollidingTitles,
   CrossLanguageAnchor,
   describe as renderFault,
   EmptyLabel,
+  EmptySink,
   faulty,
   MalformedLabel,
+  MisplacedSpecifier,
   MissingLanguageWarp,
   MissingWarpValue,
+  SinkCycle,
   UnclosedDelimiter,
   UnresolvedAnchor,
+  UnresolvedReroute,
   type EmptyConstruct,
 } from '#ast/LoomFault'
 
@@ -83,6 +88,30 @@ describe('LoomFault — the diagnostic catalog', () => {
         CrossLanguageAnchor({ name: 'Config', host: 'typescript', found: 'json' }),
       ).message,
     ).toMatch(/^Cross-language transclusion: `Config` is json, but/)
+  })
+
+  it('words the sink-tree faults, naming what to fix', () => {
+    expect(renderFault(CollidingTitles({ name: 'theCli' })).message).toMatch(
+      /^Two sections normalise to the same name `theCli`\./,
+    )
+    expect(renderFault(SinkCycle({ name: 'The CLI' })).message).toMatch(
+      /^Sink cycle: the higher-order sink `The CLI` reaches itself/,
+    )
+    expect(
+      renderFault(UnresolvedReroute({ directory: 'packages/missing/' })).message,
+    ).toMatch(/^Reroute to `packages\/missing\/`, which no higher-order sink declares\./)
+    expect(
+      renderFault(MisplacedSpecifier({ specifier: 'package.json' })).message,
+    ).toMatch(/^Specifier `package.json` on an anchor outside a higher-order sink\./)
+  })
+
+  it('makes an empty higher-order sink a warning, not an error', () => {
+    expect(renderFault(EmptySink({ directory: 'packages/loom-cli/' })).severity).toBe(
+      'warning',
+    )
+    expect(faulty(EmptySink({ directory: 'packages/loom-cli/' }), POS).status).toBe(
+      'warning',
+    )
   })
 
   it('wraps a fault as positioned node health', () => {

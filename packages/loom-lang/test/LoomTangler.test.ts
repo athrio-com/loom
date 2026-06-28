@@ -140,6 +140,26 @@ describe('LoomTangler — tangle {path} sinks to disk', () => {
     }).pipe(Effect.provide(layers)),
   )
 
+  it.scoped('refuses to tangle a book whose higher-order sinks form a cycle', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const dir = yield* fs.makeTempDirectoryScoped()
+      const entry = `${dir}/book.loom`
+      yield* fs.writeFileString(
+        entry,
+        '# Book\n\n## A {a/}\n\n=>\n\n::[B]\n\n## B {b/}\n\n=>\n\n::[A]\n',
+      )
+
+      const tangler = yield* LoomTangler
+      const result = yield* Effect.either(tangler.tangle(entry))
+
+      expect(result._tag).toBe('Left')
+      if (result._tag === 'Left') {
+        expect((result.left as { message: string }).message).toContain('Sink cycle')
+      }
+    }).pipe(Effect.provide(layers)),
+  )
+
   it.scoped('places a sink under the package root derived from the corpus directory', () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
