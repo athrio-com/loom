@@ -6,7 +6,7 @@ import {
   readFileSync,
   writeFileSync,
 } from 'node:fs'
-import { basename, dirname, resolve as resolvePath, sep } from 'node:path'
+import { basename, dirname, resolve as resolvePath } from 'node:path'
 
 const AnchorSchema = Schema.Struct({
   open: Schema.optional(Schema.String),
@@ -30,36 +30,17 @@ export const WorkspaceConfigSchema = Schema.Struct({
   settings: Schema.optional(SettingsSchema),
 })
 
-export const PackageConfigSchema = Schema.Struct({
-  package: Schema.String,
-  primary: Schema.optional(Schema.String),
-  anchor: Schema.optional(AnchorSchema),
-  settings: Schema.optional(SettingsSchema),
-})
-
-export const ConfigSchema = Schema.Union(WorkspaceConfigSchema, PackageConfigSchema)
-
 export type WorkspaceConfig = typeof WorkspaceConfigSchema.Type
-export type PackageConfig = typeof PackageConfigSchema.Type
-export type Config = typeof ConfigSchema.Type
 
-const decodeConfig = Schema.decodeUnknownOption(ConfigSchema)
+const decodeConfig = Schema.decodeUnknownOption(WorkspaceConfigSchema)
 
-export const parseConfig = (text: string): Config | undefined => {
+export const parseConfig = (text: string): WorkspaceConfig | undefined => {
   try {
     return Option.getOrUndefined(decodeConfig(parseYaml(text)))
   } catch {
     return undefined
   }
 }
-
-const PackageEntrySchema = Schema.Struct({
-  corpus: Schema.String,
-  output: Schema.String,
-  primary: Schema.optional(Schema.String),
-  anchor: Schema.optional(AnchorSchema),
-  settings: Schema.optional(SettingsSchema),
-})
 
 export const WorkspaceManifestSchema = Schema.Struct({
   languages: Schema.optional(
@@ -69,13 +50,9 @@ export const WorkspaceManifestSchema = Schema.Struct({
   primary: Schema.optional(Schema.String),
   anchor: Schema.optional(AnchorSchema),
   settings: Schema.optional(SettingsSchema),
-  packages: Schema.optional(
-    Schema.Record({ key: Schema.String, value: PackageEntrySchema }),
-  ),
 })
 
 export type WorkspaceManifest = typeof WorkspaceManifestSchema.Type
-export type PackageEntry = typeof PackageEntrySchema.Type
 
 export interface ResolvedConfig {
   readonly anchor: { readonly open?: string; readonly close?: string } | undefined
@@ -127,36 +104,6 @@ const servicesOf = (
     Object.entries(languages ?? {}).map(([id, language]) => [id, serviceFor(id, language)]),
   )
 
-const mergeSettings = (
-  base: Record<string, Record<string, unknown>> | undefined,
-  override: Record<string, Record<string, unknown>> | undefined,
-): Record<string, Record<string, unknown>> => {
-  const a = base ?? {}
-  const b = override ?? {}
-  return Object.fromEntries(
-    [...new Set([...Object.keys(a), ...Object.keys(b)])].map((id) => [
-      id,
-      { ...(a[id] ?? {}), ...(b[id] ?? {}) },
-    ]),
-  )
-}
-
-const nearestPackage = (
-  manifest: WorkspaceManifest,
-  workspace: string,
-  fromPath: string,
-): PackageEntry | undefined =>
-  Object.values(manifest.packages ?? {})
-    .filter((entry) => {
-      const corpus = resolvePath(workspace, entry.corpus)
-      return fromPath === corpus || fromPath.startsWith(corpus + sep)
-    })
-    .reduce<PackageEntry | undefined>(
-      (best, entry) =>
-        best === undefined || entry.corpus.length > best.corpus.length ? entry : best,
-      undefined,
-    )
-
 const containerRoot = (
   dir: string,
   container: string,
@@ -174,18 +121,14 @@ const resolveFromManifest = (
   workspace: string,
   fromPath: string,
 ): ResolvedConfig => {
-  const pkg = nearestPackage(manifest, workspace, fromPath)
   const container = manifest.corpus ?? defaultCorpus
   return {
-    anchor: pkg?.anchor ?? manifest.anchor,
-    primary: pkg?.primary ?? manifest.primary,
+    anchor: manifest.anchor,
+    primary: manifest.primary,
     languages: Object.keys(manifest.languages ?? {}),
-    settings: mergeSettings(manifest.settings, pkg?.settings),
+    settings: manifest.settings ?? {},
     services: servicesOf(manifest.languages),
-    packageRoot:
-      pkg !== undefined
-        ? resolvePath(workspace, pkg.output)
-        : containerRoot(dirname(fromPath), container, workspace),
+    packageRoot: containerRoot(dirname(fromPath), container, workspace),
     workspaceRoot: workspace,
   }
 }

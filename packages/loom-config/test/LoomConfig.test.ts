@@ -25,14 +25,6 @@ primary: typescript
 anchor:
   open: "::["
   close: "]"
-packages:
-  core:
-    corpus: packages/core/corpus
-    output: packages/core
-    primary: python
-    anchor:
-      open: "<<"
-      close: ">>"
 `
 
 const workspace = (config?: string): string => {
@@ -43,11 +35,11 @@ const workspace = (config?: string): string => {
 }
 
 describe('LoomConfig.resolve — workspace manifest', () => {
-  it("merges a package's overrides over the workspace defaults", () => {
+  it('gives the workspace defaults and derives the package root for a corpus file', () => {
     const dir = workspace(manifest)
     expect(run(join(dir, 'packages', 'core', 'corpus', 'node.loom'))).toEqual({
-      anchor: { open: '<<', close: '>>' },
-      primary: 'python',
+      anchor: { open: '::[', close: ']' },
+      primary: 'typescript',
       languages: ['typescript', 'python'],
       settings: {},
       services: {

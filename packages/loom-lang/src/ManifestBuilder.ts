@@ -1,17 +1,9 @@
 import { Array, Effect, Match, Option } from 'effect'
 import { readdirSync, readFileSync } from 'node:fs'
-import {
-  basename,
-  dirname,
-  relative as relativePath,
-  resolve as resolvePath,
-} from 'node:path'
+import { resolve as resolvePath } from 'node:path'
 import {
   LoomConfig,
   parseConfig,
-  type Config,
-  type PackageConfig,
-  type PackageEntry,
   type WorkspaceConfig,
   type WorkspaceManifest,
 } from '@athrio/loom-config/LoomConfig'
@@ -65,50 +57,19 @@ const diskSource: Source = {
     }),
 }
 
-interface ConfigSource {
-  readonly file: Path
-  readonly config: Config
-}
-
-const isPackage = (config: Config): config is PackageConfig => 'package' in config
-
-const entryOf = (
-  workspace: string,
-  source: { readonly file: Path; readonly config: PackageConfig },
-): readonly [string, PackageEntry] => [
-  basename(source.config.package),
-  {
-    corpus: relativePath(workspace, dirname(source.file)),
-    output: source.config.package,
-    primary: source.config.primary,
-    anchor: source.config.anchor,
-    settings: source.config.settings,
-  },
-]
-
 const buildManifest = (
-  workspace: string,
-  sources: ReadonlyArray<ConfigSource>,
-): WorkspaceManifest => {
-  const defaults = sources
-    .map((source) => source.config)
-    .find((config): config is WorkspaceConfig => !isPackage(config))
-  const packages = Object.fromEntries(
-    sources
-      .filter(
-        (source): source is { file: Path; config: PackageConfig } =>
-          isPackage(source.config),
-      )
-      .map((source) => entryOf(workspace, source)),
-  )
-  return {
-    languages: defaults?.languages,
-    primary: defaults?.primary,
-    anchor: defaults?.anchor,
-    settings: defaults?.settings,
-    packages,
-  }
-}
+  found: Option.Option<WorkspaceConfig>,
+): WorkspaceManifest =>
+  Option.match(found, {
+    onNone: () => ({}),
+    onSome: (config) => ({
+      languages: config.languages,
+      corpus: config.corpus,
+      primary: config.primary,
+      anchor: config.anchor,
+      settings: config.settings,
+    }),
+  })
 
 export class ManifestBuilder extends Effect.Service<ManifestBuilder>()(
   'ManifestBuilder',
@@ -117,24 +78,18 @@ export class ManifestBuilder extends Effect.Service<ManifestBuilder>()(
       const corpus = yield* LoomCorpusAstBuilder
       const config = yield* LoomConfig
 
-      const configAt = (file: Path): Effect.Effect<ConfigSource | undefined> =>
+      const configAt = (file: Path): Effect.Effect<Option.Option<WorkspaceConfig>> =>
         corpus.build(diskSource, file).pipe(
-          Effect.map((built) => {
-            const body = configBodyOf(built.doc)
-            if (body === undefined) return undefined
-            const parsed = parseConfig(body)
-            return parsed === undefined ? undefined : { file, config: parsed }
-          }),
+          Effect.map((built) =>
+            Option.fromNullable(configBodyOf(built.doc)).pipe(
+              Option.flatMap((body) => Option.fromNullable(parseConfig(body))),
+            ),
+          ),
         )
 
       const build = (workspace: string): Effect.Effect<WorkspaceManifest> =>
         Effect.forEach(loomFiles(workspace), configAt).pipe(
-          Effect.map((sources) =>
-            buildManifest(
-              workspace,
-              sources.filter((source): source is ConfigSource => source !== undefined),
-            ),
-          ),
+          Effect.map((configs) => buildManifest(Option.firstSomeOf(configs))),
         )
 
       const materialize = (workspace: string): Effect.Effect<void> =>

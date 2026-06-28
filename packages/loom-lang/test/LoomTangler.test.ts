@@ -140,14 +140,14 @@ describe('LoomTangler — tangle {path} sinks to disk', () => {
     }).pipe(Effect.provide(layers)),
   )
 
-  it.scoped('places a sink under its package root from the workspace manifest', () =>
+  it.scoped('places a sink under the package root derived from the corpus directory', () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const ws = yield* fs.makeTempDirectoryScoped()
       yield* fs.makeDirectory(`${ws}/.loom`, { recursive: true })
       yield* fs.writeFileString(
         `${ws}/.loom/config.yaml`,
-        `languages:\n  typescript: {}\nprimary: typescript\npackages:\n  core:\n    corpus: packages/core/corpus\n    output: packages/core\n`,
+        `languages:\n  typescript: {}\nprimary: typescript\n`,
       )
       const corpus = `${ws}/packages/core/corpus`
       yield* fs.makeDirectory(corpus, { recursive: true })
@@ -159,8 +159,8 @@ describe('LoomTangler — tangle {path} sinks to disk', () => {
       const tangler = yield* LoomTangler
       const written = yield* tangler.tangle(`${corpus}/widget.loom`)
 
-      // the sink `{src/Widget.ts}` resolves under the package's output root,
-      // not the .loom's own directory
+      // the sink `{src/Widget.ts}` resolves under the directory above the
+      // corpus folder, packages/core, not the .loom's own directory
       expect(written).toHaveLength(1)
       expect(written[0]?.path).toBe(`${ws}/packages/core/src/Widget.ts`)
       expect(

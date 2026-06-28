@@ -6,14 +6,14 @@ import { join } from 'node:path'
 import { ManifestBuilder } from '../src/ManifestBuilder'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 
-// ManifestBuilder compiles a workspace's {Config} sources into the single
-// .loom/config.yaml that @athrio/loom-config reads. build folds the sources
+// ManifestBuilder compiles a workspace's one {Config} source into the
+// .loom/config.yaml that @athrio/loom-config reads. build shapes the source
 // into a manifest; materialize writes it; LoomConfig.resolve then reads it
 // back, so the two passes meet end to end.
 
 const workspaceLoom = `# Workspace configuration {Config}
 
-The languages this project activates and the defaults its packages inherit.
+The languages this project activates and the defaults every section inherits.
 
 =>
 
@@ -27,27 +27,11 @@ anchor:
   close: "]"
 `
 
-const packageLoom = `# Core package {Config}
-
-Where the core package tangles, and the overrides it sets.
-
-=>
-
-package: packages/core
-primary: python
-anchor:
-  open: "<<"
-  close: ">>"
-`
-
 const setup = (): string => {
   const ws = mkdtempSync(join(tmpdir(), 'loom-mat-'))
   mkdirSync(join(ws, '.loom'), { recursive: true })
   mkdirSync(join(ws, 'corpus'), { recursive: true })
   writeFileSync(join(ws, 'corpus', 'config.loom'), workspaceLoom)
-  const pkgCorpus = join(ws, 'packages', 'core', 'corpus')
-  mkdirSync(pkgCorpus, { recursive: true })
-  writeFileSync(join(pkgCorpus, 'config.loom'), packageLoom)
   return ws
 }
 
@@ -75,8 +59,8 @@ const resolve = (path: string) =>
     ),
   )
 
-describe('ManifestBuilder — compiling {Config} sources', () => {
-  it('folds the workspace and package sources into one manifest', async () => {
+describe('ManifestBuilder — compiling the {Config} source', () => {
+  it('shapes the workspace source into a manifest', async () => {
     const manifest = await build(setup())
     expect(manifest.languages).toEqual({
       typescript: {},
@@ -84,28 +68,22 @@ describe('ManifestBuilder — compiling {Config} sources', () => {
     })
     expect(manifest.primary).toBe('typescript')
     expect(manifest.anchor).toEqual({ open: '::[', close: ']' })
-    expect(manifest.packages?.core).toMatchObject({
-      corpus: 'packages/core/corpus',
-      output: 'packages/core',
-      primary: 'python',
-      anchor: { open: '<<', close: '>>' },
-    })
   })
 
   it('materializes a .loom/config.yaml that LoomConfig resolves', async () => {
     const ws = setup()
     await materialize(ws)
     expect(existsSync(join(ws, '.loom', 'config.yaml'))).toBe(true)
-    expect(resolve(join(ws, 'packages', 'core', 'corpus', 'node.loom'))).toEqual({
-      anchor: { open: '<<', close: '>>' },
-      primary: 'python',
+    expect(resolve(join(ws, 'corpus', 'node.loom'))).toEqual({
+      anchor: { open: '::[', close: ']' },
+      primary: 'typescript',
       languages: ['typescript', 'python'],
       settings: {},
       services: {
         typescript: '@athrio/loom-service-typescript',
         python: 'custom-py',
       },
-      packageRoot: join(ws, 'packages', 'core'),
+      packageRoot: ws,
       workspaceRoot: ws,
     })
   })
