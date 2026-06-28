@@ -240,7 +240,7 @@ export const sinkTreeRouting = (
 
 The sink tree can be malformed in ways the router quietly skips — a member that resolves to nothing, a vertex that reaches itself. `sinkTreeFaults` finds these, so the editor surfaces each and the tangler refuses the build. It reports a fault as structure alone — its kind, a position, and the one value its message will need — and leaves the wording to the catalog a layer above. The one rule it cannot derive, how a title folds to a name, arrives as `normalise`, so the whole corpus keeps a single normalisation.
 
-A `SinkFault` is one of five. `CollidingTitles` names two sections that fold to one name. `SinkCycle` names a higher-order sink that reaches itself. `EmptySink` names a higher-order sink with no members. `UnresolvedReroute` names a reroute to a directory no sink declares. `MisplacedSpecifier` names an anchor that wears a specifier outside a higher-order sink.
+A `SinkFault` is one of seven. `CollidingTitles` names two sections that fold to one name. `SinkCycle` names a higher-order sink that reaches itself. `EmptySink` names a higher-order sink with no members. `UnresolvedReroute` names a reroute to a directory no sink declares. `MisplacedSpecifier` names an anchor that wears a specifier outside a higher-order sink. `SelfRoutingSink` names a member that routes the sink's own module, which a book may not do. `SinklessMember` names a member whose module tangles no file, so the route places nothing.
 
 =>
 
@@ -250,6 +250,8 @@ export type SinkFault =
   | { readonly kind: 'EmptySink'; readonly path: Path; readonly position: Position; readonly directory: string }
   | { readonly kind: 'UnresolvedReroute'; readonly path: Path; readonly position: Position; readonly directory: string }
   | { readonly kind: 'MisplacedSpecifier'; readonly path: Path; readonly position: Position; readonly specifier: string }
+  | { readonly kind: 'SelfRoutingSink'; readonly path: Path; readonly position: Position; readonly name: string }
+  | { readonly kind: 'SinklessMember'; readonly path: Path; readonly position: Position; readonly name: string }
 
 ~
 
@@ -413,7 +415,52 @@ const sinkCycles = (modules: Modules): ReadonlyArray<SinkFault> => {
 
 ~
 
-`sinkTreeFaults` gathers all five over the whole corpus.
+Two faults read where a member routes. A higher-order sink routes the module each leaf member names, so the destination must be another module that tangles a file. A nested higher-order sink is no leaf, so it recurses untouched. `hasTangleSink` is the test for an empty destination: a module with a `{path}` section somewhere. `memberFault` classifies one resolved leaf member — the sink's own module is a self-route, a module that tangles nothing routes nothing, and anything else is sound — and `membershipFaults` runs it over every sink's members.
+
+=>
+
+const hasTangleSink = (module: LoomModule | undefined): boolean =>
+  module !== undefined &&
+  Array.some(
+    module.doc.sections,
+    (section) => section.heading.specifier?.type === 'PathSpecifier',
+  )
+
+const membershipFaults = (modules: Modules): ReadonlyArray<SinkFault> => {
+  const index = sectionTitles(modules)
+  const memberFault = (
+    sink: SectionRef,
+    anchor: WarpAnchorToken,
+    ref: SectionRef,
+  ): Option.Option<SinkFault> => {
+    const fault = (kind: 'SelfRoutingSink' | 'SinklessMember'): SinkFault => ({
+      kind,
+      path: sink.module,
+      position: anchor.position,
+      name: anchor.name.value,
+    })
+    if (ref.module === sink.module) return Option.some(fault('SelfRoutingSink'))
+    if (!hasTangleSink(modules.get(ref.module)))
+      return Option.some(fault('SinklessMember'))
+    return Option.none()
+  }
+  return pipe(
+    dirSinks(modules),
+    Array.flatMap((sink) =>
+      Array.filterMap(anchorsOf(sink.section), (anchor) =>
+        pipe(
+          Option.fromNullable(index.get(anchor.name.value)),
+          Option.filter((ref) => Option.isNone(dirLabelOf(ref.section))),
+          Option.flatMap((ref) => memberFault(sink, anchor, ref)),
+        ),
+      ),
+    ),
+  )
+}
+
+~
+
+`sinkTreeFaults` gathers all seven over the whole corpus.
 
 =>
 
@@ -429,6 +476,7 @@ export const sinkTreeFaults = (
     ...emptySinks(modules),
     ...unresolvedReroutes(modules),
     ...sinkCycles(modules),
+    ...membershipFaults(modules),
   ]
 }
 

@@ -11,7 +11,9 @@ import {
   MisplacedSpecifier,
   MissingLanguageWarp,
   MissingWarpValue,
+  SelfRoutingSink,
   SinkCycle,
+  SinklessMember,
   UnclosedDelimiter,
   UnresolvedAnchor,
   UnresolvedReroute,
@@ -103,15 +105,25 @@ describe('LoomFault — the diagnostic catalog', () => {
     expect(
       renderFault(MisplacedSpecifier({ specifier: 'package.json' })).message,
     ).toMatch(/^Specifier `package.json` on an anchor outside a higher-order sink\./)
+    expect(renderFault(SelfRoutingSink({ name: 'Inline' })).message).toMatch(
+      /^A higher-order sink routes its own module through `Inline`\./,
+    )
+    expect(renderFault(SinklessMember({ name: 'Prose chapter' })).message).toMatch(
+      /^The member `Prose chapter` resolves to a module that tangles no file/,
+    )
   })
 
-  it('makes an empty higher-order sink a warning, not an error', () => {
+  it('makes an empty sink and a sinkless member warnings, not errors', () => {
     expect(renderFault(EmptySink({ directory: 'packages/loom-cli/' })).severity).toBe(
       'warning',
     )
     expect(faulty(EmptySink({ directory: 'packages/loom-cli/' }), POS).status).toBe(
       'warning',
     )
+    expect(renderFault(SinklessMember({ name: 'Prose chapter' })).severity).toBe(
+      'warning',
+    )
+    expect(renderFault(SelfRoutingSink({ name: 'Inline' })).severity).toBe('error')
   })
 
   it('wraps a fault as positioned node health', () => {

@@ -14,7 +14,7 @@ A `LoomFault` is a tagged union, and each variant names one fault and carries on
 
 The label faults fold many constructs into two variants. A construct is a named span the grammar validates — a tag, a specifier, a file path, a warp name, an anchor name. `EmptyLabel` is one with no text. `MalformedLabel` is one whose text breaks the construct's rule. Two further constructs — a warp annotation and a warp default — can only be empty, never malformed, so `EmptyConstruct` adds those two to `MalformedConstruct`.
 
-The sink tree contributes five faults, each arising where a higher-order sink routes files to disk. `CollidingTitles` carries a name two sections both normalise to, where each name must reach a single section. `SinkCycle` carries a higher-order sink that reaches itself through its members. `EmptySink` carries the directory of a higher-order sink that composes nothing; it alone among the five is a warning, since an empty vertex routes nothing yet breaks nothing. `UnresolvedReroute` carries a directory a member reroutes to that no higher-order sink declares. `MisplacedSpecifier` carries a specifier an anchor wears outside a higher-order sink, where an override cannot route.
+The sink tree contributes seven faults, each arising where a higher-order sink routes files to disk. `CollidingTitles` carries a name two sections both normalise to, where each name must reach a single section. `SinkCycle` carries a higher-order sink that reaches itself through its members. `EmptySink` carries the directory of a higher-order sink that composes nothing. `UnresolvedReroute` carries a directory a member reroutes to that no higher-order sink declares. `MisplacedSpecifier` carries a specifier an anchor wears outside a higher-order sink, where an override cannot route. `SelfRoutingSink` carries the member a higher-order sink would route its own module through, which a book may not do. `SinklessMember` carries a member whose module tangles no file. Two are warnings, not errors: an empty vertex and a member that routes nothing each mark a mistake yet break no build, while the other five are errors.
 
 =>
 
@@ -51,6 +51,8 @@ export type LoomFault = Data.TaggedEnum<{
   EmptySink: { readonly directory: string }
   UnresolvedReroute: { readonly directory: string }
   MisplacedSpecifier: { readonly specifier: string }
+  SelfRoutingSink: { readonly name: string }
+  SinklessMember: { readonly name: string }
 }>
 
 ~
@@ -73,6 +75,8 @@ export const {
   EmptySink,
   UnresolvedReroute,
   MisplacedSpecifier,
+  SelfRoutingSink,
+  SinklessMember,
 } = Data.taggedEnum<LoomFault>()
 
 ## The table
@@ -166,6 +170,16 @@ export const describe = (fault: LoomFault): Note =>
     Match.tag('MisplacedSpecifier', ({ specifier }) =>
       error(
         `Specifier \`${specifier}\` on an anchor outside a higher-order sink. An anchor carries a specifier only as a member of a higher-order sink, where it routes.`,
+      ),
+    ),
+    Match.tag('SelfRoutingSink', ({ name }) =>
+      error(
+        `A higher-order sink routes its own module through \`${name}\`. A book routes content, never itself; move the section to its own file.`,
+      ),
+    ),
+    Match.tag('SinklessMember', ({ name }) =>
+      warning(
+        `The member \`${name}\` resolves to a module that tangles no file; the route places nothing. Give the module a file sink, or drop the member.`,
       ),
     ),
     Match.exhaustive,

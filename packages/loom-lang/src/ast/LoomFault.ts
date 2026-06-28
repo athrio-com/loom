@@ -34,6 +34,8 @@ export type LoomFault = Data.TaggedEnum<{
   EmptySink: { readonly directory: string }
   UnresolvedReroute: { readonly directory: string }
   MisplacedSpecifier: { readonly specifier: string }
+  SelfRoutingSink: { readonly name: string }
+  SinklessMember: { readonly name: string }
 }>
 
 export const {
@@ -50,6 +52,8 @@ export const {
   EmptySink,
   UnresolvedReroute,
   MisplacedSpecifier,
+  SelfRoutingSink,
+  SinklessMember,
 } = Data.taggedEnum<LoomFault>()
 
 type Note = { readonly severity: Severity; readonly message: string }
@@ -135,6 +139,16 @@ export const describe = (fault: LoomFault): Note =>
     Match.tag('MisplacedSpecifier', ({ specifier }) =>
       error(
         `Specifier \`${specifier}\` on an anchor outside a higher-order sink. An anchor carries a specifier only as a member of a higher-order sink, where it routes.`,
+      ),
+    ),
+    Match.tag('SelfRoutingSink', ({ name }) =>
+      error(
+        `A higher-order sink routes its own module through \`${name}\`. A book routes content, never itself; move the section to its own file.`,
+      ),
+    ),
+    Match.tag('SinklessMember', ({ name }) =>
+      warning(
+        `The member \`${name}\` resolves to a module that tangles no file; the route places nothing. Give the module a file sink, or drop the member.`,
       ),
     ),
     Match.exhaustive,

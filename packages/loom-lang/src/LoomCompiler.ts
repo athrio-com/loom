@@ -27,7 +27,9 @@ import {
   EmptySink,
   faulty,
   MisplacedSpecifier,
+  SelfRoutingSink,
   SinkCycle,
+  SinklessMember,
   UnresolvedReroute,
   type LoomFault,
 } from '#ast/LoomFault'
@@ -165,6 +167,8 @@ const wordSinkFault = (fault: SinkFault): LoomFault =>
     Match.when({ kind: 'MisplacedSpecifier' }, ({ specifier }) =>
       MisplacedSpecifier({ specifier }),
     ),
+    Match.when({ kind: 'SelfRoutingSink' }, ({ name }) => SelfRoutingSink({ name })),
+    Match.when({ kind: 'SinklessMember' }, ({ name }) => SinklessMember({ name })),
     Match.exhaustive,
   )
 

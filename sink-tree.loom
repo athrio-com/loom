@@ -51,7 +51,9 @@ A higher-order sink and its members are Loom symbols, served by Loom's own langu
 
 ## Health
 
-The sink tree adds its own entries to the one fault catalog: a member that resolves to nothing, two titles that normalise alike, a vertex that reaches itself, a higher-order sink with no members, a member rerouted to a directory that does not exist, an anchor that carries a specifier outside a higher-order sink. Each is a leaf diagnostic with a position and a message, surfaced in the editor and refused at tangle, exactly as a grammatical or a semantic fault is.
+The sink tree adds its own entries to the one fault catalog: a member that resolves to nothing, two titles that normalise alike, a vertex that reaches itself, a higher-order sink with no members, a member rerouted to a directory that does not exist, an anchor that carries a specifier outside a higher-order sink, a higher-order sink that routes its own module, and a member whose module tangles no file. Each is a leaf diagnostic with a position and a message, surfaced in the editor and refused at tangle, exactly as a grammatical or a semantic fault is.
+
+Two of these guard the membership edge, because the sink tree routes whole modules. A book routes content, never itself, so a higher-order sink may not route its own module — a leaf member resolving into the book's own file is refused. A route must also land a file, so a member whose module declares no tangle sink is a warning: the route places nothing. A nested higher-order sink is exempt from both — it recurses rather than routing a module.
 
 ## Invariants
 

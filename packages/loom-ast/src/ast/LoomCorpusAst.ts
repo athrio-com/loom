@@ -199,6 +199,8 @@ export type SinkFault =
   | { readonly kind: 'EmptySink'; readonly path: Path; readonly position: Position; readonly directory: string }
   | { readonly kind: 'UnresolvedReroute'; readonly path: Path; readonly position: Position; readonly directory: string }
   | { readonly kind: 'MisplacedSpecifier'; readonly path: Path; readonly position: Position; readonly specifier: string }
+  | { readonly kind: 'SelfRoutingSink'; readonly path: Path; readonly position: Position; readonly name: string }
+  | { readonly kind: 'SinklessMember'; readonly path: Path; readonly position: Position; readonly name: string }
 
 type Located = { readonly path: Path; readonly section: LoomSection }
 
@@ -342,6 +344,45 @@ const sinkCycles = (modules: Modules): ReadonlyArray<SinkFault> => {
   )
 }
 
+const hasTangleSink = (module: LoomModule | undefined): boolean =>
+  module !== undefined &&
+  Array.some(
+    module.doc.sections,
+    (section) => section.heading.specifier?.type === 'PathSpecifier',
+  )
+
+const membershipFaults = (modules: Modules): ReadonlyArray<SinkFault> => {
+  const index = sectionTitles(modules)
+  const memberFault = (
+    sink: SectionRef,
+    anchor: WarpAnchorToken,
+    ref: SectionRef,
+  ): Option.Option<SinkFault> => {
+    const fault = (kind: 'SelfRoutingSink' | 'SinklessMember'): SinkFault => ({
+      kind,
+      path: sink.module,
+      position: anchor.position,
+      name: anchor.name.value,
+    })
+    if (ref.module === sink.module) return Option.some(fault('SelfRoutingSink'))
+    if (!hasTangleSink(modules.get(ref.module)))
+      return Option.some(fault('SinklessMember'))
+    return Option.none()
+  }
+  return pipe(
+    dirSinks(modules),
+    Array.flatMap((sink) =>
+      Array.filterMap(anchorsOf(sink.section), (anchor) =>
+        pipe(
+          Option.fromNullable(index.get(anchor.name.value)),
+          Option.filter((ref) => Option.isNone(dirLabelOf(ref.section))),
+          Option.flatMap((ref) => memberFault(sink, anchor, ref)),
+        ),
+      ),
+    ),
+  )
+}
+
 export const sinkTreeFaults = (
   corpus: LoomCorpusAst,
   normalise: (title: string) => string,
@@ -354,6 +395,7 @@ export const sinkTreeFaults = (
     ...emptySinks(modules),
     ...unresolvedReroutes(modules),
     ...sinkCycles(modules),
+    ...membershipFaults(modules),
   ]
 }
 

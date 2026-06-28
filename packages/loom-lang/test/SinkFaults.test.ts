@@ -109,6 +109,36 @@ describe('Sink tree — faults the detector raises', () => {
     }),
   )
 
+  it.effect('flags a higher-order sink that routes its own module', () =>
+    Effect.gen(function* () {
+      const corpus = yield* corpusOf({
+        'book.loom':
+          '# Book\n\n## Core {packages/core/}\n\n=>\n\n::[Inline]\n\n# Inline {src/x.ts}\n\n=>\n\nexport const x = 1\n',
+      })
+      const self = sinkTreeFaults(corpus, normaliseTitle).filter(
+        (f) => f.kind === 'SelfRoutingSink',
+      )
+      expect(self.length).toBe(1)
+      expect(self[0]?.kind === 'SelfRoutingSink' && self[0].name).toBe('Inline')
+    }),
+  )
+
+  it.effect('flags a member whose module tangles no file', () =>
+    Effect.gen(function* () {
+      const corpus = yield* corpusOf({
+        'book.loom': '# Book\n\n## Core {packages/core/}\n\n=>\n\n::[Prose chapter]\n',
+        'prose.loom': '# Prose chapter\n\n=>\n\nexport const note = 1\n',
+      })
+      const sinkless = sinkTreeFaults(corpus, normaliseTitle).filter(
+        (f) => f.kind === 'SinklessMember',
+      )
+      expect(sinkless.length).toBe(1)
+      expect(sinkless[0]?.kind === 'SinklessMember' && sinkless[0].name).toBe(
+        'Prose chapter',
+      )
+    }),
+  )
+
   it.effect('a well-formed book raises no sink fault', () =>
     Effect.gen(function* () {
       const corpus = yield* corpusOf({
