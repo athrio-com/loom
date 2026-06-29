@@ -1,8 +1,8 @@
 {{lang: Scala}}
 
-A companion document. `Fun.loom` imports `Neg` from here, across files.
+A companion document. `Fun.loom` imports `Negate` from here, across files.
 
-# Negate [Neg]
+# Negate
 
 Negates an integer — the only export.
 
