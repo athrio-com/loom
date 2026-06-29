@@ -159,6 +159,11 @@ since no single language holds both fragments as one program, so the builder mar
 it a diagnostic on the offending anchor rather than splicing silently. The frame
 pass compares the two languages as it binds each name anchor.
 
+Only a code anchor composes. A name anchor in prose takes a different plane: it
+places a chapter under a higher-order sink, or merely links to the section it
+names. The frame walks only the code wefts, so it never folds a prose anchor into
+a section's code, and a prose link that resolves to nothing is no error.
+
 The specifier is the whole key; there is no separate plane axis. `{Loom}` is its
 own specifier — TypeScript de facto, but never interchangeable with
 `{TypeScript}`, and product TypeScript is never treated as frame code. A `{Loom}`
@@ -276,15 +281,16 @@ runner wires the root from it, dependency-first (see Providing Dependencies).
 
 ## Tangle Sections
 
-File emission is declared in the source document, not in code. A section
-whose specifier is a file path — `{src/main/scala/Arithmetic.scala}` rather
-than a language label — is a tangle section. The specifier signals to the
-`FrameAstBuilder` pass that this section's purpose is emission, not composition.
+File emission is declared in the source document, not in code. A section whose
+**sink** names a file — `[src/main/scala, Arithmetic.scala]` rather than a bare
+language label — is a tangle section. The two-part sink, a directory and a file
+split by the comma, signals to the `FrameAstBuilder` pass that this section's
+purpose is emission, not composition.
 
 The code block of a tangle section contains only name anchors:
 
 ```
-## Tangling the library {src/main/scala/Arithmetic.scala}
+## Tangling the library [src/main/scala, Arithmetic.scala]
 
 Emits the complete arithmetic library.
 
@@ -303,9 +309,10 @@ the composed result in a `dsl.tangle(path, ...)` call instead of returning
 syntax throughout.
 
 A tangle section is a sink in the anchor graph: other sections never name it.
-It consumes the graph; nothing consumes it. The `FrameAstBuilder` pass recognises
-a file path specifier by the presence of path separators, distinguishing it from a
-language specifier without additional syntax.
+It consumes the graph; nothing consumes it. The `FrameAstBuilder` pass tells a
+tangle section by its sink's comma — a two-part `[dir, file]` emits a file, a
+one-part `[dir]` is a higher-order sink that places chapters — and reads the
+file's path by joining the two parts.
 
 ## The `{Loom}` Specifier
 
@@ -390,7 +397,7 @@ the order and the wiring from the graph the frame already carries, and never ask
 author for an import, a layer assembly, or an entry point.
 
 The root is generated for every file **with Services**, not only those that
-tangle: a file with `{path}` sinks runs them, and a library file still exports its
+tangle: a file with `[dir, file]` sinks runs them, and a library file still exports its
 `__services` and `__run` so an importer can run it. A service-less file — empty, or
 only `{Loom}` blocks — has **no** root; an empty `.loom` is a valid file. Where a
 root exists it makes a document's sections one interconnected, checkable whole —
