@@ -2,7 +2,7 @@
 
 # The projection pass
 
-`LoomVirtualCodeBuilder` produces the `LoomVirtualCode` a `.loom` presents to Volar, in two passes that share one model. `fromFrame` walks the Frame AST in render order and emits the de dicto frame, every authored leaf mapped back to the `.loom`. `fromProduct` walks a section's `Code` and emits its de re product, inlining transclusions by following `Ref`s across the corpus. Both fold their pieces with the same monoid, and `rootVirtualCode` assembles a file's tree from the two. Pure and total.
+`LoomVirtualCodeBuilder` produces the `LoomVirtualCode` a `.loom` presents to Volar, in three projections that share one model. `fromFrame` walks the Frame AST in render order and emits the de dicto frame, every authored leaf mapped back to the `.loom`. `fromProduct` walks a section's `Code` and emits its de re product, inlining transclusions by following `Ref`s across the corpus. `fromProse` blanks a file's code and emits what remains as Markdown. `fromFrame` and `fromProduct` fold their pieces with the same monoid, and `rootVirtualCode` assembles a file's tree from the three. Pure and total.
 
 ## Resolving against the corpus
 
@@ -347,7 +347,7 @@ const indentBlock = (
 
 ## The passes and the tree
 
-`fromFrame` is the de dicto pass — the frame virtual code, always loom-tagged for the type-checker. `fromProduct` is the de re pass — a section's product in its own language. Its virtual-code id is the section name lowercased, since Volar requires every embedded-code id to be lowercase. A section absent from the corpus yields an empty document. `rootVirtualCode` assembles a file's tree: the source as the `loom` root, the frame and product documents its children. The root maps to itself, a whole-file identity span of the `source` kind, so Loom's own diagnostics reach the editor on the file the author opened.
+`fromFrame` is the de dicto pass — the frame virtual code, always loom-tagged for the type-checker. `fromProduct` is the de re pass — a section's product in its own language. Its virtual-code id is the section name lowercased, since Volar requires every embedded-code id to be lowercase. A section absent from the corpus yields an empty document. `fromProse` is the prose pass — the file as a Markdown document, its `languageId` `prose`, with every code chunk blanked to spaces so only the prose shows while its offsets stay put under a single identity mapping. `rootVirtualCode` assembles a file's tree: the source as the `loom` root, the frame, prose, and product documents its children. The root maps to itself, a whole-file identity span of the `source` kind, so Loom's own diagnostics reach the editor on the file the author opened.
 
 `rootNamesAt` names a file's composition roots — the sections no reference folds in. It reads the file's `product.code` from the corpus, the sections the run produced. Every reference is a same-file `NameRef`, a name anchor naming a section in this file, and it demotes its target: the target becomes a fragment of the referring section's root, sharing that scope, not a unit of its own. The sections left over, named by no reference, are the roots. The editor type-checks them and lets each fold in the fragments it names. The names come back lowercased, to match the de re ids `fromProduct` assigns.
 
@@ -374,6 +374,49 @@ export const fromProduct = (
       }),
     }),
   )
+
+export const fromProse = (
+  modules: ReadonlyMap<Path, LoomModule>,
+  path: Path,
+): LoomVirtualCode => {
+  const module = modules.get(path)
+  const text = module?.text ?? ''
+  const codeWefts = module
+    ? pipe(
+        module.doc.sections,
+        Array.flatMap((section) => section.code),
+        Array.filter(
+          (weft) => weft.type === 'ArrowWeft' || weft.type === 'CodeWeft',
+        ),
+      )
+    : []
+  const code = Array.reduce(codeWefts, text, (acc, weft) => {
+    const start = weft.position.start.offset
+    const end = weft.position.end.offset
+    return (
+      acc.slice(0, start) +
+      acc.slice(start, end).replace(/[^\n]/g, ' ') +
+      acc.slice(end)
+    )
+  })
+  return {
+    id: 'prose',
+    languageId: 'prose',
+    code,
+    mappings: [
+      {
+        genStart: 0,
+        genLength: code.length,
+        source: {
+          start: { line: 1, offset: 0 },
+          end: { line: 1, offset: code.length },
+        },
+        kind: 'prose',
+      },
+    ],
+    embeddedCodes: [],
+  }
+}
 
 export const rootVirtualCode = (
   text: string,
@@ -468,7 +511,7 @@ import {
   type MappingKind,
 } from '@athrio/loom-ast/LoomVirtualCode'
 
-## The module {src/ast/LoomVirtualCodeBuilder.ts}
+## The module [src/ast, LoomVirtualCodeBuilder.ts]
 
 =>
 

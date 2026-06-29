@@ -31,7 +31,7 @@ export type HeadingStartToken = typeof HeadingStartTokenSchema.Type
 
 ## Specifiers
 
-A `Specifier` is `{name}`. Its `open`, `label`, and `close` are separate subnodes, each with its own health, so a missing `}` lands on the `close`. The label's rule is health-aware: a real label matches `[a-zA-Z0-9_-]+`, and an empty value is allowed only on a non-ok node — the placeholder an earlier pass leaves before the tokeniser fills it.
+A `Specifier` is `{Lang}`, a heading's language label — `{Bash}`, `{json}`, `{Prose}`. Its `open`, `label`, and `close` are separate subnodes, each with its own health, so a missing `}` lands on the `close`. The label's rule is health-aware: a real label matches `[a-zA-Z0-9_-]+`, and an empty value is allowed only on a non-ok node — the placeholder an earlier pass leaves before the tokeniser fills it.
 
 =>
 
@@ -73,13 +73,31 @@ export const SpecifierTokenSchema = loomNode('Specifier', {
 })
 export type SpecifierToken = typeof SpecifierTokenSchema.Type
 
-## Path specifiers
+## Sinks
 
-A `PathSpecifier` is `{path/to/file}`: the same `{ }` delimiters as a `Specifier`, reusing its `open` and `close` subnodes, but its label admits the `.` and `/` of a path. A heading carrying one is a tangle section, the file-emission sink.
+A `Sink` is the bracketed target a heading writes to, written `[dir, file]` or `[dir]`. Brackets set a sink apart from a language `Specifier`, which wears braces. The comma sets a file apart from a directory.
+
+Two parts name a file. A heading marked `[dir, file]` is a tangle section. Loom joins the two parts into a path and emits the section's composed code there. One part names a directory. A heading marked `[dir]` is a higher-order sink — a vertex that fixes where the tangle sinks beneath it land, rather than emitting a file of its own.
+
+The comma is what lets a file go without an extension. Write `[., .gitignore]` and the second part names the file `.gitignore` outright, where the lone `[.gitignore]` would read as a directory of that name. A sink exposes its `open`, `dir`, optional `file`, and `close` as separate subnodes, each carrying its own health, so a diagnostic lands on the part at fault.
 
 =>
 
-export const PathSpecifierLabelTokenSchema = loomNode('PathSpecifierLabel', {
+export const SinkOpenTokenSchema = loomNode('SinkOpen', {
+  value: Schema.Literal('['),
+}).annotations({
+  [Probe]: /\[/g,
+})
+export type SinkOpenToken = typeof SinkOpenTokenSchema.Type
+
+export const SinkCloseTokenSchema = loomNode('SinkClose', {
+  value: Schema.Literal(']'),
+}).annotations({
+  [Probe]: /\]/g,
+})
+export type SinkCloseToken = typeof SinkCloseTokenSchema.Type
+
+export const SinkDirLabelTokenSchema = loomNode('SinkDirLabel', {
   value: Schema.String,
 }).pipe(
   Schema.filter((t) => {
@@ -87,51 +105,37 @@ export const PathSpecifierLabelTokenSchema = loomNode('PathSpecifierLabel', {
       return 'empty `value` requires non-ok `health.status`'
     }
     if (t.value !== '' && !/^[a-zA-Z0-9_\-./]+$/.test(t.value)) {
-      return `path specifier label must match [a-zA-Z0-9_-./]+, got \`${t.value}\``
+      return `sink directory label must match [a-zA-Z0-9_-./]+, got \`${t.value}\``
     }
     return true
   }),
 )
-export type PathSpecifierLabelToken = typeof PathSpecifierLabelTokenSchema.Type
+export type SinkDirLabelToken = typeof SinkDirLabelTokenSchema.Type
 
-export const PathSpecifierTokenSchema = loomNode('PathSpecifier', {
-  open: SpecifierOpenTokenSchema,
-  label: PathSpecifierLabelTokenSchema,
-  close: SpecifierCloseTokenSchema,
-}).annotations({
-  [Probe]: /\{[a-zA-Z0-9_\-./]+\}/g,
-})
-export type PathSpecifierToken = typeof PathSpecifierTokenSchema.Type
-
-## Directory specifiers
-
-A `DirSpecifier` is `{packages/loom-cli/}`: a path specifier closed by a trailing slash. The slash is the whole distinction. A path specifier names a file to emit; a directory specifier names a directory, and a heading carrying one is a higher-order sink — a vertex that predefines where the tangle sinks beneath it land, rather than emitting a file of its own. Its label reuses the path character set and must end in `/`.
-
-=>
-
-export const DirSpecifierLabelTokenSchema = loomNode('DirSpecifierLabel', {
+export const SinkFileLabelTokenSchema = loomNode('SinkFileLabel', {
   value: Schema.String,
 }).pipe(
   Schema.filter((t) => {
     if (t.value === '' && t.health.status === 'ok') {
       return 'empty `value` requires non-ok `health.status`'
     }
-    if (t.value !== '' && !/^[a-zA-Z0-9_\-./]+\/$/.test(t.value)) {
-      return `directory specifier label must be a path ending in /, got \`${t.value}\``
+    if (t.value !== '' && !/^[a-zA-Z0-9_\-./]+$/.test(t.value)) {
+      return `sink file label must match [a-zA-Z0-9_-./]+, got \`${t.value}\``
     }
     return true
   }),
 )
-export type DirSpecifierLabelToken = typeof DirSpecifierLabelTokenSchema.Type
+export type SinkFileLabelToken = typeof SinkFileLabelTokenSchema.Type
 
-export const DirSpecifierTokenSchema = loomNode('DirSpecifier', {
-  open: SpecifierOpenTokenSchema,
-  label: DirSpecifierLabelTokenSchema,
-  close: SpecifierCloseTokenSchema,
+export const SinkTokenSchema = loomNode('Sink', {
+  open: SinkOpenTokenSchema,
+  dir: SinkDirLabelTokenSchema,
+  file: Schema.optional(SinkFileLabelTokenSchema),
+  close: SinkCloseTokenSchema,
 }).annotations({
-  [Probe]: /\{[a-zA-Z0-9_\-./]+\/\}/g,
+  [Probe]: /\[[^\]]*\]/g,
 })
-export type DirSpecifierToken = typeof DirSpecifierTokenSchema.Type
+export type SinkToken = typeof SinkTokenSchema.Type
 
 ## Transition markers
 
@@ -176,7 +180,7 @@ export type ProseToken = typeof ProseTokenSchema.Type
 
 ## Warps and anchors
 
-A `Warp` is a declaration, `&#123;&#123; name [: type] = value &#125;&#125;`, written in a preamble line. A `WarpAnchor` is a reference, `::[name]`, written in a code line. The two use different delimiters on purpose: a warp sits in prose, where `&#123;&#123;` is safe, but an anchor sits inside product code, where `&#123;&#123;` would collide with templating languages that own that syntax — `::[` does not. So a warp opens with `&#123;&#123;` and closes with `&#125;&#125;`, an anchor opens with `::[` and closes with `]`; both expose `open`, `close`, and `name` as subnodes. An anchor may also carry an optional `specifier` after its close — `::[name]{pkg/}` — told apart by the same trailing slash, extension, or bare word as a heading's specifier. A member names a chapter and never overrides, so a later pass faults any specifier an anchor wears; the grammar keeps it only to name that fault precisely rather than misread the braces as code. A declaration's `name` must be a TypeScript identifier; an anchor's `name` is looser — any text up to the closing delimiter, since it may name either a binding or a section by heading. A declaration also carries an optional `annotation` — the `: type` before the value — and a `default` — the `= value` it binds. Both are opaque text here; a later pass reads their structure and decides how the name binds.
+A `Warp` is a declaration, `&#123;&#123; name [: type] = value &#125;&#125;`, written in a preamble line. A `WarpAnchor` is a reference, `::[name]`, written in a code line. The two use different delimiters on purpose: a warp sits in prose, where `&#123;&#123;` is safe, but an anchor sits inside product code, where `&#123;&#123;` would collide with templating languages that own that syntax — `::[` does not. So a warp opens with `&#123;&#123;` and closes with `&#125;&#125;`, an anchor opens with `::[` and closes with `]`; both expose `open`, `close`, and `name` as subnodes. An anchor may also carry an optional `specifier` after its close — a `{Lang}` label or a `[sink]` an author wrote by mistake. A member names a chapter and never overrides, so a later pass faults any specifier an anchor wears; the grammar keeps it only to name that fault precisely rather than misread the trailing token as code. A declaration's `name` must be a TypeScript identifier; an anchor's `name` is looser — any text up to the closing delimiter, since it may name either a binding or a section by heading. A declaration also carries an optional `annotation` — the `: type` before the value — and a `default` — the `= value` it binds. Both are opaque text here; a later pass reads their structure and decides how the name binds.
 
 An anchor's `open` and `close` are plain strings rather than fixed literals, because a package may set its own delimiter pair in `loom.json` when `::[` would collide with its product language. `AnchorDelims` is that pair, and `defaultAnchorDelims` holds the built-in `::[` and `]` — written as a concatenation so this corpus, which the tokeniser scans like any other, holds no bare `::[` of its own. For the same reason, this section writes the warp braces as the numeric character references `&#123;` and `&#125;`: a literal `&#123;&#123;` on a preamble line would tokenise as a Warp.
 
@@ -260,11 +264,7 @@ export const WarpAnchorTokenSchema = loomNode('WarpAnchor', {
   name: WarpAnchorNameTokenSchema,
   close: AnchorCloseTokenSchema,
   specifier: Schema.optional(
-    Schema.Union(
-      SpecifierTokenSchema,
-      PathSpecifierTokenSchema,
-      DirSpecifierTokenSchema,
-    ),
+    Schema.Union(SpecifierTokenSchema, SinkTokenSchema),
   ),
 }).annotations({
   [Probe]: /::\[[^\]]*\]/g,
@@ -359,8 +359,7 @@ export const checkAnchorDelims = (
 export const LoomTokenSchema = Schema.Union(
   HeadingStartTokenSchema,
   SpecifierTokenSchema,
-  PathSpecifierTokenSchema,
-  DirSpecifierTokenSchema,
+  SinkTokenSchema,
   ArrowTokenSchema,
   TildeTokenSchema,
   HeadingTitleTokenSchema,
@@ -380,7 +379,7 @@ export type LoomToken = typeof LoomTokenSchema.Type
 import { Data, Effect, Option, Schema, SchemaAST } from 'effect'
 import { loomNode } from '#ast/LoomNode'
 
-## The module {src/ast/LoomTokens.ts}
+## The module [src/ast, LoomTokens.ts]
 
 =>
 
@@ -392,9 +391,7 @@ import { loomNode } from '#ast/LoomNode'
 
 ::[Specifiers]
 
-::[Path specifiers]
-
-::[Directory specifiers]
+::[Sinks]
 
 ::[Transition markers]
 

@@ -63,7 +63,7 @@ Effect's `Schema` defines the model, and `Position` from the foundation types ea
 import { Schema } from 'effect'
 import { PositionSchema } from '#ast/LoomNode'
 
-## The module {src/ast/LoomVirtualCode.ts}
+## The module [src/ast, LoomVirtualCode.ts]
 
 =>
 

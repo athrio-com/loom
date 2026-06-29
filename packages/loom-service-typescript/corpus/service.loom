@@ -167,7 +167,7 @@ import { createProductProgram, type ProductProgram } from './ProductProgram'
 
 type TypeScript = typeof import('typescript')
 
-## The module {src/TypescriptService.ts}
+## The module [src, TypescriptService.ts]
 
 =>
 

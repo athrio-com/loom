@@ -3,14 +3,14 @@ import { Option, Schema } from 'effect'
 import {
   ArrowTokenSchema,
   HeadingStartTokenSchema,
-  PathSpecifierTokenSchema,
+  SinkTokenSchema,
   SpecifierTokenSchema,
   TildeTokenSchema,
   WarpAnchorTokenSchema,
   WarpTokenSchema,
   getProbe,
 } from '#ast/LoomTokens'
-import { okHealth } from '#ast/LoomNode'
+import { incompleteHealth, okHealth } from '#ast/LoomNode'
 import {
   ArrowWeftSchema,
   HeadingWeftSchema,
@@ -58,28 +58,63 @@ const validSpecifier = {
   },
 }
 
-const validPathSpecifier = {
-  type: 'PathSpecifier' as const,
+const validSink = {
+  type: 'Sink' as const,
   position: samplePosition,
   source: '',
   health: okHealth,
   open: {
-    type: 'SpecifierOpen' as const,
-    value: '{' as const,
+    type: 'SinkOpen' as const,
+    value: '[' as const,
     position: samplePosition,
     source: '',
     health: okHealth,
   },
-  label: {
-    type: 'PathSpecifierLabel' as const,
-    value: 'src/index.ts',
+  dir: {
+    type: 'SinkDirLabel' as const,
+    value: 'src',
+    position: samplePosition,
+    source: '',
+    health: okHealth,
+  },
+  file: {
+    type: 'SinkFileLabel' as const,
+    value: 'index.ts',
     position: samplePosition,
     source: '',
     health: okHealth,
   },
   close: {
-    type: 'SpecifierClose' as const,
-    value: '}' as const,
+    type: 'SinkClose' as const,
+    value: ']' as const,
+    position: samplePosition,
+    source: '',
+    health: okHealth,
+  },
+}
+
+const validDirSink = {
+  type: 'Sink' as const,
+  position: samplePosition,
+  source: '',
+  health: okHealth,
+  open: {
+    type: 'SinkOpen' as const,
+    value: '[' as const,
+    position: samplePosition,
+    source: '',
+    health: okHealth,
+  },
+  dir: {
+    type: 'SinkDirLabel' as const,
+    value: 'components',
+    position: samplePosition,
+    source: '',
+    health: okHealth,
+  },
+  close: {
+    type: 'SinkClose' as const,
+    value: ']' as const,
     position: samplePosition,
     source: '',
     health: okHealth,
@@ -96,7 +131,7 @@ describe('Probe annotation', () => {
     expect(Option.isSome(getProbe(ArrowTokenSchema))).toBe(true)
     expect(Option.isSome(getProbe(TildeTokenSchema))).toBe(true)
     expect(Option.isSome(getProbe(SpecifierTokenSchema))).toBe(true)
-    expect(Option.isSome(getProbe(PathSpecifierTokenSchema))).toBe(true)
+    expect(Option.isSome(getProbe(SinkTokenSchema))).toBe(true)
     expect(Option.isSome(getProbe(WarpTokenSchema))).toBe(true)
     expect(Option.isSome(getProbe(WarpAnchorTokenSchema))).toBe(true)
   })
@@ -179,19 +214,19 @@ describe('Specifier probe', () => {
   })
 })
 
-describe('PathSpecifier probe', () => {
-  const probe = Option.getOrThrow(getProbe(PathSpecifierTokenSchema))
+describe('Sink probe', () => {
+  const probe = Option.getOrThrow(getProbe(SinkTokenSchema))
 
-  it('finds a path specifier with `/` separators', () => {
-    const matches = [...'# Tangle {src/x.ts}'.matchAll(probe)]
+  it('finds a two-part `[dir, file]` file sink', () => {
+    const matches = [...'# Tangle [src, x.ts]'.matchAll(probe)]
     expect(matches).toHaveLength(1)
-    expect(matches[0][0]).toBe('{src/x.ts}')
+    expect(matches[0][0]).toBe('[src, x.ts]')
   })
 
-  it('admits `.` in path labels', () => {
-    const matches = [...'# Tangle {package.json}'.matchAll(probe)]
+  it('finds a one-part `[dir]` directory sink', () => {
+    const matches = [...'# Tangle [components]'.matchAll(probe)]
     expect(matches).toHaveLength(1)
-    expect(matches[0][0]).toBe('{package.json}')
+    expect(matches[0][0]).toBe('[components]')
   })
 })
 
@@ -246,19 +281,55 @@ describe('HeadingStart schema validation', () => {
   })
 })
 
-describe('PathSpecifier schema validation', () => {
-  it('accepts a well-formed `{src/x.ts}`-style token', () => {
-    expect(Schema.is(PathSpecifierTokenSchema)(validPathSpecifier)).toBe(true)
+describe('Sink schema validation', () => {
+  it('accepts a well-formed two-part `[dir, file]` file sink', () => {
+    expect(Schema.is(SinkTokenSchema)(validSink)).toBe(true)
   })
 
-  it('label type is `PathSpecifierLabel`', () => {
-    expect(validPathSpecifier.label.type).toBe('PathSpecifierLabel')
+  it('accepts a one-part `[dir]` directory sink (file absent)', () => {
+    expect(Schema.is(SinkTokenSchema)(validDirSink)).toBe(true)
   })
 
-  it('rejects a Specifier (wrong type discriminator) in the PathSpecifier slot', () => {
-    expect(Schema.is(PathSpecifierTokenSchema)(validSpecifier as any)).toBe(
-      false,
-    )
+  it('a two-part sink carries both `dir` and `file` labels', () => {
+    expect(validSink.dir.type).toBe('SinkDirLabel')
+    expect(validSink.file.type).toBe('SinkFileLabel')
+  })
+
+  it('a one-part sink carries `dir` and no `file`', () => {
+    expect(validDirSink.dir.type).toBe('SinkDirLabel')
+    expect('file' in validDirSink).toBe(false)
+  })
+
+  it('admits `.` and `/` in label values', () => {
+    expect(
+      Schema.is(SinkTokenSchema)({
+        ...validSink,
+        dir: { ...validSink.dir, value: 'src/ast' },
+        file: { ...validSink.file, value: 'package.json' },
+      }),
+    ).toBe(true)
+  })
+
+  it('rejects an empty `dir` label value under ok health', () => {
+    expect(
+      Schema.is(SinkTokenSchema)({
+        ...validSink,
+        dir: { ...validSink.dir, value: '' },
+      }),
+    ).toBe(false)
+  })
+
+  it('admits an empty `dir` label value when health is non-ok', () => {
+    expect(
+      Schema.is(SinkTokenSchema)({
+        ...validSink,
+        dir: { ...validSink.dir, value: '', health: incompleteHealth },
+      }),
+    ).toBe(true)
+  })
+
+  it('rejects a Specifier (wrong type discriminator) in the Sink slot', () => {
+    expect(Schema.is(SinkTokenSchema)(validSpecifier as any)).toBe(false)
   })
 })
 
@@ -445,7 +516,7 @@ describe('HeadingWeft schema', () => {
     ).toBe(true)
   })
 
-  it('accepts a heading with a path specifier', () => {
+  it('accepts a heading with a `[dir, file]` sink', () => {
     expect(
       Schema.is(HeadingWeftSchema)({
         type: 'HeadingWeft',
@@ -453,7 +524,21 @@ describe('HeadingWeft schema', () => {
         source: '',
         health: okHealth,
         headingStart: validHeadingStart,
-        specifier: validPathSpecifier,
+        sink: validSink,
+      }),
+    ).toBe(true)
+  })
+
+  it('accepts a heading carrying both a `{Lang}` specifier and a `[…]` sink', () => {
+    expect(
+      Schema.is(HeadingWeftSchema)({
+        type: 'HeadingWeft',
+        position: samplePosition,
+        source: '',
+        health: okHealth,
+        headingStart: validHeadingStart,
+        specifier: validSpecifier,
+        sink: validSink,
       }),
     ).toBe(true)
   })
@@ -516,6 +601,7 @@ describe('TildeWeft schema', () => {
           source: '',
           health: okHealth,
         },
+        anchors: [],
       }),
     ).toBe(true)
   })

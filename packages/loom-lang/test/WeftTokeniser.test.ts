@@ -113,62 +113,94 @@ describe('Tokeniser — Heading title/specifier filling', () => {
 })
 
 // =============================================================================
-// Specifier kind — label vs path vs directory. A label without path separators
-// (`{Bash}`) builds a `Specifier`; a label carrying `.` or `/` (`{src/x.ts}`)
-// builds a `PathSpecifier`, the tangle (file-emission) sink; a label closed by a
-// trailing slash (`{pkg/}`) builds a `DirSpecifier`, the higher-order sink.
+// Language specifier vs sink — the heading's two structural slots. A `{Lang}`
+// specifier (`{Bash}`, `{Loom}`) names the section's language and lands on
+// `weft.specifier` as a `Specifier`. A `[dir, file]` sink names a file tangle
+// target and lands on `weft.sink` as a `Sink`; a one-part `[dir]` sink names a
+// directory (the higher-order sink). The bracket inner text splits on the first
+// comma: two parts give `dir` + `file`, one part gives `dir` alone.
 // =============================================================================
 
-describe('Tokeniser — label vs path specifier', () => {
-  it('`{Bash}` is a label Specifier', () => {
+describe('Tokeniser — language specifier vs sink', () => {
+  it('`{Bash}` is a language Specifier on `weft.specifier`', () => {
     const w = headingAt(tokenise(['# Build {Bash}']), 0)
     expect(w.specifier?.type).toBe('Specifier')
     expect(w.specifier?.label.value).toBe('Bash')
+    expect(w.sink).toBeUndefined()
   })
 
-  it('`{Loom}` is a label Specifier (no path separators)', () => {
+  it('`{Loom}` is a language Specifier on `weft.specifier`', () => {
     const w = headingAt(tokenise(['# Deps {Loom}']), 0)
     expect(w.specifier?.type).toBe('Specifier')
     expect(w.specifier?.label.value).toBe('Loom')
+    expect(w.sink).toBeUndefined()
   })
 
-  it('`{src/main/scala/App.scala}` is a PathSpecifier (slashes present)', () => {
-    const w = headingAt(tokenise(['# Tangle {src/main/scala/App.scala}']), 0)
-    expect(w.specifier?.type).toBe('PathSpecifier')
-    expect(w.specifier?.label.value).toBe('src/main/scala/App.scala')
-    expect(w.specifier?.health.status).toBe('ok')
+  it('`[src/main/scala, App.scala]` is a two-part file Sink', () => {
+    const w = headingAt(tokenise(['# Tangle [src/main/scala, App.scala]']), 0)
+    expect(w.sink?.type).toBe('Sink')
+    expect(w.sink?.dir.value).toBe('src/main/scala')
+    expect(w.sink?.file?.value).toBe('App.scala')
+    expect(w.sink?.health.status).toBe('ok')
+    expect(w.specifier).toBeUndefined()
   })
 
-  it('`{build.sh}` is a PathSpecifier (dot present)', () => {
-    const w = headingAt(tokenise(['# Tangle {build.sh}']), 0)
-    expect(w.specifier?.type).toBe('PathSpecifier')
-    expect(w.specifier?.label.value).toBe('build.sh')
+  it('`[., build.sh]` is a two-part file Sink rooted at `.`', () => {
+    const w = headingAt(tokenise(['# Tangle [., build.sh]']), 0)
+    expect(w.sink?.type).toBe('Sink')
+    expect(w.sink?.dir.value).toBe('.')
+    expect(w.sink?.file?.value).toBe('build.sh')
   })
 
-  it('`{packages/loom-cli/}` is a DirSpecifier (trailing slash)', () => {
-    const w = headingAt(tokenise(['# CLI {packages/loom-cli/}']), 0)
-    expect(w.specifier?.type).toBe('DirSpecifier')
-    expect(w.specifier?.label.value).toBe('packages/loom-cli/')
-    expect(w.specifier?.health.status).toBe('ok')
+  it('`[packages/loom-cli]` is a one-part directory Sink (file absent)', () => {
+    const w = headingAt(tokenise(['# CLI [packages/loom-cli]']), 0)
+    expect(w.sink?.type).toBe('Sink')
+    expect(w.sink?.dir.value).toBe('packages/loom-cli')
+    expect(w.sink?.file).toBeUndefined()
+    expect(w.sink?.health.status).toBe('ok')
   })
 
-  it('`{lib/}` is a DirSpecifier (single segment, trailing slash)', () => {
-    const w = headingAt(tokenise(['# Group {lib/}']), 0)
-    expect(w.specifier?.type).toBe('DirSpecifier')
-    expect(w.specifier?.label.value).toBe('lib/')
+  it('`[lib]` is a one-part directory Sink (single segment)', () => {
+    const w = headingAt(tokenise(['# Group [lib]']), 0)
+    expect(w.sink?.type).toBe('Sink')
+    expect(w.sink?.dir.value).toBe('lib')
+    expect(w.sink?.file).toBeUndefined()
   })
 
-  it('a trailing slash wins over the path reading (`{src/main.ts}` stays a file)', () => {
-    const w = headingAt(tokenise(['# File {src/main.ts}']), 0)
-    expect(w.specifier?.type).toBe('PathSpecifier')
+  it('splits the bracket on the first comma — the dir is the text before it', () => {
+    // The inner `src, a, b.ts` splits at the first comma: the dir is `src`,
+    // and the rest (`a, b.ts`) is the file. That file text carries a comma and
+    // a space, so it fails the file pattern and its bytes are preserved in
+    // `unexpected[]` — proof the split took the whole post-first-comma run.
+    const w = headingAt(tokenise(['# File [src, a, b.ts]']), 0)
+    expect(w.sink?.dir.value).toBe('src')
+    expect(w.sink?.file?.health.status).toBe('error')
+    expect(w.sink?.file?.unexpected?.[0].value).toBe('a, b.ts')
   })
 
-  it('a path specifier with a space fails its pattern (bad text in unexpected)', () => {
-    const w = headingAt(tokenise(['# Tangle {src/bad name.ts}']), 0)
-    expect(w.specifier?.type).toBe('PathSpecifier')
-    expect(w.specifier?.label.health.status).toBe('error')
-    expect(w.specifier?.label.value).toBe('')
-    expect(w.specifier?.label.unexpected?.[0].value).toBe('src/bad name.ts')
+  it('a sink directory with a space fails its pattern (bad text in unexpected)', () => {
+    const w = headingAt(tokenise(['# Tangle [src/bad name, x.ts]']), 0)
+    expect(w.sink?.type).toBe('Sink')
+    expect(w.sink?.dir.health.status).toBe('error')
+    expect(w.sink?.dir.value).toBe('')
+    expect(w.sink?.dir.unexpected?.[0].value).toBe('src/bad name')
+  })
+
+  it('a sink file with a space fails its pattern (bad text in unexpected)', () => {
+    const w = headingAt(tokenise(['# Tangle [src, bad name.ts]']), 0)
+    expect(w.sink?.type).toBe('Sink')
+    expect(w.sink?.file?.health.status).toBe('error')
+    expect(w.sink?.file?.value).toBe('')
+    expect(w.sink?.file?.unexpected?.[0].value).toBe('bad name.ts')
+  })
+
+  it('a heading may carry both a specifier and a sink', () => {
+    const w = headingAt(tokenise(['# Tangle {Bash} [., build.sh]']), 0)
+    expect(w.specifier?.type).toBe('Specifier')
+    expect(w.specifier?.label.value).toBe('Bash')
+    expect(w.sink?.type).toBe('Sink')
+    expect(w.sink?.dir.value).toBe('.')
+    expect(w.sink?.file?.value).toBe('build.sh')
   })
 })
 
@@ -220,8 +252,8 @@ describe('Tokeniser — malformed label values', () => {
 
 // =============================================================================
 // Heading title — the single trimmed title token: the text between the marker
-// and the first structural token, whitespace stripped. A `{…}` specifier is the
-// only structural token; `[…]` is ordinary title text.
+// and the first structural token, whitespace stripped. Both `{…}` (a specifier)
+// and `[…]` (a sink) are structural tokens, so each one bounds the title.
 // =============================================================================
 
 describe('Tokeniser — heading title', () => {
@@ -234,9 +266,12 @@ describe('Tokeniser — heading title', () => {
     expect(w.title?.position.end.offset).toBe(13)
   })
 
-  it('keeps `[…]` as ordinary title text, ending only at the specifier', () => {
-    const w = headingAt(tokenise(['# Title [App] {TypeScript}']), 0)
-    expect(w.title?.source).toBe('Title [App]')
+  it('a `[…]` sink bounds the title — the title ends before the bracket', () => {
+    const w = headingAt(tokenise(['# Title [App, App.scala] {TypeScript}']), 0)
+    expect(w.title?.source).toBe('Title')
+    expect(w.sink?.dir.value).toBe('App')
+    expect(w.sink?.file?.value).toBe('App.scala')
+    expect(w.specifier?.label.value).toBe('TypeScript')
   })
 
   it('has no title when the heading is only the marker and a specifier', () => {
@@ -563,26 +598,35 @@ describe('Tokeniser — WarpAnchor references on ArrowWeft / CodeWeft', () => {
     expect(w.anchors[0].specifier).toBeUndefined()
   })
 
-  it('attaches a directory specifier `::[A cli module]{packages/loom-cli/}`', () => {
-    const w = codeWeftFromLines(['## A', '=>', '::[A cli module]{packages/loom-cli/}'], 2)
+  it('attaches a directory Sink `::[A cli module][packages/loom-cli]`', () => {
+    const w = codeWeftFromLines(['## A', '=>', '::[A cli module][packages/loom-cli]'], 2)
     expect(w.anchors).toHaveLength(1)
     expect(w.anchors[0].name.value).toBe('A cli module')
-    expect(w.anchors[0].specifier?.type).toBe('DirSpecifier')
-    expect(w.anchors[0].specifier?.label.value).toBe('packages/loom-cli/')
+    expect(w.anchors[0].specifier?.type).toBe('Sink')
+    expect((w.anchors[0].specifier as { dir: { value: string } }).dir.value).toBe(
+      'packages/loom-cli',
+    )
     expect(w.anchors[0].health.status).toBe('ok')
-    expect(w.anchors[0].source).toBe('::[A cli module]{packages/loom-cli/}')
+    expect(w.anchors[0].source).toBe('::[A cli module][packages/loom-cli]')
   })
 
-  it('attaches a file specifier `::[The manifest]{package.json}`', () => {
-    const w = codeWeftFromLines(['## A', '=>', '::[The manifest]{package.json}'], 2)
-    expect(w.anchors[0].specifier?.type).toBe('PathSpecifier')
-    expect(w.anchors[0].specifier?.label.value).toBe('package.json')
+  it('attaches a file Sink `::[The manifest][., package.json]`', () => {
+    const w = codeWeftFromLines(['## A', '=>', '::[The manifest][., package.json]'], 2)
+    expect(w.anchors[0].specifier?.type).toBe('Sink')
+    const sink = w.anchors[0].specifier as {
+      dir: { value: string }
+      file?: { value: string }
+    }
+    expect(sink.dir.value).toBe('.')
+    expect(sink.file?.value).toBe('package.json')
   })
 
-  it('attaches a label specifier `::[base]{rust}`', () => {
+  it('attaches a language Specifier `::[base]{rust}`', () => {
     const w = codeWeftFromLines(['## A', '=>', '::[base]{rust}'], 2)
     expect(w.anchors[0].specifier?.type).toBe('Specifier')
-    expect(w.anchors[0].specifier?.label.value).toBe('rust')
+    expect((w.anchors[0].specifier as { label: { value: string } }).label.value).toBe(
+      'rust',
+    )
   })
 
   it('a `{` not adjacent to the close is not a specifier', () => {
@@ -594,6 +638,60 @@ describe('Tokeniser — WarpAnchor references on ArrowWeft / CodeWeft', () => {
     const w = codeWeftFromLines(['## A', '=>', '::[base]{ override'], 2)
     expect(w.anchors[0].specifier).toBeUndefined()
     expect(w.anchors[0].health.status).toBe('ok')
+  })
+})
+
+// =============================================================================
+// Markdown-aware prose anchors — a `::[x]` in plain prose is a live anchor, but
+// the tokeniser holds the markdown layer inert: a `::[x]` inside inline
+// backticks `` `::[x]` `` or inside a ``` fenced block produces no anchor, so an
+// author can write the anchor syntax as prose about Loom. Warps `{{…}}` are
+// inert in the same spans.
+// =============================================================================
+
+describe('Tokeniser — markdown-aware prose anchors', () => {
+  const proseWeftFromLines = (lines: ReadonlyArray<string>, idx: number) => {
+    const out = tokenise(lines)
+    const w = out[idx]
+    if (w.type !== 'ProseWeft')
+      throw new Error(`expected ProseWeft at ${idx}, got ${w.type}`)
+    return w
+  }
+
+  it('a `::[x]` in plain prose is a live anchor', () => {
+    const w = proseWeftFromLines(['## A', '~', 'see ::[mul] for details'], 2)
+    expect(w.anchors).toHaveLength(1)
+    expect(w.anchors[0].name.value).toBe('mul')
+  })
+
+  it('a `::[x]` inside inline backticks is inert (no anchor)', () => {
+    const w = proseWeftFromLines(['## A', '~', 'write `::[mul]` to compose'], 2)
+    expect(w.anchors).toHaveLength(0)
+  })
+
+  it('a live anchor and a backticked one coexist on the same prose line', () => {
+    const w = proseWeftFromLines(
+      ['## A', '~', '`::[lit]` is literal, but ::[real] composes'],
+      2,
+    )
+    expect(w.anchors.map((a) => a.name.value)).toEqual(['real'])
+  })
+
+  it('a `::[x]` inside a ``` fenced block is inert (no anchor)', () => {
+    const out = tokenise(['## A', '~', '```', 'use ::[mul] here', '```'])
+    const fenced = out[3]
+    if (fenced.type !== 'ProseWeft')
+      throw new Error(`expected a ProseWeft inside the fence, got ${fenced.type}`)
+    expect(fenced.anchors).toHaveLength(0)
+  })
+
+  it('a `{{…}}` warp inside inline backticks is inert on a PreambleWeft', () => {
+    const out = tokenise(['## A', 'name a service with `{{mul = Mul}}`'])
+    const w = out[1]
+    if (w.type !== 'PreambleWeft')
+      throw new Error(`expected PreambleWeft, got ${w.type}`)
+    expect(w.warps).toHaveLength(0)
+    expect(w.health.status).toBe('ok')
   })
 })
 

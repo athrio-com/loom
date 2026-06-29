@@ -10,7 +10,6 @@ import {
   faulty,
   MalformedLabel,
   MisplacedSpecifier,
-  MissingLanguageWarp,
   MissingWarpValue,
   OrphanedOpening,
   PointedNotH1,
@@ -147,8 +146,8 @@ describe('LoomFault — the diagnostic catalog', () => {
   })
 
   it('lets a warning fault leave the node short of error', () => {
-    expect(renderFault(MissingLanguageWarp()).severity).toBe('warning')
-    expect(faulty(MissingLanguageWarp(), POS).status).toBe('warning')
+    expect(renderFault(EmptySink({ directory: 'out' })).severity).toBe('warning')
+    expect(faulty(EmptySink({ directory: 'out' }), POS).status).toBe('warning')
     expect(faulty(MissingWarpValue({ name: 'n' }), POS).status).toBe('error')
   })
 })

@@ -247,7 +247,7 @@ import {
 } from 'node:fs'
 import { basename, dirname, resolve as resolvePath } from 'node:path'
 
-## The module {src/LoomConfig.ts}
+## The module [src, LoomConfig.ts]
 
 =>
 

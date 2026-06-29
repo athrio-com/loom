@@ -1,6 +1,6 @@
 {{lang: TypeScript}}
 
-# Host [Host]
+# Host
 
 {{port = 8080}}
 

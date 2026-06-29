@@ -4,15 +4,16 @@
 
 `@athrio/loom-lang-services` ships as source — no build of its own.
 
-## The manifest {package.json}
+## The manifest [., package.json]
 
 The `exports` field is the package's surface: the `LanguageService` contract, the
 `LanguageRegistry`, the `LanguageLoader` that resolves a project's active services
 from the Loom store, the `LoomStore` that installs and holds them, the
-`Runtime` the host lends a loaded service, and `LoomLanguage`, the Frame's
-built-in service.
+`Runtime` the host lends a loaded service, and the two built-in services,
+`LoomLanguage` for the Frame and `ProseLanguage` for the prose.
 
-`LoomLanguage` wraps `volar-service-typescript`, the one real dependency. The other
+`LoomLanguage` wraps `volar-service-typescript` and `ProseLanguage` wraps
+`volar-service-markdown` — the two real dependencies. The other
 peers — `@athrio/loom-ast` for Loom's shared types, `effect`,
 `@volar/language-service`, `typescript`, and `vscode-uri` for decoding an embedded
 document's uri — are supplied by the host bundle.
@@ -31,9 +32,11 @@ document's uri — are supplied by the host bundle.
     "./LanguageLoader": "./src/LanguageLoader.ts",
     "./LoomStore": "./src/LoomStore.ts",
     "./Runtime": "./src/Runtime.ts",
-    "./LoomLanguage": "./src/LoomLanguage.ts"
+    "./LoomLanguage": "./src/LoomLanguage.ts",
+    "./ProseLanguage": "./src/ProseLanguage.ts"
   },
   "dependencies": {
+    "volar-service-markdown": "^0.0.71",
     "volar-service-typescript": "^0.0.71"
   },
   "peerDependencies": {
@@ -52,7 +55,7 @@ document's uri — are supplied by the host bundle.
   }
 }
 
-## The TypeScript config {tsconfig.json}
+## The TypeScript config [., tsconfig.json]
 
 The TypeScript config extends the workspace base — strict mode, the Node types — and checks
 `src`. Like the package, it never ships.

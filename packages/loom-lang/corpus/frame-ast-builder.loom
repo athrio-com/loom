@@ -40,9 +40,14 @@ references, and the bindings. A section's corpus-wide identity is a `SectionId`,
 import { Array, Effect, Match, Option, Order, pipe } from 'effect'
 import type { LoomDocument, LoomSection } from '@athrio/loom-ast/LoomAst'
 import { okHealth, type Health, type Point, type Position } from '@athrio/loom-ast/LoomNode'
-import type { WarpAnchorToken, WarpToken } from '@athrio/loom-ast/LoomTokens'
+import type {
+  SinkToken,
+  WarpAnchorToken,
+  WarpToken,
+} from '@athrio/loom-ast/LoomTokens'
 import type { PreambleWeft, SectionBodyWeft } from '@athrio/loom-ast/Weft'
 import type { SectionId } from '@athrio/loom-ast/ProductAst'
+import { sinkPathOf } from '@athrio/loom-ast/LoomCorpusAst'
 import {
   AmbiguousAnchor,
   CrossLanguageAnchor,
@@ -185,16 +190,12 @@ const specifierLanguage = (label: string): string => {
   return reservedLanguage[id] ?? id
 }
 
-const sectionLanguage = (section: LoomSection, defaultLang: string): string =>
-  Match.value(section.heading.specifier).pipe(
-    Match.when({ type: 'PathSpecifier' }, (spec) =>
-      extensionLanguage(spec.label.value),
-    ),
-    Match.when({ type: 'Specifier' }, (spec) =>
-      specifierLanguage(spec.label.value),
-    ),
-    Match.orElse(() => defaultLang),
-  )
+const sectionLanguage = (section: LoomSection, defaultLang: string): string => {
+  const { specifier, sink } = section.heading
+  if (specifier !== undefined) return specifierLanguage(specifier.label.value)
+  if (sink === undefined) return defaultLang
+  return sink.file !== undefined ? extensionLanguage(sink.file.value) : 'prose'
+}
 
 const nameIndex = (
   sections: ReadonlyArray<LoomSection>,
@@ -282,11 +283,11 @@ const valueWarps = (
 
 ## Building a member
 
-A section's specifier decides what it becomes, and `Match` reads the three cases
-in turn. A file-path specifier makes a tangle — a private sink that returns a
-`dsl.tangle` call. A `Loom` specifier makes a splice — raw frame code spliced in
-unwrapped, with its imports hoisted. Anything else makes an ordinary product
-service, which the frame exports.
+A section's heading decides what it becomes. A `Loom` specifier makes a splice —
+raw frame code spliced in unwrapped, with its imports hoisted. A two-part sink
+`[dir, file]` makes a tangle — a private sink that returns a `dsl.tangle` call.
+Every other section makes a product service the frame exports: a plain heading, or
+a one-part `[dir]` ho-sink, which carries prose and composes nothing.
 
 A `Built` is a member plus what it contributes to the root: a `service` record —
 its name, the services it depends on, and whether it is a tangle sink — and any
@@ -297,9 +298,9 @@ service, since it is not one.
 value Warps, walks the code into a compose call and the bindings its name anchors
 hoist, and resolves the language id. A name anchor hoists a `yield*` binding; a value
 Warp hoists nothing, since its anchors compose a literal rather than reach a section.
-A tangle sink reads its language from its path extension through `extensionLanguage`;
-a section with a language specifier takes that language; every other section takes the
-document default. The section's identity — its path and name — and that language stamp
+A section with a language specifier takes that language; a two-part sink reads its
+language from the file extension through `extensionLanguage`; a one-part ho-sink is
+prose; every other section takes the document default. The section's identity — its path and name — and that language stamp
 the `dsl.compose` call. The body is static when the section declares no dependency and
 effectful when it declares any.
 
@@ -328,25 +329,16 @@ interface Built {
 
 const buildMember =
   (index: NameIndex, lang: string, modulePath: string) =>
-  (section: LoomSection): Built =>
-    pipe(
-      Match.value(section.heading.specifier),
-      Match.when({ type: 'PathSpecifier' }, (spec) =>
-        buildService(
-          index,
-          lang,
-          section,
-          modulePath,
-          Option.some(pathOf(spec)),
-        ),
-      ),
-      Match.when({ type: 'Specifier', label: { value: 'Loom' } }, () =>
-        buildSplice(section),
-      ),
-      Match.orElse(() =>
-        buildService(index, lang, section, modulePath, Option.none()),
-      ),
-    )
+  (section: LoomSection): Built => {
+    const { specifier, sink } = section.heading
+    if (specifier !== undefined && specifier.label.value === 'Loom')
+      return buildSplice(section)
+    const tanglePath =
+      sink !== undefined && sink.file !== undefined
+        ? Option.some(pathOf(sink))
+        : Option.none<FrameAuthoredToken>()
+    return buildService(index, lang, section, modulePath, tanglePath)
+  }
 
 const buildService = (
   index: NameIndex,
@@ -988,10 +980,10 @@ const escapeTemplate = (s: string): string =>
 const escapeString = (s: string): string =>
   s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 
-const pathOf = (spec: { label: { value: string; position: Position } }) =>
-  prose(escapeString(spec.label.value), spec.label.position)
+const pathOf = (sink: SinkToken) =>
+  prose(escapeString(sinkPathOf(sink)), sink.position)
 
-## The module {src/ast/FrameAstBuilder.ts}
+## The module [src/ast, FrameAstBuilder.ts]
 
 The tangle composes the sections in the source's own order, so a function defined
 below a caller still binds at run time — the same order-independence the Frame

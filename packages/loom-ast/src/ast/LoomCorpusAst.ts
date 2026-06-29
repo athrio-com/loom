@@ -1,6 +1,10 @@
 import { Array, Option, pipe, Schema } from 'effect'
 import { type Diagnostic, type Position } from '#ast/LoomNode'
-import { type WarpAnchorToken } from '#ast/LoomTokens'
+import {
+  type SinkToken,
+  type SpecifierToken,
+  type WarpAnchorToken,
+} from '#ast/LoomTokens'
 import { ProductSchema } from '#ast/ProductAst'
 import { LoomDocumentSchema, type LoomSection } from '#ast/LoomAst'
 import { FrameModuleSchema } from '#ast/FrameAst'
@@ -68,12 +72,27 @@ export const transitiveDependents = (
 type SectionRef = { readonly module: Path; readonly section: LoomSection }
 
 const dirLabelOf = (section: LoomSection): Option.Option<string> =>
-  section.heading.specifier?.type === 'DirSpecifier'
-    ? Option.some(section.heading.specifier.label.value)
+  section.heading.sink !== undefined && section.heading.sink.file === undefined
+    ? Option.some(section.heading.sink.dir.value)
     : Option.none()
 
 const isDirSink = (section: LoomSection): boolean =>
   Option.isSome(dirLabelOf(section))
+
+const tangleSinkOf = (section: LoomSection): Option.Option<SinkToken> => {
+  const sink = section.heading.sink
+  return sink !== undefined && sink.file !== undefined
+    ? Option.some(sink)
+    : Option.none()
+}
+
+export const sinkPathOf = (sink: SinkToken): string => {
+  if (sink.file === undefined) return sink.dir.value
+  const dir = sink.dir.value
+  return dir === '.' || dir === ''
+    ? sink.file.value
+    : `${dir.replace(/\/$/, '')}/${sink.file.value}`
+}
 
 const joinDir = (parent: string, child: string): string =>
   parent === '' ? child : `${parent.replace(/\/$/, '')}/${child}`
@@ -101,10 +120,8 @@ const sectionTitles = (modules: Modules): ReadonlyMap<string, SectionRef> =>
 
 const anchorsOf = (section: LoomSection): ReadonlyArray<WarpAnchorToken> =>
   pipe(
-    section.code,
-    Array.flatMap((weft) =>
-      weft.type === 'ArrowWeft' || weft.type === 'CodeWeft' ? weft.anchors : [],
-    ),
+    [...section.preamble, ...section.code],
+    Array.flatMap((weft) => weft.anchors),
   )
 
 const dirSinks = (modules: Modules): ReadonlyArray<SectionRef> =>
@@ -220,13 +237,11 @@ export const sinkTreeRouting = (
     bookChapters(corpus),
     Array.flatMap((chapter) =>
       Array.filterMap(chapter.sections, (section) =>
-        section.heading.specifier?.type === 'PathSpecifier'
-          ? Option.some({
-              module: chapter.start.module,
-              path: section.heading.specifier.label.value,
-              prefix: chapter.prefix,
-            })
-          : Option.none(),
+        Option.map(tangleSinkOf(section), (sink) => ({
+          module: chapter.start.module,
+          path: sinkPathOf(sink),
+          prefix: chapter.prefix,
+        })),
       ),
     ),
   )
@@ -252,13 +267,14 @@ export const tangleSinks = (corpus: LoomCorpusAst): ReadonlyArray<TangleSink> =>
     Array.fromIterable(corpus.modules.values()),
     Array.flatMap((m) =>
       Array.filterMap(m.doc.sections, (section) =>
-        section.heading.specifier?.type === 'PathSpecifier'
-          ? Option.some<TangleSink>({
-              module: m.path,
-              position: section.heading.specifier.position,
-              path: section.heading.specifier.label.value,
-            })
-          : Option.none(),
+        Option.map(
+          tangleSinkOf(section),
+          (sink): TangleSink => ({
+            module: m.path,
+            position: sink.position,
+            path: sinkPathOf(sink),
+          }),
+        ),
       ),
     ),
   )
@@ -273,6 +289,7 @@ export type SinkFault =
   | { readonly kind: 'PointedNotH1'; readonly path: Path; readonly position: Position; readonly name: string }
   | { readonly kind: 'OrphanedOpening'; readonly path: Path; readonly position: Position; readonly name: string }
   | { readonly kind: 'DuplicateChapter'; readonly path: Path; readonly position: Position; readonly name: string }
+  | { readonly kind: 'UnresolvedPointing'; readonly path: Path; readonly position: Position; readonly name: string }
 
 type Located = { readonly path: Path; readonly section: LoomSection }
 
@@ -287,6 +304,7 @@ const located = (modules: Modules): ReadonlyArray<Located> =>
 const headingPosition = (section: LoomSection): Position =>
   section.heading.title?.position ??
   section.heading.specifier?.position ??
+  section.heading.sink?.position ??
   section.heading.position
 
 const collidingTitles = (
@@ -318,6 +336,13 @@ const collidingTitles = (
     ),
   )
 
+const anchorSpecifierText = (spec: SpecifierToken | SinkToken): string =>
+  spec.type === 'Specifier'
+    ? spec.label.value
+    : spec.file === undefined
+      ? spec.dir.value
+      : `${spec.dir.value}, ${spec.file.value}`
+
 const misplacedSpecifiers = (
   sections: ReadonlyArray<Located>,
 ): ReadonlyArray<SinkFault> =>
@@ -331,7 +356,7 @@ const misplacedSpecifiers = (
             kind: 'MisplacedSpecifier',
             path: loc.path,
             position: specifier.position,
-            specifier: specifier.label.value,
+            specifier: anchorSpecifierText(specifier),
           }),
         ),
       ),
@@ -386,7 +411,7 @@ const sinkCycles = (modules: Modules): ReadonlyArray<SinkFault> => {
 }
 
 const isTangleSink = (section: LoomSection): boolean =>
-  section.heading.specifier?.type === 'PathSpecifier'
+  Option.isSome(tangleSinkOf(section))
 
 const chapterFaults = (corpus: LoomCorpusAst): ReadonlyArray<SinkFault> => {
   const modules = corpus.modules
@@ -446,6 +471,25 @@ const chapterFaults = (corpus: LoomCorpusAst): ReadonlyArray<SinkFault> => {
   return [...notH1, ...selfRouting, ...sinkless, ...duplicate, ...orphaned]
 }
 
+const unresolvedPointings = (modules: Modules): ReadonlyArray<SinkFault> => {
+  const index = sectionTitles(modules)
+  return pipe(
+    dirSinks(modules),
+    Array.flatMap((sink) =>
+      Array.filterMap(anchorsOf(sink.section), (anchor) =>
+        index.has(anchor.name.value)
+          ? Option.none<SinkFault>()
+          : Option.some<SinkFault>({
+              kind: 'UnresolvedPointing',
+              path: sink.module,
+              position: anchor.position,
+              name: anchor.name.value,
+            }),
+      ),
+    ),
+  )
+}
+
 export const sinkTreeFaults = (
   corpus: LoomCorpusAst,
   normalise: (title: string) => string,
@@ -456,6 +500,7 @@ export const sinkTreeFaults = (
     ...misplacedSpecifiers(sections),
     ...emptySinks(corpus.modules),
     ...sinkCycles(corpus.modules),
+    ...unresolvedPointings(corpus.modules),
     ...chapterFaults(corpus),
   ]
 }

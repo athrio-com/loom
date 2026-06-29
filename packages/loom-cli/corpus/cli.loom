@@ -285,7 +285,7 @@ import {
   workspaceRoot,
 } from '@athrio/loom-lang-services/LoomStore'
 
-## The program {src/main.ts}
+## The program [src, main.ts]
 
 =>
 

@@ -189,8 +189,9 @@ describe('buildFrame — an anchor refers to its section heading; a tangle takes
   // A tagless section's class name is synthetic glue (no source span). A name
   // anchor reaches the section through the hoisted `const _N = yield* N` binding:
   // the alias maps to the heading (the definition), `yield* N` is synth glue, and
-  // each `_N.code` reference maps to the anchor (the referencer). A tangle reads its
-  // language from its path extension, not the document default.
+  // each `_N.code` reference maps to the anchor (the referencer). A tangle is a
+  // two-part sink `[dir, file]` and reads its language from the file extension,
+  // not the document default.
   const src = `{{lang: TypeScript}}
 
 # Helper {sh}
@@ -199,7 +200,7 @@ describe('buildFrame — an anchor refers to its section heading; a tangle takes
 
 echo hi
 
-# Bundle it {dist/bundle.sh}
+# Bundle it [dist, bundle.sh]
 
 =>
 
@@ -234,17 +235,18 @@ echo hi
   })
 
   it('marks a tangle with the language its path extension names', () => {
-    expect(tangle.languageId).toBe('sh') // from `dist/bundle.sh` — not the doc default `typescript`
+    expect(tangle.languageId).toBe('sh') // from the sink `[dist, bundle.sh]` — not the doc default `typescript`
     expect(tangle.name.type).toBe('FrameSynthToken') // tagless — glue, unmapped
   })
 })
 
 describe('buildFrame — a tangle yields its sink in __run as plain text', () => {
-  // A {path} section is a sink. The composition root's __run yields it —
-  // `yield* BundleIt` — as plain synth text, an unmapped glue reference.
+  // A two-part sink `[dir, file]` section is a tangle. The composition root's
+  // __run yields it under `files:` — `yield* BundleIt` — as plain synth text,
+  // an unmapped glue reference.
   const src = `{{lang: TypeScript}}
 
-# Bundle it {dist/bundle.sh}
+# Bundle it [dist, bundle.sh]
 
 =>
 
@@ -254,6 +256,7 @@ const x = 1
 
   it('yields the sink in __run as plain text', () => {
     expect(frame.root?.run.text).toContain('yield* BundleIt')
+    expect(frame.root?.run.text).toMatch(/files:\s*\[\s*yield\* BundleIt/) // a sink yield, under files:
     expect(frame.root?.services.text).toContain('BundleIt: { layer: BundleIt.Default')
     expect(frame.root?.run.type).toBe('FrameSynthToken') // glue, unmapped
   })

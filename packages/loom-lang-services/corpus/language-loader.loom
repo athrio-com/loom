@@ -42,7 +42,7 @@ const loadService = (
 
 ## The active set
 
-`loadActive` produces the services a project has turned on. Loom leads the set — every `.loom` has a frame, so its service is always present — and each activated id follows, loaded by `loadService`. The loader drops an id equal to Loom's, so naming `loom` in the config never doubles it, and drops a repeated id, so activating a language twice loads it once. An id whose package does not load contributes nothing, and the set carries the languages that did.
+`loadActive` produces the services a project has turned on. Loom and Prose lead the set — every `.loom` has a frame and prose, so both services are always present — and each activated id follows, loaded by `loadService`. The loader drops an id equal to a built-in's, so naming `loom` or `prose` in the config never doubles it, and drops a repeated id, so activating a language twice loads it once. An id whose package does not load contributes nothing, and the set carries the languages that did.
 
 =>
 
@@ -52,15 +52,19 @@ export const loadActive = (
 ): Effect.Effect<ReadonlyArray<LanguageService>> =>
   pipe(
     ids,
-    Array.filter((id) => id !== LoomLanguage.id),
+    Array.filter((id) => id !== LoomLanguage.id && id !== ProseLanguage.id),
     Array.dedupe,
     (rest) => Effect.forEach(rest, (id) => loadService(id, root)),
-    Effect.map((loaded) => [LoomLanguage, ...Array.getSomes(loaded)]),
+    Effect.map((loaded) => [
+      LoomLanguage,
+      ProseLanguage,
+      ...Array.getSomes(loaded),
+    ]),
   )
 
 ## What this module draws on
 
-The loader works in Effect: `Effect` runs the load, `Option` carries a language that may not load, and `Array` with `pipe` build the set. Node loads the package — `createRequire` resolves it within the store, `pathToFileURL` forms the specifier the dynamic import takes, and `dirname` with `join` point the resolver at the store's directory. From `./LoomStore` come `servicePackage`, which names a language's package, and `storeDir`, which locates the project's store. From the contract module come the `LanguageService` type and the `isLanguageService` guard; `LoomLanguage` is the built-in service that always leads the set.
+The loader works in Effect: `Effect` runs the load, `Option` carries a language that may not load, and `Array` with `pipe` build the set. Node loads the package — `createRequire` resolves it within the store, `pathToFileURL` forms the specifier the dynamic import takes, and `dirname` with `join` point the resolver at the store's directory. From `./LoomStore` come `servicePackage`, which names a language's package, and `storeDir`, which locates the project's store. From the contract module come the `LanguageService` type and the `isLanguageService` guard; `LoomLanguage` and `ProseLanguage` are the built-in services that always lead the set.
 
 =>
 
@@ -71,8 +75,9 @@ import { pathToFileURL } from 'node:url'
 import { servicePackage, storeDir } from './LoomStore'
 import { isLanguageService, type LanguageService } from './LanguageService'
 import { LoomLanguage } from './LoomLanguage'
+import { ProseLanguage } from './ProseLanguage'
 
-## The module {src/LanguageLoader.ts}
+## The module [src, LanguageLoader.ts]
 
 =>
 

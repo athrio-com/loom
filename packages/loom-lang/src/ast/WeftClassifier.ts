@@ -71,6 +71,7 @@ const probeWeft = (
       source: lineText,
       health: incompleteHealth,
       warps: [],
+      anchors: [],
     })
 
   return pipe(
@@ -85,6 +86,7 @@ const probeWeft = (
               source: lineText,
               health: incompleteHealth,
               warps: [],
+              anchors: [],
             }),
     ),
     Match.when('code', () =>
@@ -104,6 +106,7 @@ const probeWeft = (
             position,
             source: lineText,
             health: incompleteHealth,
+            anchors: [],
           }),
     ),
     Match.exhaustive,
@@ -214,5 +217,6 @@ const makeTildeWeft = (
       source: run,
       health: okHealth,
     }),
+    anchors: [],
   })
 }

@@ -4,7 +4,7 @@
 
 The `@athrio/loom-cli` package ships to npm as a single self-contained file. Vite bundles the CLI program, the language server, and Effect into `dist/main.js` and adds a Node shebang — a line that makes the file directly executable by Node. The published package is therefore pure JavaScript with no runtime dependencies — every library it needs is already inside the bundle.
 
-## The manifest {package.json}
+## The manifest [., package.json]
 
 The `files` field restricts the published package to the `dist` directory, and the `bin` field maps the `loom` command to the bundle. The bundle inlines every dependency, so all dependencies belong in the `devDependencies` field.
 
@@ -54,7 +54,7 @@ The `build` script bundles the tangled source files committed to the repository.
   }
 }
 
-## The TypeScript config {tsconfig.json}
+## The TypeScript config [., tsconfig.json]
 
 The `tsconfig.json` extends the workspace-root `tsconfig.base.json` and covers the `src` directory. Vite produces the `dist` bundle, so the configuration file is a development tool only and never ships with the published package.
 

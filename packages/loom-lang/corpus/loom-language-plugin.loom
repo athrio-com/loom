@@ -252,7 +252,7 @@ import {
 import { loadActive } from '@athrio/loom-lang-services/LanguageLoader'
 import { installHostRuntime } from '@athrio/loom-lang-services/Runtime'
 
-## The module {src/LoomLanguagePlugin.ts}
+## The module [src, LoomLanguagePlugin.ts]
 
 =>
 

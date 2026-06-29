@@ -117,7 +117,7 @@ Compile the single file, then run the resulting class.
 scalac src/main/scala/Arithmetic.scala -d out
 scala -cp out Arithmetic
 
-# Tangling the library {src/main/scala/Arithmetic.scala}
+# Tangling the library [src/main/scala, Arithmetic.scala]
 
 Pull the imports and the entry point together.
 
@@ -126,7 +126,7 @@ Pull the imports and the entry point together.
 ::[Imports]
 ::[Entry point]
 
-# Tangling the build script {build.sh}
+# Tangling the build script [., build.sh]
 
 =>
 

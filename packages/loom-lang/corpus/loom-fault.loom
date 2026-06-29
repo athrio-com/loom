@@ -10,8 +10,6 @@ Writing them once is the point. A reader sees everything Loom can say, gathered 
 
 A `LoomFault` is a tagged union, and each variant names one fault and carries only what its message needs. An `UnclosedDelimiter` carries the delimiter it expected to find. An `UnresolvedAnchor` carries the name that matched no section, and an `AmbiguousAnchor` adds the count that made it ambiguous. A `MissingWarpValue` carries the name of a Warp that bound nothing. A `CrossLanguageAnchor` carries the anchor name, the language found at the target, and the language the host section composes.
 
-`MissingLanguageWarp` carries nothing, and it alone is a warning, not an error. A document with no `{{lang: …}}` still composes; only its primary language stays unknown.
-
 The label faults fold many constructs into two variants. A construct is a named span the grammar validates — a specifier, a file path, a warp name, an anchor name. `EmptyLabel` is one with no text. `MalformedLabel` is one whose text breaks the construct's rule. Two further constructs — a warp annotation and a warp default — can only be empty, never malformed, so `EmptyConstruct` adds those two to `MalformedConstruct`.
 
 One fault belongs to the tangle rather than the parse. `CollidingSinks` carries the output path two sinks both resolve to — a clash visible only once each sink's package root is known, so the compiler raises it where it resolves the paths, not the corpus walk that finds the others.
@@ -39,7 +37,6 @@ export type LoomFault = Data.TaggedEnum<{
     readonly value: string
   }
   MissingWarpValue: { readonly name: string }
-  MissingLanguageWarp: {}
   UnresolvedAnchor: { readonly name: string }
   AmbiguousAnchor: { readonly name: string; readonly count: number }
   CrossLanguageAnchor: {
@@ -70,7 +67,6 @@ export const {
   EmptyLabel,
   MalformedLabel,
   MissingWarpValue,
-  MissingLanguageWarp,
   UnresolvedAnchor,
   AmbiguousAnchor,
   CrossLanguageAnchor,
@@ -131,11 +127,6 @@ export const describe = (fault: LoomFault): Note =>
     ),
     Match.tag('MissingWarpValue', ({ name }) =>
       error(`Warp \`${name}\` has no value; a Warp binds a value, as in \`${name} = …\`.`),
-    ),
-    Match.tag('MissingLanguageWarp', () =>
-      warning(
-        'No `{{lang: …}}` declaration in the Document Preamble; the primary language is unknown.',
-      ),
     ),
     Match.tag('UnresolvedAnchor', ({ name }) =>
       error(`Unresolved anchor: no section named \`${name}\`.`),
@@ -229,7 +220,7 @@ export const faulty = (fault: LoomFault, position: Position): Health => {
 import { Data, Match } from 'effect'
 import type { Health, Position, Severity } from '@athrio/loom-ast/LoomNode'
 
-## The module {src/ast/LoomFault.ts}
+## The module [src/ast, LoomFault.ts]
 
 =>
 

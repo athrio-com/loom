@@ -16,8 +16,7 @@ import {
   type LoomHeading,
   type LoomSection,
 } from '@athrio/loom-ast/LoomAst'
-import { okHealth, type Health, type Position } from '@athrio/loom-ast/LoomNode'
-import { faulty, MissingLanguageWarp } from '#ast/LoomFault'
+import { okHealth, type Position } from '@athrio/loom-ast/LoomNode'
 import type { MixedEOL } from './LineRanges'
 import type {
   HeadingWeft,
@@ -148,6 +147,7 @@ const headingOf = (weft: HeadingWeft): LoomHeading =>
     headingStart: weft.headingStart,
     title: weft.title,
     specifier: weft.specifier,
+    sink: weft.sink,
   })
 
 const sourceOf = (
@@ -182,23 +182,12 @@ const documentSpan = (db: DocumentBuilder): Position => {
     : { start: all[0].position.start, end: all[all.length - 1].position.end }
 }
 
-const hasLangWarp = (preamble: ReadonlyArray<PreambleWeft>): boolean =>
-  preamble.some((weft) => weft.warps.some((warp) => warp.name.value === 'lang'))
-
-const documentHealth = (db: DocumentBuilder, position: Position): Health =>
-  hasLangWarp(db.preamble)
-    ? okHealth
-    : faulty(MissingLanguageWarp(), {
-        start: position.start,
-        end: position.start,
-      })
-
 const makeDocument = (db: DocumentBuilder): LoomDocument => {
   const position = documentSpan(db)
   return LoomDocumentSchema.make({
     position,
     source: sourceOf(db.preamble, db.sections),
-    health: documentHealth(db, position),
+    health: okHealth,
     preamble: db.preamble,
     sections: db.sections,
   })

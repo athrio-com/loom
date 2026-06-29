@@ -179,7 +179,7 @@ export const defineLanguageService = (service: LanguageService): LanguageService
   return service
 }
 
-## The module {src/LanguageService.ts}
+## The module [src, LanguageService.ts]
 
 =>
 

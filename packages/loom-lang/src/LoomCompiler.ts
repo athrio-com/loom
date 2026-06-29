@@ -35,12 +35,14 @@ import {
   SelfRoutingSink,
   SinkCycle,
   SinklessChapter,
+  UnresolvedAnchor,
   type LoomFault,
 } from '#ast/LoomFault'
 import { normaliseTitle } from '#ast/WeftTokeniser'
 import {
   fromFrame,
   fromProduct,
+  fromProse,
   rootNamesAt,
   rootVirtualCode,
 } from '#ast/LoomVirtualCodeBuilder'
@@ -131,18 +133,25 @@ const resolveSinks = (
   packageRoot: Option.Option<string>,
   workspaceRoot: Option.Option<string>,
 ): ReadonlyArray<TangledFile> => {
-  const routed = sinkTreeRouting({ modules }).get(entry)
+  const routing = sinkTreeRouting({ modules })
   return pipe(
-    modules.get(entry)?.product?.files ?? [],
-    Array.map((file) => ({
-      section: file.code.origin.name,
-      path: outputPath(
-        fileRoot(routed, file.path, packageRoot, workspaceRoot),
-        entry,
-        file.path,
-      ),
-      content: fromProduct(modules, file.code.origin).code,
-    })),
+    Array.fromIterable(modules.values()),
+    Array.flatMap((module) => {
+      const routed = routing.get(module.path)
+      return Array.filterMap(module.product?.files ?? [], (file) =>
+        module.path === entry || (routed?.has(file.path) ?? false)
+          ? Option.some({
+              section: file.code.origin.name,
+              path: outputPath(
+                fileRoot(routed, file.path, packageRoot, workspaceRoot),
+                module.path,
+                file.path,
+              ),
+              content: fromProduct(modules, file.code.origin).code,
+            })
+          : Option.none(),
+      )
+    }),
   )
 }
 
@@ -177,6 +186,7 @@ const wordSinkFault = (fault: SinkFault): LoomFault =>
     Match.when({ kind: 'PointedNotH1' }, ({ name }) => PointedNotH1({ name })),
     Match.when({ kind: 'OrphanedOpening' }, ({ name }) => OrphanedOpening({ name })),
     Match.when({ kind: 'DuplicateChapter' }, ({ name }) => DuplicateChapter({ name })),
+    Match.when({ kind: 'UnresolvedPointing' }, ({ name }) => UnresolvedAnchor({ name })),
     Match.exhaustive,
   )
 
@@ -277,6 +287,7 @@ const rootsAt = (modules: Modules, path: Path): ReadonlyArray<string> => {
 const projectTree = (modules: Modules, entry: LoomModule): LoomVirtualCode =>
   rootVirtualCode(entry.text, [
     fromFrame(entry.frame),
+    fromProse(modules, entry.path),
     ...pipe(
       rootsAt(modules, entry.path),
       Array.map((name) => fromProduct(modules, { path: entry.path, name })),

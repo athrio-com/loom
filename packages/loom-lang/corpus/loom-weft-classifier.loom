@@ -67,6 +67,7 @@ const probeWeft = (
       source: lineText,
       health: incompleteHealth,
       warps: [],
+      anchors: [],
     })
 
   return pipe(
@@ -81,6 +82,7 @@ const probeWeft = (
               source: lineText,
               health: incompleteHealth,
               warps: [],
+              anchors: [],
             }),
     ),
     Match.when('code', () =>
@@ -100,6 +102,7 @@ const probeWeft = (
             position,
             source: lineText,
             health: incompleteHealth,
+            anchors: [],
           }),
     ),
     Match.exhaustive,
@@ -228,6 +231,7 @@ const makeTildeWeft = (
       source: run,
       health: okHealth,
     }),
+    anchors: [],
   })
 }
 
@@ -259,7 +263,7 @@ import {
   TildeWeftSchema,
 } from '@athrio/loom-ast/Weft'
 
-## The module {src/ast/WeftClassifier.ts}
+## The module [src/ast, WeftClassifier.ts]
 
 =>
 

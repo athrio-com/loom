@@ -1,0 +1,45 @@
+{{lang: TypeScript}}
+
+# The Prose language
+
+`ProseLanguage` gives a `.loom`'s prose its editor support. Prose is Markdown, so this service extends `volar-service-markdown` — headings, links, lists, fenced-code highlighting, and formatting — and registers it as a language of Loom's own. A `{Prose}` section, and the prose of every other section, projects to a `prose` document the editor reads through this service.
+
+Prose carries Loom's anchors too, the `::[…]` links between sections. Their navigation already rides the root mirror, where `LoomLanguage` answers go-to-definition and references over the whole file. So `ProseLanguage` adds the Markdown layer beneath them, and the two compose in the editor: Markdown for the prose, Loom for the anchors.
+
+The prose document's `languageId` is `prose`, distinct from a real `.md` file, so a `.loom`'s prose routes here and nothing else claims it. `create` from `volar-service-markdown` takes a document selector, and pointing it at `prose` retargets the Markdown service onto Loom's prose without forking it.
+
+## The service
+
+`ProseLanguage` loads `volar-service-markdown` on demand and wraps it under the `prose` selector. The Markdown service is a heavy dependency the editor needs only once a `.loom` opens its prose, so the import is dynamic — deferred to the first call rather than paid at startup. A load that fails leaves the service with no plugins, degrading prose to plain text while every other language serves on. It needs no host capability: the Markdown service reads the document on its own, and Loom's own answers come from the root.
+
+=>
+
+export const ProseLanguage = defineLanguageService({
+  id: 'prose',
+  displayName: 'Prose',
+  extensions: [],
+  plugins: () =>
+    Effect.tryPromise(() => import('volar-service-markdown')).pipe(
+      Effect.map((markdown) => [
+        markdown.create({ documentSelector: ['prose'] }),
+      ]),
+      Effect.orElseSucceed(() => []),
+    ),
+})
+
+## What this module draws on
+
+Effect runs the on-demand load and builds the `plugins` result; `volar-service-markdown` is imported dynamically inside it rather than at the module head. The `LanguageService` module gives `defineLanguageService`, the contract this service satisfies.
+
+=>
+
+import { Effect } from 'effect'
+import { defineLanguageService } from './LanguageService'
+
+## The module [src, ProseLanguage.ts]
+
+=>
+
+::[What this module draws on]
+
+::[The service]

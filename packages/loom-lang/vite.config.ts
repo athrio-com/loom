@@ -29,6 +29,11 @@ export default defineConfig({
   resolve: {
     conditions: ['node'],
     mainFields: ['main', 'module'],
+    alias: {
+      'vscode-uri': requireFromHere
+        .resolve('vscode-uri')
+        .replace(/esm[\\/]index\.mjs$/, 'umd/index.js'),
+    },
   },
   build: {
     target: 'node20',

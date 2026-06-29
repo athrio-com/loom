@@ -1,9 +1,14 @@
 import { Array, Effect, Match, Option, Order, pipe } from 'effect'
 import type { LoomDocument, LoomSection } from '@athrio/loom-ast/LoomAst'
 import { okHealth, type Health, type Point, type Position } from '@athrio/loom-ast/LoomNode'
-import type { WarpAnchorToken, WarpToken } from '@athrio/loom-ast/LoomTokens'
+import type {
+  SinkToken,
+  WarpAnchorToken,
+  WarpToken,
+} from '@athrio/loom-ast/LoomTokens'
 import type { PreambleWeft, SectionBodyWeft } from '@athrio/loom-ast/Weft'
 import type { SectionId } from '@athrio/loom-ast/ProductAst'
+import { sinkPathOf } from '@athrio/loom-ast/LoomCorpusAst'
 import {
   AmbiguousAnchor,
   CrossLanguageAnchor,
@@ -89,16 +94,12 @@ const specifierLanguage = (label: string): string => {
   return reservedLanguage[id] ?? id
 }
 
-const sectionLanguage = (section: LoomSection, defaultLang: string): string =>
-  Match.value(section.heading.specifier).pipe(
-    Match.when({ type: 'PathSpecifier' }, (spec) =>
-      extensionLanguage(spec.label.value),
-    ),
-    Match.when({ type: 'Specifier' }, (spec) =>
-      specifierLanguage(spec.label.value),
-    ),
-    Match.orElse(() => defaultLang),
-  )
+const sectionLanguage = (section: LoomSection, defaultLang: string): string => {
+  const { specifier, sink } = section.heading
+  if (specifier !== undefined) return specifierLanguage(specifier.label.value)
+  if (sink === undefined) return defaultLang
+  return sink.file !== undefined ? extensionLanguage(sink.file.value) : 'prose'
+}
 
 const nameIndex = (
   sections: ReadonlyArray<LoomSection>,
@@ -184,25 +185,16 @@ interface Built {
 
 const buildMember =
   (index: NameIndex, lang: string, modulePath: string) =>
-  (section: LoomSection): Built =>
-    pipe(
-      Match.value(section.heading.specifier),
-      Match.when({ type: 'PathSpecifier' }, (spec) =>
-        buildService(
-          index,
-          lang,
-          section,
-          modulePath,
-          Option.some(pathOf(spec)),
-        ),
-      ),
-      Match.when({ type: 'Specifier', label: { value: 'Loom' } }, () =>
-        buildSplice(section),
-      ),
-      Match.orElse(() =>
-        buildService(index, lang, section, modulePath, Option.none()),
-      ),
-    )
+  (section: LoomSection): Built => {
+    const { specifier, sink } = section.heading
+    if (specifier !== undefined && specifier.label.value === 'Loom')
+      return buildSplice(section)
+    const tanglePath =
+      sink !== undefined && sink.file !== undefined
+        ? Option.some(pathOf(sink))
+        : Option.none<FrameAuthoredToken>()
+    return buildService(index, lang, section, modulePath, tanglePath)
+  }
 
 const buildService = (
   index: NameIndex,
@@ -702,5 +694,5 @@ const escapeTemplate = (s: string): string =>
 const escapeString = (s: string): string =>
   s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 
-const pathOf = (spec: { label: { value: string; position: Position } }) =>
-  prose(escapeString(spec.label.value), spec.label.position)
+const pathOf = (sink: SinkToken) =>
+  prose(escapeString(sinkPathOf(sink)), sink.position)

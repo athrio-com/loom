@@ -161,6 +161,9 @@ importers:
 
   packages/loom-lang-services:
     dependencies:
+      volar-service-markdown:
+        specifier: ^0.0.71
+        version: 0.0.71(@volar/language-service@2.4.28)
       volar-service-typescript:
         specifier: ^0.0.71
         version: 0.0.71(@volar/language-service@2.4.28)

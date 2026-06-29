@@ -31,27 +31,38 @@ const title = (value: string) => ({
   health: okHealth,
 })
 
-const tag = (label: string) => ({
-  type: 'Tag' as const,
+const sink = (dir: string, file?: string) => ({
+  type: 'Sink' as const,
   position: pos,
   source: src,
   health: okHealth,
   open: {
-    type: 'TagOpen' as const,
+    type: 'SinkOpen' as const,
     value: '[' as const,
     position: pos,
     source: src,
     health: okHealth,
   },
-  label: {
-    type: 'TagLabel' as const,
-    value: label,
+  dir: {
+    type: 'SinkDirLabel' as const,
+    value: dir,
     position: pos,
     source: src,
     health: okHealth,
   },
+  ...(file === undefined
+    ? {}
+    : {
+        file: {
+          type: 'SinkFileLabel' as const,
+          value: file,
+          position: pos,
+          source: src,
+          health: okHealth,
+        },
+      }),
   close: {
-    type: 'TagClose' as const,
+    type: 'SinkClose' as const,
     value: ']' as const,
     position: pos,
     source: src,
@@ -92,7 +103,8 @@ const specifier = (label: string) => ({
 //
 // `headingStart` is the single heading-start token (HeadingStartTokenSchema).
 // `title` is the optional single HeadingTitle token.
-// `tag` and `specifier` are both optional.
+// `specifier` (a `{Lang}` token) and `sink` (a `[dir, file]` token) are both
+// optional, independent slots.
 // =============================================================================
 
 describe('LoomHeading.headingStart', () => {
@@ -104,7 +116,7 @@ describe('LoomHeading.headingStart', () => {
         source: src,
         health: okHealth,
         headingStart,
-        tag: tag('Loom'),
+        sink: sink('src/main/scala', 'Arithmetic.scala'),
         specifier: specifier('Loom'),
       }),
     ).toBe(true)
@@ -121,10 +133,8 @@ describe('LoomHeading.headingStart', () => {
       }),
     ).toBe(false)
   })
-})
 
-describe('LoomHeading.title', () => {
-  it('accepts a heading with no title (opens straight into a tag)', () => {
+  it('accepts a heading carrying a two-part Sink in the `sink` slot', () => {
     expect(
       Schema.is(LoomHeadingSchema)({
         type: 'LoomHeading',
@@ -132,7 +142,36 @@ describe('LoomHeading.title', () => {
         source: src,
         health: okHealth,
         headingStart,
-        tag: tag('Loom'),
+        title: title('Tangling the library'),
+        sink: sink('src/main/scala', 'Arithmetic.scala'),
+      }),
+    ).toBe(true)
+  })
+
+  it('accepts a heading carrying a one-part (directory) Sink', () => {
+    expect(
+      Schema.is(LoomHeadingSchema)({
+        type: 'LoomHeading',
+        position: pos,
+        source: src,
+        health: okHealth,
+        headingStart,
+        sink: sink('packages/loom-cli'),
+      }),
+    ).toBe(true)
+  })
+})
+
+describe('LoomHeading.title', () => {
+  it('accepts a heading with no title (opens straight into a sink)', () => {
+    expect(
+      Schema.is(LoomHeadingSchema)({
+        type: 'LoomHeading',
+        position: pos,
+        source: src,
+        health: okHealth,
+        headingStart,
+        sink: sink('.', 'build.sh'),
       }),
     ).toBe(true)
   })
@@ -146,7 +185,7 @@ describe('LoomHeading.title', () => {
         health: okHealth,
         headingStart,
         title: title('Section title'),
-        tag: tag('Loom'),
+        sink: sink('.', 'build.sh'),
       }),
     ).toBe(true)
   })
@@ -159,8 +198,8 @@ describe('LoomHeading.title', () => {
         source: src,
         health: okHealth,
         headingStart,
-        // a Tag is the wrong kind here
-        title: tag('Greet') as unknown as ReturnType<typeof title>,
+        // a Sink is the wrong kind here
+        title: sink('.', 'build.sh') as unknown as ReturnType<typeof title>,
       }),
     ).toBe(false)
   })
@@ -178,6 +217,7 @@ const preambleWeft = () => ({
   source: src,
   health: okHealth,
   warps: [],
+  anchors: [],
 })
 
 const heading = () => ({

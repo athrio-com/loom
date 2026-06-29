@@ -1,10 +1,9 @@
 import { Schema } from 'effect'
 import { loomNode } from '#ast/LoomNode'
 import {
-  DirSpecifierTokenSchema,
   HeadingStartTokenSchema,
   HeadingTitleTokenSchema,
-  PathSpecifierTokenSchema,
+  SinkTokenSchema,
   SpecifierTokenSchema,
 } from './LoomTokens'
 import { PreambleWeftSchema, SectionBodyWeftSchema } from './Weft'
@@ -12,13 +11,8 @@ import { PreambleWeftSchema, SectionBodyWeftSchema } from './Weft'
 export const LoomHeadingSchema = loomNode('LoomHeading', {
   headingStart: HeadingStartTokenSchema,
   title: Schema.optional(HeadingTitleTokenSchema),
-  specifier: Schema.optional(
-    Schema.Union(
-      SpecifierTokenSchema,
-      PathSpecifierTokenSchema,
-      DirSpecifierTokenSchema,
-    ),
-  ),
+  specifier: Schema.optional(SpecifierTokenSchema),
+  sink: Schema.optional(SinkTokenSchema),
 })
 export type LoomHeading = typeof LoomHeadingSchema.Type
 

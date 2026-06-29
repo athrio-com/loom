@@ -4,7 +4,7 @@
 
 `@athrio/loom-config` ships as source — no build of its own.
 
-## The manifest {package.json}
+## The manifest [., package.json]
 
 The `exports` field is the package's surface — one entry, the `LoomConfig` module. The CLI
 and the language server inline this source when they bundle; `effect` and the
@@ -35,7 +35,7 @@ compiled configuration, is a real dependency, bundled along with the source.
   }
 }
 
-## The TypeScript config {tsconfig.json}
+## The TypeScript config [., tsconfig.json]
 
 The config extends the workspace base and typechecks `src`. Node's types come from the
 base, which declares `types: ['node']` once for every package — pnpm's isolated

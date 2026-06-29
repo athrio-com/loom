@@ -4,13 +4,15 @@
 
 Vite bundles the CLI program, the language server's TypeScript source, and Effect into a single `dist/main.js` module, adding a Node shebang — a line that makes the file directly executable by Node. The installed `loom` binary therefore carries no runtime dependencies and no TypeScript source to compile.
 
-## Vite build {vite.config.ts}
+## Vite build [., vite.config.ts]
 
 Node's built-in modules stay external — they are available in every Node runtime and need no bundling. Everything else, the language server's TypeScript source and Effect, is inlined into `dist/main.js`.
 
 The language server's `exports` field points to TypeScript source files rather than pre-compiled output. Tools like `tsx` — a TypeScript executor — and code editors read these files directly without compilation. Vite inlines them at build time, so the published CLI is pure JavaScript. The `loom lsp` command pulls in the server, and with it Volar; some of Volar's dependencies — the `vscode-*-languageservice` packages and `jsonc-parser` — ship only UMD bundles the bundler cannot follow statically, so the `umd2esm` plugin rewrites each to its ESM sibling, the same trick the language-server build uses.
 
 `@athrio/loom-config` reads the configuration with the `yaml` parser, whose Node build calls `require('process')`. An ES-module bundle exposes no `require`, so that call would throw at load time. The config resolves `yaml` to its ES-module build instead, which uses imports throughout and needs no `require`.
+
+`ProseLanguage` loads `volar-service-markdown`, whose `vscode-markdown-languageservice` dependency imports `vscode-uri` by its default binding. The `vscode-uri` ES-module build exports no default, so the bundle resolves `vscode-uri` to its UMD build instead, where the bundler's CommonJS interop supplies one.
 
 =>
 
@@ -56,6 +58,9 @@ export default defineConfig({
         dirname(requireFromHere.resolve('yaml/package.json')),
         'browser/index.js',
       ),
+      'vscode-uri': requireFromHere
+        .resolve('vscode-uri')
+        .replace(/esm[\\/]index\.mjs$/, 'umd/index.js'),
     },
   },
   build: {

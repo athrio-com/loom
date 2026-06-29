@@ -130,7 +130,7 @@ Effect's `Schema` defines the nodes, and `Health`, `okHealth`, and `Position` fr
 import { Schema } from 'effect'
 import { HealthSchema, okHealth, PositionSchema } from '#ast/LoomNode'
 
-## The module {src/ast/ProductAst.ts}
+## The module [src/ast, ProductAst.ts]
 
 =>
 

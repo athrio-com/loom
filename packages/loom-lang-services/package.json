@@ -10,9 +10,11 @@
     "./LanguageLoader": "./src/LanguageLoader.ts",
     "./LoomStore": "./src/LoomStore.ts",
     "./Runtime": "./src/Runtime.ts",
-    "./LoomLanguage": "./src/LoomLanguage.ts"
+    "./LoomLanguage": "./src/LoomLanguage.ts",
+    "./ProseLanguage": "./src/ProseLanguage.ts"
   },
   "dependencies": {
+    "volar-service-markdown": "^0.0.71",
     "volar-service-typescript": "^0.0.71"
   },
   "peerDependencies": {

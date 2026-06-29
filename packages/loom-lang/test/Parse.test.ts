@@ -166,18 +166,19 @@ describe('Tokeniser Stage — integration against corpus/Fun.loom', () => {
     expect(glossary!.title?.source).toBe('Glossary')
   })
 
-  it('`# Build script {Bash}` carries a label Specifier (not a path)', () => {
+  it('`# Build script {Bash}` carries a language Specifier (not a sink)', () => {
     const build = headingTitled('Build script')
     expect(build?.specifier?.type).toBe('Specifier')
     expect(build?.specifier?.label.value).toBe('Bash')
+    expect(build?.sink).toBeUndefined()
   })
 
-  it('a tangle heading carries a PathSpecifier (path separators present)', () => {
+  it('a tangle heading carries a two-part Sink (dir + file)', () => {
     const tangle = headingTitled('Tangling the library')
-    expect(tangle?.specifier?.type).toBe('PathSpecifier')
-    expect(tangle?.specifier?.label.value).toBe(
-      'src/main/scala/Arithmetic.scala',
-    )
+    expect(tangle?.sink?.type).toBe('Sink')
+    expect(tangle?.sink?.dir.value).toBe('src/main/scala')
+    expect(tangle?.sink?.file?.value).toBe('Arithmetic.scala')
+    expect(tangle?.specifier).toBeUndefined()
   })
 
   it('a PreambleWeft with `{{rounds = 3}}` populates warps with the value binding', () => {
@@ -306,11 +307,13 @@ describe('AST Stage — integration against corpus/Fun.loom', () => {
     expect(codeKinds.has('ProseWeft')).toBe(true)
   })
 
-  it('a tangle Section keeps its PathSpecifier on the heading', () => {
+  it('a tangle Section keeps its Sink on the heading', () => {
     const tangle = doc.sections.find(
       (s) => headingText(sampleLoom, s.heading) === 'Tangling the library',
     )!
-    expect(tangle.heading.specifier?.type).toBe('PathSpecifier')
+    expect(tangle.heading.sink?.type).toBe('Sink')
+    expect(tangle.heading.sink?.dir.value).toBe('src/main/scala')
+    expect(tangle.heading.sink?.file?.value).toBe('Arithmetic.scala')
   })
 
   it('Sections appear in document order', () => {
@@ -354,8 +357,11 @@ describe('parseDocument — parse-chain behaviour', () => {
     expect(doc.preamble).toHaveLength(1)
     expect(doc.preamble[0].type).toBe('PreambleWeft')
     expect(doc.sections).toEqual([])
-    // No `{{lang: …}}` Warp → the document health is a warning.
-    expect(doc.health.status).toBe('warning')
+    // The parse layer reports structural health only: an empty, well-formed
+    // document is `ok`. The missing-`{{lang: …}}` concern is a frame-level
+    // check, not a parse-level one, so the LoomDocument carries no diagnostic.
+    expect(doc.health.status).toBe('ok')
+    expect(doc.health.diagnostics).toEqual([])
   })
 
   it('handles single-line source without trailing newline', () => {
@@ -376,10 +382,17 @@ describe('parseDocument — parse-chain behaviour', () => {
     expect(doc.sections[0].heading.specifier?.label.value).toBe('L')
   })
 
-  it('a document with no `{{lang: …}}` Warp carries a warning on its health', () => {
+  it('a document with no `{{lang: …}}` Warp still parses with ok health', () => {
+    // The parse layer does not flag a missing primary language — that is a
+    // frame-level concern. The lang-less document is structurally well-formed,
+    // so its health is `ok` and it carries its one Section. The trailing
+    // `[Solo]` is a one-part directory Sink, not title text.
     const doc = buildDocument('# Solo [Solo]\n')
-    expect(doc.health.status).toBe('warning')
-    expect(doc.health.diagnostics[0].message).toMatch(/lang/i)
+    expect(doc.health.status).toBe('ok')
+    expect(doc.health.diagnostics).toEqual([])
+    expect(doc.sections).toHaveLength(1)
+    expect(doc.sections[0].heading.title?.source).toBe('Solo')
+    expect(doc.sections[0].heading.sink?.dir.value).toBe('Solo')
   })
 })
 

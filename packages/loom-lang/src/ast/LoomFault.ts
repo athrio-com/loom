@@ -20,7 +20,6 @@ export type LoomFault = Data.TaggedEnum<{
     readonly value: string
   }
   MissingWarpValue: { readonly name: string }
-  MissingLanguageWarp: {}
   UnresolvedAnchor: { readonly name: string }
   AmbiguousAnchor: { readonly name: string; readonly count: number }
   CrossLanguageAnchor: {
@@ -45,7 +44,6 @@ export const {
   EmptyLabel,
   MalformedLabel,
   MissingWarpValue,
-  MissingLanguageWarp,
   UnresolvedAnchor,
   AmbiguousAnchor,
   CrossLanguageAnchor,
@@ -98,11 +96,6 @@ export const describe = (fault: LoomFault): Note =>
     ),
     Match.tag('MissingWarpValue', ({ name }) =>
       error(`Warp \`${name}\` has no value; a Warp binds a value, as in \`${name} = …\`.`),
-    ),
-    Match.tag('MissingLanguageWarp', () =>
-      warning(
-        'No `{{lang: …}}` declaration in the Document Preamble; the primary language is unknown.',
-      ),
     ),
     Match.tag('UnresolvedAnchor', ({ name }) =>
       error(`Unresolved anchor: no section named \`${name}\`.`),

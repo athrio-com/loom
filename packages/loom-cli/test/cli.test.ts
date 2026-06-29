@@ -45,7 +45,7 @@ const fixture = `{{lang: TypeScript}}
 
 export const hi = "hello"
 
-# Out {out.ts}
+# Out [., out.ts]
 
 =>
 

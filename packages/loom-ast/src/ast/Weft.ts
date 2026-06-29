@@ -3,11 +3,10 @@ import { loomNode } from '#ast/LoomNode'
 import {
   ArrowTokenSchema,
   CodeTokenSchema,
-  DirSpecifierTokenSchema,
   HeadingStartTokenSchema,
-  PathSpecifierTokenSchema,
-  ProseTokenSchema,
   HeadingTitleTokenSchema,
+  ProseTokenSchema,
+  SinkTokenSchema,
   SpecifierTokenSchema,
   TildeTokenSchema,
   WarpAnchorTokenSchema,
@@ -17,13 +16,8 @@ import {
 export const HeadingWeftSchema = loomNode('HeadingWeft', {
   headingStart: HeadingStartTokenSchema,
   title: Schema.optional(HeadingTitleTokenSchema),
-  specifier: Schema.optional(
-    Schema.Union(
-      SpecifierTokenSchema,
-      PathSpecifierTokenSchema,
-      DirSpecifierTokenSchema,
-    ),
-  ),
+  specifier: Schema.optional(SpecifierTokenSchema),
+  sink: Schema.optional(SinkTokenSchema),
 })
 export type HeadingWeft = typeof HeadingWeftSchema.Type
 
@@ -37,15 +31,19 @@ export type ArrowWeft = typeof ArrowWeftSchema.Type
 export const TildeWeftSchema = loomNode('TildeWeft', {
   tilde: TildeTokenSchema,
   prose: Schema.optional(ProseTokenSchema),
+  anchors: Schema.Array(WarpAnchorTokenSchema),
 })
 export type TildeWeft = typeof TildeWeftSchema.Type
 
 export const PreambleWeftSchema = loomNode('PreambleWeft', {
   warps: Schema.Array(WarpTokenSchema),
+  anchors: Schema.Array(WarpAnchorTokenSchema),
 })
 export type PreambleWeft = typeof PreambleWeftSchema.Type
 
-export const ProseWeftSchema = loomNode('ProseWeft', {})
+export const ProseWeftSchema = loomNode('ProseWeft', {
+  anchors: Schema.Array(WarpAnchorTokenSchema),
+})
 export type ProseWeft = typeof ProseWeftSchema.Type
 
 export const CodeWeftSchema = loomNode('CodeWeft', {

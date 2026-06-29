@@ -52,7 +52,21 @@ export const SpecifierTokenSchema = loomNode('Specifier', {
 })
 export type SpecifierToken = typeof SpecifierTokenSchema.Type
 
-export const PathSpecifierLabelTokenSchema = loomNode('PathSpecifierLabel', {
+export const SinkOpenTokenSchema = loomNode('SinkOpen', {
+  value: Schema.Literal('['),
+}).annotations({
+  [Probe]: /\[/g,
+})
+export type SinkOpenToken = typeof SinkOpenTokenSchema.Type
+
+export const SinkCloseTokenSchema = loomNode('SinkClose', {
+  value: Schema.Literal(']'),
+}).annotations({
+  [Probe]: /\]/g,
+})
+export type SinkCloseToken = typeof SinkCloseTokenSchema.Type
+
+export const SinkDirLabelTokenSchema = loomNode('SinkDirLabel', {
   value: Schema.String,
 }).pipe(
   Schema.filter((t) => {
@@ -60,45 +74,37 @@ export const PathSpecifierLabelTokenSchema = loomNode('PathSpecifierLabel', {
       return 'empty `value` requires non-ok `health.status`'
     }
     if (t.value !== '' && !/^[a-zA-Z0-9_\-./]+$/.test(t.value)) {
-      return `path specifier label must match [a-zA-Z0-9_-./]+, got \`${t.value}\``
+      return `sink directory label must match [a-zA-Z0-9_-./]+, got \`${t.value}\``
     }
     return true
   }),
 )
-export type PathSpecifierLabelToken = typeof PathSpecifierLabelTokenSchema.Type
+export type SinkDirLabelToken = typeof SinkDirLabelTokenSchema.Type
 
-export const PathSpecifierTokenSchema = loomNode('PathSpecifier', {
-  open: SpecifierOpenTokenSchema,
-  label: PathSpecifierLabelTokenSchema,
-  close: SpecifierCloseTokenSchema,
-}).annotations({
-  [Probe]: /\{[a-zA-Z0-9_\-./]+\}/g,
-})
-export type PathSpecifierToken = typeof PathSpecifierTokenSchema.Type
-
-export const DirSpecifierLabelTokenSchema = loomNode('DirSpecifierLabel', {
+export const SinkFileLabelTokenSchema = loomNode('SinkFileLabel', {
   value: Schema.String,
 }).pipe(
   Schema.filter((t) => {
     if (t.value === '' && t.health.status === 'ok') {
       return 'empty `value` requires non-ok `health.status`'
     }
-    if (t.value !== '' && !/^[a-zA-Z0-9_\-./]+\/$/.test(t.value)) {
-      return `directory specifier label must be a path ending in /, got \`${t.value}\``
+    if (t.value !== '' && !/^[a-zA-Z0-9_\-./]+$/.test(t.value)) {
+      return `sink file label must match [a-zA-Z0-9_-./]+, got \`${t.value}\``
     }
     return true
   }),
 )
-export type DirSpecifierLabelToken = typeof DirSpecifierLabelTokenSchema.Type
+export type SinkFileLabelToken = typeof SinkFileLabelTokenSchema.Type
 
-export const DirSpecifierTokenSchema = loomNode('DirSpecifier', {
-  open: SpecifierOpenTokenSchema,
-  label: DirSpecifierLabelTokenSchema,
-  close: SpecifierCloseTokenSchema,
+export const SinkTokenSchema = loomNode('Sink', {
+  open: SinkOpenTokenSchema,
+  dir: SinkDirLabelTokenSchema,
+  file: Schema.optional(SinkFileLabelTokenSchema),
+  close: SinkCloseTokenSchema,
 }).annotations({
-  [Probe]: /\{[a-zA-Z0-9_\-./]+\/\}/g,
+  [Probe]: /\[[^\]]*\]/g,
 })
-export type DirSpecifierToken = typeof DirSpecifierTokenSchema.Type
+export type SinkToken = typeof SinkTokenSchema.Type
 
 export const ArrowTokenSchema = loomNode('Arrow', {}).annotations({
   [Probe]: /^\s*=>/,
@@ -201,11 +207,7 @@ export const WarpAnchorTokenSchema = loomNode('WarpAnchor', {
   name: WarpAnchorNameTokenSchema,
   close: AnchorCloseTokenSchema,
   specifier: Schema.optional(
-    Schema.Union(
-      SpecifierTokenSchema,
-      PathSpecifierTokenSchema,
-      DirSpecifierTokenSchema,
-    ),
+    Schema.Union(SpecifierTokenSchema, SinkTokenSchema),
   ),
 }).annotations({
   [Probe]: /::\[[^\]]*\]/g,
@@ -288,8 +290,7 @@ export const checkAnchorDelims = (
 export const LoomTokenSchema = Schema.Union(
   HeadingStartTokenSchema,
   SpecifierTokenSchema,
-  PathSpecifierTokenSchema,
-  DirSpecifierTokenSchema,
+  SinkTokenSchema,
   ArrowTokenSchema,
   TildeTokenSchema,
   HeadingTitleTokenSchema,

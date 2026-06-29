@@ -136,19 +136,20 @@ const mkHeading = (line: number, title?: string, spec?: string) => {
 }
 
 // mkPreamble — a plain PreambleWeft with no Warp declarations (no lang warp).
-// Use `langPreamble` when you need a Document Preamble that satisfies the
-// `{{lang: …}}` requirement.
+// Use `langPreamble` when you need a Document Preamble that carries a lang warp.
+// Document health is okHealth either way; the lang warp is no longer required.
 const mkPreamble = (line: number) =>
   PreambleWeftSchema.make({
     position: pos(line),
     source: '',
     health: okHealth,
     warps: [],
+    anchors: [],
   })
 
 // langPreamble — a PreambleWeft whose `warps` contains a WarpToken whose
-// `name.value === "lang"`. When this weft is in `document.preamble`, the
-// builder's `hasLangWarp` check passes and `document.health` is `okHealth`.
+// `name.value === "lang"`. The lang warp no longer affects document health;
+// this factory exists so a fixture can carry a lang warp when it needs one.
 const langPreamble = (line: number) => {
   const p = pos(line)
   return PreambleWeftSchema.make({
@@ -188,6 +189,7 @@ const langPreamble = (line: number) => {
         }),
       }),
     ],
+    anchors: [],
   })
 }
 
@@ -217,11 +219,17 @@ const mkTilde = (line: number) => {
     source: '',
     health: okHealth,
     tilde: TildeTokenSchema.make({ position: p, source: '', health: okHealth }),
+    anchors: [],
   })
 }
 
 const mkProse = (line: number) =>
-  ProseWeftSchema.make({ position: pos(line), source: '', health: okHealth })
+  ProseWeftSchema.make({
+    position: pos(line),
+    source: '',
+    health: okHealth,
+    anchors: [],
+  })
 
 // =============================================================================
 // Empty and trivial inputs.
@@ -234,9 +242,10 @@ describe('LoomAstBuilder — empty and trivial inputs', () => {
     expect(doc.sections).toEqual([])
   })
 
-  it("an empty document has health.status === 'warning' (no lang warp in preamble)", () => {
+  it("an empty document has health.status === 'ok' (the lang warp is no longer required)", () => {
     const doc = buildAst([])
-    expect(doc.health.status).toBe('warning')
+    expect(doc.health.status).toBe('ok')
+    expect(doc.health.diagnostics).toEqual([])
   })
 
   it('an empty document has position {1,0}..{1,0}', () => {
@@ -358,27 +367,31 @@ describe('LoomAstBuilder — mixed document', () => {
 })
 
 // =============================================================================
-// Missing-lang warning.
+// Lang warp is optional — document health no longer depends on it.
+//
+// The missing-lang warning has been removed: there is no MissingLanguageWarp
+// fault, and makeDocument always sets okHealth. A document is healthy whether
+// the lang warp is absent, in the document preamble, or only in a section
+// preamble; the lang warp's presence and placement no longer affect health.
 // =============================================================================
 
-describe('LoomAstBuilder — missing-lang warning', () => {
-  it("no lang warp in document preamble → health.status 'warning'", () => {
+describe('LoomAstBuilder — lang warp is optional (no missing-lang warning)', () => {
+  it("a document without a lang warp still has health 'ok'", () => {
     const doc = buildAst([mkPreamble(1), mkHeading(2, 'Foo')])
-    expect(doc.health.status).toBe('warning')
-    expect(doc.health.diagnostics).toHaveLength(1)
-    expect(doc.health.diagnostics[0].severity).toBe('warning')
+    expect(doc.health.status).toBe('ok')
+    expect(doc.health.diagnostics).toEqual([])
   })
 
-  it("a lang warp in document preamble → health.status 'ok'", () => {
+  it("a lang warp in the document preamble keeps health 'ok'", () => {
     const doc = buildAst([langPreamble(1), mkHeading(2, 'Foo')])
     expect(doc.health.status).toBe('ok')
   })
 
-  it("a lang warp only in section preamble (not document preamble) → health 'warning'", () => {
-    // The lang warp must be in the DOCUMENT preamble (before the first heading).
-    // A warp inside a section's preamble does not satisfy the requirement.
+  it("a lang warp only in a section preamble also keeps health 'ok'", () => {
+    // Placement no longer matters: a warp inside a section's preamble (not the
+    // document preamble) is just as fine as none at all.
     const doc = buildAst([mkHeading(1, 'Foo'), langPreamble(2)])
-    expect(doc.health.status).toBe('warning')
+    expect(doc.health.status).toBe('ok')
   })
 })
 

@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url'
 import { servicePackage, storeDir } from './LoomStore'
 import { isLanguageService, type LanguageService } from './LanguageService'
 import { LoomLanguage } from './LoomLanguage'
+import { ProseLanguage } from './ProseLanguage'
 
 const loadService = (
   id: string,
@@ -38,8 +39,12 @@ export const loadActive = (
 ): Effect.Effect<ReadonlyArray<LanguageService>> =>
   pipe(
     ids,
-    Array.filter((id) => id !== LoomLanguage.id),
+    Array.filter((id) => id !== LoomLanguage.id && id !== ProseLanguage.id),
     Array.dedupe,
     (rest) => Effect.forEach(rest, (id) => loadService(id, root)),
-    Effect.map((loaded) => [LoomLanguage, ...Array.getSomes(loaded)]),
+    Effect.map((loaded) => [
+      LoomLanguage,
+      ProseLanguage,
+      ...Array.getSomes(loaded),
+    ]),
   )

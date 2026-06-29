@@ -143,7 +143,7 @@ import type { LoomDocument } from '@athrio/loom-ast/LoomAst'
 import type { SectionBodyWeft } from '@athrio/loom-ast/Weft'
 import type { Path } from '@athrio/loom-ast/LoomCorpusAst'
 
-## The module {src/ManifestBuilder.ts}
+## The module [src, ManifestBuilder.ts]
 
 =>
 

@@ -61,7 +61,7 @@ export class LanguageRegistry extends Effect.Service<LanguageRegistry>()(
   },
 ) {}
 
-## The module {src/LanguageRegistry.ts}
+## The module [src, LanguageRegistry.ts]
 
 =>
 

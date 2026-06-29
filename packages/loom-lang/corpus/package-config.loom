@@ -68,7 +68,7 @@ import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { type AnchorDelims, defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
 
-## The module {src/PackageConfig.ts}
+## The module [src, PackageConfig.ts]
 
 =>
 

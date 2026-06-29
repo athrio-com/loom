@@ -39,8 +39,8 @@ describe('VirtualCode — root → frame projection', () => {
 
       expect(root.id).toBe('root')
       expect(root.languageId).toBe('loom')
-      // root → [frame (de dicto), Add (de re product)]
-      expect(root.embeddedCodes).toHaveLength(2)
+      // root → [frame (de dicto), prose (Markdown), Add (de re product)]
+      expect(root.embeddedCodes).toHaveLength(3)
 
       const frame = root.embeddedCodes![0]!
       expect(frame.id).toBe('frame')
@@ -50,9 +50,14 @@ describe('VirtualCode — root → frame projection', () => {
       expect(gen).toContain('export class Adder')
       expect(frame.mappings.length).toBeGreaterThan(0)
 
+      // the prose document — the file's prose projected as Markdown
+      const prose = root.embeddedCodes![1]!
+      expect(prose.id).toBe('prose')
+      expect(prose.languageId).toBe('prose')
+
       // the de re product for the Adder section — its raw code, in its language,
       // keyed by the section name lowercased (Volar requires lowercase ids)
-      const product = root.embeddedCodes![1]!
+      const product = root.embeddedCodes![2]!
       expect(product.id).toBe('adder')
       expect(product.languageId).toBe('typescript')
       expect(
@@ -73,8 +78,8 @@ describe('VirtualCode — root → frame projection', () => {
       const root = Runtime.runSync(runtime)(
         LoomCompiler.pipe(Effect.flatMap((c) => c.compile(cfg, ''))),
       )
-      // root → [frame, the {Config} product]; its body reads as YAML
-      const product = root.embeddedCodes![1]!
+      // root → [frame, prose, the {Config} product]; its body reads as YAML
+      const product = root.embeddedCodes![2]!
       expect(product.languageId).toBe('yaml')
     }).pipe(Effect.provide(layer)),
   )

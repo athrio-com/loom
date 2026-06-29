@@ -138,7 +138,7 @@ import { promisify } from 'node:util'
 
 const run = promisify(execFile)
 
-## The module {src/LoomStore.ts}
+## The module [src, LoomStore.ts]
 
 =>
 

@@ -4,9 +4,11 @@
 
 Vite bundles the extension for the VS Code extension host. It has two entry points — the client in this package and the language server in `@athrio/loom-lang` — and emits them as `dist/client.js` and `dist/server.js`. The extension host loads CommonJS, so the build emits CommonJS rather than the ESM the CLI produces.
 
-## The build {vite.config.ts}
+## The build [., vite.config.ts]
 
 Some of the server's dependencies — the `vscode-*-languageservice` packages and `jsonc-parser` — ship only UMD bundles, the older module format that rolldown cannot follow statically. The `umd2esm` plugin rewrites each such import to its ESM sibling so the bundler can inline it. This is the same trick volarjs/starter uses.
+
+`vscode-markdown-languageservice`, which `ProseLanguage`'s Markdown service pulls in, imports `vscode-uri` by its default binding, which that package's ES-module build does not provide. An alias resolves `vscode-uri` to its UMD build instead, where the bundler's CommonJS interop supplies one.
 
 =>
 
@@ -47,6 +49,11 @@ export default defineConfig({
   resolve: {
     conditions: ['node'],
     mainFields: ['main', 'module'],
+    alias: {
+      'vscode-uri': requireFromHere
+        .resolve('vscode-uri')
+        .replace(/esm[\\/]index\.mjs$/, 'umd/index.js'),
+    },
   },
   build: {
     target: 'node20',

@@ -16,12 +16,13 @@ import {
 } from '@athrio/loom-ast/LoomNode'
 import {
   CodeTokenSchema,
-  DirSpecifierLabelTokenSchema,
-  DirSpecifierTokenSchema,
   HeadingTitleTokenSchema,
-  PathSpecifierLabelTokenSchema,
-  PathSpecifierTokenSchema,
   ProseTokenSchema,
+  SinkCloseTokenSchema,
+  SinkDirLabelTokenSchema,
+  SinkFileLabelTokenSchema,
+  SinkOpenTokenSchema,
+  SinkTokenSchema,
   SpecifierCloseTokenSchema,
   SpecifierLabelTokenSchema,
   SpecifierOpenTokenSchema,
@@ -38,10 +39,11 @@ import {
   WarpOpenTokenSchema,
   WarpTokenSchema,
   getProbe,
-  type DirSpecifierLabelToken,
-  type DirSpecifierToken,
-  type PathSpecifierLabelToken,
-  type PathSpecifierToken,
+  type SinkCloseToken,
+  type SinkDirLabelToken,
+  type SinkFileLabelToken,
+  type SinkOpenToken,
+  type SinkToken,
   type SpecifierCloseToken,
   type SpecifierLabelToken,
   type SpecifierOpenToken,
@@ -91,23 +93,47 @@ export class WeftTokeniser extends Effect.Service<WeftTokeniser>()(
       tokeniseWefts:
         (text: string, delims: AnchorDelims = defaultAnchorDelims) =>
         (source: Stream.Stream<LoomWeft>): Stream.Stream<LoomWeft> =>
-          Stream.map(source, (weft) => tokeniseWeft(text, weft, delims)),
+          Stream.mapAccum(source, false, (inFence, weft) => {
+            const [nextFence, skipAnchors] = fenceStep(inFence, weft)
+            return [nextFence, tokeniseWeft(text, weft, delims, skipAnchors)]
+          }),
     },
   },
 ) {}
+
+const isProseWeft = (weft: LoomWeft): boolean =>
+  weft.type === 'PreambleWeft' ||
+  weft.type === 'TildeWeft' ||
+  weft.type === 'ProseWeft'
+
+const fenceStep = (
+  inFence: boolean,
+  weft: LoomWeft,
+): readonly [boolean, boolean] => {
+  if (!isProseWeft(weft)) return [false, false]
+  const delimiter = /^\s*```/.test(weft.source)
+  return [delimiter ? !inFence : inFence, inFence || delimiter]
+}
 
 const tokeniseWeft = (
   text: string,
   weft: LoomWeft,
   delims: AnchorDelims,
+  skipAnchors: boolean,
 ): LoomWeft =>
   pipe(
     Match.value(weft),
     Match.when({ type: 'HeadingWeft' }, (w) => tokeniseHeading(text, w)),
     Match.when({ type: 'ArrowWeft' }, (w) => tokeniseArrow(text, w, delims)),
-    Match.when({ type: 'TildeWeft' }, (w) => tokeniseTilde(text, w)),
-    Match.when({ type: 'PreambleWeft' }, (w) => tokenisePreamble(text, w)),
-    Match.when({ type: 'ProseWeft' }, (w) => tokeniseProse(w)),
+    Match.when({ type: 'TildeWeft' }, (w) =>
+      tokeniseTilde(text, w, delims, skipAnchors),
+    ),
+    Match.when({ type: 'PreambleWeft' }, (w) =>
+      tokenisePreamble(text, w, delims, skipAnchors),
+    ),
+    Match.when({ type: 'ProseWeft' }, (w) =>
+      tokeniseProse(text, w, delims, skipAnchors),
+    ),
     Match.when({ type: 'CodeWeft' }, (w) => tokeniseCode(text, w, delims)),
     Match.exhaustive,
   )
@@ -147,6 +173,12 @@ const inlineAfter = <T>(
 const lineSlice = (text: string, position: Position): string =>
   text.slice(position.start.offset, position.end.offset)
 
+const maskInlineCode = (line: string): string =>
+  line.replace(/`[^`]*`/g, (m) => ' '.repeat(m.length))
+
+const blankIfSkipped = (line: string, skip: boolean): string =>
+  skip ? ' '.repeat(line.length) : maskInlineCode(line)
+
 const tokeniseArrow = (
   text: string,
   weft: ArrowWeft,
@@ -175,41 +207,97 @@ const tokeniseArrow = (
   })
 }
 
-const tokeniseTilde = (text: string, weft: TildeWeft): LoomWeft => {
+const tokeniseTilde = (
+  text: string,
+  weft: TildeWeft,
+  delims: AnchorDelims,
+  skipAnchors: boolean,
+): LoomWeft => {
+  const lineText = lineSlice(text, weft.position)
   const prose = inlineAfter(ProseTokenSchema, proseProbe, text, weft.position)
+  const { tokens: anchors, unexpected } = constructAnchors(
+    lineText,
+    weft.position,
+    delims,
+    blankIfSkipped(lineText, skipAnchors),
+  )
+  const status = aggregateStatus([
+    weft.tilde.health.status,
+    ...Option.toArray(prose).map((p) => p.health.status),
+    ...anchors.map((a) => a.health.status),
+    ...unexpected.map(() => 'error' as const),
+  ])
   return TildeWeftSchema.make({
     position: weft.position,
-    source: lineSlice(text, weft.position),
-    health: okHealth,
+    source: lineText,
+    health: { status, diagnostics: [] },
+    unexpected: unexpected.length > 0 ? unexpected : undefined,
     tilde: weft.tilde,
     prose: Option.getOrUndefined(prose),
+    anchors,
   })
 }
 
-const tokenisePreamble = (text: string, weft: PreambleWeft): LoomWeft => {
-  const { tokens: warps, unexpected } = constructWarps(
-    lineSlice(text, weft.position),
+const tokenisePreamble = (
+  text: string,
+  weft: PreambleWeft,
+  delims: AnchorDelims,
+  skipAnchors: boolean,
+): LoomWeft => {
+  const lineText = lineSlice(text, weft.position)
+  const scanText = blankIfSkipped(lineText, skipAnchors)
+  const { tokens: warps, unexpected: warpStray } = constructWarps(
+    lineText,
     weft.position,
+    scanText,
   )
+  const { tokens: anchors, unexpected: anchorStray } = constructAnchors(
+    lineText,
+    weft.position,
+    delims,
+    scanText,
+  )
+  const unexpected = [...warpStray, ...anchorStray]
   const status = aggregateStatus([
     ...warps.map((w) => w.health.status),
+    ...anchors.map((a) => a.health.status),
     ...unexpected.map(() => 'error' as const),
   ])
   return PreambleWeftSchema.make({
     position: weft.position,
-    source: lineSlice(text, weft.position),
+    source: lineText,
     health: { status, diagnostics: [] },
     unexpected: unexpected.length > 0 ? unexpected : undefined,
     warps,
+    anchors,
   })
 }
 
-const tokeniseProse = (weft: ProseWeft): LoomWeft =>
-  ProseWeftSchema.make({
+const tokeniseProse = (
+  text: string,
+  weft: ProseWeft,
+  delims: AnchorDelims,
+  skipAnchors: boolean,
+): LoomWeft => {
+  const lineText = lineSlice(text, weft.position)
+  const { tokens: anchors, unexpected } = constructAnchors(
+    lineText,
+    weft.position,
+    delims,
+    blankIfSkipped(lineText, skipAnchors),
+  )
+  const status = aggregateStatus([
+    ...anchors.map((a) => a.health.status),
+    ...unexpected.map(() => 'error' as const),
+  ])
+  return ProseWeftSchema.make({
     position: weft.position,
-    source: weft.source,
-    health: okHealth,
+    source: lineText,
+    health: { status, diagnostics: [] },
+    unexpected: unexpected.length > 0 ? unexpected : undefined,
+    anchors,
   })
+}
 
 const tokeniseCode = (
   text: string,
@@ -280,12 +368,8 @@ const brokenLabel = (
 const decodeSpecifierLabel = Schema.decodeUnknownEither(
   SpecifierLabelTokenSchema,
 )
-const decodePathSpecifierLabel = Schema.decodeUnknownEither(
-  PathSpecifierLabelTokenSchema,
-)
-const decodeDirSpecifierLabel = Schema.decodeUnknownEither(
-  DirSpecifierLabelTokenSchema,
-)
+const decodeSinkDirLabel = Schema.decodeUnknownEither(SinkDirLabelTokenSchema)
+const decodeSinkFileLabel = Schema.decodeUnknownEither(SinkFileLabelTokenSchema)
 
 const buildSpecifierLabel = (
   value: string,
@@ -311,21 +395,21 @@ const buildSpecifierLabel = (
     ),
   )
 
-const buildPathSpecifierLabel = (
+const buildSinkDirLabel = (
   value: string,
   position: Position,
-): PathSpecifierLabelToken =>
+): SinkDirLabelToken =>
   pipe(
-    decodePathSpecifierLabel({
-      type: 'PathSpecifierLabel',
+    decodeSinkDirLabel({
+      type: 'SinkDirLabel',
       position,
       source: value,
       health: okHealth,
       value,
     }),
     Either.getOrElse(() =>
-      PathSpecifierLabelTokenSchema.make({
-        type: 'PathSpecifierLabel',
+      SinkDirLabelTokenSchema.make({
+        type: 'SinkDirLabel',
         position,
         source: value,
         health: brokenLabel('path', value, position),
@@ -335,21 +419,21 @@ const buildPathSpecifierLabel = (
     ),
   )
 
-const buildDirSpecifierLabel = (
+const buildSinkFileLabel = (
   value: string,
   position: Position,
-): DirSpecifierLabelToken =>
+): SinkFileLabelToken =>
   pipe(
-    decodeDirSpecifierLabel({
-      type: 'DirSpecifierLabel',
+    decodeSinkFileLabel({
+      type: 'SinkFileLabel',
       position,
       source: value,
       health: okHealth,
       value,
     }),
     Either.getOrElse(() =>
-      DirSpecifierLabelTokenSchema.make({
-        type: 'DirSpecifierLabel',
+      SinkFileLabelTokenSchema.make({
+        type: 'SinkFileLabel',
         position,
         source: value,
         health: brokenLabel('path', value, position),
@@ -387,6 +471,8 @@ const makeScanner = <T>(schema: Scannable<T>): Scanner<T> => {
 
 const scanSpecifierOpen = makeScanner(SpecifierOpenTokenSchema)
 const scanSpecifierClose = makeScanner(SpecifierCloseTokenSchema)
+const scanSinkOpen = makeScanner(SinkOpenTokenSchema)
+const scanSinkClose = makeScanner(SinkCloseTokenSchema)
 
 type Construction<T> = {
   readonly token: Option.Option<T>
@@ -409,10 +495,6 @@ const partitionFirstClose = <C extends { position: Position }>(
     ? { match: null, rest: closes }
     : { match: closes[matchIdx], rest: closes.filter((_, i) => i !== matchIdx) }
 }
-
-const isPathLabel = (label: string): boolean => /[./]/.test(label)
-
-const isDirLabel = (label: string): boolean => label.endsWith('/')
 
 const buildLabelSpecifier = (
   open: SpecifierOpenToken,
@@ -438,60 +520,12 @@ const buildLabelSpecifier = (
   })
 }
 
-const buildPathSpecifier = (
-  open: SpecifierOpenToken,
-  close: SpecifierCloseToken,
-  labelText: string,
-  labelPos: Position,
-  specifierPos: Position,
-  specifierSource: string,
-): PathSpecifierToken => {
-  const label = buildPathSpecifierLabel(labelText, labelPos)
-  const status = aggregateStatus([
-    open.health.status,
-    label.health.status,
-    close.health.status,
-  ])
-  return PathSpecifierTokenSchema.make({
-    position: specifierPos,
-    source: specifierSource,
-    health: { status, diagnostics: [] },
-    open,
-    label,
-    close,
-  })
-}
-
-const buildDirSpecifier = (
-  open: SpecifierOpenToken,
-  close: SpecifierCloseToken,
-  labelText: string,
-  labelPos: Position,
-  specifierPos: Position,
-  specifierSource: string,
-): DirSpecifierToken => {
-  const label = buildDirSpecifierLabel(labelText, labelPos)
-  const status = aggregateStatus([
-    open.health.status,
-    label.health.status,
-    close.health.status,
-  ])
-  return DirSpecifierTokenSchema.make({
-    position: specifierPos,
-    source: specifierSource,
-    health: { status, diagnostics: [] },
-    open,
-    label,
-    close,
-  })
-}
-
 const constructSpecifier = (
   opens: ReadonlyArray<SpecifierOpenToken>,
   closes: ReadonlyArray<SpecifierCloseToken>,
   lineText: string,
   linePosition: Position,
-): Construction<SpecifierToken | PathSpecifierToken | DirSpecifierToken> => {
+): Construction<SpecifierToken> => {
   if (opens.length === 0) {
     return {
       token: Option.none(),
@@ -529,28 +563,8 @@ const constructSpecifier = (
     specifierPos.end.offset - lineStart,
   )
 
-  const token = Match.value(labelText).pipe(
-    Match.when(isDirLabel, () =>
-      buildDirSpecifier(
-        open,
-        close,
-        labelText,
-        labelPos,
-        specifierPos,
-        specifierSource,
-      ),
-    ),
-    Match.when(isPathLabel, () =>
-      buildPathSpecifier(
-        open,
-        close,
-        labelText,
-        labelPos,
-        specifierPos,
-        specifierSource,
-      ),
-    ),
-    Match.orElse(() =>
+  return {
+    token: Option.some(
       buildLabelSpecifier(
         open,
         close,
@@ -560,10 +574,92 @@ const constructSpecifier = (
         specifierSource,
       ),
     ),
+    unexpected: [
+      ...extraOpens.map(toUnexpected),
+      ...extraCloses.map(toUnexpected),
+    ],
+  }
+}
+
+const constructSink = (
+  opens: ReadonlyArray<SinkOpenToken>,
+  closes: ReadonlyArray<SinkCloseToken>,
+  lineText: string,
+  linePosition: Position,
+): Construction<SinkToken> => {
+  if (opens.length === 0) {
+    return {
+      token: Option.none(),
+      unexpected: closes.map(toUnexpected),
+    }
+  }
+
+  const line = linePosition.start.line
+  const lineStart = linePosition.start.offset
+  const lineEnd = contentEnd(lineText, lineStart)
+
+  const [open, ...extraOpens] = opens
+  const { match, rest: extraCloses } = partitionFirstClose(open, closes)
+
+  const close: SinkCloseToken =
+    match ??
+    SinkCloseTokenSchema.make({
+      position: span(line, lineEnd, lineEnd),
+      source: '',
+      health: missingClosing(line, open.position.start.offset, lineEnd, ']'),
+      value: ']',
+    })
+
+  const innerStart = open.position.end.offset
+  const innerEnd = match ? match.position.start.offset : lineEnd
+  const inner = lineText.slice(innerStart - lineStart, innerEnd - lineStart)
+  const sinkPos = span(
+    line,
+    open.position.start.offset,
+    close.position.end.offset,
+  )
+  const sinkSource = lineText.slice(
+    sinkPos.start.offset - lineStart,
+    sinkPos.end.offset - lineStart,
   )
 
+  const commaRel = inner.indexOf(',')
+  const dirTrim = trimSpan(
+    commaRel < 0 ? inner : inner.slice(0, commaRel),
+    innerStart,
+  )
+  const dir = buildSinkDirLabel(
+    dirTrim.value,
+    span(line, dirTrim.start, dirTrim.end),
+  )
+  const file =
+    commaRel < 0
+      ? undefined
+      : ((fileTrim) =>
+          buildSinkFileLabel(
+            fileTrim.value,
+            span(line, fileTrim.start, fileTrim.end),
+          ))(trimSpan(inner.slice(commaRel + 1), innerStart + commaRel + 1))
+
+  const status = aggregateStatus([
+    open.health.status,
+    dir.health.status,
+    ...(file ? [file.health.status] : []),
+    close.health.status,
+  ])
+
   return {
-    token: Option.some(token),
+    token: Option.some(
+      SinkTokenSchema.make({
+        position: sinkPos,
+        source: sinkSource,
+        health: { status, diagnostics: [] },
+        open,
+        dir,
+        file,
+        close,
+      }),
+    ),
     unexpected: [
       ...extraOpens.map(toUnexpected),
       ...extraCloses.map(toUnexpected),
@@ -913,7 +1009,7 @@ const decodeWarpAnchorName = Schema.decodeUnknownEither(
   WarpAnchorNameTokenSchema,
 )
 
-type AnchorSpecifier = SpecifierToken | PathSpecifierToken | DirSpecifierToken
+type AnchorSpecifier = SpecifierToken | SinkToken
 
 const anchorSpecifierAt = (
   close: AnchorCloseToken,
@@ -923,26 +1019,50 @@ const anchorSpecifierAt = (
   const line = linePosition.start.line
   const lineStart = linePosition.start.offset
   const openAt = close.position.end.offset
-  if (lineText[openAt - lineStart] !== '{') return Option.none()
-  const closeRel = lineText.indexOf('}', openAt - lineStart)
-  if (closeRel < 0) return Option.none()
-  const closeAt = lineStart + closeRel
-  const open = SpecifierOpenTokenSchema.make({
-    position: span(line, openAt, openAt + 1),
-    source: '{',
-    health: okHealth,
-    value: '{',
-  })
-  const closeTok = SpecifierCloseTokenSchema.make({
-    position: span(line, closeAt, closeAt + 1),
-    source: '}',
-    health: okHealth,
-    value: '}',
-  })
-  return Option.map(
-    constructSpecifier([open], [closeTok], lineText, linePosition).token,
-    (specifier) => ({ specifier, end: closeAt + 1 }),
-  )
+  const ch = lineText[openAt - lineStart]
+  if (ch === '{') {
+    const closeRel = lineText.indexOf('}', openAt - lineStart)
+    if (closeRel < 0) return Option.none()
+    const closeAt = lineStart + closeRel
+    const open = SpecifierOpenTokenSchema.make({
+      position: span(line, openAt, openAt + 1),
+      source: '{',
+      health: okHealth,
+      value: '{',
+    })
+    const closeTok = SpecifierCloseTokenSchema.make({
+      position: span(line, closeAt, closeAt + 1),
+      source: '}',
+      health: okHealth,
+      value: '}',
+    })
+    return Option.map(
+      constructSpecifier([open], [closeTok], lineText, linePosition).token,
+      (specifier) => ({ specifier, end: closeAt + 1 }),
+    )
+  }
+  if (ch === '[') {
+    const closeRel = lineText.indexOf(']', openAt - lineStart)
+    if (closeRel < 0) return Option.none()
+    const closeAt = lineStart + closeRel
+    const open = SinkOpenTokenSchema.make({
+      position: span(line, openAt, openAt + 1),
+      source: '[',
+      health: okHealth,
+      value: '[',
+    })
+    const closeTok = SinkCloseTokenSchema.make({
+      position: span(line, closeAt, closeAt + 1),
+      source: ']',
+      health: okHealth,
+      value: ']',
+    })
+    return Option.map(
+      constructSink([open], [closeTok], lineText, linePosition).token,
+      (specifier) => ({ specifier, end: closeAt + 1 }),
+    )
+  }
+  return Option.none()
 }
 
 const buildWarpAnchor = (
@@ -1038,13 +1158,14 @@ const assembleAnchor = (
 const constructWarps = (
   lineText: string,
   linePosition: Position,
+  scanText: string = lineText,
 ): {
   tokens: ReadonlyArray<WarpToken>
   unexpected: ReadonlyArray<UnexpectedToken>
 } => {
-  const opens = scanWarpOpen(lineText, linePosition)
-  const closes = scanWarpClose(lineText, linePosition)
-  const { pairs, stray } = pairWarpDelims(opens, closes, lineText, linePosition)
+  const opens = scanWarpOpen(scanText, linePosition)
+  const closes = scanWarpClose(scanText, linePosition)
+  const { pairs, stray } = pairWarpDelims(opens, closes, scanText, linePosition)
   const tokens = pairs.map(({ open, close }) =>
     buildWarp(open, close, lineText, linePosition),
   )
@@ -1108,14 +1229,15 @@ const constructAnchors = (
   lineText: string,
   linePosition: Position,
   delims: AnchorDelims,
+  scanText: string = lineText,
 ): {
   tokens: ReadonlyArray<WarpAnchorToken>
   unexpected: ReadonlyArray<UnexpectedToken>
 } => {
-  const built = scanAnchorOpens(delims.open, lineText, linePosition).map((open) =>
+  const built = scanAnchorOpens(delims.open, scanText, linePosition).map((open) =>
     buildWarpAnchor(
       open,
-      anchorClose(open, delims.close, lineText, linePosition),
+      anchorClose(open, delims.close, scanText, linePosition),
       lineText,
       linePosition,
     ),
@@ -1161,9 +1283,8 @@ const headingTitle = (
 }
 
 type HeadingTokens = {
-  readonly specifier: Option.Option<
-    SpecifierToken | PathSpecifierToken | DirSpecifierToken
-  >
+  readonly specifier: Option.Option<SpecifierToken>
+  readonly sink: Option.Option<SinkToken>
   readonly title: Option.Option<HeadingTitleToken>
   readonly unexpected: ReadonlyArray<UnexpectedToken>
 }
@@ -1175,26 +1296,31 @@ const scanHeading = (
 ): HeadingTokens => {
   const lineText = text.slice(position.start.offset, position.end.offset)
 
-  const specOpens = scanSpecifierOpen(lineText, position)
-  const specCloses = scanSpecifierClose(lineText, position)
-
   const specResult = constructSpecifier(
-    specOpens,
-    specCloses,
+    scanSpecifierOpen(lineText, position),
+    scanSpecifierClose(lineText, position),
+    lineText,
+    position,
+  )
+  const sinkResult = constructSink(
+    scanSinkOpen(lineText, position),
+    scanSinkClose(lineText, position),
     lineText,
     position,
   )
 
-  const unexpected = specResult.unexpected
+  const unexpected = [...specResult.unexpected, ...sinkResult.unexpected]
 
   const consumed: ReadonlyArray<Position> = [
     ...Option.toArray(specResult.token).map((s) => s.position),
+    ...Option.toArray(sinkResult.token).map((s) => s.position),
     ...unexpected.map((u) => u.position),
   ]
   const title = headingTitle(text, position, headingStartEnd, consumed)
 
   return {
     specifier: specResult.token,
+    sink: sinkResult.token,
     title,
     unexpected,
   }
@@ -1208,7 +1334,7 @@ export const normaliseTitle = (title: string): string => {
 }
 
 const tokeniseHeading = (text: string, weft: HeadingWeft): LoomWeft => {
-  const { specifier, title, unexpected } = scanHeading(
+  const { specifier, sink, title, unexpected } = scanHeading(
     text,
     weft.position,
     weft.headingStart.position.end.offset,
@@ -1217,6 +1343,7 @@ const tokeniseHeading = (text: string, weft: HeadingWeft): LoomWeft => {
   const status = aggregateStatus([
     weft.headingStart.health.status,
     ...Option.toArray(specifier).map((s) => s.health.status),
+    ...Option.toArray(sink).map((s) => s.health.status),
     ...Option.toArray(title).map((t) => t.health.status),
     ...unexpected.map(() => 'error' as const),
   ])
@@ -1229,5 +1356,6 @@ const tokeniseHeading = (text: string, weft: HeadingWeft): LoomWeft => {
     headingStart: weft.headingStart,
     title: Option.getOrUndefined(title),
     specifier: Option.getOrUndefined(specifier),
+    sink: Option.getOrUndefined(sink),
   })
 }

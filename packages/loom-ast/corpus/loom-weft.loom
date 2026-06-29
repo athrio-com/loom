@@ -6,26 +6,23 @@
 
 ## The heading weft
 
-A `HeadingWeft` is a `#`-heading line. Its `headingStart` records the level for the reader, and `title` is the optional trimmed text after the marker — the title names the section, normalised to an identifier. The `specifier` is optional too: a heading with none inherits the document's language. The classifier emits the weft with incomplete placeholders for the subtokens it has not recognised, and the tokeniser settles them.
+A `HeadingWeft` is a `#`-heading line. Its `headingStart` records the level for the reader, and `title` is the optional trimmed text after the marker — the title names the section, normalised to an identifier. The `specifier` and the `sink` are optional too: the specifier is the language label `{Lang}`, the sink is the bracketed target `[dir, file]` or `[dir]`, and a heading may carry either, both, or neither. The classifier emits the weft with incomplete placeholders for the subtokens it has not recognised, and the tokeniser settles them.
 
 =>
 
 export const HeadingWeftSchema = loomNode('HeadingWeft', {
   headingStart: HeadingStartTokenSchema,
   title: Schema.optional(HeadingTitleTokenSchema),
-  specifier: Schema.optional(
-    Schema.Union(
-      SpecifierTokenSchema,
-      PathSpecifierTokenSchema,
-      DirSpecifierTokenSchema,
-    ),
-  ),
+  specifier: Schema.optional(SpecifierTokenSchema),
+  sink: Schema.optional(SinkTokenSchema),
 })
 export type HeadingWeft = typeof HeadingWeftSchema.Type
 
 ## The body wefts
 
-The five body wefts are the lines inside a section. An `ArrowWeft` is the `=>` line that opens code, carrying any inline `code` and the `::[…]` anchors in it. A `TildeWeft` is the `~` line that opens prose, carrying any inline `prose`. A `PreambleWeft` is a default-mode line before any transition, carrying the `::[…]` warp declarations on it. A `ProseWeft` is a line in prose mode, opaque to Loom. A `CodeWeft` is a line in code mode — opaque too, but its `::[…]` anchors are recognised.
+The five body wefts are the lines inside a section. An `ArrowWeft` is the `=>` line that opens code, carrying any inline `code` and the anchors on it. A `CodeWeft` is a later line in code mode — opaque to Loom, but its anchors are recognised. A `TildeWeft` is the `~` line that opens prose, carrying any inline `prose` and its anchors. A `ProseWeft` is a later line in prose mode — opaque too, but its anchors are recognised. A `PreambleWeft` is a default-mode line before any transition, carrying the warp declarations and any anchors on it.
+
+Every body weft carries its `anchors`, because an anchor is read in code and in prose alike. A code anchor composes the named section; a prose anchor places a chapter or merely links to it. A later pass reads which plane an anchor takes from the weft it sits on.
 
 =>
 
@@ -39,15 +36,19 @@ export type ArrowWeft = typeof ArrowWeftSchema.Type
 export const TildeWeftSchema = loomNode('TildeWeft', {
   tilde: TildeTokenSchema,
   prose: Schema.optional(ProseTokenSchema),
+  anchors: Schema.Array(WarpAnchorTokenSchema),
 })
 export type TildeWeft = typeof TildeWeftSchema.Type
 
 export const PreambleWeftSchema = loomNode('PreambleWeft', {
   warps: Schema.Array(WarpTokenSchema),
+  anchors: Schema.Array(WarpAnchorTokenSchema),
 })
 export type PreambleWeft = typeof PreambleWeftSchema.Type
 
-export const ProseWeftSchema = loomNode('ProseWeft', {})
+export const ProseWeftSchema = loomNode('ProseWeft', {
+  anchors: Schema.Array(WarpAnchorTokenSchema),
+})
 export type ProseWeft = typeof ProseWeftSchema.Type
 
 export const CodeWeftSchema = loomNode('CodeWeft', {
@@ -81,7 +82,7 @@ export type SectionBodyWeft = typeof SectionBodyWeftSchema.Type
 
 ## What this module draws on
 
-Each weft is a `loomNode` built from Effect's `Schema`; its subtokens are the heading, arrow, tilde, code, prose, specifier, warp, and anchor schemas from `LoomTokens`.
+Each weft is a `loomNode` built from Effect's `Schema`; its subtokens are the heading, arrow, tilde, code, prose, specifier, sink, warp, and anchor schemas from `LoomTokens`.
 
 =>
 
@@ -90,18 +91,17 @@ import { loomNode } from '#ast/LoomNode'
 import {
   ArrowTokenSchema,
   CodeTokenSchema,
-  DirSpecifierTokenSchema,
   HeadingStartTokenSchema,
-  PathSpecifierTokenSchema,
-  ProseTokenSchema,
   HeadingTitleTokenSchema,
+  ProseTokenSchema,
+  SinkTokenSchema,
   SpecifierTokenSchema,
   TildeTokenSchema,
   WarpAnchorTokenSchema,
   WarpTokenSchema,
 } from './LoomTokens'
 
-## The module {src/ast/Weft.ts}
+## The module [src/ast, Weft.ts]
 
 =>
 

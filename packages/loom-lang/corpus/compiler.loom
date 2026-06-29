@@ -302,7 +302,7 @@ const entryOf = (
 
 `tangle` is the de re's file projection, the sibling of `compile`. It produces the corpus, refuses a broken build, and resolves the entry's sinks to the content and target a writer emits.
 
-`resolveSinks` takes the entry module's tangle sinks — one per `{path}` section — and for each flattens its composed code across the corpus with `fromProduct`, then resolves where the file lands. `outputPath` places a sink under a root, so a sink names its file relative to that root rather than climbing out of the corpus. `fileRoot` chooses that root for each sink: the chapter prefix a book places the sink under, resolved against the workspace, or the package root the configuration gives when no chapter places it. A file the workspace assigns to no package falls back to the `.loom`'s own directory. `resolveSinks` returns a `TangledFile` per sink: the section that produced it, where it lands, and its content. `LoomTangler` performs the writes; `tangle` itself touches no disk.
+`resolveSinks` gathers the files this tangle emits: the entry module's own tangle sinks — one per `[dir, file]` section — and every sink a book in the corpus routes into place. For each it flattens the composed code across the corpus with `fromProduct`, then resolves where the file lands. A module's file emits only when the entry produced it or a book routes it, so importing a module to transclude its code never re-emits that module's own files. `outputPath` places a sink under a root, so a sink names its file relative to that root rather than climbing out of the corpus. `fileRoot` chooses that root for each sink: the chapter prefix a book places the sink under, resolved against the workspace, or the package root the configuration gives when no chapter places it. A file the workspace assigns to no package falls back to the module's own directory. `resolveSinks` returns a `TangledFile` per sink: the section that produced it, where it lands, and its content. `LoomTangler` performs the writes; `tangle` itself touches no disk.
 
 A tangle must never emit an anchor it could not resolve, nor build on a file it could not read. So `tangle` runs `corpusErrors` over the whole corpus first — every module's document and frame — and fails with a `TangleError` the moment any module carries an error. A missing import, a malformed parse, an unresolved `::[…]` reference each stops the build rather than leaving a file with a silently dropped reference. The failure is loud, and names every file and line.
 
@@ -341,18 +341,25 @@ const resolveSinks = (
   packageRoot: Option.Option<string>,
   workspaceRoot: Option.Option<string>,
 ): ReadonlyArray<TangledFile> => {
-  const routed = sinkTreeRouting({ modules }).get(entry)
+  const routing = sinkTreeRouting({ modules })
   return pipe(
-    modules.get(entry)?.product?.files ?? [],
-    Array.map((file) => ({
-      section: file.code.origin.name,
-      path: outputPath(
-        fileRoot(routed, file.path, packageRoot, workspaceRoot),
-        entry,
-        file.path,
-      ),
-      content: fromProduct(modules, file.code.origin).code,
-    })),
+    Array.fromIterable(modules.values()),
+    Array.flatMap((module) => {
+      const routed = routing.get(module.path)
+      return Array.filterMap(module.product?.files ?? [], (file) =>
+        module.path === entry || (routed?.has(file.path) ?? false)
+          ? Option.some({
+              section: file.code.origin.name,
+              path: outputPath(
+                fileRoot(routed, file.path, packageRoot, workspaceRoot),
+                module.path,
+                file.path,
+              ),
+              content: fromProduct(modules, file.code.origin).code,
+            })
+          : Option.none(),
+      )
+    }),
   )
 }
 
@@ -395,6 +402,7 @@ const wordSinkFault = (fault: SinkFault): LoomFault =>
     Match.when({ kind: 'PointedNotH1' }, ({ name }) => PointedNotH1({ name })),
     Match.when({ kind: 'OrphanedOpening' }, ({ name }) => OrphanedOpening({ name })),
     Match.when({ kind: 'DuplicateChapter' }, ({ name }) => DuplicateChapter({ name })),
+    Match.when({ kind: 'UnresolvedPointing' }, ({ name }) => UnresolvedAnchor({ name })),
     Match.exhaustive,
   )
 
@@ -486,7 +494,7 @@ const frameLocationOf = (
 
 ## Projecting a file's tree
 
-`projectTree` assembles a file's virtual-code tree. It emits the de dicto frame with `fromFrame`, one de re document per composition root with `fromProduct`, and gathers them under a `loom` root with `rootVirtualCode`. A root is a section that no same-file anchor pulls into another, and `rootsAt` keeps those names and drops the members. `fromProduct` inlines the members a root pulls in, so each emitted document is a whole resolved Product — and a member's span maps into the root that carries it, rather than standing as a document of its own. The projection follows cross-file `::[…]` references through the corpus modules it is handed, so it treats a lone file and a whole corpus the same way.
+`projectTree` assembles a file's virtual-code tree. It emits the de dicto frame with `fromFrame`, the file's prose as a Markdown document with `fromProse`, one de re document per composition root with `fromProduct`, and gathers them under a `loom` root with `rootVirtualCode`. A root is a section that no same-file anchor pulls into another, and `rootsAt` keeps those names and drops the members. `fromProduct` inlines the members a root pulls in, so each emitted document is a whole resolved Product — and a member's span maps into the root that carries it, rather than standing as a document of its own. The projection follows cross-file `::[…]` references through the corpus modules it is handed, so it treats a lone file and a whole corpus the same way.
 
 =>
 
@@ -507,6 +515,7 @@ const rootsAt = (modules: Modules, path: Path): ReadonlyArray<string> => {
 const projectTree = (modules: Modules, entry: LoomModule): LoomVirtualCode =>
   rootVirtualCode(entry.text, [
     fromFrame(entry.frame),
+    fromProse(modules, entry.path),
     ...pipe(
       rootsAt(modules, entry.path),
       Array.map((name) => fromProduct(modules, { path: entry.path, name })),
@@ -626,12 +635,14 @@ import {
   SelfRoutingSink,
   SinkCycle,
   SinklessChapter,
+  UnresolvedAnchor,
   type LoomFault,
 } from '#ast/LoomFault'
 import { normaliseTitle } from '#ast/WeftTokeniser'
 import {
   fromFrame,
   fromProduct,
+  fromProse,
   rootNamesAt,
   rootVirtualCode,
 } from '#ast/LoomVirtualCodeBuilder'
@@ -640,7 +651,7 @@ import { FrameRunner } from '#ast/FrameRunner'
 import { LoomMemo } from './LoomMemo'
 import { PackageConfig } from './PackageConfig'
 
-## The module {src/LoomCompiler.ts}
+## The module [src, LoomCompiler.ts]
 
 =>
 

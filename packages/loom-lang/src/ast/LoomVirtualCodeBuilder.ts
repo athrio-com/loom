@@ -332,6 +332,49 @@ export const fromProduct = (
     }),
   )
 
+export const fromProse = (
+  modules: ReadonlyMap<Path, LoomModule>,
+  path: Path,
+): LoomVirtualCode => {
+  const module = modules.get(path)
+  const text = module?.text ?? ''
+  const codeWefts = module
+    ? pipe(
+        module.doc.sections,
+        Array.flatMap((section) => section.code),
+        Array.filter(
+          (weft) => weft.type === 'ArrowWeft' || weft.type === 'CodeWeft',
+        ),
+      )
+    : []
+  const code = Array.reduce(codeWefts, text, (acc, weft) => {
+    const start = weft.position.start.offset
+    const end = weft.position.end.offset
+    return (
+      acc.slice(0, start) +
+      acc.slice(start, end).replace(/[^\n]/g, ' ') +
+      acc.slice(end)
+    )
+  })
+  return {
+    id: 'prose',
+    languageId: 'prose',
+    code,
+    mappings: [
+      {
+        genStart: 0,
+        genLength: code.length,
+        source: {
+          start: { line: 1, offset: 0 },
+          end: { line: 1, offset: code.length },
+        },
+        kind: 'prose',
+      },
+    ],
+    embeddedCodes: [],
+  }
+}
+
 export const rootVirtualCode = (
   text: string,
   embeddedCodes: ReadonlyArray<LoomVirtualCode>,

@@ -316,7 +316,7 @@ import { stripTypeScriptTypes } from 'node:module'
 import { dirname, resolve as resolvePath } from 'node:path'
 import type { Code, File, Product } from '@athrio/loom-ast/ProductAst'
 
-## The module {src/ast/FrameRunner.ts}
+## The module [src/ast, FrameRunner.ts]
 
 =>
 

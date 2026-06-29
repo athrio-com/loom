@@ -6,7 +6,7 @@ import { DocumentSource } from '../src/LoomCompiler'
 import { LoomTangler } from '../src/LoomTangler'
 import { PackageConfig } from '../src/PackageConfig'
 
-// LoomTangler emits a .loom's {path} sinks to disk, each sink's anchors resolved
+// LoomTangler emits a .loom's bracket sinks to disk, each sink's anchors resolved
 // across the corpus. This probe writes a tiny doc to a temp dir, tangles it, and
 // reads the emitted file back — the end-to-end filesystem path the CLI runs.
 
@@ -18,16 +18,19 @@ const fixture = `{{lang: TypeScript}}
 
 const hi = "hello"
 
-# Bundle {out/bundle.ts}
+# Bundle [out, bundle.ts]
 
 =>
 
 ::[Greeting]
 `
 
-// loomWith — a minimal doc: a section inlined by a {path} sink through a name anchor.
-const loomWith = (value: string, out: string): string =>
-  `{{lang: TypeScript}}
+// loomWith — a minimal doc: a section inlined by a file sink through a name anchor.
+// `out` is a `dir/file` path, split into the sink's two-part bracket.
+const loomWith = (value: string, out: string): string => {
+  const slash = out.lastIndexOf('/')
+  const sink = slash === -1 ? `., ${out}` : `${out.slice(0, slash)}, ${out.slice(slash + 1)}`
+  return `{{lang: TypeScript}}
 
 # Bit
 
@@ -35,12 +38,13 @@ const loomWith = (value: string, out: string): string =>
 
 const x = "${value}"
 
-# Sink {${out}}
+# Sink [${sink}]
 
 =>
 
 ::[Bit]
 `
+}
 
 // LoomTangler over the real Node filesystem (the tangler is the fs consumer);
 // provideMerge keeps FileSystem visible to the probe for the temp dir.
@@ -50,7 +54,7 @@ const layers = LoomTangler.Default.pipe(
   Layer.provideMerge(NodeContext.layer),
 )
 
-describe('LoomTangler — tangle {path} sinks to disk', () => {
+describe('LoomTangler — tangle bracket sinks to disk', () => {
   it.scoped('writes a sink, resolving its anchor across the doc', () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
@@ -61,8 +65,8 @@ describe('LoomTangler — tangle {path} sinks to disk', () => {
       const tangler = yield* LoomTangler
       const written = yield* tangler.tangle(entry)
 
-      expect(written).toHaveLength(1) // one {path} sink — Bundle
-      // Bundle's `::[g]` resolves to Greet and inlines its code.
+      expect(written).toHaveLength(1) // one file sink — Bundle
+      // Bundle's `::[Greeting]` resolves to Greeting and inlines its code.
       const out = yield* fs.readFileString(`${dir}/out/bundle.ts`)
       expect(out).toContain('const hi = "hello"')
     }).pipe(Effect.provide(layers)),
@@ -97,7 +101,7 @@ describe('LoomTangler — tangle {path} sinks to disk', () => {
       const entry = `${dir}/broken.loom`
       yield* fs.writeFileString(
         entry,
-        `{{lang: TypeScript}}\n\n# Sink {out/x.ts}\n\n=>\n\nconst x = ::[Ghost]\n`,
+        `{{lang: TypeScript}}\n\n# Sink [out, x.ts]\n\n=>\n\nconst x = ::[Ghost]\n`,
       )
 
       const tangler = yield* LoomTangler
@@ -124,7 +128,7 @@ describe('LoomTangler — tangle {path} sinks to disk', () => {
       )
       yield* fs.writeFileString(
         `${dir}/g.loom`,
-        `{{lang: TypeScript}}\n\n# Greeting\n\n=>\n\nconst hi = "hi"\n\n# Bundle {out/g.ts}\n\n=>\n\nexport const g = <<Greeting>>\n`,
+        `{{lang: TypeScript}}\n\n# Greeting\n\n=>\n\nconst hi = "hi"\n\n# Bundle [out, g.ts]\n\n=>\n\nexport const g = <<Greeting>>\n`,
       )
 
       const tangler = yield* LoomTangler
@@ -143,7 +147,7 @@ describe('LoomTangler — tangle {path} sinks to disk', () => {
       const entry = `${dir}/dup.loom`
       yield* fs.writeFileString(
         entry,
-        '{{lang: TypeScript}}\n\n# A {out.ts}\n\n=>\n\nexport const a = 1\n\n# B {out.ts}\n\n=>\n\nexport const b = 2\n',
+        '{{lang: TypeScript}}\n\n# A [., out.ts]\n\n=>\n\nexport const a = 1\n\n# B [., out.ts]\n\n=>\n\nexport const b = 2\n',
       )
 
       const tangler = yield* LoomTangler
@@ -165,7 +169,7 @@ describe('LoomTangler — tangle {path} sinks to disk', () => {
       const entry = `${dir}/book.loom`
       yield* fs.writeFileString(
         entry,
-        '# Book\n\n## A {a/}\n\n=>\n\n::[B]\n\n## B {b/}\n\n=>\n\n::[A]\n',
+        '# Book\n\n## A [a]\n\n~\n\n::[B]\n\n## B [b]\n\n~\n\n::[A]\n',
       )
 
       const tangler = yield* LoomTangler
@@ -197,7 +201,7 @@ describe('LoomTangler — tangle {path} sinks to disk', () => {
       const tangler = yield* LoomTangler
       const written = yield* tangler.tangle(`${corpus}/widget.loom`)
 
-      // the sink `{src/Widget.ts}` resolves under the directory above the
+      // the sink `[src, Widget.ts]` resolves under the directory above the
       // corpus folder, packages/core, not the .loom's own directory
       expect(written).toHaveLength(1)
       expect(written[0]?.path).toBe(`${ws}/packages/core/src/Widget.ts`)

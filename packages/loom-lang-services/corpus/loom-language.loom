@@ -232,7 +232,7 @@ import {
   TypescriptSdk,
 } from './LanguageService'
 
-## The module {src/LoomLanguage.ts}
+## The module [src, LoomLanguage.ts]
 
 =>
 

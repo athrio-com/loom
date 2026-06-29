@@ -78,21 +78,36 @@ export const transitiveDependents = (
 
 ## The sink tree
 
-The sink tree decides where each file lands. A higher-order sink — a section whose specifier is a directory — points at a chapter and places that chapter's tangle sinks under its directory. `sinkTreeRouting` returns, for each module, the prefix each of its tangle sinks resolves under; a sink in no chapter is absent, and tangles under the workspace default instead.
+The sink tree decides where each file lands. A higher-order sink — a section whose sink names a directory, written `[dir]` — points at a chapter and places that chapter's tangle sinks under its directory. `sinkTreeRouting` returns, for each module, the prefix each of its tangle sinks resolves under; a sink in no chapter is absent, and tangles under the workspace default instead.
 
-A `SectionRef` locates a section by the module it lives in. `dirLabelOf` reads a section's directory when it is a higher-order sink, and `isDirSink` is that test as a boolean. `joinDir` nests one directory under another, so a prefix grows down a branch. `headingLevel` counts a heading's `#`, since a chapter opens only at an H1.
+A `SectionRef` locates a section by the module it lives in. `dirLabelOf` reads a higher-order sink's directory, and `isDirSink` is that test as a boolean. `tangleSinkOf` reads a section's two-part sink when it names a file, and `sinkPathOf` joins that sink's directory and file into the path it emits. `joinDir` nests one directory under another, so a prefix grows down a branch. `headingLevel` counts a heading's `#`, since a chapter opens only at an H1.
 
 =>
 
 type SectionRef = { readonly module: Path; readonly section: LoomSection }
 
 const dirLabelOf = (section: LoomSection): Option.Option<string> =>
-  section.heading.specifier?.type === 'DirSpecifier'
-    ? Option.some(section.heading.specifier.label.value)
+  section.heading.sink !== undefined && section.heading.sink.file === undefined
+    ? Option.some(section.heading.sink.dir.value)
     : Option.none()
 
 const isDirSink = (section: LoomSection): boolean =>
   Option.isSome(dirLabelOf(section))
+
+const tangleSinkOf = (section: LoomSection): Option.Option<SinkToken> => {
+  const sink = section.heading.sink
+  return sink !== undefined && sink.file !== undefined
+    ? Option.some(sink)
+    : Option.none()
+}
+
+export const sinkPathOf = (sink: SinkToken): string => {
+  if (sink.file === undefined) return sink.dir.value
+  const dir = sink.dir.value
+  return dir === '.' || dir === ''
+    ? sink.file.value
+    : `${dir.replace(/\/$/, '')}/${sink.file.value}`
+}
 
 const joinDir = (parent: string, child: string): string =>
   parent === '' ? child : `${parent.replace(/\/$/, '')}/${child}`
@@ -126,16 +141,14 @@ const sectionTitles = (modules: Modules): ReadonlyMap<string, SectionRef> =>
 
 ~
 
-A higher-order sink's members are the `::[…]` anchors in its code. `anchorsOf` gathers them; each names a chapter by its title and carries no override of its own.
+A higher-order sink's members are the anchors in its prose. `anchorsOf` gathers every anchor a section carries — across its preamble and its body, code and prose alike — since the sink tree, the navigation, and the fault checks read the same set. Each member names a chapter by its title and carries no override of its own.
 
 =>
 
 const anchorsOf = (section: LoomSection): ReadonlyArray<WarpAnchorToken> =>
   pipe(
-    section.code,
-    Array.flatMap((weft) =>
-      weft.type === 'ArrowWeft' || weft.type === 'CodeWeft' ? weft.anchors : [],
-    ),
+    [...section.preamble, ...section.code],
+    Array.flatMap((weft) => weft.anchors),
   )
 
 ~
@@ -281,13 +294,11 @@ export const sinkTreeRouting = (
     bookChapters(corpus),
     Array.flatMap((chapter) =>
       Array.filterMap(chapter.sections, (section) =>
-        section.heading.specifier?.type === 'PathSpecifier'
-          ? Option.some({
-              module: chapter.start.module,
-              path: section.heading.specifier.label.value,
-              prefix: chapter.prefix,
-            })
-          : Option.none(),
+        Option.map(tangleSinkOf(section), (sink) => ({
+          module: chapter.start.module,
+          path: sinkPathOf(sink),
+          prefix: chapter.prefix,
+        })),
       ),
     ),
   )
@@ -304,7 +315,7 @@ export const sinkTreeRouting = (
 
 ## The tangle sinks
 
-A tangle sink is a section whose specifier names a file. `tangleSinks` lists every one across the corpus, each with the path it declares and the span that path covers. A caller resolves each to where it lands and refuses two that collide; the resolution wants the package root, which the corpus does not hold, so the list stops at the declared path and leaves the rest to the compiler.
+A tangle sink is a section whose sink names a file, written `[dir, file]`. `tangleSinks` lists every one across the corpus, each with the path it declares and the span that path covers. A caller resolves each to where it lands and refuses two that collide; the resolution wants the package root, which the corpus does not hold, so the list stops at the declared path and leaves the rest to the compiler.
 
 =>
 
@@ -319,13 +330,14 @@ export const tangleSinks = (corpus: LoomCorpusAst): ReadonlyArray<TangleSink> =>
     Array.fromIterable(corpus.modules.values()),
     Array.flatMap((m) =>
       Array.filterMap(m.doc.sections, (section) =>
-        section.heading.specifier?.type === 'PathSpecifier'
-          ? Option.some<TangleSink>({
-              module: m.path,
-              position: section.heading.specifier.position,
-              path: section.heading.specifier.label.value,
-            })
-          : Option.none(),
+        Option.map(
+          tangleSinkOf(section),
+          (sink): TangleSink => ({
+            module: m.path,
+            position: sink.position,
+            path: sinkPathOf(sink),
+          }),
+        ),
       ),
     ),
   )
@@ -334,7 +346,7 @@ export const tangleSinks = (corpus: LoomCorpusAst): ReadonlyArray<TangleSink> =>
 
 The sink tree can be malformed in ways the router quietly skips — a member that resolves to nothing, a vertex that reaches itself, a chapter that opens below a top-level heading. `sinkTreeFaults` finds these, so the editor surfaces each and the tangler refuses the build. It reports a fault as structure alone — its kind, a position, and the one value its message needs — and leaves the wording to the catalog a layer above. The one rule it cannot derive, how a title folds to a name, arrives as `normalise`, so the whole corpus keeps a single normalisation.
 
-A `SinkFault` is one of nine. `CollidingTitles` names two sections that fold to one name. `SinkCycle` names a higher-order sink that reaches itself. `EmptySink` names a higher-order sink with no members. `MisplacedSpecifier` names an anchor that carries a specifier, which a member never does. `SelfRoutingSink` names a chapter a book points into its own file. `SinklessChapter` names a chapter whose range tangles no file. `PointedNotH1` names a chapter that opens below a top-level heading. `OrphanedOpening` names a book's first chapter into a module that strands the sections ahead of it. `DuplicateChapter` names a chapter two higher-order sinks both claim.
+A `SinkFault` is one of ten. `CollidingTitles` names two sections that fold to one name. `SinkCycle` names a higher-order sink that reaches itself. `EmptySink` names a higher-order sink with no members. `MisplacedSpecifier` names an anchor that carries a specifier, which a member never does. `SelfRoutingSink` names a chapter a book points into its own file. `SinklessChapter` names a chapter whose range tangles no file. `PointedNotH1` names a chapter that opens below a top-level heading. `OrphanedOpening` names a book's first chapter into a module that strands the sections ahead of it. `DuplicateChapter` names a chapter two higher-order sinks both claim. `UnresolvedPointing` names a member that reaches no section.
 
 =>
 
@@ -348,10 +360,11 @@ export type SinkFault =
   | { readonly kind: 'PointedNotH1'; readonly path: Path; readonly position: Position; readonly name: string }
   | { readonly kind: 'OrphanedOpening'; readonly path: Path; readonly position: Position; readonly name: string }
   | { readonly kind: 'DuplicateChapter'; readonly path: Path; readonly position: Position; readonly name: string }
+  | { readonly kind: 'UnresolvedPointing'; readonly path: Path; readonly position: Position; readonly name: string }
 
 ~
 
-Two small readers locate the spans a fault lands on. `located` flattens the corpus to every section beside the module it lives in. `headingPosition` points at a section's heading, its title for choice and its specifier or whole heading as fallbacks.
+Two small readers locate the spans a fault lands on. `located` flattens the corpus to every section beside the module it lives in. `headingPosition` points at a section's heading, its title for choice and its specifier, sink, or whole heading as fallbacks.
 
 =>
 
@@ -368,6 +381,7 @@ const located = (modules: Modules): ReadonlyArray<Located> =>
 const headingPosition = (section: LoomSection): Position =>
   section.heading.title?.position ??
   section.heading.specifier?.position ??
+  section.heading.sink?.position ??
   section.heading.position
 
 ~
@@ -405,6 +419,13 @@ const collidingTitles = (
     ),
   )
 
+const anchorSpecifierText = (spec: SpecifierToken | SinkToken): string =>
+  spec.type === 'Specifier'
+    ? spec.label.value
+    : spec.file === undefined
+      ? spec.dir.value
+      : `${spec.dir.value}, ${spec.file.value}`
+
 const misplacedSpecifiers = (
   sections: ReadonlyArray<Located>,
 ): ReadonlyArray<SinkFault> =>
@@ -418,7 +439,7 @@ const misplacedSpecifiers = (
             kind: 'MisplacedSpecifier',
             path: loc.path,
             position: specifier.position,
-            specifier: specifier.label.value,
+            specifier: anchorSpecifierText(specifier),
           }),
         ),
       ),
@@ -485,7 +506,7 @@ Five faults read the chapters. `chapterFaults` runs them over `bookChapters`, na
 =>
 
 const isTangleSink = (section: LoomSection): boolean =>
-  section.heading.specifier?.type === 'PathSpecifier'
+  Option.isSome(tangleSinkOf(section))
 
 const chapterFaults = (corpus: LoomCorpusAst): ReadonlyArray<SinkFault> => {
   const modules = corpus.modules
@@ -547,7 +568,32 @@ const chapterFaults = (corpus: LoomCorpusAst): ReadonlyArray<SinkFault> => {
 
 ~
 
-`sinkTreeFaults` gathers all nine over the whole corpus.
+An unresolved pointing is a member that names no section. `unresolvedPointings` reports each: a higher-order sink places a chapter by name, so a name that reaches nothing places nothing, and the book is malformed. A navigate anchor in ordinary prose stays lenient and reports nothing; only a placing member faults.
+
+=>
+
+const unresolvedPointings = (modules: Modules): ReadonlyArray<SinkFault> => {
+  const index = sectionTitles(modules)
+  return pipe(
+    dirSinks(modules),
+    Array.flatMap((sink) =>
+      Array.filterMap(anchorsOf(sink.section), (anchor) =>
+        index.has(anchor.name.value)
+          ? Option.none<SinkFault>()
+          : Option.some<SinkFault>({
+              kind: 'UnresolvedPointing',
+              path: sink.module,
+              position: anchor.position,
+              name: anchor.name.value,
+            }),
+      ),
+    ),
+  )
+}
+
+~
+
+`sinkTreeFaults` gathers all ten over the whole corpus.
 
 =>
 
@@ -561,6 +607,7 @@ export const sinkTreeFaults = (
     ...misplacedSpecifiers(sections),
     ...emptySinks(corpus.modules),
     ...sinkCycles(corpus.modules),
+    ...unresolvedPointings(corpus.modules),
     ...chapterFaults(corpus),
   ]
 }
@@ -832,18 +879,22 @@ export const corpusErrors = (
 
 ## What this module draws on
 
-Effect supplies `Schema` for the model and `Array`, `Option`, and `pipe` for the queries. The module bundles two other models — `LoomDocument` (parse) and `FrameModule` (frame) — `LoomSection`, the unit the sink tree walks, the `WarpAnchorToken` a sink's members are, and `Diagnostic` and `Position` — what a corpus walk gathers and a sink fault lands on.
+Effect supplies `Schema` for the model and `Array`, `Option`, and `pipe` for the queries. The module bundles two other models — `LoomDocument` (parse) and `FrameModule` (frame) — `LoomSection`, the unit the sink tree walks, the `SinkToken` a heading targets, the `WarpAnchorToken` a sink's members are, the `SpecifierToken` a misplaced anchor may wear, and `Diagnostic` and `Position` — what a corpus walk gathers and a sink fault lands on.
 
 =>
 
 import { Array, Option, pipe, Schema } from 'effect'
 import { type Diagnostic, type Position } from '#ast/LoomNode'
-import { type WarpAnchorToken } from '#ast/LoomTokens'
+import {
+  type SinkToken,
+  type SpecifierToken,
+  type WarpAnchorToken,
+} from '#ast/LoomTokens'
 import { ProductSchema } from '#ast/ProductAst'
 import { LoomDocumentSchema, type LoomSection } from '#ast/LoomAst'
 import { FrameModuleSchema } from '#ast/FrameAst'
 
-## The module {src/ast/LoomCorpusAst.ts}
+## The module [src/ast, LoomCorpusAst.ts]
 
 =>
 

@@ -34,6 +34,9 @@ export default defineConfig({
         dirname(requireFromHere.resolve('yaml/package.json')),
         'browser/index.js',
       ),
+      'vscode-uri': requireFromHere
+        .resolve('vscode-uri')
+        .replace(/esm[\\/]index\.mjs$/, 'umd/index.js'),
     },
   },
   build: {

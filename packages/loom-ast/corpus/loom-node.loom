@@ -117,7 +117,7 @@ export const loomNode = <
     ...fields,
   })
 
-## The module {src/ast/LoomNode.ts}
+## The module [src/ast, LoomNode.ts]
 
 =>
 
