@@ -58,11 +58,13 @@ Each model, and the pass (its Builder) that produces it:
     stored.
   - **`fromProduct`** : `ComposedCode` → a de re product virtual code, the
     author's code with its transclusions inlined across the corpus.
+  - **`fromProse`** → a `prose` virtual code, the file stripped to its prose and
+    read as Markdown.
   - **`tangle`** → product files on disk — the filesystem projection, on the de
-    re plane: assemble each `{path}` sink's composed code and write it.
-  The projection is the family; **`fromFrame`, `fromProduct`, and `tangle` are
-  members**, not stages — further surfaces (semantic tokens, …) are just more
-  algebras over the same models.
+    re plane: assemble each `[dir, file]` sink's composed code and write it.
+  The projection is the family; **`fromFrame`, `fromProduct`, `fromProse`, and
+  `tangle` are members**, not stages — further surfaces (semantic tokens, …) are
+  just more algebras over the same models.
 
 `LoomVirtualCode` is plain data: it is adapted to Volar's runtime `VirtualCode`
 by `toVolar` at the editor edge (the one place that touches Volar's snapshot /
@@ -123,9 +125,11 @@ to reimplement what Volar provides.
 root (languageId: "loom")
 ├── frame        (languageId: "loom")         ← de dicto: the Frame's Service
 │                                                program, via fromFrame (how-frame)
+├── prose        (languageId: "prose")        ← the file's prose as Markdown,
+│                                                via fromProse
 ├── section-0    (languageId: per section)    ← de re: a section's resolved
 │                                                composition (code + transclusions)
-├── section-1    (languageId: per section)    ← a {path} sink is a section too,
+├── section-1    (languageId: per section)    ← a [dir, file] sink is a section too,
 │                                                in the language its extension names
 └── …
 ```
@@ -140,10 +144,15 @@ root (languageId: "loom")
   synthetic `_N` alias.
 - **Embedded section compositions** — each content section projects to its
   *resolved composition*: its code with its transcluded sections inlined in
-  composition order, in its own `languageId`. The id is the document's `{{lang: …}}`
-  default, a per-section label specifier such as `{Bash}`, or — for a `{path}` tangle
-  sink — the language its path extension names, so a `.json` sink is JSON. Syntax
-  highlighting is the floor for every section; type-checking is narrower (below).
+  composition order, in its own `languageId`. The id is a per-section label specifier
+  such as `{Bash}`, or — for a `[dir, file]` tangle sink — the language its file
+  extension names (so a `.json` sink is JSON), or the document's `{{lang: …}}` default,
+  or the workspace's configured language. Syntax highlighting is the floor for every
+  section; type-checking is narrower (below).
+- **The prose document** — the file stripped to its prose, projected as one Markdown
+  document (`fromProse`), `languageId` `prose`. `ProseLanguage` extends
+  `volar-service-markdown` over it, so the prose edits as Markdown; the source mirror
+  keeps the anchors' navigation, so `::[…]` links stay live.
 
 A `{Loom}` section is projected literally into the frame rather than carried as
 composed product (see `how-frame.md`).
@@ -227,7 +236,7 @@ shed newline's `.loom` origin stops being mapped — a newline is never a hover 
 diagnostic target — and every source span is left exact.
 
 A **tangle sink** is a composition root whose unit is a file-output target: a
-`{path}` section assembles its members into one document, in the language its path
+`[dir, file]` section assembles its members into one document, in the language its file
 extension names — type-checked as that language and, at the end of the world, written
 to disk. A library `.loom` with no sink still has roots: any section nothing
 transcludes by name is one, checked within itself. A section composes one language; a
@@ -326,8 +335,9 @@ code that answers it, and `@volar/language-service` hosts feature providers and 
 their results. Its bundled TypeScript service, `volar-service-typescript`, is one
 provider this core hosts, not the foundation. A language package is therefore a
 `LanguageService` the core hosts, and `resolveActive` turns the ids a `loom.json`
-activates into the services that run — `LoomLanguage` always, then each activated id,
-with an unknown id reserved for the `loom-service-<id>` package that will answer it.
+activates into the services that run — `LoomLanguage` and `ProseLanguage` always, then
+each activated id, with an unknown id reserved for the `loom-service-<id>` package that
+will answer it.
 
 ### Three tiers in a package
 
