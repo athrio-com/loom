@@ -42,9 +42,10 @@ Each model, and the pass (its Builder) that produces it:
   surface text is emitted here; emitting is projection.
 - **`ComposedCode`** — produced by **running**, not by a Builder: the runner
   (`LoomRunner`, `FrameRunner.ts`) executes the rendered `FrameModule` to the de re
-  structure, one `ComposedCode` per section — its product code with transclusions
-  expressed as resolved edges. The runner runs the whole reachable corpus; the
-  cross-file graph is followed later, at projection. (`how-run.md` covers the run.)
+  structure, one `ComposedCode` per section — its product code with each name anchor
+  expressed as a resolved edge to the same-document section it names. The runner runs
+  the whole reachable corpus; each section's edges are inlined later, at projection.
+  (`how-run.md` covers the run.)
 - **`LoomVirtualCode`** — `LoomVirtualCodeBuilder` (`LoomVirtualCodeBuilder.ts`), the
   projection: a *family* of passes that fold a model to text + source mappings,
   each a *catamorphism*, differing only in its algebra:
@@ -130,11 +131,13 @@ root (languageId: "loom")
 ```
 
 - **Frame** — the Frame's single virtual code (`fromFrame`), generated TypeScript: the
-  `Effect.Service` class per section, the Warp wiring, the tangle calls, and the
-  composition root (the `__services` map and the `__run` effect). tsc checks it for
-  composition correctness. A heading tag maps to its generated Service class, so it
-  offers go-to-definition and rename — but not hover, which would only surface that
-  generated class. A tagless heading takes the class named after its normalized title.
+  `Effect.Service` class per section, the `yield*` each anchor hoists, the tangle calls,
+  and the composition root (the `__services` map and the `__run` effect). tsc checks it
+  for composition correctness. The frame names each section's class after its heading
+  title normalised to an identifier, and a name anchor reaches it through a hoisted
+  `const _N = yield* …` alias whose declaration maps to that heading. So the heading
+  offers go-to-definition and rename — but not hover, which would only surface the
+  synthetic `_N` alias.
 - **Embedded section compositions** — each content section projects to its
   *resolved composition*: its code with its transcluded sections inlined in
   composition order, in its own `languageId`. The id is the document's `{{lang: …}}`
@@ -153,18 +156,16 @@ Type checking and semantic analysis of *product* code work through the
 *composition* — the de re projection of the Frame, anchored by the file's `Root`
 (generated where the file has Services; see `how-frame.md`). The unit is the
 **composition root**. Every section is a root until another section in the same module
-folds it in — through a `::[…]` name anchor or a Warp to its tag. Folding demotes the
-target: it becomes a fragment of the root that pulls it in, not a unit of its own. So
-the broadest section in a module wins — the one nothing folds in is the root, and the
-sections it pulls in, directly or through a chain, are its fragments.
+folds it in through a `::[…]` name anchor. Folding demotes the target: it becomes a
+fragment of the root that pulls it in, not a unit of its own. So the broadest section in
+a module wins — the one nothing folds in is the root, and the sections it pulls in,
+directly or through a chain, are its fragments.
 
-A name anchor and a Warp fold the same way but map differently. A name anchor shares
-the root's scope, so its fragment maps to the named section's own source. A Warp copies
-its target in by value, so the fragment pins to the `::[…]` anchor instead. A Warp also
-reaches across files, and a cross-file Warp is the one reference that does not fold: it
-leaves that tag a root of its own module, a library this file reuses rather than
-absorbs. A tagged section reused by value carries its own `::[…]` fragments with it,
-composing exactly as it would alone.
+A name anchor folds the named same-document section into the root's scope, and the
+fragment maps to that section's own source. There is no by-value copy and no
+cross-file reference: a name anchor resolves only within its own `.loom`, so every
+fragment is a sibling section the root shares scope with, never a library taken from
+another module.
 
 A root's resolved document is its code with its fragments inlined, and that document is
 what the language service checks. A fragment is never checked alone, so the names it
@@ -180,9 +181,10 @@ one, and it is always checked.
 The two planes are checked by different engines, and the split follows what each plane
 is. The **frame** is permanently TypeScript, so it keeps Volar's built-in TypeScript
 program. That program is pinned to a baked Loom baseline — fixed compiler options and
-the `@athrio/loom-core` import roots — so the consumer's own `tsconfig.json` never
-reaches the frame, and it checks the same way in every package. The frame is the file's
-primary service script, the one Volar's TypeScript type-checks in place.
+the `@athrio/loom-lang/dsl` import root the frame composes through — so the consumer's
+own `tsconfig.json` never reaches the frame, and it checks the same way in every
+package. The frame is the file's primary service script, the one Volar's TypeScript
+type-checks in place.
 
 The **product** is poly-lingual, so each activated language is served by its own
 package, a `@athrio/loom-service-<id>`. The package checks that language's roots against
@@ -201,14 +203,12 @@ It is how a language tunes itself per package without the host knowing the keys.
 A **composition diagnostic** — one that exists only because sections are spliced:
 a duplicated binding, a name a mid-section anchor pulls into scope, a type that
 clashes only when composed — is emergent. No section produces it alone, only the
-consuming document does, so it is reported once. By default it maps to the actual
-offending span, in whichever contributing section's `.loom` wrote it — the
-language service's own order, run backward through the mappings. The exception is a
-**by-value** transclusion: when the offending span was copied in through a Warp to a
-tagged section, the diagnostic re-pins to the `::[…]` **anchor** in the consuming
-section — the composition is the consumer's to own, and the tagged section's author
-never sees it — not to that section's own source. A cross-file transclusion is always
-by value, so this is the path a library's inlined code takes.
+consuming document does, so it is reported once. It maps to the actual offending span,
+in whichever contributing section's `.loom` wrote it — the language service's own
+order, run backward through the mappings. A name anchor folds its target into shared
+scope, so the target keeps its own source as a diagnostic endpoint. There is no
+by-value copy that would re-pin a diagnostic to the anchor, and no cross-file
+transclusion, because a name anchor resolves only within its own `.loom`.
 
 Composition order — not document order — is what the language service sees, so a
 section may reference another defined later in the source without error. The
@@ -242,7 +242,7 @@ grammar is missing or an anchor names a file that cannot be read.
 
 ## Resolving the Corpus in the Editor
 
-A section's resolved composition reaches across files. A `::[…]` anchor can name a section in another `.loom`, and resolving it inlines that section's code into the consuming document. So the editor cannot check the open file by itself. It reads, parses, and composes every `.loom` the open file imports, and checks the open file's sections against that whole corpus.
+A `.loom` file reaches across files through its imports, not through its anchors. A name anchor resolves only within its own document, but the product code in a section may `import` from another module, and the frame imports sibling services the same way. To check those imports, the editor reads, parses, and composes every `.loom` the open file imports, and checks the open file's sections against that whole corpus. So the editor cannot check the open file by itself.
 
 That corpus build runs on every keystroke, inside Volar's projection hook. The hook is synchronous: Volar hands over a snapshot and wants a virtual-code tree back in the same tick, because TypeScript's checker pulls the hook on the stack while it type-checks the frame. Every constraint below follows from that one fact.
 
@@ -270,19 +270,19 @@ The walk discovers the corpus as it parses. A module's import edges live on the 
 
 Every failure is a value in a node's health, never a thrown exception. A file that cannot be read becomes a placeholder module carrying an error diagnostic, the same recovery a malformed parse takes through `emptyDocumentFor`. The build never throws, so one unreadable import degrades to a diagnostic on that import rather than crashing the open file's projection.
 
-Two consumers read that health and apply their own policy. The editor surfaces it: an anchor into a file that cannot be read reports its error at the `::[…]` site the author wrote. The tangler refuses it: it gathers every error-health node across the corpus and fails with one `TangleError`, rather than write a file with a silently dropped reference.
+Two consumers read that health and apply their own policy. The editor surfaces it: an import of a file that cannot be read reports its error at the import the author wrote. The tangler refuses it: it gathers every error-health node across the corpus and fails with one `TangleError`, rather than write a file with a silently dropped reference.
 
 ### Invalidation Belongs to Volar
 
-Caching the corpus is simple until a file changes. When `B.loom` changes, every file that transcludes it holds a stale composition and must be re-projected — and Loom delegates that to Volar. After projecting a file, the plugin calls `getAssociatedScript` for every module the file *transitively* imports, registering on Volar's association graph that the file depends on them. The registration runs after the build, on the warm corpus, so the projection it incidentally triggers is a cache hit — not the re-entrant build that reading *through* it would cause.
+Caching the corpus is simple until a file changes. When `B.loom` changes, every file that imports it holds a stale composition and must be re-projected — and Loom delegates that to Volar. After projecting a file, the plugin calls `getAssociatedScript` for every module the file *transitively* imports, registering on Volar's association graph that the file depends on them. The registration runs after the build, on the warm corpus, so the projection it incidentally triggers is a cache hit — not the re-entrant build that reading *through* it would cause.
 
 When `B.loom`'s snapshot then changes, Volar marks every registered dependent stale and re-projects it. Re-projecting *runs the composition*, so the output is fresh by construction. The registration is transitive because Volar propagates dirtiness one hop at a time on a snapshot change: a change deep in a chain reaches the files at the top only when each has declared the whole chain it reaches.
 
-Loom's one remaining duty is cache coherence. `LoomMemo` is Loom's cache, not Volar's, so a `B.loom` change must evict `B.loom`'s build — `updateVirtualCode` does this when the file's own text changed — or a dependent's re-projection would recompose against a stale `B.loom`. A module's build holds only its own frame, since a transclusion is inlined at projection rather than baked into the build, so evicting the single changed file is enough.
+Loom's one remaining duty is cache coherence. `LoomMemo` is Loom's cache, not Volar's, so a `B.loom` change must evict `B.loom`'s build — `updateVirtualCode` does this when the file's own text changed — or a dependent's re-projection would recompose against a stale `B.loom`. A module's build holds only its own frame, since an imported module is resolved at projection rather than baked into the build, so evicting the single changed file is enough.
 
 ### Loom Builds No Graph
 
-The import relationships form a directed graph, but Loom never materialises one, and never computes the reverse direction. Forward edges are read off each module during the walk, and declared to Volar as associations. The reverse direction — which dependents a change invalidates — is Volar's, derived from those forward associations: Loom asks Volar to re-project, it does not decide what re-projects. A transclusion cycle is caught by the visited set `fromProduct` threads as it inlines. Effect's `Graph` module would add a second structure, keyed by its own node indices, for needs already met, so Loom declines it.
+The import relationships form a directed graph, but Loom never materialises one, and never computes the reverse direction. Forward edges are read off each module during the walk, and declared to Volar as associations. The reverse direction — which dependents a change invalidates — is Volar's, derived from those forward associations: Loom asks Volar to re-project, it does not decide what re-projects. An import cycle is caught by the visited set the walk threads as it follows each module's imports. Effect's `Graph` module would add a second structure, keyed by its own node indices, for needs already met, so Loom declines it.
 
 ---
 
@@ -298,16 +298,16 @@ Routing is by plane:
 
 ```
 .loom source position
-  ├─ heading, Warp/anchor, tangle body, or {Loom} code (FrameCode)
+  ├─ heading, warp, name anchor, tangle body, or {Loom} code (FrameCode)
   │     → frame virtual code (tsc) → frame annotations
   └─ a product section's code block (EmbeddedCode)
         → the section's resolved composition → product annotations
            (unresolved, e.g. an anchor to a file that cannot be read → Tree-sitter syntax tokens only)
 ```
 
-Frame annotations (a tag's resolved Service, a Warp's resolved target, a
-composition type error) and product annotations (a type error in the author's
-code, hover on a local variable) never mix; the source position alone decides
+Frame annotations (a heading's resolved Service class, a name anchor's resolved
+target section, a composition type error) and product annotations (a type error in the
+author's code, hover on a local variable) never mix; the source position alone decides
 which virtual code answers.
 
 ---
@@ -334,8 +334,8 @@ with an unknown id reserved for the `loom-service-<id>` package that will answer
 A package composes its features in three tiers, sorted by who computes each one.
 
 The first tier is **Loom-structural**, and it is shared across every language.
-Go-to-definition from a `::[…]` anchor to its section, completion of section names and
-tags, hover on a Warp, the diagnostic a cross-language anchor raises — these read the
+Go-to-definition from a `::[…]` anchor to its section, completion of section titles,
+hover on a value warp, the diagnostic a cross-language anchor raises — these read the
 corpus AST and the mappings Loom already builds, so they are identical whether the
 section is Python or Scala. They are written once and ride in every package.
 

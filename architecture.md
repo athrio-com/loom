@@ -19,9 +19,9 @@ to exactly one of them.
 
 The _de dicto_ plane is the **frame**: the TypeScript program Loom synthesises to
 compose the file's sections — the generated `Effect.Service` classes, their
-`compose` and `tangle` calls, the warp wiring, the author's cross-file imports. It
-describes _how_ code is composed, and a type-checker reads it for composition
-correctness.
+`compose` and `tangle` calls, and the `yield*` an anchor hoists to reach the
+section it names. It describes _how_ code is composed, and a type-checker reads it
+for composition correctness.
 
 The _de re_ plane is the **product**: the author's own code, each section in the
 language it was written in — a Scala definition, a JSON manifest, a SQL query. It is
@@ -83,7 +83,7 @@ shape: a `type` discriminator, a `position`, the `source` slice it covers, its
 `health`, and an optional `unexpected` array. There is no translation step between
 the layers; each layer is itself a discriminable AST node, and a walker recurses by
 `type`. `unexpected` is the universal slot for fragments the schema rejects — an
-orphan bracket, a duplicate tag — kept in place rather than dropped.
+orphan bracket, an unclosed delimiter — kept in place rather than dropped.
 
 The document is flat: a `LoomDocument` is a preamble and a `LoomSection[]` with no
 nesting and no parent containers. Every heading creates a section whatever its level;
@@ -104,10 +104,10 @@ Where source is present but malformed, the tokeniser still builds a valid node, 
 error health and the bad bytes in `unexpected`.
 
 Health is two-tier, one tier per AST. **Grammatical health** lives on the Loom AST at
-parse — orphan brackets, malformed labels, duplicate tags, unclosed delimiters.
-**Semantic health** lives on the frame AST at the `FrameAstBuilder` pass — a tag on a
-`{Loom}` section, a cross-language composition edge, an unresolved anchor —
-diagnostics that need _meaning_, which the frame pass has and parse does not.
+parse — orphan brackets, malformed specifiers, unclosed delimiters. **Semantic
+health** lives on the frame AST at the `FrameAstBuilder` pass — two section titles
+that normalise to one identifier, a cross-language composition edge, an unresolved
+anchor — diagnostics that need _meaning_, which the frame pass has and parse does not.
 Both surface at source: grammatical health is already on nodes that carry their
 `position`, and semantic health rides the mapping back to its originating `.loom` span.
 The editor merges the two tiers and withholds neither.
@@ -126,57 +126,65 @@ document preamble is preamble mode before any heading, and takes no transition. 
 section obeys the same grammar whatever its specifier; the specifier changes what the
 code is typed against, not the shape of the body.
 
-## Specifiers and warps
+## Specifiers, warps, and anchors
 
 A heading may carry a specifier in braces. A label specifier (`{Scala}`, `{Loom}`)
 names the section's language; a path specifier (`{src/main.ts}`), told apart by its
 path separators, marks the section as a tangle sink. `{Loom}` is an escape hatch whose
 meaning is a frame concern; the AST records only the token.
 
-A warp declares a binding and an anchor references it. A declaration,
-`{{ name [: type] = value }}`, is recognised in a preamble line and binds a local name
-to a value; an anchor, `::[name]` or `::[Heading Name]`, is recognised in a code line
-and composes one. The two use distinct delimiters — `{{…}}` for a declaration, `::[…]`
-for a reference — because an anchor sits inside product code, where `{{` would collide
-with templating languages that own that syntax. What a declaration's value names — a
-section service, or a plain literal — is a frame concern; at the AST a warp is a
-declaration and an anchor a reference. A value is required: a value-less warp is a
-diagnostic, with the one exception of the `{{lang: …}}` directive that names the
-document's language.
+A warp declares a binding in the preamble. A name anchor references a name in a code
+line. The two use distinct delimiters — `{{…}}` for a warp, `::[…]` for an anchor —
+because an anchor sits inside product code, where `{{` would collide with templating
+languages that own that syntax. A warp, `{{ name [: type] = value }}`, binds a local
+name to a value. A name anchor names what composes where it stands: `::[Multiplier
+Function]` names a section in the same document by its heading title, and that section's
+composed code lands there; `::[c]` names a value a warp bound, and the value lands
+there.
+
+Two warps survive, told apart by their delimiter. A **value warp** — `{{ c = value }}`
+— binds a name to a literal that a `::[c]` anchor composes; its value is required, so a
+value-less warp is a diagnostic. The **language warp** — `{{lang: TypeScript}}` — names
+the document's primary language and carries an annotation, not a value, so it is exempt
+from that requirement. A warp that once named another section is gone: a section reaches
+another only through a name anchor, never a warp. What a name resolves to — a section, or
+a bound value — is a frame concern; at the AST a warp is a declaration and an anchor a
+reference.
 
 ## The frame: sections as services
 
 Each section projects to one `Effect.Service` class exposing three fields: `name`, the
 heading title; `code`, the composed product code; and `prose`, the woven literate
 layer. Code and prose are peers — the two halves of the document made queryable side
-by side — each a `core.compose(…)` or `core.weave(…)` call so the shape stays uniform.
+by side — each a `dsl.compose(…)` or `dsl.weave(…)` call so the shape stays uniform.
 The one exception is a `{Loom}` section, whose code splices into the frame unwrapped as
 raw TypeScript; it is the escape hatch for what the projection model does not cover.
 
-**Tags determine visibility.** A section with an explicit `[Tag]` is exported and forms
-part of the document's public API, referenceable from other files. A tagless section is
-private: its class name is the heading title normalised to an identifier, and it is
-reachable only within the same document, by a name anchor.
+**Every section is exported.** There is one kind of section and no visibility scope.
+The frame names each section's class after its heading title normalised to an
+identifier — `Multiplier Function` becomes `MultiplierFunction` — and exports it. A name
+anchor reaches a section only within the same document.
 
-**The dependency graph is a parse-time artifact.** Service-warp declarations are its
-edges — each `{{m = Mul}}` is a named edge to another section — so the graph is traversable
-straight from the AST, with no analysis pass. The frame projects each edge to a lazy
-`const m = yield* Mul` inside the service's `Effect.gen` body; that `yield*` _is_ the
-dependency, lifted into the layer type by Effect, so the frame emits no eager
-`dependencies` array. Because the only cross-reference is lazy, the frame emits
-sections in document order — no topological sort — and cycles surface as a diagnostic
-rather than blocking output.
+**The dependency graph is a parse-time artifact.** Name anchors are its edges — each
+`::[Multiplier Function]` in a section's code block is an edge to the section that title
+names — so the graph is traversable straight from the AST, with no analysis pass. The
+frame projects each anchor to a lazy `const _N = yield* MultiplierFunction` inside the
+service's `Effect.gen` body, and inlines that section's `code` where the anchor stood;
+the `yield*` _is_ the dependency, lifted into the layer type by Effect, so the frame
+emits no eager `dependencies` array. Because the only cross-reference is lazy, the frame
+emits sections in document order — no topological sort — and an anchor cycle surfaces as
+a diagnostic rather than blocking output.
 
-A section whose specifier is a file path is a **tangle sink**: it composes its members
-and wraps the result in a `core.tangle(path, …)` call instead of returning the
-`{ name, code, prose }` object. It is a sink in the warp graph — it consumes the graph
-and nothing consumes it. Loom owns the **composition root**: the frame exports
-`__services` (each service with its layer and the classes it depends on) and `__run`
-(which yields every section), and the runner wires each dependency cone in order and
-runs it — no service self-provides. The root is generated for every file with
+A section whose specifier is a file path is a **tangle sink**: it composes the sections
+its anchors name and wraps the result in a `dsl.tangle(path, …)` call instead of
+returning the `{ name, code, prose }` object. It is a sink in the anchor graph — it
+consumes the graph and nothing consumes it. Loom owns the **composition root**: the
+frame exports `__services` (each service with its layer and the classes it depends on)
+and `__run` (which yields every section), and the runner wires each dependency cone in
+order and runs it — no service self-provides. The root is generated for every file with
 services; the author never writes imports, assembles layers, or touches the entry
 point. `how-frame.md` carries the full treatment — the projection rules, order
-independence, and cross-module imports.
+independence, and cross-module reuse.
 
 ## The editor surface
 
@@ -193,18 +201,17 @@ language.
 
 Type-checking runs on the **composition roots** — the sections no other section
 transcludes by name — each checked as one isolated module. A root's resolved document
-is its code with its transclusions inlined: a name anchor folds a same-document
-section into the root's shared scope, so split sections compose and resolve together;
-a Warp copies a tagged section in by value, kept apart from the original. A section
-reached by a name anchor is a fragment, checked inside the root that names it and
-never alone — so the names it borrows from sibling sections resolve, and a diagnostic
-that exists only because sections are spliced is reported once, against the offending
-span. Composition order, not document order, is what the service sees, so a section
-may reference another defined later in the source. A section composes one language; a
-name anchor that crosses languages is an authoring error the frame pass reports.
-**Syntax highlighting is the floor**: always available per code section, and the only
-product signal when no composition resolves — a missing grammar, or a cross-file
-dependency.
+is its code with its transclusions inlined: a name anchor folds the same-document
+section it names into the root's shared scope, so split sections compose and resolve
+together. A section reached by a name anchor is a fragment, checked inside the root
+that names it and never alone — so the names it borrows from sibling sections resolve,
+and a diagnostic that exists only because sections are spliced is reported once,
+against the offending span. Composition order, not document order, is what the service
+sees, so a section may reference another defined later in the source. A section
+composes one language; a name anchor that crosses languages is an authoring error the
+frame pass reports. **Syntax highlighting is the floor**: always available per code
+section, and the only product signal when no composition resolves — a missing grammar,
+or an anchor naming a file that cannot be read.
 
 Above that floor, each plane is served by the engine that fits what it is. The
 **frame** is permanently TypeScript — every `.loom` has one — so it keeps Volar's
@@ -245,17 +252,17 @@ imperative flow.
 
 ## Composition primitives
 
-The frame imports `#loom/core` and calls its primitives to build the de re. They
-construct `ProductAst` values — a `ComposedCode` per section — not strings:
+The frame imports `@athrio/loom-lang/dsl` and calls its primitives to build the de re.
+They construct `ComposedCode` values — one per section — not strings:
 
 - **`fragment`** wraps one span of product code with the `.loom` position it maps back
   to.
-- **`referName`** and **`referTag`** are the two transclusion edges: each reads another
-  section's `ComposedCode` and records its identity, never a copy of its parts. The
-  frame writes `referName` for a name anchor into the same document — its target shares
-  the consuming section's scope — and `referTag` for a Warp binding to a tag — its
-  target is taken by value, a copy. The projection reads the kind: it folds a `NameRef`
-  into shared scope and copies a `TagRef`.
+- **`referName`** is the one transclusion edge: it reads the named section's
+  `ComposedCode` and records its identity as a `NameRef`, never a copy of its
+  fragments. The frame writes a `referName` for each name anchor, and the projection
+  folds the named section into the consuming section's shared scope.
+- **`referValue`** composes a value warp's bound literal where a `::[c]` anchor stood.
+  It carries the value, not another section, so it adds no edge to the graph.
 - **`compose`** assembles a section's fragments and references, in argument order, into
   one `ComposedCode`, stamped with the section's identity and language.
 - **`weave`** is `compose`'s peer for prose, assembling a `WovenProse`.

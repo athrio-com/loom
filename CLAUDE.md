@@ -38,12 +38,11 @@ duplicate their detail):
   before changing it.
 - **`packages/loom-lang/src/ast/how-frame.md`** — *the frame pass*. AST
   → `Effect.Service` classes: each section is a Service exposing
-  `{ name, code, prose }`; tags determine visibility (tagged = exported,
-  tagless = private, named after the heading); the Warp graph drives dependencies and emission
-  order; tangle sections (`{path}` specifier) emit files; the composition root
-  is auto-generated.
+  `{ name, code, prose }`; every section is exported and named by its heading
+  title; name anchors drive dependencies and emission order; tangle sections
+  (`{path}` specifier) emit files; the composition root is auto-generated.
 - **`packages/loom-lang/how-lsp.md`** — *tooling*. The
-  composition primitives (`compose`, `tangle` — in `#loom/core`), the runtime
+  composition primitives (`compose`, `tangle` — in the `dsl`), the runtime
   entry points (Tangle CLI, LSP server, Vite plugin), and the Volar/LSP
   virtual-code layer (virtual code tree, source mappings, the multiplexer,
   syntax highlighting).
@@ -57,10 +56,10 @@ not one section.
 
 ### Author in Loom — never hand-write source
 
-Loom is written in Loom. Every package — `@athrio/loom-core` (the composition
-language a frame imports), the config package, each `@athrio/loom-service-*`, the
-CLI, and in time the language-server itself — is authored as a `.loom` corpus and
-tangled to source. Never hand-write `.ts` (or any target-language) files, and never edit the
+Loom is written in Loom. Every package — `@athrio/loom-ast` and `@athrio/loom-lang`
+(the AST and the composition language a frame imports), the config package, each
+`@athrio/loom-service-*`, the CLI, and in time the language-server itself — is
+authored as a `.loom` corpus and tangled to source. Never hand-write `.ts` (or any target-language) files, and never edit the
 tangled output: it is a generated artifact. To change emitted code, find the
 section that produced it, edit its prose/`=>` chunk, and re-tangle. Catching
 yourself editing a `.ts` means you opened the wrong file. New work begins as a
@@ -124,7 +123,7 @@ they compose later.
 ### Keep the two planes separate
 
 The frame is *de dicto* — the composition program (the generated Services,
-`compose()` / `tangle()` calls, Warp wiring). The product is *de re* — the code
+`compose()` / `tangle()` calls, the anchor wiring). The product is *de re* — the code
 the author wrote in a section's body, carried as that section's `code` field.
 When product code happens to be TypeScript it looks like frame code; it is not.
 Never splice product code into the frame as raw TS — in the frame a section
