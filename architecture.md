@@ -54,7 +54,7 @@ From the `FrameModule` the pipeline fans out two ways. `fromFrame` projects the 
 straight to the TypeScript an editor type-checks. The de re takes one step more: the
 **runner** (`LoomRunner`) executes the frame to a `ComposedCode` per section, then
 `fromProduct` projects each section's product code with its transclusions inlined, and
-`tangle` writes each `{path}` sink's composed result to disk. The projections are a family, not stages — further editor
+`tangle` writes each `[dir, file]` sink's composed result to disk. The projections are a family, not stages — further editor
 surfaces are just more folds over the same models. The Models are kept rather than
 fused into one pass precisely because the frame is projected so many ways: one
 inspectable, mappable source of truth feeds them all.
@@ -63,7 +63,7 @@ Above the per-module chain sit its consumers. `LoomVirtualCodeBuilder` runs the
 projections that build the virtual-code tree an editor reads. `LoomCompiler` loads a
 file and its imports into the `LoomMemo` cache and answers the editor's queries;
 `loomVirtualCode` is its synchronous single-file entry. `LoomTangler` walks a file's
-`{path}` sinks and writes their composed results. `DocumentSource` is the one I/O
+`[dir, file]` sinks and writes their composed results. `DocumentSource` is the one I/O
 seam they read through. `how-lsp.md` carries the full treatment — the projection
 folds, the offset model, and the pedigree of the design.
 
@@ -126,27 +126,35 @@ document preamble is preamble mode before any heading, and takes no transition. 
 section obeys the same grammar whatever its specifier; the specifier changes what the
 code is typed against, not the shape of the body.
 
-## Specifiers, warps, and anchors
+## Specifiers, sinks, warps, and anchors
 
-A heading may carry a specifier in braces. A label specifier (`{Scala}`, `{Loom}`)
-names the section's language; a path specifier (`{src/main.ts}`), told apart by its
-path separators, marks the section as a tangle sink. `{Loom}` is an escape hatch whose
-meaning is a frame concern; the AST records only the token.
+A heading may carry two things, each optional: a language **specifier** in braces and a
+**sink** in brackets. A label specifier (`{Scala}`, `{Prose}`, `{Loom}`) names the
+section's language. A sink names where the section's code lands: `[dir, file]` is a
+tangle sink that emits a file, and `[dir]` is a higher-order sink, a directory under
+which a book places the chapters it points at. The comma tells a file from a directory,
+so an extensionless file is `[., .gitignore]`. `{Loom}` is an escape hatch whose meaning
+is a frame concern; the AST records only the tokens.
 
-A warp declares a binding in the preamble. A name anchor references a name in a code
-line. The two use distinct delimiters — `{{…}}` for a warp, `::[…]` for an anchor —
-because an anchor sits inside product code, where `{{` would collide with templating
-languages that own that syntax. A warp, `{{ name [: type] = value }}`, binds a local
-name to a value. A name anchor names what composes where it stands: `::[Multiplier
-Function]` names a section in the same document by its heading title, and that section's
-composed code lands there; `::[c]` names a value a warp bound, and the value lands
-there.
+A warp declares a binding in the preamble. An anchor, `::[…]`, references a name. The two
+use distinct delimiters — `{{…}}` for a warp, `::[…]` for an anchor — because an anchor
+sits inside product code, where `{{` would collide with templating languages that own
+that syntax. A warp, `{{ name [: type] = value }}`, binds a local name to a value.
+
+An anchor takes its meaning from where it sits — the three planes. In a code line it
+composes: `::[Multiplier Function]` names a section in the same document by its heading
+title, and that section's composed code lands there; `::[c]` names a value a warp bound,
+and the value lands there. In the prose of a `[dir]` higher-order sink it places a
+chapter under that directory. In any other prose it merely navigates — a link to the
+section it names, composing nothing and faulting on nothing. Prose is Markdown, so an
+anchor is inert inside an inline code span or a fenced block.
 
 Two warps survive, told apart by their delimiter. A **value warp** — `{{ c = value }}`
 — binds a name to a literal that a `::[c]` anchor composes; its value is required, so a
 value-less warp is a diagnostic. The **language warp** — `{{lang: TypeScript}}` — names
 the document's primary language and carries an annotation, not a value, so it is exempt
-from that requirement. A warp that once named another section is gone: a section reaches
+from that requirement; it is optional now, and a section without one inherits the
+workspace's configured language. A warp that once named another section is gone: a section reaches
 another only through a name anchor, never a warp. What a name resolves to — a section, or
 a bound value — is a frame concern; at the AST a warp is a declaration and an anchor a
 reference.
@@ -175,7 +183,7 @@ emits no eager `dependencies` array. Because the only cross-reference is lazy, t
 emits sections in document order — no topological sort — and an anchor cycle surfaces as
 a diagnostic rather than blocking output.
 
-A section whose specifier is a file path is a **tangle sink**: it composes the sections
+A section whose sink names a file is a **tangle sink**: it composes the sections
 its anchors name and wraps the result in a `dsl.tangle(path, …)` call instead of
 returning the `{ name, code, prose }` object. It is a sink in the anchor graph — it
 consumes the graph and nothing consumes it. Loom owns the **composition root**: the
@@ -190,10 +198,11 @@ independence, and cross-module reuse.
 
 Loom is a Volar extended language: code sections are first-class embedded code with
 their own language services. A `.loom` file projects to a tree of virtual codes — one
-`frame` (the generated TypeScript, type-checked by tsc), and one per content section:
-its resolved composition, in that section's language. A `{path}` tangle sink is a
-content section too, in the language its path extension names — a `.json` sink is
-JSON even in a TypeScript document. Volar's language-agnostic core owns embedded languages, virtual codes, and the
+`frame` (the generated TypeScript, type-checked by tsc), one `prose` document (the file
+stripped to its prose, read as Markdown), and one per content section: its resolved
+composition, in that section's language. A `[dir, file]` tangle sink is a content
+section too, in the language its file extension names — a `.json` sink is JSON even in
+a TypeScript document. Volar's language-agnostic core owns embedded languages, virtual codes, and the
 position mapping between a `.loom` and its projections; Loom declares the tree and
 supplies the mappings. Volar's bundled TypeScript is one service this core hosts, not
 its foundation — which is what lets the product plane reach past TypeScript to any
@@ -228,6 +237,11 @@ backend provides. TypeScript is the first such package, not a privileged built-i
 composes any language, so it must treat any language as first-class in the editor —
 otherwise the promise holds for only one.
 
+The **prose** is the literate layer, a plane of its own. `ProseLanguage`, built in
+beside the frame, extends `volar-service-markdown` over the file's `prose` document, so
+the prose reads and edits as Markdown; Loom's anchors keep their navigation from the
+source mirror, their `::[…]` links live within it.
+
 `how-lsp.md` carries the full treatment — the virtual-code tree, the plane routing of
 source mappings, the language-package model, and syntax highlighting.
 
@@ -245,7 +259,7 @@ imperative flow.
   `LoomCompiler.Default`; the server starts as an Effect program and yields
   `Effect.never` to stay alive.
 - **The tangle CLI** drives `LoomTangler`, which builds the corpus, runs the frame for
-  the de re, and writes each `{path}` sink's composed result. The end of the world is
+  the de re, and writes each `[dir, file]` sink's composed result. The end of the world is
   the emitted files.
 - **A Vite plugin**, where applicable, is Effect-native — its transform and build hooks
   are Effect programs.
