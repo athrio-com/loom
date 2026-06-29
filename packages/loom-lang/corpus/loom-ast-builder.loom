@@ -149,7 +149,6 @@ const headingOf = (weft: HeadingWeft): LoomHeading =>
     unexpected: weft.unexpected,
     headingStart: weft.headingStart,
     title: weft.title,
-    tag: weft.tag,
     specifier: weft.specifier,
   })
 

@@ -9,7 +9,6 @@ import {
   ProseTokenSchema,
   HeadingTitleTokenSchema,
   SpecifierTokenSchema,
-  TagTokenSchema,
   TildeTokenSchema,
   WarpAnchorTokenSchema,
   WarpTokenSchema,
@@ -18,7 +17,6 @@ import {
 export const HeadingWeftSchema = loomNode('HeadingWeft', {
   headingStart: HeadingStartTokenSchema,
   title: Schema.optional(HeadingTitleTokenSchema),
-  tag: Schema.optional(TagTokenSchema),
   specifier: Schema.optional(
     Schema.Union(
       SpecifierTokenSchema,

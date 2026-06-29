@@ -12,13 +12,10 @@ import {
   ArrowTokenSchema,
   HeadingStartTokenSchema,
   SpecifierCloseTokenSchema,
+  HeadingTitleTokenSchema,
   SpecifierLabelTokenSchema,
   SpecifierOpenTokenSchema,
   SpecifierTokenSchema,
-  TagCloseTokenSchema,
-  TagLabelTokenSchema,
-  TagOpenTokenSchema,
-  TagTokenSchema,
   TildeTokenSchema,
   WarpAnnotationTokenSchema,
   WarpCloseTokenSchema,
@@ -83,30 +80,12 @@ const pos = (line: number): Position => ({
 // are computed from line numbers. Every constructed node carries `source: ""`
 // since there are no bytes to slice.
 
-const tagToken = (label: string, p: Position) =>
-  TagTokenSchema.make({
+const titleToken = (title: string, p: Position) =>
+  HeadingTitleTokenSchema.make({
+    type: 'HeadingTitle',
     position: p,
-    source: '',
+    source: title,
     health: okHealth,
-    open: TagOpenTokenSchema.make({
-      position: p,
-      source: '',
-      health: okHealth,
-      value: '[',
-    }),
-    label: TagLabelTokenSchema.make({
-      type: 'TagLabel',
-      position: p,
-      source: '',
-      health: okHealth,
-      value: label,
-    }),
-    close: TagCloseTokenSchema.make({
-      position: p,
-      source: '',
-      health: okHealth,
-      value: ']',
-    }),
   })
 
 const specToken = (label: string, p: Position) =>
@@ -138,8 +117,9 @@ const specToken = (label: string, p: Position) =>
 // mkHeading — builds a HeadingWeft using the unified HeadingWeftSchema
 // (there is no longer a separate Chapter/Section heading schema). Any heading
 // level can be expressed by adjusting the position; the HeadingStart token
-// carries only position information, not a level field.
-const mkHeading = (line: number, tag?: string, spec?: string) => {
+// carries only position information, not a level field. A section is named by
+// its title — the second argument becomes the HeadingTitle token's `source`.
+const mkHeading = (line: number, title?: string, spec?: string) => {
   const p = pos(line)
   return HeadingWeftSchema.make({
     position: p,
@@ -150,7 +130,7 @@ const mkHeading = (line: number, tag?: string, spec?: string) => {
       source: '',
       health: okHealth,
     }),
-    tag: tag === undefined ? undefined : tagToken(tag, p),
+    title: title === undefined ? undefined : titleToken(title, p),
     specifier: spec === undefined ? undefined : specToken(spec, p),
   })
 }
@@ -321,17 +301,11 @@ describe('LoomAstBuilder — flat sections', () => {
     expect(section.code).toEqual([arrow, code, tilde, prose])
   })
 
-  it('a heading forwards its tag and specifier onto section.heading', () => {
+  it('a heading forwards its title and specifier onto section.heading', () => {
     const doc = buildAst([mkHeading(1, 'MySection', 'Scala')])
     const [section] = doc.sections
-    expect(section.heading.tag?.label.value).toBe('MySection')
+    expect(section.heading.title?.source).toBe('MySection')
     expect(section.heading.specifier?.label.value).toBe('Scala')
-  })
-
-  it('a tagless heading produces a section whose heading.tag is undefined', () => {
-    const doc = buildAst([mkHeading(1)])
-    const [section] = doc.sections
-    expect(section.heading.tag).toBeUndefined()
   })
 
   it('a second heading closes the first section and opens a new flat section', () => {
@@ -339,8 +313,8 @@ describe('LoomAstBuilder — flat sections', () => {
     const arrow2 = mkArrow(4)
     const doc = buildAst([mkHeading(1, 'A'), arrow1, mkHeading(3, 'B'), arrow2])
     expect(doc.sections).toHaveLength(2)
-    expect(doc.sections[0].heading.tag?.label.value).toBe('A')
-    expect(doc.sections[1].heading.tag?.label.value).toBe('B')
+    expect(doc.sections[0].heading.title?.source).toBe('A')
+    expect(doc.sections[1].heading.title?.source).toBe('B')
     expect(doc.sections[0].code).toEqual([arrow1])
     expect(doc.sections[1].code).toEqual([arrow2])
   })
@@ -352,9 +326,9 @@ describe('LoomAstBuilder — flat sections', () => {
       mkHeading(3, 'C'),
     ])
     expect(doc.sections).toHaveLength(3)
-    expect(doc.sections[0].heading.tag?.label.value).toBe('A')
-    expect(doc.sections[1].heading.tag?.label.value).toBe('B')
-    expect(doc.sections[2].heading.tag?.label.value).toBe('C')
+    expect(doc.sections[0].heading.title?.source).toBe('A')
+    expect(doc.sections[1].heading.title?.source).toBe('B')
+    expect(doc.sections[2].heading.title?.source).toBe('C')
   })
 })
 
@@ -375,10 +349,10 @@ describe('LoomAstBuilder — mixed document', () => {
     expect(doc.health.status).toBe('ok')
     expect(doc.preamble).toHaveLength(1)
     expect(doc.sections).toHaveLength(2)
-    expect(doc.sections[0].heading.tag?.label.value).toBe('Alpha')
+    expect(doc.sections[0].heading.title?.source).toBe('Alpha')
     expect(doc.sections[0].preamble).toHaveLength(1)
     expect(doc.sections[0].code).toHaveLength(1)
-    expect(doc.sections[1].heading.tag?.label.value).toBe('Beta')
+    expect(doc.sections[1].heading.title?.source).toBe('Beta')
     expect(doc.sections[1].code).toHaveLength(1)
   })
 })
@@ -524,50 +498,5 @@ describe('LoomAstBuilder — NOK preservation', () => {
     })
     const doc = buildAst([errored])
     expect(doc.sections[0].health.status).toBe('ok')
-  })
-
-  it('preserves heading.tag / heading.specifier identity (Tokeniser tokens ride through unchanged)', () => {
-    // The builder copies the weft's tag/specifier token references directly onto
-    // LoomHeading — it does not reconstruct them. A tag token with error health
-    // and empty label value (as the Tokeniser emits for a malformed label) rides
-    // through to section.heading.tag unchanged.
-    const tagWithError = TagTokenSchema.make({
-      position: pos(1),
-      source: '',
-      health: errorHealth(1, 'label rejected'),
-      open: TagOpenTokenSchema.make({
-        position: pos(1),
-        source: '',
-        health: okHealth,
-        value: '[',
-      }),
-      label: TagLabelTokenSchema.make({
-        type: 'TagLabel',
-        position: pos(1),
-        source: '',
-        health: errorHealth(1, 'label rejected'),
-        value: '',
-        unexpected: [
-          UnexpectedTokenSchema.make({ position: pos(1), value: 'bad text' }),
-        ],
-      }),
-      close: TagCloseTokenSchema.make({
-        position: pos(1),
-        source: '',
-        health: okHealth,
-        value: ']',
-      }),
-    })
-    const heading = HeadingWeftSchema.make({
-      ...mkHeading(1),
-      tag: tagWithError,
-    })
-    const doc = buildAst([heading])
-    const [section] = doc.sections
-    expect(section.heading.tag?.health.status).toBe('error')
-    expect(section.heading.tag?.label.value).toBe('')
-    expect(section.heading.tag?.label.unexpected?.[0].value).toBe('bad text')
-    // The section container stays ok despite the NOK heading
-    expect(section.health.status).toBe('ok')
   })
 })

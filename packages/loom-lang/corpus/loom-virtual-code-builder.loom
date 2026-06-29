@@ -131,7 +131,7 @@ const emitNode = (node: any): LoomVirtualCode =>
 
 ## Inlining the product
 
-The de re walk inlines a section's fragments. `inlineComposed` folds them left to right, carrying both the text emitted so far and each fragment's successor, so it can tell whether an anchor stands alone on its line; a `Ref` that does is re-indented to that line's indent (the next section), and every other fragment — an anchor with code beside it among them — is appended as it stands. The fold also carries a flag: after an anchor that owned its line, the fragment that follows opens with the spaces the author left past the anchor, so the fold trims them. `inlinePart` handles each one: a `Fragment` becomes a `product` leaf mapped to its origin; a reference is followed and inlined, contributing nothing when its target is unresolved, missing, or cyclic. The kind sets the mapping. A `TagRef` is a by-value copy, so its block pins onto the consuming `::[…]` anchor; a `NameRef` shares the consuming scope, so its block maps to the named section's own source. A cross-file reference is always a `TagRef`, so it pins, since the source it copies lives in a file the mapping cannot reach. `absorbTrailingNewline`, with `clipMappings`, sheds a transcluded block's trailing newline so the sink's layout becomes the output's.
+The de re walk inlines a section's fragments. `inlineComposed` folds them left to right, carrying both the text emitted so far and each fragment's successor, so it can tell whether an anchor stands alone on its line; a `Ref` that does is re-indented to that line's indent (the next section), and every other fragment — an anchor with code beside it among them — is appended as it stands. The fold also carries a flag: after an anchor that owned its line, the fragment that follows opens with the spaces the author left past the anchor, so the fold trims them. `inlinePart` handles each one: a `Fragment` becomes a `product` leaf mapped to its origin; a reference is followed and inlined, contributing nothing when its target is unresolved, missing, or cyclic. Every reference is a same-document `NameRef` sharing the consuming scope, so a transcluded block maps to the named section's own source. `absorbTrailingNewline`, with `clipMappings`, sheds a transcluded block's trailing newline so the sink's layout becomes the output's.
 
 =>
 
@@ -157,26 +157,18 @@ const absorbTrailingNewline = (vc: LoomVirtualCode): LoomVirtualCode => {
 }
 
 const inlinePart =
-  (
-    modules: ReadonlyMap<Path, LoomModule>,
-    pin: Option.Option<Position>,
-    seen: ReadonlySet<string>,
-  ) =>
+  (modules: ReadonlyMap<Path, LoomModule>, seen: ReadonlySet<string>) =>
   (part: Fragment | Ref): LoomVirtualCode => {
     if (part.type === 'Fragment') {
       return leaf('', '', part.text, [
         {
           genStart: 0,
           genLength: part.text.length,
-          source: Option.getOrElse(pin, () => part.origin),
+          source: part.origin,
           kind: 'product',
         },
       ])
     }
-    const childPin =
-      part.type === 'TagRef'
-        ? Option.orElse(pin, () => Option.some(part.anchor))
-        : pin
     return pipe(
       part.target,
       Option.filter((t) => !seen.has(keyOf(t))),
@@ -187,24 +179,16 @@ const inlinePart =
         onNone: () => emptyLeaf,
         onSome: ([t, node]) =>
           absorbTrailingNewline(
-            inlineComposed(
-              modules,
-              childPin,
-              new Set([...seen, keyOf(t)]),
-            )(node),
+            inlineComposed(modules, new Set([...seen, keyOf(t)]))(node),
           ),
       }),
     )
   }
 
 const inlineComposed =
-  (
-    modules: ReadonlyMap<Path, LoomModule>,
-    pin: Option.Option<Position>,
-    seen: ReadonlySet<string>,
-  ) =>
+  (modules: ReadonlyMap<Path, LoomModule>, seen: ReadonlySet<string>) =>
   (node: Code): LoomVirtualCode => {
-    const build = inlinePart(modules, pin, seen)
+    const build = inlinePart(modules, seen)
     const seed: { vc: LoomVirtualCode; trim: boolean } = {
       vc: emptyLeaf,
       trim: false,
@@ -243,7 +227,7 @@ When the anchor owns its line, the whitespace opening that line is the indent. `
 
 `indentBlock` prepends that indent to every line of the block but the first, which already sits after the indent its own fragment wrote. A blank line stays blank — it takes no indent — so the output grows no trailing whitespace.
 
-The inserted indent is synthetic. It has no origin in any `.loom`, so no mapping may claim it, or the editor would map a click on the indent into the source. `reindentMapping` cuts each mapping at the block's line starts, so the indent always falls in the gap between two pieces and never inside one. A piece then shifts by the indentation added on the lines above it. Its source follows by kind: an offset-aligned span — one whose source length covers its generated length — re-derives its source per line through `advance`, walking the block text to the cut; a span pinned to a by-value anchor keeps that anchor whole, since it never tracked the text one-to-one to begin with.
+The inserted indent is synthetic. It has no origin in any `.loom`, so no mapping may claim it, or the editor would map a click on the indent into the source. `reindentMapping` cuts each mapping at the block's line starts, so the indent always falls in the gap between two pieces and never inside one. A piece then shifts by the indentation added on the lines above it, and re-derives its source per line through `advance`, walking the block text to the cut. Every mapping tracks its source one-to-one — each is a `Fragment`'s span — so the same derivation serves them all.
 
 `lineStartsOf` gives each line's offset in the original block, and `newStartsOf` the offset of its content once the indents are in. `lineIndexOf` finds which line a cut falls on.
 
@@ -325,18 +309,15 @@ const reindentMapping = (
     ...Array.filter(oldStarts, (s) => s > m.genStart && s < end),
     end,
   ]
-  const aligned = m.source.end.offset - m.source.start.offset >= m.genLength
   return Array.map(Array.zip(cuts, Array.drop(cuts, 1)), ([a, b]) => {
     const line = lineIndexOf(oldStarts, a)
     return {
       genStart: newStarts[line] + (a - oldStarts[line]),
       genLength: b - a,
-      source: aligned
-        ? {
-            start: advance(m.source.start, block.slice(m.genStart, a)),
-            end: advance(m.source.start, block.slice(m.genStart, b)),
-          }
-        : m.source,
+      source: {
+        start: advance(m.source.start, block.slice(m.genStart, a)),
+        end: advance(m.source.start, block.slice(m.genStart, b)),
+      },
       kind: m.kind,
     }
   })
@@ -368,7 +349,7 @@ const indentBlock = (
 
 `fromFrame` is the de dicto pass — the frame virtual code, always loom-tagged for the type-checker. `fromProduct` is the de re pass — a section's product in its own language. Its virtual-code id is the section name lowercased, since Volar requires every embedded-code id to be lowercase. A section absent from the corpus yields an empty document. `rootVirtualCode` assembles a file's tree: the source as the `loom` root, the frame and product documents its children. The root maps to itself, a whole-file identity span of the `source` kind, so Loom's own diagnostics reach the editor on the file the author opened.
 
-`rootNamesAt` names a file's composition roots — the sections no same-file reference folds in. It reads the file's `product.code` from the corpus, the sections the run produced. A same-file reference demotes its target, whether a `NameRef` name anchor or a `TagRef` warp to a same-file tag: the target becomes a fragment of the referring section's root, not a unit of its own. The two differ only in how the fragment maps — a `NameRef` shares the referring scope, a `TagRef` pins to the anchor by value — not in whether they fold. A `TagRef` whose target lives in another file is the exception: it stays its own module's root, a library this file reuses rather than absorbs. The editor type-checks the roots and lets each fold in the fragments it names. The names come back lowercased, to match the de re ids `fromProduct` assigns.
+`rootNamesAt` names a file's composition roots — the sections no reference folds in. It reads the file's `product.code` from the corpus, the sections the run produced. Every reference is a same-file `NameRef`, a name anchor naming a section in this file, and it demotes its target: the target becomes a fragment of the referring section's root, sharing that scope, not a unit of its own. The sections left over, named by no reference, are the roots. The editor type-checks them and lets each fold in the fragments it names. The names come back lowercased, to match the de re ids `fromProduct` assigns.
 
 =>
 
@@ -387,11 +368,7 @@ export const fromProduct = (
     Option.match({
       onNone: () => leaf(root.name.toLowerCase(), '', '', []),
       onSome: (node) => ({
-        ...inlineComposed(
-          modules,
-          Option.none(),
-          new Set([keyOf(root)]),
-        )(node),
+        ...inlineComposed(modules, new Set([keyOf(root)]))(node),
         id: root.name.toLowerCase(),
         languageId: node.languageId,
       }),

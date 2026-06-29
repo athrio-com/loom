@@ -29,10 +29,6 @@ import {
   AnchorCloseTokenSchema,
   AnchorOpenTokenSchema,
   defaultAnchorDelims,
-  TagCloseTokenSchema,
-  TagLabelTokenSchema,
-  TagOpenTokenSchema,
-  TagTokenSchema,
   WarpAnchorNameTokenSchema,
   WarpAnchorTokenSchema,
   WarpAnnotationTokenSchema,
@@ -54,10 +50,6 @@ import {
   type AnchorDelims,
   type AnchorOpenToken,
   type HeadingTitleToken,
-  type TagCloseToken,
-  type TagLabelToken,
-  type TagOpenToken,
-  type TagToken,
   type WarpAnchorNameToken,
   type WarpAnchorToken,
   type WarpAnnotationToken,
@@ -285,7 +277,6 @@ const brokenLabel = (
     position,
   )
 
-const decodeTagLabel = Schema.decodeUnknownEither(TagLabelTokenSchema)
 const decodeSpecifierLabel = Schema.decodeUnknownEither(
   SpecifierLabelTokenSchema,
 )
@@ -295,27 +286,6 @@ const decodePathSpecifierLabel = Schema.decodeUnknownEither(
 const decodeDirSpecifierLabel = Schema.decodeUnknownEither(
   DirSpecifierLabelTokenSchema,
 )
-
-const buildTagLabel = (value: string, position: Position): TagLabelToken =>
-  pipe(
-    decodeTagLabel({
-      type: 'TagLabel',
-      position,
-      source: value,
-      health: okHealth,
-      value,
-    }),
-    Either.getOrElse(() =>
-      TagLabelTokenSchema.make({
-        type: 'TagLabel',
-        position,
-        source: value,
-        health: brokenLabel('tag', value, position),
-        value: '',
-        unexpected: [UnexpectedTokenSchema.make({ position, value })],
-      }),
-    ),
-  )
 
 const buildSpecifierLabel = (
   value: string,
@@ -415,8 +385,6 @@ const makeScanner = <T>(schema: Scannable<T>): Scanner<T> => {
   }
 }
 
-const scanTagOpen = makeScanner(TagOpenTokenSchema)
-const scanTagClose = makeScanner(TagCloseTokenSchema)
 const scanSpecifierOpen = makeScanner(SpecifierOpenTokenSchema)
 const scanSpecifierClose = makeScanner(SpecifierCloseTokenSchema)
 
@@ -440,74 +408,6 @@ const partitionFirstClose = <C extends { position: Position }>(
   return matchIdx < 0
     ? { match: null, rest: closes }
     : { match: closes[matchIdx], rest: closes.filter((_, i) => i !== matchIdx) }
-}
-
-const constructTag = (
-  opens: ReadonlyArray<TagOpenToken>,
-  closes: ReadonlyArray<TagCloseToken>,
-  lineText: string,
-  linePosition: Position,
-): Construction<TagToken> => {
-  if (opens.length === 0) {
-    return {
-      token: Option.none(),
-      unexpected: closes.map(toUnexpected),
-    }
-  }
-
-  const line = linePosition.start.line
-  const lineStart = linePosition.start.offset
-  const lineEnd = contentEnd(lineText, lineStart)
-
-  const [open, ...extraOpens] = opens
-  const { match, rest: extraCloses } = partitionFirstClose(open, closes)
-
-  const close: TagCloseToken =
-    match ??
-    TagCloseTokenSchema.make({
-      position: span(line, lineEnd, lineEnd),
-      source: '',
-      health: missingClosing(line, open.position.start.offset, lineEnd, ']'),
-      value: ']',
-    })
-
-  const labelStart = open.position.end.offset
-  const labelEnd = match ? match.position.start.offset : lineEnd
-  const label = buildTagLabel(
-    lineText.slice(labelStart - lineStart, labelEnd - lineStart),
-    span(line, labelStart, labelEnd),
-  )
-
-  const status = aggregateStatus([
-    open.health.status,
-    label.health.status,
-    close.health.status,
-  ])
-
-  const tagPos = span(
-    line,
-    open.position.start.offset,
-    close.position.end.offset,
-  )
-  return {
-    token: Option.some(
-      TagTokenSchema.make({
-        position: tagPos,
-        source: lineText.slice(
-          tagPos.start.offset - lineStart,
-          tagPos.end.offset - lineStart,
-        ),
-        health: { status, diagnostics: [] },
-        open,
-        label,
-        close,
-      }),
-    ),
-    unexpected: [
-      ...extraOpens.map(toUnexpected),
-      ...extraCloses.map(toUnexpected),
-    ],
-  }
 }
 
 const isPathLabel = (label: string): boolean => /[./]/.test(label)
@@ -1261,7 +1161,6 @@ const headingTitle = (
 }
 
 type HeadingTokens = {
-  readonly tag: Option.Option<TagToken>
   readonly specifier: Option.Option<
     SpecifierToken | PathSpecifierToken | DirSpecifierToken
   >
@@ -1276,12 +1175,9 @@ const scanHeading = (
 ): HeadingTokens => {
   const lineText = text.slice(position.start.offset, position.end.offset)
 
-  const tagOpens = scanTagOpen(lineText, position)
-  const tagCloses = scanTagClose(lineText, position)
   const specOpens = scanSpecifierOpen(lineText, position)
   const specCloses = scanSpecifierClose(lineText, position)
 
-  const tagResult = constructTag(tagOpens, tagCloses, lineText, position)
   const specResult = constructSpecifier(
     specOpens,
     specCloses,
@@ -1289,17 +1185,15 @@ const scanHeading = (
     position,
   )
 
-  const unexpected = [...tagResult.unexpected, ...specResult.unexpected]
+  const unexpected = specResult.unexpected
 
   const consumed: ReadonlyArray<Position> = [
-    ...Option.toArray(tagResult.token).map((t) => t.position),
     ...Option.toArray(specResult.token).map((s) => s.position),
     ...unexpected.map((u) => u.position),
   ]
   const title = headingTitle(text, position, headingStartEnd, consumed)
 
   return {
-    tag: tagResult.token,
     specifier: specResult.token,
     title,
     unexpected,
@@ -1313,60 +1207,15 @@ export const normaliseTitle = (title: string): string => {
   return /^[A-Za-z]/.test(pascal) ? pascal : `_${pascal}`
 }
 
-const synthNameTag = (
-  position: Position,
-  title: Option.Option<HeadingTitleToken>,
-): TagToken => {
-  const eol = span(
-    position.start.line,
-    position.end.offset,
-    position.end.offset,
-  )
-  const titleText = Option.match(title, {
-    onNone: () => '',
-    onSome: (t) => t.source,
-  })
-  const value = normaliseTitle(titleText)
-  return TagTokenSchema.make({
-    position: eol,
-    source: '',
-    health: okHealth,
-    open: TagOpenTokenSchema.make({
-      position: eol,
-      source: '',
-      health: okHealth,
-      value: '[',
-    }),
-    label: TagLabelTokenSchema.make({
-      type: 'TagLabel',
-      position: eol,
-      source: '',
-      health: okHealth,
-      value,
-    }),
-    close: TagCloseTokenSchema.make({
-      position: eol,
-      source: '',
-      health: okHealth,
-      value: ']',
-    }),
-  })
-}
-
 const tokeniseHeading = (text: string, weft: HeadingWeft): LoomWeft => {
-  const { tag, specifier, title, unexpected } = scanHeading(
+  const { specifier, title, unexpected } = scanHeading(
     text,
     weft.position,
     weft.headingStart.position.end.offset,
   )
 
-  const resolvedTag = Option.getOrElse(tag, () =>
-    synthNameTag(weft.position, title),
-  )
-
   const status = aggregateStatus([
     weft.headingStart.health.status,
-    resolvedTag.health.status,
     ...Option.toArray(specifier).map((s) => s.health.status),
     ...Option.toArray(title).map((t) => t.health.status),
     ...unexpected.map(() => 'error' as const),
@@ -1379,7 +1228,6 @@ const tokeniseHeading = (text: string, weft: HeadingWeft): LoomWeft => {
     unexpected: unexpected.length > 0 ? unexpected : undefined,
     headingStart: weft.headingStart,
     title: Option.getOrUndefined(title),
-    tag: resolvedTag,
     specifier: Option.getOrUndefined(specifier),
   })
 }

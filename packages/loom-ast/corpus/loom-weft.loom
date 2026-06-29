@@ -6,14 +6,13 @@
 
 ## The heading weft
 
-A `HeadingWeft` is a `#`-heading line. Its `headingStart` records the level for the reader; `title` is the optional trimmed text after the marker; `tag` and `specifier` are optional — the tokeniser synthesises a hash `tag` for a tagless heading, and a heading with no specifier inherits the document's language. The classifier emits the weft with incomplete placeholders for the subtokens it has not recognised, and the tokeniser settles them.
+A `HeadingWeft` is a `#`-heading line. Its `headingStart` records the level for the reader, and `title` is the optional trimmed text after the marker — the title names the section, normalised to an identifier. The `specifier` is optional too: a heading with none inherits the document's language. The classifier emits the weft with incomplete placeholders for the subtokens it has not recognised, and the tokeniser settles them.
 
 =>
 
 export const HeadingWeftSchema = loomNode('HeadingWeft', {
   headingStart: HeadingStartTokenSchema,
   title: Schema.optional(HeadingTitleTokenSchema),
-  tag: Schema.optional(TagTokenSchema),
   specifier: Schema.optional(
     Schema.Union(
       SpecifierTokenSchema,
@@ -82,7 +81,7 @@ export type SectionBodyWeft = typeof SectionBodyWeftSchema.Type
 
 ## What this module draws on
 
-Each weft is a `loomNode` built from Effect's `Schema`; its subtokens are the heading, arrow, tilde, code, prose, specifier, tag, warp, and anchor schemas from `LoomTokens`.
+Each weft is a `loomNode` built from Effect's `Schema`; its subtokens are the heading, arrow, tilde, code, prose, specifier, warp, and anchor schemas from `LoomTokens`.
 
 =>
 
@@ -97,7 +96,6 @@ import {
   ProseTokenSchema,
   HeadingTitleTokenSchema,
   SpecifierTokenSchema,
-  TagTokenSchema,
   TildeTokenSchema,
   WarpAnchorTokenSchema,
   WarpTokenSchema,

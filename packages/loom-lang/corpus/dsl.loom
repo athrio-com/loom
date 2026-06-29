@@ -4,7 +4,7 @@
 
 Loom transpiles each `.loom` file into a virtual frame: a small program written in the composition language this module defines. The frame imports it as `@athrio/loom-lang/dsl` at its head, and running the frame produces the product.
 
-The language has seven verbs. Four build the leaves of a section's de re structure: `fragment` carries a literal span of the author's code and `referValue` a Warp's literal value, while `referName` and `referTag` carry the two kinds of edge to another section. Two assemble those leaves: `compose` gathers a section's code, `weave` gathers its prose. One ships the result: `tangle` binds a composed result to a file path.
+The language has six verbs. Three build the leaves of a section's de re structure: `fragment` carries a literal span of the author's code, `referValue` a Warp's literal value, and `referName` the edge to another section. Two assemble those leaves: `compose` gathers a section's code, `weave` gathers its prose. One ships the result: `tangle` binds a composed result to a file path.
 
 The verbs construct, they do not concatenate. Where the old language joined strings, this one returns the `ProductAst` nodes — `Fragment`, `Ref`, `Code` — that `fromProduct` later flattens to text and mappings. The frame is a program that builds a value, and the value is the de re.
 
@@ -34,11 +34,11 @@ export const referValue = (value: unknown, anchor: Position): Fragment => ({
   origin: anchor,
 })
 
-## Two transclusion edges
+## The transclusion edge
 
-Both verbs keep an identity, never a copy. A section reaches another by yielding it as a dependency, so each verb receives that section's own composed result — its code or its prose, each carrying an `origin` — and records that origin alone. `referName` builds a `NameRef`, the edge a name anchor leaves; `referTag` builds a `TagRef`, the edge a tag binding leaves. The frame picks the verb from how the author reached the section: `::[Heading]` names one in the same document, a Warp reaches one through its tag. The projection later reads the kind, composing a `NameRef` into a shared scope and copying a `TagRef` by value. Running either edge proves the wiring, because the result it reads came from a `yield*` Effect had to resolve against a real layer.
+`referName` keeps an identity, never a copy. A section reaches another by yielding it as a dependency, so `referName` receives that section's own composed result — its code or its prose, each carrying an `origin` — and records that origin alone. It builds a `NameRef`, the edge a name anchor leaves: `::[Heading]` names a section in the same document, and the projection composes that section into the referring scope, so the two share one scope. Running the edge proves the wiring, because the result it reads came from a `yield*` Effect had to resolve against a real layer.
 
-A reference whose target the frame cannot bind is a frame error, not a runtime concern. The frame renders the verb against a name nothing defines, the type checker rejects it on the anchor, and the run never produces that section's de re. So neither verb needs a missing case: an unbound reference fails the frame before it composes.
+A reference whose target the frame cannot bind is a frame error, not a runtime concern. The frame renders the verb against a name nothing defines, the type checker rejects it on the anchor, and the run never produces that section's de re. So the verb needs no missing case: an unbound reference fails the frame before it composes.
 
 =>
 
@@ -47,16 +47,6 @@ export const referName = (
   anchor: Position,
 ): NameRef => ({
   type: 'NameRef',
-  health: okHealth,
-  target: Option.some(code.origin),
-  anchor,
-})
-
-export const referTag = (
-  code: { readonly origin: SectionId },
-  anchor: Position,
-): TagRef => ({
-  type: 'TagRef',
   health: okHealth,
   target: Option.some(code.origin),
   anchor,
@@ -126,13 +116,12 @@ import type {
   NameRef,
   Part,
   SectionId,
-  TagRef,
   WovenProse,
 } from '@athrio/loom-ast/ProductAst'
 
 ## The module {src/dsl.ts}
 
-Seven standalone constructors, none calling another, so their order on disk is free. Here it follows the story: what they draw on, the leaves, then the two gathers and the ship.
+Six standalone constructors, none calling another, so their order on disk is free. Here it follows the story: what they draw on, the leaves, then the two gathers and the ship.
 
 =>
 
@@ -142,7 +131,7 @@ Seven standalone constructors, none calling another, so their order on disk is f
 
 ::[A Warp's value]
 
-::[Two transclusion edges]
+::[The transclusion edge]
 
 ::[Composing code]
 

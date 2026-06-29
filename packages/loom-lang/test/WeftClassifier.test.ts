@@ -382,21 +382,13 @@ describe('Subtoken health — marker tokens', () => {
 })
 
 // =============================================================================
-// HeadingWeft at Classifier Stage — no NOK placeholders for tag/specifier.
+// HeadingWeft at Classifier Stage — no NOK placeholders for the specifier.
 //
-// The Classifier does NOT emit tag or specifier placeholders. Both fields are
-// optional in HeadingWeftSchema; the Tokeniser fills them from source.
-// The `texts` array is emitted as `[]` (empty) — the Tokeniser populates it.
+// The Classifier does NOT emit a specifier or title placeholder. Both fields
+// are optional in HeadingWeftSchema; the Tokeniser fills them from source.
 // =============================================================================
 
 describe('HeadingWeft at Classifier Stage — minimal, no placeholders', () => {
-  it('tag is absent on the emitted HeadingWeft (Tokeniser fills it)', () => {
-    const out = classify(['# Title [Tag]'])
-    const w = out[0]
-    if (w.type !== 'HeadingWeft') throw new Error('expected HeadingWeft')
-    expect(w.tag).toBeUndefined()
-  })
-
   it('specifier is absent on the emitted HeadingWeft (Tokeniser fills it)', () => {
     const out = classify(['# Title {Lang}'])
     const w = out[0]

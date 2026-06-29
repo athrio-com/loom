@@ -31,18 +31,13 @@ export const FragmentSchema = productNode('Fragment', {
 })
 export type Fragment = typeof FragmentSchema.Type
 
-const refFields = {
+export const NameRefSchema = productNode('NameRef', {
   target: Schema.OptionFromSelf(SectionIdSchema),
   anchor: PositionSchema,
-}
-
-export const NameRefSchema = productNode('NameRef', refFields)
+})
 export type NameRef = typeof NameRefSchema.Type
 
-export const TagRefSchema = productNode('TagRef', refFields)
-export type TagRef = typeof TagRefSchema.Type
-
-export const RefSchema = Schema.Union(NameRefSchema, TagRefSchema)
+export const RefSchema = NameRefSchema
 export type Ref = typeof RefSchema.Type
 
 export const PartSchema = Schema.Union(FragmentSchema, RefSchema)

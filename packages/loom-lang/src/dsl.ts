@@ -7,7 +7,6 @@ import type {
   NameRef,
   Part,
   SectionId,
-  TagRef,
   WovenProse,
 } from '@athrio/loom-ast/ProductAst'
 
@@ -30,16 +29,6 @@ export const referName = (
   anchor: Position,
 ): NameRef => ({
   type: 'NameRef',
-  health: okHealth,
-  target: Option.some(code.origin),
-  anchor,
-})
-
-export const referTag = (
-  code: { readonly origin: SectionId },
-  anchor: Position,
-): TagRef => ({
-  type: 'TagRef',
   health: okHealth,
   target: Option.some(code.origin),
   anchor,

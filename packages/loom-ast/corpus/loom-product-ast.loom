@@ -48,7 +48,7 @@ export const keyOf = (id: SectionId): string => JSON.stringify([id.path, id.name
 
 A `Fragment` is a literal product span — the code the author wrote — with the `.loom` `origin` it maps 1:1 back to.
 
-A `Ref` is a transclusion edge, the de re analog of the frame's `CodeRef`, and it comes in two kinds the composition treats differently. A `NameRef` records a name anchor — `::[Heading]` naming a section in the same document — and the projection composes its target into the referring section's namespace, so the two share one scope. A `TagRef` records a warp binding to a tag — a Warp reaching a section through its public tag, in this file or another — and the projection takes its target by value, a copy kept apart from the original. The two kinds carry the same fields, so `refFields` defines them once: a `target`, the `Option<SectionId>` the edge points at, `None` when the anchor resolved to nothing; and an `anchor`, the `::[…]` site in the consuming section, where a by-value copy re-pins its mapping and a resolution diagnostic lands.
+A `Ref` is a transclusion edge, the de re analog of the frame's `CodeRef`. It records a name anchor — `::[Heading]` naming a section in the same document — so the projection composes its target into the referring section's namespace, and the two share one scope. A `Ref` carries two fields: a `target`, the `Option<SectionId>` the edge points at, `None` when the anchor resolved to nothing; and an `anchor`, the `::[…]` site in the consuming section, where a resolution diagnostic lands. `Ref` is the single edge kind, named `NameRef`.
 
 =>
 
@@ -58,18 +58,13 @@ export const FragmentSchema = productNode('Fragment', {
 })
 export type Fragment = typeof FragmentSchema.Type
 
-const refFields = {
+export const NameRefSchema = productNode('NameRef', {
   target: Schema.OptionFromSelf(SectionIdSchema),
   anchor: PositionSchema,
-}
-
-export const NameRefSchema = productNode('NameRef', refFields)
+})
 export type NameRef = typeof NameRefSchema.Type
 
-export const TagRefSchema = productNode('TagRef', refFields)
-export type TagRef = typeof TagRefSchema.Type
-
-export const RefSchema = Schema.Union(NameRefSchema, TagRefSchema)
+export const RefSchema = NameRefSchema
 export type Ref = typeof RefSchema.Type
 
 ## Composed code

@@ -38,7 +38,7 @@ const synth = (text: string) =>
     Schema.withConstructorDefault(() => FrameSynthTokenSchema.make({ text })),
   )
 
-export const SpanKindSchema = Schema.Literal('tag', 'name', 'heading', 'anchor', 'prose')
+export const SpanKindSchema = Schema.Literal('name', 'heading', 'anchor', 'prose')
 export type SpanKind = typeof SpanKindSchema.Type
 
 export const FrameAuthoredTokenSchema = frameNode(

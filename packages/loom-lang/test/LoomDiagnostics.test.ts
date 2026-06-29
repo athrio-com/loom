@@ -91,27 +91,6 @@ describe('Loom diagnostics — the editor surfaces Loom health', () => {
     expect(loom.length).toBeGreaterThan(0)
   }, SLOW)
 
-  it('a malformed tag reports on the .loom', async () => {
-    const fixture = resolve(__dirname, 'fixtures/malformed-tag.loom')
-    const checker = await checkerFor(fixture)
-    const diagnostics = await checker.check(fixture)
-    const loom = diagnostics.filter((d) => d.source === 'loom')
-    console.log(
-      '\n[expected — not a test failure] malformed-tag.loom has an unclosed `[Tag`;\n' +
-        'Loom surfaces its grammatical health on the .loom:\n\n' +
-        checker.printErrors(fixture, loom),
-    )
-    expect(loom.length).toBeGreaterThan(0)
-    // The squiggle lands on the `[Tag` label — line 3 (index 2), at or after the
-    // `[` (index 9) — not collapsed onto the `#` at character 0.
-    expect(
-      loom.some((d) => d.range.start.line === 2 && d.range.start.character >= 9),
-    ).toBe(true)
-    // `Negd` is a valid label value; the only fault is the missing `]`, so the
-    // unclosed tag must not also draw a bogus "label value must match" error.
-    expect(loom.some((d) => /label value must match/.test(d.message))).toBe(false)
-  }, SLOW)
-
   it('an unclosed anchor reports on its own line, not the next', async () => {
     const fixture = resolve(__dirname, 'fixtures/unclosed-anchor.loom')
     const checker = await checkerFor(fixture)

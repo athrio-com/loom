@@ -15,7 +15,7 @@ const view = (...mods: ReadonlyArray<Mod>) => codeView(producedOf(...mods))
 // evaluates. good and entry are healthy, standalone modules in the same corpus.
 const baddep = m(
   'baddep.loom',
-  `{{lang: TypeScript}}\n\n# Throws {Loom}\n\n=>\n\nthrow new Error("frame boom")\n\n# Bad [BadDep]\n\n=>\n\nexport const bad = 1\n`,
+  `{{lang: TypeScript}}\n\n# Throws {Loom}\n\n=>\n\nthrow new Error("frame boom")\n\n# BadDep\n\n=>\n\nexport const bad = 1\n`,
 )
 const good = m(
   'good.loom',
@@ -56,7 +56,7 @@ describe('runner — realistic product passes the rewrite opaque', () => {
   it('composes two sinks from one file, each its own file', () => {
     const twosinks = m(
       'twosinks.loom',
-      `{{lang: TypeScript}}\n\n# Shared [Shared]\n\n=>\n\nexport const shared = 1\n\n# First {out/a.ts}\n\n{{s = Shared}}\n\n=>\n\n::[s]\nexport const a = shared\n\n# Second {out/b.ts}\n\n{{s = Shared}}\n\n=>\n\n::[s]\nexport const b = shared + 1\n`,
+      `{{lang: TypeScript}}\n\n# Shared\n\n=>\n\nexport const shared = 1\n\n# First {out/a.ts}\n\n=>\n\n::[Shared]\nexport const a = shared\n\n# Second {out/b.ts}\n\n=>\n\n::[Shared]\nexport const b = shared + 1\n`,
     )
     const sections = [...(view(twosinks).get(twosinks.path)?.keys() ?? [])]
     // both sinks composed, alongside the shared section
@@ -77,7 +77,7 @@ describe('runner — a service-less module is contained, not contagious', () => 
     )
     const host = m(
       'host.loom',
-      `{{lang: TypeScript}}\n\n# Pull {Loom}\n\n=>\n\nimport { shared } from "./bare.loom"\n\n# Host [Host]\n\n=>\n\nexport const used = shared\n`,
+      `{{lang: TypeScript}}\n\n# Pull {Loom}\n\n=>\n\nimport { shared } from "./bare.loom"\n\n# Host\n\n=>\n\nexport const used = shared\n`,
     )
     const code = view(bare, host)
     // the service-less module produces no sections, but does not sink the run

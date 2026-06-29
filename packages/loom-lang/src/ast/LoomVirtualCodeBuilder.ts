@@ -138,26 +138,18 @@ const absorbTrailingNewline = (vc: LoomVirtualCode): LoomVirtualCode => {
 }
 
 const inlinePart =
-  (
-    modules: ReadonlyMap<Path, LoomModule>,
-    pin: Option.Option<Position>,
-    seen: ReadonlySet<string>,
-  ) =>
+  (modules: ReadonlyMap<Path, LoomModule>, seen: ReadonlySet<string>) =>
   (part: Fragment | Ref): LoomVirtualCode => {
     if (part.type === 'Fragment') {
       return leaf('', '', part.text, [
         {
           genStart: 0,
           genLength: part.text.length,
-          source: Option.getOrElse(pin, () => part.origin),
+          source: part.origin,
           kind: 'product',
         },
       ])
     }
-    const childPin =
-      part.type === 'TagRef'
-        ? Option.orElse(pin, () => Option.some(part.anchor))
-        : pin
     return pipe(
       part.target,
       Option.filter((t) => !seen.has(keyOf(t))),
@@ -168,24 +160,16 @@ const inlinePart =
         onNone: () => emptyLeaf,
         onSome: ([t, node]) =>
           absorbTrailingNewline(
-            inlineComposed(
-              modules,
-              childPin,
-              new Set([...seen, keyOf(t)]),
-            )(node),
+            inlineComposed(modules, new Set([...seen, keyOf(t)]))(node),
           ),
       }),
     )
   }
 
 const inlineComposed =
-  (
-    modules: ReadonlyMap<Path, LoomModule>,
-    pin: Option.Option<Position>,
-    seen: ReadonlySet<string>,
-  ) =>
+  (modules: ReadonlyMap<Path, LoomModule>, seen: ReadonlySet<string>) =>
   (node: Code): LoomVirtualCode => {
-    const build = inlinePart(modules, pin, seen)
+    const build = inlinePart(modules, seen)
     const seed: { vc: LoomVirtualCode; trim: boolean } = {
       vc: emptyLeaf,
       trim: false,
@@ -290,18 +274,15 @@ const reindentMapping = (
     ...Array.filter(oldStarts, (s) => s > m.genStart && s < end),
     end,
   ]
-  const aligned = m.source.end.offset - m.source.start.offset >= m.genLength
   return Array.map(Array.zip(cuts, Array.drop(cuts, 1)), ([a, b]) => {
     const line = lineIndexOf(oldStarts, a)
     return {
       genStart: newStarts[line] + (a - oldStarts[line]),
       genLength: b - a,
-      source: aligned
-        ? {
-            start: advance(m.source.start, block.slice(m.genStart, a)),
-            end: advance(m.source.start, block.slice(m.genStart, b)),
-          }
-        : m.source,
+      source: {
+        start: advance(m.source.start, block.slice(m.genStart, a)),
+        end: advance(m.source.start, block.slice(m.genStart, b)),
+      },
       kind: m.kind,
     }
   })
@@ -344,11 +325,7 @@ export const fromProduct = (
     Option.match({
       onNone: () => leaf(root.name.toLowerCase(), '', '', []),
       onSome: (node) => ({
-        ...inlineComposed(
-          modules,
-          Option.none(),
-          new Set([keyOf(root)]),
-        )(node),
+        ...inlineComposed(modules, new Set([keyOf(root)]))(node),
         id: root.name.toLowerCase(),
         languageId: node.languageId,
       }),

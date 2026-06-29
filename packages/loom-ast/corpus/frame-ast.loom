@@ -74,13 +74,13 @@ const synth = (text: string) =>
 
 An authored leaf is a span of text lifted from the `.loom` source and stored with its source position.
 
-A `FrameAuthoredToken` carries its text and a `kind`. A `tag` token holds a section's `[Tag]` label and maps to the generated service class of the same name. The editor reaches and renames the section through it, but it withholds hover: the only thing a hover could report there is the `Effect.Service` class the frame generates, which restates the name the author already wrote and exposes the runtime Loom keeps invisible. A `name` token holds a Warp's local or its annotation — an identifier that stands for itself and maps to the matching identifier in the generated code. Its two spans share their text, so the language service offers rename, go-to-definition, and hover there, and the hover reports a real service. A `heading` token and an `anchor` token are the two ends of a name-anchor link. Their spans hold different text — a heading title against the generated `_Heading` alias — so each offers navigation but not hover, which would only describe the synthetic alias rather than the section. The `heading` token is the definition, mapped to the title the author wrote; the `anchor` token is the `::[Heading]` reference that names it. When `kind` is `prose`, the token holds heading or preamble text and maps into a Markdown virtual document, so Markdown tooling applies to it.
+A `FrameAuthoredToken` carries its text and a `kind`. A `name` token holds a Warp's local or its annotation — an identifier that stands for itself and maps to the matching identifier in the generated code. Its two spans share their text, so the language service offers rename, go-to-definition, and hover there, and the hover reports a real service. A `heading` token and an `anchor` token are the two ends of a name-anchor link. Their spans hold different text — a heading title against the generated `_Heading` alias — so each offers navigation but not hover, which would only describe the synthetic alias rather than the section. The `heading` token is the definition, mapped to the title the author wrote; the `anchor` token is the `::[Heading]` reference that names it. When `kind` is `prose`, the token holds heading or preamble text and maps into a Markdown virtual document, so Markdown tooling applies to it.
 
 A `FrameCode` carries the body of a `{Loom}` section verbatim. A `{Loom}` section is one whose code blocks are frame-level TypeScript, meant to sit directly in the generated frame rather than inside a service class body. `FrameCode` maps that text into the frame's own virtual TypeScript document, so the compiler type-checks it in place.
 
 =>
 
-export const SpanKindSchema = Schema.Literal('tag', 'name', 'heading', 'anchor', 'prose')
+export const SpanKindSchema = Schema.Literal('name', 'heading', 'anchor', 'prose')
 export type SpanKind = typeof SpanKindSchema.Type
 
 export const FrameAuthoredTokenSchema = frameNode(
@@ -101,7 +101,7 @@ export type FrameCode = typeof FrameCodeSchema.Type
 
 A `ServiceName` is a union of `FrameAuthoredToken` and `FrameSynthToken`. It fills three fields of the class declaration: the class name, the `<…>` type parameter, and the `"…"` string service tag. `ServiceClass` holds a separate field for each, so each maps back to the source independently.
 
-The class name and the type parameter carry the section's name. When the section carries a `[Tag]` label, that name is an authored token: its text is the label, and its position maps back to where the author wrote it. When the section is tagless, the name is a synth token with no source position, so it never maps.
+The class name and the type parameter carry the section's name, normalised from the heading title. The name is a synth token with no source position, so it never maps: a name anchor reaches the section through its hoisted alias binding, not the class name. The union admits an authored token so a future mapped name fits without a schema change.
 
 The string service tag carries the service's identity instead of its name. The builder fills it with the section's module-qualified key — its path and name — so two modules that each define a `Bit` resolve to distinct services. It is a synth token, mapping nothing.
 
@@ -115,15 +115,15 @@ export type ServiceName = typeof ServiceNameSchema.Type
 
 ## Code and prose fragments
 
-Each channel — code and prose — has a fragment the section writes directly and a reference it transcludes from another section through a Warp. The code channel adds a third leaf, a value Warp's composed literal. The runnable frame builds each by calling `@athrio/loom-lang/dsl`.
+Each channel — code and prose — has a fragment the section writes directly and a reference it transcludes from another section it names. The code channel adds a third leaf, a value Warp's composed literal. The runnable frame builds each by calling `@athrio/loom-lang/dsl`.
 
 A fragment is one positioned span. An `EmbeddedCode` node carries one `=>` run's product code, a `ProseFragment` one prose span — a heading or a paragraph. Each renders a `dsl.fragment(text, origin)` call. The `text` is the literal span, mapped back to the `.loom` for its language service: the embedded language's for code, Markdown's for prose. The `origin` is that same span written out as a value the run reads — a position literal the builder bakes into the call — so it carries no mapping of its own.
 
-A reference renders a `dsl.referName(…)` or `dsl.referTag(…)` call, and the `open` token holds which. The frame writes `referName` when the anchor names a heading in the same document and `referTag` when a Warp binds the anchor to a tag, so the de re records the kind the projection later reads. A `CodeRef` refers to another section's code channel, `dsl.referName(alias.code, anchor)`; a `ProseRef` refers to its prose. The `binding` is an authored token carrying the alias, mapped back to the `::[…]` anchor the author wrote, so navigation and rename reach the anchor. The `anchor` is the anchor's position literal the run reads.
+A reference renders a `dsl.referName(…)` call against a section named in the same document. A `CodeRef` refers to another section's code channel, `dsl.referName(alias.code, anchor)`; a `ProseRef` refers to its prose. The `open` token holds the verb the builder fills — `dsl.referName(` — and is synth, mapping nothing. The `binding` is an authored token carrying the alias, mapped back to the `::[…]` anchor the author wrote, so navigation and rename reach the anchor. The `anchor` is the anchor's position literal the run reads.
 
 A `ValueRef` composes a value Warp rather than a section. It renders `dsl.referValue(value, anchor)`: `value` is an authored token holding the Warp's value expression, mapped back to the Warp so the frame's check of that expression lands on the `.loom`, and `anchor` is the position literal the resulting fragment maps back to. It names no section and hoists no binding — a value Warp templates a value — so the frame evaluates the expression and writes the result as text where the `::[…]` anchor stood.
 
-Every `CodeRef` the frame emits is backed by a binding — a Warp tag, or the alias a name match hoists — so its verb always names something in scope. An anchor that resolves to nothing, or to more than one section, is not a `CodeRef` at all: the builder leaves an inert fragment in its place and carries Loom's own diagnostic on it, so the frame stays runnable and the checker keeps analysing the code around the anchor. A cross-language match stays a `CodeRef`, since its binding is real, and carries its diagnostic there.
+Every `CodeRef` the frame emits is backed by a binding — the alias a name match hoists — so its verb always names something in scope. An anchor that resolves to nothing, or to more than one section, is not a `CodeRef` at all: the builder leaves an inert fragment in its place and carries Loom's own diagnostic on it, so the frame stays runnable and the checker keeps analysing the code around the anchor. A cross-language match stays a `CodeRef`, since its binding is real, and carries its diagnostic there.
 
 =>
 
@@ -345,7 +345,7 @@ export type ServiceBody = typeof ServiceBodySchema.Type
 
 ## The service class
 
-A `ServiceClass` represents one complete Loom section as one `Effect.Service` class. The `modifier` field holds the `export` keyword when the section carries a `[Tag]` label, and an empty synth token when the section is tagless and the class stays private to the frame. The section's preamble is not duplicated here as a doc comment; it travels in the body's `prose` channel and reads from the `.loom` source itself.
+A `ServiceClass` represents one complete Loom section as one `Effect.Service` class. The `modifier` field holds the `export` keyword for an ordinary section, which the frame exports, and an empty synth token for a tangle sink, which stays private to the frame. The section's preamble is not duplicated here as a doc comment; it travels in the body's `prose` channel and reads from the `.loom` source itself.
 
 The `name`, `nameType`, and `nameTag` fields are all `ServiceName`s, one each for the class name, the `<…>` type parameter, and the string service tag.
 

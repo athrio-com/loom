@@ -6,7 +6,7 @@ The lines above form the Document Preamble; the `lang` Warp names the
 primary language. Every heading below is a flat Section — heading
 level is reader-facing organisation only, the tree stays flat.
 
-# Reading notes [Notes]
+# Reading notes
 
 A heading at any level creates a flat Section.
 
@@ -16,12 +16,12 @@ val readingNote = "Sections are flat on the document"
 
 ~
 
-This prose line still belongs to the Notes Section.
+This prose line still belongs to the Reading notes Section.
 
 # Glossary
 
-A Section with no tag. The Tokeniser synthesises a stable hash
-tag so every Section has an identifier.
+A Section named after its title. Every Section has an identifier, the
+title normalised — `Glossary` becomes `Glossary`.
 
 # Arithmetic
 
@@ -40,29 +40,29 @@ import scala.math.pow
 
 Everything else is in the standard library.
 
-## Adder [Add]
+## Adder
 
 =>
 
 def add(x: Int, y: Int): Int = x + y
 
-## Multiplier [Mul]
+## Multiplier
 
 =>
 
 def mul(x: Int, y: Int): Int = x * y
 
-## Square [Sq]
+## Square
 
-Built on top of {{m = Mul}}.
+Built on top of the multiplier section, named by its title.
 
 =>
 
-::[m]
+::[Multiplier]
 
 def square(x: Int): Int = mul(x, x)
 
-## Power [Pow]
+## Power
 
 `pow` works in `Double`; the result is rounded back to `Int`.
 
@@ -70,15 +70,15 @@ def square(x: Int): Int = mul(x, x)
 
 def power(base: Int, exp: Int): Int = pow(base, exp).toInt
 
-## Entry point [Main]
+## Entry point
 
-Smoke tests for {{a = Add}}, {{s = Sq}}, and {{p = Pow}}.
+Smoke tests over the primitives and composites, each named by its title.
 
 =>
 
-::[a]
-::[s]
-::[p]
+::[Adder]
+::[Square]
+::[Power]
 
 object Arithmetic extends App {
   println(s"add(2, 3)    = ${add(2, 3)}")
@@ -87,27 +87,27 @@ object Arithmetic extends App {
   println(s"power(2, 10) = ${power(2, 10)}")
 }
 
+# Tuning
+
+{{rounds = 3}}
+
+A value Warp binds a literal its anchors compose. `::[rounds]` writes the
+value `3` where the anchor stands.
+
+=>
+
+val rounds: Int = ::[rounds]
+
 # Companion imports {Loom}
 
-Bring `Neg` in from the companion document so a section can depend on it
-across files. The import is hoisted to the head of the synthesised frame.
+Bring `Neg` in from the companion document so a section can use it across
+files. The import is hoisted to the head of the synthesised frame.
 
 =>
 
 import { Neg } from "./Sad.loom"
 
-## Negated [Negd]
-
-Built on `Neg` from the companion document via {{n = Neg}} — a cross-file
-Warp edge. The `yield* Neg` resolves to the imported class.
-
-=>
-
-::[n]
-
-def negated(x: Int): Int = negate(x)
-
-# Build script [Build]{Bash}
+# Build script {Bash}
 
 Compile the single file, then run the resulting class.
 

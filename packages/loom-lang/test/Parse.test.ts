@@ -119,7 +119,7 @@ describe('Classifier Stage — integration against corpus/Fun.loom', () => {
 
 // =============================================================================
 // Tokeniser Stage — heading subtokens, specifier kinds, Warp/Anchor expansion,
-// name-tag synthesis, post-Tokeniser health invariant.
+// title-named sections, post-Tokeniser health invariant.
 // =============================================================================
 
 describe('Tokeniser Stage — integration against corpus/Fun.loom', () => {
@@ -158,22 +158,16 @@ describe('Tokeniser Stage — integration against corpus/Fun.loom', () => {
     }
   })
 
-  it('a tagged heading carries its source tag', () => {
-    const add = headings().find((h) => h.tag?.label.value === 'Add')
-    expect(add).toBeDefined()
-    expect(add!.tag?.health.status).toBe('ok')
-  })
-
-  it('a tagless heading is named after its title (ok health)', () => {
+  it('a heading is named by its title (ok health)', () => {
     const glossary = headingTitled('Glossary')
     expect(glossary).toBeDefined()
-    expect(glossary!.tag).toBeDefined()
-    expect(glossary!.tag?.health.status).toBe('ok')
-    expect(glossary!.tag?.label.value).toBe('Glossary')
+    expect(glossary!.title).toBeDefined()
+    expect(glossary!.health.status).toBe('ok')
+    expect(glossary!.title?.source).toBe('Glossary')
   })
 
-  it('`# Build script [Build]{Bash}` carries a label Specifier (not a path)', () => {
-    const build = headings().find((h) => h.tag?.label.value === 'Build')
+  it('`# Build script {Bash}` carries a label Specifier (not a path)', () => {
+    const build = headingTitled('Build script')
     expect(build?.specifier?.type).toBe('Specifier')
     expect(build?.specifier?.label.value).toBe('Bash')
   })
@@ -186,13 +180,13 @@ describe('Tokeniser Stage — integration against corpus/Fun.loom', () => {
     )
   })
 
-  it('a PreambleWeft with `{{m = Mul}}` populates warps with the Mul reference', () => {
+  it('a PreambleWeft with `{{rounds = 3}}` populates warps with the value binding', () => {
     const preamble = filterByType('PreambleWeft').find((w) =>
-      w.warps.some((wp) => wp.name.value === 'm'),
+      w.warps.some((wp) => wp.name.value === 'rounds'),
     )
-    if (!preamble) throw new Error('expected a PreambleWeft binding `m`')
-    const warp = preamble.warps.find((wp) => wp.name.value === 'm')!
-    expect(warp.default?.value).toBe('Mul')
+    if (!preamble) throw new Error('expected a PreambleWeft binding `rounds`')
+    const warp = preamble.warps.find((wp) => wp.name.value === 'rounds')!
+    expect(warp.default?.value).toBe('3')
     expect(warp.annotation).toBeUndefined()
     expect(warp.health.status).toBe('ok')
   })
@@ -205,21 +199,12 @@ describe('Tokeniser Stage — integration against corpus/Fun.loom', () => {
     expect(lang!.annotation?.value).toBe('Scala')
   })
 
-  it('the entry-point preamble declares three warps in one line (a, s, p)', () => {
-    const preamble = filterByType('PreambleWeft').find(
-      (w) => w.warps.length >= 3,
-    )
-    if (!preamble) throw new Error('expected a PreambleWeft with three warps')
-    const names = preamble.warps.map((wp) => wp.name.value)
-    expect(names).toEqual(['a', 's', 'p'])
-  })
-
-  it('a CodeWeft with `::[m]` populates anchors with the Mul reference', () => {
+  it('a CodeWeft with `::[rounds]` populates anchors with the value reference', () => {
     const code = filterByType('CodeWeft').find((c) =>
-      c.anchors.some((a) => a.name.value === 'm'),
+      c.anchors.some((a) => a.name.value === 'rounds'),
     )
-    if (!code) throw new Error('expected a CodeWeft referencing `m`')
-    const anchor = code.anchors.find((a) => a.name.value === 'm')!
+    if (!code) throw new Error('expected a CodeWeft referencing `rounds`')
+    const anchor = code.anchors.find((a) => a.name.value === 'rounds')!
     expect(anchor.health.status).toBe('ok')
   })
 
@@ -231,15 +216,15 @@ describe('Tokeniser Stage — integration against corpus/Fun.loom', () => {
     expect(anchor!.health.status).toBe('ok')
   })
 
-  it('the entry-point body emits anchors for each top-level dependency', () => {
+  it('the entry-point body emits a name anchor for each top-level dependency', () => {
     const referenced = new Set(
       filterByType('CodeWeft').flatMap((c) =>
         c.anchors.map((a) => a.name.value),
       ),
     )
-    expect(referenced.has('a')).toBe(true)
-    expect(referenced.has('s')).toBe(true)
-    expect(referenced.has('p')).toBe(true)
+    expect(referenced.has('Adder')).toBe(true)
+    expect(referenced.has('Square')).toBe(true)
+    expect(referenced.has('Power')).toBe(true)
   })
 
   it("the fixture's `=>` lines carry no inline code or anchors", () => {
@@ -290,27 +275,27 @@ describe('AST Stage — integration against corpus/Fun.loom', () => {
 
   it('collects every heading as a flat Section on `document.sections`', () => {
     expect(doc.sections).toHaveLength(14)
-    const tags = doc.sections.map((s) => s.heading.tag?.label.value)
-    expect(tags).toContain('Notes')
-    expect(tags).toContain('Add')
-    expect(tags).toContain('Mul')
-    expect(tags).toContain('Sq')
-    expect(tags).toContain('Pow')
-    expect(tags).toContain('Main')
-    expect(tags).toContain('Build')
+    const titles = doc.sections.map((s) => s.heading.title?.source)
+    expect(titles).toContain('Reading notes')
+    expect(titles).toContain('Adder')
+    expect(titles).toContain('Multiplier')
+    expect(titles).toContain('Square')
+    expect(titles).toContain('Power')
+    expect(titles).toContain('Entry point')
+    expect(titles).toContain('Build script')
   })
 
-  it('tagless Sections still carry an identifier (named after the title)', () => {
+  it('every Section carries an identifier (named after the title)', () => {
     const glossary = doc.sections.find(
       (s) => headingText(sampleLoom, s.heading) === 'Glossary',
     )
     expect(glossary).toBeDefined()
-    expect(glossary!.heading.tag?.label.value).toBe('Glossary')
+    expect(glossary!.heading.title?.source).toBe('Glossary')
   })
 
-  it('the `Notes` Section carries its body wefts in order', () => {
+  it('the `Reading notes` Section carries its body wefts in order', () => {
     const notes = doc.sections.find(
-      (s) => s.heading.tag?.label.value === 'Notes',
+      (s) => s.heading.title?.source === 'Reading notes',
     )!
     expect(notes.preamble.length).toBeGreaterThan(0)
     expect(notes.code.length).toBeGreaterThan(0)
@@ -385,9 +370,10 @@ describe('parseDocument — parse-chain behaviour', () => {
   it('ParseLayer provides the whole parse chain — all four stage services', () => {
     // ParseLayer merges the four stage Defaults (LoomSourceRanges, Classifier,
     // Tokeniser, AstBuilder); the chain needs nothing else.
-    const doc = buildDocument('# T [T]{L}\n')
+    const doc = buildDocument('# T {L}\n')
     expect(doc.sections).toHaveLength(1)
-    expect(doc.sections[0].heading.tag?.label.value).toBe('T')
+    expect(doc.sections[0].heading.title?.source).toBe('T')
+    expect(doc.sections[0].heading.specifier?.label.value).toBe('L')
   })
 
   it('a document with no `{{lang: …}}` Warp carries a warning on its health', () => {
@@ -401,43 +387,43 @@ describe('parseDocument — parse-chain behaviour', () => {
 // parseDocument — NOK preservation end-to-end. Malformed source flows through
 // the chain; the Tokeniser keeps rejected bytes in `unexpected[]` and flips the
 // affected leaf to error health, the AstBuilder forwards them onto the
-// resulting `LoomHeading`. Container nodes stay `okHealth`. A tagless heading
-// is NOT an error — it is named after its title.
+// resulting `LoomHeading`. Container nodes stay `okHealth`. A heading with no
+// specifier is NOT an error — it is named after its title.
 // =============================================================================
 
 describe('parseDocument — NOK preservation end-to-end', () => {
-  it('a tagless heading is named after its title with ok health (not an error)', () => {
+  it('a heading is named after its title with ok health (not an error)', () => {
     const doc = buildDocument('{{lang: Scala}}\n\n# JustATitle\n')
     const heading = doc.sections[0].heading
-    expect(heading.tag).toBeDefined()
-    expect(heading.tag?.health.status).toBe('ok')
-    expect(heading.tag?.label.value).toBe('JustATitle')
+    expect(heading.title).toBeDefined()
+    expect(heading.health.status).toBe('ok')
+    expect(heading.title?.source).toBe('JustATitle')
   })
 
-  it('section tag label with spaces — bytes preserved in unexpected[], empty value, error health', () => {
-    const doc = buildDocument('{{lang: Scala}}\n\n# Heading [bad label name]\n')
-    const label = doc.sections[0].heading.tag!.label
+  it('specifier label with spaces — bytes preserved in unexpected[], empty value, error health', () => {
+    const doc = buildDocument('{{lang: Scala}}\n\n# Heading {bad label name}\n')
+    const label = doc.sections[0].heading.specifier!.label
     expect(label.value).toBe('')
     expect(label.health.status).toBe('error')
     expect(label.unexpected?.[0].value).toBe('bad label name')
   })
 
-  it('unclosed `[` — synthetic TagClose at EOL with `expected closing` diagnostic', () => {
-    const doc = buildDocument('{{lang: Scala}}\n\n# Heading [Unclosed\n')
-    const close = doc.sections[0].heading.tag!.close
+  it('unclosed `{` — synthetic SpecifierClose at EOL with `expected closing` diagnostic', () => {
+    const doc = buildDocument('{{lang: Scala}}\n\n# Heading {Unclosed\n')
+    const close = doc.sections[0].heading.specifier!.close
     expect(close.health.status).toBe('error')
     expect(close.health.diagnostics[0].message).toMatch(/expected closing/i)
   })
 
   it('container LoomDocument / LoomSection carry okHealth despite leaf errors', () => {
-    const doc = buildDocument('{{lang: Scala}}\n\n# Section [bad label name]\n')
+    const doc = buildDocument('{{lang: Scala}}\n\n# Section {bad label name}\n')
     expect(doc.health.status).toBe('ok')
     expect(doc.sections[0].health.status).toBe('ok')
   })
 
   it('malformed sections still appear structurally with full body wefts attached', () => {
     const text =
-      '{{lang: Scala}}\n\n# Bad [bad label name]\n\nA preamble line.\n\n=>\n\nval x = 42\n'
+      '{{lang: Scala}}\n\n# Bad {bad label name}\n\nA preamble line.\n\n=>\n\nval x = 42\n'
     const doc = buildDocument(text)
     const section = doc.sections[0]
     expect(section).toBeDefined()
@@ -448,11 +434,11 @@ describe('parseDocument — NOK preservation end-to-end', () => {
   it('schema validity holds across every NOK input variant', () => {
     const malformed = [
       '# JustATitle\n',
-      '# Title [Tag]\n',
+      '# Title [Bracketed]\n',
       '# OnlyTitle {Lang}\n',
-      '# Heading [bad label name]\n',
-      '# Heading [Unclosed\n',
-      '# Heading [Tag]{Unclosed\n',
+      '# Heading {bad label name}\n',
+      '# Heading {Unclosed\n',
+      '# Heading {Lang}{Unclosed\n',
     ]
     for (const text of malformed) {
       const doc = buildDocument(text)

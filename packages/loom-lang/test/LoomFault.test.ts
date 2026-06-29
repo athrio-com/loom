@@ -24,7 +24,7 @@ import {
 
 // The fault catalog is the one place every Loom diagnostic is worded. These
 // tests read the table directly: a fault in, a `{ severity, message }` out. They
-// also pin the bug that motivated the catalog — an empty tag once surfaced the
+// also pin the bug that motivated the catalog — an empty label once surfaced the
 // internal model invariant `empty value requires non-ok health.status`, which no
 // reader should ever see.
 
@@ -34,7 +34,6 @@ const POS = {
 }
 
 const everyEmptyConstruct: ReadonlyArray<EmptyConstruct> = [
-  'tag',
   'specifier',
   'path',
   'warpName',
@@ -45,9 +44,9 @@ const everyEmptyConstruct: ReadonlyArray<EmptyConstruct> = [
 
 describe('LoomFault — the diagnostic catalog', () => {
   it('words an empty label by construct, in plain language', () => {
-    expect(renderFault(EmptyLabel({ construct: 'tag' }))).toEqual({
+    expect(renderFault(EmptyLabel({ construct: 'specifier' }))).toEqual({
       severity: 'error',
-      message: 'Tag label cannot be empty.',
+      message: 'Specifier label cannot be empty.',
     })
     expect(renderFault(EmptyLabel({ construct: 'anchorName' })).message).toBe(
       'Anchor name cannot be empty.',
@@ -59,9 +58,9 @@ describe('LoomFault — the diagnostic catalog', () => {
 
   it('words a malformed label with the rule it broke and the value it got', () => {
     expect(
-      renderFault(MalformedLabel({ construct: 'tag', value: 'a b' })).message,
+      renderFault(MalformedLabel({ construct: 'specifier', value: 'a b' })).message,
     ).toBe(
-      'Tag label may contain only letters, digits, hyphen, and underscore; got `a b`.',
+      'Specifier label may contain only letters, digits, hyphen, and underscore; got `a b`.',
     )
     expect(
       renderFault(MalformedLabel({ construct: 'warpName', value: '1x' })).message,

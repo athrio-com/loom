@@ -14,44 +14,6 @@ export const HeadingStartTokenSchema = loomNode('HeadingStart', {}).annotations(
 )
 export type HeadingStartToken = typeof HeadingStartTokenSchema.Type
 
-export const TagOpenTokenSchema = loomNode('TagOpen', {
-  value: Schema.Literal('['),
-}).annotations({
-  [Probe]: /\[/g,
-})
-export type TagOpenToken = typeof TagOpenTokenSchema.Type
-
-export const TagLabelTokenSchema = loomNode('TagLabel', {
-  value: Schema.String,
-}).pipe(
-  Schema.filter((t) => {
-    if (t.value === '' && t.health.status === 'ok') {
-      return 'empty `value` requires non-ok `health.status`'
-    }
-    if (t.value !== '' && !/^[a-zA-Z0-9_-]+$/.test(t.value)) {
-      return `label value must match [a-zA-Z0-9_-]+, got \`${t.value}\``
-    }
-    return true
-  }),
-)
-export type TagLabelToken = typeof TagLabelTokenSchema.Type
-
-export const TagCloseTokenSchema = loomNode('TagClose', {
-  value: Schema.Literal(']'),
-}).annotations({
-  [Probe]: /\]/g,
-})
-export type TagCloseToken = typeof TagCloseTokenSchema.Type
-
-export const TagTokenSchema = loomNode('Tag', {
-  open: TagOpenTokenSchema,
-  label: TagLabelTokenSchema,
-  close: TagCloseTokenSchema,
-}).annotations({
-  [Probe]: /\[[a-zA-Z0-9_-]+\]/g,
-})
-export type TagToken = typeof TagTokenSchema.Type
-
 export const SpecifierOpenTokenSchema = loomNode('SpecifierOpen', {
   value: Schema.Literal('{'),
 }).annotations({
@@ -325,7 +287,6 @@ export const checkAnchorDelims = (
 
 export const LoomTokenSchema = Schema.Union(
   HeadingStartTokenSchema,
-  TagTokenSchema,
   SpecifierTokenSchema,
   PathSpecifierTokenSchema,
   DirSpecifierTokenSchema,

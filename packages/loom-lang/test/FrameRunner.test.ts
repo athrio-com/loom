@@ -5,8 +5,8 @@ import { FrameRunner } from '#ast/FrameRunner'
 // The runner executes a corpus of frames to produce the de re. These fixtures are
 // hand-written in the new @athrio/loom-lang/dsl contract (positioned constructors, a __services
 // map for wiring, a __run manifest), as FrameAstBuilder will emit. The test proves the
-// runner in real code before the emitter is revised: cross-file refer by origin, a
-// private (tagless) section collected, the corpus layer wired dependency-first, and a
+// runner in real code before the emitter is revised: refer by origin, a private
+// (unexported) section collected, the corpus layer wired dependency-first, and a
 // tangle sink composed to a File.
 
 const POS = '{start:{line:1,column:0,offset:0},end:{line:1,column:1,offset:1}}'
@@ -45,7 +45,7 @@ export class Sq extends Effect.Service<Sq>()("/a.loom#Sq", {
     return {
       name: \`Sq\`,
       code: dsl.compose({path:"/a.loom",name:"Sq"}, "typescript",
-        dsl.referTag(m.code, ${POS}),
+        dsl.referName(m.code, ${POS}),
         dsl.referName(_Helper.code, ${POS}),
         dsl.fragment(\`const sq = (x) => mul(x,x)\`, ${POS})
       ),
@@ -90,7 +90,7 @@ describe('FrameRunner', () => {
     const a = out.get('/a.loom')!
     const codeAt = (name: string) => a.code.find((c) => c.origin.name === name)
     const sq = codeAt('Sq')!
-    expect(sq.fragments.map((p) => p.type)).toEqual(['TagRef', 'NameRef', 'Fragment'])
+    expect(sq.fragments.map((p) => p.type)).toEqual(['NameRef', 'NameRef', 'Fragment'])
     // refer captured each target's identity (by origin), never its parts
     expect(Option.getOrNull((sq.fragments[0] as any).target)).toEqual({ path: '/b.loom', name: 'Mul' })
     expect(Option.getOrNull((sq.fragments[1] as any).target)).toEqual({ path: '/a.loom', name: 'Helper' })

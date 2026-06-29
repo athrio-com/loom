@@ -2,7 +2,6 @@ import { Data, Match } from 'effect'
 import type { Health, Position, Severity } from '@athrio/loom-ast/LoomNode'
 
 export type MalformedConstruct =
-  | 'tag'
   | 'specifier'
   | 'path'
   | 'warpName'
@@ -71,7 +70,6 @@ const cap = (text: string): string =>
   text.charAt(0).toUpperCase() + text.slice(1)
 
 const noun: Record<EmptyConstruct, string> = {
-  tag: 'tag label',
   specifier: 'specifier label',
   path: 'file path',
   warpName: 'warp name',
@@ -81,7 +79,6 @@ const noun: Record<EmptyConstruct, string> = {
 }
 
 const rule: Record<MalformedConstruct, string> = {
-  tag: 'may contain only letters, digits, hyphen, and underscore',
   specifier: 'may contain only letters, digits, hyphen, and underscore',
   path: 'may contain only letters, digits, hyphen, underscore, dot, and slash',
   warpName: 'must be a TypeScript identifier',
@@ -108,9 +105,7 @@ export const describe = (fault: LoomFault): Note =>
       ),
     ),
     Match.tag('UnresolvedAnchor', ({ name }) =>
-      error(
-        `Unresolved anchor: no section named \`${name}\`. A tagged section is reachable only through a Warp.`,
-      ),
+      error(`Unresolved anchor: no section named \`${name}\`.`),
     ),
     Match.tag('AmbiguousAnchor', ({ name, count }) =>
       error(

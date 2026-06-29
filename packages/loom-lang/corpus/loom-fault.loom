@@ -12,7 +12,7 @@ A `LoomFault` is a tagged union, and each variant names one fault and carries on
 
 `MissingLanguageWarp` carries nothing, and it alone is a warning, not an error. A document with no `{{lang: …}}` still composes; only its primary language stays unknown.
 
-The label faults fold many constructs into two variants. A construct is a named span the grammar validates — a tag, a specifier, a file path, a warp name, an anchor name. `EmptyLabel` is one with no text. `MalformedLabel` is one whose text breaks the construct's rule. Two further constructs — a warp annotation and a warp default — can only be empty, never malformed, so `EmptyConstruct` adds those two to `MalformedConstruct`.
+The label faults fold many constructs into two variants. A construct is a named span the grammar validates — a specifier, a file path, a warp name, an anchor name. `EmptyLabel` is one with no text. `MalformedLabel` is one whose text breaks the construct's rule. Two further constructs — a warp annotation and a warp default — can only be empty, never malformed, so `EmptyConstruct` adds those two to `MalformedConstruct`.
 
 One fault belongs to the tangle rather than the parse. `CollidingSinks` carries the output path two sinks both resolve to — a clash visible only once each sink's package root is known, so the compiler raises it where it resolves the paths, not the corpus walk that finds the others.
 
@@ -21,7 +21,6 @@ The sink tree contributes nine faults, each arising where a higher-order sink pl
 =>
 
 export type MalformedConstruct =
-  | 'tag'
   | 'specifier'
   | 'path'
   | 'warpName'
@@ -62,7 +61,7 @@ export type LoomFault = Data.TaggedEnum<{
 
 ~
 
-Destructuring `taggedEnum` gives one constructor per variant, so a detection site builds a fault by name — `EmptyLabel({ construct: 'tag' })`, or `MissingLanguageWarp()` for a variant that carries nothing.
+Destructuring `taggedEnum` gives one constructor per variant, so a detection site builds a fault by name — `EmptyLabel({ construct: 'specifier' })`, or `MissingLanguageWarp()` for a variant that carries nothing.
 
 =>
 
@@ -104,7 +103,6 @@ const cap = (text: string): string =>
   text.charAt(0).toUpperCase() + text.slice(1)
 
 const noun: Record<EmptyConstruct, string> = {
-  tag: 'tag label',
   specifier: 'specifier label',
   path: 'file path',
   warpName: 'warp name',
@@ -114,7 +112,6 @@ const noun: Record<EmptyConstruct, string> = {
 }
 
 const rule: Record<MalformedConstruct, string> = {
-  tag: 'may contain only letters, digits, hyphen, and underscore',
   specifier: 'may contain only letters, digits, hyphen, and underscore',
   path: 'may contain only letters, digits, hyphen, underscore, dot, and slash',
   warpName: 'must be a TypeScript identifier',
@@ -141,9 +138,7 @@ export const describe = (fault: LoomFault): Note =>
       ),
     ),
     Match.tag('UnresolvedAnchor', ({ name }) =>
-      error(
-        `Unresolved anchor: no section named \`${name}\`. A tagged section is reachable only through a Warp.`,
-      ),
+      error(`Unresolved anchor: no section named \`${name}\`.`),
     ),
     Match.tag('AmbiguousAnchor', ({ name, count }) =>
       error(

@@ -1,13 +1,13 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Option } from 'effect'
-import { compose, fragment, referName, referTag, tangle, weave } from '@athrio/loom-lang/dsl'
+import { compose, fragment, referName, tangle, weave } from '@athrio/loom-lang/dsl'
 import type { Position } from '@athrio/loom-ast/LoomNode'
 import type { SectionId } from '@athrio/loom-ast/ProductAst'
 
 // The runnable composition language the generated Frame imports from @athrio/loom-lang/dsl.
-// Its verbs construct the de re ProductAst rather than joining strings: fragment,
-// referName, and referTag build the leaves, compose and weave assemble them, and
-// tangle binds a composed result to a path as a pure descriptor — no I/O here.
+// Its verbs construct the de re ProductAst rather than joining strings: fragment and
+// referName build the leaves, compose and weave assemble them, and tangle binds a
+// composed result to a path as a pure descriptor — no I/O here.
 
 const pos = (offset: number, len: number): Position => ({
   start: { line: 1, column: offset, offset },
@@ -49,17 +49,6 @@ describe('referName', () => {
     const dep = compose(target, 'typescript', fragment('helper', pos(0, 6)))
     const r = referName(dep, pos(10, 5))
     expect(r.type).toBe('NameRef')
-    expect(r.anchor).toEqual(pos(10, 5))
-    expect(Option.getOrNull(r.target)).toEqual(target)
-  })
-})
-
-describe('referTag', () => {
-  it('edges to a tagged section by its origin, taken by value downstream', () => {
-    const target: SectionId = { path: '/dep.loom', name: 'Mul' }
-    const dep = compose(target, 'typescript', fragment('mul', pos(0, 3)))
-    const r = referTag(dep, pos(10, 5))
-    expect(r.type).toBe('TagRef')
     expect(r.anchor).toEqual(pos(10, 5))
     expect(Option.getOrNull(r.target)).toEqual(target)
   })

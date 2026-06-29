@@ -2,7 +2,7 @@
 
 # The leaf tokens
 
-`LoomTokens` defines the AST's leaf nodes — every span the parser recognises inside a line. Each token is built by `loomNode`, so it carries the same `type`, `position`, and `health` as any container, and most carry a `Probe`: the regular expression the classifier and tokeniser recognise it by. The compound tokens — `Tag`, `Specifier`, `Warp` — expose their parts as named subnodes, so a diagnostic can land on the exact part at fault.
+`LoomTokens` defines the AST's leaf nodes — every span the parser recognises inside a line. Each token is built by `loomNode`, so it carries the same `type`, `position`, and `health` as any container, and most carry a `Probe`: the regular expression the classifier and tokeniser recognise it by. The compound tokens — `Specifier`, `Warp` — expose their parts as named subnodes, so a diagnostic can land on the exact part at fault.
 
 ## The Probe annotation
 
@@ -29,53 +29,9 @@ export const HeadingStartTokenSchema = loomNode('HeadingStart', {}).annotations(
 )
 export type HeadingStartToken = typeof HeadingStartTokenSchema.Type
 
-## Tags
-
-A `Tag` is `[name]`. Its `open`, `label`, and `close` are separate subnodes, each with its own health, so a missing `]` lands on the `close`. The label's rule is health-aware: a real label matches `[a-zA-Z0-9_-]+`, and an empty value is allowed only on a non-ok node — the placeholder an earlier pass leaves before the tokeniser fills it.
-
-=>
-
-export const TagOpenTokenSchema = loomNode('TagOpen', {
-  value: Schema.Literal('['),
-}).annotations({
-  [Probe]: /\[/g,
-})
-export type TagOpenToken = typeof TagOpenTokenSchema.Type
-
-export const TagLabelTokenSchema = loomNode('TagLabel', {
-  value: Schema.String,
-}).pipe(
-  Schema.filter((t) => {
-    if (t.value === '' && t.health.status === 'ok') {
-      return 'empty `value` requires non-ok `health.status`'
-    }
-    if (t.value !== '' && !/^[a-zA-Z0-9_-]+$/.test(t.value)) {
-      return `label value must match [a-zA-Z0-9_-]+, got \`${t.value}\``
-    }
-    return true
-  }),
-)
-export type TagLabelToken = typeof TagLabelTokenSchema.Type
-
-export const TagCloseTokenSchema = loomNode('TagClose', {
-  value: Schema.Literal(']'),
-}).annotations({
-  [Probe]: /\]/g,
-})
-export type TagCloseToken = typeof TagCloseTokenSchema.Type
-
-export const TagTokenSchema = loomNode('Tag', {
-  open: TagOpenTokenSchema,
-  label: TagLabelTokenSchema,
-  close: TagCloseTokenSchema,
-}).annotations({
-  [Probe]: /\[[a-zA-Z0-9_-]+\]/g,
-})
-export type TagToken = typeof TagTokenSchema.Type
-
 ## Specifiers
 
-A `Specifier` is `{name}` — the same open, label, and close anatomy as a `Tag`, with `{ }` for delimiters and the same health-aware label rule.
+A `Specifier` is `{name}`. Its `open`, `label`, and `close` are separate subnodes, each with its own health, so a missing `}` lands on the `close`. The label's rule is health-aware: a real label matches `[a-zA-Z0-9_-]+`, and an empty value is allowed only on a non-ok node — the placeholder an earlier pass leaves before the tokeniser fills it.
 
 =>
 
@@ -402,7 +358,6 @@ export const checkAnchorDelims = (
 
 export const LoomTokenSchema = Schema.Union(
   HeadingStartTokenSchema,
-  TagTokenSchema,
   SpecifierTokenSchema,
   PathSpecifierTokenSchema,
   DirSpecifierTokenSchema,
@@ -434,8 +389,6 @@ import { loomNode } from '#ast/LoomNode'
 ::[The Probe annotation]
 
 ::[Heading markers]
-
-::[Tags]
 
 ::[Specifiers]
 

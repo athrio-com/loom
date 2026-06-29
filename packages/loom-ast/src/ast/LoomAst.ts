@@ -6,14 +6,12 @@ import {
   HeadingTitleTokenSchema,
   PathSpecifierTokenSchema,
   SpecifierTokenSchema,
-  TagTokenSchema,
 } from './LoomTokens'
 import { PreambleWeftSchema, SectionBodyWeftSchema } from './Weft'
 
 export const LoomHeadingSchema = loomNode('LoomHeading', {
   headingStart: HeadingStartTokenSchema,
   title: Schema.optional(HeadingTitleTokenSchema),
-  tag: Schema.optional(TagTokenSchema),
   specifier: Schema.optional(
     Schema.Union(
       SpecifierTokenSchema,

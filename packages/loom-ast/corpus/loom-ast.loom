@@ -6,14 +6,13 @@
 
 ## The heading
 
-A `LoomHeading` is a section's heading — the same parts the `HeadingWeft` carried: the start marker, an optional title, an optional tag, and an optional specifier, which is a language label, a tangle path, or a directory.
+A `LoomHeading` is a section's heading — the same parts the `HeadingWeft` carried: the start marker, an optional title, and an optional specifier, which is a language label, a tangle path, or a directory.
 
 =>
 
 export const LoomHeadingSchema = loomNode('LoomHeading', {
   headingStart: HeadingStartTokenSchema,
   title: Schema.optional(HeadingTitleTokenSchema),
-  tag: Schema.optional(TagTokenSchema),
   specifier: Schema.optional(
     Schema.Union(
       SpecifierTokenSchema,
@@ -63,7 +62,6 @@ import {
   HeadingTitleTokenSchema,
   PathSpecifierTokenSchema,
   SpecifierTokenSchema,
-  TagTokenSchema,
 } from './LoomTokens'
 import { PreambleWeftSchema, SectionBodyWeftSchema } from './Weft'
 
