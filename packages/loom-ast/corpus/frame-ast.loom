@@ -76,8 +76,6 @@ An authored leaf is a span of text lifted from the `.loom` source and stored wit
 
 A `FrameAuthoredToken` carries its text and a `kind`. A `name` token holds a Warp's local or its annotation — an identifier that stands for itself and maps to the matching identifier in the generated code. Its two spans share their text, so the language service offers rename, go-to-definition, and hover there, and the hover reports a real service. A `heading` token and an `anchor` token are the two ends of a name-anchor link. Their spans hold different text — a heading title against the generated `_Heading` alias — so each offers navigation but not hover, which would only describe the synthetic alias rather than the section. The `heading` token is the definition, mapped to the title the author wrote; the `anchor` token is the `::[Heading]` reference that names it. When `kind` is `prose`, the token holds heading or preamble text and maps into a Markdown virtual document, so Markdown tooling applies to it.
 
-A `FrameCode` carries the body of a `{Loom}` section verbatim. A `{Loom}` section is one whose code blocks are frame-level TypeScript, meant to sit directly in the generated frame rather than inside a service class body. `FrameCode` maps that text into the frame's own virtual TypeScript document, so the compiler type-checks it in place.
-
 =>
 
 export const SpanKindSchema = Schema.Literal('name', 'heading', 'anchor', 'prose')
@@ -89,13 +87,6 @@ export const FrameAuthoredTokenSchema = frameNode(
   ['text'],
 )
 export type FrameAuthoredToken = typeof FrameAuthoredTokenSchema.Type
-
-export const FrameCodeSchema = frameNode(
-  'FrameCode',
-  { text: Schema.String, position: PositionSchema },
-  ['text'],
-)
-export type FrameCode = typeof FrameCodeSchema.Type
 
 ## The service name
 
@@ -395,11 +386,11 @@ export type Root = typeof RootSchema.Type
 
 ## The module
 
-A `FrameModule` is the top-level node for a `.loom` file's generated frame. The `header` field holds the fixed import block every frame begins with — `import * as dsl from "@athrio/loom-lang/dsl"` and `import { Effect, Layer } from "effect"`. The `imports` array collects the top-level imports hoisted out of `{Loom}` sections. These must precede every service class in the output, so the render pass emits them right after the header. The `members` array holds the service classes and inline `{Loom}` blocks in document order, each preceded by a blank line. The `root` field carries the composition root when the file has services, and is absent otherwise. An empty `.loom` file is valid and produces a frame with only the header.
+A `FrameModule` is the top-level node for a `.loom` file's generated frame. The `header` field holds the fixed import block every frame begins with — `import * as dsl from "@athrio/loom-lang/dsl"` and `import { Effect, Layer } from "effect"`. The `members` array holds the service classes in document order, each preceded by a blank line. The `root` field carries the composition root when the file has services, and is absent otherwise. An empty `.loom` file is valid and produces a frame with only the header.
 
 =>
 
-const MemberSchema = Schema.Union(ServiceClassSchema, FrameCodeSchema)
+const MemberSchema = ServiceClassSchema
 
 export const MemberItemSchema = frameNode(
   'MemberItem',
@@ -414,11 +405,10 @@ export const FrameModuleSchema = frameNode(
     header: synth(
       'import * as dsl from "@athrio/loom-lang/dsl"\nimport { Effect, Layer } from "effect"\n',
     ),
-    imports: Schema.Array(FrameCodeSchema),
     members: Schema.Array(MemberItemSchema),
     root: Schema.optional(RootSchema),
   },
-  ['header', 'imports', 'members', 'root'],
+  ['header', 'members', 'root'],
 )
 export type FrameModule = typeof FrameModuleSchema.Type
 

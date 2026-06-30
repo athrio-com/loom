@@ -31,7 +31,6 @@ const moduleAt = (path: string): LoomModule => ({
   text,
   doc,
   frame,
-  imports: [],
 })
 
 describe('LoomMemo — the incremental build cache', () => {

@@ -74,8 +74,6 @@ import {
   ValueRefSchema,
   type FrameAuthoredToken,
   FrameAuthoredTokenSchema,
-  type FrameCode,
-  FrameCodeSchema,
   type FrameModule,
   FrameModuleSchema,
   FrameSynthTokenSchema,
@@ -283,16 +281,15 @@ const valueWarps = (
 
 ## Building a member
 
-A section's heading decides what it becomes. A `Loom` specifier makes a splice —
-raw frame code spliced in unwrapped, with its imports hoisted. A two-part sink
-`[dir, file]` makes a tangle — a private sink that returns a `dsl.tangle` call.
-Every other section makes a product service the frame exports: a plain heading, or
-a one-part `[dir]` ho-sink, which carries prose and composes nothing.
+A section's heading decides what it becomes. A two-part sink `[dir, file]` makes a
+tangle — a private sink that returns a `dsl.tangle` call. Every other section makes
+a product service the frame exports: a plain heading, or a one-part `[dir]` ho-sink,
+which carries prose and composes nothing. A loom names its cross-file dependencies
+nowhere in the frame — Loom discovers a file's corpus from the directory it lives
+in, so no section hoists an import.
 
 A `Built` is a member plus what it contributes to the root: a `service` record —
-its name, the services it depends on, and whether it is a tangle sink — and any
-imports a `Loom` section hoists to the file head. A `{Loom}` splice contributes no
-service, since it is not one.
+its name, the services it depends on, and whether it is a tangle sink.
 
 `buildService` turns one section into one service class. It collects the section's
 value Warps, walks the code into a compose call and the bindings its name anchors
@@ -309,10 +306,6 @@ when it has any bindings and static when it has none. The bindings field is a li
 so the binding-less case needs no special representation. `items` wraps each
 binding in the list node that owns its leading separator.
 
-`buildSplice` handles a `Loom` section. Its import lines hoist to the file head;
-the rest of its code splices in verbatim as frame code. It contributes no service,
-since it is not one, and an empty splice is a zero-width node at the heading's end.
-
 =>
 
 interface ServiceInfo {
@@ -322,21 +315,18 @@ interface ServiceInfo {
 }
 
 interface Built {
-  readonly member: ServiceClass | FrameCode
+  readonly member: ServiceClass
   readonly service: Option.Option<ServiceInfo>
-  readonly imports: ReadonlyArray<FrameCode>
 }
 
 const buildMember =
   (index: NameIndex, lang: string, modulePath: string) =>
   (section: LoomSection): Built => {
-    const { specifier, sink } = section.heading
-    if (specifier !== undefined && specifier.label.value === 'Loom')
-      return buildSplice(section)
-    const tanglePath =
-      sink !== undefined && sink.file !== undefined
-        ? Option.some(pathOf(sink))
-        : Option.none<FrameAuthoredToken>()
+    const tanglePath = pipe(
+      Option.fromNullable(section.heading.sink),
+      Option.filter((sink) => sink.file !== undefined),
+      Option.map(pathOf),
+    )
     return buildService(index, lang, section, modulePath, tanglePath)
   }
 
@@ -380,7 +370,6 @@ const buildService = (
       deps: internals.map((b) => b.tag.text),
       sink: Option.isSome(tanglePath),
     }),
-    imports: [],
   }
 }
 
@@ -411,26 +400,6 @@ const bodyOf = (
 
 const items = (bindings: ReadonlyArray<Binding>) =>
   bindings.map((value) => BindingItemSchema.make({ value }))
-
-const buildSplice = (section: LoomSection): Built => {
-  const pieces = Array.filterMap(section.code, pieceOf)
-  const isImport = (p: CodePiece) => /^\s*import\s/.test(p.source)
-  const body = Array.filter(pieces, (p) => !isImport(p))
-
-  return {
-    member: Array.matchLeft(body, {
-      onEmpty: () => FrameCodeSchema.make({ text: '', position: endOf(section) }),
-      onNonEmpty: () =>
-        FrameCodeSchema.make({ text: sourceOf(body), position: spanOf(body) }),
-    }),
-    service: Option.none(),
-    imports: pipe(
-      pieces,
-      Array.filter(isImport),
-      Array.map((p) => FrameCodeSchema.make({ text: p.source, position: p.position })),
-    ),
-  }
-}
 
 ## Composing code
 
@@ -771,26 +740,22 @@ mapped at its class declaration alone.
 =>
 
 interface FrameBuilder {
-  readonly imports: ReadonlyArray<FrameCode>
   readonly members: ReadonlyArray<ReturnType<typeof MemberItemSchema.make>>
   readonly services: ReadonlyArray<ServiceInfo>
 }
 
 const emptyFrame: FrameBuilder = {
-  imports: [],
   members: [],
   services: [],
 }
 
 const appendMember = (b: FrameBuilder, built: Built): FrameBuilder => ({
-  imports: [...b.imports, ...built.imports],
   members: [...b.members, MemberItemSchema.make({ value: built.member })],
   services: [...b.services, ...Option.toArray(built.service)],
 })
 
 const finaliseModule = (b: FrameBuilder): FrameModule =>
   FrameModuleSchema.make({
-    imports: b.imports,
     members: b.members,
     root: buildRoot(b.services),
   })

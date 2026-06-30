@@ -8,6 +8,7 @@ export interface BuildSettings {
   readonly primaryLanguage: string | undefined
   readonly packageRoot: string | undefined
   readonly workspaceRoot: string | undefined
+  readonly corpusDir: string | undefined
 }
 
 const anchorDelimsOf = (
@@ -30,6 +31,7 @@ export class PackageConfig extends Effect.Service<PackageConfig>()(
               primaryLanguage: c.primary,
               packageRoot: c.packageRoot,
               workspaceRoot: c.workspaceRoot,
+              corpusDir: c.corpusDir,
             })),
           ),
       }

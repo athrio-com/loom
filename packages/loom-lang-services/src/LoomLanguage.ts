@@ -124,6 +124,16 @@ const loomRename = (frame: FrameQueryApi): LanguageServicePlugin => ({
   }),
 })
 
+const withoutHighlights = (
+  plugin: LanguageServicePlugin,
+): LanguageServicePlugin => ({
+  ...plugin,
+  create: (context) => ({
+    ...plugin.create(context),
+    provideDocumentHighlights: () => [],
+  }),
+})
+
 export const LoomLanguage = defineLanguageService({
   id: 'loom',
   displayName: 'Loom',
@@ -133,7 +143,7 @@ export const LoomLanguage = defineLanguageService({
       const ts = yield* TypescriptSdk
       const frame = yield* FrameQuery
       return [
-        ...create(ts),
+        ...create(ts).map(withoutHighlights),
         loomDiagnostics(frame),
         loomDefinition(frame),
         loomReferences(frame),

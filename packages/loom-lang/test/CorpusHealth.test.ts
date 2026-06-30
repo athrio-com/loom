@@ -8,10 +8,12 @@ import { PackageConfig } from '../src/PackageConfig'
 // Regression guard for the brace-in-prose gotcha. A literal `{{` on a preamble
 // line tokenises as a Warp, so prose that describes the warp delimiters spells
 // them as the numeric character references `&#123;` and `&#125;` (see the note in
-// loom-tokens.loom). This diagnoses each loom-lang corpus file — a standalone module,
-// so its reachable corpus is itself — and asserts none carries error health, so a
-// future edit that drops the entities back to a literal `{{` fails right here, with
-// the offending file named.
+// loom-tokens.loom). This diagnoses each loom-lang corpus file and asserts none
+// carries error health, so a future edit that drops the entities back to a literal
+// `{{` fails right here, with the offending file named. Each file's diagnostics
+// scope to itself — a standalone module places nothing, so a sibling never reports
+// on it. Discovery builds the whole directory into one corpus, so `beforeAll` warms
+// it once and each case below reads a hot memo rather than paying the walk.
 
 const corpusDir = resolve(__dirname, '../corpus')
 const looms = readdirSync(corpusDir).filter((name) => name.endsWith('.loom'))
@@ -27,6 +29,11 @@ beforeAll(async () => {
     ),
   )
   run = (effect) => Runtime.runSync(runtime)(effect)
+  run(
+    LoomCompiler.pipe(
+      Effect.flatMap((c) => c.diagnose(resolve(corpusDir, looms[0]!))),
+    ),
+  )
 })
 
 describe('corpus health — every loom-lang corpus file builds without error', () => {

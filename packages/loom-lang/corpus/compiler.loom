@@ -28,22 +28,45 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
       const config = yield* PackageConfig
       const frames = yield* FrameRunner
 
-      const load = (source: Source, path: Path): Effect.Effect<void> =>
+      const loadOne = (source: Source, path: Path): Effect.Effect<LoomModule> =>
         config.resolve(path).pipe(
           Effect.flatMap(({ delims, primaryLanguage }) =>
             memo.get(path, builder.build(source, path, delims, primaryLanguage)),
           ),
-          Effect.flatMap((m) =>
-            Effect.forEach(m.imports, (dep) => load(source, dep), {
-              discard: true,
-            }),
-          ),
         )
 
+      const listFrom = (
+        list: (dir: Path) => Effect.Effect<ReadonlyArray<Path>>,
+        entry: Path,
+      ): Effect.Effect<ReadonlyArray<Path>> =>
+        config.resolve(entry).pipe(
+          Effect.map((settings) =>
+            Option.getOrElse(
+              Option.fromNullable(settings.corpusDir),
+              () => dirname(entry),
+            ),
+          ),
+          Effect.flatMap(list),
+          Effect.map((found) => Array.dedupe([entry, ...found])),
+        )
+
+      const corpusPaths = (
+        source: Source,
+        entry: Path,
+      ): Effect.Effect<ReadonlyArray<Path>> =>
+        Option.match(source.list, {
+          onNone: () => Effect.succeed<ReadonlyArray<Path>>([entry]),
+          onSome: (list) => listFrom(list, entry),
+        })
+
       const buildCorpus = (source: Source, entry: Path): Effect.Effect<Modules> =>
-        load(source, entry).pipe(
-          Effect.zipRight(memo.entries),
-          Effect.map((all) => reachableFrom(all, entry)),
+        corpusPaths(source, entry).pipe(
+          Effect.flatMap((paths) =>
+            Effect.forEach(paths, (path) =>
+              loadOne(source, path).pipe(Effect.map((m) => [path, m] as const)),
+            ),
+          ),
+          Effect.map((pairs) => new Map(pairs)),
         )
 
       const produceCorpus = (
@@ -51,14 +74,15 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
         entry: Path,
       ): Effect.Effect<Modules> =>
         buildCorpus(source, entry).pipe(
-          Effect.flatMap((modules) =>
-            allProduced(modules)
+          Effect.flatMap((modules) => {
+            const scope = scopedTo(modules, placeReachable(modules, entry))
+            return allProduced(scope)
               ? Effect.succeed(modules)
-              : frames.produce(framesOf(modules)).pipe(
+              : frames.produce(framesOf(scope)).pipe(
                   Effect.map((products) => withProducts(modules, products)),
                   Effect.tap(memo.fill),
-                ),
-          ),
+                )
+          }),
         )
 
       return {
@@ -87,11 +111,12 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
           path: Path,
         ): Effect.Effect<ReadonlyArray<TangledFile>, TangleError> =>
           produceCorpus(documents, path).pipe(
-            Effect.flatMap((modules) =>
-              collisionDiagnostics(config, modules).pipe(
+            Effect.flatMap((modules) => {
+              const scoped = scopedTo(modules, placeReachable(modules, path))
+              return collisionDiagnostics(config, scoped).pipe(
                 Effect.flatMap((collisions) => {
                   const sinkErrors = Array.filterMap(
-                    sinkDiagnostics(modules),
+                    sinkDiagnostics(scoped),
                     (d) =>
                       d.diagnostic.severity === 'error'
                         ? Option.some({ path: d.path, diagnostics: [d.diagnostic] })
@@ -102,7 +127,7 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
                     diagnostics: [d.diagnostic],
                   }))
                   const failures = [
-                    ...corpusErrors({ modules }),
+                    ...corpusErrors({ modules: scoped }),
                     ...sinkErrors,
                     ...collisionErrors,
                   ]
@@ -111,7 +136,7 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
                     : config.resolve(path).pipe(
                         Effect.map(({ packageRoot, workspaceRoot }) =>
                           resolveSinks(
-                            modules,
+                            scoped,
                             path,
                             Option.fromNullable(packageRoot),
                             Option.fromNullable(workspaceRoot),
@@ -119,14 +144,15 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
                         ),
                       )
                 }),
-              ),
-            ),
+              )
+            }),
           ),
 
         diagnose: (path: Path): Effect.Effect<ReadonlyArray<Diagnostic>> =>
           buildCorpus(documents, path).pipe(
-            Effect.flatMap((modules) =>
-              collisionDiagnostics(config, modules).pipe(
+            Effect.flatMap((modules) => {
+              const scoped = scopedTo(modules, placeReachable(modules, path))
+              return collisionDiagnostics(config, scoped).pipe(
                 Effect.map((collisions) =>
                   pipe(
                     Option.fromNullable(modules.get(path)),
@@ -134,7 +160,7 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
                       onNone: () => [],
                       onSome: (module) => [
                         ...moduleDiagnostics(module),
-                        ...Array.filterMap(sinkDiagnostics(modules), (d) =>
+                        ...Array.filterMap(sinkDiagnostics(scoped), (d) =>
                           d.path === path ? Option.some(d.diagnostic) : Option.none(),
                         ),
                         ...Array.filterMap(collisions, (d) =>
@@ -144,8 +170,8 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
                     }),
                   ),
                 ),
-              ),
-            ),
+              )
+            }),
           ),
 
         definition: (
@@ -203,10 +229,7 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
         reach: (path: Path): Effect.Effect<ReadonlyArray<Path>> =>
           buildCorpus(documents, path).pipe(
             Effect.map((modules) =>
-              Array.filter(
-                Array.fromIterable(modules.keys()),
-                (p) => p !== path,
-              ),
+              Array.filter(placeReachable(modules, path), (p) => p !== path),
             ),
           ),
 
@@ -227,36 +250,30 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
   },
 ) {}
 
-## The reachable corpus
+## The discovered corpus
 
-A verb operates on the corpus the entry actually reaches — itself and the files it transitively imports — never every module the memo holds. `reachableFrom` walks the import edges from the entry and keeps that set. So two unrelated files left in the cache never compose together: each entry sees only its own corpus, and the run wires only the services that corpus declares.
+A file's corpus is the looms beside it: every `.loom` under the directory the file lives in, discovered from disk, not the files it names in imports. `buildCorpus` lists that directory through the source and builds each loom it finds, so a book reaches the chapters it places and an anchor reaches the section it names, with nothing imported by hand. A source that lists nothing — a single document held in memory — yields a corpus of one.
 
-A `Modules` map keys each reachable module by its path. It is the value `buildCorpus` returns, `produceCorpus` enriches, and every projection reads.
+The whole corpus is what navigation and placement resolve against, so a name reaches a section wherever in the corpus it lives. The run and the tangle narrow it: each scopes to the entry and the chapters a book places into it, through `placeReachable`, so producing one file never runs a sibling's frame and a broken sibling never fails a neighbour's build.
+
+A `Modules` map keys each module by its path. It is the value `buildCorpus` returns, `produceCorpus` enriches, and every projection reads. `scopedTo` keeps the modules a set of paths names, the way the run and the tangle narrow the whole corpus to one entry's reach.
 
 =>
 
 type Modules = ReadonlyMap<Path, LoomModule>
 
-const reachableFrom = (modules: Modules, entry: Path): Modules => {
-  const visit = (acc: Modules, path: Path): Modules => {
-    if (acc.has(path)) return acc
-    const m = modules.get(path)
-    return m === undefined
-      ? acc
-      : Array.reduce(m.imports, new Map(acc).set(path, m), visit)
-  }
-  return visit(new Map<Path, LoomModule>(), entry)
+const scopedTo = (modules: Modules, paths: ReadonlyArray<Path>): Modules => {
+  const keep = new Set(paths)
+  return new Map(Array.filter(Array.fromIterable(modules), ([p]) => keep.has(p)))
 }
 
 ## Producing the de re
 
-The produce pass turns the framed corpus into the de re — the one transcendent step, from what the document says to the code it is. `framesOf` renders each module's frame to its runnable text with `fromFrame`; `FrameRunner` evaluates them and returns one `Product` per module; `withProducts` folds those products back onto the corpus. A module the run could not reach takes an empty product, so every module ends with a de re and `allProduced` can tell a produced corpus from a framed one.
+The produce pass turns the framed corpus into the de re — the one transcendent step, from what the document says to the code it is. `framesOf` renders each module's frame to its runnable text with `fromFrame`; `FrameRunner` evaluates them and returns one `Product` per module; `withProducts` folds those products back onto the corpus. The run covers a scope, not the whole corpus, so `withProducts` leaves a module the run did not touch with the de re it already held, and `allProduced` reads the product each module carries to tell a produced scope from a framed one.
 
-The pass stays total. `FrameRunner` catches a frame that throws — an unresolved Warp, a `{Loom}` section that fails — and degrades that one module to an empty de re, so a fault in one module never costs another. A module that carries a Loom fault but still runs keeps its de re, so its product diagnostics stand beside the Loom one.
+The pass stays total. `FrameRunner` catches a frame that throws — an unresolved Warp, a dependency that yields undefined — and degrades that one module to an empty de re, so a fault in one module never costs another. A module that carries a Loom fault but still runs keeps its de re, so its product diagnostics stand beside the Loom one.
 
 =>
-
-const emptyProduct: Product = { code: [], files: [] }
 
 const framesOf = (modules: Modules): ReadonlyMap<Path, string> =>
   new Map(
@@ -271,9 +288,11 @@ const withProducts = (
   products: ReadonlyMap<Path, Product>,
 ): Modules =>
   new Map(
-    Array.map(
-      Array.fromIterable(modules),
-      ([p, m]) => [p, { ...m, product: products.get(p) ?? emptyProduct }] as const,
+    Array.map(Array.fromIterable(modules), ([p, m]) =>
+      Option.match(Option.fromNullable(products.get(p)), {
+        onNone: () => [p, m] as const,
+        onSome: (product) => [p, { ...m, product }] as const,
+      }),
     ),
   )
 
@@ -494,7 +513,7 @@ const frameLocationOf = (
 
 ## Projecting a file's tree
 
-`projectTree` assembles a file's virtual-code tree. It emits the de dicto frame with `fromFrame`, the file's prose as a Markdown document with `fromProse`, one de re document per composition root with `fromProduct`, and gathers them under a `loom` root with `rootVirtualCode`. A root is a section that no same-file anchor pulls into another, and `rootsAt` keeps those names and drops the members. `fromProduct` inlines the members a root pulls in, so each emitted document is a whole resolved Product — and a member's span maps into the root that carries it, rather than standing as a document of its own. The projection follows cross-file `::[…]` references through the corpus modules it is handed, so it treats a lone file and a whole corpus the same way.
+`projectTree` assembles a file's virtual-code tree. It emits the de dicto frame with `fromFrame`, the file's prose as a Markdown document with `fromProse`, one de re document per composition root with `fromProduct`, and gathers them under a `loom` root with `rootVirtualCode`. It also hands the root the section symbols `symbolMappings` reads from the parse — each heading and anchor span — so go-to-definition and rename reach them on the file the author opened. A root is a section that no same-file anchor pulls into another, and `rootsAt` keeps those names and drops the members. `fromProduct` inlines the members a root pulls in, so each emitted document is a whole resolved Product — and a member's span maps into the root that carries it, rather than standing as a document of its own. The projection follows cross-file `::[…]` references through the corpus modules it is handed, so it treats a lone file and a whole corpus the same way.
 
 =>
 
@@ -513,20 +532,24 @@ const rootsAt = (modules: Modules, path: Path): ReadonlyArray<string> => {
 }
 
 const projectTree = (modules: Modules, entry: LoomModule): LoomVirtualCode =>
-  rootVirtualCode(entry.text, [
-    fromFrame(entry.frame),
-    fromProse(modules, entry.path),
-    ...pipe(
-      rootsAt(modules, entry.path),
-      Array.map((name) => fromProduct(modules, { path: entry.path, name })),
-    ),
-  ])
+  rootVirtualCode(
+    entry.text,
+    [
+      fromFrame(entry.frame),
+      fromProse(modules, entry.path),
+      ...pipe(
+        rootsAt(modules, entry.path),
+        Array.map((name) => fromProduct(modules, { path: entry.path, name })),
+      ),
+    ],
+    symbolMappings(entry.doc),
+  )
 
 ## Crossing to Volar
 
 Every model up to here is plain data, which keeps the pipeline serialisable and easy to test. Volar is not plain data: it wants a function-based `IScriptSnapshot` for a document's text and its own `CodeMapping` for each source span. `toVolar` is the one adapter that crosses from a `LoomVirtualCode` tree to Volar's `VirtualCode`, and the only place in Loom that touches Volar's runtime types. It recurses down the embedded tree, converting every node.
 
-Three small functions do the work. `stringSnapshot` presents a string as the minimal snapshot Volar reads. `featuresOf` chooses which editor features Volar forwards at a mapped span. A prose span — a heading title, a preamble — is locate-only: it carries navigation and structure alone. A heading span — a section heading that anchors point to — is locate-only too: an author renames the section there and finds its anchors, but a hover would only describe the alias. A tag span — a section's `[Tag]` label — is locate-only as well: it reaches and renames the section, but a hover there would only surface the generated `Effect.Service` class, the runtime the author never wrote. An anchor span — a `::[Heading]` reference itself — adds verification, so an unresolved name still reports its error, and otherwise withholds hover and completion for the same reason. A name or product span carries the full set, verification and completion and semantics among them, so the author edits the generated TypeScript as if it were the source. A span of the `source` kind — the whole-file identity mapping the root carries — takes verification alone, so Loom's own diagnostics surface on the file while no other feature fires there. `toCodeMapping` rewrites one of our `Mapping`s — a `.loom` source span paired with the generated span it projects to — as Volar's `CodeMapping`, choosing its features with `featuresOf`.
+Three small functions do the work. `stringSnapshot` presents a string as the minimal snapshot Volar reads. `featuresOf` chooses which editor features Volar forwards at a mapped span. A prose span — a preamble, a heading, the text between code blocks — is locate-only: it carries navigation and structure alone. A heading span — a section heading that anchors point to — is locate-only too: an author renames the section there and finds its anchors, but a hover would only describe the alias. A tag span — a section's `[Tag]` label — is locate-only as well: it reaches and renames the section, but a hover there would only surface the generated `Effect.Service` class, the runtime the author never wrote. An anchor span — a `::[Heading]` reference itself — adds verification, so an unresolved name still reports its error, and otherwise withholds hover and completion for the same reason. A name or product span carries the full set, verification and completion and semantics among them, so the author edits the generated TypeScript as if it were the source. A span of the `source` kind — the whole-file identity mapping the root carries — takes verification alone, so Loom's own diagnostics surface on the file while no other feature fires there. `toCodeMapping` rewrites one of our `Mapping`s — a `.loom` source span paired with the generated span it projects to — as Volar's `CodeMapping`, choosing its features with `featuresOf`.
 
 =>
 
@@ -577,7 +600,33 @@ export const toVolar = (vc: LoomVirtualCode): VirtualCode => ({
 
 `DocumentSource` is the compiler's disk seam. It reads a `.loom` file's text by path through Node's synchronous `fs`, and fails with `ReadError` when the file cannot be read. The read is synchronous because the editor projects inside Volar's synchronous hook, which cannot await. The tangler injects this source; the editor injects one of its own.
 
+It also lists a directory's looms. `list` reads the directory tree under a corpus root and returns every `.loom` path in it, the file's siblings the compiler builds into one corpus. `loomsUnder` walks the tree itself, one directory at a time, so it can prune the generated and vendored directories a corpus never includes — `node_modules`, the `.loom` store, `dist`, and `.git` — rather than descend into them and filter after. `entriesIn` reads one directory's entries and lists nothing when it cannot be read, so a path outside any project still resolves to a corpus of one.
+
 =>
+
+const ignoredDir = new Set(['node_modules', '.loom', 'dist', '.git'])
+
+const entriesIn = (dir: Path): ReadonlyArray<Dirent> => {
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+  } catch {
+    return []
+  }
+}
+
+export const loomsUnder = (dir: Path): ReadonlyArray<Path> =>
+  Array.flatMap(entriesIn(dir), (entry) => {
+    const full = resolvePath(dir, entry.name)
+    return Match.value(entry).pipe(
+      Match.when(
+        (e) => ignoredDir.has(e.name),
+        (): ReadonlyArray<Path> => [],
+      ),
+      Match.when((e) => e.isDirectory(), () => loomsUnder(full)),
+      Match.when((e) => e.name.endsWith('.loom'), () => [full]),
+      Match.orElse((): ReadonlyArray<Path> => []),
+    )
+  })
 
 export class DocumentSource extends Effect.Service<DocumentSource>()(
   'DocumentSource',
@@ -588,19 +637,23 @@ export class DocumentSource extends Effect.Service<DocumentSource>()(
           try: () => readFileSync(path, 'utf8'),
           catch: (cause) => new ReadError({ path, cause }),
         }),
+      list: Option.some(
+        (dir: Path): Effect.Effect<ReadonlyArray<Path>> =>
+          Effect.sync(() => loomsUnder(dir)),
+      ),
     },
   },
 ) {}
 
 ## What the compiler draws on
 
-From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; `FrameRunner`, the produce engine; the projection functions `fromFrame`, `fromProduct`, `rootNamesAt`, and `rootVirtualCode`; the corpus model — `LoomModule`, the `corpusErrors` and `moduleDiagnostics` readers, the `sinkTreeRouting` and `sinkTreeFaults` walks with the `SinkFault` they yield, the `tangleSinks` list the collision check resolves, the `definitionAt`, `referencesAt`, `renameAt`, and `renameRangeAt` navigation walks with the `CorpusLocation` they yield, and the `transitiveDependents` walk; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache. The fault catalog supplies `faulty` and the `LoomFault` constructors that word a sink fault, and `normaliseTitle` gives the detector its one missing rule. From the language-service contract comes `FrameLocation`, the editor-shaped range the navigation verbs return. `Product` is the de re a run folds onto each module, `Diagnostic` an error's message and place. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError`, and Node's `fs` and `path` read each file and resolve each sink.
+From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; `FrameRunner`, the produce engine; the projection functions `fromFrame`, `fromProduct`, `fromProse`, `rootNamesAt`, `rootVirtualCode`, and `symbolMappings`; the corpus model — `LoomModule`, the `corpusErrors` and `moduleDiagnostics` readers, the `sinkTreeRouting` and `sinkTreeFaults` walks with the `SinkFault` they yield, the `tangleSinks` list the collision check resolves, the `definitionAt`, `referencesAt`, `renameAt`, and `renameRangeAt` navigation walks with the `CorpusLocation` they yield, and the `transitiveDependents` walk; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache. The fault catalog supplies `faulty` and the `LoomFault` constructors that word a sink fault, and `normaliseTitle` gives the detector its one missing rule. From the language-service contract comes `FrameLocation`, the editor-shaped range the navigation verbs return. `Product` is the de re a run folds onto each module, `Diagnostic` an error's message and place. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError`, and Node's `fs` and `path` read each file and resolve each sink.
 
 =>
 
 import type { CodeMapping, VirtualCode } from '@volar/language-core'
 import { Array, Data, Effect, Match, Option, pipe } from 'effect'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync, type Dirent } from 'node:fs'
 import { dirname, resolve as resolvePath } from 'node:path'
 import type * as ts from 'typescript'
 import type { Product } from '@athrio/loom-ast/ProductAst'
@@ -610,6 +663,7 @@ import {
   corpusErrors,
   definitionAt,
   moduleDiagnostics,
+  placeReachable,
   referencesAt,
   renameAt,
   renameRangeAt,
@@ -645,6 +699,7 @@ import {
   fromProse,
   rootNamesAt,
   rootVirtualCode,
+  symbolMappings,
 } from '#ast/LoomVirtualCodeBuilder'
 import { type LoomVirtualCode, type Mapping } from '@athrio/loom-ast/LoomVirtualCode'
 import { FrameRunner } from '#ast/FrameRunner'
@@ -657,7 +712,7 @@ import { PackageConfig } from './PackageConfig'
 
 ::[What the compiler draws on]
 
-::[The reachable corpus]
+::[The discovered corpus]
 
 ::[Producing the de re]
 

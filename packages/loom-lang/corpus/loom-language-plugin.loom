@@ -12,7 +12,7 @@ The service plugins are the editor features themselves: diagnostics, hover, comp
 
 `loomLanguagePlugin` is the `LanguagePlugin` Volar asks for. It claims every `.loom` path, projects the file to a virtual-code tree, and exposes the frame as a `.ts` script so Volar's TypeScript checks it in place. The frame is the only script Volar's program holds; the product sections stay embedded codes, which the language services check against programs of their own. It projects through `LoomCompiler`, whose `virtualCode` runs the file's composition — walking imports and inlining cross-file `::[…]` transclusions — so the editor resolves a corpus the way the tangler does. `projectIsolated` runs that projection, then marks each composition root as its own module.
 
-The file's text comes through a passive `Source`. `editorSource` reads the open file from the snapshot Volar hands over and each imported file from disk. It never calls back into Volar, so running the composition cannot re-enter the projector.
+The file's text comes through a passive `Source`. `editorSource` reads the open file from the snapshot Volar hands over and each sibling from disk, and lists the corpus directory through `loomsUnder` so the projector discovers the file's corpus. It never calls back into Volar, so running the composition cannot re-enter the projector.
 
 After projecting, the plugin tells Volar what the file depends on, and Volar re-projects the file when any dependency changes. `associate` reads the corpus the projection reached and calls `ctx.getAssociatedScript` for every module the file transitively imports. The registration runs on the warm corpus, after the build, so the projection it triggers is a cache hit rather than a re-entrant build. It registers the whole transitive reach, not the direct imports alone, because Volar marks a dependent dirty one hop at a time on a snapshot change — so a change deep in a chain reaches every file that transcludes it only when each has declared the whole chain.
 
@@ -32,6 +32,7 @@ const editorSource = (
           : readFileSync(path, 'utf8'),
       catch: (cause) => new ReadError({ path, cause }),
     }),
+  list: Option.some((dir) => Effect.sync(() => loomsUnder(dir))),
 })
 
 const associate = (
@@ -232,12 +233,12 @@ import type {
 } from '@volar/language-core'
 import type { LanguageServicePlugin } from '@volar/language-service'
 import type {} from '@volar/typescript'
-import { Array, Effect, Layer, Runtime } from 'effect'
+import { Array, Effect, Layer, Option, Runtime } from 'effect'
 import { readFileSync } from 'node:fs'
 import type * as ts from 'typescript'
 import { URI } from 'vscode-uri'
 import { ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
-import { LoomCompiler, stringSnapshot } from './LoomCompiler'
+import { LoomCompiler, loomsUnder, stringSnapshot } from './LoomCompiler'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
   FrameQuery,

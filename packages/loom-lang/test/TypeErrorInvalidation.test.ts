@@ -1,30 +1,20 @@
-import { createTypeScriptInferredChecker } from '@volar/kit'
+import { describe, expect, it } from '@effect/vitest'
+import { Effect, Layer, Option } from 'effect'
 import type { VirtualCode } from '@volar/language-core'
-import { Effect } from 'effect'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import * as ts from 'typescript'
-import { create as createTypeScriptServices } from 'volar-service-typescript'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { URI } from 'vscode-uri'
+import type { Source } from '#ast/LoomCorpusAstBuilder'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { PackageConfig } from '../src/PackageConfig'
-import { LoomConfig } from '@athrio/loom-config/LoomConfig'
-import { loomLanguagePlugin } from '../src/LoomLanguagePlugin'
 
-// Does a frame TYPE error gate the de re? `funtype` carries a {Loom} type error
-// (`const bad: number = "oops"`) alongside a normal section. tsc rejects the frame
-// and the diagnostic maps back to the .loom; the run strips types and produces the
-// section's de re anyway. The claim under test: the de dicto (the type-checked
-// frame) and the de re (the stripped, composed product) are independent — a frame
-// type error surfaces in the editor, yet the section still composes.
+// A type error never gates the de re. `funtype` carries a section with a type error
+// (`const bad: number = "oops"`) beside a healthy one. The run composes every
+// section's de re regardless — composition assembles text, it does not type-check —
+// so a type error in one section costs no section its product. The error itself
+// surfaces in the editor through the product's own TypeScript service, a separate
+// concern from whether the de re is produced.
 
-const dir = mkdtempSync(join(tmpdir(), 'loom-typeerr-'))
-const fun = join(dir, 'funtype.loom')
-const funSrc = `{{lang: TypeScript}}
+const input = `{{lang: TypeScript}}
 
-# Typed badly {Loom}
+# Typed badly
 
 =>
 
@@ -38,68 +28,37 @@ const negate = (x: number) => -x
 const negDouble = (x: number) => negate(x) * 2
 `
 
-let checker: ReturnType<typeof createTypeScriptInferredChecker>
-
-beforeAll(async () => {
-  writeFileSync(fun, funSrc)
-  const runtime = await Effect.runPromise(
-    Effect.runtime<LoomCompiler | LoomConfig>().pipe(
-      Effect.provide(LoomCompiler.Default),
-      Effect.provide(DocumentSource.Default),
-      Effect.provide(PackageConfig.Default),
-      Effect.provide(LoomConfig.Default),
-    ),
-  )
-  checker = createTypeScriptInferredChecker(
-    [loomLanguagePlugin(runtime)],
-    createTypeScriptServices(ts),
-    () => [fun],
-    {
-      module: ts.ModuleKind.ESNext,
-      moduleResolution: ts.ModuleResolutionKind.Bundler,
-      target: ts.ScriptTarget.ES2022,
-      strict: true,
-      skipLibCheck: true,
-      noEmit: true,
-    },
-  )
-})
-
-afterAll(() => rmSync(dir, { recursive: true, force: true }))
-
-const embedded = (
-  root: VirtualCode | undefined,
-  id: string,
-): VirtualCode | undefined => {
-  if (!root) return undefined
-  if (root.id === id) return root
-  for (const child of root.embeddedCodes ?? []) {
-    const found = embedded(child, id)
-    if (found) return found
-  }
-  return undefined
+const source: Source = {
+  read: () => Effect.succeed(input),
+  list: Option.none(),
 }
 
-// `# Negated double` normalises to the section name NegatedDouble, so its de re
-// product virtual code is keyed by that name lowercased.
-const negdOf = (path: string): string | undefined => {
-  const root = checker.language.scripts.get(URI.file(path))?.generated?.root
-  const negd = embedded(root, 'negateddouble')
-  return negd?.snapshot.getText(0, negd.snapshot.getLength())
+const layer = Layer.provide(
+  LoomCompiler.Default,
+  Layer.merge(DocumentSource.Default, PackageConfig.Default),
+)
+
+// the de re product for a section is its embedded code, keyed by the section name
+// lowercased (`# Negated double` → `negateddouble`).
+const productOf = (root: VirtualCode, id: string): string => {
+  const find = (vc: VirtualCode): VirtualCode | undefined =>
+    vc.id === id ? vc : (vc.embeddedCodes ?? []).map(find).find(Boolean)
+  const found = find(root)
+  return found ? found.snapshot.getText(0, found.snapshot.getLength()) : ''
 }
 
-describe('a frame type error does not gate the de re', () => {
-  it('surfaces the frame type error, yet still produces the de re', async () => {
-    const diagnostics = await checker.check(fun)
-    console.log(
-      '\n[expected — not a test failure] funtype.loom carries a deliberate {Loom}\n' +
-        'type error; the diagnostic below is the asserted de dicto result:\n\n' +
-        checker.printErrors(fun, diagnostics),
-    )
-    // de dicto: tsc rejects the frame and the diagnostic maps back to the .loom
-    expect(diagnostics.some((d) => /not assignable|number/.test(d.message))).toBe(true)
-    // de re: the run strips types, so the section still composes
-    expect(negdOf(fun)).toContain('const negate = (x: number) => -x')
-    expect(negdOf(fun)).toContain('const negDouble')
-  })
+describe('a type error does not gate the de re', () => {
+  it.effect('composes every section despite a type error in one', () =>
+    Effect.gen(function* () {
+      const root = yield* LoomCompiler.pipe(
+        Effect.flatMap((c) => c.compile(source, '/funtype.loom')),
+      )
+      // the healthy section composes
+      expect(productOf(root, 'negateddouble')).toContain(
+        'const negate = (x: number) => -x',
+      )
+      // the type-error section composes too — the run assembles text, never checks it
+      expect(productOf(root, 'typedbadly')).toContain('const bad: number = "oops"')
+    }).pipe(Effect.provide(layer)),
+  )
 })

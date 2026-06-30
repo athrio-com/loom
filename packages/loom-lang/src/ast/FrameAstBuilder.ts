@@ -35,8 +35,6 @@ import {
   ValueRefSchema,
   type FrameAuthoredToken,
   FrameAuthoredTokenSchema,
-  type FrameCode,
-  FrameCodeSchema,
   type FrameModule,
   FrameModuleSchema,
   FrameSynthTokenSchema,
@@ -178,21 +176,18 @@ interface ServiceInfo {
 }
 
 interface Built {
-  readonly member: ServiceClass | FrameCode
+  readonly member: ServiceClass
   readonly service: Option.Option<ServiceInfo>
-  readonly imports: ReadonlyArray<FrameCode>
 }
 
 const buildMember =
   (index: NameIndex, lang: string, modulePath: string) =>
   (section: LoomSection): Built => {
-    const { specifier, sink } = section.heading
-    if (specifier !== undefined && specifier.label.value === 'Loom')
-      return buildSplice(section)
-    const tanglePath =
-      sink !== undefined && sink.file !== undefined
-        ? Option.some(pathOf(sink))
-        : Option.none<FrameAuthoredToken>()
+    const tanglePath = pipe(
+      Option.fromNullable(section.heading.sink),
+      Option.filter((sink) => sink.file !== undefined),
+      Option.map(pathOf),
+    )
     return buildService(index, lang, section, modulePath, tanglePath)
   }
 
@@ -236,7 +231,6 @@ const buildService = (
       deps: internals.map((b) => b.tag.text),
       sink: Option.isSome(tanglePath),
     }),
-    imports: [],
   }
 }
 
@@ -267,26 +261,6 @@ const bodyOf = (
 
 const items = (bindings: ReadonlyArray<Binding>) =>
   bindings.map((value) => BindingItemSchema.make({ value }))
-
-const buildSplice = (section: LoomSection): Built => {
-  const pieces = Array.filterMap(section.code, pieceOf)
-  const isImport = (p: CodePiece) => /^\s*import\s/.test(p.source)
-  const body = Array.filter(pieces, (p) => !isImport(p))
-
-  return {
-    member: Array.matchLeft(body, {
-      onEmpty: () => FrameCodeSchema.make({ text: '', position: endOf(section) }),
-      onNonEmpty: () =>
-        FrameCodeSchema.make({ text: sourceOf(body), position: spanOf(body) }),
-    }),
-    service: Option.none(),
-    imports: pipe(
-      pieces,
-      Array.filter(isImport),
-      Array.map((p) => FrameCodeSchema.make({ text: p.source, position: p.position })),
-    ),
-  }
-}
 
 const buildCompose = (
   section: LoomSection,
@@ -534,26 +508,22 @@ const crossLanguage = (
 ): Health => faulty(CrossLanguageAnchor({ name, host, found }), at)
 
 interface FrameBuilder {
-  readonly imports: ReadonlyArray<FrameCode>
   readonly members: ReadonlyArray<ReturnType<typeof MemberItemSchema.make>>
   readonly services: ReadonlyArray<ServiceInfo>
 }
 
 const emptyFrame: FrameBuilder = {
-  imports: [],
   members: [],
   services: [],
 }
 
 const appendMember = (b: FrameBuilder, built: Built): FrameBuilder => ({
-  imports: [...b.imports, ...built.imports],
   members: [...b.members, MemberItemSchema.make({ value: built.member })],
   services: [...b.services, ...Option.toArray(built.service)],
 })
 
 const finaliseModule = (b: FrameBuilder): FrameModule =>
   FrameModuleSchema.make({
-    imports: b.imports,
     members: b.members,
     root: buildRoot(b.services),
   })

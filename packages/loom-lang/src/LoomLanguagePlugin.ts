@@ -5,12 +5,12 @@ import type {
 } from '@volar/language-core'
 import type { LanguageServicePlugin } from '@volar/language-service'
 import type {} from '@volar/typescript'
-import { Array, Effect, Layer, Runtime } from 'effect'
+import { Array, Effect, Layer, Option, Runtime } from 'effect'
 import { readFileSync } from 'node:fs'
 import type * as ts from 'typescript'
 import { URI } from 'vscode-uri'
 import { ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
-import { LoomCompiler, stringSnapshot } from './LoomCompiler'
+import { LoomCompiler, loomsUnder, stringSnapshot } from './LoomCompiler'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
   FrameQuery,
@@ -37,6 +37,7 @@ const editorSource = (
           : readFileSync(path, 'utf8'),
       catch: (cause) => new ReadError({ path, cause }),
     }),
+  list: Option.some((dir) => Effect.sync(() => loomsUnder(dir))),
 })
 
 const associate = (

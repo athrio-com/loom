@@ -1,5 +1,4 @@
-import { Array, Data, Effect, Option, pipe } from 'effect'
-import { dirname, resolve as resolvePath } from 'node:path'
+import { Data, Effect, Option, pipe } from 'effect'
 import {
   checkAnchorDelims,
   defaultAnchorDelims,
@@ -16,6 +15,7 @@ import type { LoomModule, Path } from '@athrio/loom-ast/LoomCorpusAst'
 
 export interface Source {
   readonly read: (path: Path) => Effect.Effect<string, ReadError>
+  readonly list: Option.Option<(dir: Path) => Effect.Effect<ReadonlyArray<Path>>>
 }
 
 export class ReadError extends Data.TaggedError('ReadError')<{
@@ -84,16 +84,7 @@ export class LoomCorpusAstBuilder extends Effect.Service<LoomCorpusAstBuilder>()
         Effect.gen(function* () {
           const { text, doc } = yield* parsed(source, path, delims)
           const frame = yield* frames.build(doc, path, primaryLanguage)
-          const imports = pipe(
-            frame.imports,
-            Array.filterMap((i) =>
-              pipe(
-                specifierOf(i.text),
-                Option.flatMap((spec) => locate(path, spec)),
-              ),
-            ),
-          )
-          return { path, text, doc, frame, imports }
+          return { path, text, doc, frame }
         })
 
       return { build }
@@ -107,17 +98,3 @@ export class LoomCorpusAstBuilder extends Effect.Service<LoomCorpusAstBuilder>()
     ],
   },
 ) {}
-
-const specifierOf = (importLine: string): Option.Option<string> =>
-  pipe(
-    Option.fromNullable(importLine.match(/from\s*["']([^"']+)["']/)),
-    Option.flatMap((m) => Option.fromNullable(m[1])),
-  )
-
-const locate = (
-  hostFile: Path,
-  importSpecifier: string,
-): Option.Option<Path> =>
-  importSpecifier.endsWith('.loom')
-    ? Option.some(resolvePath(dirname(hostFile), importSpecifier))
-    : Option.none()

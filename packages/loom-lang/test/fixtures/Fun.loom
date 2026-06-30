@@ -98,15 +98,6 @@ value `3` where the anchor stands.
 
 val rounds: Int = ::[rounds]
 
-# Companion imports {Loom}
-
-Bring `Negate` in from the companion document so a section can use it across
-files. The import is hoisted to the head of the synthesised frame.
-
-=>
-
-import { Negate } from "./Sad.loom"
-
 # Build script {Bash}
 
 Compile the single file, then run the resulting class.

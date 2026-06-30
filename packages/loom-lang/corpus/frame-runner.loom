@@ -251,7 +251,7 @@ const wireCone = (cone: ReadonlyArray<ServiceNode>): AnyLayer =>
 
 `collect` indexes every service in the corpus by key, then runs each module's manifest under its own cone. For one module it walks the cone from the module's services, folds it, provides it to that module's `__run`, and catches the result. The result becomes that module's `Product`: its sections folded into a `code` array, its tangle files alongside. `collect` returns one `Product` per module path.
 
-The catch is what contains a fault. It wraps the provide as well as the run. A cone may fail to build for several reasons: a `{Loom}` section that throws, a Warp whose target no import brings into scope, a dependency that yields undefined. Any of these degrades that one module to an empty result, and its neighbours run on untouched. The de dicto frame the editor type-checks is produced by rendering, not running, so it survives a failed run and still carries its diagnostics. Only the de re of the failed module is lost.
+The catch is what contains a fault. It wraps the provide as well as the run. A cone may fail to build for several reasons: a Warp whose target no section in scope provides, a dependency that yields undefined. Any of these degrades that one module to an empty result, and its neighbours run on untouched. The de dicto frame the editor type-checks is produced by rendering, not running, so it survives a failed run and still carries its diagnostics. Only the de re of the failed module is lost.
 
 =>
 

@@ -48,13 +48,6 @@ export const FrameAuthoredTokenSchema = frameNode(
 )
 export type FrameAuthoredToken = typeof FrameAuthoredTokenSchema.Type
 
-export const FrameCodeSchema = frameNode(
-  'FrameCode',
-  { text: Schema.String, position: PositionSchema },
-  ['text'],
-)
-export type FrameCode = typeof FrameCodeSchema.Type
-
 export const ServiceNameSchema = Schema.Union(
   FrameAuthoredTokenSchema,
   FrameSynthTokenSchema,
@@ -281,7 +274,7 @@ export const RootSchema = frameNode(
 )
 export type Root = typeof RootSchema.Type
 
-const MemberSchema = Schema.Union(ServiceClassSchema, FrameCodeSchema)
+const MemberSchema = ServiceClassSchema
 
 export const MemberItemSchema = frameNode(
   'MemberItem',
@@ -296,10 +289,9 @@ export const FrameModuleSchema = frameNode(
     header: synth(
       'import * as dsl from "@athrio/loom-lang/dsl"\nimport { Effect, Layer } from "effect"\n',
     ),
-    imports: Schema.Array(FrameCodeSchema),
     members: Schema.Array(MemberItemSchema),
     root: Schema.optional(RootSchema),
   },
-  ['header', 'imports', 'members', 'root'],
+  ['header', 'members', 'root'],
 )
 export type FrameModule = typeof FrameModuleSchema.Type

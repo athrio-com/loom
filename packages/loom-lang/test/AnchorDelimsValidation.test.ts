@@ -1,4 +1,4 @@
-import { Effect, Either } from 'effect'
+import { Effect, Either, Option } from 'effect'
 import { describe, expect, it } from 'vitest'
 import { checkAnchorDelims, defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import { LoomCorpusAstBuilder, type Source } from '#ast/LoomCorpusAstBuilder'
@@ -47,6 +47,7 @@ describe('checkAnchorDelims — a configured anchor pair is validated', () => {
 describe('the parse recovers a bad pair into document health', () => {
   const source: Source = {
     read: () => Effect.succeed('# Title\n\n=>\n\nconst x = 1\n'),
+    list: Option.none(),
   }
 
   it('surfaces the self-describing message, never a crash', () => {

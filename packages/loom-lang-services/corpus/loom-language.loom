@@ -3,8 +3,7 @@
 # The Loom language
 
 `LoomLanguage` gives the **Frame** its editor support — the de dicto composition
-program Loom builds (the `Effect.Service` classes, the Warp wiring), together with any
-`{Loom}` sections, which become part of the Frame. Loom is TypeScript + Effect, so
+program Loom builds — the `Effect.Service` classes and the Warp wiring. Loom is TypeScript + Effect, so
 `LoomLanguage` wraps `volar-service-typescript` and takes the `TypescriptSdk` the host
 provides. It is always active: every `.loom` has a Frame.
 
@@ -176,12 +175,31 @@ const loomRename = (frame: FrameQueryApi): LanguageServicePlugin => ({
 
 ## Composing the services
 
-`LoomLanguage` composes its plugin sources: the `volar-service-typescript` plugins that
-check the Frame, and over the `FrameQuery` the host provides, `loomDiagnostics` for
-Loom's own health, `loomDefinition` and `loomReferences` for its navigation, and
-`loomRename` for renaming a section. Volar registers them all under the `loom` id.
+`withoutHighlights` wraps each `volar-service-typescript` plugin to drop one feature:
+document highlight. The Frame is the de dicto — the generated composition, and the prose
+woven into it — so TypeScript's highlight there marks a generated span, and over the
+woven prose it marks the whole section, which reads as the prose block being selected
+when the cursor merely rests in it. A product section's own TypeScript service highlights
+the code the author wrote; the Frame withholds the feature, returning no highlight rather
+than the wrong one.
+
+`LoomLanguage` composes its plugin sources: the wrapped `volar-service-typescript`
+plugins that check the Frame, and over the `FrameQuery` the host provides,
+`loomDiagnostics` for Loom's own health, `loomDefinition` and `loomReferences` for its
+navigation, and `loomRename` for renaming a section. Volar registers them all under the
+`loom` id.
 
 =>
+
+const withoutHighlights = (
+  plugin: LanguageServicePlugin,
+): LanguageServicePlugin => ({
+  ...plugin,
+  create: (context) => ({
+    ...plugin.create(context),
+    provideDocumentHighlights: () => [],
+  }),
+})
 
 export const LoomLanguage = defineLanguageService({
   id: 'loom',
@@ -192,7 +210,7 @@ export const LoomLanguage = defineLanguageService({
       const ts = yield* TypescriptSdk
       const frame = yield* FrameQuery
       return [
-        ...create(ts),
+        ...create(ts).map(withoutHighlights),
         loomDiagnostics(frame),
         loomDefinition(frame),
         loomReferences(frame),

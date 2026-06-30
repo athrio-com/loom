@@ -159,7 +159,6 @@ describe('FrameAst — construction', () => {
       run: tok('Effect.gen(function* () {})'),
     })
     const frame = FrameModuleSchema.make({
-      imports: [],
       members: [MemberItemSchema.make({ value: service })],
       root,
     })
@@ -179,7 +178,7 @@ describe('FrameAst — construction', () => {
   })
 
   it('a service-less file is valid — no root', () => {
-    const empty = FrameModuleSchema.make({ imports: [], members: [] })
+    const empty = FrameModuleSchema.make({ members: [] })
     expect(empty.root).toBeUndefined()
     expect(empty.members).toEqual([])
     expect(empty.header.text).toContain('@athrio/loom-lang/dsl')

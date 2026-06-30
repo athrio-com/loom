@@ -85,6 +85,7 @@ describe('ManifestBuilder — compiling the {Config} source', () => {
       },
       packageRoot: ws,
       workspaceRoot: ws,
+      corpusDir: join(ws, 'corpus'),
     })
   })
 })

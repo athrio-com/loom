@@ -6,7 +6,7 @@
 
 ## What the compiler reads
 
-`BuildSettings` is the answer the compiler gets for one file. It holds a full anchor delimiter pair, the file's primary language, the root the file's package tangles under, and the workspace root a book's higher-order sink resolves its directories against.
+`BuildSettings` is the answer the compiler gets for one file. It holds a full anchor delimiter pair, the file's primary language, the root the file's package tangles under, the workspace root a book's higher-order sink resolves its directories against, and the corpus directory the compiler enumerates to discover the file's sibling looms.
 
 The anchor delimiters are always a complete pair. A `loom.json` may set one side, both, or neither, so `anchorDelimsOf` fills each missing side from `defaultAnchorDelims`, the built-in `::[` and `]`. A package overrides a delimiter only where the default would collide with its own product language.
 
@@ -21,6 +21,7 @@ export interface BuildSettings {
   readonly primaryLanguage: string | undefined
   readonly packageRoot: string | undefined
   readonly workspaceRoot: string | undefined
+  readonly corpusDir: string | undefined
 }
 
 const anchorDelimsOf = (
@@ -49,6 +50,7 @@ export class PackageConfig extends Effect.Service<PackageConfig>()(
               primaryLanguage: c.primary,
               packageRoot: c.packageRoot,
               workspaceRoot: c.workspaceRoot,
+              corpusDir: c.corpusDir,
             })),
           ),
       }

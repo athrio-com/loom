@@ -9,6 +9,8 @@ import {
 } from '@athrio/loom-ast/ProductAst'
 import { type Position } from '@athrio/loom-ast/LoomNode'
 import { type LoomModule, type Path } from '@athrio/loom-ast/LoomCorpusAst'
+import { type LoomDocument, type LoomSection } from '@athrio/loom-ast/LoomAst'
+import { type WarpAnchorToken } from '@athrio/loom-ast/LoomTokens'
 import {
   type LoomVirtualCode,
   type Mapping,
@@ -310,6 +312,33 @@ const indentBlock = (
   }
 }
 
+const spanOf = (position: Position, kind: MappingKind): Mapping => ({
+  genStart: position.start.offset,
+  genLength: position.end.offset - position.start.offset,
+  source: position,
+  kind,
+})
+
+const anchorsOf = (section: LoomSection): ReadonlyArray<WarpAnchorToken> =>
+  pipe(
+    [...section.preamble, ...section.code],
+    Array.flatMap((weft) => weft.anchors),
+  )
+
+export const symbolMappings = (
+  doc: LoomDocument,
+): ReadonlyArray<Mapping> =>
+  Array.flatMap(doc.sections, (section) => [
+    ...pipe(
+      Option.fromNullable(section.heading.title),
+      Option.map((title) => spanOf(title.position, 'heading')),
+      Option.toArray,
+    ),
+    ...Array.map(anchorsOf(section), (anchor) =>
+      spanOf(anchor.position, 'anchor'),
+    ),
+  ])
+
 export const fromFrame = (frame: FrameAst.FrameModule): LoomVirtualCode => ({
   ...emitNode(frame),
   id: 'frame',
@@ -332,52 +361,57 @@ export const fromProduct = (
     }),
   )
 
+const isCodeWeft = (weft: { readonly type: string }): boolean =>
+  weft.type === 'ArrowWeft' || weft.type === 'CodeWeft'
+
+const proseMappings = (doc: LoomDocument): ReadonlyArray<Mapping> =>
+  pipe(
+    [
+      ...doc.preamble,
+      ...Array.flatMap(doc.sections, (section) => [
+        section.heading,
+        ...section.preamble,
+        ...Array.filter(section.code, (weft) => !isCodeWeft(weft)),
+      ]),
+    ],
+    Array.map((token) => spanOf(token.position, 'prose')),
+  )
+
 export const fromProse = (
   modules: ReadonlyMap<Path, LoomModule>,
   path: Path,
-): LoomVirtualCode => {
-  const module = modules.get(path)
-  const text = module?.text ?? ''
-  const codeWefts = module
-    ? pipe(
+): LoomVirtualCode =>
+  Option.match(Option.fromNullable(modules.get(path)), {
+    onNone: () => leaf('prose', 'prose', '', []),
+    onSome: (module) => {
+      const code = pipe(
         module.doc.sections,
         Array.flatMap((section) => section.code),
-        Array.filter(
-          (weft) => weft.type === 'ArrowWeft' || weft.type === 'CodeWeft',
-        ),
+        Array.filter(isCodeWeft),
+        Array.reduce(module.text, (acc, weft) => {
+          const start = weft.position.start.offset
+          const end = weft.position.end.offset
+          return (
+            acc.slice(0, start) +
+            acc.slice(start, end).replace(/[^\n]/g, ' ') +
+            acc.slice(end)
+          )
+        }),
       )
-    : []
-  const code = Array.reduce(codeWefts, text, (acc, weft) => {
-    const start = weft.position.start.offset
-    const end = weft.position.end.offset
-    return (
-      acc.slice(0, start) +
-      acc.slice(start, end).replace(/[^\n]/g, ' ') +
-      acc.slice(end)
-    )
+      return {
+        id: 'prose',
+        languageId: 'prose',
+        code,
+        mappings: proseMappings(module.doc),
+        embeddedCodes: [],
+      }
+    },
   })
-  return {
-    id: 'prose',
-    languageId: 'prose',
-    code,
-    mappings: [
-      {
-        genStart: 0,
-        genLength: code.length,
-        source: {
-          start: { line: 1, offset: 0 },
-          end: { line: 1, offset: code.length },
-        },
-        kind: 'prose',
-      },
-    ],
-    embeddedCodes: [],
-  }
-}
 
 export const rootVirtualCode = (
   text: string,
   embeddedCodes: ReadonlyArray<LoomVirtualCode>,
+  symbols: ReadonlyArray<Mapping> = [],
 ): LoomVirtualCode => ({
   id: 'root',
   languageId: 'loom',
@@ -392,6 +426,7 @@ export const rootVirtualCode = (
       },
       kind: 'source',
     },
+    ...symbols,
   ],
   embeddedCodes,
 })

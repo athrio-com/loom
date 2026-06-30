@@ -35,6 +35,7 @@ describe('PackageConfig.resolve — per-file build settings', () => {
       primaryLanguage: 'typescript',
       packageRoot: undefined,
       workspaceRoot: dir,
+      corpusDir: dir,
     })
   })
 
@@ -46,6 +47,7 @@ describe('PackageConfig.resolve — per-file build settings', () => {
       primaryLanguage: undefined,
       packageRoot: undefined,
       workspaceRoot: dir,
+      corpusDir: dir,
     })
   })
 
@@ -59,6 +61,7 @@ describe('PackageConfig.resolve — per-file build settings', () => {
       primaryLanguage: 'bash',
       packageRoot: undefined,
       workspaceRoot: dir,
+      corpusDir: nested,
     })
   })
 

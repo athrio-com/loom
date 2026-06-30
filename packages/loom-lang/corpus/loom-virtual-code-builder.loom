@@ -345,9 +345,44 @@ const indentBlock = (
   }
 }
 
+## Mapping the section symbols
+
+Loom's navigation and rename serve the root mirror alone — the document whose map to the source is the identity. The root carries one whole-file span of the `source` kind, which Volar forwards for verification only, so a cursor on a heading or an anchor reaches no Loom feature. `symbolMappings` adds the spans that route those features: a `heading` span over each section's title, and an `anchor` span over every `::[…]` reference the section carries. With them, go-to-definition on an anchor, find-references on a heading, and rename of a section all reach Loom through the root. The frame holds its own copies of these spans for the TypeScript it generates; these are the source's own, on the file the author opened.
+
+`anchorsOf` gathers a section's anchors across its preamble and its body — code and prose alike — the same set the navigation resolves over. `spanOf` makes one identity mapping over a token's span, since the root's code is the source verbatim.
+
+=>
+
+const spanOf = (position: Position, kind: MappingKind): Mapping => ({
+  genStart: position.start.offset,
+  genLength: position.end.offset - position.start.offset,
+  source: position,
+  kind,
+})
+
+const anchorsOf = (section: LoomSection): ReadonlyArray<WarpAnchorToken> =>
+  pipe(
+    [...section.preamble, ...section.code],
+    Array.flatMap((weft) => weft.anchors),
+  )
+
+export const symbolMappings = (
+  doc: LoomDocument,
+): ReadonlyArray<Mapping> =>
+  Array.flatMap(doc.sections, (section) => [
+    ...pipe(
+      Option.fromNullable(section.heading.title),
+      Option.map((title) => spanOf(title.position, 'heading')),
+      Option.toArray,
+    ),
+    ...Array.map(anchorsOf(section), (anchor) =>
+      spanOf(anchor.position, 'anchor'),
+    ),
+  ])
+
 ## The passes and the tree
 
-`fromFrame` is the de dicto pass — the frame virtual code, always loom-tagged for the type-checker. `fromProduct` is the de re pass — a section's product in its own language. Its virtual-code id is the section name lowercased, since Volar requires every embedded-code id to be lowercase. A section absent from the corpus yields an empty document. `fromProse` is the prose pass — the file as a Markdown document, its `languageId` `prose`, with every code chunk blanked to spaces so only the prose shows while its offsets stay put under a single identity mapping. `rootVirtualCode` assembles a file's tree: the source as the `loom` root, the frame, prose, and product documents its children. The root maps to itself, a whole-file identity span of the `source` kind, so Loom's own diagnostics reach the editor on the file the author opened.
+`fromFrame` is the de dicto pass — the frame virtual code, always loom-tagged for the type-checker. `fromProduct` is the de re pass — a section's product in its own language. Its virtual-code id is the section name lowercased, since Volar requires every embedded-code id to be lowercase. A section absent from the corpus yields an empty document. `fromProse` is the prose pass — the file as a Markdown document, its `languageId` `prose`, every code chunk blanked to spaces so only the prose shows while its offsets stay put. `proseMappings` maps each prose token to its own source span — the document and section preambles, every heading, and the prose between code blocks — so a mapping is precise per token, never a whole line or the whole file. `rootVirtualCode` assembles a file's tree: the source as the `loom` root, the frame, prose, and product documents its children. The root carries a whole-file identity span of the `source` kind, so Loom's own diagnostics reach the editor on the file the author opened, and the section-symbol spans beside it, so navigation and rename reach each heading and anchor there.
 
 `rootNamesAt` names a file's composition roots — the sections no reference folds in. It reads the file's `product.code` from the corpus, the sections the run produced. Every reference is a same-file `NameRef`, a name anchor naming a section in this file, and it demotes its target: the target becomes a fragment of the referring section's root, sharing that scope, not a unit of its own. The sections left over, named by no reference, are the roots. The editor type-checks them and lets each fold in the fragments it names. The names come back lowercased, to match the de re ids `fromProduct` assigns.
 
@@ -375,52 +410,57 @@ export const fromProduct = (
     }),
   )
 
+const isCodeWeft = (weft: { readonly type: string }): boolean =>
+  weft.type === 'ArrowWeft' || weft.type === 'CodeWeft'
+
+const proseMappings = (doc: LoomDocument): ReadonlyArray<Mapping> =>
+  pipe(
+    [
+      ...doc.preamble,
+      ...Array.flatMap(doc.sections, (section) => [
+        section.heading,
+        ...section.preamble,
+        ...Array.filter(section.code, (weft) => !isCodeWeft(weft)),
+      ]),
+    ],
+    Array.map((token) => spanOf(token.position, 'prose')),
+  )
+
 export const fromProse = (
   modules: ReadonlyMap<Path, LoomModule>,
   path: Path,
-): LoomVirtualCode => {
-  const module = modules.get(path)
-  const text = module?.text ?? ''
-  const codeWefts = module
-    ? pipe(
+): LoomVirtualCode =>
+  Option.match(Option.fromNullable(modules.get(path)), {
+    onNone: () => leaf('prose', 'prose', '', []),
+    onSome: (module) => {
+      const code = pipe(
         module.doc.sections,
         Array.flatMap((section) => section.code),
-        Array.filter(
-          (weft) => weft.type === 'ArrowWeft' || weft.type === 'CodeWeft',
-        ),
+        Array.filter(isCodeWeft),
+        Array.reduce(module.text, (acc, weft) => {
+          const start = weft.position.start.offset
+          const end = weft.position.end.offset
+          return (
+            acc.slice(0, start) +
+            acc.slice(start, end).replace(/[^\n]/g, ' ') +
+            acc.slice(end)
+          )
+        }),
       )
-    : []
-  const code = Array.reduce(codeWefts, text, (acc, weft) => {
-    const start = weft.position.start.offset
-    const end = weft.position.end.offset
-    return (
-      acc.slice(0, start) +
-      acc.slice(start, end).replace(/[^\n]/g, ' ') +
-      acc.slice(end)
-    )
+      return {
+        id: 'prose',
+        languageId: 'prose',
+        code,
+        mappings: proseMappings(module.doc),
+        embeddedCodes: [],
+      }
+    },
   })
-  return {
-    id: 'prose',
-    languageId: 'prose',
-    code,
-    mappings: [
-      {
-        genStart: 0,
-        genLength: code.length,
-        source: {
-          start: { line: 1, offset: 0 },
-          end: { line: 1, offset: code.length },
-        },
-        kind: 'prose',
-      },
-    ],
-    embeddedCodes: [],
-  }
-}
 
 export const rootVirtualCode = (
   text: string,
   embeddedCodes: ReadonlyArray<LoomVirtualCode>,
+  symbols: ReadonlyArray<Mapping> = [],
 ): LoomVirtualCode => ({
   id: 'root',
   languageId: 'loom',
@@ -435,6 +475,7 @@ export const rootVirtualCode = (
       },
       kind: 'source',
     },
+    ...symbols,
   ],
   embeddedCodes,
 })
@@ -490,7 +531,7 @@ export class LoomVirtualCodeBuilder extends Effect.Service<LoomVirtualCodeBuilde
 
 ## What this module draws on
 
-Effect supplies `Schema` and `SchemaAST` to read the render-order annotations, and the rest. `FrameAst` is imported whole, since its schemas drive the table; the de re node types and `keyOf` come from `ProductAst`, `Position` from the foundation, and the `LoomModule` and `Path` the resolution walks from the corpus model. The virtual-code types come from `LoomVirtualCode`.
+Effect supplies `Schema` and `SchemaAST` to read the render-order annotations, and the rest. `FrameAst` is imported whole, since its schemas drive the table; the de re node types and `keyOf` come from `ProductAst`, `Position` from the foundation, and the `LoomModule` and `Path` the resolution walks from the corpus model. The parse `LoomDocument` and its `LoomSection`, with the `WarpAnchorToken` an anchor is lifted from, come from the AST the symbol mappings read. The virtual-code types come from `LoomVirtualCode`.
 
 =>
 
@@ -505,6 +546,8 @@ import {
 } from '@athrio/loom-ast/ProductAst'
 import { type Position } from '@athrio/loom-ast/LoomNode'
 import { type LoomModule, type Path } from '@athrio/loom-ast/LoomCorpusAst'
+import { type LoomDocument, type LoomSection } from '@athrio/loom-ast/LoomAst'
+import { type WarpAnchorToken } from '@athrio/loom-ast/LoomTokens'
 import {
   type LoomVirtualCode,
   type Mapping,
@@ -528,6 +571,8 @@ import {
 ::[Inlining the product]
 
 ::[Re-indenting a transcluded block]
+
+::[Mapping the section symbols]
 
 ::[The passes and the tree]
 

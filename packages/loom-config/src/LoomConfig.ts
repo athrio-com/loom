@@ -62,6 +62,7 @@ export interface ResolvedConfig {
   readonly services: Record<string, string>
   readonly packageRoot: string | undefined
   readonly workspaceRoot: string | undefined
+  readonly corpusDir: string | undefined
 }
 
 const empty: ResolvedConfig = {
@@ -72,6 +73,7 @@ const empty: ResolvedConfig = {
   services: {},
   packageRoot: undefined,
   workspaceRoot: undefined,
+  corpusDir: undefined,
 }
 
 const storeDirName = '.loom'
@@ -116,6 +118,19 @@ const containerRoot = (
     : containerRoot(parent, container, workspace)
 }
 
+const corpusDirOf = (
+  start: string,
+  container: string,
+  workspace: string,
+): string => {
+  const climb = (dir: string): string => {
+    if (basename(dir) === container) return dir
+    const parent = dirname(dir)
+    return dir === workspace || parent === dir ? start : climb(parent)
+  }
+  return climb(start)
+}
+
 const resolveFromManifest = (
   manifest: WorkspaceManifest,
   workspace: string,
@@ -130,6 +145,7 @@ const resolveFromManifest = (
     services: servicesOf(manifest.languages),
     packageRoot: containerRoot(dirname(fromPath), container, workspace),
     workspaceRoot: workspace,
+    corpusDir: corpusDirOf(dirname(fromPath), container, workspace),
   }
 }
 

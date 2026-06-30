@@ -94,6 +94,7 @@ export interface ResolvedConfig {
   readonly services: Record<string, string>
   readonly packageRoot: string | undefined
   readonly workspaceRoot: string | undefined
+  readonly corpusDir: string | undefined
 }
 
 const empty: ResolvedConfig = {
@@ -104,6 +105,7 @@ const empty: ResolvedConfig = {
   services: {},
   packageRoot: undefined,
   workspaceRoot: undefined,
+  corpusDir: undefined,
 }
 
 ## Finding the workspace
@@ -160,6 +162,8 @@ Resolving a file gives it the workspace defaults and the root its sinks tangle u
 
 `containerRoot` derives the package root by convention. It walks up from the file to the nearest directory named like the corpus — `corpus` by default — and takes the directory above it, so a loom in `pkg/corpus/` tangles into `pkg/`. A file inside no corpus directory carries no root and tangles beside itself.
 
+`corpusDir` is the other half of that walk: the corpus directory the file lives in, the one Loom enumerates to discover its sibling looms. It is the same nearest ancestor `containerRoot` finds, returned whole rather than stepped above. A file in no corpus directory — a workspace whose `corpus` is `.`, or a loose file — discovers from its own directory, never climbing out to scan a whole workspace.
+
 =>
 
 const containerRoot = (
@@ -172,6 +176,19 @@ const containerRoot = (
   return dir === workspace || parent === dir
     ? undefined
     : containerRoot(parent, container, workspace)
+}
+
+const corpusDirOf = (
+  start: string,
+  container: string,
+  workspace: string,
+): string => {
+  const climb = (dir: string): string => {
+    if (basename(dir) === container) return dir
+    const parent = dirname(dir)
+    return dir === workspace || parent === dir ? start : climb(parent)
+  }
+  return climb(start)
 }
 
 const resolveFromManifest = (
@@ -188,6 +205,7 @@ const resolveFromManifest = (
     services: servicesOf(manifest.languages),
     packageRoot: containerRoot(dirname(fromPath), container, workspace),
     workspaceRoot: workspace,
+    corpusDir: corpusDirOf(dirname(fromPath), container, workspace),
   }
 }
 

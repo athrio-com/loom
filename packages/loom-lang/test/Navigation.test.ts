@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Layer } from 'effect'
+import { Effect, Layer, Option } from 'effect'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
 import { PackageConfig } from '../src/PackageConfig'
@@ -30,7 +30,10 @@ const files: Record<string, string> = { '/doc.loom': doc }
 
 const TestDocs = Layer.succeed(
   DocumentSource,
-  new DocumentSource({ read: (path: string) => Effect.succeed(files[path] ?? '') }),
+  new DocumentSource({
+    read: (path: string) => Effect.succeed(files[path] ?? ''),
+    list: Option.some(() => Effect.succeed(Object.keys(files))),
+  }),
 )
 
 const TestConfig = Layer.succeed(
@@ -42,6 +45,7 @@ const TestConfig = Layer.succeed(
         primaryLanguage: undefined,
         packageRoot: undefined,
         workspaceRoot: undefined,
+        corpusDir: undefined,
       }),
   }),
 )

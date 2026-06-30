@@ -10,7 +10,9 @@ The builder owns no files. It reads through a `Source` the caller hands it, so t
 
 ## The source it reads through
 
-`Source` is what the builder reads through — a small interface the caller provides, never the filesystem directly. Its one method, `read`, returns a file's text by its path, and fails with a `ReadError` when the file cannot be read. `LoomCompiler` supplies the real implementation, `DocumentSource`, so the builder reads through the caller rather than the filesystem.
+`Source` is what the builder reads through — a small interface the caller provides, never the filesystem directly. Its `read` method returns a file's text by its path, and fails with a `ReadError` when the file cannot be read. `LoomCompiler` supplies the real implementation, `DocumentSource`, so the builder reads through the caller rather than the filesystem.
+
+`list` is the other half: it returns every `.loom` path under a directory, the looms `LoomCompiler` discovers as a file's corpus. It is an `Option`: a caller that hands in a single document in memory carries `Option.none`, and the compiler then sees a corpus of one. The disk source the CLI and the editor use carries `Option.some` of the real listing.
 
 `ReadError` names a file the source cannot read — one that is missing, or one the operating system refuses to open — and carries the path and the underlying cause. Its message reads `Cannot read <path>: <cause>`. The build catches it and recovers, so a file that cannot be read becomes a diagnostic on that file rather than a crash.
 
@@ -18,6 +20,7 @@ The builder owns no files. It reads through a `Source` the caller hands it, so t
 
 export interface Source {
   readonly read: (path: Path) => Effect.Effect<string, ReadError>
+  readonly list: Option.Option<(dir: Path) => Effect.Effect<ReadonlyArray<Path>>>
 }
 
 export class ReadError extends Data.TaggedError('ReadError')<{
@@ -36,8 +39,6 @@ export class ReadError extends Data.TaggedError('ReadError')<{
 `build` runs one file through the whole chain, each pass consuming the one before it. `parsed` reads the file and parses it: `LoomSourceRanges` cuts the text into line ranges, `WeftClassifier` then `WeftTokeniser` turn those into tokenised wefts, and `LoomAstBuilder` folds the wefts into a `LoomDocument`. `build` then runs `FrameAstBuilder` over the document to make the frame, and stops there. The de re is not a build pass: the runner derives it by executing the frame. The passes are peers here — no pass hides another behind a single call. Two settings resolved for the file ride in from the caller and thread through the chain: the anchor delimiters `WeftTokeniser` cuts with, and the primary language `FrameAstBuilder` falls back to.
 
 The chain is total: it never throws, and it always yields a module. Three failures can stop it before a real document exists. A file the source cannot read raises `ReadError`; a mixed line terminator the parse chain cannot pin to a node raises `MixedEOL`; and a delimiter pair the package configured badly raises one of the self-describing `InvalidAnchorDelims` errors. `parsed` catches all three and recovers to an empty document carrying the error — `emptyDocument` with the read failure's message, `emptyDocumentFor` for a mixed terminator, and `emptyDocument` with the delimiter error's own `message`. So `build` runs the frame pass over that document like any other. A file that cannot be read still yields a module, one whose health carries the read error. Every other malformation rides in the document's own health.
-
-`build` also reports the file's `{Loom}` imports. The `imports` field on the returned module is the list of resolved `.loom` paths `LoomCompiler` walks to pull in the rest of the corpus. The functions below read those paths from the import lines.
 
 =>
 
@@ -96,16 +97,7 @@ export class LoomCorpusAstBuilder extends Effect.Service<LoomCorpusAstBuilder>()
         Effect.gen(function* () {
           const { text, doc } = yield* parsed(source, path, delims)
           const frame = yield* frames.build(doc, path, primaryLanguage)
-          const imports = pipe(
-            frame.imports,
-            Array.filterMap((i) =>
-              pipe(
-                specifierOf(i.text),
-                Option.flatMap((spec) => locate(path, spec)),
-              ),
-            ),
-          )
-          return { path, text, doc, frame, imports }
+          return { path, text, doc, frame }
         })
 
       return { build }
@@ -120,34 +112,13 @@ export class LoomCorpusAstBuilder extends Effect.Service<LoomCorpusAstBuilder>()
   },
 ) {}
 
-## Resolving imports
-
-Two functions turn a `{Loom}` import line — a real `import { Neg } from "./Sad.loom"` the author wrote — into a resolved dependency path. `specifierOf` pulls the path string out of the `from` clause. `locate` resolves that string to an absolute path, but only when it ends in `.loom`; a bare `effect` or `@athrio/loom-lang/dsl` names no corpus file and resolves to nothing. `build` maps them over the frame's import lines to list the corpus files this module depends on.
-
-=>
-
-const specifierOf = (importLine: string): Option.Option<string> =>
-  pipe(
-    Option.fromNullable(importLine.match(/from\s*["']([^"']+)["']/)),
-    Option.flatMap((m) => Option.fromNullable(m[1])),
-  )
-
-const locate = (
-  hostFile: Path,
-  importSpecifier: string,
-): Option.Option<Path> =>
-  importSpecifier.endsWith('.loom')
-    ? Option.some(resolvePath(dirname(hostFile), importSpecifier))
-    : Option.none()
-
 ## What the builder draws on
 
-The builder draws the four parse passes — `LoomSourceRanges`, `WeftClassifier`, `WeftTokeniser`, and `LoomAstBuilder`, with `emptyDocument` and `emptyDocumentFor` for its recoveries — then `FrameAstBuilder` for the frame pass beyond parsing. From the token layer it takes `checkAnchorDelims` and the `InvalidAnchorDelims` errors it raises, which guard the configured delimiters before the parse, alongside `AnchorDelims` and `defaultAnchorDelims`. The `LoomDocument`, `LoomModule`, and `Path` types name what `parsed` returns, what a build returns, and how a file is addressed. Effect supplies the composition primitives, `Data` for the tagged `ReadError` among them, and Node's path module resolves an import to its file.
+The builder draws the four parse passes — `LoomSourceRanges`, `WeftClassifier`, `WeftTokeniser`, and `LoomAstBuilder`, with `emptyDocument` and `emptyDocumentFor` for its recoveries — then `FrameAstBuilder` for the frame pass beyond parsing. From the token layer it takes `checkAnchorDelims` and the `InvalidAnchorDelims` errors it raises, which guard the configured delimiters before the parse, alongside `AnchorDelims` and `defaultAnchorDelims`. The `LoomDocument`, `LoomModule`, and `Path` types name what `parsed` returns, what a build returns, and how a file is addressed. Effect supplies the composition primitives, `Data` for the tagged `ReadError` among them.
 
 =>
 
-import { Array, Data, Effect, Option, pipe } from 'effect'
-import { dirname, resolve as resolvePath } from 'node:path'
+import { Data, Effect, Option, pipe } from 'effect'
 import {
   checkAnchorDelims,
   defaultAnchorDelims,
@@ -171,5 +142,3 @@ import type { LoomModule, Path } from '@athrio/loom-ast/LoomCorpusAst'
 ::[The source it reads through]
 
 ::[The chain of passes]
-
-::[Resolving imports]

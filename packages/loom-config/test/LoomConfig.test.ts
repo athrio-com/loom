@@ -48,6 +48,7 @@ describe('LoomConfig.resolve — workspace manifest', () => {
       },
       packageRoot: join(dir, 'packages', 'core'),
       workspaceRoot: dir,
+      corpusDir: join(dir, 'packages', 'core', 'corpus'),
     })
   })
 
@@ -64,6 +65,7 @@ describe('LoomConfig.resolve — workspace manifest', () => {
       },
       packageRoot: undefined,
       workspaceRoot: dir,
+      corpusDir: join(dir, 'docs'),
     })
   })
 
@@ -101,6 +103,7 @@ describe('LoomConfig.resolve — workspace manifest', () => {
       services: { typescript: '@athrio/loom-service-typescript' },
       packageRoot: join(dir, 'packages', 'loom-ast'),
       workspaceRoot: dir,
+      corpusDir: join(dir, 'packages', 'loom-ast', 'corpus'),
     })
   })
 

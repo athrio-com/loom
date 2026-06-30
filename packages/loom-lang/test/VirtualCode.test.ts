@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Layer, Runtime } from 'effect'
+import { Effect, Layer, Option, Runtime } from 'effect'
 import type { Source } from '#ast/LoomCorpusAstBuilder'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { PackageConfig } from '../src/PackageConfig'
@@ -22,7 +22,7 @@ Adds two integers.
 export const add = (x: number, y: number): number => x + y
 `
 
-const source: Source = { read: () => Effect.succeed(input) }
+const source: Source = { read: () => Effect.succeed(input), list: Option.none() }
 
 const layer = Layer.provide(
   LoomCompiler.Default,
@@ -74,6 +74,7 @@ describe('VirtualCode — root → frame projection', () => {
           Effect.succeed(
             `{{lang: TypeScript}}\n\n# Workspace {Config}\n\nThe project's languages.\n\n=>\n\nlanguages:\n  typescript: {}\n`,
           ),
+        list: Option.none(),
       }
       const root = Runtime.runSync(runtime)(
         LoomCompiler.pipe(Effect.flatMap((c) => c.compile(cfg, ''))),

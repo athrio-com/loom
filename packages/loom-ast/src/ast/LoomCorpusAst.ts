@@ -17,7 +17,6 @@ export const LoomModuleSchema = Schema.Struct({
   doc: LoomDocumentSchema,
   frame: FrameModuleSchema,
   product: Schema.optional(ProductSchema),
-  imports: Schema.Array(Schema.String),
 })
 export type LoomModule = typeof LoomModuleSchema.Type
 
@@ -27,47 +26,6 @@ export const LoomCorpusAstSchema = Schema.Struct({
 export type LoomCorpusAst = typeof LoomCorpusAstSchema.Type
 
 type Modules = ReadonlyMap<Path, LoomModule>
-
-export const dependenciesOf = (
-  modules: Modules,
-  path: Path,
-): ReadonlyArray<Path> =>
-  pipe(
-    Option.fromNullable(modules.get(path)),
-    Option.match({ onNone: () => [], onSome: (m) => m.imports }),
-  )
-
-export const dependentsOf = (
-  modules: Modules,
-  path: Path,
-): ReadonlyArray<Path> =>
-  pipe(
-    Array.fromIterable(modules.values()),
-    Array.filter((m) => m.imports.includes(path)),
-    Array.map((m) => m.path),
-  )
-
-export const transitiveDependents = (
-  modules: Modules,
-  path: Path,
-): ReadonlyArray<Path> => {
-  const grow = (
-    acc: ReadonlySet<Path>,
-    frontier: ReadonlyArray<Path>,
-  ): ReadonlySet<Path> => {
-    const next = pipe(
-      frontier,
-      Array.flatMap((p) => dependentsOf(modules, p)),
-      Array.filter((d) => !acc.has(d)),
-      Array.dedupe,
-    )
-    return next.length === 0 ? acc : grow(new Set([...acc, ...next]), next)
-  }
-  return pipe(
-    Array.fromIterable(grow(new Set<Path>(), [path])),
-    Array.filter((p) => p !== path),
-  )
-}
 
 type SectionRef = { readonly module: Path; readonly section: LoomSection }
 
@@ -253,6 +211,64 @@ export const sinkTreeRouting = (
           new Map(places.map((place) => [place.path, place.prefix])),
         ] as const,
     ),
+  )
+}
+
+const reach = (
+  seeds: ReadonlyArray<Path>,
+  step: (module: Path) => ReadonlyArray<Path>,
+): ReadonlySet<Path> => {
+  const grow = (
+    acc: ReadonlySet<Path>,
+    frontier: ReadonlyArray<Path>,
+  ): ReadonlySet<Path> => {
+    const next = pipe(
+      frontier,
+      Array.flatMap(step),
+      Array.filter((p) => !acc.has(p)),
+      Array.dedupe,
+    )
+    return next.length === 0 ? acc : grow(new Set([...acc, ...next]), next)
+  }
+  return grow(new Set(seeds), seeds)
+}
+
+const chapterEdges = (
+  modules: Modules,
+): ReadonlyArray<{ readonly owner: Path; readonly chapter: Path }> =>
+  Array.map(bookChapters({ modules }), (chapter) => ({
+    owner: chapter.owner.module,
+    chapter: chapter.start.module,
+  }))
+
+export const placeReachable = (
+  modules: Modules,
+  entry: Path,
+): ReadonlyArray<Path> => {
+  const edges = chapterEdges(modules)
+  return Array.fromIterable(
+    reach([entry], (module) =>
+      Array.filterMap(edges, (edge) =>
+        edge.owner === module ? Option.some(edge.chapter) : Option.none(),
+      ),
+    ),
+  )
+}
+
+export const transitiveDependents = (
+  modules: Modules,
+  entry: Path,
+): ReadonlyArray<Path> => {
+  const edges = chapterEdges(modules)
+  return pipe(
+    Array.fromIterable(
+      reach([entry], (module) =>
+        Array.filterMap(edges, (edge) =>
+          edge.chapter === module ? Option.some(edge.owner) : Option.none(),
+        ),
+      ),
+    ),
+    Array.filter((path) => path !== entry),
   )
 }
 

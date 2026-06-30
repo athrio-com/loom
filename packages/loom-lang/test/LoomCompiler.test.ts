@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Layer } from 'effect'
+import { Effect, Layer, Option } from 'effect'
 import { DocumentSource } from '../src/LoomCompiler'
 import { LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
@@ -7,33 +7,26 @@ import { PackageConfig } from '../src/PackageConfig'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
 // Drives the corpus pipeline end-to-end over an in-memory DocumentSource:
-// Fun.loom imports Negate from Sad.loom in a {Loom} section, so the corpus walk
-// reaches Sad and a change to Sad invalidates Fun — the import graph the
-// single-file editor projection can't see. DocumentSource is a free requirement,
-// so the test injects a fake one without touching the filesystem.
+// book.loom places The chapter — which lives in chapter.loom — through a
+// higher-order sink, so the corpus reaches the chapter and a change to the chapter
+// invalidates the book. That is the place graph the single-file editor projection
+// can't see. DocumentSource is a free requirement, so the test injects a fake one
+// without touching the filesystem; its `list` reports both looms as the corpus.
 
 const files: Record<string, string> = {
-  '/Sad.loom': `{{lang: TypeScript}}
+  '/chapter.loom': `{{lang: TypeScript}}
 
-# Negate
+# The chapter
 
 =>
 
-const negate = (x: number) => -x
+export const c = 1
 `,
-  '/Fun.loom': `{{lang: TypeScript}}
+  '/book.loom': `{{lang: TypeScript}}
 
-# Imports {Loom}
+# The part [dist]
 
-=>
-
-import { Negate } from "./Sad.loom"
-
-# Negated double
-
-=>
-
-const negDouble = (x: number) => -x * 2
+::[The chapter]
 `,
 }
 
@@ -41,6 +34,7 @@ const TestDocs = Layer.succeed(
   DocumentSource,
   new DocumentSource({
     read: (path: string) => Effect.succeed(files[path] ?? ''),
+    list: Option.some(() => Effect.succeed(Object.keys(files))),
   }),
 )
 
@@ -56,6 +50,7 @@ const TestConfig = Layer.succeed(
         primaryLanguage: undefined,
         packageRoot: undefined,
         workspaceRoot: undefined,
+        corpusDir: undefined,
       }),
   }),
 )
@@ -68,21 +63,21 @@ const layer = Layer.provide(
 )
 
 describe('LoomCompiler — the chain projected for each consumer', () => {
-  it.effect('reach reports the files an entry pulls in along the import edge', () =>
+  it.effect('reach reports the chapters a book places', () =>
     Effect.gen(function* () {
       const c = yield* LoomCompiler
-      // Fun imports Neg from Sad, so the corpus walk reaches Sad
-      expect([...(yield* c.reach('/Fun.loom'))]).toEqual(['/Sad.loom'])
+      // book places The chapter, which lives in chapter.loom
+      expect([...(yield* c.reach('/book.loom'))]).toEqual(['/chapter.loom'])
     }).pipe(Effect.provide(layer)),
   )
 
-  it.effect('invalidate names the file and the dependents that import it', () =>
+  it.effect('invalidate names the file and the books that place it', () =>
     Effect.gen(function* () {
       const c = yield* LoomCompiler
-      yield* c.reach('/Fun.loom') // warm the cache (loads Fun + Sad)
-      const dirty = yield* c.invalidate('/Sad.loom')
-      // Sad itself, plus Fun which imports it
-      expect([...dirty].sort()).toEqual(['/Fun.loom', '/Sad.loom'])
+      yield* c.reach('/book.loom') // warm the cache (loads book + chapter)
+      const dirty = yield* c.invalidate('/chapter.loom')
+      // the chapter itself, plus the book that places it
+      expect([...dirty].sort()).toEqual(['/book.loom', '/chapter.loom'])
     }).pipe(Effect.provide(layer)),
   )
 
@@ -90,11 +85,11 @@ describe('LoomCompiler — the chain projected for each consumer', () => {
     Effect.gen(function* () {
       const c = yield* LoomCompiler
       const memo = yield* LoomMemo
-      yield* c.reach('/Fun.loom') // builds Fun + Sad — two misses
+      yield* c.reach('/book.loom') // builds book + chapter — two misses
       const first = yield* memo.stats
       expect(first).toMatchObject({ misses: 2, size: 2 })
 
-      yield* c.reach('/Fun.loom') // again — all hits, nothing rebuilt
+      yield* c.reach('/book.loom') // again — all hits, nothing rebuilt
       const second = yield* memo.stats
       expect(second.misses).toBe(2) // no new builds
       expect(second.hits).toBeGreaterThan(first.hits)

@@ -55,6 +55,7 @@ const diskSource: Source = {
       try: () => readFileSync(path, 'utf8'),
       catch: (cause) => new ReadError({ path, cause }),
     }),
+  list: Option.none(),
 }
 
 const buildManifest = (
