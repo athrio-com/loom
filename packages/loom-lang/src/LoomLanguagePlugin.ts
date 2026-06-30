@@ -95,17 +95,6 @@ export const loomLanguagePlugin = (
         ),
       ),
     ),
-  typescript: {
-    extraFileExtensions: [
-      { extension: 'loom', isMixedContent: true, scriptKind: 7 as ts.ScriptKind },
-    ],
-    getServiceScript: (root) => {
-      const frame = root.embeddedCodes?.find((code) => code.id === 'frame')
-      return frame
-        ? { code: frame, extension: '.ts', scriptKind: 3 as ts.ScriptKind }
-        : undefined
-    },
-  },
 })
 
 const tsLanguages: ReadonlySet<string> = new Set([

@@ -12,11 +12,10 @@ alongside the language plugin. Two callers start it — a thin entry an editor l
 ## Imports
 
 The server is built from Volar's toolkit for Node language servers — the connection, the
-project factory, and `loadTsdkByPath` — over the Effect runtime. `withLoomBaseline`, from
-`@athrio/loom-tsconfig`, wraps the editor's TypeScript so the program carries Loom's baseline
-beneath the consumer's `tsconfig.json`. It imports `LoomCompiler`, the projector and cache the
-runtime warms, with the `DocumentSource`, `PackageConfig`, and `LoomConfig` it requires, and the
-two halves this module registers, `loomLanguagePlugin` and `loomServicePlugins`.
+project factory, and `loadTsdkByPath` — over the Effect runtime. It imports `LoomCompiler`,
+the projector and cache the runtime warms, with the `DocumentSource`, `PackageConfig`, and
+`LoomConfig` it requires, and the two halves this module registers, `loomLanguagePlugin` and
+`loomServicePlugins`.
 
 =>
 
@@ -32,7 +31,6 @@ import { fileURLToPath } from 'node:url'
 import { LoomCompiler, DocumentSource } from './LoomCompiler'
 import { PackageConfig } from './PackageConfig'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
-import { withLoomBaseline } from '@athrio/loom-tsconfig'
 import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
 
 ## The program
@@ -40,9 +38,8 @@ import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
 The `Effect.runtime` call captures the warm runtime once the layers are built; the language plugin
 runs the per-keystroke projection on it, and resolves each file's activated languages from
 `LoomConfig` on it too. The `loadTsdkByPath` call loads the editor's own
-TypeScript from the path the client sends, so the frame checks against the user's
-standard library; `withLoomBaseline` wraps it, so the one program Volar builds layers
-Loom's baseline under the package's own `tsconfig.json`. Collecting service plugins requires reading the workspace configuration, so
+TypeScript from the path the client sends, so a product section checks against the user's
+standard library. Collecting service plugins requires reading the workspace configuration, so
 the `onInitialize` handler hands the workspace folder to `loomServicePlugins` and awaits that Effect —
 which finds the `.loom/` store and its `config.yaml` by walking up from the folder — before it registers the
 language plugin and the collected plugins. On `initialized`, the server watches every `tsconfig.json` and
@@ -71,7 +68,7 @@ const program = Effect.gen(function* () {
     return server.initialize(
       params,
       createTypeScriptProject(
-        withLoomBaseline(tsdk.typescript),
+        tsdk.typescript,
         tsdk.diagnosticMessages,
         () => ({ languagePlugins: [loomLanguagePlugin(runtime)] }),
       ),

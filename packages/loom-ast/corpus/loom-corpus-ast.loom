@@ -2,11 +2,11 @@
 
 # The multi-file AST
 
-`LoomCorpusAst` is the multi-file AST — pure data, no pipeline (that is `LoomCorpusAstBuilder`). Every loaded `.loom` is a `LoomModule` keyed by its path, holding its source, parsed `doc`, `frame`, its de re `product`, and import edges. The corpus is just a map of those modules. The de re is the `product` the run fills onto each module; a cross-file reference stays an edge there that `fromProduct` resolves later, at projection.
+`LoomCorpusAst` is the multi-file AST — pure data, no pipeline (that is `LoomCorpusAstBuilder`). Every loaded `.loom` is a `LoomModule` keyed by its path, holding its source, parsed `doc`, its de re `product`, and import edges. The corpus is just a map of those modules. The de re is the `product` the product pass builds for each module; a cross-file reference stays an edge there that `fromProduct` resolves later, at projection.
 
 ## The module and the corpus
 
-A `Path` is a resolved `.loom` path, a module's identity. A `LoomModule` carries one file's de dicto `frame` and its de re `product`, beside its `text` and parsed `doc`. The `product` is the module's de re graph, filled by the run; before the run, a module carries none. A `LoomCorpusAst` is the map of modules by path.
+A `Path` is a resolved `.loom` path, a module's identity. A `LoomModule` carries one file's de re `product` beside its `text` and parsed `doc`. The `product` is the module's de re graph, built straight from the parse, so every loaded module carries one. A `LoomCorpusAst` is the map of modules by path.
 
 =>
 
@@ -16,8 +16,7 @@ export const LoomModuleSchema = Schema.Struct({
   path: Schema.String,
   text: Schema.String,
   doc: LoomDocumentSchema,
-  frame: FrameModuleSchema,
-  product: Schema.optional(ProductSchema),
+  product: ProductSchema,
 })
 export type LoomModule = typeof LoomModuleSchema.Type
 
@@ -855,7 +854,7 @@ export const renameRangeAt = (
 
 Every node carries a health, and a health holds diagnostics. `diagnosticsIn` is the walk that reads them out. It descends any node, gathers the diagnostics it carries, and skips the `health` field itself, so a node's diagnostics are collected once rather than again at every child. It keeps every severity — error, warning, and informational note alike — because the editor surfaces them all.
 
-`moduleDiagnostics` is the per-file view: one module's diagnostics from both tiers, the grammatical health on its parsed document and the semantic health on its frame. This is what the editor reads for an open `.loom`.
+`moduleDiagnostics` is the per-file view: one module's diagnostics from both tiers, the grammatical health on its parsed document and the semantic health on its product. An anchor that resolves to nothing or crosses a language carries its fault on the `NameRef` the product pass built, so the walk reads the `product.code` alone; a tangle sink's `File` repeats that same `Code`, and reading it too would count every sink's diagnostics twice. This is what the editor reads for an open `.loom`.
 
 `corpusErrors` is the whole-corpus view the tangler takes, narrowed to errors. It keeps each module's error-severity diagnostics and returns every failing module with them, so the tangler refuses a broken build with one report rather than failing at the first bad file. A warning never blocks a tangle; only an error does.
 
@@ -879,7 +878,7 @@ export const moduleDiagnostics = (
   module: LoomModule,
 ): ReadonlyArray<Diagnostic> => [
   ...diagnosticsIn(module.doc),
-  ...diagnosticsIn(module.frame),
+  ...diagnosticsIn(module.product.code),
 ]
 
 export const corpusErrors = (
@@ -903,7 +902,7 @@ export const corpusErrors = (
 
 ## What this module draws on
 
-Effect supplies `Schema` for the model and `Array`, `Option`, and `pipe` for the queries. The module bundles two other models — `LoomDocument` (parse) and `FrameModule` (frame) — `LoomSection`, the unit the sink tree walks, the `SinkToken` a heading targets, the `WarpAnchorToken` a sink's members are, the `SpecifierToken` a misplaced anchor may wear, and `Diagnostic` and `Position` — what a corpus walk gathers and a sink fault lands on.
+Effect supplies `Schema` for the model and `Array`, `Option`, and `pipe` for the queries. The module bundles the parse model `LoomDocument` and the de re `ProductSchema`, with `LoomSection`, the unit the sink tree walks, the `SinkToken` a heading targets, the `WarpAnchorToken` a sink's members are, the `SpecifierToken` a misplaced anchor may wear, and `Diagnostic` and `Position` — what a corpus walk gathers and a sink fault lands on.
 
 =>
 
@@ -916,7 +915,6 @@ import {
 } from '#ast/LoomTokens'
 import { ProductSchema } from '#ast/ProductAst'
 import { LoomDocumentSchema, type LoomSection } from '#ast/LoomAst'
-import { FrameModuleSchema } from '#ast/FrameAst'
 
 ## The module [src/ast, LoomCorpusAst.ts]
 

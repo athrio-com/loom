@@ -4,12 +4,12 @@ import type { Source } from '#ast/LoomCorpusAstBuilder'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { PackageConfig } from '../src/PackageConfig'
 
-// compiler.compile assembles the Volar tree from the two LoomVirtualCodeBuilder
-// passes — root (loom) → frame (typescript, fromFrame) + one product per section
-// (fromProduct) — and `toVolar` adapts it to Volar's runtime VirtualCode. The
-// probes capture a *warm* runtime (layers built) and then `Runtime.runSync` the
-// projection — exactly what the plugin does on Volar's synchronous callback. The
-// source imports nothing, so the corpus is one file.
+// compiler.compile assembles the Volar tree from the LoomVirtualCodeBuilder
+// passes — root (loom, the source mirror) → prose (Markdown) + one product per
+// section (fromProduct) — and `toVolar` adapts it to Volar's runtime VirtualCode.
+// The probes capture a *warm* runtime (layers built) and then `Runtime.runSync`
+// the projection — exactly what the plugin does on Volar's synchronous callback.
+// The source imports nothing, so the corpus is one file.
 
 const input = `{{lang: TypeScript}}
 
@@ -29,7 +29,7 @@ const layer = Layer.provide(
   Layer.merge(DocumentSource.Default, PackageConfig.Default),
 )
 
-describe('VirtualCode — root → frame projection', () => {
+describe('VirtualCode — root projection', () => {
   it.effect('builds the tree via Runtime.runSync on a warm runtime', () =>
     Effect.gen(function* () {
       const runtime = yield* Effect.runtime<LoomCompiler>()
@@ -39,25 +39,17 @@ describe('VirtualCode — root → frame projection', () => {
 
       expect(root.id).toBe('root')
       expect(root.languageId).toBe('loom')
-      // root → [frame (de dicto), prose (Markdown), Add (de re product)]
-      expect(root.embeddedCodes).toHaveLength(3)
-
-      const frame = root.embeddedCodes![0]!
-      expect(frame.id).toBe('frame')
-      expect(frame.languageId).toBe('loom')
-      expect(frame.embeddedCodes).toEqual([]) // the frame has no children
-      const gen = frame.snapshot.getText(0, frame.snapshot.getLength())
-      expect(gen).toContain('export class Adder')
-      expect(frame.mappings.length).toBeGreaterThan(0)
+      // root → [prose (Markdown), Add (de re product)] — no frame
+      expect(root.embeddedCodes).toHaveLength(2)
 
       // the prose document — the file's prose projected as Markdown
-      const prose = root.embeddedCodes![1]!
+      const prose = root.embeddedCodes![0]!
       expect(prose.id).toBe('prose')
       expect(prose.languageId).toBe('prose')
 
       // the de re product for the Adder section — its raw code, in its language,
       // keyed by the section name lowercased (Volar requires lowercase ids)
-      const product = root.embeddedCodes![2]!
+      const product = root.embeddedCodes![1]!
       expect(product.id).toBe('adder')
       expect(product.languageId).toBe('typescript')
       expect(
@@ -79,8 +71,8 @@ describe('VirtualCode — root → frame projection', () => {
       const root = Runtime.runSync(runtime)(
         LoomCompiler.pipe(Effect.flatMap((c) => c.compile(cfg, ''))),
       )
-      // root → [frame, prose, the {Config} product]; its body reads as YAML
-      const product = root.embeddedCodes![2]!
+      // root → [prose, the {Config} product]; its body reads as YAML
+      const product = root.embeddedCodes![1]!
       expect(product.languageId).toBe('yaml')
     }).pipe(Effect.provide(layer)),
   )

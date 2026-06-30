@@ -2,7 +2,7 @@
 
 # The projection pass
 
-`LoomVirtualCodeBuilder` produces the `LoomVirtualCode` a `.loom` presents to Volar, in three projections that share one model. `fromFrame` walks the Frame AST in render order and emits the de dicto frame, every authored leaf mapped back to the `.loom`. `fromProduct` walks a section's `Code` and emits its de re product, inlining transclusions by following `Ref`s across the corpus. `fromProse` blanks a file's code and emits what remains as Markdown. `fromFrame` and `fromProduct` fold their pieces with the same monoid, and `rootVirtualCode` assembles a file's tree from the three. Pure and total.
+`LoomVirtualCodeBuilder` produces the `LoomVirtualCode` a `.loom` presents to Volar, in two projections that share one model. `fromProduct` walks a section's `Code` and emits its de re product, inlining transclusions by following `Ref`s across the corpus. `fromProse` blanks a file's code and emits what remains as Markdown. `fromProduct` folds its pieces with a monoid, and `rootVirtualCode` assembles a file's tree — the source as the de dicto root, the product sections and prose beneath it. Pure and total.
 
 ## Resolving against the corpus
 
@@ -21,35 +21,6 @@ const lookup = (
       Array.findFirst(product.code, (c) => c.origin.name === id.name),
     ),
   )
-
-## The render-order table
-
-`fromFrame` emits each frame node's fields in the order the node declares. `typeTagOf` reads a frame schema's `type` literal, and `orderByType` builds the table once — tag → ordered renderable fields — from the `FrameAst` schemas that carry a `RenderOrder` annotation.
-
-=>
-
-const typeTagOf = (schema: Schema.Schema.Any): Option.Option<string> =>
-  pipe(
-    schema.ast,
-    Option.liftPredicate(SchemaAST.isTypeLiteral),
-    Option.flatMap((ast) =>
-      Array.findFirst(ast.propertySignatures, (p) => p.name === 'type'),
-    ),
-    Option.map((p) => p.type),
-    Option.filter(SchemaAST.isLiteral),
-    Option.map((lit) => String(lit.literal)),
-  )
-
-const orderByType: ReadonlyMap<string, ReadonlyArray<string>> = new Map(
-  pipe(
-    Object.values(FrameAst),
-    Array.filterMap((v) =>
-      Schema.isSchema(v)
-        ? Option.all([typeTagOf(v), FrameAst.renderOrderOf(v)])
-        : Option.none(),
-    ),
-  ),
-)
 
 ## The fold monoid
 
@@ -79,55 +50,6 @@ const concat = (a: LoomVirtualCode, b: LoomVirtualCode): LoomVirtualCode => ({
   ],
   embeddedCodes: a.embeddedCodes,
 })
-
-## Walking the frame
-
-The de dicto walk turns a frame node into its text and mappings. `emitNode` emits a node's fields in render order, and `emitField` handles each by shape: a string becomes a leaf, mapped to its `.loom` span when the node is authored; an array folds its nodes; a sub-node recurses. `emitText` builds that mapped leaf. Synth glue carries no position, so it maps nothing.
-
-=>
-
-const emitText = (parent: any, text: string): LoomVirtualCode =>
-  leaf(
-    '',
-    '',
-    text,
-    pipe(
-      Option.fromNullable(parent.position as Position | undefined),
-      Option.match({
-        onNone: (): ReadonlyArray<Mapping> => [],
-        onSome: (source) => [
-          {
-            genStart: 0,
-            genLength: text.length,
-            source,
-            kind: parent.kind as MappingKind | undefined,
-          },
-        ],
-      }),
-    ),
-  )
-
-const emitField = (parent: any, field: unknown): LoomVirtualCode =>
-  Match.value(field).pipe(
-    Match.when(Match.string, (text) => emitText(parent, text)),
-    Match.when(Array.isArray, (nodes) =>
-      pipe(nodes, Array.map(emitNode), Array.reduce(emptyLeaf, concat)),
-    ),
-    Match.orElse((node) =>
-      Option.match(Option.fromNullable(node), {
-        onNone: () => emptyLeaf,
-        onSome: emitNode,
-      }),
-    ),
-  )
-
-const emitNode = (node: any): LoomVirtualCode =>
-  pipe(
-    Option.fromNullable(orderByType.get(node.type)),
-    Option.getOrElse((): ReadonlyArray<string> => []),
-    Array.map((name) => emitField(node, node[name])),
-    Array.reduce(emptyLeaf, concat),
-  )
 
 ## Inlining the product
 
@@ -382,17 +304,11 @@ export const symbolMappings = (
 
 ## The passes and the tree
 
-`fromFrame` is the de dicto pass — the frame virtual code, always loom-tagged for the type-checker. `fromProduct` is the de re pass — a section's product in its own language. Its virtual-code id is the section name lowercased, since Volar requires every embedded-code id to be lowercase. A section absent from the corpus yields an empty document. `fromProse` is the prose pass — the file as a Markdown document, its `languageId` `prose`, every code chunk blanked to spaces so only the prose shows while its offsets stay put. `proseMappings` maps each prose token to its own source span — the document and section preambles, every heading, and the prose between code blocks — so a mapping is precise per token, never a whole line or the whole file. `rootVirtualCode` assembles a file's tree: the source as the `loom` root, the frame, prose, and product documents its children. The root carries a whole-file identity span of the `source` kind, so Loom's own diagnostics reach the editor on the file the author opened, and the section-symbol spans beside it, so navigation and rename reach each heading and anchor there.
+`fromProduct` is the de re pass — a section's product in its own language. Its virtual-code id is the section name lowercased, since Volar requires every embedded-code id to be lowercase. A section absent from the corpus yields an empty document. `fromProse` is the prose pass — the file as a Markdown document, its `languageId` `prose`, every code chunk blanked to spaces so only the prose shows while its offsets stay put. `proseMappings` maps each prose token to its own source span — the document and section preambles, every heading, and the prose between code blocks — so a mapping is precise per token, never a whole line or the whole file. `rootVirtualCode` assembles a file's tree: the source itself as the `loom` root, the prose and product documents its children. The root carries a whole-file identity span of the `source` kind, so Loom's own diagnostics reach the editor on the file the author opened, and the section-symbol spans beside it, so navigation and rename reach each heading and anchor there.
 
 `rootNamesAt` names a file's composition roots — the sections no reference folds in. It reads the file's `product.code` from the corpus, the sections the run produced. Every reference is a same-file `NameRef`, a name anchor naming a section in this file, and it demotes its target: the target becomes a fragment of the referring section's root, sharing that scope, not a unit of its own. The sections left over, named by no reference, are the roots. The editor type-checks them and lets each fold in the fragments it names. The names come back lowercased, to match the de re ids `fromProduct` assigns.
 
 =>
-
-export const fromFrame = (frame: FrameAst.FrameModule): LoomVirtualCode => ({
-  ...emitNode(frame),
-  id: 'frame',
-  languageId: 'loom',
-})
 
 export const fromProduct = (
   modules: ReadonlyMap<Path, LoomModule>,
@@ -510,7 +426,7 @@ export const rootNamesAt = (
 
 ## The service
 
-`LoomVirtualCodeBuilder` wraps the two passes as an Effect service for callers already inside Effect — the corpus compiler; the single-file editor path uses the functions directly.
+`LoomVirtualCodeBuilder` wraps `fromProduct` as an Effect service for callers already inside Effect — the corpus compiler; the single-file editor path uses the functions directly.
 
 =>
 
@@ -518,8 +434,6 @@ export class LoomVirtualCodeBuilder extends Effect.Service<LoomVirtualCodeBuilde
   'LoomVirtualCodeBuilder',
   {
     succeed: {
-      fromFrame: (frame: FrameAst.FrameModule): Effect.Effect<LoomVirtualCode> =>
-        Effect.sync(() => fromFrame(frame)),
       fromProduct: (
         modules: ReadonlyMap<Path, LoomModule>,
         root: SectionId,
@@ -531,12 +445,11 @@ export class LoomVirtualCodeBuilder extends Effect.Service<LoomVirtualCodeBuilde
 
 ## What this module draws on
 
-Effect supplies `Schema` and `SchemaAST` to read the render-order annotations, and the rest. `FrameAst` is imported whole, since its schemas drive the table; the de re node types and `keyOf` come from `ProductAst`, `Position` from the foundation, and the `LoomModule` and `Path` the resolution walks from the corpus model. The parse `LoomDocument` and its `LoomSection`, with the `WarpAnchorToken` an anchor is lifted from, come from the AST the symbol mappings read. The virtual-code types come from `LoomVirtualCode`.
+Effect supplies `Array`, `Option`, and `pipe` for the folds and the resolution, and `Effect` itself for the service. The de re node types and `keyOf` come from `ProductAst`, `Position` from the foundation, and the `LoomModule` and `Path` the resolution walks from the corpus model. The parse `LoomDocument` and its `LoomSection`, with the `WarpAnchorToken` an anchor is lifted from, come from the AST the symbol mappings read. The virtual-code types come from `LoomVirtualCode`.
 
 =>
 
-import { Array, Effect, Match, Option, Schema, SchemaAST, pipe } from 'effect'
-import * as FrameAst from '@athrio/loom-ast/FrameAst'
+import { Array, Effect, Option, pipe } from 'effect'
 import {
   keyOf,
   type Code,
@@ -562,11 +475,7 @@ import {
 
 ::[Resolving against the corpus]
 
-::[The render-order table]
-
 ::[The fold monoid]
-
-::[Walking the frame]
 
 ::[Inlining the product]
 

@@ -1,67 +1,67 @@
-import { describe, expect, it } from 'vitest'
-import { compose, fragment, referName } from '@athrio/loom-lang/dsl'
-import type { Position } from '@athrio/loom-ast/LoomNode'
-import type { Code, Part, SectionId } from '@athrio/loom-ast/ProductAst'
-import type { LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
-import { rootNamesAt } from '../src/ast/LoomVirtualCodeBuilder'
+import { describe, expect, it } from '@effect/vitest'
+import { Effect } from 'effect'
+import { parseDocument, ParseLayer } from './parse'
+import { buildProduct } from '#ast/ProductBuilder'
+import type { LoomModule, Path } from '@athrio/loom-ast/LoomCorpusAst'
+import { rootNamesAt } from '#ast/LoomVirtualCodeBuilder'
 
 // rootNamesAt decides which sections are composition roots. The rule: a section is
-// a root until another section names it. Every reference is a same-file NameRef — a
-// `::[…]` name anchor — and it folds its target into the referrer, demoting it to a
-// fragment. A section nothing names stays a root. These tests pin that rule.
+// a root until another same-file section folds it in. Every reference is a
+// same-file NameRef — a `::[…]` name anchor — and it demotes its target to a
+// fragment of the referrer. A section nothing names stays a root. These tests pin
+// that rule, building each module's de re `Product` from real `.loom` source so the
+// names come off the pass under test, not a hand-built fixture.
 
-const pos = (offset: number, len: number): Position => ({
-  start: { line: 1, column: offset, offset },
-  end: { line: 1, column: offset + len, offset: offset + len },
-})
+const moduleOf = (path: Path, text: string): LoomModule => {
+  const doc = Effect.runSync(parseDocument(text).pipe(Effect.provide(ParseLayer)))
+  return { path, text, doc, product: buildProduct(doc, path) }
+}
 
-const id = (path: string, name: string): SectionId => ({ path, name })
-
-const section = (
-  path: string,
-  name: string,
-  ...fragments: ReadonlyArray<Part>
-): Code => compose(id(path, name), 'typescript', ...fragments)
-
-// rootNamesAt reads a module's de re from `module.product.code`. These fixtures carry
-// only that field — the rest of a LoomModule is irrelevant to the root rule — so each
-// module is a product over the hand-built sections.
 const corpus = (
-  ...mods: ReadonlyArray<readonly [string, ReadonlyArray<Code>]>
-): ReadonlyMap<string, LoomModule> =>
-  new Map(
-    mods.map(([path, code]) => [
-      path,
-      { path, product: { code, files: [] } } as unknown as LoomModule,
-    ]),
-  )
+  ...mods: ReadonlyArray<readonly [Path, string]>
+): ReadonlyMap<Path, LoomModule> =>
+  new Map(mods.map(([path, text]) => [path, moduleOf(path, text)] as const))
 
 describe('rootNamesAt — which sections are composition roots', () => {
   it('demotes a same-file target a name anchor names', () => {
-    const modules = corpus([
-      'a.loom',
-      [
-        section(
-          'a.loom',
-          'Main',
-          referName({ origin: id('a.loom', 'Helper') }, pos(0, 5)),
-        ),
-        section('a.loom', 'Helper', fragment('const h = 1', pos(0, 11))),
-      ],
-    ])
-    // Helper folds into Main, so Main is the only root.
+    // Main names Helper with `::[Helper]`, so Helper folds into Main and only Main
+    // is left a root.
+    const main = `{{lang: TypeScript}}
+
+# Main
+
+=>
+
+::[Helper]
+const m = 1
+
+# Helper
+
+=>
+
+const h = 1
+`
+    const modules = corpus(['a.loom', main])
     expect(rootNamesAt(modules, 'a.loom')).toEqual(new Set(['main']))
   })
 
   it('keeps a section nothing names a root of its own', () => {
-    const modules = corpus([
-      'a.loom',
-      [
-        section('a.loom', 'Main', fragment('const m = 1', pos(0, 11))),
-        section('a.loom', 'Aside', fragment('const a = 2', pos(0, 11))),
-      ],
-    ])
-    // No reference names either, so both stay roots.
+    // Neither section references the other, so both stay roots.
+    const both = `{{lang: TypeScript}}
+
+# Main
+
+=>
+
+const m = 1
+
+# Aside
+
+=>
+
+const a = 2
+`
+    const modules = corpus(['a.loom', both])
     expect(rootNamesAt(modules, 'a.loom')).toEqual(new Set(['main', 'aside']))
   })
 })

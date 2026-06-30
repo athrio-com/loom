@@ -10,7 +10,7 @@ import { WeftClassifier } from '#ast/WeftClassifier'
 import { WeftTokeniser } from '#ast/WeftTokeniser'
 import { LoomAstBuilder, emptyDocument, emptyDocumentFor } from '#ast/LoomAstBuilder'
 import type { LoomDocument } from '@athrio/loom-ast/LoomAst'
-import { FrameAstBuilder } from '#ast/FrameAstBuilder'
+import { ProductBuilder } from '#ast/ProductBuilder'
 import type { LoomModule, Path } from '@athrio/loom-ast/LoomCorpusAst'
 
 export interface Source {
@@ -37,7 +37,7 @@ export class LoomCorpusAstBuilder extends Effect.Service<LoomCorpusAstBuilder>()
       const classify = yield* WeftClassifier
       const tokenise = yield* WeftTokeniser
       const astBuilder = yield* LoomAstBuilder
-      const frames = yield* FrameAstBuilder
+      const products = yield* ProductBuilder
 
       const parsed = (
         source: Source,
@@ -83,8 +83,8 @@ export class LoomCorpusAstBuilder extends Effect.Service<LoomCorpusAstBuilder>()
       ): Effect.Effect<LoomModule> =>
         Effect.gen(function* () {
           const { text, doc } = yield* parsed(source, path, delims)
-          const frame = yield* frames.build(doc, path, primaryLanguage)
-          return { path, text, doc, frame }
+          const product = yield* products.build(doc, path, primaryLanguage)
+          return { path, text, doc, product }
         })
 
       return { build }
@@ -94,7 +94,7 @@ export class LoomCorpusAstBuilder extends Effect.Service<LoomCorpusAstBuilder>()
       WeftClassifier.Default,
       WeftTokeniser.Default,
       LoomAstBuilder.Default,
-      FrameAstBuilder.Default,
+      ProductBuilder.Default,
     ],
   },
 ) {}

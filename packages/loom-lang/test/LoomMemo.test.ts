@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Array, Effect, Ref } from 'effect'
 import { parseDocument, ParseLayer } from './parse'
-import { buildFrame } from '#ast/FrameAstBuilder'
+import { buildProduct } from '#ast/ProductBuilder'
 import { type LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
 import { LoomMemo } from '../src/LoomMemo'
 
@@ -15,22 +15,22 @@ import { LoomMemo } from '../src/LoomMemo'
 const parse = (src: string) =>
   Effect.runSync(parseDocument(src).pipe(Effect.provide(ParseLayer)))
 
-// a real (tiny) module to cache; the parse/frame are shared, the path varies.
+// a real (tiny) module to cache; the parse and product are shared, the path varies.
 const text = `{{lang: TypeScript}}
 
-# Bit [Bit]
+# Bit
 
 =>
 
 const x = 1
 `
 const doc = parse(text)
-const frame = buildFrame(doc, '/Bit.loom')
+const product = buildProduct(doc, '/Bit.loom')
 const moduleAt = (path: string): LoomModule => ({
   path,
   text,
   doc,
-  frame,
+  product,
 })
 
 describe('LoomMemo — the incremental build cache', () => {

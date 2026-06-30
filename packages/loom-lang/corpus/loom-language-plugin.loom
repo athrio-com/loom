@@ -4,13 +4,13 @@
 
 This module is Loom's adapter to Volar, the editor toolkit the Loom language server is built on. It hands Volar two things for every `.loom` file: a language plugin and a set of service plugins.
 
-The language plugin projects a `.loom` file to a virtual-code tree — the de dicto frame, the TypeScript program that composes the file's code, and the de re code sections, each embedded in its own language. Volar type-checks that tree and maps every diagnostic, hover, and definition back to where the author wrote it.
+The language plugin projects a `.loom` file to a virtual-code tree — the source itself as the de dicto root, where Loom serves its own diagnostics and navigation, and the de re code sections beneath it, each embedded in its own language. Volar maps every diagnostic, hover, and definition back to where the author wrote it.
 
 The service plugins are the editor features themselves: diagnostics, hover, completion. The server resolves the project's active languages, runs each one's `plugins` Effect, and flattens the results into the single list Volar registers.
 
 ## The virtual-code plugin
 
-`loomLanguagePlugin` is the `LanguagePlugin` Volar asks for. It claims every `.loom` path, projects the file to a virtual-code tree, and exposes the frame as a `.ts` script so Volar's TypeScript checks it in place. The frame is the only script Volar's program holds; the product sections stay embedded codes, which the language services check against programs of their own. It projects through `LoomCompiler`, whose `virtualCode` runs the file's composition — walking imports and inlining cross-file `::[…]` transclusions — so the editor resolves a corpus the way the tangler does. `projectIsolated` runs that projection, then marks each composition root as its own module.
+`loomLanguagePlugin` is the `LanguagePlugin` Volar asks for. It claims every `.loom` path and projects the file to a virtual-code tree. The de dicto root is the source itself, which Loom's own service checks and navigates; the product sections are embedded codes, which each language service checks against a program of its own. It projects through `LoomCompiler`, whose `compile` verb runs the file's composition — discovering the corpus and inlining cross-file `::[…]` transclusions — so the editor resolves a corpus the way the tangler does. `projectIsolated` runs that projection, then marks each composition root as its own module.
 
 The file's text comes through a passive `Source`. `editorSource` reads the open file from the snapshot Volar hands over and each sibling from disk, and lists the corpus directory through `loomsUnder` so the projector discovers the file's corpus. It never calls back into Volar, so running the composition cannot re-enter the projector.
 
@@ -90,22 +90,11 @@ export const loomLanguagePlugin = (
         ),
       ),
     ),
-  typescript: {
-    extraFileExtensions: [
-      { extension: 'loom', isMixedContent: true, scriptKind: 7 as ts.ScriptKind },
-    ],
-    getServiceScript: (root) => {
-      const frame = root.embeddedCodes?.find((code) => code.id === 'frame')
-      return frame
-        ? { code: frame, extension: '.ts', scriptKind: 3 as ts.ScriptKind }
-        : undefined
-    },
-  },
 })
 
 ## Isolating the roots
 
-Volar holds the frame in one program, and a product language service holds each composition root in a program of its own. A root with no import or export of its own is a global script, and two such roots would clash on a shared top-level name once a program holds them both. `isolateRoots` walks the projected tree and appends `moduleMarker`, an empty `export {}`, to every TypeScript-family root, turning each into a module with its own scope. `tsLanguages` names the TypeScript-family languages the marker applies to — every other language isolates itself or has no notion of a module. The marker carries no source mapping, so it stays invisible, and the plugin appends it once at projection, so a root's snapshot stays stable until its own source changes and Volar never re-parses it on a keystroke elsewhere.
+A product language service holds each composition root in a program of its own. A root with no import or export of its own is a global script, and two such roots would clash on a shared top-level name once a program holds them both. `isolateRoots` walks the projected tree and appends `moduleMarker`, an empty `export {}`, to every TypeScript-family root, turning each into a module with its own scope. `tsLanguages` names the TypeScript-family languages the marker applies to — every other language isolates itself or has no notion of a module. The marker carries no source mapping, so it stays invisible, and the plugin appends it once at projection, so a root's snapshot stays stable until its own source changes and Volar never re-parses it on a keystroke elsewhere.
 
 =>
 

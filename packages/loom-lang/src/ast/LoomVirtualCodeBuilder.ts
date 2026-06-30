@@ -1,5 +1,4 @@
-import { Array, Effect, Match, Option, Schema, SchemaAST, pipe } from 'effect'
-import * as FrameAst from '@athrio/loom-ast/FrameAst'
+import { Array, Effect, Option, pipe } from 'effect'
 import {
   keyOf,
   type Code,
@@ -29,29 +28,6 @@ const lookup = (
     ),
   )
 
-const typeTagOf = (schema: Schema.Schema.Any): Option.Option<string> =>
-  pipe(
-    schema.ast,
-    Option.liftPredicate(SchemaAST.isTypeLiteral),
-    Option.flatMap((ast) =>
-      Array.findFirst(ast.propertySignatures, (p) => p.name === 'type'),
-    ),
-    Option.map((p) => p.type),
-    Option.filter(SchemaAST.isLiteral),
-    Option.map((lit) => String(lit.literal)),
-  )
-
-const orderByType: ReadonlyMap<string, ReadonlyArray<string>> = new Map(
-  pipe(
-    Object.values(FrameAst),
-    Array.filterMap((v) =>
-      Schema.isSchema(v)
-        ? Option.all([typeTagOf(v), FrameAst.renderOrderOf(v)])
-        : Option.none(),
-    ),
-  ),
-)
-
 const leaf = (
   id: string,
   languageId: string,
@@ -74,49 +50,6 @@ const concat = (a: LoomVirtualCode, b: LoomVirtualCode): LoomVirtualCode => ({
   ],
   embeddedCodes: a.embeddedCodes,
 })
-
-const emitText = (parent: any, text: string): LoomVirtualCode =>
-  leaf(
-    '',
-    '',
-    text,
-    pipe(
-      Option.fromNullable(parent.position as Position | undefined),
-      Option.match({
-        onNone: (): ReadonlyArray<Mapping> => [],
-        onSome: (source) => [
-          {
-            genStart: 0,
-            genLength: text.length,
-            source,
-            kind: parent.kind as MappingKind | undefined,
-          },
-        ],
-      }),
-    ),
-  )
-
-const emitField = (parent: any, field: unknown): LoomVirtualCode =>
-  Match.value(field).pipe(
-    Match.when(Match.string, (text) => emitText(parent, text)),
-    Match.when(Array.isArray, (nodes) =>
-      pipe(nodes, Array.map(emitNode), Array.reduce(emptyLeaf, concat)),
-    ),
-    Match.orElse((node) =>
-      Option.match(Option.fromNullable(node), {
-        onNone: () => emptyLeaf,
-        onSome: emitNode,
-      }),
-    ),
-  )
-
-const emitNode = (node: any): LoomVirtualCode =>
-  pipe(
-    Option.fromNullable(orderByType.get(node.type)),
-    Option.getOrElse((): ReadonlyArray<string> => []),
-    Array.map((name) => emitField(node, node[name])),
-    Array.reduce(emptyLeaf, concat),
-  )
 
 const clipMappings = (
   mappings: ReadonlyArray<Mapping>,
@@ -339,12 +272,6 @@ export const symbolMappings = (
     ),
   ])
 
-export const fromFrame = (frame: FrameAst.FrameModule): LoomVirtualCode => ({
-  ...emitNode(frame),
-  id: 'frame',
-  languageId: 'loom',
-})
-
 export const fromProduct = (
   modules: ReadonlyMap<Path, LoomModule>,
   root: SectionId,
@@ -463,8 +390,6 @@ export class LoomVirtualCodeBuilder extends Effect.Service<LoomVirtualCodeBuilde
   'LoomVirtualCodeBuilder',
   {
     succeed: {
-      fromFrame: (frame: FrameAst.FrameModule): Effect.Effect<LoomVirtualCode> =>
-        Effect.sync(() => fromFrame(frame)),
       fromProduct: (
         modules: ReadonlyMap<Path, LoomModule>,
         root: SectionId,

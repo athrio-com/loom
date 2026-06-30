@@ -2,7 +2,7 @@
 
 # The de re structure
 
-`ProductAst` is the de re structure — the author's product code with its transclusions expressed as edges. Its unit is the `Code` of one section. Running a module's frame returns one `Code` per section, and `fromProduct` later flattens a section to text and mappings, following its edges across the corpus.
+`ProductAst` is the de re structure — the author's product code with its transclusions expressed as edges. Its unit is the `Code` of one section. The product pass builds one `Code` per section, and `fromProduct` later flattens a section to text and mappings, following its edges across the corpus.
 
 An edge holds a target key, not a pointer. So the schema stays flat and serialisable even though the graph it describes recurses — and may hold a cycle, which `fromProduct` cuts.
 
@@ -10,7 +10,7 @@ Code is one of two channels. Prose is its peer, a `WovenProse` woven from the sa
 
 ## The product node
 
-`productNode` is the de re analog of `frameNode`: it stamps a `type` and a defaulted `health` onto each node. There is no render-order annotation — the de re is flattened by a graph walk, not by emitting fields in order.
+`productNode` builds each de re node: it stamps a `type` discriminator and a defaulted `health` onto the fields it wraps. There is no render-order annotation, since the de re is flattened by a graph walk rather than by emitting fields in order.
 
 =>
 
@@ -48,7 +48,7 @@ export const keyOf = (id: SectionId): string => JSON.stringify([id.path, id.name
 
 A `Fragment` is a literal product span — the code the author wrote — with the `.loom` `origin` it maps 1:1 back to.
 
-A `Ref` is a transclusion edge, the de re analog of the frame's `CodeRef`. It records a name anchor — `::[Heading]` naming a section in the same document — so the projection composes its target into the referring section's namespace, and the two share one scope. A `Ref` carries two fields: a `target`, the `Option<SectionId>` the edge points at, `None` when the anchor resolved to nothing; and an `anchor`, the `::[…]` site in the consuming section, where a resolution diagnostic lands. `Ref` is the single edge kind, named `NameRef`.
+A `Ref` is a transclusion edge. It records a name anchor — `::[Heading]` naming a section in the same document — so the projection composes its target into the referring section's namespace, and the two share one scope. A `Ref` carries two fields: a `target`, the `Option<SectionId>` the edge points at, `None` when the anchor resolved to nothing; and an `anchor`, the `::[…]` site in the consuming section, where a resolution diagnostic lands. `Ref` is the single edge kind, named `NameRef`.
 
 =>
 
@@ -69,7 +69,7 @@ export type Ref = typeof RefSchema.Type
 
 ## Composed code
 
-A `Code` is one section's resolved de re: its `origin` identity, its product `languageId`, and its `fragments` in composition order — a transcluded section before the code that uses it. Each fragment is a `Fragment`, a literal span, or a `Ref`, a transclusion edge; `Part` is the union of the two. The runner returns one `Code` per section, keyed by name.
+A `Code` is one section's resolved de re: its `origin` identity, its product `languageId`, and its `fragments` in composition order — a transcluded section before the code that uses it. Each fragment is a `Fragment`, a literal span, or a `Ref`, a transclusion edge; `Part` is the union of the two. The product pass returns one `Code` per section, keyed by name.
 
 =>
 
@@ -97,7 +97,7 @@ export type WovenProse = typeof WovenProseSchema.Type
 
 ## A tangled file
 
-A `File` is what a tangle section composes to: a file `path` paired with the `Code` bound to it. It is a value, not an effect — the tangler flattens the `code` across the corpus and performs the write, so running the frame that produces a `File` touches no disk.
+A `File` is what a tangle section composes to: a file `path` paired with the `Code` bound to it. It is a value, not an effect — the tangler flattens the `code` across the corpus and performs the write, so building a `File` touches no disk.
 
 =>
 
@@ -109,7 +109,7 @@ export type File = typeof FileSchema.Type
 
 ## The module's product
 
-`Product` is a module's whole de re — the graph the runner produces for one `.loom`. A module has many roots, so a `Product` holds many nodes: its `code`, one `Code` per ordinary section, and its `files`, one `File` per tangle sink. The edges are the refs those nodes carry. A node no same-module ref folds in is a root; the rest are members, reached only through an edge.
+`Product` is a module's whole de re — the graph the product pass produces for one `.loom`. A module has many roots, so a `Product` holds many nodes: its `code`, one `Code` per ordinary section, and its `files`, one `File` per tangle sink. The edges are the refs those nodes carry. A node no same-module ref folds in is a root; the rest are members, reached only through an edge.
 
 The graph is what `compile` resolves. It reads a `Product`, takes the roots, and flattens each by following its edges across the corpus. So a `Product` is left unresolved here — it carries the whole graph, not the flattened roots — and resolving it is the next pass's work, not this structure's. Prose is no part of it: the narration is read from the parse, in document order, never composed here.
 

@@ -3,7 +3,6 @@ import { Array, Data, Effect, Match, Option, pipe } from 'effect'
 import { readFileSync, readdirSync, type Dirent } from 'node:fs'
 import { dirname, resolve as resolvePath } from 'node:path'
 import type * as ts from 'typescript'
-import type { Product } from '@athrio/loom-ast/ProductAst'
 import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
 import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import {
@@ -41,7 +40,6 @@ import {
 } from '#ast/LoomFault'
 import { normaliseTitle } from '#ast/WeftTokeniser'
 import {
-  fromFrame,
   fromProduct,
   fromProse,
   rootNamesAt,
@@ -49,7 +47,6 @@ import {
   symbolMappings,
 } from '#ast/LoomVirtualCodeBuilder'
 import { type LoomVirtualCode, type Mapping } from '@athrio/loom-ast/LoomVirtualCode'
-import { FrameRunner } from '#ast/FrameRunner'
 import { LoomMemo } from './LoomMemo'
 import { PackageConfig } from './PackageConfig'
 
@@ -59,33 +56,6 @@ const scopedTo = (modules: Modules, paths: ReadonlyArray<Path>): Modules => {
   const keep = new Set(paths)
   return new Map(Array.filter(Array.fromIterable(modules), ([p]) => keep.has(p)))
 }
-
-const framesOf = (modules: Modules): ReadonlyMap<Path, string> =>
-  new Map(
-    Array.map(
-      Array.fromIterable(modules),
-      ([p, m]) => [p, fromFrame(m.frame).code] as const,
-    ),
-  )
-
-const withProducts = (
-  modules: Modules,
-  products: ReadonlyMap<Path, Product>,
-): Modules =>
-  new Map(
-    Array.map(Array.fromIterable(modules), ([p, m]) =>
-      Option.match(Option.fromNullable(products.get(p)), {
-        onNone: () => [p, m] as const,
-        onSome: (product) => [p, { ...m, product }] as const,
-      }),
-    ),
-  )
-
-const allProduced = (modules: Modules): boolean =>
-  Array.every(
-    Array.fromIterable(modules.values()),
-    (m) => m.product !== undefined,
-  )
 
 const entryOf = (
   modules: Modules,
@@ -134,7 +104,7 @@ const resolveSinks = (
     Array.fromIterable(modules.values()),
     Array.flatMap((module) => {
       const routed = routing.get(module.path)
-      return Array.filterMap(module.product?.files ?? [], (file) =>
+      return Array.filterMap(module.product.files, (file) =>
         module.path === entry || (routed?.has(file.path) ?? false)
           ? Option.some({
               section: file.code.origin.name,
@@ -266,12 +236,14 @@ const frameLocationOf = (
     },
   }))
 
-const namesAt = (modules: Modules, path: Path): ReadonlyArray<string> => {
-  const product = modules.get(path)?.product
-  return product === undefined
-    ? []
-    : Array.map(product.code, (c) => c.origin.name)
-}
+const namesAt = (modules: Modules, path: Path): ReadonlyArray<string> =>
+  pipe(
+    Option.fromNullable(modules.get(path)),
+    Option.match({
+      onNone: () => [],
+      onSome: (module) => Array.map(module.product.code, (c) => c.origin.name),
+    }),
+  )
 
 const rootsAt = (modules: Modules, path: Path): ReadonlyArray<string> => {
   const roots = rootNamesAt(modules, path)
@@ -284,7 +256,6 @@ const projectTree = (modules: Modules, entry: LoomModule): LoomVirtualCode =>
   rootVirtualCode(
     entry.text,
     [
-      fromFrame(entry.frame),
       fromProse(modules, entry.path),
       ...pipe(
         rootsAt(modules, entry.path),
@@ -386,7 +357,6 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
       const builder = yield* LoomCorpusAstBuilder
       const memo = yield* LoomMemo
       const config = yield* PackageConfig
-      const frames = yield* FrameRunner
 
       const loadOne = (source: Source, path: Path): Effect.Effect<LoomModule> =>
         config.resolve(path).pipe(
@@ -429,25 +399,9 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
           Effect.map((pairs) => new Map(pairs)),
         )
 
-      const produceCorpus = (
-        source: Source,
-        entry: Path,
-      ): Effect.Effect<Modules> =>
-        buildCorpus(source, entry).pipe(
-          Effect.flatMap((modules) => {
-            const scope = scopedTo(modules, placeReachable(modules, entry))
-            return allProduced(scope)
-              ? Effect.succeed(modules)
-              : frames.produce(framesOf(scope)).pipe(
-                  Effect.map((products) => withProducts(modules, products)),
-                  Effect.tap(memo.fill),
-                )
-          }),
-        )
-
       return {
         compile: (source: Source, path: Path): Effect.Effect<VirtualCode> =>
-          produceCorpus(source, path).pipe(
+          buildCorpus(source, path).pipe(
             Effect.flatMap((modules) => entryOf(modules, path)),
             Effect.map(({ modules, entry }) =>
               toVolar(projectTree(modules, entry)),
@@ -470,7 +424,7 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
         tangle: (
           path: Path,
         ): Effect.Effect<ReadonlyArray<TangledFile>, TangleError> =>
-          produceCorpus(documents, path).pipe(
+          buildCorpus(documents, path).pipe(
             Effect.flatMap((modules) => {
               const scoped = scopedTo(modules, placeReachable(modules, path))
               return collisionDiagnostics(config, scoped).pipe(
@@ -605,7 +559,6 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
     dependencies: [
       LoomCorpusAstBuilder.Default,
       LoomMemo.Default,
-      FrameRunner.Default,
     ],
   },
 ) {}

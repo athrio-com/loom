@@ -10,7 +10,6 @@ import { fileURLToPath } from 'node:url'
 import { LoomCompiler, DocumentSource } from './LoomCompiler'
 import { PackageConfig } from './PackageConfig'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
-import { withLoomBaseline } from '@athrio/loom-tsconfig'
 import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
 
 const program = Effect.gen(function* () {
@@ -33,7 +32,7 @@ const program = Effect.gen(function* () {
     return server.initialize(
       params,
       createTypeScriptProject(
-        withLoomBaseline(tsdk.typescript),
+        tsdk.typescript,
         tsdk.diagnosticMessages,
         () => ({ languagePlugins: [loomLanguagePlugin(runtime)] }),
       ),

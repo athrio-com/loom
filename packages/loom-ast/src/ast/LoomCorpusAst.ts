@@ -7,7 +7,6 @@ import {
 } from '#ast/LoomTokens'
 import { ProductSchema } from '#ast/ProductAst'
 import { LoomDocumentSchema, type LoomSection } from '#ast/LoomAst'
-import { FrameModuleSchema } from '#ast/FrameAst'
 
 export type Path = string
 
@@ -15,8 +14,7 @@ export const LoomModuleSchema = Schema.Struct({
   path: Schema.String,
   text: Schema.String,
   doc: LoomDocumentSchema,
-  frame: FrameModuleSchema,
-  product: Schema.optional(ProductSchema),
+  product: ProductSchema,
 })
 export type LoomModule = typeof LoomModuleSchema.Type
 
@@ -718,7 +716,7 @@ export const moduleDiagnostics = (
   module: LoomModule,
 ): ReadonlyArray<Diagnostic> => [
   ...diagnosticsIn(module.doc),
-  ...diagnosticsIn(module.frame),
+  ...diagnosticsIn(module.product.code),
 ]
 
 export const corpusErrors = (

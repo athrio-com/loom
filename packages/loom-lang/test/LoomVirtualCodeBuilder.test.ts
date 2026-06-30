@@ -1,112 +1,39 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Array, Effect, pipe } from 'effect'
 import { parseDocument, ParseLayer } from './parse'
-import { buildFrame } from '#ast/FrameAstBuilder'
-import { FrameRunner } from '#ast/FrameRunner'
-import { type LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
-import { fromFrame, fromProduct } from '#ast/LoomVirtualCodeBuilder'
+import { buildProduct } from '#ast/ProductBuilder'
+import { type LoomModule, type Path } from '@athrio/loom-ast/LoomCorpusAst'
+import {
+  fromProduct,
+  fromProse,
+  rootNamesAt,
+  rootVirtualCode,
+  symbolMappings,
+} from '#ast/LoomVirtualCodeBuilder'
 
-// LoomVirtualCodeBuilder's two passes, both yielding a LoomVirtualCode.
-// fromFrame (de dicto): Frame AST → the `frame` virtual code, the generated
-// composition program tsc checks. fromProduct (de re): a section → its product
-// virtual code, the sections it names with `::[…]` inlined in composition order,
-// each block re-indented to its anchor column.
+// LoomVirtualCodeBuilder's de re projection, all yielding a LoomVirtualCode.
+// fromProduct: a section → its product virtual code, the sections it names with
+// `::[…]` inlined in composition order, each block re-indented to its anchor
+// column. fromProse: the file as a Markdown document, code blanked to spaces.
+// symbolMappings: the heading and anchor spans the root mirror routes navigation
+// through. rootVirtualCode: the file's tree, the source as the loom root.
 
 const parse = (src: string) =>
   Effect.runSync(parseDocument(src).pipe(Effect.provide(ParseLayer)))
 
-// fromProduct resolves against the corpus, so these fixtures run the frames through
-// the FrameRunner — the one composition implementation — and fold each module's
-// Product back onto it, the same shape the compiler hands the builder.
+// fromProduct resolves a NameRef's target against the corpus, so each fixture is a
+// corpus of modules built straight from `.loom` source: parse, then fold the
+// document into its de re `Product` with `buildProduct`. This is the same module
+// shape the compiler hands the builder — `{ path, text, doc, product }`.
+const moduleOf = (path: Path, text: string): LoomModule => {
+  const doc = parse(text)
+  return { path, text, doc, product: buildProduct(doc, path) }
+}
+
 const corpusOf = (
-  ...mods: ReadonlyArray<{ readonly path: string; readonly text: string }>
-): ReadonlyMap<string, LoomModule> =>
-  Effect.runSync(
-    Effect.gen(function* () {
-      const runner = yield* FrameRunner
-      const built = mods.map((m) => {
-        const doc = parse(m.text)
-        return {
-          path: m.path,
-          text: m.text,
-          doc,
-          frame: buildFrame(doc, m.path),
-          imports: [] as ReadonlyArray<string>,
-        }
-      })
-      const frames = new Map(
-        built.map((m) => [m.path, fromFrame(m.frame).code] as const),
-      )
-      const products = yield* runner.produce(frames)
-      return new Map(
-        built.map(
-          (m) => [m.path, { ...m, product: products.get(m.path) }] as const,
-        ),
-      )
-    }).pipe(Effect.provide(FrameRunner.Default)),
-  )
-
-// === de dicto — fromFrame =================================================
-
-const adder = `{{lang: TypeScript}}
-
-# Adder
-
-Adds two integers.
-
-=>
-
-export const add = (x: number, y: number): number => x + y
-`
-
-describe('fromFrame — Frame AST → the frame virtual code', () => {
-  const vc = fromFrame(buildFrame(parse(adder), '/Adder.loom'))
-  const genCode = vc.code
-
-  it('is the loom `frame` document with no children', () => {
-    expect(vc.id).toBe('frame')
-    expect(vc.languageId).toBe('loom')
-    expect(vc.embeddedCodes).toEqual([])
-  })
-
-  it('opens with the @athrio/loom-lang/dsl + effect header', () => {
-    expect(genCode.startsWith('import * as dsl from "@athrio/loom-lang/dsl"')).toBe(true)
-    expect(genCode).toContain('import { Effect, Layer } from "effect"')
-  })
-
-  it('emits an exported Service class named after the title', () => {
-    expect(genCode).toContain(
-      'export class Adder extends Effect.Service<Adder>()("/Adder.loom#Adder", ',
-    )
-    expect(genCode).toContain(') {}')
-  })
-
-  it('carries title → name, woven prose, and composed code', () => {
-    expect(genCode).toContain('name: `Adder`')
-    expect(genCode).toContain('prose: dsl.weave(')
-    expect(genCode).toContain('Adds two integers.')
-    expect(genCode).toContain('code: dsl.compose(')
-    expect(genCode).toContain('dsl.fragment(`') // a fragment is a positioned core call
-    expect(genCode).toContain(
-      'export const add = (x: number, y: number): number => x + y',
-    )
-  })
-
-  it('emits the __services and __run exports the runner reads', () => {
-    expect(genCode).toContain('export const __services = ')
-    expect(genCode).toContain('Adder: { layer: Adder.Default, self: Adder, deps: [] }')
-    expect(genCode).toContain('export const __run = Effect.gen(')
-    expect(genCode).toContain('(yield* Adder).code')
-  })
-
-  it('escapes ` and ${ in the woven prose field and the product code', () => {
-    const escInput =
-      '{{lang: TypeScript}}\n\n# Escapes\n\nMentions `pow` in prose.\n\n=>\n\nconst greeting = `Hi ${name}`\n'
-    const out = fromFrame(buildFrame(parse(escInput), '/Esc.loom')).code
-    expect(out).toContain('\\`pow\\`') // field: escaped backticks
-    expect(out).toContain('\\${name}') // product code: escaped ${
-  })
-})
+  ...mods: ReadonlyArray<{ readonly path: Path; readonly text: string }>
+): ReadonlyMap<Path, LoomModule> =>
+  new Map(mods.map((m) => [m.path, moduleOf(m.path, m.text)] as const))
 
 // === de re — fromProduct ==================================================
 
@@ -404,5 +331,95 @@ describe('fromProduct — prose seam between code chunks', () => {
     const vc = fromProduct(altCode, { path: '/Alt.loom', name: 'Alternating' })
     expect(vc.code).toBe('const a = 1\n\nconst b = 2\n')
     expect(vc.code).not.toContain('narrative')
+  })
+})
+
+// === fromProse — the file as Markdown =====================================
+
+// fromProse keeps the prose and blanks every code chunk to spaces, so only the
+// narrative reads while every offset stays where the source put it. The result is
+// one `prose` document in the `prose` language, mapped per token to its own span.
+describe('fromProse — code blanked, prose kept, offsets preserved', () => {
+  it('keeps prose, blanks the code, and holds the source length', () => {
+    const vc = fromProse(codeByPath, '/Sad.loom')
+    expect(vc.id).toBe('prose')
+    expect(vc.languageId).toBe('prose')
+    expect(vc.code.length).toBe(sad.length) // offsets preserved one-to-one
+    expect(vc.code).not.toContain('const negate') // code blanked to spaces
+    expect(vc.code).not.toContain('negDouble')
+    expect(vc.mappings.length).toBeGreaterThan(0)
+  })
+
+  it('an absent file yields an empty prose document', () => {
+    const vc = fromProse(codeByPath, '/Absent.loom')
+    expect(vc.id).toBe('prose')
+    expect(vc.languageId).toBe('prose')
+    expect(vc.code).toBe('')
+  })
+})
+
+// === symbolMappings — heading and anchor spans ============================
+
+// symbolMappings routes Loom's navigation through the root mirror: a `heading` span
+// over each section's title and an `anchor` span over every `::[…]` reference. Each
+// span is the source verbatim — its genStart and source offsets agree — so a cursor
+// on a heading or anchor reaches the right token.
+describe('symbolMappings — the spans navigation routes through', () => {
+  const doc = parse(sad)
+  const symbols = symbolMappings(doc)
+
+  it('spans each section title as a heading', () => {
+    const headings = Array.filter(symbols, (m) => m.kind === 'heading')
+    const titles = Array.map(headings, (m) =>
+      sad.slice(m.source.start.offset, m.source.end.offset),
+    )
+    expect(titles).toEqual(['Negate', 'Negated double'])
+  })
+
+  it('spans the `::[Negate]` reference as an anchor', () => {
+    const anchors = Array.filter(symbols, (m) => m.kind === 'anchor')
+    const named = Array.map(anchors, (m) =>
+      sad.slice(m.source.start.offset, m.source.end.offset),
+    )
+    expect(named).toEqual(['::[Negate]'])
+  })
+
+  it('maps every span to its own source verbatim', () => {
+    const offByGen = Array.filter(symbols, (m) => m.genStart !== m.source.start.offset)
+    expect(offByGen).toEqual([])
+  })
+})
+
+// === rootVirtualCode — the file's tree ====================================
+
+// rootVirtualCode assembles the file's tree: the source itself as the `loom` root,
+// the prose and product documents its children. The root carries a whole-file
+// `source` span, so Loom's own diagnostics reach the editor on the opened file, and
+// the section-symbol spans beside it, so navigation reaches each heading and anchor.
+describe('rootVirtualCode — the source as the loom root', () => {
+  it('roots the source, holds the symbol spans, and nests its children', () => {
+    const roots = rootNamesAt(codeByPath, '/Sad.loom')
+    const children = pipe(
+      Array.fromIterable(roots),
+      Array.map((name) =>
+        fromProduct(codeByPath, { path: '/Sad.loom', name }),
+      ),
+    )
+    const doc = parse(sad)
+    const root = rootVirtualCode(sad, children, symbolMappings(doc))
+
+    expect(root.id).toBe('root')
+    expect(root.languageId).toBe('loom')
+    expect(root.code).toBe(sad) // the source verbatim
+    expect(root.embeddedCodes).toBe(children)
+
+    // a whole-file `source` span the editor verifies diagnostics against
+    const whole = root.mappings.find((m) => m.kind === 'source')!
+    expect(whole.genStart).toBe(0)
+    expect(whole.genLength).toBe(sad.length)
+
+    // the heading and anchor spans ride alongside it
+    expect(root.mappings.some((m) => m.kind === 'heading')).toBe(true)
+    expect(root.mappings.some((m) => m.kind === 'anchor')).toBe(true)
   })
 })
