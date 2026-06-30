@@ -8,8 +8,10 @@ import type {
   CompletionList,
   Diagnostic,
   Hover,
+  Location,
   LocationLink,
   Position,
+  WorkspaceEdit,
 } from '@volar/language-service'
 import type { Language } from '@volar/language-core'
 import {
@@ -38,6 +40,15 @@ export interface ProductProgram {
     fileName: string,
     position: Position,
   ) => Promise<LocationLink[] | undefined>
+  readonly references: (
+    fileName: string,
+    position: Position,
+  ) => Promise<Location[] | undefined>
+  readonly rename: (
+    fileName: string,
+    position: Position,
+    newName: string,
+  ) => Promise<WorkspaceEdit | undefined>
   readonly dispose: () => void
 }
 
@@ -125,6 +136,12 @@ export const createProductProgram = (
       service.getCompletionItems(asUri(fileName), position),
     definition: (fileName, position) =>
       service.getDefinition(asUri(fileName), position),
+    references: (fileName, position) =>
+      service.getReferences(asUri(fileName), position, {
+        includeDeclaration: true,
+      }),
+    rename: (fileName, position, newName) =>
+      service.getRenameEdits(asUri(fileName), position, newName),
     dispose: () => service.dispose(),
   }
 }

@@ -8,7 +8,7 @@ The program never opens a `.loom`. The host extracts each composition root — a
 
 ## What the program offers
 
-A `ProductProgram` holds the product's roots and answers the editor's questions about them. `setRoot` adds or replaces a root's TypeScript under a file name, and `removeRoot` drops it. The four feature methods — `diagnostics`, `hover`, `completions`, and `definition` — each take a root's file name and a position. Each returns what `volar-service-typescript` finds, in that file's own coordinates. The host maps those coordinates back to the `.loom`. `dispose` releases the service.
+A `ProductProgram` holds the product's roots and answers the editor's questions about them. `setRoot` adds or replaces a root's TypeScript under a file name, and `removeRoot` drops it. The feature methods — `diagnostics`, `hover`, `completions`, `definition`, `references`, and `rename` — each take a root's file name and a position. Each returns what `volar-service-typescript` finds, named by the synthetic root file. The service rewrites every such name to the embedded document it stands for, and Volar maps the coordinates back to the `.loom`. `dispose` releases the service.
 
 =>
 
@@ -28,6 +28,15 @@ export interface ProductProgram {
     fileName: string,
     position: Position,
   ) => Promise<LocationLink[] | undefined>
+  readonly references: (
+    fileName: string,
+    position: Position,
+  ) => Promise<Location[] | undefined>
+  readonly rename: (
+    fileName: string,
+    position: Position,
+    newName: string,
+  ) => Promise<WorkspaceEdit | undefined>
   readonly dispose: () => void
 }
 
@@ -127,6 +136,12 @@ export const createProductProgram = (
       service.getCompletionItems(asUri(fileName), position),
     definition: (fileName, position) =>
       service.getDefinition(asUri(fileName), position),
+    references: (fileName, position) =>
+      service.getReferences(asUri(fileName), position, {
+        includeDeclaration: true,
+      }),
+    rename: (fileName, position, newName) =>
+      service.getRenameEdits(asUri(fileName), position, newName),
     dispose: () => service.dispose(),
   }
 }
@@ -159,8 +174,10 @@ import type {
   CompletionList,
   Diagnostic,
   Hover,
+  Location,
   LocationLink,
   Position,
+  WorkspaceEdit,
 } from '@volar/language-service'
 import type { Language } from '@volar/language-core'
 import {

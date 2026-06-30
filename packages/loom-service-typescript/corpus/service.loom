@@ -67,7 +67,11 @@ export const productTarget = (
 
 `productPlugin` is the Volar plugin the host registers. It keeps one `ProductProgram` per `.loom` file — built on first use from that file's consumer options — and disposes them all when the service shuts down. Each feature routes its document through `productTarget`: when the document is a TypeScript Product, the feature forwards to its program; otherwise it returns nothing, and a document in another language falls to its own service or to syntax highlighting. The TypeScript analysis itself is `volar-service-typescript`'s, run inside the program.
 
+A result that names a place — a definition, a reference, the edits of a rename — comes back under the synthetic root file the program checks. `embeddedUriOf` rewrites that name to the embedded document Volar knows, matching `productTarget`'s `.loom.<root>.<ext>` shape and encoding it back through `encodeEmbeddedDocumentUri`. Volar then maps the result to the `.loom`, rather than opening a synthetic file that is not on disk. A name that is no product root — a real file under `node_modules` — passes through unchanged.
+
 =>
+
+const productFile = /^(.*\.loom)\.([^./]+)\.(?:ts|tsx|js|jsx)$/
 
 const productPlugin = (ts: TypeScript): LanguageServicePlugin => ({
   name: 'loom-typescript-product',
@@ -76,6 +80,8 @@ const productPlugin = (ts: TypeScript): LanguageServicePlugin => ({
     hoverProvider: true,
     completionProvider: { triggerCharacters: ['.'] },
     definitionProvider: true,
+    referencesProvider: true,
+    renameProvider: {},
   },
   create: (context) => {
     const programs = new Map<string, ProductProgram>()
@@ -97,6 +103,16 @@ const productPlugin = (ts: TypeScript): LanguageServicePlugin => ({
         text,
         programFor,
       )
+
+    const embeddedUriOf = (uri: string): string => {
+      const match = productFile.exec(URI.parse(uri).fsPath)
+      return match === null
+        ? uri
+        : context
+            .encodeEmbeddedDocumentUri(URI.file(match[1]!), match[2]!)
+            .toString()
+    }
+
     return {
       provideDiagnostics: (document) => {
         const target = targetOf(document.uri, document.languageId, document.getText())
@@ -120,7 +136,47 @@ const productPlugin = (ts: TypeScript): LanguageServicePlugin => ({
         const target = targetOf(document.uri, document.languageId, document.getText())
         return target === undefined
           ? undefined
-          : target.program.definition(target.fileName, position)
+          : target.program
+              .definition(target.fileName, position)
+              .then((links) =>
+                links?.map((link) => ({
+                  ...link,
+                  targetUri: embeddedUriOf(link.targetUri),
+                })),
+              )
+      },
+      provideReferences: (document, position) => {
+        const target = targetOf(document.uri, document.languageId, document.getText())
+        return target === undefined
+          ? undefined
+          : target.program
+              .references(target.fileName, position)
+              .then((locations) =>
+                locations?.map((location) => ({
+                  ...location,
+                  uri: embeddedUriOf(location.uri),
+                })),
+              )
+      },
+      provideRenameEdits: (document, position, newName) => {
+        const target = targetOf(document.uri, document.languageId, document.getText())
+        return target === undefined
+          ? undefined
+          : target.program
+              .rename(target.fileName, position, newName)
+              .then((edit) =>
+                edit?.changes === undefined
+                  ? edit
+                  : {
+                      ...edit,
+                      changes: Object.fromEntries(
+                        Object.entries(edit.changes).map(([uri, edits]) => [
+                          embeddedUriOf(uri),
+                          edits,
+                        ]),
+                      ),
+                    },
+              )
       },
       dispose: () => programs.forEach((program) => program.dispose()),
     }

@@ -56,6 +56,8 @@ export const productTarget = (
   return { program, fileName }
 }
 
+const productFile = /^(.*\.loom)\.([^./]+)\.(?:ts|tsx|js|jsx)$/
+
 const productPlugin = (ts: TypeScript): LanguageServicePlugin => ({
   name: 'loom-typescript-product',
   capabilities: {
@@ -63,6 +65,8 @@ const productPlugin = (ts: TypeScript): LanguageServicePlugin => ({
     hoverProvider: true,
     completionProvider: { triggerCharacters: ['.'] },
     definitionProvider: true,
+    referencesProvider: true,
+    renameProvider: {},
   },
   create: (context) => {
     const programs = new Map<string, ProductProgram>()
@@ -84,6 +88,16 @@ const productPlugin = (ts: TypeScript): LanguageServicePlugin => ({
         text,
         programFor,
       )
+
+    const embeddedUriOf = (uri: string): string => {
+      const match = productFile.exec(URI.parse(uri).fsPath)
+      return match === null
+        ? uri
+        : context
+            .encodeEmbeddedDocumentUri(URI.file(match[1]!), match[2]!)
+            .toString()
+    }
+
     return {
       provideDiagnostics: (document) => {
         const target = targetOf(document.uri, document.languageId, document.getText())
@@ -107,7 +121,47 @@ const productPlugin = (ts: TypeScript): LanguageServicePlugin => ({
         const target = targetOf(document.uri, document.languageId, document.getText())
         return target === undefined
           ? undefined
-          : target.program.definition(target.fileName, position)
+          : target.program
+              .definition(target.fileName, position)
+              .then((links) =>
+                links?.map((link) => ({
+                  ...link,
+                  targetUri: embeddedUriOf(link.targetUri),
+                })),
+              )
+      },
+      provideReferences: (document, position) => {
+        const target = targetOf(document.uri, document.languageId, document.getText())
+        return target === undefined
+          ? undefined
+          : target.program
+              .references(target.fileName, position)
+              .then((locations) =>
+                locations?.map((location) => ({
+                  ...location,
+                  uri: embeddedUriOf(location.uri),
+                })),
+              )
+      },
+      provideRenameEdits: (document, position, newName) => {
+        const target = targetOf(document.uri, document.languageId, document.getText())
+        return target === undefined
+          ? undefined
+          : target.program
+              .rename(target.fileName, position, newName)
+              .then((edit) =>
+                edit?.changes === undefined
+                  ? edit
+                  : {
+                      ...edit,
+                      changes: Object.fromEntries(
+                        Object.entries(edit.changes).map(([uri, edits]) => [
+                          embeddedUriOf(uri),
+                          edits,
+                        ]),
+                      ),
+                    },
+              )
       },
       dispose: () => programs.forEach((program) => program.dispose()),
     }
