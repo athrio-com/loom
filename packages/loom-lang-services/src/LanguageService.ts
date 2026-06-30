@@ -48,7 +48,24 @@ export class FrameQuery extends Effect.Service<FrameQuery>()('FrameQuery', {
   ) as Effect.Effect<FrameQueryApi>,
 }) {}
 
-export type HostCapabilities = TypescriptSdk | FrameQuery
+export interface ComposedFile {
+  readonly path: string
+  readonly content: string
+  readonly loomPath: string
+  readonly rootId: string
+}
+
+export interface CompositionApi {
+  readonly rootsFor: (path: string) => ReadonlyArray<ComposedFile>
+}
+
+export class Composition extends Effect.Service<Composition>()('Composition', {
+  effect: Effect.die(
+    'Composition must be provided by the host',
+  ) as Effect.Effect<CompositionApi>,
+}) {}
+
+export type HostCapabilities = TypescriptSdk | FrameQuery | Composition
 
 export interface LanguageServiceContext {
   readonly settings: Record<string, unknown>

@@ -13,6 +13,8 @@ import { ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import { LoomCompiler, loomsUnder, stringSnapshot } from './LoomCompiler'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
+  Composition,
+  type CompositionApi,
   FrameQuery,
   type FrameQueryApi,
   type LanguageService,
@@ -130,6 +132,7 @@ const collect = (
   tsdk: typeof import('typescript'),
   settings: Record<string, Record<string, unknown>>,
   frameQuery: FrameQueryApi,
+  composition: CompositionApi,
 ): Effect.Effect<ReadonlyArray<LanguageServicePlugin>> =>
   Effect.gen(function* () {
     const registry = yield* LanguageRegistry
@@ -146,6 +149,7 @@ const collect = (
     Effect.provide(Layer.succeed(ActiveLanguages, ActiveLanguages.make({ all: active }))),
     Effect.provideService(TypescriptSdk, TypescriptSdk.make(tsdk)),
     Effect.provideService(FrameQuery, FrameQuery.make(frameQuery)),
+    Effect.provideService(Composition, Composition.make(composition)),
   )
 
 const frameQueryOver = (
@@ -181,6 +185,17 @@ const frameQueryOver = (
     ),
 })
 
+const compositionOver = (
+  runtime: Runtime.Runtime<LoomCompiler>,
+): CompositionApi => ({
+  rootsFor: (path) =>
+    Runtime.runSync(runtime)(
+      LoomCompiler.pipe(
+        Effect.flatMap((compiler) => compiler.composition(path)),
+      ),
+    ),
+})
+
 export const loomServicePlugins = (
   tsdk: typeof import('typescript'),
   root: string,
@@ -197,5 +212,11 @@ export const loomServicePlugins = (
     const runtime = yield* Effect.runtime<LoomCompiler>()
     yield* Effect.sync(() => installHostRuntime(tsdk))
     const active = yield* loadActive(languages, root)
-    return yield* collect(active, tsdk, settings, frameQueryOver(runtime))
+    return yield* collect(
+      active,
+      tsdk,
+      settings,
+      frameQueryOver(runtime),
+      compositionOver(runtime),
+    )
   })

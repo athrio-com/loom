@@ -105,3 +105,58 @@ describe('LoomCompiler — the chain projected for each consumer', () => {
     }).pipe(Effect.provide(layer)),
   )
 })
+
+// `composition` is the editor's read of the de re: every root in the corpus as
+// the code it tangles to, at the path it tangles to. a.loom imports b.loom's
+// output, so a language service can resolve that import against b's live
+// composition rather than its on-disk output.
+const crossImport: Record<string, string> = {
+  '/a.loom': `{{lang: TypeScript}}
+
+# A [., a.ts]
+
+=>
+
+import { b } from './b.js'
+export const a = b + 1
+`,
+  '/b.loom': `{{lang: TypeScript}}
+
+# B [., b.ts]
+
+=>
+
+export const b = 2
+`,
+}
+
+const crossLayer = Layer.provide(
+  Layer.merge(LoomCompiler.Default, LoomMemo.Default),
+  Layer.merge(
+    Layer.succeed(
+      DocumentSource,
+      new DocumentSource({
+        read: (path: string) => Effect.succeed(crossImport[path] ?? ''),
+        list: Option.some(() => Effect.succeed(Object.keys(crossImport))),
+      }),
+    ),
+    TestConfig,
+  ),
+)
+
+describe('LoomCompiler — composition projects the de re as a filesystem', () => {
+  it.effect('returns every root at its output path, with content and origin', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const files = yield* c.composition('/a.loom')
+      const byId = new Map(files.map((file) => [file.rootId, file]))
+      const a = byId.get('a')
+      const b = byId.get('b')
+      expect(a?.path).toBe('/a.ts')
+      expect(a?.loomPath).toBe('/a.loom')
+      expect(a?.content).toContain("import { b } from './b.js'")
+      expect(b?.path).toBe('/b.ts')
+      expect(b?.content).toContain('export const b = 2')
+    }).pipe(Effect.provide(crossLayer)),
+  )
+})

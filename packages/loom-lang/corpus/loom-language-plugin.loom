@@ -121,9 +121,9 @@ const isolateRoots = (code: VirtualCode): VirtualCode => ({
 
 ## Collecting the service plugins
 
-`loomServicePlugins` is the collect-and-register pass. Before it loads anything, it installs the host runtime on the global — Effect, the service contract, and the editor's TypeScript compiler — so a loaded service reads the host's instances rather than bundling its own and missing the capabilities the host provides. It then reads the project's active languages, loads each through `loadActive` — `LoomLanguage` always, and a `@athrio/loom-service-<id>` package for every other id, imported from the Loom store — then indexes them in the `LanguageRegistry` and runs each service's `plugins` Effect with the host's capabilities. A language activated but not installed in the store drops with a warning, and the rest load on. It provides two capabilities. The `TypescriptSdk` is the editor's own compiler, so analysis matches the user's project. A `FrameQuery`, built over the warm corpus by `frameQueryOver`, lets the frame service read a file's Loom diagnostics. A product service needs neither a root query nor any capability of its own: the editor hands it Products, each a resolved root with its members folded in. Each service also gets its slice of the workspace's `settings`, keyed by language id, so it tunes itself from the configuration. A service that fails to build — an external binary that will not start — drops to no plugins rather than taking the others down. The pass dedupes by plugin name, so a plugin two services happen to share registers with Volar once.
+`loomServicePlugins` is the collect-and-register pass. Before it loads anything, it installs the host runtime on the global — Effect, the service contract, and the editor's TypeScript compiler — so a loaded service reads the host's instances rather than bundling its own and missing the capabilities the host provides. It then reads the project's active languages, loads each through `loadActive` — `LoomLanguage` always, and a `@athrio/loom-service-<id>` package for every other id, imported from the Loom store — then indexes them in the `LanguageRegistry` and runs each service's `plugins` Effect with the host's capabilities. A language activated but not installed in the store drops with a warning, and the rest load on. It provides three capabilities. The `TypescriptSdk` is the editor's own compiler, so analysis matches the user's project. A `FrameQuery`, built over the warm corpus by `frameQueryOver`, lets the frame service read a file's Loom diagnostics. A `Composition`, built by `compositionOver`, hands a product service the corpus as a filesystem — every root as the code it composes, at the path it composes to — so its analyzer resolves a cross-file import against live composition rather than the output on disk. The editor still hands each service its Products directly, a resolved root with its members folded in; `Composition` adds only the rest of the corpus. Each service also gets its slice of the workspace's `settings`, keyed by language id, so it tunes itself from the configuration. A service that fails to build — an external binary that will not start — drops to no plugins rather than taking the others down. The pass dedupes by plugin name, so a plugin two services happen to share registers with Volar once.
 
-`frameQueryOver` builds the one capability from the runtime. Each reader composes a file's corpus and answers from it: `diagnostics` returns the open module's Loom health, `definition` follows an anchor to the section it names, `references` finds every anchor that names the section under the cursor, and `rename` and `renameRange` give the spans a rename rewrites and the one the rename box covers. They read synchronously, on the same warm runtime the projection uses, and close over it, so the frame service can call them long after this pass, when the editor asks on a keystroke.
+`frameQueryOver` builds the one capability from the runtime. Each reader composes a file's corpus and answers from it: `diagnostics` returns the open module's Loom health, `definition` follows an anchor to the section it names, `references` finds every anchor that names the section under the cursor, and `rename` and `renameRange` give the spans a rename rewrites and the one the rename box covers. They read synchronously, on the same warm runtime the projection uses, and close over it, so the frame service can call them long after this pass, when the editor asks on a keystroke. `compositionOver` builds the `Composition` reader the same way: `rootsFor` composes a file's corpus and returns every root as a `ComposedFile`, on that same warm runtime.
 
 =>
 
@@ -139,6 +139,7 @@ const collect = (
   tsdk: typeof import('typescript'),
   settings: Record<string, Record<string, unknown>>,
   frameQuery: FrameQueryApi,
+  composition: CompositionApi,
 ): Effect.Effect<ReadonlyArray<LanguageServicePlugin>> =>
   Effect.gen(function* () {
     const registry = yield* LanguageRegistry
@@ -155,6 +156,7 @@ const collect = (
     Effect.provide(Layer.succeed(ActiveLanguages, ActiveLanguages.make({ all: active }))),
     Effect.provideService(TypescriptSdk, TypescriptSdk.make(tsdk)),
     Effect.provideService(FrameQuery, FrameQuery.make(frameQuery)),
+    Effect.provideService(Composition, Composition.make(composition)),
   )
 
 const frameQueryOver = (
@@ -190,6 +192,17 @@ const frameQueryOver = (
     ),
 })
 
+const compositionOver = (
+  runtime: Runtime.Runtime<LoomCompiler>,
+): CompositionApi => ({
+  rootsFor: (path) =>
+    Runtime.runSync(runtime)(
+      LoomCompiler.pipe(
+        Effect.flatMap((compiler) => compiler.composition(path)),
+      ),
+    ),
+})
+
 export const loomServicePlugins = (
   tsdk: typeof import('typescript'),
   root: string,
@@ -206,7 +219,13 @@ export const loomServicePlugins = (
     const runtime = yield* Effect.runtime<LoomCompiler>()
     yield* Effect.sync(() => installHostRuntime(tsdk))
     const active = yield* loadActive(languages, root)
-    return yield* collect(active, tsdk, settings, frameQueryOver(runtime))
+    return yield* collect(
+      active,
+      tsdk,
+      settings,
+      frameQueryOver(runtime),
+      compositionOver(runtime),
+    )
   })
 
 ## What the plugin draws on
@@ -230,6 +249,8 @@ import { ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import { LoomCompiler, loomsUnder, stringSnapshot } from './LoomCompiler'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
+  Composition,
+  type CompositionApi,
   FrameQuery,
   type FrameQueryApi,
   type LanguageService,

@@ -23,7 +23,10 @@ import {
   type Path,
   type SinkFault,
 } from '@athrio/loom-ast/LoomCorpusAst'
-import { type FrameLocation } from '@athrio/loom-lang-services/LanguageService'
+import {
+  type ComposedFile,
+  type FrameLocation,
+} from '@athrio/loom-lang-services/LanguageService'
 import {
   CollidingSinks,
   CollidingTitles,
@@ -466,6 +469,40 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
         placed: (path: Path): Effect.Effect<ReadonlySet<Path>> =>
           buildCorpus(documents, path).pipe(
             Effect.map((modules) => placedModules({ modules })),
+          ),
+
+        composition: (path: Path): Effect.Effect<ReadonlyArray<ComposedFile>> =>
+          buildCorpus(documents, path).pipe(
+            Effect.flatMap((modules) => {
+              const routing = sinkTreeRouting({ modules })
+              return Effect.forEach(
+                Array.fromIterable(modules.values()),
+                (module) =>
+                  config.resolve(module.path).pipe(
+                    Effect.map(({ packageRoot, workspaceRoot }) =>
+                      Array.map(
+                        module.product.files,
+                        (file): ComposedFile => ({
+                          path: outputPath(
+                            fileRoot(
+                              routing.get(module.path),
+                              file.path,
+                              Option.fromNullable(packageRoot),
+                              Option.fromNullable(workspaceRoot),
+                            ),
+                            module.path,
+                            file.path,
+                          ),
+                          content: fromProduct(modules, file.code.origin).code,
+                          loomPath: module.path,
+                          rootId: file.code.origin.name.toLowerCase(),
+                        }),
+                      ),
+                    ),
+                  ),
+                { concurrency: 'unbounded' },
+              ).pipe(Effect.map(Array.flatten))
+            }),
           ),
 
         diagnose: (path: Path): Effect.Effect<ReadonlyArray<Diagnostic>> =>

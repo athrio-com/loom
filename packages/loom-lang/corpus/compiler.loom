@@ -136,6 +136,40 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
             Effect.map((modules) => placedModules({ modules })),
           ),
 
+        composition: (path: Path): Effect.Effect<ReadonlyArray<ComposedFile>> =>
+          buildCorpus(documents, path).pipe(
+            Effect.flatMap((modules) => {
+              const routing = sinkTreeRouting({ modules })
+              return Effect.forEach(
+                Array.fromIterable(modules.values()),
+                (module) =>
+                  config.resolve(module.path).pipe(
+                    Effect.map(({ packageRoot, workspaceRoot }) =>
+                      Array.map(
+                        module.product.files,
+                        (file): ComposedFile => ({
+                          path: outputPath(
+                            fileRoot(
+                              routing.get(module.path),
+                              file.path,
+                              Option.fromNullable(packageRoot),
+                              Option.fromNullable(workspaceRoot),
+                            ),
+                            module.path,
+                            file.path,
+                          ),
+                          content: fromProduct(modules, file.code.origin).code,
+                          loomPath: module.path,
+                          rootId: file.code.origin.name.toLowerCase(),
+                        }),
+                      ),
+                    ),
+                  ),
+                { concurrency: 'unbounded' },
+              ).pipe(Effect.map(Array.flatten))
+            }),
+          ),
+
         diagnose: (path: Path): Effect.Effect<ReadonlyArray<Diagnostic>> =>
           buildCorpus(documents, path).pipe(
             Effect.flatMap((modules) => {
@@ -272,6 +306,8 @@ const entryOf = (
 ## Tangling a file
 
 `tangle` is the de re's file projection, the sibling of `compile`. It produces the corpus, refuses a broken build, and resolves the entry's sinks to the content and target a writer emits. `placed` is the set of looms a book places as chapters, read off the corpus. A directory tangle skips them — a book emits its chapters when it tangles — so a placed chapter is never tangled on its own, and every file emits once.
+
+`composition` is that same resolution turned to the editor: every root in the corpus, the code it composes and the path it composes to, ungated and unscoped. It is the live de re as a filesystem — what a product language service builds its analyzer's program over, so a cross-file import resolves against a section's live composition rather than its output on disk.
 
 `resolveSinks` gathers the files this tangle emits: the entry module's own tangle sinks — one per `[dir, file]` section — and every sink a book in the corpus routes into place. For each it flattens the composed code across the corpus with `fromProduct`, then resolves where the file lands. A module's file emits only when the entry produced it or a book routes it, so importing a module to transclude its code never re-emits that module's own files. `outputPath` places a sink under a root, so a sink names its file relative to that root rather than climbing out of the corpus. `fileRoot` chooses that root for each sink: the chapter prefix a book places the sink under, resolved against the workspace, or the package root the configuration gives when no chapter places it. A file the workspace assigns to no package falls back to the module's own directory. `resolveSinks` returns a `TangledFile` per sink: the section that produced it, where it lands, and its content. `LoomTangler` performs the writes; `tangle` itself touches no disk.
 
@@ -629,7 +665,10 @@ import {
   type Path,
   type SinkFault,
 } from '@athrio/loom-ast/LoomCorpusAst'
-import { type FrameLocation } from '@athrio/loom-lang-services/LanguageService'
+import {
+  type ComposedFile,
+  type FrameLocation,
+} from '@athrio/loom-lang-services/LanguageService'
 import {
   CollidingSinks,
   CollidingTitles,

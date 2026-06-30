@@ -100,13 +100,15 @@ export interface LanguageService {
 
 ## Host capabilities
 
-A service may draw on capabilities the host provides, taken through the Effect environment so each service asks only for what it needs. There are two.
+A service may draw on capabilities the host provides, taken through the Effect environment so each service asks only for what it needs. There are three.
 
 `TypescriptSdk` is the TypeScript compiler itself. It carries no default — the host supplies the editor's own instance (via Volar's `loadTsdkByPath`), so analysis matches the user's project. The Loom and TypeScript services both take it; `create` needs the compiler to check the frame and the TypeScript product. A CSS or Go service never asks.
 
 `FrameQuery` is the host's read into the frame — the questions Loom can answer about a file from the composition it built. Its first reader, `diagnostics`, returns that file's Loom diagnostics, the grammatical and semantic health in Loom's own terms, so the frame service can surface them. Four more readers answer navigation and rename. `definition` gives the heading an anchor at an offset resolves to, and `references` gives every anchor that names the section under an offset. `rename` gives the title and anchor-name spans a rename rewrites together, and `renameRange` gives the one span the rename box covers. Each answers in `FrameLocation`s — a path and a range in the editor's own line-and-character coordinates. The host builds it over the warm corpus, and like `TypescriptSdk` it carries no default. Only the Loom service takes it.
 
-A product language service does not ask a capability which of a file's sections are roots. The editor hands it a Product — a resolved root, its members already folded in — so the answer travels with the data, never a query.
+`Composition` is the host's read of the de re as a filesystem: every composition root in a file's corpus, each as the resolved code it tangles to, named by the path it tangles to. A product service builds its analyzer's program over these, so a cross-file `import` resolves to another section's live composition rather than its last-tangled output on disk. Like the others it carries no default; the host builds it over the warm corpus. The product service takes it.
+
+A product service still asks nothing about its own file's sections: the editor hands it each Product directly — a resolved root, its members folded in — so the file's own roots travel with the data, never a query. `Composition` adds only the rest of the corpus, the roots a file imports across.
 
 `HostCapabilities` is the union of these capabilities — the environment a service's `plugins` Effect may require.
 
@@ -140,7 +142,24 @@ export class FrameQuery extends Effect.Service<FrameQuery>()('FrameQuery', {
   ) as Effect.Effect<FrameQueryApi>,
 }) {}
 
-export type HostCapabilities = TypescriptSdk | FrameQuery
+export interface ComposedFile {
+  readonly path: string
+  readonly content: string
+  readonly loomPath: string
+  readonly rootId: string
+}
+
+export interface CompositionApi {
+  readonly rootsFor: (path: string) => ReadonlyArray<ComposedFile>
+}
+
+export class Composition extends Effect.Service<Composition>()('Composition', {
+  effect: Effect.die(
+    'Composition must be provided by the host',
+  ) as Effect.Effect<CompositionApi>,
+}) {}
+
+export type HostCapabilities = TypescriptSdk | FrameQuery | Composition
 
 ## The service settings
 
