@@ -973,7 +973,7 @@ const assembleWarp = (
 
 ## Building an anchor
 
-`buildWarpAnchor` reads a `::[…]` reference's content as its name — an identifier or a multi-word heading name. Content the anchor pattern rejects (empty) yields an error-health name and surfaces the text as `unexpected`. `anchorSpecifierAt` reads an optional `{…}` or `[…]` that follows the close immediately, building it through `constructSpecifier` or `constructSink` so a misplaced language or sink reads the same as a heading's; an open with no close after it stays product code, never a broken specifier. `assembleAnchor` gathers the parts, stretching the anchor's span across the specifier when one is present.
+`buildWarpAnchor` reads a `::[…]` reference's content as its name — an identifier or a multi-word heading name. Content the anchor pattern rejects (empty) yields an error-health name and surfaces the text as `unexpected`. `anchorTargetAt` reads an optional `(path)` right after the close — the `.loom` file a directory anchor places. The path is opaque here, for a later pass to resolve; an open paren with no close stays product code. `anchorSpecifierAt` reads a `{…}` or `[…]` in that same spot instead — a misplaced language or sink — through `constructSpecifier` or `constructSink`, so it reads the same as a heading's; an open with no close stays product code, never a broken specifier. A target and a specifier exclude each other: the one character after the close picks at most one. `assembleAnchor` gathers the parts and stretches the anchor's span across whichever trails it.
 
 =>
 
@@ -1043,6 +1043,30 @@ const anchorSpecifierAt = (
   return Option.none()
 }
 
+const anchorTargetAt = (
+  close: AnchorCloseToken,
+  lineText: string,
+  linePosition: Position,
+): Option.Option<{ target: WarpAnchorTargetToken; end: number }> => {
+  const line = linePosition.start.line
+  const lineStart = linePosition.start.offset
+  const openAt = close.position.end.offset
+  if (lineText[openAt - lineStart] !== '(') return Option.none()
+  const closeRel = lineText.indexOf(')', openAt - lineStart)
+  if (closeRel < 0) return Option.none()
+  const closeAt = lineStart + closeRel
+  const inner = lineText.slice(openAt + 1 - lineStart, closeAt - lineStart)
+  return Option.some({
+    target: WarpAnchorTargetTokenSchema.make({
+      position: span(line, openAt, closeAt + 1),
+      source: lineText.slice(openAt - lineStart, closeAt + 1 - lineStart),
+      health: okHealth,
+      value: inner.trim(),
+    }),
+    end: closeAt + 1,
+  })
+}
+
 const buildWarpAnchor = (
   open: AnchorOpenToken,
   close: AnchorCloseToken,
@@ -1059,15 +1083,19 @@ const buildWarpAnchor = (
   )
   const { value, start, end } = trimSpan(content, contentStart)
   const namePos = span(line, start, end)
+  const target = anchorTargetAt(close, lineText, linePosition)
   const spec = anchorSpecifierAt(close, lineText, linePosition)
-  const anchorEnd = Option.match(spec, {
-    onNone: () => close.position.end.offset,
-    onSome: (s) => s.end,
-  })
+  const anchorEnd = pipe(
+    target,
+    Option.map((t) => t.end),
+    Option.orElse(() => Option.map(spec, (s) => s.end)),
+    Option.getOrElse(() => close.position.end.offset),
+  )
   const anchorSource = lineText.slice(
     open.position.start.offset - lineStart,
     anchorEnd - lineStart,
   )
+  const targetTok = Option.getOrUndefined(Option.map(target, (t) => t.target))
   const specifier = Option.getOrUndefined(Option.map(spec, (s) => s.specifier))
 
   return pipe(
@@ -1092,12 +1120,23 @@ const buildWarpAnchor = (
           }),
           line,
           anchorSource,
+          anchorEnd,
+          targetTok,
           specifier,
         ),
         extras: unexpectedIfNonEmpty(namePos, value),
       }),
       onRight: (name) => ({
-        anchor: assembleAnchor(open, close, name, line, anchorSource, specifier),
+        anchor: assembleAnchor(
+          open,
+          close,
+          name,
+          line,
+          anchorSource,
+          anchorEnd,
+          targetTok,
+          specifier,
+        ),
         extras: [],
       }),
     }),
@@ -1110,15 +1149,15 @@ const assembleAnchor = (
   name: WarpAnchorNameToken,
   line: number,
   source: string,
+  end: number,
+  target: WarpAnchorTargetToken | undefined,
   specifier: AnchorSpecifier | undefined,
 ): WarpAnchorToken => {
-  const end = specifier
-    ? specifier.position.end.offset
-    : close.position.end.offset
   const status = aggregateStatus([
     open.health.status,
     name.health.status,
     close.health.status,
+    ...(target ? [target.health.status] : []),
     ...(specifier ? [specifier.health.status] : []),
   ])
   return WarpAnchorTokenSchema.make({
@@ -1129,6 +1168,7 @@ const assembleAnchor = (
     open,
     name,
     close,
+    target,
     specifier,
   })
 }
@@ -1401,6 +1441,7 @@ import {
   AnchorOpenTokenSchema,
   defaultAnchorDelims,
   WarpAnchorNameTokenSchema,
+  WarpAnchorTargetTokenSchema,
   WarpAnchorTokenSchema,
   WarpAnnotationTokenSchema,
   WarpCloseTokenSchema,
@@ -1423,6 +1464,7 @@ import {
   type AnchorOpenToken,
   type HeadingTitleToken,
   type WarpAnchorNameToken,
+  type WarpAnchorTargetToken,
   type WarpAnchorToken,
   type WarpAnnotationToken,
   type WarpCloseToken,

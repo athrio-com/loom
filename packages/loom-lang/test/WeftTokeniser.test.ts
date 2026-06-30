@@ -639,6 +639,33 @@ describe('Tokeniser — WarpAnchor references on ArrowWeft / CodeWeft', () => {
     expect(w.anchors[0].specifier).toBeUndefined()
     expect(w.anchors[0].health.status).toBe('ok')
   })
+
+  it('captures a directory-anchor target `::[Chapter](book/intro.loom)`', () => {
+    const w = codeWeftFromLines(['## A', '=>', '::[Chapter](book/intro.loom)'], 2)
+    expect(w.anchors).toHaveLength(1)
+    expect(w.anchors[0].name.value).toBe('Chapter')
+    expect(w.anchors[0].target?.value).toBe('book/intro.loom')
+    expect(w.anchors[0].specifier).toBeUndefined()
+    expect(w.anchors[0].health.status).toBe('ok')
+    expect(w.anchors[0].source).toBe('::[Chapter](book/intro.loom)')
+  })
+
+  it('an anchor with no `(…)` has no target', () => {
+    const w = codeWeftFromLines(['## A', '=>', '::[mul]'], 2)
+    expect(w.anchors[0].target).toBeUndefined()
+  })
+
+  it('trims whitespace inside the target parens', () => {
+    const w = codeWeftFromLines(['## A', '=>', '::[X]( book/intro.loom )'], 2)
+    expect(w.anchors[0].target?.value).toBe('book/intro.loom')
+  })
+
+  it('a `(` with no `)` after the close stays product code', () => {
+    const w = codeWeftFromLines(['## A', '=>', '::[x](book/intro.loom'], 2)
+    expect(w.anchors[0].target).toBeUndefined()
+    expect(w.anchors[0].health.status).toBe('ok')
+    expect(w.anchors[0].source).toBe('::[x]')
+  })
 })
 
 // =============================================================================

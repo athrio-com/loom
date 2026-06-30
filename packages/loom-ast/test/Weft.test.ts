@@ -257,6 +257,12 @@ describe('WarpAnchor probe', () => {
     expect([...'::[mul]'.matchAll(probe)][0]?.[0]).toBe('::[mul]')
   })
 
+  it('matches a directory-anchor target `::[Chapter](book/intro.loom)`', () => {
+    expect([...'::[Chapter](book/intro.loom)'.matchAll(probe)][0]?.[0]).toBe(
+      '::[Chapter](book/intro.loom)',
+    )
+  })
+
   it('does not match warp declarations', () => {
     expect([...'{{mul = Mul}}'.matchAll(probe)]).toHaveLength(0)
   })

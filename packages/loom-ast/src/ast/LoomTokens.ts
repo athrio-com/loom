@@ -202,15 +202,21 @@ export const WarpAnchorNameTokenSchema = loomNode('WarpAnchorName', {
 )
 export type WarpAnchorNameToken = typeof WarpAnchorNameTokenSchema.Type
 
+export const WarpAnchorTargetTokenSchema = loomNode('WarpAnchorTarget', {
+  value: Schema.String,
+})
+export type WarpAnchorTargetToken = typeof WarpAnchorTargetTokenSchema.Type
+
 export const WarpAnchorTokenSchema = loomNode('WarpAnchor', {
   open: AnchorOpenTokenSchema,
   name: WarpAnchorNameTokenSchema,
   close: AnchorCloseTokenSchema,
+  target: Schema.optional(WarpAnchorTargetTokenSchema),
   specifier: Schema.optional(
     Schema.Union(SpecifierTokenSchema, SinkTokenSchema),
   ),
 }).annotations({
-  [Probe]: /::\[[^\]]*\]/g,
+  [Probe]: /::\[[^\]]*\](?:\([^)]*\))?/g,
 })
 export type WarpAnchorToken = typeof WarpAnchorTokenSchema.Type
 
