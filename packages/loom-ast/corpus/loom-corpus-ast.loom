@@ -37,15 +37,17 @@ type Modules = ReadonlyMap<Path, LoomModule>
 
 The sink tree decides where each file lands. A higher-order sink — a section whose sink names a directory, written `[dir]` — points at a chapter and places that chapter's tangle sinks under its directory. `sinkTreeRouting` returns, for each module, the prefix each of its tangle sinks resolves under; a sink in no chapter is absent, and tangles under the workspace default instead.
 
-A `SectionRef` locates a section by the module it lives in. `dirLabelOf` reads a higher-order sink's directory, and `isDirSink` is that test as a boolean. `tangleSinkOf` reads a section's two-part sink when it names a file, and `sinkPathOf` joins that sink's directory and file into the path it emits. `joinDir` nests one directory under another, so a prefix grows down a branch. `headingLevel` counts a heading's `#`, since a chapter opens only at an H1.
+A `SectionRef` locates a section by the module it lives in. `dirLabelOf` reads a higher-order sink's directory, and `isDirSink` is that test as a boolean. `tangleSinkOf` reads a section's two-part sink when it names a file, and `sinkPathOf` joins that sink's directory and file into the path it emits. Both read the directory through `rootAnchored`, which strips a leading `/`. A sink directory names the output root, not the machine's, so `[/, cli.ts]` lands beside `[., cli.ts]` and no sink escapes the root. `joinDir` nests one directory under another, so a prefix grows down a branch. `headingLevel` counts a heading's `#`, since a chapter opens only at an H1.
 
 =>
 
 type SectionRef = { readonly module: Path; readonly section: LoomSection }
 
+const rootAnchored = (dir: string): string => dir.replace(/^\/+/, '')
+
 const dirLabelOf = (section: LoomSection): Option.Option<string> =>
   section.heading.sink !== undefined && section.heading.sink.file === undefined
-    ? Option.some(section.heading.sink.dir.value)
+    ? Option.some(rootAnchored(section.heading.sink.dir.value))
     : Option.none()
 
 const isDirSink = (section: LoomSection): boolean =>
@@ -59,8 +61,8 @@ const tangleSinkOf = (section: LoomSection): Option.Option<SinkToken> => {
 }
 
 export const sinkPathOf = (sink: SinkToken): string => {
-  if (sink.file === undefined) return sink.dir.value
-  const dir = sink.dir.value
+  if (sink.file === undefined) return rootAnchored(sink.dir.value)
+  const dir = rootAnchored(sink.dir.value)
   return dir === '.' || dir === ''
     ? sink.file.value
     : `${dir.replace(/\/$/, '')}/${sink.file.value}`

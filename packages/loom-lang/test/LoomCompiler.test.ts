@@ -160,3 +160,42 @@ describe('LoomCompiler — composition projects the de re as a filesystem', () =
     }).pipe(Effect.provide(crossLayer)),
   )
 })
+
+// A leading `/` in a sink directory names the output root, not the machine's. `[/,
+// lib.ts]` must land beside the loom — `/proj/lib.ts` — exactly where `[., lib.ts]`
+// would, never escaping to `/lib.ts` through `path.resolve`. The loom sits under
+// `/proj`, so the two readings are distinguishable.
+const rootSink: Record<string, string> = {
+  '/proj/lib.loom': `{{lang: TypeScript}}
+
+# The library [/, lib.ts]
+
+=>
+
+export const x = 1
+`,
+}
+
+const rootSinkLayer = Layer.provide(
+  Layer.merge(LoomCompiler.Default, LoomMemo.Default),
+  Layer.merge(
+    Layer.succeed(
+      DocumentSource,
+      new DocumentSource({
+        read: (path: string) => Effect.succeed(rootSink[path] ?? ''),
+        list: Option.some(() => Effect.succeed(Object.keys(rootSink))),
+      }),
+    ),
+    TestConfig,
+  ),
+)
+
+describe('LoomCompiler — a root-anchored sink stays under the output root', () => {
+  it.effect('resolves `[/, file]` beside the loom, not at the filesystem root', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const files = yield* c.composition('/proj/lib.loom')
+      expect(files.map((file) => file.path)).toEqual(['/proj/lib.ts'])
+    }).pipe(Effect.provide(rootSinkLayer)),
+  )
+})

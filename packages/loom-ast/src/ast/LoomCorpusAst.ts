@@ -27,9 +27,11 @@ type Modules = ReadonlyMap<Path, LoomModule>
 
 type SectionRef = { readonly module: Path; readonly section: LoomSection }
 
+const rootAnchored = (dir: string): string => dir.replace(/^\/+/, '')
+
 const dirLabelOf = (section: LoomSection): Option.Option<string> =>
   section.heading.sink !== undefined && section.heading.sink.file === undefined
-    ? Option.some(section.heading.sink.dir.value)
+    ? Option.some(rootAnchored(section.heading.sink.dir.value))
     : Option.none()
 
 const isDirSink = (section: LoomSection): boolean =>
@@ -43,8 +45,8 @@ const tangleSinkOf = (section: LoomSection): Option.Option<SinkToken> => {
 }
 
 export const sinkPathOf = (sink: SinkToken): string => {
-  if (sink.file === undefined) return sink.dir.value
-  const dir = sink.dir.value
+  if (sink.file === undefined) return rootAnchored(sink.dir.value)
+  const dir = rootAnchored(sink.dir.value)
   return dir === '.' || dir === ''
     ? sink.file.value
     : `${dir.replace(/\/$/, '')}/${sink.file.value}`
