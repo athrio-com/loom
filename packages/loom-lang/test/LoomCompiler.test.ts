@@ -71,6 +71,15 @@ describe('LoomCompiler — the chain projected for each consumer', () => {
     }).pipe(Effect.provide(layer)),
   )
 
+  it.effect('placed reports the chapters a book places', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      // book.loom places The chapter, which lives in chapter.loom; so a tangle
+      // skips chapter.loom as a standalone entry and emits it through the book
+      expect([...(yield* c.placed('/book.loom'))]).toEqual(['/chapter.loom'])
+    }).pipe(Effect.provide(layer)),
+  )
+
   it.effect('invalidate names the file and the books that place it', () =>
     Effect.gen(function* () {
       const c = yield* LoomCompiler

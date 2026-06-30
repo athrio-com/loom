@@ -10,6 +10,7 @@ import {
   definitionAt,
   moduleDiagnostics,
   placeReachable,
+  placedModules,
   referencesAt,
   renameAt,
   renameRangeAt,
@@ -460,6 +461,11 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
                 }),
               )
             }),
+          ),
+
+        placed: (path: Path): Effect.Effect<ReadonlySet<Path>> =>
+          buildCorpus(documents, path).pipe(
+            Effect.map((modules) => placedModules({ modules })),
           ),
 
         diagnose: (path: Path): Effect.Effect<ReadonlyArray<Diagnostic>> =>

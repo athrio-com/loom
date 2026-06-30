@@ -300,6 +300,9 @@ export const transitiveDependents = (
   )
 }
 
+export const placedModules = (corpus: LoomCorpusAst): ReadonlySet<Path> =>
+  new Set(Array.map(bookChapters(corpus), (chapter) => chapter.start.module))
+
 export type TangleSink = {
   readonly module: Path
   readonly position: Position

@@ -2,13 +2,18 @@
 
 # Tangling to disk
 
-`LoomTangler` is the filesystem surface of the de re plane. The compiler resolves a `.loom` file's `{path}` sinks to their content and target; the tangler writes them to disk. `tangle` takes a single file or a directory of them: for each `.loom`, it asks the compiler to tangle the file, then writes every resolved sink. It is the half of the pipeline the editor never runs — the editor projects to virtual code, the tangler emits real files.
+`LoomTangler` is the filesystem surface of the de re plane. The compiler resolves a `.loom` file's `{path}` sinks to their content and target; the tangler writes them to disk. `tangle` takes a path, finds the looms under it, and writes every sink each one resolves — skipping the chapters a book already places, so every file is written once. It is the half of the pipeline the editor never runs — the editor projects to virtual code, the tangler emits real files.
 
 ## The tangler service
 
-`LoomTangler` holds the compiler and the filesystem. `tangleFile` asks the compiler to resolve one file's sinks — which fails with a `TangleError` if any module in the corpus carries an error — then `writeFile` creates each target's directory and writes its content, returning the file it wrote. `loomsUnder` lists every `.loom` beneath a directory. `tangle` dispatches: a directory tangles each file under it, a single path tangles itself.
+`LoomTangler` holds the compiler and the filesystem. `tangleFile` asks the compiler to resolve one file's sinks — which fails with a `TangleError` if any module in the corpus carries an error — then `writeFile` creates each target's directory and writes its content, returning the file it wrote. `loomsUnder` lists every `.loom` source file beneath a directory, skipping the generated stores — `node_modules`, `dist`, `.git`, and the `.loom` activation store — so it never reads one as source. `tangle` lists the looms a path covers, drops the ones a book places — `placed` reads those off the corpus — and tangles the rest, so a book emits its chapters and every file is written once.
 
 =>
+
+const ignoredSegment = new Set(['node_modules', '.loom', 'dist', '.git'])
+
+const isStorePath = (name: string): boolean =>
+  name.split('/').some((segment) => ignoredSegment.has(segment))
 
 export class LoomTangler extends Effect.Service<LoomTangler>()('LoomTangler', {
   effect: Effect.gen(function* () {
@@ -33,14 +38,14 @@ export class LoomTangler extends Effect.Service<LoomTangler>()('LoomTangler', {
 
     const loomsUnder = (dir: Path): Effect.Effect<ReadonlyArray<Path>> =>
       fs.readDirectory(dir, { recursive: true }).pipe(
+        Effect.orDie,
         Effect.map((names) =>
           pipe(
             names,
-            Array.filter((name) => name.endsWith('.loom')),
+            Array.filter((name) => name.endsWith('.loom') && !isStorePath(name)),
             Array.map((name) => resolvePath(dir, name)),
           ),
         ),
-        Effect.orDie,
       )
 
     const tangle = (
@@ -48,9 +53,21 @@ export class LoomTangler extends Effect.Service<LoomTangler>()('LoomTangler', {
     ): Effect.Effect<ReadonlyArray<TangledFile>, TangleError> =>
       Effect.gen(function* () {
         const info = yield* fs.stat(path).pipe(Effect.orDie)
-        const files =
+        const looms =
           info.type === 'Directory' ? yield* loomsUnder(path) : [path]
-        return (yield* Effect.forEach(files, tangleFile)).flat()
+        return yield* Option.match(Array.head(looms), {
+          onNone: () => Effect.succeed<ReadonlyArray<TangledFile>>([]),
+          onSome: (seed) =>
+            compiler.placed(seed).pipe(
+              Effect.flatMap((placed) =>
+                Effect.forEach(
+                  Array.filter(looms, (loom) => !placed.has(loom)),
+                  tangleFile,
+                ),
+              ),
+              Effect.map((written) => written.flat()),
+            ),
+        })
       })
 
     return { tangle }
@@ -60,11 +77,11 @@ export class LoomTangler extends Effect.Service<LoomTangler>()('LoomTangler', {
 
 ## What this module draws on
 
-It draws on `LoomCompiler` to resolve each file's sinks to content and target, and to gate a broken corpus with its `TangleError`. `@effect/platform`'s `FileSystem`, with Node's path module, writes each file and lists a directory's looms. Effect supplies the array and effect primitives. `TangledFile` is the resolved sink the compiler hands back, and `Path` a file path.
+It draws on `LoomCompiler` to mark which looms a book places and to resolve each file's sinks to content and target, gating a broken corpus with its `TangleError`. `@effect/platform`'s `FileSystem`, with Node's path module, lists a directory's looms and writes each file. Effect supplies the array and effect primitives. `TangledFile` is the resolved sink the compiler hands back, and `Path` a file path.
 
 =>
 
-import { Array, Effect, pipe } from 'effect'
+import { Array, Effect, Option, pipe } from 'effect'
 import { FileSystem } from '@effect/platform'
 import { dirname, resolve as resolvePath } from 'node:path'
 import { type Path } from '@athrio/loom-ast/LoomCorpusAst'

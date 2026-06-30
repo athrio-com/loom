@@ -1,8 +1,13 @@
-import { Array, Effect, pipe } from 'effect'
+import { Array, Effect, Option, pipe } from 'effect'
 import { FileSystem } from '@effect/platform'
 import { dirname, resolve as resolvePath } from 'node:path'
 import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
 import { LoomCompiler, type TangledFile, type TangleError } from './LoomCompiler'
+
+const ignoredSegment = new Set(['node_modules', '.loom', 'dist', '.git'])
+
+const isStorePath = (name: string): boolean =>
+  name.split('/').some((segment) => ignoredSegment.has(segment))
 
 export class LoomTangler extends Effect.Service<LoomTangler>()('LoomTangler', {
   effect: Effect.gen(function* () {
@@ -27,14 +32,14 @@ export class LoomTangler extends Effect.Service<LoomTangler>()('LoomTangler', {
 
     const loomsUnder = (dir: Path): Effect.Effect<ReadonlyArray<Path>> =>
       fs.readDirectory(dir, { recursive: true }).pipe(
+        Effect.orDie,
         Effect.map((names) =>
           pipe(
             names,
-            Array.filter((name) => name.endsWith('.loom')),
+            Array.filter((name) => name.endsWith('.loom') && !isStorePath(name)),
             Array.map((name) => resolvePath(dir, name)),
           ),
         ),
-        Effect.orDie,
       )
 
     const tangle = (
@@ -42,9 +47,21 @@ export class LoomTangler extends Effect.Service<LoomTangler>()('LoomTangler', {
     ): Effect.Effect<ReadonlyArray<TangledFile>, TangleError> =>
       Effect.gen(function* () {
         const info = yield* fs.stat(path).pipe(Effect.orDie)
-        const files =
+        const looms =
           info.type === 'Directory' ? yield* loomsUnder(path) : [path]
-        return (yield* Effect.forEach(files, tangleFile)).flat()
+        return yield* Option.match(Array.head(looms), {
+          onNone: () => Effect.succeed<ReadonlyArray<TangledFile>>([]),
+          onSome: (seed) =>
+            compiler.placed(seed).pipe(
+              Effect.flatMap((placed) =>
+                Effect.forEach(
+                  Array.filter(looms, (loom) => !placed.has(loom)),
+                  tangleFile,
+                ),
+              ),
+              Effect.map((written) => written.flat()),
+            ),
+        })
       })
 
     return { tangle }

@@ -368,6 +368,15 @@ export const transitiveDependents = (
   )
 }
 
+~
+
+`placedModules` is the set of modules a book places as a chapter — the chapter targets across the corpus. A module outside it is a place-graph root: no book places it, so a tangle takes it as an entry of its own and emits its files once.
+
+=>
+
+export const placedModules = (corpus: LoomCorpusAst): ReadonlySet<Path> =>
+  new Set(Array.map(bookChapters(corpus), (chapter) => chapter.start.module))
+
 ## The tangle sinks
 
 A tangle sink is a section whose sink names a file, written `[dir, file]`. `tangleSinks` lists every one across the corpus, each with the path it declares and the span that path covers. A caller resolves each to where it lands and refuses two that collide; the resolution wants the package root, which the corpus does not hold, so the list stops at the declared path and leaves the rest to the compiler.
