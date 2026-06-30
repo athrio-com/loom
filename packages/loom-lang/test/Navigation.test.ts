@@ -55,6 +55,21 @@ const layer = Layer.provide(
   Layer.merge(TestDocs, TestConfig),
 )
 
+const makeLayer = (docs: Record<string, string>) =>
+  Layer.provide(
+    Layer.merge(LoomCompiler.Default, LoomMemo.Default),
+    Layer.merge(
+      Layer.succeed(
+        DocumentSource,
+        new DocumentSource({
+          read: (path: string) => Effect.succeed(docs[path] ?? ''),
+          list: Option.some(() => Effect.succeed(Object.keys(docs))),
+        }),
+      ),
+      TestConfig,
+    ),
+  )
+
 const anchorOffset = doc.indexOf('::[The greeting]') + 4 // inside the anchor name
 const titleOffset = doc.indexOf('# The greeting') + 3 // inside the heading title
 
@@ -105,5 +120,39 @@ describe('LoomCompiler — navigation over anchors and sections', () => {
       expect(span?.range.start).toEqual({ line: 2, character: 2 })
       expect(span?.range.end).toEqual({ line: 2, character: 14 })
     }).pipe(Effect.provide(layer)),
+  )
+})
+
+// A book names a chapter in another file with `::[Name](path.loom)`, so the
+// editor follows the member across files: definition lands on the named file's
+// heading, and references from that heading finds the member back in the book.
+describe('LoomCompiler — navigation across files', () => {
+  const docs: Record<string, string> = {
+    '/book.loom':
+      '# Book\n\n## Core [packages/core]\n\n~\n\n::[The widget](widget.loom)\n',
+    '/widget.loom':
+      '# The widget\n\n## The module [src, Widget.ts]\n\n=>\n\nexport const x = 1\n',
+  }
+  const crossLayer = makeLayer(docs)
+  const memberOffset = docs['/book.loom']!.indexOf('::[The widget]') + 4
+
+  it.effect('definition jumps across files to the named chapter', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const target = yield* c.definition('/book.loom', memberOffset)
+      expect(target?.path).toBe('/widget.loom')
+      // "The widget" heading title on line 0, after the "# " marker
+      expect(target?.range.start).toEqual({ line: 0, character: 2 })
+    }).pipe(Effect.provide(crossLayer)),
+  )
+
+  it.effect('references finds the cross-file member from its chapter heading', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const widgetTitleOffset = docs['/widget.loom']!.indexOf('# The widget') + 3
+      const refs = yield* c.references('/widget.loom', widgetTitleOffset)
+      // the heading in widget.loom and the member back in book.loom
+      expect(refs.map((r) => r.path).sort()).toEqual(['/book.loom', '/widget.loom'])
+    }).pipe(Effect.provide(crossLayer)),
   )
 })

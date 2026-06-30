@@ -56,21 +56,56 @@ const joinDir = (parent: string, child: string): string =>
 const headingLevel = (section: LoomSection): number =>
   section.heading.headingStart.source.match(/^#+/)?.[0].length ?? 0
 
-const sectionTitles = (modules: Modules): ReadonlyMap<string, SectionRef> =>
+const resolveRelative = (from: Path, rel: string): Path =>
   pipe(
-    Array.fromIterable(modules.values()),
-    Array.flatMap((m) =>
-      Array.filterMap(m.doc.sections, (section) =>
-        Option.map(
-          Option.fromNullable(section.heading.title),
-          (title) => [title.source, { module: m.path, section }] as const,
-        ),
+    rel.split('/'),
+    Array.filter((seg) => seg !== '' && seg !== '.'),
+    Array.reduce(from.split('/').slice(0, -1), (acc, seg) =>
+      seg === '..' ? acc.slice(0, -1) : [...acc, seg],
+    ),
+    Array.join('/'),
+  )
+
+const titlesIn = (module: LoomModule): ReadonlyMap<string, SectionRef> =>
+  pipe(
+    module.doc.sections,
+    Array.filterMap((section) =>
+      Option.map(
+        Option.fromNullable(section.heading.title),
+        (title) => [title.source, { module: module.path, section }] as const,
       ),
     ),
     Array.reduce(
       new Map<string, SectionRef>(),
       (index, [title, ref]) =>
         index.has(title) ? index : new Map(index).set(title, ref),
+    ),
+  )
+
+type TitleIndexes = ReadonlyMap<Path, ReadonlyMap<string, SectionRef>>
+
+const titleIndexes = (modules: Modules): TitleIndexes =>
+  new Map(
+    Array.fromIterable(modules.values()).map(
+      (m) => [m.path, titlesIn(m)] as const,
+    ),
+  )
+
+const resolveAnchor = (
+  indexes: TitleIndexes,
+  from: Path,
+  anchor: WarpAnchorToken,
+): Option.Option<SectionRef> =>
+  pipe(
+    Option.fromNullable(
+      indexes.get(
+        anchor.target === undefined
+          ? from
+          : resolveRelative(from, anchor.target.value),
+      ),
+    ),
+    Option.flatMap((index) =>
+      Option.fromNullable(index.get(anchor.name.value)),
     ),
   )
 
@@ -98,28 +133,24 @@ type Pointing = {
   readonly target: SectionRef
 }
 
-const pointings = (
-  modules: Modules,
-  index: ReadonlyMap<string, SectionRef>,
-): ReadonlyArray<Pointing> =>
-  pipe(
+const pointings = (modules: Modules): ReadonlyArray<Pointing> => {
+  const indexes = titleIndexes(modules)
+  return pipe(
     dirSinks(modules),
     Array.flatMap((sink) =>
       Array.filterMap(anchorsOf(sink.section), (anchor) =>
         Option.map(
-          Option.fromNullable(index.get(anchor.name.value)),
+          resolveAnchor(indexes, sink.module, anchor),
           (target) => ({ sink, anchor, target }),
         ),
       ),
     ),
   )
+}
 
-const sinkPrefixes = (
-  modules: Modules,
-  index: ReadonlyMap<string, SectionRef>,
-): ReadonlyMap<LoomSection, string> => {
+const sinkPrefixes = (modules: Modules): ReadonlyMap<LoomSection, string> => {
   const parentOf = pipe(
-    pointings(modules, index),
+    pointings(modules),
     Array.filter((p) => isDirSink(p.target.section)),
     Array.reduce(
       new Map<LoomSection, SectionRef>(),
@@ -153,10 +184,9 @@ const docIndex = (modules: Modules, ref: SectionRef): number =>
 
 const bookChapters = (corpus: LoomCorpusAst): ReadonlyArray<Chapter> => {
   const modules = corpus.modules
-  const index = sectionTitles(modules)
-  const prefixes = sinkPrefixes(modules, index)
+  const prefixes = sinkPrefixes(modules)
   const starts = Array.filter(
-    pointings(modules, index),
+    pointings(modules),
     (p) => !isDirSink(p.target.section),
   )
   const boundariesIn = (module: Path): ReadonlyArray<number> =>
@@ -334,7 +364,7 @@ const collidingTitles = (
         name: normalise(title.source),
       })),
     ),
-    Array.groupBy((s) => s.name),
+    Array.groupBy((s) => `${s.loc.path}\n${s.name}`),
     (groups) => Object.values(groups),
     Array.filter((group) => group.length > 1),
     Array.flatMap((group) =>
@@ -390,28 +420,28 @@ const emptySinks = (modules: Modules): ReadonlyArray<SinkFault> =>
   )
 
 const sinkCycles = (modules: Modules): ReadonlyArray<SinkFault> => {
-  const index = sectionTitles(modules)
-  const childSinks = (section: LoomSection): ReadonlyArray<SectionRef> =>
-    Array.filterMap(anchorsOf(section), (anchor) =>
+  const indexes = titleIndexes(modules)
+  const childSinks = (ref: SectionRef): ReadonlyArray<SectionRef> =>
+    Array.filterMap(anchorsOf(ref.section), (anchor) =>
       pipe(
-        Option.fromNullable(index.get(anchor.name.value)),
-        Option.filter((ref) => isDirSink(ref.section)),
+        resolveAnchor(indexes, ref.module, anchor),
+        Option.filter((child) => isDirSink(child.section)),
       ),
     )
   const reaches = (
-    from: LoomSection,
+    from: SectionRef,
     target: LoomSection,
     seen: ReadonlySet<LoomSection>,
   ): boolean =>
-    Array.some(childSinks(from), (ref) =>
-      ref.section === target
-        ? true
-        : seen.has(ref.section)
-          ? false
-          : reaches(ref.section, target, new Set([...seen, ref.section])),
+    Array.some(
+      childSinks(from),
+      (child) =>
+        child.section === target ||
+        (!seen.has(child.section) &&
+          reaches(child, target, new Set([...seen, child.section]))),
     )
   return Array.filterMap(dirSinks(modules), (ref) =>
-    reaches(ref.section, ref.section, new Set([ref.section]))
+    reaches(ref, ref.section, new Set([ref.section]))
       ? Option.some<SinkFault>({
           kind: 'SinkCycle',
           path: ref.module,
@@ -486,12 +516,12 @@ const chapterFaults = (corpus: LoomCorpusAst): ReadonlyArray<SinkFault> => {
 }
 
 const unresolvedPointings = (modules: Modules): ReadonlyArray<SinkFault> => {
-  const index = sectionTitles(modules)
+  const indexes = titleIndexes(modules)
   return pipe(
     dirSinks(modules),
     Array.flatMap((sink) =>
       Array.filterMap(anchorsOf(sink.section), (anchor) =>
-        index.has(anchor.name.value)
+        Option.isSome(resolveAnchor(indexes, sink.module, anchor))
           ? Option.none<SinkFault>()
           : Option.some<SinkFault>({
               kind: 'UnresolvedPointing',
@@ -557,42 +587,54 @@ const titledSectionAt = (
     ),
   )
 
-const titleAt = (
+const sectionRefAt = (
   modules: Modules,
   path: Path,
   offset: number,
-): Option.Option<string> =>
-  pipe(
-    titledSectionAt(modules, path, offset),
-    Option.flatMapNullable((section) => section.heading.title),
-    Option.map((title) => title.source),
+): Option.Option<SectionRef> =>
+  Option.map(titledSectionAt(modules, path, offset), (section) => ({
+    module: path,
+    section,
+  }))
+
+const titleLocation = (ref: SectionRef): Option.Option<CorpusLocation> =>
+  Option.map(
+    Option.fromNullable(ref.section.heading.title),
+    (title): CorpusLocation => ({ path: ref.module, position: title.position }),
   )
 
-const headingNamed = (
-  index: ReadonlyMap<string, SectionRef>,
-  name: string,
-): Option.Option<CorpusLocation> =>
-  pipe(
-    Option.fromNullable(index.get(name)),
-    Option.flatMap((ref) =>
-      Option.map(
-        Option.fromNullable(ref.section.heading.title),
-        (title): CorpusLocation => ({ path: ref.module, position: title.position }),
-      ),
+const targetAt = (
+  indexes: TitleIndexes,
+  modules: Modules,
+  path: Path,
+  offset: number,
+): Option.Option<SectionRef> =>
+  Option.orElse(sectionRefAt(modules, path, offset), () =>
+    Option.flatMap(anchorAt(modules, path, offset), (anchor) =>
+      resolveAnchor(indexes, path, anchor),
     ),
   )
 
-const anchorsNamed = (
+const anchorsResolvingTo = (
+  indexes: TitleIndexes,
   modules: Modules,
-  name: string,
+  target: SectionRef,
+  spanOf: (anchor: WarpAnchorToken) => Position,
 ): ReadonlyArray<CorpusLocation> =>
   pipe(
     Array.fromIterable(modules.values()),
     Array.flatMap((m) =>
       Array.filterMap(Array.flatMap(m.doc.sections, anchorsOf), (anchor) =>
-        anchor.name.value === name
-          ? Option.some<CorpusLocation>({ path: m.path, position: anchor.position })
-          : Option.none(),
+        pipe(
+          resolveAnchor(indexes, m.path, anchor),
+          Option.filter(
+            (ref) =>
+              ref.module === target.module && ref.section === target.section,
+          ),
+          Option.map(
+            (): CorpusLocation => ({ path: m.path, position: spanOf(anchor) }),
+          ),
+        ),
       ),
     ),
   )
@@ -601,13 +643,14 @@ export const definitionAt = (
   corpus: LoomCorpusAst,
   path: Path,
   offset: number,
-): Option.Option<CorpusLocation> =>
-  pipe(
+): Option.Option<CorpusLocation> => {
+  const indexes = titleIndexes(corpus.modules)
+  return pipe(
     anchorAt(corpus.modules, path, offset),
-    Option.flatMap((anchor) =>
-      headingNamed(sectionTitles(corpus.modules), anchor.name.value),
-    ),
+    Option.flatMap((anchor) => resolveAnchor(indexes, path, anchor)),
+    Option.flatMap(titleLocation),
   )
+}
 
 export const referencesAt = (
   corpus: LoomCorpusAst,
@@ -615,51 +658,15 @@ export const referencesAt = (
   offset: number,
 ): ReadonlyArray<CorpusLocation> => {
   const modules = corpus.modules
-  const name = Option.orElse(titleAt(modules, path, offset), () =>
-    Option.map(anchorAt(modules, path, offset), (anchor) => anchor.name.value),
-  )
-  return Option.match(name, {
+  const indexes = titleIndexes(modules)
+  return Option.match(targetAt(indexes, modules, path, offset), {
     onNone: () => [],
-    onSome: (n) => [
-      ...Option.match(headingNamed(sectionTitles(modules), n), {
-        onNone: () => [],
-        onSome: (loc) => [loc],
-      }),
-      ...anchorsNamed(modules, n),
+    onSome: (ref) => [
+      ...Option.toArray(titleLocation(ref)),
+      ...anchorsResolvingTo(indexes, modules, ref, (anchor) => anchor.position),
     ],
   })
 }
-
-const headingTitlesNamed = (
-  modules: Modules,
-  name: string,
-): ReadonlyArray<CorpusLocation> =>
-  pipe(
-    Array.fromIterable(modules.values()),
-    Array.flatMap((m) =>
-      Array.filterMap(m.doc.sections, (section) => {
-        const title = section.heading.title
-        return title !== undefined && title.source === name
-          ? Option.some<CorpusLocation>({ path: m.path, position: title.position })
-          : Option.none()
-      }),
-    ),
-  )
-
-const anchorNamesNamed = (
-  modules: Modules,
-  name: string,
-): ReadonlyArray<CorpusLocation> =>
-  pipe(
-    Array.fromIterable(modules.values()),
-    Array.flatMap((m) =>
-      Array.filterMap(Array.flatMap(m.doc.sections, anchorsOf), (anchor) =>
-        anchor.name.value === name
-          ? Option.some<CorpusLocation>({ path: m.path, position: anchor.name.position })
-          : Option.none(),
-      ),
-    ),
-  )
 
 export const renameAt = (
   corpus: LoomCorpusAst,
@@ -667,14 +674,17 @@ export const renameAt = (
   offset: number,
 ): ReadonlyArray<CorpusLocation> => {
   const modules = corpus.modules
-  const name = Option.orElse(titleAt(modules, path, offset), () =>
-    Option.map(anchorAt(modules, path, offset), (anchor) => anchor.name.value),
-  )
-  return Option.match(name, {
+  const indexes = titleIndexes(modules)
+  return Option.match(targetAt(indexes, modules, path, offset), {
     onNone: () => [],
-    onSome: (n) => [
-      ...headingTitlesNamed(modules, n),
-      ...anchorNamesNamed(modules, n),
+    onSome: (ref) => [
+      ...Option.toArray(titleLocation(ref)),
+      ...anchorsResolvingTo(
+        indexes,
+        modules,
+        ref,
+        (anchor) => anchor.name.position,
+      ),
     ],
   })
 }

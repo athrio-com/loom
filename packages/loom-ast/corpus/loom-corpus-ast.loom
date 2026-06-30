@@ -74,25 +74,62 @@ const headingLevel = (section: LoomSection): number =>
 
 ~
 
-A member names a section by its raw title — the same match the frame resolves an anchor by — so a member reaches a section wherever it lives. `sectionTitles` indexes every titled section across the corpus by that title. The first of any duplicate wins here; the duplicate itself is a fault the diagnostics raise.
+A member names a section by its raw title, and resolves that title in one file. A bare `::[Name]` resolves in the member's own file. A `::[Name](path.loom)` resolves in the file the path names, taken relative to the member's own. So a name is lexical, not a corpus-wide symbol, and two files reuse a title freely.
+
+`titlesIn` indexes one file's titled sections by their raw title, the first of any in-file duplicate winning — the duplicate itself a fault the diagnostics raise. `titleIndexes` builds that index for every file, once. `resolveAnchor` is the lookup: it picks the target file — the member's own, or the one its path names — and finds the title there. `resolveRelative` resolves that path against the member's own directory, the member's path minus its last segment, folding `.` and `..` as it goes.
 
 =>
 
-const sectionTitles = (modules: Modules): ReadonlyMap<string, SectionRef> =>
+const resolveRelative = (from: Path, rel: string): Path =>
   pipe(
-    Array.fromIterable(modules.values()),
-    Array.flatMap((m) =>
-      Array.filterMap(m.doc.sections, (section) =>
-        Option.map(
-          Option.fromNullable(section.heading.title),
-          (title) => [title.source, { module: m.path, section }] as const,
-        ),
+    rel.split('/'),
+    Array.filter((seg) => seg !== '' && seg !== '.'),
+    Array.reduce(from.split('/').slice(0, -1), (acc, seg) =>
+      seg === '..' ? acc.slice(0, -1) : [...acc, seg],
+    ),
+    Array.join('/'),
+  )
+
+const titlesIn = (module: LoomModule): ReadonlyMap<string, SectionRef> =>
+  pipe(
+    module.doc.sections,
+    Array.filterMap((section) =>
+      Option.map(
+        Option.fromNullable(section.heading.title),
+        (title) => [title.source, { module: module.path, section }] as const,
       ),
     ),
     Array.reduce(
       new Map<string, SectionRef>(),
       (index, [title, ref]) =>
         index.has(title) ? index : new Map(index).set(title, ref),
+    ),
+  )
+
+type TitleIndexes = ReadonlyMap<Path, ReadonlyMap<string, SectionRef>>
+
+const titleIndexes = (modules: Modules): TitleIndexes =>
+  new Map(
+    Array.fromIterable(modules.values()).map(
+      (m) => [m.path, titlesIn(m)] as const,
+    ),
+  )
+
+const resolveAnchor = (
+  indexes: TitleIndexes,
+  from: Path,
+  anchor: WarpAnchorToken,
+): Option.Option<SectionRef> =>
+  pipe(
+    Option.fromNullable(
+      indexes.get(
+        anchor.target === undefined
+          ? from
+          : resolveRelative(from, anchor.target.value),
+      ),
+    ),
+    Option.flatMap((index) =>
+      Option.fromNullable(index.get(anchor.name.value)),
     ),
   )
 
@@ -138,21 +175,20 @@ type Pointing = {
   readonly target: SectionRef
 }
 
-const pointings = (
-  modules: Modules,
-  index: ReadonlyMap<string, SectionRef>,
-): ReadonlyArray<Pointing> =>
-  pipe(
+const pointings = (modules: Modules): ReadonlyArray<Pointing> => {
+  const indexes = titleIndexes(modules)
+  return pipe(
     dirSinks(modules),
     Array.flatMap((sink) =>
       Array.filterMap(anchorsOf(sink.section), (anchor) =>
         Option.map(
-          Option.fromNullable(index.get(anchor.name.value)),
+          resolveAnchor(indexes, sink.module, anchor),
           (target) => ({ sink, anchor, target }),
         ),
       ),
     ),
   )
+}
 
 ~
 
@@ -160,12 +196,9 @@ A higher-order sink that points at another nests its directory under it, so a si
 
 =>
 
-const sinkPrefixes = (
-  modules: Modules,
-  index: ReadonlyMap<string, SectionRef>,
-): ReadonlyMap<LoomSection, string> => {
+const sinkPrefixes = (modules: Modules): ReadonlyMap<LoomSection, string> => {
   const parentOf = pipe(
-    pointings(modules, index),
+    pointings(modules),
     Array.filter((p) => isDirSink(p.target.section)),
     Array.reduce(
       new Map<LoomSection, SectionRef>(),
@@ -205,10 +238,9 @@ const docIndex = (modules: Modules, ref: SectionRef): number =>
 
 const bookChapters = (corpus: LoomCorpusAst): ReadonlyArray<Chapter> => {
   const modules = corpus.modules
-  const index = sectionTitles(modules)
-  const prefixes = sinkPrefixes(modules, index)
+  const prefixes = sinkPrefixes(modules)
   const starts = Array.filter(
-    pointings(modules, index),
+    pointings(modules),
     (p) => !isDirSink(p.target.section),
   )
   const boundariesIn = (module: Path): ReadonlyArray<number> =>
@@ -272,7 +304,7 @@ export const sinkTreeRouting = (
 
 ## Reaching through the book
 
-The sink tree is a directed graph: a higher-order sink in one loom places a chapter that lives in another. Two reaches over it scope the work an entry needs. `placeReachable` is the forward reach — the entry, every chapter its books place, and the chapters those place in turn. A run and a tangle scope to it, so producing one file never runs an unrelated loom's frame, and a broken loom no book places never fails the build. `transitiveDependents` is the reverse — every book that places a chapter in a given loom, transitively. An edit to a loom reprojects that set, since a book's placement shifts when a chapter it carries does.
+The sink tree is a directed graph: a higher-order sink in one loom places a chapter that lives in another. Two reaches over it scope the work an entry needs. `placeReachable` is the forward reach — the entry, every chapter its books place, and the chapters those place in turn. A run and a tangle scope to it, so producing one file never composes an unrelated loom, and a broken loom no book places never fails the build. `transitiveDependents` is the reverse — every book that places a chapter in a given loom, transitively. An edit to a loom reprojects that set, since a book's placement shifts when a chapter it carries does.
 
 `reach` grows a set along one direction of the edges until it adds nothing more, guarding a cycle so the walk ends. `chapterEdges` reads the book's edges once: each pairs a book's module with the module of a chapter it opens.
 
@@ -369,7 +401,7 @@ export const tangleSinks = (corpus: LoomCorpusAst): ReadonlyArray<TangleSink> =>
 
 The sink tree can be malformed in ways the router quietly skips — a member that resolves to nothing, a vertex that reaches itself, a chapter that opens below a top-level heading. `sinkTreeFaults` finds these, so the editor surfaces each and the tangler refuses the build. It reports a fault as structure alone — its kind, a position, and the one value its message needs — and leaves the wording to the catalog a layer above. The one rule it cannot derive, how a title folds to a name, arrives as `normalise`, so the whole corpus keeps a single normalisation.
 
-A `SinkFault` is one of ten. `CollidingTitles` names two sections that fold to one name. `SinkCycle` names a higher-order sink that reaches itself. `EmptySink` names a higher-order sink with no members. `MisplacedSpecifier` names an anchor that carries a specifier, which a member never does. `SelfRoutingSink` names a chapter a book points into its own file. `SinklessChapter` names a chapter whose range tangles no file. `PointedNotH1` names a chapter that opens below a top-level heading. `OrphanedOpening` names a book's first chapter into a module that strands the sections ahead of it. `DuplicateChapter` names a chapter two higher-order sinks both claim. `UnresolvedPointing` names a member that reaches no section.
+A `SinkFault` is one of ten. `CollidingTitles` names two sections in one file that fold to one name. `SinkCycle` names a higher-order sink that reaches itself. `EmptySink` names a higher-order sink with no members. `MisplacedSpecifier` names an anchor that carries a specifier, which a member never does. `SelfRoutingSink` names a chapter a book points into its own file. `SinklessChapter` names a chapter whose range tangles no file. `PointedNotH1` names a chapter that opens below a top-level heading. `OrphanedOpening` names a book's first chapter into a module that strands the sections ahead of it. `DuplicateChapter` names a chapter two higher-order sinks both claim. `UnresolvedPointing` names a member that reaches no section.
 
 =>
 
@@ -409,7 +441,7 @@ const headingPosition = (section: LoomSection): Position =>
 
 ~
 
-Two faults read the headings and their anchors. `collidingTitles` folds every titled section through `normalise` and reports each section in any group that more than one title reaches. `misplacedSpecifiers` reports an anchor that carries a specifier anywhere — a member names a chapter and never overrides, so a specifier on an anchor can route nothing.
+Two faults read the headings and their anchors. `collidingTitles` folds every titled section through `normalise` and reports each section that shares its folded name with another in the same file — a title repeated across files no longer collides, since a name resolves in its own file. `misplacedSpecifiers` reports an anchor that carries a specifier anywhere — a member names a chapter and never overrides, so a specifier on an anchor can route nothing.
 
 =>
 
@@ -426,7 +458,7 @@ const collidingTitles = (
         name: normalise(title.source),
       })),
     ),
-    Array.groupBy((s) => s.name),
+    Array.groupBy((s) => `${s.loc.path}\n${s.name}`),
     (groups) => Object.values(groups),
     Array.filter((group) => group.length > 1),
     Array.flatMap((group) =>
@@ -488,28 +520,28 @@ const emptySinks = (modules: Modules): ReadonlyArray<SinkFault> =>
   )
 
 const sinkCycles = (modules: Modules): ReadonlyArray<SinkFault> => {
-  const index = sectionTitles(modules)
-  const childSinks = (section: LoomSection): ReadonlyArray<SectionRef> =>
-    Array.filterMap(anchorsOf(section), (anchor) =>
+  const indexes = titleIndexes(modules)
+  const childSinks = (ref: SectionRef): ReadonlyArray<SectionRef> =>
+    Array.filterMap(anchorsOf(ref.section), (anchor) =>
       pipe(
-        Option.fromNullable(index.get(anchor.name.value)),
-        Option.filter((ref) => isDirSink(ref.section)),
+        resolveAnchor(indexes, ref.module, anchor),
+        Option.filter((child) => isDirSink(child.section)),
       ),
     )
   const reaches = (
-    from: LoomSection,
+    from: SectionRef,
     target: LoomSection,
     seen: ReadonlySet<LoomSection>,
   ): boolean =>
-    Array.some(childSinks(from), (ref) =>
-      ref.section === target
-        ? true
-        : seen.has(ref.section)
-          ? false
-          : reaches(ref.section, target, new Set([...seen, ref.section])),
+    Array.some(
+      childSinks(from),
+      (child) =>
+        child.section === target ||
+        (!seen.has(child.section) &&
+          reaches(child, target, new Set([...seen, child.section]))),
     )
   return Array.filterMap(dirSinks(modules), (ref) =>
-    reaches(ref.section, ref.section, new Set([ref.section]))
+    reaches(ref, ref.section, new Set([ref.section]))
       ? Option.some<SinkFault>({
           kind: 'SinkCycle',
           path: ref.module,
@@ -596,12 +628,12 @@ An unresolved pointing is a member that names no section. `unresolvedPointings` 
 =>
 
 const unresolvedPointings = (modules: Modules): ReadonlyArray<SinkFault> => {
-  const index = sectionTitles(modules)
+  const indexes = titleIndexes(modules)
   return pipe(
     dirSinks(modules),
     Array.flatMap((sink) =>
       Array.filterMap(anchorsOf(sink.section), (anchor) =>
-        index.has(anchor.name.value)
+        Option.isSome(resolveAnchor(indexes, sink.module, anchor))
           ? Option.none<SinkFault>()
           : Option.some<SinkFault>({
               kind: 'UnresolvedPointing',
@@ -645,7 +677,7 @@ export type CorpusLocation = { readonly path: Path; readonly position: Position 
 
 ~
 
-Each step starts from the node under a cursor. `anchorAt` finds the anchor whose `::[…]` span covers a source offset. `titledSectionAt` finds the heading whose title covers it, and `titleAt` reads that title's text.
+Each step starts from the node under a cursor. `anchorAt` finds the anchor whose `::[…]` span covers a source offset. `titledSectionAt` finds the heading whose title covers it, and `sectionRefAt` pairs that section with its module.
 
 =>
 
@@ -685,55 +717,67 @@ const titledSectionAt = (
     ),
   )
 
-const titleAt = (
+const sectionRefAt = (
   modules: Modules,
   path: Path,
   offset: number,
-): Option.Option<string> =>
-  pipe(
-    titledSectionAt(modules, path, offset),
-    Option.flatMapNullable((section) => section.heading.title),
-    Option.map((title) => title.source),
-  )
+): Option.Option<SectionRef> =>
+  Option.map(titledSectionAt(modules, path, offset), (section) => ({
+    module: path,
+    section,
+  }))
 
 ~
 
-A name then locates the sections and anchors that wear it. `headingNamed` finds a name's section through the title index and points at its heading. `anchorsNamed` gathers every anchor across the corpus that carries the name.
+A resolved section then locates its heading and the anchors that reach it. `titleLocation` points at a section's heading title. `targetAt` reads the section under a cursor — the heading it sits in, or the section an anchor under it resolves to. `anchorsResolvingTo` gathers every anchor across the corpus that resolves to a given section, each by the span a caller picks: the whole anchor for a reference, its name alone for a rename.
 
 =>
 
-const headingNamed = (
-  index: ReadonlyMap<string, SectionRef>,
-  name: string,
-): Option.Option<CorpusLocation> =>
-  pipe(
-    Option.fromNullable(index.get(name)),
-    Option.flatMap((ref) =>
-      Option.map(
-        Option.fromNullable(ref.section.heading.title),
-        (title): CorpusLocation => ({ path: ref.module, position: title.position }),
-      ),
+const titleLocation = (ref: SectionRef): Option.Option<CorpusLocation> =>
+  Option.map(
+    Option.fromNullable(ref.section.heading.title),
+    (title): CorpusLocation => ({ path: ref.module, position: title.position }),
+  )
+
+const targetAt = (
+  indexes: TitleIndexes,
+  modules: Modules,
+  path: Path,
+  offset: number,
+): Option.Option<SectionRef> =>
+  Option.orElse(sectionRefAt(modules, path, offset), () =>
+    Option.flatMap(anchorAt(modules, path, offset), (anchor) =>
+      resolveAnchor(indexes, path, anchor),
     ),
   )
 
-const anchorsNamed = (
+const anchorsResolvingTo = (
+  indexes: TitleIndexes,
   modules: Modules,
-  name: string,
+  target: SectionRef,
+  spanOf: (anchor: WarpAnchorToken) => Position,
 ): ReadonlyArray<CorpusLocation> =>
   pipe(
     Array.fromIterable(modules.values()),
     Array.flatMap((m) =>
       Array.filterMap(Array.flatMap(m.doc.sections, anchorsOf), (anchor) =>
-        anchor.name.value === name
-          ? Option.some<CorpusLocation>({ path: m.path, position: anchor.position })
-          : Option.none(),
+        pipe(
+          resolveAnchor(indexes, m.path, anchor),
+          Option.filter(
+            (ref) =>
+              ref.module === target.module && ref.section === target.section,
+          ),
+          Option.map(
+            (): CorpusLocation => ({ path: m.path, position: spanOf(anchor) }),
+          ),
+        ),
       ),
     ),
   )
 
 ~
 
-`definitionAt` reads the anchor under a cursor and returns the heading its name resolves to, by the same raw-title match the frame composes by. `referencesAt` reads a heading title or an anchor under a cursor, takes the section's name either way, and returns that heading beside every anchor that names it.
+`definitionAt` reads the anchor under a cursor and follows it to the heading it resolves to — in the anchor's own file, or the file its path names. `referencesAt` reads the section under a cursor, a heading or a resolved anchor either way, and returns that heading beside every anchor across the corpus that resolves to it.
 
 =>
 
@@ -741,13 +785,14 @@ export const definitionAt = (
   corpus: LoomCorpusAst,
   path: Path,
   offset: number,
-): Option.Option<CorpusLocation> =>
-  pipe(
+): Option.Option<CorpusLocation> => {
+  const indexes = titleIndexes(corpus.modules)
+  return pipe(
     anchorAt(corpus.modules, path, offset),
-    Option.flatMap((anchor) =>
-      headingNamed(sectionTitles(corpus.modules), anchor.name.value),
-    ),
+    Option.flatMap((anchor) => resolveAnchor(indexes, path, anchor)),
+    Option.flatMap(titleLocation),
   )
+}
 
 export const referencesAt = (
   corpus: LoomCorpusAst,
@@ -755,57 +800,21 @@ export const referencesAt = (
   offset: number,
 ): ReadonlyArray<CorpusLocation> => {
   const modules = corpus.modules
-  const name = Option.orElse(titleAt(modules, path, offset), () =>
-    Option.map(anchorAt(modules, path, offset), (anchor) => anchor.name.value),
-  )
-  return Option.match(name, {
+  const indexes = titleIndexes(modules)
+  return Option.match(targetAt(indexes, modules, path, offset), {
     onNone: () => [],
-    onSome: (n) => [
-      ...Option.match(headingNamed(sectionTitles(modules), n), {
-        onNone: () => [],
-        onSome: (loc) => [loc],
-      }),
-      ...anchorsNamed(modules, n),
+    onSome: (ref) => [
+      ...Option.toArray(titleLocation(ref)),
+      ...anchorsResolvingTo(indexes, modules, ref, (anchor) => anchor.position),
     ],
   })
 }
 
 ## Renaming a section
 
-Renaming a section is one edit across the corpus: its heading title and every anchor that names it move together, so the name and its references never drift. `renameAt` gathers the spans that change — each section's title carrying the name, and each anchor's name carrying it. An anchor span is the name alone, inside the `::[…]`, so the brackets stay put.
+Renaming a section is one edit across the corpus: its heading title and every anchor that resolves to it move together, so the name and its references never drift. `renameAt` gathers the spans that change — the section's title, and the name inside every anchor that reaches it. An anchor's span is its name alone, inside the `::[…]`, so the brackets and any `(path)` stay put.
 
 =>
-
-const headingTitlesNamed = (
-  modules: Modules,
-  name: string,
-): ReadonlyArray<CorpusLocation> =>
-  pipe(
-    Array.fromIterable(modules.values()),
-    Array.flatMap((m) =>
-      Array.filterMap(m.doc.sections, (section) => {
-        const title = section.heading.title
-        return title !== undefined && title.source === name
-          ? Option.some<CorpusLocation>({ path: m.path, position: title.position })
-          : Option.none()
-      }),
-    ),
-  )
-
-const anchorNamesNamed = (
-  modules: Modules,
-  name: string,
-): ReadonlyArray<CorpusLocation> =>
-  pipe(
-    Array.fromIterable(modules.values()),
-    Array.flatMap((m) =>
-      Array.filterMap(Array.flatMap(m.doc.sections, anchorsOf), (anchor) =>
-        anchor.name.value === name
-          ? Option.some<CorpusLocation>({ path: m.path, position: anchor.name.position })
-          : Option.none(),
-      ),
-    ),
-  )
 
 export const renameAt = (
   corpus: LoomCorpusAst,
@@ -813,14 +822,17 @@ export const renameAt = (
   offset: number,
 ): ReadonlyArray<CorpusLocation> => {
   const modules = corpus.modules
-  const name = Option.orElse(titleAt(modules, path, offset), () =>
-    Option.map(anchorAt(modules, path, offset), (anchor) => anchor.name.value),
-  )
-  return Option.match(name, {
+  const indexes = titleIndexes(modules)
+  return Option.match(targetAt(indexes, modules, path, offset), {
     onNone: () => [],
-    onSome: (n) => [
-      ...headingTitlesNamed(modules, n),
-      ...anchorNamesNamed(modules, n),
+    onSome: (ref) => [
+      ...Option.toArray(titleLocation(ref)),
+      ...anchorsResolvingTo(
+        indexes,
+        modules,
+        ref,
+        (anchor) => anchor.name.position,
+      ),
     ],
   })
 }

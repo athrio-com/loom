@@ -8,11 +8,13 @@ import {
 import { ParseLayer, parseDocument } from './parse'
 
 // `sinkTreeRouting` reads only a module's `path` and parsed `doc`, so a test
-// module is a real parsed document with the frame/product left off — the cast
-// names exactly that. A higher-order sink — a section whose sink names a
-// directory, written `[dir]` — points at a chapter (an H1) through the members
-// in its prose, and places that chapter's tangle sinks under its directory;
-// routing maps each module's sink path to the prefix it lands under.
+// module is a real parsed document with the product left off — the cast names
+// exactly that. A higher-order sink — a section whose sink names a directory,
+// written `[dir]` — points at a chapter (an H1) through the members in its
+// prose, and places that chapter's tangle sinks under its directory. A member
+// resolves lexically: a bare `::[Name]` names a section in the sink's own file,
+// and `::[Name](path.loom)` names one in the file the path points to. Routing
+// maps each module's sink path to the prefix it lands under.
 
 const corpusOf = (
   files: Record<string, string>,
@@ -39,7 +41,8 @@ describe('Sink tree — placing a chapter under a higher-order sink', () => {
   it.effect('places a chapter sink under the sink directory', () =>
     Effect.gen(function* () {
       const corpus = yield* corpusOf({
-        'book.loom': '# Book\n\n## Core [packages/core]\n\n~\n\n::[The widget]\n',
+        'book.loom':
+          '# Book\n\n## Core [packages/core]\n\n~\n\n::[The widget](widget.loom)\n',
         'widget.loom': widget,
       })
       const routing = sinkTreeRouting(corpus)
@@ -47,10 +50,24 @@ describe('Sink tree — placing a chapter under a higher-order sink', () => {
     }),
   )
 
+  it.effect('a bare member does not cross files', () =>
+    Effect.gen(function* () {
+      // lexical scope: `::[The widget]` carries no path, so it resolves in
+      // book.loom, which has no such section — nothing is placed.
+      const corpus = yield* corpusOf({
+        'book.loom': '# Book\n\n## Core [packages/core]\n\n~\n\n::[The widget]\n',
+        'widget.loom': widget,
+      })
+      const routing = sinkTreeRouting(corpus)
+      expect(routing.get('widget.loom')).toBeUndefined()
+    }),
+  )
+
   it.effect('leaves a module no chapter places out of the routing', () =>
     Effect.gen(function* () {
       const corpus = yield* corpusOf({
-        'book.loom': '# Book\n\n## Core [packages/core]\n\n~\n\n::[The widget]\n',
+        'book.loom':
+          '# Book\n\n## Core [packages/core]\n\n~\n\n::[The widget](widget.loom)\n',
         'widget.loom': widget,
       })
       const routing = sinkTreeRouting(corpus)
@@ -61,8 +78,9 @@ describe('Sink tree — placing a chapter under a higher-order sink', () => {
   it.effect('accumulates the prefix through nested higher-order sinks', () =>
     Effect.gen(function* () {
       const corpus = yield* corpusOf({
+        // `::[Sub]` is local to book.loom; `::[The widget]` crosses to widget.loom
         'book.loom':
-          '# Book\n\n## Docs [docs]\n\n~\n\n::[Sub]\n\n## Sub [ast]\n\n~\n\n::[The widget]\n',
+          '# Book\n\n## Docs [docs]\n\n~\n\n::[Sub]\n\n## Sub [ast]\n\n~\n\n::[The widget](widget.loom)\n',
         'widget.loom': widget,
       })
       const routing = sinkTreeRouting(corpus)
@@ -73,7 +91,8 @@ describe('Sink tree — placing a chapter under a higher-order sink', () => {
   it.effect('places every tangle sink in a chapter range', () =>
     Effect.gen(function* () {
       const corpus = yield* corpusOf({
-        'book.loom': '# Book\n\n## Core [packages/core]\n\n~\n\n::[The pair]\n',
+        'book.loom':
+          '# Book\n\n## Core [packages/core]\n\n~\n\n::[The pair](pair.loom)\n',
         'pair.loom':
           '# The pair\n\n## One [src, one.ts]\n\n=>\n\nexport const a = 1\n\n## Two [src, two.ts]\n\n=>\n\nexport const b = 2\n',
       })
@@ -87,7 +106,7 @@ describe('Sink tree — placing a chapter under a higher-order sink', () => {
     Effect.gen(function* () {
       const corpus = yield* corpusOf({
         'book.loom':
-          '# Book\n\n## Core [packages/core]\n\n~\n\n::[First]\n\n## Libs [libs]\n\n~\n\n::[Second]\n',
+          '# Book\n\n## Core [packages/core]\n\n~\n\n::[First](content.loom)\n\n## Libs [libs]\n\n~\n\n::[Second](content.loom)\n',
         'content.loom':
           '# First\n\n## A [., a.ts]\n\n=>\n\nexport const a = 1\n\n# Second\n\n## B [., b.ts]\n\n=>\n\nexport const b = 2\n',
       })
@@ -101,6 +120,7 @@ describe('Sink tree — placing a chapter under a higher-order sink', () => {
   it.effect('a cycle among higher-order sinks terminates with no routing', () =>
     Effect.gen(function* () {
       const corpus = yield* corpusOf({
+        // A and B are both local to book.loom, so the cycle stays within the file
         'book.loom':
           '# Book\n\n## A [a]\n\n~\n\n::[B]\n\n## B [b]\n\n~\n\n::[A]\n',
       })

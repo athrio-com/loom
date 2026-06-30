@@ -26,7 +26,7 @@ export const c = 1
 
 # The part [dist]
 
-::[The chapter]
+::[The chapter](chapter.loom)
 `,
 }
 

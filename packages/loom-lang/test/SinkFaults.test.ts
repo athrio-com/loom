@@ -9,10 +9,12 @@ import { normaliseTitle } from '../src/ast/WeftTokeniser'
 import { ParseLayer, parseDocument } from './parse'
 
 // `sinkTreeFaults` reads a module's parsed `doc` alone, so a test module is a
-// real parsed document with the frame/product left off. The detector takes
+// real parsed document with the product left off. The detector takes
 // `normaliseTitle` so the whole corpus folds titles by one rule; here it is the
-// real one. Each test names a corpus that trips one sink fault and filters to
-// its kind.
+// real one. A member resolves lexically — a bare `::[Name]` in the sink's own
+// file, a `::[Name](path.loom)` in the file the path names — so a book crosses
+// files by naming them. Each test names a corpus that trips one sink fault and
+// filters to its kind.
 
 const corpusOf = (
   files: Record<string, string>,
@@ -38,17 +40,29 @@ const of = (corpus: LoomCorpusAst, kind: string) =>
   sinkTreeFaults(corpus, normaliseTitle).filter((f) => f.kind === kind)
 
 describe('Sink tree — faults the detector raises', () => {
-  it.effect('flags two titles that fold to one name', () =>
+  it.effect('flags two titles in one file that fold to one name', () =>
     Effect.gen(function* () {
       const corpus = yield* corpusOf({
-        'a.loom': '# The widget\n\n=>\n\nexport const a = 1\n',
-        'b.loom': '# the widget\n\n=>\n\nexport const b = 2\n',
+        'a.loom':
+          '# The widget\n\n=>\n\nexport const a = 1\n\n# the widget\n\n=>\n\nexport const b = 2\n',
       })
       const found = of(corpus, 'CollidingTitles')
       expect(found.length).toBe(2)
       expect(found.every((f) => f.kind === 'CollidingTitles' && f.name === 'TheWidget')).toBe(
         true,
       )
+    }),
+  )
+
+  it.effect('a title repeated across files is no collision', () =>
+    Effect.gen(function* () {
+      // lexical scope: each name resolves in its own file, so the same title in
+      // two files is unambiguous.
+      const corpus = yield* corpusOf({
+        'a.loom': '# The widget\n\n=>\n\nexport const a = 1\n',
+        'b.loom': '# the widget\n\n=>\n\nexport const b = 2\n',
+      })
+      expect(of(corpus, 'CollidingTitles')).toEqual([])
     }),
   )
 
@@ -103,7 +117,8 @@ describe('Sink tree — faults the detector raises', () => {
   it.effect('flags a chapter whose range tangles no file', () =>
     Effect.gen(function* () {
       const corpus = yield* corpusOf({
-        'book.loom': '# Book\n\n## Core [packages/core]\n\n~\n\n::[Prose chapter]\n',
+        'book.loom':
+          '# Book\n\n## Core [packages/core]\n\n~\n\n::[Prose chapter](prose.loom)\n',
         'prose.loom': '# Prose chapter\n\n=>\n\nexport const note = 1\n',
       })
       const found = of(corpus, 'SinklessChapter')
@@ -115,7 +130,8 @@ describe('Sink tree — faults the detector raises', () => {
   it.effect('flags a chapter opened below a top-level heading', () =>
     Effect.gen(function* () {
       const corpus = yield* corpusOf({
-        'book.loom': '# Book\n\n## Core [packages/core]\n\n~\n\n::[Sub thing]\n',
+        'book.loom':
+          '# Book\n\n## Core [packages/core]\n\n~\n\n::[Sub thing](content.loom)\n',
         'content.loom': '## Sub thing [., x.ts]\n\n=>\n\nexport const y = 1\n',
       })
       const found = of(corpus, 'PointedNotH1')
@@ -127,7 +143,8 @@ describe('Sink tree — faults the detector raises', () => {
   it.effect('flags a first chapter that strands a module opening', () =>
     Effect.gen(function* () {
       const corpus = yield* corpusOf({
-        'book.loom': '# Book\n\n## Core [packages/core]\n\n~\n\n::[Chapter two]\n',
+        'book.loom':
+          '# Book\n\n## Core [packages/core]\n\n~\n\n::[Chapter two](content.loom)\n',
         'content.loom':
           '# Intro\n\n=>\n\nconst a = 1\n\n# Chapter two [., x.ts]\n\n=>\n\nexport const b = 2\n',
       })
@@ -141,7 +158,7 @@ describe('Sink tree — faults the detector raises', () => {
     Effect.gen(function* () {
       const corpus = yield* corpusOf({
         'book.loom':
-          '# Book\n\n## A [a]\n\n~\n\n::[The widget]\n\n## B [b]\n\n~\n\n::[The widget]\n',
+          '# Book\n\n## A [a]\n\n~\n\n::[The widget](widget.loom)\n\n## B [b]\n\n~\n\n::[The widget](widget.loom)\n',
         'widget.loom': widget,
       })
       const found = of(corpus, 'DuplicateChapter')
@@ -166,7 +183,8 @@ describe('Sink tree — faults the detector raises', () => {
   it.effect('a well-formed book raises no sink fault', () =>
     Effect.gen(function* () {
       const corpus = yield* corpusOf({
-        'book.loom': '# Book\n\n## Core [packages/core]\n\n~\n\n::[The widget]\n',
+        'book.loom':
+          '# Book\n\n## Core [packages/core]\n\n~\n\n::[The widget](widget.loom)\n',
         'widget.loom': widget,
       })
       expect(sinkTreeFaults(corpus, normaliseTitle)).toEqual([])
