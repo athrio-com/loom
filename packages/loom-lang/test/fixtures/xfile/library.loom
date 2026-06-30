@@ -1,0 +1,5 @@
+# The greeting library [., library.ts]
+
+=>
+
+export const greet = (name: string): string => `Hello, ${name}`

@@ -1,3 +1,4 @@
+import { Array, Option, pipe } from 'effect'
 import {
   createLanguage,
   createLanguageService,
@@ -5,12 +6,15 @@ import {
   type LanguageServiceEnvironment,
 } from '@volar/language-service'
 import type {
+  CodeAction,
+  CodeActionContext,
   CompletionList,
   Diagnostic,
   Hover,
   Location,
   LocationLink,
   Position,
+  Range,
   WorkspaceEdit,
 } from '@volar/language-service'
 import type { Language } from '@volar/language-core'
@@ -25,8 +29,9 @@ import type { CompilerOptions, IScriptSnapshot } from 'typescript'
 type TypeScript = typeof import('typescript')
 
 export interface ProductProgram {
-  readonly setRoot: (fileName: string, text: string) => void
-  readonly removeRoot: (fileName: string) => void
+  readonly sync: (
+    files: ReadonlyArray<{ readonly path: string; readonly text: string }>,
+  ) => void
   readonly diagnostics: (fileName: string) => Promise<Diagnostic[]>
   readonly hover: (
     fileName: string,
@@ -49,6 +54,12 @@ export interface ProductProgram {
     position: Position,
     newName: string,
   ) => Promise<WorkspaceEdit | undefined>
+  readonly codeActions: (
+    fileName: string,
+    range: Range,
+    context: CodeActionContext,
+  ) => Promise<CodeAction[] | undefined>
+  readonly resolveCodeAction: (action: CodeAction) => Promise<CodeAction>
   readonly dispose: () => void
 }
 
@@ -114,22 +125,39 @@ export const createProductProgram = (
     },
   )
 
-  const setRoot = (fileName: string, text: string): void => {
-    const snapshot = ts.ScriptSnapshot.fromString(text)
-    roots.set(fileName, snapshot)
-    language.scripts.set(asUri(fileName), snapshot)
-    projectVersion++
-  }
+  const unchanged = (path: string, text: string): boolean =>
+    pipe(
+      Option.fromNullable(roots.get(path)),
+      Option.match({
+        onNone: () => false,
+        onSome: (snapshot) => snapshot.getText(0, snapshot.getLength()) === text,
+      }),
+    )
 
-  const removeRoot = (fileName: string): void => {
-    roots.delete(fileName)
-    language.scripts.delete(asUri(fileName))
+  const sync = (
+    files: ReadonlyArray<{ readonly path: string; readonly text: string }>,
+  ): void => {
+    const present = new Set(Array.map(files, (file) => file.path))
+    const stale = Array.filter(
+      Array.fromIterable(roots.keys()),
+      (path) => !present.has(path),
+    )
+    const fresh = Array.filter(files, (file) => !unchanged(file.path, file.text))
+    if (stale.length === 0 && fresh.length === 0) return
+    stale.forEach((path) => {
+      roots.delete(path)
+      language.scripts.delete(asUri(path))
+    })
+    fresh.forEach((file) => {
+      const snapshot = ts.ScriptSnapshot.fromString(file.text)
+      roots.set(file.path, snapshot)
+      language.scripts.set(asUri(file.path), snapshot)
+    })
     projectVersion++
   }
 
   return {
-    setRoot,
-    removeRoot,
+    sync,
     diagnostics: (fileName) => service.getDiagnostics(asUri(fileName)),
     hover: (fileName, position) => service.getHover(asUri(fileName), position),
     completions: (fileName, position) =>
@@ -142,6 +170,9 @@ export const createProductProgram = (
       }),
     rename: (fileName, position, newName) =>
       service.getRenameEdits(asUri(fileName), position, newName),
+    codeActions: (fileName, range, context) =>
+      service.getCodeActions(asUri(fileName), range, context),
+    resolveCodeAction: (action) => service.resolveCodeAction(action),
     dispose: () => service.dispose(),
   }
 }

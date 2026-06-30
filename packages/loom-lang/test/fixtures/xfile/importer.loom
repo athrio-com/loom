@@ -1,0 +1,7 @@
+# The importer [., importer.ts]
+
+=>
+
+import { greet } from './library.ts'
+
+console.log(greet('world').toUpperCase())

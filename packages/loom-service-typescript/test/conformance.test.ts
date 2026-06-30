@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url'
 import * as ts from 'typescript'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
+  Composition,
   isLanguageService,
   TypescriptSdk,
 } from '@athrio/loom-lang-services/LanguageService'
@@ -66,14 +67,17 @@ describe('conformance — the service runs on the host runtime alone', () => {
     expect(isLanguageService(service)).toBe(true)
     expect((service as { id: string }).id).toBe('typescript')
 
-    // Running the service's plugins Effect requires the host's TypescriptSdk tag.
-    // If the service carried its own Effect or SPI copy, the tag would be a
-    // different key and this would fail with a missing-service defect. It meets,
-    // so effect and the SPI are the host's single instances.
+    // Running the service's plugins Effect requires the host's TypescriptSdk and
+    // Composition tags. If the service carried its own Effect or SPI copy, those
+    // tags would be different keys and this would fail with a missing-service
+    // defect. They meet, so effect and the SPI are the host's single instances.
     const plugins = await Effect.runPromise(
-      (service as { plugins: (config: { settings: Record<string, unknown> }) => Effect.Effect<ReadonlyArray<{ name?: string }>, never, TypescriptSdk> })
+      (service as { plugins: (config: { settings: Record<string, unknown> }) => Effect.Effect<ReadonlyArray<{ name?: string }>, never, TypescriptSdk | Composition> })
         .plugins({ settings: {} })
-        .pipe(Effect.provideService(TypescriptSdk, TypescriptSdk.make(ts))),
+        .pipe(
+          Effect.provideService(TypescriptSdk, TypescriptSdk.make(ts)),
+          Effect.provideService(Composition, Composition.make({ rootsFor: () => [] })),
+        ),
     )
     expect(plugins.length).toBeGreaterThan(0)
     expect(plugins[0]?.name).toContain('typescript')

@@ -1,9 +1,16 @@
-import { Effect } from 'effect'
-import type { LanguageServicePlugin } from '@volar/language-service'
+import { Array, Effect, Option } from 'effect'
+import type {
+  CodeAction,
+  LanguageServicePlugin,
+  WorkspaceEdit,
+} from '@volar/language-service'
 import { URI } from 'vscode-uri'
 import { dirname } from 'node:path'
 import type { CompilerOptions } from 'typescript'
 import {
+  Composition,
+  type ComposedFile,
+  type CompositionApi,
   defineLanguageService,
   TypescriptSdk,
 } from '@athrio/loom-lang-services/LanguageService'
@@ -11,26 +18,35 @@ import { createProductProgram, type ProductProgram } from './ProductProgram'
 
 type TypeScript = typeof import('typescript')
 
-const baselineOptions = (ts: TypeScript): CompilerOptions => ({
-  target: ts.ScriptTarget.ES2022,
-  module: ts.ModuleKind.ESNext,
-  moduleResolution: ts.ModuleResolutionKind.Bundler,
-  strict: true,
-  skipLibCheck: true,
+const loomOverrides = (
+  options: CompilerOptions,
+): CompilerOptions => ({
+  ...options,
   noEmit: true,
+  allowImportingTsExtensions: true,
 })
+
+const baselineOptions = (ts: TypeScript): CompilerOptions =>
+  loomOverrides({
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    strict: true,
+    skipLibCheck: true,
+  })
 
 const consumerOptions = (ts: TypeScript, loomPath: string): CompilerOptions => {
   const found = ts.findConfigFile(dirname(loomPath), ts.sys.fileExists, 'tsconfig.json')
   if (found === undefined) return baselineOptions(ts)
   const read = ts.readConfigFile(found, ts.sys.readFile)
   const parsed = ts.parseJsonConfigFileContent(read.config ?? {}, ts.sys, dirname(found))
-  return { ...parsed.options, noEmit: true }
+  return loomOverrides(parsed.options)
 }
 
 export interface ProductTarget {
   readonly program: ProductProgram
   readonly fileName: string
+  readonly roots: ReadonlyArray<ComposedFile>
 }
 
 const tsExtension: ReadonlyMap<string, string> = new Map([
@@ -45,20 +61,41 @@ export const productTarget = (
   languageId: string,
   text: string,
   programFor: (loomPath: string) => ProductProgram,
+  rootsFor: (loomPath: string) => ReadonlyArray<ComposedFile>,
 ): ProductTarget | undefined => {
   const extension = tsExtension.get(languageId)
   if (decoded === undefined || extension === undefined) return undefined
   const [loomUri, rootId] = decoded
   const loomPath = loomUri.fsPath
+  const composed = rootsFor(loomPath)
+  const sink = Array.findFirst(
+    composed,
+    (file) => file.loomPath === loomPath && file.rootId === rootId,
+  )
+  const edited: ComposedFile = Option.getOrElse(sink, () => ({
+    path: `${loomPath}.${rootId}${extension}`,
+    content: text,
+    loomPath,
+    rootId,
+  }))
+  const roots = Option.match(sink, {
+    onNone: () => Array.append(composed, edited),
+    onSome: () => composed,
+  })
   const program = programFor(loomPath)
-  const fileName = `${loomPath}.${rootId}${extension}`
-  program.setRoot(fileName, text)
-  return { program, fileName }
+  program.sync(
+    Array.map(roots, (file) => ({
+      path: file.path,
+      text: file === edited ? text : file.content,
+    })),
+  )
+  return { program, fileName: edited.path, roots }
 }
 
-const productFile = /^(.*\.loom)\.([^./]+)\.(?:ts|tsx|js|jsx)$/
-
-const productPlugin = (ts: TypeScript): LanguageServicePlugin => ({
+const productPlugin = (
+  ts: TypeScript,
+  composition: CompositionApi,
+): LanguageServicePlugin => ({
   name: 'loom-typescript-product',
   capabilities: {
     diagnosticProvider: { interFileDependencies: false, workspaceDiagnostics: false },
@@ -67,6 +104,9 @@ const productPlugin = (ts: TypeScript): LanguageServicePlugin => ({
     definitionProvider: true,
     referencesProvider: true,
     renameProvider: {},
+    codeActionProvider: {
+      codeActionKinds: ['quickfix', 'refactor', 'source.organizeImports'],
+    },
   },
   create: (context) => {
     const programs = new Map<string, ProductProgram>()
@@ -87,16 +127,58 @@ const productPlugin = (ts: TypeScript): LanguageServicePlugin => ({
         languageId,
         text,
         programFor,
+        composition.rootsFor,
       )
 
-    const embeddedUriOf = (uri: string): string => {
-      const match = productFile.exec(URI.parse(uri).fsPath)
-      return match === null
-        ? uri
-        : context
-            .encodeEmbeddedDocumentUri(URI.file(match[1]!), match[2]!)
-            .toString()
-    }
+    const embeddedUriOf = (
+      roots: ReadonlyArray<ComposedFile>,
+      uri: string,
+    ): string =>
+      Option.match(
+        Array.findFirst(roots, (file) => file.path === URI.parse(uri).fsPath),
+        {
+          onNone: () => uri,
+          onSome: (file) =>
+            context
+              .encodeEmbeddedDocumentUri(URI.file(file.loomPath), file.rootId)
+              .toString(),
+        },
+      )
+
+    const remapEdit = (
+      roots: ReadonlyArray<ComposedFile>,
+      edit: WorkspaceEdit,
+    ): WorkspaceEdit => ({
+      ...edit,
+      changes:
+        edit.changes === undefined
+          ? undefined
+          : Object.fromEntries(
+              Object.entries(edit.changes).map(([uri, edits]) => [
+                embeddedUriOf(roots, uri),
+                edits,
+              ]),
+            ),
+      documentChanges: edit.documentChanges?.map((change) =>
+        'textDocument' in change
+          ? {
+              ...change,
+              textDocument: {
+                ...change.textDocument,
+                uri: embeddedUriOf(roots, change.textDocument.uri),
+              },
+            }
+          : change,
+      ),
+    })
+
+    const remapAction = (
+      roots: ReadonlyArray<ComposedFile>,
+      action: CodeAction,
+    ): CodeAction =>
+      action.edit === undefined
+        ? action
+        : { ...action, edit: remapEdit(roots, action.edit) }
 
     return {
       provideDiagnostics: (document) => {
@@ -126,7 +208,7 @@ const productPlugin = (ts: TypeScript): LanguageServicePlugin => ({
               .then((links) =>
                 links?.map((link) => ({
                   ...link,
-                  targetUri: embeddedUriOf(link.targetUri),
+                  targetUri: embeddedUriOf(target.roots, link.targetUri),
                 })),
               )
       },
@@ -139,7 +221,7 @@ const productPlugin = (ts: TypeScript): LanguageServicePlugin => ({
               .then((locations) =>
                 locations?.map((location) => ({
                   ...location,
-                  uri: embeddedUriOf(location.uri),
+                  uri: embeddedUriOf(target.roots, location.uri),
                 })),
               )
       },
@@ -150,17 +232,26 @@ const productPlugin = (ts: TypeScript): LanguageServicePlugin => ({
           : target.program
               .rename(target.fileName, position, newName)
               .then((edit) =>
-                edit?.changes === undefined
-                  ? edit
-                  : {
-                      ...edit,
-                      changes: Object.fromEntries(
-                        Object.entries(edit.changes).map(([uri, edits]) => [
-                          embeddedUriOf(uri),
-                          edits,
-                        ]),
+                edit === undefined ? edit : remapEdit(target.roots, edit),
+              )
+      },
+      provideCodeActions: (document, range, context) => {
+        const target = targetOf(document.uri, document.languageId, document.getText())
+        return target === undefined
+          ? undefined
+          : target.program
+              .codeActions(target.fileName, range, context)
+              .then((actions) =>
+                actions === undefined
+                  ? undefined
+                  : Promise.all(
+                      actions.map((action) =>
+                        (action.edit === undefined
+                          ? target.program.resolveCodeAction(action)
+                          : Promise.resolve(action)
+                        ).then((resolved) => remapAction(target.roots, resolved)),
                       ),
-                    },
+                    ),
               )
       },
       dispose: () => programs.forEach((program) => program.dispose()),
@@ -175,7 +266,8 @@ export const TypescriptService = defineLanguageService({
   plugins: () =>
     Effect.gen(function* () {
       const ts = yield* TypescriptSdk
-      return [productPlugin(ts)]
+      const composition = yield* Composition
+      return [productPlugin(ts, composition)]
     }),
 })
 

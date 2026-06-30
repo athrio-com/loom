@@ -1,0 +1,5 @@
+# The caller [., caller.ts]
+
+=>
+
+console.log(greet('world').toUpperCase())
