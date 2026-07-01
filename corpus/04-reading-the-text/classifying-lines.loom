@@ -263,7 +263,7 @@ import {
   TildeWeftSchema,
 } from '@athrio/loom-ast/Weft'
 
-## The module [src/ast, WeftClassifier.ts]
+## The module [packages/loom-lang/src/ast, WeftClassifier.ts]
 
 =>
 
