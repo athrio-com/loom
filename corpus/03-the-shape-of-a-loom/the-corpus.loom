@@ -1151,7 +1151,7 @@ import {
 } from '#ast/LoomAst'
 import { profileOf, symbolAt } from '#ast/LoomSymbol'
 
-## The module [src/ast, LoomCorpusAst.ts]
+## The module [packages/loom-ast/src/ast, LoomCorpusAst.ts]
 
 =>
 

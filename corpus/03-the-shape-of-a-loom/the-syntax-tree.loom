@@ -59,7 +59,7 @@ import {
 } from './LoomTokens'
 import { PreambleWeftSchema, SectionBodyWeftSchema } from './Weft'
 
-## The module [src/ast, LoomAst.ts]
+## The module [packages/loom-ast/src/ast, LoomAst.ts]
 
 =>
 

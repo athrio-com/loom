@@ -385,7 +385,7 @@ export type LoomToken = typeof LoomTokenSchema.Type
 import { Data, Effect, Option, Schema, SchemaAST } from 'effect'
 import { loomNode } from '#ast/LoomNode'
 
-## The module [src/ast, LoomTokens.ts]
+## The module [packages/loom-ast/src/ast, LoomTokens.ts]
 
 =>
 
