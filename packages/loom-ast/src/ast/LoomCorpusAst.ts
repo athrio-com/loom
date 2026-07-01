@@ -1,12 +1,18 @@
-import { Array, Option, pipe, Schema } from 'effect'
+import { Array, Match, Option, pipe, Schema } from 'effect'
 import { type Diagnostic, type Position } from '#ast/LoomNode'
 import {
   type SinkToken,
   type SpecifierToken,
   type WarpAnchorToken,
+  type WarpToken,
 } from '#ast/LoomTokens'
 import { ProductSchema } from '#ast/ProductAst'
-import { LoomDocumentSchema, type LoomSection } from '#ast/LoomAst'
+import {
+  LoomDocumentSchema,
+  type LoomDocument,
+  type LoomSection,
+} from '#ast/LoomAst'
+import { profileOf, symbolAt } from '#ast/LoomSymbol'
 
 export type Path = string
 
@@ -644,7 +650,7 @@ const anchorsResolvingTo = (
     ),
   )
 
-export const definitionAt = (
+const sectionDefinitionAt = (
   corpus: LoomCorpusAst,
   path: Path,
   offset: number,
@@ -657,7 +663,7 @@ export const definitionAt = (
   )
 }
 
-export const referencesAt = (
+const sectionReferencesAt = (
   corpus: LoomCorpusAst,
   path: Path,
   offset: number,
@@ -673,7 +679,176 @@ export const referencesAt = (
   })
 }
 
-export const renameAt = (
+const covers = (position: Position, offset: number): boolean =>
+  position.start.offset <= offset && offset <= position.end.offset
+
+const valueWarpsIn = (
+  preamble: ReadonlyArray<{ readonly warps: ReadonlyArray<WarpToken> }>,
+): ReadonlyArray<WarpToken> =>
+  Array.filter(
+    Array.flatMap(preamble, (weft) => weft.warps),
+    (warp) => warp.name.value !== 'lang',
+  )
+
+const allValueWarpsOf = (doc: LoomDocument): ReadonlyArray<WarpToken> => [
+  ...valueWarpsIn(doc.preamble),
+  ...Array.flatMap(doc.sections, (section) => valueWarpsIn(section.preamble)),
+]
+
+const allAnchorsOf = (doc: LoomDocument): ReadonlyArray<WarpAnchorToken> => [
+  ...Array.flatMap(doc.preamble, (weft) => weft.anchors),
+  ...Array.flatMap(doc.sections, anchorsOf),
+]
+
+const sectionCovering = (
+  module: LoomModule,
+  offset: number,
+): Option.Option<LoomSection> =>
+  Array.findFirst(module.doc.sections, (section) =>
+    covers(section.position, offset),
+  )
+
+const warpDefFor = (
+  module: LoomModule,
+  section: Option.Option<LoomSection>,
+  name: string,
+): Option.Option<WarpToken> =>
+  pipe(
+    section,
+    Option.flatMap((s) =>
+      Array.findFirst(valueWarpsIn(s.preamble), (w) => w.name.value === name),
+    ),
+    Option.orElse(() =>
+      Array.findFirst(
+        valueWarpsIn(module.doc.preamble),
+        (w) => w.name.value === name,
+      ),
+    ),
+  )
+
+const warpNameAt = (module: LoomModule, offset: number): Option.Option<string> =>
+  Option.orElse(
+    Option.map(
+      Array.findFirst(allValueWarpsOf(module.doc), (w) =>
+        covers(w.name.position, offset),
+      ),
+      (w) => w.name.value,
+    ),
+    () =>
+      Option.map(
+        Array.findFirst(allAnchorsOf(module.doc), (a) =>
+          covers(a.name.position, offset),
+        ),
+        (a) => a.name.value,
+      ),
+  )
+
+const warpBindingAt = (
+  module: LoomModule,
+  offset: number,
+): Option.Option<{
+  readonly def: WarpToken
+  readonly anchors: ReadonlyArray<WarpAnchorToken>
+}> =>
+  pipe(
+    warpNameAt(module, offset),
+    Option.flatMap((name) =>
+      Option.map(
+        warpDefFor(module, sectionCovering(module, offset), name),
+        (def) => ({
+          def,
+          anchors: Array.filter(
+            allAnchorsOf(module.doc),
+            (anchor) =>
+              anchor.name.value === name &&
+              Option.getOrUndefined(
+                warpDefFor(
+                  module,
+                  sectionCovering(module, anchor.position.start.offset),
+                  name,
+                ),
+              ) === def,
+          ),
+        }),
+      ),
+    ),
+  )
+
+const warpDefLocation = (
+  module: LoomModule,
+  path: Path,
+  offset: number,
+): Option.Option<CorpusLocation> =>
+  Option.map(
+    warpBindingAt(module, offset),
+    (binding): CorpusLocation => ({ path, position: binding.def.name.position }),
+  )
+
+const warpReferences = (
+  module: LoomModule,
+  path: Path,
+  offset: number,
+  spanOf: (anchor: WarpAnchorToken) => Position,
+): ReadonlyArray<CorpusLocation> =>
+  Option.match(warpBindingAt(module, offset), {
+    onNone: () => [],
+    onSome: (binding) => [
+      { path, position: binding.def.name.position },
+      ...Array.map(
+        binding.anchors,
+        (anchor): CorpusLocation => ({ path, position: spanOf(anchor) }),
+      ),
+    ],
+  })
+
+export const definitionAt = (
+  corpus: LoomCorpusAst,
+  path: Path,
+  offset: number,
+): Option.Option<CorpusLocation> =>
+  pipe(
+    Option.fromNullable(corpus.modules.get(path)),
+    Option.flatMap((module) =>
+      Option.flatMap(symbolAt(module.doc, offset), (symbol) =>
+        Match.value(symbol.kind).pipe(
+          Match.when('warpAnchor', () => warpDefLocation(module, path, offset)),
+          Match.when('sectionAnchor', () =>
+            sectionDefinitionAt(corpus, path, offset),
+          ),
+          Match.orElse(() => Option.none<CorpusLocation>()),
+        ),
+      ),
+    ),
+  )
+
+export const referencesAt = (
+  corpus: LoomCorpusAst,
+  path: Path,
+  offset: number,
+): ReadonlyArray<CorpusLocation> =>
+  Option.match(
+    pipe(
+      Option.fromNullable(corpus.modules.get(path)),
+      Option.flatMap((module) =>
+        Option.map(symbolAt(module.doc, offset), (symbol) => ({ module, symbol })),
+      ),
+    ),
+    {
+      onNone: () => [],
+      onSome: ({ module, symbol }) =>
+        Match.value(symbol.kind).pipe(
+          Match.whenOr('warpAnchor', 'warpDef', () =>
+            warpReferences(module, path, offset, (anchor) => anchor.position),
+          ),
+          Match.whenOr('headingTitle', 'sectionAnchor', () =>
+            sectionReferencesAt(corpus, path, offset),
+          ),
+          Match.orElse((): ReadonlyArray<CorpusLocation> => []),
+        ),
+    },
+  )
+
+const sectionRenameAt = (
   corpus: LoomCorpusAst,
   path: Path,
   offset: number,
@@ -694,24 +869,49 @@ export const renameAt = (
   })
 }
 
+export const renameAt = (
+  corpus: LoomCorpusAst,
+  path: Path,
+  offset: number,
+): ReadonlyArray<CorpusLocation> =>
+  Option.match(
+    pipe(
+      Option.fromNullable(corpus.modules.get(path)),
+      Option.flatMap((module) =>
+        Option.map(symbolAt(module.doc, offset), (symbol) => ({ module, symbol })),
+      ),
+    ),
+    {
+      onNone: () => [],
+      onSome: ({ module, symbol }) =>
+        Match.value(symbol.kind).pipe(
+          Match.whenOr('warpAnchor', 'warpDef', () =>
+            warpReferences(
+              module,
+              path,
+              offset,
+              (anchor) => anchor.name.position,
+            ),
+          ),
+          Match.whenOr('headingTitle', 'sectionAnchor', () =>
+            sectionRenameAt(corpus, path, offset),
+          ),
+          Match.orElse((): ReadonlyArray<CorpusLocation> => []),
+        ),
+    },
+  )
+
 export const renameRangeAt = (
   corpus: LoomCorpusAst,
   path: Path,
   offset: number,
-): Option.Option<CorpusLocation> => {
-  const modules = corpus.modules
-  const titleSpan = pipe(
-    titledSectionAt(modules, path, offset),
-    Option.flatMapNullable((section) => section.heading.title),
-    Option.map((title): CorpusLocation => ({ path, position: title.position })),
+): Option.Option<CorpusLocation> =>
+  pipe(
+    Option.fromNullable(corpus.modules.get(path)),
+    Option.flatMap((module) => symbolAt(module.doc, offset)),
+    Option.filter((symbol) => profileOf(symbol.kind).features.navigation === true),
+    Option.map((symbol): CorpusLocation => ({ path, position: symbol.position })),
   )
-  return Option.orElse(titleSpan, () =>
-    Option.map(
-      anchorAt(modules, path, offset),
-      (anchor): CorpusLocation => ({ path, position: anchor.name.position }),
-    ),
-  )
-}
 
 const diagnosticsIn = (node: unknown): ReadonlyArray<Diagnostic> => {
   if (Array.isArray(node)) return node.flatMap(diagnosticsIn)

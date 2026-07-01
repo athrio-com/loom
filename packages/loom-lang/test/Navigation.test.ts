@@ -156,3 +156,67 @@ describe('LoomCompiler — navigation across files', () => {
     }).pipe(Effect.provide(crossLayer)),
   )
 })
+
+// A value warp defined in a section, named by ::[ratio] anchors in its code. Navigation
+// binds them within the section: go-to from an anchor lands on the {{ratio = …}}
+// definition, references and rename gather the definition and every anchor, and
+// renameRange covers the warp name under the cursor.
+describe('LoomCompiler — navigation over value warps', () => {
+  const warp = `{{lang: TypeScript}}
+
+# Converting
+
+{{ratio = 1.8}}
+
+=>
+
+export const toF = (c: number) => c * ::[ratio] + 32
+export const back = (f: number) => (f - 32) / ::[ratio]
+`
+  const warpLayer = makeLayer({ '/convert.loom': warp })
+  const anchorOffset = warp.indexOf('::[ratio]') + 4 // inside the first anchor's name
+  const defOffset = warp.indexOf('{{ratio') + 2 // inside the definition's name
+
+  it.effect('definition jumps from a warp anchor to its definition', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const target = yield* c.definition('/convert.loom', anchorOffset)
+      expect(target?.path).toBe('/convert.loom')
+      // "ratio" in {{ratio = 1.8}} — line 4 (0-based), after the "{{"
+      expect(target?.range.start).toEqual({ line: 4, character: 2 })
+    }).pipe(Effect.provide(warpLayer)),
+  )
+
+  it.effect('references gathers the definition and every anchor', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const refs = yield* c.references('/convert.loom', defOffset)
+      // the {{ratio}} definition on line 4 and the two ::[ratio] anchors on lines 8, 9
+      expect(refs.map((r) => r.range.start.line).sort((a, b) => a - b)).toEqual([
+        4, 8, 9,
+      ])
+    }).pipe(Effect.provide(warpLayer)),
+  )
+
+  it.effect('rename rewrites the definition name and every anchor name', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const edits = yield* c.rename('/convert.loom', anchorOffset)
+      expect(edits.length).toBe(3)
+      // each span is the bare name "ratio" — five characters — so {{ }} and ::[ ] stay
+      expect(
+        edits.every((e) => e.range.end.character - e.range.start.character === 5),
+      ).toBe(true)
+    }).pipe(Effect.provide(warpLayer)),
+  )
+
+  it.effect('renameRange covers the warp name under the cursor', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const span = yield* c.renameRange('/convert.loom', defOffset)
+      // "ratio" — five characters, after the "{{"
+      expect(span?.range.start).toEqual({ line: 4, character: 2 })
+      expect(span?.range.end).toEqual({ line: 4, character: 7 })
+    }).pipe(Effect.provide(warpLayer)),
+  )
+})
