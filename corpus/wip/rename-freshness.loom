@@ -10,7 +10,7 @@ Two verbs read a file's text by different routes. `compile`, which builds the vi
 
 This never shows in a test. Every test feeds one in-memory source to both verbs, so the two always agree and `diagnose` is clean. The gap is the editor's alone, which is why it survived a green suite.
 
-## Why the near fix is wrong
+## Why the tempting fix is wrong
 
 The tempting fix is to have `editorSource` read a sibling from Volar too, through `ctx.getAssociatedScript`. But that call registers an association, and registering one makes Volar project the sibling — so reading a sibling mid-build would re-enter the projector. The current disk read is a deliberate guard against exactly that: the source never calls back into Volar.
 

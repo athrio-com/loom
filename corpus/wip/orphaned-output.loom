@@ -1,0 +1,15 @@
+{{lang: TypeScript}}
+
+# Orphaned tangle output
+
+When a loom stops writing a file — a sink renamed, a section removed, a chapter regrouped — the tangler writes the new files but leaves the old one on disk. The output it no longer produces is orphaned: stale source that still compiles, still imports, still passes its own old tests, and quietly rots. The book migration makes this routine, as chapters move and files are renamed and merged, so it must be solved before the book settles.
+
+## Why it happens
+
+The tangler is a function of the corpus: it reads the looms and writes the files their sinks name. It keeps no memory of the files an earlier tangle wrote, so it cannot tell which outputs have lost their source. It only adds and overwrites; it never removes.
+
+## The shape of the fix
+
+A re-tangle must reconcile, not only write. The tangler already knows every file the current corpus produces; it needs to know every file the last tangle produced, and remove the difference. That prior set is a manifest, recorded beside the output or carried in the store. A re-tangle diffs the manifest against what it is about to write, and deletes only what fell away. One guard keeps this safe: a re-tangle removes only a path a previous tangle wrote, never one the corpus did not produce, so a hand-kept file beside generated output survives.
+
+This chapter grows its code here — the manifest, the reconcile, the guard — and graduates to Part VI, Tangling, when a re-tangle leaves no orphan behind.

@@ -74,6 +74,7 @@ IX. Loom builds Loom
 X. Work in progress
    1. Rename freshness
    2. Testing in looms
+   3. Orphaned tangle output
 
 ## Part I — Using Loom [packages/loom-lang]
 
@@ -125,10 +126,12 @@ The book closes where it began, with the fact that Loom is written in Loom. This
 
 ## Part X — Work in progress
 
-This part is never finished. It holds the framework's active work — each open problem or unbuilt feature as its own loom, written to be worked out in place. Such a loom is not a specification. It opens as prose that states the problem and the shape of the answer, and it is built by amending that same loom with code, refining the prose as the design settles — never by taking it as a plan and writing the code somewhere else. So it travels from idea to implementation as one artifact, and never drifts from what it describes. When a chapter here is done, it graduates to its home part. The first two: a bug in the editor's own freshness, and the move that brings the tests themselves into the book.
+This part is never finished. It holds the framework's active work — each open problem or unbuilt feature as its own loom, written to be worked out in place. Such a loom is not a specification. It opens as prose that states the problem and the shape of the answer, and it is built by amending that same loom with code, refining the prose as the design settles — never by taking it as a plan and writing the code somewhere else. So it travels from idea to implementation as one artifact, and never drifts from what it describes. When a chapter here is done, it graduates to its home part. The first three: a bug in the editor's own freshness, the move that brings the tests themselves into the book, and the orphaned files a re-tangle leaves behind.
 
 ::[Rename freshness](wip/rename-freshness.loom)
 
 ::[Testing in looms](wip/testing-in-looms.loom)
+
+::[Orphaned tangle output](wip/orphaned-output.loom)
 
 ---
