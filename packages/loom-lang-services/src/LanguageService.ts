@@ -1,6 +1,7 @@
 import type { LanguageServicePlugin } from '@volar/language-service'
 import { Data, Effect } from 'effect'
 import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
+import type { SemanticToken } from '@athrio/loom-ast/LoomSymbol'
 
 export class ServiceError extends Data.TaggedError('ServiceError')<{
   readonly service: string
@@ -34,12 +35,18 @@ export interface FrameLocation {
   }
 }
 
+export interface FrameToken {
+  readonly range: FrameLocation['range']
+  readonly type: SemanticToken
+}
+
 export interface FrameQueryApi {
   readonly diagnostics: (path: string) => ReadonlyArray<Diagnostic>
   readonly definition: (path: string, offset: number) => FrameLocation | undefined
   readonly references: (path: string, offset: number) => ReadonlyArray<FrameLocation>
   readonly rename: (path: string, offset: number) => ReadonlyArray<FrameLocation>
   readonly renameRange: (path: string, offset: number) => FrameLocation | undefined
+  readonly semanticTokens: (path: string) => ReadonlyArray<FrameToken>
 }
 
 export class FrameQuery extends Effect.Service<FrameQuery>()('FrameQuery', {

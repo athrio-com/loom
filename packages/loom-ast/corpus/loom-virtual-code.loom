@@ -6,18 +6,13 @@
 
 ## Mappings
 
-A `Mapping` pairs a generated span — `genStart` and `genLength`, offsets into this node's `code` — with the `.loom` `source` span it projects from. Its `kind`, one of `tag`, `name`, `heading`, `anchor`, `prose`, `product`, or `source`, chooses which editor features Volar forwards at that span. The `source` kind marks the root's whole-file identity mapping, the one Loom's own diagnostics ride back to the editor.
+A `Mapping` pairs a generated span — `genStart` and `genLength`, offsets into this node's `code` — with the `.loom` `source` span it projects from. Its `kind` chooses which editor features Volar forwards at that span. Most kinds are the symbol kinds `LoomSymbol` names — a heading title, an anchor, a warp — so a mapping over an author's token forwards exactly the features that kind's profile allows. Two kinds stand outside that set, for the projection's own structure. A `source` span is the root's whole-file identity mapping, the one Loom's own diagnostics ride back to the editor. A `product` span is a stretch of resolved de re code.
 
 =>
 
-export const MappingKindSchema = Schema.Literal(
-  'tag',
-  'name',
-  'heading',
-  'anchor',
-  'prose',
-  'product',
-  'source',
+export const MappingKindSchema = Schema.Union(
+  SymbolKindSchema,
+  Schema.Literal('source', 'product'),
 )
 export type MappingKind = typeof MappingKindSchema.Type
 
@@ -56,12 +51,13 @@ export const LoomVirtualCodeSchema: Schema.Schema<LoomVirtualCode> =
 
 ## What this module draws on
 
-Effect's `Schema` defines the model, and `Position` from the foundation types each mapping's source span.
+Effect's `Schema` defines the model. `Position` from the foundation types each mapping's source span, and `SymbolKind` from `LoomSymbol` gives a symbol mapping its kind.
 
 =>
 
 import { Schema } from 'effect'
 import { PositionSchema } from '#ast/LoomNode'
+import { SymbolKindSchema } from '#ast/LoomSymbol'
 
 ## The module [src/ast, LoomVirtualCode.ts]
 

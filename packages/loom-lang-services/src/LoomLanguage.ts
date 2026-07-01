@@ -4,10 +4,12 @@ import type {
   Diagnostic as LspDiagnostic,
   LanguageServicePlugin,
   LocationLink,
+  SemanticToken,
   TextEdit,
 } from '@volar/language-service'
 import { URI } from 'vscode-uri'
 import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
+import { SemanticTokenSchema } from '@athrio/loom-ast/LoomSymbol'
 import {
   defineLanguageService,
   type FrameLocation,
@@ -131,6 +133,32 @@ const loomRename = (frame: FrameQueryApi): LanguageServicePlugin => ({
   }),
 })
 
+const semanticLegend = {
+  tokenTypes: [...SemanticTokenSchema.literals],
+  tokenModifiers: [],
+}
+
+const loomSemanticTokens = (frame: FrameQueryApi): LanguageServicePlugin => ({
+  name: 'loom-semantic-tokens',
+  capabilities: { semanticTokensProvider: { legend: semanticLegend } },
+  create: (context) => ({
+    provideDocumentSemanticTokens: (document) => {
+      const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
+      if (!decoded || decoded[1] !== 'root') return undefined
+      return Array.map(
+        frame.semanticTokens(decoded[0].fsPath),
+        (span): SemanticToken => [
+          span.range.start.line,
+          span.range.start.character,
+          span.range.end.character - span.range.start.character,
+          semanticLegend.tokenTypes.indexOf(span.type),
+          0,
+        ],
+      )
+    },
+  }),
+})
+
 const withoutHighlights = (
   plugin: LanguageServicePlugin,
 ): LanguageServicePlugin => ({
@@ -155,6 +183,7 @@ export const LoomLanguage = defineLanguageService({
         loomDefinition(frame),
         loomReferences(frame),
         loomRename(frame),
+        loomSemanticTokens(frame),
       ]
     }),
 })

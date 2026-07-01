@@ -183,6 +183,45 @@ const loomRename = (frame: FrameQueryApi): LanguageServicePlugin => ({
   }),
 })
 
+## Colouring the source
+
+`volar-service-typescript` colours the frame as TypeScript; it has no colour for a
+heading, an anchor, or a warp, the tokens Loom's own grammar draws. `loomSemanticTokens`
+gives them theirs. Its legend names the standard token types Loom draws on — `namespace`,
+`variable`, `keyword`, `string`, `operator` — so the user's theme colours them with no
+extra setup, and the order follows `LoomSymbol`'s own, so a token's kind indexes straight
+into it. `provideDocumentSemanticTokens` answers for the root alone, asks `FrameQuery`
+for the file's coloured tokens, and turns each into Volar's tuple of line, character,
+length, type, and modifiers — the type an index into the legend, and no modifiers.
+
+=>
+
+const semanticLegend = {
+  tokenTypes: [...SemanticTokenSchema.literals],
+  tokenModifiers: [],
+}
+
+const loomSemanticTokens = (frame: FrameQueryApi): LanguageServicePlugin => ({
+  name: 'loom-semantic-tokens',
+  capabilities: { semanticTokensProvider: { legend: semanticLegend } },
+  create: (context) => ({
+    provideDocumentSemanticTokens: (document) => {
+      const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
+      if (!decoded || decoded[1] !== 'root') return undefined
+      return Array.map(
+        frame.semanticTokens(decoded[0].fsPath),
+        (span): SemanticToken => [
+          span.range.start.line,
+          span.range.start.character,
+          span.range.end.character - span.range.start.character,
+          semanticLegend.tokenTypes.indexOf(span.type),
+          0,
+        ],
+      )
+    },
+  }),
+})
+
 ## Composing the services
 
 `withoutHighlights` wraps each `volar-service-typescript` plugin to drop one feature:
@@ -196,8 +235,8 @@ than the wrong one.
 `LoomLanguage` composes its plugin sources: the wrapped `volar-service-typescript`
 plugins that check the Frame, and over the `FrameQuery` the host provides,
 `loomDiagnostics` for Loom's own health, `loomDefinition` and `loomReferences` for its
-navigation, and `loomRename` for renaming a section. Volar registers them all under the
-`loom` id.
+navigation, `loomRename` for renaming a section, and `loomSemanticTokens` for colouring
+its tokens. Volar registers them all under the `loom` id.
 
 =>
 
@@ -225,6 +264,7 @@ export const LoomLanguage = defineLanguageService({
         loomDefinition(frame),
         loomReferences(frame),
         loomRename(frame),
+        loomSemanticTokens(frame),
       ]
     }),
 })
@@ -233,9 +273,9 @@ export const LoomLanguage = defineLanguageService({
 
 `volar-service-typescript` supplies the Frame's TypeScript plugins. From Volar's
 language service come the `LanguageServicePlugin` contract, the `LocationLink` a
-definition returns, the `TextEdit` a rename produces, and the editor's own `Diagnostic`
+definition returns, the `TextEdit` a rename produces, the `SemanticToken` tuple a colourer returns, and the editor's own `Diagnostic`
 type, aliased `LspDiagnostic` to keep it apart from Loom's. Effect supplies `Array`, `pipe`, and the `Effect` the service
-builds in. `@athrio/loom-ast` types a Loom `Diagnostic`, `vscode-uri` parses an embedded
+builds in. `@athrio/loom-ast` types a Loom `Diagnostic` and names the token colours in `SemanticTokenSchema`, `vscode-uri` parses an embedded
 document's uri, and the `LanguageService` module gives `defineLanguageService` with the
 `TypescriptSdk` and `FrameQuery` capabilities and the `FrameLocation` navigation answers
 in.
@@ -248,10 +288,12 @@ import type {
   Diagnostic as LspDiagnostic,
   LanguageServicePlugin,
   LocationLink,
+  SemanticToken,
   TextEdit,
 } from '@volar/language-service'
 import { URI } from 'vscode-uri'
 import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
+import { SemanticTokenSchema } from '@athrio/loom-ast/LoomSymbol'
 import {
   defineLanguageService,
   type FrameLocation,
@@ -271,5 +313,7 @@ import {
 ::[Navigating the frame]
 
 ::[Renaming a section]
+
+::[Colouring the source]
 
 ::[Composing the services]

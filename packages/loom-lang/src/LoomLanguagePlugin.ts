@@ -183,6 +183,12 @@ const frameQueryOver = (
         Effect.flatMap((compiler) => compiler.renameRange(path, offset)),
       ),
     ),
+  semanticTokens: (path) =>
+    Runtime.runSync(runtime)(
+      LoomCompiler.pipe(
+        Effect.flatMap((compiler) => compiler.semanticTokens(path)),
+      ),
+    ),
 })
 
 const compositionOver = (

@@ -8,8 +8,8 @@ import {
 } from '@athrio/loom-ast/ProductAst'
 import { type Position } from '@athrio/loom-ast/LoomNode'
 import { type LoomModule, type Path } from '@athrio/loom-ast/LoomCorpusAst'
-import { type LoomDocument, type LoomSection } from '@athrio/loom-ast/LoomAst'
-import { type WarpAnchorToken } from '@athrio/loom-ast/LoomTokens'
+import { type LoomDocument } from '@athrio/loom-ast/LoomAst'
+import { symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 import {
   type LoomVirtualCode,
   type Mapping,
@@ -252,25 +252,8 @@ const spanOf = (position: Position, kind: MappingKind): Mapping => ({
   kind,
 })
 
-const anchorsOf = (section: LoomSection): ReadonlyArray<WarpAnchorToken> =>
-  pipe(
-    [...section.preamble, ...section.code],
-    Array.flatMap((weft) => weft.anchors),
-  )
-
-export const symbolMappings = (
-  doc: LoomDocument,
-): ReadonlyArray<Mapping> =>
-  Array.flatMap(doc.sections, (section) => [
-    ...pipe(
-      Option.fromNullable(section.heading.title),
-      Option.map((title) => spanOf(title.position, 'heading')),
-      Option.toArray,
-    ),
-    ...Array.map(anchorsOf(section), (anchor) =>
-      spanOf(anchor.position, 'anchor'),
-    ),
-  ])
+export const symbolMappings = (doc: LoomDocument): ReadonlyArray<Mapping> =>
+  Array.map(symbolsOf(doc), (symbol) => spanOf(symbol.position, symbol.kind))
 
 export const fromProduct = (
   modules: ReadonlyMap<Path, LoomModule>,

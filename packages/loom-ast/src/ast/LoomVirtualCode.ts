@@ -1,14 +1,10 @@
 import { Schema } from 'effect'
 import { PositionSchema } from '#ast/LoomNode'
+import { SymbolKindSchema } from '#ast/LoomSymbol'
 
-export const MappingKindSchema = Schema.Literal(
-  'tag',
-  'name',
-  'heading',
-  'anchor',
-  'prose',
-  'product',
-  'source',
+export const MappingKindSchema = Schema.Union(
+  SymbolKindSchema,
+  Schema.Literal('source', 'product'),
 )
 export type MappingKind = typeof MappingKindSchema.Type
 

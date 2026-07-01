@@ -267,11 +267,11 @@ const indentBlock = (
   }
 }
 
-## Mapping the section symbols
+## Mapping the symbols
 
-Loom's navigation and rename serve the root mirror alone — the document whose map to the source is the identity. The root carries one whole-file span of the `source` kind, which Volar forwards for verification only, so a cursor on a heading or an anchor reaches no Loom feature. `symbolMappings` adds the spans that route those features: a `heading` span over each section's title, and an `anchor` span over every `::[…]` reference the section carries. With them, go-to-definition on an anchor, find-references on a heading, and rename of a section all reach Loom through the root. The frame holds its own copies of these spans for the TypeScript it generates; these are the source's own, on the file the author opened.
+Loom's navigation and colour serve the root mirror alone — the document whose map to the source is the identity. The root carries one whole-file span of the `source` kind, which Volar forwards for verification only, so a cursor on a token reaches no other Loom feature through it. `symbolMappings` adds the spans that route the rest: one span per symbol the document declares, each carrying its kind. `LoomCompiler` reads that kind's profile from `LoomSymbol` and forwards exactly the features it allows, so go-to on a heading, rename of a warp, and colour on an arrow each reach the right token through the root.
 
-`anchorsOf` gathers a section's anchors across its preamble and its body — code and prose alike — the same set the navigation resolves over. `spanOf` makes one identity mapping over a token's span, since the root's code is the source verbatim.
+`symbolsOf` classifies every token in one pass — the heading titles and anchors, the warps, the specifiers and sinks, the arrows and tildes. `spanOf` makes one identity mapping over a token's span, since the root's code is the source verbatim.
 
 =>
 
@@ -282,25 +282,8 @@ const spanOf = (position: Position, kind: MappingKind): Mapping => ({
   kind,
 })
 
-const anchorsOf = (section: LoomSection): ReadonlyArray<WarpAnchorToken> =>
-  pipe(
-    [...section.preamble, ...section.code],
-    Array.flatMap((weft) => weft.anchors),
-  )
-
-export const symbolMappings = (
-  doc: LoomDocument,
-): ReadonlyArray<Mapping> =>
-  Array.flatMap(doc.sections, (section) => [
-    ...pipe(
-      Option.fromNullable(section.heading.title),
-      Option.map((title) => spanOf(title.position, 'heading')),
-      Option.toArray,
-    ),
-    ...Array.map(anchorsOf(section), (anchor) =>
-      spanOf(anchor.position, 'anchor'),
-    ),
-  ])
+export const symbolMappings = (doc: LoomDocument): ReadonlyArray<Mapping> =>
+  Array.map(symbolsOf(doc), (symbol) => spanOf(symbol.position, symbol.kind))
 
 ## The passes and the tree
 
@@ -445,7 +428,7 @@ export class LoomVirtualCodeBuilder extends Effect.Service<LoomVirtualCodeBuilde
 
 ## What this module draws on
 
-Effect supplies `Array`, `Option`, and `pipe` for the folds and the resolution, and `Effect` itself for the service. The de re node types and `keyOf` come from `ProductAst`, `Position` from the foundation, and the `LoomModule` and `Path` the resolution walks from the corpus model. The parse `LoomDocument` and its `LoomSection`, with the `WarpAnchorToken` an anchor is lifted from, come from the AST the symbol mappings read. The virtual-code types come from `LoomVirtualCode`.
+Effect supplies `Array`, `Option`, and `pipe` for the folds and the resolution, and `Effect` itself for the service. The de re node types and `keyOf` come from `ProductAst`, `Position` from the foundation, and the `LoomModule` and `Path` the resolution walks from the corpus model. The parse `LoomDocument` comes from the AST, and `symbolsOf` from `LoomSymbol` classifies its tokens for the symbol mappings. The virtual-code types come from `LoomVirtualCode`.
 
 =>
 
@@ -459,8 +442,8 @@ import {
 } from '@athrio/loom-ast/ProductAst'
 import { type Position } from '@athrio/loom-ast/LoomNode'
 import { type LoomModule, type Path } from '@athrio/loom-ast/LoomCorpusAst'
-import { type LoomDocument, type LoomSection } from '@athrio/loom-ast/LoomAst'
-import { type WarpAnchorToken } from '@athrio/loom-ast/LoomTokens'
+import { type LoomDocument } from '@athrio/loom-ast/LoomAst'
+import { symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 import {
   type LoomVirtualCode,
   type Mapping,
@@ -481,7 +464,7 @@ import {
 
 ::[Re-indenting a transcluded block]
 
-::[Mapping the section symbols]
+::[Mapping the symbols]
 
 ::[The passes and the tree]
 

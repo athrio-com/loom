@@ -59,13 +59,15 @@ language.
 The contract names Volar's `LanguageServicePlugin`, the unit of editor behavior; from
 Effect, `Data` for the tagged error and `Effect` itself, since a service builds its
 plugins in an Effect and a capability is an Effect service; and from
-`@athrio/loom-ast`, the `Diagnostic` the frame query returns.
+`@athrio/loom-ast`, the `Diagnostic` the frame query returns and the `SemanticToken`
+colour it tags each of a file's tokens with.
 
 =>
 
 import type { LanguageServicePlugin } from '@volar/language-service'
 import { Data, Effect } from 'effect'
 import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
+import type { SemanticToken } from '@athrio/loom-ast/LoomSymbol'
 
 ## A service
 
@@ -104,7 +106,7 @@ A service may draw on capabilities the host provides, taken through the Effect e
 
 `TypescriptSdk` is the TypeScript compiler itself. It carries no default — the host supplies the editor's own instance (via Volar's `loadTsdkByPath`), so analysis matches the user's project. The Loom and TypeScript services both take it; `create` needs the compiler to check the frame and the TypeScript product. A CSS or Go service never asks.
 
-`FrameQuery` is the host's read into the frame — the questions Loom can answer about a file from the composition it built. Its first reader, `diagnostics`, returns that file's Loom diagnostics, the grammatical and semantic health in Loom's own terms, so the frame service can surface them. Four more readers answer navigation and rename. `definition` gives the heading an anchor at an offset resolves to, and `references` gives every anchor that names the section under an offset. `rename` gives the title and anchor-name spans a rename rewrites together, and `renameRange` gives the one span the rename box covers. Each answers in `FrameLocation`s — a path and a range in the editor's own line-and-character coordinates. The host builds it over the warm corpus, and like `TypescriptSdk` it carries no default. Only the Loom service takes it.
+`FrameQuery` is the host's read into the frame — the questions Loom can answer about a file from the composition it built. Its first reader, `diagnostics`, returns that file's Loom diagnostics, the grammatical and semantic health in Loom's own terms, so the frame service can surface them. Four more readers answer navigation and rename. `definition` gives the heading an anchor at an offset resolves to, and `references` gives every anchor that names the section under an offset. `rename` gives the title and anchor-name spans a rename rewrites together, and `renameRange` gives the one span the rename box covers. These answer in `FrameLocation`s — a path and a range in the editor's own line-and-character coordinates. A last reader, `semanticTokens`, gives each of a file's tokens its colour: a `FrameToken` pairing a range with the `SemanticToken` kind `LoomSymbol` assigns, so the editor highlights the source. The host builds the query over the warm corpus, and like `TypescriptSdk` it carries no default. Only the Loom service takes it.
 
 `Composition` is the host's read of the de re as a filesystem: every composition root in a file's corpus, each as the resolved code it tangles to, named by the path it tangles to. A product service builds its analyzer's program over these, so a cross-file `import` resolves to another section's live composition rather than its last-tangled output on disk. Each root also carries its `heading`, the `FrameLocation` of the section that tangles it, so go-to on that `import` lands on the section in the `.loom` rather than the transcluded code the composed file opens with. Like the others it carries no default; the host builds it over the warm corpus. The product service takes it.
 
@@ -128,12 +130,18 @@ export interface FrameLocation {
   }
 }
 
+export interface FrameToken {
+  readonly range: FrameLocation['range']
+  readonly type: SemanticToken
+}
+
 export interface FrameQueryApi {
   readonly diagnostics: (path: string) => ReadonlyArray<Diagnostic>
   readonly definition: (path: string, offset: number) => FrameLocation | undefined
   readonly references: (path: string, offset: number) => ReadonlyArray<FrameLocation>
   readonly rename: (path: string, offset: number) => ReadonlyArray<FrameLocation>
   readonly renameRange: (path: string, offset: number) => FrameLocation | undefined
+  readonly semanticTokens: (path: string) => ReadonlyArray<FrameToken>
 }
 
 export class FrameQuery extends Effect.Service<FrameQuery>()('FrameQuery', {

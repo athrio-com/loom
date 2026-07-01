@@ -15,8 +15,9 @@ import {
 // fromProduct: a section → its product virtual code, the sections it names with
 // `::[…]` inlined in composition order, each block re-indented to its anchor
 // column. fromProse: the file as a Markdown document, code blanked to spaces.
-// symbolMappings: the heading and anchor spans the root mirror routes navigation
-// through. rootVirtualCode: the file's tree, the source as the loom root.
+// symbolMappings: one span per symbol the document declares, the spans the root
+// mirror routes navigation and colour through. rootVirtualCode: the file's tree,
+// the source as the loom root.
 
 const parse = (src: string) =>
   Effect.runSync(parseDocument(src).pipe(Effect.provide(ParseLayer)))
@@ -358,30 +359,32 @@ describe('fromProse — code blanked, prose kept, offsets preserved', () => {
   })
 })
 
-// === symbolMappings — heading and anchor spans ============================
+// === symbolMappings — a span per declared symbol ==========================
 
-// symbolMappings routes Loom's navigation through the root mirror: a `heading` span
-// over each section's title and an `anchor` span over every `::[…]` reference. Each
-// span is the source verbatim — its genStart and source offsets agree — so a cursor
-// on a heading or anchor reaches the right token.
+// symbolMappings routes Loom's navigation and colour through the root mirror: one
+// span per symbol the document declares, each carrying its kind. A section title is
+// a `headingTitle`; a `::[Negate]` reference naming a section is a `sectionAnchor`.
+// Each span covers the token's name — `Negate`, not `::[Negate]` — the same range
+// rename edits, and maps to the source verbatim, so its genStart and source offsets
+// agree.
 describe('symbolMappings — the spans navigation routes through', () => {
   const doc = parse(sad)
   const symbols = symbolMappings(doc)
 
-  it('spans each section title as a heading', () => {
-    const headings = Array.filter(symbols, (m) => m.kind === 'heading')
+  it('spans each section title as a headingTitle', () => {
+    const headings = Array.filter(symbols, (m) => m.kind === 'headingTitle')
     const titles = Array.map(headings, (m) =>
       sad.slice(m.source.start.offset, m.source.end.offset),
     )
     expect(titles).toEqual(['Negate', 'Negated double'])
   })
 
-  it('spans the `::[Negate]` reference as an anchor', () => {
-    const anchors = Array.filter(symbols, (m) => m.kind === 'anchor')
+  it('spans the `::[Negate]` reference name as a sectionAnchor', () => {
+    const anchors = Array.filter(symbols, (m) => m.kind === 'sectionAnchor')
     const named = Array.map(anchors, (m) =>
       sad.slice(m.source.start.offset, m.source.end.offset),
     )
-    expect(named).toEqual(['::[Negate]'])
+    expect(named).toEqual(['Negate'])
   })
 
   it('maps every span to its own source verbatim', () => {
@@ -419,7 +422,7 @@ describe('rootVirtualCode — the source as the loom root', () => {
     expect(whole.genLength).toBe(sad.length)
 
     // the heading and anchor spans ride alongside it
-    expect(root.mappings.some((m) => m.kind === 'heading')).toBe(true)
-    expect(root.mappings.some((m) => m.kind === 'anchor')).toBe(true)
+    expect(root.mappings.some((m) => m.kind === 'headingTitle')).toBe(true)
+    expect(root.mappings.some((m) => m.kind === 'sectionAnchor')).toBe(true)
   })
 })

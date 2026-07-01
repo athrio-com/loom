@@ -12,9 +12,9 @@ Its spine is one step. `buildCorpus` runs `parse |> product`: it loads each modu
 
 The product is built once, with the parse. `LoomCorpusAstBuilder` composes each module's de re as it loads, so `LoomMemo` caches the whole module — parse and product together — and a second projection of an unedited file reuses it. An edit evicts the file and its dependents, so the next projection rebuilds only what changed.
 
-Nine verbs project the corpus for the consumers. `compile` gives the editor its Volar tree, the source as the `loom` root and the de re sections beneath it. `tangle` resolves a file's `{path}` sinks to the content and target the CLI writes. `diagnose` gives a file's Loom health, the diagnostics the editor shows. `definition` follows an anchor to the section it names, and `references` finds every anchor that names the section under the cursor. `rename` gathers the title and anchors a rename rewrites together, and `renameRange` gives the span the rename box covers. `reach` gives the files an entry pulls in, so the editor associates their scripts. `invalidate` evicts a file and the dependents that inlined it, naming what an edit must reproject.
+The verbs project the corpus for the consumers. `compile` gives the editor its Volar tree, the source as the `loom` root and the de re sections beneath it. `tangle` resolves a file's `{path}` sinks to the content and target the CLI writes. `diagnose` gives a file's Loom health, the diagnostics the editor shows. `definition` follows an anchor to the section it names, and `references` finds every anchor that names the section under the cursor. `rename` gathers the title and anchors a rename rewrites together, and `renameRange` gives the span the rename box covers. `semanticTokens` gives each of a file's tokens its colour, so the editor highlights the source. `reach` gives the files an entry pulls in, so the editor associates their scripts. `invalidate` evicts a file and the dependents that inlined it, naming what an edit must reproject.
 
-Every verb builds the corpus the same way and differs only in what it reads. `compile` and `tangle` read the de re — the composed sections and the sink files. `diagnose`, `definition`, `references`, `rename`, `renameRange`, and `reach` read the parse and the corpus graph, since Loom health, navigation, and placement need no de re. `compile` takes its `Source` from the caller, so the editor reads the open buffer, and it guards Volar's synchronous hook: a defect degrades to a bare `loom` document carrying the file's text, and the editor keeps working rather than crashing. The other verbs read from disk through `DocumentSource`.
+Every verb builds the corpus the same way and differs only in what it reads. `compile` and `tangle` read the de re — the composed sections and the sink files. `diagnose`, `definition`, `references`, `rename`, `renameRange`, `semanticTokens`, and `reach` read the parse and the corpus graph, since Loom health, navigation, colour, and placement need no de re. `compile` takes its `Source` from the caller, so the editor reads the open buffer, and it guards Volar's synchronous hook: a defect degrades to a bare `loom` document carrying the file's text, and the editor keeps working rather than crashing. The other verbs read from disk through `DocumentSource`.
 
 =>
 
@@ -245,6 +245,35 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
                 Option.flatMap(renameRangeAt({ modules }, path, offset), (loc) =>
                   frameLocationOf(modules, loc),
                 ),
+              ),
+            ),
+          ),
+
+        semanticTokens: (
+          path: Path,
+        ): Effect.Effect<ReadonlyArray<FrameToken>> =>
+          buildCorpus(documents, path).pipe(
+            Effect.map((modules) =>
+              pipe(
+                Option.fromNullable(modules.get(path)),
+                Option.match({
+                  onNone: () => [],
+                  onSome: (module) =>
+                    Array.filterMap(symbolsOf(module.doc), (symbol) =>
+                      Option.flatMap(profileOf(symbol.kind).semantic, (token) =>
+                        Option.map(
+                          frameLocationOf(modules, {
+                            path,
+                            position: symbol.position,
+                          }),
+                          (location): FrameToken => ({
+                            range: location.range,
+                            type: token,
+                          }),
+                        ),
+                      ),
+                    ),
+                }),
               ),
             ),
           ),
@@ -561,7 +590,7 @@ const projectTree = (modules: Modules, entry: LoomModule): LoomVirtualCode =>
 
 Every model up to here is plain data, which keeps the pipeline serialisable and easy to test. Volar is not plain data: it wants a function-based `IScriptSnapshot` for a document's text and its own `CodeMapping` for each source span. `toVolar` is the one adapter that crosses from a `LoomVirtualCode` tree to Volar's `VirtualCode`, and the only place in Loom that touches Volar's runtime types. It recurses down the embedded tree, converting every node.
 
-Three small functions do the work. `stringSnapshot` presents a string as the minimal snapshot Volar reads. `featuresOf` chooses which editor features Volar forwards at a mapped span. A prose span — a preamble, a heading line, the text between code blocks — carries structure alone: it folds and outlines, but is not a navigation target, so go-to, rename, and highlight never fire on the narration. A heading span — a section's title, the precise word an anchor points to — adds navigation, and a tag span — a section's `[Tag]` label — does the same, so an author renames the section and finds its anchors from the title itself, not the whole line. An anchor span — a `::[Heading]` reference itself — adds verification, so an unresolved name still reports its error, and otherwise navigates. A product span carries the full set, verification and completion and semantics among them, so the author edits the resolved composition as if it were the source. A span of the `source` kind — the whole-file identity mapping the root carries — takes verification alone, so Loom's own diagnostics surface on the file while no other feature fires there. `toCodeMapping` rewrites one of our `Mapping`s — a `.loom` source span paired with the generated span it projects to — as Volar's `CodeMapping`, choosing its features with `featuresOf`.
+Three small functions do the work. `stringSnapshot` presents a string as the minimal snapshot Volar reads. `featuresOf` chooses which editor features Volar forwards at a mapped span, and for every author-facing token it defers to `LoomSymbol`: it reads the span's symbol kind through `profileOf` and forwards exactly the features that kind allows — a heading navigates, an anchor navigates and verifies, prose only folds and outlines. The table is the one place those features live, so `featuresOf` repeats none of them. It answers only for the two kinds that carry the projection's structure rather than a token a cursor rests on. A `source` span — the whole-file identity mapping the root carries — takes verification alone, so Loom's own diagnostics surface on the file while no other feature fires there. A `product` span carries the full set, verification and completion and semantics among them, so the author edits the resolved composition as if it were the source. `toCodeMapping` rewrites one of our `Mapping`s — a `.loom` source span paired with the generated span it projects to — as Volar's `CodeMapping`, choosing its features with `featuresOf`.
 
 =>
 
@@ -571,26 +600,20 @@ export const stringSnapshot = (text: string): ts.IScriptSnapshot => ({
   getChangeRange: () => undefined,
 })
 
+const productFeatures: CodeMapping['data'] = {
+  verification: true,
+  completion: true,
+  semantic: true,
+  navigation: true,
+  structure: true,
+}
+
 const featuresOf = (kind: Mapping['kind']): CodeMapping['data'] =>
   Match.value(kind).pipe(
-    Match.when('prose', () => ({ structure: true })),
-    Match.whenOr('heading', 'tag', () => ({
-      navigation: true,
-      structure: true,
-    })),
-    Match.when('anchor', () => ({
-      verification: true,
-      navigation: true,
-      structure: true,
-    })),
     Match.when('source', () => ({ verification: true })),
-    Match.orElse(() => ({
-      verification: true,
-      completion: true,
-      semantic: true,
-      navigation: true,
-      structure: true,
-    })),
+    Match.when('product', () => productFeatures),
+    Match.when(Match.defined, (symbol) => profileOf(symbol).features),
+    Match.orElse(() => productFeatures),
   )
 
 const toCodeMapping = (m: Mapping): CodeMapping => ({
@@ -660,7 +683,7 @@ export class DocumentSource extends Effect.Service<DocumentSource>()(
 
 ## What the compiler draws on
 
-From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; the projection functions `fromProduct`, `fromProse`, `rootNamesAt`, `rootVirtualCode`, and `symbolMappings`; the corpus model — `LoomModule`, the `corpusErrors` and `moduleDiagnostics` readers, the `sinkTreeRouting` and `sinkTreeFaults` walks with the `SinkFault` they yield, the `tangleSinks` list the collision check resolves, the `definitionAt`, `referencesAt`, `renameAt`, and `renameRangeAt` navigation walks with the `CorpusLocation` they yield, and the `transitiveDependents` walk; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache. The fault catalog supplies `faulty` and the `LoomFault` constructors that word a sink fault, and `normaliseTitle` gives the detector its one missing rule. From the language-service contract comes `FrameLocation`, the editor-shaped range the navigation verbs return. `Diagnostic` carries an error's message and place. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError`, and Node's `fs` and `path` read each file and resolve each sink.
+From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; the projection functions `fromProduct`, `fromProse`, `rootNamesAt`, `rootVirtualCode`, and `symbolMappings`; the corpus model — `LoomModule`, the `corpusErrors` and `moduleDiagnostics` readers, the `sinkTreeRouting` and `sinkTreeFaults` walks with the `SinkFault` they yield, the `tangleSinks` list the collision check resolves, the `definitionAt`, `referencesAt`, `renameAt`, and `renameRangeAt` navigation walks with the `CorpusLocation` they yield, and the `transitiveDependents` walk; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache. `profileOf` and `symbolsOf` from `LoomSymbol` give each mapped span its editor features and each of a file's tokens its colour. The fault catalog supplies `faulty` and the `LoomFault` constructors that word a sink fault, and `normaliseTitle` gives the detector its one missing rule. From the language-service contract come `FrameLocation`, the editor-shaped range the navigation verbs return, and `FrameToken`, a range paired with the colour `semanticTokens` returns. `Diagnostic` carries an error's message and place. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError`, and Node's `fs` and `path` read each file and resolve each sink.
 
 =>
 
@@ -692,6 +715,7 @@ import {
 import {
   type ComposedFile,
   type FrameLocation,
+  type FrameToken,
 } from '@athrio/loom-lang-services/LanguageService'
 import {
   CollidingSinks,
@@ -717,6 +741,7 @@ import {
   symbolMappings,
 } from '#ast/LoomVirtualCodeBuilder'
 import { type LoomVirtualCode, type Mapping } from '@athrio/loom-ast/LoomVirtualCode'
+import { profileOf, symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 import { LoomMemo } from './LoomMemo'
 import { PackageConfig } from './PackageConfig'
 

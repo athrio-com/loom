@@ -26,6 +26,7 @@ import {
 import {
   type ComposedFile,
   type FrameLocation,
+  type FrameToken,
 } from '@athrio/loom-lang-services/LanguageService'
 import {
   CollidingSinks,
@@ -51,6 +52,7 @@ import {
   symbolMappings,
 } from '#ast/LoomVirtualCodeBuilder'
 import { type LoomVirtualCode, type Mapping } from '@athrio/loom-ast/LoomVirtualCode'
+import { profileOf, symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 import { LoomMemo } from './LoomMemo'
 import { PackageConfig } from './PackageConfig'
 
@@ -297,26 +299,20 @@ export const stringSnapshot = (text: string): ts.IScriptSnapshot => ({
   getChangeRange: () => undefined,
 })
 
+const productFeatures: CodeMapping['data'] = {
+  verification: true,
+  completion: true,
+  semantic: true,
+  navigation: true,
+  structure: true,
+}
+
 const featuresOf = (kind: Mapping['kind']): CodeMapping['data'] =>
   Match.value(kind).pipe(
-    Match.when('prose', () => ({ structure: true })),
-    Match.whenOr('heading', 'tag', () => ({
-      navigation: true,
-      structure: true,
-    })),
-    Match.when('anchor', () => ({
-      verification: true,
-      navigation: true,
-      structure: true,
-    })),
     Match.when('source', () => ({ verification: true })),
-    Match.orElse(() => ({
-      verification: true,
-      completion: true,
-      semantic: true,
-      navigation: true,
-      structure: true,
-    })),
+    Match.when('product', () => productFeatures),
+    Match.when(Match.defined, (symbol) => profileOf(symbol).features),
+    Match.orElse(() => productFeatures),
   )
 
 const toCodeMapping = (m: Mapping): CodeMapping => ({
@@ -603,6 +599,35 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
                 Option.flatMap(renameRangeAt({ modules }, path, offset), (loc) =>
                   frameLocationOf(modules, loc),
                 ),
+              ),
+            ),
+          ),
+
+        semanticTokens: (
+          path: Path,
+        ): Effect.Effect<ReadonlyArray<FrameToken>> =>
+          buildCorpus(documents, path).pipe(
+            Effect.map((modules) =>
+              pipe(
+                Option.fromNullable(modules.get(path)),
+                Option.match({
+                  onNone: () => [],
+                  onSome: (module) =>
+                    Array.filterMap(symbolsOf(module.doc), (symbol) =>
+                      Option.flatMap(profileOf(symbol.kind).semantic, (token) =>
+                        Option.map(
+                          frameLocationOf(modules, {
+                            path,
+                            position: symbol.position,
+                          }),
+                          (location): FrameToken => ({
+                            range: location.range,
+                            type: token,
+                          }),
+                        ),
+                      ),
+                    ),
+                }),
               ),
             ),
           ),
