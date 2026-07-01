@@ -1,0 +1,76 @@
+{{lang: TypeScript}}
+
+# Bundling the Loom extension
+
+Vite bundles the extension for the VS Code extension host. It has two entry points — the client in this package and the language server in `@athrio/loom-lang` — and emits them as `dist/client.js` and `dist/server.js`. The extension host loads CommonJS, so the build emits CommonJS rather than the ESM the CLI produces.
+
+## The build [packages/loom-vscode, vite.config.ts]
+
+Some of the server's dependencies — the `vscode-*-languageservice` packages and `jsonc-parser` — ship only UMD bundles, the older module format that rolldown cannot follow statically. The `umd2esm` plugin rewrites each such import to its ESM sibling so the bundler can inline it. This is the same trick volarjs/starter uses.
+
+`vscode-markdown-languageservice`, which `ProseLanguage`'s Markdown service pulls in, imports `vscode-uri` by its default binding, which that package's ES-module build does not provide. An alias resolves `vscode-uri` to its UMD build instead, where the bundler's CommonJS interop supplies one.
+
+=>
+
+import { defineConfig } from 'vite'
+import { builtinModules, createRequire } from 'node:module'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const here = dirname(fileURLToPath(import.meta.url))
+const requireFromHere = createRequire(import.meta.url)
+
+const nodeBuiltins = [
+  ...builtinModules,
+  ...builtinModules.map((m) => `node:${m}`),
+]
+
+const umd2esm = {
+  name: 'umd2esm',
+  enforce: 'pre' as const,
+  resolveId(source: string, importer: string | undefined) {
+    if (/^(vscode-.*-languageservice|jsonc-parser)/.test(source)) {
+      const fromDir = importer ? dirname(importer) : here
+      const resolved = requireFromHere.resolve(source, { paths: [fromDir] })
+      return resolved.replace(/\/umd\//, '/esm/').replace(/\\umd\\/g, '\\esm\\')
+    }
+    return null
+  },
+}
+
+~
+
+The `vscode` module is provided by the host at runtime, and Node's built-in modules are present in every Node runtime, so both stay external — everything else is inlined. The two entries build to `dist/client.js` and `dist/server.js`, targeting Node 20 in CommonJS form.
+
+=>
+
+export default defineConfig({
+  plugins: [umd2esm],
+  resolve: {
+    conditions: ['node'],
+    mainFields: ['main', 'module'],
+    alias: {
+      'vscode-uri': requireFromHere
+        .resolve('vscode-uri')
+        .replace(/esm[\\/]index\.mjs$/, 'umd/index.js'),
+    },
+  },
+  build: {
+    target: 'node20',
+    outDir: 'dist',
+    emptyOutDir: true,
+    sourcemap: true,
+    minify: false,
+    lib: {
+      entry: {
+        client: resolve(here, 'src/vscode-extension.ts'),
+        server: resolve(here, '../loom-lang/src/index.ts'),
+      },
+      formats: ['cjs'],
+    },
+    rollupOptions: {
+      external: ['vscode', ...nodeBuiltins],
+      output: { entryFileNames: '[name].js' },
+    },
+  },
+})

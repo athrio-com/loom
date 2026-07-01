@@ -1,0 +1,53 @@
+{{lang: JSON}}
+
+# Packaging loom-config
+
+`@athrio/loom-config` ships as source — no build of its own.
+
+## The manifest [packages/loom-config, package.json]
+
+The `exports` field is the package's surface — one entry, the `LoomConfig` module. The CLI
+and the language server inline this source when they bundle; `effect` and the
+platform are peers, supplied by the host bundle. The `yaml` parser, which reads the
+compiled configuration, is a real dependency, bundled along with the source.
+
+=>
+
+{
+  "name": "@athrio/loom-config",
+  "version": "0.0.1",
+  "description": "The loom.config.json model and reader for Loom projects.",
+  "license": "Apache-2.0 OR MIT",
+  "type": "module",
+  "exports": {
+    "./LoomConfig": "./src/LoomConfig.ts"
+  },
+  "peerDependencies": {
+    "@effect/platform": "^0.96.1",
+    "effect": "3.21.2"
+  },
+  "devDependencies": {
+    "@effect/platform": "^0.96.1",
+    "effect": "3.21.2"
+  },
+  "dependencies": {
+    "yaml": "^2.9.0"
+  }
+}
+
+## The TypeScript config [packages/loom-config, tsconfig.json]
+
+The config extends the workspace base and typechecks `src`. Node's types come from the
+base, which declares `types: ['node']` once for every package — pnpm's isolated
+layout does not reliably resolve `@types/node`. The config never ships.
+
+=>
+
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "out",
+    "rootDir": "src"
+  },
+  "include": ["src"]
+}

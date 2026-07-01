@@ -1,0 +1,292 @@
+{{lang: TypeScript}}
+
+# A project's configuration
+
+`@athrio/loom-config` reads a Loom project's configuration. A project keeps it in one compiled file, `.loom/config.yaml`, under the workspace's generated store — the activation commands write it, and a project may also compile it from literate `{Config}` sources. This package reads that file and answers, for any `.loom` file, the configuration that applies to it.
+
+It reads the compiled file rather than the `{Config}` source for one reason: it is a leaf. Reading the source would mean parsing a `.loom` file, which would pull in the language compiler, and the compiler already depends on this package. The compiled `.loom/config.yaml` breaks that cycle. The pass that compiles the `{Config}` sources runs inside the compiler, where the parser already lives, and writes the file this package reads.
+
+The read is synchronous. The editor resolves a file's configuration inside Volar's synchronous projection hook, which cannot wait for a promise, so the resolver reads through Node's synchronous filesystem. A missing or malformed file resolves to the empty configuration rather than failing, so a project still opens when its configuration is absent or broken.
+
+## The pieces a configuration is built from
+
+Three small shapes recur across every configuration. The anchor pair holds the delimiters a section's anchors open and close with, each side optional so a configuration overrides only the one it cares about. A language entry carries the one thing activating a language can override — the `service` package that gives it editor support — and is otherwise empty, since a language's presence is what activates it. The settings map holds, for each language id, a free-form bag the host passes to that language's service untouched.
+
+=>
+
+const AnchorSchema = Schema.Struct({
+  open: Schema.optional(Schema.String),
+  close: Schema.optional(Schema.String),
+})
+
+const LanguageSchema = Schema.Struct({
+  service: Schema.optional(Schema.String),
+})
+
+const SettingsSchema = Schema.Record({
+  key: Schema.String,
+  value: Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+})
+
+## What the configuration declares
+
+A project has one configuration, authored in a single `{Config}` section. It names the languages the project activates — one set for the whole project, because the editor runs a single language server over it — and sets the defaults every section inherits: the primary language a specifier-less section falls back to, the anchor delimiters, the per-language settings, and the name of the corpus directory looms sit in. A package declares no configuration of its own; a book composes the package layout literately, in its higher-order sinks, rather than in the configuration.
+
+=>
+
+export const WorkspaceConfigSchema = Schema.Struct({
+  languages: Schema.Record({ key: Schema.String, value: LanguageSchema }),
+  corpus: Schema.optional(Schema.String),
+  primary: Schema.optional(Schema.String),
+  anchor: Schema.optional(AnchorSchema),
+  settings: Schema.optional(SettingsSchema),
+})
+
+export type WorkspaceConfig = typeof WorkspaceConfigSchema.Type
+
+## Reading a configuration source
+
+`parseConfig` reads the YAML body of a `{Config}` section and decodes it into the workspace configuration. It parses the text as YAML and validates the result against `WorkspaceConfigSchema`, yielding nothing when the text is not YAML or its shape is not a configuration. The compiler's configuration pass calls it on the `{Config}` source it finds, before compiling it into the manifest.
+
+=>
+
+const decodeConfig = Schema.decodeUnknownOption(WorkspaceConfigSchema)
+
+export const parseConfig = (text: string): WorkspaceConfig | undefined => {
+  try {
+    return Option.getOrUndefined(decodeConfig(parseYaml(text)))
+  } catch {
+    return undefined
+  }
+}
+
+## The compiled manifest
+
+`.loom/config.yaml` is the compiled form the compiler writes and this package reads. It holds the workspace's defaults — the activated languages, the primary, the anchor, the settings, and the name of the corpus directory looms sit in. Every field is optional, because a workspace may compile from no `{Config}` source at all and still produce a manifest, an empty one.
+
+=>
+
+export const WorkspaceManifestSchema = Schema.Struct({
+  languages: Schema.optional(
+    Schema.Record({ key: Schema.String, value: LanguageSchema }),
+  ),
+  corpus: Schema.optional(Schema.String),
+  primary: Schema.optional(Schema.String),
+  anchor: Schema.optional(AnchorSchema),
+  settings: Schema.optional(SettingsSchema),
+})
+
+export type WorkspaceManifest = typeof WorkspaceManifestSchema.Type
+
+## What a reader receives
+
+`ResolvedConfig` is the resolved shape every reader works with: the workspace defaults that apply to one file. Its `anchor`, `primary`, `languages`, and `settings` are the same four a reader has always read. Three fields complete it. The `services` map names, for each activated language, the package that serves it — the one the language declared, or the conventional `@athrio/loom-service-<id>` when it declared none. The `packageRoot` is the absolute path the resolved file's package tangles under — the directory above the corpus folder its loom sits in — or `undefined` when the file sits in no corpus folder. The `workspaceRoot` is the absolute path of the workspace itself, the directory a book's higher-order sink resolves its directories against; it is `undefined` only when the file belongs to no workspace.
+
+A file that resolves to nothing — no workspace, no configuration — receives the empty configuration: no anchor, no primary, no languages, no services, no root.
+
+=>
+
+export interface ResolvedConfig {
+  readonly anchor: { readonly open?: string; readonly close?: string } | undefined
+  readonly primary: string | undefined
+  readonly languages: ReadonlyArray<string>
+  readonly settings: Record<string, Record<string, unknown>>
+  readonly services: Record<string, string>
+  readonly packageRoot: string | undefined
+  readonly workspaceRoot: string | undefined
+  readonly corpusDir: string | undefined
+}
+
+const empty: ResolvedConfig = {
+  anchor: undefined,
+  primary: undefined,
+  languages: [],
+  settings: {},
+  services: {},
+  packageRoot: undefined,
+  workspaceRoot: undefined,
+  corpusDir: undefined,
+}
+
+## Finding the workspace
+
+A workspace is the directory that holds the generated `.loom/` store. `findWorkspace` walks up from a starting directory to the first ancestor that has one, the same ancestor search a package manager runs for a project's lockfile. It stops at the filesystem root and returns nothing when no ancestor holds a store, so a path outside any Loom project resolves to the empty configuration.
+
+=>
+
+const storeDirName = '.loom'
+const manifestName = 'config.yaml'
+const defaultCorpus = 'corpus'
+
+const findWorkspace = (dir: string): string | undefined => {
+  if (existsSync(resolvePath(dir, storeDirName))) return dir
+  const parent = dirname(dir)
+  return parent === dir ? undefined : findWorkspace(parent)
+}
+
+## Reading the manifest
+
+`readManifest` reads the compiled `.loom/config.yaml` and decodes it. It parses the file as YAML and validates the result against `WorkspaceManifestSchema`, yielding the manifest on success. A read failure, a parse failure, or YAML the schema rejects all yield nothing — the resolver then falls back, and the editor never crashes on a broken manifest.
+
+=>
+
+const decodeManifest = Schema.decodeUnknownOption(WorkspaceManifestSchema)
+
+const readManifest = (file: string): WorkspaceManifest | undefined => {
+  try {
+    return Option.getOrUndefined(decodeManifest(parseYaml(readFileSync(file, 'utf8'))))
+  } catch {
+    return undefined
+  }
+}
+
+## Resolving the services
+
+The `services` map is the one resolved field the manifest does not carry directly. Every activated language resolves to the package that serves it: `servicesOf` maps each language id to its service, taking the language's own `service` when it set one and the conventional `@athrio/loom-service-<id>` when it did not.
+
+=>
+
+const serviceFor = (id: string, language: { readonly service?: string }): string =>
+  language.service ?? `@athrio/loom-service-${id}`
+
+const servicesOf = (
+  languages: Record<string, { readonly service?: string }> | undefined,
+): Record<string, string> =>
+  Object.fromEntries(
+    Object.entries(languages ?? {}).map(([id, language]) => [id, serviceFor(id, language)]),
+  )
+
+## Resolving a file's configuration
+
+Resolving a file gives it the workspace defaults and the root its sinks tangle under. The anchor, primary, and settings are the workspace's; the languages are its activated set; the services resolve from those languages.
+
+`containerRoot` derives the package root by convention. It walks up from the file to the nearest directory named like the corpus — `corpus` by default — and takes the directory above it, so a loom in `pkg/corpus/` tangles into `pkg/`. A file inside no corpus directory carries no root and tangles beside itself.
+
+`corpusDir` is the other half of that walk: the corpus directory the file lives in, the one Loom enumerates to discover its sibling looms. It is the same nearest ancestor `containerRoot` finds, returned whole rather than stepped above. A file in no corpus directory — a workspace whose `corpus` is `.`, or a loose file — discovers from its own directory, never climbing out to scan a whole workspace.
+
+=>
+
+const containerRoot = (
+  dir: string,
+  container: string,
+  workspace: string,
+): string | undefined => {
+  if (basename(dir) === container) return dirname(dir)
+  const parent = dirname(dir)
+  return dir === workspace || parent === dir
+    ? undefined
+    : containerRoot(parent, container, workspace)
+}
+
+const corpusDirOf = (
+  start: string,
+  container: string,
+  workspace: string,
+): string => {
+  const climb = (dir: string): string => {
+    if (basename(dir) === container) return dir
+    const parent = dirname(dir)
+    return dir === workspace || parent === dir ? start : climb(parent)
+  }
+  return climb(start)
+}
+
+const resolveFromManifest = (
+  manifest: WorkspaceManifest,
+  workspace: string,
+  fromPath: string,
+): ResolvedConfig => {
+  const container = manifest.corpus ?? defaultCorpus
+  return {
+    anchor: manifest.anchor,
+    primary: manifest.primary,
+    languages: Object.keys(manifest.languages ?? {}),
+    settings: manifest.settings ?? {},
+    services: servicesOf(manifest.languages),
+    packageRoot: containerRoot(dirname(fromPath), container, workspace),
+    workspaceRoot: workspace,
+    corpusDir: corpusDirOf(dirname(fromPath), container, workspace),
+  }
+}
+
+## The service
+
+`LoomConfig` is the service the rest of Loom calls. Its `resolve` takes any path inside a project — a `.loom` file, usually — and returns the configuration that applies to it: it finds the workspace, reads the compiled manifest, and resolves against it. A path with no workspace, no manifest, or no name at all resolves to the empty configuration.
+
+Its `manifest` reads a workspace's whole compiled manifest, found by walking up from a directory — the read the activation commands and the editor's service loader share. Its `materialize` writes a manifest back to the workspace's `.loom/config.yaml`, creating the store directory if it is absent.
+
+=>
+
+export class LoomConfig extends Effect.Service<LoomConfig>()('LoomConfig', {
+  succeed: {
+    resolve: (fromPath: string): Effect.Effect<ResolvedConfig> =>
+      Effect.sync(() => {
+        if (fromPath === '') return empty
+        const workspace = findWorkspace(dirname(fromPath))
+        if (workspace === undefined) return empty
+        const manifest = readManifest(
+          resolvePath(workspace, storeDirName, manifestName),
+        )
+        return manifest === undefined
+          ? empty
+          : resolveFromManifest(manifest, workspace, fromPath)
+      }),
+
+    manifest: (fromDir: string): Effect.Effect<WorkspaceManifest | undefined> =>
+      Effect.sync(() => {
+        const workspace = findWorkspace(fromDir)
+        return workspace === undefined
+          ? undefined
+          : readManifest(resolvePath(workspace, storeDirName, manifestName))
+      }),
+
+    materialize: (workspace: string, manifest: WorkspaceManifest): Effect.Effect<void> =>
+      Effect.sync(() => {
+        const store = resolvePath(workspace, storeDirName)
+        mkdirSync(store, { recursive: true })
+        writeFileSync(resolvePath(store, manifestName), stringifyYaml(manifest))
+      }),
+  },
+}) {}
+
+## What the module draws on
+
+Effect supplies `Schema` for every shape, `Option` for a decode that may yield nothing, and the effect type. The `yaml` package parses and serialises the compiled manifest. Node's synchronous filesystem reads, writes, and creates directories; its path module resolves paths, walks to parent directories, and names the platform separator.
+
+=>
+
+import { Effect, Option, Schema } from 'effect'
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs'
+import { basename, dirname, resolve as resolvePath } from 'node:path'
+
+## The module [packages/loom-config/src, LoomConfig.ts]
+
+=>
+
+::[What the module draws on]
+
+::[The pieces a configuration is built from]
+
+::[What the configuration declares]
+
+::[Reading a configuration source]
+
+::[The compiled manifest]
+
+::[What a reader receives]
+
+::[Finding the workspace]
+
+::[Reading the manifest]
+
+::[Resolving the services]
+
+::[Resolving a file's configuration]
+
+::[The service]

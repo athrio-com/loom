@@ -1,0 +1,109 @@
+{{lang: TypeScript}}
+
+# Bundling the loadable service
+
+The loader imports a built JavaScript file, not TypeScript source, so the package builds to one: `dist/index.js`, an ES module whose default export is the `TypescriptService`. The build folds the service's own modules and its Volar machinery into that single file, so the store holds a self-contained service with nothing left to resolve.
+
+The one thing the service must not bundle is the runtime it shares with the host. A second copy of Effect would give the service its own `TypescriptSdk` tag, distinct from the one the host provides, and the dependency injection would never meet. So three specifiers stay out of the bundle — `effect`, the `LanguageService` contract, and `typescript`. The host lends those, and a small plugin rewrites their imports to read the host's live copies through the global the host writes. `Runtime` in `@athrio/loom-lang-services` names that boundary.
+
+## The runtime bridge
+
+`loomRuntimeBridge` turns each shared specifier into a module that reads the host's runtime off the global. It resolves the specifier to a virtual id, then builds that module: it imports the real package once, at build time, to learn the names the package exports, and emits one binding per name, each reading the live value from `globalThis` under the runtime key. A service loaded with no host runtime in place fails with a clear message rather than a missing-property error.
+
+The bridge runs only at build. It shapes the published bundle alone and leaves the test and dev pipelines, which read the same Vite config, to resolve the runtime the ordinary way.
+
+=>
+
+const runtimePrefix = '\0loom-runtime:'
+
+const loomRuntimeBridge = (): Plugin => ({
+  name: 'loom-runtime-bridge',
+  enforce: 'pre',
+  apply: 'build',
+  resolveId: (source) =>
+    runtimeSpecifiers.includes(source) ? runtimePrefix + source : null,
+  load: async (id) => {
+    if (!id.startsWith(runtimePrefix)) return null
+    const specifier = id.slice(runtimePrefix.length)
+    const namespace = await import(specifier)
+    const names = Object.keys(namespace).filter(
+      (name) => name !== 'default' && /^[A-Za-z_$][\w$]*$/.test(name),
+    )
+    const head =
+      `const __runtime = globalThis[${JSON.stringify(runtimeKey)}]\n` +
+      `if (__runtime === undefined) throw new Error(${JSON.stringify(
+        `the Loom host runtime is not installed; ${specifier} cannot load`,
+      )})\n` +
+      `const __module = __runtime.modules[${JSON.stringify(specifier)}]\n`
+    const bindings = names
+      .map((name) => `export const ${name} = __module[${JSON.stringify(name)}]`)
+      .join('\n')
+    const fallback =
+      'default' in namespace
+        ? 'export default __module.default ?? __module'
+        : 'export default __module'
+    return `${head}${bindings}\n${fallback}\n`
+  },
+})
+
+## The build
+
+Node's built-in modules stay external, since every Node runtime carries them. Everything else is bundled, except the three specifiers the bridge intercepts — so `volar-service-typescript` and the rest of Volar are inlined, their CommonJS internals transformed in place, rather than left to resolve from a store that does not carry them. The one entry builds to `dist/index.js`, the ES module the loader's dynamic `import` reads.
+
+=>
+
+export default defineConfig({
+  plugins: [loomRuntimeBridge()],
+  build: {
+    target: 'node20',
+    outDir: 'dist',
+    emptyOutDir: true,
+    sourcemap: true,
+    minify: false,
+    commonjsOptions: { transformMixedEsModules: true },
+    lib: {
+      entry: resolve(here, 'src/TypescriptService.ts'),
+      formats: ['es'],
+      fileName: () => 'index.js',
+    },
+    rollupOptions: {
+      external: nodeBuiltins,
+    },
+  },
+})
+
+## What the build draws on
+
+Vite's `defineConfig` shapes the build and its `Plugin` type types the bridge. Node's `builtinModules` lists the specifiers to leave external, `dirname` and `resolve` locate the entry, and `fileURLToPath` reads this config's own directory.
+
+The bridge needs two values from the runtime contract: `runtimeKey`, the global property the host writes, and `runtimeSpecifiers`, the specifiers it covers. `Runtime` in `@athrio/loom-lang-services` is their home, but a build tool cannot import that TypeScript source, so the config declares them again and the conformance test holds the two copies in step.
+
+=>
+
+import { defineConfig, type Plugin } from 'vite'
+import { builtinModules } from 'node:module'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const here = dirname(fileURLToPath(import.meta.url))
+const nodeBuiltins = [
+  ...builtinModules,
+  ...builtinModules.map((name) => `node:${name}`),
+]
+
+const runtimeKey = '__loomRuntime'
+const runtimeSpecifiers = [
+  'effect',
+  '@athrio/loom-lang-services/LanguageService',
+  'typescript',
+]
+
+## The module [packages/loom-service-typescript, vite.config.ts]
+
+=>
+
+::[What the build draws on]
+
+::[The runtime bridge]
+
+::[The build]

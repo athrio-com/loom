@@ -1,0 +1,60 @@
+{{lang: JSON}}
+
+# Packaging the TypeScript service
+
+`@athrio/loom-service-typescript` is the first loadable language service. A project installs it to give its TypeScript product an editor program of its own, held apart from the frame's. The package builds to one ES module, `dist/index.js`, whose default export is the service — the artifact the dynamic loader imports at runtime.
+
+## The manifest [packages/loom-service-typescript, package.json]
+
+The `exports` field names the package's surface, and it is a single entry: the default `.`, the built `dist/index.js` whose default export is the service the loader reads. The `files` field ships only `dist`, so the published package is that one built file and its source map, and `publishConfig` makes the scoped package public.
+
+The package carries no dependencies. The build bundles `volar-service-typescript` and Volar's language layers into `dist/index.js`, and the runtime bridge reads `effect`, the `@athrio/loom-lang-services` contract, and the editor's TypeScript from the host at load. Those three are neither bundled nor installed — the host lends them, so a second copy never shadows the `TypescriptSdk` the host provides. The `devDependencies` exist only to build and type-check the source; what the running service shares with the host is fixed by the runtime version `Runtime` declares, not by an npm range.
+
+=>
+
+{
+  "name": "@athrio/loom-service-typescript",
+  "version": "0.0.1",
+  "description": "The loadable TypeScript language service: the product's own editor program, held apart from the frame.",
+  "license": "Apache-2.0 OR MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vite build",
+    "watch": "vite build --watch"
+  },
+  "devDependencies": {
+    "@athrio/loom-lang-services": "workspace:*",
+    "@volar/language-core": "^2.4.28",
+    "@volar/language-service": "^2.4.28",
+    "@volar/typescript": "^2.4.28",
+    "effect": "3.21.2",
+    "typescript": "^6.0.3",
+    "volar-service-typescript": "^0.0.71",
+    "vscode-uri": "^3.1.0"
+  }
+}
+
+## The TypeScript config [packages/loom-service-typescript, tsconfig.json]
+
+The config extends the workspace base, which supplies the compiler options and Node's types, and typechecks `src`. It never ships.
+
+=>
+
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "out",
+    "rootDir": "src"
+  },
+  "include": ["src"]
+}

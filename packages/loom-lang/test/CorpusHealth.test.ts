@@ -5,18 +5,26 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { PackageConfig } from '../src/PackageConfig'
 
-// Regression guard for the brace-in-prose gotcha. A literal `{{` on a preamble
-// line tokenises as a Warp, so prose that describes the warp delimiters spells
-// them as the numeric character references `&#123;` and `&#125;` (see the note in
-// loom-tokens.loom). This diagnoses each loom-lang corpus file and asserts none
-// carries error health, so a future edit that drops the entities back to a literal
-// `{{` fails right here, with the offending file named. Each file's diagnostics
+// Regression guard for the brace-in-prose gotcha, now covering the whole book. A
+// literal `{{` on a preamble line tokenises as a Warp, so prose that describes the
+// warp delimiters spells them as the numeric character references `&#123;` and
+// `&#125;` (see the note in the leaf-tokens chapter). This diagnoses every chapter
+// loom and asserts none carries error health, so a future edit that drops the
+// entities back to a literal `{{` fails right here, with the offending file named.
+// The book is one corpus at the repo root, its chapters filed under narrative
+// folders (corpus/NN-title/). Three parts of that tree are left out: the guide is
+// authored on its own track, a work-in-progress loom names code it has not built
+// yet, and the spine references chapters not yet migrated. Each file's diagnostics
 // scope to itself — a standalone module places nothing, so a sibling never reports
-// on it. Discovery builds the whole directory into one corpus, so `beforeAll` warms
-// it once and each case below reads a hot memo rather than paying the walk.
+// on it. Discovery builds the whole tree into one corpus, so `beforeAll` warms it
+// once and each case below reads a hot memo rather than paying the walk.
 
-const corpusDir = resolve(__dirname, '../corpus')
-const looms = readdirSync(corpusDir).filter((name) => name.endsWith('.loom'))
+const corpusDir = resolve(__dirname, '../../../corpus')
+const looms = readdirSync(corpusDir, { recursive: true })
+  .map(String)
+  .filter((name) => name.endsWith('.loom'))
+  .filter((name) => !name.startsWith('guide') && !name.startsWith('wip'))
+  .filter((name) => name !== 'book.loom' && name !== 'Loom.loom')
 
 let run: <A>(effect: Effect.Effect<A, never, LoomCompiler>) => A
 

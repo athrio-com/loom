@@ -1,0 +1,116 @@
+{{lang: TypeScript}}
+
+# The build cache
+
+`LoomMemo` is the incremental build cache — the reason editing one `.loom` does not recompile the project. Building a module (parse → frame → de re) is the costly half; projecting it afterwards is cheap. So a keystroke stays cheap by not rebuilding what did not change: each module is built once, kept by path, and returned on the next request. It is deliberately just a `path → LoomModule` cache — it knows nothing of imports, so which paths an edit invalidates stays the compiler's call, handed to `evict`.
+
+## The observable state
+
+`MemoStats` is the window onto the cache: hits against misses is the work an edit avoided, and size is how many modules are kept. The state holds the kept modules and the running tallies immutably behind a `SynchronizedRef`, and `empty` is its starting value.
+
+=>
+
+export interface MemoStats {
+  readonly hits: number
+  readonly misses: number
+  readonly size: number
+}
+
+interface MemoState {
+  readonly modules: ReadonlyMap<Path, LoomModule>
+  readonly hits: number
+  readonly misses: number
+}
+
+const empty: MemoState = { modules: new Map(), hits: 0, misses: 0 }
+
+## The cache as a service
+
+`LoomMemo` is that cache as a service — one instance is the project's build cache. `get` is a hit (return the kept module) or a miss (run `build`, keep it, count it), checked and built in one atomic step so a module builds at most once under concurrent gets. The `build` it runs may itself `get` the cache for its imports. `entries` exposes the kept modules for the compiler to project and to walk. `evict` forgets a set of paths by copy-and-change, never mutating the kept map. `stats` reports the counters.
+
+`get` caches the parse and the frame, but not the de re — that comes from running the whole corpus, which one module cannot do alone. `fill` closes the gap: the compiler runs the corpus once, then writes each produced module back over its kept entry, so the de re is cached beside the frame and the next projection reuses it instead of running again. `fill` updates only paths still kept, so an edit that evicted a module in the meantime never sees it resurrected with a stale de re.
+
+=>
+
+export class LoomMemo extends Effect.Service<LoomMemo>()('LoomMemo', {
+  effect: Effect.gen(function* () {
+    const state = yield* SynchronizedRef.make<MemoState>(empty)
+
+    return {
+      get: (
+        path: Path,
+        build: Effect.Effect<LoomModule>,
+      ): Effect.Effect<LoomModule> =>
+        SynchronizedRef.modifyEffect(state, (s) =>
+          Option.match(Option.fromNullable(s.modules.get(path)), {
+            onSome: (module) =>
+              Effect.succeed([module, { ...s, hits: s.hits + 1 }] as const),
+            onNone: () =>
+              Effect.map(build, (module) => [
+                module,
+                {
+                  ...s,
+                  misses: s.misses + 1,
+                  modules: new Map(s.modules).set(path, module),
+                },
+              ] as const),
+          }),
+        ),
+
+      entries: SynchronizedRef.get(state).pipe(Effect.map((s) => s.modules)),
+
+      fill: (produced: ReadonlyMap<Path, LoomModule>): Effect.Effect<void> =>
+        SynchronizedRef.update(state, (s) => ({
+          ...s,
+          modules: new Map(
+            Array.map(
+              Array.fromIterable(s.modules),
+              ([path, kept]) => [path, produced.get(path) ?? kept] as const,
+            ),
+          ),
+        })),
+
+      evict: (paths: Iterable<Path>): Effect.Effect<void> => {
+        const drop = new Set(paths)
+        return SynchronizedRef.update(state, (s) => ({
+          ...s,
+          modules: new Map(
+            pipe(
+              Array.fromIterable(s.modules),
+              Array.filter(([path]) => !drop.has(path)),
+            ),
+          ),
+        }))
+      },
+
+      stats: SynchronizedRef.get(state).pipe(
+        Effect.map(
+          (s): MemoStats => ({
+            hits: s.hits,
+            misses: s.misses,
+            size: s.modules.size,
+          }),
+        ),
+      ),
+    }
+  }),
+}) {}
+
+## What this module draws on
+
+Effect supplies `SynchronizedRef` for the atomic state, and `Array`, `Option`, and `pipe` for the operations. `LoomModule` and `Path` from the corpus model are what it caches and keys by.
+
+=>
+
+import { Array, Effect, Option, SynchronizedRef, pipe } from 'effect'
+import { type LoomModule, type Path } from '@athrio/loom-ast/LoomCorpusAst'
+
+## The module [packages/loom-lang/src, LoomMemo.ts]
+
+=>
+
+::[What this module draws on]
+
+::[The observable state]
+
+::[The cache as a service]

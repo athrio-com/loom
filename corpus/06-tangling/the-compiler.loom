@@ -1,0 +1,770 @@
+{{lang: TypeScript}}
+
+# The compile layer
+
+Loom compiles a `.loom` file along two planes at once. The de dicto plane is the document's own composition syntax — its headings, anchors, and sinks — which Loom serves on the source itself. The de re **product** is the author's code, composed from the sections those anchors name. `LoomCompiler` is where the two meet: it runs the chain — `parse → product` — and projects the result for whoever asks.
+
+## The chain and its verbs
+
+`LoomCompiler` is the higher-order service that runs the chain. It composes the passes rather than re-implementing them, and hands each consumer a finished projection through a verb.
+
+Its spine is one step. `buildCorpus` runs `parse |> product`: it loads each module through `LoomCorpusAstBuilder` — which parses the file and composes its de re in the same pass — keeps it in `LoomMemo`, and discovers the rest of the corpus beside it. The corpus is the through-line every projection reads.
+
+The product is built once, with the parse. `LoomCorpusAstBuilder` composes each module's de re as it loads, so `LoomMemo` caches the whole module — parse and product together — and a second projection of an unedited file reuses it. An edit evicts the file and its dependents, so the next projection rebuilds only what changed.
+
+The verbs project the corpus for the consumers. `compile` gives the editor its Volar tree, the source as the `loom` root and the de re sections beneath it. `tangle` resolves a file's `{path}` sinks to the content and target the CLI writes. `diagnose` gives a file's Loom health, the diagnostics the editor shows. `definition` follows an anchor to the section it names, and `references` finds every anchor that names the section under the cursor. `rename` gathers the title and anchors a rename rewrites together, and `renameRange` gives the span the rename box covers. `semanticTokens` gives each of a file's tokens its colour, so the editor highlights the source. `reach` gives the files an entry pulls in, so the editor associates their scripts. `invalidate` evicts a file and the dependents that inlined it, naming what an edit must reproject.
+
+Every verb builds the corpus the same way and differs only in what it reads. `compile` and `tangle` read the de re — the composed sections and the sink files. `diagnose`, `definition`, `references`, `rename`, `renameRange`, `semanticTokens`, and `reach` read the parse and the corpus graph, since Loom health, navigation, colour, and placement need no de re. `compile` takes its `Source` from the caller, so the editor reads the open buffer, and it guards Volar's synchronous hook: a defect degrades to a bare `loom` document carrying the file's text, and the editor keeps working rather than crashing. The other verbs read from disk through `DocumentSource`.
+
+=>
+
+export class LoomCompiler extends Effect.Service<LoomCompiler>()(
+  'LoomCompiler',
+  {
+    effect: Effect.gen(function* () {
+      const documents = yield* DocumentSource
+      const builder = yield* LoomCorpusAstBuilder
+      const memo = yield* LoomMemo
+      const config = yield* PackageConfig
+
+      const loadOne = (source: Source, path: Path): Effect.Effect<LoomModule> =>
+        config.resolve(path).pipe(
+          Effect.flatMap(({ delims, primaryLanguage }) =>
+            memo.get(path, builder.build(source, path, delims, primaryLanguage)),
+          ),
+        )
+
+      const listFrom = (
+        list: (dir: Path) => Effect.Effect<ReadonlyArray<Path>>,
+        entry: Path,
+      ): Effect.Effect<ReadonlyArray<Path>> =>
+        config.resolve(entry).pipe(
+          Effect.map((settings) =>
+            Option.getOrElse(
+              Option.fromNullable(settings.corpusDir),
+              () => dirname(entry),
+            ),
+          ),
+          Effect.flatMap(list),
+          Effect.map((found) => Array.dedupe([entry, ...found])),
+        )
+
+      const corpusPaths = (
+        source: Source,
+        entry: Path,
+      ): Effect.Effect<ReadonlyArray<Path>> =>
+        Option.match(source.list, {
+          onNone: () => Effect.succeed<ReadonlyArray<Path>>([entry]),
+          onSome: (list) => listFrom(list, entry),
+        })
+
+      const buildCorpus = (source: Source, entry: Path): Effect.Effect<Modules> =>
+        corpusPaths(source, entry).pipe(
+          Effect.flatMap((paths) =>
+            Effect.forEach(paths, (path) =>
+              loadOne(source, path).pipe(Effect.map((m) => [path, m] as const)),
+            ),
+          ),
+          Effect.map((pairs) => new Map(pairs)),
+        )
+
+      return {
+        compile: (source: Source, path: Path): Effect.Effect<VirtualCode> =>
+          buildCorpus(source, path).pipe(
+            Effect.flatMap((modules) => entryOf(modules, path)),
+            Effect.map(({ modules, entry }) =>
+              toVolar(projectTree(modules, entry)),
+            ),
+            Effect.catchAllCause((cause) =>
+              Effect.logError(
+                'loom: projection failed; serving bare document',
+                cause,
+              ).pipe(
+                Effect.zipRight(
+                  source.read(path).pipe(
+                    Effect.orElseSucceed(() => ''),
+                    Effect.map((text) => toVolar(rootVirtualCode(text, []))),
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+        tangle: (
+          path: Path,
+        ): Effect.Effect<ReadonlyArray<TangledFile>, TangleError> =>
+          buildCorpus(documents, path).pipe(
+            Effect.flatMap((modules) => {
+              const scoped = scopedTo(modules, placeReachable(modules, path))
+              return collisionDiagnostics(config, scoped).pipe(
+                Effect.flatMap((collisions) => {
+                  const sinkErrors = Array.filterMap(
+                    sinkDiagnostics(scoped),
+                    (d) =>
+                      d.diagnostic.severity === 'error'
+                        ? Option.some({ path: d.path, diagnostics: [d.diagnostic] })
+                        : Option.none(),
+                  )
+                  const collisionErrors = Array.map(collisions, (d) => ({
+                    path: d.path,
+                    diagnostics: [d.diagnostic],
+                  }))
+                  const failures = [
+                    ...corpusErrors({ modules: scoped }),
+                    ...sinkErrors,
+                    ...collisionErrors,
+                  ]
+                  return failures.length > 0
+                    ? Effect.fail(new TangleError({ entry: path, failures }))
+                    : config.resolve(path).pipe(
+                        Effect.map(({ packageRoot, workspaceRoot }) =>
+                          resolveSinks(
+                            scoped,
+                            path,
+                            Option.fromNullable(packageRoot),
+                            Option.fromNullable(workspaceRoot),
+                          ),
+                        ),
+                      )
+                }),
+              )
+            }),
+          ),
+
+        placed: (path: Path): Effect.Effect<ReadonlySet<Path>> =>
+          buildCorpus(documents, path).pipe(
+            Effect.map((modules) => placedModules({ modules })),
+          ),
+
+        composition: (path: Path): Effect.Effect<ReadonlyArray<ComposedFile>> =>
+          buildCorpus(documents, path).pipe(
+            Effect.flatMap((modules) => {
+              const routing = sinkTreeRouting({ modules })
+              return Effect.forEach(
+                Array.fromIterable(modules.values()),
+                (module) =>
+                  config.resolve(module.path).pipe(
+                    Effect.map(({ packageRoot, workspaceRoot }) =>
+                      Array.map(
+                        module.product.files,
+                        (file): ComposedFile => ({
+                          path: outputPath(
+                            fileRoot(
+                              routing.get(module.path),
+                              file.path,
+                              Option.fromNullable(packageRoot),
+                              Option.fromNullable(workspaceRoot),
+                            ),
+                            module.path,
+                            file.path,
+                          ),
+                          content: fromProduct(modules, file.code.origin).code,
+                          loomPath: module.path,
+                          rootId: file.code.origin.name.toLowerCase(),
+                          heading: headingLocationOf(modules, module, file.code.origin.name),
+                        }),
+                      ),
+                    ),
+                  ),
+                { concurrency: 'unbounded' },
+              ).pipe(Effect.map(Array.flatten))
+            }),
+          ),
+
+        diagnose: (path: Path): Effect.Effect<ReadonlyArray<Diagnostic>> =>
+          buildCorpus(documents, path).pipe(
+            Effect.flatMap((modules) => {
+              const scoped = scopedTo(modules, placeReachable(modules, path))
+              return collisionDiagnostics(config, scoped).pipe(
+                Effect.map((collisions) =>
+                  pipe(
+                    Option.fromNullable(modules.get(path)),
+                    Option.match({
+                      onNone: () => [],
+                      onSome: (module) => [
+                        ...moduleDiagnostics(module),
+                        ...Array.filterMap(sinkDiagnostics(scoped), (d) =>
+                          d.path === path ? Option.some(d.diagnostic) : Option.none(),
+                        ),
+                        ...Array.filterMap(collisions, (d) =>
+                          d.path === path ? Option.some(d.diagnostic) : Option.none(),
+                        ),
+                      ],
+                    }),
+                  ),
+                ),
+              )
+            }),
+          ),
+
+        definition: (
+          path: Path,
+          offset: number,
+        ): Effect.Effect<FrameLocation | undefined> =>
+          buildCorpus(documents, path).pipe(
+            Effect.map((modules) =>
+              Option.getOrUndefined(
+                Option.flatMap(definitionAt({ modules }, path, offset), (loc) =>
+                  frameLocationOf(modules, loc),
+                ),
+              ),
+            ),
+          ),
+
+        references: (
+          path: Path,
+          offset: number,
+        ): Effect.Effect<ReadonlyArray<FrameLocation>> =>
+          buildCorpus(documents, path).pipe(
+            Effect.map((modules) =>
+              Array.filterMap(referencesAt({ modules }, path, offset), (loc) =>
+                frameLocationOf(modules, loc),
+              ),
+            ),
+          ),
+
+        rename: (
+          path: Path,
+          offset: number,
+        ): Effect.Effect<ReadonlyArray<FrameLocation>> =>
+          buildCorpus(documents, path).pipe(
+            Effect.map((modules) =>
+              Array.filterMap(renameAt({ modules }, path, offset), (loc) =>
+                frameLocationOf(modules, loc),
+              ),
+            ),
+          ),
+
+        renameRange: (
+          path: Path,
+          offset: number,
+        ): Effect.Effect<FrameLocation | undefined> =>
+          buildCorpus(documents, path).pipe(
+            Effect.map((modules) =>
+              Option.getOrUndefined(
+                Option.flatMap(renameRangeAt({ modules }, path, offset), (loc) =>
+                  frameLocationOf(modules, loc),
+                ),
+              ),
+            ),
+          ),
+
+        semanticTokens: (
+          path: Path,
+        ): Effect.Effect<ReadonlyArray<FrameToken>> =>
+          buildCorpus(documents, path).pipe(
+            Effect.map((modules) =>
+              pipe(
+                Option.fromNullable(modules.get(path)),
+                Option.match({
+                  onNone: () => [],
+                  onSome: (module) =>
+                    Array.filterMap(symbolsOf(module.doc), (symbol) =>
+                      Option.flatMap(profileOf(symbol.kind).semantic, (token) =>
+                        Option.map(
+                          frameLocationOf(modules, {
+                            path,
+                            position: symbol.position,
+                          }),
+                          (location): FrameToken => ({
+                            range: location.range,
+                            type: token,
+                          }),
+                        ),
+                      ),
+                    ),
+                }),
+              ),
+            ),
+          ),
+
+        reach: (path: Path): Effect.Effect<ReadonlyArray<Path>> =>
+          buildCorpus(documents, path).pipe(
+            Effect.map((modules) =>
+              Array.filter(placeReachable(modules, path), (p) => p !== path),
+            ),
+          ),
+
+        invalidate: (path: Path): Effect.Effect<ReadonlyArray<Path>> =>
+          Effect.gen(function* () {
+            const modules = yield* memo.entries
+            const dependents = transitiveDependents(modules, path)
+            yield* memo.evict([path])
+            return [path, ...dependents]
+          }),
+      }
+    }),
+    dependencies: [
+      LoomCorpusAstBuilder.Default,
+      LoomMemo.Default,
+    ],
+  },
+) {}
+
+## The discovered corpus
+
+A file's corpus is the looms beside it: every `.loom` under the directory the file lives in, discovered from disk, not the files it names in imports. `buildCorpus` lists that directory through the source and builds each loom it finds, so a book reaches the chapters it places and an anchor reaches the section it names, with nothing imported by hand. A source that lists nothing — a single document held in memory — yields a corpus of one.
+
+The whole corpus is what navigation and placement resolve against, so a name reaches a section wherever in the corpus it lives. The tangle and the diagnose narrow it: each scopes to the entry and the chapters a book places into it, through `placeReachable`, so tangling one file never reaches a sibling it should not, and a broken sibling never fails a neighbour's build.
+
+A `Modules` map keys each module by its path. It is the value `buildCorpus` returns and every projection reads. `scopedTo` keeps the modules a set of paths names, the way the tangle narrows the whole corpus to one entry's reach.
+
+=>
+
+type Modules = ReadonlyMap<Path, LoomModule>
+
+const scopedTo = (modules: Modules, paths: ReadonlyArray<Path>): Modules => {
+  const keep = new Set(paths)
+  return new Map(Array.filter(Array.fromIterable(modules), ([p]) => keep.has(p)))
+}
+
+## Resolving the entry
+
+Two verbs are about one file within its corpus, so they pick that module out once the corpus is produced. `entryOf` looks the entry up by path and dies if it is absent — a projection of a file the corpus never loaded is a bug, not a recoverable state. It returns the entry beside the corpus it came from, so a caller reads both from one result.
+
+=>
+
+const entryOf = (
+  modules: Modules,
+  path: Path,
+): Effect.Effect<{ readonly modules: Modules; readonly entry: LoomModule }> =>
+  Effect.fromNullable(modules.get(path)).pipe(
+    Effect.orDie,
+    Effect.map((entry) => ({ modules, entry })),
+  )
+
+## Tangling a file
+
+`tangle` is the de re's file projection, the sibling of `compile`. It produces the corpus, refuses a broken build, and resolves the entry's sinks to the content and target a writer emits. `placed` is the set of looms a book places as chapters, read off the corpus. A directory tangle skips them — a book emits its chapters when it tangles — so a placed chapter is never tangled on its own, and every file emits once.
+
+`composition` is that same resolution turned to the editor: every root in the corpus, the code it composes and the path it composes to, ungated and unscoped. It is the live de re as a filesystem — what a product language service builds its analyzer's program over, so a cross-file import resolves against a section's live composition rather than its output on disk.
+
+`resolveSinks` gathers the files this tangle emits: the entry module's own tangle sinks — one per `[dir, file]` section — and every sink a book in the corpus routes into place. For each it flattens the composed code across the corpus with `fromProduct`, then resolves where the file lands. A module's file emits only when the entry produced it or a book routes it, so importing a module to transclude its code never re-emits that module's own files. `outputPath` places a sink under a root, so a sink names its file relative to that root rather than climbing out of the corpus. `fileRoot` chooses that root for each sink: the chapter prefix a book places the sink under, resolved against the workspace, or the package root the configuration gives when no chapter places it. A file the workspace assigns to no package falls back to the module's own directory. `resolveSinks` returns a `TangledFile` per sink: the section that produced it, where it lands, and its content. `LoomTangler` performs the writes; `tangle` itself touches no disk.
+
+A tangle must never emit an anchor it could not resolve, nor build on a file it could not read. So `tangle` runs `corpusErrors` over the whole corpus first — every module's document and product — and fails with a `TangleError` the moment any module carries an error. A missing import, a malformed parse, an unresolved `::[…]` reference each stops the build rather than leaving a file with a silently dropped reference. The failure is loud, and names every file and line.
+
+=>
+
+export interface TangledFile {
+  readonly section: string
+  readonly path: Path
+  readonly content: string
+}
+
+const outputPath = (
+  packageRoot: Option.Option<string>,
+  entry: Path,
+  sink: string,
+): Path =>
+  Option.match(packageRoot, {
+    onNone: () => resolvePath(dirname(entry), sink),
+    onSome: (root) => resolvePath(root, sink),
+  })
+
+const fileRoot = (
+  routed: ReadonlyMap<string, string> | undefined,
+  sink: string,
+  packageRoot: Option.Option<string>,
+  workspaceRoot: Option.Option<string>,
+): Option.Option<string> =>
+  Option.all([Option.fromNullable(routed?.get(sink)), workspaceRoot]).pipe(
+    Option.map(([prefix, workspace]) => resolvePath(workspace, prefix)),
+    Option.orElse(() => packageRoot),
+  )
+
+const resolveSinks = (
+  modules: Modules,
+  entry: Path,
+  packageRoot: Option.Option<string>,
+  workspaceRoot: Option.Option<string>,
+): ReadonlyArray<TangledFile> => {
+  const routing = sinkTreeRouting({ modules })
+  return pipe(
+    Array.fromIterable(modules.values()),
+    Array.flatMap((module) => {
+      const routed = routing.get(module.path)
+      return Array.filterMap(module.product.files, (file) =>
+        module.path === entry || (routed?.has(file.path) ?? false)
+          ? Option.some({
+              section: file.code.origin.name,
+              path: outputPath(
+                fileRoot(routed, file.path, packageRoot, workspaceRoot),
+                module.path,
+                file.path,
+              ),
+              content: fromProduct(modules, file.code.origin).code,
+            })
+          : Option.none(),
+      )
+    }),
+  )
+}
+
+export class TangleError extends Data.TaggedError('TangleError')<{
+  readonly entry: Path
+  readonly failures: ReadonlyArray<{
+    readonly path: Path
+    readonly diagnostics: ReadonlyArray<Diagnostic>
+  }>
+}> {
+  get message(): string {
+    const count = this.failures.reduce((n, f) => n + f.diagnostics.length, 0)
+    const lines = this.failures.flatMap((f) =>
+      f.diagnostics.map(
+        (d) => `  ${f.path}:${d.position.start.line}: ${d.message}`,
+      ),
+    )
+    return `loom: refusing to tangle ${this.entry} — ${count} error(s) across the corpus:\n${lines.join('\n')}`
+  }
+}
+
+## Sink-tree diagnostics
+
+The sink tree detects its own faults as structure — `sinkTreeFaults` returns a kind, a position, and one value each — and the catalog words them. `wordSinkFault` is the bridge: it maps a `SinkFault` to its `LoomFault` and reads the message back through `faulty`, the same catalog the parser and the frame already speak through. It hands the detector the one rule it lacks, `normaliseTitle`, so a colliding title folds the way every section name does.
+
+`sinkDiagnostics` runs the detector over a corpus and pairs each diagnostic with the module it lands on. `collisionDiagnostics` is the one fault the corpus walk cannot find: it resolves every tangle sink to its output path — each sink's chapter prefix, or its package default when no chapter places it — and reports two that land on one path. The tangle verb refuses on the error-severity ones, and the diagnose verb surfaces the ones for the file in hand, so a malformed sink tree fails the build and lights up the editor alike.
+
+=>
+
+const wordSinkFault = (fault: SinkFault): LoomFault =>
+  Match.value(fault).pipe(
+    Match.when({ kind: 'CollidingTitles' }, ({ name }) => CollidingTitles({ name })),
+    Match.when({ kind: 'SinkCycle' }, ({ name }) => SinkCycle({ name })),
+    Match.when({ kind: 'EmptySink' }, ({ directory }) => EmptySink({ directory })),
+    Match.when({ kind: 'MisplacedSpecifier' }, ({ specifier }) =>
+      MisplacedSpecifier({ specifier }),
+    ),
+    Match.when({ kind: 'SelfRoutingSink' }, ({ name }) => SelfRoutingSink({ name })),
+    Match.when({ kind: 'SinklessChapter' }, ({ name }) => SinklessChapter({ name })),
+    Match.when({ kind: 'PointedNotH1' }, ({ name }) => PointedNotH1({ name })),
+    Match.when({ kind: 'OrphanedOpening' }, ({ name }) => OrphanedOpening({ name })),
+    Match.when({ kind: 'DuplicateChapter' }, ({ name }) => DuplicateChapter({ name })),
+    Match.when({ kind: 'UnresolvedPointing' }, ({ name }) => UnresolvedAnchor({ name })),
+    Match.exhaustive,
+  )
+
+const sinkDiagnostics = (
+  modules: Modules,
+): ReadonlyArray<{ readonly path: Path; readonly diagnostic: Diagnostic }> =>
+  Array.flatMap(sinkTreeFaults({ modules }, normaliseTitle), (fault) =>
+    Array.map(
+      faulty(wordSinkFault(fault), fault.position).diagnostics,
+      (diagnostic) => ({ path: fault.path, diagnostic }),
+    ),
+  )
+
+const collisionDiagnostics = (
+  config: PackageConfig,
+  modules: Modules,
+): Effect.Effect<
+  ReadonlyArray<{ readonly path: Path; readonly diagnostic: Diagnostic }>
+> =>
+  Effect.forEach(
+    Object.entries(Array.groupBy(tangleSinks({ modules }), (sink) => sink.module)),
+    ([module, sinks]) =>
+      config.resolve(module).pipe(
+        Effect.map(({ packageRoot, workspaceRoot }) => {
+          const routed = sinkTreeRouting({ modules }).get(module)
+          return Array.map(sinks, (sink) => ({
+            module,
+            position: sink.position,
+            at: outputPath(
+              fileRoot(
+                routed,
+                sink.path,
+                Option.fromNullable(packageRoot),
+                Option.fromNullable(workspaceRoot),
+              ),
+              module,
+              sink.path,
+            ),
+          }))
+        }),
+      ),
+  ).pipe(
+    Effect.map((perModule) =>
+      pipe(
+        Array.flatten(perModule),
+        Array.groupBy((sink) => sink.at),
+        (groups) => Object.values(groups),
+        Array.filter((group) => group.length > 1),
+        Array.flatMap((group) =>
+          Array.flatMap(group, (sink) =>
+            Array.map(
+              faulty(CollidingSinks({ path: sink.at }), sink.position).diagnostics,
+              (diagnostic) => ({ path: sink.module, diagnostic }),
+            ),
+          ),
+        ),
+      ),
+    ),
+  )
+
+## Locating a source span
+
+The navigation verbs answer in `FrameLocation`s — a path and a line-and-character range — so the editor places a result without re-reading the file. `definitionAt` and `referencesAt` give a `CorpusLocation` in the source's own offsets, since the corpus walks in offsets. `frameLocationOf` converts one to the other, reading the target module's text to turn each offset into a line and a character. `lineCharAt` counts the newlines before an offset for the line, and the distance from the last newline for the character — the zero-based pair the editor speaks. `headingLocationOf` finds a root's section by its name and gives the `FrameLocation` of its heading title, so the composition can point a cross-file `import` at the section that writes the file.
+
+=>
+
+const lineCharAt = (
+  text: string,
+  offset: number,
+): { readonly line: number; readonly character: number } => {
+  const before = text.slice(0, offset)
+  return {
+    line: before.split('\n').length - 1,
+    character: offset - (before.lastIndexOf('\n') + 1),
+  }
+}
+
+const frameLocationOf = (
+  modules: Modules,
+  location: CorpusLocation,
+): Option.Option<FrameLocation> =>
+  Option.map(Option.fromNullable(modules.get(location.path)?.text), (text) => ({
+    path: location.path,
+    range: {
+      start: lineCharAt(text, location.position.start.offset),
+      end: lineCharAt(text, location.position.end.offset),
+    },
+  }))
+
+const headingLocationOf = (
+  modules: Modules,
+  module: LoomModule,
+  name: string,
+): FrameLocation =>
+  pipe(
+    Array.findFirst(
+      module.doc.sections,
+      (section) => normaliseTitle(section.heading.title?.source ?? '') === name,
+    ),
+    Option.flatMapNullable((section) => section.heading.title),
+    Option.flatMap((title) =>
+      frameLocationOf(modules, { path: module.path, position: title.position }),
+    ),
+    Option.getOrElse(
+      (): FrameLocation => ({
+        path: module.path,
+        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+      }),
+    ),
+  )
+
+## Projecting a file's tree
+
+`projectTree` assembles a file's virtual-code tree. It emits the file's prose as a Markdown document with `fromProse`, one de re document per composition root with `fromProduct`, and gathers them under a `loom` root with `rootVirtualCode` — the source itself, the surface Loom serves the de dicto plane on. It also hands the root the section symbols `symbolMappings` reads from the parse — each heading and anchor span — so go-to-definition and rename reach them on the file the author opened. A root is a section that no same-file anchor pulls into another, and `rootsAt` keeps those names and drops the members. `fromProduct` inlines the members a root pulls in, so each emitted document is a whole resolved Product — and a member's span maps into the root that carries it, rather than standing as a document of its own. The projection follows cross-file `::[…]` references through the corpus modules it is handed, so it treats a lone file and a whole corpus the same way.
+
+=>
+
+const namesAt = (modules: Modules, path: Path): ReadonlyArray<string> =>
+  pipe(
+    Option.fromNullable(modules.get(path)),
+    Option.match({
+      onNone: () => [],
+      onSome: (module) => Array.map(module.product.code, (c) => c.origin.name),
+    }),
+  )
+
+const rootsAt = (modules: Modules, path: Path): ReadonlyArray<string> => {
+  const roots = rootNamesAt(modules, path)
+  return Array.filter(namesAt(modules, path), (name) =>
+    roots.has(name.toLowerCase()),
+  )
+}
+
+const projectTree = (modules: Modules, entry: LoomModule): LoomVirtualCode =>
+  rootVirtualCode(
+    entry.text,
+    [
+      fromProse(modules, entry.path),
+      ...pipe(
+        rootsAt(modules, entry.path),
+        Array.map((name) => fromProduct(modules, { path: entry.path, name })),
+      ),
+    ],
+    symbolMappings(entry.doc),
+  )
+
+## Crossing to Volar
+
+Every model up to here is plain data, which keeps the pipeline serialisable and easy to test. Volar is not plain data: it wants a function-based `IScriptSnapshot` for a document's text and its own `CodeMapping` for each source span. `toVolar` is the one adapter that crosses from a `LoomVirtualCode` tree to Volar's `VirtualCode`, and the only place in Loom that touches Volar's runtime types. It recurses down the embedded tree, converting every node.
+
+Three small functions do the work. `stringSnapshot` presents a string as the minimal snapshot Volar reads. `featuresOf` chooses which editor features Volar forwards at a mapped span, and for every author-facing token it defers to `LoomSymbol`: it reads the span's symbol kind through `profileOf` and forwards exactly the features that kind allows — a heading navigates, an anchor navigates and verifies, prose only folds and outlines. The table is the one place those features live, so `featuresOf` repeats none of them. It answers only for the two kinds that carry the projection's structure rather than a token a cursor rests on. A `source` span — the whole-file identity mapping the root carries — takes verification alone, so Loom's own diagnostics surface on the file while no other feature fires there. A `product` span carries the full set, verification and completion and semantics among them, so the author edits the resolved composition as if it were the source. `toCodeMapping` rewrites one of our `Mapping`s — a `.loom` source span paired with the generated span it projects to — as Volar's `CodeMapping`, choosing its features with `featuresOf`.
+
+=>
+
+export const stringSnapshot = (text: string): ts.IScriptSnapshot => ({
+  getText: (start, end) => text.slice(start, end),
+  getLength: () => text.length,
+  getChangeRange: () => undefined,
+})
+
+const productFeatures: CodeMapping['data'] = {
+  verification: true,
+  completion: true,
+  semantic: true,
+  navigation: true,
+  structure: true,
+}
+
+const featuresOf = (kind: Mapping['kind']): CodeMapping['data'] =>
+  Match.value(kind).pipe(
+    Match.when('source', () => ({ verification: true })),
+    Match.when('product', () => productFeatures),
+    Match.when(Match.defined, (symbol) => profileOf(symbol).features),
+    Match.orElse(() => productFeatures),
+  )
+
+const toCodeMapping = (m: Mapping): CodeMapping => ({
+  sourceOffsets: [m.source.start.offset],
+  generatedOffsets: [m.genStart],
+  lengths: [m.source.end.offset - m.source.start.offset],
+  generatedLengths: [m.genLength],
+  data: featuresOf(m.kind),
+})
+
+export const toVolar = (vc: LoomVirtualCode): VirtualCode => ({
+  id: vc.id,
+  languageId: vc.languageId,
+  snapshot: stringSnapshot(vc.code),
+  mappings: Array.map(vc.mappings, toCodeMapping),
+  embeddedCodes: Array.map(vc.embeddedCodes, toVolar),
+})
+
+## The document source
+
+`DocumentSource` is the compiler's disk seam. It reads a `.loom` file's text by path through Node's synchronous `fs`, and fails with `ReadError` when the file cannot be read. The read is synchronous because the editor projects inside Volar's synchronous hook, which cannot await. The tangler injects this source; the editor injects one of its own.
+
+It also lists a directory's looms. `list` reads the directory tree under a corpus root and returns every `.loom` path in it, the file's siblings the compiler builds into one corpus. `loomsUnder` walks the tree itself, one directory at a time, so it can prune the generated and vendored directories a corpus never includes — `node_modules`, the `.loom` store, `dist`, and `.git` — rather than descend into them and filter after. `entriesIn` reads one directory's entries and lists nothing when it cannot be read, so a path outside any project still resolves to a corpus of one.
+
+=>
+
+const ignoredDir = new Set(['node_modules', '.loom', 'dist', '.git'])
+
+const entriesIn = (dir: Path): ReadonlyArray<Dirent> => {
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+  } catch {
+    return []
+  }
+}
+
+export const loomsUnder = (dir: Path): ReadonlyArray<Path> =>
+  Array.flatMap(entriesIn(dir), (entry) => {
+    const full = resolvePath(dir, entry.name)
+    return Match.value(entry).pipe(
+      Match.when(
+        (e) => ignoredDir.has(e.name),
+        (): ReadonlyArray<Path> => [],
+      ),
+      Match.when((e) => e.isDirectory(), () => loomsUnder(full)),
+      Match.when((e) => e.name.endsWith('.loom'), () => [full]),
+      Match.orElse((): ReadonlyArray<Path> => []),
+    )
+  })
+
+export class DocumentSource extends Effect.Service<DocumentSource>()(
+  'DocumentSource',
+  {
+    succeed: {
+      read: (path: Path): Effect.Effect<string, ReadError> =>
+        Effect.try({
+          try: () => readFileSync(path, 'utf8'),
+          catch: (cause) => new ReadError({ path, cause }),
+        }),
+      list: Option.some(
+        (dir: Path): Effect.Effect<ReadonlyArray<Path>> =>
+          Effect.sync(() => loomsUnder(dir)),
+      ),
+    },
+  },
+) {}
+
+## What the compiler draws on
+
+From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; the projection functions `fromProduct`, `fromProse`, `rootNamesAt`, `rootVirtualCode`, and `symbolMappings`; the corpus model — `LoomModule`, the `corpusErrors` and `moduleDiagnostics` readers, the `sinkTreeRouting` and `sinkTreeFaults` walks with the `SinkFault` they yield, the `tangleSinks` list the collision check resolves, the `definitionAt`, `referencesAt`, `renameAt`, and `renameRangeAt` navigation walks with the `CorpusLocation` they yield, and the `transitiveDependents` walk; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache. `profileOf` and `symbolsOf` from `LoomSymbol` give each mapped span its editor features and each of a file's tokens its colour. The fault catalog supplies `faulty` and the `LoomFault` constructors that word a sink fault, and `normaliseTitle` gives the detector its one missing rule. From the language-service contract come `FrameLocation`, the editor-shaped range the navigation verbs return, and `FrameToken`, a range paired with the colour `semanticTokens` returns. `Diagnostic` carries an error's message and place. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError`, and Node's `fs` and `path` read each file and resolve each sink.
+
+=>
+
+import type { CodeMapping, VirtualCode } from '@volar/language-core'
+import { Array, Data, Effect, Match, Option, pipe } from 'effect'
+import { readFileSync, readdirSync, type Dirent } from 'node:fs'
+import { dirname, resolve as resolvePath } from 'node:path'
+import type * as ts from 'typescript'
+import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
+import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
+import {
+  corpusErrors,
+  definitionAt,
+  moduleDiagnostics,
+  placeReachable,
+  placedModules,
+  referencesAt,
+  renameAt,
+  renameRangeAt,
+  sinkTreeFaults,
+  sinkTreeRouting,
+  tangleSinks,
+  transitiveDependents,
+  type CorpusLocation,
+  type LoomModule,
+  type Path,
+  type SinkFault,
+} from '@athrio/loom-ast/LoomCorpusAst'
+import {
+  type ComposedFile,
+  type FrameLocation,
+  type FrameToken,
+} from '@athrio/loom-lang-services/LanguageService'
+import {
+  CollidingSinks,
+  CollidingTitles,
+  DuplicateChapter,
+  EmptySink,
+  faulty,
+  MisplacedSpecifier,
+  OrphanedOpening,
+  PointedNotH1,
+  SelfRoutingSink,
+  SinkCycle,
+  SinklessChapter,
+  UnresolvedAnchor,
+  type LoomFault,
+} from '#ast/LoomFault'
+import { normaliseTitle } from '#ast/WeftTokeniser'
+import {
+  fromProduct,
+  fromProse,
+  rootNamesAt,
+  rootVirtualCode,
+  symbolMappings,
+} from '#ast/LoomVirtualCodeBuilder'
+import { type LoomVirtualCode, type Mapping } from '@athrio/loom-ast/LoomVirtualCode'
+import { profileOf, symbolsOf } from '@athrio/loom-ast/LoomSymbol'
+import { LoomMemo } from './LoomMemo'
+import { PackageConfig } from './PackageConfig'
+
+## The module [packages/loom-lang/src, LoomCompiler.ts]
+
+=>
+
+::[What the compiler draws on]
+
+::[The discovered corpus]
+
+::[Resolving the entry]
+
+::[Tangling a file]
+
+::[Sink-tree diagnostics]
+
+::[Locating a source span]
+
+::[Projecting a file's tree]
+
+::[Crossing to Volar]
+
+::[The document source]
+
+::[The chain and its verbs]

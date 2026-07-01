@@ -1,0 +1,282 @@
+{{lang: TypeScript}}
+
+# The Loom language plugin
+
+This module is Loom's adapter to Volar, the editor toolkit the Loom language server is built on. It hands Volar two things for every `.loom` file: a language plugin and a set of service plugins.
+
+The language plugin projects a `.loom` file to a virtual-code tree — the source itself as the de dicto root, where Loom serves its own diagnostics and navigation, and the de re code sections beneath it, each embedded in its own language. Volar maps every diagnostic, hover, and definition back to where the author wrote it.
+
+The service plugins are the editor features themselves: diagnostics, hover, completion. The server resolves the project's active languages, runs each one's `plugins` Effect, and flattens the results into the single list Volar registers.
+
+## The virtual-code plugin
+
+`loomLanguagePlugin` is the `LanguagePlugin` Volar asks for. It claims every `.loom` path and projects the file to a virtual-code tree. The de dicto root is the source itself, which Loom's own service checks and navigates; the product sections are embedded codes, which each language service checks against a program of its own. It projects through `LoomCompiler`, whose `compile` verb runs the file's composition — discovering the corpus and inlining cross-file `::[…]` transclusions — so the editor resolves a corpus the way the tangler does. `projectIsolated` runs that projection, then marks each composition root as its own module.
+
+The file's text comes through a passive `Source`. `editorSource` reads the open file from the snapshot Volar hands over and each sibling from disk, and lists the corpus directory through `loomsUnder` so the projector discovers the file's corpus. It never calls back into Volar, so running the composition cannot re-enter the projector.
+
+After projecting, the plugin tells Volar what the file depends on, and Volar re-projects the file when any dependency changes. `associate` reads the corpus the projection reached and calls `ctx.getAssociatedScript` for every module the file transitively imports. The registration runs on the warm corpus, after the build, so the projection it triggers is a cache hit rather than a re-entrant build. It registers the whole transitive reach, not the direct imports alone, because Volar marks a dependent dirty one hop at a time on a snapshot change — so a change deep in a chain reaches every file that transcludes it only when each has declared the whole chain.
+
+Volar's hooks are synchronous, so the projection runs through `Runtime.runSync` on the warm runtime built at startup. When a file's own text changes, `updateVirtualCode` evicts its build through `change`, then reprojects and re-registers. A reprojection Volar triggered because a dependency changed leaves the build cache alone — the file's own text is unchanged — and the changed dependency, evicted by its own update, rebuilds when the composition runs over it.
+
+=>
+
+const editorSource = (
+  uri: URI,
+  snapshot: ts.IScriptSnapshot,
+): Source => ({
+  read: (path) =>
+    Effect.try({
+      try: () =>
+        path === uri.fsPath
+          ? snapshot.getText(0, snapshot.getLength())
+          : readFileSync(path, 'utf8'),
+      catch: (cause) => new ReadError({ path, cause }),
+    }),
+  list: Option.some((dir) => Effect.sync(() => loomsUnder(dir))),
+})
+
+const associate = (
+  compiler: LoomCompiler,
+  ctx: CodegenContext<URI>,
+  entry: string,
+): Effect.Effect<void> =>
+  compiler.reach(entry).pipe(
+    Effect.flatMap((deps) =>
+      Effect.forEach(
+        deps,
+        (dep) => Effect.sync(() => ctx.getAssociatedScript(URI.file(dep))),
+        { discard: true },
+      ),
+    ),
+  )
+
+const changed = (previous: VirtualCode, next: ts.IScriptSnapshot): boolean =>
+  previous.snapshot.getText(0, previous.snapshot.getLength()) !==
+  next.getText(0, next.getLength())
+
+const projectIsolated = (
+  compiler: LoomCompiler,
+  uri: URI,
+  snapshot: ts.IScriptSnapshot,
+  ctx: CodegenContext<URI>,
+): Effect.Effect<VirtualCode> =>
+  compiler.compile(editorSource(uri, snapshot), uri.fsPath).pipe(
+    Effect.tap(() => associate(compiler, ctx, uri.fsPath)),
+    Effect.map((tree) => isolateRoots(tree)),
+  )
+
+export const loomLanguagePlugin = (
+  runtime: Runtime.Runtime<LoomCompiler | LoomConfig>,
+): LanguagePlugin<URI> => ({
+  getLanguageId: (uri) => (uri.path.endsWith('.loom') ? 'loom' : undefined),
+  createVirtualCode: (uri, languageId, snapshot, ctx) =>
+    languageId === 'loom'
+      ? Runtime.runSync(runtime)(
+          LoomCompiler.pipe(
+            Effect.flatMap((compiler) =>
+              projectIsolated(compiler, uri, snapshot, ctx),
+            ),
+          ),
+        )
+      : undefined,
+  updateVirtualCode: (uri, previous, snapshot, ctx) =>
+    Runtime.runSync(runtime)(
+      LoomCompiler.pipe(
+        Effect.flatMap((compiler) =>
+          (changed(previous, snapshot)
+            ? Effect.asVoid(compiler.invalidate(uri.fsPath))
+            : Effect.void
+          ).pipe(Effect.zipRight(projectIsolated(compiler, uri, snapshot, ctx))),
+        ),
+      ),
+    ),
+})
+
+## Isolating the roots
+
+A product language service holds each composition root in a program of its own. A root with no import or export of its own is a global script, and two such roots would clash on a shared top-level name once a program holds them both. `isolateRoots` walks the projected tree and appends `moduleMarker`, an empty `export {}`, to every TypeScript-family root, turning each into a module with its own scope. `tsLanguages` names the TypeScript-family languages the marker applies to — every other language isolates itself or has no notion of a module. The marker carries no source mapping, so it stays invisible, and the plugin appends it once at projection, so a root's snapshot stays stable until its own source changes and Volar never re-parses it on a keystroke elsewhere.
+
+=>
+
+const tsLanguages: ReadonlySet<string> = new Set([
+  'typescript',
+  'tsx',
+  'javascript',
+  'jsx',
+])
+
+const moduleMarker = '\nexport {}\n'
+
+const isolateRoots = (code: VirtualCode): VirtualCode => ({
+  ...code,
+  snapshot: tsLanguages.has(code.languageId)
+    ? stringSnapshot(
+        code.snapshot.getText(0, code.snapshot.getLength()) + moduleMarker,
+      )
+    : code.snapshot,
+  embeddedCodes: Array.map(code.embeddedCodes ?? [], (child) =>
+    isolateRoots(child),
+  ),
+})
+
+## Collecting the service plugins
+
+`loomServicePlugins` is the collect-and-register pass. Before it loads anything, it installs the host runtime on the global — Effect, the service contract, and the editor's TypeScript compiler — so a loaded service reads the host's instances rather than bundling its own and missing the capabilities the host provides. It then reads the project's active languages, loads each through `loadActive` — `LoomLanguage` always, and a `@athrio/loom-service-<id>` package for every other id, imported from the Loom store — then indexes them in the `LanguageRegistry` and runs each service's `plugins` Effect with the host's capabilities. A language activated but not installed in the store drops with a warning, and the rest load on. It provides three capabilities. The `TypescriptSdk` is the editor's own compiler, so analysis matches the user's project. A `FrameQuery`, built over the warm corpus by `frameQueryOver`, lets the frame service read a file's Loom diagnostics. A `Composition`, built by `compositionOver`, hands a product service the corpus as a filesystem — every root as the code it composes, at the path it composes to — so its analyzer resolves a cross-file import against live composition rather than the output on disk. The editor still hands each service its Products directly, a resolved root with its members folded in; `Composition` adds only the rest of the corpus. Each service also gets its slice of the workspace's `settings`, keyed by language id, so it tunes itself from the configuration. A service that fails to build — an external binary that will not start — drops to no plugins rather than taking the others down. The pass dedupes by plugin name, so a plugin two services happen to share registers with Volar once.
+
+`frameQueryOver` builds the one capability from the runtime. Each reader composes a file's corpus and answers from it: `diagnostics` returns the open module's Loom health, `definition` follows an anchor to the section it names, `references` finds every anchor that names the section under the cursor, `rename` and `renameRange` give the spans a rename rewrites and the one the rename box covers, and `semanticTokens` gives each of the file's tokens its colour. They read synchronously, on the same warm runtime the projection uses, and close over it, so the frame service can call them long after this pass, when the editor asks on a keystroke. `compositionOver` builds the `Composition` reader the same way: `rootsFor` composes a file's corpus and returns every root as a `ComposedFile`, on that same warm runtime.
+
+=>
+
+const dedupeByName = (
+  plugins: ReadonlyArray<LanguageServicePlugin>,
+): ReadonlyArray<LanguageServicePlugin> =>
+  Array.fromIterable(
+    new Map(plugins.map((plugin) => [plugin.name ?? plugin, plugin])).values(),
+  )
+
+const collect = (
+  active: ReadonlyArray<LanguageService>,
+  tsdk: typeof import('typescript'),
+  settings: Record<string, Record<string, unknown>>,
+  frameQuery: FrameQueryApi,
+  composition: CompositionApi,
+): Effect.Effect<ReadonlyArray<LanguageServicePlugin>> =>
+  Effect.gen(function* () {
+    const registry = yield* LanguageRegistry
+    const collected = yield* Effect.forEach(registry.all, (service) =>
+      service.plugins({ settings: settings[service.id] ?? {} }).pipe(
+        Effect.catchAll(() =>
+          Effect.succeed([] as ReadonlyArray<LanguageServicePlugin>),
+        ),
+      ),
+    )
+    return dedupeByName(collected.flat())
+  }).pipe(
+    Effect.provide(LanguageRegistry.Default),
+    Effect.provide(Layer.succeed(ActiveLanguages, ActiveLanguages.make({ all: active }))),
+    Effect.provideService(TypescriptSdk, TypescriptSdk.make(tsdk)),
+    Effect.provideService(FrameQuery, FrameQuery.make(frameQuery)),
+    Effect.provideService(Composition, Composition.make(composition)),
+  )
+
+const frameQueryOver = (
+  runtime: Runtime.Runtime<LoomCompiler>,
+): FrameQueryApi => ({
+  diagnostics: (path) =>
+    Runtime.runSync(runtime)(
+      LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.diagnose(path))),
+    ),
+  definition: (path, offset) =>
+    Runtime.runSync(runtime)(
+      LoomCompiler.pipe(
+        Effect.flatMap((compiler) => compiler.definition(path, offset)),
+      ),
+    ),
+  references: (path, offset) =>
+    Runtime.runSync(runtime)(
+      LoomCompiler.pipe(
+        Effect.flatMap((compiler) => compiler.references(path, offset)),
+      ),
+    ),
+  rename: (path, offset) =>
+    Runtime.runSync(runtime)(
+      LoomCompiler.pipe(
+        Effect.flatMap((compiler) => compiler.rename(path, offset)),
+      ),
+    ),
+  renameRange: (path, offset) =>
+    Runtime.runSync(runtime)(
+      LoomCompiler.pipe(
+        Effect.flatMap((compiler) => compiler.renameRange(path, offset)),
+      ),
+    ),
+  semanticTokens: (path) =>
+    Runtime.runSync(runtime)(
+      LoomCompiler.pipe(
+        Effect.flatMap((compiler) => compiler.semanticTokens(path)),
+      ),
+    ),
+})
+
+const compositionOver = (
+  runtime: Runtime.Runtime<LoomCompiler>,
+): CompositionApi => ({
+  rootsFor: (path) =>
+    Runtime.runSync(runtime)(
+      LoomCompiler.pipe(
+        Effect.flatMap((compiler) => compiler.composition(path)),
+      ),
+    ),
+})
+
+export const loomServicePlugins = (
+  tsdk: typeof import('typescript'),
+  root: string,
+): Effect.Effect<
+  ReadonlyArray<LanguageServicePlugin>,
+  never,
+  LoomConfig | LoomCompiler
+> =>
+  Effect.gen(function* () {
+    const config = yield* LoomConfig
+    const manifest = yield* config.manifest(root)
+    const languages = Object.keys(manifest?.languages ?? {})
+    const settings = manifest?.settings ?? {}
+    const runtime = yield* Effect.runtime<LoomCompiler>()
+    yield* Effect.sync(() => installHostRuntime(tsdk))
+    const active = yield* loadActive(languages, root)
+    return yield* collect(
+      active,
+      tsdk,
+      settings,
+      frameQueryOver(runtime),
+      compositionOver(runtime),
+    )
+  })
+
+## What the plugin draws on
+
+The plugin draws on Volar for its contracts — `LanguagePlugin` and `LanguageServicePlugin` — and its `CodegenContext` and `VirtualCode`, which the per-call source and the cache check read. Effect captures the runtime and runs the collection pass. From the pipeline it takes `LoomCompiler`, which projects and caches the corpus, and the `Source` seam with its `ReadError`. From `@athrio/loom-lang-services` it takes the `LanguageService` contract, the `FrameQuery` capability the collect pass provides, the `LanguageRegistry` that indexes the active set, and `loadActive`, which resolves a project's active services — `LoomLanguage` and each installed `@athrio/loom-service-<id>` package. `installHostRuntime` lends those loaded services the host's runtime. From `@athrio/loom-config` it reads the workspace's active languages out of the compiled manifest. `URI` keys a script for `getAssociatedScript`, and Node's `fs` reads an unopened import.
+
+=>
+
+import type {
+  CodegenContext,
+  LanguagePlugin,
+  VirtualCode,
+} from '@volar/language-core'
+import type { LanguageServicePlugin } from '@volar/language-service'
+import type {} from '@volar/typescript'
+import { Array, Effect, Layer, Option, Runtime } from 'effect'
+import { readFileSync } from 'node:fs'
+import type * as ts from 'typescript'
+import { URI } from 'vscode-uri'
+import { ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
+import { LoomCompiler, loomsUnder, stringSnapshot } from './LoomCompiler'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
+import {
+  Composition,
+  type CompositionApi,
+  FrameQuery,
+  type FrameQueryApi,
+  type LanguageService,
+  TypescriptSdk,
+} from '@athrio/loom-lang-services/LanguageService'
+import {
+  ActiveLanguages,
+  LanguageRegistry,
+} from '@athrio/loom-lang-services/LanguageRegistry'
+import { loadActive } from '@athrio/loom-lang-services/LanguageLoader'
+import { installHostRuntime } from '@athrio/loom-lang-services/Runtime'
+
+## The module [packages/loom-lang/src, LoomLanguagePlugin.ts]
+
+=>
+
+::[What the plugin draws on]
+
+::[The virtual-code plugin]
+
+::[Isolating the roots]
+
+::[Collecting the service plugins]

@@ -1,0 +1,55 @@
+{{lang: JSON}}
+
+# Packaging the domain
+
+`@athrio/loom-ast` is Loom's domain model — the pure data every other package shares. It holds every AST a `.loom` file passes through: the `LoomNode` foundation of positions and health, the parse `LoomDocument`, the `LoomCorpusAst`, the de re the product pass builds (`Code`, `File`, `Fragment`), the `LoomSymbol` registry that names each token's editor capabilities, the `LoomVirtualCode` the editor reads, and the grammar's `Weft` and `LoomTokens`. It is a leaf: it carries data and the pure readers over it, never a builder or a runner, and depends on nothing of Loom — only on Effect's `Schema`. So `@athrio/loom-lang` and each language service rest on it without a cycle. Like the rest of Loom, it ships TypeScript source with no build step.
+
+## The manifest [packages/loom-ast, package.json]
+
+The `exports` map names one entry point per model. There is no default entry: the builders and runners that construct these nodes live in `@athrio/loom-lang`, not here. The `imports` map defines one internal alias, `#ast/*`, so a model reaches its siblings by a stable name. `effect` is a peer dependency, shared with whoever installs the package rather than carried twice.
+
+=>
+
+{
+  "name": "@athrio/loom-ast",
+  "version": "0.0.1",
+  "description": "Loom's domain model: the foundation node and the de re AST the product pass builds.",
+  "license": "Apache-2.0 OR MIT",
+  "type": "module",
+  "imports": {
+    "#ast/*": "./src/ast/*.ts"
+  },
+  "exports": {
+    "./LoomNode": "./src/ast/LoomNode.ts",
+    "./ProductAst": "./src/ast/ProductAst.ts",
+    "./LoomAst": "./src/ast/LoomAst.ts",
+    "./LoomCorpusAst": "./src/ast/LoomCorpusAst.ts",
+    "./LoomSymbol": "./src/ast/LoomSymbol.ts",
+    "./LoomVirtualCode": "./src/ast/LoomVirtualCode.ts",
+    "./Weft": "./src/ast/Weft.ts",
+    "./LoomTokens": "./src/ast/LoomTokens.ts"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "effect": "3.21.2"
+  },
+  "devDependencies": {
+    "effect": "3.21.2"
+  }
+}
+
+## The TypeScript config [packages/loom-ast, tsconfig.json]
+
+The `tsconfig.json` extends the workspace-root `tsconfig.base.json` and covers `src` and `test`. The package ships source with no build step, so the configuration type-checks the models and their tests and emits nothing.
+
+=>
+
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "out"
+  },
+  "include": ["src", "test"]
+}

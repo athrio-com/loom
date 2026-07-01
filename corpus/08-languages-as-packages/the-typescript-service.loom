@@ -1,0 +1,365 @@
+{{lang: TypeScript}}
+
+# The TypeScript language service
+
+`TypescriptService` is the loadable language service for product TypeScript. Where `LoomLanguage` checks the frame in Volar's built-in program, this service checks each TypeScript section against a `ProductProgram` of its own — one the consumer's `tsconfig.json` governs, not the frame's baseline. A package activates it by naming `typescript` in its `loom.json`.
+
+For each request the editor sends, the service finds the Product the document belongs to — a composition root with its members folded in — hands that Product's resolved TypeScript to the program, and forwards the request there. The program answers in the Product's own coordinates, and Volar maps the answer back to the `.loom`.
+
+## Finding the consumer's options
+
+The product program checks against the consumer's own compiler options, so the service finds them the way `tsc` does: it walks up from the `.loom` file for the nearest `tsconfig.json` and parses it. A package with no `tsconfig.json` falls back to a baseline — modern modules, `strict` on — so a section still checks.
+
+Either way the service forces two options. It forces `noEmit`, because the editor analyzes the product and never writes it. And it allows `.ts` import extensions, because Loom runs the product directly under Node, with no build between the source and the run, so a cross-file `import` names the `.ts` file it resolves to rather than a `.js` that is never emitted.
+
+=>
+
+const loomOverrides = (
+  options: CompilerOptions,
+): CompilerOptions => ({
+  ...options,
+  noEmit: true,
+  allowImportingTsExtensions: true,
+})
+
+const baselineOptions = (ts: TypeScript): CompilerOptions =>
+  loomOverrides({
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    strict: true,
+    skipLibCheck: true,
+  })
+
+const consumerOptions = (ts: TypeScript, loomPath: string): CompilerOptions => {
+  const found = ts.findConfigFile(dirname(loomPath), ts.sys.fileExists, 'tsconfig.json')
+  if (found === undefined) return baselineOptions(ts)
+  const read = ts.readConfigFile(found, ts.sys.readFile)
+  const parsed = ts.parseJsonConfigFileContent(read.config ?? {}, ts.sys, dirname(found))
+  return loomOverrides(parsed.options)
+}
+
+## Choosing a program for a section
+
+A request arrives on an embedded document — one Product of a `.loom`, a composition root with its members already folded in. `productTarget` decodes that document's URI back to the `.loom` path and the Product's id, and serves only a TypeScript-family document — `typescript`, `tsx`, `javascript`, or `jsx`. It declines the rest, so a JSON or CSS Product the `.loom` also holds falls to its own service. It then reads the file's composition — every root in the corpus that tangles to a file, at the path it tangles to — and looks for the one this document edits.
+
+A root that tangles to a file is checked at that path, the live buffer overriding what is on disk. A root that tangles nowhere — a section with no file sink — has no path of its own, so `productTarget` checks it beside its `.loom` under a synthetic name. Either way it hands the program the whole composition, so one root's `import` of another resolves against the other's composition. It returns the edited root's path for the caller to query.
+
+=>
+
+export interface ProductTarget {
+  readonly program: ProductProgram
+  readonly fileName: string
+  readonly roots: ReadonlyArray<ComposedFile>
+}
+
+const tsExtension: ReadonlyMap<string, string> = new Map([
+  ['typescript', '.ts'],
+  ['tsx', '.tsx'],
+  ['javascript', '.js'],
+  ['jsx', '.jsx'],
+])
+
+export const productTarget = (
+  decoded: readonly [URI, string] | undefined,
+  languageId: string,
+  text: string,
+  programFor: (loomPath: string) => ProductProgram,
+  rootsFor: (loomPath: string) => ReadonlyArray<ComposedFile>,
+): ProductTarget | undefined => {
+  const extension = tsExtension.get(languageId)
+  if (decoded === undefined || extension === undefined) return undefined
+  const [loomUri, rootId] = decoded
+  const loomPath = loomUri.fsPath
+  const composed = rootsFor(loomPath)
+  const sink = Array.findFirst(
+    composed,
+    (file) => file.loomPath === loomPath && file.rootId === rootId,
+  )
+  const edited: ComposedFile = Option.getOrElse(sink, () => ({
+    path: `${loomPath}.${rootId}${extension}`,
+    content: text,
+    loomPath,
+    rootId,
+    heading: {
+      path: loomPath,
+      range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+    },
+  }))
+  const roots = Option.match(sink, {
+    onNone: () => Array.append(composed, edited),
+    onSome: () => composed,
+  })
+  const program = programFor(loomPath)
+  program.sync(
+    Array.map(roots, (file) => ({
+      path: file.path,
+      text: file === edited ? text : file.content,
+    })),
+  )
+  return { program, fileName: edited.path, roots }
+}
+
+## The editor plugin
+
+`productPlugin` is the Volar plugin the host registers. It keeps one `ProductProgram` per `.loom` file — built on first use from that file's consumer options — and disposes them all when the service shuts down. It reads the composed corpus from the `Composition` capability the host provides. Each feature routes its document through `productTarget`: when the document is a TypeScript Product, the feature forwards to its program; otherwise it returns nothing, and a document in another language falls to its own service or to syntax highlighting. The TypeScript analysis itself is `volar-service-typescript`'s, run inside the program.
+
+A result that names a place — a definition, a reference, the edits of a rename or a code action — comes back under the path the program checks. `embeddedUriOf` rewrites that path to the embedded document Volar knows: it finds the root the program holds there and encodes its `.loom` and id back through `encodeEmbeddedDocumentUri`. Volar then maps the result to the `.loom`, rather than opening a file that may not be on disk. A path that is no root the program holds — a real file under `node_modules` — passes through unchanged.
+
+Go-to on an `import` specifier is the one result that names a whole file rather than a place in it: TypeScript points it at the module's start, `(0, 0)`. `remapDefinition` catches that. When a definition lands at the start of a composition root, it redirects to that root's `heading` — the section that tangles the file — so the author arrives at `# The temperature library`, not the transcluded line the composed file opens with. Every other definition takes the `embeddedUriOf` path.
+
+A code action carries edits too, but a refactor leaves its edit unfilled until it is resolved. So `provideCodeActions` resolves any action that arrives without one, then moves every edit's file paths back to the `.loom` through `embeddedUriOf`. An `Add import` quick-fix already carries its edit — the `import` of the missing name, computed in the product's own coordinates — so only its paths cross back. Resolving inside the program keeps each edit on the product's side of the boundary.
+
+=>
+
+const productPlugin = (
+  ts: TypeScript,
+  composition: CompositionApi,
+): LanguageServicePlugin => ({
+  name: 'loom-typescript-product',
+  capabilities: {
+    diagnosticProvider: { interFileDependencies: false, workspaceDiagnostics: false },
+    hoverProvider: true,
+    completionProvider: { triggerCharacters: ['.'] },
+    definitionProvider: true,
+    referencesProvider: true,
+    renameProvider: {},
+    codeActionProvider: {
+      codeActionKinds: ['quickfix', 'refactor', 'source.organizeImports'],
+    },
+  },
+  create: (context) => {
+    const programs = new Map<string, ProductProgram>()
+    const programFor = (loomPath: string): ProductProgram => {
+      const existing = programs.get(loomPath)
+      if (existing !== undefined) return existing
+      const program = createProductProgram(ts, consumerOptions(ts, loomPath))
+      programs.set(loomPath, program)
+      return program
+    }
+    const targetOf = (
+      uri: string,
+      languageId: string,
+      text: string,
+    ): ProductTarget | undefined =>
+      productTarget(
+        context.decodeEmbeddedDocumentUri(URI.parse(uri)),
+        languageId,
+        text,
+        programFor,
+        composition.rootsFor,
+      )
+
+    const embeddedUriOf = (
+      roots: ReadonlyArray<ComposedFile>,
+      uri: string,
+    ): string =>
+      Option.match(
+        Array.findFirst(roots, (file) => file.path === URI.parse(uri).fsPath),
+        {
+          onNone: () => uri,
+          onSome: (file) =>
+            context
+              .encodeEmbeddedDocumentUri(URI.file(file.loomPath), file.rootId)
+              .toString(),
+        },
+      )
+
+    const remapEdit = (
+      roots: ReadonlyArray<ComposedFile>,
+      edit: WorkspaceEdit,
+    ): WorkspaceEdit => ({
+      ...edit,
+      changes:
+        edit.changes === undefined
+          ? undefined
+          : Object.fromEntries(
+              Object.entries(edit.changes).map(([uri, edits]) => [
+                embeddedUriOf(roots, uri),
+                edits,
+              ]),
+            ),
+      documentChanges: edit.documentChanges?.map((change) =>
+        'textDocument' in change
+          ? {
+              ...change,
+              textDocument: {
+                ...change.textDocument,
+                uri: embeddedUriOf(roots, change.textDocument.uri),
+              },
+            }
+          : change,
+      ),
+    })
+
+    const remapAction = (
+      roots: ReadonlyArray<ComposedFile>,
+      action: CodeAction,
+    ): CodeAction =>
+      action.edit === undefined
+        ? action
+        : { ...action, edit: remapEdit(roots, action.edit) }
+
+    const atFileStart = (range: Range): boolean =>
+      range.start.line === 0 &&
+      range.start.character === 0 &&
+      range.end.line === 0 &&
+      range.end.character === 0
+
+    const remapDefinition = (
+      roots: ReadonlyArray<ComposedFile>,
+      link: LocationLink,
+    ): LocationLink =>
+      pipe(
+        Array.findFirst(roots, (file) => file.path === URI.parse(link.targetUri).fsPath),
+        Option.filter(() => atFileStart(link.targetRange)),
+        Option.match({
+          onNone: () => ({ ...link, targetUri: embeddedUriOf(roots, link.targetUri) }),
+          onSome: (file) => ({
+            ...link,
+            targetUri: URI.file(file.heading.path).toString(),
+            targetRange: file.heading.range,
+            targetSelectionRange: file.heading.range,
+          }),
+        }),
+      )
+
+    return {
+      provideDiagnostics: (document) => {
+        const target = targetOf(document.uri, document.languageId, document.getText())
+        return target === undefined
+          ? undefined
+          : target.program.diagnostics(target.fileName)
+      },
+      provideHover: (document, position) => {
+        const target = targetOf(document.uri, document.languageId, document.getText())
+        return target === undefined
+          ? undefined
+          : target.program.hover(target.fileName, position)
+      },
+      provideCompletionItems: (document, position) => {
+        const target = targetOf(document.uri, document.languageId, document.getText())
+        return target === undefined
+          ? undefined
+          : target.program.completions(target.fileName, position)
+      },
+      provideDefinition: (document, position) => {
+        const target = targetOf(document.uri, document.languageId, document.getText())
+        return target === undefined
+          ? undefined
+          : target.program
+              .definition(target.fileName, position)
+              .then((links) =>
+                links?.map((link) => remapDefinition(target.roots, link)),
+              )
+      },
+      provideReferences: (document, position) => {
+        const target = targetOf(document.uri, document.languageId, document.getText())
+        return target === undefined
+          ? undefined
+          : target.program
+              .references(target.fileName, position)
+              .then((locations) =>
+                locations?.map((location) => ({
+                  ...location,
+                  uri: embeddedUriOf(target.roots, location.uri),
+                })),
+              )
+      },
+      provideRenameEdits: (document, position, newName) => {
+        const target = targetOf(document.uri, document.languageId, document.getText())
+        return target === undefined
+          ? undefined
+          : target.program
+              .rename(target.fileName, position, newName)
+              .then((edit) =>
+                edit === undefined ? edit : remapEdit(target.roots, edit),
+              )
+      },
+      provideCodeActions: (document, range, context) => {
+        const target = targetOf(document.uri, document.languageId, document.getText())
+        return target === undefined
+          ? undefined
+          : target.program
+              .codeActions(target.fileName, range, context)
+              .then((actions) =>
+                actions === undefined
+                  ? undefined
+                  : Promise.all(
+                      actions.map((action) =>
+                        (action.edit === undefined
+                          ? target.program.resolveCodeAction(action)
+                          : Promise.resolve(action)
+                        ).then((resolved) => remapAction(target.roots, resolved)),
+                      ),
+                    ),
+              )
+      },
+      dispose: () => programs.forEach((program) => program.dispose()),
+    }
+  },
+})
+
+## The service
+
+`TypescriptService` is the `LanguageService` the host activates for `typescript`. Its `plugins` Effect takes the editor's TypeScript compiler from `TypescriptSdk` and the composed corpus from `Composition`, then builds the one plugin. Where the frame rides Volar's shared TypeScript program, this service owns a program of its own.
+
+The package exports the service as its default. That default is the entry the dynamic loader reads: `LanguageLoader` imports the built package and takes `default`, expecting a value that satisfies the `LanguageService` contract under the id `typescript`.
+
+=>
+
+export const TypescriptService = defineLanguageService({
+  id: 'typescript',
+  displayName: 'TypeScript',
+  extensions: ['.ts', '.tsx'],
+  plugins: () =>
+    Effect.gen(function* () {
+      const ts = yield* TypescriptSdk
+      const composition = yield* Composition
+      return [productPlugin(ts, composition)]
+    }),
+})
+
+export default TypescriptService
+
+## What the service draws on
+
+The service builds on `@athrio/loom-lang-services` for the `LanguageService` contract, the `TypescriptSdk` and `Composition` capabilities, and the `ComposedFile` shape each composition root takes; and on its own `ProductProgram`. From Effect it takes `Effect` for the `plugins` body, and `Array`, `Option`, and `pipe` to search the composition; from Volar, the `LanguageServicePlugin` type, with `CodeAction`, `WorkspaceEdit`, `LocationLink`, and `Range` for the results and edits the plugin moves back to the `.loom`; the `URI` type to decode an embedded document back to its `.loom`; and Node's `dirname` to walk for a `tsconfig.json`.
+
+=>
+
+import { Array, Effect, Option, pipe } from 'effect'
+import type {
+  CodeAction,
+  LanguageServicePlugin,
+  LocationLink,
+  Range,
+  WorkspaceEdit,
+} from '@volar/language-service'
+import { URI } from 'vscode-uri'
+import { dirname } from 'node:path'
+import type { CompilerOptions } from 'typescript'
+import {
+  Composition,
+  type ComposedFile,
+  type CompositionApi,
+  defineLanguageService,
+  TypescriptSdk,
+} from '@athrio/loom-lang-services/LanguageService'
+import { createProductProgram, type ProductProgram } from './ProductProgram'
+
+type TypeScript = typeof import('typescript')
+
+## The module [packages/loom-service-typescript/src, TypescriptService.ts]
+
+=>
+
+::[What the service draws on]
+
+::[Finding the consumer's options]
+
+::[Choosing a program for a section]
+
+::[The editor plugin]
+
+::[The service]
