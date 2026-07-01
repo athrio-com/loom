@@ -53,6 +53,7 @@ export interface ComposedFile {
   readonly content: string
   readonly loomPath: string
   readonly rootId: string
+  readonly heading: FrameLocation
 }
 
 export interface CompositionApi {

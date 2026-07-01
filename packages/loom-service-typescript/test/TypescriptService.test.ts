@@ -27,11 +27,18 @@ const options: ts.CompilerOptions = {
 const loomPath = '/project/doc.loom'
 const decoded = (id: string): readonly [URI, string] => [URI.file(loomPath), id]
 
+// a placeholder heading location for the fixture roots; productTarget carries it
+// through untouched, so its exact range does not matter to these routing tests
+const headOf = (path: string): ComposedFile['heading'] => ({
+  path,
+  range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+})
+
 describe('productTarget routes a Product to its program', () => {
   it('serves a TypeScript Product at its tangle path, the live buffer overriding disk', async () => {
     const program = createProductProgram(ts, options)
     const roots: ReadonlyArray<ComposedFile> = [
-      { path: '/project/doc.ts', content: 'export const x = 1\n', loomPath, rootId: 'main' },
+      { path: '/project/doc.ts', content: 'export const x = 1\n', loomPath, rootId: 'main', heading: headOf(loomPath) },
     ]
     const target = productTarget(
       decoded('main'),
@@ -49,12 +56,19 @@ describe('productTarget routes a Product to its program', () => {
   it('resolves an import across roots against their composition', async () => {
     const program = createProductProgram(ts, options)
     const roots: ReadonlyArray<ComposedFile> = [
-      { path: '/project/a.ts', content: '', loomPath: '/project/a.loom', rootId: 'a' },
+      {
+        path: '/project/a.ts',
+        content: '',
+        loomPath: '/project/a.loom',
+        rootId: 'a',
+        heading: headOf('/project/a.loom'),
+      },
       {
         path: '/project/b.ts',
         content: 'export const b = 2\n',
         loomPath: '/project/b.loom',
         rootId: 'b',
+        heading: headOf('/project/b.loom'),
       },
     ]
     const target = productTarget(
@@ -74,7 +88,7 @@ describe('productTarget routes a Product to its program', () => {
   it('names a tsx Product by its tangle path', () => {
     const program = createProductProgram(ts, options)
     const roots: ReadonlyArray<ComposedFile> = [
-      { path: '/project/view.tsx', content: 'export const v = 1\n', loomPath, rootId: 'view' },
+      { path: '/project/view.tsx', content: 'export const v = 1\n', loomPath, rootId: 'view', heading: headOf(loomPath) },
     ]
     const target = productTarget(
       decoded('view'),
@@ -110,7 +124,7 @@ describe('productTarget routes a Product to its program', () => {
   it('checks a root that tangles nowhere beside its .loom under a synthetic name', async () => {
     const program = createProductProgram(ts, options)
     const roots: ReadonlyArray<ComposedFile> = [
-      { path: '/project/doc.ts', content: 'export const x = 1\n', loomPath, rootId: 'main' },
+      { path: '/project/doc.ts', content: 'export const x = 1\n', loomPath, rootId: 'main', heading: headOf(loomPath) },
     ]
     const target = productTarget(
       decoded('fresh'),

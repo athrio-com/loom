@@ -106,7 +106,7 @@ A service may draw on capabilities the host provides, taken through the Effect e
 
 `FrameQuery` is the host's read into the frame — the questions Loom can answer about a file from the composition it built. Its first reader, `diagnostics`, returns that file's Loom diagnostics, the grammatical and semantic health in Loom's own terms, so the frame service can surface them. Four more readers answer navigation and rename. `definition` gives the heading an anchor at an offset resolves to, and `references` gives every anchor that names the section under an offset. `rename` gives the title and anchor-name spans a rename rewrites together, and `renameRange` gives the one span the rename box covers. Each answers in `FrameLocation`s — a path and a range in the editor's own line-and-character coordinates. The host builds it over the warm corpus, and like `TypescriptSdk` it carries no default. Only the Loom service takes it.
 
-`Composition` is the host's read of the de re as a filesystem: every composition root in a file's corpus, each as the resolved code it tangles to, named by the path it tangles to. A product service builds its analyzer's program over these, so a cross-file `import` resolves to another section's live composition rather than its last-tangled output on disk. Like the others it carries no default; the host builds it over the warm corpus. The product service takes it.
+`Composition` is the host's read of the de re as a filesystem: every composition root in a file's corpus, each as the resolved code it tangles to, named by the path it tangles to. A product service builds its analyzer's program over these, so a cross-file `import` resolves to another section's live composition rather than its last-tangled output on disk. Each root also carries its `heading`, the `FrameLocation` of the section that tangles it, so go-to on that `import` lands on the section in the `.loom` rather than the transcluded code the composed file opens with. Like the others it carries no default; the host builds it over the warm corpus. The product service takes it.
 
 A product service still asks nothing about its own file's sections: the editor hands it each Product directly — a resolved root, its members folded in — so the file's own roots travel with the data, never a query. `Composition` adds only the rest of the corpus, the roots a file imports across.
 
@@ -147,6 +147,7 @@ export interface ComposedFile {
   readonly content: string
   readonly loomPath: string
   readonly rootId: string
+  readonly heading: FrameLocation
 }
 
 export interface CompositionApi {

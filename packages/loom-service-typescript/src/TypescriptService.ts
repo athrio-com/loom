@@ -1,7 +1,9 @@
-import { Array, Effect, Option } from 'effect'
+import { Array, Effect, Option, pipe } from 'effect'
 import type {
   CodeAction,
   LanguageServicePlugin,
+  LocationLink,
+  Range,
   WorkspaceEdit,
 } from '@volar/language-service'
 import { URI } from 'vscode-uri'
@@ -77,6 +79,10 @@ export const productTarget = (
     content: text,
     loomPath,
     rootId,
+    heading: {
+      path: loomPath,
+      range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+    },
   }))
   const roots = Option.match(sink, {
     onNone: () => Array.append(composed, edited),
@@ -180,6 +186,30 @@ const productPlugin = (
         ? action
         : { ...action, edit: remapEdit(roots, action.edit) }
 
+    const atFileStart = (range: Range): boolean =>
+      range.start.line === 0 &&
+      range.start.character === 0 &&
+      range.end.line === 0 &&
+      range.end.character === 0
+
+    const remapDefinition = (
+      roots: ReadonlyArray<ComposedFile>,
+      link: LocationLink,
+    ): LocationLink =>
+      pipe(
+        Array.findFirst(roots, (file) => file.path === URI.parse(link.targetUri).fsPath),
+        Option.filter(() => atFileStart(link.targetRange)),
+        Option.match({
+          onNone: () => ({ ...link, targetUri: embeddedUriOf(roots, link.targetUri) }),
+          onSome: (file) => ({
+            ...link,
+            targetUri: URI.file(file.heading.path).toString(),
+            targetRange: file.heading.range,
+            targetSelectionRange: file.heading.range,
+          }),
+        }),
+      )
+
     return {
       provideDiagnostics: (document) => {
         const target = targetOf(document.uri, document.languageId, document.getText())
@@ -206,10 +236,7 @@ const productPlugin = (
           : target.program
               .definition(target.fileName, position)
               .then((links) =>
-                links?.map((link) => ({
-                  ...link,
-                  targetUri: embeddedUriOf(target.roots, link.targetUri),
-                })),
+                links?.map((link) => remapDefinition(target.roots, link)),
               )
       },
       provideReferences: (document, position) => {

@@ -157,6 +157,10 @@ describe('LoomCompiler — composition projects the de re as a filesystem', () =
       expect(a?.content).toContain("import { b } from './b.js'")
       expect(b?.path).toBe('/b.ts')
       expect(b?.content).toContain('export const b = 2')
+      // each root carries its heading — the `# A` title on line 2 (char 2) — so a
+      // cross-file import go-to lands on the section that tangles the file
+      expect(a?.heading.path).toBe('/a.loom')
+      expect(a?.heading.range.start).toEqual({ line: 2, character: 2 })
     }).pipe(Effect.provide(crossLayer)),
   )
 })

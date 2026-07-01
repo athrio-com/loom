@@ -161,6 +161,7 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
                           content: fromProduct(modules, file.code.origin).code,
                           loomPath: module.path,
                           rootId: file.code.origin.name.toLowerCase(),
+                          heading: headingLocationOf(modules, module, file.code.origin.name),
                         }),
                       ),
                     ),
@@ -472,7 +473,7 @@ const collisionDiagnostics = (
 
 ## Locating a source span
 
-The navigation verbs answer in `FrameLocation`s — a path and a line-and-character range — so the editor places a result without re-reading the file. `definitionAt` and `referencesAt` give a `CorpusLocation` in the source's own offsets, since the corpus walks in offsets. `frameLocationOf` converts one to the other, reading the target module's text to turn each offset into a line and a character. `lineCharAt` counts the newlines before an offset for the line, and the distance from the last newline for the character — the zero-based pair the editor speaks.
+The navigation verbs answer in `FrameLocation`s — a path and a line-and-character range — so the editor places a result without re-reading the file. `definitionAt` and `referencesAt` give a `CorpusLocation` in the source's own offsets, since the corpus walks in offsets. `frameLocationOf` converts one to the other, reading the target module's text to turn each offset into a line and a character. `lineCharAt` counts the newlines before an offset for the line, and the distance from the last newline for the character — the zero-based pair the editor speaks. `headingLocationOf` finds a root's section by its name and gives the `FrameLocation` of its heading title, so the composition can point a cross-file `import` at the section that writes the file.
 
 =>
 
@@ -498,6 +499,28 @@ const frameLocationOf = (
       end: lineCharAt(text, location.position.end.offset),
     },
   }))
+
+const headingLocationOf = (
+  modules: Modules,
+  module: LoomModule,
+  name: string,
+): FrameLocation =>
+  pipe(
+    Array.findFirst(
+      module.doc.sections,
+      (section) => normaliseTitle(section.heading.title?.source ?? '') === name,
+    ),
+    Option.flatMapNullable((section) => section.heading.title),
+    Option.flatMap((title) =>
+      frameLocationOf(modules, { path: module.path, position: title.position }),
+    ),
+    Option.getOrElse(
+      (): FrameLocation => ({
+        path: module.path,
+        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+      }),
+    ),
+  )
 
 ## Projecting a file's tree
 

@@ -240,6 +240,28 @@ const frameLocationOf = (
     },
   }))
 
+const headingLocationOf = (
+  modules: Modules,
+  module: LoomModule,
+  name: string,
+): FrameLocation =>
+  pipe(
+    Array.findFirst(
+      module.doc.sections,
+      (section) => normaliseTitle(section.heading.title?.source ?? '') === name,
+    ),
+    Option.flatMapNullable((section) => section.heading.title),
+    Option.flatMap((title) =>
+      frameLocationOf(modules, { path: module.path, position: title.position }),
+    ),
+    Option.getOrElse(
+      (): FrameLocation => ({
+        path: module.path,
+        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+      }),
+    ),
+  )
+
 const namesAt = (modules: Modules, path: Path): ReadonlyArray<string> =>
   pipe(
     Option.fromNullable(modules.get(path)),
@@ -496,6 +518,7 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
                           content: fromProduct(modules, file.code.origin).code,
                           loomPath: module.path,
                           rootId: file.code.origin.name.toLowerCase(),
+                          heading: headingLocationOf(modules, module, file.code.origin.name),
                         }),
                       ),
                     ),
