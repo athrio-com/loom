@@ -303,21 +303,72 @@ hover / go-to-definition, Volar maps the position back to the exact `.loom`
 location. This is Volar's core competency; Loom supplies the mappings when it
 assembles each virtual code.
 
-Routing is by plane:
+Routing is by plane. The root mirror — the `.loom` source verbatim, `languageId: loom` —
+carries a whole-file `source` span for Loom's own diagnostics, and one span per symbol
+`symbolsOf` finds, each keyed by its kind. A product section's code block is an embedded
+code carrying `product` spans back to the section that wrote it.
 
 ```
 .loom source position
-  ├─ heading, warp, name anchor, tangle body, or {Loom} code (FrameCode)
-  │     → frame virtual code (tsc) → frame annotations
-  └─ a product section's code block (EmbeddedCode)
-        → the section's resolved composition → product annotations
-           (unresolved, e.g. an anchor to a file that cannot be read → Tree-sitter syntax tokens only)
+  ├─ a symbol (heading, anchor, warp, specifier, sink, arrow, tilde)
+  │     → the root mirror → Loom's own diagnostics, navigation, and colour
+  └─ a product section's code block (embedded code)
+        → the section's resolved composition → the language service's annotations
 ```
 
-Frame annotations (a heading's resolved Service class, a name anchor's resolved
-target section, a composition type error) and product annotations (a type error in the
+Loom's own answers (the section a name anchor resolves to, an unresolved-anchor
+diagnostic, a warp's colour) and a product section's answers (a type error in the
 author's code, hover on a local variable) never mix; the source position alone decides
 which virtual code answers.
+
+---
+
+## The symbol capability matrix
+
+Every token a `.loom` declares — a heading title, an anchor, a warp, a specifier, a
+sink, an arrow, a tilde, or prose — is a **symbol kind**, and
+`@athrio/loom-ast/LoomSymbol` holds one table, `profileOf`, that says what the editor
+does with each. A profile carries two things: the token's **colour** (a standard
+semantic-token type, or none) and its **features** — Volar's `CodeInformation` flags,
+which requests the editor forwards at the token's span. One exhaustive `Match` defines
+the table, so a new kind fails to compile until it is profiled.
+
+| kind | colour | navigation | structure | verification |
+| --- | --- | :---: | :---: | :---: |
+| `headingTitle` | namespace | ● | ● | |
+| `sectionAnchor` | namespace | ● | ● | ● |
+| `warpAnchor` | variable | ● | | ● |
+| `warpDef` | variable | ● | | |
+| `langWarp` | keyword | | | ● |
+| `specifier` | keyword | | | ● |
+| `sink` | string | | | ● |
+| `arrow` | operator | | | |
+| `tilde` | operator | | | |
+| `prose` | — | | ● | |
+
+Two mapping kinds sit outside the table, for the projection's own structure rather than
+a token a cursor rests on: a `source` span (the root's whole-file identity mapping)
+takes verification alone, and a `product` span (a stretch of resolved de re) takes the
+full set — verification, completion, semantics, navigation, and structure.
+
+Three consumers read the one table, so their behaviour cannot drift apart:
+
+1. **The mappings.** `symbolMappings` lays one span per symbol over the root mirror,
+   each carrying its kind; `LoomCompiler`'s `featuresOf` turns that kind into the
+   `CodeInformation` Volar forwards, straight from `profileOf(kind).features`. So
+   navigation, structure, and verification fire on exactly the tokens the table allows.
+2. **The colours.** `LoomCompiler`'s `semanticTokens` reads `symbolsOf` and colours each
+   token by `profileOf(kind).semantic`, its legend the standard token types — so a
+   theme colours a warp, an anchor, or an arrow with no extra setup.
+3. **The navigation.** `definitionAt`, `referencesAt`, `renameAt`, and `renameRangeAt`
+   dispatch on `symbolAt(offset).kind` through one `Match`: a section anchor resolves a
+   title across the corpus, a warp anchor resolves a name within its section, and
+   `renameRangeAt` returns the name span of any kind the table marks navigable.
+
+`CapabilityTable.test.ts` guards the wiring: over a fixture exercising every kind, it
+asserts the colours the compiler emits are exactly the colours `profileOf` assigns, the
+mappings carry one span of the right kind per symbol, and a rename range appears only
+where the table marks a kind navigable.
 
 ---
 
