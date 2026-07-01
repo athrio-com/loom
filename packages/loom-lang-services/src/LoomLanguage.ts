@@ -55,10 +55,14 @@ const loomDiagnostics = (frame: FrameQueryApi): LanguageServicePlugin => ({
   }),
 })
 
-const toLocationLink = (location: FrameLocation): LocationLink => ({
-  targetUri: URI.file(location.path).toString(),
-  targetRange: location.range,
-  targetSelectionRange: location.range,
+const toLocationLink = (
+  target: FrameLocation,
+  origin: FrameLocation | undefined,
+): LocationLink => ({
+  targetUri: URI.file(target.path).toString(),
+  targetRange: target.range,
+  targetSelectionRange: target.range,
+  originSelectionRange: origin?.range,
 })
 
 const loomDefinition = (frame: FrameQueryApi): LanguageServicePlugin => ({
@@ -68,8 +72,11 @@ const loomDefinition = (frame: FrameQueryApi): LanguageServicePlugin => ({
     provideDefinition: (document, position) => {
       const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
       if (!decoded || decoded[1] !== 'root') return undefined
-      const target = frame.definition(decoded[0].fsPath, document.offsetAt(position))
-      return target === undefined ? undefined : [toLocationLink(target)]
+      const offset = document.offsetAt(position)
+      const target = frame.definition(decoded[0].fsPath, offset)
+      return target === undefined
+        ? undefined
+        : [toLocationLink(target, frame.renameRange(decoded[0].fsPath, offset))]
     },
   }),
 })

@@ -79,15 +79,22 @@ Two plugins answer them, each over the root mirror alone, the whole-file documen
 map to the source is the identity, so a position there is a source offset.
 
 `loomDefinition` reads the anchor under the cursor and jumps to the heading its name
-resolves to. It asks `FrameQuery` for the target `FrameLocation`, and `toLocationLink`
-turns that into the editor's link, the target file keyed by its uri.
+resolves to. It asks `FrameQuery` for two spans: the target heading through
+`definition`, and the anchor's own name through `renameRange`, the span under the
+cursor. `toLocationLink` pairs them — the heading as the link's target, the anchor
+name as its `originSelectionRange` — so the editor underlines the whole `::[…]` name,
+not the single word beneath the cursor.
 
 =>
 
-const toLocationLink = (location: FrameLocation): LocationLink => ({
-  targetUri: URI.file(location.path).toString(),
-  targetRange: location.range,
-  targetSelectionRange: location.range,
+const toLocationLink = (
+  target: FrameLocation,
+  origin: FrameLocation | undefined,
+): LocationLink => ({
+  targetUri: URI.file(target.path).toString(),
+  targetRange: target.range,
+  targetSelectionRange: target.range,
+  originSelectionRange: origin?.range,
 })
 
 const loomDefinition = (frame: FrameQueryApi): LanguageServicePlugin => ({
@@ -97,8 +104,11 @@ const loomDefinition = (frame: FrameQueryApi): LanguageServicePlugin => ({
     provideDefinition: (document, position) => {
       const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
       if (!decoded || decoded[1] !== 'root') return undefined
-      const target = frame.definition(decoded[0].fsPath, document.offsetAt(position))
-      return target === undefined ? undefined : [toLocationLink(target)]
+      const offset = document.offsetAt(position)
+      const target = frame.definition(decoded[0].fsPath, offset)
+      return target === undefined
+        ? undefined
+        : [toLocationLink(target, frame.renameRange(decoded[0].fsPath, offset))]
     },
   }),
 })
