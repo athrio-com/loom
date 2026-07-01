@@ -12,6 +12,7 @@
     "./ProductAst": "./src/ast/ProductAst.ts",
     "./LoomAst": "./src/ast/LoomAst.ts",
     "./LoomCorpusAst": "./src/ast/LoomCorpusAst.ts",
+    "./LoomSymbol": "./src/ast/LoomSymbol.ts",
     "./LoomVirtualCode": "./src/ast/LoomVirtualCode.ts",
     "./Weft": "./src/ast/Weft.ts",
     "./LoomTokens": "./src/ast/LoomTokens.ts"
