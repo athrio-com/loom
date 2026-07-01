@@ -1,0 +1,21 @@
+{{lang: TypeScript}}
+
+# Rename freshness
+
+Rename a section or a warp in the editor and, until you save, a stale diagnostic can linger — "no section named 'the old name'", squiggled at the old place, though the buffer already reads the new one. The name resolves; the diagnostic is only out of date.
+
+## What goes stale
+
+Two verbs read a file's text by different routes. `compile`, which builds the virtual code the editor shows, reads the open buffer through `editorSource`. `diagnose`, which produces the diagnostics, reads the compiler's `DocumentSource` — and in the editor that is raw disk. `LoomMemo` hides the split for a while: `compile` caches each module it builds from the buffer, and `diagnose` reuses that cache. But on a miss `diagnose` falls through to disk, and before a save disk holds the old text. So the corpus `diagnose` walks is a mix — some modules fresh from the buffer, some stale from disk — and a member that resolves in the buffer fails against the stale copy.
+
+This never shows in a test. Every test feeds one in-memory source to both verbs, so the two always agree and `diagnose` is clean. The gap is the editor's alone, which is why it survived a green suite.
+
+## Why the near fix is wrong
+
+The tempting fix is to have `editorSource` read a sibling from Volar too, through `ctx.getAssociatedScript`. But that call registers an association, and registering one makes Volar project the sibling — so reading a sibling mid-build would re-enter the projector. The current disk read is a deliberate guard against exactly that: the source never calls back into Volar.
+
+## The shape of the fix
+
+Keep one source of truth for a file's text — the editor's live buffer — and let both verbs read it without calling back into Volar. The plugin already sees every buffer: Volar hands it each snapshot as it creates, updates, and disposes a virtual code. So the plugin keeps those snapshots in a small registry and reads from it, passively, wherever a file's text is needed — `editorSource` for a sibling, and the compiler's `DocumentSource` for `diagnose`. A file the editor never opened is absent from the registry and still comes from disk, as it should.
+
+The registry is the project's open buffers, held the way `LoomMemo` holds its cache: behind a `SynchronizedRef`, updated by the plugin's hooks. This chapter grows its code here — the registry service, and the two reads rerouted through it. When the diagnostic clears on an unsaved rename in the editor, the chapter graduates to Part VII.

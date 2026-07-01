@@ -7,6 +7,92 @@ read the whole framework as **one book** — `corpus/book.loom` and its chapters
 tangles to the same source across every package. This is the plan for getting there
 without breaking the build.
 
+## The book is the only specification
+
+Loom is literate: a section's prose is its specification, beside the code it describes.
+So the framework should keep no specification apart from the book. Today it still does —
+`architecture.md`, the `how-*.md` design notes, the vision half of `CLAUDE.md`, and the
+old `corpus/Loom.loom` draft all describe the code from a distance, and drift from it.
+The migration folds each into the chapter it belongs to and deletes it:
+
+- `architecture.md` — the two planes and the pipeline → **Part II**, spread into the
+  parts it maps.
+- `how-anchors.md` — anchors and warps → **Part I.2** and **Part IV**.
+- `how-frame.md` — the frame pass → **Part V**.
+- `how-run.md` — running the frame → **Part V.5**.
+- `how-lsp.md` — the tooling and the capability matrix → **Part VII** and **Part VIII**.
+- `CLAUDE.md` — its vision opens the book; its working directives stay as the
+  contributor's guide, pointing into the book rather than restating it.
+- `corpus/Loom.loom` — the early self-hosting draft, superseded; salvage what still
+  holds into Parts I and III.
+
+When a part is written, its spec is gone: the prose lives in the chapters, next to the
+code, where it cannot drift. No document parallel to the source survives the migration.
+
+## The book carries its tests
+
+A test is program too, and Loom is written in Loom — so the tests belong in the book,
+not in a hand-written `test/` tree beside it. A hand-written test file is the same
+parallel artifact a spec is: it sits outside the narrative and drifts from the code it
+checks. So a chapter carries its own tests, in a section that tangles to a `.test.ts` —
+the code that proves the chapter beside the code that is the chapter. A test that spans
+several chapters, like `CapabilityTable`, earns a chapter of its own; the fixtures and
+helpers the tests share are looms too.
+
+None of this is new tooling: a sink already tangles a section to any path, `vitest` runs
+a tangled test like any other, and the guard that blocks hand-editing generated source
+extends to cover generated tests. What it needs is a convention — where a chapter's
+tests sit, how shared fixtures are named — which is itself the second work-in-progress
+loom.
+
+## The folders follow the book, not the packages
+
+Today the corpus is filed by package — `packages/loom-ast/corpus/`,
+`packages/loom-lang/corpus/`, one tree per module. The book inverts that: the folders
+follow the narrative. `corpus/` mirrors the table of contents — a folder per part, a
+loom per chapter, in reading order — so a person opening the source walks the book, not
+the build.
+
+```
+corpus/
+  book.loom                          the spine
+  03-the-shape-of-a-loom/
+    01-the-node-foundation.loom
+    02-health-built-in.loom
+    ...
+```
+
+The packaging does not vanish; it moves downstream. Each chapter tangles, through its
+sink, to the file its package ships — `01-the-node-foundation.loom` writes
+`packages/loom-ast/src/ast/LoomNode.ts` and its test. So `packages/*/src` becomes pure
+tangle output, and a package is only what it always should have been: a `package.json`
+and the generated code it publishes. The narrative is where the work is; the packages
+are where it lands.
+
+This asks one thing of tangling that the per-package layout never did — a chapter must
+route its output to a directory outside its own, across the repo. The first migration
+step proves that routing works before anything else moves.
+
+## The work-in-progress part
+
+The book ends with a part that is never finished: **Part X, Work in progress**. It holds
+the framework's active work — each open problem or unbuilt feature as its own conceptual
+loom.
+
+A work-in-progress loom is not a spec. It is written to be **worked out in place**: it
+opens as prose that states the problem and the shape of the answer, and you build it by
+adding code to that same loom and refining the prose as the design settles — never by
+taking it as a plan and rewriting it as code elsewhere. The loom travels from idea to
+implementation as one artifact, so it cannot become a stale document parallel to what was
+built. When it is done, it graduates: the chapter moves to its home part, and its code
+tangles like any other. This is how new work is born once the migration is complete — as
+a loom, never as a spec.
+
+The first work-in-progress loom is **#23, rename freshness** — the editor's
+stale-diagnostic-after-rename bug. Its loom states the cause (diagnose reads disk while
+compile reads the buffer) and the shape of the fix (a passive open-document registry),
+ready to be amended with the code that resolves it and verified in the editor.
+
 ## What is already true
 
 - **The composition works.** `corpus/guide/` is a small book in the current syntax
@@ -17,15 +103,14 @@ without breaking the build.
   matrix). Authoring the book in the editor is supported.
 - **`corpus/book.loom`** already holds the table of contents — eight parts, I–VIII.
 
-## What to clear first
+## What waits for later
 
-1. **Fix the rename-freshness bug (#23).** A book is rename-heavy; a stale diagnostic
-   after every rename would make the migration miserable. Fix it before the big push.
-   (No unit test can cover it — it is the editor's disk-vs-buffer gap — so it needs one
-   in-editor verification pass.)
-2. **`loom weave` is not needed yet.** It renders the book as a website; the migration
-   only needs `loom tangle`, which works today. Weave comes after the source is
-   book-shaped.
+1. **The work-in-progress part, and #23 with it.** Part X is written and worked out only
+   once the book exists — the migration is the work until then. So the rename-freshness
+   bug stays present through the migration; authoring lives with it, and it is the first
+   thing worked out after, as the first exercise of the concept-to-code flow.
+2. **`loom weave`.** It renders the book as a website; the migration only needs
+   `loom tangle`, which works today. Weave comes after the source is book-shaped.
 
 ## The rule that keeps the build green
 
@@ -61,10 +146,12 @@ dependencies are already in the book when we write it.
 
 ## Per-step checklist
 
-- [ ] Write the part's chapters into the book, each with the sink its old loom used.
-- [ ] `loom tangle` the book; `git diff` the generated `.ts` — it should be empty.
+- [ ] Write the part's chapters into the book — each with the sink its old loom used and
+      a section for its tests — folding the part's spec(s) into the chapters' prose.
+- [ ] `loom tangle` the book; `git diff` the generated source and tests — it should be empty.
 - [ ] `tsc` clean across the touched packages; `vitest run` green.
-- [ ] Delete the migrated package's `corpus/`.
+- [ ] Delete the migrated package's `corpus/`, its hand-written `test/`, and the specs
+      the part absorbed.
 - [ ] Commit the part as one step.
 
 When every part is in and the per-package corpora are gone, `corpus/book.loom` is the

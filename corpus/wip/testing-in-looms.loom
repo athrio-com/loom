@@ -1,0 +1,23 @@
+{{lang: TypeScript}}
+
+# Testing in looms
+
+Loom's tests are still hand-written `.ts` files under each package's `test/`, parallel to the looms they check. That is the one part of the framework not yet written in Loom — and once the book absorbs the source, the tests are all that sits outside it. A test file drifts from the code the way a spec did, and it is absent from the narrative that explains the code. So the tests become looms too, tangled to `.test.ts`, part of the chapters they prove.
+
+## What already works
+
+Nothing here waits on new machinery. A section with a `[test, Negate.test.ts]` sink tangles to a test file; `vitest` discovers and runs a tangled `.test.ts` like any other; and a test imports the code it checks by the same package paths it uses now. A chapter can carry a test today.
+
+## What to work out
+
+Three questions, and this loom answers each by trying it:
+
+1. **Where a chapter's tests sit.** A unit test belongs in the chapter of the code it checks — the prose that explains `negate` can show the test that proves it, in a section beside the one that defines it. A test that spans several chapters, like the capability matrix, is its own chapter instead. Settle the split by moving a real test each way and reading how it lands.
+
+2. **How fixtures are shared.** The tests lean on helpers — `parse`, `store`, sample corpora. These are looms too, but shared ones: a fixtures chapter each test chapter draws from. Decide where it lives and how a test names it.
+
+3. **The guard.** The hook that blocks hand-editing generated source must extend to generated tests, or an author edits a `.test.ts` the next tangle overwrites. Once a package's tests are loom-authored, its `test/` is generated, and the guard says so.
+
+## The proof
+
+Tests are migrated when the whole suite — the same count, green — is tangled from looms rather than hand-written, and no `.test.ts` is edited by hand. Work it out on one package first — loom-ast, the leaf — then carry the settled convention through the rest as each part migrates.
