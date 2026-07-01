@@ -299,7 +299,8 @@ export const stringSnapshot = (text: string): ts.IScriptSnapshot => ({
 
 const featuresOf = (kind: Mapping['kind']): CodeMapping['data'] =>
   Match.value(kind).pipe(
-    Match.whenOr('prose', 'heading', 'tag', () => ({
+    Match.when('prose', () => ({ structure: true })),
+    Match.whenOr('heading', 'tag', () => ({
       navigation: true,
       structure: true,
     })),

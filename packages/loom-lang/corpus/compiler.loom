@@ -561,7 +561,7 @@ const projectTree = (modules: Modules, entry: LoomModule): LoomVirtualCode =>
 
 Every model up to here is plain data, which keeps the pipeline serialisable and easy to test. Volar is not plain data: it wants a function-based `IScriptSnapshot` for a document's text and its own `CodeMapping` for each source span. `toVolar` is the one adapter that crosses from a `LoomVirtualCode` tree to Volar's `VirtualCode`, and the only place in Loom that touches Volar's runtime types. It recurses down the embedded tree, converting every node.
 
-Three small functions do the work. `stringSnapshot` presents a string as the minimal snapshot Volar reads. `featuresOf` chooses which editor features Volar forwards at a mapped span. A prose span — a preamble, a heading, the text between code blocks — is locate-only: it carries navigation and structure alone. A heading span — a section heading that anchors point to — is locate-only too: an author renames the section there and finds its anchors. A tag span — a section's `[Tag]` label — is locate-only as well: it reaches and renames the section. An anchor span — a `::[Heading]` reference itself — adds verification, so an unresolved name still reports its error, and otherwise stays locate-only. A product span carries the full set, verification and completion and semantics among them, so the author edits the resolved composition as if it were the source. A span of the `source` kind — the whole-file identity mapping the root carries — takes verification alone, so Loom's own diagnostics surface on the file while no other feature fires there. `toCodeMapping` rewrites one of our `Mapping`s — a `.loom` source span paired with the generated span it projects to — as Volar's `CodeMapping`, choosing its features with `featuresOf`.
+Three small functions do the work. `stringSnapshot` presents a string as the minimal snapshot Volar reads. `featuresOf` chooses which editor features Volar forwards at a mapped span. A prose span — a preamble, a heading line, the text between code blocks — carries structure alone: it folds and outlines, but is not a navigation target, so go-to, rename, and highlight never fire on the narration. A heading span — a section's title, the precise word an anchor points to — adds navigation, and a tag span — a section's `[Tag]` label — does the same, so an author renames the section and finds its anchors from the title itself, not the whole line. An anchor span — a `::[Heading]` reference itself — adds verification, so an unresolved name still reports its error, and otherwise navigates. A product span carries the full set, verification and completion and semantics among them, so the author edits the resolved composition as if it were the source. A span of the `source` kind — the whole-file identity mapping the root carries — takes verification alone, so Loom's own diagnostics surface on the file while no other feature fires there. `toCodeMapping` rewrites one of our `Mapping`s — a `.loom` source span paired with the generated span it projects to — as Volar's `CodeMapping`, choosing its features with `featuresOf`.
 
 =>
 
@@ -573,7 +573,8 @@ export const stringSnapshot = (text: string): ts.IScriptSnapshot => ({
 
 const featuresOf = (kind: Mapping['kind']): CodeMapping['data'] =>
   Match.value(kind).pipe(
-    Match.whenOr('prose', 'heading', 'tag', () => ({
+    Match.when('prose', () => ({ structure: true })),
+    Match.whenOr('heading', 'tag', () => ({
       navigation: true,
       structure: true,
     })),
