@@ -1,4 +1,9 @@
-{{lang: TypeScript}}
+---
+Part VIII: Languages as packages
+Chapter 4: Loading a language by id
+Package: packages/loom-lang-services/src/LanguageLoader.ts
+Language: TypeScript
+---
 
 # Loading a language by id
 
@@ -77,7 +82,7 @@ import { isLanguageService, type LanguageService } from './LanguageService'
 import { LoomLanguage } from './LoomLanguage'
 import { ProseLanguage } from './ProseLanguage'
 
-## The module [packages/loom-lang-services/src, LanguageLoader.ts]
+## The module {Tangle}
 
 =>
 

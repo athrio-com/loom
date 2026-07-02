@@ -1,4 +1,9 @@
-{{lang: TypeScript}}
+---
+Part VIII: Languages as packages
+Chapter 5: The language registry
+Package: packages/loom-lang-services/src/LanguageRegistry.ts
+Language: TypeScript
+---
 
 # The language registry
 
@@ -61,7 +66,7 @@ export class LanguageRegistry extends Effect.Service<LanguageRegistry>()(
   },
 ) {}
 
-## The module [packages/loom-lang-services/src, LanguageRegistry.ts]
+## The module {Tangle}
 
 =>
 

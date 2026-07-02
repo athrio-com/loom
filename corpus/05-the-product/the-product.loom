@@ -1,4 +1,9 @@
-{{lang: TypeScript}}
+---
+Part V: The product
+Chapter 2: The shape of the product
+Package: packages/loom-ast/src/ast/ProductAst.ts
+Language: TypeScript
+---
 
 # The shape of the product
 
@@ -130,7 +135,7 @@ Effect's `Schema` defines the nodes, and `Health`, `okHealth`, and `Position` fr
 import { Schema } from 'effect'
 import { HealthSchema, okHealth, PositionSchema } from '#ast/LoomNode'
 
-## The module [packages/loom-ast/src/ast, ProductAst.ts]
+## The module {Tangle}
 
 =>
 

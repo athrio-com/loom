@@ -1,4 +1,9 @@
-{{lang: TypeScript}}
+---
+Part VIII: Languages as packages
+Chapter 3: The store of installed services
+Package: packages/loom-lang-services/src/LoomStore.ts
+Language: TypeScript
+---
 
 # The store of installed services
 
@@ -138,7 +143,7 @@ import { promisify } from 'node:util'
 
 const run = promisify(execFile)
 
-## The module [packages/loom-lang-services/src, LoomStore.ts]
+## The module {Tangle}
 
 =>
 

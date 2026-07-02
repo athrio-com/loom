@@ -1,4 +1,9 @@
-{{lang: TypeScript}}
+---
+Part VI: Tangling
+Chapter 4: Build settings for a file
+Package: packages/loom-lang/src/PackageConfig.ts
+Language: TypeScript
+---
 
 # Build settings for a file
 
@@ -70,7 +75,7 @@ import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { type AnchorDelims, defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
 
-## The module [packages/loom-lang/src, PackageConfig.ts]
+## The module {Tangle}
 
 =>
 

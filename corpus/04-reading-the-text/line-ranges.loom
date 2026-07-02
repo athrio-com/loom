@@ -1,4 +1,9 @@
-{{lang: TypeScript}}
+---
+Part IV: Reading the text
+Chapter 1: Line ranges
+Package: packages/loom-lang/src/ast/LineRanges.ts
+Language: TypeScript
+---
 
 # Line ranges
 
@@ -158,7 +163,7 @@ Effect supplies `Stream` for the ranges, `Data` for the tagged `MixedEOL` error,
 
 import { Effect, Option, Stream, Data, Schema } from 'effect'
 
-## The module [packages/loom-lang/src/ast, LineRanges.ts]
+## The module {Tangle}
 
 =>
 

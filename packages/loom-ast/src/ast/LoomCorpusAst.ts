@@ -36,9 +36,15 @@ type SectionRef = { readonly module: Path; readonly section: LoomSection }
 const rootAnchored = (dir: string): string => dir.replace(/^\/+/, '')
 
 const dirLabelOf = (section: LoomSection): Option.Option<string> =>
-  section.heading.sink !== undefined && section.heading.sink.file === undefined
-    ? Option.some(rootAnchored(section.heading.sink.dir.value))
-    : Option.none()
+  pipe(
+    Option.fromNullable(section.heading.sink),
+    Option.filter(
+      (sink) =>
+        sink.file === undefined &&
+        section.heading.specifier?.label.value.toLowerCase() !== 'tangle',
+    ),
+    Option.map((sink) => rootAnchored(sink.dir.value)),
+  )
 
 const isDirSink = (section: LoomSection): boolean =>
   Option.isSome(dirLabelOf(section))

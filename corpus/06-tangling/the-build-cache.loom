@@ -1,4 +1,9 @@
-{{lang: TypeScript}}
+---
+Part VI: Tangling
+Chapter 7: The build cache
+Package: packages/loom-lang/src/LoomMemo.ts
+Language: TypeScript
+---
 
 # The build cache
 
@@ -105,7 +110,7 @@ Effect supplies `SynchronizedRef` for the atomic state, and `Array`, `Option`, a
 import { Array, Effect, Option, SynchronizedRef, pipe } from 'effect'
 import { type LoomModule, type Path } from '@athrio/loom-ast/LoomCorpusAst'
 
-## The module [packages/loom-lang/src, LoomMemo.ts]
+## The module {Tangle}
 
 =>
 

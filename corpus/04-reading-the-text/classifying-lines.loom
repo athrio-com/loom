@@ -1,4 +1,9 @@
-{{lang: TypeScript}}
+---
+Part IV: Reading the text
+Chapter 2: The classifier stage
+Package: packages/loom-lang/src/ast/WeftClassifier.ts
+Language: TypeScript
+---
 
 # The classifier stage
 
@@ -356,7 +361,7 @@ import {
   TildeWeftSchema,
 } from '@athrio/loom-ast/Weft'
 
-## The module [packages/loom-lang/src/ast, WeftClassifier.ts]
+## The module {Tangle}
 
 =>
 

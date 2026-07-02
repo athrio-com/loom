@@ -1,4 +1,9 @@
-{{lang: TypeScript}}
+---
+Part IX: Loom builds Loom
+Chapter 4: Bundling the loadable service
+Package: packages/loom-service-typescript/vite.config.ts
+Language: TypeScript
+---
 
 # Bundling the loadable service
 
@@ -98,7 +103,7 @@ const runtimeSpecifiers = [
   'typescript',
 ]
 
-## The module [packages/loom-service-typescript, vite.config.ts]
+## The module {Tangle}
 
 =>
 

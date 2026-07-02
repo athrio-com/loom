@@ -1,4 +1,9 @@
-{{lang: TypeScript}}
+---
+Part VII: In the editor
+Chapter 5: The language server
+Package: packages/loom-lang/src/
+Language: TypeScript
+---
 
 # The language server
 
@@ -92,7 +97,7 @@ const program = Effect.gen(function* () {
 
 export const startLanguageServer = (): void => NodeRuntime.runMain(program)
 
-## The server module [packages/loom-lang/src, LoomServer.ts]
+## The server module {Tangle}[LoomServer.ts]
 
 The server module assembles the imports and the program and exports `startLanguageServer`. It runs nothing on import — a caller decides when to start the server, so the same module serves both an editor that spawns it and the `loom lsp` command that calls it in-process.
 
@@ -102,7 +107,7 @@ The server module assembles the imports and the program and exports `startLangua
 
 ::[The program]
 
-## The run-on-import entry [packages/loom-lang/src, index.ts]
+## The run-on-import entry {Tangle}[index.ts]
 
 This thin entry starts the server the moment it loads. The VS Code extension bundles it as `server.js`, and the `loom-language-server` bin runs it — both expect loading the module to start the server.
 

@@ -116,6 +116,12 @@ export const FrontmatterPartTokenSchema = loomNode('FrontmatterPart', {
 })
 export type FrontmatterPartToken = typeof FrontmatterPartTokenSchema.Type
 
+export const FrontmatterPartNameTokenSchema = loomNode('FrontmatterPartName', {
+  value: Schema.String,
+})
+export type FrontmatterPartNameToken =
+  typeof FrontmatterPartNameTokenSchema.Type
+
 export const FrontmatterChapterTokenSchema = loomNode('FrontmatterChapter', {
   value: Schema.String,
 })
@@ -329,6 +335,7 @@ export const LoomTokenSchema = Schema.Union(
   SinkTokenSchema,
   FrontmatterFenceTokenSchema,
   FrontmatterPartTokenSchema,
+  FrontmatterPartNameTokenSchema,
   FrontmatterChapterTokenSchema,
   FrontmatterTitleTokenSchema,
   FrontmatterKeyTokenSchema,

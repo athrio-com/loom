@@ -1,4 +1,9 @@
-{{lang: TypeScript}}
+---
+Part IV: Reading the text
+Chapter 4: The document builder
+Package: packages/loom-lang/src/ast/LoomAstBuilder.ts
+Language: TypeScript
+---
 
 # The document builder
 
@@ -186,7 +191,7 @@ const spanFrom = (
 
 ## Building the frontmatter
 
-`makeFrontmatter` gathers a file's frontmatter wefts into one `LoomFrontmatter`, or nothing when the file opened with no block. The membership fields — the part, the chapter, and the title — come from the one weft that carries them.
+`makeFrontmatter` gathers a file's frontmatter wefts into one `LoomFrontmatter`, or nothing when the file opened with no block. The membership fields come from two lines: the part and its name from one, the chapter and its title from the other.
 
 =>
 
@@ -194,11 +199,18 @@ const makeFrontmatter = (
   wefts: ReadonlyArray<FrontmatterWeft>,
 ): Option.Option<LoomFrontmatter> => {
   if (wefts.length === 0) return Option.none()
-  const membership = Option.match(
+  const partFields = Option.match(
     Option.fromNullable(wefts.find((w) => w.part !== undefined)),
     {
       onNone: () => ({}),
-      onSome: (w) => ({ part: w.part, chapter: w.chapter, title: w.title }),
+      onSome: (w) => ({ part: w.part, partName: w.partName }),
+    },
+  )
+  const chapterFields = Option.match(
+    Option.fromNullable(wefts.find((w) => w.chapter !== undefined)),
+    {
+      onNone: () => ({}),
+      onSome: (w) => ({ chapter: w.chapter, title: w.title }),
     },
   )
   return Option.some(
@@ -209,7 +221,8 @@ const makeFrontmatter = (
       },
       source: sourceOf(wefts),
       health: okHealth,
-      ...membership,
+      ...partFields,
+      ...chapterFields,
       package: Option.getOrUndefined(frontmatterField(wefts, 'Package')),
       language: Option.getOrUndefined(frontmatterField(wefts, 'Language')),
     }),
@@ -342,7 +355,7 @@ import type {
   SectionBodyWeft,
 } from '@athrio/loom-ast/Weft'
 
-## The module [packages/loom-lang/src/ast, LoomAstBuilder.ts]
+## The module {Tangle}
 
 =>
 

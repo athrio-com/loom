@@ -189,11 +189,18 @@ const makeFrontmatter = (
   wefts: ReadonlyArray<FrontmatterWeft>,
 ): Option.Option<LoomFrontmatter> => {
   if (wefts.length === 0) return Option.none()
-  const membership = Option.match(
+  const partFields = Option.match(
     Option.fromNullable(wefts.find((w) => w.part !== undefined)),
     {
       onNone: () => ({}),
-      onSome: (w) => ({ part: w.part, chapter: w.chapter, title: w.title }),
+      onSome: (w) => ({ part: w.part, partName: w.partName }),
+    },
+  )
+  const chapterFields = Option.match(
+    Option.fromNullable(wefts.find((w) => w.chapter !== undefined)),
+    {
+      onNone: () => ({}),
+      onSome: (w) => ({ chapter: w.chapter, title: w.title }),
     },
   )
   return Option.some(
@@ -204,7 +211,8 @@ const makeFrontmatter = (
       },
       source: sourceOf(wefts),
       health: okHealth,
-      ...membership,
+      ...partFields,
+      ...chapterFields,
       package: Option.getOrUndefined(frontmatterField(wefts, 'Package')),
       language: Option.getOrUndefined(frontmatterField(wefts, 'Language')),
     }),

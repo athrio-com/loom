@@ -7,6 +7,7 @@ import {
   FrontmatterFenceTokenSchema,
   FrontmatterKeyTokenSchema,
   FrontmatterPartTokenSchema,
+  FrontmatterPartNameTokenSchema,
   FrontmatterTitleTokenSchema,
   FrontmatterValueTokenSchema,
   HeadingStartTokenSchema,
@@ -60,6 +61,7 @@ export type CodeWeft = typeof CodeWeftSchema.Type
 export const FrontmatterWeftSchema = loomNode('FrontmatterWeft', {
   fence: Schema.optional(FrontmatterFenceTokenSchema),
   part: Schema.optional(FrontmatterPartTokenSchema),
+  partName: Schema.optional(FrontmatterPartNameTokenSchema),
   chapter: Schema.optional(FrontmatterChapterTokenSchema),
   title: Schema.optional(FrontmatterTitleTokenSchema),
   key: Schema.optional(FrontmatterKeyTokenSchema),

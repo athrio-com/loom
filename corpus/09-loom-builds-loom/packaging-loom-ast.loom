@@ -1,10 +1,15 @@
-{{lang: JSON}}
+---
+Part IX: Loom builds Loom
+Chapter 7: Packaging the domain
+Package: packages/loom-ast/
+Language: JSON
+---
 
 # Packaging the domain
 
 `@athrio/loom-ast` is Loom's domain model — the pure data every other package shares. It holds every AST a `.loom` file passes through: the `LoomNode` foundation of positions and health, the parse `LoomDocument`, the `LoomCorpusAst`, the de re the product pass builds (`Code`, `File`, `Fragment`), the `LoomSymbol` registry that names each token's editor capabilities, the `LoomVirtualCode` the editor reads, and the grammar's `Weft` and `LoomTokens`. It is a leaf: it carries data and the pure readers over it, never a builder or a runner, and depends on nothing of Loom — only on Effect's `Schema`. So `@athrio/loom-lang` and each language service rest on it without a cycle. Like the rest of Loom, it ships TypeScript source with no build step.
 
-## The manifest [packages/loom-ast, package.json]
+## The manifest {Tangle}[package.json]
 
 The `exports` map names one entry point per model. There is no default entry: the builders and runners that construct these nodes live in `@athrio/loom-lang`, not here. The `imports` map defines one internal alias, `#ast/*`, so a model reaches its siblings by a stable name. `effect` is a peer dependency, shared with whoever installs the package rather than carried twice.
 
@@ -40,7 +45,7 @@ The `exports` map names one entry point per model. There is no default entry: th
   }
 }
 
-## The TypeScript config [packages/loom-ast, tsconfig.json]
+## The TypeScript config {Tangle}[tsconfig.json]
 
 The `tsconfig.json` extends the workspace-root `tsconfig.base.json` and covers `src` and `test`. The package ships source with no build step, so the configuration type-checks the models and their tests and emits nothing.
 

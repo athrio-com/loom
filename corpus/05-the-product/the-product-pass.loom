@@ -1,4 +1,9 @@
-{{lang: TypeScript}}
+---
+Part V: The product
+Chapter 1: The product pass
+Package: packages/loom-lang/src/ast/ProductBuilder.ts
+Language: TypeScript
+---
 
 # The product pass
 
@@ -663,7 +668,7 @@ const spanOf = (
 
 const between = (start: Point, end: Point): Position => ({ start, end })
 
-## The module [packages/loom-lang/src/ast, ProductBuilder.ts]
+## The module {Tangle}
 
 The tangle composes the sections in the source's own order — the spine first, then
 the helpers it reaches for, each section named by its title, the local anchor form

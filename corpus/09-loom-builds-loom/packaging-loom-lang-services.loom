@@ -1,10 +1,15 @@
-{{lang: JSON}}
+---
+Part IX: Loom builds Loom
+Chapter 9: Packaging loom-lang-services
+Package: packages/loom-lang-services/
+Language: JSON
+---
 
 # Packaging loom-lang-services
 
 `@athrio/loom-lang-services` ships as source — no build of its own.
 
-## The manifest [packages/loom-lang-services, package.json]
+## The manifest {Tangle}[package.json]
 
 The `exports` field is the package's surface: the `LanguageService` contract, the
 `LanguageRegistry`, the `LanguageLoader` that resolves a project's active services
@@ -55,7 +60,7 @@ document's uri — are supplied by the host bundle.
   }
 }
 
-## The TypeScript config [packages/loom-lang-services, tsconfig.json]
+## The TypeScript config {Tangle}[tsconfig.json]
 
 The TypeScript config extends the workspace base — strict mode, the Node types — and checks
 `src`. Like the package, it never ships.

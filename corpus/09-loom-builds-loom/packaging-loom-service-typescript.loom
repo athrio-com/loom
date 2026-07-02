@@ -1,10 +1,15 @@
-{{lang: JSON}}
+---
+Part IX: Loom builds Loom
+Chapter 11: Packaging the TypeScript service
+Package: packages/loom-service-typescript/
+Language: JSON
+---
 
 # Packaging the TypeScript service
 
 `@athrio/loom-service-typescript` is the first loadable language service. A project installs it to give its TypeScript product an editor program of its own, held apart from the frame's. The package builds to one ES module, `dist/index.js`, whose default export is the service — the artifact the dynamic loader imports at runtime.
 
-## The manifest [packages/loom-service-typescript, package.json]
+## The manifest {Tangle}[package.json]
 
 The `exports` field names the package's surface, and it is a single entry: the default `.`, the built `dist/index.js` whose default export is the service the loader reads. The `files` field ships only `dist`, so the published package is that one built file and its source map, and `publishConfig` makes the scoped package public.
 
@@ -44,7 +49,7 @@ The package carries no dependencies. The build bundles `volar-service-typescript
   }
 }
 
-## The TypeScript config [packages/loom-service-typescript, tsconfig.json]
+## The TypeScript config {Tangle}[tsconfig.json]
 
 The config extends the workspace base, which supplies the compiler options and Node's types, and typechecks `src`. It never ships.
 

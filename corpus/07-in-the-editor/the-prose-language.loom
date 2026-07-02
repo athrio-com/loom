@@ -1,4 +1,9 @@
-{{lang: TypeScript}}
+---
+Part VII: In the editor
+Chapter 7: The Prose language
+Package: packages/loom-lang-services/src/ProseLanguage.ts
+Language: TypeScript
+---
 
 # The Prose language
 
@@ -36,7 +41,7 @@ Effect runs the on-demand load and builds the `plugins` result; `volar-service-m
 import { Effect } from 'effect'
 import { defineLanguageService } from './LanguageService'
 
-## The module [packages/loom-lang-services/src, ProseLanguage.ts]
+## The module {Tangle}
 
 =>
 

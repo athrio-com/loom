@@ -1,4 +1,9 @@
-{{lang: TypeScript}}
+---
+Part VIII: Languages as packages
+Chapter 2: The runtime the host lends
+Package: packages/loom-lang-services/src/Runtime.ts
+Language: TypeScript
+---
 
 # The runtime the host lends
 
@@ -51,7 +56,7 @@ export const installHostRuntime = (
   } satisfies HostRuntime
 }
 
-## The module [packages/loom-lang-services/src, Runtime.ts]
+## The module {Tangle}
 
 =>
 

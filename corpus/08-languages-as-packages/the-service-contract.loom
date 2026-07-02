@@ -1,4 +1,9 @@
-{{lang: TypeScript}}
+---
+Part VIII: Languages as packages
+Chapter 1: The Loom language-service contract
+Package: packages/loom-lang-services/src/LanguageService.ts
+Language: TypeScript
+---
 
 # The Loom language-service contract
 
@@ -207,7 +212,7 @@ export const defineLanguageService = (service: LanguageService): LanguageService
   return service
 }
 
-## The module [packages/loom-lang-services/src, LanguageService.ts]
+## The module {Tangle}
 
 =>
 

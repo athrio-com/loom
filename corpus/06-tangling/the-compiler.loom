@@ -1,4 +1,9 @@
-{{lang: TypeScript}}
+---
+Part VI: Tangling
+Chapter 1: The compile layer
+Package: packages/loom-lang/src/LoomCompiler.ts
+Language: TypeScript
+---
 
 # The compile layer
 
@@ -745,7 +750,7 @@ import { profileOf, symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 import { LoomMemo } from './LoomMemo'
 import { PackageConfig } from './PackageConfig'
 
-## The module [packages/loom-lang/src, LoomCompiler.ts]
+## The module {Tangle}
 
 =>
 

@@ -1,4 +1,9 @@
-{{lang: TypeScript}}
+---
+Part IX: Loom builds Loom
+Chapter 1: The Loom CLI
+Package: packages/loom-cli/src/main.ts
+Language: TypeScript
+---
 
 # The Loom CLI
 
@@ -285,7 +290,7 @@ import {
   workspaceRoot,
 } from '@athrio/loom-lang-services/LoomStore'
 
-## The program [packages/loom-cli/src, main.ts]
+## The program {Tangle}
 
 =>
 

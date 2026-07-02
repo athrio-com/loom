@@ -1,4 +1,9 @@
-{{lang: TypeScript}}
+---
+Part III: The shape of a loom
+Chapter 4: The container nodes
+Package: packages/loom-ast/src/ast/LoomAst.ts
+Language: TypeScript
+---
 
 # The container nodes
 
@@ -39,6 +44,7 @@ A `LoomFrontmatter` is a chapter's opening block, parsed. It carries the members
 
 export const LoomFrontmatterSchema = loomNode('LoomFrontmatter', {
   part: Schema.optional(FrontmatterPartTokenSchema),
+  partName: Schema.optional(FrontmatterPartNameTokenSchema),
   chapter: Schema.optional(FrontmatterChapterTokenSchema),
   title: Schema.optional(FrontmatterTitleTokenSchema),
   package: Schema.optional(FrontmatterValueTokenSchema),
@@ -70,6 +76,7 @@ import { loomNode } from '#ast/LoomNode'
 import {
   FrontmatterChapterTokenSchema,
   FrontmatterPartTokenSchema,
+  FrontmatterPartNameTokenSchema,
   FrontmatterTitleTokenSchema,
   FrontmatterValueTokenSchema,
   HeadingStartTokenSchema,
@@ -79,7 +86,7 @@ import {
 } from './LoomTokens'
 import { PreambleWeftSchema, SectionBodyWeftSchema } from './Weft'
 
-## The module [packages/loom-ast/src/ast, LoomAst.ts]
+## The module {Tangle}
 
 =>
 

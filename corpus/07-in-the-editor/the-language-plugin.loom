@@ -1,4 +1,9 @@
-{{lang: TypeScript}}
+---
+Part VII: In the editor
+Chapter 4: The Loom language plugin
+Package: packages/loom-lang/src/LoomLanguagePlugin.ts
+Language: TypeScript
+---
 
 # The Loom language plugin
 
@@ -269,7 +274,7 @@ import {
 import { loadActive } from '@athrio/loom-lang-services/LanguageLoader'
 import { installHostRuntime } from '@athrio/loom-lang-services/Runtime'
 
-## The module [packages/loom-lang/src, LoomLanguagePlugin.ts]
+## The module {Tangle}
 
 =>
 

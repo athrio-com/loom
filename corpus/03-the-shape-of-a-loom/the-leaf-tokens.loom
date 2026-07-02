@@ -1,4 +1,9 @@
-{{lang: TypeScript}}
+---
+Part III: The shape of a loom
+Chapter 2: The leaf tokens
+Package: packages/loom-ast/src/ast/LoomTokens.ts
+Language: TypeScript
+---
 
 # The leaf tokens
 
@@ -139,7 +144,7 @@ export type SinkToken = typeof SinkTokenSchema.Type
 
 ## Frontmatter tokens
 
-A chapter opens with a frontmatter block — a `---` fence, a run of field lines, and a closing `---` — that declares where the chapter belongs and what it produces. These tokens are its parts. `FrontmatterFence` is a fence line; its `Probe` is how the classifier finds it. The membership line reads `Part III, Chapter 1: The node foundation`, and it splits into three: `FrontmatterPart` holds the part's Roman numeral, `FrontmatterChapter` the chapter's number, and `FrontmatterTitle` the chapter's title. Every other line is a `key: value` pair — a `FrontmatterKey`, either `Package` or `Language`, and the `FrontmatterValue` it binds. Only the fence carries a `Probe`; the tokeniser reads each remaining token from its line by position, the way it reads a heading's title.
+A chapter opens with a frontmatter block — a `---` fence, a run of field lines, and a closing `---` — that declares where the chapter belongs and what it produces. These tokens are its parts. `FrontmatterFence` is a fence line; its `Probe` is how the classifier finds it. Two lines mark membership: `Part III: The shape of a loom` and `Chapter 1: The node foundation`. `FrontmatterPart` holds the part's Roman numeral and `FrontmatterPartName` its name; `FrontmatterChapter` holds the chapter's number and `FrontmatterTitle` its title. Every other line is a `key: value` pair — a `FrontmatterKey`, either `Package` or `Language`, and the `FrontmatterValue` it binds. Only the fence carries a `Probe`; the tokeniser reads each remaining token from its line by position, the way it reads a heading's title.
 
 =>
 
@@ -152,6 +157,12 @@ export const FrontmatterPartTokenSchema = loomNode('FrontmatterPart', {
   value: Schema.String,
 })
 export type FrontmatterPartToken = typeof FrontmatterPartTokenSchema.Type
+
+export const FrontmatterPartNameTokenSchema = loomNode('FrontmatterPartName', {
+  value: Schema.String,
+})
+export type FrontmatterPartNameToken =
+  typeof FrontmatterPartNameTokenSchema.Type
 
 export const FrontmatterChapterTokenSchema = loomNode('FrontmatterChapter', {
   value: Schema.String,
@@ -404,6 +415,7 @@ export const LoomTokenSchema = Schema.Union(
   SinkTokenSchema,
   FrontmatterFenceTokenSchema,
   FrontmatterPartTokenSchema,
+  FrontmatterPartNameTokenSchema,
   FrontmatterChapterTokenSchema,
   FrontmatterTitleTokenSchema,
   FrontmatterKeyTokenSchema,
@@ -427,7 +439,7 @@ export type LoomToken = typeof LoomTokenSchema.Type
 import { Data, Effect, Option, Schema, SchemaAST } from 'effect'
 import { loomNode } from '#ast/LoomNode'
 
-## The module [packages/loom-ast/src/ast, LoomTokens.ts]
+## The module {Tangle}
 
 =>
 

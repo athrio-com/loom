@@ -3,6 +3,7 @@ import { loomNode } from '#ast/LoomNode'
 import {
   FrontmatterChapterTokenSchema,
   FrontmatterPartTokenSchema,
+  FrontmatterPartNameTokenSchema,
   FrontmatterTitleTokenSchema,
   FrontmatterValueTokenSchema,
   HeadingStartTokenSchema,
@@ -29,6 +30,7 @@ export type LoomSection = typeof LoomSectionSchema.Type
 
 export const LoomFrontmatterSchema = loomNode('LoomFrontmatter', {
   part: Schema.optional(FrontmatterPartTokenSchema),
+  partName: Schema.optional(FrontmatterPartNameTokenSchema),
   chapter: Schema.optional(FrontmatterChapterTokenSchema),
   title: Schema.optional(FrontmatterTitleTokenSchema),
   package: Schema.optional(FrontmatterValueTokenSchema),

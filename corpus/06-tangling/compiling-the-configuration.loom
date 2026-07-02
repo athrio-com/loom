@@ -1,4 +1,9 @@
-{{lang: TypeScript}}
+---
+Part VI: Tangling
+Chapter 5: Compiling the configuration
+Package: packages/loom-lang/src/ManifestBuilder.ts
+Language: TypeScript
+---
 
 # Compiling the configuration
 
@@ -144,7 +149,7 @@ import type { LoomDocument } from '@athrio/loom-ast/LoomAst'
 import type { SectionBodyWeft } from '@athrio/loom-ast/Weft'
 import type { Path } from '@athrio/loom-ast/LoomCorpusAst'
 
-## The module [packages/loom-lang/src, ManifestBuilder.ts]
+## The module {Tangle}
 
 =>
 

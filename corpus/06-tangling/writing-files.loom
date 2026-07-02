@@ -1,4 +1,9 @@
-{{lang: TypeScript}}
+---
+Part VI: Tangling
+Chapter 2: Tangling to disk
+Package: packages/loom-lang/src/LoomTangler.ts
+Language: TypeScript
+---
 
 # Tangling to disk
 
@@ -87,7 +92,7 @@ import { dirname, resolve as resolvePath } from 'node:path'
 import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
 import { LoomCompiler, type TangledFile, type TangleError } from './LoomCompiler'
 
-## The module [packages/loom-lang/src, LoomTangler.ts]
+## The module {Tangle}
 
 =>
 

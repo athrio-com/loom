@@ -1,4 +1,9 @@
-{{lang: TypeScript}}
+---
+Part VII: In the editor
+Chapter 1: The virtual-code projection
+Package: packages/loom-ast/src/ast/LoomVirtualCode.ts
+Language: TypeScript
+---
 
 # The virtual-code projection
 
@@ -59,7 +64,7 @@ import { Schema } from 'effect'
 import { PositionSchema } from '#ast/LoomNode'
 import { SymbolKindSchema } from '#ast/LoomSymbol'
 
-## The module [packages/loom-ast/src/ast, LoomVirtualCode.ts]
+## The module {Tangle}
 
 =>
 

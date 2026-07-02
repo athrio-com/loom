@@ -1,5 +1,6 @@
 ---
-Part III, Chapter 1: The node foundation
+Part III: The shape of a loom
+Chapter 1: The node foundation
 Package: packages/loom-ast/src/ast/LoomNode.ts
 Language: TypeScript
 ---

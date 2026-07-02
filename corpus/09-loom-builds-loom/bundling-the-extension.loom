@@ -1,10 +1,15 @@
-{{lang: TypeScript}}
+---
+Part IX: Loom builds Loom
+Chapter 5: Bundling the Loom extension
+Package: packages/loom-vscode/vite.config.ts
+Language: TypeScript
+---
 
 # Bundling the Loom extension
 
 Vite bundles the extension for the VS Code extension host. It has two entry points — the client in this package and the language server in `@athrio/loom-lang` — and emits them as `dist/client.js` and `dist/server.js`. The extension host loads CommonJS, so the build emits CommonJS rather than the ESM the CLI produces.
 
-## The build [packages/loom-vscode, vite.config.ts]
+## The build {Tangle}
 
 Some of the server's dependencies — the `vscode-*-languageservice` packages and `jsonc-parser` — ship only UMD bundles, the older module format that rolldown cannot follow statically. The `umd2esm` plugin rewrites each such import to its ESM sibling so the bundler can inline it. This is the same trick volarjs/starter uses.
 

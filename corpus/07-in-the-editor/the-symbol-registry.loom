@@ -1,4 +1,9 @@
-{{lang: TypeScript}}
+---
+Part VII: In the editor
+Chapter 2: The symbol-capability registry
+Package: packages/loom-ast/src/ast/LoomSymbol.ts
+Language: TypeScript
+---
 
 # The symbol-capability registry
 
@@ -249,7 +254,7 @@ import {
   type WarpToken,
 } from '#ast/LoomTokens'
 
-## The module [packages/loom-ast/src/ast, LoomSymbol.ts]
+## The module {Tangle}
 
 =>
 

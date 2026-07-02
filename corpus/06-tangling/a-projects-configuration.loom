@@ -1,4 +1,9 @@
-{{lang: TypeScript}}
+---
+Part VI: Tangling
+Chapter 3: A project's configuration
+Package: packages/loom-config/src/LoomConfig.ts
+Language: TypeScript
+---
 
 # A project's configuration
 
@@ -265,7 +270,7 @@ import {
 } from 'node:fs'
 import { basename, dirname, resolve as resolvePath } from 'node:path'
 
-## The module [packages/loom-config/src, LoomConfig.ts]
+## The module {Tangle}
 
 =>
 

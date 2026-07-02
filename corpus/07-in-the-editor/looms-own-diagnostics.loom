@@ -1,4 +1,9 @@
-{{lang: TypeScript}}
+---
+Part VII: In the editor
+Chapter 6: The Loom language
+Package: packages/loom-lang-services/src/LoomLanguage.ts
+Language: TypeScript
+---
 
 # The Loom language
 
@@ -302,7 +307,7 @@ import {
   TypescriptSdk,
 } from './LanguageService'
 
-## The module [packages/loom-lang-services/src, LoomLanguage.ts]
+## The module {Tangle}
 
 =>
 

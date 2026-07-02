@@ -1,4 +1,9 @@
-{{lang: TypeScript}}
+---
+Part VIII: Languages as packages
+Chapter 6: The TypeScript language service
+Package: packages/loom-service-typescript/src/TypescriptService.ts
+Language: TypeScript
+---
 
 # The TypeScript language service
 
@@ -350,7 +355,7 @@ import { createProductProgram, type ProductProgram } from './ProductProgram'
 
 type TypeScript = typeof import('typescript')
 
-## The module [packages/loom-service-typescript/src, TypescriptService.ts]
+## The module {Tangle}
 
 =>
 

@@ -1,4 +1,9 @@
-{{lang: TypeScript}}
+---
+Part III: The shape of a loom
+Chapter 3: Wefts
+Package: packages/loom-ast/src/ast/Weft.ts
+Language: TypeScript
+---
 
 # Wefts
 
@@ -58,13 +63,14 @@ export type CodeWeft = typeof CodeWeftSchema.Type
 
 ## The frontmatter weft
 
-A `FrontmatterWeft` is one line of the frontmatter block — a fence, the membership line, or a `key: value` field. One weft kind covers all three, each filling the slots its line owns: a fence line fills `fence`; the membership line fills `part`, `chapter`, and `title`; a field line fills `key` and `value`. This mirrors the heading weft, which carries its title, specifier, and sink in the same optional way. The document builder gathers a file's frontmatter wefts into one `LoomFrontmatter`.
+A `FrontmatterWeft` is one line of the frontmatter block — a fence, a `Part` or `Chapter` line, or a `key: value` field. One weft kind covers them all, each filling the slots its line owns: a fence line fills `fence`; a `Part` line fills `part` and `partName`; a `Chapter` line fills `chapter` and `title`; a `Package` or `Language` line fills `key` and `value`. This mirrors the heading weft, which carries its title, specifier, and sink in the same optional way. The document builder gathers a file's frontmatter wefts into one `LoomFrontmatter`.
 
 =>
 
 export const FrontmatterWeftSchema = loomNode('FrontmatterWeft', {
   fence: Schema.optional(FrontmatterFenceTokenSchema),
   part: Schema.optional(FrontmatterPartTokenSchema),
+  partName: Schema.optional(FrontmatterPartNameTokenSchema),
   chapter: Schema.optional(FrontmatterChapterTokenSchema),
   title: Schema.optional(FrontmatterTitleTokenSchema),
   key: Schema.optional(FrontmatterKeyTokenSchema),
@@ -112,6 +118,7 @@ import {
   FrontmatterFenceTokenSchema,
   FrontmatterKeyTokenSchema,
   FrontmatterPartTokenSchema,
+  FrontmatterPartNameTokenSchema,
   FrontmatterTitleTokenSchema,
   FrontmatterValueTokenSchema,
   HeadingStartTokenSchema,
@@ -124,7 +131,7 @@ import {
   WarpTokenSchema,
 } from './LoomTokens'
 
-## The module [packages/loom-ast/src/ast, Weft.ts]
+## The module {Tangle}
 
 =>
 

@@ -1,4 +1,9 @@
-{{lang: TypeScript}}
+---
+Part VII: In the editor
+Chapter 3: The projection pass
+Package: packages/loom-lang/src/ast/LoomVirtualCodeBuilder.ts
+Language: TypeScript
+---
 
 # The projection pass
 
@@ -450,7 +455,7 @@ import {
   type MappingKind,
 } from '@athrio/loom-ast/LoomVirtualCode'
 
-## The module [packages/loom-lang/src/ast, LoomVirtualCodeBuilder.ts]
+## The module {Tangle}
 
 =>
 
