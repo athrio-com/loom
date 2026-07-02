@@ -25,7 +25,6 @@ import {
   HeadingTitleTokenSchema,
   ProseTokenSchema,
   SinkCloseTokenSchema,
-  SinkDirLabelTokenSchema,
   SinkFileLabelTokenSchema,
   SinkOpenTokenSchema,
   SinkTokenSchema,
@@ -47,7 +46,6 @@ import {
   WarpTokenSchema,
   getProbe,
   type SinkCloseToken,
-  type SinkDirLabelToken,
   type SinkFileLabelToken,
   type SinkOpenToken,
   type SinkToken,
@@ -488,7 +486,6 @@ const brokenLabel = (
 const decodeSpecifierLabel = Schema.decodeUnknownEither(
   SpecifierLabelTokenSchema,
 )
-const decodeSinkDirLabel = Schema.decodeUnknownEither(SinkDirLabelTokenSchema)
 const decodeSinkFileLabel = Schema.decodeUnknownEither(SinkFileLabelTokenSchema)
 
 const buildSpecifierLabel = (
@@ -509,30 +506,6 @@ const buildSpecifierLabel = (
         position,
         source: value,
         health: brokenLabel('specifier', value, position),
-        value: '',
-        unexpected: [UnexpectedTokenSchema.make({ position, value })],
-      }),
-    ),
-  )
-
-const buildSinkDirLabel = (
-  value: string,
-  position: Position,
-): SinkDirLabelToken =>
-  pipe(
-    decodeSinkDirLabel({
-      type: 'SinkDirLabel',
-      position,
-      source: value,
-      health: okHealth,
-      value,
-    }),
-    Either.getOrElse(() =>
-      SinkDirLabelTokenSchema.make({
-        type: 'SinkDirLabel',
-        position,
-        source: value,
-        health: brokenLabel('path', value, position),
         value: '',
         unexpected: [UnexpectedTokenSchema.make({ position, value })],
       }),
@@ -743,28 +716,15 @@ const constructSink = (
     sinkPos.end.offset - lineStart,
   )
 
-  const commaRel = inner.indexOf(',')
-  const dirTrim = trimSpan(
-    commaRel < 0 ? inner : inner.slice(0, commaRel),
-    innerStart,
+  const fileTrim = trimSpan(inner, innerStart)
+  const file = buildSinkFileLabel(
+    fileTrim.value,
+    span(line, fileTrim.start, fileTrim.end),
   )
-  const dir = buildSinkDirLabel(
-    dirTrim.value,
-    span(line, dirTrim.start, dirTrim.end),
-  )
-  const file =
-    commaRel < 0
-      ? undefined
-      : ((fileTrim) =>
-          buildSinkFileLabel(
-            fileTrim.value,
-            span(line, fileTrim.start, fileTrim.end),
-          ))(trimSpan(inner.slice(commaRel + 1), innerStart + commaRel + 1))
 
   const status = aggregateStatus([
     open.health.status,
-    dir.health.status,
-    ...(file ? [file.health.status] : []),
+    file.health.status,
     close.health.status,
   ])
 
@@ -775,7 +735,6 @@ const constructSink = (
         source: sinkSource,
         health: { status, diagnostics: [] },
         open,
-        dir,
         file,
         close,
       }),

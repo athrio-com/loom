@@ -79,11 +79,7 @@ export type SpecifierToken = typeof SpecifierTokenSchema.Type
 
 ## Sinks
 
-A `Sink` is the bracketed target a heading writes to, written `[dir, file]` or `[dir]`. Brackets set a sink apart from a language `Specifier`, which wears braces. The comma sets a file apart from a directory.
-
-Two parts name a file. A heading marked `[dir, file]` is a tangle section. Loom joins the two parts into a path and emits the section's composed code there. One part names a directory. A heading marked `[dir]` is a higher-order sink — a vertex that fixes where the tangle sinks beneath it land, rather than emitting a file of its own.
-
-The comma is what lets a file go without an extension. Write `[., .gitignore]` and the second part names the file `.gitignore` outright, where the lone `[.gitignore]` would read as a directory of that name. A sink exposes its `open`, `dir`, optional `file`, and `close` as separate subnodes, each carrying its own health, so a diagnostic lands on the part at fault.
+A `Sink` is the bracketed file a `{Tangle}` section writes to, written `[file]`. Brackets set a sink apart from a language `Specifier`, which wears braces. When a chapter's `Package` names a directory, each `{Tangle}` section marks the file it emits there — `[LoomNode.ts]` under `packages/loom-ast/src/ast/` — so the file travels with its section, not with the frontmatter. A sink exposes its `open`, `file`, and `close` as separate subnodes, each carrying its own health, so a diagnostic lands on the part at fault.
 
 =>
 
@@ -100,21 +96,6 @@ export const SinkCloseTokenSchema = loomNode('SinkClose', {
   [Probe]: /\]/g,
 })
 export type SinkCloseToken = typeof SinkCloseTokenSchema.Type
-
-export const SinkDirLabelTokenSchema = loomNode('SinkDirLabel', {
-  value: Schema.String,
-}).pipe(
-  Schema.filter((t) => {
-    if (t.value === '' && t.health.status === 'ok') {
-      return 'empty `value` requires non-ok `health.status`'
-    }
-    if (t.value !== '' && !/^[a-zA-Z0-9_\-./]+$/.test(t.value)) {
-      return `sink directory label must match [a-zA-Z0-9_-./]+, got \`${t.value}\``
-    }
-    return true
-  }),
-)
-export type SinkDirLabelToken = typeof SinkDirLabelTokenSchema.Type
 
 export const SinkFileLabelTokenSchema = loomNode('SinkFileLabel', {
   value: Schema.String,
@@ -133,8 +114,7 @@ export type SinkFileLabelToken = typeof SinkFileLabelTokenSchema.Type
 
 export const SinkTokenSchema = loomNode('Sink', {
   open: SinkOpenTokenSchema,
-  dir: SinkDirLabelTokenSchema,
-  file: Schema.optional(SinkFileLabelTokenSchema),
+  file: SinkFileLabelTokenSchema,
   close: SinkCloseTokenSchema,
 }).annotations({
   [Probe]: /\[[^\]]*\]/g,

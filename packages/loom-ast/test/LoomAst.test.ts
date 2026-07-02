@@ -31,7 +31,7 @@ const title = (value: string) => ({
   health: okHealth,
 })
 
-const sink = (dir: string, file?: string) => ({
+const sink = (file: string) => ({
   type: 'Sink' as const,
   position: pos,
   source: src,
@@ -43,24 +43,13 @@ const sink = (dir: string, file?: string) => ({
     source: src,
     health: okHealth,
   },
-  dir: {
-    type: 'SinkDirLabel' as const,
-    value: dir,
+  file: {
+    type: 'SinkFileLabel' as const,
+    value: file,
     position: pos,
     source: src,
     health: okHealth,
   },
-  ...(file === undefined
-    ? {}
-    : {
-        file: {
-          type: 'SinkFileLabel' as const,
-          value: file,
-          position: pos,
-          source: src,
-          health: okHealth,
-        },
-      }),
   close: {
     type: 'SinkClose' as const,
     value: ']' as const,
@@ -116,7 +105,7 @@ describe('LoomHeading.headingStart', () => {
         source: src,
         health: okHealth,
         headingStart,
-        sink: sink('src/main/scala', 'Arithmetic.scala'),
+        sink: sink('Arithmetic.scala'),
         specifier: specifier('Loom'),
       }),
     ).toBe(true)
@@ -134,7 +123,7 @@ describe('LoomHeading.headingStart', () => {
     ).toBe(false)
   })
 
-  it('accepts a heading carrying a two-part Sink in the `sink` slot', () => {
+  it('accepts a heading carrying a file Sink in the `sink` slot', () => {
     expect(
       Schema.is(LoomHeadingSchema)({
         type: 'LoomHeading',
@@ -143,20 +132,7 @@ describe('LoomHeading.headingStart', () => {
         health: okHealth,
         headingStart,
         title: title('Tangling the library'),
-        sink: sink('src/main/scala', 'Arithmetic.scala'),
-      }),
-    ).toBe(true)
-  })
-
-  it('accepts a heading carrying a one-part (directory) Sink', () => {
-    expect(
-      Schema.is(LoomHeadingSchema)({
-        type: 'LoomHeading',
-        position: pos,
-        source: src,
-        health: okHealth,
-        headingStart,
-        sink: sink('packages/loom-cli'),
+        sink: sink('Arithmetic.scala'),
       }),
     ).toBe(true)
   })
@@ -171,7 +147,7 @@ describe('LoomHeading.title', () => {
         source: src,
         health: okHealth,
         headingStart,
-        sink: sink('.', 'build.sh'),
+        sink: sink('build.sh'),
       }),
     ).toBe(true)
   })
@@ -185,7 +161,7 @@ describe('LoomHeading.title', () => {
         health: okHealth,
         headingStart,
         title: title('Section title'),
-        sink: sink('.', 'build.sh'),
+        sink: sink('build.sh'),
       }),
     ).toBe(true)
   })
@@ -199,7 +175,7 @@ describe('LoomHeading.title', () => {
         health: okHealth,
         headingStart,
         // a Sink is the wrong kind here
-        title: sink('.', 'build.sh') as unknown as ReturnType<typeof title>,
+        title: sink('build.sh') as unknown as ReturnType<typeof title>,
       }),
     ).toBe(false)
   })

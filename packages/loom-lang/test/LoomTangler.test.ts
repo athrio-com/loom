@@ -12,6 +12,7 @@ import { PackageConfig } from '../src/PackageConfig'
 
 const fixture = `---
 Language: TypeScript
+Package: out/
 ---
 
 # Greeting
@@ -20,20 +21,23 @@ Language: TypeScript
 
 const hi = "hello"
 
-# Bundle [out, bundle.ts]
+# Bundle {Tangle} [bundle.ts]
 
 =>
 
 ::[Greeting]
 `
 
-// loomWith — a minimal doc: a section inlined by a file sink through a name anchor.
-// `out` is a `dir/file` path, split into the sink's two-part bracket.
+// loomWith — a minimal doc: a section inlined by a `{Tangle}` file through a name
+// anchor. `out` is a `dir/file` path: the directory becomes the frontmatter package
+// and the file the `{Tangle}` section's `[file]` tag.
 const loomWith = (value: string, out: string): string => {
   const slash = out.lastIndexOf('/')
-  const sink = slash === -1 ? `., ${out}` : `${out.slice(0, slash)}, ${out.slice(slash + 1)}`
+  const dir = slash === -1 ? '' : out.slice(0, slash + 1)
+  const file = slash === -1 ? out : out.slice(slash + 1)
   return `---
 Language: TypeScript
+Package: ${dir}
 ---
 
 # Bit
@@ -42,7 +46,7 @@ Language: TypeScript
 
 const x = "${value}"
 
-# Sink [${sink}]
+# Sink {Tangle} [${file}]
 
 =>
 
@@ -105,7 +109,7 @@ describe('LoomTangler — tangle bracket sinks to disk', () => {
       const entry = `${dir}/broken.loom`
       yield* fs.writeFileString(
         entry,
-        `---\nLanguage: TypeScript\n---\n\n# Sink [out, x.ts]\n\n=>\n\nconst x = ::[Ghost]\n`,
+        `---\nLanguage: TypeScript\nPackage: out/\n---\n\n# Sink {Tangle} [x.ts]\n\n=>\n\nconst x = ::[Ghost]\n`,
       )
 
       const tangler = yield* LoomTangler
@@ -132,7 +136,7 @@ describe('LoomTangler — tangle bracket sinks to disk', () => {
       )
       yield* fs.writeFileString(
         `${dir}/g.loom`,
-        `---\nLanguage: TypeScript\n---\n\n# Greeting\n\n=>\n\nconst hi = "hi"\n\n# Bundle [out, g.ts]\n\n=>\n\nexport const g = <<Greeting>>\n`,
+        `---\nLanguage: TypeScript\nPackage: out/\n---\n\n# Greeting\n\n=>\n\nconst hi = "hi"\n\n# Bundle {Tangle} [g.ts]\n\n=>\n\nexport const g = <<Greeting>>\n`,
       )
 
       const tangler = yield* LoomTangler
@@ -141,48 +145,6 @@ describe('LoomTangler — tangle bracket sinks to disk', () => {
       // `<<Greeting>>` — the configured delimiter — resolves to Greeting and inlines it.
       const out = yield* fs.readFileString(`${dir}/out/g.ts`)
       expect(out).toContain('const hi = "hi"')
-    }).pipe(Effect.provide(layers)),
-  )
-
-  it.scoped('refuses to tangle two sinks that resolve to one path', () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem
-      const dir = yield* fs.makeTempDirectoryScoped()
-      const entry = `${dir}/dup.loom`
-      yield* fs.writeFileString(
-        entry,
-        '---\nLanguage: TypeScript\n---\n\n# A [., out.ts]\n\n=>\n\nexport const a = 1\n\n# B [., out.ts]\n\n=>\n\nexport const b = 2\n',
-      )
-
-      const tangler = yield* LoomTangler
-      const result = yield* Effect.either(tangler.tangle(entry))
-
-      expect(result._tag).toBe('Left')
-      if (result._tag === 'Left') {
-        expect((result.left as { message: string }).message).toContain(
-          'Two sinks tangle to',
-        )
-      }
-    }).pipe(Effect.provide(layers)),
-  )
-
-  it.scoped('refuses to tangle a book whose higher-order sinks form a cycle', () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem
-      const dir = yield* fs.makeTempDirectoryScoped()
-      const entry = `${dir}/book.loom`
-      yield* fs.writeFileString(
-        entry,
-        '# Book\n\n## A [a]\n\n~\n\n::[B]\n\n## B [b]\n\n~\n\n::[A]\n',
-      )
-
-      const tangler = yield* LoomTangler
-      const result = yield* Effect.either(tangler.tangle(entry))
-
-      expect(result._tag).toBe('Left')
-      if (result._tag === 'Left') {
-        expect((result.left as { message: string }).message).toContain('Sink cycle')
-      }
     }).pipe(Effect.provide(layers)),
   )
 

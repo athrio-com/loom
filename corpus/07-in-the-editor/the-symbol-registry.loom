@@ -28,7 +28,7 @@ A `SymbolKind` names one class of token. A section's `headingTitle` is the name
 anchors resolve to. A `sectionAnchor` is a `::[Title]` reference to a section; a
 `warpAnchor` is a `::[name]` reference to a value warp declared in the same section.
 A `warpDef` is a `{{name = value}}` declaration. A `specifier` is a heading's
-`{Language}`, a `sink` its `[dir, file]`. An `arrow` opens a code block and a
+`{Language}`, a `sink` its `[file]`. An `arrow` opens a code block and a
 `tilde` closes it. Everything else a person reads is `prose`.
 
 =>

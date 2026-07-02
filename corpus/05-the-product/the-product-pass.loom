@@ -43,8 +43,8 @@ fault catalog gives `faulty` and the three anchor faults this pass raises, and
 the tokeniser's `normaliseTitle` folds a heading into the name that identifies
 its section. From the product side come the schema constructors for every node the
 pass builds — the `Code` of a section, its `Fragment` and `NameRef` leaves, and
-the `File` a tangle sink emits — together with the `SectionId` that stamps each
-one and the `sinkPathOf` that reads a sink's output path.
+the `File` a `{Tangle}` section emits — together with the `SectionId` that stamps
+each one.
 
 =>
 
@@ -79,7 +79,6 @@ import {
   ProductSchema,
   type SectionId,
 } from '@athrio/loom-ast/ProductAst'
-import { sinkPathOf } from '@athrio/loom-ast/LoomCorpusAst'
 import {
   AmbiguousAnchor,
   CrossLanguageAnchor,
@@ -228,7 +227,7 @@ const sectionLanguage = (
       pkg,
     )
   if (sink === undefined) return defaultLang
-  return sink.file !== undefined ? extensionLanguage(sink.file.value) : 'prose'
+  return extensionLanguage(sink.file.value)
 }
 
 const nameIndex = (
@@ -333,8 +332,7 @@ A section's heading decides what it contributes. Every section composes to one
 `Code`: its identity, its language, and its fragments in composition order. A
 `{Tangle}` section contributes a `File` on top — the same `Code` paired with the
 frontmatter `Package` path, and the `[file]` tag appended when the package names a
-directory. A two-part sink like `[src/main/scala, Arithmetic.scala]` is the older
-way to the same end, its path joined by `sinkPathOf`.
+directory.
 
 A `Built` is the pair a section yields: its `Code`, which always lands in the
 product, and the `File` a `{Tangle}` section or a tangle sink adds, which an
@@ -368,8 +366,8 @@ const buildSection =
 
 `tangleFile` decides a section's file. A `{Tangle}` section writes to the package
 path, so it emits a `File` there when the frontmatter names a package; any other
-section falls back to a two-part sink. `tangleFilePath` appends the `[file]` tag to
-a directory package, and passes a file package through unchanged.
+section emits nothing. `tangleFilePath` appends the `[file]` tag to a directory
+package, and passes a file package through unchanged.
 
 =>
 
@@ -378,7 +376,7 @@ const tangleFilePath = (
   sink: Option.Option<SinkToken>,
 ): string =>
   pkg.endsWith('/')
-    ? pkg + Option.getOrElse(Option.map(sink, (s) => s.dir.value), () => '')
+    ? pkg + Option.getOrElse(Option.map(sink, (s) => s.file.value), () => '')
     : pkg
 
 const tangleFile = (
@@ -397,11 +395,7 @@ const tangleFile = (
         code,
       }),
     )
-  return pipe(
-    Option.fromNullable(sink),
-    Option.filter((s) => s.file !== undefined),
-    Option.map((s) => FileSchema.make({ path: sinkPathOf(s), code })),
-  )
+  return Option.none()
 }
 
 ## Composing a section's code

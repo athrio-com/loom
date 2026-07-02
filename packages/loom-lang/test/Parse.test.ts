@@ -175,12 +175,11 @@ describe('Tokeniser Stage — integration against corpus/Fun.loom', () => {
     expect(build?.sink).toBeUndefined()
   })
 
-  it('a tangle heading carries a two-part Sink (dir + file)', () => {
+  it('a tangle heading carries a `{Tangle}` specifier and a file Sink', () => {
     const tangle = headingTitled('Tangling the library')
     expect(tangle?.sink?.type).toBe('Sink')
-    expect(tangle?.sink?.dir.value).toBe('src/main/scala')
-    expect(tangle?.sink?.file?.value).toBe('Arithmetic.scala')
-    expect(tangle?.specifier).toBeUndefined()
+    expect(tangle?.sink?.file.value).toBe('Arithmetic.scala')
+    expect(tangle?.specifier?.label.value).toBe('Tangle')
   })
 
   it('a PreambleWeft with `{{rounds = 3}}` populates warps with the value binding', () => {
@@ -311,8 +310,7 @@ describe('AST Stage — integration against corpus/Fun.loom', () => {
       (s) => headingText(sampleLoom, s.heading) === 'Tangling the library',
     )!
     expect(tangle.heading.sink?.type).toBe('Sink')
-    expect(tangle.heading.sink?.dir.value).toBe('src/main/scala')
-    expect(tangle.heading.sink?.file?.value).toBe('Arithmetic.scala')
+    expect(tangle.heading.sink?.file.value).toBe('Arithmetic.scala')
   })
 
   it('Sections appear in document order', () => {
@@ -385,13 +383,13 @@ describe('parseDocument — parse-chain behaviour', () => {
     // The parse layer does not flag a missing primary language — that is a
     // later-pass concern. The language-less document is structurally well-formed,
     // so its health is `ok` and it carries its one Section. The trailing
-    // `[Solo]` is a one-part directory Sink, not title text.
+    // `[Solo]` is a file Sink, not title text.
     const doc = buildDocument('# Solo [Solo]\n')
     expect(doc.health.status).toBe('ok')
     expect(doc.health.diagnostics).toEqual([])
     expect(doc.sections).toHaveLength(1)
     expect(doc.sections[0].heading.title?.source).toBe('Solo')
-    expect(doc.sections[0].heading.sink?.dir.value).toBe('Solo')
+    expect(doc.sections[0].heading.sink?.file.value).toBe('Solo')
   })
 })
 

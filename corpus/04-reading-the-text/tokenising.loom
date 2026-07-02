@@ -429,14 +429,13 @@ const brokenLabel = (
 
 ## Label builders
 
-A label that fails its strict pattern must still be kept. `buildSpecifierLabel`, `buildSinkDirLabel`, and `buildSinkFileLabel` each try the schema, and on rejection build a valid token with an empty value, the error health `brokenLabel` renders, and the rejected text stashed in `unexpected` — strict validation stays on, and bytes are never dropped. The sink builders reuse the `path` construct for their broken health, since a malformed directory or file name is a malformed path.
+A label that fails its strict pattern must still be kept. `buildSpecifierLabel` and `buildSinkFileLabel` each try the schema, and on rejection build a valid token with an empty value, the error health `brokenLabel` renders, and the rejected text stashed in `unexpected` — strict validation stays on, and bytes are never dropped. The sink builder reuses the `path` construct for its broken health, since a malformed file name is a malformed path.
 
 =>
 
 const decodeSpecifierLabel = Schema.decodeUnknownEither(
   SpecifierLabelTokenSchema,
 )
-const decodeSinkDirLabel = Schema.decodeUnknownEither(SinkDirLabelTokenSchema)
 const decodeSinkFileLabel = Schema.decodeUnknownEither(SinkFileLabelTokenSchema)
 
 const buildSpecifierLabel = (
@@ -457,30 +456,6 @@ const buildSpecifierLabel = (
         position,
         source: value,
         health: brokenLabel('specifier', value, position),
-        value: '',
-        unexpected: [UnexpectedTokenSchema.make({ position, value })],
-      }),
-    ),
-  )
-
-const buildSinkDirLabel = (
-  value: string,
-  position: Position,
-): SinkDirLabelToken =>
-  pipe(
-    decodeSinkDirLabel({
-      type: 'SinkDirLabel',
-      position,
-      source: value,
-      health: okHealth,
-      value,
-    }),
-    Either.getOrElse(() =>
-      SinkDirLabelTokenSchema.make({
-        type: 'SinkDirLabel',
-        position,
-        source: value,
-        health: brokenLabel('path', value, position),
         value: '',
         unexpected: [UnexpectedTokenSchema.make({ position, value })],
       }),
@@ -550,7 +525,7 @@ const scanSinkClose = makeScanner(SinkCloseTokenSchema)
 
 ## Pairing specifiers
 
-Each scanner finds opens and closes independently; construction pairs them. `partitionFirstClose` matches an open with the first close after it. `constructSpecifier` pairs `{` and `}` into a language label. `constructSink` pairs `[` and `]` into a sink, splitting its inner text on the first comma: two parts make a `[dir, file]` tangle sink, one part a `[dir]` higher-order sink. When no close follows, each synthesises one at the line's content end — the offset before the newline — so a missing bracket reports once, as `expected closing`, and the captured label never swallows the line's terminator.
+Each scanner finds opens and closes independently; construction pairs them. `partitionFirstClose` matches an open with the first close after it. `constructSpecifier` pairs `{` and `}` into a language label. `constructSink` pairs `[` and `]` into a sink, its inner text the file a `{Tangle}` section emits. When no close follows, each synthesises one at the line's content end — the offset before the newline — so a missing bracket reports once, as `expected closing`, and the captured label never swallows the line's terminator.
 
 =>
 
@@ -703,28 +678,15 @@ const constructSink = (
     sinkPos.end.offset - lineStart,
   )
 
-  const commaRel = inner.indexOf(',')
-  const dirTrim = trimSpan(
-    commaRel < 0 ? inner : inner.slice(0, commaRel),
-    innerStart,
+  const fileTrim = trimSpan(inner, innerStart)
+  const file = buildSinkFileLabel(
+    fileTrim.value,
+    span(line, fileTrim.start, fileTrim.end),
   )
-  const dir = buildSinkDirLabel(
-    dirTrim.value,
-    span(line, dirTrim.start, dirTrim.end),
-  )
-  const file =
-    commaRel < 0
-      ? undefined
-      : ((fileTrim) =>
-          buildSinkFileLabel(
-            fileTrim.value,
-            span(line, fileTrim.start, fileTrim.end),
-          ))(trimSpan(inner.slice(commaRel + 1), innerStart + commaRel + 1))
 
   const status = aggregateStatus([
     open.health.status,
-    dir.health.status,
-    ...(file ? [file.health.status] : []),
+    file.health.status,
     close.health.status,
   ])
 
@@ -735,7 +697,6 @@ const constructSink = (
         source: sinkSource,
         health: { status, diagnostics: [] },
         open,
-        dir,
         file,
         close,
       }),
@@ -1561,7 +1522,6 @@ import {
   HeadingTitleTokenSchema,
   ProseTokenSchema,
   SinkCloseTokenSchema,
-  SinkDirLabelTokenSchema,
   SinkFileLabelTokenSchema,
   SinkOpenTokenSchema,
   SinkTokenSchema,
@@ -1583,7 +1543,6 @@ import {
   WarpTokenSchema,
   getProbe,
   type SinkCloseToken,
-  type SinkDirLabelToken,
   type SinkFileLabelToken,
   type SinkOpenToken,
   type SinkToken,

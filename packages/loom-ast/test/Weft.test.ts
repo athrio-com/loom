@@ -70,44 +70,9 @@ const validSink = {
     source: '',
     health: okHealth,
   },
-  dir: {
-    type: 'SinkDirLabel' as const,
-    value: 'src',
-    position: samplePosition,
-    source: '',
-    health: okHealth,
-  },
   file: {
     type: 'SinkFileLabel' as const,
     value: 'index.ts',
-    position: samplePosition,
-    source: '',
-    health: okHealth,
-  },
-  close: {
-    type: 'SinkClose' as const,
-    value: ']' as const,
-    position: samplePosition,
-    source: '',
-    health: okHealth,
-  },
-}
-
-const validDirSink = {
-  type: 'Sink' as const,
-  position: samplePosition,
-  source: '',
-  health: okHealth,
-  open: {
-    type: 'SinkOpen' as const,
-    value: '[' as const,
-    position: samplePosition,
-    source: '',
-    health: okHealth,
-  },
-  dir: {
-    type: 'SinkDirLabel' as const,
-    value: 'components',
     position: samplePosition,
     source: '',
     health: okHealth,
@@ -217,16 +182,16 @@ describe('Specifier probe', () => {
 describe('Sink probe', () => {
   const probe = Option.getOrThrow(getProbe(SinkTokenSchema))
 
-  it('finds a two-part `[dir, file]` file sink', () => {
-    const matches = [...'# Tangle [src, x.ts]'.matchAll(probe)]
+  it('finds a `[file]` sink', () => {
+    const matches = [...'# Tangle [index.ts]'.matchAll(probe)]
     expect(matches).toHaveLength(1)
-    expect(matches[0][0]).toBe('[src, x.ts]')
+    expect(matches[0][0]).toBe('[index.ts]')
   })
 
-  it('finds a one-part `[dir]` directory sink', () => {
-    const matches = [...'# Tangle [components]'.matchAll(probe)]
+  it('finds a `[file]` sink carrying a path', () => {
+    const matches = [...'# Tangle [src/App.scala]'.matchAll(probe)]
     expect(matches).toHaveLength(1)
-    expect(matches[0][0]).toBe('[components]')
+    expect(matches[0][0]).toBe('[src/App.scala]')
   })
 })
 
@@ -288,48 +253,37 @@ describe('HeadingStart schema validation', () => {
 })
 
 describe('Sink schema validation', () => {
-  it('accepts a well-formed two-part `[dir, file]` file sink', () => {
+  it('accepts a well-formed `[file]` sink', () => {
     expect(Schema.is(SinkTokenSchema)(validSink)).toBe(true)
   })
 
-  it('accepts a one-part `[dir]` directory sink (file absent)', () => {
-    expect(Schema.is(SinkTokenSchema)(validDirSink)).toBe(true)
-  })
-
-  it('a two-part sink carries both `dir` and `file` labels', () => {
-    expect(validSink.dir.type).toBe('SinkDirLabel')
+  it('a sink carries a `file` label', () => {
     expect(validSink.file.type).toBe('SinkFileLabel')
   })
 
-  it('a one-part sink carries `dir` and no `file`', () => {
-    expect(validDirSink.dir.type).toBe('SinkDirLabel')
-    expect('file' in validDirSink).toBe(false)
-  })
-
-  it('admits `.` and `/` in label values', () => {
+  it('admits `.` and `/` in the file label value', () => {
     expect(
       Schema.is(SinkTokenSchema)({
         ...validSink,
-        dir: { ...validSink.dir, value: 'src/ast' },
-        file: { ...validSink.file, value: 'package.json' },
+        file: { ...validSink.file, value: 'src/ast/package.json' },
       }),
     ).toBe(true)
   })
 
-  it('rejects an empty `dir` label value under ok health', () => {
+  it('rejects an empty `file` label value under ok health', () => {
     expect(
       Schema.is(SinkTokenSchema)({
         ...validSink,
-        dir: { ...validSink.dir, value: '' },
+        file: { ...validSink.file, value: '' },
       }),
     ).toBe(false)
   })
 
-  it('admits an empty `dir` label value when health is non-ok', () => {
+  it('admits an empty `file` label value when health is non-ok', () => {
     expect(
       Schema.is(SinkTokenSchema)({
         ...validSink,
-        dir: { ...validSink.dir, value: '', health: incompleteHealth },
+        file: { ...validSink.file, value: '', health: incompleteHealth },
       }),
     ).toBe(true)
   })

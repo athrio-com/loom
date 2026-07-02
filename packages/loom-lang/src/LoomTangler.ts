@@ -1,4 +1,4 @@
-import { Array, Effect, Option, pipe } from 'effect'
+import { Array, Effect, pipe } from 'effect'
 import { FileSystem } from '@effect/platform'
 import { dirname, resolve as resolvePath } from 'node:path'
 import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
@@ -49,19 +49,8 @@ export class LoomTangler extends Effect.Service<LoomTangler>()('LoomTangler', {
         const info = yield* fs.stat(path).pipe(Effect.orDie)
         const looms =
           info.type === 'Directory' ? yield* loomsUnder(path) : [path]
-        return yield* Option.match(Array.head(looms), {
-          onNone: () => Effect.succeed<ReadonlyArray<TangledFile>>([]),
-          onSome: (seed) =>
-            compiler.placed(seed).pipe(
-              Effect.flatMap((placed) =>
-                Effect.forEach(
-                  Array.filter(looms, (loom) => !placed.has(loom)),
-                  tangleFile,
-                ),
-              ),
-              Effect.map((written) => written.flat()),
-            ),
-        })
+        const written = yield* Effect.forEach(looms, tangleFile)
+        return written.flat()
       })
 
     return { tangle }

@@ -1,21 +1,12 @@
 import { describe, expect, it } from '@effect/vitest'
 import {
   AmbiguousAnchor,
-  CollidingTitles,
   CrossLanguageAnchor,
   describe as renderFault,
-  DuplicateChapter,
   EmptyLabel,
-  EmptySink,
   faulty,
   MalformedLabel,
-  MisplacedSpecifier,
   MissingWarpValue,
-  OrphanedOpening,
-  PointedNotH1,
-  SelfRoutingSink,
-  SinkCycle,
-  SinklessChapter,
   UnclosedDelimiter,
   UnresolvedAnchor,
   type EmptyConstruct,
@@ -92,51 +83,6 @@ describe('LoomFault — the diagnostic catalog', () => {
     ).toMatch(/^Cross-language transclusion: `Config` is json, but/)
   })
 
-  it('words the sink-tree faults, naming what to fix', () => {
-    expect(renderFault(CollidingTitles({ name: 'theCli' })).message).toMatch(
-      /^Two sections normalise to the same name `theCli`\./,
-    )
-    expect(renderFault(SinkCycle({ name: 'The CLI' })).message).toMatch(
-      /^Sink cycle: the higher-order sink `The CLI` reaches itself/,
-    )
-    expect(
-      renderFault(MisplacedSpecifier({ specifier: 'package.json' })).message,
-    ).toMatch(/^Specifier `package.json` on an anchor\./)
-    expect(renderFault(SelfRoutingSink({ name: 'Inline' })).message).toMatch(
-      /^A book points the chapter `Inline` into its own file\./,
-    )
-    expect(renderFault(SinklessChapter({ name: 'Prose chapter' })).message).toMatch(
-      /^The chapter `Prose chapter` tangles no file/,
-    )
-    expect(renderFault(PointedNotH1({ name: 'Sub thing' })).message).toMatch(
-      /^The chapter `Sub thing` opens below a top-level heading\./,
-    )
-    expect(renderFault(OrphanedOpening({ name: 'Chapter two' })).message).toMatch(
-      /^The first chapter `Chapter two` is not its module's first section/,
-    )
-    expect(renderFault(DuplicateChapter({ name: 'The widget' })).message).toMatch(
-      /^Two higher-order sinks point the chapter `The widget`/,
-    )
-  })
-
-  it('sorts the sink-tree faults into warnings and errors', () => {
-    expect(renderFault(EmptySink({ directory: 'packages/loom-cli/' })).severity).toBe(
-      'warning',
-    )
-    expect(faulty(EmptySink({ directory: 'packages/loom-cli/' }), POS).status).toBe(
-      'warning',
-    )
-    expect(renderFault(SinklessChapter({ name: 'Prose chapter' })).severity).toBe(
-      'warning',
-    )
-    expect(renderFault(PointedNotH1({ name: 'Sub thing' })).severity).toBe('warning')
-    expect(renderFault(OrphanedOpening({ name: 'Chapter two' })).severity).toBe(
-      'warning',
-    )
-    expect(renderFault(SelfRoutingSink({ name: 'Inline' })).severity).toBe('error')
-    expect(renderFault(DuplicateChapter({ name: 'The widget' })).severity).toBe('error')
-  })
-
   it('wraps a fault as positioned node health', () => {
     const health = faulty(UnclosedDelimiter({ expected: ']' }), POS)
     expect(health.status).toBe('error')
@@ -145,9 +91,7 @@ describe('LoomFault — the diagnostic catalog', () => {
     ])
   })
 
-  it('lets a warning fault leave the node short of error', () => {
-    expect(renderFault(EmptySink({ directory: 'out' })).severity).toBe('warning')
-    expect(faulty(EmptySink({ directory: 'out' }), POS).status).toBe('warning')
+  it('wraps a warning-free catalog: every fault fails its node', () => {
     expect(faulty(MissingWarpValue({ name: 'n' }), POS).status).toBe('error')
   })
 })

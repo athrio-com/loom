@@ -1,4 +1,9 @@
-# The greeting library [., library.ts]
+---
+Language: TypeScript
+Package: library.ts
+---
+
+# The greeting library {Tangle}
 
 =>
 

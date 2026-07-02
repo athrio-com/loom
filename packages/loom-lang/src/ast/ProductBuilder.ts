@@ -29,7 +29,6 @@ import {
   ProductSchema,
   type SectionId,
 } from '@athrio/loom-ast/ProductAst'
-import { sinkPathOf } from '@athrio/loom-ast/LoomCorpusAst'
 import {
   AmbiguousAnchor,
   CrossLanguageAnchor,
@@ -123,7 +122,7 @@ const sectionLanguage = (
       pkg,
     )
   if (sink === undefined) return defaultLang
-  return sink.file !== undefined ? extensionLanguage(sink.file.value) : 'prose'
+  return extensionLanguage(sink.file.value)
 }
 
 const nameIndex = (
@@ -230,7 +229,7 @@ const tangleFilePath = (
   sink: Option.Option<SinkToken>,
 ): string =>
   pkg.endsWith('/')
-    ? pkg + Option.getOrElse(Option.map(sink, (s) => s.dir.value), () => '')
+    ? pkg + Option.getOrElse(Option.map(sink, (s) => s.file.value), () => '')
     : pkg
 
 const tangleFile = (
@@ -249,11 +248,7 @@ const tangleFile = (
         code,
       }),
     )
-  return pipe(
-    Option.fromNullable(sink),
-    Option.filter((s) => s.file !== undefined),
-    Option.map((s) => FileSchema.make({ path: sinkPathOf(s), code })),
-  )
+  return Option.none()
 }
 
 const buildCode = (

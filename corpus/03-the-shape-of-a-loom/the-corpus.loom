@@ -31,66 +31,23 @@ export type LoomCorpusAst = typeof LoomCorpusAstSchema.Type
 
 ## The module map
 
-A `Modules` map keys each loom in a corpus by its path. The corpus is one map; the graph over it is the sink tree, where a book places the chapters of other looms, defined further down. The reverse of that graph — which looms an edit must re-project — and the forward reach a run and a tangle scope to both read the sink tree, so both live beside it.
+A `Modules` map keys each loom in a corpus by its path. The corpus is one map; the graph over it is the anchor graph, where a section in one loom composes a section in another. The forward reach a run and a tangle scope to, and the reverse reach an edit reprojects, both walk that graph, so both live beside it.
 
 =>
 
 type Modules = ReadonlyMap<Path, LoomModule>
 
-## The sink tree
+## Resolving names
 
-The sink tree decides where each file lands. A higher-order sink — a section whose sink names a directory, written `[dir]` — points at a chapter and places that chapter's tangle sinks under its directory. `sinkTreeRouting` returns, for each module, the prefix each of its tangle sinks resolves under; a sink in no chapter is absent, and tangles under the workspace default instead.
+Names resolve here — the lexical lookups that turn an `::[Name]` anchor into the section it points at. A `SectionRef` locates that section: the module it lives in, and the section itself.
 
-A `SectionRef` locates a section by the module it lives in. `dirLabelOf` reads a higher-order sink's directory — a one-part `[dir]` on a heading, never a `{Tangle}` file tag — and `isDirSink` is that test as a boolean. `tangleSinkOf` reads a section's two-part sink when it names a file, and `sinkPathOf` joins that sink's directory and file into the path it emits. Both read the directory through `rootAnchored`, which strips a leading `/`. A sink directory names the output root, not the machine's, so `[/, cli.ts]` lands beside `[., cli.ts]` and no sink escapes the root. `joinDir` nests one directory under another, so a prefix grows down a branch. `headingLevel` counts a heading's `#`, since a chapter opens only at an H1.
+An anchor names a section by its raw title, and resolves that title in one file. A bare `::[Name]` resolves in the anchor's own file. A `::[Name](path.loom)` resolves in the file the path names, taken relative to the anchor's own. So a name is lexical, not a corpus-wide symbol, and two files reuse a title freely.
+
+`titlesIn` indexes one file's titled sections by their raw title, the first of any in-file duplicate winning — the duplicate itself a fault the diagnostics raise. `titleIndexes` builds that index for every file, once. `resolveAnchor` is the lookup: it picks the target file — the anchor's own, or the one its path names — and finds the title there. `resolveRelative` resolves that path against the anchor's own directory, the anchor's path minus its last segment, folding `.` and `..` as it goes.
 
 =>
 
 type SectionRef = { readonly module: Path; readonly section: LoomSection }
-
-const rootAnchored = (dir: string): string => dir.replace(/^\/+/, '')
-
-const dirLabelOf = (section: LoomSection): Option.Option<string> =>
-  pipe(
-    Option.fromNullable(section.heading.sink),
-    Option.filter(
-      (sink) =>
-        sink.file === undefined &&
-        section.heading.specifier?.label.value.toLowerCase() !== 'tangle',
-    ),
-    Option.map((sink) => rootAnchored(sink.dir.value)),
-  )
-
-const isDirSink = (section: LoomSection): boolean =>
-  Option.isSome(dirLabelOf(section))
-
-const tangleSinkOf = (section: LoomSection): Option.Option<SinkToken> => {
-  const sink = section.heading.sink
-  return sink !== undefined && sink.file !== undefined
-    ? Option.some(sink)
-    : Option.none()
-}
-
-export const sinkPathOf = (sink: SinkToken): string => {
-  if (sink.file === undefined) return rootAnchored(sink.dir.value)
-  const dir = rootAnchored(sink.dir.value)
-  return dir === '.' || dir === ''
-    ? sink.file.value
-    : `${dir.replace(/\/$/, '')}/${sink.file.value}`
-}
-
-const joinDir = (parent: string, child: string): string =>
-  parent === '' ? child : `${parent.replace(/\/$/, '')}/${child}`
-
-const headingLevel = (section: LoomSection): number =>
-  section.heading.headingStart.source.match(/^#+/)?.[0].length ?? 0
-
-~
-
-A member names a section by its raw title, and resolves that title in one file. A bare `::[Name]` resolves in the member's own file. A `::[Name](path.loom)` resolves in the file the path names, taken relative to the member's own. So a name is lexical, not a corpus-wide symbol, and two files reuse a title freely.
-
-`titlesIn` indexes one file's titled sections by their raw title, the first of any in-file duplicate winning — the duplicate itself a fault the diagnostics raise. `titleIndexes` builds that index for every file, once. `resolveAnchor` is the lookup: it picks the target file — the member's own, or the one its path names — and finds the title there. `resolveRelative` resolves that path against the member's own directory, the member's path minus its last segment, folding `.` and `..` as it goes.
-
-=>
 
 const resolveRelative = (from: Path, rel: string): Path =>
   pipe(
@@ -147,7 +104,7 @@ const resolveAnchor = (
 
 ~
 
-A higher-order sink's members are the anchors in its prose. `anchorsOf` gathers every anchor a section carries — across its preamble and its body, code and prose alike — since the sink tree, the navigation, and the fault checks read the same set. Each member names a chapter by its title and carries no override of its own.
+`anchorsOf` gathers every anchor a section carries — across its preamble and its body, code and prose alike — since the reachability walk and the navigation read the same set.
 
 =>
 
@@ -156,163 +113,6 @@ const anchorsOf = (section: LoomSection): ReadonlyArray<WarpAnchorToken> =>
     [...section.preamble, ...section.code],
     Array.flatMap((weft) => weft.anchors),
   )
-
-~
-
-`dirSinks` gathers every higher-order sink across the corpus.
-
-=>
-
-const dirSinks = (modules: Modules): ReadonlyArray<SectionRef> =>
-  pipe(
-    Array.fromIterable(modules.values()),
-    Array.flatMap((m) =>
-      Array.filterMap(m.doc.sections, (section) =>
-        isDirSink(section)
-          ? Option.some<SectionRef>({ module: m.path, section })
-          : Option.none<SectionRef>(),
-      ),
-    ),
-  )
-
-~
-
-A pointing is one edge from a higher-order sink to the section a member names. `pointings` gathers every one across the book, dropping a member that resolves to nothing — that unresolved anchor is a fault the diagnostics raise.
-
-=>
-
-type Pointing = {
-  readonly sink: SectionRef
-  readonly anchor: WarpAnchorToken
-  readonly target: SectionRef
-}
-
-const pointings = (modules: Modules): ReadonlyArray<Pointing> => {
-  const indexes = titleIndexes(modules)
-  return pipe(
-    dirSinks(modules),
-    Array.flatMap((sink) =>
-      Array.filterMap(anchorsOf(sink.section), (anchor) =>
-        Option.map(
-          resolveAnchor(indexes, sink.module, anchor),
-          (target) => ({ sink, anchor, target }),
-        ),
-      ),
-    ),
-  )
-}
-
-~
-
-A higher-order sink that points at another nests its directory under it, so a sink's prefix is its own directory joined under its parent's. `sinkPrefixes` resolves the prefix of every higher-order sink, walking up the nesting edges to the root and guarding a cycle so the walk ends even when the tree loops.
-
-=>
-
-const sinkPrefixes = (modules: Modules): ReadonlyMap<LoomSection, string> => {
-  const parentOf = pipe(
-    pointings(modules),
-    Array.filter((p) => isDirSink(p.target.section)),
-    Array.reduce(
-      new Map<LoomSection, SectionRef>(),
-      (acc, p) => new Map(acc).set(p.target.section, p.sink),
-    ),
-  )
-  const prefixOf = (sink: SectionRef, seen: ReadonlySet<LoomSection>): string => {
-    const own = Option.getOrElse(dirLabelOf(sink.section), () => '')
-    const parent = parentOf.get(sink.section)
-    return parent === undefined || seen.has(sink.section)
-      ? own
-      : joinDir(prefixOf(parent, new Set([...seen, sink.section])), own)
-  }
-  return new Map(
-    dirSinks(modules).map(
-      (sink) => [sink.section, prefixOf(sink, new Set())] as const,
-    ),
-  )
-}
-
-~
-
-A chapter is the range a pointed H1 opens: itself and the sections after it, in document order, up to the next pointed section in the same module. `bookChapters` builds each one — the higher-order sink that points it, the anchor that names it, the prefix in force, the start section, and the sections in range. A pointing whose target is itself a higher-order sink is nesting, not a chapter, so it is left out.
-
-=>
-
-type Chapter = {
-  readonly owner: SectionRef
-  readonly anchor: WarpAnchorToken
-  readonly start: SectionRef
-  readonly prefix: string
-  readonly sections: ReadonlyArray<LoomSection>
-}
-
-const docIndex = (modules: Modules, ref: SectionRef): number =>
-  modules.get(ref.module)?.doc.sections.indexOf(ref.section) ?? -1
-
-const bookChapters = (corpus: LoomCorpusAst): ReadonlyArray<Chapter> => {
-  const modules = corpus.modules
-  const prefixes = sinkPrefixes(modules)
-  const starts = Array.filter(
-    pointings(modules),
-    (p) => !isDirSink(p.target.section),
-  )
-  const boundariesIn = (module: Path): ReadonlyArray<number> =>
-    pipe(
-      starts,
-      Array.filter((p) => p.target.module === module),
-      Array.map((p) => docIndex(modules, p.target)),
-    )
-  return Array.map(starts, (p): Chapter => {
-    const sections = modules.get(p.target.module)?.doc.sections ?? []
-    const startAt = docIndex(modules, p.target)
-    const next = pipe(
-      boundariesIn(p.target.module),
-      Array.filter((i) => i > startAt),
-      Array.reduce(sections.length, (lo, i) => Math.min(lo, i)),
-    )
-    return {
-      owner: p.sink,
-      anchor: p.anchor,
-      start: p.target,
-      prefix: Option.getOrElse(
-        Option.fromNullable(prefixes.get(p.sink.section)),
-        () => '',
-      ),
-      sections: sections.slice(startAt, next),
-    }
-  })
-}
-
-~
-
-`sinkTreeRouting` reduces the chapters to where each tangle sink lands: every tangle sink in a chapter's range maps to the chapter's prefix, keyed by its module and the path it declares. A tangle sink in no chapter is absent, so the compiler resolves it from the workspace default instead.
-
-=>
-
-export const sinkTreeRouting = (
-  corpus: LoomCorpusAst,
-): ReadonlyMap<Path, ReadonlyMap<string, string>> => {
-  const placements = pipe(
-    bookChapters(corpus),
-    Array.flatMap((chapter) =>
-      Array.filterMap(chapter.sections, (section) =>
-        Option.map(tangleSinkOf(section), (sink) => ({
-          module: chapter.start.module,
-          path: sinkPathOf(sink),
-          prefix: chapter.prefix,
-        })),
-      ),
-    ),
-  )
-  return new Map(
-    Object.entries(Array.groupBy(placements, (place) => place.module)).map(
-      ([module, places]) =>
-        [
-          module,
-          new Map(places.map((place) => [place.path, place.prefix])),
-        ] as const,
-    ),
-  )
-}
 
 ## Reaching through the corpus
 
@@ -387,314 +187,6 @@ export const transitiveDependents = (
     ),
     Array.filter((path) => path !== entry),
   )
-}
-
-~
-
-`placedModules` is the set of modules a book places as a chapter — the chapter targets across the corpus. A module outside it is a place-graph root: no book places it, so a tangle takes it as an entry of its own and emits its files once.
-
-=>
-
-export const placedModules = (corpus: LoomCorpusAst): ReadonlySet<Path> =>
-  new Set(Array.map(bookChapters(corpus), (chapter) => chapter.start.module))
-
-## The tangle sinks
-
-A tangle sink is a section whose sink names a file, written `[dir, file]`. `tangleSinks` lists every one across the corpus, each with the path it declares and the span that path covers. A caller resolves each to where it lands and refuses two that collide; the resolution wants the package root, which the corpus does not hold, so the list stops at the declared path and leaves the rest to the compiler.
-
-=>
-
-export type TangleSink = {
-  readonly module: Path
-  readonly position: Position
-  readonly path: string
-}
-
-export const tangleSinks = (corpus: LoomCorpusAst): ReadonlyArray<TangleSink> =>
-  pipe(
-    Array.fromIterable(corpus.modules.values()),
-    Array.flatMap((m) =>
-      Array.filterMap(m.doc.sections, (section) =>
-        Option.map(
-          tangleSinkOf(section),
-          (sink): TangleSink => ({
-            module: m.path,
-            position: sink.position,
-            path: sinkPathOf(sink),
-          }),
-        ),
-      ),
-    ),
-  )
-
-## Faults in the sink tree
-
-The sink tree can be malformed in ways the router quietly skips — a member that resolves to nothing, a vertex that reaches itself, a chapter that opens below a top-level heading. `sinkTreeFaults` finds these, so the editor surfaces each and the tangler refuses the build. It reports a fault as structure alone — its kind, a position, and the one value its message needs — and leaves the wording to the catalog a layer above. The one rule it cannot derive, how a title folds to a name, arrives as `normalise`, so the whole corpus keeps a single normalisation.
-
-A `SinkFault` is one of ten. `CollidingTitles` names two sections in one file that fold to one name. `SinkCycle` names a higher-order sink that reaches itself. `EmptySink` names a higher-order sink with no members. `MisplacedSpecifier` names an anchor that carries a specifier, which a member never does. `SelfRoutingSink` names a chapter a book points into its own file. `SinklessChapter` names a chapter whose range tangles no file. `PointedNotH1` names a chapter that opens below a top-level heading. `OrphanedOpening` names a book's first chapter into a module that strands the sections ahead of it. `DuplicateChapter` names a chapter two higher-order sinks both claim. `UnresolvedPointing` names a member that reaches no section.
-
-=>
-
-export type SinkFault =
-  | { readonly kind: 'CollidingTitles'; readonly path: Path; readonly position: Position; readonly name: string }
-  | { readonly kind: 'SinkCycle'; readonly path: Path; readonly position: Position; readonly name: string }
-  | { readonly kind: 'EmptySink'; readonly path: Path; readonly position: Position; readonly directory: string }
-  | { readonly kind: 'MisplacedSpecifier'; readonly path: Path; readonly position: Position; readonly specifier: string }
-  | { readonly kind: 'SelfRoutingSink'; readonly path: Path; readonly position: Position; readonly name: string }
-  | { readonly kind: 'SinklessChapter'; readonly path: Path; readonly position: Position; readonly name: string }
-  | { readonly kind: 'PointedNotH1'; readonly path: Path; readonly position: Position; readonly name: string }
-  | { readonly kind: 'OrphanedOpening'; readonly path: Path; readonly position: Position; readonly name: string }
-  | { readonly kind: 'DuplicateChapter'; readonly path: Path; readonly position: Position; readonly name: string }
-  | { readonly kind: 'UnresolvedPointing'; readonly path: Path; readonly position: Position; readonly name: string }
-
-~
-
-Two small readers locate the spans a fault lands on. `located` flattens the corpus to every section beside the module it lives in. `headingPosition` points at a section's heading, its title for choice and its specifier, sink, or whole heading as fallbacks.
-
-=>
-
-type Located = { readonly path: Path; readonly section: LoomSection }
-
-const located = (modules: Modules): ReadonlyArray<Located> =>
-  pipe(
-    Array.fromIterable(modules.values()),
-    Array.flatMap((m) =>
-      Array.map(m.doc.sections, (section) => ({ path: m.path, section })),
-    ),
-  )
-
-const headingPosition = (section: LoomSection): Position =>
-  section.heading.title?.position ??
-  section.heading.specifier?.position ??
-  section.heading.sink?.position ??
-  section.heading.position
-
-~
-
-Two faults read the headings and their anchors. `collidingTitles` folds every titled section through `normalise` and reports each section that shares its folded name with another in the same file — a title repeated across files no longer collides, since a name resolves in its own file. `misplacedSpecifiers` reports an anchor that carries a specifier anywhere — a member names a chapter and never overrides, so a specifier on an anchor can route nothing.
-
-=>
-
-const collidingTitles = (
-  sections: ReadonlyArray<Located>,
-  normalise: (title: string) => string,
-): ReadonlyArray<SinkFault> =>
-  pipe(
-    sections,
-    Array.filterMap((loc) =>
-      Option.map(Option.fromNullable(loc.section.heading.title), (title) => ({
-        loc,
-        title,
-        name: normalise(title.source),
-      })),
-    ),
-    Array.groupBy((s) => `${s.loc.path}\n${s.name}`),
-    (groups) => Object.values(groups),
-    Array.filter((group) => group.length > 1),
-    Array.flatMap((group) =>
-      Array.map(
-        group,
-        (s): SinkFault => ({
-          kind: 'CollidingTitles',
-          path: s.loc.path,
-          position: s.title.position,
-          name: s.name,
-        }),
-      ),
-    ),
-  )
-
-const anchorSpecifierText = (spec: SpecifierToken | SinkToken): string =>
-  spec.type === 'Specifier'
-    ? spec.label.value
-    : spec.file === undefined
-      ? spec.dir.value
-      : `${spec.dir.value}, ${spec.file.value}`
-
-const misplacedSpecifiers = (
-  sections: ReadonlyArray<Located>,
-): ReadonlyArray<SinkFault> =>
-  pipe(
-    sections,
-    Array.flatMap((loc) =>
-      Array.filterMap(anchorsOf(loc.section), (anchor) =>
-        Option.map(
-          Option.fromNullable(anchor.specifier),
-          (specifier): SinkFault => ({
-            kind: 'MisplacedSpecifier',
-            path: loc.path,
-            position: specifier.position,
-            specifier: anchorSpecifierText(specifier),
-          }),
-        ),
-      ),
-    ),
-  )
-
-~
-
-Two faults read the higher-order sinks themselves. `emptySinks` reports a vertex no member composes. `sinkCycles` reports a vertex that reaches itself: `childSinks` gives a vertex's higher-order members, `reaches` walks them depth first until it returns to the start or runs dry, and a vertex that reaches itself is named at its heading.
-
-=>
-
-const emptySinks = (modules: Modules): ReadonlyArray<SinkFault> =>
-  Array.filterMap(dirSinks(modules), (ref) =>
-    anchorsOf(ref.section).length === 0
-      ? Option.some<SinkFault>({
-          kind: 'EmptySink',
-          path: ref.module,
-          position: headingPosition(ref.section),
-          directory: Option.getOrElse(dirLabelOf(ref.section), () => ''),
-        })
-      : Option.none(),
-  )
-
-const sinkCycles = (modules: Modules): ReadonlyArray<SinkFault> => {
-  const indexes = titleIndexes(modules)
-  const childSinks = (ref: SectionRef): ReadonlyArray<SectionRef> =>
-    Array.filterMap(anchorsOf(ref.section), (anchor) =>
-      pipe(
-        resolveAnchor(indexes, ref.module, anchor),
-        Option.filter((child) => isDirSink(child.section)),
-      ),
-    )
-  const reaches = (
-    from: SectionRef,
-    target: LoomSection,
-    seen: ReadonlySet<LoomSection>,
-  ): boolean =>
-    Array.some(
-      childSinks(from),
-      (child) =>
-        child.section === target ||
-        (!seen.has(child.section) &&
-          reaches(child, target, new Set([...seen, child.section]))),
-    )
-  return Array.filterMap(dirSinks(modules), (ref) =>
-    reaches(ref, ref.section, new Set([ref.section]))
-      ? Option.some<SinkFault>({
-          kind: 'SinkCycle',
-          path: ref.module,
-          position: headingPosition(ref.section),
-          name:
-            ref.section.heading.title?.source ??
-            Option.getOrElse(dirLabelOf(ref.section), () => ''),
-        })
-      : Option.none(),
-  )
-}
-
-~
-
-Five faults read the chapters. `chapterFaults` runs them over `bookChapters`, naming each at the anchor that points the chapter, in the book that points it. A chapter that opens below an H1 is a `PointedNotH1`; one a book points into its own file is a `SelfRoutingSink`; one whose range holds no tangle sink is a `SinklessChapter`. Two chapters that open at the same section are `DuplicateChapter` — the chapter has two homes. A book whose earliest chapter into a module does not open that module's first section strands the sections ahead of it, an `OrphanedOpening`.
-
-=>
-
-const isTangleSink = (section: LoomSection): boolean =>
-  Option.isSome(tangleSinkOf(section))
-
-const chapterFaults = (corpus: LoomCorpusAst): ReadonlyArray<SinkFault> => {
-  const modules = corpus.modules
-  const chapters = bookChapters(corpus)
-  const named = (
-    kind:
-      | 'PointedNotH1'
-      | 'SelfRoutingSink'
-      | 'SinklessChapter'
-      | 'OrphanedOpening'
-      | 'DuplicateChapter',
-    chapter: Chapter,
-  ): SinkFault => ({
-    kind,
-    path: chapter.owner.module,
-    position: chapter.anchor.position,
-    name: chapter.anchor.name.value,
-  })
-  const notH1 = Array.filterMap(chapters, (chapter) =>
-    headingLevel(chapter.start.section) === 1
-      ? Option.none()
-      : Option.some(named('PointedNotH1', chapter)),
-  )
-  const selfRouting = Array.filterMap(chapters, (chapter) =>
-    chapter.start.module === chapter.owner.module
-      ? Option.some(named('SelfRoutingSink', chapter))
-      : Option.none(),
-  )
-  const sinkless = Array.filterMap(chapters, (chapter) =>
-    Array.some(chapter.sections, isTangleSink)
-      ? Option.none()
-      : Option.some(named('SinklessChapter', chapter)),
-  )
-  const duplicate = pipe(
-    Array.groupBy(
-      chapters,
-      (chapter) => `${chapter.start.module}\n${docIndex(modules, chapter.start)}`,
-    ),
-    (groups) => Object.values(groups),
-    Array.filter((group) => group.length > 1),
-    Array.flatMap((group) =>
-      Array.map(group, (chapter) => named('DuplicateChapter', chapter)),
-    ),
-  )
-  const orphaned = pipe(
-    Array.groupBy(chapters, (chapter) => chapter.start.module),
-    (groups) => Object.values(groups),
-    Array.filterMap((group) => {
-      const earliest = group.reduce((a, b) =>
-        docIndex(modules, a.start) <= docIndex(modules, b.start) ? a : b,
-      )
-      return docIndex(modules, earliest.start) > 0
-        ? Option.some(named('OrphanedOpening', earliest))
-        : Option.none()
-    }),
-  )
-  return [...notH1, ...selfRouting, ...sinkless, ...duplicate, ...orphaned]
-}
-
-~
-
-An unresolved pointing is a member that names no section. `unresolvedPointings` reports each: a higher-order sink places a chapter by name, so a name that reaches nothing places nothing, and the book is malformed. A navigate anchor in ordinary prose stays lenient and reports nothing; only a placing member faults.
-
-=>
-
-const unresolvedPointings = (modules: Modules): ReadonlyArray<SinkFault> => {
-  const indexes = titleIndexes(modules)
-  return pipe(
-    dirSinks(modules),
-    Array.flatMap((sink) =>
-      Array.filterMap(anchorsOf(sink.section), (anchor) =>
-        Option.isSome(resolveAnchor(indexes, sink.module, anchor))
-          ? Option.none<SinkFault>()
-          : Option.some<SinkFault>({
-              kind: 'UnresolvedPointing',
-              path: sink.module,
-              position: anchor.position,
-              name: anchor.name.value,
-            }),
-      ),
-    ),
-  )
-}
-
-~
-
-`sinkTreeFaults` gathers all ten over the whole corpus.
-
-=>
-
-export const sinkTreeFaults = (
-  corpus: LoomCorpusAst,
-  normalise: (title: string) => string,
-): ReadonlyArray<SinkFault> => {
-  const sections = located(corpus.modules)
-  return [
-    ...collidingTitles(sections, normalise),
-    ...misplacedSpecifiers(sections),
-    ...emptySinks(corpus.modules),
-    ...sinkCycles(corpus.modules),
-    ...unresolvedPointings(corpus.modules),
-    ...chapterFaults(corpus),
-  ]
 }
 
 ## Navigation over the corpus
@@ -1150,15 +642,13 @@ export const corpusErrors = (
 
 ## What this module draws on
 
-Effect supplies `Schema` for the model, `Array`, `Option`, and `pipe` for the queries, and `Match` for the navigation's per-kind dispatch. The module bundles the parse model `LoomDocument` and the product model `ProductSchema`, with `LoomSection`, the unit the sink tree walks, the `SinkToken` a heading targets, the `WarpAnchorToken` a sink's members are, the `WarpToken` a value warp is defined by, the `SpecifierToken` a misplaced anchor may wear, and `Diagnostic` and `Position` — what a corpus walk gathers and a sink fault lands on. `symbolAt` and `profileOf` from `LoomSymbol` name the token under a cursor and whether it navigates, so the navigation reads the same table the mappings and colours do.
+Effect supplies `Schema` for the model, `Array`, `Option`, and `pipe` for the queries, and `Match` for the navigation's per-kind dispatch. The module bundles the parse model `LoomDocument` and the product model `ProductSchema`, with `LoomSection`, the unit the corpus walks, the `WarpAnchorToken` an anchor is, the `WarpToken` a value warp is defined by, and `Diagnostic` and `Position` — what a corpus walk gathers and a diagnostic lands on. `symbolAt` and `profileOf` from `LoomSymbol` name the token under a cursor and whether it navigates, so the navigation reads the same table the mappings and colours do.
 
 =>
 
 import { Array, Match, Option, pipe, Schema } from 'effect'
 import { type Diagnostic, type Position } from '#ast/LoomNode'
 import {
-  type SinkToken,
-  type SpecifierToken,
   type WarpAnchorToken,
   type WarpToken,
 } from '#ast/LoomTokens'
@@ -1180,13 +670,11 @@ import { profileOf, symbolAt } from '#ast/LoomSymbol'
 
 ::[The module map]
 
-::[The sink tree]
+::[Resolving names]
 
 ::[Reaching through the corpus]
 
-::[The tangle sinks]
 
-::[Faults in the sink tree]
 
 ::[Navigation over the corpus]
 

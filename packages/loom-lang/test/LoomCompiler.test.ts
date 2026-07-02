@@ -7,11 +7,11 @@ import { PackageConfig } from '../src/PackageConfig'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
 // Drives the corpus pipeline end-to-end over an in-memory DocumentSource:
-// book.loom places The chapter — which lives in chapter.loom — through a
-// higher-order sink, so the corpus reaches the chapter and a change to the chapter
-// invalidates the book. That is the place graph the single-file editor projection
-// can't see. DocumentSource is a free requirement, so the test injects a fake one
-// without touching the filesystem; its `list` reports both looms as the corpus.
+// book.loom composes The chapter — which lives in chapter.loom — through a
+// cross-file `::[…]` anchor, so the corpus reaches the chapter and a change to the
+// chapter invalidates the book. That is the anchor graph the single-file editor
+// projection can't see. DocumentSource is a free requirement, so the test injects a
+// fake one without touching the filesystem; its `list` reports both looms as the corpus.
 
 const files: Record<string, string> = {
   '/chapter.loom': `---
@@ -28,7 +28,7 @@ export const c = 1
 Language: TypeScript
 ---
 
-# The part [dist]
+# The part
 
 ::[The chapter](chapter.loom)
 `,
@@ -75,15 +75,6 @@ describe('LoomCompiler — the chain projected for each consumer', () => {
     }).pipe(Effect.provide(layer)),
   )
 
-  it.effect('placed reports the chapters a book places', () =>
-    Effect.gen(function* () {
-      const c = yield* LoomCompiler
-      // book.loom places The chapter, which lives in chapter.loom; so a tangle
-      // skips chapter.loom as a standalone entry and emits it through the book
-      expect([...(yield* c.placed('/book.loom'))]).toEqual(['/chapter.loom'])
-    }).pipe(Effect.provide(layer)),
-  )
-
   it.effect('invalidate names the file and the books that place it', () =>
     Effect.gen(function* () {
       const c = yield* LoomCompiler
@@ -117,9 +108,10 @@ describe('LoomCompiler — the chain projected for each consumer', () => {
 const crossImport: Record<string, string> = {
   '/a.loom': `---
 Language: TypeScript
+Package: a.ts
 ---
 
-# A [., a.ts]
+# A {Tangle}
 
 =>
 
@@ -128,9 +120,10 @@ export const a = b + 1
 `,
   '/b.loom': `---
 Language: TypeScript
+Package: b.ts
 ---
 
-# B [., b.ts]
+# B {Tangle}
 
 =>
 
@@ -165,51 +158,11 @@ describe('LoomCompiler — composition projects the de re as a filesystem', () =
       expect(a?.content).toContain("import { b } from './b.js'")
       expect(b?.path).toBe('/b.ts')
       expect(b?.content).toContain('export const b = 2')
-      // each root carries its heading — the `# A` title on line 4 (char 2) — so a
+      // each root carries its heading — the `# A` title on line 5 (char 2) — so a
       // cross-file import go-to lands on the section that tangles the file
       expect(a?.heading.path).toBe('/a.loom')
-      expect(a?.heading.range.start).toEqual({ line: 4, character: 2 })
+      expect(a?.heading.range.start).toEqual({ line: 5, character: 2 })
     }).pipe(Effect.provide(crossLayer)),
   )
 })
 
-// A leading `/` in a sink directory names the output root, not the machine's. `[/,
-// lib.ts]` must land beside the loom — `/proj/lib.ts` — exactly where `[., lib.ts]`
-// would, never escaping to `/lib.ts` through `path.resolve`. The loom sits under
-// `/proj`, so the two readings are distinguishable.
-const rootSink: Record<string, string> = {
-  '/proj/lib.loom': `---
-Language: TypeScript
----
-
-# The library [/, lib.ts]
-
-=>
-
-export const x = 1
-`,
-}
-
-const rootSinkLayer = Layer.provide(
-  Layer.merge(LoomCompiler.Default, LoomMemo.Default),
-  Layer.merge(
-    Layer.succeed(
-      DocumentSource,
-      new DocumentSource({
-        read: (path: string) => Effect.succeed(rootSink[path] ?? ''),
-        list: Option.some(() => Effect.succeed(Object.keys(rootSink))),
-      }),
-    ),
-    TestConfig,
-  ),
-)
-
-describe('LoomCompiler — a root-anchored sink stays under the output root', () => {
-  it.effect('resolves `[/, file]` beside the loom, not at the filesystem root', () =>
-    Effect.gen(function* () {
-      const c = yield* LoomCompiler
-      const files = yield* c.composition('/proj/lib.loom')
-      expect(files.map((file) => file.path)).toEqual(['/proj/lib.ts'])
-    }).pipe(Effect.provide(rootSinkLayer)),
-  )
-})

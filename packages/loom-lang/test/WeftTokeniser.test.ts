@@ -136,71 +136,35 @@ describe('Tokeniser — language specifier vs sink', () => {
     expect(w.sink).toBeUndefined()
   })
 
-  it('`[src/main/scala, App.scala]` is a two-part file Sink', () => {
-    const w = headingAt(tokenise(['# Tangle [src/main/scala, App.scala]']), 0)
+  it('`[App.scala]` is a file Sink', () => {
+    const w = headingAt(tokenise(['# Tangle [App.scala]']), 0)
     expect(w.sink?.type).toBe('Sink')
-    expect(w.sink?.dir.value).toBe('src/main/scala')
-    expect(w.sink?.file?.value).toBe('App.scala')
+    expect(w.sink?.file.value).toBe('App.scala')
     expect(w.sink?.health.status).toBe('ok')
     expect(w.specifier).toBeUndefined()
   })
 
-  it('`[., build.sh]` is a two-part file Sink rooted at `.`', () => {
-    const w = headingAt(tokenise(['# Tangle [., build.sh]']), 0)
+  it('a sink file may carry a path within the package — `[src/main/scala/App.scala]`', () => {
+    const w = headingAt(tokenise(['# Tangle [src/main/scala/App.scala]']), 0)
     expect(w.sink?.type).toBe('Sink')
-    expect(w.sink?.dir.value).toBe('.')
-    expect(w.sink?.file?.value).toBe('build.sh')
-  })
-
-  it('`[packages/loom-cli]` is a one-part directory Sink (file absent)', () => {
-    const w = headingAt(tokenise(['# CLI [packages/loom-cli]']), 0)
-    expect(w.sink?.type).toBe('Sink')
-    expect(w.sink?.dir.value).toBe('packages/loom-cli')
-    expect(w.sink?.file).toBeUndefined()
+    expect(w.sink?.file.value).toBe('src/main/scala/App.scala')
     expect(w.sink?.health.status).toBe('ok')
   })
 
-  it('`[lib]` is a one-part directory Sink (single segment)', () => {
-    const w = headingAt(tokenise(['# Group [lib]']), 0)
-    expect(w.sink?.type).toBe('Sink')
-    expect(w.sink?.dir.value).toBe('lib')
-    expect(w.sink?.file).toBeUndefined()
-  })
-
-  it('splits the bracket on the first comma — the dir is the text before it', () => {
-    // The inner `src, a, b.ts` splits at the first comma: the dir is `src`,
-    // and the rest (`a, b.ts`) is the file. That file text carries a comma and
-    // a space, so it fails the file pattern and its bytes are preserved in
-    // `unexpected[]` — proof the split took the whole post-first-comma run.
-    const w = headingAt(tokenise(['# File [src, a, b.ts]']), 0)
-    expect(w.sink?.dir.value).toBe('src')
-    expect(w.sink?.file?.health.status).toBe('error')
-    expect(w.sink?.file?.unexpected?.[0].value).toBe('a, b.ts')
-  })
-
-  it('a sink directory with a space fails its pattern (bad text in unexpected)', () => {
-    const w = headingAt(tokenise(['# Tangle [src/bad name, x.ts]']), 0)
-    expect(w.sink?.type).toBe('Sink')
-    expect(w.sink?.dir.health.status).toBe('error')
-    expect(w.sink?.dir.value).toBe('')
-    expect(w.sink?.dir.unexpected?.[0].value).toBe('src/bad name')
-  })
-
   it('a sink file with a space fails its pattern (bad text in unexpected)', () => {
-    const w = headingAt(tokenise(['# Tangle [src, bad name.ts]']), 0)
+    const w = headingAt(tokenise(['# Tangle [bad name.ts]']), 0)
     expect(w.sink?.type).toBe('Sink')
-    expect(w.sink?.file?.health.status).toBe('error')
-    expect(w.sink?.file?.value).toBe('')
-    expect(w.sink?.file?.unexpected?.[0].value).toBe('bad name.ts')
+    expect(w.sink?.file.health.status).toBe('error')
+    expect(w.sink?.file.value).toBe('')
+    expect(w.sink?.file.unexpected?.[0].value).toBe('bad name.ts')
   })
 
   it('a heading may carry both a specifier and a sink', () => {
-    const w = headingAt(tokenise(['# Tangle {Bash} [., build.sh]']), 0)
+    const w = headingAt(tokenise(['# Tangle {Bash} [build.sh]']), 0)
     expect(w.specifier?.type).toBe('Specifier')
     expect(w.specifier?.label.value).toBe('Bash')
     expect(w.sink?.type).toBe('Sink')
-    expect(w.sink?.dir.value).toBe('.')
-    expect(w.sink?.file?.value).toBe('build.sh')
+    expect(w.sink?.file.value).toBe('build.sh')
   })
 })
 
@@ -267,10 +231,9 @@ describe('Tokeniser — heading title', () => {
   })
 
   it('a `[…]` sink bounds the title — the title ends before the bracket', () => {
-    const w = headingAt(tokenise(['# Title [App, App.scala] {TypeScript}']), 0)
+    const w = headingAt(tokenise(['# Title [App.scala] {TypeScript}']), 0)
     expect(w.title?.source).toBe('Title')
-    expect(w.sink?.dir.value).toBe('App')
-    expect(w.sink?.file?.value).toBe('App.scala')
+    expect(w.sink?.file.value).toBe('App.scala')
     expect(w.specifier?.label.value).toBe('TypeScript')
   })
 
@@ -599,27 +562,23 @@ describe('Tokeniser — WarpAnchor references on ArrowWeft / CodeWeft', () => {
     expect(w.anchors[0].specifier).toBeUndefined()
   })
 
-  it('attaches a directory Sink `::[A cli module][packages/loom-cli]`', () => {
-    const w = codeWeftFromLines(['## A', '=>', '::[A cli module][packages/loom-cli]'], 2)
+  it('attaches a file Sink `::[A cli module][cli.ts]`', () => {
+    const w = codeWeftFromLines(['## A', '=>', '::[A cli module][cli.ts]'], 2)
     expect(w.anchors).toHaveLength(1)
     expect(w.anchors[0].name.value).toBe('A cli module')
     expect(w.anchors[0].specifier?.type).toBe('Sink')
-    expect((w.anchors[0].specifier as { dir: { value: string } }).dir.value).toBe(
-      'packages/loom-cli',
+    expect((w.anchors[0].specifier as { file: { value: string } }).file.value).toBe(
+      'cli.ts',
     )
     expect(w.anchors[0].health.status).toBe('ok')
-    expect(w.anchors[0].source).toBe('::[A cli module][packages/loom-cli]')
+    expect(w.anchors[0].source).toBe('::[A cli module][cli.ts]')
   })
 
-  it('attaches a file Sink `::[The manifest][., package.json]`', () => {
-    const w = codeWeftFromLines(['## A', '=>', '::[The manifest][., package.json]'], 2)
+  it('attaches a file Sink `::[The manifest][package.json]`', () => {
+    const w = codeWeftFromLines(['## A', '=>', '::[The manifest][package.json]'], 2)
     expect(w.anchors[0].specifier?.type).toBe('Sink')
-    const sink = w.anchors[0].specifier as {
-      dir: { value: string }
-      file?: { value: string }
-    }
-    expect(sink.dir.value).toBe('.')
-    expect(sink.file?.value).toBe('package.json')
+    const sink = w.anchors[0].specifier as { file: { value: string } }
+    expect(sink.file.value).toBe('package.json')
   })
 
   it('attaches a language Specifier `::[base]{rust}`', () => {

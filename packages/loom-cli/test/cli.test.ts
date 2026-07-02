@@ -39,6 +39,7 @@ const loom = (
 
 const fixture = `---
 Language: TypeScript
+Package: out.ts
 ---
 
 # Greeting
@@ -47,7 +48,7 @@ Language: TypeScript
 
 export const hi = "hello"
 
-# Out [., out.ts]
+# Out {Tangle}
 
 =>
 

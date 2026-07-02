@@ -134,9 +134,10 @@ describe('ProductBuilder — a file sink yields a File', () => {
   it('emits a File at the sink path, its Code also in product.code', () => {
     const product = productOf(`---
 Language: TypeScript
+Package: src/ast/
 ---
 
-# Thing [src/ast, Thing.ts]
+# Thing {Tangle} [Thing.ts]
 
 =>
 

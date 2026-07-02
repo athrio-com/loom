@@ -10,39 +10,19 @@ import {
   definitionAt,
   moduleDiagnostics,
   reachable,
-  placedModules,
   referencesAt,
   renameAt,
   renameRangeAt,
-  sinkTreeFaults,
-  sinkTreeRouting,
-  tangleSinks,
   transitiveDependents,
   type CorpusLocation,
   type LoomModule,
   type Path,
-  type SinkFault,
 } from '@athrio/loom-ast/LoomCorpusAst'
 import {
   type ComposedFile,
   type FrameLocation,
   type FrameToken,
 } from '@athrio/loom-lang-services/LanguageService'
-import {
-  CollidingSinks,
-  CollidingTitles,
-  DuplicateChapter,
-  EmptySink,
-  faulty,
-  MisplacedSpecifier,
-  OrphanedOpening,
-  PointedNotH1,
-  SelfRoutingSink,
-  SinkCycle,
-  SinklessChapter,
-  UnresolvedAnchor,
-  type LoomFault,
-} from '#ast/LoomFault'
 import { normaliseTitle } from '#ast/WeftTokeniser'
 import {
   fromProduct,
@@ -88,44 +68,23 @@ const outputPath = (
     onSome: (root) => resolvePath(root, sink),
   })
 
-const fileRoot = (
-  routed: ReadonlyMap<string, string> | undefined,
-  sink: string,
-  packageRoot: Option.Option<string>,
-  workspaceRoot: Option.Option<string>,
-): Option.Option<string> =>
-  Option.all([Option.fromNullable(routed?.get(sink)), workspaceRoot]).pipe(
-    Option.map(([prefix, workspace]) => resolvePath(workspace, prefix)),
-    Option.orElse(() => packageRoot),
-  )
-
 const resolveSinks = (
   modules: Modules,
   entry: Path,
   packageRoot: Option.Option<string>,
-  workspaceRoot: Option.Option<string>,
-): ReadonlyArray<TangledFile> => {
-  const routing = sinkTreeRouting({ modules })
-  return pipe(
-    Array.fromIterable(modules.values()),
-    Array.flatMap((module) => {
-      const routed = routing.get(module.path)
-      return Array.filterMap(module.product.files, (file) =>
-        module.path === entry || (routed?.has(file.path) ?? false)
-          ? Option.some({
-              section: file.code.origin.name,
-              path: outputPath(
-                fileRoot(routed, file.path, packageRoot, workspaceRoot),
-                module.path,
-                file.path,
-              ),
-              content: fromProduct(modules, file.code.origin).code,
-            })
-          : Option.none(),
-      )
+): ReadonlyArray<TangledFile> =>
+  pipe(
+    Option.fromNullable(modules.get(entry)),
+    Option.match({
+      onNone: () => [],
+      onSome: (module) =>
+        Array.map(module.product.files, (file) => ({
+          section: file.code.origin.name,
+          path: outputPath(packageRoot, entry, file.path),
+          content: fromProduct(modules, file.code.origin).code,
+        })),
     }),
   )
-}
 
 export class TangleError extends Data.TaggedError('TangleError')<{
   readonly entry: Path
@@ -144,80 +103,6 @@ export class TangleError extends Data.TaggedError('TangleError')<{
     return `loom: refusing to tangle ${this.entry} — ${count} error(s) across the corpus:\n${lines.join('\n')}`
   }
 }
-
-const wordSinkFault = (fault: SinkFault): LoomFault =>
-  Match.value(fault).pipe(
-    Match.when({ kind: 'CollidingTitles' }, ({ name }) => CollidingTitles({ name })),
-    Match.when({ kind: 'SinkCycle' }, ({ name }) => SinkCycle({ name })),
-    Match.when({ kind: 'EmptySink' }, ({ directory }) => EmptySink({ directory })),
-    Match.when({ kind: 'MisplacedSpecifier' }, ({ specifier }) =>
-      MisplacedSpecifier({ specifier }),
-    ),
-    Match.when({ kind: 'SelfRoutingSink' }, ({ name }) => SelfRoutingSink({ name })),
-    Match.when({ kind: 'SinklessChapter' }, ({ name }) => SinklessChapter({ name })),
-    Match.when({ kind: 'PointedNotH1' }, ({ name }) => PointedNotH1({ name })),
-    Match.when({ kind: 'OrphanedOpening' }, ({ name }) => OrphanedOpening({ name })),
-    Match.when({ kind: 'DuplicateChapter' }, ({ name }) => DuplicateChapter({ name })),
-    Match.when({ kind: 'UnresolvedPointing' }, ({ name }) => UnresolvedAnchor({ name })),
-    Match.exhaustive,
-  )
-
-const sinkDiagnostics = (
-  modules: Modules,
-): ReadonlyArray<{ readonly path: Path; readonly diagnostic: Diagnostic }> =>
-  Array.flatMap(sinkTreeFaults({ modules }, normaliseTitle), (fault) =>
-    Array.map(
-      faulty(wordSinkFault(fault), fault.position).diagnostics,
-      (diagnostic) => ({ path: fault.path, diagnostic }),
-    ),
-  )
-
-const collisionDiagnostics = (
-  config: PackageConfig,
-  modules: Modules,
-): Effect.Effect<
-  ReadonlyArray<{ readonly path: Path; readonly diagnostic: Diagnostic }>
-> =>
-  Effect.forEach(
-    Object.entries(Array.groupBy(tangleSinks({ modules }), (sink) => sink.module)),
-    ([module, sinks]) =>
-      config.resolve(module).pipe(
-        Effect.map(({ packageRoot, workspaceRoot }) => {
-          const routed = sinkTreeRouting({ modules }).get(module)
-          return Array.map(sinks, (sink) => ({
-            module,
-            position: sink.position,
-            at: outputPath(
-              fileRoot(
-                routed,
-                sink.path,
-                Option.fromNullable(packageRoot),
-                Option.fromNullable(workspaceRoot),
-              ),
-              module,
-              sink.path,
-            ),
-          }))
-        }),
-      ),
-  ).pipe(
-    Effect.map((perModule) =>
-      pipe(
-        Array.flatten(perModule),
-        Array.groupBy((sink) => sink.at),
-        (groups) => Object.values(groups),
-        Array.filter((group) => group.length > 1),
-        Array.flatMap((group) =>
-          Array.flatMap(group, (sink) =>
-            Array.map(
-              faulty(CollidingSinks({ path: sink.at }), sink.position).diagnostics,
-              (diagnostic) => ({ path: sink.module, diagnostic }),
-            ),
-          ),
-        ),
-      ),
-    ),
-  )
 
 const lineCharAt = (
   text: string,
@@ -450,65 +335,30 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
           buildCorpus(documents, path).pipe(
             Effect.flatMap((modules) => {
               const scoped = scopedTo(modules, reachable(modules, path))
-              return collisionDiagnostics(config, scoped).pipe(
-                Effect.flatMap((collisions) => {
-                  const sinkErrors = Array.filterMap(
-                    sinkDiagnostics(scoped),
-                    (d) =>
-                      d.diagnostic.severity === 'error'
-                        ? Option.some({ path: d.path, diagnostics: [d.diagnostic] })
-                        : Option.none(),
+              const failures = corpusErrors({ modules: scoped })
+              return failures.length > 0
+                ? Effect.fail(new TangleError({ entry: path, failures }))
+                : config.resolve(path).pipe(
+                    Effect.map(({ packageRoot }) =>
+                      resolveSinks(scoped, path, Option.fromNullable(packageRoot)),
+                    ),
                   )
-                  const collisionErrors = Array.map(collisions, (d) => ({
-                    path: d.path,
-                    diagnostics: [d.diagnostic],
-                  }))
-                  const failures = [
-                    ...corpusErrors({ modules: scoped }),
-                    ...sinkErrors,
-                    ...collisionErrors,
-                  ]
-                  return failures.length > 0
-                    ? Effect.fail(new TangleError({ entry: path, failures }))
-                    : config.resolve(path).pipe(
-                        Effect.map(({ packageRoot, workspaceRoot }) =>
-                          resolveSinks(
-                            scoped,
-                            path,
-                            Option.fromNullable(packageRoot),
-                            Option.fromNullable(workspaceRoot),
-                          ),
-                        ),
-                      )
-                }),
-              )
             }),
-          ),
-
-        placed: (path: Path): Effect.Effect<ReadonlySet<Path>> =>
-          buildCorpus(documents, path).pipe(
-            Effect.map((modules) => placedModules({ modules })),
           ),
 
         composition: (path: Path): Effect.Effect<ReadonlyArray<ComposedFile>> =>
           buildCorpus(documents, path).pipe(
-            Effect.flatMap((modules) => {
-              const routing = sinkTreeRouting({ modules })
-              return Effect.forEach(
+            Effect.flatMap((modules) =>
+              Effect.forEach(
                 Array.fromIterable(modules.values()),
                 (module) =>
                   config.resolve(module.path).pipe(
-                    Effect.map(({ packageRoot, workspaceRoot }) =>
+                    Effect.map(({ packageRoot }) =>
                       Array.map(
                         module.product.files,
                         (file): ComposedFile => ({
                           path: outputPath(
-                            fileRoot(
-                              routing.get(module.path),
-                              file.path,
-                              Option.fromNullable(packageRoot),
-                              Option.fromNullable(workspaceRoot),
-                            ),
+                            Option.fromNullable(packageRoot),
                             module.path,
                             file.path,
                           ),
@@ -522,33 +372,20 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
                   ),
                 { concurrency: 'unbounded' },
               ).pipe(Effect.map(Array.flatten))
-            }),
+            ),
           ),
 
         diagnose: (path: Path): Effect.Effect<ReadonlyArray<Diagnostic>> =>
           buildCorpus(documents, path).pipe(
-            Effect.flatMap((modules) => {
-              const scoped = scopedTo(modules, reachable(modules, path))
-              return collisionDiagnostics(config, scoped).pipe(
-                Effect.map((collisions) =>
-                  pipe(
-                    Option.fromNullable(modules.get(path)),
-                    Option.match({
-                      onNone: () => [],
-                      onSome: (module) => [
-                        ...moduleDiagnostics(module),
-                        ...Array.filterMap(sinkDiagnostics(scoped), (d) =>
-                          d.path === path ? Option.some(d.diagnostic) : Option.none(),
-                        ),
-                        ...Array.filterMap(collisions, (d) =>
-                          d.path === path ? Option.some(d.diagnostic) : Option.none(),
-                        ),
-                      ],
-                    }),
-                  ),
-                ),
-              )
-            }),
+            Effect.map((modules) =>
+              pipe(
+                Option.fromNullable(modules.get(path)),
+                Option.match({
+                  onNone: () => [],
+                  onSome: (module) => [...moduleDiagnostics(module)],
+                }),
+              ),
+            ),
           ),
 
         definition: (

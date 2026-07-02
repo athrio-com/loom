@@ -10,7 +10,7 @@ Language: TypeScript
 
 ## The tangler service
 
-`LoomTangler` holds the compiler and the filesystem. `tangleFile` asks the compiler to resolve one file's sinks — which fails with a `TangleError` if any module in the corpus carries an error — then `writeFile` creates each target's directory and writes its content, returning the file it wrote. `loomsUnder` lists every `.loom` source file beneath a directory, skipping the generated stores — `node_modules`, `dist`, `.git`, and the `.loom` activation store — so it never reads one as source. `tangle` lists the looms a path covers, drops the ones a book places — `placed` reads those off the corpus — and tangles the rest, so a book emits its chapters and every file is written once.
+`LoomTangler` holds the compiler and the filesystem. `tangleFile` asks the compiler to resolve one file's sinks — which fails with a `TangleError` if any module in the corpus carries an error — then `writeFile` creates each target's directory and writes its content, returning the file it wrote. `loomsUnder` lists every `.loom` source file beneath a directory, skipping the generated stores — `node_modules`, `dist`, `.git`, and the `.loom` activation store — so it never reads one as source. `tangle` lists the looms a path covers and tangles each, so every chapter emits its own files and every file is written once.
 
 =>
 
@@ -59,19 +59,8 @@ export class LoomTangler extends Effect.Service<LoomTangler>()('LoomTangler', {
         const info = yield* fs.stat(path).pipe(Effect.orDie)
         const looms =
           info.type === 'Directory' ? yield* loomsUnder(path) : [path]
-        return yield* Option.match(Array.head(looms), {
-          onNone: () => Effect.succeed<ReadonlyArray<TangledFile>>([]),
-          onSome: (seed) =>
-            compiler.placed(seed).pipe(
-              Effect.flatMap((placed) =>
-                Effect.forEach(
-                  Array.filter(looms, (loom) => !placed.has(loom)),
-                  tangleFile,
-                ),
-              ),
-              Effect.map((written) => written.flat()),
-            ),
-        })
+        const written = yield* Effect.forEach(looms, tangleFile)
+        return written.flat()
       })
 
     return { tangle }
@@ -81,11 +70,11 @@ export class LoomTangler extends Effect.Service<LoomTangler>()('LoomTangler', {
 
 ## What this module draws on
 
-It draws on `LoomCompiler` to mark which looms a book places and to resolve each file's sinks to content and target, gating a broken corpus with its `TangleError`. `@effect/platform`'s `FileSystem`, with Node's path module, lists a directory's looms and writes each file. Effect supplies the array and effect primitives. `TangledFile` is the resolved sink the compiler hands back, and `Path` a file path.
+It draws on `LoomCompiler` to resolve each file's sinks to content and target, gating a broken corpus with its `TangleError`. `@effect/platform`'s `FileSystem`, with Node's path module, lists a directory's looms and writes each file. Effect supplies the array and effect primitives. `TangledFile` is the resolved sink the compiler hands back, and `Path` a file path.
 
 =>
 
-import { Array, Effect, Option, pipe } from 'effect'
+import { Array, Effect, pipe } from 'effect'
 import { FileSystem } from '@effect/platform'
 import { dirname, resolve as resolvePath } from 'node:path'
 import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
