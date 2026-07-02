@@ -1,0 +1,29 @@
+---
+Part I: Using Loom
+Chapter 1: A first loom
+Language: Prose
+---
+
+# A first loom
+
+You meet Loom by writing a document. Prose and code live in it together, in the order that reads best, and Loom composes the code into real source files. The prose is not a comment wrapped around the program — it is half of the program, the half a person reads to learn what the code does and why.
+
+A loom is written in a rhythm of two marks. An arrow, `=>` on its own line, turns prose into code; a tilde, `~`, turns it back. Between them you write code, around them you write prose, and a section takes as many turns as the story needs.
+
+Take a small program that greets the world. Its first section, headed `# A greeting`, explains its function and then, after an arrow, defines it:
+
+```ts
+export const greet = (name: string): string => `Hello, ${name}!`
+```
+
+A second section, `# The entry point`, is the file this loom writes: its heading carries the `{Tangle}` mark, and the frontmatter at the top of the loom names the path it lands at, `src/main.ts`. That section pulls the greeting in by name — with an anchor, `::[A greeting]` — and adds the line that runs it. Reading order and file order need not agree: you meet the greeting first because it explains best, though it lands beneath the entry point that calls it.
+
+Run `loom tangle greeting.loom`, and Loom drops the prose, follows the anchor, and writes one file:
+
+```ts
+export const greet = (name: string): string => `Hello, ${name}!`
+
+console.log(greet("world"))
+```
+
+Open that same loom in your editor and it is alive, not a flat document. Each section is highlighted in its own language, and the greeting is type-checked as TypeScript — pass a number where a name belongs and the mistake is underlined in the loom, not in the output. A broken anchor or a malformed heading is a diagnostic where you wrote it, and go-to-definition on `::[A greeting]` jumps to the section it names. The document you read and the program that runs are one file, and Loom keeps the two honest.

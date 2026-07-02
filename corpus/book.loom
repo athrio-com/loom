@@ -8,7 +8,11 @@ This book is written in Loom, in the framework's own source, and it is the frame
 
 ### Part I — Using Loom
 
-You meet Loom the way you use it: by writing a document and watching it become code. This part is the whole surface a person touches, and nothing beneath it. It begins with a single loom and grows to a real project — sections composed with anchors and warps, one narrative spread across many files and languages, a workspace Loom sets up for you, and a command line that drives the rest. It is authored last, once the machine it introduces has settled.
+You meet Loom the way you use it: by writing a document and watching it become code. This part is the whole surface a person touches, and nothing beneath it. It begins with a single loom and grows to a real project — sections composed with anchors and warps, one narrative spread across many files and languages, a workspace Loom sets up for you, and a command line that drives the rest.
+
+1. A first loom
+2. A workspace
+3. The command line
 
 ### Part II — How a loom becomes code
 

@@ -1,0 +1,22 @@
+---
+Part I, Chapter 3: The command line
+Language: Prose
+---
+
+# The command line
+
+The `loom` command drives the rest, and its verbs are few. Each one names the thing it does, so the command line reads as the action it performs.
+
+`loom init` sets up a workspace. It writes `conf.loom` and `.loom/`, and asks for nothing a sensible default can supply. From there the common path is short.
+
+`loom add <language>` turns a language on: it installs that language's editor service into the store under `.loom/`, and records the language in `conf.loom`. `loom remove` takes both away again. It is `loom add typescript` that makes the greeting of the first chapter type-check. Nothing reaches your `package.json` — a Loom project need not be a Node project at all — and nothing installs behind your back: open a file in a language you have not added, and the editor drops it to plain highlighting and offers the command that would add it. An install is something you ask for.
+
+`loom run <file>` runs a loom without writing it to disk first. Composition happens in memory, the way a dev server compiles a component on the fly, so the program runs with nothing generated left in the tree. Writing files is a step for publishing, not a precondition for running.
+
+`loom build` is that publishing step. It composes the corpus, writes the real source files, and bundles them to ship — and only here does Loom write out the configuration files it kept virtual, because the registry and the bundler that receive your package read them from disk. `loom tangle <path>` writes the composed files alone, for a build that wants that step by hand.
+
+`loom weave` produces the documentation. Where tangle produces the code, weave produces the website — the prose and the code together, every section navigable, every anchor a link to what it names. It is the half of literate programming that faces the reader: the prose that tangle throws away is, in a weave, the product. The book you are reading is woven from Loom's own corpus.
+
+Two commands round out the set. `loom status` shows what is active, what is installed, and where the store lives; `loom lsp` starts the language server the editor talks to, which you rarely type yourself.
+
+Beneath the list is one standard the verbs hold to. Each names its own action, so the command reads as what it performs. The committed configuration is readable and the generated state is disposable, so you can always read the truth and throw the rest away. Every command that turns something on has the one that turns it off. And nothing that runs code happens by surprise.
