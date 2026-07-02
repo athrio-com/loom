@@ -339,7 +339,6 @@ the table, so a new kind fails to compile until it is profiled.
 | `sectionAnchor` | namespace | ● | ● | ● |
 | `warpAnchor` | variable | ● | | ● |
 | `warpDef` | variable | ● | | |
-| `langWarp` | keyword | | | ● |
 | `specifier` | keyword | | | ● |
 | `sink` | string | | | ● |
 | `arrow` | operator | | | |

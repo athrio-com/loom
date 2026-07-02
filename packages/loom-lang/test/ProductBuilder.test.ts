@@ -37,7 +37,9 @@ const refs = (parts: ReadonlyArray<Part>): ReadonlyArray<NameRef> =>
 
 describe('ProductBuilder — a section composes into a Code', () => {
   it('carries the section identity, language, and body text', () => {
-    const product = productOf(`{{lang: TypeScript}}
+    const product = productOf(`---
+Language: TypeScript
+---
 
 # Adder
 
@@ -73,7 +75,9 @@ export const add = (x: number, y: number): number => x + y
 
 describe('ProductBuilder — a within-file anchor becomes a NameRef', () => {
   it('targets the named section in the same file', () => {
-    const product = productOf(`{{lang: TypeScript}}
+    const product = productOf(`---
+Language: TypeScript
+---
 
 # Caller
 
@@ -101,7 +105,9 @@ const h = 1
 
 describe('ProductBuilder — an unresolved anchor becomes an empty faulted Fragment', () => {
   it('leaves an empty Fragment carrying UnresolvedAnchor health', () => {
-    const product = productOf(`{{lang: TypeScript}}
+    const product = productOf(`---
+Language: TypeScript
+---
 
 # Caller
 
@@ -126,7 +132,9 @@ const c = 1
 
 describe('ProductBuilder — a file sink yields a File', () => {
   it('emits a File at the sink path, its Code also in product.code', () => {
-    const product = productOf(`{{lang: TypeScript}}
+    const product = productOf(`---
+Language: TypeScript
+---
 
 # Thing [src/ast, Thing.ts]
 
@@ -147,7 +155,9 @@ export const thing = 1
 
 describe('ProductBuilder — a value warp substitutes its literal', () => {
   it('drops the decoded string in place, quotes stripped, no edge', () => {
-    const product = productOf(`{{lang: TypeScript}}
+    const product = productOf(`---
+Language: TypeScript
+---
 
 # Keyword
 
@@ -168,7 +178,9 @@ describe('ProductBuilder — a value warp substitutes its literal', () => {
 
 describe('ProductBuilder — a cross-language anchor marks the NameRef', () => {
   it('keeps the edge but flags CrossLanguageAnchor on its health', () => {
-    const product = productOf(`{{lang: TypeScript}}
+    const product = productOf(`---
+Language: TypeScript
+---
 
 # Host
 

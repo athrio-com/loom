@@ -6,10 +6,12 @@ import { PackageConfig } from '../src/PackageConfig'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
 // semanticTokens colours every token a .loom declares, reading LoomSymbol's table
-// through the compiler. The fixture exercises each kind: the {{lang}} warp, a heading
-// title with its {TypeScript} specifier and [., convert.ts] sink, a {{ratio}} value
-// warp, a ::[ratio] anchor that names it, and the => and ~ that open and close the code.
-const doc = `{{lang: TypeScript}}
+// through the compiler. The fixture exercises each kind: a heading title with its
+// {TypeScript} specifier and [., convert.ts] sink, a {{ratio}} value warp, a
+// ::[ratio] anchor that names it, and the => and ~ that open and close the code.
+const doc = `---
+Language: TypeScript
+---
 
 # Converting {TypeScript} [., convert.ts]
 
@@ -61,7 +63,7 @@ describe('LoomCompiler — semantic tokens over the source', () => {
       const c = yield* LoomCompiler
       const tokens = yield* c.semanticTokens('/convert.loom')
       const types = new Set(tokens.map((token) => token.type))
-      // heading → namespace, warp → variable, lang and specifier → keyword,
+      // heading → namespace, warp → variable, specifier → keyword,
       // sink → string, arrow and tilde → operator
       expect([...types].sort()).toEqual([
         'keyword',

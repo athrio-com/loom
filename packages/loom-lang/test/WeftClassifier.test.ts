@@ -468,7 +468,7 @@ describe('Mealy chain — output IS next state', () => {
 
   it('document preamble lines (including `=>` and `~`) become PreambleWefts', () => {
     const out = classify([
-      '{{lang: Scala}}', // PreambleWeft (Document Preamble)
+      '{{rounds = 3}}', // PreambleWeft (Document Preamble)
       '=>', // PreambleWeft (no heading yet)
       '~', // PreambleWeft (no heading yet)
       '# First Section', // HeadingWeft (now seenHeading=true)

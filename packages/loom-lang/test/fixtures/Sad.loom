@@ -1,4 +1,6 @@
-{{lang: Scala}}
+---
+Language: Scala
+---
 
 A companion document. `Fun.loom` imports `Negate` from here, across files.
 

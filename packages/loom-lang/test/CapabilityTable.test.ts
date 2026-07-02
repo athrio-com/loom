@@ -14,10 +14,12 @@ import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
 // LoomSymbol.profileOf is the one table; three consumers read it, and this file guards
 // that they cannot drift from it. The fixture exercises every kind symbolsOf emits: the
-// {{lang}} and {{ratio}} warps, two heading titles, a {TypeScript} specifier and a
-// [., convert.ts] sink, a ::[ratio] warp anchor and a ::[Converting] section anchor, the
-// => arrows and the ~ tilde.
-const fixture = `{{lang: TypeScript}}
+// {{ratio}} warp, two heading titles, a {TypeScript} specifier and a [., convert.ts]
+// sink, a ::[ratio] warp anchor and a ::[Converting] section anchor, the => arrows and
+// the ~ tilde.
+const fixture = `---
+Language: TypeScript
+---
 
 # Converting {TypeScript} [., convert.ts]
 

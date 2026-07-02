@@ -8,7 +8,9 @@ import { profileOf, symbolAt, symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 // warp the section declares, so it is a warpAnchor; `::[Other]` names no warp, so it
 // is a sectionAnchor. The lang warp, heading title, specifier, sink, warp def, and
 // the code delimiters each classify on their own.
-const source = `{{lang: TypeScript}}
+const source = `---
+Language: TypeScript
+---
 
 # Converting {TypeScript} [., convert.ts]
 
@@ -42,7 +44,6 @@ describe('LoomSymbol — the capability table', () => {
       const doc = yield* parseDocument(source)
       const kinds = new Set<string>(symbolsOf(doc).map((symbol) => symbol.kind))
       const expected = [
-        'langWarp',
         'headingTitle',
         'specifier',
         'sink',

@@ -37,7 +37,9 @@ const loom = (
     encoding: 'utf8',
   })
 
-const fixture = `{{lang: TypeScript}}
+const fixture = `---
+Language: TypeScript
+---
 
 # Greeting
 

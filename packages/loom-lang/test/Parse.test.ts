@@ -23,10 +23,11 @@ import { LoomWeftSchema, type LoomWeft } from '@athrio/loom-ast/Weft'
 //   Tokeniser Stage  — Classifier output → WeftTokeniser
 //   AST Stage        — full parse chain via parseDocument(text) → LoomDocument
 //
-// The model is flat: a Document Preamble (the lines before the first heading,
-// carrying the `{{lang: Scala}}` Warp) plus a list of Sections, one per
-// heading at any level. Assertions target stage invariants rather than
-// per-weft snapshots, so cosmetic changes to the fixture don't ripple through.
+// The model is flat: a frontmatter block (declaring `Scala` as the primary
+// language), a Document Preamble (the prose before the first heading), and a
+// list of Sections, one per heading at any level. Assertions target stage
+// invariants rather than per-weft snapshots, so cosmetic changes to the fixture
+// don't ripple through.
 // =============================================================================
 
 const fixturePath = resolve(__dirname, 'fixtures/Fun.loom')
@@ -91,6 +92,7 @@ describe('Classifier Stage — integration against corpus/Fun.loom', () => {
 
   it('fires every Classifier-Stage probe at least once', () => {
     const seen = new Set(wefts.map((w) => w.type))
+    expect(seen.has('FrontmatterWeft')).toBe(true)
     expect(seen.has('HeadingWeft')).toBe(true)
     expect(seen.has('PreambleWeft')).toBe(true)
     expect(seen.has('ArrowWeft')).toBe(true)
@@ -109,10 +111,10 @@ describe('Classifier Stage — integration against corpus/Fun.loom', () => {
     expect(wefts.filter((w) => w.type === 'HeadingWeft')).toHaveLength(13)
   })
 
-  it('the lines before the first heading are all PreambleWefts (the Document Preamble)', () => {
+  it('the lines before the first heading are the frontmatter then the Document Preamble', () => {
     const firstHeading = wefts.findIndex((w) => w.type === 'HeadingWeft')
     for (const w of wefts.slice(0, firstHeading)) {
-      expect(w.type).toBe('PreambleWeft')
+      expect(['FrontmatterWeft', 'PreambleWeft']).toContain(w.type)
     }
   })
 })
@@ -192,12 +194,12 @@ describe('Tokeniser Stage — integration against corpus/Fun.loom', () => {
     expect(warp.health.status).toBe('ok')
   })
 
-  it('the Document Preamble declares the `{{lang: Scala}}` Warp', () => {
-    const lang = filterByType('PreambleWeft')
-      .flatMap((w) => w.warps)
-      .find((wp) => wp.name.value === 'lang')
-    expect(lang).toBeDefined()
-    expect(lang!.annotation?.value).toBe('Scala')
+  it('the frontmatter declares `Language: Scala`', () => {
+    const language = filterByType('FrontmatterWeft').find(
+      (w) => w.key?.value === 'Language',
+    )
+    expect(language).toBeDefined()
+    expect(language!.value?.value).toBe('Scala')
   })
 
   it('a CodeWeft with `::[rounds]` populates anchors with the value reference', () => {
@@ -246,9 +248,9 @@ describe('Tokeniser Stage — integration against corpus/Fun.loom', () => {
 
 // =============================================================================
 // AST Stage — end-to-end via parseDocument(text). Asserts the flat document-level
-// structure: the Document Preamble on `document.preamble`, every heading as a
-// flat Section on `document.sections`, and the `{{lang: Scala}}` declaration
-// keeping the document's health `ok`.
+// structure: the frontmatter on `document.frontmatter`, the Document Preamble on
+// `document.preamble`, every heading as a flat Section on `document.sections`,
+// and the `Language: Scala` frontmatter keeping the document's health `ok`.
 // =============================================================================
 
 describe('AST Stage — integration against corpus/Fun.loom', () => {
@@ -259,19 +261,16 @@ describe('AST Stage — integration against corpus/Fun.loom', () => {
     expect(Schema.is(LoomDocumentSchema)(doc)).toBe(true)
   })
 
-  it('the `{{lang: Scala}}` declaration keeps document health `ok`', () => {
+  it('the `Language: Scala` frontmatter keeps document health `ok`', () => {
     expect(doc.health.status).toBe('ok')
+    expect(doc.frontmatter?.language?.value).toBe('Scala')
   })
 
-  it('collects the pre-heading lines on `document.preamble` (all PreambleWefts)', () => {
+  it('collects the pre-heading prose on `document.preamble` (all PreambleWefts)', () => {
     expect(doc.preamble.length).toBeGreaterThan(0)
     for (const w of doc.preamble) {
       expect(w.type).toBe('PreambleWeft')
     }
-    const lang = doc.preamble
-      .flatMap((w) => w.warps)
-      .find((wp) => wp.name.value === 'lang')
-    expect(lang).toBeDefined()
   })
 
   it('collects every heading as a flat Section on `document.sections`', () => {
@@ -358,8 +357,8 @@ describe('parseDocument — parse-chain behaviour', () => {
     expect(doc.preamble[0].type).toBe('PreambleWeft')
     expect(doc.sections).toEqual([])
     // The parse layer reports structural health only: an empty, well-formed
-    // document is `ok`. The missing-`{{lang: …}}` concern is a frame-level
-    // check, not a parse-level one, so the LoomDocument carries no diagnostic.
+    // document is `ok`. A missing `Language` is a later-pass concern, not a
+    // parse-level one, so the LoomDocument carries no diagnostic.
     expect(doc.health.status).toBe('ok')
     expect(doc.health.diagnostics).toEqual([])
   })
@@ -382,9 +381,9 @@ describe('parseDocument — parse-chain behaviour', () => {
     expect(doc.sections[0].heading.specifier?.label.value).toBe('L')
   })
 
-  it('a document with no `{{lang: …}}` Warp still parses with ok health', () => {
+  it('a document with no `Language` frontmatter still parses with ok health', () => {
     // The parse layer does not flag a missing primary language — that is a
-    // frame-level concern. The lang-less document is structurally well-formed,
+    // later-pass concern. The language-less document is structurally well-formed,
     // so its health is `ok` and it carries its one Section. The trailing
     // `[Solo]` is a one-part directory Sink, not title text.
     const doc = buildDocument('# Solo [Solo]\n')
@@ -406,7 +405,7 @@ describe('parseDocument — parse-chain behaviour', () => {
 
 describe('parseDocument — NOK preservation end-to-end', () => {
   it('a heading is named after its title with ok health (not an error)', () => {
-    const doc = buildDocument('{{lang: Scala}}\n\n# JustATitle\n')
+    const doc = buildDocument('---\nLanguage: Scala\n---\n\n# JustATitle\n')
     const heading = doc.sections[0].heading
     expect(heading.title).toBeDefined()
     expect(heading.health.status).toBe('ok')
@@ -414,7 +413,7 @@ describe('parseDocument — NOK preservation end-to-end', () => {
   })
 
   it('specifier label with spaces — bytes preserved in unexpected[], empty value, error health', () => {
-    const doc = buildDocument('{{lang: Scala}}\n\n# Heading {bad label name}\n')
+    const doc = buildDocument('---\nLanguage: Scala\n---\n\n# Heading {bad label name}\n')
     const label = doc.sections[0].heading.specifier!.label
     expect(label.value).toBe('')
     expect(label.health.status).toBe('error')
@@ -422,21 +421,21 @@ describe('parseDocument — NOK preservation end-to-end', () => {
   })
 
   it('unclosed `{` — synthetic SpecifierClose at EOL with `expected closing` diagnostic', () => {
-    const doc = buildDocument('{{lang: Scala}}\n\n# Heading {Unclosed\n')
+    const doc = buildDocument('---\nLanguage: Scala\n---\n\n# Heading {Unclosed\n')
     const close = doc.sections[0].heading.specifier!.close
     expect(close.health.status).toBe('error')
     expect(close.health.diagnostics[0].message).toMatch(/expected closing/i)
   })
 
   it('container LoomDocument / LoomSection carry okHealth despite leaf errors', () => {
-    const doc = buildDocument('{{lang: Scala}}\n\n# Section {bad label name}\n')
+    const doc = buildDocument('---\nLanguage: Scala\n---\n\n# Section {bad label name}\n')
     expect(doc.health.status).toBe('ok')
     expect(doc.sections[0].health.status).toBe('ok')
   })
 
   it('malformed sections still appear structurally with full body wefts attached', () => {
     const text =
-      '{{lang: Scala}}\n\n# Bad {bad label name}\n\nA preamble line.\n\n=>\n\nval x = 42\n'
+      '---\nLanguage: Scala\n---\n\n# Bad {bad label name}\n\nA preamble line.\n\n=>\n\nval x = 42\n'
     const doc = buildDocument(text)
     const section = doc.sections[0]
     expect(section).toBeDefined()

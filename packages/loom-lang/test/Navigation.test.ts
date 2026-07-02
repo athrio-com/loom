@@ -10,7 +10,9 @@ import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 // so definition follows the anchor to that heading and references finds both the
 // heading and the anchor. Offsets are taken straight from the source text.
 
-const doc = `{{lang: TypeScript}}
+const doc = `---
+Language: TypeScript
+---
 
 # The greeting
 
@@ -79,8 +81,8 @@ describe('LoomCompiler — navigation over anchors and sections', () => {
       const c = yield* LoomCompiler
       const target = yield* c.definition('/doc.loom', anchorOffset)
       expect(target?.path).toBe('/doc.loom')
-      // "The greeting" heading title — line 2 (0-based), after the "# " marker
-      expect(target?.range.start).toEqual({ line: 2, character: 2 })
+      // "The greeting" heading title — line 4 (0-based), after the "# " marker
+      expect(target?.range.start).toEqual({ line: 4, character: 2 })
     }).pipe(Effect.provide(layer)),
   )
 
@@ -88,8 +90,8 @@ describe('LoomCompiler — navigation over anchors and sections', () => {
     Effect.gen(function* () {
       const c = yield* LoomCompiler
       const refs = yield* c.references('/doc.loom', titleOffset)
-      // the heading on line 2 and the `::[The greeting]` anchor on line 12
-      expect(refs.map((r) => r.range.start.line).sort((a, b) => a - b)).toEqual([2, 12])
+      // the heading on line 4 and the `::[The greeting]` anchor on line 14
+      expect(refs.map((r) => r.range.start.line).sort((a, b) => a - b)).toEqual([4, 14])
     }).pipe(Effect.provide(layer)),
   )
 
@@ -105,9 +107,9 @@ describe('LoomCompiler — navigation over anchors and sections', () => {
     Effect.gen(function* () {
       const c = yield* LoomCompiler
       const edits = yield* c.rename('/doc.loom', titleOffset)
-      expect(edits.map((e) => e.range.start.line).sort((a, b) => a - b)).toEqual([2, 12])
+      expect(edits.map((e) => e.range.start.line).sort((a, b) => a - b)).toEqual([4, 14])
       // the anchor name span starts after `::[`, so the brackets are left alone
-      const anchorEdit = edits.find((e) => e.range.start.line === 12)
+      const anchorEdit = edits.find((e) => e.range.start.line === 14)
       expect(anchorEdit?.range.start.character).toBe(3)
     }).pipe(Effect.provide(layer)),
   )
@@ -117,8 +119,8 @@ describe('LoomCompiler — navigation over anchors and sections', () => {
       const c = yield* LoomCompiler
       const span = yield* c.renameRange('/doc.loom', titleOffset)
       // "The greeting" — twelve characters, after the "# " marker
-      expect(span?.range.start).toEqual({ line: 2, character: 2 })
-      expect(span?.range.end).toEqual({ line: 2, character: 14 })
+      expect(span?.range.start).toEqual({ line: 4, character: 2 })
+      expect(span?.range.end).toEqual({ line: 4, character: 14 })
     }).pipe(Effect.provide(layer)),
   )
 })
@@ -162,7 +164,9 @@ describe('LoomCompiler — navigation across files', () => {
 // definition, references and rename gather the definition and every anchor, and
 // renameRange covers the warp name under the cursor.
 describe('LoomCompiler — navigation over value warps', () => {
-  const warp = `{{lang: TypeScript}}
+  const warp = `---
+Language: TypeScript
+---
 
 # Converting
 
@@ -182,8 +186,8 @@ export const back = (f: number) => (f - 32) / ::[ratio]
       const c = yield* LoomCompiler
       const target = yield* c.definition('/convert.loom', anchorOffset)
       expect(target?.path).toBe('/convert.loom')
-      // "ratio" in {{ratio = 1.8}} — line 4 (0-based), after the "{{"
-      expect(target?.range.start).toEqual({ line: 4, character: 2 })
+      // "ratio" in {{ratio = 1.8}} — line 6 (0-based), after the "{{"
+      expect(target?.range.start).toEqual({ line: 6, character: 2 })
     }).pipe(Effect.provide(warpLayer)),
   )
 
@@ -191,9 +195,9 @@ export const back = (f: number) => (f - 32) / ::[ratio]
     Effect.gen(function* () {
       const c = yield* LoomCompiler
       const refs = yield* c.references('/convert.loom', defOffset)
-      // the {{ratio}} definition on line 4 and the two ::[ratio] anchors on lines 8, 9
+      // the {{ratio}} definition on line 6 and the two ::[ratio] anchors on lines 10, 11
       expect(refs.map((r) => r.range.start.line).sort((a, b) => a - b)).toEqual([
-        4, 8, 9,
+        6, 10, 11,
       ])
     }).pipe(Effect.provide(warpLayer)),
   )
@@ -215,8 +219,8 @@ export const back = (f: number) => (f - 32) / ::[ratio]
       const c = yield* LoomCompiler
       const span = yield* c.renameRange('/convert.loom', defOffset)
       // "ratio" — five characters, after the "{{"
-      expect(span?.range.start).toEqual({ line: 4, character: 2 })
-      expect(span?.range.end).toEqual({ line: 4, character: 7 })
+      expect(span?.range.start).toEqual({ line: 6, character: 2 })
+      expect(span?.range.end).toEqual({ line: 6, character: 7 })
     }).pipe(Effect.provide(warpLayer)),
   )
 })

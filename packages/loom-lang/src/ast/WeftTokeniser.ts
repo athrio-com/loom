@@ -1064,7 +1064,7 @@ const buildWarp = (
     onNone: () => {
       const { name, annotation, extras } = splitDecl(content, contentStart, line)
       const own =
-        name.health.status === 'ok' && name.value !== 'lang'
+        name.health.status === 'ok'
           ? faulty(MissingWarpValue({ name: name.value }), warpPos)
           : okHealth
       return assembleWarp(

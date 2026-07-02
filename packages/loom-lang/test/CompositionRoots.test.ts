@@ -26,7 +26,9 @@ describe('rootNamesAt — which sections are composition roots', () => {
   it('demotes a same-file target a name anchor names', () => {
     // Main names Helper with `::[Helper]`, so Helper folds into Main and only Main
     // is left a root.
-    const main = `{{lang: TypeScript}}
+    const main = `---
+Language: TypeScript
+---
 
 # Main
 
@@ -47,7 +49,9 @@ const h = 1
 
   it('keeps a section nothing names a root of its own', () => {
     // Neither section references the other, so both stay roots.
-    const both = `{{lang: TypeScript}}
+    const both = `---
+Language: TypeScript
+---
 
 # Main
 

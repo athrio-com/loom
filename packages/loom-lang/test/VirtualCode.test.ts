@@ -11,7 +11,9 @@ import { PackageConfig } from '../src/PackageConfig'
 // the projection — exactly what the plugin does on Volar's synchronous callback.
 // The source imports nothing, so the corpus is one file.
 
-const input = `{{lang: TypeScript}}
+const input = `---
+Language: TypeScript
+---
 
 # Adder
 
@@ -64,7 +66,7 @@ describe('VirtualCode — root projection', () => {
       const cfg: Source = {
         read: () =>
           Effect.succeed(
-            `{{lang: TypeScript}}\n\n# Workspace {Config}\n\nThe project's languages.\n\n=>\n\nlanguages:\n  typescript: {}\n`,
+            `---\nLanguage: TypeScript\n---\n\n# Workspace {Config}\n\nThe project's languages.\n\n=>\n\nlanguages:\n  typescript: {}\n`,
           ),
         list: Option.none(),
       }

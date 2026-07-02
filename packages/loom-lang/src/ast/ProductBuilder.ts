@@ -15,7 +15,7 @@ import type {
   WarpAnchorToken,
   WarpToken,
 } from '@athrio/loom-ast/LoomTokens'
-import type { PreambleWeft, SectionBodyWeft } from '@athrio/loom-ast/Weft'
+import type { SectionBodyWeft } from '@athrio/loom-ast/Weft'
 import {
   type Code,
   CodeSchema,
@@ -65,7 +65,6 @@ export const buildProduct = (
   )
   const lang = pipe(
     frontmatterLanguage(fm),
-    Option.orElse(() => Option.fromNullable(documentLanguage(doc.preamble))),
     Option.orElse(() => Option.fromNullable(packageLanguage)),
     Option.getOrElse(() => 'plaintext'),
   )
@@ -152,15 +151,6 @@ const nameIndex = (
         new Map(index).set(title, [...(index.get(title) ?? []), entry]),
     ),
   )
-
-const documentLanguage = (
-  preamble: ReadonlyArray<PreambleWeft>,
-): string | undefined =>
-  preamble
-    .flatMap((w) => w.warps)
-    .find((w) => w.name.value === 'lang')
-    ?.annotation?.value.trim()
-    .toLowerCase()
 
 const frontmatterLanguage = (
   frontmatter: Option.Option<LoomFrontmatter>,

@@ -10,7 +10,9 @@ import { PackageConfig } from '../src/PackageConfig'
 // across the corpus. This probe writes a tiny doc to a temp dir, tangles it, and
 // reads the emitted file back — the end-to-end filesystem path the CLI runs.
 
-const fixture = `{{lang: TypeScript}}
+const fixture = `---
+Language: TypeScript
+---
 
 # Greeting
 
@@ -30,7 +32,9 @@ const hi = "hello"
 const loomWith = (value: string, out: string): string => {
   const slash = out.lastIndexOf('/')
   const sink = slash === -1 ? `., ${out}` : `${out.slice(0, slash)}, ${out.slice(slash + 1)}`
-  return `{{lang: TypeScript}}
+  return `---
+Language: TypeScript
+---
 
 # Bit
 
@@ -101,7 +105,7 @@ describe('LoomTangler — tangle bracket sinks to disk', () => {
       const entry = `${dir}/broken.loom`
       yield* fs.writeFileString(
         entry,
-        `{{lang: TypeScript}}\n\n# Sink [out, x.ts]\n\n=>\n\nconst x = ::[Ghost]\n`,
+        `---\nLanguage: TypeScript\n---\n\n# Sink [out, x.ts]\n\n=>\n\nconst x = ::[Ghost]\n`,
       )
 
       const tangler = yield* LoomTangler
@@ -128,7 +132,7 @@ describe('LoomTangler — tangle bracket sinks to disk', () => {
       )
       yield* fs.writeFileString(
         `${dir}/g.loom`,
-        `{{lang: TypeScript}}\n\n# Greeting\n\n=>\n\nconst hi = "hi"\n\n# Bundle [out, g.ts]\n\n=>\n\nexport const g = <<Greeting>>\n`,
+        `---\nLanguage: TypeScript\n---\n\n# Greeting\n\n=>\n\nconst hi = "hi"\n\n# Bundle [out, g.ts]\n\n=>\n\nexport const g = <<Greeting>>\n`,
       )
 
       const tangler = yield* LoomTangler
@@ -147,7 +151,7 @@ describe('LoomTangler — tangle bracket sinks to disk', () => {
       const entry = `${dir}/dup.loom`
       yield* fs.writeFileString(
         entry,
-        '{{lang: TypeScript}}\n\n# A [., out.ts]\n\n=>\n\nexport const a = 1\n\n# B [., out.ts]\n\n=>\n\nexport const b = 2\n',
+        '---\nLanguage: TypeScript\n---\n\n# A [., out.ts]\n\n=>\n\nexport const a = 1\n\n# B [., out.ts]\n\n=>\n\nexport const b = 2\n',
       )
 
       const tangler = yield* LoomTangler

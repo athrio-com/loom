@@ -14,7 +14,9 @@ import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 // without touching the filesystem; its `list` reports both looms as the corpus.
 
 const files: Record<string, string> = {
-  '/chapter.loom': `{{lang: TypeScript}}
+  '/chapter.loom': `---
+Language: TypeScript
+---
 
 # The chapter
 
@@ -22,7 +24,9 @@ const files: Record<string, string> = {
 
 export const c = 1
 `,
-  '/book.loom': `{{lang: TypeScript}}
+  '/book.loom': `---
+Language: TypeScript
+---
 
 # The part [dist]
 
@@ -111,7 +115,9 @@ describe('LoomCompiler — the chain projected for each consumer', () => {
 // output, so a language service can resolve that import against b's live
 // composition rather than its on-disk output.
 const crossImport: Record<string, string> = {
-  '/a.loom': `{{lang: TypeScript}}
+  '/a.loom': `---
+Language: TypeScript
+---
 
 # A [., a.ts]
 
@@ -120,7 +126,9 @@ const crossImport: Record<string, string> = {
 import { b } from './b.js'
 export const a = b + 1
 `,
-  '/b.loom': `{{lang: TypeScript}}
+  '/b.loom': `---
+Language: TypeScript
+---
 
 # B [., b.ts]
 
@@ -157,10 +165,10 @@ describe('LoomCompiler — composition projects the de re as a filesystem', () =
       expect(a?.content).toContain("import { b } from './b.js'")
       expect(b?.path).toBe('/b.ts')
       expect(b?.content).toContain('export const b = 2')
-      // each root carries its heading — the `# A` title on line 2 (char 2) — so a
+      // each root carries its heading — the `# A` title on line 4 (char 2) — so a
       // cross-file import go-to lands on the section that tangles the file
       expect(a?.heading.path).toBe('/a.loom')
-      expect(a?.heading.range.start).toEqual({ line: 2, character: 2 })
+      expect(a?.heading.range.start).toEqual({ line: 4, character: 2 })
     }).pipe(Effect.provide(crossLayer)),
   )
 })
@@ -170,7 +178,9 @@ describe('LoomCompiler — composition projects the de re as a filesystem', () =
 // would, never escaping to `/lib.ts` through `path.resolve`. The loom sits under
 // `/proj`, so the two readings are distinguishable.
 const rootSink: Record<string, string> = {
-  '/proj/lib.loom': `{{lang: TypeScript}}
+  '/proj/lib.loom': `---
+Language: TypeScript
+---
 
 # The library [/, lib.ts]
 

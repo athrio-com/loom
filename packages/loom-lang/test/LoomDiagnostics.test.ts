@@ -106,15 +106,15 @@ describe('Loom diagnostics — the editor surfaces Loom health', () => {
           )
           .join('\n'),
     )
-    // `::[n` is on line 7 (index 6); the close error stays there.
+    // `::[n` is on line 9 (index 8); the close error stays there.
     expect(
       loom.some(
-        (d) => /expected closing/.test(d.message) && d.range.start.line === 6,
+        (d) => /expected closing/.test(d.message) && d.range.start.line === 8,
       ),
     ).toBe(true)
-    // Nothing bleeds onto the next line (index 7): the old EOL bug captured the
+    // Nothing bleeds onto the next line (index 9): the old EOL bug captured the
     // newline into the anchor and mangled the following code into a phantom error.
-    expect(diagnostics.every((d) => d.range.start.line !== 7)).toBe(true)
+    expect(diagnostics.every((d) => d.range.start.line !== 9)).toBe(true)
   }, SLOW)
 
   it('a clean file draws no Loom diagnostic', async () => {

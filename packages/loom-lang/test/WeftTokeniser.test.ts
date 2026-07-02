@@ -436,12 +436,13 @@ describe('Tokeniser — Warp declarations on PreambleWeft', () => {
     expect(w.warps[1].name.value).toBe('b')
   })
 
-  it('exempts the `{{lang: …}}` directive from the value requirement', () => {
+  it('the `lang` warp is no longer exempt — it faults for a missing value', () => {
     const w = preambleWeft('{{lang: TypeScript}}')
     expect(w.warps[0].name.value).toBe('lang')
     expect(w.warps[0].annotation?.value).toBe('TypeScript')
     expect(w.warps[0].default).toBeUndefined()
-    expect(w.warps[0].health.status).toBe('ok')
+    expect(w.warps[0].health.status).toBe('error')
+    expect(w.warps[0].health.diagnostics[0].message).toMatch(/has no value/)
   })
 
   it('preserves nested commas inside `<>` brackets in the type', () => {

@@ -935,7 +935,7 @@ const buildWarpDefault = (raw: string, rawStart: number, line: number) =>
 
 ## Building a warp
 
-`buildWarp` reads a warp's content as `name [: type] = value`. It splits on the binding `=` first — the value is what a Warp binds — then splits the part before it on `:` to separate the name from an optional type. `findAssign` finds that binding `=`: the first one that is a plain assignment, never part of `=>`, `==`, `>=`, `<=`, or `!=`, so a value that holds those operators is read whole. A Warp with no value binds nothing, so `buildWarp` faults it with `MissingWarpValue` — except for the reserved `lang` warp, which names the document's language and binds no value. `splitDecl` separates the name from its optional type, and `assembleWarp` gathers the parts, aggregates their health, and carries the missing-value fault and any extras.
+`buildWarp` reads a warp's content as `name [: type] = value`. It splits on the binding `=` first — the value is what a Warp binds — then splits the part before it on `:` to separate the name from an optional type. `findAssign` finds that binding `=`: the first one that is a plain assignment, never part of `=>`, `==`, `>=`, `<=`, or `!=`, so a value that holds those operators is read whole. A Warp with no value binds nothing, so `buildWarp` faults it with `MissingWarpValue`. `splitDecl` separates the name from its optional type, and `assembleWarp` gathers the parts, aggregates their health, and carries the missing-value fault and any extras.
 
 =>
 
@@ -1042,7 +1042,7 @@ const buildWarp = (
     onNone: () => {
       const { name, annotation, extras } = splitDecl(content, contentStart, line)
       const own =
-        name.health.status === 'ok' && name.value !== 'lang'
+        name.health.status === 'ok'
           ? faulty(MissingWarpValue({ name: name.value }), warpPos)
           : okHealth
       return assembleWarp(

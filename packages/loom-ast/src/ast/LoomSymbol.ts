@@ -16,7 +16,6 @@ export const SymbolKindSchema = Schema.Literal(
   'sectionAnchor',
   'warpAnchor',
   'warpDef',
-  'langWarp',
   'specifier',
   'sink',
   'arrow',
@@ -70,9 +69,6 @@ export const profileOf = (kind: SymbolKind): SymbolProfile =>
     Match.when('warpDef', () =>
       profile(Option.some('variable'), { navigation: true }),
     ),
-    Match.when('langWarp', () =>
-      profile(Option.some('keyword'), { verification: true }),
-    ),
     Match.when('specifier', () =>
       profile(Option.some('keyword'), { verification: true }),
     ),
@@ -89,9 +85,6 @@ export interface Symbol {
   readonly kind: SymbolKind
   readonly position: Position
 }
-
-const warpKind = (warp: WarpToken): SymbolKind =>
-  warp.name.value === 'lang' ? 'langWarp' : 'warpDef'
 
 const anchorKind = (
   warpsInScope: ReadonlySet<string>,
@@ -139,7 +132,7 @@ const sectionSymbols = (
   ]
   return [
     ...headingSymbols(section.heading),
-    ...Array.map(warps, (warp) => at(warpKind(warp), warp.name.position)),
+    ...Array.map(warps, (warp) => at('warpDef', warp.name.position)),
     ...Array.map(anchors, (anchor) =>
       at(anchorKind(scope, anchor), anchor.name.position),
     ),
@@ -151,7 +144,7 @@ export const symbolsOf = (doc: LoomDocument): ReadonlyArray<Symbol> => {
   const warps = Array.flatMap(doc.preamble, (weft) => weft.warps)
   const scope = new Set(namesOf(warps))
   return [
-    ...Array.map(warps, (warp) => at(warpKind(warp), warp.name.position)),
+    ...Array.map(warps, (warp) => at('warpDef', warp.name.position)),
     ...Array.map(
       Array.flatMap(doc.preamble, (weft) => weft.anchors),
       (anchor) => at(anchorKind(scope, anchor), anchor.name.position),

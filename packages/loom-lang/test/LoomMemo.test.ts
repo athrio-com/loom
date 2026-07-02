@@ -16,7 +16,9 @@ const parse = (src: string) =>
   Effect.runSync(parseDocument(src).pipe(Effect.provide(ParseLayer)))
 
 // a real (tiny) module to cache; the parse and product are shared, the path varies.
-const text = `{{lang: TypeScript}}
+const text = `---
+Language: TypeScript
+---
 
 # Bit
 

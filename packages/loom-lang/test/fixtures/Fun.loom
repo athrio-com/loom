@@ -1,8 +1,12 @@
-The integration fixture, written mainly in {{lang: Scala}}.
+---
+Language: Scala
+---
 
-The line above forms the Document Preamble; the `lang` Warp names the
-primary language. Every heading below is a flat Section — heading
-level is reader-facing organisation only, the tree stays flat.
+The integration fixture, written mainly in Scala.
+
+The frontmatter above names the primary language. Every heading below is a
+flat Section — heading level is reader-facing organisation only, the tree
+stays flat.
 
 # Reading notes
 

@@ -41,7 +41,9 @@ const corpusOf = (
 // One file with a leaf section and a section that names it with `::[Negate]`. The
 // de re of the referencing section inlines the leaf's code; the leaf's own de re
 // maps back to its origin.
-const sad = `{{lang: TypeScript}}
+const sad = `---
+Language: TypeScript
+---
 
 # Negate
 
@@ -92,7 +94,9 @@ describe('fromProduct — section → product virtual code', () => {
 // each inlined block sheds its own trailing newline, so the sink's `::[x]⏎⏎::[y]`
 // layout produces exactly one blank line between the blocks — never two — and the
 // file ends with a single newline, not a doubled trailing blank.
-const two = `{{lang: TypeScript}}
+const two = `---
+Language: TypeScript
+---
 
 # Alpha
 
@@ -131,7 +135,9 @@ describe('fromProduct — transclusion sheds the block trailing newline', () => 
 // (noweb/org-babel behaviour). The inserted indent is synthetic — it has no
 // `.loom` origin — so no mapping may claim it, and an offset-aligned span still
 // re-derives its source per line.
-const wrapped = `{{lang: TypeScript}}
+const wrapped = `---
+Language: TypeScript
+---
 
 # Body
 
@@ -186,7 +192,9 @@ describe('fromProduct — an indented anchor indents the whole block', () => {
 // wrong depth is broken code, not just ugly. Leaf is transcluded into Inner under
 // an `if`, and Inner into Outer under a `def`, so Leaf's lines must land two
 // levels deep. A blank line inside a block stays empty, carrying no indent.
-const python = `{{lang: Python}}
+const python = `---
+Language: Python
+---
 
 # Leaf
 
@@ -231,7 +239,9 @@ describe('fromProduct — indentation stacks through nested anchors', () => {
 // Trailing whitespace after the anchor is the spacebar an author taps by habit.
 // It must not disqualify the anchor, and it must not survive into the output: the
 // block still indents, and no line is left with stray trailing spaces.
-const trailing = `{{lang: Python}}
+const trailing = `---
+Language: Python
+---
 
 # Body
 
@@ -262,7 +272,9 @@ describe('fromProduct — trailing spaces after an anchor still indent, then van
 // before it (`result = ::[block]`) or after it (`::[block] more`) is inline: its
 // block is pulled in as written, continuation lines left at column zero — never
 // silently re-indented, which for a free-form language would corrupt the output.
-const inline = `{{lang: TypeScript}}
+const inline = `---
+Language: TypeScript
+---
 
 # Pair
 
@@ -306,7 +318,9 @@ describe('fromProduct — an anchor with code beside it stays inline', () => {
 // the chunks are neither butted together nor the prose itself emitted. This also
 // guards `codeRuns`' grouping — keying `groupWith` on the wrong weft folds the
 // second chunk into the first run, dragging the prose's source span into the code.
-const alt = `{{lang: TypeScript}}
+const alt = `---
+Language: TypeScript
+---
 
 # Alternating
 

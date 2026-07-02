@@ -12,7 +12,9 @@ import { PackageConfig } from '../src/PackageConfig'
 // surfaces in the editor through the product's own TypeScript service, a separate
 // concern from whether the de re is produced.
 
-const input = `{{lang: TypeScript}}
+const input = `---
+Language: TypeScript
+---
 
 # Typed badly
 

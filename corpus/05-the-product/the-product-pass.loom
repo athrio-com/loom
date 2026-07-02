@@ -65,7 +65,7 @@ import type {
   WarpAnchorToken,
   WarpToken,
 } from '@athrio/loom-ast/LoomTokens'
-import type { PreambleWeft, SectionBodyWeft } from '@athrio/loom-ast/Weft'
+import type { SectionBodyWeft } from '@athrio/loom-ast/Weft'
 import {
   type Code,
   CodeSchema,
@@ -95,7 +95,7 @@ import { normaliseTitle } from '#ast/WeftTokeniser'
 other pass. It takes the document's file path alongside the document, because each
 section's identity is its path and name, and the path is known only to the caller.
 It also takes the package's primary language, the default a section inherits when
-the document declares no `lang` warp, which the caller resolves from the file's
+the frontmatter declares no `Language`, which the caller resolves from the file's
 configuration.
 
 `buildProduct` is the spine, and it runs from the document's head to its tail. It
@@ -133,7 +133,6 @@ export const buildProduct = (
   )
   const lang = pipe(
     frontmatterLanguage(fm),
-    Option.orElse(() => Option.fromNullable(documentLanguage(doc.preamble))),
     Option.orElse(() => Option.fromNullable(packageLanguage)),
     Option.getOrElse(() => 'plaintext'),
   )
@@ -165,12 +164,12 @@ a single one. A list of one is a clean resolution; a longer list is an ambiguity
 the anchor reports rather than guesses through.
 
 The primary language is the one a specifier-less section inherits, resolved from
-three sources in order. The document's `lang` warp sets it, lowercased to a
-language id. The warp is optional: when the document omits it, the language falls
-back to the package's configured language, passed in as `packageLanguage`, and
-then to `plaintext` when the package configures none. `documentLanguage` reads the
-warp and yields nothing when it is absent, so the `??` chain walks the three
-sources in turn.
+three sources in order. The frontmatter's `Language` field sets it, lowercased to a
+language id. The field is optional: when the frontmatter omits it, the language
+falls back to the package's configured language, passed in as `packageLanguage`,
+and then to `plaintext` when the package configures none. `frontmatterLanguage`
+reads the field and yields nothing when it is absent, so the fallback chain walks
+the three sources in turn.
 
 A tangle sink resolves its language a fourth way: it carries no specifier, only a
 path, so `extensionLanguage` reads the language off the path's extension. It maps
@@ -257,15 +256,6 @@ const nameIndex = (
         new Map(index).set(title, [...(index.get(title) ?? []), entry]),
     ),
   )
-
-const documentLanguage = (
-  preamble: ReadonlyArray<PreambleWeft>,
-): string | undefined =>
-  preamble
-    .flatMap((w) => w.warps)
-    .find((w) => w.name.value === 'lang')
-    ?.annotation?.value.trim()
-    .toLowerCase()
 
 const frontmatterLanguage = (
   frontmatter: Option.Option<LoomFrontmatter>,
