@@ -1,221 +1,53 @@
 # Loom
 
-Loom is a literate programming framework. You write a document — prose and code together, in the order that reads best — and Loom tangles it, composing the code into real source files. The prose is half of the program: the half a person reads to learn what the code does and why.
+Loom is a literate programming framework. You write a document — prose and code together, in the order that reads best — and Loom tangles it, composing the code into real source files. The prose is not documentation wrapped around the code but part of the program: the layer a person reads to learn what the code does and why.
 
-This book is written in Loom, in the framework's own source, and it is the framework's only specification: the design notes that once sat apart from the code now live here, in the chapters that describe it, where they cannot drift. `loom weave` renders the book as the website you are reading — every chapter a page, its prose and its code side by side. Read it from the front. It starts with using Loom and then opens the machine, each part building on the one before.
+This book is written in Loom, in the framework's own source, and it is the framework's only specification: the design notes that once sat apart from the code now live here, in the chapters that describe it, where they cannot drift. `loom weave` renders the book as the website you are reading — every chapter a page, its prose and its code side by side. Read it from the front. It opens with using Loom, then opens the machine, each part building on the one before.
 
-## Table of contents
+# Table of Content {TOC}
 
-I. Using Loom
-   1. A first loom
-   2. Anchors and warps
-   3. Many files, many languages
-   4. The workspace
-   5. Tangling and the sink tree
-   6. The command line
-
-II. How a loom becomes code
-   1. The two planes
-   2. The pipeline
-   3. One model, many tiers
-
-III. The shape of a loom
-   1. The node foundation
-   2. The leaf tokens
-   3. Wefts
-   4. The container nodes
-   5. The multi-file AST
-
-IV. Reading the text
-   1. Line ranges
-   2. The classifier stage
-   3. The tokeniser stage
-   4. The document builder
-   5. Building one module
-
-V. The frame
-   1. The product pass
-   2. The de re structure
-
-VI. Tangling
-   1. The compile layer
-   2. Tangling to disk
-   3. A project's configuration
-   4. Build settings for a file
-   5. Compiling the configuration
-   6. The fault catalog
-   7. The build cache
-
-VII. In the editor
-   1. The virtual-code projection
-   2. The symbol-capability registry
-   3. The projection pass
-   4. The Loom language plugin
-   5. The language server
-   6. The Loom language
-   7. The Prose language
-
-VIII. Languages as packages
-   1. The Loom language-service contract
-   2. The runtime the host lends
-   3. The store of installed services
-   4. Loading a language by id
-   5. The language registry
-   6. The TypeScript language service
-   7. The product's own TypeScript program
-
-IX. Loom builds Loom
-   1. The command-line program
-   2. Bundling the four artifacts
-   3. The VS Code extension
-   4. Packaging the packages
-   5. Releasing
-
-X. Work in progress
-   1. Rename freshness
-   2. Testing in looms
-   3. Orphaned tangle output
-
-## Part I — Using Loom [packages/loom-lang]
+## Part I — Using Loom
 
 You meet Loom the way you use it: by writing a document and watching it become code. This part is the whole surface a person touches, and nothing beneath it. It begins with a single loom and grows to a real project — sections composed with anchors and warps, one narrative spread across many files and languages, a workspace Loom sets up for you, and a command line that drives the rest. By the end you can build with Loom without yet knowing how it works inside.
 
-Part I is not yet written. It is authored last, once the machine it introduces is settled, and folds in the guide that already teaches Loom from a first document up.
+Part I is not yet written. It is authored last, once the machine it introduces has settled, and folds in the guide that already teaches Loom from a first document up.
 
 ## Part II — How a loom becomes code
 
-Now that you have written a loom, this part says what Loom did with it. It is the short path through the idea at the centre of the framework, and the map for every part that follows. Loom keeps two planes apart: the frame, the program that assembles your code, and the product, that code itself. It carries a loom along one pipeline from text to files, and the data flowing through is a single tree, the same shape at every stage. The rest of the book walks that pipeline one pass at a time.
+You have written a loom; this part is what Loom makes of it. It is the short path through the idea at the centre of the framework, and the map for every part that follows.
 
-Part II is not yet written. It is the overview, lifted from the architecture notes once the parts it maps are all in place.
+Loom is a literate-programming language, and a loom weaves three layers into one file. The **Loom syntax** composes the document — the headings, the `::[…]` anchors, and the sinks that name where code lands. The **prose** is the layer a person reads. The **code** is what each section is written in, in that section's own language. The editor serves all three, and tangling acts on the code.
+
+Loom reads the file into a single tree and carries it along a chain of small, total passes: it cuts the text into lines, labels each line, fills in the pieces inside it, and folds the lines into a document of sections. One more pass composes that document into its **product** — the author's code with every `::[…]` anchor resolved to an edge, so a section that names another draws it in. From that one tree Loom serves everything downstream: the tangler writes the product to files, and the editor reads the same tree, a language service to each layer. The rest of the book walks that pipeline one pass at a time.
 
 ## Part III — The shape of a loom
 
-A loom is text, but Loom does not work on text. It works on a tree. This part is that tree — the data model every later pass reads and enriches. Every node shares one foundation. Each carries a place in the source and its own record of what is wrong with it. On that foundation stand three layers — the smallest tokens, the lines that group them, and the sections those lines form. Above them all sits the corpus, the modules that import one another.
-
-::[The node foundation](03-the-shape-of-a-loom/the-node-foundation.loom)
-
-::[The leaf tokens](03-the-shape-of-a-loom/the-leaf-tokens.loom)
-
-::[Wefts](03-the-shape-of-a-loom/wefts.loom)
-
-::[The container nodes](03-the-shape-of-a-loom/the-syntax-tree.loom)
-
-::[The multi-file AST](03-the-shape-of-a-loom/the-corpus.loom)
+A loom is text, but Loom does not work on text. It works on a tree. This part is that tree — the data model every later pass reads and enriches. One foundation underlies every node; on it stand three layers — the tokens inside a line, the lines themselves, and the sections the lines form — and above them the corpus, the modules that import one another.
 
 ## Part IV — Reading the text
 
-A loom arrives as plain text, and Loom must read it into the tree the previous part described. This part is the reading. Four passes turn text into a tree: Loom finds the line boundaries, labels each line by what it is, fills in the pieces inside each line, and folds the labelled lines into a document of sections. A fifth pass follows that document's imports out to the corpus it belongs to.
+A loom arrives as plain text, and Loom must read it into the tree the previous part described. This part is that reading — four passes that turn text into a document, and a fifth that follows the document's imports out to its corpus. Each pass is total: it consumes the stream the pass before it produced and never throws.
 
-::[Line ranges](04-reading-the-text/line-ranges.loom)
+## Part V — The product
 
-::[The classifier stage](04-reading-the-text/classifying-lines.loom)
-
-::[The tokeniser stage](04-reading-the-text/tokenising.loom)
-
-::[The document builder](04-reading-the-text/building-the-tree.loom)
-
-::[Building one module](04-reading-the-text/following-imports.loom)
-
-## Part V — The frame
-
-Here the document turns into a program. Loom projects each section into a small composable unit, a service that carries the section's code, and wires the units into the frame — the program that assembles your code when it runs. The wiring comes from the document itself. A warp from one section to another is a dependency, and those dependencies fix the order. Running the frame produces the product — your code, composed at last into the files you meant to write.
-
-::[The product pass](05-the-frame/the-product-pass.loom)
-
-::[The de re structure](05-the-frame/the-product.loom)
+Here the document becomes code. Each section carries the author's code, and each `::[…]` anchor says how that code composes; this part is the pass that reads the one and follows the other. No program stands in between — the anchors already form the composition graph, so the pass reads that graph off the parse and builds the product from it.
 
 ## Part VI — Tangling
 
-With your code produced, Loom writes it out. This part is the back half of the pipeline. The compiler works out where each file belongs, the tangler writes the files to disk, and the configuration — itself a loom — supplies the roots that place them. Loom refuses to write a build that still holds an unresolved reference, and when something is wrong, the author sees one plain message for it. A cache underneath keeps the next build fast.
-
-::[The compile layer](06-tangling/the-compiler.loom)
-
-::[Tangling to disk](06-tangling/writing-files.loom)
-
-::[A project's configuration](06-tangling/a-projects-configuration.loom)
-
-::[Build settings for a file](06-tangling/build-settings.loom)
-
-::[Compiling the configuration](06-tangling/compiling-the-configuration.loom)
-
-::[The fault catalog](06-tangling/faults.loom)
-
-::[The build cache](06-tangling/the-build-cache.loom)
+With the product built, Loom writes it out. This part is the back half of the pipeline. The compiler works out what each consumer needs and hands it a projection; the tangler writes each sink's composed code to disk; and the configuration — itself a loom — supplies the languages, delimiters, and roots that govern the build. A cache underneath keeps the next build fast, and a single catalog names every fault the author can hit.
 
 ## Part VII — In the editor
 
-A loom is several languages at once: prose, and code in whatever languages its sections use. This part gives each of them a real editor — syntax highlighting, errors, and completion, every diagnostic mapped back to the spot you wrote. Loom projects the document into a tree of virtual files, one language to a file, and hands that tree to the editor through a single plugin and a language server. Loom's own mistakes surface here too: a malformed tag, an anchor that resolves to nothing, shown beside the code.
-
-::[The virtual-code projection](07-in-the-editor/the-virtual-tree.loom)
-
-::[The symbol-capability registry](07-in-the-editor/the-symbol-registry.loom)
-
-::[The projection pass](07-in-the-editor/projecting-to-virtual-code.loom)
-
-::[The Loom language plugin](07-in-the-editor/the-language-plugin.loom)
-
-::[The language server](07-in-the-editor/the-server.loom)
-
-::[The Loom language](07-in-the-editor/looms-own-diagnostics.loom)
-
-::[The Prose language](07-in-the-editor/the-prose-language.loom)
+A loom is several languages at once — the Loom syntax, the prose, and the code in each section's language — and this part gives each of them a real editor. Loom projects the document into a tree of virtual files, one language to a file, and hands that tree to the editor through a single plugin and a language server. Every diagnostic maps back to the spot you wrote, and Loom's own mistakes — a malformed tag, an anchor that resolves to nothing — surface beside the code.
 
 ## Part VIII — Languages as packages
 
-Loom composes any language, so a language's editor support cannot be built in. It arrives as a package. This part is the contract such a package satisfies and the path it travels into a project. A service works not on a file but on a product — the code one section composed. The host lends each service its runtime, so the package ships thin. `loom add` installs it into the workspace store, a registry finds it by language, and the editor loads it on demand. TypeScript is the worked example, checked against the project's own configuration.
-
-::[The Loom language-service contract](08-languages-as-packages/the-service-contract.loom)
-
-::[The runtime the host lends](08-languages-as-packages/the-host-runtime.loom)
-
-::[The store of installed services](08-languages-as-packages/the-store.loom)
-
-::[Loading a language by id](08-languages-as-packages/loading-a-language.loom)
-
-::[The language registry](08-languages-as-packages/the-registry.loom)
-
-::[The TypeScript language service](08-languages-as-packages/the-typescript-service.loom)
-
-::[The product's own TypeScript program](08-languages-as-packages/the-typescript-program.loom)
+Loom composes any language, so a language's editor support cannot be built in. It arrives as a package. This part is the contract such a package satisfies and the path it travels into a project: the host lends each service its runtime, so the package ships thin; `loom add` installs it into a store of Loom's own; a registry finds it by language; and the editor loads it on demand. TypeScript is the worked example.
 
 ## Part IX — Loom builds Loom
 
-The book closes where it began, with the fact that Loom is written in Loom. This part is the cycle that keeps that honest. The published tool builds the next release, never the in-progress source. Around the cycle sit the pieces that ship it — the command-line program, the bundles that fold each package into one file, the editor extension, and the release that publishes them all. It ends on the road still ahead.
-
-::[The Loom CLI](09-loom-builds-loom/the-command-line-program.loom)
-
-::[Bundling the Loom CLI](09-loom-builds-loom/bundling-the-cli.loom)
-
-::[Bundling the Loom language server](09-loom-builds-loom/bundling-the-language-server.loom)
-
-::[Bundling the loadable service](09-loom-builds-loom/bundling-the-typescript-service.loom)
-
-::[Bundling the Loom extension](09-loom-builds-loom/bundling-the-extension.loom)
-
-::[The Loom VS Code extension](09-loom-builds-loom/the-vscode-extension.loom)
-
-::[Packaging the domain](09-loom-builds-loom/packaging-loom-ast.loom)
-
-::[Packaging loom-config](09-loom-builds-loom/packaging-loom-config.loom)
-
-::[Packaging loom-lang-services](09-loom-builds-loom/packaging-loom-lang-services.loom)
-
-::[Packaging the Loom language](09-loom-builds-loom/packaging-loom-lang.loom)
-
-::[Packaging the TypeScript service](09-loom-builds-loom/packaging-loom-service-typescript.loom)
-
-::[Packaging the Loom CLI](09-loom-builds-loom/packaging-loom-cli.loom)
-
-::[Packaging the Loom extension](09-loom-builds-loom/packaging-loom-vscode.loom)
-
-::[Releasing the Loom CLI](09-loom-builds-loom/releasing-the-cli.loom)
+The book closes where it began, with the fact that Loom is written in Loom. This part is the cycle that keeps that honest: the published tool builds the next release, never the in-progress source. Around the cycle sit the pieces that ship it — the command-line program, the bundles that fold each package into one file, the editor extension, the package manifests, and the release that publishes them all.
 
 ## Part X — Work in progress
 
-This part is never finished. It holds the framework's active work — each open problem or unbuilt feature as its own loom, written to be worked out in place. Such a loom is not a specification. It opens as prose that states the problem and the shape of the answer, and it is built by amending that same loom with code, refining the prose as the design settles — never by taking it as a plan and writing the code somewhere else. So it travels from idea to implementation as one artifact, and never drifts from what it describes. When a chapter here is done, it graduates to its home part. The first three: a bug in the editor's own freshness, the move that brings the tests themselves into the book, and the orphaned files a re-tangle leaves behind.
-
-::[Rename freshness](wip/rename-freshness.loom)
-
-::[Testing in looms](wip/testing-in-looms.loom)
-
-::[Orphaned tangle output](wip/orphaned-output.loom)
+This part is never finished. It holds the framework's active work — each open problem or unbuilt feature as its own loom, written to be worked out in place. Such a loom is not a specification. It opens as prose that states the problem and the shape of the answer, and it is built by amending that same loom with code, refining the prose as the design settles — never by taking it as a plan and writing the code somewhere else. So it travels from idea to implementation as one artifact, and never drifts from what it describes. When a chapter here is done, it graduates to its home part.
