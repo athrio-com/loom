@@ -1,6 +1,5 @@
 ---
-Part VI: Tangling
-Chapter 5: Compiling the configuration
+Part VI, Chapter 5: Compiling the configuration
 Package: packages/loom-lang/src/ManifestBuilder.ts
 Language: TypeScript
 ---

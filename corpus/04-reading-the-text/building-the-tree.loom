@@ -1,6 +1,5 @@
 ---
-Part IV: Reading the text
-Chapter 4: The document builder
+Part IV, Chapter 4: The document builder
 Package: packages/loom-lang/src/ast/LoomAstBuilder.ts
 Language: TypeScript
 ---

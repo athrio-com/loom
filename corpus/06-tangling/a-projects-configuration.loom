@@ -1,6 +1,5 @@
 ---
-Part VI: Tangling
-Chapter 3: A project's configuration
+Part VI, Chapter 3: A project's configuration
 Package: packages/loom-config/src/LoomConfig.ts
 Language: TypeScript
 ---

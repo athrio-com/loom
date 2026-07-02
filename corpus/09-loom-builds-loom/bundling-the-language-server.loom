@@ -1,6 +1,5 @@
 ---
-Part IX: Loom builds Loom
-Chapter 3: Bundling the Loom language server
+Part IX, Chapter 3: Bundling the Loom language server
 Package: packages/loom-lang/vite.config.ts
 Language: TypeScript
 ---

@@ -1,6 +1,5 @@
 ---
-Part IX: Loom builds Loom
-Chapter 5: Bundling the Loom extension
+Part IX, Chapter 5: Bundling the Loom extension
 Package: packages/loom-vscode/vite.config.ts
 Language: TypeScript
 ---

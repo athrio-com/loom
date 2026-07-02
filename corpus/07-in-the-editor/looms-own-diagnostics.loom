@@ -1,6 +1,5 @@
 ---
-Part VII: In the editor
-Chapter 6: The Loom language
+Part VII, Chapter 6: The Loom language
 Package: packages/loom-lang-services/src/LoomLanguage.ts
 Language: TypeScript
 ---

@@ -1,6 +1,5 @@
 ---
-Part IX: Loom builds Loom
-Chapter 12: Packaging the Loom CLI
+Part IX, Chapter 12: Packaging the Loom CLI
 Package: packages/loom-cli/
 Language: JSON
 ---

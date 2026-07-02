@@ -1,6 +1,5 @@
 ---
-Part VIII: Languages as packages
-Chapter 3: The store of installed services
+Part VIII, Chapter 3: The store of installed services
 Package: packages/loom-lang-services/src/LoomStore.ts
 Language: TypeScript
 ---

@@ -1,6 +1,5 @@
 ---
-Part VI: Tangling
-Chapter 2: Tangling to disk
+Part VI, Chapter 2: Tangling to disk
 Package: packages/loom-lang/src/LoomTangler.ts
 Language: TypeScript
 ---

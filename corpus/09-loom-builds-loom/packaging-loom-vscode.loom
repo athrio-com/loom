@@ -1,6 +1,5 @@
 ---
-Part IX: Loom builds Loom
-Chapter 13: Packaging the Loom extension
+Part IX, Chapter 13: Packaging the Loom extension
 Package: packages/loom-vscode/
 Language: JSON
 ---

@@ -1,6 +1,5 @@
 ---
-Part VII: In the editor
-Chapter 3: The projection pass
+Part VII, Chapter 3: The projection pass
 Package: packages/loom-lang/src/ast/LoomVirtualCodeBuilder.ts
 Language: TypeScript
 ---

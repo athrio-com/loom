@@ -1,6 +1,5 @@
 ---
-Part IV: Reading the text
-Chapter 3: The tokeniser stage
+Part IV, Chapter 3: The tokeniser stage
 Package: packages/loom-lang/src/ast/WeftTokeniser.ts
 Language: TypeScript
 ---
@@ -70,7 +69,7 @@ const tokeniseWeft = (
 
 ## Frontmatter fields
 
-A frontmatter field is one `key: value` line, and `tokeniseFrontmatter` settles it by its key. It splits on the first colon and classifies what it finds: `Part <Roman>` and `Chapter <n>` each carry an ordinal, so they yield two tokens — the marker, and the name or title beside it; `Package` and `Language` are plain keys. A fence weft is already whole and passes through, and a line that is no field settles bare, with no subtokens.
+A frontmatter field is one `key: value` line, and `tokeniseFrontmatter` settles it by its key. It splits on the first colon and classifies what it finds. A `Part <Roman>` line announces a part, a `Chapter <n>` line a chapter — each carrying an ordinal past its keyword, and a name beside it. The joined `Part <Roman>, Chapter <n>` form carries a chapter by the part it belongs to, split at the comma. `Package` and `Language` are plain keys. A fence weft passes through whole, and a line that is no field settles bare, with no subtokens.
 
 =>
 
@@ -92,6 +91,8 @@ const buildFrontmatterField = (
   key: TrimmedSpan,
   value: TrimmedSpan,
 ): FrontmatterWeft => {
+  if (key.value.startsWith('Part ') && key.value.includes(', Chapter '))
+    return belongingField(weft, line, key, value)
   if (key.value.startsWith('Part '))
     return FrontmatterWeftSchema.make({
       position: weft.position,
@@ -117,6 +118,30 @@ const buildFrontmatterField = (
       value: fieldToken(FrontmatterValueTokenSchema, line, value),
     })
   return bareFrontmatter(weft)
+}
+
+const belongingField = (
+  weft: FrontmatterWeft,
+  line: number,
+  key: TrimmedSpan,
+  value: TrimmedSpan,
+): FrontmatterWeft => {
+  const comma = key.value.indexOf(',')
+  const partSpan = trimSpan(key.value.slice(0, comma), key.start)
+  const chapterSpan = trimSpan(key.value.slice(comma + 1), key.start + comma + 1)
+  return FrontmatterWeftSchema.make({
+    position: weft.position,
+    source: weft.source,
+    health: okHealth,
+    part: ordinalToken(FrontmatterPartTokenSchema, line, partSpan, 'Part '),
+    chapter: ordinalToken(
+      FrontmatterChapterTokenSchema,
+      line,
+      chapterSpan,
+      'Chapter ',
+    ),
+    title: fieldToken(FrontmatterTitleTokenSchema, line, value),
+  })
 }
 
 ~

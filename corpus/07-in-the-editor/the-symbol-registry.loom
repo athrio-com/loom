@@ -1,6 +1,5 @@
 ---
-Part VII: In the editor
-Chapter 2: The symbol-capability registry
+Part VII, Chapter 2: The symbol-capability registry
 Package: packages/loom-ast/src/ast/LoomSymbol.ts
 Language: TypeScript
 ---

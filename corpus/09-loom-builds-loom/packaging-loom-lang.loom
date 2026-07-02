@@ -1,6 +1,5 @@
 ---
-Part IX: Loom builds Loom
-Chapter 10: Packaging the Loom language
+Part IX, Chapter 10: Packaging the Loom language
 Package: packages/loom-lang/
 Language: JSON
 ---

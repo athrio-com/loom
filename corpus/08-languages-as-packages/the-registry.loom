@@ -1,6 +1,5 @@
 ---
-Part VIII: Languages as packages
-Chapter 5: The language registry
+Part VIII, Chapter 5: The language registry
 Package: packages/loom-lang-services/src/LanguageRegistry.ts
 Language: TypeScript
 ---

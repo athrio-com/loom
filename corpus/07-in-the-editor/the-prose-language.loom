@@ -1,6 +1,5 @@
 ---
-Part VII: In the editor
-Chapter 7: The Prose language
+Part VII, Chapter 7: The Prose language
 Package: packages/loom-lang-services/src/ProseLanguage.ts
 Language: TypeScript
 ---

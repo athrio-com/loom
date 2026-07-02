@@ -1,6 +1,5 @@
 ---
-Part IX: Loom builds Loom
-Chapter 7: Packaging the domain
+Part IX, Chapter 7: Packaging the domain
 Package: packages/loom-ast/
 Language: JSON
 ---

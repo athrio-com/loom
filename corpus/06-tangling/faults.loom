@@ -1,6 +1,5 @@
 ---
-Part VI: Tangling
-Chapter 6: The fault catalog
+Part VI, Chapter 6: The fault catalog
 Package: packages/loom-lang/src/ast/LoomFault.ts
 Language: TypeScript
 ---

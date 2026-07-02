@@ -1,6 +1,5 @@
 ---
-Part IX: Loom builds Loom
-Chapter 8: Packaging loom-config
+Part IX, Chapter 8: Packaging loom-config
 Package: packages/loom-config/
 Language: JSON
 ---

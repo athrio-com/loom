@@ -1,6 +1,5 @@
 ---
-Part IX: Loom builds Loom
-Chapter 6: The Loom VS Code extension
+Part IX, Chapter 6: The Loom VS Code extension
 Package: packages/loom-vscode/src/vscode-extension.ts
 Language: TypeScript
 ---

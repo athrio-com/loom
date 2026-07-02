@@ -167,6 +167,8 @@ const buildFrontmatterField = (
   key: TrimmedSpan,
   value: TrimmedSpan,
 ): FrontmatterWeft => {
+  if (key.value.startsWith('Part ') && key.value.includes(', Chapter '))
+    return belongingField(weft, line, key, value)
   if (key.value.startsWith('Part '))
     return FrontmatterWeftSchema.make({
       position: weft.position,
@@ -192,6 +194,30 @@ const buildFrontmatterField = (
       value: fieldToken(FrontmatterValueTokenSchema, line, value),
     })
   return bareFrontmatter(weft)
+}
+
+const belongingField = (
+  weft: FrontmatterWeft,
+  line: number,
+  key: TrimmedSpan,
+  value: TrimmedSpan,
+): FrontmatterWeft => {
+  const comma = key.value.indexOf(',')
+  const partSpan = trimSpan(key.value.slice(0, comma), key.start)
+  const chapterSpan = trimSpan(key.value.slice(comma + 1), key.start + comma + 1)
+  return FrontmatterWeftSchema.make({
+    position: weft.position,
+    source: weft.source,
+    health: okHealth,
+    part: ordinalToken(FrontmatterPartTokenSchema, line, partSpan, 'Part '),
+    chapter: ordinalToken(
+      FrontmatterChapterTokenSchema,
+      line,
+      chapterSpan,
+      'Chapter ',
+    ),
+    title: fieldToken(FrontmatterTitleTokenSchema, line, value),
+  })
 }
 
 type TrimmedSpan = {

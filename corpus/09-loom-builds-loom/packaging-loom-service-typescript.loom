@@ -1,6 +1,5 @@
 ---
-Part IX: Loom builds Loom
-Chapter 11: Packaging the TypeScript service
+Part IX, Chapter 11: Packaging the TypeScript service
 Package: packages/loom-service-typescript/
 Language: JSON
 ---

@@ -1,6 +1,5 @@
 ---
-Part VIII: Languages as packages
-Chapter 4: Loading a language by id
+Part VIII, Chapter 4: Loading a language by id
 Package: packages/loom-lang-services/src/LanguageLoader.ts
 Language: TypeScript
 ---

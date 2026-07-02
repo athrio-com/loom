@@ -1,6 +1,5 @@
 ---
-Part V: The product
-Chapter 2: The shape of the product
+Part V, Chapter 2: The shape of the product
 Package: packages/loom-ast/src/ast/ProductAst.ts
 Language: TypeScript
 ---

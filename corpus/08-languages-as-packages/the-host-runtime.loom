@@ -1,6 +1,5 @@
 ---
-Part VIII: Languages as packages
-Chapter 2: The runtime the host lends
+Part VIII, Chapter 2: The runtime the host lends
 Package: packages/loom-lang-services/src/Runtime.ts
 Language: TypeScript
 ---

@@ -1,6 +1,5 @@
 ---
-Part VI: Tangling
-Chapter 7: The build cache
+Part VI, Chapter 7: The build cache
 Package: packages/loom-lang/src/LoomMemo.ts
 Language: TypeScript
 ---

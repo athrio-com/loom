@@ -1,6 +1,5 @@
 ---
-Part VI: Tangling
-Chapter 4: Build settings for a file
+Part VI, Chapter 4: Build settings for a file
 Package: packages/loom-lang/src/PackageConfig.ts
 Language: TypeScript
 ---

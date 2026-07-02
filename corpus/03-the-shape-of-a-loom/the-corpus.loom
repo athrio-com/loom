@@ -1,6 +1,5 @@
 ---
-Part III: The shape of a loom
-Chapter 5: The multi-file AST
+Part III, Chapter 5: The multi-file AST
 Package: packages/loom-ast/src/ast/LoomCorpusAst.ts
 Language: TypeScript
 ---

@@ -1,6 +1,5 @@
 ---
-Part IX: Loom builds Loom
-Chapter 2: Bundling the Loom CLI
+Part IX, Chapter 2: Bundling the Loom CLI
 Package: packages/loom-cli/vite.config.ts
 Language: TypeScript
 ---

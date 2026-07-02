@@ -1,6 +1,5 @@
 ---
-Part VIII: Languages as packages
-Chapter 6: The TypeScript language service
+Part VIII, Chapter 6: The TypeScript language service
 Package: packages/loom-service-typescript/src/TypescriptService.ts
 Language: TypeScript
 ---

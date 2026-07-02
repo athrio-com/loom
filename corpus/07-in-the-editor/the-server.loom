@@ -1,6 +1,5 @@
 ---
-Part VII: In the editor
-Chapter 5: The language server
+Part VII, Chapter 5: The language server
 Package: packages/loom-lang/src/
 Language: TypeScript
 ---

@@ -1,6 +1,5 @@
 ---
-Part VIII: Languages as packages
-Chapter 7: The product's own TypeScript program
+Part VIII, Chapter 7: The product's own TypeScript program
 Package: packages/loom-service-typescript/src/ProductProgram.ts
 Language: TypeScript
 ---
