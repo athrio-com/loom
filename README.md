@@ -19,7 +19,7 @@
 </div>
 
 > [!NOTE]
-> **Loom is a work in progress.** The parser, the frame, and
+> **Loom is a work in progress.** The parser, the tangler, and
 > the `loom` command-line tool work today; the editor language and the
 > multi-language support are landing now. We are aiming for a first public
 > release by the end of summer 2026. Until then, the syntax and the tangled
@@ -76,6 +76,11 @@ Here is a whole Loom program. Read the prose top to bottom; the code blocks fall
 wherever the story needs them.
 
 ```loom
+---
+Language: TypeScript
+Package: src/main.ts
+---
+
 # A greeting
 
 The `greet` function welcomes someone by name.
@@ -84,7 +89,7 @@ The `greet` function welcomes someone by name.
 
 export const greet = (name: string): string => `Hello, ${name}!`
 
-# The entry point {src/main.ts}
+# The entry point {Tangle}
 
 The program greets the world and prints the result.
 
@@ -95,9 +100,9 @@ The program greets the world and prints the result.
 console.log(greet("world"))
 ```
 
-The rhythm is two marks: `=>` turns prose into code, and `~` turns it back. A
-heading with a path, like `{src/main.ts}`, names a file to write, and
-`::[A greeting]` pulls another section in by name.
+The rhythm is two marks: `=>` turns prose into code, and `~` turns it back. The
+frontmatter names the file this loom writes; the `{Tangle}` heading marks the
+section written there, and `::[A greeting]` pulls another section in by name.
 
 Running `loom tangle greeting.loom` drops the prose, assembles the code in
 composition order, and writes `src/main.ts`:
@@ -155,7 +160,7 @@ the Language Server Protocol can use `loom lsp --stdio` today.
 Loom is pre-release. The core works, and the rest is landing on the way to a
 first public release by the end of summer 2026.
 
-- [x] Literate parser, frame projection, and the `loom` tangler
+- [x] Literate parser, product composition, and the `loom` tangler
 - [x] Live language in the editor — diagnostics, navigation, and per-section highlighting
 - [x] Loom's own health surfaced as editor diagnostics
 - [ ] Multi-language editor support — the TypeScript service first, then Python, Kotlin, and Scala
@@ -172,8 +177,8 @@ own code would have no business composing yours.
 
 ## 📚 Further reading
 
-- [`architecture.md`](./architecture.md) — the system overview: the two planes,
-  the transformation pipeline, and the editor surface.
+- [`corpus/book.loom`](./corpus/book.loom) — the book: Loom's own source and
+  its only specification, every chapter's prose beside the code it describes.
 - [`CLAUDE.md`](./CLAUDE.md) — the vision and the working directives.
 - The prose standard, [`.claude/skills/prose/SKILL.md`](./.claude/skills/prose/SKILL.md)
   — how a loom is written.

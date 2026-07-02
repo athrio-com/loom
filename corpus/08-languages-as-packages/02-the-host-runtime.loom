@@ -8,7 +8,7 @@ Language: TypeScript
 
 A loaded language service ships only its own code. It carries no Effect, no service contract, and no TypeScript compiler of its own — it borrows the host's, so the capability the host provides and the one the service asks for are the same instance rather than two copies that never meet. This module is the boundary where the host lends that runtime.
 
-The host writes its live modules to a global the moment it starts. A service built to read that global, instead of importing the runtime by name, then runs on the host's exact instances. This is the literal form of the rule from `services.loom` — the host owns the runtime — made mechanical: one Effect, one contract, one compiler, shared across the load.
+The host writes its live modules to a global the moment it starts. A service built to read that global, instead of importing the runtime by name, then runs on the host's exact instances. This is the literal form of the rule that the host owns the runtime, made mechanical: one Effect, one contract, one compiler, shared across the load.
 
 ## The contract
 

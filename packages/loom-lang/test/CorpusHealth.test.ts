@@ -13,18 +13,21 @@ import { PackageConfig } from '../src/PackageConfig'
 // entities back to a literal `{{` fails right here, with the offending file named.
 // The book is one corpus at the repo root, its chapters filed under narrative
 // folders (corpus/NN-title/). Three parts of that tree are left out: the guide is
-// authored on its own track, a work-in-progress loom names code it has not built
-// yet, and the spine references chapters not yet migrated. Each file's diagnostics
-// scope to itself — a standalone module places nothing, so a sibling never reports
-// on it. Discovery builds the whole tree into one corpus, so `beforeAll` warms it
-// once and each case below reads a hot memo rather than paying the walk.
+// authored on its own track, a work-in-progress loom may name code it has not built
+// yet, and the spine (book.loom) is the table of contents, not a chapter. Each
+// file's diagnostics scope to itself — a standalone module places nothing, so a
+// sibling never reports on it. Discovery builds the whole tree into one corpus, so
+// `beforeAll` warms it once and each case below reads a hot memo rather than paying
+// the walk.
 
 const corpusDir = resolve(__dirname, '../../../corpus')
 const looms = readdirSync(corpusDir, { recursive: true })
   .map(String)
   .filter((name) => name.endsWith('.loom'))
-  .filter((name) => !name.startsWith('guide') && !name.startsWith('wip'))
-  .filter((name) => name !== 'book.loom' && name !== 'Loom.loom')
+  .filter(
+    (name) => !name.startsWith('guide') && !name.startsWith('work-in-progress'),
+  )
+  .filter((name) => name !== 'book.loom')
 
 let run: <A>(effect: Effect.Effect<A, never, LoomCompiler>) => A
 
