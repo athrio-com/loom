@@ -326,7 +326,8 @@ which virtual code answers.
 ## The symbol capability matrix
 
 Every token a `.loom` declares — a heading title, an anchor, a warp, a specifier, a
-sink, an arrow, a tilde, or prose — is a **symbol kind**, and
+sink, an arrow, a tilde, prose, a frontmatter field, or a table-of-contents entry —
+is a **symbol kind**, and
 `@athrio/loom-ast/LoomSymbol` holds one table, `profileOf`, that says what the editor
 does with each. A profile carries two things: the token's **colour** (a standard
 semantic-token type, or none) and its **features** — Volar's `CodeInformation` flags,
@@ -344,6 +345,10 @@ the table, so a new kind fails to compile until it is profiled.
 | `arrow` | operator | | | |
 | `tilde` | operator | | | |
 | `prose` | — | | ● | |
+| `frontmatterMembership` | namespace | | ● | |
+| `frontmatterValue` | string | | ● | |
+| `tocPart` | namespace | | ● | |
+| `tocEntry` | namespace | ● | ● | ● |
 
 Two mapping kinds sit outside the table, for the projection's own structure rather than
 a token a cursor rests on: a `source` span (the root's whole-file identity mapping)

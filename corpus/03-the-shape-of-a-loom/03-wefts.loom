@@ -10,7 +10,7 @@ Language: TypeScript
 
 ## The heading weft
 
-A `HeadingWeft` is a `#`-heading line. Its `headingStart` records the level for the reader, and `title` is the optional trimmed text after the marker — the title names the section, normalised to an identifier. The `specifier` and the `sink` are optional too: the specifier is the language label `{Lang}`, the sink is the bracketed target `[dir, file]` or `[dir]`, and a heading may carry either, both, or neither. The classifier emits the weft with incomplete placeholders for the subtokens it has not recognised, and the tokeniser settles them.
+A `HeadingWeft` is a `#`-heading line. Its `headingStart` records the level for the reader, and `title` is the optional trimmed text after the marker — the title names the section, normalised to an identifier. The `specifier` and the `sink` are optional too: the specifier is the language label `{Lang}`, the sink is the bracketed file `[file]`, and a heading may carry either, both, or neither. The classifier emits the weft with incomplete placeholders for the subtokens it has not recognised, and the tokeniser settles them.
 
 =>
 
@@ -77,6 +77,19 @@ export const FrontmatterWeftSchema = loomNode('FrontmatterWeft', {
 })
 export type FrontmatterWeft = typeof FrontmatterWeftSchema.Type
 
+## The table-of-contents weft
+
+A `TocWeft` is one line inside a `{TOC}` section: a part heading, a chapter entry, or a blank spacer. One weft kind covers them all, each filling the slots its line owns — a part line fills `part`; a chapter line fills `chapter` and `title`; a blank line fills none. This mirrors the frontmatter weft, which carries its own line's parts in the same optional way. The classifier marks each line of the contents as a `TocWeft` so a part's `####` heading never opens a section and a chapter's list item never reads as prose, and the tokeniser settles the slots. The document builder gathers a `{TOC}` section's toc wefts as its entries.
+
+=>
+
+export const TocWeftSchema = loomNode('TocWeft', {
+  part: Schema.optional(TocPartTokenSchema),
+  chapter: Schema.optional(TocChapterTokenSchema),
+  title: Schema.optional(TocTitleTokenSchema),
+})
+export type TocWeft = typeof TocWeftSchema.Type
+
 ## The weft unions
 
 `LoomWeft` is the union of every weft kind — the tokeniser's stream element. `SectionBodyWeft` is the narrower union the grammar admits inside a section body: arrow, code, tilde, and prose, in the forward-only order the classifier enforces.
@@ -91,6 +104,7 @@ export const LoomWeftSchema = Schema.Union(
   ProseWeftSchema,
   CodeWeftSchema,
   FrontmatterWeftSchema,
+  TocWeftSchema,
 )
 export type LoomWeft = typeof LoomWeftSchema.Type
 
@@ -126,6 +140,9 @@ import {
   SinkTokenSchema,
   SpecifierTokenSchema,
   TildeTokenSchema,
+  TocChapterTokenSchema,
+  TocPartTokenSchema,
+  TocTitleTokenSchema,
   WarpAnchorTokenSchema,
   WarpTokenSchema,
 } from './LoomTokens'
@@ -141,5 +158,7 @@ import {
 ::[The body wefts]
 
 ::[The frontmatter weft]
+
+::[The table-of-contents weft]
 
 ::[The weft unions]

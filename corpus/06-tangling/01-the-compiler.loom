@@ -148,7 +148,17 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
                 Option.fromNullable(modules.get(path)),
                 Option.match({
                   onNone: () => [],
-                  onSome: (module) => [...moduleDiagnostics(module)],
+                  onSome: (module) => [
+                    ...moduleDiagnostics(module),
+                    ...Array.flatMap(
+                      unresolvedTocEntriesIn({ modules }, module),
+                      (title) =>
+                        faulty(
+                          UnresolvedTocEntry({ title: title.value }),
+                          title.position,
+                        ).diagnostics,
+                    ),
+                  ],
                 }),
               ),
             ),
@@ -557,10 +567,12 @@ import {
   renameAt,
   renameRangeAt,
   transitiveDependents,
+  unresolvedTocEntriesIn,
   type CorpusLocation,
   type LoomModule,
   type Path,
 } from '@athrio/loom-ast/LoomCorpusAst'
+import { faulty, UnresolvedTocEntry } from '#ast/LoomFault'
 import {
   type ComposedFile,
   type FrameLocation,

@@ -27,6 +27,7 @@ export type LoomFault = Data.TaggedEnum<{
     readonly host: string
     readonly found: string
   }
+  UnresolvedTocEntry: { readonly title: string }
 }>
 
 export const {
@@ -37,6 +38,7 @@ export const {
   UnresolvedAnchor,
   AmbiguousAnchor,
   CrossLanguageAnchor,
+  UnresolvedTocEntry,
 } = Data.taggedEnum<LoomFault>()
 
 type Note = { readonly severity: Severity; readonly message: string }
@@ -88,6 +90,9 @@ export const describe = (fault: LoomFault): Note =>
       error(
         `Cross-language transclusion: \`${name}\` is ${found}, but this section composes ${host}. A section composes one language.`,
       ),
+    ),
+    Match.tag('UnresolvedTocEntry', ({ title }) =>
+      error(`Unresolved contents entry: no chapter titled \`${title}\`.`),
     ),
     Match.exhaustive,
   )

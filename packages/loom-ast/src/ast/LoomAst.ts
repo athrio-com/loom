@@ -11,7 +11,11 @@ import {
   SinkTokenSchema,
   SpecifierTokenSchema,
 } from './LoomTokens'
-import { PreambleWeftSchema, SectionBodyWeftSchema } from './Weft'
+import {
+  PreambleWeftSchema,
+  SectionBodyWeftSchema,
+  TocWeftSchema,
+} from './Weft'
 
 export const LoomHeadingSchema = loomNode('LoomHeading', {
   headingStart: HeadingStartTokenSchema,
@@ -25,6 +29,7 @@ export const LoomSectionSchema = loomNode('LoomSection', {
   heading: LoomHeadingSchema,
   preamble: Schema.Array(PreambleWeftSchema),
   code: Schema.Array(SectionBodyWeftSchema),
+  entries: Schema.optional(Schema.Array(TocWeftSchema)),
 })
 export type LoomSection = typeof LoomSectionSchema.Type
 

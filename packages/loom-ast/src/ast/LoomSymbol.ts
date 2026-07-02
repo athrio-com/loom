@@ -2,10 +2,11 @@ import { Array, Match, Option, Schema } from 'effect'
 import { type Position } from '#ast/LoomNode'
 import {
   type LoomDocument,
+  type LoomFrontmatter,
   type LoomHeading,
   type LoomSection,
 } from '#ast/LoomAst'
-import { type SectionBodyWeft } from '#ast/Weft'
+import { type SectionBodyWeft, type TocWeft } from '#ast/Weft'
 import {
   type WarpAnchorToken,
   type WarpToken,
@@ -21,6 +22,10 @@ export const SymbolKindSchema = Schema.Literal(
   'arrow',
   'tilde',
   'prose',
+  'frontmatterMembership',
+  'frontmatterValue',
+  'tocPart',
+  'tocEntry',
 )
 export type SymbolKind = typeof SymbolKindSchema.Type
 
@@ -78,6 +83,22 @@ export const profileOf = (kind: SymbolKind): SymbolProfile =>
     Match.when('arrow', () => profile(Option.some('operator'), {})),
     Match.when('tilde', () => profile(Option.some('operator'), {})),
     Match.when('prose', () => profile(Option.none(), { structure: true })),
+    Match.when('frontmatterMembership', () =>
+      profile(Option.some('namespace'), { structure: true }),
+    ),
+    Match.when('frontmatterValue', () =>
+      profile(Option.some('string'), { structure: true }),
+    ),
+    Match.when('tocPart', () =>
+      profile(Option.some('namespace'), { structure: true }),
+    ),
+    Match.when('tocEntry', () =>
+      profile(Option.some('namespace'), {
+        navigation: true,
+        structure: true,
+        verification: true,
+      }),
+    ),
     Match.exhaustive,
   )
 
@@ -96,6 +117,28 @@ const namesOf = (warps: ReadonlyArray<WarpToken>): ReadonlyArray<string> =>
   Array.map(warps, (warp) => warp.name.value)
 
 const at = (kind: SymbolKind, position: Position): Symbol => ({ kind, position })
+
+const optSymbol = (
+  kind: SymbolKind,
+  token: { readonly position: Position } | undefined,
+): ReadonlyArray<Symbol> =>
+  Option.toArray(
+    Option.map(Option.fromNullable(token), (t) => at(kind, t.position)),
+  )
+
+const frontmatterSymbols = (fm: LoomFrontmatter): ReadonlyArray<Symbol> => [
+  ...optSymbol('frontmatterMembership', fm.part),
+  ...optSymbol('frontmatterMembership', fm.partName),
+  ...optSymbol('frontmatterMembership', fm.chapter),
+  ...optSymbol('frontmatterMembership', fm.title),
+  ...optSymbol('frontmatterValue', fm.package),
+  ...optSymbol('frontmatterValue', fm.language),
+]
+
+const tocSymbols = (weft: TocWeft): ReadonlyArray<Symbol> => [
+  ...optSymbol('tocPart', weft.part),
+  ...optSymbol('tocEntry', weft.title),
+]
 
 const headingSymbols = (heading: LoomHeading): ReadonlyArray<Symbol> => [
   ...Option.toArray(
@@ -137,6 +180,7 @@ const sectionSymbols = (
       at(anchorKind(scope, anchor), anchor.name.position),
     ),
     ...Array.flatMap(section.code, delimiterOf),
+    ...Array.flatMap(section.entries ?? [], tocSymbols),
   ]
 }
 
@@ -144,6 +188,10 @@ export const symbolsOf = (doc: LoomDocument): ReadonlyArray<Symbol> => {
   const warps = Array.flatMap(doc.preamble, (weft) => weft.warps)
   const scope = new Set(namesOf(warps))
   return [
+    ...Array.flatMap(
+      Option.toArray(Option.fromNullable(doc.frontmatter)),
+      frontmatterSymbols,
+    ),
     ...Array.map(warps, (warp) => at('warpDef', warp.name.position)),
     ...Array.map(
       Array.flatMap(doc.preamble, (weft) => weft.anchors),

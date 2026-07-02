@@ -27,6 +27,7 @@ import type {
   LoomWeft,
   PreambleWeft,
   SectionBodyWeft,
+  TocWeft,
 } from '@athrio/loom-ast/Weft'
 
 export class LoomAstBuilder extends Effect.Service<LoomAstBuilder>()(
@@ -66,6 +67,8 @@ const isSectionBody = (w: LoomWeft): w is SectionBodyWeft =>
 
 const isPreamble = (w: LoomWeft): w is PreambleWeft => w.type === 'PreambleWeft'
 
+const isToc = (w: LoomWeft): w is TocWeft => w.type === 'TocWeft'
+
 type TopLevelNode = PreambleWeft | LoomSection | FrontmatterWeft
 
 const nodeSink = parsingSink<LoomWeft, TopLevelNode>((w) => dispatchNode(w))
@@ -86,6 +89,7 @@ const dispatchNode = (
     Match.when({ type: 'CodeWeft' }, unexpectedAtTop),
     Match.when({ type: 'TildeWeft' }, unexpectedAtTop),
     Match.when({ type: 'ProseWeft' }, unexpectedAtTop),
+    Match.when({ type: 'TocWeft' }, unexpectedAtTop),
     Match.exhaustive,
   )
 
@@ -141,13 +145,15 @@ const buildSection = (
   const h = headingOf(heading)
   const preamble = Chunk.toReadonlyArray(Chunk.filter(body, isPreamble))
   const code = Chunk.toReadonlyArray(Chunk.filter(body, isSectionBody))
+  const entries = Chunk.toReadonlyArray(Chunk.filter(body, isToc))
   return LoomSectionSchema.make({
-    position: spanFrom(h.position, preamble, code),
-    source: sourceOf(h, preamble, code),
+    position: spanFrom(h.position, preamble, code, entries),
+    source: sourceOf(h, preamble, code, entries),
     health: okHealth,
     heading: h,
     preamble,
     code,
+    entries: entries.length > 0 ? entries : undefined,
   })
 }
 

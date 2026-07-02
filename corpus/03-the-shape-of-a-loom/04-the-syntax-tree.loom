@@ -24,7 +24,7 @@ export type LoomHeading = typeof LoomHeadingSchema.Type
 
 ## The section
 
-A `LoomSection` is one structural unit, opened by a heading at any level. Its body is two ordered runs of wefts: the `preamble` before the first transition, and the `code` after — the `=>` and `~` chunks in source order.
+A `LoomSection` is one structural unit, opened by a heading at any level. Its body is two ordered runs of wefts: the `preamble` before the first transition, and the `code` after — the `=>` and `~` chunks in source order. A `{TOC}` section carries a third run, its `entries` — the toc wefts that list the book's parts and chapters. An ordinary section has none.
 
 =>
 
@@ -32,6 +32,7 @@ export const LoomSectionSchema = loomNode('LoomSection', {
   heading: LoomHeadingSchema,
   preamble: Schema.Array(PreambleWeftSchema),
   code: Schema.Array(SectionBodyWeftSchema),
+  entries: Schema.optional(Schema.Array(TocWeftSchema)),
 })
 export type LoomSection = typeof LoomSectionSchema.Type
 
@@ -83,7 +84,11 @@ import {
   SinkTokenSchema,
   SpecifierTokenSchema,
 } from './LoomTokens'
-import { PreambleWeftSchema, SectionBodyWeftSchema } from './Weft'
+import {
+  PreambleWeftSchema,
+  SectionBodyWeftSchema,
+  TocWeftSchema,
+} from './Weft'
 
 ## The module {Tangle}
 

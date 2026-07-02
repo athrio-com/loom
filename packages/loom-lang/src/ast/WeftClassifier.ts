@@ -24,18 +24,22 @@ import {
   ProseWeftSchema,
   type TildeWeft,
   TildeWeftSchema,
+  type TocWeft,
+  TocWeftSchema,
 } from '@athrio/loom-ast/Weft'
 
 type ClassifierState = {
   readonly prev: Option.Option<LoomWeft>
   readonly seenHeading: boolean
   readonly inFrontmatter: boolean
+  readonly inToc: boolean
 }
 
 const initialState: ClassifierState = {
   prev: Option.none(),
   seenHeading: false,
   inFrontmatter: false,
+  inToc: false,
 }
 
 export class WeftClassifier extends Effect.Service<WeftClassifier>()(
@@ -54,6 +58,10 @@ export class WeftClassifier extends Effect.Service<WeftClassifier>()(
               prev: Option.some(weft),
               seenHeading: state.seenHeading || weft.type === 'HeadingWeft',
               inFrontmatter: state.inFrontmatter !== fence,
+              inToc:
+                weft.type === 'HeadingWeft'
+                  ? isTocHeading(lineText)
+                  : state.inToc,
             }
             return [next, weft]
           }),
@@ -82,8 +90,13 @@ const probeWeft = (
 
   const probe = probeOf(lineText)
 
-  if (probe.kind === 'heading')
+  if (probe.kind === 'heading') {
+    if (state.inToc && headingLevel(probe.m) > 1)
+      return makeTocWeft(lineText, line, range)
     return makeHeadingWeft(lineText, line, range, probe.m)
+  }
+
+  if (state.inToc) return makeTocWeft(lineText, line, range)
 
   if (!state.seenHeading) return makePreambleWeft(lineText, line, range)
 
@@ -148,6 +161,7 @@ const modeOf = (prev: Option.Option<LoomWeft>): Mode =>
         Match.when({ type: 'TildeWeft' }, () => 'prose' as const),
         Match.when({ type: 'ProseWeft' }, () => 'prose' as const),
         Match.when({ type: 'FrontmatterWeft' }, () => 'preamble' as const),
+        Match.when({ type: 'TocWeft' }, () => 'preamble' as const),
         Match.exhaustive,
       ),
   })
@@ -167,6 +181,13 @@ const frontmatterFenceProbe = Option.getOrThrow(
 
 const isFrontmatterFence = (lineText: string): boolean =>
   frontmatterFenceProbe.test(lineText)
+
+const headingLevel = (m: RegExpMatchArray): number =>
+  m[0].replace(/[^#]/g, '').length
+
+const tocSpecifier = /\{TOC\}/i
+
+const isTocHeading = (lineText: string): boolean => tocSpecifier.test(lineText)
 
 const probeOf = (lineText: string): Probe => {
   const h = headingProbe.exec(lineText)
@@ -297,6 +318,17 @@ const makeFrontmatterField = (
   range: LineRange,
 ): FrontmatterWeft =>
   FrontmatterWeftSchema.make({
+    position: linePos(line, range),
+    source: lineText,
+    health: incompleteHealth,
+  })
+
+const makeTocWeft = (
+  lineText: string,
+  line: number,
+  range: LineRange,
+): TocWeft =>
+  TocWeftSchema.make({
     position: linePos(line, range),
     source: lineText,
     health: incompleteHealth,

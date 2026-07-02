@@ -462,7 +462,148 @@ const warpReferences = (
 
 ~
 
-`definitionAt` follows the reference under a cursor to its definition — a section anchor to its heading, a warp anchor to its warp — and finds nothing on a definition, since a definition is already there. `referencesAt` returns every place the thing under the cursor is named, section or warp. Each reads the kind from `symbolAt` and dispatches on it through one `Match`.
+A table-of-contents entry resolves differently: it names a chapter by title, across the whole corpus, not a section within one file. `chapterTitleToken` reads a chapter's title — its first heading, or its frontmatter `title` when it has none — and the entry lands there. `chapterIndex` maps that title to where the chapter opens, the first of any duplicate winning. `tocEntryTitleAt` reads the entry title under a cursor, and `tocEntryDefinitionAt` follows it to the chapter the index names. `unresolvedTocEntriesIn` is the other side: every entry whose title names no chapter, for the diagnostics to fault. `tocNameGroup` gathers the whole name — where the chapter declares its title, in its heading and its frontmatter, and every entry that names it — so references and rename move them together; `tocNameGroupAt` reads that group from the entry under a cursor.
+
+=>
+
+const firstHeadingTitleOf = (
+  module: LoomModule,
+): Option.Option<HeadingTitleToken> =>
+  Option.flatMap(
+    Array.findFirst(
+      module.doc.sections,
+      (section) => section.heading.title !== undefined,
+    ),
+    (section) => Option.fromNullable(section.heading.title),
+  )
+
+const chapterTitleToken = (
+  module: LoomModule,
+): Option.Option<{ readonly source: string; readonly position: Position }> =>
+  Option.orElse(firstHeadingTitleOf(module), () =>
+    Option.fromNullable(module.doc.frontmatter?.title),
+  )
+
+const chapterIndex = (modules: Modules): ReadonlyMap<string, CorpusLocation> =>
+  pipe(
+    Array.fromIterable(modules.values()),
+    Array.filterMap((module) =>
+      Option.map(
+        chapterTitleToken(module),
+        (title) =>
+          [
+            title.source,
+            { path: module.path, position: title.position },
+          ] as const,
+      ),
+    ),
+    Array.reduce(
+      new Map<string, CorpusLocation>(),
+      (index, [title, location]) =>
+        index.has(title) ? index : new Map(index).set(title, location),
+    ),
+  )
+
+const tocEntriesOf = (module: LoomModule): ReadonlyArray<TocWeft> =>
+  Array.flatMap(module.doc.sections, (section) => section.entries ?? [])
+
+const tocEntryTitleAt = (
+  modules: Modules,
+  path: Path,
+  offset: number,
+): Option.Option<string> =>
+  pipe(
+    Option.fromNullable(modules.get(path)),
+    Option.flatMap((module) =>
+      Array.findFirst(
+        tocEntriesOf(module),
+        (entry) =>
+          entry.title !== undefined && covers(entry.title.position, offset),
+      ),
+    ),
+    Option.flatMap((entry) => Option.fromNullable(entry.title)),
+    Option.map((title) => title.value),
+  )
+
+const tocEntryDefinitionAt = (
+  corpus: LoomCorpusAst,
+  path: Path,
+  offset: number,
+): Option.Option<CorpusLocation> =>
+  Option.flatMap(tocEntryTitleAt(corpus.modules, path, offset), (title) =>
+    Option.fromNullable(chapterIndex(corpus.modules).get(title)),
+  )
+
+const isChapterTitled = (module: LoomModule, title: string): boolean =>
+  Option.getOrElse(
+    Option.map(chapterTitleToken(module), (token) => token.source === title),
+    () => false,
+  )
+
+const titleDeclarationsOf = (
+  module: LoomModule,
+): ReadonlyArray<CorpusLocation> => [
+  ...Option.toArray(
+    Option.map(firstHeadingTitleOf(module), (token) => ({
+      path: module.path,
+      position: token.position,
+    })),
+  ),
+  ...Option.toArray(
+    Option.map(Option.fromNullable(module.doc.frontmatter?.title), (token) => ({
+      path: module.path,
+      position: token.position,
+    })),
+  ),
+]
+
+const tocMentionsOf = (
+  module: LoomModule,
+  title: string,
+): ReadonlyArray<CorpusLocation> =>
+  Array.filterMap(tocEntriesOf(module), (entry) =>
+    pipe(
+      Option.fromNullable(entry.title),
+      Option.filter((token) => token.value === title),
+      Option.map((token) => ({ path: module.path, position: token.position })),
+    ),
+  )
+
+const tocNameGroup = (
+  modules: Modules,
+  title: string,
+): ReadonlyArray<CorpusLocation> =>
+  Array.flatMap(Array.fromIterable(modules.values()), (module) => [
+    ...(isChapterTitled(module, title) ? titleDeclarationsOf(module) : []),
+    ...tocMentionsOf(module, title),
+  ])
+
+const tocNameGroupAt = (
+  corpus: LoomCorpusAst,
+  path: Path,
+  offset: number,
+): ReadonlyArray<CorpusLocation> =>
+  Option.match(tocEntryTitleAt(corpus.modules, path, offset), {
+    onNone: (): ReadonlyArray<CorpusLocation> => [],
+    onSome: (title) => tocNameGroup(corpus.modules, title),
+  })
+
+export const unresolvedTocEntriesIn = (
+  corpus: LoomCorpusAst,
+  module: LoomModule,
+): ReadonlyArray<TocTitleToken> => {
+  const index = chapterIndex(corpus.modules)
+  return Array.filterMap(tocEntriesOf(module), (entry) =>
+    pipe(
+      Option.fromNullable(entry.title),
+      Option.filter((title) => !index.has(title.value)),
+    ),
+  )
+}
+
+~
+
+`definitionAt` follows the reference under a cursor to its definition — a section anchor to its heading, a warp anchor to its warp, a table-of-contents entry to its chapter — and finds nothing on a definition, since a definition is already there. `referencesAt` returns every place the thing under the cursor is named — a section and its anchors, a warp and its anchors, or a chapter's title and the contents entries that name it. Each reads the kind from `symbolAt` and dispatches on it through one `Match`.
 
 =>
 
@@ -479,6 +620,9 @@ export const definitionAt = (
           Match.when('warpAnchor', () => warpDefLocation(module, path, offset)),
           Match.when('sectionAnchor', () =>
             sectionDefinitionAt(corpus, path, offset),
+          ),
+          Match.when('tocEntry', () =>
+            tocEntryDefinitionAt(corpus, path, offset),
           ),
           Match.orElse(() => Option.none<CorpusLocation>()),
         ),
@@ -508,6 +652,7 @@ export const referencesAt = (
           Match.whenOr('headingTitle', 'sectionAnchor', () =>
             sectionReferencesAt(corpus, path, offset),
           ),
+          Match.when('tocEntry', () => tocNameGroupAt(corpus, path, offset)),
           Match.orElse((): ReadonlyArray<CorpusLocation> => []),
         ),
     },
@@ -515,7 +660,7 @@ export const referencesAt = (
 
 ## Renaming a section
 
-A rename is one edit across the scope a name spans: a section's title and every anchor that resolves to it, or a warp's definition and every anchor that binds to it, move together so the name and its references never drift. `sectionRenameAt` gathers a section's spans; the exported `renameAt` reads `symbolAt` and sends a warp to `warpReferences` instead. Each span is a name alone — a title, or the name inside a `::[…]` — so the brackets and any `(path)` stay put.
+A rename is one edit across the scope a name spans: a section's title and every anchor that resolves to it, a warp's definition and every anchor that binds to it, or a chapter's title and every contents entry that names it, move together so the name and its references never drift. `sectionRenameAt` gathers a section's spans; the exported `renameAt` reads `symbolAt` and sends a warp to `warpReferences` instead. Each span is a name alone — a title, or the name inside a `::[…]` — so the brackets and any `(path)` stay put.
 
 =>
 
@@ -567,6 +712,7 @@ export const renameAt = (
           Match.whenOr('headingTitle', 'sectionAnchor', () =>
             sectionRenameAt(corpus, path, offset),
           ),
+          Match.when('tocEntry', () => tocNameGroupAt(corpus, path, offset)),
           Match.orElse((): ReadonlyArray<CorpusLocation> => []),
         ),
     },
@@ -642,16 +788,19 @@ export const corpusErrors = (
 
 ## What this module draws on
 
-Effect supplies `Schema` for the model, `Array`, `Option`, and `pipe` for the queries, and `Match` for the navigation's per-kind dispatch. The module bundles the parse model `LoomDocument` and the product model `ProductSchema`, with `LoomSection`, the unit the corpus walks, the `WarpAnchorToken` an anchor is, the `WarpToken` a value warp is defined by, and `Diagnostic` and `Position` — what a corpus walk gathers and a diagnostic lands on. `symbolAt` and `profileOf` from `LoomSymbol` name the token under a cursor and whether it navigates, so the navigation reads the same table the mappings and colours do.
+Effect supplies `Schema` for the model, `Array`, `Option`, and `pipe` for the queries, and `Match` for the navigation's per-kind dispatch. The module bundles the parse model `LoomDocument` and the product model `ProductSchema`, with `LoomSection`, the unit the corpus walks, the `WarpAnchorToken` an anchor is, the `WarpToken` a value warp is defined by, the `TocWeft` a contents entry is and the `TocTitleToken` it names a chapter with, and `Diagnostic` and `Position` — what a corpus walk gathers and a diagnostic lands on. `symbolAt` and `profileOf` from `LoomSymbol` name the token under a cursor and whether it navigates, so the navigation reads the same table the mappings and colours do.
 
 =>
 
 import { Array, Match, Option, pipe, Schema } from 'effect'
 import { type Diagnostic, type Position } from '#ast/LoomNode'
 import {
+  type HeadingTitleToken,
+  type TocTitleToken,
   type WarpAnchorToken,
   type WarpToken,
 } from '#ast/LoomTokens'
+import { type TocWeft } from '#ast/Weft'
 import { ProductSchema } from '#ast/ProductAst'
 import {
   LoomDocumentSchema,

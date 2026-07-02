@@ -12,7 +12,7 @@ Writing them once is the point. A reader sees everything Loom can say, gathered 
 
 ## What Loom can get wrong
 
-A `LoomFault` is a tagged union, and each variant names one fault and carries only what its message needs. An `UnclosedDelimiter` carries the delimiter it expected to find. An `UnresolvedAnchor` carries the name that matched no section, and an `AmbiguousAnchor` adds the count that made it ambiguous. A `MissingWarpValue` carries the name of a Warp that bound nothing. A `CrossLanguageAnchor` carries the anchor name, the language found at the target, and the language the host section composes.
+A `LoomFault` is a tagged union, and each variant names one fault and carries only what its message needs. An `UnclosedDelimiter` carries the delimiter it expected to find. An `UnresolvedAnchor` carries the name that matched no section, and an `AmbiguousAnchor` adds the count that made it ambiguous. A `MissingWarpValue` carries the name of a Warp that bound nothing. A `CrossLanguageAnchor` carries the anchor name, the language found at the target, and the language the host section composes. An `UnresolvedTocEntry` carries the title of a table-of-contents entry that names no chapter.
 
 The label faults fold many constructs into two variants. A construct is a named span the grammar validates — a specifier, a file path, a warp name, an anchor name. `EmptyLabel` is one with no text. `MalformedLabel` is one whose text breaks the construct's rule. Two further constructs — a warp annotation and a warp default — can only be empty, never malformed, so `EmptyConstruct` adds those two to `MalformedConstruct`.
 
@@ -44,6 +44,7 @@ export type LoomFault = Data.TaggedEnum<{
     readonly host: string
     readonly found: string
   }
+  UnresolvedTocEntry: { readonly title: string }
 }>
 
 ~
@@ -60,6 +61,7 @@ export const {
   UnresolvedAnchor,
   AmbiguousAnchor,
   CrossLanguageAnchor,
+  UnresolvedTocEntry,
 } = Data.taggedEnum<LoomFault>()
 
 ## The table
@@ -119,6 +121,9 @@ export const describe = (fault: LoomFault): Note =>
       error(
         `Cross-language transclusion: \`${name}\` is ${found}, but this section composes ${host}. A section composes one language.`,
       ),
+    ),
+    Match.tag('UnresolvedTocEntry', ({ title }) =>
+      error(`Unresolved contents entry: no chapter titled \`${title}\`.`),
     ),
     Match.exhaustive,
   )

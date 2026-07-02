@@ -32,6 +32,9 @@ import {
   SpecifierLabelTokenSchema,
   SpecifierOpenTokenSchema,
   SpecifierTokenSchema,
+  TocChapterTokenSchema,
+  TocPartTokenSchema,
+  TocTitleTokenSchema,
   AnchorCloseTokenSchema,
   AnchorOpenTokenSchema,
   defaultAnchorDelims,
@@ -92,6 +95,8 @@ import {
   ProseWeftSchema,
   type TildeWeft,
   TildeWeftSchema,
+  type TocWeft,
+  TocWeftSchema,
 } from '@athrio/loom-ast/Weft'
 
 export class WeftTokeniser extends Effect.Service<WeftTokeniser>()(
@@ -144,6 +149,7 @@ const tokeniseWeft = (
     ),
     Match.when({ type: 'CodeWeft' }, (w) => tokeniseCode(text, w, delims)),
     Match.when({ type: 'FrontmatterWeft' }, (w) => tokeniseFrontmatter(w)),
+    Match.when({ type: 'TocWeft' }, (w) => tokeniseToc(w)),
     Match.exhaustive,
   )
 
@@ -255,6 +261,47 @@ const bareFrontmatter = (weft: FrontmatterWeft): FrontmatterWeft =>
     source: weft.source,
     health: okHealth,
   })
+
+const tocPartMarker = /^(#{1,6}\s+)(\S.*)$/
+const tocChapterMarker = /^(\s*)(\d+)(\.\s+)(\S.*)$/
+
+const tokeniseToc = (weft: TocWeft): LoomWeft => {
+  const line = weft.position.start.line
+  const base = weft.position.start.offset
+  const content = weft.source.replace(/\r?\n$/, '')
+
+  const part = tocPartMarker.exec(content)
+  if (part) {
+    const partSpan = trimSpan(part[2], base + part[1].length)
+    return TocWeftSchema.make({
+      position: weft.position,
+      source: weft.source,
+      health: okHealth,
+      part: fieldToken(TocPartTokenSchema, line, partSpan),
+    })
+  }
+
+  const chapter = tocChapterMarker.exec(content)
+  if (chapter) {
+    const numStart = base + chapter[1].length
+    const numSpan = trimSpan(chapter[2], numStart)
+    const titleStart = numStart + chapter[2].length + chapter[3].length
+    const titleSpan = trimSpan(chapter[4], titleStart)
+    return TocWeftSchema.make({
+      position: weft.position,
+      source: weft.source,
+      health: okHealth,
+      chapter: fieldToken(TocChapterTokenSchema, line, numSpan),
+      title: fieldToken(TocTitleTokenSchema, line, titleSpan),
+    })
+  }
+
+  return TocWeftSchema.make({
+    position: weft.position,
+    source: weft.source,
+    health: okHealth,
+  })
+}
 
 const codeProbe = Option.getOrThrow(getProbe(CodeTokenSchema))
 const proseProbe = Option.getOrThrow(getProbe(ProseTokenSchema))

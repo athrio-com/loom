@@ -31,7 +31,7 @@ export class LoomAstBuilder extends Effect.Service<LoomAstBuilder>()(
 
 ## Peeling one node
 
-`parsingSink` is the shared shape: peel one input element, dispatch by its type, and wrap the result so an exhausted stream yields nothing. `nodeSink` peels one top-level node, which `dispatchNode` routes by type. A heading goes to `sectionSink`, which collects its body up to the next heading; a pre-heading preamble weft and a frontmatter weft each pass straight through. A body weft cannot reach the top level, so it dies as a defect. The predicates classify a weft along the way.
+`parsingSink` is the shared shape: peel one input element, dispatch by its type, and wrap the result so an exhausted stream yields nothing. `nodeSink` peels one top-level node, which `dispatchNode` routes by type. A heading goes to `sectionSink`, which collects its body up to the next heading; a pre-heading preamble weft and a frontmatter weft each pass straight through. A body weft or a toc weft cannot reach the top level, so it dies as a defect — a toc weft only ever sits inside the `{TOC}` section its heading opened, gathered with the rest of that body. The predicates classify a weft along the way.
 
 =>
 
@@ -57,6 +57,8 @@ const isSectionBody = (w: LoomWeft): w is SectionBodyWeft =>
 
 const isPreamble = (w: LoomWeft): w is PreambleWeft => w.type === 'PreambleWeft'
 
+const isToc = (w: LoomWeft): w is TocWeft => w.type === 'TocWeft'
+
 type TopLevelNode = PreambleWeft | LoomSection | FrontmatterWeft
 
 const nodeSink = parsingSink<LoomWeft, TopLevelNode>((w) => dispatchNode(w))
@@ -77,6 +79,7 @@ const dispatchNode = (
     Match.when({ type: 'CodeWeft' }, unexpectedAtTop),
     Match.when({ type: 'TildeWeft' }, unexpectedAtTop),
     Match.when({ type: 'ProseWeft' }, unexpectedAtTop),
+    Match.when({ type: 'TocWeft' }, unexpectedAtTop),
     Match.exhaustive,
   )
 
@@ -133,7 +136,7 @@ const appendToDocument = (
 
 ## Building a section
 
-`buildSection` turns a heading and its body chunk into a `LoomSection`: it partitions the body into preamble and code wefts, then derives the section's source and span. `headingOf` lifts the heading weft to a `LoomHeading`; `sourceOf` concatenates the children's sources to reconstruct the byte range; `spanFrom` runs the span from the heading's start to the last child's end.
+`buildSection` turns a heading and its body chunk into a `LoomSection`: it partitions the body into preamble, code, and toc-entry wefts, then derives the section's source and span. Only a `{TOC}` section carries entries; every other section leaves that run empty. `headingOf` lifts the heading weft to a `LoomHeading`; `sourceOf` concatenates the children's sources to reconstruct the byte range; `spanFrom` runs the span from the heading's start to the last child's end.
 
 =>
 
@@ -144,13 +147,15 @@ const buildSection = (
   const h = headingOf(heading)
   const preamble = Chunk.toReadonlyArray(Chunk.filter(body, isPreamble))
   const code = Chunk.toReadonlyArray(Chunk.filter(body, isSectionBody))
+  const entries = Chunk.toReadonlyArray(Chunk.filter(body, isToc))
   return LoomSectionSchema.make({
-    position: spanFrom(h.position, preamble, code),
-    source: sourceOf(h, preamble, code),
+    position: spanFrom(h.position, preamble, code, entries),
+    source: sourceOf(h, preamble, code, entries),
     health: okHealth,
     heading: h,
     preamble,
     code,
+    entries: entries.length > 0 ? entries : undefined,
   })
 }
 
@@ -352,6 +357,7 @@ import type {
   LoomWeft,
   PreambleWeft,
   SectionBodyWeft,
+  TocWeft,
 } from '@athrio/loom-ast/Weft'
 
 ## The module {Tangle}

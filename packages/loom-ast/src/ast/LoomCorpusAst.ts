@@ -1,9 +1,12 @@
 import { Array, Match, Option, pipe, Schema } from 'effect'
 import { type Diagnostic, type Position } from '#ast/LoomNode'
 import {
+  type HeadingTitleToken,
+  type TocTitleToken,
   type WarpAnchorToken,
   type WarpToken,
 } from '#ast/LoomTokens'
+import { type TocWeft } from '#ast/Weft'
 import { ProductSchema } from '#ast/ProductAst'
 import {
   LoomDocumentSchema,
@@ -400,6 +403,141 @@ const warpReferences = (
     ],
   })
 
+const firstHeadingTitleOf = (
+  module: LoomModule,
+): Option.Option<HeadingTitleToken> =>
+  Option.flatMap(
+    Array.findFirst(
+      module.doc.sections,
+      (section) => section.heading.title !== undefined,
+    ),
+    (section) => Option.fromNullable(section.heading.title),
+  )
+
+const chapterTitleToken = (
+  module: LoomModule,
+): Option.Option<{ readonly source: string; readonly position: Position }> =>
+  Option.orElse(firstHeadingTitleOf(module), () =>
+    Option.fromNullable(module.doc.frontmatter?.title),
+  )
+
+const chapterIndex = (modules: Modules): ReadonlyMap<string, CorpusLocation> =>
+  pipe(
+    Array.fromIterable(modules.values()),
+    Array.filterMap((module) =>
+      Option.map(
+        chapterTitleToken(module),
+        (title) =>
+          [
+            title.source,
+            { path: module.path, position: title.position },
+          ] as const,
+      ),
+    ),
+    Array.reduce(
+      new Map<string, CorpusLocation>(),
+      (index, [title, location]) =>
+        index.has(title) ? index : new Map(index).set(title, location),
+    ),
+  )
+
+const tocEntriesOf = (module: LoomModule): ReadonlyArray<TocWeft> =>
+  Array.flatMap(module.doc.sections, (section) => section.entries ?? [])
+
+const tocEntryTitleAt = (
+  modules: Modules,
+  path: Path,
+  offset: number,
+): Option.Option<string> =>
+  pipe(
+    Option.fromNullable(modules.get(path)),
+    Option.flatMap((module) =>
+      Array.findFirst(
+        tocEntriesOf(module),
+        (entry) =>
+          entry.title !== undefined && covers(entry.title.position, offset),
+      ),
+    ),
+    Option.flatMap((entry) => Option.fromNullable(entry.title)),
+    Option.map((title) => title.value),
+  )
+
+const tocEntryDefinitionAt = (
+  corpus: LoomCorpusAst,
+  path: Path,
+  offset: number,
+): Option.Option<CorpusLocation> =>
+  Option.flatMap(tocEntryTitleAt(corpus.modules, path, offset), (title) =>
+    Option.fromNullable(chapterIndex(corpus.modules).get(title)),
+  )
+
+const isChapterTitled = (module: LoomModule, title: string): boolean =>
+  Option.getOrElse(
+    Option.map(chapterTitleToken(module), (token) => token.source === title),
+    () => false,
+  )
+
+const titleDeclarationsOf = (
+  module: LoomModule,
+): ReadonlyArray<CorpusLocation> => [
+  ...Option.toArray(
+    Option.map(firstHeadingTitleOf(module), (token) => ({
+      path: module.path,
+      position: token.position,
+    })),
+  ),
+  ...Option.toArray(
+    Option.map(Option.fromNullable(module.doc.frontmatter?.title), (token) => ({
+      path: module.path,
+      position: token.position,
+    })),
+  ),
+]
+
+const tocMentionsOf = (
+  module: LoomModule,
+  title: string,
+): ReadonlyArray<CorpusLocation> =>
+  Array.filterMap(tocEntriesOf(module), (entry) =>
+    pipe(
+      Option.fromNullable(entry.title),
+      Option.filter((token) => token.value === title),
+      Option.map((token) => ({ path: module.path, position: token.position })),
+    ),
+  )
+
+const tocNameGroup = (
+  modules: Modules,
+  title: string,
+): ReadonlyArray<CorpusLocation> =>
+  Array.flatMap(Array.fromIterable(modules.values()), (module) => [
+    ...(isChapterTitled(module, title) ? titleDeclarationsOf(module) : []),
+    ...tocMentionsOf(module, title),
+  ])
+
+const tocNameGroupAt = (
+  corpus: LoomCorpusAst,
+  path: Path,
+  offset: number,
+): ReadonlyArray<CorpusLocation> =>
+  Option.match(tocEntryTitleAt(corpus.modules, path, offset), {
+    onNone: (): ReadonlyArray<CorpusLocation> => [],
+    onSome: (title) => tocNameGroup(corpus.modules, title),
+  })
+
+export const unresolvedTocEntriesIn = (
+  corpus: LoomCorpusAst,
+  module: LoomModule,
+): ReadonlyArray<TocTitleToken> => {
+  const index = chapterIndex(corpus.modules)
+  return Array.filterMap(tocEntriesOf(module), (entry) =>
+    pipe(
+      Option.fromNullable(entry.title),
+      Option.filter((title) => !index.has(title.value)),
+    ),
+  )
+}
+
 export const definitionAt = (
   corpus: LoomCorpusAst,
   path: Path,
@@ -413,6 +551,9 @@ export const definitionAt = (
           Match.when('warpAnchor', () => warpDefLocation(module, path, offset)),
           Match.when('sectionAnchor', () =>
             sectionDefinitionAt(corpus, path, offset),
+          ),
+          Match.when('tocEntry', () =>
+            tocEntryDefinitionAt(corpus, path, offset),
           ),
           Match.orElse(() => Option.none<CorpusLocation>()),
         ),
@@ -442,6 +583,7 @@ export const referencesAt = (
           Match.whenOr('headingTitle', 'sectionAnchor', () =>
             sectionReferencesAt(corpus, path, offset),
           ),
+          Match.when('tocEntry', () => tocNameGroupAt(corpus, path, offset)),
           Match.orElse((): ReadonlyArray<CorpusLocation> => []),
         ),
     },
@@ -495,6 +637,7 @@ export const renameAt = (
           Match.whenOr('headingTitle', 'sectionAnchor', () =>
             sectionRenameAt(corpus, path, offset),
           ),
+          Match.when('tocEntry', () => tocNameGroupAt(corpus, path, offset)),
           Match.orElse((): ReadonlyArray<CorpusLocation> => []),
         ),
     },

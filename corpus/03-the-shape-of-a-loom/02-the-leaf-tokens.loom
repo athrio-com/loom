@@ -163,6 +163,27 @@ export const FrontmatterValueTokenSchema = loomNode('FrontmatterValue', {
 })
 export type FrontmatterValueToken = typeof FrontmatterValueTokenSchema.Type
 
+## Table-of-contents tokens
+
+The table of contents lists the book's parts and their chapters, and these tokens are its entries. A `TocPart` is a part's line — the `#### Part III — The shape of a loom` heading that opens a part in the listing. A `TocChapter` is a chapter's number and a `TocTitle` its name, both read from a numbered item like `5. The multi-file AST`: the list number is the chapter's `Chapter N`, and the text is its title. None carries a `Probe`. Like the frontmatter tokens, each is read from its line by position, once the classifier has marked the line as table-of-contents content.
+
+=>
+
+export const TocPartTokenSchema = loomNode('TocPart', {
+  value: Schema.String,
+})
+export type TocPartToken = typeof TocPartTokenSchema.Type
+
+export const TocChapterTokenSchema = loomNode('TocChapter', {
+  value: Schema.String,
+})
+export type TocChapterToken = typeof TocChapterTokenSchema.Type
+
+export const TocTitleTokenSchema = loomNode('TocTitle', {
+  value: Schema.String,
+})
+export type TocTitleToken = typeof TocTitleTokenSchema.Type
+
 ## Transition markers
 
 `Arrow` (`=>`) opens a code chunk and `Tilde` (`~`) opens prose. Both are position-only — the marker is recognised here, the content after it elsewhere.
@@ -399,6 +420,9 @@ export const LoomTokenSchema = Schema.Union(
   FrontmatterTitleTokenSchema,
   FrontmatterKeyTokenSchema,
   FrontmatterValueTokenSchema,
+  TocPartTokenSchema,
+  TocChapterTokenSchema,
+  TocTitleTokenSchema,
   ArrowTokenSchema,
   TildeTokenSchema,
   HeadingTitleTokenSchema,
@@ -433,6 +457,8 @@ import { loomNode } from '#ast/LoomNode'
 ::[Sinks]
 
 ::[Frontmatter tokens]
+
+::[Table-of-contents tokens]
 
 ::[Transition markers]
 
