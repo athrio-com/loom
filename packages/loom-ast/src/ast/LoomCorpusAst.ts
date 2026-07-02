@@ -275,23 +275,32 @@ const reach = (
   return grow(new Set(seeds), seeds)
 }
 
-const chapterEdges = (
+const anchorEdges = (
   modules: Modules,
-): ReadonlyArray<{ readonly owner: Path; readonly chapter: Path }> =>
-  Array.map(bookChapters({ modules }), (chapter) => ({
-    owner: chapter.owner.module,
-    chapter: chapter.start.module,
-  }))
+): ReadonlyArray<{ readonly owner: Path; readonly target: Path }> => {
+  const indexes = titleIndexes(modules)
+  return pipe(
+    Array.fromIterable(modules.values()),
+    Array.flatMap((m) =>
+      Array.filterMap(Array.flatMap(m.doc.sections, anchorsOf), (anchor) =>
+        Option.map(resolveAnchor(indexes, m.path, anchor), (target) => ({
+          owner: m.path,
+          target: target.module,
+        })),
+      ),
+    ),
+  )
+}
 
-export const placeReachable = (
+export const reachable = (
   modules: Modules,
   entry: Path,
 ): ReadonlyArray<Path> => {
-  const edges = chapterEdges(modules)
+  const edges = anchorEdges(modules)
   return Array.fromIterable(
     reach([entry], (module) =>
       Array.filterMap(edges, (edge) =>
-        edge.owner === module ? Option.some(edge.chapter) : Option.none(),
+        edge.owner === module ? Option.some(edge.target) : Option.none(),
       ),
     ),
   )
@@ -301,12 +310,12 @@ export const transitiveDependents = (
   modules: Modules,
   entry: Path,
 ): ReadonlyArray<Path> => {
-  const edges = chapterEdges(modules)
+  const edges = anchorEdges(modules)
   return pipe(
     Array.fromIterable(
       reach([entry], (module) =>
         Array.filterMap(edges, (edge) =>
-          edge.chapter === module ? Option.some(edge.owner) : Option.none(),
+          edge.target === module ? Option.some(edge.owner) : Option.none(),
         ),
       ),
     ),

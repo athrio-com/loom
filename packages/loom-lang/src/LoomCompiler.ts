@@ -9,7 +9,7 @@ import {
   corpusErrors,
   definitionAt,
   moduleDiagnostics,
-  placeReachable,
+  reachable,
   placedModules,
   referencesAt,
   renameAt,
@@ -449,7 +449,7 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
         ): Effect.Effect<ReadonlyArray<TangledFile>, TangleError> =>
           buildCorpus(documents, path).pipe(
             Effect.flatMap((modules) => {
-              const scoped = scopedTo(modules, placeReachable(modules, path))
+              const scoped = scopedTo(modules, reachable(modules, path))
               return collisionDiagnostics(config, scoped).pipe(
                 Effect.flatMap((collisions) => {
                   const sinkErrors = Array.filterMap(
@@ -528,7 +528,7 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
         diagnose: (path: Path): Effect.Effect<ReadonlyArray<Diagnostic>> =>
           buildCorpus(documents, path).pipe(
             Effect.flatMap((modules) => {
-              const scoped = scopedTo(modules, placeReachable(modules, path))
+              const scoped = scopedTo(modules, reachable(modules, path))
               return collisionDiagnostics(config, scoped).pipe(
                 Effect.map((collisions) =>
                   pipe(
@@ -635,7 +635,7 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
         reach: (path: Path): Effect.Effect<ReadonlyArray<Path>> =>
           buildCorpus(documents, path).pipe(
             Effect.map((modules) =>
-              Array.filter(placeReachable(modules, path), (p) => p !== path),
+              Array.filter(reachable(modules, path), (p) => p !== path),
             ),
           ),
 

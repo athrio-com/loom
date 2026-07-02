@@ -314,11 +314,11 @@ export const sinkTreeRouting = (
   )
 }
 
-## Reaching through the book
+## Reaching through the corpus
 
-The sink tree is a directed graph: a higher-order sink in one loom places a chapter that lives in another. Two reaches over it scope the work an entry needs. `placeReachable` is the forward reach — the entry, every chapter its books place, and the chapters those place in turn. A run and a tangle scope to it, so producing one file never composes an unrelated loom, and a broken loom no book places never fails the build. `transitiveDependents` is the reverse — every book that places a chapter in a given loom, transitively. An edit to a loom reprojects that set, since a book's placement shifts when a chapter it carries does.
+A run and a tangle need only part of the corpus: the entry and the sections it composes. `reachable` is the forward reach over the anchor graph — the entry, every module a section in it names through an `::[…]` anchor, and the modules those name in turn. Tangling one file never composes an unrelated loom, and a loom the entry never anchors never fails its build. `transitiveDependents` is the reverse — every module that composes a section in a given file, transitively — so an edit reprojects each file that inlined it.
 
-`reach` grows a set along one direction of the edges until it adds nothing more, guarding a cycle so the walk ends. `chapterEdges` reads the book's edges once: each pairs a book's module with the module of a chapter it opens.
+`reach` grows a set along one direction of the edges until it adds nothing more, guarding a cycle so the walk ends. `anchorEdges` reads the corpus once: each anchor a module carries becomes an edge to the module that holds the section it names.
 
 =>
 
@@ -341,23 +341,32 @@ const reach = (
   return grow(new Set(seeds), seeds)
 }
 
-const chapterEdges = (
+const anchorEdges = (
   modules: Modules,
-): ReadonlyArray<{ readonly owner: Path; readonly chapter: Path }> =>
-  Array.map(bookChapters({ modules }), (chapter) => ({
-    owner: chapter.owner.module,
-    chapter: chapter.start.module,
-  }))
+): ReadonlyArray<{ readonly owner: Path; readonly target: Path }> => {
+  const indexes = titleIndexes(modules)
+  return pipe(
+    Array.fromIterable(modules.values()),
+    Array.flatMap((m) =>
+      Array.filterMap(Array.flatMap(m.doc.sections, anchorsOf), (anchor) =>
+        Option.map(resolveAnchor(indexes, m.path, anchor), (target) => ({
+          owner: m.path,
+          target: target.module,
+        })),
+      ),
+    ),
+  )
+}
 
-export const placeReachable = (
+export const reachable = (
   modules: Modules,
   entry: Path,
 ): ReadonlyArray<Path> => {
-  const edges = chapterEdges(modules)
+  const edges = anchorEdges(modules)
   return Array.fromIterable(
     reach([entry], (module) =>
       Array.filterMap(edges, (edge) =>
-        edge.owner === module ? Option.some(edge.chapter) : Option.none(),
+        edge.owner === module ? Option.some(edge.target) : Option.none(),
       ),
     ),
   )
@@ -367,12 +376,12 @@ export const transitiveDependents = (
   modules: Modules,
   entry: Path,
 ): ReadonlyArray<Path> => {
-  const edges = chapterEdges(modules)
+  const edges = anchorEdges(modules)
   return pipe(
     Array.fromIterable(
       reach([entry], (module) =>
         Array.filterMap(edges, (edge) =>
-          edge.chapter === module ? Option.some(edge.owner) : Option.none(),
+          edge.target === module ? Option.some(edge.owner) : Option.none(),
         ),
       ),
     ),
@@ -1173,7 +1182,7 @@ import { profileOf, symbolAt } from '#ast/LoomSymbol'
 
 ::[The sink tree]
 
-::[Reaching through the book]
+::[Reaching through the corpus]
 
 ::[The tangle sinks]
 

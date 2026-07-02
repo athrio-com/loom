@@ -100,7 +100,7 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
         ): Effect.Effect<ReadonlyArray<TangledFile>, TangleError> =>
           buildCorpus(documents, path).pipe(
             Effect.flatMap((modules) => {
-              const scoped = scopedTo(modules, placeReachable(modules, path))
+              const scoped = scopedTo(modules, reachable(modules, path))
               return collisionDiagnostics(config, scoped).pipe(
                 Effect.flatMap((collisions) => {
                   const sinkErrors = Array.filterMap(
@@ -179,7 +179,7 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
         diagnose: (path: Path): Effect.Effect<ReadonlyArray<Diagnostic>> =>
           buildCorpus(documents, path).pipe(
             Effect.flatMap((modules) => {
-              const scoped = scopedTo(modules, placeReachable(modules, path))
+              const scoped = scopedTo(modules, reachable(modules, path))
               return collisionDiagnostics(config, scoped).pipe(
                 Effect.map((collisions) =>
                   pipe(
@@ -286,7 +286,7 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
         reach: (path: Path): Effect.Effect<ReadonlyArray<Path>> =>
           buildCorpus(documents, path).pipe(
             Effect.map((modules) =>
-              Array.filter(placeReachable(modules, path), (p) => p !== path),
+              Array.filter(reachable(modules, path), (p) => p !== path),
             ),
           ),
 
@@ -310,7 +310,7 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
 
 A file's corpus is the looms beside it: every `.loom` under the directory the file lives in, discovered from disk, not the files it names in imports. `buildCorpus` lists that directory through the source and builds each loom it finds, so a book reaches the chapters it places and an anchor reaches the section it names, with nothing imported by hand. A source that lists nothing — a single document held in memory — yields a corpus of one.
 
-The whole corpus is what navigation and placement resolve against, so a name reaches a section wherever in the corpus it lives. The tangle and the diagnose narrow it: each scopes to the entry and the chapters a book places into it, through `placeReachable`, so tangling one file never reaches a sibling it should not, and a broken sibling never fails a neighbour's build.
+The whole corpus is what navigation resolves against, so a name reaches a section wherever in the corpus it lives. The tangle and the diagnose narrow it: each scopes to the entry and the sections it composes across files, through `reachable`, so tangling one file never reaches a sibling it should not, and a broken sibling never fails a neighbour's build.
 
 A `Modules` map keys each module by its path. It is the value `buildCorpus` returns and every projection reads. `scopedTo` keeps the modules a set of paths names, the way the tangle narrows the whole corpus to one entry's reach.
 
@@ -703,7 +703,7 @@ import {
   corpusErrors,
   definitionAt,
   moduleDiagnostics,
-  placeReachable,
+  reachable,
   placedModules,
   referencesAt,
   renameAt,
