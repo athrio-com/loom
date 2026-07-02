@@ -14,6 +14,8 @@ You meet Loom the way you use it: by writing a document and watching it become c
 
 You have written a loom; this part is what Loom makes of it. Loom is a literate-programming language, and a loom weaves three layers into one file: the **Loom syntax** that composes the document, the **prose** a person reads, and the **code** each section is written in. Loom reads the file into one tree and carries it along a chain of small, total passes, then composes that tree into its **product** — the author's code with every `::[…]` anchor resolved to an edge. The tangler writes the product to files; the editor reads the same tree. The rest of the book walks that pipeline one pass at a time.
 
+1. The first syntax
+
 ### Part III — The shape of a loom
 
 A loom is text, but Loom does not work on text. It works on a tree. This part is that tree — the data model every later pass reads and enriches.

@@ -1,0 +1,34 @@
+---
+Part II: How a loom becomes code
+Chapter 1: The first syntax
+Language: TypeScript
+---
+
+# The first syntax
+
+At this stage we have no Loom-specific syntax at all. This chapter is the genesis of its own: it is written in the syntax it defines, and it must define that syntax before it can be read. So we begin with nothing and add one primitive at a time, each earning its place by what it lets us write next.
+
+The first thing that lets us materialise a Loom program is the *arrow*. An arrow has a simple and crucial role — it maps *prose* to *code*. Written `=>` on its own line, it opens a code block: everything below it, until the prose resumes, is code.
+
+=>
+
+// Hello! This is the beginning of the Loom language.
+
+~
+
+That first program does nothing but show the rhythm of every Loom program. The *tilde* `~` you just passed marks the transition back from code to prose, as the arrow marked the way in. A section alternates freely — any number of prose and code blocks, each divided from the last by an arrow or a tilde. Prose explains; code runs; the two take turns.
+
+With the arrow and the tilde in hand, we can name the primitives Loom now rests on:
+
+1. A *chapter* — one `.loom` file, opening with a `---` frontmatter block that declares where the chapter belongs and what it produces.
+2. *Sections* — the `#` headings within it, each a unit of prose and code.
+3. *Prose* — the layer a person reads.
+4. *Code* — the layer that runs, in the section's own language.
+5. The *arrow* `=>` — prose gives way to code.
+6. The *tilde* `~` — code gives way to prose.
+7. A *sink* `[file]` — on a `{Tangle}` heading, the file that section writes.
+8. A *specifier* `{…}` — a heading's language or role: `{TypeScript}`, `{Tangle}`, `{TOC}`.
+9. An *anchor* `::[Name]` — one section drawing another in by its title, the thread that composes a whole file from its parts.
+10. A *warp* `{{ name = value }}` — a value bound in prose and referred to from the code below.
+
+Every later chapter is built from these ten. The rest of this part follows what Loom makes of them — a tree, a product, and the files a build writes.
