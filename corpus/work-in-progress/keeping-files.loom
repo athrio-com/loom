@@ -1,0 +1,11 @@
+---
+Language: TypeScript
+---
+
+# Keeping files through a total re-tangle
+
+A total re-tangle rebuilds the whole output tree from the book and removes what the book no longer produces — the orphan the orphaned-output loom describes. But not every file beneath a package's `src` is tangled. A hand-written test, a checked-in fixture, a file a person keeps by hand: a total re-tangle would sweep each away with the true orphans, because the book never wrote it. The sweep needs a way to tell a kept file from a stale one.
+
+Two ways name what to keep, and the tangler honours both. A `--keep` flag on the command takes the globs a run spares — `loom tangle --all --keep 'test/**'`. A `.keep` file beside the output lists the same globs, so a checkout keeps its kept files without anyone passing a flag. A path the book produces is written; a path a keep rule covers is left untouched; only a path that is neither — output an older book wrote and this one no longer does — is removed.
+
+This is the other half of the orphan sweep, and waits on it: there is nothing to keep a file *from* until a total re-tangle removes anything. So the two are built together, the sweep and the guard that spares the files it must not touch.
