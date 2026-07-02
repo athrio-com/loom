@@ -2,7 +2,7 @@
 
 # Tangling to disk
 
-`LoomTangler` is the filesystem surface of the de re plane. The compiler resolves a `.loom` file's `{path}` sinks to their content and target; the tangler writes them to disk. `tangle` takes a path, finds the looms under it, and writes every sink each one resolves — skipping the chapters a book already places, so every file is written once. It is the half of the pipeline the editor never runs — the editor projects to virtual code, the tangler emits real files.
+`LoomTangler` is the filesystem surface of the product. The compiler resolves a `.loom` file's `{path}` sinks to their content and target; the tangler writes them to disk. `tangle` takes a path, finds the looms under it, and writes every sink each one resolves — skipping the chapters a book already places, so every file is written once. It is the half of the pipeline the editor never runs — the editor projects to virtual code, the tangler emits real files.
 
 ## The tangler service
 

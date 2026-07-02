@@ -31,13 +31,29 @@ export const LoomSectionSchema = loomNode('LoomSection', {
 })
 export type LoomSection = typeof LoomSectionSchema.Type
 
+## The frontmatter
+
+A `LoomFrontmatter` is a chapter's opening block, parsed. It carries the membership line's `part`, `chapter`, and `title`, and the block's two fields: the `package` a `{Tangle}` section writes to, and the `language` its sections inherit. Every slot is optional, so a partial block still parses to a node the diagnostics can fault, and a file with no block has no frontmatter at all.
+
+=>
+
+export const LoomFrontmatterSchema = loomNode('LoomFrontmatter', {
+  part: Schema.optional(FrontmatterPartTokenSchema),
+  chapter: Schema.optional(FrontmatterChapterTokenSchema),
+  title: Schema.optional(FrontmatterTitleTokenSchema),
+  package: Schema.optional(FrontmatterValueTokenSchema),
+  language: Schema.optional(FrontmatterValueTokenSchema),
+})
+export type LoomFrontmatter = typeof LoomFrontmatterSchema.Type
+
 ## The document
 
-A `LoomDocument` is the root, the implicit module named by its file. Its `preamble` is the run of wefts before the first heading — carrying the `lang` Warp — and its `sections` are the flat list that follows. Either slot may be empty.
+A `LoomDocument` is the root, the implicit module named by its file. Its `frontmatter` is the opening block, when the file has one; its `preamble` is the run of wefts between that block and the first heading — carrying any value Warps; and its `sections` are the flat list that follows. Every slot may be empty.
 
 =>
 
 export const LoomDocumentSchema = loomNode('LoomDocument', {
+  frontmatter: Schema.optional(LoomFrontmatterSchema),
   preamble: Schema.Array(PreambleWeftSchema),
   sections: Schema.Array(LoomSectionSchema),
 })
@@ -52,6 +68,10 @@ Each container is a `loomNode` built from Effect's `Schema`. The heading's subto
 import { Schema } from 'effect'
 import { loomNode } from '#ast/LoomNode'
 import {
+  FrontmatterChapterTokenSchema,
+  FrontmatterPartTokenSchema,
+  FrontmatterTitleTokenSchema,
+  FrontmatterValueTokenSchema,
   HeadingStartTokenSchema,
   HeadingTitleTokenSchema,
   SinkTokenSchema,
@@ -68,5 +88,7 @@ import { PreambleWeftSchema, SectionBodyWeftSchema } from './Weft'
 ::[The heading]
 
 ::[The section]
+
+::[The frontmatter]
 
 ::[The document]

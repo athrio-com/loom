@@ -56,6 +56,22 @@ export const CodeWeftSchema = loomNode('CodeWeft', {
 })
 export type CodeWeft = typeof CodeWeftSchema.Type
 
+## The frontmatter weft
+
+A `FrontmatterWeft` is one line of the frontmatter block — a fence, the membership line, or a `key: value` field. One weft kind covers all three, each filling the slots its line owns: a fence line fills `fence`; the membership line fills `part`, `chapter`, and `title`; a field line fills `key` and `value`. This mirrors the heading weft, which carries its title, specifier, and sink in the same optional way. The document builder gathers a file's frontmatter wefts into one `LoomFrontmatter`.
+
+=>
+
+export const FrontmatterWeftSchema = loomNode('FrontmatterWeft', {
+  fence: Schema.optional(FrontmatterFenceTokenSchema),
+  part: Schema.optional(FrontmatterPartTokenSchema),
+  chapter: Schema.optional(FrontmatterChapterTokenSchema),
+  title: Schema.optional(FrontmatterTitleTokenSchema),
+  key: Schema.optional(FrontmatterKeyTokenSchema),
+  value: Schema.optional(FrontmatterValueTokenSchema),
+})
+export type FrontmatterWeft = typeof FrontmatterWeftSchema.Type
+
 ## The weft unions
 
 `LoomWeft` is the union of every weft kind — the tokeniser's stream element. `SectionBodyWeft` is the narrower union the grammar admits inside a section body: arrow, code, tilde, and prose, in the forward-only order the classifier enforces.
@@ -69,6 +85,7 @@ export const LoomWeftSchema = Schema.Union(
   PreambleWeftSchema,
   ProseWeftSchema,
   CodeWeftSchema,
+  FrontmatterWeftSchema,
 )
 export type LoomWeft = typeof LoomWeftSchema.Type
 
@@ -91,6 +108,12 @@ import { loomNode } from '#ast/LoomNode'
 import {
   ArrowTokenSchema,
   CodeTokenSchema,
+  FrontmatterChapterTokenSchema,
+  FrontmatterFenceTokenSchema,
+  FrontmatterKeyTokenSchema,
+  FrontmatterPartTokenSchema,
+  FrontmatterTitleTokenSchema,
+  FrontmatterValueTokenSchema,
   HeadingStartTokenSchema,
   HeadingTitleTokenSchema,
   ProseTokenSchema,
@@ -110,5 +133,7 @@ import {
 ::[The heading weft]
 
 ::[The body wefts]
+
+::[The frontmatter weft]
 
 ::[The weft unions]

@@ -10,15 +10,19 @@ import {
 } from 'effect'
 import {
   LoomDocumentSchema,
+  LoomFrontmatterSchema,
   LoomHeadingSchema,
   LoomSectionSchema,
   type LoomDocument,
+  type LoomFrontmatter,
   type LoomHeading,
   type LoomSection,
 } from '@athrio/loom-ast/LoomAst'
+import type { FrontmatterValueToken } from '@athrio/loom-ast/LoomTokens'
 import { okHealth, type Position } from '@athrio/loom-ast/LoomNode'
 import type { MixedEOL } from './LineRanges'
 import type {
+  FrontmatterWeft,
   HeadingWeft,
   LoomWeft,
   PreambleWeft,
@@ -62,7 +66,7 @@ const isSectionBody = (w: LoomWeft): w is SectionBodyWeft =>
 
 const isPreamble = (w: LoomWeft): w is PreambleWeft => w.type === 'PreambleWeft'
 
-type TopLevelNode = PreambleWeft | LoomSection
+type TopLevelNode = PreambleWeft | LoomSection | FrontmatterWeft
 
 const nodeSink = parsingSink<LoomWeft, TopLevelNode>((w) => dispatchNode(w))
 
@@ -73,6 +77,9 @@ const dispatchNode = (
     Match.value(w),
     Match.when({ type: 'HeadingWeft' }, sectionSink),
     Match.when({ type: 'PreambleWeft' }, (weft) =>
+      Sink.succeed<TopLevelNode>(weft),
+    ),
+    Match.when({ type: 'FrontmatterWeft' }, (weft) =>
       Sink.succeed<TopLevelNode>(weft),
     ),
     Match.when({ type: 'ArrowWeft' }, unexpectedAtTop),
@@ -95,11 +102,13 @@ const sectionSink = (
   )
 
 type DocumentBuilder = {
+  readonly frontmatter: ReadonlyArray<FrontmatterWeft>
   readonly preamble: ReadonlyArray<PreambleWeft>
   readonly sections: ReadonlyArray<LoomSection>
 }
 
 const initialDocument: DocumentBuilder = {
+  frontmatter: [],
   preamble: [],
   sections: [],
 }
@@ -117,6 +126,10 @@ const appendToDocument = (
     Match.when({ type: 'PreambleWeft' }, (weft) => ({
       ...doc,
       preamble: [...doc.preamble, weft],
+    })),
+    Match.when({ type: 'FrontmatterWeft' }, (weft) => ({
+      ...doc,
+      frontmatter: [...doc.frontmatter, weft],
     })),
     Match.exhaustive,
   )
@@ -172,8 +185,46 @@ const spanFrom = (
   }
 }
 
+const makeFrontmatter = (
+  wefts: ReadonlyArray<FrontmatterWeft>,
+): Option.Option<LoomFrontmatter> => {
+  if (wefts.length === 0) return Option.none()
+  const membership = Option.match(
+    Option.fromNullable(wefts.find((w) => w.part !== undefined)),
+    {
+      onNone: () => ({}),
+      onSome: (w) => ({ part: w.part, chapter: w.chapter, title: w.title }),
+    },
+  )
+  return Option.some(
+    LoomFrontmatterSchema.make({
+      position: {
+        start: wefts[0].position.start,
+        end: wefts[wefts.length - 1].position.end,
+      },
+      source: sourceOf(wefts),
+      health: okHealth,
+      ...membership,
+      package: Option.getOrUndefined(frontmatterField(wefts, 'Package')),
+      language: Option.getOrUndefined(frontmatterField(wefts, 'Language')),
+    }),
+  )
+}
+
+const frontmatterField = (
+  wefts: ReadonlyArray<FrontmatterWeft>,
+  key: string,
+): Option.Option<FrontmatterValueToken> =>
+  pipe(
+    Option.fromNullable(
+      wefts.find((w) => w.key !== undefined && w.key.value === key),
+    ),
+    Option.flatMapNullable((w) => w.value),
+  )
+
 const documentSpan = (db: DocumentBuilder): Position => {
   const all: ReadonlyArray<{ readonly position: Position }> = [
+    ...db.frontmatter,
     ...db.preamble,
     ...db.sections,
   ]
@@ -186,8 +237,9 @@ const makeDocument = (db: DocumentBuilder): LoomDocument => {
   const position = documentSpan(db)
   return LoomDocumentSchema.make({
     position,
-    source: sourceOf(db.preamble, db.sections),
+    source: sourceOf(db.frontmatter, db.preamble, db.sections),
     health: okHealth,
+    frontmatter: Option.getOrUndefined(makeFrontmatter(db.frontmatter)),
     preamble: db.preamble,
     sections: db.sections,
   })

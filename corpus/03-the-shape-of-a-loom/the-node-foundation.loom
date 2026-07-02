@@ -1,4 +1,8 @@
-{{lang: TypeScript}}
+---
+Part III, Chapter 1: The node foundation
+Package: packages/loom-ast/src/ast/LoomNode.ts
+Language: TypeScript
+---
 
 # The node foundation
 
@@ -117,7 +121,7 @@ export const loomNode = <
     ...fields,
   })
 
-## The module [packages/loom-ast/src/ast, LoomNode.ts]
+## The module {Tangle}
 
 =>
 

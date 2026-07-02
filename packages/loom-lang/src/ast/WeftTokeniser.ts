@@ -16,6 +16,11 @@ import {
 } from '@athrio/loom-ast/LoomNode'
 import {
   CodeTokenSchema,
+  FrontmatterChapterTokenSchema,
+  FrontmatterKeyTokenSchema,
+  FrontmatterPartTokenSchema,
+  FrontmatterTitleTokenSchema,
+  FrontmatterValueTokenSchema,
   HeadingTitleTokenSchema,
   ProseTokenSchema,
   SinkCloseTokenSchema,
@@ -77,6 +82,8 @@ import {
   ArrowWeftSchema,
   type CodeWeft,
   CodeWeftSchema,
+  type FrontmatterWeft,
+  FrontmatterWeftSchema,
   type HeadingWeft,
   HeadingWeftSchema,
   type LoomWeft,
@@ -137,8 +144,103 @@ const tokeniseWeft = (
       tokeniseProse(text, w, delims, skipAnchors),
     ),
     Match.when({ type: 'CodeWeft' }, (w) => tokeniseCode(text, w, delims)),
+    Match.when({ type: 'FrontmatterWeft' }, (w) => tokeniseFrontmatter(w)),
     Match.exhaustive,
   )
+
+const parseMembership = (
+  weft: FrontmatterWeft,
+): Option.Option<FrontmatterWeft> => {
+  const lineText = weft.source
+  const line = weft.position.start.line
+  const base = weft.position.start.offset
+  const comma = lineText.indexOf(',')
+  if (comma < 0) return Option.none()
+  const colon = lineText.indexOf(':', comma)
+  if (colon < 0) return Option.none()
+  const partSpan = trimSpan(lineText.slice(0, comma), base)
+  const chapterSpan = trimSpan(lineText.slice(comma + 1, colon), base + comma + 1)
+  const titleSpan = trimSpan(lineText.slice(colon + 1), base + colon + 1)
+  if (!partSpan.value.startsWith('Part ')) return Option.none()
+  if (!chapterSpan.value.startsWith('Chapter ')) return Option.none()
+  const part = FrontmatterPartTokenSchema.make({
+    position: span(line, partSpan.start, partSpan.end),
+    source: partSpan.value,
+    health: okHealth,
+    value: partSpan.value.slice('Part '.length).trim(),
+  })
+  const chapter = FrontmatterChapterTokenSchema.make({
+    position: span(line, chapterSpan.start, chapterSpan.end),
+    source: chapterSpan.value,
+    health: okHealth,
+    value: chapterSpan.value.slice('Chapter '.length).trim(),
+  })
+  const title = FrontmatterTitleTokenSchema.make({
+    position: span(line, titleSpan.start, titleSpan.end),
+    source: titleSpan.value,
+    health: okHealth,
+    value: titleSpan.value,
+  })
+  return Option.some(
+    FrontmatterWeftSchema.make({
+      position: weft.position,
+      source: lineText,
+      health: okHealth,
+      part,
+      chapter,
+      title,
+    }),
+  )
+}
+
+const frontmatterKeys: ReadonlyArray<string> = ['Package', 'Language']
+
+const parseField = (weft: FrontmatterWeft): Option.Option<FrontmatterWeft> => {
+  const lineText = weft.source
+  const line = weft.position.start.line
+  const base = weft.position.start.offset
+  const colon = lineText.indexOf(':')
+  if (colon < 0) return Option.none()
+  const keySpan = trimSpan(lineText.slice(0, colon), base)
+  if (!frontmatterKeys.includes(keySpan.value)) return Option.none()
+  const valueSpan = trimSpan(lineText.slice(colon + 1), base + colon + 1)
+  const key = FrontmatterKeyTokenSchema.make({
+    position: span(line, keySpan.start, keySpan.end),
+    source: keySpan.value,
+    health: okHealth,
+    value: keySpan.value,
+  })
+  const value = FrontmatterValueTokenSchema.make({
+    position: span(line, valueSpan.start, valueSpan.end),
+    source: valueSpan.value,
+    health: okHealth,
+    value: valueSpan.value,
+  })
+  return Option.some(
+    FrontmatterWeftSchema.make({
+      position: weft.position,
+      source: lineText,
+      health: okHealth,
+      key,
+      value,
+    }),
+  )
+}
+
+const tokeniseFrontmatter = (weft: FrontmatterWeft): LoomWeft => {
+  if (weft.fence !== undefined) return weft
+  return pipe(
+    parseMembership(weft),
+    Option.orElse(() => parseField(weft)),
+    Option.getOrElse(() =>
+      FrontmatterWeftSchema.make({
+        position: weft.position,
+        source: weft.source,
+        health: okHealth,
+      }),
+    ),
+  )
+}
 
 const codeProbe = Option.getOrThrow(getProbe(CodeTokenSchema))
 const proseProbe = Option.getOrThrow(getProbe(ProseTokenSchema))

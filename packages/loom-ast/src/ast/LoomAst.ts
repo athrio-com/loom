@@ -1,6 +1,10 @@
 import { Schema } from 'effect'
 import { loomNode } from '#ast/LoomNode'
 import {
+  FrontmatterChapterTokenSchema,
+  FrontmatterPartTokenSchema,
+  FrontmatterTitleTokenSchema,
+  FrontmatterValueTokenSchema,
   HeadingStartTokenSchema,
   HeadingTitleTokenSchema,
   SinkTokenSchema,
@@ -23,7 +27,17 @@ export const LoomSectionSchema = loomNode('LoomSection', {
 })
 export type LoomSection = typeof LoomSectionSchema.Type
 
+export const LoomFrontmatterSchema = loomNode('LoomFrontmatter', {
+  part: Schema.optional(FrontmatterPartTokenSchema),
+  chapter: Schema.optional(FrontmatterChapterTokenSchema),
+  title: Schema.optional(FrontmatterTitleTokenSchema),
+  package: Schema.optional(FrontmatterValueTokenSchema),
+  language: Schema.optional(FrontmatterValueTokenSchema),
+})
+export type LoomFrontmatter = typeof LoomFrontmatterSchema.Type
+
 export const LoomDocumentSchema = loomNode('LoomDocument', {
+  frontmatter: Schema.optional(LoomFrontmatterSchema),
   preamble: Schema.Array(PreambleWeftSchema),
   sections: Schema.Array(LoomSectionSchema),
 })

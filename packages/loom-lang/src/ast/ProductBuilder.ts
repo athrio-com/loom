@@ -1,5 +1,9 @@
 import { Array, Match, Effect, Option, Order, pipe } from 'effect'
-import type { LoomDocument, LoomSection } from '@athrio/loom-ast/LoomAst'
+import type {
+  LoomDocument,
+  LoomFrontmatter,
+  LoomSection,
+} from '@athrio/loom-ast/LoomAst'
 import {
   okHealth,
   type Health,
@@ -7,6 +11,7 @@ import {
   type Position,
 } from '@athrio/loom-ast/LoomNode'
 import type {
+  SinkToken,
   WarpAnchorToken,
   WarpToken,
 } from '@athrio/loom-ast/LoomTokens'
@@ -52,11 +57,22 @@ export const buildProduct = (
   modulePath: string,
   packageLanguage?: string,
 ): Product => {
-  const lang = documentLanguage(doc.preamble) ?? packageLanguage ?? 'plaintext'
-  const index = nameIndex(doc.sections, lang)
+  const fm = Option.fromNullable(doc.frontmatter)
+  const pkg = pipe(
+    fm,
+    Option.flatMapNullable((f) => f.package),
+    Option.map((p) => p.value),
+  )
+  const lang = pipe(
+    frontmatterLanguage(fm),
+    Option.orElse(() => Option.fromNullable(documentLanguage(doc.preamble))),
+    Option.orElse(() => Option.fromNullable(packageLanguage)),
+    Option.getOrElse(() => 'plaintext'),
+  )
+  const index = nameIndex(doc.sections, lang, pkg)
   return pipe(
     doc.sections,
-    Array.map(buildSection(index, lang, modulePath)),
+    Array.map(buildSection(index, lang, modulePath, pkg)),
     Array.reduce(emptyProduct, appendSection),
   )
 }
@@ -78,14 +94,35 @@ type NameIndex = ReadonlyMap<string, ReadonlyArray<NameEntry>>
 
 const reservedLanguage: Record<string, string> = { config: 'yaml' }
 
-const specifierLanguage = (label: string): string => {
+const specifierLanguage = (
+  label: string,
+  sink: Option.Option<SinkToken>,
+  defaultLang: string,
+  pkg: Option.Option<string>,
+): string => {
   const id = label.toLowerCase()
+  if (id === 'tangle')
+    return Option.match(pkg, {
+      onNone: () => defaultLang,
+      onSome: (p) => extensionLanguage(tangleFilePath(p, sink)),
+    })
+  if (id === 'toc') return 'prose'
   return reservedLanguage[id] ?? id
 }
 
-const sectionLanguage = (section: LoomSection, defaultLang: string): string => {
+const sectionLanguage = (
+  section: LoomSection,
+  defaultLang: string,
+  pkg: Option.Option<string>,
+): string => {
   const { specifier, sink } = section.heading
-  if (specifier !== undefined) return specifierLanguage(specifier.label.value)
+  if (specifier !== undefined)
+    return specifierLanguage(
+      specifier.label.value,
+      Option.fromNullable(sink),
+      defaultLang,
+      pkg,
+    )
   if (sink === undefined) return defaultLang
   return sink.file !== undefined ? extensionLanguage(sink.file.value) : 'prose'
 }
@@ -93,6 +130,7 @@ const sectionLanguage = (section: LoomSection, defaultLang: string): string => {
 const nameIndex = (
   sections: ReadonlyArray<LoomSection>,
   defaultLang: string,
+  pkg: Option.Option<string>,
 ): NameIndex =>
   pipe(
     sections,
@@ -103,7 +141,7 @@ const nameIndex = (
           {
             name: sectionNameOf(s),
             pos: title.position,
-            language: sectionLanguage(s, defaultLang),
+            language: sectionLanguage(s, defaultLang, pkg),
           },
         ] as const,
       ),
@@ -123,6 +161,15 @@ const documentLanguage = (
     .find((w) => w.name.value === 'lang')
     ?.annotation?.value.trim()
     .toLowerCase()
+
+const frontmatterLanguage = (
+  frontmatter: Option.Option<LoomFrontmatter>,
+): Option.Option<string> =>
+  pipe(
+    frontmatter,
+    Option.flatMapNullable((f) => f.language),
+    Option.map((l) => l.value.trim().toLowerCase()),
+  )
 
 const languageByExtension: ReadonlyMap<string, string> = new Map([
   ['ts', 'typescript'],
@@ -173,19 +220,51 @@ interface Built {
 }
 
 const buildSection =
-  (index: NameIndex, defaultLang: string, modulePath: string) =>
+  (
+    index: NameIndex,
+    defaultLang: string,
+    modulePath: string,
+    pkg: Option.Option<string>,
+  ) =>
   (section: LoomSection): Built => {
     const values = valueWarps(section.preamble.flatMap((w) => w.warps))
     const origin: SectionId = { path: modulePath, name: sectionNameOf(section) }
-    const languageId = sectionLanguage(section, defaultLang)
+    const languageId = sectionLanguage(section, defaultLang, pkg)
     const code = buildCode(section, values, index, origin, languageId)
-    const file = pipe(
-      Option.fromNullable(section.heading.sink),
-      Option.filter((sink) => sink.file !== undefined),
-      Option.map((sink) => FileSchema.make({ path: sinkPathOf(sink), code })),
-    )
+    const file = tangleFile(section, pkg, code)
     return { code, file }
   }
+
+const tangleFilePath = (
+  pkg: string,
+  sink: Option.Option<SinkToken>,
+): string =>
+  pkg.endsWith('/')
+    ? pkg + Option.getOrElse(Option.map(sink, (s) => s.dir.value), () => '')
+    : pkg
+
+const tangleFile = (
+  section: LoomSection,
+  pkg: Option.Option<string>,
+  code: Code,
+): Option.Option<File> => {
+  const { specifier, sink } = section.heading
+  if (
+    specifier !== undefined &&
+    specifier.label.value.toLowerCase() === 'tangle'
+  )
+    return Option.map(pkg, (p) =>
+      FileSchema.make({
+        path: tangleFilePath(p, Option.fromNullable(sink)),
+        code,
+      }),
+    )
+  return pipe(
+    Option.fromNullable(sink),
+    Option.filter((s) => s.file !== undefined),
+    Option.map((s) => FileSchema.make({ path: sinkPathOf(s), code })),
+  )
+}
 
 const buildCode = (
   section: LoomSection,

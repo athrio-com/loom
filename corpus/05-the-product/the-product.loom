@@ -1,8 +1,8 @@
 {{lang: TypeScript}}
 
-# The de re structure
+# The shape of the product
 
-`ProductAst` is the de re structure — the author's product code with its transclusions expressed as edges. Its unit is the `Code` of one section. The product pass builds one `Code` per section, and `fromProduct` later flattens a section to text and mappings, following its edges across the corpus.
+`ProductAst` is the shape of the product — the author's code, with each transclusion expressed as an edge rather than copied. Its unit is the `Code` of one section. The product pass builds one `Code` per section, and `fromProduct` later flattens a section to text and mappings, following its edges across the corpus.
 
 An edge holds a target key, not a pointer. So the schema stays flat and serialisable even though the graph it describes recurses — and may hold a cycle, which `fromProduct` cuts.
 
@@ -10,7 +10,7 @@ Code is one of two channels. Prose is its peer, a `WovenProse` woven from the sa
 
 ## The product node
 
-`productNode` builds each de re node: it stamps a `type` discriminator and a defaulted `health` onto the fields it wraps. There is no render-order annotation, since the de re is flattened by a graph walk rather than by emitting fields in order.
+`productNode` builds each product node: it stamps a `type` discriminator and a defaulted `health` onto the fields it wraps. There is no render-order annotation, since the product is flattened by a graph walk rather than by emitting fields in order.
 
 =>
 
@@ -69,7 +69,7 @@ export type Ref = typeof RefSchema.Type
 
 ## Composed code
 
-A `Code` is one section's resolved de re: its `origin` identity, its product `languageId`, and its `fragments` in composition order — a transcluded section before the code that uses it. Each fragment is a `Fragment`, a literal span, or a `Ref`, a transclusion edge; `Part` is the union of the two. The product pass returns one `Code` per section, keyed by name.
+A `Code` is one section, composed: its `origin` identity, its product `languageId`, and its `fragments` in composition order — a transcluded section before the code that uses it. Each fragment is a `Fragment`, a literal span, or a `Ref`, a transclusion edge; `Part` is the union of the two. The product pass returns one `Code` per section, keyed by name.
 
 =>
 
@@ -109,7 +109,7 @@ export type File = typeof FileSchema.Type
 
 ## The module's product
 
-`Product` is a module's whole de re — the graph the product pass produces for one `.loom`. A module has many roots, so a `Product` holds many nodes: its `code`, one `Code` per ordinary section, and its `files`, one `File` per tangle sink. The edges are the refs those nodes carry. A node no same-module ref folds in is a root; the rest are members, reached only through an edge.
+`Product` is a module's whole composition — the graph the product pass produces for one `.loom`. A module has many roots, so a `Product` holds many nodes: its `code`, one `Code` per ordinary section, and its `files`, one `File` per tangle sink. The edges are the refs those nodes carry. A node no same-module ref folds in is a root; the rest are members, reached only through an edge.
 
 The graph is what `compile` resolves. It reads a `Product`, takes the roots, and flattens each by following its edges across the corpus. So a `Product` is left unresolved here — it carries the whole graph, not the flattened roots — and resolving it is the next pass's work, not this structure's. Prose is no part of it: the narration is read from the parse, in document order, never composed here.
 

@@ -2,7 +2,7 @@
 
 # The tokeniser stage
 
-`WeftTokeniser` is the tokeniser stage: it fills each weft's subtokens by kind. A heading gets its title, its language specifier, and its sink. Arrow and code wefts get their `::[name]` anchors; tilde, preamble, and prose wefts get their inline content and their prose anchors, read only where Markdown leaves them live. After this stage no weft remains `incomplete`.
+`WeftTokeniser` is the tokeniser stage: it fills each weft's subtokens by kind. A heading gets its title, its language specifier, and its sink. Arrow and code wefts get their `::[name]` anchors; tilde, preamble, and prose wefts get their inline content and their prose anchors, read only where Markdown leaves them live. A frontmatter field gets its part, chapter, and title, or its key and value. After this stage no weft remains `incomplete`.
 
 ## The tokeniser service
 
@@ -59,8 +59,121 @@ const tokeniseWeft = (
       tokeniseProse(text, w, delims, skipAnchors),
     ),
     Match.when({ type: 'CodeWeft' }, (w) => tokeniseCode(text, w, delims)),
+    Match.when({ type: 'FrontmatterWeft' }, (w) => tokeniseFrontmatter(w)),
     Match.exhaustive,
   )
+
+## Frontmatter fields
+
+The frontmatter handlers settle a field weft into its tokens, and `trimSpan` gives each piece the handler finds its trimmed text and span. `parseMembership` reads a `Part III, Chapter 1: The node foundation` line. It splits on the first comma and the colon after it, and yields the part, the chapter, and the title.
+
+=>
+
+const parseMembership = (
+  weft: FrontmatterWeft,
+): Option.Option<FrontmatterWeft> => {
+  const lineText = weft.source
+  const line = weft.position.start.line
+  const base = weft.position.start.offset
+  const comma = lineText.indexOf(',')
+  if (comma < 0) return Option.none()
+  const colon = lineText.indexOf(':', comma)
+  if (colon < 0) return Option.none()
+  const partSpan = trimSpan(lineText.slice(0, comma), base)
+  const chapterSpan = trimSpan(lineText.slice(comma + 1, colon), base + comma + 1)
+  const titleSpan = trimSpan(lineText.slice(colon + 1), base + colon + 1)
+  if (!partSpan.value.startsWith('Part ')) return Option.none()
+  if (!chapterSpan.value.startsWith('Chapter ')) return Option.none()
+  const part = FrontmatterPartTokenSchema.make({
+    position: span(line, partSpan.start, partSpan.end),
+    source: partSpan.value,
+    health: okHealth,
+    value: partSpan.value.slice('Part '.length).trim(),
+  })
+  const chapter = FrontmatterChapterTokenSchema.make({
+    position: span(line, chapterSpan.start, chapterSpan.end),
+    source: chapterSpan.value,
+    health: okHealth,
+    value: chapterSpan.value.slice('Chapter '.length).trim(),
+  })
+  const title = FrontmatterTitleTokenSchema.make({
+    position: span(line, titleSpan.start, titleSpan.end),
+    source: titleSpan.value,
+    health: okHealth,
+    value: titleSpan.value,
+  })
+  return Option.some(
+    FrontmatterWeftSchema.make({
+      position: weft.position,
+      source: lineText,
+      health: okHealth,
+      part,
+      chapter,
+      title,
+    }),
+  )
+}
+
+~
+
+`parseField` reads a `Package:` or `Language:` line, splitting on the first colon into the key and the value. `frontmatterKeys` is the pair of keys it accepts.
+
+=>
+
+const frontmatterKeys: ReadonlyArray<string> = ['Package', 'Language']
+
+const parseField = (weft: FrontmatterWeft): Option.Option<FrontmatterWeft> => {
+  const lineText = weft.source
+  const line = weft.position.start.line
+  const base = weft.position.start.offset
+  const colon = lineText.indexOf(':')
+  if (colon < 0) return Option.none()
+  const keySpan = trimSpan(lineText.slice(0, colon), base)
+  if (!frontmatterKeys.includes(keySpan.value)) return Option.none()
+  const valueSpan = trimSpan(lineText.slice(colon + 1), base + colon + 1)
+  const key = FrontmatterKeyTokenSchema.make({
+    position: span(line, keySpan.start, keySpan.end),
+    source: keySpan.value,
+    health: okHealth,
+    value: keySpan.value,
+  })
+  const value = FrontmatterValueTokenSchema.make({
+    position: span(line, valueSpan.start, valueSpan.end),
+    source: valueSpan.value,
+    health: okHealth,
+    value: valueSpan.value,
+  })
+  return Option.some(
+    FrontmatterWeftSchema.make({
+      position: weft.position,
+      source: lineText,
+      health: okHealth,
+      key,
+      value,
+    }),
+  )
+}
+
+~
+
+`tokeniseFrontmatter` ties the two together. A fence weft is already whole and passes through; any other line reads first as a membership line, then as a field, and settles with no subtokens when it is neither.
+
+=>
+
+const tokeniseFrontmatter = (weft: FrontmatterWeft): LoomWeft => {
+  if (weft.fence !== undefined) return weft
+  return pipe(
+    parseMembership(weft),
+    Option.orElse(() => parseField(weft)),
+    Option.getOrElse(() =>
+      FrontmatterWeftSchema.make({
+        position: weft.position,
+        source: weft.source,
+        health: okHealth,
+      }),
+    ),
+  )
+}
 
 ## Body wefts
 
@@ -1175,7 +1288,7 @@ const assembleAnchor = (
 
 ## Scanning a line for warps and anchors
 
-`constructWarps` scans a line, pairs the `&#123;&#123;`/`&#125;&#125;` delimiters, and builds a warp per pair. `constructAnchors` scans a line for `::[` opens and builds an anchor for each, closing it on the first `]` that follows. Both take a scan text apart from the line itself, so a prose handler passes the line with its Markdown code spans blanked — a token inside backticks is found nowhere, while the one outside still reads its content from the original line. There is no fallback: a token is always a token. A malformed anchor — unclosed, or empty-named — is kept as an anchor carrying error health, never reinterpreted as literal code; an anchor whose name does not resolve likewise stays an anchor. Each is a diagnostic for the frame pass and a hard failure at tangle. The rare literal `::[` in product code is written through the host language's character escape, so the tokeniser never has to guess whether a `::[` was meant.
+`constructWarps` scans a line, pairs the `&#123;&#123;`/`&#125;&#125;` delimiters, and builds a warp per pair. `constructAnchors` scans a line for `::[` opens and builds an anchor for each, closing it on the first `]` that follows. Both take a scan text apart from the line itself, so a prose handler passes the line with its Markdown code spans blanked — a token inside backticks is found nowhere, while the one outside still reads its content from the original line. There is no fallback: a token is always a token. A malformed anchor — unclosed, or empty-named — is kept as an anchor carrying error health, never reinterpreted as literal code; an anchor whose name does not resolve likewise stays an anchor. Each is a diagnostic Loom reports, and a hard failure at tangle. The rare literal `::[` in product code is written through the host language's character escape, so the tokeniser never has to guess whether a `::[` was meant.
 
 =>
 
@@ -1364,7 +1477,7 @@ const scanHeading = (
 
 ## Tokenising a heading
 
-`tokeniseHeading` assembles the heading weft from its scanned subnodes — the title, the specifier, and the sink — and aggregates their health. The title names the section: `normaliseTitle` turns it into an identifier — `What the compiler draws on` becomes `WhatTheCompilerDrawsOn` — which the frame builder reads to name the section's service. Naming makes no name unique; two titles that normalise alike are a duplicate the diagnostics mark.
+`tokeniseHeading` assembles the heading weft from its scanned subnodes — the title, the specifier, and the sink — and aggregates their health. The title names the section: `normaliseTitle` turns it into an identifier — `What the compiler draws on` becomes `WhatTheCompilerDrawsOn` — which the product pass reads to identify the section. Naming makes no name unique; two titles that normalise alike are a duplicate the diagnostics mark.
 
 =>
 
@@ -1426,6 +1539,11 @@ import {
 } from '@athrio/loom-ast/LoomNode'
 import {
   CodeTokenSchema,
+  FrontmatterChapterTokenSchema,
+  FrontmatterKeyTokenSchema,
+  FrontmatterPartTokenSchema,
+  FrontmatterTitleTokenSchema,
+  FrontmatterValueTokenSchema,
   HeadingTitleTokenSchema,
   ProseTokenSchema,
   SinkCloseTokenSchema,
@@ -1487,6 +1605,8 @@ import {
   ArrowWeftSchema,
   type CodeWeft,
   CodeWeftSchema,
+  type FrontmatterWeft,
+  FrontmatterWeftSchema,
   type HeadingWeft,
   HeadingWeftSchema,
   type LoomWeft,
@@ -1505,6 +1625,8 @@ import {
 ::[What this module draws on]
 
 ::[The tokeniser service]
+
+::[Frontmatter fields]
 
 ::[Body wefts]
 

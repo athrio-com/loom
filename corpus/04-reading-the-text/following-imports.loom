@@ -2,7 +2,7 @@
 
 # Building one module
 
-`LoomCorpusAstBuilder` compiles one `.loom` file. It runs the file through every pass in turn — read its bytes, parse, build the product — and returns a `LoomModule`: the parsed document beside its de re `product`, the author's code with each anchor resolved to an edge. The product is built here, straight from the parse, so no frame stands between the document and its de re.
+`LoomCorpusAstBuilder` compiles one `.loom` file. It runs the file through every pass in turn — read its bytes, parse, build the product — and returns a `LoomModule`: the parsed document beside its `product`, the author's code with each anchor resolved to an edge. The product is built here, straight from the parse; nothing stands between the document and its product.
 
 It builds that one module and no more. It discovers no corpus and keeps no cache — `LoomCompiler` does both, listing the file's sibling looms and memoising each result in `LoomMemo`. A cross-file `::[…]` reference stays unresolved here as well. It is inlined later, at projection, by `fromProduct`.
 
@@ -36,7 +36,7 @@ export class ReadError extends Data.TaggedError('ReadError')<{
 
 ## The chain of passes
 
-`build` runs one file through the whole chain, each pass consuming the one before it. `parsed` reads the file and parses it: `LoomSourceRanges` cuts the text into line ranges, `WeftClassifier` then `WeftTokeniser` turn those into tokenised wefts, and `LoomAstBuilder` folds the wefts into a `LoomDocument`. `build` then runs `ProductBuilder` over the document to compose its de re `product`, and stops there. The passes are peers here — no pass hides another behind a single call. Two settings resolved for the file ride in from the caller and thread through the chain: the anchor delimiters `WeftTokeniser` cuts with, and the primary language `ProductBuilder` falls back to.
+`build` runs one file through the whole chain, each pass consuming the one before it. `parsed` reads the file and parses it: `LoomSourceRanges` cuts the text into line ranges, `WeftClassifier` then `WeftTokeniser` turn those into tokenised wefts, and `LoomAstBuilder` folds the wefts into a `LoomDocument`. `build` then runs `ProductBuilder` over the document to compose its `product`, and stops there. The passes are peers here — no pass hides another behind a single call. Two settings resolved for the file ride in from the caller and thread through the chain: the anchor delimiters `WeftTokeniser` cuts with, and the primary language `ProductBuilder` falls back to.
 
 The chain is total: it never throws, and it always yields a module. Three failures can stop it before a real document exists. A file the source cannot read raises `ReadError`; a mixed line terminator the parse chain cannot pin to a node raises `MixedEOL`; and a delimiter pair the package configured badly raises one of the self-describing `InvalidAnchorDelims` errors. `parsed` catches all three and recovers to an empty document carrying the error — `emptyDocument` with the read failure's message, `emptyDocumentFor` for a mixed terminator, and `emptyDocument` with the delimiter error's own `message`. So `build` runs the product pass over that document like any other. A file that cannot be read still yields a module, one whose health carries the read error. Every other malformation rides in the document's own health.
 

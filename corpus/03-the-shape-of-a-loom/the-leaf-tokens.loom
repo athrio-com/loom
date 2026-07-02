@@ -137,6 +137,42 @@ export const SinkTokenSchema = loomNode('Sink', {
 })
 export type SinkToken = typeof SinkTokenSchema.Type
 
+## Frontmatter tokens
+
+A chapter opens with a frontmatter block — a `---` fence, a run of field lines, and a closing `---` — that declares where the chapter belongs and what it produces. These tokens are its parts. `FrontmatterFence` is a fence line; its `Probe` is how the classifier finds it. The membership line reads `Part III, Chapter 1: The node foundation`, and it splits into three: `FrontmatterPart` holds the part's Roman numeral, `FrontmatterChapter` the chapter's number, and `FrontmatterTitle` the chapter's title. Every other line is a `key: value` pair — a `FrontmatterKey`, either `Package` or `Language`, and the `FrontmatterValue` it binds. Only the fence carries a `Probe`; the tokeniser reads each remaining token from its line by position, the way it reads a heading's title.
+
+=>
+
+export const FrontmatterFenceTokenSchema = loomNode('FrontmatterFence', {}).annotations({
+  [Probe]: /^---\s*$/,
+})
+export type FrontmatterFenceToken = typeof FrontmatterFenceTokenSchema.Type
+
+export const FrontmatterPartTokenSchema = loomNode('FrontmatterPart', {
+  value: Schema.String,
+})
+export type FrontmatterPartToken = typeof FrontmatterPartTokenSchema.Type
+
+export const FrontmatterChapterTokenSchema = loomNode('FrontmatterChapter', {
+  value: Schema.String,
+})
+export type FrontmatterChapterToken = typeof FrontmatterChapterTokenSchema.Type
+
+export const FrontmatterTitleTokenSchema = loomNode('FrontmatterTitle', {
+  value: Schema.String,
+})
+export type FrontmatterTitleToken = typeof FrontmatterTitleTokenSchema.Type
+
+export const FrontmatterKeyTokenSchema = loomNode('FrontmatterKey', {
+  value: Schema.String,
+})
+export type FrontmatterKeyToken = typeof FrontmatterKeyTokenSchema.Type
+
+export const FrontmatterValueTokenSchema = loomNode('FrontmatterValue', {
+  value: Schema.String,
+})
+export type FrontmatterValueToken = typeof FrontmatterValueTokenSchema.Type
+
 ## Transition markers
 
 `Arrow` (`=>`) opens a code chunk and `Tilde` (`~`) opens prose. Both are position-only — the marker is recognised here, the content after it elsewhere.
@@ -366,6 +402,12 @@ export const LoomTokenSchema = Schema.Union(
   HeadingStartTokenSchema,
   SpecifierTokenSchema,
   SinkTokenSchema,
+  FrontmatterFenceTokenSchema,
+  FrontmatterPartTokenSchema,
+  FrontmatterChapterTokenSchema,
+  FrontmatterTitleTokenSchema,
+  FrontmatterKeyTokenSchema,
+  FrontmatterValueTokenSchema,
   ArrowTokenSchema,
   TildeTokenSchema,
   HeadingTitleTokenSchema,
@@ -398,6 +440,8 @@ import { loomNode } from '#ast/LoomNode'
 ::[Specifiers]
 
 ::[Sinks]
+
+::[Frontmatter tokens]
 
 ::[Transition markers]
 

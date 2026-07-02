@@ -4,14 +4,14 @@
 
 Loom's pipeline is a chain of small passes between explicit models. This module
 is one of them, and it is the one that composes: it folds a parsed `.loom`
-document — a `LoomDocument` of sections — straight into its de re `Product`, the
-author's own code with each `::[…]` anchor turned into an edge. No frame stands
-between the two. A section's name anchors already form the document's composition
+document — a `LoomDocument` of sections — straight into its `Product`, the
+author's own code with each `::[…]` anchor turned into an edge. A section's name
+anchors already form the document's composition
 graph, so the pass reads that graph off the parse and builds the product from it,
 rather than generating a program to compute the same result.
 
 The pass is a build, the same shape as the parser before it. The parser folds a
-stream of wefts into the Loom AST; this folds that AST's sections into the de re.
+stream of wefts into the Loom AST; this folds that AST's sections into the product.
 It is total by construction. Every section becomes one `Code`, and a section
 whose sink names a file becomes a `File` as well. An anchor that resolves to
 nothing becomes an empty `Fragment` carrying error health on its own node — a
@@ -20,7 +20,7 @@ malformed anchor say, is already on the parse; semantic health, an anchor that
 resolves to nothing or crosses a language, is attached here, where the pass has
 the names to judge it.
 
-The de re an anchor edge carries is an identity, not a copy. A `NameRef` records
+What an anchor edge carries is an identity, not a copy. A `NameRef` records
 the `SectionId` its anchor resolves to and nothing more; `fromProduct` follows
 that edge across the corpus and inlines the target later, at projection. So this
 pass stays within one document: it resolves each anchor against that document's
@@ -29,14 +29,14 @@ whole corpus.
 
 ## What this module draws on
 
-The pass reads the Loom AST and writes the de re AST, so it draws from both. From
+The pass reads the Loom AST and writes the product AST, so it draws from both. From
 `effect` come the array and option combinators, `Match` for dispatching on a
 weft, `Order` for sorting a run's anchors by position, and `pipe` for the spine.
 From the Loom side come the document and section types, the warp and anchor
 tokens a section carries, and the section-body weft a code run is made of. The
 fault catalog gives `faulty` and the three anchor faults this pass raises, and
 the tokeniser's `normaliseTitle` folds a heading into the name that identifies
-its section. From the de re side come the schema constructors for every node the
+its section. From the product side come the schema constructors for every node the
 pass builds — the `Code` of a section, its `Fragment` and `NameRef` leaves, and
 the `File` a tangle sink emits — together with the `SectionId` that stamps each
 one and the `sinkPathOf` that reads a sink's output path.
@@ -44,7 +44,11 @@ one and the `sinkPathOf` that reads a sink's output path.
 =>
 
 import { Array, Match, Effect, Option, Order, pipe } from 'effect'
-import type { LoomDocument, LoomSection } from '@athrio/loom-ast/LoomAst'
+import type {
+  LoomDocument,
+  LoomFrontmatter,
+  LoomSection,
+} from '@athrio/loom-ast/LoomAst'
 import {
   okHealth,
   type Health,
@@ -52,6 +56,7 @@ import {
   type Position,
 } from '@athrio/loom-ast/LoomNode'
 import type {
+  SinkToken,
   WarpAnchorToken,
   WarpToken,
 } from '@athrio/loom-ast/LoomTokens'
@@ -89,9 +94,10 @@ the document declares no `lang` warp, which the caller resolves from the file's
 configuration.
 
 `buildProduct` is the spine, and it runs from the document's head to its tail. It
-resolves the primary language, indexes the sections by the name each anchor reaches
-them by, then maps every section to a `Built` — its `Code`, and the `File` a tangle
-sink adds — and folds those into the module's `Product`.
+resolves the primary language and the output package from the frontmatter, indexes
+the sections by the name each anchor reaches them by, then maps every section to a
+`Built` — its `Code`, and the `File` a `{Tangle}` section or a tangle sink adds —
+and folds those into the module's `Product`.
 
 =>
 
@@ -114,11 +120,22 @@ export const buildProduct = (
   modulePath: string,
   packageLanguage?: string,
 ): Product => {
-  const lang = documentLanguage(doc.preamble) ?? packageLanguage ?? 'plaintext'
-  const index = nameIndex(doc.sections, lang)
+  const fm = Option.fromNullable(doc.frontmatter)
+  const pkg = pipe(
+    fm,
+    Option.flatMapNullable((f) => f.package),
+    Option.map((p) => p.value),
+  )
+  const lang = pipe(
+    frontmatterLanguage(fm),
+    Option.orElse(() => Option.fromNullable(documentLanguage(doc.preamble))),
+    Option.orElse(() => Option.fromNullable(packageLanguage)),
+    Option.getOrElse(() => 'plaintext'),
+  )
+  const index = nameIndex(doc.sections, lang, pkg)
   return pipe(
     doc.sections,
-    Array.map(buildSection(index, lang, modulePath)),
+    Array.map(buildSection(index, lang, modulePath, pkg)),
     Array.reduce(emptyProduct, appendSection),
   )
 }
@@ -177,14 +194,35 @@ type NameIndex = ReadonlyMap<string, ReadonlyArray<NameEntry>>
 
 const reservedLanguage: Record<string, string> = { config: 'yaml' }
 
-const specifierLanguage = (label: string): string => {
+const specifierLanguage = (
+  label: string,
+  sink: Option.Option<SinkToken>,
+  defaultLang: string,
+  pkg: Option.Option<string>,
+): string => {
   const id = label.toLowerCase()
+  if (id === 'tangle')
+    return Option.match(pkg, {
+      onNone: () => defaultLang,
+      onSome: (p) => extensionLanguage(tangleFilePath(p, sink)),
+    })
+  if (id === 'toc') return 'prose'
   return reservedLanguage[id] ?? id
 }
 
-const sectionLanguage = (section: LoomSection, defaultLang: string): string => {
+const sectionLanguage = (
+  section: LoomSection,
+  defaultLang: string,
+  pkg: Option.Option<string>,
+): string => {
   const { specifier, sink } = section.heading
-  if (specifier !== undefined) return specifierLanguage(specifier.label.value)
+  if (specifier !== undefined)
+    return specifierLanguage(
+      specifier.label.value,
+      Option.fromNullable(sink),
+      defaultLang,
+      pkg,
+    )
   if (sink === undefined) return defaultLang
   return sink.file !== undefined ? extensionLanguage(sink.file.value) : 'prose'
 }
@@ -192,6 +230,7 @@ const sectionLanguage = (section: LoomSection, defaultLang: string): string => {
 const nameIndex = (
   sections: ReadonlyArray<LoomSection>,
   defaultLang: string,
+  pkg: Option.Option<string>,
 ): NameIndex =>
   pipe(
     sections,
@@ -202,7 +241,7 @@ const nameIndex = (
           {
             name: sectionNameOf(s),
             pos: title.position,
-            language: sectionLanguage(s, defaultLang),
+            language: sectionLanguage(s, defaultLang, pkg),
           },
         ] as const,
       ),
@@ -222,6 +261,15 @@ const documentLanguage = (
     .find((w) => w.name.value === 'lang')
     ?.annotation?.value.trim()
     .toLowerCase()
+
+const frontmatterLanguage = (
+  frontmatter: Option.Option<LoomFrontmatter>,
+): Option.Option<string> =>
+  pipe(
+    frontmatter,
+    Option.flatMapNullable((f) => f.language),
+    Option.map((l) => l.value.trim().toLowerCase()),
+  )
 
 const languageByExtension: ReadonlyMap<string, string> = new Map([
   ['ts', 'typescript'],
@@ -288,15 +336,15 @@ const valueWarps = (
 
 A section's heading decides what it contributes. Every section composes to one
 `Code`: its identity, its language, and its fragments in composition order. A
-section whose sink names a file — `[src/main/scala, Arithmetic.scala]` rather than
-a bare language label — contributes a `File` on top, the same `Code` paired with
-the path the sink declares. The comma in the sink tells a file from a directory,
-and `sinkPathOf` joins the two parts into the output path.
+`{Tangle}` section contributes a `File` on top — the same `Code` paired with the
+frontmatter `Package` path, and the `[file]` tag appended when the package names a
+directory. A two-part sink like `[src/main/scala, Arithmetic.scala]` is the older
+way to the same end, its path joined by `sinkPathOf`.
 
 A `Built` is the pair a section yields: its `Code`, which always lands in the
-product, and the `File` a tangle sink adds, which an ordinary section leaves
-absent. `buildSection` gathers the section's value warps, resolves its language and
-identity, composes its code, and reads its sink.
+product, and the `File` a `{Tangle}` section or a tangle sink adds, which an
+ordinary section leaves absent. `buildSection` gathers the section's value warps,
+resolves its language and identity, and composes its code.
 
 =>
 
@@ -306,19 +354,60 @@ interface Built {
 }
 
 const buildSection =
-  (index: NameIndex, defaultLang: string, modulePath: string) =>
+  (
+    index: NameIndex,
+    defaultLang: string,
+    modulePath: string,
+    pkg: Option.Option<string>,
+  ) =>
   (section: LoomSection): Built => {
     const values = valueWarps(section.preamble.flatMap((w) => w.warps))
     const origin: SectionId = { path: modulePath, name: sectionNameOf(section) }
-    const languageId = sectionLanguage(section, defaultLang)
+    const languageId = sectionLanguage(section, defaultLang, pkg)
     const code = buildCode(section, values, index, origin, languageId)
-    const file = pipe(
-      Option.fromNullable(section.heading.sink),
-      Option.filter((sink) => sink.file !== undefined),
-      Option.map((sink) => FileSchema.make({ path: sinkPathOf(sink), code })),
-    )
+    const file = tangleFile(section, pkg, code)
     return { code, file }
   }
+
+~
+
+`tangleFile` decides a section's file. A `{Tangle}` section writes to the package
+path, so it emits a `File` there when the frontmatter names a package; any other
+section falls back to a two-part sink. `tangleFilePath` appends the `[file]` tag to
+a directory package, and passes a file package through unchanged.
+
+=>
+
+const tangleFilePath = (
+  pkg: string,
+  sink: Option.Option<SinkToken>,
+): string =>
+  pkg.endsWith('/')
+    ? pkg + Option.getOrElse(Option.map(sink, (s) => s.dir.value), () => '')
+    : pkg
+
+const tangleFile = (
+  section: LoomSection,
+  pkg: Option.Option<string>,
+  code: Code,
+): Option.Option<File> => {
+  const { specifier, sink } = section.heading
+  if (
+    specifier !== undefined &&
+    specifier.label.value.toLowerCase() === 'tangle'
+  )
+    return Option.map(pkg, (p) =>
+      FileSchema.make({
+        path: tangleFilePath(p, Option.fromNullable(sink)),
+        code,
+      }),
+    )
+  return pipe(
+    Option.fromNullable(sink),
+    Option.filter((s) => s.file !== undefined),
+    Option.map((s) => FileSchema.make({ path: sinkPathOf(s), code })),
+  )
+}
 
 ## Composing a section's code
 

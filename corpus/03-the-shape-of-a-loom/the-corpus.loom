@@ -2,11 +2,11 @@
 
 # The multi-file AST
 
-`LoomCorpusAst` is the multi-file AST — pure data, no pipeline (that is `LoomCorpusAstBuilder`). Every loaded `.loom` is a `LoomModule` keyed by its path, holding its source, parsed `doc`, its de re `product`, and import edges. The corpus is just a map of those modules. The de re is the `product` the product pass builds for each module; a cross-file reference stays an edge there that `fromProduct` resolves later, at projection.
+`LoomCorpusAst` is the multi-file AST — pure data, no pipeline (that is `LoomCorpusAstBuilder`). Every loaded `.loom` is a `LoomModule` keyed by its path, holding its source, parsed `doc`, its composed `product`, and import edges. The corpus is just a map of those modules. The `product` is what the product pass builds for each module; a cross-file reference stays an edge there, resolved later at projection by `fromProduct`.
 
 ## The module and the corpus
 
-A `Path` is a resolved `.loom` path, a module's identity. A `LoomModule` carries one file's de re `product` beside its `text` and parsed `doc`. The `product` is the module's de re graph, built straight from the parse, so every loaded module carries one. A `LoomCorpusAst` is the map of modules by path.
+A `Path` is a resolved `.loom` path, a module's identity. A `LoomModule` carries one file's `product` beside its `text` and parsed `doc`. The `product` is the module's composition graph, built straight from the parse, so every loaded module carries one. A `LoomCorpusAst` is the map of modules by path.
 
 =>
 
@@ -1131,7 +1131,7 @@ export const corpusErrors = (
 
 ## What this module draws on
 
-Effect supplies `Schema` for the model, `Array`, `Option`, and `pipe` for the queries, and `Match` for the navigation's per-kind dispatch. The module bundles the parse model `LoomDocument` and the de re `ProductSchema`, with `LoomSection`, the unit the sink tree walks, the `SinkToken` a heading targets, the `WarpAnchorToken` a sink's members are, the `WarpToken` a value warp is defined by, the `SpecifierToken` a misplaced anchor may wear, and `Diagnostic` and `Position` — what a corpus walk gathers and a sink fault lands on. `symbolAt` and `profileOf` from `LoomSymbol` name the token under a cursor and whether it navigates, so the navigation reads the same table the mappings and colours do.
+Effect supplies `Schema` for the model, `Array`, `Option`, and `pipe` for the queries, and `Match` for the navigation's per-kind dispatch. The module bundles the parse model `LoomDocument` and the product model `ProductSchema`, with `LoomSection`, the unit the sink tree walks, the `SinkToken` a heading targets, the `WarpAnchorToken` a sink's members are, the `WarpToken` a value warp is defined by, the `SpecifierToken` a misplaced anchor may wear, and `Diagnostic` and `Position` — what a corpus walk gathers and a sink fault lands on. `symbolAt` and `profileOf` from `LoomSymbol` name the token under a cursor and whether it navigates, so the navigation reads the same table the mappings and colours do.
 
 =>
 

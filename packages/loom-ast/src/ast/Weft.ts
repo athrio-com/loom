@@ -3,6 +3,12 @@ import { loomNode } from '#ast/LoomNode'
 import {
   ArrowTokenSchema,
   CodeTokenSchema,
+  FrontmatterChapterTokenSchema,
+  FrontmatterFenceTokenSchema,
+  FrontmatterKeyTokenSchema,
+  FrontmatterPartTokenSchema,
+  FrontmatterTitleTokenSchema,
+  FrontmatterValueTokenSchema,
   HeadingStartTokenSchema,
   HeadingTitleTokenSchema,
   ProseTokenSchema,
@@ -51,6 +57,16 @@ export const CodeWeftSchema = loomNode('CodeWeft', {
 })
 export type CodeWeft = typeof CodeWeftSchema.Type
 
+export const FrontmatterWeftSchema = loomNode('FrontmatterWeft', {
+  fence: Schema.optional(FrontmatterFenceTokenSchema),
+  part: Schema.optional(FrontmatterPartTokenSchema),
+  chapter: Schema.optional(FrontmatterChapterTokenSchema),
+  title: Schema.optional(FrontmatterTitleTokenSchema),
+  key: Schema.optional(FrontmatterKeyTokenSchema),
+  value: Schema.optional(FrontmatterValueTokenSchema),
+})
+export type FrontmatterWeft = typeof FrontmatterWeftSchema.Type
+
 export const LoomWeftSchema = Schema.Union(
   HeadingWeftSchema,
   ArrowWeftSchema,
@@ -58,6 +74,7 @@ export const LoomWeftSchema = Schema.Union(
   PreambleWeftSchema,
   ProseWeftSchema,
   CodeWeftSchema,
+  FrontmatterWeftSchema,
 )
 export type LoomWeft = typeof LoomWeftSchema.Type
 

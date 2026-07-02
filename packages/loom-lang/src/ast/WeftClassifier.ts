@@ -3,6 +3,7 @@ import type { LineRange } from './LineRanges'
 import { incompleteHealth, okHealth, type Position } from '@athrio/loom-ast/LoomNode'
 import {
   ArrowTokenSchema,
+  FrontmatterFenceTokenSchema,
   HeadingStartTokenSchema,
   TildeTokenSchema,
   getProbe,
@@ -10,11 +11,16 @@ import {
 import {
   type ArrowWeft,
   ArrowWeftSchema,
+  type CodeWeft,
   CodeWeftSchema,
+  type FrontmatterWeft,
+  FrontmatterWeftSchema,
   type HeadingWeft,
   HeadingWeftSchema,
   type LoomWeft,
+  type PreambleWeft,
   PreambleWeftSchema,
+  type ProseWeft,
   ProseWeftSchema,
   type TildeWeft,
   TildeWeftSchema,
@@ -23,11 +29,13 @@ import {
 type ClassifierState = {
   readonly prev: Option.Option<LoomWeft>
   readonly seenHeading: boolean
+  readonly inFrontmatter: boolean
 }
 
 const initialState: ClassifierState = {
   prev: Option.none(),
   seenHeading: false,
+  inFrontmatter: false,
 }
 
 export class WeftClassifier extends Effect.Service<WeftClassifier>()(
@@ -40,9 +48,12 @@ export class WeftClassifier extends Effect.Service<WeftClassifier>()(
           Stream.mapAccum(source, initialState, (state, range) => {
             const lineText = text.slice(range[0], range[1])
             const weft = probeWeft(lineText, range, state)
+            const fence =
+              weft.type === 'FrontmatterWeft' && weft.fence !== undefined
             const next: ClassifierState = {
               prev: Option.some(weft),
               seenHeading: state.seenHeading || weft.type === 'HeadingWeft',
+              inFrontmatter: state.inFrontmatter !== fence,
             }
             return [next, weft]
           }),
@@ -59,55 +70,54 @@ const probeWeft = (
     onNone: () => 1,
     onSome: (w) => w.position.end.line + 1,
   })
+
+  if (Option.isNone(state.prev) && isFrontmatterFence(lineText))
+    return makeFrontmatterFence(lineText, line, range)
+
+  if (state.inFrontmatter) {
+    if (isFrontmatterFence(lineText))
+      return makeFrontmatterFence(lineText, line, range)
+    return makeFrontmatterField(lineText, line, range)
+  }
+
   const probe = probeOf(lineText)
-  const position = linePos(line, range)
 
   if (probe.kind === 'heading')
     return makeHeadingWeft(lineText, line, range, probe.m)
 
-  if (!state.seenHeading)
-    return PreambleWeftSchema.make({
-      position,
-      source: lineText,
-      health: incompleteHealth,
-      warps: [],
-      anchors: [],
-    })
+  if (!state.seenHeading) return makePreambleWeft(lineText, line, range)
 
   return pipe(
     Match.value(modeOf(state.prev)),
     Match.when('preamble', () =>
-      probe.kind === 'arrow'
-        ? makeArrowWeft(lineText, line, range, probe.m)
-        : probe.kind === 'tilde'
-          ? makeTildeWeft(lineText, line, range, probe.m)
-          : PreambleWeftSchema.make({
-              position,
-              source: lineText,
-              health: incompleteHealth,
-              warps: [],
-              anchors: [],
-            }),
+      pipe(
+        Match.value(probe),
+        Match.when({ kind: 'arrow' }, (p) =>
+          makeArrowWeft(lineText, line, range, p.m),
+        ),
+        Match.when({ kind: 'tilde' }, (p) =>
+          makeTildeWeft(lineText, line, range, p.m),
+        ),
+        Match.orElse(() => makePreambleWeft(lineText, line, range)),
+      ),
     ),
     Match.when('code', () =>
-      probe.kind === 'tilde'
-        ? makeTildeWeft(lineText, line, range, probe.m)
-        : CodeWeftSchema.make({
-            position,
-            source: lineText,
-            health: incompleteHealth,
-            anchors: [],
-          }),
+      pipe(
+        Match.value(probe),
+        Match.when({ kind: 'tilde' }, (p) =>
+          makeTildeWeft(lineText, line, range, p.m),
+        ),
+        Match.orElse(() => makeCodeWeft(lineText, line, range)),
+      ),
     ),
     Match.when('prose', () =>
-      probe.kind === 'arrow'
-        ? makeArrowWeft(lineText, line, range, probe.m)
-        : ProseWeftSchema.make({
-            position,
-            source: lineText,
-            health: incompleteHealth,
-            anchors: [],
-          }),
+      pipe(
+        Match.value(probe),
+        Match.when({ kind: 'arrow' }, (p) =>
+          makeArrowWeft(lineText, line, range, p.m),
+        ),
+        Match.orElse(() => makeProseWeft(lineText, line, range)),
+      ),
     ),
     Match.exhaustive,
   )
@@ -137,6 +147,7 @@ const modeOf = (prev: Option.Option<LoomWeft>): Mode =>
         Match.when({ type: 'CodeWeft' }, () => 'code' as const),
         Match.when({ type: 'TildeWeft' }, () => 'prose' as const),
         Match.when({ type: 'ProseWeft' }, () => 'prose' as const),
+        Match.when({ type: 'FrontmatterWeft' }, () => 'preamble' as const),
         Match.exhaustive,
       ),
   })
@@ -150,6 +161,12 @@ type Probe =
 const headingProbe = Option.getOrThrow(getProbe(HeadingStartTokenSchema))
 const arrowProbe = Option.getOrThrow(getProbe(ArrowTokenSchema))
 const tildeProbe = Option.getOrThrow(getProbe(TildeTokenSchema))
+const frontmatterFenceProbe = Option.getOrThrow(
+  getProbe(FrontmatterFenceTokenSchema),
+)
+
+const isFrontmatterFence = (lineText: string): boolean =>
+  frontmatterFenceProbe.test(lineText)
 
 const probeOf = (lineText: string): Probe => {
   const h = headingProbe.exec(lineText)
@@ -220,3 +237,67 @@ const makeTildeWeft = (
     anchors: [],
   })
 }
+
+const makePreambleWeft = (
+  lineText: string,
+  line: number,
+  range: LineRange,
+): PreambleWeft =>
+  PreambleWeftSchema.make({
+    position: linePos(line, range),
+    source: lineText,
+    health: incompleteHealth,
+    warps: [],
+    anchors: [],
+  })
+
+const makeCodeWeft = (
+  lineText: string,
+  line: number,
+  range: LineRange,
+): CodeWeft =>
+  CodeWeftSchema.make({
+    position: linePos(line, range),
+    source: lineText,
+    health: incompleteHealth,
+    anchors: [],
+  })
+
+const makeProseWeft = (
+  lineText: string,
+  line: number,
+  range: LineRange,
+): ProseWeft =>
+  ProseWeftSchema.make({
+    position: linePos(line, range),
+    source: lineText,
+    health: incompleteHealth,
+    anchors: [],
+  })
+
+const makeFrontmatterFence = (
+  lineText: string,
+  line: number,
+  range: LineRange,
+): FrontmatterWeft =>
+  FrontmatterWeftSchema.make({
+    position: linePos(line, range),
+    source: lineText,
+    health: okHealth,
+    fence: FrontmatterFenceTokenSchema.make({
+      position: span(line, range[0], range[0] + 3),
+      source: '---',
+      health: okHealth,
+    }),
+  })
+
+const makeFrontmatterField = (
+  lineText: string,
+  line: number,
+  range: LineRange,
+): FrontmatterWeft =>
+  FrontmatterWeftSchema.make({
+    position: linePos(line, range),
+    source: lineText,
+    health: incompleteHealth,
+  })

@@ -27,7 +27,7 @@ export class LoomAstBuilder extends Effect.Service<LoomAstBuilder>()(
 
 ## Peeling one node
 
-`parsingSink` is the shared shape: peel one input element, dispatch by its type, and wrap the result so an exhausted stream yields nothing. `nodeSink` peels one top-level node, which `dispatchNode` routes by type. A heading goes to `sectionSink`, which collects its body up to the next heading; a pre-heading preamble weft passes straight through. A body weft cannot reach the top level, so it dies as a defect. The predicates classify a weft along the way.
+`parsingSink` is the shared shape: peel one input element, dispatch by its type, and wrap the result so an exhausted stream yields nothing. `nodeSink` peels one top-level node, which `dispatchNode` routes by type. A heading goes to `sectionSink`, which collects its body up to the next heading; a pre-heading preamble weft and a frontmatter weft each pass straight through. A body weft cannot reach the top level, so it dies as a defect. The predicates classify a weft along the way.
 
 =>
 
@@ -53,7 +53,7 @@ const isSectionBody = (w: LoomWeft): w is SectionBodyWeft =>
 
 const isPreamble = (w: LoomWeft): w is PreambleWeft => w.type === 'PreambleWeft'
 
-type TopLevelNode = PreambleWeft | LoomSection
+type TopLevelNode = PreambleWeft | LoomSection | FrontmatterWeft
 
 const nodeSink = parsingSink<LoomWeft, TopLevelNode>((w) => dispatchNode(w))
 
@@ -64,6 +64,9 @@ const dispatchNode = (
     Match.value(w),
     Match.when({ type: 'HeadingWeft' }, sectionSink),
     Match.when({ type: 'PreambleWeft' }, (weft) =>
+      Sink.succeed<TopLevelNode>(weft),
+    ),
+    Match.when({ type: 'FrontmatterWeft' }, (weft) =>
       Sink.succeed<TopLevelNode>(weft),
     ),
     Match.when({ type: 'ArrowWeft' }, unexpectedAtTop),
@@ -87,16 +90,18 @@ const sectionSink = (
 
 ## Folding into the document
 
-The fold routes each peeled node. `appendToDocument` appends a `LoomSection` to the document's sections and a `PreambleWeft` to its preamble, starting from the empty `initialDocument`.
+The fold routes each peeled node. `appendToDocument` appends a `LoomSection` to the document's sections, a `PreambleWeft` to its preamble, and a `FrontmatterWeft` to its frontmatter, starting from the empty `initialDocument`.
 
 =>
 
 type DocumentBuilder = {
+  readonly frontmatter: ReadonlyArray<FrontmatterWeft>
   readonly preamble: ReadonlyArray<PreambleWeft>
   readonly sections: ReadonlyArray<LoomSection>
 }
 
 const initialDocument: DocumentBuilder = {
+  frontmatter: [],
   preamble: [],
   sections: [],
 }
@@ -114,6 +119,10 @@ const appendToDocument = (
     Match.when({ type: 'PreambleWeft' }, (weft) => ({
       ...doc,
       preamble: [...doc.preamble, weft],
+    })),
+    Match.when({ type: 'FrontmatterWeft' }, (weft) => ({
+      ...doc,
+      frontmatter: [...doc.frontmatter, weft],
     })),
     Match.exhaustive,
   )
@@ -175,14 +184,64 @@ const spanFrom = (
   }
 }
 
+## Building the frontmatter
+
+`makeFrontmatter` gathers a file's frontmatter wefts into one `LoomFrontmatter`, or nothing when the file opened with no block. The membership fields — the part, the chapter, and the title — come from the one weft that carries them.
+
+=>
+
+const makeFrontmatter = (
+  wefts: ReadonlyArray<FrontmatterWeft>,
+): Option.Option<LoomFrontmatter> => {
+  if (wefts.length === 0) return Option.none()
+  const membership = Option.match(
+    Option.fromNullable(wefts.find((w) => w.part !== undefined)),
+    {
+      onNone: () => ({}),
+      onSome: (w) => ({ part: w.part, chapter: w.chapter, title: w.title }),
+    },
+  )
+  return Option.some(
+    LoomFrontmatterSchema.make({
+      position: {
+        start: wefts[0].position.start,
+        end: wefts[wefts.length - 1].position.end,
+      },
+      source: sourceOf(wefts),
+      health: okHealth,
+      ...membership,
+      package: Option.getOrUndefined(frontmatterField(wefts, 'Package')),
+      language: Option.getOrUndefined(frontmatterField(wefts, 'Language')),
+    }),
+  )
+}
+
+~
+
+`frontmatterField` reads a `key: value` field's value by name — the `Package` a `{Tangle}` section writes to, or the `Language` its sections inherit — lifting the missing case to `Option` at the `.find`.
+
+=>
+
+const frontmatterField = (
+  wefts: ReadonlyArray<FrontmatterWeft>,
+  key: string,
+): Option.Option<FrontmatterValueToken> =>
+  pipe(
+    Option.fromNullable(
+      wefts.find((w) => w.key !== undefined && w.key.value === key),
+    ),
+    Option.flatMapNullable((w) => w.value),
+  )
+
 ## Assembling the document
 
-`makeDocument` assembles the final `LoomDocument` from the folded preamble and sections. `documentSpan` spans the whole, from the first preamble weft to the last section. A document needs no `lang` Warp: a section without one inherits the workspace's primary language, so an absent declaration is no fault.
+`makeDocument` assembles the final `LoomDocument` from the folded frontmatter, preamble, and sections, building the frontmatter block through `makeFrontmatter`. `documentSpan` spans the whole, from the first node to the last. A document needs no `lang` Warp: a section without one inherits the workspace's primary language, so an absent declaration is no fault.
 
 =>
 
 const documentSpan = (db: DocumentBuilder): Position => {
   const all: ReadonlyArray<{ readonly position: Position }> = [
+    ...db.frontmatter,
     ...db.preamble,
     ...db.sections,
   ]
@@ -195,8 +254,9 @@ const makeDocument = (db: DocumentBuilder): LoomDocument => {
   const position = documentSpan(db)
   return LoomDocumentSchema.make({
     position,
-    source: sourceOf(db.preamble, db.sections),
+    source: sourceOf(db.frontmatter, db.preamble, db.sections),
     health: okHealth,
+    frontmatter: Option.getOrUndefined(makeFrontmatter(db.frontmatter)),
     preamble: db.preamble,
     sections: db.sections,
   })
@@ -247,7 +307,7 @@ const eolName = (kind: 'lf' | 'crlf' | 'cr'): string => {
 
 ## What this module draws on
 
-Effect supplies `Stream`, `Sink`, `Chunk`, `Match`, and the rest for the fold. The container schemas come from `LoomAst`; `Position` and `okHealth` from the foundation; the `MixedEOL` type from the line scanner; and the weft types from `Weft`.
+Effect supplies `Stream`, `Sink`, `Chunk`, `Match`, and the rest for the fold. The container schemas come from `LoomAst` and the frontmatter value token from `LoomTokens`; `Position` and `okHealth` from the foundation; the `MixedEOL` type from the line scanner; and the weft types from `Weft`.
 
 =>
 
@@ -263,15 +323,19 @@ import {
 } from 'effect'
 import {
   LoomDocumentSchema,
+  LoomFrontmatterSchema,
   LoomHeadingSchema,
   LoomSectionSchema,
   type LoomDocument,
+  type LoomFrontmatter,
   type LoomHeading,
   type LoomSection,
 } from '@athrio/loom-ast/LoomAst'
+import type { FrontmatterValueToken } from '@athrio/loom-ast/LoomTokens'
 import { okHealth, type Position } from '@athrio/loom-ast/LoomNode'
 import type { MixedEOL } from './LineRanges'
 import type {
+  FrontmatterWeft,
   HeadingWeft,
   LoomWeft,
   PreambleWeft,
@@ -291,6 +355,8 @@ import type {
 ::[Folding into the document]
 
 ::[Building a section]
+
+::[Building the frontmatter]
 
 ::[Assembling the document]
 

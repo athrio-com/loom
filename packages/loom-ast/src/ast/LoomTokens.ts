@@ -106,6 +106,36 @@ export const SinkTokenSchema = loomNode('Sink', {
 })
 export type SinkToken = typeof SinkTokenSchema.Type
 
+export const FrontmatterFenceTokenSchema = loomNode('FrontmatterFence', {}).annotations({
+  [Probe]: /^---\s*$/,
+})
+export type FrontmatterFenceToken = typeof FrontmatterFenceTokenSchema.Type
+
+export const FrontmatterPartTokenSchema = loomNode('FrontmatterPart', {
+  value: Schema.String,
+})
+export type FrontmatterPartToken = typeof FrontmatterPartTokenSchema.Type
+
+export const FrontmatterChapterTokenSchema = loomNode('FrontmatterChapter', {
+  value: Schema.String,
+})
+export type FrontmatterChapterToken = typeof FrontmatterChapterTokenSchema.Type
+
+export const FrontmatterTitleTokenSchema = loomNode('FrontmatterTitle', {
+  value: Schema.String,
+})
+export type FrontmatterTitleToken = typeof FrontmatterTitleTokenSchema.Type
+
+export const FrontmatterKeyTokenSchema = loomNode('FrontmatterKey', {
+  value: Schema.String,
+})
+export type FrontmatterKeyToken = typeof FrontmatterKeyTokenSchema.Type
+
+export const FrontmatterValueTokenSchema = loomNode('FrontmatterValue', {
+  value: Schema.String,
+})
+export type FrontmatterValueToken = typeof FrontmatterValueTokenSchema.Type
+
 export const ArrowTokenSchema = loomNode('Arrow', {}).annotations({
   [Probe]: /^\s*=>/,
 })
@@ -297,6 +327,12 @@ export const LoomTokenSchema = Schema.Union(
   HeadingStartTokenSchema,
   SpecifierTokenSchema,
   SinkTokenSchema,
+  FrontmatterFenceTokenSchema,
+  FrontmatterPartTokenSchema,
+  FrontmatterChapterTokenSchema,
+  FrontmatterTitleTokenSchema,
+  FrontmatterKeyTokenSchema,
+  FrontmatterValueTokenSchema,
   ArrowTokenSchema,
   TildeTokenSchema,
   HeadingTitleTokenSchema,

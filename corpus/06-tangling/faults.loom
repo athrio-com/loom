@@ -4,7 +4,7 @@
 
 A fault is something the author got wrong that Loom can name: a bracket left open, a label left empty, an anchor that resolves to no section. `LoomFault` is the closed set of them, and this module is the one place that spells out each fault's wording and severity.
 
-Writing them once is the point. A reader sees everything Loom can say, gathered in one place. A detection site — in the tokeniser, the AST builder, or the frame pass — names a fault and the span it covers, and never writes the words itself. `describe` turns a fault into the message a person reads, and `faulty` wraps that message, positioned, as the `Health` a node carries. Adding a fault is adding a line to the table. The table is exhaustive, so a fault with no line does not compile.
+Writing them once is the point. A reader sees everything Loom can say, gathered in one place. A detection site — in the tokeniser, the AST builder, or the product pass — names a fault and the span it covers, and never writes the words itself. `describe` turns a fault into the message a person reads, and `faulty` wraps that message, positioned, as the `Health` a node carries. Adding a fault is adding a line to the table. The table is exhaustive, so a fault with no line does not compile.
 
 ## What Loom can get wrong
 
