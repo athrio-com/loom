@@ -1,5 +1,5 @@
 ---
-Part III, Chapter 2: The leaf tokens
+Part III, Chapter 3: The leaf tokens
 Package: packages/loom-ast/src/ast/LoomTokens.ts
 Language: TypeScript
 ---
