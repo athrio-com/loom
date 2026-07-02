@@ -5,59 +5,42 @@
 Loom is a literate programming framework written in Effect-TS. A `.loom` file
 contains prose and code sections in narrative (document) order; the composition
 layer reorders and assembles them into real source files on disk. Loom is
-language-agnostic — the document declares its primary language with a
-`{{lang: …}}` Warp, and individual sections may switch language with a
-specifier (`{Bash}`, `{json}`). Loom is written in Effect-TS, but as a tool it
-composes any language.
+language-agnostic — a chapter declares its language in its `Language:`
+frontmatter, and individual sections may switch language with a specifier
+(`{Bash}`, `{json}`). Loom is written in Effect-TS, but as a tool it composes
+any language.
 
-Loom is not a templating engine. It is a composition system built on Effect,
-and code is its product. Each section projects to an `Effect.Service`
-exposing `{ name, code, prose }`; `compose()` orders the composed `code` and
-`tangle()` binds it to a file path. At the end of the world the Effect program
-resolves to pure text — the output files. The machinery (Effect, Services,
-Layers) never appears in the output unless the author wrote Effect in a
-section; the runtime is invisible.
+Loom is not a templating engine but a composition system, and code is its
+product. Within a chapter a section draws in another by a `::[…]` anchor; the
+product pass resolves those anchors into one composed whole, and a `{Tangle}`
+section binds it to the file path that `tangle` writes. Loom is itself written
+in Effect, but that machinery never appears in the output unless the author
+wrote Effect in a section — the composition leaves no trace in what it produces.
 
 Loom is a Volar extended language: code sections are first-class embedded code
 with their own language services, diagnostics, and highlighting. This is
 foundational and must not be degraded.
 
-## The Specifications
+## The specification is the book
 
-This file is vision and working directives. The authoritative, detailed specs
-live in relevant layered documents — read the one before changing the correpsonding
-layer, and treat it as the source of truth (this file deliberately does not
-duplicate their detail):
+Loom is literate, so it keeps no specification apart from the book. `corpus/book.loom`
+and its chapters are the source of truth: each section's prose sits beside the code it
+describes, so the two cannot drift. Before changing a layer, read its chapter — the
+shape of a loom (the AST), reading the text (the parser), the product, tangling, the
+editor, languages as packages — and treat that prose as authoritative. This file is not
+the specification; it holds the vision above and the working directives below, and does
+not restate the chapters.
 
-- **`architecture.md`** (repo root) — *the overview*. The two planes, the end-to-end
-  pipeline, the AST's three-layer/one-shape model, the two-tier health model, the
-  grammar, the frame and editor surfaces, the runtime entry points, and the
-  cross-cutting invariants — the map over the whole system, with detail deferred to the
-  layer specs and the looms. The parsing layer's detail lives in its `corpus/*.loom`
-  files rather than a separate spec; read the relevant loom alongside `architecture.md`
-  before changing it.
-- **`packages/loom-lang/src/ast/how-frame.md`** — *the frame pass*. AST
-  → `Effect.Service` classes: each section is a Service exposing
-  `{ name, code, prose }`; every section is exported and named by its heading
-  title; name anchors drive dependencies and emission order; tangle sections
-  (`{path}` specifier) emit files; the composition root is auto-generated.
-- **`packages/loom-lang/how-lsp.md`** — *tooling*. The
-  composition primitives (`compose`, `tangle` — in the `dsl`), the runtime
-  entry points (Tangle CLI, LSP server, Vite plugin), and the Volar/LSP
-  virtual-code layer (virtual code tree, source mappings, the multiplexer,
-  syntax highlighting).
-
-When a spec and the code disagree, the spec is the target: do a full structural
-revision toward it rather than patching the old shape alongside the new. The
-architecture is interconnected — read the whole relevant spec before starting,
-not one section.
+The architecture is interconnected, so read the whole part for a layer, not one section,
+before starting. When the prose and the code disagree, the prose is the target: revise
+the code toward it rather than patch the old shape alongside the new.
 
 ## How to Work on Loom
 
 ### Author in Loom — never hand-write source
 
 Loom is written in Loom. Every package — `@athrio/loom-ast` and `@athrio/loom-lang`
-(the AST and the composition language a frame imports), the config package, each
+(the AST and the composition language), the config package, each
 `@athrio/loom-service-*`, the CLI, and in time the language-server itself — is
 authored as a `.loom` corpus and tangled to source. Never hand-write `.ts` (or any target-language) files, and never edit the
 tangled output: it is a generated artifact. To change emitted code, find the
@@ -120,21 +103,21 @@ Every process begins at `NodeRuntime.runMain()`. Build the program entry point �
 Services → Layers → composition. Do not start from utility functions and hope
 they compose later.
 
-### Keep the two planes separate
+### Compose by anchor, not by inlining
 
-The frame is *de dicto* — the composition program (the generated Services,
-`compose()` / `tangle()` calls, the anchor wiring). The product is *de re* — the code
-the author wrote in a section's body, carried as that section's `code` field.
-When product code happens to be TypeScript it looks like frame code; it is not.
-Never splice product code into the frame as raw TS — in the frame a section
-appears as a reference to another section's composed code, not inline source.
-`compose()` orders section code and `tangle()` emits files. (Full treatment in
-`how-lsp.md` → The Two Planes.)
+A loom weaves three layers into one file: the **Loom syntax** that composes the
+document — the headings, the `::[…]` anchors, the `{Tangle}` sinks — the **prose** a
+person reads, and the **code** each section is written in, in that section's own
+language. The layers stay distinct. A section draws in another by naming it with a
+`::[…]` anchor, never by pasting its code inline; the product pass resolves the anchor
+and composes the two. When a section's code happens to be TypeScript it can look like
+Loom's own composition, but it is product, not composition — treat it as opaque text in
+its section's language, and compose it only by reference.
 
 ### Do not strip working functionality
 
 Never remove working behavior without explicit instruction — embedded language
-resolution, syntax highlighting, frame projection, source mappings, or
+resolution, syntax highlighting, the product projection, source mappings, or
 language-service dispatch. Read the existing implementation before modifying it.
 If a change breaks something that worked before, the change is wrong: revert and
 understand why before proceeding.
