@@ -103,31 +103,34 @@ const corpus: Record<string, string> = {
   '/node.loom': chapter,
 }
 
-const compilerLayer = Layer.provide(
-  Layer.merge(LoomCompiler.Default, LoomMemo.Default),
-  Layer.merge(
-    Layer.succeed(
-      DocumentSource,
-      new DocumentSource({
-        read: (path: string) => Effect.succeed(corpus[path] ?? ''),
-        list: Option.some(() => Effect.succeed(Object.keys(corpus))),
-      }),
+const makeCompilerLayer = (files: Record<string, string>) =>
+  Layer.provide(
+    Layer.merge(LoomCompiler.Default, LoomMemo.Default),
+    Layer.merge(
+      Layer.succeed(
+        DocumentSource,
+        new DocumentSource({
+          read: (path: string) => Effect.succeed(files[path] ?? ''),
+          list: Option.some(() => Effect.succeed(Object.keys(files))),
+        }),
+      ),
+      Layer.succeed(
+        PackageConfig,
+        new PackageConfig({
+          resolve: () =>
+            Effect.succeed({
+              delims: defaultAnchorDelims,
+              primaryLanguage: undefined,
+              packageRoot: undefined,
+              workspaceRoot: undefined,
+              corpusDir: undefined,
+            }),
+        }),
+      ),
     ),
-    Layer.succeed(
-      PackageConfig,
-      new PackageConfig({
-        resolve: () =>
-          Effect.succeed({
-            delims: defaultAnchorDelims,
-            primaryLanguage: undefined,
-            packageRoot: undefined,
-            workspaceRoot: undefined,
-            corpusDir: undefined,
-          }),
-      }),
-    ),
-  ),
-)
+  )
+
+const compilerLayer = makeCompilerLayer(corpus)
 
 describe('the table of contents in the editor', () => {
   it.effect('a chapter entry navigates to the chapter it names', () =>
@@ -136,8 +139,8 @@ describe('the table of contents in the editor', () => {
       const offset = book.indexOf('The node foundation') + 2
       const target = yield* c.definition('/book.loom', offset)
       expect(target?.path).toBe('/node.loom')
-      // the chapter's `# The node foundation` heading — line 6 (0-based)
-      expect(target?.range.start.line).toBe(6)
+      // the chapter's frontmatter title — line 1 (0-based), not the heading
+      expect(target?.range.start.line).toBe(1)
     }).pipe(Effect.provide(compilerLayer)),
   )
 
@@ -160,8 +163,8 @@ describe('the table of contents in the editor', () => {
       const at = (path: string, line: number) =>
         refs.some((r) => r.path === path && r.range.start.line === line)
       expect(at('/book.loom', 4)).toBe(true) // the entry itself
-      expect(at('/node.loom', 6)).toBe(true) // the `# The node foundation` heading
-      expect(at('/node.loom', 1)).toBe(true) // the frontmatter title
+      expect(at('/node.loom', 1)).toBe(true) // the frontmatter title — the identity
+      expect(at('/node.loom', 6)).toBe(false) // not the heading
     }).pipe(Effect.provide(compilerLayer)),
   )
 
@@ -171,7 +174,97 @@ describe('the table of contents in the editor', () => {
       const offset = book.indexOf('The node foundation') + 2
       const edits = yield* c.rename('/book.loom', offset)
       const paths = edits.map((e) => e.path).sort()
-      expect(paths).toEqual(['/book.loom', '/node.loom', '/node.loom'])
+      expect(paths).toEqual(['/book.loom', '/node.loom'])
     }).pipe(Effect.provide(compilerLayer)),
+  )
+})
+
+// A part is announced in its opening chapter's frontmatter — the standalone
+// `Part I: Using Loom`. A contents part heading and every later chapter's
+// `Part I` reference it, keyed by the part number, and resolve to the opener.
+const partBook = `# Contents {TOC}
+
+### Part I — Using Loom
+
+1. A first loom
+2. A workspace
+`
+
+const opener = `---
+Part I: Using Loom
+Chapter 1: A first loom
+Language: Prose
+---
+
+# A first loom
+
+The opening chapter.
+`
+
+const workspace = `---
+Part I, Chapter 2: A workspace
+Language: Prose
+---
+
+# A workspace
+
+The second chapter.
+`
+
+const partCorpus: Record<string, string> = {
+  '/book.loom': partBook,
+  '/opener.loom': opener,
+  '/workspace.loom': workspace,
+}
+
+const partLayer = makeCompilerLayer(partCorpus)
+
+describe('parts navigate to where they are announced', () => {
+  it.effect('a contents part heading goes to the opening frontmatter', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const offset = partBook.indexOf('Part I — Using Loom') + 2
+      const target = yield* c.definition('/book.loom', offset)
+      expect(target?.path).toBe('/opener.loom')
+      // the `Part I: Using Loom` announcement — line 1 (0-based)
+      expect(target?.range.start.line).toBe(1)
+    }).pipe(Effect.provide(partLayer)),
+  )
+
+  it.effect("a chapter's `Part I` goes to the opening frontmatter", () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const offset = workspace.indexOf('Part I,') + 2
+      const target = yield* c.definition('/workspace.loom', offset)
+      expect(target?.path).toBe('/opener.loom')
+      expect(target?.range.start.line).toBe(1)
+    }).pipe(Effect.provide(partLayer)),
+  )
+
+  it.effect('references gather the announcement, the parts, and the heading', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const offset = opener.indexOf('Using Loom') + 2
+      const refs = yield* c.references('/opener.loom', offset)
+      const has = (path: string, line: number) =>
+        refs.some((r) => r.path === path && r.range.start.line === line)
+      expect(has('/opener.loom', 1)).toBe(true) // the announcement
+      expect(has('/workspace.loom', 1)).toBe(true) // the chapter's `Part I`
+      expect(has('/book.loom', 2)).toBe(true) // the contents part heading
+    }).pipe(Effect.provide(partLayer)),
+  )
+
+  it.effect('a part underlines its whole span but offers no rename', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const offset = partBook.indexOf('Part I — Using Loom') + 2
+      const nav = yield* c.navigationRange('/book.loom', offset)
+      const ren = yield* c.renameRange('/book.loom', offset)
+      const width =
+        (nav?.range.end.character ?? 0) - (nav?.range.start.character ?? 0)
+      expect(nav).not.toBeUndefined()
+      expect(width).toBeGreaterThan('Part I'.length) // the whole label, not a word
+      expect(ren).toBeUndefined() // navigable, but not yet renameable
+    }).pipe(Effect.provide(partLayer)),
   )
 })

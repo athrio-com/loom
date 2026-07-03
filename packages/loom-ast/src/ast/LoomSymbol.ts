@@ -24,6 +24,9 @@ export const SymbolKindSchema = Schema.Literal(
   'prose',
   'frontmatterMembership',
   'frontmatterValue',
+  'frontmatterTitle',
+  'frontmatterPart',
+  'frontmatterPartName',
   'tocPart',
   'tocEntry',
 )
@@ -89,8 +92,17 @@ export const profileOf = (kind: SymbolKind): SymbolProfile =>
     Match.when('frontmatterValue', () =>
       profile(Option.some('string'), { structure: true }),
     ),
+    Match.when('frontmatterTitle', () =>
+      profile(Option.some('namespace'), { navigation: true, structure: true }),
+    ),
+    Match.when('frontmatterPart', () =>
+      profile(Option.some('namespace'), { navigation: true, structure: true }),
+    ),
+    Match.when('frontmatterPartName', () =>
+      profile(Option.some('namespace'), { navigation: true, structure: true }),
+    ),
     Match.when('tocPart', () =>
-      profile(Option.some('namespace'), { structure: true }),
+      profile(Option.some('namespace'), { navigation: true, structure: true }),
     ),
     Match.when('tocEntry', () =>
       profile(Option.some('namespace'), {
@@ -127,10 +139,10 @@ const optSymbol = (
   )
 
 const frontmatterSymbols = (fm: LoomFrontmatter): ReadonlyArray<Symbol> => [
-  ...optSymbol('frontmatterMembership', fm.part),
-  ...optSymbol('frontmatterMembership', fm.partName),
+  ...optSymbol('frontmatterPart', fm.part),
+  ...optSymbol('frontmatterPartName', fm.partName),
   ...optSymbol('frontmatterMembership', fm.chapter),
-  ...optSymbol('frontmatterMembership', fm.title),
+  ...optSymbol('frontmatterTitle', fm.title),
   ...optSymbol('frontmatterValue', fm.package),
   ...optSymbol('frontmatterValue', fm.language),
 ]

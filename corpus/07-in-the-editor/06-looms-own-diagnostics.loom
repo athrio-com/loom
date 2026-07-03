@@ -82,12 +82,12 @@ nor find the anchors that compose a section — those are Loom's edges, not Type
 Two plugins answer them, each over the root mirror alone, the whole-file document whose
 map to the source is the identity, so a position there is a source offset.
 
-`loomDefinition` reads the anchor under the cursor and jumps to the heading its name
-resolves to. It asks `FrameQuery` for two spans: the target heading through
-`definition`, and the anchor's own name through `renameRange`, the span under the
-cursor. `toLocationLink` pairs them — the heading as the link's target, the anchor
-name as its `originSelectionRange` — so the editor underlines the whole `::[…]` name,
-not the single word beneath the cursor.
+`loomDefinition` reads the symbol under the cursor and jumps to the definition its
+name resolves to. It asks `FrameQuery` for two spans: the target through
+`definition`, and the whole symbol under the cursor through `navigationRange`.
+`toLocationLink` pairs them — the definition as the link's target, the symbol as its
+`originSelectionRange` — so the editor underlines the whole name, an `::[…]` anchor
+or a `Part I` alike, not the single word beneath the cursor.
 
 =>
 
@@ -112,7 +112,12 @@ const loomDefinition = (frame: FrameQueryApi): LanguageServicePlugin => ({
       const target = frame.definition(decoded[0].fsPath, offset)
       return target === undefined
         ? undefined
-        : [toLocationLink(target, frame.renameRange(decoded[0].fsPath, offset))]
+        : [
+            toLocationLink(
+              target,
+              frame.navigationRange(decoded[0].fsPath, offset),
+            ),
+          ]
     },
   }),
 })

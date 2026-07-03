@@ -29,11 +29,15 @@ anchors resolve to. A `sectionAnchor` is a `::[Title]` reference to a section; a
 `warpAnchor` is a `::[name]` reference to a value warp declared in the same section.
 A `warpDef` is a `{{name = value}}` declaration. A `specifier` is a heading's
 `{Language}`, a `sink` its `[file]`. An `arrow` opens a code block and a
-`tilde` closes it. A `frontmatterMembership` is a chapter's place in the book —
-its part, chapter, and title — and a `frontmatterValue` is the `Package` or
-`Language` a field binds. In the table of contents, a `tocPart` is a part's
-heading and a `tocEntry` is a chapter's line, which navigates to the chapter it
-names. Everything else a person reads is `prose`.
+`tilde` closes it. A `frontmatterTitle` is a chapter's name, the identity a
+table-of-contents entry resolves to. A `frontmatterPart` is the `Part N` a
+chapter belongs to — a reference to the part — and a `frontmatterPartName` is
+the part's name, announced once in the part's opening chapter. The chapter
+number is a plain `frontmatterMembership`, and a `frontmatterValue` is the
+`Package` or `Language` a field binds. In the table of contents, a `tocPart` is
+a part's heading, which navigates to where the part is announced, and a
+`tocEntry` is a chapter's line, which navigates to the chapter it names.
+Everything else a person reads is `prose`.
 
 =>
 
@@ -49,6 +53,9 @@ export const SymbolKindSchema = Schema.Literal(
   'prose',
   'frontmatterMembership',
   'frontmatterValue',
+  'frontmatterTitle',
+  'frontmatterPart',
+  'frontmatterPartName',
   'tocPart',
   'tocEntry',
 )
@@ -128,8 +135,17 @@ export const profileOf = (kind: SymbolKind): SymbolProfile =>
     Match.when('frontmatterValue', () =>
       profile(Option.some('string'), { structure: true }),
     ),
+    Match.when('frontmatterTitle', () =>
+      profile(Option.some('namespace'), { navigation: true, structure: true }),
+    ),
+    Match.when('frontmatterPart', () =>
+      profile(Option.some('namespace'), { navigation: true, structure: true }),
+    ),
+    Match.when('frontmatterPartName', () =>
+      profile(Option.some('namespace'), { navigation: true, structure: true }),
+    ),
     Match.when('tocPart', () =>
-      profile(Option.some('namespace'), { structure: true }),
+      profile(Option.some('namespace'), { navigation: true, structure: true }),
     ),
     Match.when('tocEntry', () =>
       profile(Option.some('namespace'), {
@@ -161,8 +177,8 @@ export interface Symbol {
 warps its section and the document preamble declare — and a `sectionAnchor`
 otherwise, since only a warp resolves within the section while a title resolves
 across the corpus. A heading contributes its title, specifier, and sink; a code
-block its arrow or tilde. The frontmatter contributes its membership and its
-field values, and a `{TOC}` section its parts and chapter entries.
+block its arrow or tilde. The frontmatter contributes its title, its part, and
+its field values, and a `{TOC}` section its parts and chapter entries.
 `symbolAt` finds the symbol a cursor rests in, so navigation asks the table which
 kind it is before resolving.
 
@@ -188,10 +204,10 @@ const optSymbol = (
   )
 
 const frontmatterSymbols = (fm: LoomFrontmatter): ReadonlyArray<Symbol> => [
-  ...optSymbol('frontmatterMembership', fm.part),
-  ...optSymbol('frontmatterMembership', fm.partName),
+  ...optSymbol('frontmatterPart', fm.part),
+  ...optSymbol('frontmatterPartName', fm.partName),
   ...optSymbol('frontmatterMembership', fm.chapter),
-  ...optSymbol('frontmatterMembership', fm.title),
+  ...optSymbol('frontmatterTitle', fm.title),
   ...optSymbol('frontmatterValue', fm.package),
   ...optSymbol('frontmatterValue', fm.language),
 ]

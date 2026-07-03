@@ -78,7 +78,12 @@ const loomDefinition = (frame: FrameQueryApi): LanguageServicePlugin => ({
       const target = frame.definition(decoded[0].fsPath, offset)
       return target === undefined
         ? undefined
-        : [toLocationLink(target, frame.renameRange(decoded[0].fsPath, offset))]
+        : [
+            toLocationLink(
+              target,
+              frame.navigationRange(decoded[0].fsPath, offset),
+            ),
+          ]
     },
   }),
 })

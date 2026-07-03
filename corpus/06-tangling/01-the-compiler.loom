@@ -17,9 +17,9 @@ Its spine is one step. `buildCorpus` runs `parse |> product`: it loads each modu
 
 The product is built once, with the parse. `LoomCorpusAstBuilder` composes each module's product as it loads, so `LoomMemo` caches the whole module — parse and product together — and a second projection of an unedited file reuses it. An edit evicts the file and its dependents, so the next projection rebuilds only what changed.
 
-The verbs project the corpus for the consumers. `compile` gives the editor its Volar tree, the source as the `loom` root and the product sections beneath it. `tangle` resolves a file's `{path}` sinks to the content and target the CLI writes. `diagnose` gives a file's Loom health, the diagnostics the editor shows. `definition` follows an anchor to the section it names, and `references` finds every anchor that names the section under the cursor. `rename` gathers the title and anchors a rename rewrites together, and `renameRange` gives the span the rename box covers. `semanticTokens` gives each of a file's tokens its colour, so the editor highlights the source. `reach` gives the files an entry pulls in, so the editor associates their scripts. `invalidate` evicts a file and the dependents that inlined it, naming what an edit must reproject.
+The verbs project the corpus for the consumers. `compile` gives the editor its Volar tree, the source as the `loom` root and the product sections beneath it. `tangle` resolves a file's `{path}` sinks to the content and target the CLI writes. `diagnose` gives a file's Loom health, the diagnostics the editor shows. `definition` follows an anchor to the section it names, and `references` finds every anchor that names the section under the cursor. `rename` gathers the title and anchors a rename rewrites together, and `renameRange` gives the span the rename box covers, while `navigationRange` gives the whole span a definition link underlines over any navigable token. `semanticTokens` gives each of a file's tokens its colour, so the editor highlights the source. `reach` gives the files an entry pulls in, so the editor associates their scripts. `invalidate` evicts a file and the dependents that inlined it, naming what an edit must reproject.
 
-Every verb builds the corpus the same way and differs only in what it reads. `compile` and `tangle` read the product — the composed sections and the sink files. `diagnose`, `definition`, `references`, `rename`, `renameRange`, `semanticTokens`, and `reach` read the parse and the corpus graph, since Loom health, navigation, colour, and placement need no product. `compile` takes its `Source` from the caller, so the editor reads the open buffer, and it guards Volar's synchronous hook: a defect degrades to a bare `loom` document carrying the file's text, and the editor keeps working rather than crashing. The other verbs read from disk through `DocumentSource`.
+Every verb builds the corpus the same way and differs only in what it reads. `compile` and `tangle` read the product — the composed sections and the sink files. `diagnose`, `definition`, `references`, `rename`, `renameRange`, `navigationRange`, `semanticTokens`, and `reach` read the parse and the corpus graph, since Loom health, navigation, colour, and placement need no product. `compile` takes its `Source` from the caller, so the editor reads the open buffer, and it guards Volar's synchronous hook: a defect degrades to a bare `loom` document carrying the file's text, and the editor keeps working rather than crashing. The other verbs read from disk through `DocumentSource`.
 
 =>
 
@@ -211,6 +211,21 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
               Option.getOrUndefined(
                 Option.flatMap(renameRangeAt({ modules }, path, offset), (loc) =>
                   frameLocationOf(modules, loc),
+                ),
+              ),
+            ),
+          ),
+
+        navigationRange: (
+          path: Path,
+          offset: number,
+        ): Effect.Effect<FrameLocation | undefined> =>
+          buildCorpus(documents, path).pipe(
+            Effect.map((modules) =>
+              Option.getOrUndefined(
+                Option.flatMap(
+                  navigationRangeAt({ modules }, path, offset),
+                  (loc) => frameLocationOf(modules, loc),
                 ),
               ),
             ),
@@ -547,7 +562,7 @@ export class DocumentSource extends Effect.Service<DocumentSource>()(
 
 ## What the compiler draws on
 
-From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; the projection functions `fromProduct`, `fromProse`, `rootNamesAt`, `rootVirtualCode`, and `symbolMappings`; the corpus model — `LoomModule`, the `corpusErrors` and `moduleDiagnostics` readers, the `reachable` and `transitiveDependents` reaches over the anchor graph, and the `definitionAt`, `referencesAt`, `renameAt`, and `renameRangeAt` navigation walks with the `CorpusLocation` they yield; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache. `profileOf` and `symbolsOf` from `LoomSymbol` give each mapped span its editor features and each of a file's tokens its colour, and `normaliseTitle` folds a heading title to the name an anchor resolves. From the language-service contract come `FrameLocation`, the editor-shaped range the navigation verbs return, and `FrameToken`, a range paired with the colour `semanticTokens` returns. `Diagnostic` carries an error's message and place. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError`, and Node's `fs` and `path` read each file and resolve each sink.
+From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; the projection functions `fromProduct`, `fromProse`, `rootNamesAt`, `rootVirtualCode`, and `symbolMappings`; the corpus model — `LoomModule`, the `corpusErrors` and `moduleDiagnostics` readers, the `reachable` and `transitiveDependents` reaches over the anchor graph, and the `definitionAt`, `referencesAt`, `renameAt`, `renameRangeAt`, and `navigationRangeAt` navigation walks with the `CorpusLocation` they yield; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache. `profileOf` and `symbolsOf` from `LoomSymbol` give each mapped span its editor features and each of a file's tokens its colour, and `normaliseTitle` folds a heading title to the name an anchor resolves. From the language-service contract come `FrameLocation`, the editor-shaped range the navigation verbs return, and `FrameToken`, a range paired with the colour `semanticTokens` returns. `Diagnostic` carries an error's message and place. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError`, and Node's `fs` and `path` read each file and resolve each sink.
 
 =>
 
@@ -566,6 +581,7 @@ import {
   referencesAt,
   renameAt,
   renameRangeAt,
+  navigationRangeAt,
   transitiveDependents,
   unresolvedTocEntriesIn,
   type CorpusLocation,

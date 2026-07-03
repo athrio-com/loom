@@ -146,6 +146,10 @@ export interface FrameQueryApi {
   readonly references: (path: string, offset: number) => ReadonlyArray<FrameLocation>
   readonly rename: (path: string, offset: number) => ReadonlyArray<FrameLocation>
   readonly renameRange: (path: string, offset: number) => FrameLocation | undefined
+  readonly navigationRange: (
+    path: string,
+    offset: number,
+  ) => FrameLocation | undefined
   readonly semanticTokens: (path: string) => ReadonlyArray<FrameToken>
 }
 

@@ -13,6 +13,7 @@ import {
   referencesAt,
   renameAt,
   renameRangeAt,
+  navigationRangeAt,
   transitiveDependents,
   unresolvedTocEntriesIn,
   type CorpusLocation,
@@ -447,6 +448,21 @@ export class LoomCompiler extends Effect.Service<LoomCompiler>()(
               Option.getOrUndefined(
                 Option.flatMap(renameRangeAt({ modules }, path, offset), (loc) =>
                   frameLocationOf(modules, loc),
+                ),
+              ),
+            ),
+          ),
+
+        navigationRange: (
+          path: Path,
+          offset: number,
+        ): Effect.Effect<FrameLocation | undefined> =>
+          buildCorpus(documents, path).pipe(
+            Effect.map((modules) =>
+              Option.getOrUndefined(
+                Option.flatMap(
+                  navigationRangeAt({ modules }, path, offset),
+                  (loc) => frameLocationOf(modules, loc),
                 ),
               ),
             ),

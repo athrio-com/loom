@@ -183,6 +183,12 @@ const frameQueryOver = (
         Effect.flatMap((compiler) => compiler.renameRange(path, offset)),
       ),
     ),
+  navigationRange: (path, offset) =>
+    Runtime.runSync(runtime)(
+      LoomCompiler.pipe(
+        Effect.flatMap((compiler) => compiler.navigationRange(path, offset)),
+      ),
+    ),
   semanticTokens: (path) =>
     Runtime.runSync(runtime)(
       LoomCompiler.pipe(

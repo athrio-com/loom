@@ -2,6 +2,7 @@ import { Array, Match, Option, pipe, Schema } from 'effect'
 import { type Diagnostic, type Position } from '#ast/LoomNode'
 import {
   type HeadingTitleToken,
+  type TocPartToken,
   type TocTitleToken,
   type WarpAnchorToken,
   type WarpToken,
@@ -417,8 +418,8 @@ const firstHeadingTitleOf = (
 const chapterTitleToken = (
   module: LoomModule,
 ): Option.Option<{ readonly source: string; readonly position: Position }> =>
-  Option.orElse(firstHeadingTitleOf(module), () =>
-    Option.fromNullable(module.doc.frontmatter?.title),
+  Option.orElse(Option.fromNullable(module.doc.frontmatter?.title), () =>
+    firstHeadingTitleOf(module),
   )
 
 const chapterIndex = (modules: Modules): ReadonlyMap<string, CorpusLocation> =>
@@ -462,12 +463,35 @@ const tocEntryTitleAt = (
     Option.map((title) => title.value),
   )
 
-const tocEntryDefinitionAt = (
+const frontmatterTitleAt = (
+  modules: Modules,
+  path: Path,
+  offset: number,
+): Option.Option<string> =>
+  pipe(
+    Option.fromNullable(modules.get(path)),
+    Option.flatMap((module) =>
+      Option.fromNullable(module.doc.frontmatter?.title),
+    ),
+    Option.filter((title) => covers(title.position, offset)),
+    Option.map((title) => title.value),
+  )
+
+const chapterNameAt = (
+  modules: Modules,
+  path: Path,
+  offset: number,
+): Option.Option<string> =>
+  Option.orElse(tocEntryTitleAt(modules, path, offset), () =>
+    frontmatterTitleAt(modules, path, offset),
+  )
+
+const chapterDefinitionAt = (
   corpus: LoomCorpusAst,
   path: Path,
   offset: number,
 ): Option.Option<CorpusLocation> =>
-  Option.flatMap(tocEntryTitleAt(corpus.modules, path, offset), (title) =>
+  Option.flatMap(chapterNameAt(corpus.modules, path, offset), (title) =>
     Option.fromNullable(chapterIndex(corpus.modules).get(title)),
   )
 
@@ -479,20 +503,13 @@ const isChapterTitled = (module: LoomModule, title: string): boolean =>
 
 const titleDeclarationsOf = (
   module: LoomModule,
-): ReadonlyArray<CorpusLocation> => [
-  ...Option.toArray(
-    Option.map(firstHeadingTitleOf(module), (token) => ({
+): ReadonlyArray<CorpusLocation> =>
+  Option.toArray(
+    Option.map(chapterTitleToken(module), (token) => ({
       path: module.path,
       position: token.position,
     })),
-  ),
-  ...Option.toArray(
-    Option.map(Option.fromNullable(module.doc.frontmatter?.title), (token) => ({
-      path: module.path,
-      position: token.position,
-    })),
-  ),
-]
+  )
 
 const tocMentionsOf = (
   module: LoomModule,
@@ -515,12 +532,12 @@ const tocNameGroup = (
     ...tocMentionsOf(module, title),
   ])
 
-const tocNameGroupAt = (
+const chapterGroupAt = (
   corpus: LoomCorpusAst,
   path: Path,
   offset: number,
 ): ReadonlyArray<CorpusLocation> =>
-  Option.match(tocEntryTitleAt(corpus.modules, path, offset), {
+  Option.match(chapterNameAt(corpus.modules, path, offset), {
     onNone: (): ReadonlyArray<CorpusLocation> => [],
     onSome: (title) => tocNameGroup(corpus.modules, title),
   })
@@ -538,6 +555,143 @@ export const unresolvedTocEntriesIn = (
   )
 }
 
+const partOpenerIndex = (
+  modules: Modules,
+): ReadonlyMap<string, CorpusLocation> =>
+  pipe(
+    Array.fromIterable(modules.values()),
+    Array.filterMap((module) =>
+      pipe(
+        Option.fromNullable(module.doc.frontmatter),
+        Option.flatMap((fm) =>
+          Option.all({
+            part: Option.fromNullable(fm.part),
+            partName: Option.fromNullable(fm.partName),
+          }),
+        ),
+        Option.map(
+          ({ part, partName }) =>
+            [
+              part.value,
+              { path: module.path, position: partName.position },
+            ] as const,
+        ),
+      ),
+    ),
+    Array.reduce(
+      new Map<string, CorpusLocation>(),
+      (index, [num, location]) =>
+        index.has(num) ? index : new Map(index).set(num, location),
+    ),
+  )
+
+const onToken = (
+  token: { readonly position: Position } | undefined,
+  offset: number,
+): boolean =>
+  Option.match(Option.fromNullable(token), {
+    onNone: () => false,
+    onSome: (t) => covers(t.position, offset),
+  })
+
+const frontmatterPartNumberAt = (
+  module: LoomModule,
+  offset: number,
+): Option.Option<string> =>
+  pipe(
+    Option.fromNullable(module.doc.frontmatter),
+    Option.filter(
+      (fm) => onToken(fm.part, offset) || onToken(fm.partName, offset),
+    ),
+    Option.flatMap((fm) => Option.fromNullable(fm.part)),
+    Option.map((part) => part.value),
+  )
+
+const tocPartsOf = (module: LoomModule): ReadonlyArray<TocPartToken> =>
+  Array.filterMap(tocEntriesOf(module), (entry) =>
+    Option.fromNullable(entry.part),
+  )
+
+const partNumberMarker = /^Part\s+(\S+)/
+
+const tocPartNumberAt = (
+  module: LoomModule,
+  offset: number,
+): Option.Option<string> =>
+  pipe(
+    Array.findFirst(tocPartsOf(module), (part) => covers(part.position, offset)),
+    Option.flatMap((part) =>
+      Option.fromNullable(partNumberMarker.exec(part.value)?.[1]),
+    ),
+  )
+
+const partNumberAt = (
+  modules: Modules,
+  path: Path,
+  offset: number,
+): Option.Option<string> =>
+  pipe(
+    Option.fromNullable(modules.get(path)),
+    Option.flatMap((module) =>
+      Option.orElse(frontmatterPartNumberAt(module, offset), () =>
+        tocPartNumberAt(module, offset),
+      ),
+    ),
+  )
+
+const partDefinitionAt = (
+  corpus: LoomCorpusAst,
+  path: Path,
+  offset: number,
+): Option.Option<CorpusLocation> =>
+  Option.flatMap(partNumberAt(corpus.modules, path, offset), (num) =>
+    Option.fromNullable(partOpenerIndex(corpus.modules).get(num)),
+  )
+
+const frontmatterPartLocations = (
+  module: LoomModule,
+  num: string,
+): ReadonlyArray<CorpusLocation> =>
+  pipe(
+    Option.fromNullable(module.doc.frontmatter?.part),
+    Option.filter((part) => part.value === num),
+    Option.map((part) => ({ path: module.path, position: part.position })),
+    Option.toArray,
+  )
+
+const tocPartLocations = (
+  module: LoomModule,
+  num: string,
+): ReadonlyArray<CorpusLocation> =>
+  Array.filterMap(tocPartsOf(module), (part) =>
+    pipe(
+      Option.fromNullable(partNumberMarker.exec(part.value)?.[1]),
+      Option.filter((n) => n === num),
+      Option.map(() => ({ path: module.path, position: part.position })),
+    ),
+  )
+
+const partGroup = (
+  modules: Modules,
+  num: string,
+): ReadonlyArray<CorpusLocation> => [
+  ...Option.toArray(Option.fromNullable(partOpenerIndex(modules).get(num))),
+  ...Array.flatMap(Array.fromIterable(modules.values()), (module) => [
+    ...frontmatterPartLocations(module, num),
+    ...tocPartLocations(module, num),
+  ]),
+]
+
+const partGroupAt = (
+  corpus: LoomCorpusAst,
+  path: Path,
+  offset: number,
+): ReadonlyArray<CorpusLocation> =>
+  Option.match(partNumberAt(corpus.modules, path, offset), {
+    onNone: (): ReadonlyArray<CorpusLocation> => [],
+    onSome: (num) => partGroup(corpus.modules, num),
+  })
+
 export const definitionAt = (
   corpus: LoomCorpusAst,
   path: Path,
@@ -552,8 +706,14 @@ export const definitionAt = (
           Match.when('sectionAnchor', () =>
             sectionDefinitionAt(corpus, path, offset),
           ),
-          Match.when('tocEntry', () =>
-            tocEntryDefinitionAt(corpus, path, offset),
+          Match.whenOr('tocEntry', 'frontmatterTitle', () =>
+            chapterDefinitionAt(corpus, path, offset),
+          ),
+          Match.whenOr(
+            'tocPart',
+            'frontmatterPart',
+            'frontmatterPartName',
+            () => partDefinitionAt(corpus, path, offset),
           ),
           Match.orElse(() => Option.none<CorpusLocation>()),
         ),
@@ -583,7 +743,15 @@ export const referencesAt = (
           Match.whenOr('headingTitle', 'sectionAnchor', () =>
             sectionReferencesAt(corpus, path, offset),
           ),
-          Match.when('tocEntry', () => tocNameGroupAt(corpus, path, offset)),
+          Match.whenOr('tocEntry', 'frontmatterTitle', () =>
+            chapterGroupAt(corpus, path, offset),
+          ),
+          Match.whenOr(
+            'tocPart',
+            'frontmatterPart',
+            'frontmatterPartName',
+            () => partGroupAt(corpus, path, offset),
+          ),
           Match.orElse((): ReadonlyArray<CorpusLocation> => []),
         ),
     },
@@ -637,13 +805,15 @@ export const renameAt = (
           Match.whenOr('headingTitle', 'sectionAnchor', () =>
             sectionRenameAt(corpus, path, offset),
           ),
-          Match.when('tocEntry', () => tocNameGroupAt(corpus, path, offset)),
+          Match.whenOr('tocEntry', 'frontmatterTitle', () =>
+            chapterGroupAt(corpus, path, offset),
+          ),
           Match.orElse((): ReadonlyArray<CorpusLocation> => []),
         ),
     },
   )
 
-export const renameRangeAt = (
+export const navigationRangeAt = (
   corpus: LoomCorpusAst,
   path: Path,
   offset: number,
@@ -651,8 +821,20 @@ export const renameRangeAt = (
   pipe(
     Option.fromNullable(corpus.modules.get(path)),
     Option.flatMap((module) => symbolAt(module.doc, offset)),
-    Option.filter((symbol) => profileOf(symbol.kind).features.navigation === true),
+    Option.filter(
+      (symbol) => profileOf(symbol.kind).features.navigation === true,
+    ),
     Option.map((symbol): CorpusLocation => ({ path, position: symbol.position })),
+  )
+
+export const renameRangeAt = (
+  corpus: LoomCorpusAst,
+  path: Path,
+  offset: number,
+): Option.Option<CorpusLocation> =>
+  Option.filter(
+    navigationRangeAt(corpus, path, offset),
+    () => renameAt(corpus, path, offset).length > 0,
   )
 
 const diagnosticsIn = (node: unknown): ReadonlyArray<Diagnostic> => {
