@@ -59,6 +59,43 @@ describe('a heading after the fence', () => {
   })
 })
 
+describe('a fenced loom example', () => {
+  it('quotes frontmatter, headings, arrows, and anchors — all inert', () => {
+    const doc = parse(
+      lines(
+        '# Chapter',
+        '',
+        'Here is a loom:',
+        '',
+        '```loom',
+        '---',
+        'Language: TypeScript',
+        'Package: src/main.ts',
+        '---',
+        '',
+        '# A greeting',
+        '',
+        '=>',
+        '',
+        'export const greet = 1',
+        '',
+        '# The entry point {Tangle}',
+        '',
+        '::[A greeting]',
+        '```',
+        '',
+        'Done.',
+      ),
+    )
+    // Only the real heading is a section; nothing quoted inside the fence.
+    expect(doc.sections.map((s) => s.heading.title?.source)).toEqual(['Chapter'])
+    // The fenced `---` did not register as the document's frontmatter.
+    expect(doc.frontmatter).toBeUndefined()
+    // Every fenced line is prose in the section body.
+    expect(doc.sections[0].code.every((w) => w.type === 'ProseWeft')).toBe(true)
+  })
+})
+
 describe('a fence marker inside a code region', () => {
   it('stays code — the region owns it, to be judged by its language', () => {
     const doc = parse(
