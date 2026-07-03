@@ -33,6 +33,7 @@ type ClassifierState = {
   readonly seenHeading: boolean
   readonly inFrontmatter: boolean
   readonly inToc: boolean
+  readonly inFence: boolean
 }
 
 const initialState: ClassifierState = {
@@ -40,6 +41,7 @@ const initialState: ClassifierState = {
   seenHeading: false,
   inFrontmatter: false,
   inToc: false,
+  inFence: false,
 }
 
 export class WeftClassifier extends Effect.Service<WeftClassifier>()(
@@ -52,16 +54,17 @@ export class WeftClassifier extends Effect.Service<WeftClassifier>()(
           Stream.mapAccum(source, initialState, (state, range) => {
             const lineText = text.slice(range[0], range[1])
             const weft = probeWeft(lineText, range, state)
-            const fence =
+            const frontmatterFence =
               weft.type === 'FrontmatterWeft' && weft.fence !== undefined
             const next: ClassifierState = {
               prev: Option.some(weft),
               seenHeading: state.seenHeading || weft.type === 'HeadingWeft',
-              inFrontmatter: state.inFrontmatter !== fence,
+              inFrontmatter: state.inFrontmatter !== frontmatterFence,
               inToc:
                 weft.type === 'HeadingWeft'
                   ? isTocHeading(lineText)
                   : state.inToc,
+              inFence: nextFence(state.inFence, weft),
             }
             return [next, weft]
           }),
@@ -87,6 +90,11 @@ const probeWeft = (
       return makeFrontmatterFence(lineText, line, range)
     return makeFrontmatterField(lineText, line, range)
   }
+
+  if (state.inFence)
+    return state.seenHeading
+      ? makeProseWeft(lineText, line, range)
+      : makePreambleWeft(lineText, line, range)
 
   const probe = probeOf(lineText)
 
@@ -181,6 +189,18 @@ const frontmatterFenceProbe = Option.getOrThrow(
 
 const isFrontmatterFence = (lineText: string): boolean =>
   frontmatterFenceProbe.test(lineText)
+
+const isCodeFence = (source: string): boolean => /^\s*```/.test(source)
+
+const isProseWeft = (weft: LoomWeft): boolean =>
+  weft.type === 'PreambleWeft' ||
+  weft.type === 'ProseWeft' ||
+  weft.type === 'TildeWeft'
+
+const nextFence = (inFence: boolean, weft: LoomWeft): boolean =>
+  inFence
+    ? !isCodeFence(weft.source)
+    : isProseWeft(weft) && isCodeFence(weft.source)
 
 const headingLevel = (m: RegExpMatchArray): number =>
   m[0].replace(/[^#]/g, '').length
