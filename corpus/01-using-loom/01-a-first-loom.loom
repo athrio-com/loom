@@ -6,19 +6,60 @@ Language: Prose
 
 # A first loom
 
-You meet Loom by writing a document. Prose and code live in it together, in the order that reads best, and Loom composes the code into real source files. The prose is not a comment wrapped around the program — it is half of the program, the half a person reads to learn what the code does and why.
+Welcome. Loom is a literate programming framework. You write one file where prose and code live together, in the order that explains the program best, and Loom composes the code into real source files. This chapter is the short path through it: install the tool, write your first loom, tangle it to source, run it, and open it live in your editor.
 
-A loom is written in a rhythm of two marks. An arrow, `=>` on its own line, turns prose into code; a tilde, `~`, turns it back. Between them you write code, around them you write prose, and a section takes as many turns as the story needs.
+## Install
 
-Take a small program that greets the world. Its first section, headed `# A greeting`, explains its function and then, after an arrow, defines it:
+Loom's command line is an npm package. Install it globally, and you have the `loom` command:
 
-```ts
-export const greet = (name: string): string => `Hello, ${name}!`
+```sh
+npm install -g @athrio/loom-cli
 ```
 
-A second section, `# The entry point`, is the file this loom writes: its heading carries the `{Tangle}` mark, and the frontmatter at the top of the loom names the path it lands at, `src/main.ts`. That section pulls the greeting in by name — with an anchor, `::[A greeting]` — and adds the line that runs it. Reading order and file order need not agree: you meet the greeting first because it explains best, though it lands beneath the entry point that calls it.
+That one command is the whole tool — the tangler that writes your code, and the language server your editor talks to. It asks for Node.js 18 or newer, and nothing else.
 
-Run `loom tangle greeting.loom`, and Loom drops the prose, follows the anchor, and writes one file:
+## Write a loom
+
+A loom is a `.loom` file. Open one, call it `greeting.loom`, and write a small program that greets the world:
+
+```loom
+---
+Language: TypeScript
+Package: src/main.ts
+---
+
+# A greeting
+
+The `greet` function welcomes someone by name.
+
+=>
+
+export const greet = (name: string): string => `Hello, ${name}!`
+
+# The entry point {Tangle}
+
+The program greets the world and prints the result.
+
+=>
+
+::[A greeting]
+
+console.log(greet("world"))
+```
+
+Read it top to bottom, the way a person would. Two marks carry the rhythm: `=>` turns prose into code, and `~` turns it back. The frontmatter at the top names the language the loom is written in and the file it writes. Below it, two sections tell the story in the order that reads best — what a greeting is, then the program that uses it.
+
+The second section is where the composing happens. Its `{Tangle}` mark names it as the section written to the file, and `::[A greeting]` draws the first section in by name. So the greeting comes first, because it explains best, though in the finished file it lands where the program calls it. You compose by naming a section, never by copying it.
+
+## Tangle it
+
+Tangling turns your loom into source. Run it:
+
+```sh
+loom tangle greeting.loom
+```
+
+Loom drops the prose, follows the anchor, and writes one file, `src/main.ts`:
 
 ```ts
 export const greet = (name: string): string => `Hello, ${name}!`
@@ -26,4 +67,24 @@ export const greet = (name: string): string => `Hello, ${name}!`
 console.log(greet("world"))
 ```
 
-Open that same loom in your editor and it is alive, not a flat document. Each section is highlighted in its own language, and the greeting is type-checked as TypeScript — pass a number where a name belongs and the mistake is underlined in the loom, not in the output. A broken anchor or a malformed heading is a diagnostic where you wrote it, and go-to-definition on `::[A greeting]` jumps to the section it names. The document you read and the program that runs are one file, and Loom keeps the two honest.
+That is ordinary TypeScript — no prose, no trace of Loom, the two sections assembled in the order the program needs them. The file is the product; the loom is where it comes from, and where you keep working.
+
+## Run it
+
+You need not write a file to run one. `loom run` composes the program in memory and runs it on the spot:
+
+```sh
+loom run greeting.loom
+```
+
+```
+Hello, world!
+```
+
+Tangling to disk is a step for shipping, not a precondition for seeing your program work.
+
+## In the editor
+
+Open `greeting.loom` in your editor and it is alive, not a flat document. Loom highlights every section, follows `::[A greeting]` to the section it names when you ask for its definition, and flags a broken anchor or a malformed heading right where you wrote it. Set the project up — the next chapter's subject — and each language comes fully alive as well: the greeting is type-checked as you type, underlined in the loom rather than in a generated file you have never opened.
+
+That is a first loom — one file you read like prose and run like code, with Loom keeping the two in step. The next chapter grows it into a project.
