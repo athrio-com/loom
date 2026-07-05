@@ -7,7 +7,7 @@ Language: TypeScript
 # The Loom language
 
 `LoomLanguage` gives the **Frame** its editor support — the de dicto composition
-program Loom builds — the `Effect.Service` classes and the Warp wiring. Loom is TypeScript + Effect, so
+program Loom builds — the `Context.Service` classes and the Warp wiring. Loom is TypeScript + Effect, so
 `LoomLanguage` wraps `volar-service-typescript` and takes the `TypescriptSdk` the host
 provides. It is always active: every `.loom` has a Frame.
 
@@ -77,7 +77,7 @@ const loomDiagnostics = (frame: FrameQueryApi): LanguageServicePlugin => ({
 ## Navigating the frame
 
 `volar-service-typescript` navigates the frame as TypeScript, jumping between the
-generated `Effect.Service` classes. It cannot follow an anchor to the section it names,
+generated `Context.Service` classes. It cannot follow an anchor to the section it names,
 nor find the anchors that compose a section — those are Loom's edges, not TypeScript's.
 Two plugins answer them, each over the root mirror alone, the whole-file document whose
 map to the source is the identity, so a position there is a source offset.

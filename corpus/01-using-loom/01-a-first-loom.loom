@@ -8,6 +8,12 @@ Language: Prose
 
 Welcome. Loom is a literate programming framework. You write one file where prose and code live together, in the order that explains the program best, and Loom composes the code into real source files. This chapter is the short path through it: install the tool, write your first loom, tangle it to source, run it, and open it live in your editor.
 
+:::[Note] { }
+> install the tool, write your first loom, tangle it to source, run it, and open it live in your editor
+
+A demo note, living in the loom source — this is what a reader's annotation looks like. Resolve it by deleting the block.
+:::
+
 ## Install
 
 Loom's command line is an npm package. Install it globally, and you have the `loom` command:

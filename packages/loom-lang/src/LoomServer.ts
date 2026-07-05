@@ -1,5 +1,4 @@
-import { Effect, Runtime } from 'effect'
-import { NodeRuntime } from '@effect/platform-node'
+import { Layer, ManagedRuntime } from 'effect'
 import {
   createConnection,
   createServer,
@@ -12,9 +11,15 @@ import { PackageConfig } from './PackageConfig'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
 
-const program = Effect.gen(function* () {
-  const runtime = yield* Effect.runtime<LoomCompiler | LoomConfig>()
+const runtime = ManagedRuntime.make(
+  Layer.mergeAll(LoomCompiler.layer, LoomConfig.layer).pipe(
+    Layer.provide(DocumentSource.layer),
+    Layer.provide(PackageConfig.layer),
+    Layer.provide(LoomConfig.layer),
+  ),
+)
 
+export const startLanguageServer = (): void => {
   const connection = createConnection()
   const server = createServer(connection)
 
@@ -26,8 +31,8 @@ const program = Effect.gen(function* () {
     )
     const folder = params.workspaceFolders?.[0]?.uri
     const root = folder ? fileURLToPath(folder) : process.cwd()
-    const servicePlugins = await Runtime.runPromise(runtime)(
-      loomServicePlugins(tsdk.typescript, root),
+    const servicePlugins = await runtime.runPromise(
+      loomServicePlugins(runtime, tsdk.typescript, root),
     )
     return server.initialize(
       params,
@@ -45,13 +50,4 @@ const program = Effect.gen(function* () {
   })
   connection.onShutdown(server.shutdown)
   connection.listen()
-
-  yield* Effect.never
-}).pipe(
-  Effect.provide(LoomCompiler.Default),
-  Effect.provide(DocumentSource.Default),
-  Effect.provide(PackageConfig.Default),
-  Effect.provide(LoomConfig.Default),
-)
-
-export const startLanguageServer = (): void => NodeRuntime.runMain(program)
+}

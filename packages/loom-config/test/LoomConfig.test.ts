@@ -12,7 +12,7 @@ const run = (path: string): ResolvedConfig =>
   Effect.runSync(
     LoomConfig.pipe(
       Effect.flatMap((config) => config.resolve(path)),
-      Effect.provide(LoomConfig.Default),
+      Effect.provide(LoomConfig.layer),
     ),
   )
 

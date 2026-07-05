@@ -39,7 +39,7 @@ const build = (ws: string) =>
   Effect.runPromise(
     ManifestBuilder.pipe(
       Effect.flatMap((m) => m.build(ws)),
-      Effect.provide(ManifestBuilder.Default),
+      Effect.provide(ManifestBuilder.layer),
     ),
   )
 
@@ -47,7 +47,7 @@ const materialize = (ws: string) =>
   Effect.runPromise(
     ManifestBuilder.pipe(
       Effect.flatMap((m) => m.materialize(ws)),
-      Effect.provide(ManifestBuilder.Default),
+      Effect.provide(ManifestBuilder.layer),
     ),
   )
 
@@ -55,7 +55,7 @@ const resolve = (path: string) =>
   Effect.runSync(
     LoomConfig.pipe(
       Effect.flatMap((c) => c.resolve(path)),
-      Effect.provide(LoomConfig.Default),
+      Effect.provide(LoomConfig.layer),
     ),
   )
 

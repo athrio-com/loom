@@ -1,4 +1,4 @@
-import { Effect, Runtime } from 'effect'
+import { Effect, Layer, ManagedRuntime } from 'effect'
 import { readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
@@ -32,14 +32,13 @@ const looms = readdirSync(corpusDir, { recursive: true })
 let run: <A>(effect: Effect.Effect<A, never, LoomCompiler>) => A
 
 beforeAll(async () => {
-  const runtime = await Effect.runPromise(
-    Effect.runtime<LoomCompiler>().pipe(
-      Effect.provide(LoomCompiler.Default),
-      Effect.provide(DocumentSource.Default),
-      Effect.provide(PackageConfig.Default),
+  const runtime = ManagedRuntime.make(
+    LoomCompiler.layer.pipe(
+      Layer.provide(DocumentSource.layer),
+      Layer.provide(PackageConfig.layer),
     ),
   )
-  run = (effect) => Runtime.runSync(runtime)(effect)
+  run = (effect) => runtime.runSync(effect)
   run(
     LoomCompiler.pipe(
       Effect.flatMap((c) => c.diagnose(resolve(corpusDir, looms[0]!))),

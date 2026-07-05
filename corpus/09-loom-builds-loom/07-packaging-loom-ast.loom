@@ -37,10 +37,10 @@ The `exports` map names one entry point per model. There is no default entry: th
     "access": "public"
   },
   "peerDependencies": {
-    "effect": "3.21.2"
+    "effect": "4.0.0-beta.93"
   },
   "devDependencies": {
-    "effect": "3.21.2"
+    "effect": "4.0.0-beta.93"
   }
 }
 

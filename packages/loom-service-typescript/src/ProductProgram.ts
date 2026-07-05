@@ -127,7 +127,7 @@ export const createProductProgram = (
 
   const unchanged = (path: string, text: string): boolean =>
     pipe(
-      Option.fromNullable(roots.get(path)),
+      Option.fromNullishOr(roots.get(path)),
       Option.match({
         onNone: () => false,
         onSome: (snapshot) => snapshot.getText(0, snapshot.getLength()) === text,

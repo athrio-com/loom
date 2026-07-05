@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Layer, Option, Runtime } from 'effect'
+import { Effect, Layer, Option } from 'effect'
 import type { Source } from '#ast/LoomCorpusAstBuilder'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { PackageConfig } from '../src/PackageConfig'
@@ -27,17 +27,14 @@ export const add = (x: number, y: number): number => x + y
 const source: Source = { read: () => Effect.succeed(input), list: Option.none() }
 
 const layer = Layer.provide(
-  LoomCompiler.Default,
-  Layer.merge(DocumentSource.Default, PackageConfig.Default),
+  LoomCompiler.layer,
+  Layer.merge(DocumentSource.layer, PackageConfig.layer),
 )
 
 describe('VirtualCode — root projection', () => {
   it.effect('builds the tree via Runtime.runSync on a warm runtime', () =>
     Effect.gen(function* () {
-      const runtime = yield* Effect.runtime<LoomCompiler>()
-      const root = Runtime.runSync(runtime)(
-        LoomCompiler.pipe(Effect.flatMap((c) => c.compile(source, ''))),
-      )
+      const root = yield* LoomCompiler.pipe(Effect.flatMap((c) => c.compile(source, '')))
 
       expect(root.id).toBe('root')
       expect(root.languageId).toBe('loom')
@@ -62,7 +59,6 @@ describe('VirtualCode — root projection', () => {
 
   it.effect('projects a {Config} section as YAML for highlighting', () =>
     Effect.gen(function* () {
-      const runtime = yield* Effect.runtime<LoomCompiler>()
       const cfg: Source = {
         read: () =>
           Effect.succeed(
@@ -70,9 +66,7 @@ describe('VirtualCode — root projection', () => {
           ),
         list: Option.none(),
       }
-      const root = Runtime.runSync(runtime)(
-        LoomCompiler.pipe(Effect.flatMap((c) => c.compile(cfg, ''))),
-      )
+      const root = yield* LoomCompiler.pipe(Effect.flatMap((c) => c.compile(cfg, '')))
       // root → [prose, the {Config} product]; its body reads as YAML
       const product = root.embeddedCodes![1]!
       expect(product.languageId).toBe('yaml')

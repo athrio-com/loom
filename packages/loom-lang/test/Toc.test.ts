@@ -105,18 +105,18 @@ const corpus: Record<string, string> = {
 
 const makeCompilerLayer = (files: Record<string, string>) =>
   Layer.provide(
-    Layer.merge(LoomCompiler.Default, LoomMemo.Default),
+    Layer.merge(LoomCompiler.layer, LoomMemo.layer),
     Layer.merge(
       Layer.succeed(
         DocumentSource,
-        new DocumentSource({
+        {
           read: (path: string) => Effect.succeed(files[path] ?? ''),
           list: Option.some(() => Effect.succeed(Object.keys(files))),
-        }),
+        },
       ),
       Layer.succeed(
         PackageConfig,
-        new PackageConfig({
+        {
           resolve: () =>
             Effect.succeed({
               delims: defaultAnchorDelims,
@@ -125,7 +125,7 @@ const makeCompilerLayer = (files: Record<string, string>) =>
               workspaceRoot: undefined,
               corpusDir: undefined,
             }),
-        }),
+        },
       ),
     ),
   )

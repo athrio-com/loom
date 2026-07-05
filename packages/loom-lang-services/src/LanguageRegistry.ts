@@ -1,17 +1,19 @@
-import { Effect, HashMap, Option } from 'effect'
+import { Context, Effect, HashMap, Layer, Option } from 'effect'
 import type { LanguageService } from './LanguageService'
 
-export class ActiveLanguages extends Effect.Service<ActiveLanguages>()(
+export class ActiveLanguages extends Context.Service<ActiveLanguages>()(
   'ActiveLanguages',
   {
-    effect: Effect.succeed({ all: [] as ReadonlyArray<LanguageService> }),
+    make: Effect.succeed({ all: [] as ReadonlyArray<LanguageService> }),
   },
-) {}
+) {
+  static readonly layer = Layer.effect(this, this.make)
+}
 
-export class LanguageRegistry extends Effect.Service<LanguageRegistry>()(
+export class LanguageRegistry extends Context.Service<LanguageRegistry>()(
   'LanguageRegistry',
   {
-    effect: Effect.gen(function* () {
+    make: Effect.gen(function* () {
       const { all } = yield* ActiveLanguages
       const byId = HashMap.fromIterable(all.map((s) => [s.id, s] as const))
       const byExtension = HashMap.fromIterable(
@@ -26,4 +28,6 @@ export class LanguageRegistry extends Effect.Service<LanguageRegistry>()(
       }
     }),
   },
-) {}
+) {
+  static readonly layer = Layer.effect(this, this.make)
+}

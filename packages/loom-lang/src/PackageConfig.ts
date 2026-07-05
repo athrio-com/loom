@@ -1,4 +1,4 @@
-import { Effect } from 'effect'
+import { Context, Effect, Layer } from 'effect'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { type AnchorDelims, defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
@@ -18,10 +18,10 @@ const anchorDelimsOf = (
   close: anchor?.close ?? defaultAnchorDelims.close,
 })
 
-export class PackageConfig extends Effect.Service<PackageConfig>()(
+export class PackageConfig extends Context.Service<PackageConfig>()(
   'PackageConfig',
   {
-    effect: Effect.gen(function* () {
+    make: Effect.gen(function* () {
       const config = yield* LoomConfig
       return {
         resolve: (path: Path): Effect.Effect<BuildSettings> =>
@@ -36,6 +36,9 @@ export class PackageConfig extends Effect.Service<PackageConfig>()(
           ),
       }
     }),
-    dependencies: [LoomConfig.Default],
   },
-) {}
+) {
+  static readonly layer = Layer.effect(this, this.make).pipe(
+    Layer.provide(LoomConfig.layer),
+  )
+}

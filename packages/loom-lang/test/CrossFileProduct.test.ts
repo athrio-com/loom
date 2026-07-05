@@ -1,5 +1,5 @@
 import { createTypeScriptInferredChecker } from '@volar/kit'
-import { Effect, Layer, Runtime } from 'effect'
+import { Effect, Layer, ManagedRuntime } from 'effect'
 import { resolve } from 'node:path'
 import * as ts from 'typescript'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -37,35 +37,30 @@ beforeAll(() => {
 afterAll(() => teardown())
 
 const checkerFor = async (entry: string) => {
-  const runtime = await Effect.runtime<LoomCompiler | LoomConfig>().pipe(
-    Effect.provide(LoomCompiler.Default),
-    Effect.provide(DocumentSource.Default),
-    Effect.provide(PackageConfig.Default),
-    Effect.provide(
-      Layer.succeed(
-        LoomConfig,
-        new LoomConfig({
-          resolve: () =>
-            Effect.succeed({
-              anchor: undefined,
-              primary: 'typescript',
-              languages: ['typescript'],
-              settings: {},
-              services: {},
-              packageRoot: undefined,
-              workspaceRoot: undefined,
-              corpusDir: undefined,
-            }),
-          manifest: () =>
-            Effect.succeed({ languages: { typescript: {} } }),
-          materialize: () => Effect.void,
-        }),
-      ),
+  const configMock = Layer.succeed(LoomConfig, {
+    resolve: () =>
+      Effect.succeed({
+        anchor: undefined,
+        primary: 'typescript',
+        languages: ['typescript'],
+        settings: {},
+        services: {},
+        packageRoot: undefined,
+        workspaceRoot: undefined,
+        corpusDir: undefined,
+      }),
+    manifest: () => Effect.succeed({ languages: { typescript: {} } }),
+    materialize: () => Effect.void,
+  })
+  const runtime = ManagedRuntime.make(
+    Layer.mergeAll(LoomCompiler.layer, configMock).pipe(
+      Layer.provide(DocumentSource.layer),
+      Layer.provide(PackageConfig.layer),
+      Layer.provide(configMock),
     ),
-    Effect.runPromise,
   )
-  const servicePlugins = await Runtime.runPromise(runtime)(
-    loomServicePlugins(ts, entry),
+  const servicePlugins = await runtime.runPromise(
+    loomServicePlugins(runtime, ts, entry),
   )
   return createTypeScriptInferredChecker(
     [loomLanguagePlugin(runtime)],

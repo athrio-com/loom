@@ -6,46 +6,37 @@ Language: TypeScript
 
 # The document builder
 
-`LoomAstBuilder` is the final parse stage: `build` folds a stream of wefts into a `LoomDocument`. It peels one top-level node at a time — a pre-heading preamble weft, or a heading with the body wefts up to the next heading — and routes each into the document. Sections are flat, so there is no second assembly stage. The module also holds `emptyDocument`, the empty error-carrying tree a caller falls back to when it cannot produce a real one.
+`LoomAstBuilder` is the final parse stage: `build` turns a stream of wefts into a `LoomDocument`. A weft before the first heading stands at the document's top level, as frontmatter or preamble; a heading gathers the body wefts up to the next heading into a section. `build` groups the wefts along that line, then folds each group into the document. The module also holds `emptyDocument`, the empty error-carrying tree a caller falls back to when it cannot produce a real one.
 
 ## The build
 
-`build` is a transduce then a fold: `nodeSink` peels one node, a `filterMap` drops the empty end-of-input marker, `runFold` routes each node into a growing document, and `makeDocument` finishes it.
+Grouping a heading with its body means looking ahead to the next heading, so `build` gathers the whole weft stream first with `Stream.runCollect`. `groupNodes` then splits the wefts into the document's top-level nodes, `appendToDocument` folds each node into a growing document, and `makeDocument` finishes it.
 
 =>
 
-export class LoomAstBuilder extends Effect.Service<LoomAstBuilder>()(
+export class LoomAstBuilder extends Context.Service<LoomAstBuilder>()(
   'LoomAstBuilder',
   {
-    succeed: {
+    make: Effect.succeed({
       build: (source: Stream.Stream<LoomWeft>): Effect.Effect<LoomDocument> =>
-        source.pipe(
-          Stream.transduce(nodeSink),
-          Stream.filterMap(Function.identity),
-          Stream.runFold(initialDocument, appendToDocument),
-          Effect.map(makeDocument),
+        Stream.runCollect(source).pipe(
+          Effect.map((wefts) =>
+            makeDocument(
+              Array.reduce(groupNodes(wefts), initialDocument, appendToDocument),
+            ),
+          ),
         ),
-    },
+    }),
   },
-) {}
+) {
+  static readonly layer = Layer.effect(this, this.make)
+}
 
-## Peeling one node
+## Grouping the wefts
 
-`parsingSink` is the shared shape: peel one input element, dispatch by its type, and wrap the result so an exhausted stream yields nothing. `nodeSink` peels one top-level node, which `dispatchNode` routes by type. A heading goes to `sectionSink`, which collects its body up to the next heading; a pre-heading preamble weft and a frontmatter weft each pass straight through. A body weft or a toc weft cannot reach the top level, so it dies as a defect — a toc weft only ever sits inside the `{TOC}` section its heading opened, gathered with the rest of that body. The predicates classify a weft along the way.
+`groupNodes` splits the flat weft list at the first heading. What comes before stands at the document's top level — its frontmatter and preamble — so `isTopLevelWeft` keeps those two kinds. From the first heading on, `Array.chop` walks the rest heading by heading: each `sectionChunk` takes a heading and the body wefts up to the next heading, and `buildSection` turns that pair into a `LoomSection`. Every chunk leads with a heading, so `sectionChunk` guards on `isHeading`; a well-formed file never trips that guard. The `isHeading`, `isSectionBody`, `isPreamble`, and `isToc` predicates classify each weft.
 
 =>
-
-const parsingSink = <In, A>(
-  dispatch: (item: In) => Sink.Sink<A, In, In>,
-): Sink.Sink<Option.Option<A>, In, In> =>
-  Sink.head<In>().pipe(
-    Sink.flatMap(
-      Option.match({
-        onNone: () => Sink.succeed(Option.none<A>()),
-        onSome: (item) => dispatch(item).pipe(Sink.map(Option.some)),
-      }),
-    ),
-  )
 
 const isHeading = (w: LoomWeft): w is HeadingWeft => w.type === 'HeadingWeft'
 
@@ -59,41 +50,33 @@ const isPreamble = (w: LoomWeft): w is PreambleWeft => w.type === 'PreambleWeft'
 
 const isToc = (w: LoomWeft): w is TocWeft => w.type === 'TocWeft'
 
-type TopLevelNode = PreambleWeft | LoomSection | FrontmatterWeft
+const isTopLevelWeft = (w: LoomWeft): w is FrontmatterWeft | PreambleWeft =>
+  w.type === 'FrontmatterWeft' || w.type === 'PreambleWeft'
 
-const nodeSink = parsingSink<LoomWeft, TopLevelNode>((w) => dispatchNode(w))
+type TopLevelNode = FrontmatterWeft | PreambleWeft | LoomSection
 
-const dispatchNode = (
-  w: LoomWeft,
-): Sink.Sink<TopLevelNode, LoomWeft, LoomWeft> =>
-  pipe(
-    Match.value(w),
-    Match.when({ type: 'HeadingWeft' }, sectionSink),
-    Match.when({ type: 'PreambleWeft' }, (weft) =>
-      Sink.succeed<TopLevelNode>(weft),
-    ),
-    Match.when({ type: 'FrontmatterWeft' }, (weft) =>
-      Sink.succeed<TopLevelNode>(weft),
-    ),
-    Match.when({ type: 'ArrowWeft' }, unexpectedAtTop),
-    Match.when({ type: 'CodeWeft' }, unexpectedAtTop),
-    Match.when({ type: 'TildeWeft' }, unexpectedAtTop),
-    Match.when({ type: 'ProseWeft' }, unexpectedAtTop),
-    Match.when({ type: 'TocWeft' }, unexpectedAtTop),
-    Match.exhaustive,
-  )
+const sectionChunk = (
+  group: Array.NonEmptyReadonlyArray<LoomWeft>,
+): readonly [Option.Option<LoomSection>, ReadonlyArray<LoomWeft>] => {
+  const [body, rest] = Array.span(Array.drop(group, 1), (w) => !isHeading(w))
+  const heading = group[0]
+  return [
+    isHeading(heading)
+      ? Option.some(buildSection(heading, body))
+      : Option.none(),
+    rest,
+  ]
+}
 
-const unexpectedAtTop = (
-  w: LoomWeft,
-): Sink.Sink<TopLevelNode, LoomWeft, LoomWeft> =>
-  Sink.die(`dispatchNode: unexpected ${w.type} at top level`)
-
-const sectionSink = (
-  heading: HeadingWeft,
-): Sink.Sink<LoomSection, LoomWeft, LoomWeft> =>
-  Sink.collectAllWhile<LoomWeft>((w) => !isHeading(w)).pipe(
-    Sink.map((body) => buildSection(heading, body)),
-  )
+const groupNodes = (
+  wefts: ReadonlyArray<LoomWeft>,
+): ReadonlyArray<TopLevelNode> => {
+  const [preamble, sections] = Array.span(wefts, (w) => !isHeading(w))
+  return [
+    ...Array.filter(preamble, isTopLevelWeft),
+    ...Array.getSomes(Array.chop(sections, sectionChunk)),
+  ]
+}
 
 ## Folding into the document
 
@@ -142,12 +125,12 @@ const appendToDocument = (
 
 const buildSection = (
   heading: HeadingWeft,
-  body: Chunk.Chunk<LoomWeft>,
+  body: ReadonlyArray<LoomWeft>,
 ): LoomSection => {
   const h = headingOf(heading)
-  const preamble = Chunk.toReadonlyArray(Chunk.filter(body, isPreamble))
-  const code = Chunk.toReadonlyArray(Chunk.filter(body, isSectionBody))
-  const entries = Chunk.toReadonlyArray(Chunk.filter(body, isToc))
+  const preamble = body.filter(isPreamble)
+  const code = body.filter(isSectionBody)
+  const entries = body.filter(isToc)
   return LoomSectionSchema.make({
     position: spanFrom(h.position, preamble, code, entries),
     source: sourceOf(h, preamble, code, entries),
@@ -176,10 +159,12 @@ const sourceOf = (
     { readonly source: string } | ReadonlyArray<{ readonly source: string }>
   >
 ): string =>
-  groups
-    .flatMap((g) => (Array.isArray(g) ? g : [g as { readonly source: string }]))
-    .map((n) => n.source)
-    .join('')
+  pipe(
+    groups,
+    Array.flatMap((g) => Array.ensure(g)),
+    Array.map((n) => n.source),
+    Array.join(''),
+  )
 
 const spanFrom = (
   headingPos: Position,
@@ -204,14 +189,14 @@ const makeFrontmatter = (
 ): Option.Option<LoomFrontmatter> => {
   if (wefts.length === 0) return Option.none()
   const partFields = Option.match(
-    Option.fromNullable(wefts.find((w) => w.part !== undefined)),
+    Option.fromNullishOr(wefts.find((w) => w.part !== undefined)),
     {
       onNone: () => ({}),
       onSome: (w) => ({ part: w.part, partName: w.partName }),
     },
   )
   const chapterFields = Option.match(
-    Option.fromNullable(wefts.find((w) => w.chapter !== undefined)),
+    Option.fromNullishOr(wefts.find((w) => w.chapter !== undefined)),
     {
       onNone: () => ({}),
       onSome: (w) => ({ chapter: w.chapter, title: w.title }),
@@ -244,10 +229,10 @@ const frontmatterField = (
   key: string,
 ): Option.Option<FrontmatterValueToken> =>
   pipe(
-    Option.fromNullable(
+    Option.fromNullishOr(
       wefts.find((w) => w.key !== undefined && w.key.value === key),
     ),
-    Option.flatMapNullable((w) => w.value),
+    Option.flatMapNullishOr((w) => w.value),
   )
 
 ## Assembling the document
@@ -324,17 +309,17 @@ const eolName = (kind: 'lf' | 'crlf' | 'cr'): string => {
 
 ## What this module draws on
 
-Effect supplies `Stream`, `Sink`, `Chunk`, `Match`, and the rest for the fold. The container schemas come from `LoomAst` and the frontmatter value token from `LoomTokens`; `Position` and `okHealth` from the foundation; the `MixedEOL` type from the line scanner; and the weft types from `Weft`.
+Effect supplies `Stream` to gather the weft stream, `Array` to group and fold it, and `Match`, `Option`, `Context`, and `Layer` besides. The container schemas come from `LoomAst` and the frontmatter value token from `LoomTokens`; `Position` and `okHealth` from the foundation; the `MixedEOL` type from the line scanner; and the weft types from `Weft`.
 
 =>
 
 import {
-  Chunk,
+  Array,
+  Context,
   Effect,
-  Function,
+  Layer,
   Match,
   Option,
-  Sink,
   Stream,
   pipe,
 } from 'effect'
@@ -368,7 +353,7 @@ import type {
 
 ::[The build]
 
-::[Peeling one node]
+::[Grouping the wefts]
 
 ::[Folding into the document]
 

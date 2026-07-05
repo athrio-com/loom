@@ -1,5 +1,5 @@
 import type { LanguageServicePlugin } from '@volar/language-service'
-import { Data, Effect } from 'effect'
+import { Context, Data, Effect, Layer } from 'effect'
 import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
 import type { SemanticToken } from '@athrio/loom-ast/LoomSymbol'
 
@@ -21,11 +21,13 @@ export interface LanguageService {
   >
 }
 
-export class TypescriptSdk extends Effect.Service<TypescriptSdk>()('TypescriptSdk', {
-  effect: Effect.die(
+export class TypescriptSdk extends Context.Service<TypescriptSdk>()('TypescriptSdk', {
+  make: Effect.die(
     'TypescriptSdk must be provided by the host',
   ) as Effect.Effect<typeof import('typescript')>,
-}) {}
+}) {
+  static readonly layer = Layer.effect(this, this.make)
+}
 
 export interface FrameLocation {
   readonly path: string
@@ -53,11 +55,13 @@ export interface FrameQueryApi {
   readonly semanticTokens: (path: string) => ReadonlyArray<FrameToken>
 }
 
-export class FrameQuery extends Effect.Service<FrameQuery>()('FrameQuery', {
-  effect: Effect.die(
+export class FrameQuery extends Context.Service<FrameQuery>()('FrameQuery', {
+  make: Effect.die(
     'FrameQuery must be provided by the host',
   ) as Effect.Effect<FrameQueryApi>,
-}) {}
+}) {
+  static readonly layer = Layer.effect(this, this.make)
+}
 
 export interface ComposedFile {
   readonly path: string
@@ -71,11 +75,13 @@ export interface CompositionApi {
   readonly rootsFor: (path: string) => ReadonlyArray<ComposedFile>
 }
 
-export class Composition extends Effect.Service<Composition>()('Composition', {
-  effect: Effect.die(
+export class Composition extends Context.Service<Composition>()('Composition', {
+  make: Effect.die(
     'Composition must be provided by the host',
   ) as Effect.Effect<CompositionApi>,
-}) {}
+}) {
+  static readonly layer = Layer.effect(this, this.make)
+}
 
 export type HostCapabilities = TypescriptSdk | FrameQuery | Composition
 

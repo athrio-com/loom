@@ -52,7 +52,7 @@ const tangle = (file: string) =>
   }).pipe(
     Effect.catchTag('TangleError', (e) =>
       Console.error(e.message).pipe(
-        Effect.zipRight(Effect.sync(() => void (process.exitCode = 1))),
+        Effect.andThen(Effect.sync(() => void (process.exitCode = 1))),
       ),
     ),
   )
@@ -61,7 +61,7 @@ const tangle = (file: string) =>
 
 `loom init` sets up a workspace. It writes `.loom/config.yaml` — the compiled configuration the editor and the tangler read — and a `.gitignore` beside it that keeps the generated service store out of version control. It asks for the primary language a specifier-less section inherits, and for the languages the editor activates services for, then records them. When a `.loom/config.yaml` is already there, it asks before overwriting, so a stray `init` never erases a configured workspace.
 
-The primary language defaults to TypeScript, and the activation answer defaults to that same language, so a TypeScript workspace is two key-presses away. The activation answer is a space-separated list, since one workspace may run several languages. A prompt the author quits — with `Ctrl-C` — fails with `QuitException`, which `init` catches to leave with a word rather than a stack trace.
+The primary language defaults to TypeScript, and the activation answer defaults to that same language, so a TypeScript workspace is two key-presses away. The activation answer is a space-separated list, since one workspace may run several languages. A prompt the author quits — with `Ctrl-C` — fails with `QuitError`, which `init` catches to leave with a word rather than a stack trace.
 
 =>
 
@@ -116,7 +116,7 @@ const init = (dir: Option.Option<string>) =>
         `   ${dim(`activated: ${ids.join(', ') || 'none'}`)}\n`,
     )
   }).pipe(
-    Effect.catchTag('QuitException', () => Console.log(dim('\n   Cancelled.\n'))),
+    Effect.catchTag('QuitError', () => Console.log(dim('\n   Cancelled.\n'))),
   )
 
 ## Activating a language
@@ -130,7 +130,7 @@ Both commands record the change the same way. `updateLanguages` reads the worksp
 =>
 
 const updateLanguages = (
-  config: LoomConfig,
+  config: LoomConfig['Service'],
   dir: string,
   change: (ids: ReadonlyArray<string>) => ReadonlyArray<string>,
 ): Effect.Effect<void> =>
@@ -160,7 +160,7 @@ const add = (language: string) =>
     Effect.catchTag('StoreError', (error) =>
       Console.error(
         `loom: could not install ${servicePackage(error.id)} — ${String(error.cause)}`,
-      ).pipe(Effect.zipRight(Effect.sync(() => void (process.exitCode = 1)))),
+      ).pipe(Effect.andThen(Effect.sync(() => void (process.exitCode = 1)))),
     ),
   )
 
@@ -212,25 +212,25 @@ The `lsp` branch sits outside the command program. It loads the server lazily, s
 
 const tangleCommand = Command.make(
   'tangle',
-  { path: Args.text({ name: 'path' }) },
+  { path: Argument.string('path') },
   ({ path }) => tangle(path),
 )
 
 const initCommand = Command.make(
   'init',
-  { dir: Args.optional(Args.directory({ name: 'dir' })) },
+  { dir: Argument.optional(Argument.directory('dir')) },
   ({ dir }) => init(dir),
 )
 
 const addCommand = Command.make(
   'add',
-  { language: Args.text({ name: 'language' }) },
+  { language: Argument.string('language') },
   ({ language }) => add(language),
 )
 
 const removeCommand = Command.make(
   'remove',
-  { language: Args.text({ name: 'language' }) },
+  { language: Argument.string('language') },
   ({ language }) => remove(language),
 )
 
@@ -247,14 +247,13 @@ const loom = Command.make('loom').pipe(
 )
 
 const program = Command.run(loom, {
-  name: 'Loom — a literate framework',
   version: '0.5.0',
-})(process.argv).pipe(
-  Effect.provide(LoomTangler.Default),
-  Effect.provide(DocumentSource.Default),
-  Effect.provide(PackageConfig.Default),
-  Effect.provide(LoomConfig.Default),
-  Effect.provide(NodeContext.layer),
+}).pipe(
+  Effect.provide(LoomTangler.layer),
+  Effect.provide(DocumentSource.layer),
+  Effect.provide(PackageConfig.layer),
+  Effect.provide(LoomConfig.layer),
+  Effect.provide(NodeServices.layer),
 )
 
 if (process.argv[2] === 'lsp') {
@@ -268,13 +267,13 @@ if (process.argv[2] === 'lsp') {
 
 ## What the program needs
 
-The program is built on Effect, a functional TypeScript library for composing and running effectful programs. `@effect/cli` parses the command line and drives the interactive prompts, and the Node platform supplies the runtime, the terminal, and filesystem access. The language server contributes three services: `LoomTangler`, which walks a `.loom` file and emits the tangled output; `DocumentSource`, which feeds it source text from disk; and `PackageConfig`, which resolves a `.loom`'s package settings. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back. From `@athrio/loom-lang-services` come the store operations behind activation: `addService` and `removeService` install and uninstall a language's package, `installedServices` lists what the store holds, `storeDir` locates it, `workspaceRoot` finds the workspace it sits in, and `servicePackage` names a language's package.
+The program is built on Effect, a functional TypeScript library for composing and running effectful programs. Effect's CLI toolkit parses the command line and drives the interactive prompts, and the Node platform supplies the runtime, the terminal, and filesystem access. The language server contributes three services: `LoomTangler`, which walks a `.loom` file and emits the tangled output; `DocumentSource`, which feeds it source text from disk; and `PackageConfig`, which resolves a `.loom`'s package settings. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back. From `@athrio/loom-lang-services` come the store operations behind activation: `addService` and `removeService` install and uninstall a language's package, `installedServices` lists what the store holds, `storeDir` locates it, `workspaceRoot` finds the workspace it sits in, and `servicePackage` names a language's package.
 
 =>
 
 import { Console, Effect, Option } from 'effect'
-import { Args, Command, Prompt } from '@effect/cli'
-import { NodeContext, NodeRuntime } from '@effect/platform-node'
+import { Argument, Command, Prompt } from 'effect/unstable/cli'
+import { NodeRuntime, NodeServices } from '@effect/platform-node'
 import { existsSync, writeFileSync } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
 import { DocumentSource } from '@athrio/loom-lang/LoomCompiler'

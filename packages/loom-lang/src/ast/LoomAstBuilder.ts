@@ -1,10 +1,10 @@
 import {
-  Chunk,
+  Array,
+  Context,
   Effect,
-  Function,
+  Layer,
   Match,
   Option,
-  Sink,
   Stream,
   pipe,
 } from 'effect'
@@ -30,32 +30,23 @@ import type {
   TocWeft,
 } from '@athrio/loom-ast/Weft'
 
-export class LoomAstBuilder extends Effect.Service<LoomAstBuilder>()(
+export class LoomAstBuilder extends Context.Service<LoomAstBuilder>()(
   'LoomAstBuilder',
   {
-    succeed: {
+    make: Effect.succeed({
       build: (source: Stream.Stream<LoomWeft>): Effect.Effect<LoomDocument> =>
-        source.pipe(
-          Stream.transduce(nodeSink),
-          Stream.filterMap(Function.identity),
-          Stream.runFold(initialDocument, appendToDocument),
-          Effect.map(makeDocument),
+        Stream.runCollect(source).pipe(
+          Effect.map((wefts) =>
+            makeDocument(
+              Array.reduce(groupNodes(wefts), initialDocument, appendToDocument),
+            ),
+          ),
         ),
-    },
+    }),
   },
-) {}
-
-const parsingSink = <In, A>(
-  dispatch: (item: In) => Sink.Sink<A, In, In>,
-): Sink.Sink<Option.Option<A>, In, In> =>
-  Sink.head<In>().pipe(
-    Sink.flatMap(
-      Option.match({
-        onNone: () => Sink.succeed(Option.none<A>()),
-        onSome: (item) => dispatch(item).pipe(Sink.map(Option.some)),
-      }),
-    ),
-  )
+) {
+  static readonly layer = Layer.effect(this, this.make)
+}
 
 const isHeading = (w: LoomWeft): w is HeadingWeft => w.type === 'HeadingWeft'
 
@@ -69,41 +60,33 @@ const isPreamble = (w: LoomWeft): w is PreambleWeft => w.type === 'PreambleWeft'
 
 const isToc = (w: LoomWeft): w is TocWeft => w.type === 'TocWeft'
 
-type TopLevelNode = PreambleWeft | LoomSection | FrontmatterWeft
+const isTopLevelWeft = (w: LoomWeft): w is FrontmatterWeft | PreambleWeft =>
+  w.type === 'FrontmatterWeft' || w.type === 'PreambleWeft'
 
-const nodeSink = parsingSink<LoomWeft, TopLevelNode>((w) => dispatchNode(w))
+type TopLevelNode = FrontmatterWeft | PreambleWeft | LoomSection
 
-const dispatchNode = (
-  w: LoomWeft,
-): Sink.Sink<TopLevelNode, LoomWeft, LoomWeft> =>
-  pipe(
-    Match.value(w),
-    Match.when({ type: 'HeadingWeft' }, sectionSink),
-    Match.when({ type: 'PreambleWeft' }, (weft) =>
-      Sink.succeed<TopLevelNode>(weft),
-    ),
-    Match.when({ type: 'FrontmatterWeft' }, (weft) =>
-      Sink.succeed<TopLevelNode>(weft),
-    ),
-    Match.when({ type: 'ArrowWeft' }, unexpectedAtTop),
-    Match.when({ type: 'CodeWeft' }, unexpectedAtTop),
-    Match.when({ type: 'TildeWeft' }, unexpectedAtTop),
-    Match.when({ type: 'ProseWeft' }, unexpectedAtTop),
-    Match.when({ type: 'TocWeft' }, unexpectedAtTop),
-    Match.exhaustive,
-  )
+const sectionChunk = (
+  group: Array.NonEmptyReadonlyArray<LoomWeft>,
+): readonly [Option.Option<LoomSection>, ReadonlyArray<LoomWeft>] => {
+  const [body, rest] = Array.span(Array.drop(group, 1), (w) => !isHeading(w))
+  const heading = group[0]
+  return [
+    isHeading(heading)
+      ? Option.some(buildSection(heading, body))
+      : Option.none(),
+    rest,
+  ]
+}
 
-const unexpectedAtTop = (
-  w: LoomWeft,
-): Sink.Sink<TopLevelNode, LoomWeft, LoomWeft> =>
-  Sink.die(`dispatchNode: unexpected ${w.type} at top level`)
-
-const sectionSink = (
-  heading: HeadingWeft,
-): Sink.Sink<LoomSection, LoomWeft, LoomWeft> =>
-  Sink.collectAllWhile<LoomWeft>((w) => !isHeading(w)).pipe(
-    Sink.map((body) => buildSection(heading, body)),
-  )
+const groupNodes = (
+  wefts: ReadonlyArray<LoomWeft>,
+): ReadonlyArray<TopLevelNode> => {
+  const [preamble, sections] = Array.span(wefts, (w) => !isHeading(w))
+  return [
+    ...Array.filter(preamble, isTopLevelWeft),
+    ...Array.getSomes(Array.chop(sections, sectionChunk)),
+  ]
+}
 
 type DocumentBuilder = {
   readonly frontmatter: ReadonlyArray<FrontmatterWeft>
@@ -140,12 +123,12 @@ const appendToDocument = (
 
 const buildSection = (
   heading: HeadingWeft,
-  body: Chunk.Chunk<LoomWeft>,
+  body: ReadonlyArray<LoomWeft>,
 ): LoomSection => {
   const h = headingOf(heading)
-  const preamble = Chunk.toReadonlyArray(Chunk.filter(body, isPreamble))
-  const code = Chunk.toReadonlyArray(Chunk.filter(body, isSectionBody))
-  const entries = Chunk.toReadonlyArray(Chunk.filter(body, isToc))
+  const preamble = body.filter(isPreamble)
+  const code = body.filter(isSectionBody)
+  const entries = body.filter(isToc)
   return LoomSectionSchema.make({
     position: spanFrom(h.position, preamble, code, entries),
     source: sourceOf(h, preamble, code, entries),
@@ -174,10 +157,12 @@ const sourceOf = (
     { readonly source: string } | ReadonlyArray<{ readonly source: string }>
   >
 ): string =>
-  groups
-    .flatMap((g) => (Array.isArray(g) ? g : [g as { readonly source: string }]))
-    .map((n) => n.source)
-    .join('')
+  pipe(
+    groups,
+    Array.flatMap((g) => Array.ensure(g)),
+    Array.map((n) => n.source),
+    Array.join(''),
+  )
 
 const spanFrom = (
   headingPos: Position,
@@ -196,14 +181,14 @@ const makeFrontmatter = (
 ): Option.Option<LoomFrontmatter> => {
   if (wefts.length === 0) return Option.none()
   const partFields = Option.match(
-    Option.fromNullable(wefts.find((w) => w.part !== undefined)),
+    Option.fromNullishOr(wefts.find((w) => w.part !== undefined)),
     {
       onNone: () => ({}),
       onSome: (w) => ({ part: w.part, partName: w.partName }),
     },
   )
   const chapterFields = Option.match(
-    Option.fromNullable(wefts.find((w) => w.chapter !== undefined)),
+    Option.fromNullishOr(wefts.find((w) => w.chapter !== undefined)),
     {
       onNone: () => ({}),
       onSome: (w) => ({ chapter: w.chapter, title: w.title }),
@@ -230,10 +215,10 @@ const frontmatterField = (
   key: string,
 ): Option.Option<FrontmatterValueToken> =>
   pipe(
-    Option.fromNullable(
+    Option.fromNullishOr(
       wefts.find((w) => w.key !== undefined && w.key.value === key),
     ),
-    Option.flatMapNullable((w) => w.value),
+    Option.flatMapNullishOr((w) => w.value),
   )
 
 const documentSpan = (db: DocumentBuilder): Position => {

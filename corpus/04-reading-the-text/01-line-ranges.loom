@@ -112,24 +112,24 @@ A `LineRange` is a half-open `[start, end)` pair of byte offsets, terminator inc
 
 export type LineRange = readonly [start: number, end: number]
 
-const NonNegativeInt = Schema.Number.pipe(
-  Schema.int(),
-  Schema.greaterThanOrEqualTo(0),
+const NonNegativeInt = Schema.Number.check(
+  Schema.makeFilter<number>((n) =>
+    Number.isInteger(n) && n >= 0 ? undefined : 'must be a non-negative integer',
+  ),
 )
 
-export const LineRangeSchema = Schema.Tuple(NonNegativeInt, NonNegativeInt)
+export const LineRangeSchema = Schema.Tuple([NonNegativeInt, NonNegativeInt])
 
 const lineRanges = (text: string, eol: Eol): Stream.Stream<LineRange> =>
-  Stream.unfold(0, (from) => {
-    if (from > text.length) return Option.none()
-    eol.pattern.lastIndex = from
-    const m = eol.pattern.exec(text)
-    if (!m) return Option.some([[from, text.length] as const, text.length + 1])
-    return Option.some([
-      [from, eol.pattern.lastIndex] as const,
-      eol.pattern.lastIndex,
-    ])
-  })
+  Stream.unfold(0, (from) =>
+    Effect.sync(() => {
+      if (from > text.length) return undefined
+      eol.pattern.lastIndex = from
+      const m = eol.pattern.exec(text)
+      if (!m) return [[from, text.length], text.length + 1] as const
+      return [[from, eol.pattern.lastIndex], eol.pattern.lastIndex] as const
+    }),
+  )
 
 ## The service
 
@@ -137,10 +137,10 @@ const lineRanges = (text: string, eol: Eol): Stream.Stream<LineRange> =>
 
 =>
 
-export class LoomSourceRanges extends Effect.Service<LoomSourceRanges>()(
+export class LoomSourceRanges extends Context.Service<LoomSourceRanges>()(
   'LoomSourceRanges',
   {
-    succeed: {
+    make: Effect.succeed({
       stream: (
         text: string,
       ): Effect.Effect<Stream.Stream<LineRange>, MixedEOL> =>
@@ -151,9 +151,11 @@ export class LoomSourceRanges extends Effect.Service<LoomSourceRanges>()(
               Effect.map((validEol) => lineRanges(text, validEol)),
             ),
         }),
-    },
+    }),
   },
-) {}
+) {
+  static readonly layer = Layer.effect(this, this.make)
+}
 
 ## What this module draws on
 
@@ -161,7 +163,7 @@ Effect supplies `Stream` for the ranges, `Data` for the tagged `MixedEOL` error,
 
 =>
 
-import { Effect, Option, Stream, Data, Schema } from 'effect'
+import { Context, Effect, Layer, Option, Stream, Data, Schema } from 'effect'
 
 ## The module {Tangle}
 

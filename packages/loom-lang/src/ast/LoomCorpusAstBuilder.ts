@@ -1,4 +1,4 @@
-import { Data, Effect, Option, pipe } from 'effect'
+import { Context, Data, Effect, Layer, Option, pipe } from 'effect'
 import {
   checkAnchorDelims,
   defaultAnchorDelims,
@@ -29,10 +29,10 @@ export class ReadError extends Data.TaggedError('ReadError')<{
   }
 }
 
-export class LoomCorpusAstBuilder extends Effect.Service<LoomCorpusAstBuilder>()(
+export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>()(
   'LoomCorpusAstBuilder',
   {
-    effect: Effect.gen(function* () {
+    make: Effect.gen(function* () {
       const sourceRanges = yield* LoomSourceRanges
       const classify = yield* WeftClassifier
       const tokenise = yield* WeftTokeniser
@@ -49,7 +49,7 @@ export class LoomCorpusAstBuilder extends Effect.Service<LoomCorpusAstBuilder>()
             const onBadDelims = (err: InvalidAnchorDelims) =>
               Effect.succeed(emptyDocument(text, err.message))
             return checkAnchorDelims(delims).pipe(
-              Effect.zipRight(sourceRanges.stream(text)),
+              Effect.andThen(sourceRanges.stream(text)),
               Effect.flatMap((ranges) =>
                 pipe(
                   ranges,
@@ -89,12 +89,17 @@ export class LoomCorpusAstBuilder extends Effect.Service<LoomCorpusAstBuilder>()
 
       return { build }
     }),
-    dependencies: [
-      LoomSourceRanges.Default,
-      WeftClassifier.Default,
-      WeftTokeniser.Default,
-      LoomAstBuilder.Default,
-      ProductBuilder.Default,
-    ],
   },
-) {}
+) {
+  static readonly layer = Layer.effect(this, this.make).pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        LoomSourceRanges.layer,
+        WeftClassifier.layer,
+        WeftTokeniser.layer,
+        LoomAstBuilder.layer,
+        ProductBuilder.layer,
+      ),
+    ),
+  )
+}

@@ -36,10 +36,10 @@ Language: TypeScript
 
 const TestDocs = Layer.succeed(
   DocumentSource,
-  new DocumentSource({
+  {
     read: (path: string) => Effect.succeed(files[path] ?? ''),
     list: Option.some(() => Effect.succeed(Object.keys(files))),
-  }),
+  },
 )
 
 // a stub config: this probe drives the corpus over in-memory paths, so it never
@@ -47,7 +47,7 @@ const TestDocs = Layer.succeed(
 // configured primary language.
 const TestConfig = Layer.succeed(
   PackageConfig,
-  new PackageConfig({
+  {
     resolve: () =>
       Effect.succeed({
         delims: defaultAnchorDelims,
@@ -56,13 +56,13 @@ const TestConfig = Layer.succeed(
         workspaceRoot: undefined,
         corpusDir: undefined,
       }),
-  }),
+  },
 )
 
 // merge LoomMemo into the provided context (the same instance the compiler uses,
 // by Effect's layer memoisation) so a probe can read its hit/miss stats.
 const layer = Layer.provide(
-  Layer.merge(LoomCompiler.Default, LoomMemo.Default),
+  Layer.merge(LoomCompiler.layer, LoomMemo.layer),
   Layer.merge(TestDocs, TestConfig),
 )
 
@@ -132,14 +132,14 @@ export const b = 2
 }
 
 const crossLayer = Layer.provide(
-  Layer.merge(LoomCompiler.Default, LoomMemo.Default),
+  Layer.merge(LoomCompiler.layer, LoomMemo.layer),
   Layer.merge(
     Layer.succeed(
       DocumentSource,
-      new DocumentSource({
+      {
         read: (path: string) => Effect.succeed(crossImport[path] ?? ''),
         list: Option.some(() => Effect.succeed(Object.keys(crossImport))),
-      }),
+      },
     ),
     TestConfig,
   ),

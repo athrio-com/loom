@@ -1,11 +1,14 @@
 import { Schema } from 'effect'
 
+const intAtLeast = (min: number) =>
+  Schema.makeFilter<number>((n) =>
+    Number.isInteger(n) && n >= min ? undefined : `must be an integer >= ${min}`,
+  )
+
 export const PointSchema = Schema.Struct({
-  line: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)),
-  column: Schema.optional(
-    Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)),
-  ),
-  offset: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0)),
+  line: Schema.Number.check(intAtLeast(1)),
+  column: Schema.optional(Schema.Number.check(intAtLeast(1))),
+  offset: Schema.Number.check(intAtLeast(0)),
 })
 export type Point = typeof PointSchema.Type
 
@@ -15,7 +18,7 @@ export const PositionSchema = Schema.Struct({
 })
 export type Position = typeof PositionSchema.Type
 
-export const SeveritySchema = Schema.Literal('error', 'warning', 'info')
+export const SeveritySchema = Schema.Literals(['error', 'warning', 'info'])
 export type Severity = typeof SeveritySchema.Type
 
 export const DiagnosticSchema = Schema.Struct({
@@ -25,12 +28,7 @@ export const DiagnosticSchema = Schema.Struct({
 })
 export type Diagnostic = typeof DiagnosticSchema.Type
 
-export const HealthStatusSchema = Schema.Literal(
-  'ok',
-  'error',
-  'warning',
-  'incomplete',
-)
+export const HealthStatusSchema = Schema.Literals(['ok', 'error', 'warning', 'incomplete'])
 export type HealthStatus = typeof HealthStatusSchema.Type
 
 export const HealthSchema = Schema.Struct({
@@ -47,10 +45,7 @@ export const incompleteHealth: Health = {
 }
 
 export const UnexpectedTokenSchema = Schema.Struct({
-  type: Schema.Literal('UnexpectedToken').pipe(
-    Schema.propertySignature,
-    Schema.withConstructorDefault(() => 'UnexpectedToken' as const),
-  ),
+  type: Schema.tag('UnexpectedToken'),
   position: PositionSchema,
   value: Schema.String,
 })
@@ -64,10 +59,7 @@ export const loomNode = <
   fields: Fields,
 ) =>
   Schema.Struct({
-    type: Schema.Literal(tag).pipe(
-      Schema.propertySignature,
-      Schema.withConstructorDefault(() => tag),
-    ),
+    type: Schema.tag(tag),
     position: PositionSchema,
     source: Schema.String,
     health: HealthSchema,

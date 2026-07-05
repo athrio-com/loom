@@ -1,4 +1,4 @@
-import { Array, Effect, Option, SynchronizedRef, pipe } from 'effect'
+import { Array, Context, Effect, Layer, Option, SynchronizedRef, pipe } from 'effect'
 import { type LoomModule, type Path } from '@athrio/loom-ast/LoomCorpusAst'
 
 export interface MemoStats {
@@ -15,8 +15,8 @@ interface MemoState {
 
 const empty: MemoState = { modules: new Map(), hits: 0, misses: 0 }
 
-export class LoomMemo extends Effect.Service<LoomMemo>()('LoomMemo', {
-  effect: Effect.gen(function* () {
+export class LoomMemo extends Context.Service<LoomMemo>()('LoomMemo', {
+  make: Effect.gen(function* () {
     const state = yield* SynchronizedRef.make<MemoState>(empty)
 
     return {
@@ -25,7 +25,7 @@ export class LoomMemo extends Effect.Service<LoomMemo>()('LoomMemo', {
         build: Effect.Effect<LoomModule>,
       ): Effect.Effect<LoomModule> =>
         SynchronizedRef.modifyEffect(state, (s) =>
-          Option.match(Option.fromNullable(s.modules.get(path)), {
+          Option.match(Option.fromNullishOr(s.modules.get(path)), {
             onSome: (module) =>
               Effect.succeed([module, { ...s, hits: s.hits + 1 }] as const),
             onNone: () =>
@@ -77,4 +77,6 @@ export class LoomMemo extends Effect.Service<LoomMemo>()('LoomMemo', {
       ),
     }
   }),
-}) {}
+}) {
+  static readonly layer = Layer.effect(this, this.make)
+}

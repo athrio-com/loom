@@ -1,4 +1,4 @@
-import { Effect, Either, Option } from 'effect'
+import { Effect, Option, Result } from 'effect'
 import { describe, expect, it } from 'vitest'
 import { checkAnchorDelims, defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import { LoomCorpusAstBuilder, type Source } from '#ast/LoomCorpusAstBuilder'
@@ -8,20 +8,20 @@ import { LoomCorpusAstBuilder, type Source } from '#ast/LoomCorpusAstBuilder'
 // raises a distinct, self-describing error per fault; the parse recovers it into
 // the document's health, where the editor and the tangler both surface it.
 const check = (open: string, close: string) =>
-  Effect.runSync(Effect.either(checkAnchorDelims({ open, close })))
+  Effect.runSync(Effect.result(checkAnchorDelims({ open, close })))
 
 describe('checkAnchorDelims — a configured anchor pair is validated', () => {
   it('accepts the built-in pair', () => {
     expect(check(defaultAnchorDelims.open, defaultAnchorDelims.close)).toStrictEqual(
-      Either.right(defaultAnchorDelims),
+      Result.succeed(defaultAnchorDelims),
     )
   })
 
   it('accepts a distinct custom pair, and `]` as a close', () => {
-    expect(Either.isRight(check('<<', '>>'))).toBe(true)
+    expect(Result.isSuccess(check('<<', '>>'))).toBe(true)
     // the reserved-marker list guards the open, not the close, so the built-in
     // `]` stays a valid close under a custom open.
-    expect(Either.isRight(check('<<', ']'))).toBe(true)
+    expect(Result.isSuccess(check('<<', ']'))).toBe(true)
   })
 
   it.each([
@@ -35,11 +35,11 @@ describe('checkAnchorDelims — a configured anchor pair is validated', () => {
     ['{{', '}}', 'ReservedAnchorDelims'],
   ])('rejects open=%j close=%j as %s, suggesting the default', (open, close, tag) => {
     const result = check(open, close)
-    expect(Either.isLeft(result)).toBe(true)
-    if (Either.isLeft(result)) {
-      expect(result.left._tag).toBe(tag)
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isFailure(result)) {
+      expect(result.failure._tag).toBe(tag)
       // the error describes itself and points at a sound pair
-      expect(result.left.message).toContain(defaultAnchorDelims.open)
+      expect(result.failure.message).toContain(defaultAnchorDelims.open)
     }
   })
 })
@@ -56,7 +56,7 @@ describe('the parse recovers a bad pair into document health', () => {
         Effect.flatMap((builder) =>
           builder.build(source, '/x.loom', { open: '@@', close: '@@' }),
         ),
-        Effect.provide(LoomCorpusAstBuilder.Default),
+        Effect.provide(LoomCorpusAstBuilder.layer),
       ),
     )
     expect(module.doc.health.status).toBe('error')

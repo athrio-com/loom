@@ -26,7 +26,7 @@ const loadService = (
             `${servicePackage(id)} does not export a language service for "${id}"`,
           ).pipe(Effect.as(Option.none<LanguageService>())),
     ),
-    Effect.catchAll(() =>
+    Effect.catchCause(() =>
       Effect.logWarning(
         `language "${id}" is activated but ${servicePackage(id)} is not installed — run \`loom add ${id}\``,
       ).pipe(Effect.as(Option.none<LanguageService>())),

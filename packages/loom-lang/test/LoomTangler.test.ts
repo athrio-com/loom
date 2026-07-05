@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Layer } from 'effect'
-import { FileSystem } from '@effect/platform'
-import { NodeContext } from '@effect/platform-node'
+import { FileSystem } from 'effect'
+import { NodeServices } from '@effect/platform-node'
 import { DocumentSource } from '../src/LoomCompiler'
 import { LoomTangler } from '../src/LoomTangler'
 import { PackageConfig } from '../src/PackageConfig'
@@ -56,14 +56,14 @@ const x = "${value}"
 
 // LoomTangler over the real Node filesystem (the tangler is the fs consumer);
 // provideMerge keeps FileSystem visible to the probe for the temp dir.
-const layers = LoomTangler.Default.pipe(
-  Layer.provide(DocumentSource.Default),
-  Layer.provide(PackageConfig.Default),
-  Layer.provideMerge(NodeContext.layer),
+const layers = LoomTangler.layer.pipe(
+  Layer.provide(DocumentSource.layer),
+  Layer.provide(PackageConfig.layer),
+  Layer.provideMerge(NodeServices.layer),
 )
 
 describe('LoomTangler — tangle bracket sinks to disk', () => {
-  it.scoped('writes a sink, resolving its anchor across the doc', () =>
+  it.effect('writes a sink, resolving its anchor across the doc', () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const dir = yield* fs.makeTempDirectoryScoped()
@@ -80,7 +80,7 @@ describe('LoomTangler — tangle bracket sinks to disk', () => {
     }).pipe(Effect.provide(layers)),
   )
 
-  it.scoped('tangles every .loom under a directory, recursively', () =>
+  it.effect('tangles every .loom under a directory, recursively', () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const dir = yield* fs.makeTempDirectoryScoped()
@@ -102,7 +102,7 @@ describe('LoomTangler — tangle bracket sinks to disk', () => {
     }).pipe(Effect.provide(layers)),
   )
 
-  it.scoped('refuses an unresolved anchor — fails loud, writes nothing', () =>
+  it.effect('refuses an unresolved anchor — fails loud, writes nothing', () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const dir = yield* fs.makeTempDirectoryScoped()
@@ -113,19 +113,19 @@ describe('LoomTangler — tangle bracket sinks to disk', () => {
       )
 
       const tangler = yield* LoomTangler
-      const result = yield* Effect.either(tangler.tangle(entry))
+      const result = yield* Effect.result(tangler.tangle(entry))
 
-      expect(result._tag).toBe('Left')
-      if (result._tag === 'Left') {
-        expect(result.left._tag).toBe('TangleError')
-        expect(result.left.message).toMatch(/Ghost/)
+      expect(result._tag).toBe('Failure')
+      if (result._tag === 'Failure') {
+        expect(result.failure._tag).toBe('TangleError')
+        expect(result.failure.message).toMatch(/Ghost/)
       }
       // the sink is never written — a broken anchor stops the tangle
       expect(yield* fs.exists(`${dir}/out/x.ts`)).toBe(false)
     }).pipe(Effect.provide(layers)),
   )
 
-  it.scoped('honours the workspace anchor delimiter', () =>
+  it.effect('honours the workspace anchor delimiter', () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const dir = yield* fs.makeTempDirectoryScoped()
@@ -148,7 +148,7 @@ describe('LoomTangler — tangle bracket sinks to disk', () => {
     }).pipe(Effect.provide(layers)),
   )
 
-  it.scoped('places a sink under the package root derived from the corpus directory', () =>
+  it.effect('places a sink under the package root derived from the corpus directory', () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const ws = yield* fs.makeTempDirectoryScoped()

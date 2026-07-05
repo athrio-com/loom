@@ -41,7 +41,7 @@ const codeOf = (weft: SectionBodyWeft): Option.Option<string> =>
   Match.value(weft).pipe(
     Match.when({ type: 'CodeWeft' }, (code) => Option.some(code.source)),
     Match.when({ type: 'ArrowWeft' }, (arrow) =>
-      Option.map(Option.fromNullable(arrow.code), (code) =>
+      Option.map(Option.fromNullishOr(arrow.code), (code) =>
         arrow.source.slice(
           code.position.start.offset - arrow.position.start.offset,
         ),
@@ -58,7 +58,7 @@ const configBodyOf = (doc: LoomDocument): string | undefined => {
   )
   return section === undefined
     ? undefined
-    : Array.filterMap(section.code, codeOf).join('')
+    : Array.getSomes(Array.map(section.code, codeOf)).join('')
 }
 
 const diskSource: Source = {
@@ -96,18 +96,18 @@ const buildManifest = (
 
 =>
 
-export class ManifestBuilder extends Effect.Service<ManifestBuilder>()(
+export class ManifestBuilder extends Context.Service<ManifestBuilder>()(
   'ManifestBuilder',
   {
-    effect: Effect.gen(function* () {
+    make: Effect.gen(function* () {
       const corpus = yield* LoomCorpusAstBuilder
       const config = yield* LoomConfig
 
       const configAt = (file: Path): Effect.Effect<Option.Option<WorkspaceConfig>> =>
         corpus.build(diskSource, file).pipe(
           Effect.map((built) =>
-            Option.fromNullable(configBodyOf(built.doc)).pipe(
-              Option.flatMap((body) => Option.fromNullable(parseConfig(body))),
+            Option.fromNullishOr(configBodyOf(built.doc)).pipe(
+              Option.flatMap((body) => Option.fromNullishOr(parseConfig(body))),
             ),
           ),
         )
@@ -124,9 +124,12 @@ export class ManifestBuilder extends Effect.Service<ManifestBuilder>()(
 
       return { build, materialize }
     }),
-    dependencies: [LoomCorpusAstBuilder.Default, LoomConfig.Default],
   },
-) {}
+) {
+  static readonly layer = Layer.effect(this, this.make).pipe(
+    Layer.provide(Layer.mergeAll(LoomCorpusAstBuilder.layer, LoomConfig.layer)),
+  )
+}
 
 ## What the module draws on
 
@@ -134,7 +137,7 @@ Effect supplies the effect type and the service primitive, with `Match`, `Option
 
 =>
 
-import { Array, Effect, Match, Option } from 'effect'
+import { Array, Context, Effect, Layer, Match, Option } from 'effect'
 import { readdirSync, readFileSync } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
 import {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Chunk, Effect, Stream } from 'effect'
+import { Effect, Stream } from 'effect'
 import { LoomSourceRanges, MixedEOL, type LineRange } from '#ast/LineRanges'
 
 // =============================================================================
@@ -14,7 +14,7 @@ const collect = (text: string) =>
     const ss = yield* LoomSourceRanges
     const stream = yield* ss.stream(text)
     const chunk = yield* Stream.runCollect(stream)
-    return Chunk.toReadonlyArray(chunk)
+    return chunk
   })
 
 // =============================================================================
@@ -37,7 +37,7 @@ describe('StreamLineRanges — range correctness', () => {
         [6, 12],
         [12, 17],
       ])
-    }).pipe(Effect.provide(LoomSourceRanges.Default)),
+    }).pipe(Effect.provide(LoomSourceRanges.layer)),
   )
 
   it.effect('CRLF, multiple lines', () =>
@@ -48,7 +48,7 @@ describe('StreamLineRanges — range correctness', () => {
         [7, 14],
         [14, 19],
       ])
-    }).pipe(Effect.provide(LoomSourceRanges.Default)),
+    }).pipe(Effect.provide(LoomSourceRanges.layer)),
   )
 
   it.effect('CR-only (classic Mac)', () =>
@@ -59,7 +59,7 @@ describe('StreamLineRanges — range correctness', () => {
         [2, 4],
         [4, 5],
       ])
-    }).pipe(Effect.provide(LoomSourceRanges.Default)),
+    }).pipe(Effect.provide(LoomSourceRanges.layer)),
   )
 
   // A source ending with a terminator emits an extra empty range at the tail.
@@ -73,7 +73,7 @@ describe('StreamLineRanges — range correctness', () => {
         [0, 6],
         [6, 6],
       ])
-    }).pipe(Effect.provide(LoomSourceRanges.Default)),
+    }).pipe(Effect.provide(LoomSourceRanges.layer)),
   )
 
   // No terminator anywhere → detectEol returns None and the service short-
@@ -82,7 +82,7 @@ describe('StreamLineRanges — range correctness', () => {
     Effect.gen(function* () {
       const ranges = yield* collect('hello')
       expect(ranges).toEqual<ReadonlyArray<LineRange>>([[0, 5]])
-    }).pipe(Effect.provide(LoomSourceRanges.Default)),
+    }).pipe(Effect.provide(LoomSourceRanges.layer)),
   )
 
   // Same None branch as above; the lone range collapses to [0, 0]. Important
@@ -91,7 +91,7 @@ describe('StreamLineRanges — range correctness', () => {
     Effect.gen(function* () {
       const ranges = yield* collect('')
       expect(ranges).toEqual<ReadonlyArray<LineRange>>([[0, 0]])
-    }).pipe(Effect.provide(LoomSourceRanges.Default)),
+    }).pipe(Effect.provide(LoomSourceRanges.layer)),
   )
 
   it.effect('consecutive blank lines', () =>
@@ -103,7 +103,7 @@ describe('StreamLineRanges — range correctness', () => {
         [3, 4],
         [4, 5],
       ])
-    }).pipe(Effect.provide(LoomSourceRanges.Default)),
+    }).pipe(Effect.provide(LoomSourceRanges.layer)),
   )
 
   it.effect('only a terminator', () =>
@@ -113,7 +113,7 @@ describe('StreamLineRanges — range correctness', () => {
         [0, 1],
         [1, 1],
       ])
-    }).pipe(Effect.provide(LoomSourceRanges.Default)),
+    }).pipe(Effect.provide(LoomSourceRanges.layer)),
   )
 })
 
@@ -139,7 +139,7 @@ describe('StreamLineRanges — EOL convention & MixedEOL', () => {
         primaryLine: 1,
         foundLine: 2,
       })
-    }).pipe(Effect.provide(LoomSourceRanges.Default)),
+    }).pipe(Effect.provide(LoomSourceRanges.layer)),
   )
 
   it.effect('CRLF primary, bare LF fails', () =>
@@ -153,7 +153,7 @@ describe('StreamLineRanges — EOL convention & MixedEOL', () => {
         primaryLine: 1,
         foundLine: 2,
       })
-    }).pipe(Effect.provide(LoomSourceRanges.Default)),
+    }).pipe(Effect.provide(LoomSourceRanges.layer)),
   )
 
   it.effect('CRLF primary, bare CR fails', () =>
@@ -167,7 +167,7 @@ describe('StreamLineRanges — EOL convention & MixedEOL', () => {
         primaryLine: 1,
         foundLine: 2,
       })
-    }).pipe(Effect.provide(LoomSourceRanges.Default)),
+    }).pipe(Effect.provide(LoomSourceRanges.layer)),
   )
 
   it.effect('CR primary, stray LF fails', () =>
@@ -181,7 +181,7 @@ describe('StreamLineRanges — EOL convention & MixedEOL', () => {
         primaryLine: 1,
         foundLine: 2,
       })
-    }).pipe(Effect.provide(LoomSourceRanges.Default)),
+    }).pipe(Effect.provide(LoomSourceRanges.layer)),
   )
 
   // Stray on a later line — multi-line guard for lineOfOffset.
@@ -195,7 +195,7 @@ describe('StreamLineRanges — EOL convention & MixedEOL', () => {
         primaryLine: 1,
         foundLine: 3,
       })
-    }).pipe(Effect.provide(LoomSourceRanges.Default)),
+    }).pipe(Effect.provide(LoomSourceRanges.layer)),
   )
 
   // Regression guard: the CRLF stray regex uses negative look-around so the
@@ -209,7 +209,7 @@ describe('StreamLineRanges — EOL convention & MixedEOL', () => {
         [3, 6],
         [6, 7],
       ])
-    }).pipe(Effect.provide(LoomSourceRanges.Default)),
+    }).pipe(Effect.provide(LoomSourceRanges.layer)),
   )
 })
 
@@ -252,7 +252,7 @@ describe('StreamLineRanges — structural invariants', () => {
         const ranges = yield* collect(text)
         const rejoined = ranges.map(([s, e]) => text.slice(s, e)).join('')
         expect(rejoined).toBe(text)
-      }).pipe(Effect.provide(LoomSourceRanges.Default)),
+      }).pipe(Effect.provide(LoomSourceRanges.layer)),
     )
 
     it.effect(
@@ -263,7 +263,7 @@ describe('StreamLineRanges — structural invariants', () => {
           for (let i = 1; i < ranges.length; i++) {
             expect(ranges[i][0]).toBe(ranges[i - 1][1])
           }
-        }).pipe(Effect.provide(LoomSourceRanges.Default)),
+        }).pipe(Effect.provide(LoomSourceRanges.layer)),
     )
 
     it.effect(
@@ -274,7 +274,7 @@ describe('StreamLineRanges — structural invariants', () => {
           expect(ranges.length).toBeGreaterThan(0)
           expect(ranges[0][0]).toBe(0)
           expect(ranges[ranges.length - 1][1]).toBe(text.length)
-        }).pipe(Effect.provide(LoomSourceRanges.Default)),
+        }).pipe(Effect.provide(LoomSourceRanges.layer)),
     )
   }
 })
@@ -316,7 +316,7 @@ describe('StreamLineRanges — streaming behavior', () => {
       // 5 ranges total ([0,2],[2,4],[4,6],[6,8],[8,9]); take(2) must not pull
       // all of them. We allow up to one over-pull to accommodate chunking.
       expect(pulls).toBeLessThanOrEqual(3)
-    }).pipe(Effect.provide(LoomSourceRanges.Default)),
+    }).pipe(Effect.provide(LoomSourceRanges.layer)),
   )
 
   it.effect(
@@ -325,10 +325,10 @@ describe('StreamLineRanges — streaming behavior', () => {
       Effect.gen(function* () {
         const ss = yield* LoomSourceRanges
         const stream = yield* ss.stream('line1\nline2\nline3')
-        const a = Chunk.toReadonlyArray(yield* Stream.runCollect(stream))
-        const b = Chunk.toReadonlyArray(yield* Stream.runCollect(stream))
+        const a = yield* Stream.runCollect(stream)
+        const b = yield* Stream.runCollect(stream)
         expect(a).toEqual(b)
-      }).pipe(Effect.provide(LoomSourceRanges.Default)),
+      }).pipe(Effect.provide(LoomSourceRanges.layer)),
   )
 
   it.effect('composability: operators chain through the Stream', () =>
@@ -339,7 +339,7 @@ describe('StreamLineRanges — streaming behavior', () => {
         Stream.map(([s, e]: LineRange) => e - s),
         Stream.runCollect,
       )
-      expect(Chunk.toReadonlyArray(lengths)).toEqual([2, 3, 3])
-    }).pipe(Effect.provide(LoomSourceRanges.Default)),
+      expect(lengths).toEqual([2, 3, 3])
+    }).pipe(Effect.provide(LoomSourceRanges.layer)),
   )
 })

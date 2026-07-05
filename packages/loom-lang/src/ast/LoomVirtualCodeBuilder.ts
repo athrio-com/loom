@@ -1,4 +1,4 @@
-import { Array, Effect, Option, pipe } from 'effect'
+import { Array, Context, Effect, Layer, Option, pipe } from 'effect'
 import {
   keyOf,
   type Code,
@@ -21,8 +21,8 @@ const lookup = (
   id: SectionId,
 ): Option.Option<Code> =>
   pipe(
-    Option.fromNullable(modules.get(id.path)),
-    Option.flatMapNullable((m) => m.product),
+    Option.fromNullishOr(modules.get(id.path)),
+    Option.flatMapNullishOr((m) => m.product),
     Option.flatMap((product) =>
       Array.findFirst(product.code, (c) => c.origin.name === id.name),
     ),
@@ -55,7 +55,7 @@ const clipMappings = (
   mappings: ReadonlyArray<Mapping>,
   genLen: number,
 ): ReadonlyArray<Mapping> =>
-  Array.filterMap(mappings, (m) =>
+  Array.getSomes(Array.map(mappings, (m) =>
     m.genStart >= genLen
       ? Option.none()
       : Option.some(
@@ -63,7 +63,7 @@ const clipMappings = (
             ? m
             : { ...m, genLength: genLen - m.genStart },
         ),
-  )
+  ))
 
 const absorbTrailingNewline = (vc: LoomVirtualCode): LoomVirtualCode => {
   const code = vc.code.replace(/\n+$/, '')
@@ -291,7 +291,7 @@ export const fromProse = (
   modules: ReadonlyMap<Path, LoomModule>,
   path: Path,
 ): LoomVirtualCode =>
-  Option.match(Option.fromNullable(modules.get(path)), {
+  Option.match(Option.fromNullishOr(modules.get(path)), {
     onNone: () => leaf('prose', 'prose', '', []),
     onSome: (module) => {
       const code = pipe(
@@ -350,14 +350,14 @@ export const rootNamesAt = (
     pipe(
       here,
       Array.flatMap((code) => code.fragments),
-      Array.filterMap((part) =>
+      Array.map((part) =>
         part.type === 'Fragment'
           ? Option.none()
           : part.target.pipe(
               Option.filter((t) => t.path === path),
               Option.map((t) => t.name.toLowerCase()),
             ),
-      ),
+      ), Array.getSomes,
     ),
   )
   return new Set(
@@ -369,15 +369,17 @@ export const rootNamesAt = (
   )
 }
 
-export class LoomVirtualCodeBuilder extends Effect.Service<LoomVirtualCodeBuilder>()(
+export class LoomVirtualCodeBuilder extends Context.Service<LoomVirtualCodeBuilder>()(
   'LoomVirtualCodeBuilder',
   {
-    succeed: {
+    make: Effect.succeed({
       fromProduct: (
         modules: ReadonlyMap<Path, LoomModule>,
         root: SectionId,
       ): Effect.Effect<LoomVirtualCode> =>
         Effect.sync(() => fromProduct(modules, root)),
-    },
+    }),
   },
-) {}
+) {
+  static readonly layer = Layer.effect(this, this.make)
+}

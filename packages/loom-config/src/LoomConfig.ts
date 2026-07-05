@@ -1,4 +1,4 @@
-import { Effect, Option, Schema } from 'effect'
+import { Context, Effect, Layer, Option, Schema } from 'effect'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import {
   existsSync,
@@ -17,13 +17,13 @@ const LanguageSchema = Schema.Struct({
   service: Schema.optional(Schema.String),
 })
 
-const SettingsSchema = Schema.Record({
-  key: Schema.String,
-  value: Schema.Record({ key: Schema.String, value: Schema.Unknown }),
-})
+const SettingsSchema = Schema.Record(
+  Schema.String,
+  Schema.Record(Schema.String, Schema.Unknown),
+)
 
 export const WorkspaceConfigSchema = Schema.Struct({
-  languages: Schema.Record({ key: Schema.String, value: LanguageSchema }),
+  languages: Schema.Record(Schema.String, LanguageSchema),
   corpus: Schema.optional(Schema.String),
   primary: Schema.optional(Schema.String),
   anchor: Schema.optional(AnchorSchema),
@@ -44,7 +44,7 @@ export const parseConfig = (text: string): WorkspaceConfig | undefined => {
 
 export const WorkspaceManifestSchema = Schema.Struct({
   languages: Schema.optional(
-    Schema.Record({ key: Schema.String, value: LanguageSchema }),
+    Schema.Record(Schema.String, LanguageSchema),
   ),
   corpus: Schema.optional(Schema.String),
   primary: Schema.optional(Schema.String),
@@ -149,8 +149,8 @@ const resolveFromManifest = (
   }
 }
 
-export class LoomConfig extends Effect.Service<LoomConfig>()('LoomConfig', {
-  succeed: {
+export class LoomConfig extends Context.Service<LoomConfig>()('LoomConfig', {
+  make: Effect.succeed({
     resolve: (fromPath: string): Effect.Effect<ResolvedConfig> =>
       Effect.sync(() => {
         if (fromPath === '') return empty
@@ -178,5 +178,7 @@ export class LoomConfig extends Effect.Service<LoomConfig>()('LoomConfig', {
         mkdirSync(store, { recursive: true })
         writeFileSync(resolvePath(store, manifestName), stringifyYaml(manifest))
       }),
-  },
-}) {}
+  }),
+}) {
+  static readonly layer = Layer.effect(this, this.make)
+}

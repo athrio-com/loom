@@ -16,15 +16,14 @@ alongside the language plugin. Two callers start it — a thin entry an editor l
 ## Imports
 
 The server is built from Volar's toolkit for Node language servers — the connection, the
-project factory, and `loadTsdkByPath` — over the Effect runtime. It imports `LoomCompiler`,
+project factory, and `loadTsdkByPath` — over a `ManagedRuntime`. It imports `LoomCompiler`,
 the projector and cache the runtime warms, with the `DocumentSource`, `PackageConfig`, and
 `LoomConfig` it requires, and the two halves this module registers, `loomLanguagePlugin` and
 `loomServicePlugins`.
 
 =>
 
-import { Effect, Runtime } from 'effect'
-import { NodeRuntime } from '@effect/platform-node'
+import { Layer, ManagedRuntime } from 'effect'
 import {
   createConnection,
   createServer,
@@ -39,7 +38,7 @@ import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
 
 ## The program
 
-The `Effect.runtime` call captures the warm runtime once the layers are built; the language plugin
+A `ManagedRuntime`, built once from the pipeline layers, warms the services the server runs; the language plugin
 runs the per-keystroke projection on it, and resolves each file's activated languages from
 `LoomConfig` on it too. The `loadTsdkByPath` call loads the editor's own
 TypeScript from the path the client sends, so a product section checks against the user's
@@ -52,9 +51,15 @@ request rebuilds it — the consumer's options take effect without an editor rel
 
 =>
 
-const program = Effect.gen(function* () {
-  const runtime = yield* Effect.runtime<LoomCompiler | LoomConfig>()
+const runtime = ManagedRuntime.make(
+  Layer.mergeAll(LoomCompiler.layer, LoomConfig.layer).pipe(
+    Layer.provide(DocumentSource.layer),
+    Layer.provide(PackageConfig.layer),
+    Layer.provide(LoomConfig.layer),
+  ),
+)
 
+export const startLanguageServer = (): void => {
   const connection = createConnection()
   const server = createServer(connection)
 
@@ -66,8 +71,8 @@ const program = Effect.gen(function* () {
     )
     const folder = params.workspaceFolders?.[0]?.uri
     const root = folder ? fileURLToPath(folder) : process.cwd()
-    const servicePlugins = await Runtime.runPromise(runtime)(
-      loomServicePlugins(tsdk.typescript, root),
+    const servicePlugins = await runtime.runPromise(
+      loomServicePlugins(runtime, tsdk.typescript, root),
     )
     return server.initialize(
       params,
@@ -85,16 +90,7 @@ const program = Effect.gen(function* () {
   })
   connection.onShutdown(server.shutdown)
   connection.listen()
-
-  yield* Effect.never
-}).pipe(
-  Effect.provide(LoomCompiler.Default),
-  Effect.provide(DocumentSource.Default),
-  Effect.provide(PackageConfig.Default),
-  Effect.provide(LoomConfig.Default),
-)
-
-export const startLanguageServer = (): void => NodeRuntime.runMain(program)
+}
 
 ## The server module {Tangle}[LoomServer.ts]
 

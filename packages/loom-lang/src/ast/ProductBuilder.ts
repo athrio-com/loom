@@ -1,4 +1,4 @@
-import { Array, Match, Effect, Option, Order, pipe } from 'effect'
+import { Array, Context, Effect, Layer, Match, Option, Order, pipe } from 'effect'
 import type {
   LoomDocument,
   LoomFrontmatter,
@@ -37,34 +37,36 @@ import {
 } from '#ast/LoomFault'
 import { normaliseTitle } from '#ast/WeftTokeniser'
 
-export class ProductBuilder extends Effect.Service<ProductBuilder>()(
+export class ProductBuilder extends Context.Service<ProductBuilder>()(
   'ProductBuilder',
   {
-    succeed: {
+    make: Effect.succeed({
       build: (
         doc: LoomDocument,
         path: string,
         packageLanguage?: string,
       ): Effect.Effect<Product> =>
         Effect.sync(() => buildProduct(doc, path, packageLanguage)),
-    },
+    }),
   },
-) {}
+) {
+  static readonly layer = Layer.effect(this, this.make)
+}
 
 export const buildProduct = (
   doc: LoomDocument,
   modulePath: string,
   packageLanguage?: string,
 ): Product => {
-  const fm = Option.fromNullable(doc.frontmatter)
+  const fm = Option.fromNullishOr(doc.frontmatter)
   const pkg = pipe(
     fm,
-    Option.flatMapNullable((f) => f.package),
+    Option.flatMapNullishOr((f) => f.package),
     Option.map((p) => p.value),
   )
   const lang = pipe(
     frontmatterLanguage(fm),
-    Option.orElse(() => Option.fromNullable(packageLanguage)),
+    Option.orElse(() => Option.fromNullishOr(packageLanguage)),
     Option.getOrElse(() => 'plaintext'),
   )
   const index = nameIndex(doc.sections, lang, pkg)
@@ -117,7 +119,7 @@ const sectionLanguage = (
   if (specifier !== undefined)
     return specifierLanguage(
       specifier.label.value,
-      Option.fromNullable(sink),
+      Option.fromNullishOr(sink),
       defaultLang,
       pkg,
     )
@@ -132,8 +134,8 @@ const nameIndex = (
 ): NameIndex =>
   pipe(
     sections,
-    Array.filterMap((s) =>
-      Option.map(Option.fromNullable(s.heading.title), (title) =>
+    Array.map((s) =>
+      Option.map(Option.fromNullishOr(s.heading.title), (title) =>
         [
           title.source,
           {
@@ -143,7 +145,7 @@ const nameIndex = (
           },
         ] as const,
       ),
-    ),
+    ), Array.getSomes,
     Array.reduce(
       new Map<string, ReadonlyArray<NameEntry>>(),
       (index, [title, entry]) =>
@@ -156,7 +158,7 @@ const frontmatterLanguage = (
 ): Option.Option<string> =>
   pipe(
     frontmatter,
-    Option.flatMapNullable((f) => f.language),
+    Option.flatMapNullishOr((f) => f.language),
     Option.map((l) => l.value.trim().toLowerCase()),
   )
 
@@ -193,14 +195,14 @@ const valueWarps = (
   warps: ReadonlyArray<WarpToken>,
 ): ReadonlyMap<string, ValueWarp> =>
   new Map(
-    Array.filterMap(warps, (w) =>
+    Array.getSomes(Array.map(warps, (w) =>
       w.default
         ? Option.some([
             w.name.value,
             { text: decodeLiteral(w.default.value), pos: w.default.position },
           ] as const)
         : Option.none(),
-    ),
+    )),
   )
 
 interface Built {
@@ -244,7 +246,7 @@ const tangleFile = (
   )
     return Option.map(pkg, (p) =>
       FileSchema.make({
-        path: tangleFilePath(p, Option.fromNullable(sink)),
+        path: tangleFilePath(p, Option.fromNullishOr(sink)),
         code,
       }),
     )
@@ -276,7 +278,7 @@ const pieceOf = (w: SectionBodyWeft): Option.Option<CodePiece> =>
       Option.some({ source: c.source, position: c.position, anchors: c.anchors }),
     ),
     Match.when({ type: 'ArrowWeft' }, (a) =>
-      Option.map(Option.fromNullable(a.code), (code) => ({
+      Option.map(Option.fromNullishOr(a.code), (code) => ({
         source: a.source.slice(
           code.position.start.offset - a.position.start.offset,
         ),
@@ -323,11 +325,11 @@ const sealRuns = (
 const codeRuns = (
   code: ReadonlyArray<SectionBodyWeft>,
 ): ReadonlyArray<ReadonlyArray<CodePiece>> =>
-  Array.isNonEmptyReadonlyArray(code)
+  Array.isReadonlyArrayNonEmpty(code)
     ? pipe(
         code,
         Array.groupWith((a, _b) => a.type !== 'ArrowWeft'),
-        Array.map((block) => Array.filterMap(block, pieceOf)),
+        Array.map((block) => Array.getSomes(Array.map(block, pieceOf))),
         Array.filter((run) => Array.some(run, (p) => !isBlank(p))),
         sealRuns,
       )
@@ -366,7 +368,7 @@ const walkRun =
   }
 
 const byStart: Order.Order<WarpAnchorToken> = Order.mapInput(
-  Order.number,
+  Order.Number,
   (a) => a.position.start.offset,
 )
 

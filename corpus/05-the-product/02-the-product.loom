@@ -23,13 +23,9 @@ const productNode = <Tag extends string, Fields extends Schema.Struct.Fields>(
   fields: Fields,
 ) =>
   Schema.Struct({
-    type: Schema.Literal(tag).pipe(
-      Schema.propertySignature,
-      Schema.withConstructorDefault(() => tag),
-    ),
+    type: Schema.tag(tag),
     health: HealthSchema.pipe(
-      Schema.propertySignature,
-      Schema.withConstructorDefault(() => okHealth),
+      Schema.withConstructorDefault(Effect.succeed(okHealth)),
     ),
     ...fields,
   })
@@ -63,7 +59,7 @@ export const FragmentSchema = productNode('Fragment', {
 export type Fragment = typeof FragmentSchema.Type
 
 export const NameRefSchema = productNode('NameRef', {
-  target: Schema.OptionFromSelf(SectionIdSchema),
+  target: Schema.Option(SectionIdSchema),
   anchor: PositionSchema,
 })
 export type NameRef = typeof NameRefSchema.Type
@@ -77,7 +73,7 @@ A `Code` is one section, composed: its `origin` identity, its product `languageI
 
 =>
 
-export const PartSchema = Schema.Union(FragmentSchema, RefSchema)
+export const PartSchema = Schema.Union([FragmentSchema, RefSchema])
 export type Part = typeof PartSchema.Type
 
 export const CodeSchema = productNode('Code', {
@@ -127,11 +123,11 @@ export type Product = typeof ProductSchema.Type
 
 ## What this module draws on
 
-Effect's `Schema` defines the nodes, and `Health`, `okHealth`, and `Position` from the foundation give each node its health default and its source spans.
+Effect's `Schema` defines the nodes, and `Effect` fills the health default. `Health`, `okHealth`, and `Position` come from the foundation, giving each node its health and its source spans.
 
 =>
 
-import { Schema } from 'effect'
+import { Effect, Schema } from 'effect'
 import { HealthSchema, okHealth, PositionSchema } from '#ast/LoomNode'
 
 ## The module {Tangle}

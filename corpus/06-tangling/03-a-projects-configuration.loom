@@ -27,10 +27,10 @@ const LanguageSchema = Schema.Struct({
   service: Schema.optional(Schema.String),
 })
 
-const SettingsSchema = Schema.Record({
-  key: Schema.String,
-  value: Schema.Record({ key: Schema.String, value: Schema.Unknown }),
-})
+const SettingsSchema = Schema.Record(
+  Schema.String,
+  Schema.Record(Schema.String, Schema.Unknown),
+)
 
 ## What the configuration declares
 
@@ -39,7 +39,7 @@ A project has one configuration, authored in a single `{Config}` section. It nam
 =>
 
 export const WorkspaceConfigSchema = Schema.Struct({
-  languages: Schema.Record({ key: Schema.String, value: LanguageSchema }),
+  languages: Schema.Record(Schema.String, LanguageSchema),
   corpus: Schema.optional(Schema.String),
   primary: Schema.optional(Schema.String),
   anchor: Schema.optional(AnchorSchema),
@@ -72,7 +72,7 @@ export const parseConfig = (text: string): WorkspaceConfig | undefined => {
 
 export const WorkspaceManifestSchema = Schema.Struct({
   languages: Schema.optional(
-    Schema.Record({ key: Schema.String, value: LanguageSchema }),
+    Schema.Record(Schema.String, LanguageSchema),
   ),
   corpus: Schema.optional(Schema.String),
   primary: Schema.optional(Schema.String),
@@ -221,8 +221,8 @@ Its `manifest` reads a workspace's whole compiled manifest, found by walking up 
 
 =>
 
-export class LoomConfig extends Effect.Service<LoomConfig>()('LoomConfig', {
-  succeed: {
+export class LoomConfig extends Context.Service<LoomConfig>()('LoomConfig', {
+  make: Effect.succeed({
     resolve: (fromPath: string): Effect.Effect<ResolvedConfig> =>
       Effect.sync(() => {
         if (fromPath === '') return empty
@@ -250,16 +250,18 @@ export class LoomConfig extends Effect.Service<LoomConfig>()('LoomConfig', {
         mkdirSync(store, { recursive: true })
         writeFileSync(resolvePath(store, manifestName), stringifyYaml(manifest))
       }),
-  },
-}) {}
+  }),
+}) {
+  static readonly layer = Layer.effect(this, this.make)
+}
 
 ## What the module draws on
 
-Effect supplies `Schema` for every shape, `Option` for a decode that may yield nothing, and the effect type. The `yaml` package parses and serialises the compiled manifest. Node's synchronous filesystem reads, writes, and creates directories; its path module resolves paths, walks to parent directories, and names the platform separator.
+Effect supplies `Schema` for every shape, `Option` for a decode that may yield nothing, the `Effect` type its methods return, and `Context` and `Layer` for the service and its layer. The `yaml` package parses and serialises the compiled manifest. Node's synchronous filesystem reads, writes, and creates directories; its path module resolves paths, walks to parent directories, and names the platform separator.
 
 =>
 
-import { Effect, Option, Schema } from 'effect'
+import { Context, Effect, Layer, Option, Schema } from 'effect'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import {
   existsSync,

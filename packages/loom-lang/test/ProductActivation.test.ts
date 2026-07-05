@@ -1,5 +1,5 @@
 import { createTypeScriptInferredChecker } from '@volar/kit'
-import { Effect, Layer, Runtime } from 'effect'
+import { Effect, Layer, ManagedRuntime } from 'effect'
 import { resolve } from 'node:path'
 import * as ts from 'typescript'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -36,39 +36,35 @@ beforeAll(() => {
 afterAll(() => teardown())
 
 const checkerActivating = async (languages: ReadonlyArray<string>) => {
-  const runtime = await Effect.runtime<LoomCompiler | LoomConfig>().pipe(
-    Effect.provide(LoomCompiler.Default),
-    Effect.provide(DocumentSource.Default),
-    Effect.provide(PackageConfig.Default),
-    Effect.provide(
-      Layer.succeed(
-        LoomConfig,
-        new LoomConfig({
-          resolve: () =>
-            Effect.succeed({
-              anchor: undefined,
-              primary: 'typescript',
-              languages,
-              settings: {},
-              services: {},
-              packageRoot: undefined,
-              workspaceRoot: undefined,
-              corpusDir: undefined,
-            }),
-          manifest: () =>
-            Effect.succeed({
-              languages: Object.fromEntries(languages.map((id) => [id, {}])),
-            }),
-          materialize: () => Effect.void,
-        }),
-      ),
+  const configMock = Layer.succeed(LoomConfig, {
+    resolve: () =>
+      Effect.succeed({
+        anchor: undefined,
+        primary: 'typescript',
+        languages,
+        settings: {},
+        services: {},
+        packageRoot: undefined,
+        workspaceRoot: undefined,
+        corpusDir: undefined,
+      }),
+    manifest: () =>
+      Effect.succeed({
+        languages: Object.fromEntries(languages.map((id) => [id, {}])),
+      }),
+    materialize: () => Effect.void,
+  })
+  const runtime = ManagedRuntime.make(
+    Layer.mergeAll(LoomCompiler.layer, configMock).pipe(
+      Layer.provide(DocumentSource.layer),
+      Layer.provide(PackageConfig.layer),
+      Layer.provide(configMock),
     ),
-    Effect.runPromise,
   )
   // The real collect-and-register pass: it registers TypescriptService when the
   // config activates typescript; the service checks the file's Products on its own.
-  const servicePlugins = await Runtime.runPromise(runtime)(
-    loomServicePlugins(ts, fixture),
+  const servicePlugins = await runtime.runPromise(
+    loomServicePlugins(runtime, ts, fixture),
   )
   return createTypeScriptInferredChecker(
     [loomLanguagePlugin(runtime)],

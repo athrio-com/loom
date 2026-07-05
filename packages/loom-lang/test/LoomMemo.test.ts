@@ -52,7 +52,7 @@ describe('LoomMemo — the incremental build cache', () => {
       expect(yield* Ref.get(calls)).toBe(1) // build did NOT run again — a hit
 
       expect(yield* memo.stats).toEqual({ hits: 1, misses: 1, size: 1 })
-    }).pipe(Effect.provide(LoomMemo.Default)),
+    }).pipe(Effect.provide(LoomMemo.layer)),
   )
 
   it.effect('keeps a module per path; entries reflects the kept set', () =>
@@ -68,7 +68,7 @@ describe('LoomMemo — the incremental build cache', () => {
       expect(entries.get('/a.loom')).toBe(a) // each path keeps its own module
       expect(entries.get('/b.loom')).toBe(b)
       expect(yield* memo.stats).toEqual({ hits: 0, misses: 2, size: 2 })
-    }).pipe(Effect.provide(LoomMemo.Default)),
+    }).pipe(Effect.provide(LoomMemo.layer)),
   )
 
   it.effect('evict forgets a path, so the next get rebuilds it', () =>
@@ -88,7 +88,7 @@ describe('LoomMemo — the incremental build cache', () => {
       yield* memo.get('/a.loom', build) // miss again → build #2
       expect(yield* Ref.get(calls)).toBe(2)
       expect(yield* memo.stats).toMatchObject({ misses: 2, size: 1 })
-    }).pipe(Effect.provide(LoomMemo.Default)),
+    }).pipe(Effect.provide(LoomMemo.layer)),
   )
 
   it.effect('builds at most once under concurrent gets of a cold path', () =>
@@ -98,8 +98,8 @@ describe('LoomMemo — the incremental build cache', () => {
       const m = moduleAt('/x.loom')
       // yieldNow makes the miss non-atomic: a cache that checked-then-built
       // without a lock would let several fibers all miss and all build.
-      const build = Effect.yieldNow().pipe(
-        Effect.zipRight(Ref.update(calls, (n) => n + 1)),
+      const build = Effect.yieldNow.pipe(
+        Effect.andThen(Ref.update(calls, (n) => n + 1)),
         Effect.as(m),
       )
 
@@ -111,6 +111,6 @@ describe('LoomMemo — the incremental build cache', () => {
       expect(results.every((r) => r === m)).toBe(true) // all saw the one module
       expect(yield* Ref.get(calls)).toBe(1) // built exactly once
       expect(yield* memo.stats).toEqual({ hits: 11, misses: 1, size: 1 })
-    }).pipe(Effect.provide(LoomMemo.Default)),
+    }).pipe(Effect.provide(LoomMemo.layer)),
   )
 })

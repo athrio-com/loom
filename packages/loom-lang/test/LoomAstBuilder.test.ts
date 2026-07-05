@@ -62,7 +62,7 @@ const buildAst = (wefts: ReadonlyArray<LoomWeft>): LoomDocument =>
     Effect.gen(function* () {
       const builder = yield* LoomAstBuilder
       return yield* builder.build(Stream.fromIterable(wefts))
-    }).pipe(Effect.provide(LoomAstBuilder.Default)),
+    }).pipe(Effect.provide(LoomAstBuilder.layer)),
   )
 
 // =============================================================================

@@ -15,7 +15,7 @@ const run = (path: string) =>
   Effect.runSync(
     PackageConfig.pipe(
       Effect.flatMap((config) => config.resolve(path)),
-      Effect.provide(PackageConfig.Default),
+      Effect.provide(PackageConfig.layer),
     ),
   )
 

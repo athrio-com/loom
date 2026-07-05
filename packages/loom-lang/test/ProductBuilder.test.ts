@@ -30,10 +30,10 @@ const codeNamed = (product: { readonly code: ReadonlyArray<Code> }, name: string
 // A fragment is a literal slot; a NameRef is an edge to another section. These two
 // narrow a Part to one shape so a probe reads off the field it means to assert.
 const fragments = (parts: ReadonlyArray<Part>): ReadonlyArray<Fragment> =>
-  Array.filterMap(parts, (p) => (p.type === 'Fragment' ? Option.some(p) : Option.none()))
+  Array.filter(parts, (p): p is Fragment => p.type === 'Fragment')
 
 const refs = (parts: ReadonlyArray<Part>): ReadonlyArray<NameRef> =>
-  Array.filterMap(parts, (p) => (p.type === 'NameRef' ? Option.some(p) : Option.none()))
+  Array.filter(parts, (p): p is NameRef => p.type === 'NameRef')
 
 describe('ProductBuilder — a section composes into a Code', () => {
   it('carries the section identity, language, and body text', () => {

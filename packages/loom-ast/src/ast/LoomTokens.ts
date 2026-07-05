@@ -1,13 +1,12 @@
-import { Data, Effect, Option, Schema, SchemaAST } from 'effect'
+import { Data, Effect, Option, Schema } from 'effect'
 import { loomNode } from '#ast/LoomNode'
 
-export const Probe: unique symbol = Symbol.for('loom/Probe')
+export const Probe = 'loom/Probe'
 
-export const getProbe = (
-  schema: Schema.Schema<any, any, never>,
-): Option.Option<RegExp> => SchemaAST.getAnnotation<RegExp>(Probe)(schema.ast)
+export const getProbe = (schema: Schema.Top): Option.Option<RegExp> =>
+  Option.fromNullishOr(schema.ast.annotations?.[Probe] as RegExp | undefined)
 
-export const HeadingStartTokenSchema = loomNode('HeadingStart', {}).annotations(
+export const HeadingStartTokenSchema = loomNode('HeadingStart', {}).annotate(
   {
     [Probe]: /^#{1,6} /,
   },
@@ -16,29 +15,29 @@ export type HeadingStartToken = typeof HeadingStartTokenSchema.Type
 
 export const SpecifierOpenTokenSchema = loomNode('SpecifierOpen', {
   value: Schema.Literal('{'),
-}).annotations({
+}).annotate({
   [Probe]: /\{/g,
 })
 export type SpecifierOpenToken = typeof SpecifierOpenTokenSchema.Type
 
 export const SpecifierLabelTokenSchema = loomNode('SpecifierLabel', {
   value: Schema.String,
-}).pipe(
-  Schema.filter((t) => {
+}).check(
+  Schema.makeFilter((t) => {
     if (t.value === '' && t.health.status === 'ok') {
       return 'empty `value` requires non-ok `health.status`'
     }
     if (t.value !== '' && !/^[a-zA-Z0-9_-]+$/.test(t.value)) {
       return `specifier label value must match [a-zA-Z0-9_-]+, got \`${t.value}\``
     }
-    return true
+    return undefined
   }),
 )
 export type SpecifierLabelToken = typeof SpecifierLabelTokenSchema.Type
 
 export const SpecifierCloseTokenSchema = loomNode('SpecifierClose', {
   value: Schema.Literal('}'),
-}).annotations({
+}).annotate({
   [Probe]: /\}/g,
 })
 export type SpecifierCloseToken = typeof SpecifierCloseTokenSchema.Type
@@ -47,36 +46,36 @@ export const SpecifierTokenSchema = loomNode('Specifier', {
   open: SpecifierOpenTokenSchema,
   label: SpecifierLabelTokenSchema,
   close: SpecifierCloseTokenSchema,
-}).annotations({
+}).annotate({
   [Probe]: /\{[a-zA-Z0-9_-]+\}/g,
 })
 export type SpecifierToken = typeof SpecifierTokenSchema.Type
 
 export const SinkOpenTokenSchema = loomNode('SinkOpen', {
   value: Schema.Literal('['),
-}).annotations({
+}).annotate({
   [Probe]: /\[/g,
 })
 export type SinkOpenToken = typeof SinkOpenTokenSchema.Type
 
 export const SinkCloseTokenSchema = loomNode('SinkClose', {
   value: Schema.Literal(']'),
-}).annotations({
+}).annotate({
   [Probe]: /\]/g,
 })
 export type SinkCloseToken = typeof SinkCloseTokenSchema.Type
 
 export const SinkFileLabelTokenSchema = loomNode('SinkFileLabel', {
   value: Schema.String,
-}).pipe(
-  Schema.filter((t) => {
+}).check(
+  Schema.makeFilter((t) => {
     if (t.value === '' && t.health.status === 'ok') {
       return 'empty `value` requires non-ok `health.status`'
     }
     if (t.value !== '' && !/^[a-zA-Z0-9_\-./]+$/.test(t.value)) {
       return `sink file label must match [a-zA-Z0-9_-./]+, got \`${t.value}\``
     }
-    return true
+    return undefined
   }),
 )
 export type SinkFileLabelToken = typeof SinkFileLabelTokenSchema.Type
@@ -85,12 +84,12 @@ export const SinkTokenSchema = loomNode('Sink', {
   open: SinkOpenTokenSchema,
   file: SinkFileLabelTokenSchema,
   close: SinkCloseTokenSchema,
-}).annotations({
+}).annotate({
   [Probe]: /\[[^\]]*\]/g,
 })
 export type SinkToken = typeof SinkTokenSchema.Type
 
-export const FrontmatterFenceTokenSchema = loomNode('FrontmatterFence', {}).annotations({
+export const FrontmatterFenceTokenSchema = loomNode('FrontmatterFence', {}).annotate({
   [Probe]: /^---\s*$/,
 })
 export type FrontmatterFenceToken = typeof FrontmatterFenceTokenSchema.Type
@@ -141,12 +140,12 @@ export const TocTitleTokenSchema = loomNode('TocTitle', {
 })
 export type TocTitleToken = typeof TocTitleTokenSchema.Type
 
-export const ArrowTokenSchema = loomNode('Arrow', {}).annotations({
+export const ArrowTokenSchema = loomNode('Arrow', {}).annotate({
   [Probe]: /^\s*=>/,
 })
 export type ArrowToken = typeof ArrowTokenSchema.Type
 
-export const TildeTokenSchema = loomNode('Tilde', {}).annotations({
+export const TildeTokenSchema = loomNode('Tilde', {}).annotate({
   [Probe]: /^\s*~+/,
 })
 export type TildeToken = typeof TildeTokenSchema.Type
@@ -154,33 +153,33 @@ export type TildeToken = typeof TildeTokenSchema.Type
 export const HeadingTitleTokenSchema = loomNode('HeadingTitle', {})
 export type HeadingTitleToken = typeof HeadingTitleTokenSchema.Type
 
-export const CodeTokenSchema = loomNode('Code', {}).annotations({
+export const CodeTokenSchema = loomNode('Code', {}).annotate({
   [Probe]: /(?<=^\s*=>\s*)\S.*$/,
 })
 export type CodeToken = typeof CodeTokenSchema.Type
 
-export const ProseTokenSchema = loomNode('Prose', {}).annotations({
+export const ProseTokenSchema = loomNode('Prose', {}).annotate({
   [Probe]: /(?<=^\s*~+\s*)\S.*$/,
 })
 export type ProseToken = typeof ProseTokenSchema.Type
 
 export const WarpOpenTokenSchema = loomNode('WarpOpen', {
   value: Schema.Literal('{{'),
-}).annotations({
+}).annotate({
   [Probe]: /\{\{/g,
 })
 export type WarpOpenToken = typeof WarpOpenTokenSchema.Type
 
 export const WarpCloseTokenSchema = loomNode('WarpClose', {
   value: Schema.Literal('}}'),
-}).annotations({
+}).annotate({
   [Probe]: /\}\}/g,
 })
 export type WarpCloseToken = typeof WarpCloseTokenSchema.Type
 
 export const AnchorOpenTokenSchema = loomNode('AnchorOpen', {
   value: Schema.String,
-}).annotations({
+}).annotate({
   [Probe]: /::\[/g,
 })
 export type AnchorOpenToken = typeof AnchorOpenTokenSchema.Type
@@ -199,15 +198,15 @@ export const defaultAnchorDelims: AnchorDelims = { open: '::' + '[', close: ']' 
 
 export const WarpNameTokenSchema = loomNode('WarpName', {
   value: Schema.String,
-}).pipe(
-  Schema.filter((t) => {
+}).check(
+  Schema.makeFilter((t) => {
     if (t.value === '' && t.health.status === 'ok') {
       return 'empty `value` requires non-ok `health.status`'
     }
     if (t.value !== '' && !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(t.value)) {
       return `warp name must be a TS identifier, got \`${t.value}\``
     }
-    return true
+    return undefined
   }),
 )
 export type WarpNameToken = typeof WarpNameTokenSchema.Type
@@ -224,15 +223,15 @@ export type WarpDefaultToken = typeof WarpDefaultTokenSchema.Type
 
 export const WarpAnchorNameTokenSchema = loomNode('WarpAnchorName', {
   value: Schema.String,
-}).pipe(
-  Schema.filter((t) => {
+}).check(
+  Schema.makeFilter((t) => {
     if (t.value === '' && t.health.status === 'ok') {
       return 'empty `value` requires non-ok `health.status`'
     }
     if (t.value !== '' && t.value.includes(']')) {
       return `anchor name must not contain ], got \`${t.value}\``
     }
-    return true
+    return undefined
   }),
 )
 export type WarpAnchorNameToken = typeof WarpAnchorNameTokenSchema.Type
@@ -248,9 +247,9 @@ export const WarpAnchorTokenSchema = loomNode('WarpAnchor', {
   close: AnchorCloseTokenSchema,
   target: Schema.optional(WarpAnchorTargetTokenSchema),
   specifier: Schema.optional(
-    Schema.Union(SpecifierTokenSchema, SinkTokenSchema),
+    Schema.Union([SpecifierTokenSchema, SinkTokenSchema]),
   ),
-}).annotations({
+}).annotate({
   [Probe]: /::\[[^\]]*\](?:\([^)]*\))?/g,
 })
 export type WarpAnchorToken = typeof WarpAnchorTokenSchema.Type
@@ -261,7 +260,7 @@ export const WarpTokenSchema = loomNode('Warp', {
   annotation: Schema.optional(WarpAnnotationTokenSchema),
   default: Schema.optional(WarpDefaultTokenSchema),
   close: WarpCloseTokenSchema,
-}).annotations({
+}).annotate({
   [Probe]: /\{\{[^{}]*\}\}/g,
 })
 export type WarpToken = typeof WarpTokenSchema.Type
@@ -328,7 +327,7 @@ export const checkAnchorDelims = (
   return Effect.succeed(delims)
 }
 
-export const LoomTokenSchema = Schema.Union(
+export const LoomTokenSchema = Schema.Union([
   HeadingStartTokenSchema,
   SpecifierTokenSchema,
   SinkTokenSchema,
@@ -349,5 +348,5 @@ export const LoomTokenSchema = Schema.Union(
   ProseTokenSchema,
   WarpTokenSchema,
   WarpAnchorTokenSchema,
-)
+])
 export type LoomToken = typeof LoomTokenSchema.Type

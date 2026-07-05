@@ -11,9 +11,9 @@ Language: JSON
 ## The manifest {Tangle}[package.json]
 
 The `exports` field is the package's surface — one entry, the `LoomConfig` module. The CLI
-and the language server inline this source when they bundle; `effect` and the
-platform are peers, supplied by the host bundle. The `yaml` parser, which reads the
-compiled configuration, is a real dependency, bundled along with the source.
+and the language server inline this source when they bundle; `effect` is a peer,
+supplied by the host bundle. The `yaml` parser, which reads the compiled
+configuration, is a real dependency, bundled along with the source.
 
 =>
 
@@ -27,12 +27,10 @@ compiled configuration, is a real dependency, bundled along with the source.
     "./LoomConfig": "./src/LoomConfig.ts"
   },
   "peerDependencies": {
-    "@effect/platform": "^0.96.1",
-    "effect": "3.21.2"
+    "effect": "4.0.0-beta.93"
   },
   "devDependencies": {
-    "@effect/platform": "^0.96.1",
-    "effect": "3.21.2"
+    "effect": "4.0.0-beta.93"
   },
   "dependencies": {
     "yaml": "^2.9.0"

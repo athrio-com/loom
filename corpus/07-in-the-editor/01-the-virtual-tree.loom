@@ -15,10 +15,11 @@ A `Mapping` pairs a generated span — `genStart` and `genLength`, offsets into 
 
 =>
 
-export const MappingKindSchema = Schema.Union(
+export const MappingKindSchema = Schema.Union([
   SymbolKindSchema,
-  Schema.Literal('source', 'product'),
-)
+  Schema.Literal('source'),
+  Schema.Literal('product'),
+])
 export type MappingKind = typeof MappingKindSchema.Type
 
 export const MappingSchema = Schema.Struct({

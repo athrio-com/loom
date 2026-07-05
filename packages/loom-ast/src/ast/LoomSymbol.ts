@@ -12,24 +12,7 @@ import {
   type WarpToken,
 } from '#ast/LoomTokens'
 
-export const SymbolKindSchema = Schema.Literal(
-  'headingTitle',
-  'sectionAnchor',
-  'warpAnchor',
-  'warpDef',
-  'specifier',
-  'sink',
-  'arrow',
-  'tilde',
-  'prose',
-  'frontmatterMembership',
-  'frontmatterValue',
-  'frontmatterTitle',
-  'frontmatterPart',
-  'frontmatterPartName',
-  'tocPart',
-  'tocEntry',
-)
+export const SymbolKindSchema = Schema.Literals(['headingTitle', 'sectionAnchor', 'warpAnchor', 'warpDef', 'specifier', 'sink', 'arrow', 'tilde', 'prose', 'frontmatterMembership', 'frontmatterValue', 'frontmatterTitle', 'frontmatterPart', 'frontmatterPartName', 'tocPart', 'tocEntry'])
 export type SymbolKind = typeof SymbolKindSchema.Type
 
 export interface SpanFeatures {
@@ -40,13 +23,7 @@ export interface SpanFeatures {
   readonly completion?: boolean
 }
 
-export const SemanticTokenSchema = Schema.Literal(
-  'namespace',
-  'variable',
-  'keyword',
-  'string',
-  'operator',
-)
+export const SemanticTokenSchema = Schema.Literals(['namespace', 'variable', 'keyword', 'string', 'operator'])
 export type SemanticToken = typeof SemanticTokenSchema.Type
 
 export interface SymbolProfile {
@@ -135,7 +112,7 @@ const optSymbol = (
   token: { readonly position: Position } | undefined,
 ): ReadonlyArray<Symbol> =>
   Option.toArray(
-    Option.map(Option.fromNullable(token), (t) => at(kind, t.position)),
+    Option.map(Option.fromNullishOr(token), (t) => at(kind, t.position)),
   )
 
 const frontmatterSymbols = (fm: LoomFrontmatter): ReadonlyArray<Symbol> => [
@@ -154,17 +131,17 @@ const tocSymbols = (weft: TocWeft): ReadonlyArray<Symbol> => [
 
 const headingSymbols = (heading: LoomHeading): ReadonlyArray<Symbol> => [
   ...Option.toArray(
-    Option.map(Option.fromNullable(heading.title), (t) =>
+    Option.map(Option.fromNullishOr(heading.title), (t) =>
       at('headingTitle', t.position),
     ),
   ),
   ...Option.toArray(
-    Option.map(Option.fromNullable(heading.specifier), (s) =>
+    Option.map(Option.fromNullishOr(heading.specifier), (s) =>
       at('specifier', s.label.position),
     ),
   ),
   ...Option.toArray(
-    Option.map(Option.fromNullable(heading.sink), (s) => at('sink', s.position)),
+    Option.map(Option.fromNullishOr(heading.sink), (s) => at('sink', s.position)),
   ),
 ]
 
@@ -201,7 +178,7 @@ export const symbolsOf = (doc: LoomDocument): ReadonlyArray<Symbol> => {
   const scope = new Set(namesOf(warps))
   return [
     ...Array.flatMap(
-      Option.toArray(Option.fromNullable(doc.frontmatter)),
+      Option.toArray(Option.fromNullishOr(doc.frontmatter)),
       frontmatterSymbols,
     ),
     ...Array.map(warps, (warp) => at('warpDef', warp.name.position)),

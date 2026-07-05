@@ -1,4 +1,4 @@
-import { Effect, Match, Option, Stream, pipe } from 'effect'
+import { Context, Effect, Layer, Match, Option, Stream, pipe } from 'effect'
 import type { LineRange } from './LineRanges'
 import { incompleteHealth, okHealth, type Position } from '@athrio/loom-ast/LoomNode'
 import {
@@ -34,6 +34,7 @@ type ClassifierState = {
   readonly inFrontmatter: boolean
   readonly inToc: boolean
   readonly inFence: boolean
+  readonly inNote: boolean
 }
 
 const initialState: ClassifierState = {
@@ -42,16 +43,17 @@ const initialState: ClassifierState = {
   inFrontmatter: false,
   inToc: false,
   inFence: false,
+  inNote: false,
 }
 
-export class WeftClassifier extends Effect.Service<WeftClassifier>()(
+export class WeftClassifier extends Context.Service<WeftClassifier>()(
   'WeftClassifier',
   {
-    succeed: {
+    make: Effect.succeed({
       classifyWefts:
         (text: string) =>
         (source: Stream.Stream<LineRange>): Stream.Stream<LoomWeft> =>
-          Stream.mapAccum(source, initialState, (state, range) => {
+          Stream.mapAccum(source, () => initialState, (state, range) => {
             const lineText = text.slice(range[0], range[1])
             const weft = probeWeft(lineText, range, state)
             const frontmatterFence =
@@ -64,13 +66,16 @@ export class WeftClassifier extends Effect.Service<WeftClassifier>()(
                 weft.type === 'HeadingWeft'
                   ? isTocHeading(lineText)
                   : state.inToc,
-              inFence: nextFence(state.inFence, weft),
+              inFence: nextFence(state.inFence, state.inNote, weft),
+              inNote: nextNote(state.inNote, state.inFence, weft),
             }
-            return [next, weft]
+            return [next, [weft]]
           }),
-    },
+    }),
   },
-) {}
+) {
+  static readonly layer = Layer.effect(this, this.make)
+}
 
 const probeWeft = (
   lineText: string,
@@ -91,7 +96,7 @@ const probeWeft = (
     return makeFrontmatterField(lineText, line, range)
   }
 
-  if (state.inFence)
+  if (state.inFence || state.inNote)
     return state.seenHeading
       ? makeProseWeft(lineText, line, range)
       : makePreambleWeft(lineText, line, range)
@@ -192,15 +197,32 @@ const isFrontmatterFence = (lineText: string): boolean =>
 
 const isCodeFence = (source: string): boolean => /^\s*```/.test(source)
 
+const isNoteOpen = (source: string): boolean => /^\s*:::\[Note\]/.test(source)
+
+const isNoteClose = (source: string): boolean => /^\s*:::\s*$/.test(source)
+
 const isProseWeft = (weft: LoomWeft): boolean =>
   weft.type === 'PreambleWeft' ||
   weft.type === 'ProseWeft' ||
   weft.type === 'TildeWeft'
 
-const nextFence = (inFence: boolean, weft: LoomWeft): boolean =>
+const nextFence = (
+  inFence: boolean,
+  inNote: boolean,
+  weft: LoomWeft,
+): boolean =>
   inFence
     ? !isCodeFence(weft.source)
-    : isProseWeft(weft) && isCodeFence(weft.source)
+    : !inNote && isProseWeft(weft) && isCodeFence(weft.source)
+
+const nextNote = (
+  inNote: boolean,
+  inFence: boolean,
+  weft: LoomWeft,
+): boolean =>
+  inNote
+    ? !isNoteClose(weft.source)
+    : !inFence && isProseWeft(weft) && isNoteOpen(weft.source)
 
 const headingLevel = (m: RegExpMatchArray): number =>
   m[0].replace(/[^#]/g, '').length

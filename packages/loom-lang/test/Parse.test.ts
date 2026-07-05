@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Chunk, Effect, Schema, Stream, pipe } from 'effect'
+import { Effect, Schema, Stream, pipe } from 'effect'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { LoomSourceRanges } from '#ast/LineRanges'
@@ -46,10 +46,10 @@ const classifyText = (text: string): ReadonlyArray<LoomWeft> =>
       const classifier = yield* WeftClassifier
       const ranges = yield* sources.stream(text)
       const stream = classifier.classifyWefts(text)(ranges)
-      return Chunk.toReadonlyArray(yield* Stream.runCollect(stream))
+      return yield* Stream.runCollect(stream)
     }).pipe(
-      Effect.provide(LoomSourceRanges.Default),
-      Effect.provide(WeftClassifier.Default),
+      Effect.provide(LoomSourceRanges.layer),
+      Effect.provide(WeftClassifier.layer),
       Effect.orDie,
     ),
   )
@@ -66,11 +66,11 @@ const tokeniseText = (text: string): ReadonlyArray<LoomWeft> =>
         classifier.classifyWefts(text),
         tokeniser.tokeniseWefts(text),
       )
-      return Chunk.toReadonlyArray(yield* Stream.runCollect(stream))
+      return yield* Stream.runCollect(stream)
     }).pipe(
-      Effect.provide(LoomSourceRanges.Default),
-      Effect.provide(WeftClassifier.Default),
-      Effect.provide(WeftTokeniser.Default),
+      Effect.provide(LoomSourceRanges.layer),
+      Effect.provide(WeftClassifier.layer),
+      Effect.provide(WeftTokeniser.layer),
       Effect.orDie,
     ),
   )

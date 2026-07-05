@@ -1,12 +1,4 @@
-import {
-  Effect,
-  Either,
-  Match,
-  Option,
-  Schema,
-  Stream,
-  pipe,
-} from 'effect'
+import { Context, Effect, Layer, Match, Option, Result, Schema, Stream, pipe } from 'effect'
 import {
   okHealth,
   type Health,
@@ -99,20 +91,22 @@ import {
   TocWeftSchema,
 } from '@athrio/loom-ast/Weft'
 
-export class WeftTokeniser extends Effect.Service<WeftTokeniser>()(
+export class WeftTokeniser extends Context.Service<WeftTokeniser>()(
   'WeftTokeniser',
   {
-    succeed: {
+    make: Effect.succeed({
       tokeniseWefts:
         (text: string, delims: AnchorDelims = defaultAnchorDelims) =>
         (source: Stream.Stream<LoomWeft>): Stream.Stream<LoomWeft> =>
-          Stream.mapAccum(source, false, (inFence, weft) => {
+          Stream.mapAccum(source, () => false, (inFence, weft) => {
             const [nextFence, skipAnchors] = fenceStep(inFence, weft)
-            return [nextFence, tokeniseWeft(text, weft, delims, skipAnchors)]
+            return [nextFence, [tokeniseWeft(text, weft, delims, skipAnchors)]]
           }),
-    },
+    }),
   },
-) {}
+) {
+  static readonly layer = Layer.effect(this, this.make)
+}
 
 const isProseWeft = (weft: LoomWeft): boolean =>
   weft.type === 'PreambleWeft' ||
@@ -307,7 +301,7 @@ const codeProbe = Option.getOrThrow(getProbe(CodeTokenSchema))
 const proseProbe = Option.getOrThrow(getProbe(ProseTokenSchema))
 
 const inlineAfter = <T>(
-  schema: Schema.Schema<T, any, never>,
+  schema: Schema.Schema<T>,
   probe: RegExp,
   text: string,
   linePosition: Position,
@@ -317,7 +311,7 @@ const inlineAfter = <T>(
     .slice(lineStart, linePosition.end.offset)
     .replace(/\r?\n$/, '')
   return pipe(
-    Option.fromNullable(probe.exec(lineText)),
+    Option.fromNullishOr(probe.exec(lineText)),
     Option.filter(
       (m): m is RegExpExecArray & { index: number } => m.index !== undefined,
     ),
@@ -530,10 +524,10 @@ const brokenLabel = (
     position,
   )
 
-const decodeSpecifierLabel = Schema.decodeUnknownEither(
+const decodeSpecifierLabel = Schema.decodeUnknownResult(
   SpecifierLabelTokenSchema,
 )
-const decodeSinkFileLabel = Schema.decodeUnknownEither(SinkFileLabelTokenSchema)
+const decodeSinkFileLabel = Schema.decodeUnknownResult(SinkFileLabelTokenSchema)
 
 const buildSpecifierLabel = (
   value: string,
@@ -547,7 +541,7 @@ const buildSpecifierLabel = (
       health: okHealth,
       value,
     }),
-    Either.getOrElse(() =>
+    Result.getOrElse(() =>
       SpecifierLabelTokenSchema.make({
         type: 'SpecifierLabel',
         position,
@@ -571,7 +565,7 @@ const buildSinkFileLabel = (
       health: okHealth,
       value,
     }),
-    Either.getOrElse(() =>
+    Result.getOrElse(() =>
       SinkFileLabelTokenSchema.make({
         type: 'SinkFileLabel',
         position,
@@ -583,7 +577,7 @@ const buildSinkFileLabel = (
     ),
   )
 
-type Scannable<T> = Schema.Schema<T, any, never>
+type Scannable<T> = Schema.Schema<T>
 
 type Scanner<T> = (lineText: string, linePosition: Position) => ReadonlyArray<T>
 
@@ -880,7 +874,7 @@ const trimSpan = (
   }
 }
 
-const decodeWarpName = Schema.decodeUnknownEither(WarpNameTokenSchema)
+const decodeWarpName = Schema.decodeUnknownResult(WarpNameTokenSchema)
 
 const buildWarpName = (value: string, position: Position): WarpNameToken =>
   pipe(
@@ -891,7 +885,7 @@ const buildWarpName = (value: string, position: Position): WarpNameToken =>
       health: okHealth,
       value,
     }),
-    Either.getOrElse(() =>
+    Result.getOrElse(() =>
       WarpNameTokenSchema.make({
         type: 'WarpName',
         position,
@@ -1131,7 +1125,7 @@ const unexpectedIfNonEmpty = (
 ): ReadonlyArray<UnexpectedToken> =>
   value.length > 0 ? [UnexpectedTokenSchema.make({ position, value })] : []
 
-const decodeWarpAnchorName = Schema.decodeUnknownEither(
+const decodeWarpAnchorName = Schema.decodeUnknownResult(
   WarpAnchorNameTokenSchema,
 )
 
@@ -1254,8 +1248,8 @@ const buildWarpAnchor = (
       health: okHealth,
       value,
     }),
-    Either.match({
-      onLeft: () => ({
+    Result.match({
+      onFailure: () => ({
         anchor: assembleAnchor(
           open,
           close,
@@ -1274,7 +1268,7 @@ const buildWarpAnchor = (
         ),
         extras: unexpectedIfNonEmpty(namePos, value),
       }),
-      onRight: (name) => ({
+      onSuccess: (name) => ({
         anchor: assembleAnchor(
           open,
           close,

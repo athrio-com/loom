@@ -12,10 +12,10 @@ import type { LoomDocument } from '@athrio/loom-ast/LoomAst'
 // document use this helper, and `ParseLayer` provides the four stage services.
 
 export const ParseLayer = Layer.mergeAll(
-  LoomSourceRanges.Default,
-  WeftClassifier.Default,
-  WeftTokeniser.Default,
-  LoomAstBuilder.Default,
+  LoomSourceRanges.layer,
+  WeftClassifier.layer,
+  WeftTokeniser.layer,
+  LoomAstBuilder.layer,
 )
 
 export const parseDocument = (

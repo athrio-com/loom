@@ -1,5 +1,4 @@
-import { Array, Effect, pipe } from 'effect'
-import { FileSystem } from '@effect/platform'
+import { Array, Context, Effect, FileSystem, Layer, pipe } from 'effect'
 import { dirname, resolve as resolvePath } from 'node:path'
 import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
 import { LoomCompiler, type TangledFile, type TangleError } from './LoomCompiler'
@@ -9,8 +8,8 @@ const ignoredSegment = new Set(['node_modules', '.loom', 'dist', '.git'])
 const isStorePath = (name: string): boolean =>
   name.split('/').some((segment) => ignoredSegment.has(segment))
 
-export class LoomTangler extends Effect.Service<LoomTangler>()('LoomTangler', {
-  effect: Effect.gen(function* () {
+export class LoomTangler extends Context.Service<LoomTangler>()('LoomTangler', {
+  make: Effect.gen(function* () {
     const compiler = yield* LoomCompiler
     const fs = yield* FileSystem.FileSystem
 
@@ -18,7 +17,7 @@ export class LoomTangler extends Effect.Service<LoomTangler>()('LoomTangler', {
       fs
         .makeDirectory(dirname(file.path), { recursive: true })
         .pipe(
-          Effect.zipRight(fs.writeFileString(file.path, file.content)),
+          Effect.andThen(fs.writeFileString(file.path, file.content)),
           Effect.orDie,
           Effect.as(file),
         )
@@ -55,5 +54,8 @@ export class LoomTangler extends Effect.Service<LoomTangler>()('LoomTangler', {
 
     return { tangle }
   }),
-  dependencies: [LoomCompiler.Default],
-}) {}
+}) {
+  static readonly layer = Layer.effect(this, this.make).pipe(
+    Layer.provide(LoomCompiler.layer),
+  )
+}

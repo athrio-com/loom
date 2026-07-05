@@ -79,7 +79,7 @@ export const TocWeftSchema = loomNode('TocWeft', {
 })
 export type TocWeft = typeof TocWeftSchema.Type
 
-export const LoomWeftSchema = Schema.Union(
+export const LoomWeftSchema = Schema.Union([
   HeadingWeftSchema,
   ArrowWeftSchema,
   TildeWeftSchema,
@@ -88,13 +88,13 @@ export const LoomWeftSchema = Schema.Union(
   CodeWeftSchema,
   FrontmatterWeftSchema,
   TocWeftSchema,
-)
+])
 export type LoomWeft = typeof LoomWeftSchema.Type
 
-export const SectionBodyWeftSchema = Schema.Union(
+export const SectionBodyWeftSchema = Schema.Union([
   ArrowWeftSchema,
   CodeWeftSchema,
   TildeWeftSchema,
   ProseWeftSchema,
-)
+])
 export type SectionBodyWeft = typeof SectionBodyWeftSchema.Type

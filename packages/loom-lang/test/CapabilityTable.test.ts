@@ -45,18 +45,18 @@ const parse = (src: string) =>
 const files: Record<string, string> = { '/convert.loom': fixture }
 
 const layer = Layer.provide(
-  Layer.merge(LoomCompiler.Default, LoomMemo.Default),
+  Layer.merge(LoomCompiler.layer, LoomMemo.layer),
   Layer.merge(
     Layer.succeed(
       DocumentSource,
-      new DocumentSource({
+      {
         read: (path: string) => Effect.succeed(files[path] ?? ''),
         list: Option.some(() => Effect.succeed(Object.keys(files))),
-      }),
+      },
     ),
     Layer.succeed(
       PackageConfig,
-      new PackageConfig({
+      {
         resolve: () =>
           Effect.succeed({
             delims: defaultAnchorDelims,
@@ -65,7 +65,7 @@ const layer = Layer.provide(
             workspaceRoot: undefined,
             corpusDir: undefined,
           }),
-      }),
+      },
     ),
   ),
 )

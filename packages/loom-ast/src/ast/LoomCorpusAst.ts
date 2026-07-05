@@ -27,13 +27,13 @@ export const LoomModuleSchema = Schema.Struct({
 export type LoomModule = typeof LoomModuleSchema.Type
 
 export const LoomCorpusAstSchema = Schema.Struct({
-  modules: Schema.ReadonlyMap({ key: Schema.String, value: LoomModuleSchema }),
+  modules: Schema.ReadonlyMap(Schema.String, LoomModuleSchema),
 })
 export type LoomCorpusAst = typeof LoomCorpusAstSchema.Type
 
 type Modules = ReadonlyMap<Path, LoomModule>
 
-type SectionRef = { readonly module: Path; readonly section: LoomSection }
+export type SectionRef = { readonly module: Path; readonly section: LoomSection }
 
 const resolveRelative = (from: Path, rel: string): Path =>
   pipe(
@@ -48,12 +48,13 @@ const resolveRelative = (from: Path, rel: string): Path =>
 const titlesIn = (module: LoomModule): ReadonlyMap<string, SectionRef> =>
   pipe(
     module.doc.sections,
-    Array.filterMap((section) =>
+    Array.map((section) =>
       Option.map(
-        Option.fromNullable(section.heading.title),
+        Option.fromNullishOr(section.heading.title),
         (title) => [title.source, { module: module.path, section }] as const,
       ),
     ),
+    Array.getSomes,
     Array.reduce(
       new Map<string, SectionRef>(),
       (index, [title, ref]) =>
@@ -61,22 +62,22 @@ const titlesIn = (module: LoomModule): ReadonlyMap<string, SectionRef> =>
     ),
   )
 
-type TitleIndexes = ReadonlyMap<Path, ReadonlyMap<string, SectionRef>>
+export type TitleIndexes = ReadonlyMap<Path, ReadonlyMap<string, SectionRef>>
 
-const titleIndexes = (modules: Modules): TitleIndexes =>
+export const titleIndexes = (modules: Modules): TitleIndexes =>
   new Map(
     Array.fromIterable(modules.values()).map(
       (m) => [m.path, titlesIn(m)] as const,
     ),
   )
 
-const resolveAnchor = (
+export const resolveAnchor = (
   indexes: TitleIndexes,
   from: Path,
   anchor: WarpAnchorToken,
 ): Option.Option<SectionRef> =>
   pipe(
-    Option.fromNullable(
+    Option.fromNullishOr(
       indexes.get(
         anchor.target === undefined
           ? from
@@ -84,7 +85,7 @@ const resolveAnchor = (
       ),
     ),
     Option.flatMap((index) =>
-      Option.fromNullable(index.get(anchor.name.value)),
+      Option.fromNullishOr(index.get(anchor.name.value)),
     ),
   )
 
@@ -120,11 +121,13 @@ const anchorEdges = (
   return pipe(
     Array.fromIterable(modules.values()),
     Array.flatMap((m) =>
-      Array.filterMap(Array.flatMap(m.doc.sections, anchorsOf), (anchor) =>
-        Option.map(resolveAnchor(indexes, m.path, anchor), (target) => ({
-          owner: m.path,
-          target: target.module,
-        })),
+      Array.getSomes(
+        Array.map(Array.flatMap(m.doc.sections, anchorsOf), (anchor) =>
+          Option.map(resolveAnchor(indexes, m.path, anchor), (target) => ({
+            owner: m.path,
+            target: target.module,
+          })),
+        ),
       ),
     ),
   )
@@ -137,8 +140,10 @@ export const reachable = (
   const edges = anchorEdges(modules)
   return Array.fromIterable(
     reach([entry], (module) =>
-      Array.filterMap(edges, (edge) =>
-        edge.owner === module ? Option.some(edge.target) : Option.none(),
+      Array.getSomes(
+        Array.map(edges, (edge) =>
+          edge.owner === module ? Option.some(edge.target) : Option.none(),
+        ),
       ),
     ),
   )
@@ -152,8 +157,10 @@ export const transitiveDependents = (
   return pipe(
     Array.fromIterable(
       reach([entry], (module) =>
-        Array.filterMap(edges, (edge) =>
-          edge.target === module ? Option.some(edge.owner) : Option.none(),
+        Array.getSomes(
+          Array.map(edges, (edge) =>
+            edge.target === module ? Option.some(edge.owner) : Option.none(),
+          ),
         ),
       ),
     ),
@@ -171,7 +178,7 @@ const anchorAt = (
   offset: number,
 ): Option.Option<WarpAnchorToken> =>
   pipe(
-    Option.fromNullable(modules.get(path)),
+    Option.fromNullishOr(modules.get(path)),
     Option.flatMap((m) =>
       Array.findFirst(
         Array.flatMap(m.doc.sections, anchorsOf),
@@ -188,7 +195,7 @@ const titledSectionAt = (
   offset: number,
 ): Option.Option<LoomSection> =>
   pipe(
-    Option.fromNullable(modules.get(path)),
+    Option.fromNullishOr(modules.get(path)),
     Option.flatMap((m) =>
       Array.findFirst(m.doc.sections, (section) => {
         const title = section.heading.title
@@ -213,7 +220,7 @@ const sectionRefAt = (
 
 const titleLocation = (ref: SectionRef): Option.Option<CorpusLocation> =>
   Option.map(
-    Option.fromNullable(ref.section.heading.title),
+    Option.fromNullishOr(ref.section.heading.title),
     (title): CorpusLocation => ({ path: ref.module, position: title.position }),
   )
 
@@ -238,15 +245,17 @@ const anchorsResolvingTo = (
   pipe(
     Array.fromIterable(modules.values()),
     Array.flatMap((m) =>
-      Array.filterMap(Array.flatMap(m.doc.sections, anchorsOf), (anchor) =>
-        pipe(
-          resolveAnchor(indexes, m.path, anchor),
-          Option.filter(
-            (ref) =>
-              ref.module === target.module && ref.section === target.section,
-          ),
-          Option.map(
-            (): CorpusLocation => ({ path: m.path, position: spanOf(anchor) }),
+      Array.getSomes(
+        Array.map(Array.flatMap(m.doc.sections, anchorsOf), (anchor) =>
+          pipe(
+            resolveAnchor(indexes, m.path, anchor),
+            Option.filter(
+              (ref) =>
+                ref.module === target.module && ref.section === target.section,
+            ),
+            Option.map(
+              (): CorpusLocation => ({ path: m.path, position: spanOf(anchor) }),
+            ),
           ),
         ),
       ),
@@ -412,20 +421,20 @@ const firstHeadingTitleOf = (
       module.doc.sections,
       (section) => section.heading.title !== undefined,
     ),
-    (section) => Option.fromNullable(section.heading.title),
+    (section) => Option.fromNullishOr(section.heading.title),
   )
 
 const chapterTitleToken = (
   module: LoomModule,
 ): Option.Option<{ readonly source: string; readonly position: Position }> =>
-  Option.orElse(Option.fromNullable(module.doc.frontmatter?.title), () =>
+  Option.orElse(Option.fromNullishOr(module.doc.frontmatter?.title), () =>
     firstHeadingTitleOf(module),
   )
 
 const chapterIndex = (modules: Modules): ReadonlyMap<string, CorpusLocation> =>
   pipe(
     Array.fromIterable(modules.values()),
-    Array.filterMap((module) =>
+    Array.map((module) =>
       Option.map(
         chapterTitleToken(module),
         (title) =>
@@ -435,6 +444,7 @@ const chapterIndex = (modules: Modules): ReadonlyMap<string, CorpusLocation> =>
           ] as const,
       ),
     ),
+    Array.getSomes,
     Array.reduce(
       new Map<string, CorpusLocation>(),
       (index, [title, location]) =>
@@ -451,7 +461,7 @@ const tocEntryTitleAt = (
   offset: number,
 ): Option.Option<string> =>
   pipe(
-    Option.fromNullable(modules.get(path)),
+    Option.fromNullishOr(modules.get(path)),
     Option.flatMap((module) =>
       Array.findFirst(
         tocEntriesOf(module),
@@ -459,7 +469,7 @@ const tocEntryTitleAt = (
           entry.title !== undefined && covers(entry.title.position, offset),
       ),
     ),
-    Option.flatMap((entry) => Option.fromNullable(entry.title)),
+    Option.flatMap((entry) => Option.fromNullishOr(entry.title)),
     Option.map((title) => title.value),
   )
 
@@ -469,9 +479,9 @@ const frontmatterTitleAt = (
   offset: number,
 ): Option.Option<string> =>
   pipe(
-    Option.fromNullable(modules.get(path)),
+    Option.fromNullishOr(modules.get(path)),
     Option.flatMap((module) =>
-      Option.fromNullable(module.doc.frontmatter?.title),
+      Option.fromNullishOr(module.doc.frontmatter?.title),
     ),
     Option.filter((title) => covers(title.position, offset)),
     Option.map((title) => title.value),
@@ -492,7 +502,7 @@ const chapterDefinitionAt = (
   offset: number,
 ): Option.Option<CorpusLocation> =>
   Option.flatMap(chapterNameAt(corpus.modules, path, offset), (title) =>
-    Option.fromNullable(chapterIndex(corpus.modules).get(title)),
+    Option.fromNullishOr(chapterIndex(corpus.modules).get(title)),
   )
 
 const isChapterTitled = (module: LoomModule, title: string): boolean =>
@@ -515,11 +525,13 @@ const tocMentionsOf = (
   module: LoomModule,
   title: string,
 ): ReadonlyArray<CorpusLocation> =>
-  Array.filterMap(tocEntriesOf(module), (entry) =>
-    pipe(
-      Option.fromNullable(entry.title),
-      Option.filter((token) => token.value === title),
-      Option.map((token) => ({ path: module.path, position: token.position })),
+  Array.getSomes(
+    Array.map(tocEntriesOf(module), (entry) =>
+      pipe(
+        Option.fromNullishOr(entry.title),
+        Option.filter((token) => token.value === title),
+        Option.map((token) => ({ path: module.path, position: token.position })),
+      ),
     ),
   )
 
@@ -547,10 +559,12 @@ export const unresolvedTocEntriesIn = (
   module: LoomModule,
 ): ReadonlyArray<TocTitleToken> => {
   const index = chapterIndex(corpus.modules)
-  return Array.filterMap(tocEntriesOf(module), (entry) =>
-    pipe(
-      Option.fromNullable(entry.title),
-      Option.filter((title) => !index.has(title.value)),
+  return Array.getSomes(
+    Array.map(tocEntriesOf(module), (entry) =>
+      pipe(
+        Option.fromNullishOr(entry.title),
+        Option.filter((title) => !index.has(title.value)),
+      ),
     ),
   )
 }
@@ -560,13 +574,13 @@ const partOpenerIndex = (
 ): ReadonlyMap<string, CorpusLocation> =>
   pipe(
     Array.fromIterable(modules.values()),
-    Array.filterMap((module) =>
+    Array.map((module) =>
       pipe(
-        Option.fromNullable(module.doc.frontmatter),
+        Option.fromNullishOr(module.doc.frontmatter),
         Option.flatMap((fm) =>
           Option.all({
-            part: Option.fromNullable(fm.part),
-            partName: Option.fromNullable(fm.partName),
+            part: Option.fromNullishOr(fm.part),
+            partName: Option.fromNullishOr(fm.partName),
           }),
         ),
         Option.map(
@@ -578,6 +592,7 @@ const partOpenerIndex = (
         ),
       ),
     ),
+    Array.getSomes,
     Array.reduce(
       new Map<string, CorpusLocation>(),
       (index, [num, location]) =>
@@ -589,7 +604,7 @@ const onToken = (
   token: { readonly position: Position } | undefined,
   offset: number,
 ): boolean =>
-  Option.match(Option.fromNullable(token), {
+  Option.match(Option.fromNullishOr(token), {
     onNone: () => false,
     onSome: (t) => covers(t.position, offset),
   })
@@ -599,17 +614,17 @@ const frontmatterPartNumberAt = (
   offset: number,
 ): Option.Option<string> =>
   pipe(
-    Option.fromNullable(module.doc.frontmatter),
+    Option.fromNullishOr(module.doc.frontmatter),
     Option.filter(
       (fm) => onToken(fm.part, offset) || onToken(fm.partName, offset),
     ),
-    Option.flatMap((fm) => Option.fromNullable(fm.part)),
+    Option.flatMap((fm) => Option.fromNullishOr(fm.part)),
     Option.map((part) => part.value),
   )
 
 const tocPartsOf = (module: LoomModule): ReadonlyArray<TocPartToken> =>
-  Array.filterMap(tocEntriesOf(module), (entry) =>
-    Option.fromNullable(entry.part),
+  Array.getSomes(
+    Array.map(tocEntriesOf(module), (entry) => Option.fromNullishOr(entry.part)),
   )
 
 const partNumberMarker = /^Part\s+(\S+)/
@@ -621,7 +636,7 @@ const tocPartNumberAt = (
   pipe(
     Array.findFirst(tocPartsOf(module), (part) => covers(part.position, offset)),
     Option.flatMap((part) =>
-      Option.fromNullable(partNumberMarker.exec(part.value)?.[1]),
+      Option.fromNullishOr(partNumberMarker.exec(part.value)?.[1]),
     ),
   )
 
@@ -631,7 +646,7 @@ const partNumberAt = (
   offset: number,
 ): Option.Option<string> =>
   pipe(
-    Option.fromNullable(modules.get(path)),
+    Option.fromNullishOr(modules.get(path)),
     Option.flatMap((module) =>
       Option.orElse(frontmatterPartNumberAt(module, offset), () =>
         tocPartNumberAt(module, offset),
@@ -645,7 +660,7 @@ const partDefinitionAt = (
   offset: number,
 ): Option.Option<CorpusLocation> =>
   Option.flatMap(partNumberAt(corpus.modules, path, offset), (num) =>
-    Option.fromNullable(partOpenerIndex(corpus.modules).get(num)),
+    Option.fromNullishOr(partOpenerIndex(corpus.modules).get(num)),
   )
 
 const frontmatterPartLocations = (
@@ -653,7 +668,7 @@ const frontmatterPartLocations = (
   num: string,
 ): ReadonlyArray<CorpusLocation> =>
   pipe(
-    Option.fromNullable(module.doc.frontmatter?.part),
+    Option.fromNullishOr(module.doc.frontmatter?.part),
     Option.filter((part) => part.value === num),
     Option.map((part) => ({ path: module.path, position: part.position })),
     Option.toArray,
@@ -663,11 +678,13 @@ const tocPartLocations = (
   module: LoomModule,
   num: string,
 ): ReadonlyArray<CorpusLocation> =>
-  Array.filterMap(tocPartsOf(module), (part) =>
-    pipe(
-      Option.fromNullable(partNumberMarker.exec(part.value)?.[1]),
-      Option.filter((n) => n === num),
-      Option.map(() => ({ path: module.path, position: part.position })),
+  Array.getSomes(
+    Array.map(tocPartsOf(module), (part) =>
+      pipe(
+        Option.fromNullishOr(partNumberMarker.exec(part.value)?.[1]),
+        Option.filter((n) => n === num),
+        Option.map(() => ({ path: module.path, position: part.position })),
+      ),
     ),
   )
 
@@ -675,7 +692,7 @@ const partGroup = (
   modules: Modules,
   num: string,
 ): ReadonlyArray<CorpusLocation> => [
-  ...Option.toArray(Option.fromNullable(partOpenerIndex(modules).get(num))),
+  ...Option.toArray(Option.fromNullishOr(partOpenerIndex(modules).get(num))),
   ...Array.flatMap(Array.fromIterable(modules.values()), (module) => [
     ...frontmatterPartLocations(module, num),
     ...tocPartLocations(module, num),
@@ -698,7 +715,7 @@ export const definitionAt = (
   offset: number,
 ): Option.Option<CorpusLocation> =>
   pipe(
-    Option.fromNullable(corpus.modules.get(path)),
+    Option.fromNullishOr(corpus.modules.get(path)),
     Option.flatMap((module) =>
       Option.flatMap(symbolAt(module.doc, offset), (symbol) =>
         Match.value(symbol.kind).pipe(
@@ -728,7 +745,7 @@ export const referencesAt = (
 ): ReadonlyArray<CorpusLocation> =>
   Option.match(
     pipe(
-      Option.fromNullable(corpus.modules.get(path)),
+      Option.fromNullishOr(corpus.modules.get(path)),
       Option.flatMap((module) =>
         Option.map(symbolAt(module.doc, offset), (symbol) => ({ module, symbol })),
       ),
@@ -785,7 +802,7 @@ export const renameAt = (
 ): ReadonlyArray<CorpusLocation> =>
   Option.match(
     pipe(
-      Option.fromNullable(corpus.modules.get(path)),
+      Option.fromNullishOr(corpus.modules.get(path)),
       Option.flatMap((module) =>
         Option.map(symbolAt(module.doc, offset), (symbol) => ({ module, symbol })),
       ),
@@ -819,7 +836,7 @@ export const navigationRangeAt = (
   offset: number,
 ): Option.Option<CorpusLocation> =>
   pipe(
-    Option.fromNullable(corpus.modules.get(path)),
+    Option.fromNullishOr(corpus.modules.get(path)),
     Option.flatMap((module) => symbolAt(module.doc, offset)),
     Option.filter(
       (symbol) => profileOf(symbol.kind).features.navigation === true,
@@ -866,7 +883,7 @@ export const corpusErrors = (
 }> =>
   pipe(
     Array.fromIterable(corpus.modules.values()),
-    Array.filterMap((m) => {
+    Array.map((m) => {
       const diagnostics = Array.filter(
         moduleDiagnostics(m),
         (d) => d.severity === 'error',
@@ -875,4 +892,5 @@ export const corpusErrors = (
         ? Option.none()
         : Option.some({ path: m.path, diagnostics })
     }),
+    Array.getSomes,
   )

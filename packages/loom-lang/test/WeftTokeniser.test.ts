@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Chunk, Effect, Stream } from 'effect'
+import { Effect, Stream } from 'effect'
 import type { LineRange } from '#ast/LineRanges'
 import { okHealth } from '@athrio/loom-ast/LoomNode'
 import { WeftClassifier } from '#ast/WeftClassifier'
@@ -28,10 +28,10 @@ const tokenise = (lines: ReadonlyArray<string>): ReadonlyArray<LoomWeft> => {
       const classified = classifier.classifyWefts(text)(source)
       const stream = tokeniser.tokeniseWefts(text)(classified)
       const chunk = yield* Stream.runCollect(stream)
-      return Chunk.toReadonlyArray(chunk)
+      return chunk
     }).pipe(
-      Effect.provide(WeftClassifier.Default),
-      Effect.provide(WeftTokeniser.Default),
+      Effect.provide(WeftClassifier.layer),
+      Effect.provide(WeftTokeniser.layer),
     ),
   )
 }

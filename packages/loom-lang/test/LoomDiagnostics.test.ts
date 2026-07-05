@@ -1,5 +1,5 @@
 import { createTypeScriptInferredChecker } from '@volar/kit'
-import { Effect, Layer, Runtime } from 'effect'
+import { Effect, Layer, ManagedRuntime } from 'effect'
 import { dirname, resolve } from 'node:path'
 import * as ts from 'typescript'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -38,45 +38,40 @@ const tsOptions = {
 // The checker runs the real Loom service plugins — `loomServicePlugins` collects them
 // and builds the `FrameQuery` the frame service reads, exactly as the language server
 // does on initialize. The config is a fake, so no on-disk loom.json is needed.
-const checkerFor = (fixture: string) =>
-  Effect.runtime<LoomCompiler | LoomConfig>()
-    .pipe(
-      Effect.provide(LoomCompiler.Default),
-      Effect.provide(DocumentSource.Default),
-      Effect.provide(PackageConfig.Default),
-      Effect.provide(
-        Layer.succeed(
-          LoomConfig,
-          new LoomConfig({
-            resolve: () =>
-              Effect.succeed({
-                anchor: undefined,
-                primary: 'typescript',
-                languages: ['typescript'],
-                settings: {},
-                services: {},
-                packageRoot: undefined,
-                workspaceRoot: undefined,
-                corpusDir: undefined,
-              }),
-            manifest: () => Effect.succeed({ languages: { typescript: {} } }),
-            materialize: () => Effect.void,
-          }),
-        ),
-      ),
-      Effect.runPromise,
-    )
-    .then(async (runtime) => {
-      const plugins = await Runtime.runPromise(runtime)(
-        loomServicePlugins(ts, dirname(fixture)),
-      )
-      return createTypeScriptInferredChecker(
+const checkerFor = (fixture: string) => {
+  const configMock = Layer.succeed(LoomConfig, {
+    resolve: () =>
+      Effect.succeed({
+        anchor: undefined,
+        primary: 'typescript',
+        languages: ['typescript'],
+        settings: {},
+        services: {},
+        packageRoot: undefined,
+        workspaceRoot: undefined,
+        corpusDir: undefined,
+      }),
+    manifest: () => Effect.succeed({ languages: { typescript: {} } }),
+    materialize: () => Effect.void,
+  })
+  const runtime = ManagedRuntime.make(
+    Layer.mergeAll(LoomCompiler.layer, configMock).pipe(
+      Layer.provide(DocumentSource.layer),
+      Layer.provide(PackageConfig.layer),
+      Layer.provide(configMock),
+    ),
+  )
+  return runtime
+    .runPromise(loomServicePlugins(runtime, ts, dirname(fixture)))
+    .then((plugins) =>
+      createTypeScriptInferredChecker(
         [loomLanguagePlugin(runtime)],
         [...plugins],
         () => [fixture],
         tsOptions,
-      )
-    })
+      ),
+    )
+}
 
 describe('Loom diagnostics — the editor surfaces Loom health', () => {
   it('an unresolved anchor reports on the .loom', async () => {

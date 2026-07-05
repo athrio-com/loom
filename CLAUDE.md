@@ -83,23 +83,30 @@ product: tangle discards it, but the next person to open the loom depends on it.
 Loom is pure functional programming with Effect, end to end. Model every
 concern as a idiomatic Effect program aspect with Services and Layers when needed; compose via `Effect.gen` and `yield*`; let Layers wire dependencies.
 
-- Start every process from an Effect runtime entry point —
-  `NodeRuntime.runMain()` or `Effect.runFork()` — and let Effect drive. Do not
-  start with imperative Node code and sprinkle Effect inside, and do not call
-  `Effect.runSync` / `Effect.runPromise` in the middle of an imperative flow.
-- Use `Effect.Service`, never `Context.Tag`, for Loom components.
-  `Effect.Service` provides the `.Default` Layer, typed DI via `yield*`, and the
-  `dependencies` field — no substitute provides all three. If `Effect.Service`
-  feels hard, learn how it works; do not replace it with a plain object, a bare
-  class, or a `Context.Tag` because it seems simpler. "This is too complex, let
-  me use something simpler" is the signal to study `Effect.Service`, not to
-  abandon it.
+- Start every process from an Effect runtime edge — `NodeRuntime.runMain()` or
+  `Effect.runFork()`, or a startup `ManagedRuntime` for a host-embedded server
+  like `LoomServer` — and let Effect drive. Do not start with imperative Node
+  code and sprinkle Effect inside, and do not call `Effect.runSync` /
+  `Effect.runPromise` in the middle of an imperative flow.
+- Use `Context.Service`, never `Context.Tag`, for Loom components. A component is
+  `class X extends Context.Service<X>()("X", { make })` — one `make:` Effect
+  (`Effect.succeed({…})` when pure, `Effect.gen` when it needs dependencies) —
+  paired with an explicit `static readonly layer = Layer.effect(this, this.make)`,
+  adding `.pipe(Layer.provide(Dep.layer))` per dependency. It gives a named tag
+  and typed DI via `yield*`; no plain object or `Context.Tag` gives that with a
+  Layer. `Context.Service` is Effect v4's successor to v3's `Effect.Service` —
+  the `.Default` layer and the `dependencies:` field are gone, so you write the
+  layer yourself. If it feels hard, learn how it works; do not replace it with a
+  plain object, a bare class, or a `Context.Tag` because it seems simpler. "This
+  is too complex, let me use something simpler" is the signal to study
+  `Context.Service`, not to abandon it.
 - No ad-hoc string pipelines pretending to be composition, and no imperative
   orchestration running alongside Effect. Learn style from exisiting code base.
 
 ### Build top-down from the entry point
 
-Every process begins at `NodeRuntime.runMain()`. Build the program entry point →
+Every process begins at a runtime edge — `NodeRuntime.runMain()` for the CLI, a
+startup `ManagedRuntime` for the language server. Build the program entry point →
 Services → Layers → composition. Do not start from utility functions and hope
 they compose later.
 

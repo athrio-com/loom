@@ -40,7 +40,7 @@ const editorSource = (
 })
 
 const associate = (
-  compiler: LoomCompiler,
+  compiler: LoomCompiler['Service'],
   ctx: CodegenContext<URI>,
   entry: string,
 ): Effect.Effect<void> =>
@@ -59,7 +59,7 @@ const changed = (previous: VirtualCode, next: ts.IScriptSnapshot): boolean =>
   next.getText(0, next.getLength())
 
 const projectIsolated = (
-  compiler: LoomCompiler,
+  compiler: LoomCompiler['Service'],
   uri: URI,
   snapshot: ts.IScriptSnapshot,
   ctx: CodegenContext<URI>,
@@ -70,12 +70,12 @@ const projectIsolated = (
   )
 
 export const loomLanguagePlugin = (
-  runtime: Runtime.Runtime<LoomCompiler | LoomConfig>,
+  runtime: ManagedRuntime.ManagedRuntime<LoomCompiler | LoomConfig, never>,
 ): LanguagePlugin<URI> => ({
   getLanguageId: (uri) => (uri.path.endsWith('.loom') ? 'loom' : undefined),
   createVirtualCode: (uri, languageId, snapshot, ctx) =>
     languageId === 'loom'
-      ? Runtime.runSync(runtime)(
+      ? runtime.runSync(
           LoomCompiler.pipe(
             Effect.flatMap((compiler) =>
               projectIsolated(compiler, uri, snapshot, ctx),
@@ -84,13 +84,13 @@ export const loomLanguagePlugin = (
         )
       : undefined,
   updateVirtualCode: (uri, previous, snapshot, ctx) =>
-    Runtime.runSync(runtime)(
+    runtime.runSync(
       LoomCompiler.pipe(
         Effect.flatMap((compiler) =>
           (changed(previous, snapshot)
             ? Effect.asVoid(compiler.invalidate(uri.fsPath))
             : Effect.void
-          ).pipe(Effect.zipRight(projectIsolated(compiler, uri, snapshot, ctx))),
+          ).pipe(Effect.andThen(projectIsolated(compiler, uri, snapshot, ctx))),
         ),
       ),
     ),
@@ -149,59 +149,59 @@ const collect = (
     const registry = yield* LanguageRegistry
     const collected = yield* Effect.forEach(registry.all, (service) =>
       service.plugins({ settings: settings[service.id] ?? {} }).pipe(
-        Effect.catchAll(() =>
+        Effect.catchCause(() =>
           Effect.succeed([] as ReadonlyArray<LanguageServicePlugin>),
         ),
       ),
     )
     return dedupeByName(collected.flat())
   }).pipe(
-    Effect.provide(LanguageRegistry.Default),
-    Effect.provide(Layer.succeed(ActiveLanguages, ActiveLanguages.make({ all: active }))),
-    Effect.provideService(TypescriptSdk, TypescriptSdk.make(tsdk)),
-    Effect.provideService(FrameQuery, FrameQuery.make(frameQuery)),
-    Effect.provideService(Composition, Composition.make(composition)),
+    Effect.provide(LanguageRegistry.layer),
+    Effect.provide(Layer.succeed(ActiveLanguages, { all: active })),
+    Effect.provideService(TypescriptSdk, tsdk),
+    Effect.provideService(FrameQuery, frameQuery),
+    Effect.provideService(Composition, composition),
   )
 
 const frameQueryOver = (
-  runtime: Runtime.Runtime<LoomCompiler>,
+  runtime: ManagedRuntime.ManagedRuntime<LoomCompiler, never>,
 ): FrameQueryApi => ({
   diagnostics: (path) =>
-    Runtime.runSync(runtime)(
+    runtime.runSync(
       LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.diagnose(path))),
     ),
   definition: (path, offset) =>
-    Runtime.runSync(runtime)(
+    runtime.runSync(
       LoomCompiler.pipe(
         Effect.flatMap((compiler) => compiler.definition(path, offset)),
       ),
     ),
   references: (path, offset) =>
-    Runtime.runSync(runtime)(
+    runtime.runSync(
       LoomCompiler.pipe(
         Effect.flatMap((compiler) => compiler.references(path, offset)),
       ),
     ),
   rename: (path, offset) =>
-    Runtime.runSync(runtime)(
+    runtime.runSync(
       LoomCompiler.pipe(
         Effect.flatMap((compiler) => compiler.rename(path, offset)),
       ),
     ),
   renameRange: (path, offset) =>
-    Runtime.runSync(runtime)(
+    runtime.runSync(
       LoomCompiler.pipe(
         Effect.flatMap((compiler) => compiler.renameRange(path, offset)),
       ),
     ),
   navigationRange: (path, offset) =>
-    Runtime.runSync(runtime)(
+    runtime.runSync(
       LoomCompiler.pipe(
         Effect.flatMap((compiler) => compiler.navigationRange(path, offset)),
       ),
     ),
   semanticTokens: (path) =>
-    Runtime.runSync(runtime)(
+    runtime.runSync(
       LoomCompiler.pipe(
         Effect.flatMap((compiler) => compiler.semanticTokens(path)),
       ),
@@ -209,10 +209,10 @@ const frameQueryOver = (
 })
 
 const compositionOver = (
-  runtime: Runtime.Runtime<LoomCompiler>,
+  runtime: ManagedRuntime.ManagedRuntime<LoomCompiler, never>,
 ): CompositionApi => ({
   rootsFor: (path) =>
-    Runtime.runSync(runtime)(
+    runtime.runSync(
       LoomCompiler.pipe(
         Effect.flatMap((compiler) => compiler.composition(path)),
       ),
@@ -220,19 +220,15 @@ const compositionOver = (
 })
 
 export const loomServicePlugins = (
+  runtime: ManagedRuntime.ManagedRuntime<LoomCompiler, never>,
   tsdk: typeof import('typescript'),
   root: string,
-): Effect.Effect<
-  ReadonlyArray<LanguageServicePlugin>,
-  never,
-  LoomConfig | LoomCompiler
-> =>
+): Effect.Effect<ReadonlyArray<LanguageServicePlugin>, never, LoomConfig> =>
   Effect.gen(function* () {
     const config = yield* LoomConfig
     const manifest = yield* config.manifest(root)
     const languages = Object.keys(manifest?.languages ?? {})
     const settings = manifest?.settings ?? {}
-    const runtime = yield* Effect.runtime<LoomCompiler>()
     yield* Effect.sync(() => installHostRuntime(tsdk))
     const active = yield* loadActive(languages, root)
     return yield* collect(
@@ -257,7 +253,7 @@ import type {
 } from '@volar/language-core'
 import type { LanguageServicePlugin } from '@volar/language-service'
 import type {} from '@volar/typescript'
-import { Array, Effect, Layer, Option, Runtime } from 'effect'
+import { Array, Effect, Layer, ManagedRuntime, Option } from 'effect'
 import { readFileSync } from 'node:fs'
 import type * as ts from 'typescript'
 import { URI } from 'vscode-uri'

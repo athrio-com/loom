@@ -75,8 +75,8 @@ describe('conformance — the service runs on the host runtime alone', () => {
       (service as { plugins: (config: { settings: Record<string, unknown> }) => Effect.Effect<ReadonlyArray<{ name?: string }>, never, TypescriptSdk | Composition> })
         .plugins({ settings: {} })
         .pipe(
-          Effect.provideService(TypescriptSdk, TypescriptSdk.make(ts)),
-          Effect.provideService(Composition, Composition.make({ rootsFor: () => [] })),
+          Effect.provideService(TypescriptSdk, ts),
+          Effect.provideService(Composition, { rootsFor: () => [] }),
         ),
     )
     expect(plugins.length).toBeGreaterThan(0)

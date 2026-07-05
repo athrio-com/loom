@@ -1,4 +1,4 @@
-import { Schema } from 'effect'
+import { Effect, Schema } from 'effect'
 import { HealthSchema, okHealth, PositionSchema } from '#ast/LoomNode'
 
 const productNode = <Tag extends string, Fields extends Schema.Struct.Fields>(
@@ -6,13 +6,9 @@ const productNode = <Tag extends string, Fields extends Schema.Struct.Fields>(
   fields: Fields,
 ) =>
   Schema.Struct({
-    type: Schema.Literal(tag).pipe(
-      Schema.propertySignature,
-      Schema.withConstructorDefault(() => tag),
-    ),
+    type: Schema.tag(tag),
     health: HealthSchema.pipe(
-      Schema.propertySignature,
-      Schema.withConstructorDefault(() => okHealth),
+      Schema.withConstructorDefault(Effect.succeed(okHealth)),
     ),
     ...fields,
   })
@@ -32,7 +28,7 @@ export const FragmentSchema = productNode('Fragment', {
 export type Fragment = typeof FragmentSchema.Type
 
 export const NameRefSchema = productNode('NameRef', {
-  target: Schema.OptionFromSelf(SectionIdSchema),
+  target: Schema.Option(SectionIdSchema),
   anchor: PositionSchema,
 })
 export type NameRef = typeof NameRefSchema.Type
@@ -40,7 +36,7 @@ export type NameRef = typeof NameRefSchema.Type
 export const RefSchema = NameRefSchema
 export type Ref = typeof RefSchema.Type
 
-export const PartSchema = Schema.Union(FragmentSchema, RefSchema)
+export const PartSchema = Schema.Union([FragmentSchema, RefSchema])
 export type Part = typeof PartSchema.Type
 
 export const CodeSchema = productNode('Code', {

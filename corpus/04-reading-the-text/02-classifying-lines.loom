@@ -10,7 +10,7 @@ Language: TypeScript
 
 ## The classifier service
 
-The state opens before the first heading — the Document Preamble — and tracks whether a heading has been emitted, whether the line sits inside a frontmatter block, whether it sits inside a table-of-contents section, and whether it sits inside a fenced block. `classifyWefts` threads that state through the line-range stream with `Stream.mapAccum`, classifying each line and carrying the result forward. A `---` toggles the frontmatter flag: the first one opens the block, the next closes it. A `{TOC}` heading opens a contents section, and the next top-level `#` heading closes it — so the toc flag follows every heading, set when the heading bears `{TOC}` and cleared by any other. A code fence — a line of three backticks — toggles the fence flag the same way, but only in prose. Inside a fenced block a person quotes a loom verbatim, so a `#`, `=>`, or `~` there reads as text, not as a mark.
+The state opens before the first heading — the Document Preamble — and tracks whether a heading has been emitted, whether the line sits inside a frontmatter block, whether it sits inside a table-of-contents section, and whether it sits inside a fenced block. `classifyWefts` threads that state through the line-range stream with `Stream.mapAccum`, classifying each line and carrying the result forward. A `---` toggles the frontmatter flag: the first one opens the block, the next closes it. A `{TOC}` heading opens a contents section, and the next top-level `#` heading closes it — so the toc flag follows every heading, set when the heading bears `{TOC}` and cleared by any other. A code fence — a line of three backticks — toggles the fence flag the same way, but only in prose. Inside a fenced block a person quotes a loom verbatim, so a `#`, `=>`, or `~` there reads as text, not as a mark. A note is a third such region: `:::[Note]` opens it and a lone `:::` closes it, and the Markdown body stays inert between them, so a reader's note never reads as loom structure. A note and a fence never open inside each other.
 
 =>
 
@@ -20,6 +20,7 @@ type ClassifierState = {
   readonly inFrontmatter: boolean
   readonly inToc: boolean
   readonly inFence: boolean
+  readonly inNote: boolean
 }
 
 const initialState: ClassifierState = {
@@ -28,16 +29,17 @@ const initialState: ClassifierState = {
   inFrontmatter: false,
   inToc: false,
   inFence: false,
+  inNote: false,
 }
 
-export class WeftClassifier extends Effect.Service<WeftClassifier>()(
+export class WeftClassifier extends Context.Service<WeftClassifier>()(
   'WeftClassifier',
   {
-    succeed: {
+    make: Effect.succeed({
       classifyWefts:
         (text: string) =>
         (source: Stream.Stream<LineRange>): Stream.Stream<LoomWeft> =>
-          Stream.mapAccum(source, initialState, (state, range) => {
+          Stream.mapAccum(source, () => initialState, (state, range) => {
             const lineText = text.slice(range[0], range[1])
             const weft = probeWeft(lineText, range, state)
             const frontmatterFence =
@@ -50,17 +52,20 @@ export class WeftClassifier extends Effect.Service<WeftClassifier>()(
                 weft.type === 'HeadingWeft'
                   ? isTocHeading(lineText)
                   : state.inToc,
-              inFence: nextFence(state.inFence, weft),
+              inFence: nextFence(state.inFence, state.inNote, weft),
+              inNote: nextNote(state.inNote, state.inFence, weft),
             }
-            return [next, weft]
+            return [next, [weft]]
           }),
-    },
+    }),
   },
-) {}
+) {
+  static readonly layer = Layer.effect(this, this.make)
+}
 
 ## Classifying one line
 
-`probeWeft` is the decision table. A `---` on the first line opens a frontmatter block, and every line through the closing `---` is a frontmatter weft; outside that block the rest of the table takes over. A code fence opens a fenced block the same way. Every line inside it is verbatim until the fence closes, so a `#`, `=>`, or `~` there stays text — the block quotes a loom, it does not compose one. A fenced line is a preamble weft in the document preamble, where nothing else may appear, and a prose weft inside a section. Inside a table-of-contents section every line is a toc weft — a deeper `##`–`######` heading and a `1.` list item alike — so a part heading never opens a section and a chapter entry never reads as prose; only the next top-level `#` closes the section and reads as an ordinary heading again. A `#` line is a heading in any other mode, and opens a section in preamble mode. Before the first heading every line is a preamble weft, since no transition fires there. After it, the previous weft's mode decides. In preamble, `=>` opens code and `~` opens prose. In code, `~` returns to prose and every other line stays code. In prose, `=>` re-enters code and every other line stays prose. A line of dashes elsewhere is ordinary content, classified by the current mode like any other line — there is no separator weft.
+`probeWeft` is the decision table. A `---` on the first line opens a frontmatter block, and every line through the closing `---` is a frontmatter weft; outside that block the rest of the table takes over. A code fence opens a fenced block the same way. Every line inside it is verbatim until the fence closes, so a `#`, `=>`, or `~` there stays text — the block quotes a loom, it does not compose one. A note region — `:::[Note]` to `:::` — is inert in just the same way, so a reader's Markdown body never composes. A fenced line is a preamble weft in the document preamble, where nothing else may appear, and a prose weft inside a section. Inside a table-of-contents section every line is a toc weft — a deeper `##`–`######` heading and a `1.` list item alike — so a part heading never opens a section and a chapter entry never reads as prose; only the next top-level `#` closes the section and reads as an ordinary heading again. A `#` line is a heading in any other mode, and opens a section in preamble mode. Before the first heading every line is a preamble weft, since no transition fires there. After it, the previous weft's mode decides. In preamble, `=>` opens code and `~` opens prose. In code, `~` returns to prose and every other line stays code. In prose, `=>` re-enters code and every other line stays prose. A line of dashes elsewhere is ordinary content, classified by the current mode like any other line — there is no separator weft.
 
 =>
 
@@ -83,7 +88,7 @@ const probeWeft = (
     return makeFrontmatterField(lineText, line, range)
   }
 
-  if (state.inFence)
+  if (state.inFence || state.inNote)
     return state.seenHeading
       ? makeProseWeft(lineText, line, range)
       : makePreambleWeft(lineText, line, range)
@@ -154,7 +159,7 @@ const span = (line: number, start: number, end: number): Position => ({
 
 ## Mode and probe
 
-Two axes drive the table. `modeOf` derives the mode — preamble, code, or prose — from the previous weft's type; a frontmatter weft and a toc weft both read as preamble, since neither sits in a section body. `probeOf` recognises the line as a heading, arrow, or tilde marker, or plain text, using the same `Probe` regexes the token schemas carry. `isFrontmatterFence` tests one more marker: the `---` that opens or closes the frontmatter block. `headingLevel` counts a heading's `#` marks, so the top-level heading that closes a contents section is told from a deeper one, and `isTocHeading` tests a heading line for a `{TOC}` specifier, the marker that opens that section. `isCodeFence` tests a line for the three backticks that bound a fenced block, and `nextFence` toggles the fence flag from it — opening only on a prose weft, which `isProseWeft` identifies, so a fence inside a code region is left to that region's own language.
+Two axes drive the table. `modeOf` derives the mode — preamble, code, or prose — from the previous weft's type; a frontmatter weft and a toc weft both read as preamble, since neither sits in a section body. `probeOf` recognises the line as a heading, arrow, or tilde marker, or plain text, using the same `Probe` regexes the token schemas carry. `isFrontmatterFence` tests one more marker: the `---` that opens or closes the frontmatter block. `headingLevel` counts a heading's `#` marks, so the top-level heading that closes a contents section is told from a deeper one, and `isTocHeading` tests a heading line for a `{TOC}` specifier, the marker that opens that section. `isCodeFence` tests a line for the three backticks that bound a fenced block, and `nextFence` toggles the fence flag from it — opening only on a prose weft, which `isProseWeft` identifies, so a fence inside a code region is left to that region's own language. `isNoteOpen` and `isNoteClose` test the `:::[Note]` and `:::` markers that bound a note, and `nextNote` toggles its flag the same way; each takes the other's flag and refuses to open while it is set, so a note and a fence never nest.
 
 =>
 
@@ -196,15 +201,32 @@ const isFrontmatterFence = (lineText: string): boolean =>
 
 const isCodeFence = (source: string): boolean => /^\s*```/.test(source)
 
+const isNoteOpen = (source: string): boolean => /^\s*:::\[Note\]/.test(source)
+
+const isNoteClose = (source: string): boolean => /^\s*:::\s*$/.test(source)
+
 const isProseWeft = (weft: LoomWeft): boolean =>
   weft.type === 'PreambleWeft' ||
   weft.type === 'ProseWeft' ||
   weft.type === 'TildeWeft'
 
-const nextFence = (inFence: boolean, weft: LoomWeft): boolean =>
+const nextFence = (
+  inFence: boolean,
+  inNote: boolean,
+  weft: LoomWeft,
+): boolean =>
   inFence
     ? !isCodeFence(weft.source)
-    : isProseWeft(weft) && isCodeFence(weft.source)
+    : !inNote && isProseWeft(weft) && isCodeFence(weft.source)
+
+const nextNote = (
+  inNote: boolean,
+  inFence: boolean,
+  weft: LoomWeft,
+): boolean =>
+  inNote
+    ? !isNoteClose(weft.source)
+    : !inFence && isProseWeft(weft) && isNoteOpen(weft.source)
 
 const headingLevel = (m: RegExpMatchArray): number =>
   m[0].replace(/[^#]/g, '').length
@@ -382,7 +404,7 @@ Effect supplies `Stream` for the accumulating scan and `Match` for the dispatch.
 
 =>
 
-import { Effect, Match, Option, Stream, pipe } from 'effect'
+import { Context, Effect, Layer, Match, Option, Stream, pipe } from 'effect'
 import type { LineRange } from './LineRanges'
 import { incompleteHealth, okHealth, type Position } from '@athrio/loom-ast/LoomNode'
 import {

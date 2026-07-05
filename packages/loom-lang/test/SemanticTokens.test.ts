@@ -32,15 +32,15 @@ const files: Record<string, string> = { '/convert.loom': doc }
 
 const TestDocs = Layer.succeed(
   DocumentSource,
-  new DocumentSource({
+  {
     read: (path: string) => Effect.succeed(files[path] ?? ''),
     list: Option.some(() => Effect.succeed(Object.keys(files))),
-  }),
+  },
 )
 
 const TestConfig = Layer.succeed(
   PackageConfig,
-  new PackageConfig({
+  {
     resolve: () =>
       Effect.succeed({
         delims: defaultAnchorDelims,
@@ -49,11 +49,11 @@ const TestConfig = Layer.succeed(
         workspaceRoot: undefined,
         corpusDir: undefined,
       }),
-  }),
+  },
 )
 
 const layer = Layer.provide(
-  Layer.merge(LoomCompiler.Default, LoomMemo.Default),
+  Layer.merge(LoomCompiler.layer, LoomMemo.layer),
   Layer.merge(TestDocs, TestConfig),
 )
 

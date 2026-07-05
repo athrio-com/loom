@@ -1,6 +1,6 @@
 import { Console, Effect, Option } from 'effect'
-import { Args, Command, Prompt } from '@effect/cli'
-import { NodeContext, NodeRuntime } from '@effect/platform-node'
+import { Argument, Command, Prompt } from 'effect/unstable/cli'
+import { NodeRuntime, NodeServices } from '@effect/platform-node'
 import { existsSync, writeFileSync } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
 import { DocumentSource } from '@athrio/loom-lang/LoomCompiler'
@@ -47,7 +47,7 @@ const tangle = (file: string) =>
   }).pipe(
     Effect.catchTag('TangleError', (e) =>
       Console.error(e.message).pipe(
-        Effect.zipRight(Effect.sync(() => void (process.exitCode = 1))),
+        Effect.andThen(Effect.sync(() => void (process.exitCode = 1))),
       ),
     ),
   )
@@ -103,11 +103,11 @@ const init = (dir: Option.Option<string>) =>
         `   ${dim(`activated: ${ids.join(', ') || 'none'}`)}\n`,
     )
   }).pipe(
-    Effect.catchTag('QuitException', () => Console.log(dim('\n   Cancelled.\n'))),
+    Effect.catchTag('QuitError', () => Console.log(dim('\n   Cancelled.\n'))),
   )
 
 const updateLanguages = (
-  config: LoomConfig,
+  config: LoomConfig['Service'],
   dir: string,
   change: (ids: ReadonlyArray<string>) => ReadonlyArray<string>,
 ): Effect.Effect<void> =>
@@ -137,7 +137,7 @@ const add = (language: string) =>
     Effect.catchTag('StoreError', (error) =>
       Console.error(
         `loom: could not install ${servicePackage(error.id)} — ${String(error.cause)}`,
-      ).pipe(Effect.zipRight(Effect.sync(() => void (process.exitCode = 1)))),
+      ).pipe(Effect.andThen(Effect.sync(() => void (process.exitCode = 1)))),
     ),
   )
 
@@ -175,25 +175,25 @@ const status = Effect.gen(function* () {
 
 const tangleCommand = Command.make(
   'tangle',
-  { path: Args.text({ name: 'path' }) },
+  { path: Argument.string('path') },
   ({ path }) => tangle(path),
 )
 
 const initCommand = Command.make(
   'init',
-  { dir: Args.optional(Args.directory({ name: 'dir' })) },
+  { dir: Argument.optional(Argument.directory('dir')) },
   ({ dir }) => init(dir),
 )
 
 const addCommand = Command.make(
   'add',
-  { language: Args.text({ name: 'language' }) },
+  { language: Argument.string('language') },
   ({ language }) => add(language),
 )
 
 const removeCommand = Command.make(
   'remove',
-  { language: Args.text({ name: 'language' }) },
+  { language: Argument.string('language') },
   ({ language }) => remove(language),
 )
 
@@ -210,14 +210,13 @@ const loom = Command.make('loom').pipe(
 )
 
 const program = Command.run(loom, {
-  name: 'Loom — a literate framework',
   version: '0.5.0',
-})(process.argv).pipe(
-  Effect.provide(LoomTangler.Default),
-  Effect.provide(DocumentSource.Default),
-  Effect.provide(PackageConfig.Default),
-  Effect.provide(LoomConfig.Default),
-  Effect.provide(NodeContext.layer),
+}).pipe(
+  Effect.provide(LoomTangler.layer),
+  Effect.provide(DocumentSource.layer),
+  Effect.provide(PackageConfig.layer),
+  Effect.provide(LoomConfig.layer),
+  Effect.provide(NodeServices.layer),
 )
 
 if (process.argv[2] === 'lsp') {

@@ -36,8 +36,8 @@ const source: Source = {
 }
 
 const layer = Layer.provide(
-  LoomCompiler.Default,
-  Layer.merge(DocumentSource.Default, PackageConfig.Default),
+  LoomCompiler.layer,
+  Layer.merge(DocumentSource.layer, PackageConfig.layer),
 )
 
 // the de re product for a section is its embedded code, keyed by the section name
