@@ -1,0 +1,26 @@
+{
+  "name": "@athrio/foldkit",
+  "version": "0.0.1",
+  "type": "module",
+  "forkedFrom": {
+    "name": "foldkit",
+    "version": "0.122.1",
+    "commit": "9717a2ac9bbe352ea8b612affcbc70d77436eed9",
+    "repository": "https://github.com/foldkit/foldkit"
+  },
+  "scripts": {
+    "check-upstream": "node scripts/check-upstream.mjs"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./runtime": "./src/runtime/public.ts",
+    "./html": "./src/html/public.ts",
+    "./command": "./src/command/public.ts",
+    "./message": "./src/message/public.ts"
+  },
+  "dependencies": {
+    "@effect/platform-browser": "4.0.0-beta.93",
+    "effect": "4.0.0-beta.93",
+    "snabbdom": "^3.6.3"
+  }
+}
