@@ -1,4 +1,6 @@
-import { describe, expect, it } from '@effect/vitest'
+import { describe, expect, it as it_ } from 'bun:test'
+import { effectify } from '@athrio/effect-test'
+const it = effectify(it_)
 import { Effect, Option } from 'effect'
 import { LoomCorpusAstBuilder } from '#ast/LoomCorpusAstBuilder'
 import type { LoomCorpusAst } from '@athrio/loom-ast/LoomCorpusAst'

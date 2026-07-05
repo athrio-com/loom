@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it as it_ } from 'bun:test'
+import { effectify } from '@athrio/effect-test'
+const it = effectify(it_)
 import { spawnSync } from 'node:child_process'
 import {
   existsSync,
@@ -9,29 +11,24 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
-import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 
 // The CLI is an Effect program over the tangler, the config, and the service
-// store; this exercises it as a real process. The `tsx` loader is passed by its
-// resolved path rather than by name, so a case can run the CLI from a temp
-// workspace — `add`, `remove`, and `status` read `process.cwd()` — while tsx
-// still resolves from this package. The interactive `init` prompts need a real
+// store; this exercises it as a real process. Bun runs the CLI's TypeScript
+// source directly, so a case can run it from a temp workspace — `add`, `remove`,
+// and `status` read `process.cwd()`. The interactive `init` prompts need a real
 // terminal, so they are verified by hand; here we cover the command surface a
 // subprocess can reach.
 const cli = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const main = resolve(cli, 'src/main.ts')
-const tsx = pathToFileURL(
-  createRequire(import.meta.url).resolve('tsx', { paths: [cli] }),
-).href
 
 const loom = (
   args: ReadonlyArray<string>,
   opts: { readonly cwd?: string; readonly env?: Record<string, string> } = {},
 ) =>
-  spawnSync('node', ['--import', tsx, main, ...args], {
+  spawnSync('bun', [main, ...args], {
     cwd: opts.cwd ?? cli,
     env: opts.env ? { ...process.env, ...opts.env } : process.env,
     encoding: 'utf8',
@@ -97,9 +94,9 @@ const installFake = (home: string, id: string): void => {
   )
 }
 
-// Each case spawns `node --import tsx src/main.ts` cold — transpiling the whole
-// tangler path on the fly takes seconds, and the 5s default flakes when the
-// first cold spawn runs under full-suite load. Give these subprocess tests headroom.
+// Each case spawns `bun src/main.ts` cold — loading the whole tangler path on the
+// fly takes a moment, and the 5s default flakes when the first cold spawn runs
+// under full-suite load. Give these subprocess tests headroom.
 const SPAWN_TIMEOUT = 30_000
 
 describe('loom cli', () => {

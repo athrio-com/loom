@@ -83,7 +83,7 @@ product: tangle discards it, but the next person to open the loom depends on it.
 Loom is pure functional programming with Effect, end to end. Model every
 concern as a idiomatic Effect program aspect with Services and Layers when needed; compose via `Effect.gen` and `yield*`; let Layers wire dependencies.
 
-- Start every process from an Effect runtime edge — `NodeRuntime.runMain()` or
+- Start every process from an Effect runtime edge — `BunRuntime.runMain()` or
   `Effect.runFork()`, or a startup `ManagedRuntime` for a host-embedded server
   like `LoomServer` — and let Effect drive. Do not start with imperative Node
   code and sprinkle Effect inside, and do not call `Effect.runSync` /
@@ -105,7 +105,7 @@ concern as a idiomatic Effect program aspect with Services and Layers when neede
 
 ### Build top-down from the entry point
 
-Every process begins at a runtime edge — `NodeRuntime.runMain()` for the CLI, a
+Every process begins at a runtime edge — `BunRuntime.runMain()` for the CLI, a
 startup `ManagedRuntime` for the language server. Build the program entry point →
 Services → Layers → composition. Do not start from utility functions and hope
 they compose later.

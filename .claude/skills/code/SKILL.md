@@ -9,7 +9,7 @@ In Loom, prose and code are equal layers of one product. The prose standard gove
 
 Every Loom package is pure functional programming with Effect, end to end. The standard holds for all of it: the code section of any `.loom` corpus, and the `@athrio/*` source those sections tangle to. You never hand-write the tangled source — you edit the corpus and re-tangle — but the code obeys the same rules wherever it lives.
 
-Loom runs on Effect v4 (the `effect` package, `4.0.0-beta` line). The stable modules — `Schema`, `Match`, `Stream`, `Data`, `Effect`, `Layer`, `Option`, `Result`, `Array`, `Context`, `ManagedRuntime`, `FileSystem` — all import from the root `"effect"`; the CLI framework lives at `effect/unstable/cli`, and `@effect/platform-node` (for `NodeRuntime`, `NodeServices`) stays a separate package. This matters because Effect v3 idioms are close but not identical: a v3 habit — `Effect.Service`, `.Default`, `Option.fromNullable`, `Array.filterMap` over an `Option` — will type-check wrong or not at all. The rules below are written to v4.
+Loom runs on Effect v4 (the `effect` package, `4.0.0-beta` line). The stable modules — `Schema`, `Match`, `Stream`, `Data`, `Effect`, `Layer`, `Option`, `Result`, `Array`, `Context`, `ManagedRuntime`, `FileSystem` — all import from the root `"effect"`; the CLI framework lives at `effect/unstable/cli`, and `@effect/platform-bun` (for `BunRuntime`, `BunServices`) stays a separate package. This matters because Effect v3 idioms are close but not identical: a v3 habit — `Effect.Service`, `.Default`, `Option.fromNullable`, `Array.filterMap` over an `Option` — will type-check wrong or not at all. The rules below are written to v4.
 
 CLAUDE.md states the rule plainly: "Practice pure FP with Effect … Compose via `Effect.gen` and `yield*`; let Layers wire dependencies." A few commitments sit behind it. A function is total and referentially transparent. The same input yields the same output, with no hidden effect. An effect is a value — a description Effect runs once, at the edge — not a thing that happens when you name it. An error is a value too, carried in the type. An illegal state is unrepresentable, so the compiler rejects it before a test can. Each rule below applies one of these commitments to a place where code in this repository tends to drift.
 
@@ -25,7 +25,7 @@ A heading below only names its rule, and a closing question only checks it. The 
 
 ## An Effect runs once, at the edge
 
-An Effect is a description of work, not the work. Naming it does nothing. Effect runs it. Every Loom process begins at one runtime edge and stays a single Effect until it. The CLI's `main` composes one `program` and hands it to `NodeRuntime.runMain(program)`. The language server is a long-lived host: `LoomServer` builds a `ManagedRuntime` once at startup and answers Volar's synchronous calls through it. Build top-down from that edge: entry point, then Services, then Layers, then composition.
+An Effect is a description of work, not the work. Naming it does nothing. Effect runs it. Every Loom process begins at one runtime edge and stays a single Effect until it. The CLI's `main` composes one `program` and hands it to `BunRuntime.runMain(program)`. The language server is a long-lived host: `LoomServer` builds a `ManagedRuntime` once at startup and answers Volar's synchronous calls through it. Build top-down from that edge: entry point, then Services, then Layers, then composition.
 
 Inside the program, compose. Reach a value with `Effect.flatMap` or a `yield*` in `Effect.gen`; never call `Effect.runSync` or `Effect.runPromise` to pull a value out and continue in plain imperative code. Running mid-flow severs the program from Effect's error channel, dependency context, and interruption.
 
@@ -35,7 +35,7 @@ One synchronous boundary in the codebase does run an effect in the middle: `Loom
 - ✗ `const config = Effect.runSync(loadConfig); return build(config)`
 - ✓ `loadConfig.pipe(Effect.flatMap((config) => build(config)))`
 
-> Does the program start from a runtime edge — `NodeRuntime.runMain` or a startup `ManagedRuntime` — and stay one Effect until it? Is every `runSync`/`runPromise` at a true boundary — a synchronous host API or a test — never mid-flow?
+> Does the program start from a runtime edge — `BunRuntime.runMain` or a startup `ManagedRuntime` — and stay one Effect until it? Is every `runSync`/`runPromise` at a true boundary — a synchronous host API or a test — never mid-flow?
 
 ## Every component is a `Context.Service`
 
@@ -53,7 +53,7 @@ A Loom component is a `Context.Service`: `class LoomMemo extends Context.Service
 
 A service reaches a dependency with `const config = yield* LoomConfig` inside its `make` `Effect.gen`, and wires that dependency into its own Layer with `Layer.provide(LoomConfig.layer)`. It never imports a dependency and constructs it by hand. The `.layer` holds the wiring, so a service body reads as a list of what it uses, not a chain of what it builds.
 
-At the entry point, assemble the graph once and provide it once. Compose independent services with `Layer.mergeAll`, and a dependency graph with `Layer.provide`. The CLI's `main` shows the shape: `program` pipes through `Effect.provide(LoomTangler.layer)`, `Effect.provide(DocumentSource.layer)`, `Effect.provide(PackageConfig.layer)`, and the rest, and only then does `NodeRuntime.runMain` run it. `ManagedRuntime.make` takes the same closed layer — mergeAll the roots, then `Layer.provide` each dependency under them.
+At the entry point, assemble the graph once and provide it once. Compose independent services with `Layer.mergeAll`, and a dependency graph with `Layer.provide`. The CLI's `main` shows the shape: `program` pipes through `Effect.provide(LoomTangler.layer)`, `Effect.provide(DocumentSource.layer)`, `Effect.provide(PackageConfig.layer)`, and the rest, and only then does `BunRuntime.runMain` run it. `ManagedRuntime.make` takes the same closed layer — mergeAll the roots, then `Layer.provide` each dependency under them.
 
 *The fault and its fix.*
 - ✗ `const config = new LoomConfigImpl(); const pkg = new PackageConfigImpl(config)`

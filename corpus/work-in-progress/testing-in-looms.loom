@@ -8,7 +8,7 @@ Loom's tests are still hand-written `.ts` files under each package's `test/`, pa
 
 ## What already works
 
-Nothing here waits on new machinery. A section with a `[test, Negate.test.ts]` sink tangles to a test file; `vitest` discovers and runs a tangled `.test.ts` like any other; and a test imports the code it checks by the same package paths it uses now. A chapter can carry a test today.
+Nothing here waits on new machinery. A section with a `[test, Negate.test.ts]` sink tangles to a test file; `bun test` discovers and runs a tangled `.test.ts` like any other; and a test imports the code it checks by the same package paths it uses now. A chapter can carry a test today.
 
 ## What to work out
 

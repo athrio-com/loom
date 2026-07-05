@@ -1,4 +1,6 @@
-import { describe, expect, it } from '@effect/vitest'
+import { describe, expect, it as it_ } from 'bun:test'
+import { effectify } from '@athrio/effect-test'
+const it = effectify(it_)
 import { Effect } from 'effect'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -70,6 +72,8 @@ describe('PackageConfig.resolve — per-file build settings', () => {
       delims: defaultAnchorDelims,
       primaryLanguage: undefined,
       packageRoot: undefined,
+      workspaceRoot: undefined,
+      corpusDir: undefined,
     })
   })
 
@@ -77,6 +81,9 @@ describe('PackageConfig.resolve — per-file build settings', () => {
     expect(run('')).toEqual({
       delims: defaultAnchorDelims,
       primaryLanguage: undefined,
+      packageRoot: undefined,
+      workspaceRoot: undefined,
+      corpusDir: undefined,
     })
   })
 })

@@ -1,5 +1,7 @@
 import { Effect, Option, Result } from 'effect'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it as it_ } from 'bun:test'
+import { effectify } from '@athrio/effect-test'
+const it = effectify(it_)
 import { checkAnchorDelims, defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 import { LoomCorpusAstBuilder, type Source } from '#ast/LoomCorpusAstBuilder'
 
@@ -37,7 +39,7 @@ describe('checkAnchorDelims — a configured anchor pair is validated', () => {
     const result = check(open, close)
     expect(Result.isFailure(result)).toBe(true)
     if (Result.isFailure(result)) {
-      expect(result.failure._tag).toBe(tag)
+      expect(result.failure._tag as string).toBe(tag)
       // the error describes itself and points at a sound pair
       expect(result.failure.message).toContain(defaultAnchorDelims.open)
     }

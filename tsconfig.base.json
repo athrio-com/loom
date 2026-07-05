@@ -5,7 +5,7 @@
     "module": "Preserve",
     "strict": true,
     "skipLibCheck": true,
-    "types": ["node"],
+    "types": ["node", "bun"],
     "declaration": true,
     "sourceMap": true,
     "composite": true,

@@ -11,7 +11,7 @@
     "dist"
   ],
   "engines": {
-    "node": ">=18"
+    "bun": ">=1.2"
   },
   "repository": {
     "type": "git",
@@ -23,18 +23,16 @@
   },
   "scripts": {
     "build": "vite build",
-    "test": "vitest run",
+    "test": "bun test",
     "prepack": "vite build",
-    "release": "tsx scripts/release.ts"
+    "release": "bun scripts/release.ts"
   },
   "devDependencies": {
     "@athrio/loom-config": "workspace:*",
     "@athrio/loom-lang": "workspace:*",
     "@athrio/loom-lang-services": "workspace:*",
-    "@effect/platform-node": "4.0.0-beta.93",
+    "@effect/platform-bun": "4.0.0-beta.93",
     "effect": "4.0.0-beta.93",
-    "tsx": "^4.22.0",
-    "vite": "^8.0.12",
-    "vitest": "^4.1.6"
+    "vite": "^8.0.12"
   }
 }

@@ -1,7 +1,9 @@
 import { Effect, Layer, ManagedRuntime } from 'effect'
 import { readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it as it_ } from 'bun:test'
+import { effectify } from '@athrio/effect-test'
+const it = effectify(it_)
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { PackageConfig } from '../src/PackageConfig'
 

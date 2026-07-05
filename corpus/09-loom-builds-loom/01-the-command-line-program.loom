@@ -253,7 +253,7 @@ const program = Command.run(loom, {
   Effect.provide(DocumentSource.layer),
   Effect.provide(PackageConfig.layer),
   Effect.provide(LoomConfig.layer),
-  Effect.provide(NodeServices.layer),
+  Effect.provide(BunServices.layer),
 )
 
 if (process.argv[2] === 'lsp') {
@@ -262,18 +262,18 @@ if (process.argv[2] === 'lsp') {
   const { startLanguageServer } = await import('@athrio/loom-lang/LoomServer')
   startLanguageServer()
 } else {
-  NodeRuntime.runMain(program)
+  BunRuntime.runMain(program)
 }
 
 ## What the program needs
 
-The program is built on Effect, a functional TypeScript library for composing and running effectful programs. Effect's CLI toolkit parses the command line and drives the interactive prompts, and the Node platform supplies the runtime, the terminal, and filesystem access. The language server contributes three services: `LoomTangler`, which walks a `.loom` file and emits the tangled output; `DocumentSource`, which feeds it source text from disk; and `PackageConfig`, which resolves a `.loom`'s package settings. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back. From `@athrio/loom-lang-services` come the store operations behind activation: `addService` and `removeService` install and uninstall a language's package, `installedServices` lists what the store holds, `storeDir` locates it, `workspaceRoot` finds the workspace it sits in, and `servicePackage` names a language's package.
+The program is built on Effect, a functional TypeScript library for composing and running effectful programs. Effect's CLI toolkit parses the command line and drives the interactive prompts, and the Bun platform supplies the runtime, the terminal, and filesystem access. The language server contributes three services: `LoomTangler`, which walks a `.loom` file and emits the tangled output; `DocumentSource`, which feeds it source text from disk; and `PackageConfig`, which resolves a `.loom`'s package settings. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back. From `@athrio/loom-lang-services` come the store operations behind activation: `addService` and `removeService` install and uninstall a language's package, `installedServices` lists what the store holds, `storeDir` locates it, `workspaceRoot` finds the workspace it sits in, and `servicePackage` names a language's package.
 
 =>
 
 import { Console, Effect, Option } from 'effect'
 import { Argument, Command, Prompt } from 'effect/unstable/cli'
-import { NodeRuntime, NodeServices } from '@effect/platform-node'
+import { BunRuntime, BunServices } from '@effect/platform-bun'
 import { existsSync, writeFileSync } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
 import { DocumentSource } from '@athrio/loom-lang/LoomCompiler'

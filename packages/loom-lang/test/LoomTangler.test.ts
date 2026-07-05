@@ -1,7 +1,9 @@
-import { describe, expect, it } from '@effect/vitest'
+import { describe, expect, it as it_ } from 'bun:test'
+import { effectify } from '@athrio/effect-test'
+const it = effectify(it_)
 import { Effect, Layer } from 'effect'
 import { FileSystem } from 'effect'
-import { NodeServices } from '@effect/platform-node'
+import { BunServices } from '@effect/platform-bun'
 import { DocumentSource } from '../src/LoomCompiler'
 import { LoomTangler } from '../src/LoomTangler'
 import { PackageConfig } from '../src/PackageConfig'
@@ -59,7 +61,7 @@ const x = "${value}"
 const layers = LoomTangler.layer.pipe(
   Layer.provide(DocumentSource.layer),
   Layer.provide(PackageConfig.layer),
-  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(BunServices.layer),
 )
 
 describe('LoomTangler — tangle bracket sinks to disk', () => {

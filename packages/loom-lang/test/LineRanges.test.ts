@@ -1,4 +1,6 @@
-import { describe, expect, it } from '@effect/vitest'
+import { describe, expect, it as it_ } from 'bun:test'
+import { effectify } from '@athrio/effect-test'
+const it = effectify(it_)
 import { Effect, Stream } from 'effect'
 import { LoomSourceRanges, MixedEOL, type LineRange } from '#ast/LineRanges'
 
