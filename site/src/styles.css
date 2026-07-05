@@ -1,0 +1,350 @@
+/*
+ * Loom reader — theme + layout. Every colour, font, and measure is a --loom-*
+ * token; override any to reskin the whole reader. Gruvbox Light Soft by default,
+ * dark under `.app.dark`.
+ */
+
+.app {
+  --loom-bg: #f2e5bc;
+  --loom-raised: #ebdbb2;
+  --loom-high: #d5c4a1;
+  --loom-code-bg: #ece0b8;
+  --loom-border: #e0d0a8;
+  --loom-border-strong: #bdae93;
+  --loom-fg: #3c3836;
+  --loom-fg2: #504945;
+  --loom-muted: #665c54;
+  --loom-faint: #928374;
+  --loom-brand: #427b58;
+  --loom-link: #076678;
+  --loom-link-hover: #af3a03;
+  --loom-selection: #d5c4a1;
+
+  --loom-font-prose: 'Source Serif 4', Charter, Georgia, serif;
+  --loom-font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+  --loom-font-heading: var(--loom-font-mono);
+
+  --loom-sidebar: 17rem;
+  --loom-measure: 48rem;
+  --loom-radius: 8px;
+}
+
+.app.dark {
+  --loom-bg: #32302f;
+  --loom-raised: #3c3836;
+  --loom-high: #504945;
+  --loom-code-bg: #282828;
+  --loom-border: #504945;
+  --loom-border-strong: #665c54;
+  --loom-fg: #ebdbb2;
+  --loom-fg2: #d5c4a1;
+  --loom-muted: #bdae93;
+  --loom-faint: #928374;
+  --loom-brand: #8ec07c;
+  --loom-link: #83a598;
+  --loom-link-hover: #fe8019;
+  --loom-selection: #504945;
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+}
+::selection {
+  background: var(--loom-selection);
+}
+
+.app {
+  display: grid;
+  grid-template-columns: var(--loom-sidebar) minmax(0, 1fr);
+  min-height: 100vh;
+  background: var(--loom-bg);
+  color: var(--loom-fg);
+  font-family: var(--loom-font-prose);
+  font-size: 17px;
+  line-height: 1.65;
+}
+.app.nav-closed {
+  grid-template-columns: 0 minmax(0, 1fr);
+}
+
+/* ── Sidebar ────────────────────────────────────────────────────────────── */
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--loom-raised);
+  border-right: 1px solid var(--loom-border-strong);
+  overflow: hidden;
+  transition: transform 0.15s ease;
+}
+.nav-closed .sidebar {
+  transform: translateX(-100%);
+}
+
+.side-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem 0.85rem 0.75rem;
+}
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  font-family: var(--loom-font-mono);
+  font-weight: 500;
+  font-size: 1.2rem;
+  color: var(--loom-fg);
+}
+.brand .logo {
+  font-weight: 700;
+  font-size: 1.5rem;
+  color: var(--loom-brand);
+  line-height: 1;
+}
+
+.nav {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.25rem 0.6rem 1.5rem;
+}
+.side-foot {
+  border-top: 1px solid var(--loom-border);
+  padding: 0.6rem 0.85rem;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.nav-part {
+  margin-bottom: 1rem;
+}
+.nav-part-name {
+  margin: 0.8rem 0.6rem 0.35rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--loom-muted);
+}
+.nav ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.nav-link {
+  display: grid;
+  grid-template-columns: 0.9rem 1fr;
+  gap: 0.5rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 6px;
+  color: var(--loom-fg2);
+  cursor: pointer;
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+.nav-link:hover {
+  background: var(--loom-high);
+  color: var(--loom-fg);
+}
+.nav-link.current {
+  color: var(--loom-link);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--loom-brand) 12%, transparent);
+}
+.nav-num {
+  font-family: var(--loom-font-mono);
+  font-size: 0.72rem;
+  text-align: right;
+  color: var(--loom-faint);
+  padding-top: 0.15em;
+}
+.nav-link.current .nav-num {
+  color: var(--loom-link);
+}
+
+/* ── Controls ───────────────────────────────────────────────────────────── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--loom-border-strong);
+  border-radius: 8px;
+  background: var(--loom-raised);
+  color: var(--loom-muted);
+  font-family: var(--loom-font-mono);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.btn:hover {
+  background: var(--loom-high);
+  color: var(--loom-fg);
+}
+.reopen {
+  position: fixed;
+  top: 0.8rem;
+  left: 0.8rem;
+  z-index: 20;
+  display: none;
+}
+.app.nav-closed .reopen {
+  display: inline-flex;
+}
+
+/* ── Content ────────────────────────────────────────────────────────────── */
+
+.content {
+  min-width: 0;
+}
+.page {
+  max-width: var(--loom-measure);
+  margin: 0 auto;
+  padding: 2.4rem 2.5rem 8rem;
+}
+.crumb {
+  margin: 0 0 1.4rem;
+  font-family: var(--loom-font-mono);
+  font-size: 0.78rem;
+  color: var(--loom-faint);
+}
+.crumb .crumb-part {
+  color: var(--loom-brand);
+}
+.crumb .crumb-sep {
+  margin: 0 0.5rem;
+  opacity: 0.6;
+}
+
+.page :is(h1, h2, h3, h4, h5, h6) {
+  font-family: var(--loom-font-heading);
+  letter-spacing: -0.01em;
+}
+.page h1 {
+  font-size: 1.85rem;
+  font-weight: 700;
+  line-height: 1.15;
+  margin: 0 0 1.3rem;
+}
+.page h2 {
+  font-size: 1.28rem;
+  font-weight: 500;
+  margin: 2.3rem 0 0.4rem;
+}
+.page h3 {
+  font-size: 1.08rem;
+  font-weight: 500;
+  margin: 1.7rem 0 0.3rem;
+}
+
+.prose p {
+  margin: 0.9rem 0;
+}
+.prose :is(ul, ol) {
+  margin: 0.9rem 0;
+  padding-left: 1.4rem;
+}
+.prose blockquote {
+  margin: 0.9rem 0;
+  padding-left: 1rem;
+  border-left: 3px solid var(--loom-border-strong);
+  color: var(--loom-muted);
+}
+.prose :not(pre) > code {
+  font-family: var(--loom-font-mono);
+  font-size: 0.84em;
+  background: var(--loom-raised);
+  padding: 0.12em 0.36em;
+  border-radius: 5px;
+}
+.prose pre {
+  margin: 0.9rem 0;
+  padding: 0.85rem 1.05rem;
+  background: var(--loom-code-bg);
+  border: 1px solid var(--loom-border);
+  border-radius: var(--loom-radius);
+  overflow-x: auto;
+  font-family: var(--loom-font-mono);
+  font-size: 0.82rem;
+  line-height: 1.7;
+  color: var(--loom-fg2);
+}
+.prose a {
+  color: var(--loom-link);
+}
+
+.code {
+  margin: 0.9rem 0;
+  padding: 0.9rem 1.1rem;
+  background: var(--loom-code-bg);
+  border: 1px solid var(--loom-border);
+  border-radius: var(--loom-radius);
+  overflow-x: auto;
+  font-family: var(--loom-font-mono);
+  font-size: 0.84rem;
+  line-height: 1.7;
+  color: var(--loom-fg2);
+  white-space: pre;
+}
+.loom-anchor {
+  color: var(--loom-link);
+  cursor: pointer;
+  border-bottom: 1px dashed currentColor;
+}
+.loom-anchor:hover {
+  color: var(--loom-link-hover);
+}
+
+/* A note — a reader's annotation living in the loom source. */
+.note {
+  margin: 1rem 0;
+  padding: 0.65rem 0.9rem;
+  border: 1px solid var(--loom-brand);
+  border-radius: var(--loom-radius);
+  background: color-mix(in srgb, var(--loom-brand) 9%, transparent);
+}
+.note-label {
+  font-family: var(--loom-font-mono);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--loom-brand);
+  margin-bottom: 0.3rem;
+}
+.note-body :is(p, blockquote) {
+  margin: 0.35rem 0;
+}
+.note-body blockquote {
+  margin: 0 0 0.5rem;
+  padding-left: 0.6rem;
+  border-left: 2px solid var(--loom-brand);
+  color: var(--loom-muted);
+  font-style: italic;
+}
+.note-body :is(p, blockquote):first-child {
+  margin-top: 0;
+}
+.note-body :is(p, blockquote):last-child {
+  margin-bottom: 0;
+}
+
+/* ── Mobile ─────────────────────────────────────────────────────────────── */
+
+@media (max-width: 60rem) {
+  .app {
+    grid-template-columns: 1fr;
+  }
+  .sidebar {
+    position: fixed;
+    z-index: 30;
+    width: var(--loom-sidebar);
+  }
+  .page {
+    padding: 2rem 1.4rem 6rem;
+  }
+}

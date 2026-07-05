@@ -1,0 +1,490 @@
+---
+Language: TypeScript
+Package: packages/loom-lang/src/weave/WeaveBuilder.ts
+---
+
+# The weave pass
+
+`WeaveBuilder` is weave's one pass. It reads the whole corpus and returns a `WovenSite` — the book as a page for each chapter and a menu over them all, ready for a presentation to render. It mirrors the product pass. Where `ProductBuilder` composes each document into the code it hides, `WeaveBuilder` projects the corpus into the literate document a reader browses.
+
+The pass reads the parse, not the product. A woven page holds each section's prose and code as the author wrote them, in reading order, and turns every `::[…]` anchor into a link rather than inlining what it names. So the pass keeps what tangle discards, and leaves referenced what tangle would resolve.
+
+## What this module draws on
+
+The pass reads the Loom AST and writes the woven model, so it draws from both. From `effect` come the array and option combinators, `Match` for dispatching on a weft and a menu entry, and `pipe` for the spine. From the Loom side come the section a page is built from, the preamble and section-body wefts its runs are made of, the contents weft its menu is folded from, and the anchor token a code link resolves. The corpus supplies `titleIndexes` and `resolveAnchor` — the same lexical lookup the editor navigates by — so a code anchor reaches the very section a bare `::[…]` composes. From the woven side come the schema constructors for every node the pass builds: the site, its parts and entries, its pages, and the blocks and links a page holds.
+
+=>
+
+import { Array, Context, Effect, Layer, Match, Option, pipe } from 'effect'
+import type { LoomSection } from '@athrio/loom-ast/LoomAst'
+import type {
+  PreambleWeft,
+  SectionBodyWeft,
+  TocWeft,
+} from '@athrio/loom-ast/Weft'
+import type { WarpAnchorToken } from '@athrio/loom-ast/LoomTokens'
+import {
+  type LoomCorpusAst,
+  type LoomModule,
+  resolveAnchor,
+  titleIndexes,
+  type TitleIndexes,
+} from '@athrio/loom-ast/LoomCorpusAst'
+import {
+  type AnchorLink,
+  AnchorLinkSchema,
+  CodeBlockSchema,
+  HeadingBlockSchema,
+  NoteBlockSchema,
+  ProseBlockSchema,
+  type WovenBlock,
+  type WovenNavEntry,
+  WovenNavEntrySchema,
+  type WovenPage,
+  WovenPageSchema,
+  type WovenPart,
+  WovenPartSchema,
+  type WovenSite,
+  WovenSiteSchema,
+} from './WovenSite'
+
+## The builder and its spine
+
+`WeaveBuilder` is the service the rest of the pipeline calls. Its one method, `build`, wraps the pure `buildSite` in an Effect so callers compose it like any other pass.
+
+`buildSite` is the spine. It reads the corpus once for the title index a code link resolves through, folds the book's contents into the navigation menu, maps each chapter to its page, and pairs the two into a `WovenSite`. A page carries the name of the part it sits under, so the spine reads that from the menu it just built.
+
+=>
+
+export class WeaveBuilder extends Context.Service<WeaveBuilder>()(
+  'WeaveBuilder',
+  {
+    make: Effect.succeed({
+      build: (corpus: LoomCorpusAst): Effect.Effect<WovenSite> =>
+        Effect.sync(() => buildSite(corpus)),
+    }),
+  },
+) {
+  static readonly layer = Layer.effect(this, this.make)
+}
+
+export const buildSite = (corpus: LoomCorpusAst): WovenSite => {
+  const modules = Array.fromIterable(corpus.modules.values())
+  const indexes = titleIndexes(corpus.modules)
+  const nav = buildNav(modules)
+  const partOfSlug = partIndex(nav)
+  const pages = Array.getSomes(Array.map(modules, (module) =>
+    buildPage(module, indexes, partOfSlug),
+  ))
+  return WovenSiteSchema.make({ nav, pages })
+}
+
+## Slugs and identifiers
+
+A page is addressed by a `slug`, and a link points at a `slug` and a heading `id`. `slugFor` builds the page slug from its file path — the last two segments without the `.loom` extension, so `03-the-shape-of-a-loom/06-the-corpus.loom` addresses as `03-the-shape-of-a-loom/06-the-corpus`. `slugify` folds a heading title into the fragment a link targets, lowercasing it and joining its words with dashes. A heading and every anchor that names it slugify the same way, so the link and its target agree.
+
+`sliceContent` reads a block's text straight from the module source between two offsets, dropping only trailing blank space. Reading the source itself, rather than rejoining wefts, keeps a block byte-for-byte as the author wrote it and keeps every offset true, so an anchor's place in the block is its place in the source, shifted by the block's start.
+
+=>
+
+type Span = { readonly start: number; readonly end: number }
+
+const slugFor = (path: string): string =>
+  pipe(path.replace(/\.loom$/, '').split('/'), Array.takeRight(2), Array.join('/'))
+
+const slugify = (text: string): string =>
+  text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+
+const isBlankSource = (source: string): boolean => source.trim().length === 0
+
+const sliceContent = (text: string, span: Span): string =>
+  text.slice(span.start, span.end).replace(/\s+$/, '')
+
+## The navigation tree
+
+The menu is the book's own table of contents, projected. `bookEntries` finds the module that carries a `{TOC}` section and reads its entries in order; a corpus with no contents has an empty menu. `chapterSlugs` maps each chapter's frontmatter title to its page slug, so a contents entry — which names a chapter by title — resolves to the page it opens.
+
+`foldEntry` folds the entries into parts. A part entry opens a new `WovenPart`; each chapter entry after it that resolves to a page appends to that part. So the menu keeps the contents' own order and grouping, an interstitial part with no chapters included. An entry that names no page is left out — a dead link has no place in a menu, and the diagnostics already fault it. `classifyEntry` reads which an entry is from the slots it fills, `parsePart` splits a `Part I — Using Loom` label into its number and name, and `appendChapter` adds an entry to the part opened last. `partIndex` inverts the finished menu into a slug-to-part-name lookup, the breadcrumb each page shows.
+
+=>
+
+const bookEntries = (
+  modules: ReadonlyArray<LoomModule>,
+): ReadonlyArray<TocWeft> =>
+  pipe(
+    Array.findFirst(modules, (m) =>
+      Array.some(m.doc.sections, (s) => s.entries !== undefined),
+    ),
+    Option.map((m) => Array.flatMap(m.doc.sections, (s) => s.entries ?? [])),
+    Option.getOrElse((): ReadonlyArray<TocWeft> => []),
+  )
+
+const chapterSlugs = (
+  modules: ReadonlyArray<LoomModule>,
+): ReadonlyMap<string, string> =>
+  pipe(
+    modules,
+    Array.map((m) =>
+      Option.map(
+        Option.fromNullishOr(m.doc.frontmatter?.title),
+        (title) => [title.value, slugFor(m.path)] as const,
+      ),
+    ), Array.getSomes,
+    Array.reduce(new Map<string, string>(), (index, [title, slug]) =>
+      index.has(title) ? index : new Map(index).set(title, slug),
+    ),
+  )
+
+type Entry =
+  | { readonly kind: 'part'; readonly label: string }
+  | { readonly kind: 'chapter'; readonly number: string; readonly title: string }
+  | { readonly kind: 'blank' }
+
+const classifyEntry = (entry: TocWeft): Entry =>
+  pipe(
+    Option.fromNullishOr(entry.part),
+    Option.map((p): Entry => ({ kind: 'part', label: p.value })),
+    Option.orElse(() =>
+      Option.map(
+        Option.all({
+          chapter: Option.fromNullishOr(entry.chapter),
+          title: Option.fromNullishOr(entry.title),
+        }),
+        ({ chapter, title }): Entry => ({
+          kind: 'chapter',
+          number: chapter.value,
+          title: title.value,
+        }),
+      ),
+    ),
+    Option.getOrElse((): Entry => ({ kind: 'blank' })),
+  )
+
+const partLabel = /^Part\s+(\S+)\s*[—–-]\s*(.+)$/
+
+const parsePart = (
+  label: string,
+): { readonly number: string; readonly name: string } =>
+  Option.match(Option.fromNullishOr(partLabel.exec(label)), {
+    onNone: () => ({ number: label, name: label }),
+    onSome: (m) => ({ number: m[1] ?? label, name: (m[2] ?? label).trim() }),
+  })
+
+const appendChapter = (
+  parts: ReadonlyArray<WovenPart>,
+  chapter: WovenNavEntry,
+): ReadonlyArray<WovenPart> =>
+  Option.match(Array.last(parts), {
+    onNone: () => parts,
+    onSome: (last) => [
+      ...Array.dropRight(parts, 1),
+      { ...last, chapters: [...last.chapters, chapter] },
+    ],
+  })
+
+const foldEntry =
+  (slugs: ReadonlyMap<string, string>) =>
+  (parts: ReadonlyArray<WovenPart>, entry: TocWeft): ReadonlyArray<WovenPart> =>
+    Match.value(classifyEntry(entry)).pipe(
+      Match.when({ kind: 'part' }, ({ label }) => {
+        const { number, name } = parsePart(label)
+        return [...parts, WovenPartSchema.make({ number, name, chapters: [] })]
+      }),
+      Match.when({ kind: 'chapter' }, ({ number, title }) =>
+        Option.match(Option.fromNullishOr(slugs.get(title)), {
+          onNone: () => parts,
+          onSome: (slug) =>
+            appendChapter(
+              parts,
+              WovenNavEntrySchema.make({ number, title, slug }),
+            ),
+        }),
+      ),
+      Match.orElse(() => parts),
+    )
+
+const buildNav = (
+  modules: ReadonlyArray<LoomModule>,
+): ReadonlyArray<WovenPart> =>
+  Array.reduce(
+    bookEntries(modules),
+    [] as ReadonlyArray<WovenPart>,
+    foldEntry(chapterSlugs(modules)),
+  )
+
+const partIndex = (
+  nav: ReadonlyArray<WovenPart>,
+): ReadonlyMap<string, string> =>
+  new Map(
+    Array.flatMap(nav, (part) =>
+      Array.map(part.chapters, (chapter) => [chapter.slug, part.name] as const),
+    ),
+  )
+
+## A page and its blocks
+
+`buildPage` builds a chapter's page. A chapter is any module with a frontmatter title, so a module without one — the book root that carries only the contents — yields no page. The page takes its slug from its path, its title from the frontmatter, its part from the menu, and its blocks from its sections.
+
+`buildBlocks` walks a chapter's sections in order, and `sectionBlocks` turns one section into its blocks: its heading, then a block for each run of its body. `headingBlock` reads the heading's level from the count of its `#` marks, and its title straight from the source. Cutting the body into runs is the next section's work.
+
+=>
+
+const buildPage = (
+  module: LoomModule,
+  indexes: TitleIndexes,
+  partOfSlug: ReadonlyMap<string, string>,
+): Option.Option<WovenPage> =>
+  Option.map(
+    Option.fromNullishOr(module.doc.frontmatter?.title),
+    (title): WovenPage => {
+      const slug = slugFor(module.path)
+      return WovenPageSchema.make({
+        slug,
+        title: title.value,
+        part: partOfSlug.get(slug),
+        blocks: buildBlocks(module, indexes),
+      })
+    },
+  )
+
+const buildBlocks = (
+  module: LoomModule,
+  indexes: TitleIndexes,
+): ReadonlyArray<WovenBlock> =>
+  Array.flatMap(module.doc.sections, sectionBlocks(module, indexes))
+
+const sectionBlocks =
+  (module: LoomModule, indexes: TitleIndexes) =>
+  (section: LoomSection): ReadonlyArray<WovenBlock> => [
+    headingBlock(section),
+    ...pipe(
+      splitRuns(sectionBody(section)),
+      Array.flatMap(runBlocks(module, indexes, section)),
+    ),
+  ]
+
+const titleSource = (section: LoomSection): string =>
+  section.heading.title?.source ?? ''
+
+const headingLevel = (section: LoomSection): number => {
+  const marks = section.heading.headingStart.source.replace(/[^#]/g, '').length
+  return marks === 0 ? 1 : marks
+}
+
+const headingBlock = (section: LoomSection): WovenBlock =>
+  HeadingBlockSchema.make({
+    level: headingLevel(section),
+    title: titleSource(section),
+    id: slugify(titleSource(section)),
+  })
+
+## Splitting a section into runs
+
+A section's body is its preamble and its code together. `sectionBody` joins the two, so a fenced block that opens in the leading prose and runs on stays one prose block, not two split at the seam. `splitRuns` cuts that body at each `=>` and `~`: a run is one unbroken stretch of one mode, and a run that opens with no marker is prose — the leading paragraphs, or a fence the classifier left verbatim.
+
+`runBlocks` turns a run into its blocks. A run that `=>` opened is one code block; a prose run is its prose, with any `:::[Note] … :::` region split out into a note block by `proseBlocks`, so a reader's annotation stands apart from the text around it. `runSpan` bounds the content from the first non-blank line to the last, keeping a marker's own inline text but dropping the `=>` or `~` itself, so a block reads without the frame around it. `markerInline` reads the code or prose written on an arrow or tilde line; `pieceOfWeft` reads a plain line. `sectionLanguage` names a code block's language for the highlighter: the section's specifier, else the chapter's language, and never a Loom mark like `{Tangle}`.
+
+=>
+
+type BodyWeft = PreambleWeft | SectionBodyWeft
+
+type Piece = {
+  readonly start: number
+  readonly end: number
+  readonly blank: boolean
+}
+
+const sectionBody = (section: LoomSection): ReadonlyArray<BodyWeft> => [
+  ...section.preamble,
+  ...section.code,
+]
+
+const splitRuns = (
+  body: ReadonlyArray<BodyWeft>,
+): ReadonlyArray<ReadonlyArray<BodyWeft>> =>
+  Array.isReadonlyArrayNonEmpty(body)
+    ? Array.groupWith(
+        body,
+        (a, _b) => a.type !== 'ArrowWeft' && a.type !== 'TildeWeft',
+      )
+    : []
+
+const isMarker = (weft: BodyWeft): boolean =>
+  weft.type === 'ArrowWeft' || weft.type === 'TildeWeft'
+
+const markerInline = (marker: BodyWeft): Option.Option<Piece> =>
+  Match.value(marker).pipe(
+    Match.when({ type: 'ArrowWeft' }, (a) =>
+      Option.map(Option.fromNullishOr(a.code), (code) => ({
+        start: code.position.start.offset,
+        end: marker.position.end.offset,
+        blank: false,
+      })),
+    ),
+    Match.when({ type: 'TildeWeft' }, (t) =>
+      Option.map(Option.fromNullishOr(t.prose), (prose) => ({
+        start: prose.position.start.offset,
+        end: marker.position.end.offset,
+        blank: false,
+      })),
+    ),
+    Match.orElse(() => Option.none<Piece>()),
+  )
+
+const pieceOfWeft = (weft: BodyWeft): Piece => ({
+  start: weft.position.start.offset,
+  end: weft.position.end.offset,
+  blank: isBlankSource(weft.source),
+})
+
+const runSpan = (run: ReadonlyArray<BodyWeft>): Option.Option<Span> => {
+  const pieces = Array.flatMap(run, (weft, index) =>
+    index === 0 && isMarker(weft)
+      ? Option.toArray(markerInline(weft))
+      : [pieceOfWeft(weft)],
+  )
+  const kept = Array.filter(pieces, (piece) => !piece.blank)
+  return Array.isReadonlyArrayNonEmpty(kept)
+    ? Option.some({
+        start: Array.headNonEmpty(kept).start,
+        end: Array.lastNonEmpty(kept).end,
+      })
+    : Option.none()
+}
+
+const reservedSpecifiers: ReadonlySet<string> = new Set(['tangle', 'toc'])
+
+const sectionLanguage = (module: LoomModule, section: LoomSection): string =>
+  pipe(
+    Option.fromNullishOr(section.heading.specifier),
+    Option.map((s) => s.label.value.toLowerCase()),
+    Option.filter((id) => !reservedSpecifiers.has(id)),
+    Option.orElse(() =>
+      Option.map(
+        Option.fromNullishOr(module.doc.frontmatter?.language),
+        (l) => l.value.trim().toLowerCase(),
+      ),
+    ),
+    Option.getOrElse(() => 'plaintext'),
+  )
+
+const notePattern =
+  /^[ \t]*:::\[Note\][^\n]*\n([\s\S]*?)\n[ \t]*:::(?:[ \t])*$/gm
+
+const proseBlockOf = (markdown: string): ReadonlyArray<WovenBlock> =>
+  markdown.trim().length === 0
+    ? []
+    : [ProseBlockSchema.make({ markdown: markdown.trim() })]
+
+const proseBlocks = (markdown: string): ReadonlyArray<WovenBlock> => {
+  const walked = Array.reduce(
+    Array.fromIterable(markdown.matchAll(notePattern)),
+    { blocks: [] as ReadonlyArray<WovenBlock>, cursor: 0 },
+    (acc, match) => {
+      const at = match.index ?? 0
+      return {
+        blocks: [
+          ...acc.blocks,
+          ...proseBlockOf(markdown.slice(acc.cursor, at)),
+          NoteBlockSchema.make({ markdown: (match[1] ?? '').trim() }),
+        ],
+        cursor: at + match[0].length,
+      }
+    },
+  )
+  return [...walked.blocks, ...proseBlockOf(markdown.slice(walked.cursor))]
+}
+
+const codeBlock = (
+  module: LoomModule,
+  indexes: TitleIndexes,
+  section: LoomSection,
+  run: ReadonlyArray<BodyWeft>,
+  span: Span,
+): WovenBlock =>
+  CodeBlockSchema.make({
+    language: sectionLanguage(module, section),
+    source: sliceContent(module.text, span),
+    links: pipe(
+      Array.flatMap(run, (weft) => weft.anchors),
+      Array.filter(
+        (anchor) =>
+          anchor.position.start.offset >= span.start &&
+          anchor.position.end.offset <= span.end,
+      ),
+      Array.map((anchor) =>
+        resolveLink(module, indexes, span.start, anchor),
+      ), Array.getSomes,
+    ),
+  })
+
+const runBlocks =
+  (module: LoomModule, indexes: TitleIndexes, section: LoomSection) =>
+  (run: ReadonlyArray<BodyWeft>): ReadonlyArray<WovenBlock> =>
+    Array.matchLeft(run, {
+      onEmpty: (): ReadonlyArray<WovenBlock> => [],
+      onNonEmpty: (first) =>
+        Option.match(runSpan(run), {
+          onNone: (): ReadonlyArray<WovenBlock> => [],
+          onSome: (span) =>
+            Match.value(first).pipe(
+              Match.withReturnType<ReadonlyArray<WovenBlock>>(),
+              Match.when({ type: 'ArrowWeft' }, () => [
+                codeBlock(module, indexes, section, run, span),
+              ]),
+              Match.orElse(() =>
+                proseBlocks(sliceContent(module.text, span)),
+              ),
+            ),
+        }),
+    })
+
+## Resolving a code anchor
+
+`resolveLink` turns one `::[…]` anchor into a link. It resolves the anchor the way the composition does — through the corpus title index, in the anchor's own file or the file its path names — and reads the section it reaches. The link carries the name the author wrote, the page and heading that section becomes, and the anchor's place within the block, so the presentation makes just those characters a link. An anchor that resolves to nothing yields no link, and stands in the code as the author's own text.
+
+=>
+
+const resolveLink = (
+  module: LoomModule,
+  indexes: TitleIndexes,
+  blockStart: number,
+  anchor: WarpAnchorToken,
+): Option.Option<AnchorLink> =>
+  pipe(
+    resolveAnchor(indexes, module.path, anchor),
+    Option.flatMap((ref) =>
+      Option.map(
+        Option.fromNullishOr(ref.section.heading.title),
+        (title): AnchorLink =>
+          AnchorLinkSchema.make({
+            name: anchor.name.value,
+            targetSlug: slugFor(ref.module),
+            targetId: slugify(title.source),
+            offset: anchor.position.start.offset - blockStart,
+            length: anchor.position.end.offset - anchor.position.start.offset,
+          }),
+      ),
+    ),
+  )
+
+## The module {Tangle}
+
+=>
+
+::[What this module draws on]
+
+::[The builder and its spine]
+
+::[Slugs and identifiers]
+
+::[The navigation tree]
+
+::[A page and its blocks]
+
+::[Splitting a section into runs]
+
+::[Resolving a code anchor]

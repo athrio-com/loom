@@ -1,0 +1,69 @@
+---
+Language: TypeScript
+---
+
+# Weaving
+
+Weave is tangle's mirror. Tangle drops a loom's prose, inlines every `::[…]` anchor, orders the sections by composition, and writes source files. Weave keeps the prose, turns each anchor into a link, holds the sections in the order they were written, and writes a website. The prose that tangle throws away is what weave is for.
+
+`loom weave` renders the book as a site — every chapter a page, its prose and its code side by side, every anchor a link to the section it names. Published, that site is static, and it is the documentation a reader browses. Run locally, it is more: a review surface, where a person annotates a line with a note and an AI reads that note through a protocol and answers it in the source. The book you read and the loom you edit meet in one place.
+
+## The projection
+
+At the centre is one pure pass. `WeaveBuilder` reads the corpus and returns a `WovenSite` — a model of pages, a navigation tree of parts and chapters, and the graph of links between them. It is the mirror of the product pass, and like every pass it is total and knows nothing of how the result is shown.
+
+Weave renders the parsed document, not the product. A woven page holds each section's prose and each section's code as the author wrote them, in reading order, with every `::[…]` still a reference — now a link the reader follows, the way Knuth's weave cross-references a section rather than pasting it in. The composed form is tangle's; the literate form is weave's.
+
+The projection reuses what the book already has. The parse gives each chapter's sections in document order. The corpus graph — `resolveAnchor`, the chapter index, the part index — gives the site its links and its menu. The symbol table says what each span is, so a heading becomes a place a reader can jump to, an anchor becomes a link, and a code span becomes a highlighted block. Weave is one more reader of the one table.
+
+So `WovenSite` is the seam. It is framework-agnostic data — what the site says, not how it looks. Everything below renders it; nothing below reaches back into the corpus.
+
+## Two runtimes, one build
+
+The site has two modes, and they are one build seen two ways.
+
+Public is static. `loom weave` builds the site with the corpus baked in and writes files a reader hosts anywhere — the documentation, read-only.
+
+Local is served. `loom weave --serve` runs a loom process, a sibling of `loom lsp`, that serves the same site and, beside it, the notes protocol and the review layer. The static site is inert on a public host and comes alive locally, where the server is there to answer it.
+
+One projection, two data sources: baked at build time for the public site, live from the server for the local one. The presentation renders a `WovenSite` either way, and never needs a server of its own.
+
+## The presentation
+
+The site is a content application, built on Tailwind, that renders a `WovenSite`. Its look is the mockup in `design/`: a left menu of parts and their numbered chapters, a reading column of prose and highlighted code, a note inline beneath the line it annotates, and — locally — a Claude Code terminal that can go full screen.
+
+Every colour is a theme token. Light and dark are two token sets, and a consumer reskins the whole site by overriding the tokens, so a woven book carries its own theme rather than the framework's. Prose is set in a serif, code and the chrome in a monospace, and the chrome scales with the viewport.
+
+## Notes
+
+A note is a single annotation a person leaves on a line — a paragraph, or one line of code — not a conversation. It carries the author's GitHub identity, a status, and the text. A person resolves a note or removes it, and both are actions the protocol offers, not only buttons.
+
+A note pins to the source, not the rendered line, so it survives a re-weave and edits around it. Its anchor is the chapter, the section, and the line, with a snippet of what it marked, so the server re-finds it when the text shifts — the way a document comment keeps its place as the paragraph around it grows.
+
+Notes are local and personal. They live under `.loom/`, never in the committed looms, and Git ignores them. The store is a small file the notes protocol owns; whether it holds a loom-flavoured directive or plain data is a choice behind the protocol, and it stays swappable.
+
+## The review loop
+
+Loom exposes the open notes as a protocol — a pending-questions tool any AI chat reads through a hook. `notes.pending` lists them, `notes.read` gives one with its anchored context, and `notes.resolve` and `notes.remove` close them. The tool speaks MCP, so Zed's assistant, Cursor, or the bundled Claude Code terminal all read one queue.
+
+The loop is this: you read the woven book, annotate lines, and an agent takes your notes as its work list. It edits the looms — never the tangled output — re-tangles, and resolves each note through the protocol, posting what it changed. A resolved note falls to an archive and clears when the change that resolved it is committed, because by then it has done its work.
+
+The terminal is one client of this protocol, bundled for convenience and full local access. It is not the only door, and it is never open on the public site.
+
+## Local git state
+
+Locally, the woven view shows what has changed. The server reads Git and tints new and modified prose and code — added in one accent, modified in another — so a reader sees the edit beside the note that asked for it. The public site shows none of this, since it has no working tree to read.
+
+## In stages
+
+Weaving lands in three phases, each useful on its own.
+
+First, the projection and the static site: `WovenSite`, `WeaveBuilder`, and the presentation that renders it, written to disk by `loom weave`. This is the documentation.
+
+Second, the local server and the notes protocol: `loom weave --serve`, the MCP tools, the `.loom/` store, and resilient anchoring. This is the review surface.
+
+Third, the agent loop: the bundled terminal and the resolve-on-commit lifecycle. This is the workflow.
+
+## Decisions in flight
+
+The presentation framework is **Astro** — a content site with islands of local interactivity, its static build serving as the public site. The note store is **JSON** under `.loom/`, behind the protocol, so a richer store can replace it later without touching the tools.
