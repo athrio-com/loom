@@ -137,6 +137,7 @@ body {
   padding: 0;
 }
 .nav-link {
+  text-decoration: none;
   display: grid;
   grid-template-columns: 0.9rem 1fr;
   gap: 0.5rem;
@@ -292,6 +293,7 @@ body {
   white-space: pre;
 }
 .loom-anchor {
+  text-decoration: none;
   color: var(--loom-link);
   cursor: pointer;
   border-bottom: 1px dashed currentColor;

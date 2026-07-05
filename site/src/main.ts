@@ -1,5 +1,5 @@
-import { Array, Match, Option, pipe, Schema as S } from 'effect'
-import { Command, Runtime } from '@athrio/foldkit'
+import { Array, Effect, Match, Option, pipe, Schema as S } from 'effect'
+import { Command, Navigation, Runtime, Url } from '@athrio/foldkit'
 import { html, type Document, type Html } from '@athrio/foldkit/html'
 import { m } from '@athrio/foldkit/message'
 import {
@@ -24,11 +24,19 @@ const Model = S.Struct({
 })
 type Model = typeof Model.Type
 
-const SelectedPage = m('SelectedPage', { slug: S.String })
+const ChangedUrl = m('ChangedUrl', { slug: S.String })
+const ClickedLink = m('ClickedLink', { request: Navigation.UrlRequest })
+const CompletedNavigation = m('CompletedNavigation')
 const ToggledTheme = m('ToggledTheme')
 const ToggledNav = m('ToggledNav')
 
-const Message = S.Union([SelectedPage, ToggledTheme, ToggledNav])
+const Message = S.Union([
+  ChangedUrl,
+  ClickedLink,
+  CompletedNavigation,
+  ToggledTheme,
+  ToggledNav,
+])
 type Message = typeof Message.Type
 
 const h = html<Message>()
@@ -40,10 +48,34 @@ const firstSlug = pipe(
   Option.getOrElse(() => ''),
 )
 
-const init: Runtime.ApplicationInit<Model, Message> = () => [
-  { currentSlug: firstSlug, dark: false, navClosed: false },
+const stripOrder = (segment: string): string => segment.replace(/^\d+-/, '')
+
+const pathForSlug = (slug: string): string =>
+  `/${pipe(slug.split('/'), Array.map(stripOrder), Array.join('/'))}`
+
+const pathIndex = new Map(
+  Array.map(site.pages, (page) => [pathForSlug(page.slug), page.slug] as const),
+)
+
+const slugForPath = (pathname: string): string =>
+  Option.getOrElse(Option.fromNullishOr(pathIndex.get(pathname)), () => firstSlug)
+
+const init: Runtime.RoutingApplicationInit<Model, Message> = (url) => [
+  { currentSlug: slugForPath(url.pathname), dark: false, navClosed: false },
   [],
 ]
+
+const NavigateInternal = Command.define(
+  'NavigateInternal',
+  { url: S.String },
+  CompletedNavigation,
+)(({ url }) => Navigation.pushUrl(url).pipe(Effect.as(CompletedNavigation())))
+
+const NavigateExternal = Command.define(
+  'NavigateExternal',
+  { href: S.String },
+  CompletedNavigation,
+)(({ href }) => Navigation.load(href).pipe(Effect.as(CompletedNavigation())))
 
 const update = (
   model: Model,
@@ -54,10 +86,26 @@ const update = (
       readonly [Model, ReadonlyArray<Command.Command<Message>>]
     >(),
     Match.tagsExhaustive({
-      SelectedPage: ({ slug }) => [
+      ChangedUrl: ({ slug }) => [
         { ...model, currentSlug: slug, navClosed: false },
         [],
       ],
+      ClickedLink: ({ request }) =>
+        Match.value(request).pipe(
+          Match.withReturnType<
+            readonly [Model, ReadonlyArray<Command.Command<Message>>]
+          >(),
+          Match.tag('Internal', ({ url }) => [
+            model,
+            [NavigateInternal({ url: Url.toString(url) })],
+          ]),
+          Match.tag('External', ({ href }) => [
+            model,
+            [NavigateExternal({ href })],
+          ]),
+          Match.exhaustive,
+        ),
+      CompletedNavigation: () => [model, []],
       ToggledTheme: () => [{ ...model, dark: !model.dark }, []],
       ToggledNav: () => [{ ...model, navClosed: !model.navClosed }, []],
     }),
@@ -87,10 +135,7 @@ const codeSegments = (
         ...acc.nodes,
         block.source.slice(acc.cursor, link.offset),
         h.a(
-          [
-            h.Class('loom-anchor'),
-            h.OnClick(SelectedPage({ slug: link.targetSlug })),
-          ],
+          [h.Class('loom-anchor'), h.Href(pathForSlug(link.targetSlug))],
           [block.source.slice(link.offset, link.offset + link.length)],
         ),
       ],
@@ -134,7 +179,7 @@ const navEntryView = (current: string) => (chapter: WovenNavEntry): Html =>
       h.a(
         [
           h.Class(chapter.slug === current ? 'nav-link current' : 'nav-link'),
-          h.OnClick(SelectedPage({ slug: chapter.slug })),
+          h.Href(pathForSlug(chapter.slug)),
         ],
         [
           h.span([h.Class('nav-num')], [chapter.number]),
@@ -237,6 +282,10 @@ const application = Runtime.makeApplication({
   init,
   update,
   view,
+  routing: {
+    onUrlChange: (url: Url.Url) => ChangedUrl({ slug: slugForPath(url.pathname) }),
+    onUrlRequest: (request: Navigation.UrlRequest) => ClickedLink({ request }),
+  },
   container: document.getElementById('root')!,
 })
 

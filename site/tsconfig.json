@@ -8,8 +8,7 @@
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "noEmit": true,
-    "verbatimModuleSyntax": true
+    "noEmit": true
   },
   "include": ["src"]
 }
