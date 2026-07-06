@@ -1,0 +1,80 @@
+---
+Part VII, Chapter 5: The language registry
+Package: packages/loom-lang-services/src/LanguageRegistry.ts
+Language: TypeScript
+---
+
+# The language registry
+
+The Loom language server resolves which languages a project has activated — built-in
+modules and loaded `loom-service-<id>` packages — into one active set. The
+`LanguageRegistry` indexes that set so the server finds a language by a
+single lookup, not a scan: by `id` for a section's declared language, by extension
+for a tangle path.
+
+## Imports
+
+The registry draws on Effect — `HashMap` for its two indexes, `Option` for a
+lookup that can miss — and on the `LanguageService` type it indexes.
+
+=>
+
+import { Context, Effect, HashMap, Layer, Option } from 'effect'
+import type { LanguageService } from './LanguageService'
+
+## The active set
+
+`ActiveLanguages` holds the language set the server resolves from `loom.config.json`. It is empty until the server fills it — the registry over an empty set
+simply finds nothing.
+
+=>
+
+export class ActiveLanguages extends Context.Service<ActiveLanguages>()(
+  'ActiveLanguages',
+  {
+    make: Effect.succeed({ all: [] as ReadonlyArray<LanguageService> }),
+  },
+) {
+  static readonly layer = Layer.effect(this, this.make)
+}
+
+## The registry
+
+The registry builds two maps over the active set — one keyed by `id`, one by each
+service's `extensions` — and returns an `Option` for each lookup: present when a
+language claims that id or extension, absent otherwise. The `all` field keeps the full set for the
+collect-and-register pass that hands every service's plugins to Volar.
+
+=>
+
+export class LanguageRegistry extends Context.Service<LanguageRegistry>()(
+  'LanguageRegistry',
+  {
+    make: Effect.gen(function* () {
+      const { all } = yield* ActiveLanguages
+      const byId = HashMap.fromIterable(all.map((s) => [s.id, s] as const))
+      const byExtension = HashMap.fromIterable(
+        all.flatMap((s) => s.extensions.map((e) => [e, s] as const)),
+      )
+      return {
+        byId: (id: string): Option.Option<LanguageService> =>
+          HashMap.get(byId, id),
+        byExtension: (ext: string): Option.Option<LanguageService> =>
+          HashMap.get(byExtension, ext),
+        all,
+      }
+    }),
+  },
+) {
+  static readonly layer = Layer.effect(this, this.make)
+}
+
+## The module {Tangle}
+
+=>
+
+::[Imports]
+
+::[The active set]
+
+::[The registry]

@@ -1,0 +1,117 @@
+---
+Part IX: Extensions for IDEs
+Chapter 1: The Loom VS Code extension
+Package: packages/loom-vscode/src/vscode-extension.ts
+Language: TypeScript
+---
+
+# The Loom VS Code extension
+
+Loom runs on Bun — the CLI, the tangler, the tests. An editor is where it meets a runtime it does not choose: an IDE loads an extension into its own *host*, whose runtime is the editor's. VS Code's is Node, so this extension is the one place Node remains — everywhere else, Loom is a Bun program.
+
+The `loom-vscode` extension is Loom's client for that host. When VS Code opens a `.loom` file, the extension starts the Loom language server, `@athrio/loom-lang`, in a separate Node process and connects to it, so the server's diagnostics, hovers, and completions appear in the editor. The build bundles the server beside this client into the extension's `dist` directory. The same server, started by `loom lsp`, runs on Bun instead.
+
+## What the client is built on
+
+The extension draws on three libraries. The `vscode` module is the editor's own extension API. The `vscode-languageclient` library runs the client half of the Language Server Protocol — the contract an editor and a language server talk over — and reaches the server through a Node IPC channel. Volar's VS Code helpers add auto-insertion and register the client with the Volar Labs inspector.
+
+=>
+
+import * as serverProtocol from '@volar/language-server/protocol'
+import { activateAutoInsertion, createLabsInfo } from '@volar/vscode'
+import * as path from 'node:path'
+import * as vscode from 'vscode'
+import {
+  type BaseLanguageClient,
+  LanguageClient,
+  type LanguageClientOptions,
+  type ServerOptions,
+  TransportKind,
+} from 'vscode-languageclient/node'
+
+## The client handle
+
+Both `activate` and `deactivate` need the same language client — one to start it, the other to stop it — so it lives in a single module-level binding.
+
+=>
+
+let client: BaseLanguageClient
+
+## Activating the extension
+
+VS Code calls `activate` the first time a `.loom` file opens. The function points the client at the bundled `server.js` and launches it over IPC, under two profiles: a plain `run` profile, and a `debug` profile that opens an inspector port for attaching a debugger.
+
+The server type-checks the synthesised frame, so it needs a TypeScript `lib/` directory. Rather than bundle one, the client points the server at the TypeScript that VS Code already ships — `loadTsdkByPath` on the server loads `typescript.js` from there and resolves the `lib.*.d.ts` files beside it.
+
+The client is scoped to the `loom` language. Once it has started, the function wires auto-insertion for `loom` documents and registers the client with the Volar Labs inspector, then returns the inspector's exports.
+
+=>
+
+export async function activate(context: vscode.ExtensionContext) {
+  const serverModule = vscode.Uri.joinPath(
+    context.extensionUri,
+    'dist',
+    'server.js',
+  )
+  const serverOptions: ServerOptions = {
+    run: {
+      module: serverModule.fsPath,
+      transport: TransportKind.ipc,
+      options: { execArgv: [] as string[] },
+    },
+    debug: {
+      module: serverModule.fsPath,
+      transport: TransportKind.ipc,
+      options: { execArgv: ['--nolazy', '--inspect=6009'] },
+    },
+  }
+
+  const tsdk = path.join(
+    vscode.env.appRoot,
+    'extensions',
+    'node_modules',
+    'typescript',
+    'lib',
+  )
+
+  const clientOptions: LanguageClientOptions = {
+    documentSelector: [{ language: 'loom' }],
+    initializationOptions: { typescript: { tsdk } },
+  }
+
+  client = new LanguageClient(
+    'loom-language-server',
+    'Loom Language Server',
+    serverOptions,
+    clientOptions,
+  )
+  await client.start()
+
+  activateAutoInsertion('loom', client)
+
+  const labsInfo = createLabsInfo(serverProtocol)
+  labsInfo.addLanguageClient(client)
+  return labsInfo.extensionExports
+}
+
+## Deactivating
+
+When VS Code unloads the extension, `deactivate` stops the client, which shuts the server process down. The client may never have started, so the call is guarded.
+
+=>
+
+export function deactivate(): Thenable<any> | undefined {
+  return client?.stop()
+}
+
+## The module {Tangle}
+
+=>
+
+::[What the client is built on]
+
+::[The client handle]
+
+::[Activating the extension]
+
+::[Deactivating]

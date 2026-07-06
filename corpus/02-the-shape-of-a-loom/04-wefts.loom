@@ -1,0 +1,164 @@
+---
+Part II, Chapter 4: Wefts
+Package: packages/loom-ast/src/ast/Weft.ts
+Language: TypeScript
+---
+
+# Wefts
+
+`Weft` defines the line-level AST nodes. Each weft is one source line, typed by the mode it sits in and the tokens found on it. Wefts are health-bearing `loomNode`s, so they carry `type`, `position`, and `health` like any node. A weft's position spans exactly one line. `LoomWeft`, the union of them all, is the element the tokeniser streams between passes.
+
+## The heading weft
+
+A `HeadingWeft` is a `#`-heading line. Its `headingStart` records the level for the reader, and `title` is the optional trimmed text after the marker — the title names the section, normalised to an identifier. The `specifier` and the `sink` are optional too: the specifier is the language label `{Lang}`, the sink is the bracketed file `[file]`, and a heading may carry either, both, or neither. The classifier emits the weft with incomplete placeholders for the subtokens it has not recognised, and the tokeniser settles them.
+
+=>
+
+export const HeadingWeftSchema = loomNode('HeadingWeft', {
+  headingStart: HeadingStartTokenSchema,
+  title: Schema.optional(HeadingTitleTokenSchema),
+  specifier: Schema.optional(SpecifierTokenSchema),
+  sink: Schema.optional(SinkTokenSchema),
+})
+export type HeadingWeft = typeof HeadingWeftSchema.Type
+
+## The body wefts
+
+The five body wefts are the lines inside a section. An `ArrowWeft` is the `=>` line that opens code, carrying any inline `code` and the anchors on it. A `CodeWeft` is a later line in code mode — opaque to Loom, but its anchors are recognised. A `TildeWeft` is the `~` line that opens prose, carrying any inline `prose` and its anchors. A `ProseWeft` is a later line in prose mode — opaque too, but its anchors are recognised. A `PreambleWeft` is a default-mode line before any transition, carrying the warp declarations and any anchors on it.
+
+Every body weft carries its `anchors`, because an anchor is read in code and in prose alike. A code anchor composes the named section; a prose anchor places a chapter or merely links to it. A later pass reads which plane an anchor takes from the weft it sits on.
+
+=>
+
+export const ArrowWeftSchema = loomNode('ArrowWeft', {
+  arrow: ArrowTokenSchema,
+  code: Schema.optional(CodeTokenSchema),
+  anchors: Schema.Array(WarpAnchorTokenSchema),
+})
+export type ArrowWeft = typeof ArrowWeftSchema.Type
+
+export const TildeWeftSchema = loomNode('TildeWeft', {
+  tilde: TildeTokenSchema,
+  prose: Schema.optional(ProseTokenSchema),
+  anchors: Schema.Array(WarpAnchorTokenSchema),
+})
+export type TildeWeft = typeof TildeWeftSchema.Type
+
+export const PreambleWeftSchema = loomNode('PreambleWeft', {
+  warps: Schema.Array(WarpTokenSchema),
+  anchors: Schema.Array(WarpAnchorTokenSchema),
+})
+export type PreambleWeft = typeof PreambleWeftSchema.Type
+
+export const ProseWeftSchema = loomNode('ProseWeft', {
+  anchors: Schema.Array(WarpAnchorTokenSchema),
+})
+export type ProseWeft = typeof ProseWeftSchema.Type
+
+export const CodeWeftSchema = loomNode('CodeWeft', {
+  anchors: Schema.Array(WarpAnchorTokenSchema),
+})
+export type CodeWeft = typeof CodeWeftSchema.Type
+
+## The frontmatter weft
+
+A `FrontmatterWeft` is one line of the frontmatter block — a fence, a `Part` or `Chapter` line, or a `key: value` field. One weft kind covers them all, each filling the slots its line owns: a fence line fills `fence`; a `Part` line fills `part` and `partName`; a `Chapter` line fills `chapter` and `title`; the joined `Part …, Chapter …` line fills `part`, `chapter`, and `title`; a `Package` or `Language` line fills `key` and `value`. This mirrors the heading weft, which carries its title, specifier, and sink in the same optional way. The document builder gathers a file's frontmatter wefts into one `LoomFrontmatter`.
+
+=>
+
+export const FrontmatterWeftSchema = loomNode('FrontmatterWeft', {
+  fence: Schema.optional(FrontmatterFenceTokenSchema),
+  part: Schema.optional(FrontmatterPartTokenSchema),
+  partName: Schema.optional(FrontmatterPartNameTokenSchema),
+  chapter: Schema.optional(FrontmatterChapterTokenSchema),
+  title: Schema.optional(FrontmatterTitleTokenSchema),
+  key: Schema.optional(FrontmatterKeyTokenSchema),
+  value: Schema.optional(FrontmatterValueTokenSchema),
+})
+export type FrontmatterWeft = typeof FrontmatterWeftSchema.Type
+
+## The table-of-contents weft
+
+A `TocWeft` is one line inside a `{TOC}` section: a part heading, a chapter entry, or a blank spacer. One weft kind covers them all, each filling the slots its line owns — a part line fills `part`; a chapter line fills `chapter` and `title`; a blank line fills none. This mirrors the frontmatter weft, which carries its own line's parts in the same optional way. The classifier marks each line of the contents as a `TocWeft` so a part's `####` heading never opens a section and a chapter's list item never reads as prose, and the tokeniser settles the slots. The document builder gathers a `{TOC}` section's toc wefts as its entries.
+
+=>
+
+export const TocWeftSchema = loomNode('TocWeft', {
+  part: Schema.optional(TocPartTokenSchema),
+  chapter: Schema.optional(TocChapterTokenSchema),
+  title: Schema.optional(TocTitleTokenSchema),
+})
+export type TocWeft = typeof TocWeftSchema.Type
+
+## The weft unions
+
+`LoomWeft` is the union of every weft kind — the tokeniser's stream element. `SectionBodyWeft` is the narrower union the grammar admits inside a section body: arrow, code, tilde, and prose, in the forward-only order the classifier enforces.
+
+=>
+
+export const LoomWeftSchema = Schema.Union([
+  HeadingWeftSchema,
+  ArrowWeftSchema,
+  TildeWeftSchema,
+  PreambleWeftSchema,
+  ProseWeftSchema,
+  CodeWeftSchema,
+  FrontmatterWeftSchema,
+  TocWeftSchema,
+])
+export type LoomWeft = typeof LoomWeftSchema.Type
+
+export const SectionBodyWeftSchema = Schema.Union([
+  ArrowWeftSchema,
+  CodeWeftSchema,
+  TildeWeftSchema,
+  ProseWeftSchema,
+])
+export type SectionBodyWeft = typeof SectionBodyWeftSchema.Type
+
+## What this module draws on
+
+Each weft is a `loomNode` built from Effect's `Schema`; its subtokens are the heading, arrow, tilde, code, prose, specifier, sink, warp, and anchor schemas from `LoomTokens`.
+
+=>
+
+import { Schema } from 'effect'
+import { loomNode } from '#ast/LoomNode'
+import {
+  ArrowTokenSchema,
+  CodeTokenSchema,
+  FrontmatterChapterTokenSchema,
+  FrontmatterFenceTokenSchema,
+  FrontmatterKeyTokenSchema,
+  FrontmatterPartTokenSchema,
+  FrontmatterPartNameTokenSchema,
+  FrontmatterTitleTokenSchema,
+  FrontmatterValueTokenSchema,
+  HeadingStartTokenSchema,
+  HeadingTitleTokenSchema,
+  ProseTokenSchema,
+  SinkTokenSchema,
+  SpecifierTokenSchema,
+  TildeTokenSchema,
+  TocChapterTokenSchema,
+  TocPartTokenSchema,
+  TocTitleTokenSchema,
+  WarpAnchorTokenSchema,
+  WarpTokenSchema,
+} from './LoomTokens'
+
+## The module {Tangle}
+
+=>
+
+::[What this module draws on]
+
+::[The heading weft]
+
+::[The body wefts]
+
+::[The frontmatter weft]
+
+::[The table-of-contents weft]
+
+::[The weft unions]

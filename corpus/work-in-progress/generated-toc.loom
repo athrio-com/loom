@@ -1,0 +1,9 @@
+---
+Language: TypeScript
+---
+
+# The generated table of contents
+
+`book.loom` opens with a `{TOC}` whose entries — one per part, one per chapter — are written by hand. A hand-written table drifts from the corpus it describes: this one listed a Part II that no loom declared, a bridge with no chapters behind it. But the parts and chapters are not prose to maintain. Each chapter declares its place in frontmatter — `Part IX: Extensions for IDEs`, then `Chapter 1: The Loom VS Code extension` — so the table can be generated from the corpus and never fall out of step.
+
+The `{TOC}` specifier already parses the authored entries and validates them, raising `UnresolvedTocEntry` for one that resolves to no chapter. What remains is the generator: the pass that reads each chapter's frontmatter and emits the entries in part-and-chapter order, so the table becomes the corpus's own shape.

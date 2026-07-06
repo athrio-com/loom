@@ -1,0 +1,34 @@
+---
+Part II: The shape of a loom
+Chapter 1: The first syntax
+Language: Prose
+---
+
+# The first syntax
+
+At this stage we have no Loom-specific syntax at all. This chapter is the genesis of its own: it must name Loom's foundational primitives before it can be read. Loom is written in TypeScript with Effect, in pure functional style — but the syntax it defines is its own.
+
+The very first thing that lets us materialise a Loom program is the *arrow*. Arrows have a simple and crucial role: they map *prose* to *code*.
+
+=>
+
+// Hello! This is the beginning of the Loom language.
+
+~
+
+Our very first program does nothing but show the rhythm of every Loom program. As you noticed, *tildes* `~` mark the transition back from code to prose, as the arrow marked the way in. A section holds any number of code and prose blocks, divided by the arrows and the tildes.
+
+That is the whole rhythm. The primitives it rests on, gathered in one place:
+
+1. Chapters `---`
+2. Sections `#`
+3. Prose
+4. Code
+5. Arrows `=>`
+6. Tildes `~`
+7. Sinks `[file]`
+8. Specifiers `{Lang}`
+9. Anchors `::[Name]`
+10. Warps `{{ name = value }}`
+
+The chapters that follow give each its shape — first the node every one of them is built from, then the tokens inside a line, the lines themselves, the sections they form, and the corpus above them.

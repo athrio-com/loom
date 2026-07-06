@@ -1,0 +1,76 @@
+---
+Part VI: In the editor
+Chapter 1: The virtual-code projection
+Package: packages/loom-ast/src/ast/LoomVirtualCode.ts
+Language: TypeScript
+---
+
+# The virtual-code projection
+
+`LoomVirtualCode` is the terminal model of the pipeline — the projection a `.loom` presents to Volar. It is plain data, not an AST: a tree of nodes, each holding a string of `code` and a list of `Mapping`s back to the source. `LoomVirtualCodeBuilder` builds it, and `LoomCompiler`'s `toVolar` adapts it to Volar's runtime types at the editor edge.
+
+## Mappings
+
+A `Mapping` pairs a generated span — `genStart` and `genLength`, offsets into this node's `code` — with the `.loom` `source` span it projects from. Its `kind` chooses which editor features Volar forwards at that span. Most kinds are the symbol kinds `LoomSymbol` names — a heading title, an anchor, a warp — so a mapping over an author's token forwards exactly the features that kind's profile allows. Two kinds stand outside that set, for the projection's own structure. A `source` span is the root's whole-file identity mapping, the one Loom's own diagnostics ride back to the editor. A `product` span is a stretch of resolved de re code.
+
+=>
+
+export const MappingKindSchema = Schema.Union([
+  SymbolKindSchema,
+  Schema.Literal('source'),
+  Schema.Literal('product'),
+])
+export type MappingKind = typeof MappingKindSchema.Type
+
+export const MappingSchema = Schema.Struct({
+  genStart: Schema.Number,
+  genLength: Schema.Number,
+  source: PositionSchema,
+  kind: Schema.optional(MappingKindSchema),
+})
+export type Mapping = typeof MappingSchema.Type
+
+## The virtual-code tree
+
+A `LoomVirtualCode` is one node of the tree: an `id`, a `languageId`, its `code`, its `mappings`, and its `embeddedCodes` children. It mirrors Volar's own `VirtualCode` shape but stays plain data — `code` as a string, our `Mapping` rather than Volar's. The interface is declared before the schema so the schema can recurse through `embeddedCodes` with `Schema.suspend`.
+
+=>
+
+export interface LoomVirtualCode {
+  readonly id: string
+  readonly languageId: string
+  readonly code: string
+  readonly mappings: ReadonlyArray<Mapping>
+  readonly embeddedCodes: ReadonlyArray<LoomVirtualCode>
+}
+
+export const LoomVirtualCodeSchema: Schema.Schema<LoomVirtualCode> =
+  Schema.Struct({
+    id: Schema.String,
+    languageId: Schema.String,
+    code: Schema.String,
+    mappings: Schema.Array(MappingSchema),
+    embeddedCodes: Schema.Array(
+      Schema.suspend(() => LoomVirtualCodeSchema),
+    ),
+  })
+
+## What this module draws on
+
+Effect's `Schema` defines the model. `Position` from the foundation types each mapping's source span, and `SymbolKind` from `LoomSymbol` gives a symbol mapping its kind.
+
+=>
+
+import { Schema } from 'effect'
+import { PositionSchema } from '#ast/LoomNode'
+import { SymbolKindSchema } from '#ast/LoomSymbol'
+
+## The module {Tangle}
+
+=>
+
+::[What this module draws on]
+
+::[Mappings]
+
+::[The virtual-code tree]

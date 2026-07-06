@@ -1,0 +1,71 @@
+---
+Part VIII, Chapter 10: Packaging the Loom CLI
+Package: packages/loom-cli/
+Language: JSON
+---
+
+# Packaging the Loom CLI
+
+The `@athrio/loom-cli` package ships to npm as a single self-contained file. Vite bundles the CLI program, the language server, and Effect into `dist/main.js` and adds a Bun shebang — a line that makes the file directly executable by Bun. The published package is therefore pure JavaScript with no runtime dependencies — every library it needs is already inside the bundle.
+
+## The manifest {Tangle}[package.json]
+
+The `files` field restricts the published package to the `dist` directory, and the `bin` field maps the `loom` command to the bundle. The bundle inlines every dependency, so all dependencies belong in the `devDependencies` field.
+
+The `build` script bundles the tangled source files committed to the repository. Tangling the corpus is a separate step, performed with the published `loom` CLI rather than the in-progress source — using an unverified tangler to tangle the corpus that produces it would be circular. The `prepack` script re-bundles automatically before each publish. The `bun publish` command rewrites the `workspace:*` specifier for `@athrio/loom-lang` — Bun's protocol for local package references — into the real published version number.
+
+=>
+
+{
+  "name": "@athrio/loom-cli",
+  "version": "0.9.0",
+  "description": "Tangle Loom literate sources into real source files.",
+  "license": "Apache-2.0 OR MIT",
+  "type": "module",
+  "bin": {
+    "loom": "dist/main.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "bun": ">=1.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/athrio-com/loom.git",
+    "directory": "packages/loom-cli"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vite build",
+    "test": "bun test",
+    "prepack": "bun run build",
+    "release": "bun scripts/release.ts"
+  },
+  "devDependencies": {
+    "@athrio/loom-config": "workspace:*",
+    "@athrio/loom-lang": "workspace:*",
+    "@athrio/loom-lang-services": "workspace:*",
+    "@effect/platform-bun": "4.0.0-beta.93",
+    "effect": "4.0.0-beta.93",
+    "vite": "^8.0.12"
+  }
+}
+
+## The TypeScript config {Tangle}[tsconfig.json]
+
+The `tsconfig.json` extends the workspace-root `tsconfig.base.json` and covers the `src` directory. Vite produces the `dist` bundle, so the configuration file is a development tool only and never ships with the published package.
+
+=>
+
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "out",
+    "rootDir": "src"
+  },
+  "include": ["src"]
+}

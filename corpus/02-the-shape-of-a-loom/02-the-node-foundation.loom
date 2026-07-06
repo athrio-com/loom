@@ -1,0 +1,130 @@
+---
+Part II, Chapter 2: The node foundation
+Package: packages/loom-ast/src/ast/LoomNode.ts
+Language: TypeScript
+---
+
+# The node foundation
+
+Every node in the Loom AST — a container like a section or a leaf like a token — shares one shape and is built by one combinator. `LoomNode` is that foundation: it defines source positions, the health and diagnostic vocabulary every node carries, and `loomNode`, which stamps the shared `type`, `position`, `source`, and `health` fields onto each node schema.
+
+## Built on Effect Schema
+
+Every node type is an Effect `Schema.Struct`, so one definition both validates a node and gives it a type.
+
+=>
+
+import { Schema } from 'effect'
+
+## Source positions
+
+A `Position` is the span a node covers — a `start` and `end` `Point`. A `Point` carries a `line`, an optional `column`, and an `offset`. The `offset` is the byte index Volar maps against; line and column only serve diagnostics.
+
+=>
+
+const intAtLeast = (min: number) =>
+  Schema.makeFilter<number>((n) =>
+    Number.isInteger(n) && n >= min ? undefined : `must be an integer >= ${min}`,
+  )
+
+export const PointSchema = Schema.Struct({
+  line: Schema.Number.check(intAtLeast(1)),
+  column: Schema.optional(Schema.Number.check(intAtLeast(1))),
+  offset: Schema.Number.check(intAtLeast(0)),
+})
+export type Point = typeof PointSchema.Type
+
+export const PositionSchema = Schema.Struct({
+  start: PointSchema,
+  end: PointSchema,
+})
+export type Position = typeof PositionSchema.Type
+
+## Diagnostics
+
+A `Diagnostic` is a positioned message with a `Severity` — `error`, `warning`, or `info`. `info` is not a failure: a node carrying only `info` diagnostics stays healthy.
+
+=>
+
+export const SeveritySchema = Schema.Literals(['error', 'warning', 'info'])
+export type Severity = typeof SeveritySchema.Type
+
+export const DiagnosticSchema = Schema.Struct({
+  message: Schema.String,
+  position: PositionSchema,
+  severity: SeveritySchema,
+})
+export type Diagnostic = typeof DiagnosticSchema.Type
+
+## Node health
+
+Every node carries `Health`: a `status` and the diagnostics behind it. `ok` is final and clean; `error` and `warning` describe problems; `incomplete` marks a node an earlier pass left for a later one to finish. `okHealth` and `incompleteHealth` are the shared constants for the two cases with no diagnostics.
+
+=>
+
+export const HealthStatusSchema = Schema.Literals(['ok', 'error', 'warning', 'incomplete'])
+export type HealthStatus = typeof HealthStatusSchema.Type
+
+export const HealthSchema = Schema.Struct({
+  status: HealthStatusSchema,
+  diagnostics: Schema.Array(DiagnosticSchema),
+})
+export type Health = typeof HealthSchema.Type
+
+export const okHealth: Health = { status: 'ok', diagnostics: [] }
+
+export const incompleteHealth: Health = {
+  status: 'incomplete',
+  diagnostics: [],
+}
+
+## Rejected fragments
+
+An `UnexpectedToken` is a stray fragment the schema rejected — an orphan bracket, a duplicate tag — kept with its position and text rather than dropped. It carries no health of its own: its presence in a node's `unexpected` array is the anomaly, and the parent node's health reflects it.
+
+=>
+
+export const UnexpectedTokenSchema = Schema.Struct({
+  type: Schema.tag('UnexpectedToken'),
+  position: PositionSchema,
+  value: Schema.String,
+})
+export type UnexpectedToken = typeof UnexpectedTokenSchema.Type
+
+## The node combinator
+
+`loomNode` builds a node schema from a tag and the node's own fields. To every node it adds the shared four — a `type` literal that discriminates the union, the `position`, the `source` slice the node covers, and its `health` — plus an optional `unexpected` array. A walker then recognises any node by its `type` and recurses into any field that has one.
+
+=>
+
+export const loomNode = <
+  Tag extends string,
+  Fields extends Schema.Struct.Fields,
+>(
+  tag: Tag,
+  fields: Fields,
+) =>
+  Schema.Struct({
+    type: Schema.tag(tag),
+    position: PositionSchema,
+    source: Schema.String,
+    health: HealthSchema,
+    unexpected: Schema.optional(Schema.Array(UnexpectedTokenSchema)),
+    ...fields,
+  })
+
+## The module {Tangle}
+
+=>
+
+::[Built on Effect Schema]
+
+::[Source positions]
+
+::[Diagnostics]
+
+::[Node health]
+
+::[Rejected fragments]
+
+::[The node combinator]

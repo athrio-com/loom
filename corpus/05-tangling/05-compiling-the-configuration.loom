@@ -1,0 +1,166 @@
+---
+Part V, Chapter 5: Compiling the configuration
+Package: packages/loom-lang/src/ManifestBuilder.ts
+Language: TypeScript
+---
+
+# Compiling the configuration
+
+A project authors its configuration in a single `{Config}` section, and `@athrio/loom-config` reads it from a compiled file, `.loom/config.yaml`. `ManifestBuilder` is the pass that compiles the one from the other. It searches a workspace for the `{Config}` source, decodes it, and writes the resulting `WorkspaceManifest` through the configuration service.
+
+The pass lives here, in the language compiler, rather than in `@athrio/loom-config`, because it parses `.loom` files. Parsing pulls in the compiler, and the compiler already depends on the configuration package; compiling the manifest here, and leaving the package to read the result, keeps that dependency pointing one way.
+
+## Finding the configuration sources
+
+`loomFiles` walks a workspace and returns every `.loom` file under it. It descends each directory but skips the ones that hold no source: the generated `.loom/` store, the `node_modules` and `dist` build outputs, and the `.git` directory. A `{Config}` source can sit in any of the files it returns, since the configuration is marked by a section's specifier, not by a filename.
+
+=>
+
+const ignored = new Set(['node_modules', '.loom', 'dist', '.git'])
+
+const loomFiles = (dir: string): ReadonlyArray<string> =>
+  readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    if (ignored.has(entry.name)) return []
+    const full = resolvePath(dir, entry.name)
+    return entry.isDirectory()
+      ? loomFiles(full)
+      : entry.name.endsWith('.loom')
+        ? [full]
+        : []
+  })
+
+## Reading a file's configuration section
+
+`configBodyOf` finds a document's `{Config}` section and returns its body. A `{Config}` section is one whose heading specifier is the language-style label `Config`. `codeOf` pulls the code from one chunk — a code weft's line, or the inline code that follows an `=>` — and yields nothing for a marker. `configBodyOf` joins those chunks into the YAML text the configuration service decodes, and returns nothing for a document with no such section.
+
+`diskSource` reads a file's text for the parser, failing with the parser's own `ReadError` when the file cannot be read — the parser then degrades that file to an empty document, and the pass skips it.
+
+=>
+
+const codeOf = (weft: SectionBodyWeft): Option.Option<string> =>
+  Match.value(weft).pipe(
+    Match.when({ type: 'CodeWeft' }, (code) => Option.some(code.source)),
+    Match.when({ type: 'ArrowWeft' }, (arrow) =>
+      Option.map(Option.fromNullishOr(arrow.code), (code) =>
+        arrow.source.slice(
+          code.position.start.offset - arrow.position.start.offset,
+        ),
+      ),
+    ),
+    Match.orElse(() => Option.none<string>()),
+  )
+
+const configBodyOf = (doc: LoomDocument): string | undefined => {
+  const section = doc.sections.find(
+    (s) =>
+      s.heading.specifier?.type === 'Specifier' &&
+      s.heading.specifier.label.value === 'Config',
+  )
+  return section === undefined
+    ? undefined
+    : Array.getSomes(Array.map(section.code, codeOf)).join('')
+}
+
+const diskSource: Source = {
+  read: (path) =>
+    Effect.try({
+      try: () => readFileSync(path, 'utf8'),
+      catch: (cause) => new ReadError({ path, cause }),
+    }),
+  list: Option.none(),
+}
+
+## Shaping the manifest
+
+`buildManifest` turns the workspace configuration it found into the manifest the configuration package reads, carrying the same fields across — the languages, the corpus directory, the primary, the anchor, and the settings. A search that found no configuration yields an empty manifest, every field absent.
+
+=>
+
+const buildManifest = (
+  found: Option.Option<WorkspaceConfig>,
+): WorkspaceManifest =>
+  Option.match(found, {
+    onNone: () => ({}),
+    onSome: (config) => ({
+      languages: config.languages,
+      corpus: config.corpus,
+      primary: config.primary,
+      anchor: config.anchor,
+      settings: config.settings,
+    }),
+  })
+
+## The service
+
+`ManifestBuilder` exposes two steps. Its `build` searches a workspace for the `{Config}` source and shapes it into a manifest, parsing each candidate file through the corpus builder and taking the first that carries a configuration. Its `materialize` runs `build` and writes the result through `LoomConfig`, the single call that produces a workspace's `.loom/config.yaml`. The CLI's activation commands call `materialize` after they edit the `{Config}` source, so the compiled file stays in step with what a person authored.
+
+=>
+
+export class ManifestBuilder extends Context.Service<ManifestBuilder>()(
+  'ManifestBuilder',
+  {
+    make: Effect.gen(function* () {
+      const corpus = yield* LoomCorpusAstBuilder
+      const config = yield* LoomConfig
+
+      const configAt = (file: Path): Effect.Effect<Option.Option<WorkspaceConfig>> =>
+        corpus.build(diskSource, file).pipe(
+          Effect.map((built) =>
+            Option.fromNullishOr(configBodyOf(built.doc)).pipe(
+              Option.flatMap((body) => Option.fromNullishOr(parseConfig(body))),
+            ),
+          ),
+        )
+
+      const build = (workspace: string): Effect.Effect<WorkspaceManifest> =>
+        Effect.forEach(loomFiles(workspace), configAt).pipe(
+          Effect.map((configs) => buildManifest(Option.firstSomeOf(configs))),
+        )
+
+      const materialize = (workspace: string): Effect.Effect<void> =>
+        build(workspace).pipe(
+          Effect.flatMap((manifest) => config.materialize(workspace, manifest)),
+        )
+
+      return { build, materialize }
+    }),
+  },
+) {
+  static readonly layer = Layer.effect(this, this.make).pipe(
+    Layer.provide(Layer.mergeAll(LoomCorpusAstBuilder.layer, LoomConfig.layer)),
+  )
+}
+
+## What the module draws on
+
+Effect supplies the effect type and the service primitive, with `Match`, `Option`, and `Array` for pulling the code from a section's chunks. Bun's synchronous filesystem reads each file and lists each directory; its path module resolves the files it descends into. From `@athrio/loom-config` come the configuration service, the `parseConfig` decoder, and the `WorkspaceConfig` and `WorkspaceManifest` shapes the pass reads and writes. The corpus builder parses each `.loom` file, with its `Source` seam and `ReadError`, and the AST supplies the `LoomDocument` the pass reads, the `SectionBodyWeft` chunks it pulls code from, and the `Path` it works in.
+
+=>
+
+import { Array, Context, Effect, Layer, Match, Option } from 'effect'
+import { readdirSync, readFileSync } from 'node:fs'
+import { resolve as resolvePath } from 'node:path'
+import {
+  LoomConfig,
+  parseConfig,
+  type WorkspaceConfig,
+  type WorkspaceManifest,
+} from '@athrio/loom-config/LoomConfig'
+import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
+import type { LoomDocument } from '@athrio/loom-ast/LoomAst'
+import type { SectionBodyWeft } from '@athrio/loom-ast/Weft'
+import type { Path } from '@athrio/loom-ast/LoomCorpusAst'
+
+## The module {Tangle}
+
+=>
+
+::[What the module draws on]
+
+::[Finding the configuration sources]
+
+::[Reading a file's configuration section]
+
+::[Shaping the manifest]
+
+::[The service]

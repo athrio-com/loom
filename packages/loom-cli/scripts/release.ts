@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 const cli = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const manifest = resolve(
   cli,
-  '../../corpus/09-loom-builds-loom/12-packaging-loom-cli.loom',
+  '../../corpus/08-loom-builds-loom/10-packaging-loom-cli.loom',
 )
 
 const run = (cmd: string, args: ReadonlyArray<string>): void =>

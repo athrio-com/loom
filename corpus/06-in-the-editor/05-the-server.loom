@@ -1,0 +1,113 @@
+---
+Part VI, Chapter 5: The language server
+Package: packages/loom-lang/src/
+Language: TypeScript
+---
+
+# The language server
+
+The Loom language server is an Effect program. `startLanguageServer` runs it on the Bun
+runtime: it builds the pipeline layers once and captures a warm runtime — Volar's hooks are
+synchronous, so the language plugin runs the projection on it. On `initialize` it loads the
+editor's TypeScript, collects the active languages' Volar plugins, and registers them
+alongside the language plugin. Two callers start it — a thin entry an editor loads, and the
+`loom lsp` command — so the server lives in the CLI, the one tool every Loom user already has.
+
+## Imports
+
+The server is built from Volar's language-server toolkit — the connection, the
+project factory, and `loadTsdkByPath` — over a `ManagedRuntime`. It imports `LoomCompiler`,
+the projector and cache the runtime warms, with the `DocumentSource`, `PackageConfig`, and
+`LoomConfig` it requires, and the two halves this module registers, `loomLanguagePlugin` and
+`loomServicePlugins`.
+
+=>
+
+import { Layer, ManagedRuntime } from 'effect'
+import {
+  createConnection,
+  createServer,
+  createTypeScriptProject,
+  loadTsdkByPath,
+} from '@volar/language-server/node'
+import { fileURLToPath } from 'node:url'
+import { LoomCompiler, DocumentSource } from './LoomCompiler'
+import { PackageConfig } from './PackageConfig'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
+import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
+
+## The program
+
+A `ManagedRuntime`, built once from the pipeline layers, warms the services the server runs; the language plugin
+runs the per-keystroke projection on it, and resolves each file's activated languages from
+`LoomConfig` on it too. The `loadTsdkByPath` call loads the editor's own
+TypeScript from the path the client sends, so a product section checks against the user's
+standard library. Collecting service plugins requires reading the workspace configuration, so
+the `onInitialize` handler hands the workspace folder to `loomServicePlugins` and awaits that Effect —
+which finds the `.loom/` store and its `config.yaml` by walking up from the folder — before it registers the
+language plugin and the collected plugins. On `initialized`, the server watches every `tsconfig.json` and
+`jsconfig.json`, so editing a package's compiler options disposes its project and the next
+request rebuilds it — the consumer's options take effect without an editor reload.
+
+=>
+
+const runtime = ManagedRuntime.make(
+  Layer.mergeAll(LoomCompiler.layer, LoomConfig.layer).pipe(
+    Layer.provide(DocumentSource.layer),
+    Layer.provide(PackageConfig.layer),
+    Layer.provide(LoomConfig.layer),
+  ),
+)
+
+export const startLanguageServer = (): void => {
+  const connection = createConnection()
+  const server = createServer(connection)
+
+  connection.onInitialize(async (params) => {
+    const tsdk = loadTsdkByPath(
+      (params.initializationOptions as { typescript: { tsdk: string } })
+        .typescript.tsdk,
+      params.locale,
+    )
+    const folder = params.workspaceFolders?.[0]?.uri
+    const root = folder ? fileURLToPath(folder) : process.cwd()
+    const servicePlugins = await runtime.runPromise(
+      loomServicePlugins(runtime, tsdk.typescript, root),
+    )
+    return server.initialize(
+      params,
+      createTypeScriptProject(
+        tsdk.typescript,
+        tsdk.diagnosticMessages,
+        () => ({ languagePlugins: [loomLanguagePlugin(runtime)] }),
+      ),
+      [...servicePlugins],
+    )
+  })
+  connection.onInitialized(() => {
+    server.initialized()
+    void server.fileWatcher.watchFiles(['**/tsconfig.json', '**/jsconfig.json'])
+  })
+  connection.onShutdown(server.shutdown)
+  connection.listen()
+}
+
+## The server module {Tangle}[LoomServer.ts]
+
+The server module assembles the imports and the program and exports `startLanguageServer`. It runs nothing on import — a caller decides when to start the server, so the same module serves both an editor that spawns it and the `loom lsp` command that calls it in-process.
+
+=>
+
+::[Imports]
+
+::[The program]
+
+## The run-on-import entry {Tangle}[index.ts]
+
+This thin entry starts the server the moment it loads. The VS Code extension bundles it as `server.js`, and the `loom-language-server` bin runs it — both expect loading the module to start the server.
+
+=>
+
+import { startLanguageServer } from './LoomServer'
+
+startLanguageServer()

@@ -1,0 +1,92 @@
+---
+Part VII, Chapter 4: Loading a language by id
+Package: packages/loom-lang-services/src/LanguageLoader.ts
+Language: TypeScript
+---
+
+# Loading a language by id
+
+A package turns a language on by naming its id in `loom.json` — `typescript`, `python`, `go`. Loom itself is the one language built into the server. Every other language ships as a `@athrio/loom-service-<id>` package the project installs. This module turns each activated id into the `LanguageService` that serves it: it finds the package the project installed, imports it, and confirms the package exports a service for that id.
+
+A language that fails to load costs only itself. Its sections stay at syntax highlighting — the floor every section keeps, with or without a service — while every other language serves on. Activating a language whose package is missing degrades the editor; it never breaks it.
+
+## Importing one language's package
+
+The loader resolves a package from the store `storeDir` locates, imports it, and reads the package's default export. The import is dynamic — by name, at runtime — because a package is a unit the consumer installs after the editor ships, never one a build could fold in.
+
+What the import returns is unknown until checked. `isLanguageService` confirms the default export has the shape the contract requires, and the loader confirms the service's declared `id` is the one activated. A package that answers to another id, or exports something that is not a service at all, is not the language the project asked for. When the package is missing or fails either check, the loader logs the reason and yields nothing.
+
+=>
+
+const loadService = (
+  id: string,
+  root: string,
+): Effect.Effect<Option.Option<LanguageService>> =>
+  Effect.tryPromise(async () => {
+    const from = join(storeDir(dirname(root)), 'index.js')
+    const entry = createRequire(from).resolve(servicePackage(id))
+    const loaded = (await import(pathToFileURL(entry).href)) as {
+      readonly default?: unknown
+    }
+    return loaded.default
+  }).pipe(
+    Effect.flatMap((exported) =>
+      isLanguageService(exported) && exported.id === id
+        ? Effect.succeed(Option.some(exported))
+        : Effect.logWarning(
+            `${servicePackage(id)} does not export a language service for "${id}"`,
+          ).pipe(Effect.as(Option.none<LanguageService>())),
+    ),
+    Effect.catchCause(() =>
+      Effect.logWarning(
+        `language "${id}" is activated but ${servicePackage(id)} is not installed — run \`loom add ${id}\``,
+      ).pipe(Effect.as(Option.none<LanguageService>())),
+    ),
+  )
+
+## The active set
+
+`loadActive` produces the services a project has turned on. Loom and Prose lead the set — every `.loom` has a frame and prose, so both services are always present — and each activated id follows, loaded by `loadService`. The loader drops an id equal to a built-in's, so naming `loom` or `prose` in the config never doubles it, and drops a repeated id, so activating a language twice loads it once. An id whose package does not load contributes nothing, and the set carries the languages that did.
+
+=>
+
+export const loadActive = (
+  ids: ReadonlyArray<string>,
+  root: string,
+): Effect.Effect<ReadonlyArray<LanguageService>> =>
+  pipe(
+    ids,
+    Array.filter((id) => id !== LoomLanguage.id && id !== ProseLanguage.id),
+    Array.dedupe,
+    (rest) => Effect.forEach(rest, (id) => loadService(id, root)),
+    Effect.map((loaded) => [
+      LoomLanguage,
+      ProseLanguage,
+      ...Array.getSomes(loaded),
+    ]),
+  )
+
+## What this module draws on
+
+The loader works in Effect: `Effect` runs the load, `Option` carries a language that may not load, and `Array` with `pipe` build the set. Bun loads the package — `createRequire` resolves it within the store, `pathToFileURL` forms the specifier the dynamic import takes, and `dirname` with `join` point the resolver at the store's directory. From `./LoomStore` come `servicePackage`, which names a language's package, and `storeDir`, which locates the project's store. From the contract module come the `LanguageService` type and the `isLanguageService` guard; `LoomLanguage` and `ProseLanguage` are the built-in services that always lead the set.
+
+=>
+
+import { Array, Effect, Option, pipe } from 'effect'
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { servicePackage, storeDir } from './LoomStore'
+import { isLanguageService, type LanguageService } from './LanguageService'
+import { LoomLanguage } from './LoomLanguage'
+import { ProseLanguage } from './ProseLanguage'
+
+## The module {Tangle}
+
+=>
+
+::[What this module draws on]
+
+::[Importing one language's package]
+
+::[The active set]

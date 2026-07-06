@@ -1,0 +1,73 @@
+---
+Part VIII, Chapter 8: Packaging the Loom language
+Package: packages/loom-lang/
+Language: JSON
+---
+
+# Packaging the Loom language
+
+The `@athrio/loom-lang` package is the language behind every `.loom` file — the Volar extended language and the engine that tangles it. The command-line tool and the VS Code extension both build on it: they import its source and bundle it into their own output, so this package exposes TypeScript source rather than a precompiled library.
+
+## The manifest {Tangle}[package.json]
+
+Two field groups carry the package's shape. The `imports` field defines one package subpath alias, `#ast/*`, for the AST source, so internal imports stay stable rather than relative. The `exports` field names the public entry points — `./LoomCompiler`, `./LoomTangler`, `./PackageConfig`, `./ManifestBuilder`, and `./LoomServer` — each pointing at a source file the consumer inlines. `./weave/WovenSite` exposes the woven-site schema on its own, so the reader site types its rendered pages against the same definition the weave pass produces rather than a hand-kept copy. `@athrio/loom-ast` supplies the shared domain types the verbs build and the toolchain reads, a workspace dependency.
+
+The `main` and `bin` fields point at built output: `dist/loom-server.js` is the bundled language server, and the `loom-language-server` binary launches it. The runtime libraries the server needs — Volar, Effect, the `volar-service-*` plugins — are `dependencies`. `@athrio/loom-service-typescript` is a `devDependency`: the server loads it at runtime from the Loom store rather than bundling it, so it is present only to build and test against. `vscode-uri` is a type-only `devDependency`.
+
+=>
+
+{
+  "name": "@athrio/loom-lang",
+  "version": "0.0.1",
+  "main": "./dist/loom-server.js",
+  "bin": {
+    "loom-language-server": "./bin/loom-language-server.js"
+  },
+  "imports": {
+    "#ast/*": "./src/ast/*.ts"
+  },
+  "exports": {
+    "./LoomCompiler": "./src/LoomCompiler.ts",
+    "./LoomTangler": "./src/LoomTangler.ts",
+    "./PackageConfig": "./src/PackageConfig.ts",
+    "./ManifestBuilder": "./src/ManifestBuilder.ts",
+    "./LoomServer": "./src/LoomServer.ts",
+    "./weave/WovenSite": "./src/weave/WovenSite.ts"
+  },
+  "scripts": {
+    "build": "vite build",
+    "watch": "vite build --watch"
+  },
+  "dependencies": {
+    "@athrio/loom-config": "workspace:*",
+    "@athrio/loom-ast": "workspace:*",
+    "@athrio/loom-lang-services": "workspace:*",
+    "@effect/platform-bun": "4.0.0-beta.93",
+    "@volar/language-core": "^2.4.28",
+    "@volar/language-server": "^2.4.28",
+    "@volar/language-service": "^2.4.28",
+    "effect": "4.0.0-beta.93",
+    "volar-service-css": "^0.0.71",
+    "volar-service-html": "^0.0.71",
+    "volar-service-markdown": "^0.0.71",
+    "vscode-html-languageservice": "^5.6.2"
+  },
+  "devDependencies": {
+    "@athrio/loom-service-typescript": "workspace:*",
+    "vscode-uri": "^3.1.0"
+  }
+}
+
+## The TypeScript config {Tangle}[tsconfig.json]
+
+The `tsconfig.json` extends the workspace-root `tsconfig.base.json` and covers both the `src` and `test` directories. Vite produces the `dist` bundle, so the configuration is a development tool only.
+
+=>
+
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "out"
+  },
+  "include": ["src", "test"]
+}

@@ -1,0 +1,167 @@
+---
+Part V, Chapter 6: The fault catalog
+Package: packages/loom-lang/src/ast/LoomFault.ts
+Language: TypeScript
+---
+
+# The fault catalog
+
+A fault is something the author got wrong that Loom can name: a bracket left open, a label left empty, an anchor that resolves to no section. `LoomFault` is the closed set of them, and this module is the one place that spells out each fault's wording and severity.
+
+Writing them once is the point. A reader sees everything Loom can say, gathered in one place. A detection site — in the tokeniser, the AST builder, or the product pass — names a fault and the span it covers, and never writes the words itself. `describe` turns a fault into the message a person reads, and `faulty` wraps that message, positioned, as the `Health` a node carries. Adding a fault is adding a line to the table. The table is exhaustive, so a fault with no line does not compile.
+
+## What Loom can get wrong
+
+A `LoomFault` is a tagged union, and each variant names one fault and carries only what its message needs. An `UnclosedDelimiter` carries the delimiter it expected to find. An `UnresolvedAnchor` carries the name that matched no section, and an `AmbiguousAnchor` adds the count that made it ambiguous. A `MissingWarpValue` carries the name of a Warp that bound nothing. A `CrossLanguageAnchor` carries the anchor name, the language found at the target, and the language the host section composes. An `UnresolvedTocEntry` carries the title of a table-of-contents entry that names no chapter.
+
+The label faults fold many constructs into two variants. A construct is a named span the grammar validates — a specifier, a file path, a warp name, an anchor name. `EmptyLabel` is one with no text. `MalformedLabel` is one whose text breaks the construct's rule. Two further constructs — a warp annotation and a warp default — can only be empty, never malformed, so `EmptyConstruct` adds those two to `MalformedConstruct`.
+
+=>
+
+export type MalformedConstruct =
+  | 'specifier'
+  | 'path'
+  | 'warpName'
+  | 'anchorName'
+
+export type EmptyConstruct =
+  | MalformedConstruct
+  | 'warpAnnotation'
+  | 'warpDefault'
+
+export type LoomFault = Data.TaggedEnum<{
+  UnclosedDelimiter: { readonly expected: string }
+  EmptyLabel: { readonly construct: EmptyConstruct }
+  MalformedLabel: {
+    readonly construct: MalformedConstruct
+    readonly value: string
+  }
+  MissingWarpValue: { readonly name: string }
+  UnresolvedAnchor: { readonly name: string }
+  AmbiguousAnchor: { readonly name: string; readonly count: number }
+  CrossLanguageAnchor: {
+    readonly name: string
+    readonly host: string
+    readonly found: string
+  }
+  UnresolvedTocEntry: { readonly title: string }
+}>
+
+~
+
+Destructuring `taggedEnum` gives one constructor per variant, so a detection site builds a fault by name — `EmptyLabel({ construct: 'specifier' })`, or `MissingLanguageWarp()` for a variant that carries nothing.
+
+=>
+
+export const {
+  UnclosedDelimiter,
+  EmptyLabel,
+  MalformedLabel,
+  MissingWarpValue,
+  UnresolvedAnchor,
+  AmbiguousAnchor,
+  CrossLanguageAnchor,
+  UnresolvedTocEntry,
+} = Data.taggedEnum<LoomFault>()
+
+## The table
+
+`describe` reads a fault aloud. It maps each variant to a `severity` and the `message` a person sees, and it is exhaustive over the union — a new fault does not compile until it has a line here. The table cannot drift from the faults it describes.
+
+Two small lookups carry the wording that varies by construct. `noun` gives each construct the name a reader knows it by, and `rule` gives each construct that can be malformed the rule its text broke. An empty label then reads `<noun> cannot be empty`, and a malformed one reads `<noun> <rule>; got <value>`.
+
+=>
+
+type Note = { readonly severity: Severity; readonly message: string }
+
+const error = (message: string): Note => ({ severity: 'error', message })
+
+const cap = (text: string): string =>
+  text.charAt(0).toUpperCase() + text.slice(1)
+
+const noun: Record<EmptyConstruct, string> = {
+  specifier: 'specifier label',
+  path: 'file path',
+  warpName: 'warp name',
+  anchorName: 'anchor name',
+  warpAnnotation: 'warp annotation',
+  warpDefault: 'warp default',
+}
+
+const rule: Record<MalformedConstruct, string> = {
+  specifier: 'may contain only letters, digits, hyphen, and underscore',
+  path: 'may contain only letters, digits, hyphen, underscore, dot, and slash',
+  warpName: 'must be a TypeScript identifier',
+  anchorName: 'may not contain `]`',
+}
+
+export const describe = (fault: LoomFault): Note =>
+  Match.value(fault).pipe(
+    Match.tag('UnclosedDelimiter', ({ expected }) =>
+      error(`expected closing \`${expected}\``),
+    ),
+    Match.tag('EmptyLabel', ({ construct }) =>
+      error(`${cap(noun[construct])} cannot be empty.`),
+    ),
+    Match.tag('MalformedLabel', ({ construct, value }) =>
+      error(`${cap(noun[construct])} ${rule[construct]}; got \`${value}\`.`),
+    ),
+    Match.tag('MissingWarpValue', ({ name }) =>
+      error(`Warp \`${name}\` has no value; a Warp binds a value, as in \`${name} = …\`.`),
+    ),
+    Match.tag('UnresolvedAnchor', ({ name }) =>
+      error(`Unresolved anchor: no section named \`${name}\`.`),
+    ),
+    Match.tag('AmbiguousAnchor', ({ name, count }) =>
+      error(
+        `Ambiguous anchor: ${count} sections are named \`${name}\`. A name anchor resolves one local section; rename to disambiguate.`,
+      ),
+    ),
+    Match.tag('CrossLanguageAnchor', ({ name, host, found }) =>
+      error(
+        `Cross-language transclusion: \`${name}\` is ${found}, but this section composes ${host}. A section composes one language.`,
+      ),
+    ),
+    Match.tag('UnresolvedTocEntry', ({ title }) =>
+      error(`Unresolved contents entry: no chapter titled \`${title}\`.`),
+    ),
+    Match.exhaustive,
+  )
+
+## Raising a fault
+
+A detection site holds a fault and the span it covers, and needs a `Health` for the node. `faulty` is that step: it describes the fault through the catalog and returns a health carrying the one diagnostic, positioned where the fault was found. The severity sets the node's status: an error or a warning fails it. An informational note would leave it healthy, but the catalog raises only errors and warnings — never `info`.
+
+=>
+
+const statusOf = (severity: Severity): Health['status'] =>
+  severity === 'info' ? 'ok' : severity
+
+export const faulty = (fault: LoomFault, position: Position): Health => {
+  const note = describe(fault)
+  return {
+    status: statusOf(note.severity),
+    diagnostics: [{ message: note.message, position, severity: note.severity }],
+  }
+}
+
+## What this module draws on
+
+`Data` builds the tagged union and a constructor for each fault, and `Match` builds the exhaustive table. `@athrio/loom-ast` types what a fault becomes — the `Severity` and `Position` a diagnostic carries, and the `Health` a node holds.
+
+=>
+
+import { Data, Match } from 'effect'
+import type { Health, Position, Severity } from '@athrio/loom-ast/LoomNode'
+
+## The module {Tangle}
+
+=>
+
+::[What this module draws on]
+
+::[What Loom can get wrong]
+
+::[The table]
+
+::[Raising a fault]

@@ -1,0 +1,182 @@
+---
+Part III: Reading the text
+Chapter 1: Line ranges
+Package: packages/loom-lang/src/ast/LineRanges.ts
+Language: TypeScript
+---
+
+# Line ranges
+
+`LineRanges` is the parser's first pass. `LoomSourceRanges` turns a file's text into a stream of half-open `[start, end)` ranges, one per line — the offsets every later pass slices against and Volar maps from. It detects the file's line-terminator convention once and refuses a file that mixes conventions, the one failure the parse chain cannot pin to a node.
+
+## Terminator conventions
+
+A file ends its lines one of three ways, named by `EolKind`: a line feed (`lf`), a carriage-return and line-feed pair (`crlf`), or a bare carriage return (`cr`). An `Eol` bundles a detected kind with two regexes — `pattern` to find its own terminator, `stray` to spot any other. `MixedEOL` is the error raised when a file uses more than one; it carries human-friendly line numbers, since mixed terminators are invisible on screen.
+
+=>
+
+export type EolKind = 'lf' | 'crlf' | 'cr'
+
+type Eol = {
+  readonly kind: EolKind
+  readonly pattern: RegExp
+  readonly stray: RegExp
+}
+
+export class MixedEOL extends Data.TaggedError('MixedEOL')<{
+  readonly primary: EolKind
+  readonly found: EolKind
+  readonly offset: number
+  readonly primaryLine: number
+  readonly foundLine: number
+}> {}
+
+## Detecting the convention
+
+`detectEol` scans for the first terminator and adopts it as the file's convention, returning nothing for a single line that has none. `eolOf` builds the `Eol` for a kind — the `pattern` that walks its lines and the `stray` that catches a foreign terminator.
+
+=>
+
+export const detectEol = (s: string): Option.Option<Eol> => {
+  const lf = s.indexOf('\n')
+  const cr = s.indexOf('\r')
+  if (lf < 0 && cr < 0) return Option.none()
+  if (cr < 0) return Option.some(eolOf('lf'))
+  if (lf < 0) return Option.some(eolOf('cr'))
+  return cr < lf
+    ? cr + 1 === lf
+      ? Option.some(eolOf('crlf'))
+      : Option.some(eolOf('cr'))
+    : Option.some(eolOf('lf'))
+}
+
+const eolOf = (kind: EolKind): Eol => {
+  switch (kind) {
+    case 'lf':
+      return { kind, pattern: /\n/g, stray: /\r/g }
+    case 'crlf':
+      return { kind, pattern: /\r\n/g, stray: /(?<!\r)\n|\r(?!\n)/g }
+    case 'cr':
+      return { kind, pattern: /\r/g, stray: /\n/g }
+  }
+}
+
+## Checking for a mix
+
+`checkMixed` confirms a file holds to its convention throughout: it succeeds with the `Eol` when no stray terminator appears, and fails with `MixedEOL` otherwise. `lineOfOffset` counts visual lines up to an offset, treating every terminator kind as one break, so it reports the right line even when terminators are mixed. `strayKind` names the offending terminator from its matched text.
+
+=>
+
+const checkMixed = (text: string, eol: Eol): Effect.Effect<Eol, MixedEOL> => {
+  const stray = eol.stray.exec(text)
+  if (!stray) return Effect.succeed(eol)
+  eol.pattern.lastIndex = 0
+  const primary = eol.pattern.exec(text)
+  const primaryOffset = primary ? primary.index : 0
+  return Effect.fail(
+    new MixedEOL({
+      primary: eol.kind,
+      found: strayKind(eol.kind, stray[0]),
+      offset: stray.index,
+      primaryLine: lineOfOffset(text, primaryOffset),
+      foundLine: lineOfOffset(text, stray.index),
+    }),
+  )
+}
+
+const lineOfOffset = (text: string, offset: number): number => {
+  let line = 1
+  for (let i = 0; i < offset; i++) {
+    const c = text.charCodeAt(i)
+    if (c === 10) line++
+    else if (c === 13) {
+      line++
+      if (i + 1 < text.length && text.charCodeAt(i + 1) === 10) i++
+    }
+  }
+  return line
+}
+
+const strayKind = (primary: EolKind, match: string): EolKind => {
+  if (match === '\r\n') return 'crlf'
+  if (match === '\n') return 'lf'
+  if (match === '\r') return 'cr'
+  return primary
+}
+
+## Streaming the ranges
+
+A `LineRange` is a half-open `[start, end)` pair of byte offsets, terminator included; `LineRangeSchema` mirrors it for schema fields, both offsets non-negative integers. `lineRanges` streams them by walking the text with the convention's `pattern` — each step emits the range up to the end of the next terminator, and the last line, having none, runs to the end of the text. The source string is never split or copied; later passes slice it on demand.
+
+=>
+
+export type LineRange = readonly [start: number, end: number]
+
+const NonNegativeInt = Schema.Number.check(
+  Schema.makeFilter<number>((n) =>
+    Number.isInteger(n) && n >= 0 ? undefined : 'must be a non-negative integer',
+  ),
+)
+
+export const LineRangeSchema = Schema.Tuple([NonNegativeInt, NonNegativeInt])
+
+const lineRanges = (text: string, eol: Eol): Stream.Stream<LineRange> =>
+  Stream.unfold(0, (from) =>
+    Effect.sync(() => {
+      if (from > text.length) return undefined
+      eol.pattern.lastIndex = from
+      const m = eol.pattern.exec(text)
+      if (!m) return [[from, text.length], text.length + 1] as const
+      return [[from, eol.pattern.lastIndex], eol.pattern.lastIndex] as const
+    }),
+  )
+
+## The service
+
+`LoomSourceRanges` is the pass as an Effect service. Its `stream` detects the convention, checks for a mix — failing with `MixedEOL` — then streams the ranges. A single line with no terminator yields one range covering the whole text.
+
+=>
+
+export class LoomSourceRanges extends Context.Service<LoomSourceRanges>()(
+  'LoomSourceRanges',
+  {
+    make: Effect.succeed({
+      stream: (
+        text: string,
+      ): Effect.Effect<Stream.Stream<LineRange>, MixedEOL> =>
+        Option.match(detectEol(text), {
+          onNone: () => Effect.succeed(Stream.make([0, text.length] as const)),
+          onSome: (eol) =>
+            checkMixed(text, eol).pipe(
+              Effect.map((validEol) => lineRanges(text, validEol)),
+            ),
+        }),
+    }),
+  },
+) {
+  static readonly layer = Layer.effect(this, this.make)
+}
+
+## What this module draws on
+
+Effect supplies `Stream` for the ranges, `Data` for the tagged `MixedEOL` error, `Schema` for `LineRangeSchema`, and `Option` and `Effect` for the rest.
+
+=>
+
+import { Context, Effect, Layer, Option, Stream, Data, Schema } from 'effect'
+
+## The module {Tangle}
+
+=>
+
+::[What this module draws on]
+
+::[Terminator conventions]
+
+::[Detecting the convention]
+
+::[Checking for a mix]
+
+::[Streaming the ranges]
+
+::[The service]

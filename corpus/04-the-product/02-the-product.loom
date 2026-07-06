@@ -1,0 +1,151 @@
+---
+Part IV, Chapter 2: The shape of the product
+Package: packages/loom-ast/src/ast/ProductAst.ts
+Language: TypeScript
+---
+
+# The shape of the product
+
+`ProductAst` is the shape of the product — the author's code, with each transclusion expressed as an edge rather than copied. Its unit is the `Code` of one section. The product pass builds one `Code` per section, and `fromProduct` later flattens a section to text and mappings, following its edges across the corpus.
+
+An edge holds a target key, not a pointer. So the schema stays flat and serialisable even though the graph it describes recurses — and may hold a cycle, which `fromProduct` cuts.
+
+Code is one of two channels. Prose is its peer, a `WovenProse` woven from the same fragments. A tangle section returns neither: it binds a composed result to a file path as a `File`, the descriptor the tangler writes.
+
+## The product node
+
+`productNode` builds each product node: it stamps a `type` discriminator and a defaulted `health` onto the fields it wraps. There is no render-order annotation, since the product is flattened by a graph walk rather than by emitting fields in order.
+
+=>
+
+const productNode = <Tag extends string, Fields extends Schema.Struct.Fields>(
+  tag: Tag,
+  fields: Fields,
+) =>
+  Schema.Struct({
+    type: Schema.tag(tag),
+    health: HealthSchema.pipe(
+      Schema.withConstructorDefault(Effect.succeed(okHealth)),
+    ),
+    ...fields,
+  })
+
+## Section identity
+
+A `SectionId` is a node's corpus-wide identity: the `.loom` `path` and the section `name` within it. Two files may each define a `Main`, so identity is module-qualified. `keyOf` JSON-encodes the pair into the key `fromProduct` uses for its cycle-cutting visited set.
+
+=>
+
+export const SectionIdSchema = Schema.Struct({
+  path: Schema.String,
+  name: Schema.String,
+})
+export type SectionId = typeof SectionIdSchema.Type
+
+export const keyOf = (id: SectionId): string => JSON.stringify([id.path, id.name])
+
+## The leaves
+
+A `Fragment` is a literal product span — the code the author wrote — with the `.loom` `origin` it maps 1:1 back to.
+
+A `Ref` is a transclusion edge. It records a name anchor — `::[Heading]` naming a section in the same document — so the projection composes its target into the referring section's namespace, and the two share one scope. A `Ref` carries two fields: a `target`, the `Option<SectionId>` the edge points at, `None` when the anchor resolved to nothing; and an `anchor`, the `::[…]` site in the consuming section, where a resolution diagnostic lands. `Ref` is the single edge kind, named `NameRef`.
+
+=>
+
+export const FragmentSchema = productNode('Fragment', {
+  text: Schema.String,
+  origin: PositionSchema,
+})
+export type Fragment = typeof FragmentSchema.Type
+
+export const NameRefSchema = productNode('NameRef', {
+  target: Schema.Option(SectionIdSchema),
+  anchor: PositionSchema,
+})
+export type NameRef = typeof NameRefSchema.Type
+
+export const RefSchema = NameRefSchema
+export type Ref = typeof RefSchema.Type
+
+## Composed code
+
+A `Code` is one section, composed: its `origin` identity, its product `languageId`, and its `fragments` in composition order — a transcluded section before the code that uses it. Each fragment is a `Fragment`, a literal span, or a `Ref`, a transclusion edge; `Part` is the union of the two. The product pass returns one `Code` per section, keyed by name.
+
+=>
+
+export const PartSchema = Schema.Union([FragmentSchema, RefSchema])
+export type Part = typeof PartSchema.Type
+
+export const CodeSchema = productNode('Code', {
+  origin: SectionIdSchema,
+  languageId: Schema.String,
+  fragments: Schema.Array(PartSchema),
+})
+export type Code = typeof CodeSchema.Type
+
+## The prose peer
+
+A `WovenProse` is the prose channel's `Code`. It carries the same `origin` and the same `fragments`, so one `Part` type serves both channels. A fragment is a span of the section's prose, and a reference transcludes another section's prose. The channel a fragment belongs to is the field that holds it, never the fragment itself. Prose is always Markdown, so a `WovenProse` declares no `languageId`.
+
+=>
+
+export const WovenProseSchema = productNode('WovenProse', {
+  origin: SectionIdSchema,
+  fragments: Schema.Array(PartSchema),
+})
+export type WovenProse = typeof WovenProseSchema.Type
+
+## A tangled file
+
+A `File` is what a tangle section composes to: a file `path` paired with the `Code` bound to it. It is a value, not an effect — the tangler flattens the `code` across the corpus and performs the write, so building a `File` touches no disk.
+
+=>
+
+export const FileSchema = productNode('File', {
+  path: Schema.String,
+  code: CodeSchema,
+})
+export type File = typeof FileSchema.Type
+
+## The module's product
+
+`Product` is a module's whole composition — the graph the product pass produces for one `.loom`. A module has many roots, so a `Product` holds many nodes: its `code`, one `Code` per ordinary section, and its `files`, one `File` per tangle sink. The edges are the refs those nodes carry. A node no same-module ref folds in is a root; the rest are members, reached only through an edge.
+
+The graph is what `compile` resolves. It reads a `Product`, takes the roots, and flattens each by following its edges across the corpus. So a `Product` is left unresolved here — it carries the whole graph, not the flattened roots — and resolving it is the next pass's work, not this structure's. Prose is no part of it: the narration is read from the parse, in document order, never composed here.
+
+=>
+
+export const ProductSchema = Schema.Struct({
+  code: Schema.Array(CodeSchema),
+  files: Schema.Array(FileSchema),
+})
+export type Product = typeof ProductSchema.Type
+
+## What this module draws on
+
+Effect's `Schema` defines the nodes, and `Effect` fills the health default. `Health`, `okHealth`, and `Position` come from the foundation, giving each node its health and its source spans.
+
+=>
+
+import { Effect, Schema } from 'effect'
+import { HealthSchema, okHealth, PositionSchema } from '#ast/LoomNode'
+
+## The module {Tangle}
+
+=>
+
+::[What this module draws on]
+
+::[The product node]
+
+::[Section identity]
+
+::[The leaves]
+
+::[Composed code]
+
+::[The prose peer]
+
+::[A tangled file]
+
+::[The module's product]

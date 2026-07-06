@@ -1,0 +1,91 @@
+---
+Part V, Chapter 2: Tangling to disk
+Package: packages/loom-lang/src/LoomTangler.ts
+Language: TypeScript
+---
+
+# Tangling to disk
+
+`LoomTangler` is the filesystem surface of the product. The compiler resolves a `.loom` file's `{path}` sinks to their content and target; the tangler writes them to disk. `tangle` takes a path, finds the looms under it, and writes every sink each one resolves — skipping the chapters a book already places, so every file is written once. It is the half of the pipeline the editor never runs — the editor projects to virtual code, the tangler emits real files.
+
+## The tangler service
+
+`LoomTangler` holds the compiler and the filesystem. `tangleFile` asks the compiler to resolve one file's sinks — which fails with a `TangleError` if any module in the corpus carries an error — then `writeFile` creates each target's directory and writes its content, returning the file it wrote. `loomsUnder` lists every `.loom` source file beneath a directory, skipping the generated stores — `node_modules`, `dist`, `.git`, and the `.loom` activation store — so it never reads one as source. `tangle` lists the looms a path covers and tangles each, so every chapter emits its own files and every file is written once.
+
+=>
+
+const ignoredSegment = new Set(['node_modules', '.loom', 'dist', '.git'])
+
+const isStorePath = (name: string): boolean =>
+  name.split('/').some((segment) => ignoredSegment.has(segment))
+
+export class LoomTangler extends Context.Service<LoomTangler>()('LoomTangler', {
+  make: Effect.gen(function* () {
+    const compiler = yield* LoomCompiler
+    const fs = yield* FileSystem.FileSystem
+
+    const writeFile = (file: TangledFile): Effect.Effect<TangledFile> =>
+      fs
+        .makeDirectory(dirname(file.path), { recursive: true })
+        .pipe(
+          Effect.andThen(fs.writeFileString(file.path, file.content)),
+          Effect.orDie,
+          Effect.as(file),
+        )
+
+    const tangleFile = (
+      entry: Path,
+    ): Effect.Effect<ReadonlyArray<TangledFile>, TangleError> =>
+      compiler
+        .tangle(entry)
+        .pipe(Effect.flatMap((files) => Effect.forEach(files, writeFile)))
+
+    const loomsUnder = (dir: Path): Effect.Effect<ReadonlyArray<Path>> =>
+      fs.readDirectory(dir, { recursive: true }).pipe(
+        Effect.orDie,
+        Effect.map((names) =>
+          pipe(
+            names,
+            Array.filter((name) => name.endsWith('.loom') && !isStorePath(name)),
+            Array.map((name) => resolvePath(dir, name)),
+          ),
+        ),
+      )
+
+    const tangle = (
+      path: Path,
+    ): Effect.Effect<ReadonlyArray<TangledFile>, TangleError> =>
+      Effect.gen(function* () {
+        const info = yield* fs.stat(path).pipe(Effect.orDie)
+        const looms =
+          info.type === 'Directory' ? yield* loomsUnder(path) : [path]
+        const written = yield* Effect.forEach(looms, tangleFile)
+        return written.flat()
+      })
+
+    return { tangle }
+  }),
+}) {
+  static readonly layer = Layer.effect(this, this.make).pipe(
+    Layer.provide(LoomCompiler.layer),
+  )
+}
+
+## What this module draws on
+
+It draws on `LoomCompiler` to resolve each file's sinks to content and target, gating a broken corpus with its `TangleError`. Effect's `FileSystem`, with Bun's path module, lists a directory's looms and writes each file. Effect supplies the array and effect primitives. `TangledFile` is the resolved sink the compiler hands back, and `Path` a file path.
+
+=>
+
+import { Array, Context, Effect, FileSystem, Layer, pipe } from 'effect'
+import { dirname, resolve as resolvePath } from 'node:path'
+import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
+import { LoomCompiler, type TangledFile, type TangleError } from './LoomCompiler'
+
+## The module {Tangle}
+
+=>
+
+::[What this module draws on]
+
+::[The tangler service]

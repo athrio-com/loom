@@ -1,0 +1,328 @@
+---
+Part VI, Chapter 6: The Loom language
+Package: packages/loom-lang-services/src/LoomLanguage.ts
+Language: TypeScript
+---
+
+# The Loom language
+
+`LoomLanguage` gives the **Frame** its editor support — the de dicto composition
+program Loom builds — the `Context.Service` classes and the Warp wiring. Loom is TypeScript + Effect, so
+`LoomLanguage` wraps `volar-service-typescript` and takes the `TypescriptSdk` the host
+provides. It is always active: every `.loom` has a Frame.
+
+The Frame's `languageId` is `loom`, distinct from a product section's `typescript`, so
+the frame and the product section route to their own services even though they share
+the tooling. `LoomLanguage` declares no `extensions` — the Frame is the substrate,
+never a tangle target.
+
+## Loom's own diagnostics
+
+`volar-service-typescript` checks the Frame for composition correctness, but it speaks
+TypeScript, not Loom. It cannot report a malformed tag or an anchor that names no
+section — those are Loom's own health, and `loomDiagnostics` surfaces them.
+
+The diagnostics arrive in `.loom` coordinates, so they belong to the source itself.
+Volar dispatches a diagnostic request to each of a file's projected documents, and
+`loomDiagnostics` answers only for the root — the whole-file mirror whose map to the
+source is the identity. It returns nothing for the frame and the product documents,
+whose generated spans are not where a source diagnostic lives. For the root it reads
+the file path from the embedded uri, asks `FrameQuery` for that file's health, and
+turns each Loom diagnostic into Volar's shape. A Loom severity becomes its editor code
+— `error` is 1, `warning` is 2, `info` is 3 — and a diagnostic's source offsets become
+a range through the document's own `positionAt`, which lands the squiggle on the exact
+span the parser flagged.
+
+=>
+
+const lspSeverity = (
+  severity: Diagnostic['severity'],
+): LspDiagnostic['severity'] =>
+  severity === 'error' ? 1 : severity === 'warning' ? 2 : 3
+
+const toLspDiagnostic = (
+  at: (offset: number) => LspDiagnostic['range']['start'],
+  diagnostic: Diagnostic,
+): LspDiagnostic => ({
+  range: {
+    start: at(diagnostic.position.start.offset),
+    end: at(diagnostic.position.end.offset),
+  },
+  message: diagnostic.message,
+  severity: lspSeverity(diagnostic.severity),
+  source: 'loom',
+})
+
+const loomDiagnostics = (frame: FrameQueryApi): LanguageServicePlugin => ({
+  name: 'loom-diagnostics',
+  capabilities: {
+    diagnosticProvider: {
+      interFileDependencies: true,
+      workspaceDiagnostics: false,
+    },
+  },
+  create: (context) => ({
+    provideDiagnostics: (document) => {
+      const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
+      if (!decoded || decoded[1] !== 'root') return undefined
+      const at = (offset: number) => document.positionAt(offset)
+      return pipe(
+        frame.diagnostics(decoded[0].fsPath),
+        Array.map((diagnostic) => toLspDiagnostic(at, diagnostic)),
+      )
+    },
+  }),
+})
+
+## Navigating the frame
+
+`volar-service-typescript` navigates the frame as TypeScript, jumping between the
+generated `Context.Service` classes. It cannot follow an anchor to the section it names,
+nor find the anchors that compose a section — those are Loom's edges, not TypeScript's.
+Two plugins answer them, each over the root mirror alone, the whole-file document whose
+map to the source is the identity, so a position there is a source offset.
+
+`loomDefinition` reads the symbol under the cursor and jumps to the definition its
+name resolves to. It asks `FrameQuery` for two spans: the target through
+`definition`, and the whole symbol under the cursor through `navigationRange`.
+`toLocationLink` pairs them — the definition as the link's target, the symbol as its
+`originSelectionRange` — so the editor underlines the whole name, an `::[…]` anchor
+or a `Part I` alike, not the single word beneath the cursor.
+
+=>
+
+const toLocationLink = (
+  target: FrameLocation,
+  origin: FrameLocation | undefined,
+): LocationLink => ({
+  targetUri: URI.file(target.path).toString(),
+  targetRange: target.range,
+  targetSelectionRange: target.range,
+  originSelectionRange: origin?.range,
+})
+
+const loomDefinition = (frame: FrameQueryApi): LanguageServicePlugin => ({
+  name: 'loom-definition',
+  capabilities: { definitionProvider: true },
+  create: (context) => ({
+    provideDefinition: (document, position) => {
+      const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
+      if (!decoded || decoded[1] !== 'root') return undefined
+      const offset = document.offsetAt(position)
+      const target = frame.definition(decoded[0].fsPath, offset)
+      return target === undefined
+        ? undefined
+        : [
+            toLocationLink(
+              target,
+              frame.navigationRange(decoded[0].fsPath, offset),
+            ),
+          ]
+    },
+  }),
+})
+
+~
+
+`loomReferences` reads a heading or an anchor under the cursor and lists every place its
+section is named — the heading itself and each anchor that composes it. It returns a
+`Location` per result, the file keyed by its uri.
+
+=>
+
+const loomReferences = (frame: FrameQueryApi): LanguageServicePlugin => ({
+  name: 'loom-references',
+  capabilities: { referencesProvider: true },
+  create: (context) => ({
+    provideReferences: (document, position) => {
+      const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
+      if (!decoded || decoded[1] !== 'root') return undefined
+      return pipe(
+        frame.references(decoded[0].fsPath, document.offsetAt(position)),
+        Array.map((location) => ({
+          uri: URI.file(location.path).toString(),
+          range: location.range,
+        })),
+      )
+    },
+  }),
+})
+
+## Renaming a section
+
+`volar-service-typescript` renames a TypeScript symbol; it does not know that a Loom
+section's name lives in its heading and in every anchor that composes it. `loomRename`
+renames the section as one symbol. `provideRenameRange` gives the editor the span its
+rename box covers — the title or anchor name under the cursor — so the box wraps the
+whole name. `provideRenameEdits` returns the edit: it asks `FrameQuery` for every span
+the rename touches, and `groupEdits` turns them into a workspace edit, each span set to
+the new name and keyed by its file's uri.
+
+=>
+
+const groupEdits = (
+  locations: ReadonlyArray<FrameLocation>,
+  newName: string,
+): Record<string, TextEdit[]> =>
+  Object.fromEntries(
+    Object.entries(
+      Array.groupBy(locations, (location) => URI.file(location.path).toString()),
+    ).map(([uri, locs]) => [
+      uri,
+      locs.map((location) => ({ range: location.range, newText: newName })),
+    ]),
+  )
+
+const loomRename = (frame: FrameQueryApi): LanguageServicePlugin => ({
+  name: 'loom-rename',
+  capabilities: { renameProvider: { prepareProvider: true } },
+  create: (context) => ({
+    provideRenameRange: (document, position) => {
+      const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
+      if (!decoded || decoded[1] !== 'root') return undefined
+      const span = frame.renameRange(decoded[0].fsPath, document.offsetAt(position))
+      return span === undefined ? undefined : span.range
+    },
+    provideRenameEdits: (document, position, newName) => {
+      const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
+      if (!decoded || decoded[1] !== 'root') return undefined
+      const edits = frame.rename(decoded[0].fsPath, document.offsetAt(position))
+      return edits.length === 0 ? undefined : { changes: groupEdits(edits, newName) }
+    },
+  }),
+})
+
+## Colouring the source
+
+`volar-service-typescript` colours the frame as TypeScript; it has no colour for a
+heading, an anchor, or a warp, the tokens Loom's own grammar draws. `loomSemanticTokens`
+gives them theirs. Its legend names the standard token types Loom draws on — `namespace`,
+`variable`, `keyword`, `string`, `operator` — so the user's theme colours them with no
+extra setup, and the order follows `LoomSymbol`'s own, so a token's kind indexes straight
+into it. `provideDocumentSemanticTokens` answers for the root alone, asks `FrameQuery`
+for the file's coloured tokens, and turns each into Volar's tuple of line, character,
+length, type, and modifiers — the type an index into the legend, and no modifiers.
+
+=>
+
+const semanticLegend = {
+  tokenTypes: [...SemanticTokenSchema.literals],
+  tokenModifiers: [],
+}
+
+const loomSemanticTokens = (frame: FrameQueryApi): LanguageServicePlugin => ({
+  name: 'loom-semantic-tokens',
+  capabilities: { semanticTokensProvider: { legend: semanticLegend } },
+  create: (context) => ({
+    provideDocumentSemanticTokens: (document) => {
+      const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
+      if (!decoded || decoded[1] !== 'root') return undefined
+      return Array.map(
+        frame.semanticTokens(decoded[0].fsPath),
+        (span): SemanticToken => [
+          span.range.start.line,
+          span.range.start.character,
+          span.range.end.character - span.range.start.character,
+          semanticLegend.tokenTypes.indexOf(span.type),
+          0,
+        ],
+      )
+    },
+  }),
+})
+
+## Composing the services
+
+`withoutHighlights` wraps each `volar-service-typescript` plugin to drop one feature:
+document highlight. The Frame is the de dicto — the generated composition, and the prose
+woven into it — so TypeScript's highlight there marks a generated span, and over the
+woven prose it marks the whole section, which reads as the prose block being selected
+when the cursor merely rests in it. A product section's own TypeScript service highlights
+the code the author wrote; the Frame withholds the feature, returning no highlight rather
+than the wrong one.
+
+`LoomLanguage` composes its plugin sources: the wrapped `volar-service-typescript`
+plugins that check the Frame, and over the `FrameQuery` the host provides,
+`loomDiagnostics` for Loom's own health, `loomDefinition` and `loomReferences` for its
+navigation, `loomRename` for renaming a section, and `loomSemanticTokens` for colouring
+its tokens. Volar registers them all under the `loom` id.
+
+=>
+
+const withoutHighlights = (
+  plugin: LanguageServicePlugin,
+): LanguageServicePlugin => ({
+  ...plugin,
+  create: (context) => ({
+    ...plugin.create(context),
+    provideDocumentHighlights: () => [],
+  }),
+})
+
+export const LoomLanguage = defineLanguageService({
+  id: 'loom',
+  displayName: 'Loom',
+  extensions: [],
+  plugins: () =>
+    Effect.gen(function* () {
+      const ts = yield* TypescriptSdk
+      const frame = yield* FrameQuery
+      return [
+        ...create(ts).map(withoutHighlights),
+        loomDiagnostics(frame),
+        loomDefinition(frame),
+        loomReferences(frame),
+        loomRename(frame),
+        loomSemanticTokens(frame),
+      ]
+    }),
+})
+
+## What this module draws on
+
+`volar-service-typescript` supplies the Frame's TypeScript plugins. From Volar's
+language service come the `LanguageServicePlugin` contract, the `LocationLink` a
+definition returns, the `TextEdit` a rename produces, the `SemanticToken` tuple a colourer returns, and the editor's own `Diagnostic`
+type, aliased `LspDiagnostic` to keep it apart from Loom's. Effect supplies `Array`, `pipe`, and the `Effect` the service
+builds in. `@athrio/loom-ast` types a Loom `Diagnostic` and names the token colours in `SemanticTokenSchema`, `vscode-uri` parses an embedded
+document's uri, and the `LanguageService` module gives `defineLanguageService` with the
+`TypescriptSdk` and `FrameQuery` capabilities and the `FrameLocation` navigation answers
+in.
+
+=>
+
+import { create } from 'volar-service-typescript'
+import { Array, Effect, pipe } from 'effect'
+import type {
+  Diagnostic as LspDiagnostic,
+  LanguageServicePlugin,
+  LocationLink,
+  SemanticToken,
+  TextEdit,
+} from '@volar/language-service'
+import { URI } from 'vscode-uri'
+import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
+import { SemanticTokenSchema } from '@athrio/loom-ast/LoomSymbol'
+import {
+  defineLanguageService,
+  type FrameLocation,
+  FrameQuery,
+  type FrameQueryApi,
+  TypescriptSdk,
+} from './LanguageService'
+
+## The module {Tangle}
+
+=>
+
+::[What this module draws on]
+
+::[Loom's own diagnostics]
+
+::[Navigating the frame]
+
+::[Renaming a section]
+
+::[Colouring the source]
+
+::[Composing the services]

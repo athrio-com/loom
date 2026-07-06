@@ -1,0 +1,366 @@
+---
+Part III, Chapter 4: The document builder
+Package: packages/loom-lang/src/ast/LoomAstBuilder.ts
+Language: TypeScript
+---
+
+# The document builder
+
+`LoomAstBuilder` is the final parse stage: `build` turns a stream of wefts into a `LoomDocument`. A weft before the first heading stands at the document's top level, as frontmatter or preamble; a heading gathers the body wefts up to the next heading into a section. `build` groups the wefts along that line, then folds each group into the document. The module also holds `emptyDocument`, the empty error-carrying tree a caller falls back to when it cannot produce a real one.
+
+## The build
+
+Grouping a heading with its body means looking ahead to the next heading, so `build` gathers the whole weft stream first with `Stream.runCollect`. `groupNodes` then splits the wefts into the document's top-level nodes, `appendToDocument` folds each node into a growing document, and `makeDocument` finishes it.
+
+=>
+
+export class LoomAstBuilder extends Context.Service<LoomAstBuilder>()(
+  'LoomAstBuilder',
+  {
+    make: Effect.succeed({
+      build: (source: Stream.Stream<LoomWeft>): Effect.Effect<LoomDocument> =>
+        Stream.runCollect(source).pipe(
+          Effect.map((wefts) =>
+            makeDocument(
+              Array.reduce(groupNodes(wefts), initialDocument, appendToDocument),
+            ),
+          ),
+        ),
+    }),
+  },
+) {
+  static readonly layer = Layer.effect(this, this.make)
+}
+
+## Grouping the wefts
+
+`groupNodes` splits the flat weft list at the first heading. What comes before stands at the document's top level — its frontmatter and preamble — so `isTopLevelWeft` keeps those two kinds. From the first heading on, `Array.chop` walks the rest heading by heading: each `sectionChunk` takes a heading and the body wefts up to the next heading, and `buildSection` turns that pair into a `LoomSection`. Every chunk leads with a heading, so `sectionChunk` guards on `isHeading`; a well-formed file never trips that guard. The `isHeading`, `isSectionBody`, `isPreamble`, and `isToc` predicates classify each weft.
+
+=>
+
+const isHeading = (w: LoomWeft): w is HeadingWeft => w.type === 'HeadingWeft'
+
+const isSectionBody = (w: LoomWeft): w is SectionBodyWeft =>
+  w.type === 'ArrowWeft' ||
+  w.type === 'CodeWeft' ||
+  w.type === 'TildeWeft' ||
+  w.type === 'ProseWeft'
+
+const isPreamble = (w: LoomWeft): w is PreambleWeft => w.type === 'PreambleWeft'
+
+const isToc = (w: LoomWeft): w is TocWeft => w.type === 'TocWeft'
+
+const isTopLevelWeft = (w: LoomWeft): w is FrontmatterWeft | PreambleWeft =>
+  w.type === 'FrontmatterWeft' || w.type === 'PreambleWeft'
+
+type TopLevelNode = FrontmatterWeft | PreambleWeft | LoomSection
+
+const sectionChunk = (
+  group: Array.NonEmptyReadonlyArray<LoomWeft>,
+): readonly [Option.Option<LoomSection>, ReadonlyArray<LoomWeft>] => {
+  const [body, rest] = Array.span(Array.drop(group, 1), (w) => !isHeading(w))
+  const heading = group[0]
+  return [
+    isHeading(heading)
+      ? Option.some(buildSection(heading, body))
+      : Option.none(),
+    rest,
+  ]
+}
+
+const groupNodes = (
+  wefts: ReadonlyArray<LoomWeft>,
+): ReadonlyArray<TopLevelNode> => {
+  const [preamble, sections] = Array.span(wefts, (w) => !isHeading(w))
+  return [
+    ...Array.filter(preamble, isTopLevelWeft),
+    ...Array.getSomes(Array.chop(sections, sectionChunk)),
+  ]
+}
+
+## Folding into the document
+
+The fold routes each peeled node. `appendToDocument` appends a `LoomSection` to the document's sections, a `PreambleWeft` to its preamble, and a `FrontmatterWeft` to its frontmatter, starting from the empty `initialDocument`.
+
+=>
+
+type DocumentBuilder = {
+  readonly frontmatter: ReadonlyArray<FrontmatterWeft>
+  readonly preamble: ReadonlyArray<PreambleWeft>
+  readonly sections: ReadonlyArray<LoomSection>
+}
+
+const initialDocument: DocumentBuilder = {
+  frontmatter: [],
+  preamble: [],
+  sections: [],
+}
+
+const appendToDocument = (
+  doc: DocumentBuilder,
+  node: TopLevelNode,
+): DocumentBuilder =>
+  pipe(
+    Match.value(node),
+    Match.when({ type: 'LoomSection' }, (section) => ({
+      ...doc,
+      sections: [...doc.sections, section],
+    })),
+    Match.when({ type: 'PreambleWeft' }, (weft) => ({
+      ...doc,
+      preamble: [...doc.preamble, weft],
+    })),
+    Match.when({ type: 'FrontmatterWeft' }, (weft) => ({
+      ...doc,
+      frontmatter: [...doc.frontmatter, weft],
+    })),
+    Match.exhaustive,
+  )
+
+## Building a section
+
+`buildSection` turns a heading and its body chunk into a `LoomSection`: it partitions the body into preamble, code, and toc-entry wefts, then derives the section's source and span. Only a `{TOC}` section carries entries; every other section leaves that run empty. `headingOf` lifts the heading weft to a `LoomHeading`; `sourceOf` concatenates the children's sources to reconstruct the byte range; `spanFrom` runs the span from the heading's start to the last child's end.
+
+=>
+
+const buildSection = (
+  heading: HeadingWeft,
+  body: ReadonlyArray<LoomWeft>,
+): LoomSection => {
+  const h = headingOf(heading)
+  const preamble = body.filter(isPreamble)
+  const code = body.filter(isSectionBody)
+  const entries = body.filter(isToc)
+  return LoomSectionSchema.make({
+    position: spanFrom(h.position, preamble, code, entries),
+    source: sourceOf(h, preamble, code, entries),
+    health: okHealth,
+    heading: h,
+    preamble,
+    code,
+    entries: entries.length > 0 ? entries : undefined,
+  })
+}
+
+const headingOf = (weft: HeadingWeft): LoomHeading =>
+  LoomHeadingSchema.make({
+    position: weft.position,
+    source: weft.source,
+    health: weft.health,
+    unexpected: weft.unexpected,
+    headingStart: weft.headingStart,
+    title: weft.title,
+    specifier: weft.specifier,
+    sink: weft.sink,
+  })
+
+const sourceOf = (
+  ...groups: ReadonlyArray<
+    { readonly source: string } | ReadonlyArray<{ readonly source: string }>
+  >
+): string =>
+  pipe(
+    groups,
+    Array.flatMap((g) => Array.ensure(g)),
+    Array.map((n) => n.source),
+    Array.join(''),
+  )
+
+const spanFrom = (
+  headingPos: Position,
+  ...groups: ReadonlyArray<ReadonlyArray<{ readonly position: Position }>>
+): Position => {
+  const flat = groups.flat()
+  return {
+    start: headingPos.start,
+    end:
+      flat.length === 0 ? headingPos.end : flat[flat.length - 1].position.end,
+  }
+}
+
+## Building the frontmatter
+
+`makeFrontmatter` gathers a file's frontmatter wefts into one `LoomFrontmatter`, or nothing when the file opened with no block. The membership fields come from two lines: the part and its name from one, the chapter and its title from the other.
+
+=>
+
+const makeFrontmatter = (
+  wefts: ReadonlyArray<FrontmatterWeft>,
+): Option.Option<LoomFrontmatter> => {
+  if (wefts.length === 0) return Option.none()
+  const partFields = Option.match(
+    Option.fromNullishOr(wefts.find((w) => w.part !== undefined)),
+    {
+      onNone: () => ({}),
+      onSome: (w) => ({ part: w.part, partName: w.partName }),
+    },
+  )
+  const chapterFields = Option.match(
+    Option.fromNullishOr(wefts.find((w) => w.chapter !== undefined)),
+    {
+      onNone: () => ({}),
+      onSome: (w) => ({ chapter: w.chapter, title: w.title }),
+    },
+  )
+  return Option.some(
+    LoomFrontmatterSchema.make({
+      position: {
+        start: wefts[0].position.start,
+        end: wefts[wefts.length - 1].position.end,
+      },
+      source: sourceOf(wefts),
+      health: okHealth,
+      ...partFields,
+      ...chapterFields,
+      package: Option.getOrUndefined(frontmatterField(wefts, 'Package')),
+      language: Option.getOrUndefined(frontmatterField(wefts, 'Language')),
+    }),
+  )
+}
+
+~
+
+`frontmatterField` reads a `key: value` field's value by name — the `Package` a `{Tangle}` section writes to, or the `Language` its sections inherit — lifting the missing case to `Option` at the `.find`.
+
+=>
+
+const frontmatterField = (
+  wefts: ReadonlyArray<FrontmatterWeft>,
+  key: string,
+): Option.Option<FrontmatterValueToken> =>
+  pipe(
+    Option.fromNullishOr(
+      wefts.find((w) => w.key !== undefined && w.key.value === key),
+    ),
+    Option.flatMapNullishOr((w) => w.value),
+  )
+
+## Assembling the document
+
+`makeDocument` assembles the final `LoomDocument` from the folded frontmatter, preamble, and sections, building the frontmatter block through `makeFrontmatter`. `documentSpan` spans the whole, from the first node to the last. A document needs no `lang` Warp: a section without one inherits the workspace's primary language, so an absent declaration is no fault.
+
+=>
+
+const documentSpan = (db: DocumentBuilder): Position => {
+  const all: ReadonlyArray<{ readonly position: Position }> = [
+    ...db.frontmatter,
+    ...db.preamble,
+    ...db.sections,
+  ]
+  return all.length === 0
+    ? { start: { line: 1, offset: 0 }, end: { line: 1, offset: 0 } }
+    : { start: all[0].position.start, end: all[all.length - 1].position.end }
+}
+
+const makeDocument = (db: DocumentBuilder): LoomDocument => {
+  const position = documentSpan(db)
+  return LoomDocumentSchema.make({
+    position,
+    source: sourceOf(db.frontmatter, db.preamble, db.sections),
+    health: okHealth,
+    frontmatter: Option.getOrUndefined(makeFrontmatter(db.frontmatter)),
+    preamble: db.preamble,
+    sections: db.sections,
+  })
+}
+
+## Recovering to an empty document
+
+Some failures leave the chain with no tree to fold. `emptyDocument` is the recovery: an empty document — no preamble, no sections — whose root health carries one error diagnostic at the document's span. A caller that cannot produce a real document returns this one. So a `.loom` always parses to a tree, and the error rides in that tree's own health rather than being thrown.
+
+`emptyDocumentFor` is the mixed-terminator case. The parse chain cannot pin a mixed line terminator to any node, so it raises `MixedEOL`. `emptyDocumentFor` names the two conventions and the lines they sit on, then builds the empty document from that message. `eolName` gives each convention — `LF`, `CRLF`, or `CR` — a name a person reads.
+
+=>
+
+export const emptyDocument = (text: string, message: string): LoomDocument => {
+  const position: Position = {
+    start: { line: 1, offset: 0 },
+    end: { line: 1, offset: text.length },
+  }
+  return {
+    type: 'LoomDocument',
+    position,
+    source: text,
+    health: {
+      status: 'error',
+      diagnostics: [{ message, position, severity: 'error' }],
+    },
+    preamble: [],
+    sections: [],
+  }
+}
+
+export const emptyDocumentFor = (text: string, err: MixedEOL): LoomDocument =>
+  emptyDocument(
+    text,
+    `Mixed line terminators. Line ${err.primaryLine} has ${eolName(err.primary)}, but line ${err.foundLine} has ${eolName(err.found)}. Pick one and stick with it.`,
+  )
+
+const eolName = (kind: 'lf' | 'crlf' | 'cr'): string => {
+  switch (kind) {
+    case 'lf':
+      return 'LF (Unix)'
+    case 'crlf':
+      return 'CRLF (Windows)'
+    case 'cr':
+      return 'CR (classic Mac)'
+  }
+}
+
+## What this module draws on
+
+Effect supplies `Stream` to gather the weft stream, `Array` to group and fold it, and `Match`, `Option`, `Context`, and `Layer` besides. The container schemas come from `LoomAst` and the frontmatter value token from `LoomTokens`; `Position` and `okHealth` from the foundation; the `MixedEOL` type from the line scanner; and the weft types from `Weft`.
+
+=>
+
+import {
+  Array,
+  Context,
+  Effect,
+  Layer,
+  Match,
+  Option,
+  Stream,
+  pipe,
+} from 'effect'
+import {
+  LoomDocumentSchema,
+  LoomFrontmatterSchema,
+  LoomHeadingSchema,
+  LoomSectionSchema,
+  type LoomDocument,
+  type LoomFrontmatter,
+  type LoomHeading,
+  type LoomSection,
+} from '@athrio/loom-ast/LoomAst'
+import type { FrontmatterValueToken } from '@athrio/loom-ast/LoomTokens'
+import { okHealth, type Position } from '@athrio/loom-ast/LoomNode'
+import type { MixedEOL } from './LineRanges'
+import type {
+  FrontmatterWeft,
+  HeadingWeft,
+  LoomWeft,
+  PreambleWeft,
+  SectionBodyWeft,
+  TocWeft,
+} from '@athrio/loom-ast/Weft'
+
+## The module {Tangle}
+
+=>
+
+::[What this module draws on]
+
+::[The build]
+
+::[Grouping the wefts]
+
+::[Folding into the document]
+
+::[Building a section]
+
+::[Building the frontmatter]
+
+::[Assembling the document]
+
+::[Recovering to an empty document]

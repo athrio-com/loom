@@ -1,0 +1,88 @@
+---
+Part V, Chapter 4: Build settings for a file
+Package: packages/loom-lang/src/PackageConfig.ts
+Language: TypeScript
+---
+
+# Build settings for a file
+
+`PackageConfig` reads a `.loom` file's configuration and gives the compiler the settings it needs to build that file: the anchor delimiters its sections cut with, the primary language a section without a specifier inherits, and the root its sinks tangle under. It reads through `@athrio/loom-config`, which resolves the file's configuration from the one workspace manifest — a project has no per-package configuration. This service turns that resolved configuration into the compiler's own terms.
+
+## What the compiler reads
+
+`BuildSettings` is the answer the compiler gets for one file. It holds a full anchor delimiter pair, the file's primary language, the root the file's package tangles under, the workspace root a book's higher-order sink resolves its directories against, and the corpus directory the compiler enumerates to discover the file's sibling looms.
+
+The anchor delimiters are always a complete pair. A `loom.json` may set one side, both, or neither, so `anchorDelimsOf` fills each missing side from `defaultAnchorDelims`, the built-in `::[` and `]`. A package overrides a delimiter only where the default would collide with its own product language.
+
+The primary language is the language a specifier-less section inherits. It comes from the workspace configuration, and is absent when the configuration names none. The product pass reads it as the default beneath the document's own `lang` Warp, so a project can name its language once and let every document drop the Warp.
+
+The package root is the absolute directory the file's package tangles into — the directory holding the file's `corpus/`. `@athrio/loom-config` derives it from that convention, and it is absent when the file sits in no corpus directory.
+
+=>
+
+export interface BuildSettings {
+  readonly delims: AnchorDelims
+  readonly primaryLanguage: string | undefined
+  readonly packageRoot: string | undefined
+  readonly workspaceRoot: string | undefined
+  readonly corpusDir: string | undefined
+}
+
+const anchorDelimsOf = (
+  anchor: { readonly open?: string; readonly close?: string } | undefined,
+): AnchorDelims => ({
+  open: anchor?.open ?? defaultAnchorDelims.open,
+  close: anchor?.close ?? defaultAnchorDelims.close,
+})
+
+## The service
+
+`PackageConfig` is the service the compiler depends on, so it reaches build settings through the same dependency injection it uses for every other pass. It depends on `LoomConfig` and reads through it, holding no file logic of its own. Its `resolve` takes a file's path, asks `LoomConfig` for that file's package configuration, and maps the answer to a `BuildSettings`.
+
+=>
+
+export class PackageConfig extends Context.Service<PackageConfig>()(
+  'PackageConfig',
+  {
+    make: Effect.gen(function* () {
+      const config = yield* LoomConfig
+      return {
+        resolve: (path: Path): Effect.Effect<BuildSettings> =>
+          config.resolve(path).pipe(
+            Effect.map((c) => ({
+              delims: anchorDelimsOf(c.anchor),
+              primaryLanguage: c.primary,
+              packageRoot: c.packageRoot,
+              workspaceRoot: c.workspaceRoot,
+              corpusDir: c.corpusDir,
+            })),
+          ),
+      }
+    }),
+  },
+) {
+  static readonly layer = Layer.effect(this, this.make).pipe(
+    Layer.provide(LoomConfig.layer),
+  )
+}
+
+## What this module draws on
+
+Effect supplies the service and the effect type. `LoomConfig`, from `@athrio/loom-config`, finds and reads a file's `loom.json`. `AnchorDelims` and `defaultAnchorDelims` come from the token layer, where the built-in delimiters live, and `Path` types a file path.
+
+=>
+
+import { Context, Effect, Layer } from 'effect'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
+import { type AnchorDelims, defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
+import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
+
+## The module {Tangle}
+
+=>
+
+::[What this module draws on]
+
+::[What the compiler reads]
+
+::[The service]
