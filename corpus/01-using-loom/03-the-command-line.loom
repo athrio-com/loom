@@ -9,7 +9,7 @@ The `loom` command drives the rest, and its verbs are few. Each one names the th
 
 `loom init` sets up a workspace. It writes `conf.loom` and `.loom/`, and asks for nothing a sensible default can supply. From there the common path is short.
 
-`loom add <language>` turns a language on: it installs that language's editor service into the store under `.loom/`, and records the language in `conf.loom`. `loom remove` takes both away again. It is `loom add typescript` that makes the greeting of the first chapter type-check. Nothing reaches your `package.json` — a Loom project need not be a Node project at all — and nothing installs behind your back: open a file in a language you have not added, and the editor drops it to plain highlighting and offers the command that would add it. An install is something you ask for.
+`loom add <language>` turns a language on: it installs that language's editor service into the store under `.loom/`, and records the language in `conf.loom`. `loom remove` takes both away again. It is `loom add typescript` that makes the greeting of the first chapter type-check. Nothing reaches your `package.json` — a Loom project need not be a JavaScript project at all — and nothing installs behind your back: open a file in a language you have not added, and the editor drops it to plain highlighting and offers the command that would add it. An install is something you ask for.
 
 `loom run <file>` runs a loom without writing it to disk first. Composition happens in memory, the way a dev server compiles a component on the fly, so the program runs with nothing generated left in the tree. Writing files is a step for publishing, not a precondition for running.
 

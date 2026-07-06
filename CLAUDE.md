@@ -85,7 +85,7 @@ concern as a idiomatic Effect program aspect with Services and Layers when neede
 
 - Start every process from an Effect runtime edge — `BunRuntime.runMain()` or
   `Effect.runFork()`, or a startup `ManagedRuntime` for a host-embedded server
-  like `LoomServer` — and let Effect drive. Do not start with imperative Node
+  like `LoomServer` — and let Effect drive. Do not start with imperative Bun
   code and sprinkle Effect inside, and do not call `Effect.runSync` /
   `Effect.runPromise` in the middle of an imperative flow.
 - Use `Context.Service`, never `Context.Tag`, for Loom components. A component is

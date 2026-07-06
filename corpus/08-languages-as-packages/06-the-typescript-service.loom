@@ -14,7 +14,7 @@ For each request the editor sends, the service finds the Product the document be
 
 The product program checks against the consumer's own compiler options, so the service finds them the way `tsc` does: it walks up from the `.loom` file for the nearest `tsconfig.json` and parses it. A package with no `tsconfig.json` falls back to a baseline — modern modules, `strict` on — so a section still checks.
 
-Either way the service forces two options. It forces `noEmit`, because the editor analyzes the product and never writes it. And it allows `.ts` import extensions, because Loom runs the product directly under Node, with no build between the source and the run, so a cross-file `import` names the `.ts` file it resolves to rather than a `.js` that is never emitted.
+Either way the service forces two options. It forces `noEmit`, because the editor analyzes the product and never writes it. And it allows `.ts` import extensions, because Loom runs the product directly under Bun, with no build between the source and the run, so a cross-file `import` names the `.ts` file it resolves to rather than a `.js` that is never emitted.
 
 =>
 
@@ -328,7 +328,7 @@ export default TypescriptService
 
 ## What the service draws on
 
-The service builds on `@athrio/loom-lang-services` for the `LanguageService` contract, the `TypescriptSdk` and `Composition` capabilities, and the `ComposedFile` shape each composition root takes; and on its own `ProductProgram`. From Effect it takes `Effect` for the `plugins` body, and `Array`, `Option`, and `pipe` to search the composition; from Volar, the `LanguageServicePlugin` type, with `CodeAction`, `WorkspaceEdit`, `LocationLink`, and `Range` for the results and edits the plugin moves back to the `.loom`; the `URI` type to decode an embedded document back to its `.loom`; and Node's `dirname` to walk for a `tsconfig.json`.
+The service builds on `@athrio/loom-lang-services` for the `LanguageService` contract, the `TypescriptSdk` and `Composition` capabilities, and the `ComposedFile` shape each composition root takes; and on its own `ProductProgram`. From Effect it takes `Effect` for the `plugins` body, and `Array`, `Option`, and `pipe` to search the composition; from Volar, the `LanguageServicePlugin` type, with `CodeAction`, `WorkspaceEdit`, `LocationLink`, and `Range` for the results and edits the plugin moves back to the `.loom`; the `URI` type to decode an embedded document back to its `.loom`; and Bun's `dirname` to walk for a `tsconfig.json`.
 
 =>
 

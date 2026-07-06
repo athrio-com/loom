@@ -204,9 +204,9 @@ const status = Effect.gen(function* () {
 
 ## Where the world ends
 
-The CLI is six commands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them. `loom init [dir]` scaffolds a `.loom/config.yaml`, defaulting to the working directory. `loom add <language>` and `loom remove <language>` turn a language's service on and off. `loom status` reports what the workspace has activated and what the store holds. `loom lsp --stdio` starts the language server for any editor. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the package config, the configuration, and the Node platform behind the prompts and the filesystem.
+The CLI is six commands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them. `loom init [dir]` scaffolds a `.loom/config.yaml`, defaulting to the working directory. `loom add <language>` and `loom remove <language>` turn a language's service on and off. `loom status` reports what the workspace has activated and what the store holds. `loom lsp --stdio` starts the language server for any editor. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the package config, the configuration, and the Bun platform behind the prompts and the filesystem.
 
-The `lsp` branch sits outside the command program. It loads the server lazily, so a plain `tangle` never pays to bundle Volar, and the server runs on its own Node runtime rather than nesting one inside a command. Volar is CommonJS and calls `require` at runtime for Node's built-ins; this bundle is an ES module, where `require` is absent, so before loading the server the branch exposes one through `createRequire` on `globalThis` — the shim Volar's bundled code reaches for. The cost lands only on the `lsp` path.
+The `lsp` branch sits outside the command program. It loads the server lazily, so a plain `tangle` never pays to bundle Volar, and the server runs on its own Bun runtime rather than nesting one inside a command. Volar is CommonJS and calls `require` at runtime for the built-in modules; this bundle is an ES module, where `require` is absent, so before loading the server the branch exposes one through `createRequire` on `globalThis` — the shim Volar's bundled code reaches for. The cost lands only on the `lsp` path.
 
 =>
 
@@ -247,7 +247,7 @@ const loom = Command.make('loom').pipe(
 )
 
 const program = Command.run(loom, {
-  version: '0.5.0',
+  version: '0.9.0',
 }).pipe(
   Effect.provide(LoomTangler.layer),
   Effect.provide(DocumentSource.layer),

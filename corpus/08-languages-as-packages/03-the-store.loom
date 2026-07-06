@@ -124,7 +124,7 @@ export const removeService = (id: string, dir: string): Effect.Effect<void> =>
 
 ## What this module draws on
 
-The store works in Effect: `Effect` runs each read and write, and `Data` gives `StoreError` its tag. Node supplies the rest — `child_process` runs the package manager, which `promisify` turns into a promise `Effect.tryPromise` can await; `fs` reads the store's contents and adds and removes packages; `join` and `dirname` form and walk the store path up to the workspace root.
+The store works in Effect: `Effect` runs each read and write, and `Data` gives `StoreError` its tag. Bun supplies the rest — `child_process` runs the package manager, which `promisify` turns into a promise `Effect.tryPromise` can await; `fs` reads the store's contents and adds and removes packages; `join` and `dirname` form and walk the store path up to the workspace root.
 
 =>
 

@@ -50,7 +50,7 @@ The package carries no dependencies. The build bundles `volar-service-typescript
 
 ## The TypeScript config {Tangle}[tsconfig.json]
 
-The config extends the workspace base, which supplies the compiler options and Node's types, and typechecks `src`. It never ships.
+The config extends the workspace base, which supplies the compiler options and the Node and Bun types, and typechecks `src`. It never ships.
 
 =>
 

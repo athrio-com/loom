@@ -6,7 +6,7 @@ Language: TypeScript
 
 # The language server
 
-The Loom language server is an Effect program. `startLanguageServer` runs it on the Node
+The Loom language server is an Effect program. `startLanguageServer` runs it on the Bun
 runtime: it builds the pipeline layers once and captures a warm runtime — Volar's hooks are
 synchronous, so the language plugin runs the projection on it. On `initialize` it loads the
 editor's TypeScript, collects the active languages' Volar plugins, and registers them
@@ -15,7 +15,7 @@ alongside the language plugin. Two callers start it — a thin entry an editor l
 
 ## Imports
 
-The server is built from Volar's toolkit for Node language servers — the connection, the
+The server is built from Volar's language-server toolkit — the connection, the
 project factory, and `loadTsdkByPath` — over a `ManagedRuntime`. It imports `LoomCompiler`,
 the projector and cache the runtime warms, with the `DocumentSource`, `PackageConfig`, and
 `LoomConfig` it requires, and the two halves this module registers, `loomLanguagePlugin` and

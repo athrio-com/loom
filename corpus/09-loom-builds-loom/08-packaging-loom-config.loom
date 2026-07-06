@@ -39,8 +39,8 @@ configuration, is a real dependency, bundled along with the source.
 
 ## The TypeScript config {Tangle}[tsconfig.json]
 
-The config extends the workspace base and typechecks `src`. Node's types come from the
-base, which declares `types: ['node']` once for every package — pnpm's isolated
+The config extends the workspace base and typechecks `src`. The Node and Bun types come from the
+base, which declares `types: ['node', 'bun']` once for every package — Bun's isolated
 layout does not reliably resolve `@types/node`. The config never ships.
 
 =>

@@ -8,6 +8,8 @@ Language: TypeScript
 
 The `loom-vscode` extension is the editor client for Loom. When VS Code opens a `.loom` file, the extension starts the Loom language server in a separate process and connects to it, so the server's diagnostics, hovers, and completions appear in the editor. The server is `@athrio/loom-lang`; the build bundles it beside this client into the extension's `dist` directory.
 
+This extension is the one corner of Loom that runs on Node. VS Code loads an extension into its own *extension host* — a Node process the editor owns — so the client here and the server it starts are Node programs. Everywhere else Loom is a Bun program: the CLI, the tangler, the tests. Here it meets the editor in the runtime the editor provides. The same server, started by `loom lsp`, runs on Bun.
+
 ## What the client is built on
 
 The extension draws on three libraries. The `vscode` module is the editor's own extension API. The `vscode-languageclient` library runs the client half of the Language Server Protocol — the contract an editor and a language server talk over — and reaches the server through a Node IPC channel. Volar's VS Code helpers add auto-insertion and register the client with the Volar Labs inspector.

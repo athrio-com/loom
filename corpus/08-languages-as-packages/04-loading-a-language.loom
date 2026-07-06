@@ -68,7 +68,7 @@ export const loadActive = (
 
 ## What this module draws on
 
-The loader works in Effect: `Effect` runs the load, `Option` carries a language that may not load, and `Array` with `pipe` build the set. Node loads the package — `createRequire` resolves it within the store, `pathToFileURL` forms the specifier the dynamic import takes, and `dirname` with `join` point the resolver at the store's directory. From `./LoomStore` come `servicePackage`, which names a language's package, and `storeDir`, which locates the project's store. From the contract module come the `LanguageService` type and the `isLanguageService` guard; `LoomLanguage` and `ProseLanguage` are the built-in services that always lead the set.
+The loader works in Effect: `Effect` runs the load, `Option` carries a language that may not load, and `Array` with `pipe` build the set. Bun loads the package — `createRequire` resolves it within the store, `pathToFileURL` forms the specifier the dynamic import takes, and `dirname` with `join` point the resolver at the store's directory. From `./LoomStore` come `servicePackage`, which names a language's package, and `storeDir`, which locates the project's store. From the contract module come the `LanguageService` type and the `isLanguageService` guard; `LoomLanguage` and `ProseLanguage` are the built-in services that always lead the set.
 
 =>
 

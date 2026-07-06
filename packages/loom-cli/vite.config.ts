@@ -42,7 +42,7 @@ export default defineConfig({
     },
   },
   build: {
-    target: 'node20',
+    target: 'esnext',
     outDir: 'dist',
     emptyOutDir: true,
     sourcemap: true,

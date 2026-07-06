@@ -10,7 +10,7 @@ Language: TypeScript
 
 It reads the compiled file rather than the `{Config}` source for one reason: it is a leaf. Reading the source would mean parsing a `.loom` file, which would pull in the language compiler, and the compiler already depends on this package. The compiled `.loom/config.yaml` breaks that cycle. The pass that compiles the `{Config}` sources runs inside the compiler, where the parser already lives, and writes the file this package reads.
 
-The read is synchronous. The editor resolves a file's configuration inside Volar's synchronous projection hook, which cannot wait for a promise, so the resolver reads through Node's synchronous filesystem. A missing or malformed file resolves to the empty configuration rather than failing, so a project still opens when its configuration is absent or broken.
+The read is synchronous. The editor resolves a file's configuration inside Volar's synchronous projection hook, which cannot wait for a promise, so the resolver reads through Bun's synchronous filesystem. A missing or malformed file resolves to the empty configuration rather than failing, so a project still opens when its configuration is absent or broken.
 
 ## The pieces a configuration is built from
 
@@ -257,7 +257,7 @@ export class LoomConfig extends Context.Service<LoomConfig>()('LoomConfig', {
 
 ## What the module draws on
 
-Effect supplies `Schema` for every shape, `Option` for a decode that may yield nothing, the `Effect` type its methods return, and `Context` and `Layer` for the service and its layer. The `yaml` package parses and serialises the compiled manifest. Node's synchronous filesystem reads, writes, and creates directories; its path module resolves paths, walks to parent directories, and names the platform separator.
+Effect supplies `Schema` for every shape, `Option` for a decode that may yield nothing, the `Effect` type its methods return, and `Context` and `Layer` for the service and its layer. The `yaml` package parses and serialises the compiled manifest. Bun's synchronous filesystem reads, writes, and creates directories; its path module resolves paths, walks to parent directories, and names the platform separator.
 
 =>
 

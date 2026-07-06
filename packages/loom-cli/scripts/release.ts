@@ -4,12 +4,15 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const cli = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const manifest = resolve(cli, 'corpus/package.loom')
+const manifest = resolve(
+  cli,
+  '../../corpus/09-loom-builds-loom/12-packaging-loom-cli.loom',
+)
 
 const run = (cmd: string, args: ReadonlyArray<string>): void =>
   execFileSync(cmd, [...args], { cwd: cli, stdio: 'inherit' })
 
-run('pnpm', ['test'])
+run('bun', ['test'])
 
 const bumpMinor = (text: string): string =>
   text.replace(
@@ -19,11 +22,11 @@ const bumpMinor = (text: string): string =>
 
 const before = readFileSync(manifest, 'utf8')
 const after = bumpMinor(before)
-if (after === before) throw new Error('no "version" to bump in package.loom')
+if (after === before) throw new Error('no "version" to bump in the manifest chapter')
 writeFileSync(manifest, after)
 
 const version = after.match(/"version": "([^"]+)"/)?.[1] ?? '?'
-run('pnpm', ['build'])
-run('node', ['dist/main.js', 'tangle', 'corpus'])
-run('pnpm', ['publish', '--no-git-checks'])
+run('bun', ['run', 'build'])
+run('bun', ['dist/main.js', 'tangle', manifest])
+run('bun', ['publish'])
 console.log(`released @athrio/loom-cli ${version}`)

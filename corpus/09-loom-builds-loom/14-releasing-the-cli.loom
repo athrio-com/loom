@@ -6,13 +6,13 @@ Language: TypeScript
 
 # Releasing the Loom CLI
 
-The `pnpm release` command runs this script to release the `@athrio/loom-cli` package. The script tests first — a failure aborts before anything changes — then builds, bumps the minor version, re-tangles with the freshly built `loom` binary, and publishes.
+The `bun run release` command runs this script to release the `@athrio/loom-cli` package. The script tests first — a failure aborts before anything changes — then builds, bumps the minor version, re-tangles with the freshly built `loom` binary, and publishes.
 
-The tangle step copies the version field from `package.loom` into `package.json`, which means a bump made via the `npm version` command would be overwritten on the next tangle. The version must therefore be bumped in `package.loom` itself — this script does that.
+The tangle step copies the version field from the CLI's manifest chapter into `package.json`, so editing `package.json` by hand would be overwritten on the next tangle. The version must therefore be bumped in the manifest chapter itself — this script does that.
 
 ## Release {Tangle}
 
-The script lives in the `scripts/` directory and derives the package root and the `package.loom` manifest path from its own file path. The `run` helper invokes each command from the package root via `execFileSync`, inheriting stdio so output streams to the terminal. A non-zero exit code aborts the release.
+The script lives in the `scripts/` directory and derives the package root and the manifest chapter's path from its own file path. The `run` helper invokes each command from the package root via `execFileSync`, inheriting stdio so output streams to the terminal. A non-zero exit code aborts the release.
 
 =>
 
@@ -22,22 +22,25 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const cli = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const manifest = resolve(cli, 'corpus/package.loom')
+const manifest = resolve(
+  cli,
+  '../../corpus/09-loom-builds-loom/12-packaging-loom-cli.loom',
+)
 
 const run = (cmd: string, args: ReadonlyArray<string>): void =>
   execFileSync(cmd, [...args], { cwd: cli, stdio: 'inherit' })
 
 ~
 
-The release runs tests first. A test failure aborts the script immediately, before any version is bumped or the package is published.
+The release runs the tests first. A failure aborts the script immediately, before any version is bumped or the package is published.
 
 =>
 
-run('pnpm', ['test'])
+run('bun', ['test'])
 
 ~
 
-The `bumpMinor` function increments the minor version in `package.loom`, resets the patch number to zero, and throws an error when the version string is missing.
+The `bumpMinor` function increments the minor version in the manifest chapter, resets the patch number to zero, and throws when the version string is missing.
 
 =>
 
@@ -49,17 +52,17 @@ const bumpMinor = (text: string): string =>
 
 const before = readFileSync(manifest, 'utf8')
 const after = bumpMinor(before)
-if (after === before) throw new Error('no "version" to bump in package.loom')
+if (after === before) throw new Error('no "version" to bump in the manifest chapter')
 writeFileSync(manifest, after)
 
 ~
 
-The script builds the CLI and re-tangles the corpus with the freshly built `loom` binary — never the in-progress source — so the bumped version reaches `package.json`. It then publishes with the `--no-git-checks` flag, since the version bump leaves `package.loom` uncommitted. The caller commits the changed `package.loom` after publishing.
+The script builds the CLI and re-tangles the manifest chapter with the freshly built `loom` binary — never the in-progress source — so the bumped version reaches `package.json`. It then publishes. The bump leaves the manifest chapter uncommitted, so the caller commits it after publishing.
 
 =>
 
 const version = after.match(/"version": "([^"]+)"/)?.[1] ?? '?'
-run('pnpm', ['build'])
-run('node', ['dist/main.js', 'tangle', 'corpus'])
-run('pnpm', ['publish', '--no-git-checks'])
+run('bun', ['run', 'build'])
+run('bun', ['dist/main.js', 'tangle', manifest])
+run('bun', ['publish'])
 console.log(`released @athrio/loom-cli ${version}`)

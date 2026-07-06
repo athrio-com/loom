@@ -1,5 +1,6 @@
 {
   "lockfileVersion": 1,
+  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "loom",
@@ -49,7 +50,7 @@
     },
     "packages/loom-cli": {
       "name": "@athrio/loom-cli",
-      "version": "0.8.0",
+      "version": "0.9.0",
       "bin": {
         "loom": "dist/main.js",
       },

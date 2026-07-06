@@ -52,7 +52,7 @@ const loomRuntimeBridge = (): Plugin => ({
 
 ## The build
 
-Node's built-in modules stay external, since every Node runtime carries them. Everything else is bundled, except the three specifiers the bridge intercepts — so `volar-service-typescript` and the rest of Volar are inlined, their CommonJS internals transformed in place, rather than left to resolve from a store that does not carry them. The one entry builds to `dist/index.js`, the ES module the loader's dynamic `import` reads.
+The runtime's built-in modules stay external — every runtime carries them. Everything else is bundled, except the three specifiers the bridge intercepts — so `volar-service-typescript` and the rest of Volar are inlined, their CommonJS internals transformed in place, rather than left to resolve from a store that does not carry them. The one entry builds to `dist/index.js`, the ES module the loader's dynamic `import` reads.
 
 =>
 
@@ -78,7 +78,7 @@ export default defineConfig({
 
 ## What the build draws on
 
-Vite's `defineConfig` shapes the build and its `Plugin` type types the bridge. Node's `builtinModules` lists the specifiers to leave external, `dirname` and `resolve` locate the entry, and `fileURLToPath` reads this config's own directory.
+Vite's `defineConfig` shapes the build and its `Plugin` type types the bridge. The `builtinModules` list names the specifiers to leave external, `dirname` and `resolve` locate the entry, and `fileURLToPath` reads this config's own directory.
 
 The bridge needs two values from the runtime contract: `runtimeKey`, the global property the host writes, and `runtimeSpecifiers`, the specifiers it covers. `Runtime` in `@athrio/loom-lang-services` is their home, but a build tool cannot import that TypeScript source, so the config declares them again and the conformance test holds the two copies in step.
 

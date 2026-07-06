@@ -210,7 +210,7 @@ const loom = Command.make('loom').pipe(
 )
 
 const program = Command.run(loom, {
-  version: '0.5.0',
+  version: '0.9.0',
 }).pipe(
   Effect.provide(LoomTangler.layer),
   Effect.provide(DocumentSource.layer),

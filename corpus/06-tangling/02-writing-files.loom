@@ -73,7 +73,7 @@ export class LoomTangler extends Context.Service<LoomTangler>()('LoomTangler', {
 
 ## What this module draws on
 
-It draws on `LoomCompiler` to resolve each file's sinks to content and target, gating a broken corpus with its `TangleError`. Effect's `FileSystem`, with Node's path module, lists a directory's looms and writes each file. Effect supplies the array and effect primitives. `TangledFile` is the resolved sink the compiler hands back, and `Path` a file path.
+It draws on `LoomCompiler` to resolve each file's sinks to content and target, gating a broken corpus with its `TangleError`. Effect's `FileSystem`, with Bun's path module, lists a directory's looms and writes each file. Effect supplies the array and effect primitives. `TangledFile` is the resolved sink the compiler hands back, and `Path` a file path.
 
 =>
 

@@ -61,7 +61,7 @@ document's uri — are supplied by the host bundle.
 
 ## The TypeScript config {Tangle}[tsconfig.json]
 
-The TypeScript config extends the workspace base — strict mode, the Node types — and checks
+The TypeScript config extends the workspace base — strict mode, the Node and Bun types — and checks
 `src`. Like the package, it never ships.
 
 =>
