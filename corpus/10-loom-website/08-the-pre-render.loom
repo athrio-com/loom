@@ -1,0 +1,163 @@
+---
+Part X, Chapter 8: The pre-render
+Package: site/src/prerender.ts
+Language: TypeScript
+---
+
+# The pre-render
+
+Foldkit renders in a browser, so the pre-render renders in one. It starts the backend, drives a headless Chrome over every route, and writes what the browser produced to a static file for each. A crawler and a cold visitor then see real content before any script runs, and the runtime boots and hydrates the same DOM it finds. This is Foldkit's own static-site pattern, and it doubles as the proof that the client renders against the backend.
+
+The capture writes under `dist/prerendered`, leaving the clean shell at `dist/index.html` for the backend to serve dynamically where no capture exists — in development, or for a route the pre-render did not reach.
+
+## What the pre-render draws on
+
+From `effect` come the array and schema combinators and the effect machinery, with `FileSystem` for the writes. `@effect/platform-bun` supplies the Bun runtime edge and its services. `playwright-core` drives a headless browser — the system Chrome, through its channel, so no browser is downloaded. Node's `path` and `url` locate the files, and `@athrio/loom-lang` supplies the woven-corpus schema the routes are read from.
+
+=>
+
+import { Array, Effect, FileSystem, pipe, Schema as S } from 'effect'
+import { BunRuntime, BunServices } from '@effect/platform-bun'
+import { chromium, type Page } from 'playwright-core'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { WovenCorpusSchema } from '@athrio/loom-lang/weave/WovenCorpus'
+
+## Where things sit
+
+The pre-render runs beside the built client. It reads the woven corpus from `site.json`, serves the client and the corpus through the backend on a private port, and writes each captured page under `dist/prerendered`. `pathForSlug` builds a chapter's clean URL — the same one the client routes by — dropping the `NN-` ordering prefixes. `outPath` places a route's capture, the landing at the root and every chapter under its own path.
+
+=>
+
+const root = dirname(fileURLToPath(import.meta.url))
+const distDir = join(root, '..', 'dist')
+const dataFile = join(root, 'data', 'site.json')
+const port = 4390
+const origin = `http://localhost:${port}`
+
+const stripOrder = (segment: string): string => segment.replace(/^\d+-/, '')
+
+const pathForSlug = (slug: string): string =>
+  `/${pipe(slug.split('/'), Array.map(stripOrder), Array.join('/'))}`
+
+const outPath = (route: string): string =>
+  route === '/'
+    ? join(distDir, 'prerendered', 'index.html')
+    : join(distDir, 'prerendered', route, 'index.html')
+
+## Starting the backend
+
+The backend is the same server the site ships. The pre-render spawns it on a private port as an acquired resource, so the scope shuts it down when the capture ends however it ends. `waitReady` polls the content endpoint until the server answers, since a spawned process is not listening the instant it starts.
+
+=>
+
+const backend = Effect.acquireRelease(
+  Effect.sync(() =>
+    Bun.spawn(['bun', join(root, 'server.ts')], {
+      env: { ...process.env, PORT: String(port) },
+      stdout: 'inherit',
+      stderr: 'inherit',
+    }),
+  ),
+  (process) => Effect.sync(() => process.kill()),
+)
+
+const waitReady = (tries: number): Effect.Effect<void> =>
+  tries <= 0
+    ? Effect.void
+    : Effect.tryPromise(() =>
+        fetch(`${origin}/data/nav.json`).then((response) => {
+          if (!response.ok) throw new Error('not ready')
+        }),
+      ).pipe(
+        Effect.catchCause(() =>
+          Effect.sleep('200 millis').pipe(Effect.andThen(waitReady(tries - 1))),
+        ),
+      )
+
+## Driving the browser
+
+Chrome is the other acquired resource, launched through its channel and closed with the scope. `render` captures one route: it opens the page and waits for the Foldkit shell to appear — the runtime's own signal that it has rendered. Foldkit replaces its mount container as it renders, so the rendered page no longer has the `<div id="root">` the client boots into. `render` therefore re-wraps the mounted app in a fresh `#root` before reading the HTML, so the served file can mount again — the same shape Foldkit's own pre-render produces. Waiting for the shell rather than a fixed delay ties the capture to the render, so a slow page is captured whole and a broken one fails loudly rather than saving a blank.
+
+=>
+
+const browser = Effect.acquireRelease(
+  Effect.promise(() => chromium.launch({ channel: 'chrome' })),
+  (instance) => Effect.promise(() => instance.close()),
+)
+
+const reroot = () => {
+  const app = document.body.firstElementChild
+  if (app && app.id !== 'root') {
+    const root = document.createElement('div')
+    root.id = 'root'
+    app.replaceWith(root)
+    root.appendChild(app)
+  }
+}
+
+const render = (fs: FileSystem.FileSystem, page: Page, route: string) =>
+  Effect.gen(function* () {
+    yield* Effect.promise(() => page.goto(`${origin}${route}`, { waitUntil: 'load' }))
+    yield* Effect.promise(() => page.waitForSelector('.loom-app', { timeout: 15000 }))
+    yield* Effect.promise(() => page.evaluate(reroot))
+    const html = yield* Effect.promise(() => page.content())
+    const file = outPath(route)
+    yield* fs.makeDirectory(dirname(file), { recursive: true })
+    yield* fs.writeFileString(file, html)
+    yield* Effect.log(`pre-rendered ${route}`)
+  })
+
+## The pre-render program
+
+The program reads the routes from the corpus — the landing and every chapter — clears any prior capture, starts the backend, launches the browser, and captures each route in turn through one page. Clearing first means the backend serves the fresh shell during the run rather than a stale page. A route that fails to render is reported and skipped rather than aborting the whole run, and the browser's own errors are logged, so a broken page names itself. The scope releases the browser and the backend when it finishes.
+
+=>
+
+const program = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
+  const corpus = S.decodeUnknownSync(WovenCorpusSchema)(
+    JSON.parse(yield* fs.readFileString(dataFile)),
+  )
+  const routes = [
+    '/',
+    ...pipe(
+      Array.flatMap(corpus.nav, (part) => part.chapters),
+      Array.map((chapter) => pathForSlug(chapter.slug)),
+    ),
+  ]
+
+  yield* fs
+    .remove(join(distDir, 'prerendered'), { recursive: true })
+    .pipe(Effect.catchCause(() => Effect.void))
+  yield* backend
+  yield* waitReady(80)
+  const instance = yield* browser
+  const page = yield* Effect.promise(() => instance.newPage())
+  yield* Effect.sync(() =>
+    page.on('pageerror', (error) => console.error(`[pageerror] ${error.message}`)),
+  )
+
+  yield* Effect.forEach(routes, (route) =>
+    render(fs, page, route).pipe(
+      Effect.catchCause(() => Effect.logWarning(`skipped ${route}`)),
+    ),
+  )
+  yield* Effect.log(`pre-rendered ${routes.length} routes`)
+}).pipe(Effect.scoped, Effect.provide(BunServices.layer))
+
+BunRuntime.runMain(program)
+
+## The module {Tangle}
+
+=>
+
+::[What the pre-render draws on]
+
+::[Where things sit]
+
+::[Starting the backend]
+
+::[Driving the browser]
+
+::[The pre-render program]

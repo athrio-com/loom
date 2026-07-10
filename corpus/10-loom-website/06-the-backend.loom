@@ -1,0 +1,200 @@
+---
+Part X, Chapter 6: The backend
+Package: site/src/server.ts
+Language: TypeScript
+---
+
+# The backend
+
+The backend owns the data. It is a small Effect HTTP server, started from a Bun runtime edge, that loads the woven corpus once and answers three kinds of request: the content API the reading app fetches from, the pages themselves — served as pre-built HTML with their data inline, so the browser paints real content before the runtime boots — and the client's own bundle. The frontend renders; the backend serves. The line between them is the data, never the view.
+
+The client and the server live in one package. Vite bundles the client from `index.html`; the server is this file, run directly under Bun. Neither imports the other — they meet only at the data.
+
+## What the backend draws on
+
+From `effect` come the schema that decodes the corpus and derives its JSON Schema, the array and option combinators, `Match` for dispatching on a path, and the service and layer machinery. From `effect/unstable/http` come the request the handler reads, the responses it returns, and the server that runs them. `@effect/platform-bun` supplies the Bun HTTP server and the runtime edge. Node's `path` and `url` locate the built assets and the woven data beside this file. `@athrio/loom-lang` supplies the woven-corpus schema — the one the frontend decodes against too.
+
+=>
+
+import { Array, Context, Effect, FileSystem, Layer, Match, Option, pipe, Schema as S } from 'effect'
+import { HttpServer, HttpServerRequest, HttpServerResponse } from 'effect/unstable/http'
+import { BunHttpServer, BunRuntime } from '@effect/platform-bun'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import {
+  WovenCorpusSchema,
+  type WovenPage,
+  type WovenPart,
+} from '@athrio/loom-lang/weave/WovenCorpus'
+
+## The site's data
+
+`SiteData` is the data layer, loaded once at startup. It reads the woven corpus from `site.json` and the built shell from `index.html`, indexes the pages by slug, and derives the JSON Schema from the same `WovenCorpusSchema` the corpus was decoded against — the contract an outside consumer reads. Everything the server answers with comes from here.
+
+=>
+
+const root = dirname(fileURLToPath(import.meta.url))
+const dataFile = join(root, 'data', 'site.json')
+const distDir = join(root, '..', 'dist')
+
+export class SiteData extends Context.Service<SiteData>()('SiteData', {
+  make: Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const corpus = S.decodeUnknownSync(WovenCorpusSchema)(
+      JSON.parse(yield* fs.readFileString(dataFile)),
+    )
+    const shell = yield* fs.readFileString(join(distDir, 'index.html'))
+    const bySlug = new Map(corpus.pages.map((page) => [page.slug, page] as const))
+    const schema = JSON.stringify(S.toJsonSchemaDocument(WovenCorpusSchema), null, 2)
+    return { nav: corpus.nav, bySlug, shell, schema } as const
+  }),
+}) {
+  static readonly layer = Layer.effect(this, this.make)
+}
+
+type Site = SiteData['Service']
+
+## Addressing a page
+
+A chapter's clean URL drops the `NN-` ordering prefixes from its slug, so the address reads plainly. `slugForPath` reverses that — it walks the navigation tree, the one structure that holds every chapter's slug, and finds the one whose clean path matches. `slugFromApiPath` reads the slug straight off an `/api/pages/<slug>` request. These are the server's small echo of the client's own routing.
+
+=>
+
+const stripOrder = (segment: string): string => segment.replace(/^\d+-/, '')
+
+const pathForSlug = (slug: string): string =>
+  `/${pipe(slug.split('/'), Array.map(stripOrder), Array.join('/'))}`
+
+const slugForPath = (
+  nav: ReadonlyArray<WovenPart>,
+  pathname: string,
+): Option.Option<string> =>
+  pipe(
+    Array.flatMap(nav, (part) => part.chapters),
+    Array.findFirst((chapter) => pathForSlug(chapter.slug) === pathname),
+    Option.map((chapter) => chapter.slug),
+  )
+
+const slugFromDataPath = (pathname: string): string =>
+  decodeURIComponent(pathname.slice('/data/pages/'.length).replace(/\.json$/, ''))
+
+## The responses
+
+Each request becomes one response. A page load returns the pre-rendered file when the pre-render has captured this route — real content, ready to hydrate — and otherwise the built shell with the route's data inline: the navigation tree and, when the address names a chapter, that page, so `init` reads it synchronously and the paint matches. `docResponse` tries the capture first and falls back to `dynamicDoc`, which `withInlineData` splices the data into before `</head>`. Two things keep the splice safe: `inlineJson` escapes every `<` first, so a `</script>` in a page's own text cannot close the tag early and truncate the data; and the splice passes a replacement function rather than a string, so a `$` in the data is never read as a substitution pattern. The data the client fetches returns as JSON. An asset returns a file from the build, or a 404 when there is none.
+
+=>
+
+const inlineJson = (payload: unknown): string =>
+  JSON.stringify(payload).replace(/</g, '\\u003c')
+
+const withInlineData = (shell: string, payload: unknown): string =>
+  shell.replace(
+    '</head>',
+    () => `<script id="loom-data" type="application/json">${inlineJson(payload)}</script></head>`,
+  )
+
+const notFound = Effect.succeed(
+  HttpServerResponse.text('Not found', { status: 404 }),
+)
+
+const prerenderedPath = (pathname: string): string =>
+  pathname === '/'
+    ? join(distDir, 'prerendered', 'index.html')
+    : join(distDir, 'prerendered', pathname, 'index.html')
+
+const dynamicDoc = (data: Site, page: Option.Option<WovenPage>) =>
+  Effect.succeed(
+    HttpServerResponse.text(
+      withInlineData(
+        data.shell,
+        Option.match(page, {
+          onSome: (found) => ({ nav: data.nav, page: found }),
+          onNone: () => ({ nav: data.nav }),
+        }),
+      ),
+      { contentType: 'text/html' },
+    ),
+  )
+
+const docResponse = (
+  data: Site,
+  pathname: string,
+  page: Option.Option<WovenPage>,
+) =>
+  HttpServerResponse.file(prerenderedPath(pathname)).pipe(
+    Effect.catchCause(() => dynamicDoc(data, page)),
+  )
+
+const asset = (pathname: string) =>
+  HttpServerResponse.file(join(distDir, pathname)).pipe(Effect.catchCause(() => notFound))
+
+## Routing a request
+
+`handle` dispatches on the path. The data the client fetches — `/data/nav.json`, `/data/pages/<slug>.json`, and the derived `/data/schema.json` — answers as JSON. Everything else is either a chapter, resolved through the navigation tree to its page, or a plain asset. The landing at `/` renders with the navigation alone, no page.
+
+=>
+
+const pageApi = (data: Site, pathname: string) =>
+  Option.match(Option.fromNullishOr(data.bySlug.get(slugFromDataPath(pathname))), {
+    onSome: (page) => HttpServerResponse.json(page),
+    onNone: () => notFound,
+  })
+
+const docOrAsset = (data: Site, pathname: string) =>
+  Option.match(slugForPath(data.nav, pathname), {
+    onSome: (slug) =>
+      docResponse(data, pathname, Option.fromNullishOr(data.bySlug.get(slug))),
+    onNone: () => asset(pathname),
+  })
+
+const handle = (data: Site, pathname: string) =>
+  Match.value(pathname).pipe(
+    Match.when('/', () => docResponse(data, '/', Option.none())),
+    Match.when('/data/nav.json', () => HttpServerResponse.json(data.nav)),
+    Match.when('/data/schema.json', () =>
+      Effect.succeed(HttpServerResponse.text(data.schema, { contentType: 'application/json' })),
+    ),
+    Match.when(
+      (pathname) => pathname.startsWith('/data/pages/'),
+      (pathname) => pageApi(data, pathname),
+    ),
+    Match.orElse((pathname) => docOrAsset(data, pathname)),
+  )
+
+## The server
+
+The application is one handler: it reads the request and the data, resolves the path, and returns the response. `HttpServer.serve` turns it into a layer that serves each request; the Bun HTTP server underneath it provides the platform and the filesystem. `Layer.launch` runs the server and keeps it alive, and `BunRuntime.runMain` is the edge the whole process starts from. The port comes from the environment, defaulting to 4321.
+
+=>
+
+const app = Effect.gen(function* () {
+  const request = yield* HttpServerRequest.HttpServerRequest
+  const data = yield* SiteData
+  const pathname = new URL(request.url, 'http://localhost').pathname
+  return yield* handle(data, pathname)
+})
+
+const port = Number(process.env.PORT ?? 4321)
+
+const server = HttpServer.serve(app).pipe(
+  Layer.provide(SiteData.layer),
+  Layer.provide(BunHttpServer.layer({ port })),
+)
+
+BunRuntime.runMain(Layer.launch(server))
+
+## The module {Tangle}
+
+=>
+
+::[What the backend draws on]
+
+::[The site's data]
+
+::[Addressing a page]
+
+::[The responses]
+
+::[Routing a request]
+
+::[The server]

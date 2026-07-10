@@ -10,11 +10,11 @@ The landing is the front page — the `/` route. It says what Loom is in one lin
 
 ## What it draws on
 
-The landing borrows the whole of its runtime from the model — the view builder `h`, the two helpers that address the book, and the `Copy` message that carries the install line to the clipboard. It builds `Html`, the same node type every view in the app returns.
+The landing borrows its runtime from the model: the view builder `h`, `pathForSlug` which addresses a chapter, and the `ClickedCopy` message that carries the install line to the clipboard. The reading app passes in the first chapter's slug, since the model no longer holds the book. It builds `Html`, the same node type every view in the app returns.
 
 =>
 
-import { Copy, firstSlug, h, pathForSlug } from './model'
+import { ClickedCopy, h, pathForSlug } from './model'
 import type { Html } from '@athrio/foldkit/html'
 
 ## A loom to show
@@ -49,13 +49,13 @@ const example = [
 
 ## The hero
 
-The hero is two halves. On the left, the line — “prose and code, woven into one source” — the lede beneath it, the install command with a copy button, and the two ways in. On the right, the loom. The install button dispatches `Copy`, so the one browser effect stays a message the app turns into a command.
+The hero is two halves. On the left, the line — “prose and code, woven into one source” — the lede beneath it, the install command with a copy button, and the two ways in. On the right, the loom. The install button dispatches `ClickedCopy`, so the one browser effect stays a message the app turns into a command.
 
 =>
 
 const install = 'bun install -g @athrio/loom-cli'
 
-const heroView = (): Html =>
+const heroView = (firstSlug: string): Html =>
   h.div(
     [h.Class('loom-hero')],
     [
@@ -81,7 +81,7 @@ const heroView = (): Html =>
                 [
                   h.span([h.Class('loom-install-prompt')], ['$']),
                   h.span([], [install]),
-                  h.button([h.Class('loom-copy'), h.OnClick(Copy({ text: install }))], ['copy']),
+                  h.button([h.Class('loom-copy'), h.OnClick(ClickedCopy({ text: install }))], ['copy']),
                 ],
               ),
             ],
@@ -139,7 +139,7 @@ const featuresView = (): Html =>
     ],
   )
 
-const footView = (): Html =>
+const footView = (firstSlug: string): Html =>
   h.div(
     [h.Class('loom-foot')],
     [
@@ -165,8 +165,8 @@ const footView = (): Html =>
 
 ::[Below the hero]
 
-export const landingView = (): Html =>
+export const landingView = (firstSlug: string): Html =>
   h.div(
     [h.Class('loom-landing')],
-    [h.div([h.Class('loom-landing-inner')], [heroView(), featuresView(), footView()])],
+    [h.div([h.Class('loom-landing-inner')], [heroView(firstSlug), featuresView(), footView(firstSlug)])],
   )

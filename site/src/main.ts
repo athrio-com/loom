@@ -1,25 +1,47 @@
 import { Array, Effect, Match, Option, pipe, Schema as S } from 'effect'
 import { Command, Navigation, Runtime, Url } from '@athrio/foldkit'
 import { type Document, type Html } from '@athrio/foldkit/html'
-import type { WovenBlock, WovenNavEntry, WovenPage, WovenPart } from '@athrio/loom-lang/weave/WovenCorpus'
+import { WovenPageSchema } from '@athrio/loom-lang/weave/WovenCorpus'
+import type {
+  WovenBlock,
+  WovenNavEntry,
+  WovenPage,
+  WovenPart,
+} from '@athrio/loom-lang/weave/WovenCorpus'
 import { marked } from 'marked'
 import {
   ChangedUrl,
+  ClickedCopy,
   ClickedLink,
-  Copy,
   CompletedNavigation,
+  Flags,
+  GotPage,
+  Model,
   ToggledNav,
   ToggledTheme,
   ToggledToc,
-  Model,
-  firstSlug,
+  firstSlugOf,
   h,
+  pageOf,
   pathForSlug,
   routeForPath,
-  site,
   type Message,
 } from './model'
 import { landingView } from './landing'
+
+const FetchPage = Command.define(
+  'FetchPage',
+  { slug: S.String },
+  GotPage,
+)(({ slug }) =>
+  Effect.promise(() =>
+    fetch(`/data/pages/${slug}.json`).then((response) => response.json()),
+  ).pipe(
+    Effect.map((data) =>
+      GotPage({ slug, page: S.decodeUnknownSync(WovenPageSchema)(data) }),
+    ),
+  ),
+)
 
 const NavigateInternal = Command.define(
   'NavigateInternal',
@@ -38,13 +60,51 @@ const CopyToClipboard = Command.define(
   { text: S.String },
   CompletedNavigation,
 )(({ text }) =>
-  Effect.promise(() => navigator.clipboard.writeText(text)).pipe(Effect.as(CompletedNavigation())),
+  Effect.promise(() => navigator.clipboard.writeText(text)).pipe(
+    Effect.as(CompletedNavigation()),
+  ),
 )
 
-const init: Runtime.RoutingApplicationInit<Model, Message> = (url) => [
-  { route: routeForPath(url.pathname), theme: 'dark', navClosed: false, tocClosed: false },
-  [],
-]
+const flags: Effect.Effect<Flags> = Effect.gen(function* () {
+  const inline = Option.fromNullishOr(
+    document.getElementById('loom-data')?.textContent,
+  )
+  return yield* Option.match(inline, {
+    onSome: (text) =>
+      Effect.succeed(S.decodeUnknownSync(Flags)(JSON.parse(text))),
+    onNone: () =>
+      Effect.promise(() =>
+        fetch('/data/nav.json').then((response) => response.json()),
+      ).pipe(Effect.map((nav) => S.decodeUnknownSync(Flags)({ nav }))),
+  })
+})
+
+const pageCommands = (
+  route: Model['route'],
+  pages: ReadonlyArray<WovenPage>,
+): ReadonlyArray<Command.Command<Message>> =>
+  route._tag === 'Docs' && Option.isNone(pageOf(pages, route.slug))
+    ? [FetchPage({ slug: route.slug })]
+    : []
+
+const init = (
+  flagsIn: Flags,
+  url: Url.Url,
+): readonly [Model, ReadonlyArray<Command.Command<Message>>] => {
+  const route = routeForPath(flagsIn.nav, url.pathname)
+  const pages = flagsIn.page ? [flagsIn.page] : []
+  return [
+    {
+      route,
+      theme: 'dark',
+      navClosed: false,
+      tocClosed: false,
+      nav: flagsIn.nav,
+      pages,
+    },
+    pageCommands(route, pages),
+  ]
+}
 
 const update = (
   model: Model,
@@ -53,7 +113,10 @@ const update = (
   Match.value(message).pipe(
     Match.withReturnType<readonly [Model, ReadonlyArray<Command.Command<Message>>]>(),
     Match.tagsExhaustive({
-      ChangedUrl: ({ route }) => [{ ...model, route, navClosed: false }, []],
+      ChangedUrl: ({ pathname }) => {
+        const route = routeForPath(model.nav, pathname)
+        return [{ ...model, route, navClosed: false }, pageCommands(route, model.pages)]
+      },
       ClickedLink: ({ request }) =>
         Match.value(request).pipe(
           Match.withReturnType<readonly [Model, ReadonlyArray<Command.Command<Message>>]>(),
@@ -61,11 +124,15 @@ const update = (
           Match.tag('External', ({ href }) => [model, [NavigateExternal({ href })]]),
           Match.exhaustive,
         ),
+      GotPage: ({ page }) =>
+        Option.isSome(pageOf(model.pages, page.slug))
+          ? [model, []]
+          : [{ ...model, pages: [...model.pages, page] }, []],
       CompletedNavigation: () => [model, []],
       ToggledTheme: () => [{ ...model, theme: model.theme === 'dark' ? 'light' : 'dark' }, []],
       ToggledNav: () => [{ ...model, navClosed: !model.navClosed }, []],
       ToggledToc: () => [{ ...model, tocClosed: !model.tocClosed }, []],
-      Copy: ({ text }) => [model, [CopyToClipboard({ text })]],
+      ClickedCopy: ({ text }) => [model, [CopyToClipboard({ text })]],
     }),
   )
 
@@ -133,11 +200,6 @@ const blockView = (block: WovenBlock): Html =>
 
 type Heading = { readonly id: string; readonly level: number; readonly title: string }
 
-const pageOf = (slug: string): Option.Option<WovenPage> =>
-  Array.findFirst(site.pages, (page) => page.slug === slug)
-
-const docsPage = (slug: string): WovenPage => Option.getOrElse(pageOf(slug), () => site.pages[0])
-
 const headingsOf = (page: WovenPage): ReadonlyArray<Heading> =>
   pipe(
     page.blocks,
@@ -155,53 +217,60 @@ const subHeadingView = (heading: Heading): Html =>
     [h.a([h.Href(`#${heading.id}`)], [h.span([h.Class('loom-sublist-dot')], []), heading.title])],
   )
 
-const chapterView = (current: string) => (chapter: WovenNavEntry): Html => {
-  const active = chapter.slug === current
-  return h.li(
-    active ? [h.Key(chapter.slug), h.Class('is-active')] : [h.Key(chapter.slug)],
-    [
-      h.a(
-        [h.Class('loom-sidebar-item'), h.Href(pathForSlug(chapter.slug))],
-        [
-          h.span([h.Class('loom-sidebar-rail')], []),
-          h.span([h.Class('loom-sidebar-num')], [chapter.number]),
-          h.span([], [chapter.title]),
-        ],
-      ),
-      ...(active
-        ? [
-            h.ul(
-              [h.Class('loom-sidebar-sublist')],
-              Array.map(
-                pipe(pageOf(chapter.slug), Option.map(headingsOf), Option.getOrElse(() => [] as ReadonlyArray<Heading>)),
-                subHeadingView,
-              ),
-            ),
-          ]
-        : []),
-    ],
-  )
-}
+const chapterView =
+  (pages: ReadonlyArray<WovenPage>, current: string) =>
+  (chapter: WovenNavEntry): Html => {
+    const active = chapter.slug === current
+    const subHeadings = active
+      ? pipe(
+          pageOf(pages, chapter.slug),
+          Option.map(headingsOf),
+          Option.getOrElse(() => [] as ReadonlyArray<Heading>),
+        )
+      : []
+    return h.li(
+      active ? [h.Key(chapter.slug), h.Class('is-active')] : [h.Key(chapter.slug)],
+      [
+        h.a(
+          [h.Class('loom-sidebar-item'), h.Href(pathForSlug(chapter.slug))],
+          [
+            h.span([h.Class('loom-sidebar-rail')], []),
+            h.span([h.Class('loom-sidebar-num')], [chapter.number]),
+            h.span([], [chapter.title]),
+          ],
+        ),
+        ...(active
+          ? [h.ul([h.Class('loom-sidebar-sublist')], Array.map(subHeadings, subHeadingView))]
+          : []),
+      ],
+    )
+  }
 
-const partView = (current: string) => (part: WovenPart): Html =>
-  h.div(
-    [h.Class('loom-sidebar-section'), h.Key(part.number)],
-    [
-      h.div([h.Class('loom-sidebar-heading')], [part.name]),
-      ...(part.chapters.length > 0
-        ? [h.ul([h.Class('loom-sidebar-list')], Array.map(part.chapters, chapterView(current)))]
-        : []),
-    ],
-  )
+const partView =
+  (pages: ReadonlyArray<WovenPage>, current: string) =>
+  (part: WovenPart): Html =>
+    h.div(
+      [h.Class('loom-sidebar-section'), h.Key(part.number)],
+      [
+        h.div([h.Class('loom-sidebar-heading')], [part.name]),
+        ...(part.chapters.length > 0
+          ? [h.ul([h.Class('loom-sidebar-list')], Array.map(part.chapters, chapterView(pages, current)))]
+          : []),
+      ],
+    )
 
-const sidebarView = (current: string): Html =>
+const sidebarView = (
+  nav: ReadonlyArray<WovenPart>,
+  pages: ReadonlyArray<WovenPage>,
+  current: string,
+): Html =>
   h.aside(
     [h.Class('loom-sidebar')],
     [
       h.div(
         [h.Class('loom-sidebar-inner')],
         [
-          ...Array.map(site.nav, partView(current)),
+          ...Array.map(nav, partView(pages, current)),
           h.div([h.Class('loom-sidebar-footer')], [h.div([h.Class('loom-sidebar-kicker')], ['loom · v0.9.0'])]),
         ],
       ),
@@ -250,7 +319,7 @@ const topBarView = (model: Model): Html =>
           h.a(
             [
               h.Class(model.route._tag === 'Docs' ? 'loom-topnav-item loom-topnav-active' : 'loom-topnav-item'),
-              h.Href(pathForSlug(firstSlug)),
+              h.Href(pathForSlug(firstSlugOf(model.nav))),
             ],
             ['Docs'],
           ),
@@ -274,9 +343,12 @@ const topBarView = (model: Model): Html =>
 const appFrame = (model: Model, content: Html): Html =>
   h.div([h.Class(`loom-app loom-theme-${model.theme}`)], [topBarView(model), content])
 
+const mainClass = (model: Model): string =>
+  model.navClosed ? 'loom-main is-wide' : 'loom-main'
+
 const mainView = (model: Model, page: WovenPage): Html =>
   h.div(
-    [h.Class(model.navClosed ? 'loom-main is-wide' : 'loom-main')],
+    [h.Class(mainClass(model))],
     [
       h.article(
         [h.Class('loom-prose'), h.Key(page.slug)],
@@ -294,18 +366,33 @@ const mainView = (model: Model, page: WovenPage): Html =>
     ],
   )
 
+const loadingView = (model: Model): Html =>
+  h.div(
+    [h.Class(mainClass(model))],
+    [h.article([h.Class('loom-prose')], [h.p([h.Class('loom-loading')], ['Loading…'])])],
+  )
+
 const shellClass = (model: Model): string =>
   ['loom-shell', model.navClosed ? 'no-left' : '', model.tocClosed ? 'no-right' : '']
     .filter(Boolean)
     .join(' ')
 
-const docsShell = (model: Model, page: WovenPage): Html =>
+const docsShell = (
+  model: Model,
+  slug: string,
+  page: Option.Option<WovenPage>,
+): Html =>
   h.div(
     [h.Class(shellClass(model))],
     [
-      ...(model.navClosed ? [] : [sidebarView(page.slug)]),
-      mainView(model, page),
-      ...(model.tocClosed ? [] : [outlineView(page)]),
+      ...(model.navClosed ? [] : [sidebarView(model.nav, model.pages, slug)]),
+      Option.match(page, {
+        onSome: (loaded) => mainView(model, loaded),
+        onNone: () => loadingView(model),
+      }),
+      ...(model.tocClosed
+        ? []
+        : Option.match(page, { onSome: (loaded) => [outlineView(loaded)], onNone: () => [] })),
     ],
   )
 
@@ -314,22 +401,28 @@ const view = (model: Model): Document =>
     Match.withReturnType<Document>(),
     Match.tag('Landing', () => ({
       title: 'Loom — literate programming',
-      body: appFrame(model, landingView()),
+      body: appFrame(model, landingView(firstSlugOf(model.nav))),
     })),
     Match.tag('Docs', ({ slug }) => {
-      const page = docsPage(slug)
-      return { title: `${page.title} · Loom`, body: appFrame(model, docsShell(model, page)) }
+      const page = pageOf(model.pages, slug)
+      const title = Option.match(page, {
+        onSome: (loaded) => `${loaded.title} · Loom`,
+        onNone: () => 'Loom',
+      })
+      return { title, body: appFrame(model, docsShell(model, slug, page)) }
     }),
     Match.exhaustive,
   )
 
 const application = Runtime.makeApplication({
   Model,
+  Flags,
+  flags,
   init,
   update,
   view,
   routing: {
-    onUrlChange: (url: Url.Url) => ChangedUrl({ route: routeForPath(url.pathname) }),
+    onUrlChange: (url: Url.Url) => ChangedUrl({ pathname: url.pathname }),
     onUrlRequest: (request: Navigation.UrlRequest) => ClickedLink({ request }),
   },
   container: document.getElementById('root')!,

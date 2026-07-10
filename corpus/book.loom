@@ -104,13 +104,16 @@ An editor runs its extensions in its own host, not a process Loom starts. This p
 
 ### Part X — Loom Website
 
-The website is the woven book, running — the pages you are reading now. `loom weave` projects the corpus into a `WovenCorpus`, and a Foldkit application on Effect renders it: a landing that fronts the site, a top bar with a theme switch, a sidebar of parts and chapters, the reading column, and an outline of the current page. One design system dresses every surface, in a warm-paper light theme and a deep editor-slate dark, both drawn from a single vocabulary of tokens. This part builds it up — the tokens and their two themes, the shared model, the reading application, the landing, and the page it all mounts into.
+The website is the woven book, running — the pages you are reading now. `loom weave` projects the corpus into a `WovenCorpus`; a small Effect backend serves it, and a Foldkit application renders it: a landing that fronts the site, a top bar with a theme switch, a sidebar of parts and chapters, the reading column, and an outline of the current page. The client ships without the book — each page's data arrives from the backend and the corpus is read a page at a time, so the bundle stays small. One design system dresses every surface, a warm-paper light theme and a deep editor-slate dark, both drawn from a single vocabulary of tokens. This part builds it up — the tokens and their two themes, the shared model, the reading application, the landing, the page it mounts into, the backend that serves it, and the package that ships them together.
 
 1. The theme system
 2. The model
 3. The reading app
 4. The landing
 5. The page
+6. The backend
+7. Packaging the website
+8. The pre-render
 
 ### Part XI — The annotation utility
 

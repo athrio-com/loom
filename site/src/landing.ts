@@ -1,4 +1,4 @@
-import { Copy, firstSlug, h, pathForSlug } from './model'
+import { ClickedCopy, h, pathForSlug } from './model'
 import type { Html } from '@athrio/foldkit/html'
 
 const example = [
@@ -27,7 +27,7 @@ const example = [
 
 const install = 'bun install -g @athrio/loom-cli'
 
-const heroView = (): Html =>
+const heroView = (firstSlug: string): Html =>
   h.div(
     [h.Class('loom-hero')],
     [
@@ -53,7 +53,7 @@ const heroView = (): Html =>
                 [
                   h.span([h.Class('loom-install-prompt')], ['$']),
                   h.span([], [install]),
-                  h.button([h.Class('loom-copy'), h.OnClick(Copy({ text: install }))], ['copy']),
+                  h.button([h.Class('loom-copy'), h.OnClick(ClickedCopy({ text: install }))], ['copy']),
                 ],
               ),
             ],
@@ -105,7 +105,7 @@ const featuresView = (): Html =>
     ],
   )
 
-const footView = (): Html =>
+const footView = (firstSlug: string): Html =>
   h.div(
     [h.Class('loom-foot')],
     [
@@ -117,8 +117,8 @@ const footView = (): Html =>
     ],
   )
 
-export const landingView = (): Html =>
+export const landingView = (firstSlug: string): Html =>
   h.div(
     [h.Class('loom-landing')],
-    [h.div([h.Class('loom-landing-inner')], [heroView(), featuresView(), footView()])],
+    [h.div([h.Class('loom-landing-inner')], [heroView(firstSlug), featuresView(), footView(firstSlug)])],
   )

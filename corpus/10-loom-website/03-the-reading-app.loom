@@ -8,40 +8,64 @@ Language: TypeScript
 
 The reading app is the woven book, running. It is a Foldkit application — the Elm Architecture on Effect: the shared `Model`, one `update`, and a `view` that is a pure function of the model. The view branches on the route: the landing fronts the site, and a chapter lays the book out in three columns — a sidebar of parts and chapters, the reading column, and the outline of the page. The book drives everything; the app lays it out.
 
+The app never holds the whole book. It boots with the navigation tree and the one page a reader opened, and fetches each further page as they reach it. So the state carries a growing cache of pages, and the view renders whichever one the route names.
+
 ## What this module draws on
 
-The model module supplies the state, the messages, the routing, and the woven book itself. The landing module supplies its own view, which this app frames but does not build. From `effect` come the array, option, and match combinators; from `@athrio/foldkit` the runtime, the navigation, and the command that carries an effect. `marked` renders a prose block's Markdown to HTML.
+The model module supplies the state, the messages, and the routing. The landing module supplies its own view, which this app frames but does not build. From `effect` come the array, option, and match combinators, and the schema that decodes a fetched page. From `@athrio/foldkit` come the runtime, the navigation, and the command that carries an effect. `marked` renders a prose block's Markdown to HTML.
 
 =>
 
 import { Array, Effect, Match, Option, pipe, Schema as S } from 'effect'
 import { Command, Navigation, Runtime, Url } from '@athrio/foldkit'
 import { type Document, type Html } from '@athrio/foldkit/html'
-import type { WovenBlock, WovenNavEntry, WovenPage, WovenPart } from '@athrio/loom-lang/weave/WovenCorpus'
+import { WovenPageSchema } from '@athrio/loom-lang/weave/WovenCorpus'
+import type {
+  WovenBlock,
+  WovenNavEntry,
+  WovenPage,
+  WovenPart,
+} from '@athrio/loom-lang/weave/WovenCorpus'
 import { marked } from 'marked'
 import {
   ChangedUrl,
+  ClickedCopy,
   ClickedLink,
-  Copy,
   CompletedNavigation,
+  Flags,
+  GotPage,
+  Model,
   ToggledNav,
   ToggledTheme,
   ToggledToc,
-  Model,
-  firstSlug,
+  firstSlugOf,
   h,
+  pageOf,
   pathForSlug,
   routeForPath,
-  site,
   type Message,
 } from './model'
 import { landingView } from './landing'
 
-## Updating the model
+## Fetching a page
 
-`update` is the state machine, driven through the URL. A clicked link issues a navigation command rather than changing state directly: `NavigateInternal` pushes a chapter's path onto history, `NavigateExternal` leaves for another site, and the address change returns as `ChangedUrl`, which sets the route. So back, forward, deep links, and refresh all work. `CopyToClipboard` carries the one browser effect the landing needs. The toggles flip their flags.
+A chapter's data is not in the bundle, so the app fetches it. `FetchPage` reads `/data/pages/<slug>.json` — the file the build split out of the woven corpus — decodes it against the page schema, and returns it as `GotPage`. The other commands are the navigation the URL is driven by: `NavigateInternal` pushes a chapter's path onto history, `NavigateExternal` leaves for another site, and `CopyToClipboard` carries the one browser effect the landing needs. Each returns a message, so the effect stays a value the runtime runs.
 
 =>
+
+const FetchPage = Command.define(
+  'FetchPage',
+  { slug: S.String },
+  GotPage,
+)(({ slug }) =>
+  Effect.promise(() =>
+    fetch(`/data/pages/${slug}.json`).then((response) => response.json()),
+  ).pipe(
+    Effect.map((data) =>
+      GotPage({ slug, page: S.decodeUnknownSync(WovenPageSchema)(data) }),
+    ),
+  ),
+)
 
 const NavigateInternal = Command.define(
   'NavigateInternal',
@@ -60,13 +84,65 @@ const CopyToClipboard = Command.define(
   { text: S.String },
   CompletedNavigation,
 )(({ text }) =>
-  Effect.promise(() => navigator.clipboard.writeText(text)).pipe(Effect.as(CompletedNavigation())),
+  Effect.promise(() => navigator.clipboard.writeText(text)).pipe(
+    Effect.as(CompletedNavigation()),
+  ),
 )
 
-const init: Runtime.RoutingApplicationInit<Model, Message> = (url) => [
-  { route: routeForPath(url.pathname), theme: 'dark', navClosed: false, tocClosed: false },
-  [],
-]
+## Booting from flags
+
+The app starts from its flags. The `flags` effect runs once at startup: on a page the build pre-rendered, it reads the inline `loom-data` script the build injected — the navigation tree and this page — so `init` has everything and the view matches the served HTML with nothing to fetch. When that script is absent, as in development, it fetches the navigation tree alone and lets `init` request the page.
+
+`init` builds the first model from the flags and the address. It seeds the page cache with the inline page when there is one, and asks for the page the route names when the cache lacks it — the development path, and any deep link the build did not pre-render.
+
+=>
+
+const flags: Effect.Effect<Flags> = Effect.gen(function* () {
+  const inline = Option.fromNullishOr(
+    document.getElementById('loom-data')?.textContent,
+  )
+  return yield* Option.match(inline, {
+    onSome: (text) =>
+      Effect.succeed(S.decodeUnknownSync(Flags)(JSON.parse(text))),
+    onNone: () =>
+      Effect.promise(() =>
+        fetch('/data/nav.json').then((response) => response.json()),
+      ).pipe(Effect.map((nav) => S.decodeUnknownSync(Flags)({ nav }))),
+  })
+})
+
+const pageCommands = (
+  route: Model['route'],
+  pages: ReadonlyArray<WovenPage>,
+): ReadonlyArray<Command.Command<Message>> =>
+  route._tag === 'Docs' && Option.isNone(pageOf(pages, route.slug))
+    ? [FetchPage({ slug: route.slug })]
+    : []
+
+const init = (
+  flagsIn: Flags,
+  url: Url.Url,
+): readonly [Model, ReadonlyArray<Command.Command<Message>>] => {
+  const route = routeForPath(flagsIn.nav, url.pathname)
+  const pages = flagsIn.page ? [flagsIn.page] : []
+  return [
+    {
+      route,
+      theme: 'dark',
+      navClosed: false,
+      tocClosed: false,
+      nav: flagsIn.nav,
+      pages,
+    },
+    pageCommands(route, pages),
+  ]
+}
+
+## Updating the model
+
+`update` is the state machine, driven through the URL. A clicked link issues a navigation command rather than changing state directly, and the address change returns as `ChangedUrl`, which resolves the new path to a route against the navigation tree and fetches the page when the cache lacks it. So back, forward, deep links, and refresh all work. `GotPage` files a fetched page into the cache, once. `ClickedCopy` carries the clipboard effect, and the toggles flip their flags.
+
+=>
 
 const update = (
   model: Model,
@@ -75,7 +151,10 @@ const update = (
   Match.value(message).pipe(
     Match.withReturnType<readonly [Model, ReadonlyArray<Command.Command<Message>>]>(),
     Match.tagsExhaustive({
-      ChangedUrl: ({ route }) => [{ ...model, route, navClosed: false }, []],
+      ChangedUrl: ({ pathname }) => {
+        const route = routeForPath(model.nav, pathname)
+        return [{ ...model, route, navClosed: false }, pageCommands(route, model.pages)]
+      },
       ClickedLink: ({ request }) =>
         Match.value(request).pipe(
           Match.withReturnType<readonly [Model, ReadonlyArray<Command.Command<Message>>]>(),
@@ -83,11 +162,15 @@ const update = (
           Match.tag('External', ({ href }) => [model, [NavigateExternal({ href })]]),
           Match.exhaustive,
         ),
+      GotPage: ({ page }) =>
+        Option.isSome(pageOf(model.pages, page.slug))
+          ? [model, []]
+          : [{ ...model, pages: [...model.pages, page] }, []],
       CompletedNavigation: () => [model, []],
       ToggledTheme: () => [{ ...model, theme: model.theme === 'dark' ? 'light' : 'dark' }, []],
       ToggledNav: () => [{ ...model, navClosed: !model.navClosed }, []],
       ToggledToc: () => [{ ...model, tocClosed: !model.tocClosed }, []],
-      Copy: ({ text }) => [model, [CopyToClipboard({ text })]],
+      ClickedCopy: ({ text }) => [model, [CopyToClipboard({ text })]],
     }),
   )
 
@@ -159,18 +242,13 @@ const blockView = (block: WovenBlock): Html =>
     Match.exhaustive,
   )
 
-## The page, the sidebar, and the outline
+## The page outline
 
-`pageOf` finds a chapter by slug, and `docsPage` falls back to the first. `headingsOf` pulls a page's section headings — the `h2` and `h3` blocks — which the sidebar's active sublist and the outline both read to show where you are within a chapter. The sidebar lists every part and its chapters, the current one carrying the accent rail; the outline repeats its headings under an "on this page" label.
+A page's outline is its second- and third-level headings, in order. `headingsOf` reads them from the blocks — the same list the sidebar shows under the open chapter and the outline column shows on the right.
 
 =>
 
 type Heading = { readonly id: string; readonly level: number; readonly title: string }
-
-const pageOf = (slug: string): Option.Option<WovenPage> =>
-  Array.findFirst(site.pages, (page) => page.slug === slug)
-
-const docsPage = (slug: string): WovenPage => Option.getOrElse(pageOf(slug), () => site.pages[0])
 
 const headingsOf = (page: WovenPage): ReadonlyArray<Heading> =>
   pipe(
@@ -183,64 +261,83 @@ const headingsOf = (page: WovenPage): ReadonlyArray<Heading> =>
     Array.getSomes,
   )
 
+## The sidebar
+
+The sidebar is the navigation tree, drawn from the model. Each part is a section of numbered chapters; the open chapter carries the `is-active` class and expands to show its own headings, read from the page cache when that page has loaded. A chapter that no page has fetched yet shows its title alone.
+
+=>
+
 const subHeadingView = (heading: Heading): Html =>
   h.li(
     [h.Key(heading.id)],
     [h.a([h.Href(`#${heading.id}`)], [h.span([h.Class('loom-sublist-dot')], []), heading.title])],
   )
 
-const chapterView = (current: string) => (chapter: WovenNavEntry): Html => {
-  const active = chapter.slug === current
-  return h.li(
-    active ? [h.Key(chapter.slug), h.Class('is-active')] : [h.Key(chapter.slug)],
-    [
-      h.a(
-        [h.Class('loom-sidebar-item'), h.Href(pathForSlug(chapter.slug))],
-        [
-          h.span([h.Class('loom-sidebar-rail')], []),
-          h.span([h.Class('loom-sidebar-num')], [chapter.number]),
-          h.span([], [chapter.title]),
-        ],
-      ),
-      ...(active
-        ? [
-            h.ul(
-              [h.Class('loom-sidebar-sublist')],
-              Array.map(
-                pipe(pageOf(chapter.slug), Option.map(headingsOf), Option.getOrElse(() => [] as ReadonlyArray<Heading>)),
-                subHeadingView,
-              ),
-            ),
-          ]
-        : []),
-    ],
-  )
-}
+const chapterView =
+  (pages: ReadonlyArray<WovenPage>, current: string) =>
+  (chapter: WovenNavEntry): Html => {
+    const active = chapter.slug === current
+    const subHeadings = active
+      ? pipe(
+          pageOf(pages, chapter.slug),
+          Option.map(headingsOf),
+          Option.getOrElse(() => [] as ReadonlyArray<Heading>),
+        )
+      : []
+    return h.li(
+      active ? [h.Key(chapter.slug), h.Class('is-active')] : [h.Key(chapter.slug)],
+      [
+        h.a(
+          [h.Class('loom-sidebar-item'), h.Href(pathForSlug(chapter.slug))],
+          [
+            h.span([h.Class('loom-sidebar-rail')], []),
+            h.span([h.Class('loom-sidebar-num')], [chapter.number]),
+            h.span([], [chapter.title]),
+          ],
+        ),
+        ...(active
+          ? [h.ul([h.Class('loom-sidebar-sublist')], Array.map(subHeadings, subHeadingView))]
+          : []),
+      ],
+    )
+  }
 
-const partView = (current: string) => (part: WovenPart): Html =>
-  h.div(
-    [h.Class('loom-sidebar-section'), h.Key(part.number)],
-    [
-      h.div([h.Class('loom-sidebar-heading')], [part.name]),
-      ...(part.chapters.length > 0
-        ? [h.ul([h.Class('loom-sidebar-list')], Array.map(part.chapters, chapterView(current)))]
-        : []),
-    ],
-  )
+const partView =
+  (pages: ReadonlyArray<WovenPage>, current: string) =>
+  (part: WovenPart): Html =>
+    h.div(
+      [h.Class('loom-sidebar-section'), h.Key(part.number)],
+      [
+        h.div([h.Class('loom-sidebar-heading')], [part.name]),
+        ...(part.chapters.length > 0
+          ? [h.ul([h.Class('loom-sidebar-list')], Array.map(part.chapters, chapterView(pages, current)))]
+          : []),
+      ],
+    )
 
-const sidebarView = (current: string): Html =>
+const sidebarView = (
+  nav: ReadonlyArray<WovenPart>,
+  pages: ReadonlyArray<WovenPage>,
+  current: string,
+): Html =>
   h.aside(
     [h.Class('loom-sidebar')],
     [
       h.div(
         [h.Class('loom-sidebar-inner')],
         [
-          ...Array.map(site.nav, partView(current)),
+          ...Array.map(nav, partView(pages, current)),
           h.div([h.Class('loom-sidebar-footer')], [h.div([h.Class('loom-sidebar-kicker')], ['loom · v0.9.0'])]),
         ],
       ),
     ],
   )
+
+## The outline column
+
+The right column repeats the page's headings as an outline, each a link to its section, above a thin footer.
+
+=>
 
 const outlineEntryView = (heading: Heading): Html =>
   h.li(
@@ -258,9 +355,9 @@ const outlineView = (page: WovenPage): Html =>
     ],
   )
 
-## The top bar and the frame
+## The top bar
 
-The top bar spans the app: the sidebar toggle and the wordmark on the left, the section link in the middle, the theme switch on the right — the sidebar toggle only where there is a sidebar to toggle. `appFrame` wraps the top bar over whatever content the route calls for, on a root that carries the theme class. The reading column centres the current chapter on the measure: a breadcrumb of part and title, then the chapter's blocks.
+The top bar carries the wordmark, the one nav link into the docs, and the theme toggle. On a chapter it also shows the button that hides the sidebar. The docs link opens the first chapter, read from the navigation tree.
 
 =>
 
@@ -290,7 +387,7 @@ const topBarView = (model: Model): Html =>
           h.a(
             [
               h.Class(model.route._tag === 'Docs' ? 'loom-topnav-item loom-topnav-active' : 'loom-topnav-item'),
-              h.Href(pathForSlug(firstSlug)),
+              h.Href(pathForSlug(firstSlugOf(model.nav))),
             ],
             ['Docs'],
           ),
@@ -311,12 +408,21 @@ const topBarView = (model: Model): Html =>
     ],
   )
 
+## The page and the shell
+
+`mainView` lays out a loaded page: its breadcrumbs and its blocks in reading order. `loadingView` stands in for the brief moment between a client-side navigation and the page arriving. `docsShell` places the three columns — the sidebar, the reading column, and the outline — and folds a column away when its toggle is closed or, for the outline, when the page has not loaded yet.
+
+=>
+
 const appFrame = (model: Model, content: Html): Html =>
   h.div([h.Class(`loom-app loom-theme-${model.theme}`)], [topBarView(model), content])
 
+const mainClass = (model: Model): string =>
+  model.navClosed ? 'loom-main is-wide' : 'loom-main'
+
 const mainView = (model: Model, page: WovenPage): Html =>
   h.div(
-    [h.Class(model.navClosed ? 'loom-main is-wide' : 'loom-main')],
+    [h.Class(mainClass(model))],
     [
       h.article(
         [h.Class('loom-prose'), h.Key(page.slug)],
@@ -334,48 +440,75 @@ const mainView = (model: Model, page: WovenPage): Html =>
     ],
   )
 
-## Running the app
-
-The docs shell keys the grid on the model's flags — a closed side becomes a `no-left` or `no-right` class. The view matches the route: a landing hands off to the landing module, a chapter builds the shell. The runtime mounts the app and drives the loop, handing it the address bar: a URL change arrives as `ChangedUrl`, a link click as `ClickedLink`.
-
-=>
+const loadingView = (model: Model): Html =>
+  h.div(
+    [h.Class(mainClass(model))],
+    [h.article([h.Class('loom-prose')], [h.p([h.Class('loom-loading')], ['Loading…'])])],
+  )
 
 const shellClass = (model: Model): string =>
   ['loom-shell', model.navClosed ? 'no-left' : '', model.tocClosed ? 'no-right' : '']
     .filter(Boolean)
     .join(' ')
 
-const docsShell = (model: Model, page: WovenPage): Html =>
+const docsShell = (
+  model: Model,
+  slug: string,
+  page: Option.Option<WovenPage>,
+): Html =>
   h.div(
     [h.Class(shellClass(model))],
     [
-      ...(model.navClosed ? [] : [sidebarView(page.slug)]),
-      mainView(model, page),
-      ...(model.tocClosed ? [] : [outlineView(page)]),
+      ...(model.navClosed ? [] : [sidebarView(model.nav, model.pages, slug)]),
+      Option.match(page, {
+        onSome: (loaded) => mainView(model, loaded),
+        onNone: () => loadingView(model),
+      }),
+      ...(model.tocClosed
+        ? []
+        : Option.match(page, { onSome: (loaded) => [outlineView(loaded)], onNone: () => [] })),
     ],
   )
+
+## The view
+
+The view is a pure function of the model, branching on the route. The landing fronts the site, framed by the top bar. A chapter resolves its page from the cache — present after hydration or once a fetch has returned — and hands the shell whichever it finds.
+
+=>
 
 const view = (model: Model): Document =>
   Match.value(model.route).pipe(
     Match.withReturnType<Document>(),
     Match.tag('Landing', () => ({
       title: 'Loom — literate programming',
-      body: appFrame(model, landingView()),
+      body: appFrame(model, landingView(firstSlugOf(model.nav))),
     })),
     Match.tag('Docs', ({ slug }) => {
-      const page = docsPage(slug)
-      return { title: `${page.title} · Loom`, body: appFrame(model, docsShell(model, page)) }
+      const page = pageOf(model.pages, slug)
+      const title = Option.match(page, {
+        onSome: (loaded) => `${loaded.title} · Loom`,
+        onNone: () => 'Loom',
+      })
+      return { title, body: appFrame(model, docsShell(model, slug, page)) }
     }),
     Match.exhaustive,
   )
 
+## The application
+
+`makeApplication` wires the model, the flags, `init`, `update`, `view`, and the routing that turns address changes and link clicks into messages. `run` mounts it into the `root` element, hydrating the pre-rendered HTML that is already there.
+
+=>
+
 const application = Runtime.makeApplication({
   Model,
+  Flags,
+  flags,
   init,
   update,
   view,
   routing: {
-    onUrlChange: (url: Url.Url) => ChangedUrl({ route: routeForPath(url.pathname) }),
+    onUrlChange: (url: Url.Url) => ChangedUrl({ pathname: url.pathname }),
     onUrlRequest: (request: Navigation.UrlRequest) => ClickedLink({ request }),
   },
   container: document.getElementById('root')!,
@@ -389,12 +522,24 @@ Runtime.run(application)
 
 ::[What this module draws on]
 
+::[Fetching a page]
+
+::[Booting from flags]
+
 ::[Updating the model]
 
 ::[Rendering the blocks]
 
-::[The page, the sidebar, and the outline]
+::[The page outline]
 
-::[The top bar and the frame]
+::[The sidebar]
 
-::[Running the app]
+::[The outline column]
+
+::[The top bar]
+
+::[The page and the shell]
+
+::[The view]
+
+::[The application]

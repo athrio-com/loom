@@ -4,9 +4,10 @@
   "private": true,
   "version": "0.0.0",
   "scripts": {
-    "dev": "bunx --bun vite",
-    "build": "bunx --bun vite build",
-    "preview": "bunx --bun vite preview"
+    "build": "bunx --bun vite build && bun src/prerender.ts",
+    "serve": "bun src/server.ts",
+    "prerender": "bun src/prerender.ts",
+    "dev": "bunx --bun vite build --watch & bun src/server.ts"
   },
   "dependencies": {
     "@athrio/foldkit": "workspace:*",
@@ -18,6 +19,7 @@
   "devDependencies": {
     "@athrio/loom-annotate": "workspace:*",
     "@types/node": "^26.1.0",
+    "playwright-core": "^1.49.0",
     "typescript": "^6.0.3",
     "vite": "^8.1.3"
   }

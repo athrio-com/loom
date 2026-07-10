@@ -1,0 +1,104 @@
+---
+Part X, Chapter 7: Packaging the website
+Package: site/
+Language: JSON
+---
+
+# Packaging the website
+
+The website is one package holding both halves — the Foldkit client and the Effect backend. Vite bundles the client from `index.html`; Bun runs the server directly. Neither imports the other, so one package carries them without tangling their build steps together.
+
+The one place the two halves must be told apart is the type checker. The client runs in the browser and the server runs on Bun, and each has globals the other lacks — the browser's `import.meta.hot` that Foldkit's hot-reload reads, Bun's own module and filesystem types the server reaches for. Checked in one pass, those globals collide. So the package keeps two TypeScript configurations: one for the client that excludes the server file, one for the server alone. Same package, two lenses.
+
+This chapter writes the package manifest, the two configurations, and the Vite build.
+
+## The manifest {Tangle}[package.json]
+
+The manifest names the package and its scripts. `build` bundles the client and then pre-renders every page to static HTML. `serve` runs the backend, `prerender` captures the static pages on their own, and `dev` runs a watching build beside the server, so a save rebuilds the client and the running server picks it up. The client depends on Foldkit, the woven-corpus schema from `@athrio/loom-lang`, Effect, `marked` for prose, and `shiki` for code; the annotation utility, the toolchain, and the headless browser the pre-render drives are development-only.
+
+=>
+
+{
+  "name": "loom-website",
+  "type": "module",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "build": "bunx --bun vite build && bun src/prerender.ts",
+    "serve": "bun src/server.ts",
+    "prerender": "bun src/prerender.ts",
+    "dev": "bunx --bun vite build --watch & bun src/server.ts"
+  },
+  "dependencies": {
+    "@athrio/foldkit": "workspace:*",
+    "@athrio/loom-lang": "workspace:*",
+    "effect": "4.0.0-beta.93",
+    "marked": "^18.0.5",
+    "shiki": "^4.3.1"
+  },
+  "devDependencies": {
+    "@athrio/loom-annotate": "workspace:*",
+    "@types/node": "^26.1.0",
+    "playwright-core": "^1.49.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.1.3"
+  }
+}
+
+## The client's configuration {Tangle}[tsconfig.json]
+
+The client is browser code. It targets a modern baseline, resolves modules the way the bundler does, and carries the DOM libraries the view builds against. It checks everything under `src` except the server file, which belongs to the other lens.
+
+=>
+
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "exactOptionalPropertyTypes": false,
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "noEmit": true
+  },
+  "include": ["src"],
+  "exclude": ["src/server.ts"]
+}
+
+## The server's configuration {Tangle}[tsconfig.server.json]
+
+The server and the pre-render both run on Bun. This configuration checks them against the Bun and Node globals they use, and the DOM types the pre-render needs to script the headless browser, but not the Vite client types the client relies on — so the browser's hot-reload types and the server's never collide.
+
+=>
+
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "exactOptionalPropertyTypes": false,
+    "lib": ["ESNext", "DOM"],
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "noEmit": true
+  },
+  "include": ["src/server.ts", "src/prerender.ts"]
+}
+
+## The Vite build {Tangle}[vite.config.ts]
+
+Vite bundles the client. Effect ships modern syntax, so the build targets a current baseline. The annotation utility is a development-only plugin; a production build carries no trace of it. Vite runs under Bun, since the plugin uses Bun to read files and transpile its overlay.
+
+=>
+
+import { defineConfig } from 'vite'
+import { loomAnnotate } from '@athrio/loom-annotate'
+
+export default defineConfig({
+  esbuild: { target: 'es2022' },
+  build: { target: 'es2022' },
+  plugins: [loomAnnotate()],
+})

@@ -337,6 +337,21 @@
           "number": "5",
           "title": "The page",
           "slug": "10-loom-website/05-the-page"
+        },
+        {
+          "number": "6",
+          "title": "The backend",
+          "slug": "10-loom-website/06-the-backend"
+        },
+        {
+          "number": "7",
+          "title": "Packaging the website",
+          "slug": "10-loom-website/07-packaging-the-website"
+        },
+        {
+          "number": "8",
+          "title": "The pre-render",
+          "slug": "10-loom-website/08-the-pre-render"
         }
       ]
     },
@@ -383,6 +398,143 @@
     }
   ],
   "pages": [
+    {
+      "slug": "10-loom-website/07-packaging-the-website",
+      "title": "Packaging the website",
+      "part": "Loom Website",
+      "blocks": [
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "10-loom-website/07-packaging-the-website",
+            "section": "packaging-the-website"
+          },
+          "level": 1,
+          "title": "Packaging the website",
+          "id": "packaging-the-website"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "10-loom-website/07-packaging-the-website",
+            "section": "packaging-the-website"
+          },
+          "markdown": "The website is one package holding both halves — the Foldkit client and the Effect backend. Vite bundles the client from `index.html`; Bun runs the server directly. Neither imports the other, so one package carries them without tangling their build steps together.\n\nThe one place the two halves must be told apart is the type checker. The client runs in the browser and the server runs on Bun, and each has globals the other lacks — the browser's `import.meta.hot` that Foldkit's hot-reload reads, Bun's own module and filesystem types the server reaches for. Checked in one pass, those globals collide. So the package keeps two TypeScript configurations: one for the client that excludes the server file, one for the server alone. Same package, two lenses.\n\nThis chapter writes the package manifest, the two configurations, and the Vite build."
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "10-loom-website/07-packaging-the-website",
+            "section": "the-manifest"
+          },
+          "level": 2,
+          "title": "The manifest",
+          "id": "the-manifest"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "10-loom-website/07-packaging-the-website",
+            "section": "the-manifest"
+          },
+          "markdown": "The manifest names the package and its scripts. `build` bundles the client and then pre-renders every page to static HTML. `serve` runs the backend, `prerender` captures the static pages on their own, and `dev` runs a watching build beside the server, so a save rebuilds the client and the running server picks it up. The client depends on Foldkit, the woven-corpus schema from `@athrio/loom-lang`, Effect, `marked` for prose, and `shiki` for code; the annotation utility, the toolchain, and the headless browser the pre-render drives are development-only."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "10-loom-website/07-packaging-the-website",
+            "section": "the-manifest"
+          },
+          "language": "json",
+          "code": "{\n  \"name\": \"loom-website\",\n  \"type\": \"module\",\n  \"private\": true,\n  \"version\": \"0.0.0\",\n  \"scripts\": {\n    \"build\": \"bunx --bun vite build && bun src/prerender.ts\",\n    \"serve\": \"bun src/server.ts\",\n    \"prerender\": \"bun src/prerender.ts\",\n    \"dev\": \"bunx --bun vite build --watch & bun src/server.ts\"\n  },\n  \"dependencies\": {\n    \"@athrio/foldkit\": \"workspace:*\",\n    \"@athrio/loom-lang\": \"workspace:*\",\n    \"effect\": \"4.0.0-beta.93\",\n    \"marked\": \"^18.0.5\",\n    \"shiki\": \"^4.3.1\"\n  },\n  \"devDependencies\": {\n    \"@athrio/loom-annotate\": \"workspace:*\",\n    \"@types/node\": \"^26.1.0\",\n    \"playwright-core\": \"^1.49.0\",\n    \"typescript\": \"^6.0.3\",\n    \"vite\": \"^8.1.3\"\n  }\n}",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "10-loom-website/07-packaging-the-website",
+            "section": "the-client-s-configuration"
+          },
+          "level": 2,
+          "title": "The client's configuration",
+          "id": "the-client-s-configuration"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "10-loom-website/07-packaging-the-website",
+            "section": "the-client-s-configuration"
+          },
+          "markdown": "The client is browser code. It targets a modern baseline, resolves modules the way the bundler does, and carries the DOM libraries the view builds against. It checks everything under `src` except the server file, which belongs to the other lens."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "10-loom-website/07-packaging-the-website",
+            "section": "the-client-s-configuration"
+          },
+          "language": "json",
+          "code": "{\n  \"compilerOptions\": {\n    \"target\": \"ESNext\",\n    \"module\": \"ESNext\",\n    \"moduleResolution\": \"bundler\",\n    \"strict\": true,\n    \"exactOptionalPropertyTypes\": false,\n    \"lib\": [\"ESNext\", \"DOM\", \"DOM.Iterable\"],\n    \"skipLibCheck\": true,\n    \"resolveJsonModule\": true,\n    \"noEmit\": true\n  },\n  \"include\": [\"src\"],\n  \"exclude\": [\"src/server.ts\"]\n}",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "10-loom-website/07-packaging-the-website",
+            "section": "the-server-s-configuration"
+          },
+          "level": 2,
+          "title": "The server's configuration",
+          "id": "the-server-s-configuration"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "10-loom-website/07-packaging-the-website",
+            "section": "the-server-s-configuration"
+          },
+          "markdown": "The server and the pre-render both run on Bun. This configuration checks them against the Bun and Node globals they use, and the DOM types the pre-render needs to script the headless browser, but not the Vite client types the client relies on — so the browser's hot-reload types and the server's never collide."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "10-loom-website/07-packaging-the-website",
+            "section": "the-server-s-configuration"
+          },
+          "language": "json",
+          "code": "{\n  \"compilerOptions\": {\n    \"target\": \"ESNext\",\n    \"module\": \"ESNext\",\n    \"moduleResolution\": \"bundler\",\n    \"strict\": true,\n    \"exactOptionalPropertyTypes\": false,\n    \"lib\": [\"ESNext\", \"DOM\"],\n    \"skipLibCheck\": true,\n    \"resolveJsonModule\": true,\n    \"noEmit\": true\n  },\n  \"include\": [\"src/server.ts\", \"src/prerender.ts\"]\n}",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "10-loom-website/07-packaging-the-website",
+            "section": "the-vite-build"
+          },
+          "level": 2,
+          "title": "The Vite build",
+          "id": "the-vite-build"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "10-loom-website/07-packaging-the-website",
+            "section": "the-vite-build"
+          },
+          "markdown": "Vite bundles the client. Effect ships modern syntax, so the build targets a current baseline. The annotation utility is a development-only plugin; a production build carries no trace of it. Vite runs under Bun, since the plugin uses Bun to read files and transpile its overlay."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "10-loom-website/07-packaging-the-website",
+            "section": "the-vite-build"
+          },
+          "language": "json",
+          "code": "import { defineConfig } from 'vite'\nimport { loomAnnotate } from '@athrio/loom-annotate'\n\nexport default defineConfig({\n  esbuild: { target: 'es2022' },\n  build: { target: 'es2022' },\n  plugins: [loomAnnotate()],\n})",
+          "links": []
+        }
+      ]
+    },
     {
       "slug": "10-loom-website/01-the-theme-system",
       "title": "The theme system",
@@ -791,7 +943,7 @@
             "chapter": "10-loom-website/04-the-landing",
             "section": "what-it-draws-on"
           },
-          "markdown": "The landing borrows the whole of its runtime from the model — the view builder `h`, the two helpers that address the book, and the `Copy` message that carries the install line to the clipboard. It builds `Html`, the same node type every view in the app returns."
+          "markdown": "The landing borrows its runtime from the model: the view builder `h`, `pathForSlug` which addresses a chapter, and the `ClickedCopy` message that carries the install line to the clipboard. The reading app passes in the first chapter's slug, since the model no longer holds the book. It builds `Html`, the same node type every view in the app returns."
         },
         {
           "type": "code",
@@ -800,7 +952,7 @@
             "section": "what-it-draws-on"
           },
           "language": "typescript",
-          "code": "import { Copy, firstSlug, h, pathForSlug } from './model'\nimport type { Html } from '@athrio/foldkit/html'",
+          "code": "import { ClickedCopy, h, pathForSlug } from './model'\nimport type { Html } from '@athrio/foldkit/html'",
           "links": []
         },
         {
@@ -847,7 +999,7 @@
             "chapter": "10-loom-website/04-the-landing",
             "section": "the-hero"
           },
-          "markdown": "The hero is two halves. On the left, the line — “prose and code, woven into one source” — the lede beneath it, the install command with a copy button, and the two ways in. On the right, the loom. The install button dispatches `Copy`, so the one browser effect stays a message the app turns into a command."
+          "markdown": "The hero is two halves. On the left, the line — “prose and code, woven into one source” — the lede beneath it, the install command with a copy button, and the two ways in. On the right, the loom. The install button dispatches `ClickedCopy`, so the one browser effect stays a message the app turns into a command."
         },
         {
           "type": "code",
@@ -856,7 +1008,7 @@
             "section": "the-hero"
           },
           "language": "typescript",
-          "code": "const install = 'bun install -g @athrio/loom-cli'\n\nconst heroView = (): Html =>\n  h.div(\n    [h.Class('loom-hero')],\n    [\n      h.div(\n        [],\n        [\n          h.div([h.Class('loom-hero-eyebrow')], ['Literate programming']),\n          h.h1(\n            [h.Class('loom-hero-title')],\n            ['Prose and code, ', h.em([], ['woven']), ' into one source.'],\n          ),\n          h.p(\n            [h.Class('loom-hero-lede')],\n            [\n              'Loom is a literate programming framework. You write a .loom file as prose and code in reading order — then tangle composes it into real source on disk.',\n            ],\n          ),\n          h.div(\n            [h.Class('loom-hero-actions')],\n            [\n              h.div(\n                [h.Class('loom-install')],\n                [\n                  h.span([h.Class('loom-install-prompt')], ['$']),\n                  h.span([], [install]),\n                  h.button([h.Class('loom-copy'), h.OnClick(Copy({ text: install }))], ['copy']),\n                ],\n              ),\n            ],\n          ),\n          h.div(\n            [h.Class('loom-hero-actions'), h.Style({ 'margin-top': '14px' })],\n            [\n              h.a([h.Class('loom-btn loom-btn-primary'), h.Href(pathForSlug(firstSlug))], ['Read the docs']),\n              h.a([h.Class('loom-btn'), h.Href('#')], ['Browse the source']),\n            ],\n          ),\n        ],\n      ),\n      h.div(\n        [h.Class('loom-hero-panel')],\n        [\n          h.div([h.Class('loom-hero-panel-head')], ['greeting.loom']),\n          h.pre([], [example]),\n        ],\n      ),\n    ],\n  )",
+          "code": "const install = 'bun install -g @athrio/loom-cli'\n\nconst heroView = (firstSlug: string): Html =>\n  h.div(\n    [h.Class('loom-hero')],\n    [\n      h.div(\n        [],\n        [\n          h.div([h.Class('loom-hero-eyebrow')], ['Literate programming']),\n          h.h1(\n            [h.Class('loom-hero-title')],\n            ['Prose and code, ', h.em([], ['woven']), ' into one source.'],\n          ),\n          h.p(\n            [h.Class('loom-hero-lede')],\n            [\n              'Loom is a literate programming framework. You write a .loom file as prose and code in reading order — then tangle composes it into real source on disk.',\n            ],\n          ),\n          h.div(\n            [h.Class('loom-hero-actions')],\n            [\n              h.div(\n                [h.Class('loom-install')],\n                [\n                  h.span([h.Class('loom-install-prompt')], ['$']),\n                  h.span([], [install]),\n                  h.button([h.Class('loom-copy'), h.OnClick(ClickedCopy({ text: install }))], ['copy']),\n                ],\n              ),\n            ],\n          ),\n          h.div(\n            [h.Class('loom-hero-actions'), h.Style({ 'margin-top': '14px' })],\n            [\n              h.a([h.Class('loom-btn loom-btn-primary'), h.Href(pathForSlug(firstSlug))], ['Read the docs']),\n              h.a([h.Class('loom-btn'), h.Href('#')], ['Browse the source']),\n            ],\n          ),\n        ],\n      ),\n      h.div(\n        [h.Class('loom-hero-panel')],\n        [\n          h.div([h.Class('loom-hero-panel-head')], ['greeting.loom']),\n          h.pre([], [example]),\n        ],\n      ),\n    ],\n  )",
           "links": []
         },
         {
@@ -884,7 +1036,7 @@
             "section": "below-the-hero"
           },
           "language": "typescript",
-          "code": "const featureView = (title: string, body: string): Html =>\n  h.div(\n    [h.Class('loom-feature')],\n    [\n      h.div([h.Class('loom-feature-title')], [title]),\n      h.div([h.Class('loom-feature-body')], [body]),\n    ],\n  )\n\nconst featuresView = (): Html =>\n  h.div(\n    [h.Class('loom-features')],\n    [\n      featureView(\n        'Woven, not commented',\n        'Prose and code are equal layers. A section draws in another by name — never by copying it.',\n      ),\n      featureView(\n        'Tangled to real source',\n        'loom tangle drops the prose and writes plain TypeScript, Bash, or JSON — the file the compiler sees.',\n      ),\n      featureView(\n        'Alive in the editor',\n        'Every section is first-class: go to an anchor’s definition, catch a broken one, type-check in place.',\n      ),\n    ],\n  )\n\nconst footView = (): Html =>\n  h.div(\n    [h.Class('loom-foot')],\n    [\n      h.span([], ['© 2026 Loom']),\n      h.span(\n        [],\n        [h.a([h.Href(pathForSlug(firstSlug))], ['Docs']), ' · ', h.a([h.Href('#')], ['Source'])],\n      ),\n    ],\n  )",
+          "code": "const featureView = (title: string, body: string): Html =>\n  h.div(\n    [h.Class('loom-feature')],\n    [\n      h.div([h.Class('loom-feature-title')], [title]),\n      h.div([h.Class('loom-feature-body')], [body]),\n    ],\n  )\n\nconst featuresView = (): Html =>\n  h.div(\n    [h.Class('loom-features')],\n    [\n      featureView(\n        'Woven, not commented',\n        'Prose and code are equal layers. A section draws in another by name — never by copying it.',\n      ),\n      featureView(\n        'Tangled to real source',\n        'loom tangle drops the prose and writes plain TypeScript, Bash, or JSON — the file the compiler sees.',\n      ),\n      featureView(\n        'Alive in the editor',\n        'Every section is first-class: go to an anchor’s definition, catch a broken one, type-check in place.',\n      ),\n    ],\n  )\n\nconst footView = (firstSlug: string): Html =>\n  h.div(\n    [h.Class('loom-foot')],\n    [\n      h.span([], ['© 2026 Loom']),\n      h.span(\n        [],\n        [h.a([h.Href(pathForSlug(firstSlug))], ['Docs']), ' · ', h.a([h.Href('#')], ['Source'])],\n      ),\n    ],\n  )",
           "links": []
         },
         {
@@ -912,7 +1064,7 @@
             "section": "the-view"
           },
           "language": "typescript",
-          "code": "::[What it draws on]\n\n::[A loom to show]\n\n::[The hero]\n\n::[Below the hero]\n\nexport const landingView = (): Html =>\n  h.div(\n    [h.Class('loom-landing')],\n    [h.div([h.Class('loom-landing-inner')], [heroView(), featuresView(), footView()])],\n  )",
+          "code": "::[What it draws on]\n\n::[A loom to show]\n\n::[The hero]\n\n::[Below the hero]\n\nexport const landingView = (firstSlug: string): Html =>\n  h.div(\n    [h.Class('loom-landing')],\n    [h.div([h.Class('loom-landing-inner')], [heroView(firstSlug), featuresView(), footView(firstSlug)])],\n  )",
           "links": [
             {
               "name": "What it draws on",
@@ -992,6 +1144,483 @@
       ]
     },
     {
+      "slug": "10-loom-website/08-the-pre-render",
+      "title": "The pre-render",
+      "part": "Loom Website",
+      "blocks": [
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "10-loom-website/08-the-pre-render",
+            "section": "the-pre-render"
+          },
+          "level": 1,
+          "title": "The pre-render",
+          "id": "the-pre-render"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "10-loom-website/08-the-pre-render",
+            "section": "the-pre-render"
+          },
+          "markdown": "Foldkit renders in a browser, so the pre-render renders in one. It starts the backend, drives a headless Chrome over every route, and writes what the browser produced to a static file for each. A crawler and a cold visitor then see real content before any script runs, and the runtime boots and hydrates the same DOM it finds. This is Foldkit's own static-site pattern, and it doubles as the proof that the client renders against the backend.\n\nThe capture writes under `dist/prerendered`, leaving the clean shell at `dist/index.html` for the backend to serve dynamically where no capture exists — in development, or for a route the pre-render did not reach."
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "10-loom-website/08-the-pre-render",
+            "section": "what-the-pre-render-draws-on"
+          },
+          "level": 2,
+          "title": "What the pre-render draws on",
+          "id": "what-the-pre-render-draws-on"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "10-loom-website/08-the-pre-render",
+            "section": "what-the-pre-render-draws-on"
+          },
+          "markdown": "From `effect` come the array and schema combinators and the effect machinery, with `FileSystem` for the writes. `@effect/platform-bun` supplies the Bun runtime edge and its services. `playwright-core` drives a headless browser — the system Chrome, through its channel, so no browser is downloaded. Node's `path` and `url` locate the files, and `@athrio/loom-lang` supplies the woven-corpus schema the routes are read from."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "10-loom-website/08-the-pre-render",
+            "section": "what-the-pre-render-draws-on"
+          },
+          "language": "typescript",
+          "code": "import { Array, Effect, FileSystem, pipe, Schema as S } from 'effect'\nimport { BunRuntime, BunServices } from '@effect/platform-bun'\nimport { chromium, type Page } from 'playwright-core'\nimport { dirname, join } from 'node:path'\nimport { fileURLToPath } from 'node:url'\nimport { WovenCorpusSchema } from '@athrio/loom-lang/weave/WovenCorpus'",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "10-loom-website/08-the-pre-render",
+            "section": "where-things-sit"
+          },
+          "level": 2,
+          "title": "Where things sit",
+          "id": "where-things-sit"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "10-loom-website/08-the-pre-render",
+            "section": "where-things-sit"
+          },
+          "markdown": "The pre-render runs beside the built client. It reads the woven corpus from `site.json`, serves the client and the corpus through the backend on a private port, and writes each captured page under `dist/prerendered`. `pathForSlug` builds a chapter's clean URL — the same one the client routes by — dropping the `NN-` ordering prefixes. `outPath` places a route's capture, the landing at the root and every chapter under its own path."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "10-loom-website/08-the-pre-render",
+            "section": "where-things-sit"
+          },
+          "language": "typescript",
+          "code": "const root = dirname(fileURLToPath(import.meta.url))\nconst distDir = join(root, '..', 'dist')\nconst dataFile = join(root, 'data', 'site.json')\nconst port = 4390\nconst origin = `http://localhost:${port}`\n\nconst stripOrder = (segment: string): string => segment.replace(/^\\d+-/, '')\n\nconst pathForSlug = (slug: string): string =>\n  `/${pipe(slug.split('/'), Array.map(stripOrder), Array.join('/'))}`\n\nconst outPath = (route: string): string =>\n  route === '/'\n    ? join(distDir, 'prerendered', 'index.html')\n    : join(distDir, 'prerendered', route, 'index.html')",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "10-loom-website/08-the-pre-render",
+            "section": "starting-the-backend"
+          },
+          "level": 2,
+          "title": "Starting the backend",
+          "id": "starting-the-backend"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "10-loom-website/08-the-pre-render",
+            "section": "starting-the-backend"
+          },
+          "markdown": "The backend is the same server the site ships. The pre-render spawns it on a private port as an acquired resource, so the scope shuts it down when the capture ends however it ends. `waitReady` polls the content endpoint until the server answers, since a spawned process is not listening the instant it starts."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "10-loom-website/08-the-pre-render",
+            "section": "starting-the-backend"
+          },
+          "language": "typescript",
+          "code": "const backend = Effect.acquireRelease(\n  Effect.sync(() =>\n    Bun.spawn(['bun', join(root, 'server.ts')], {\n      env: { ...process.env, PORT: String(port) },\n      stdout: 'inherit',\n      stderr: 'inherit',\n    }),\n  ),\n  (process) => Effect.sync(() => process.kill()),\n)\n\nconst waitReady = (tries: number): Effect.Effect<void> =>\n  tries <= 0\n    ? Effect.void\n    : Effect.tryPromise(() =>\n        fetch(`${origin}/data/nav.json`).then((response) => {\n          if (!response.ok) throw new Error('not ready')\n        }),\n      ).pipe(\n        Effect.catchCause(() =>\n          Effect.sleep('200 millis').pipe(Effect.andThen(waitReady(tries - 1))),\n        ),\n      )",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "10-loom-website/08-the-pre-render",
+            "section": "driving-the-browser"
+          },
+          "level": 2,
+          "title": "Driving the browser",
+          "id": "driving-the-browser"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "10-loom-website/08-the-pre-render",
+            "section": "driving-the-browser"
+          },
+          "markdown": "Chrome is the other acquired resource, launched through its channel and closed with the scope. `render` captures one route: it opens the page and waits for the Foldkit shell to appear — the runtime's own signal that it has rendered. Foldkit replaces its mount container as it renders, so the rendered page no longer has the `<div id=\"root\">` the client boots into. `render` therefore re-wraps the mounted app in a fresh `#root` before reading the HTML, so the served file can mount again — the same shape Foldkit's own pre-render produces. Waiting for the shell rather than a fixed delay ties the capture to the render, so a slow page is captured whole and a broken one fails loudly rather than saving a blank."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "10-loom-website/08-the-pre-render",
+            "section": "driving-the-browser"
+          },
+          "language": "typescript",
+          "code": "const browser = Effect.acquireRelease(\n  Effect.promise(() => chromium.launch({ channel: 'chrome' })),\n  (instance) => Effect.promise(() => instance.close()),\n)\n\nconst reroot = () => {\n  const app = document.body.firstElementChild\n  if (app && app.id !== 'root') {\n    const root = document.createElement('div')\n    root.id = 'root'\n    app.replaceWith(root)\n    root.appendChild(app)\n  }\n}\n\nconst render = (fs: FileSystem.FileSystem, page: Page, route: string) =>\n  Effect.gen(function* () {\n    yield* Effect.promise(() => page.goto(`${origin}${route}`, { waitUntil: 'load' }))\n    yield* Effect.promise(() => page.waitForSelector('.loom-app', { timeout: 15000 }))\n    yield* Effect.promise(() => page.evaluate(reroot))\n    const html = yield* Effect.promise(() => page.content())\n    const file = outPath(route)\n    yield* fs.makeDirectory(dirname(file), { recursive: true })\n    yield* fs.writeFileString(file, html)\n    yield* Effect.log(`pre-rendered ${route}`)\n  })",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "10-loom-website/08-the-pre-render",
+            "section": "the-pre-render-program"
+          },
+          "level": 2,
+          "title": "The pre-render program",
+          "id": "the-pre-render-program"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "10-loom-website/08-the-pre-render",
+            "section": "the-pre-render-program"
+          },
+          "markdown": "The program reads the routes from the corpus — the landing and every chapter — clears any prior capture, starts the backend, launches the browser, and captures each route in turn through one page. Clearing first means the backend serves the fresh shell during the run rather than a stale page. A route that fails to render is reported and skipped rather than aborting the whole run, and the browser's own errors are logged, so a broken page names itself. The scope releases the browser and the backend when it finishes."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "10-loom-website/08-the-pre-render",
+            "section": "the-pre-render-program"
+          },
+          "language": "typescript",
+          "code": "const program = Effect.gen(function* () {\n  const fs = yield* FileSystem.FileSystem\n  const corpus = S.decodeUnknownSync(WovenCorpusSchema)(\n    JSON.parse(yield* fs.readFileString(dataFile)),\n  )\n  const routes = [\n    '/',\n    ...pipe(\n      Array.flatMap(corpus.nav, (part) => part.chapters),\n      Array.map((chapter) => pathForSlug(chapter.slug)),\n    ),\n  ]\n\n  yield* fs\n    .remove(join(distDir, 'prerendered'), { recursive: true })\n    .pipe(Effect.catchCause(() => Effect.void))\n  yield* backend\n  yield* waitReady(80)\n  const instance = yield* browser\n  const page = yield* Effect.promise(() => instance.newPage())\n  yield* Effect.sync(() =>\n    page.on('pageerror', (error) => console.error(`[pageerror] ${error.message}`)),\n  )\n\n  yield* Effect.forEach(routes, (route) =>\n    render(fs, page, route).pipe(\n      Effect.catchCause(() => Effect.logWarning(`skipped ${route}`)),\n    ),\n  )\n  yield* Effect.log(`pre-rendered ${routes.length} routes`)\n}).pipe(Effect.scoped, Effect.provide(BunServices.layer))\n\nBunRuntime.runMain(program)",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "10-loom-website/08-the-pre-render",
+            "section": "the-module"
+          },
+          "level": 2,
+          "title": "The module",
+          "id": "the-module"
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "10-loom-website/08-the-pre-render",
+            "section": "the-module"
+          },
+          "language": "typescript",
+          "code": "::[What the pre-render draws on]\n\n::[Where things sit]\n\n::[Starting the backend]\n\n::[Driving the browser]\n\n::[The pre-render program]",
+          "links": [
+            {
+              "name": "What the pre-render draws on",
+              "targetSlug": "10-loom-website/08-the-pre-render",
+              "targetId": "what-the-pre-render-draws-on",
+              "offset": 0,
+              "length": 32
+            },
+            {
+              "name": "Where things sit",
+              "targetSlug": "10-loom-website/08-the-pre-render",
+              "targetId": "where-things-sit",
+              "offset": 34,
+              "length": 20
+            },
+            {
+              "name": "Starting the backend",
+              "targetSlug": "10-loom-website/08-the-pre-render",
+              "targetId": "starting-the-backend",
+              "offset": 56,
+              "length": 24
+            },
+            {
+              "name": "Driving the browser",
+              "targetSlug": "10-loom-website/08-the-pre-render",
+              "targetId": "driving-the-browser",
+              "offset": 82,
+              "length": 23
+            },
+            {
+              "name": "The pre-render program",
+              "targetSlug": "10-loom-website/08-the-pre-render",
+              "targetId": "the-pre-render-program",
+              "offset": 107,
+              "length": 26
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "10-loom-website/06-the-backend",
+      "title": "The backend",
+      "part": "Loom Website",
+      "blocks": [
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "10-loom-website/06-the-backend",
+            "section": "the-backend"
+          },
+          "level": 1,
+          "title": "The backend",
+          "id": "the-backend"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "10-loom-website/06-the-backend",
+            "section": "the-backend"
+          },
+          "markdown": "The backend owns the data. It is a small Effect HTTP server, started from a Bun runtime edge, that loads the woven corpus once and answers three kinds of request: the content API the reading app fetches from, the pages themselves — served as pre-built HTML with their data inline, so the browser paints real content before the runtime boots — and the client's own bundle. The frontend renders; the backend serves. The line between them is the data, never the view.\n\nThe client and the server live in one package. Vite bundles the client from `index.html`; the server is this file, run directly under Bun. Neither imports the other — they meet only at the data."
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "10-loom-website/06-the-backend",
+            "section": "what-the-backend-draws-on"
+          },
+          "level": 2,
+          "title": "What the backend draws on",
+          "id": "what-the-backend-draws-on"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "10-loom-website/06-the-backend",
+            "section": "what-the-backend-draws-on"
+          },
+          "markdown": "From `effect` come the schema that decodes the corpus and derives its JSON Schema, the array and option combinators, `Match` for dispatching on a path, and the service and layer machinery. From `effect/unstable/http` come the request the handler reads, the responses it returns, and the server that runs them. `@effect/platform-bun` supplies the Bun HTTP server and the runtime edge. Node's `path` and `url` locate the built assets and the woven data beside this file. `@athrio/loom-lang` supplies the woven-corpus schema — the one the frontend decodes against too."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "10-loom-website/06-the-backend",
+            "section": "what-the-backend-draws-on"
+          },
+          "language": "typescript",
+          "code": "import { Array, Context, Effect, FileSystem, Layer, Match, Option, pipe, Schema as S } from 'effect'\nimport { HttpServer, HttpServerRequest, HttpServerResponse } from 'effect/unstable/http'\nimport { BunHttpServer, BunRuntime } from '@effect/platform-bun'\nimport { dirname, join } from 'node:path'\nimport { fileURLToPath } from 'node:url'\nimport {\n  WovenCorpusSchema,\n  type WovenPage,\n  type WovenPart,\n} from '@athrio/loom-lang/weave/WovenCorpus'",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "10-loom-website/06-the-backend",
+            "section": "the-site-s-data"
+          },
+          "level": 2,
+          "title": "The site's data",
+          "id": "the-site-s-data"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "10-loom-website/06-the-backend",
+            "section": "the-site-s-data"
+          },
+          "markdown": "`SiteData` is the data layer, loaded once at startup. It reads the woven corpus from `site.json` and the built shell from `index.html`, indexes the pages by slug, and derives the JSON Schema from the same `WovenCorpusSchema` the corpus was decoded against — the contract an outside consumer reads. Everything the server answers with comes from here."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "10-loom-website/06-the-backend",
+            "section": "the-site-s-data"
+          },
+          "language": "typescript",
+          "code": "const root = dirname(fileURLToPath(import.meta.url))\nconst dataFile = join(root, 'data', 'site.json')\nconst distDir = join(root, '..', 'dist')\n\nexport class SiteData extends Context.Service<SiteData>()('SiteData', {\n  make: Effect.gen(function* () {\n    const fs = yield* FileSystem.FileSystem\n    const corpus = S.decodeUnknownSync(WovenCorpusSchema)(\n      JSON.parse(yield* fs.readFileString(dataFile)),\n    )\n    const shell = yield* fs.readFileString(join(distDir, 'index.html'))\n    const bySlug = new Map(corpus.pages.map((page) => [page.slug, page] as const))\n    const schema = JSON.stringify(S.toJsonSchemaDocument(WovenCorpusSchema), null, 2)\n    return { nav: corpus.nav, bySlug, shell, schema } as const\n  }),\n}) {\n  static readonly layer = Layer.effect(this, this.make)\n}\n\ntype Site = SiteData['Service']",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "10-loom-website/06-the-backend",
+            "section": "addressing-a-page"
+          },
+          "level": 2,
+          "title": "Addressing a page",
+          "id": "addressing-a-page"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "10-loom-website/06-the-backend",
+            "section": "addressing-a-page"
+          },
+          "markdown": "A chapter's clean URL drops the `NN-` ordering prefixes from its slug, so the address reads plainly. `slugForPath` reverses that — it walks the navigation tree, the one structure that holds every chapter's slug, and finds the one whose clean path matches. `slugFromApiPath` reads the slug straight off an `/api/pages/<slug>` request. These are the server's small echo of the client's own routing."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "10-loom-website/06-the-backend",
+            "section": "addressing-a-page"
+          },
+          "language": "typescript",
+          "code": "const stripOrder = (segment: string): string => segment.replace(/^\\d+-/, '')\n\nconst pathForSlug = (slug: string): string =>\n  `/${pipe(slug.split('/'), Array.map(stripOrder), Array.join('/'))}`\n\nconst slugForPath = (\n  nav: ReadonlyArray<WovenPart>,\n  pathname: string,\n): Option.Option<string> =>\n  pipe(\n    Array.flatMap(nav, (part) => part.chapters),\n    Array.findFirst((chapter) => pathForSlug(chapter.slug) === pathname),\n    Option.map((chapter) => chapter.slug),\n  )\n\nconst slugFromDataPath = (pathname: string): string =>\n  decodeURIComponent(pathname.slice('/data/pages/'.length).replace(/\\.json$/, ''))",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "10-loom-website/06-the-backend",
+            "section": "the-responses"
+          },
+          "level": 2,
+          "title": "The responses",
+          "id": "the-responses"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "10-loom-website/06-the-backend",
+            "section": "the-responses"
+          },
+          "markdown": "Each request becomes one response. A page load returns the pre-rendered file when the pre-render has captured this route — real content, ready to hydrate — and otherwise the built shell with the route's data inline: the navigation tree and, when the address names a chapter, that page, so `init` reads it synchronously and the paint matches. `docResponse` tries the capture first and falls back to `dynamicDoc`, which `withInlineData` splices the data into before `</head>` — `inlineJson` escaping every `<` first, so a `</script>` in a page's own text cannot close the tag early and truncate the data. The data the client fetches returns as JSON. An asset returns a file from the build, or a 404 when there is none."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "10-loom-website/06-the-backend",
+            "section": "the-responses"
+          },
+          "language": "typescript",
+          "code": "const inlineJson = (payload: unknown): string =>\n  JSON.stringify(payload).replace(/</g, '\\\\u003c')\n\nconst withInlineData = (shell: string, payload: unknown): string =>\n  shell.replace(\n    '</head>',\n    `<script id=\"loom-data\" type=\"application/json\">${inlineJson(payload)}</script></head>`,\n  )\n\nconst notFound = Effect.succeed(\n  HttpServerResponse.text('Not found', { status: 404 }),\n)\n\nconst prerenderedPath = (pathname: string): string =>\n  pathname === '/'\n    ? join(distDir, 'prerendered', 'index.html')\n    : join(distDir, 'prerendered', pathname, 'index.html')\n\nconst dynamicDoc = (data: Site, page: Option.Option<WovenPage>) =>\n  Effect.succeed(\n    HttpServerResponse.text(\n      withInlineData(\n        data.shell,\n        Option.match(page, {\n          onSome: (found) => ({ nav: data.nav, page: found }),\n          onNone: () => ({ nav: data.nav }),\n        }),\n      ),\n      { contentType: 'text/html' },\n    ),\n  )\n\nconst docResponse = (\n  data: Site,\n  pathname: string,\n  page: Option.Option<WovenPage>,\n) =>\n  HttpServerResponse.file(prerenderedPath(pathname)).pipe(\n    Effect.catchCause(() => dynamicDoc(data, page)),\n  )\n\nconst asset = (pathname: string) =>\n  HttpServerResponse.file(join(distDir, pathname)).pipe(Effect.catchCause(() => notFound))",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "10-loom-website/06-the-backend",
+            "section": "routing-a-request"
+          },
+          "level": 2,
+          "title": "Routing a request",
+          "id": "routing-a-request"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "10-loom-website/06-the-backend",
+            "section": "routing-a-request"
+          },
+          "markdown": "`handle` dispatches on the path. The data the client fetches — `/data/nav.json`, `/data/pages/<slug>.json`, and the derived `/data/schema.json` — answers as JSON. Everything else is either a chapter, resolved through the navigation tree to its page, or a plain asset. The landing at `/` renders with the navigation alone, no page."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "10-loom-website/06-the-backend",
+            "section": "routing-a-request"
+          },
+          "language": "typescript",
+          "code": "const pageApi = (data: Site, pathname: string) =>\n  Option.match(Option.fromNullishOr(data.bySlug.get(slugFromDataPath(pathname))), {\n    onSome: (page) => HttpServerResponse.json(page),\n    onNone: () => notFound,\n  })\n\nconst docOrAsset = (data: Site, pathname: string) =>\n  Option.match(slugForPath(data.nav, pathname), {\n    onSome: (slug) =>\n      docResponse(data, pathname, Option.fromNullishOr(data.bySlug.get(slug))),\n    onNone: () => asset(pathname),\n  })\n\nconst handle = (data: Site, pathname: string) =>\n  Match.value(pathname).pipe(\n    Match.when('/', () => docResponse(data, '/', Option.none())),\n    Match.when('/data/nav.json', () => HttpServerResponse.json(data.nav)),\n    Match.when('/data/schema.json', () =>\n      Effect.succeed(HttpServerResponse.text(data.schema, { contentType: 'application/json' })),\n    ),\n    Match.when(\n      (pathname) => pathname.startsWith('/data/pages/'),\n      (pathname) => pageApi(data, pathname),\n    ),\n    Match.orElse((pathname) => docOrAsset(data, pathname)),\n  )",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "10-loom-website/06-the-backend",
+            "section": "the-server"
+          },
+          "level": 2,
+          "title": "The server",
+          "id": "the-server"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "10-loom-website/06-the-backend",
+            "section": "the-server"
+          },
+          "markdown": "The application is one handler: it reads the request and the data, resolves the path, and returns the response. `HttpServer.serve` turns it into a layer that serves each request; the Bun HTTP server underneath it provides the platform and the filesystem. `Layer.launch` runs the server and keeps it alive, and `BunRuntime.runMain` is the edge the whole process starts from. The port comes from the environment, defaulting to 4321."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "10-loom-website/06-the-backend",
+            "section": "the-server"
+          },
+          "language": "typescript",
+          "code": "const app = Effect.gen(function* () {\n  const request = yield* HttpServerRequest.HttpServerRequest\n  const data = yield* SiteData\n  const pathname = new URL(request.url, 'http://localhost').pathname\n  return yield* handle(data, pathname)\n})\n\nconst port = Number(process.env.PORT ?? 4321)\n\nconst server = HttpServer.serve(app).pipe(\n  Layer.provide(SiteData.layer),\n  Layer.provide(BunHttpServer.layer({ port })),\n)\n\nBunRuntime.runMain(Layer.launch(server))",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "10-loom-website/06-the-backend",
+            "section": "the-module"
+          },
+          "level": 2,
+          "title": "The module",
+          "id": "the-module"
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "10-loom-website/06-the-backend",
+            "section": "the-module"
+          },
+          "language": "typescript",
+          "code": "::[What the backend draws on]\n\n::[The site's data]\n\n::[Addressing a page]\n\n::[The responses]\n\n::[Routing a request]\n\n::[The server]",
+          "links": [
+            {
+              "name": "What the backend draws on",
+              "targetSlug": "10-loom-website/06-the-backend",
+              "targetId": "what-the-backend-draws-on",
+              "offset": 0,
+              "length": 29
+            },
+            {
+              "name": "The site's data",
+              "targetSlug": "10-loom-website/06-the-backend",
+              "targetId": "the-site-s-data",
+              "offset": 31,
+              "length": 19
+            },
+            {
+              "name": "Addressing a page",
+              "targetSlug": "10-loom-website/06-the-backend",
+              "targetId": "addressing-a-page",
+              "offset": 52,
+              "length": 21
+            },
+            {
+              "name": "The responses",
+              "targetSlug": "10-loom-website/06-the-backend",
+              "targetId": "the-responses",
+              "offset": 75,
+              "length": 17
+            },
+            {
+              "name": "Routing a request",
+              "targetSlug": "10-loom-website/06-the-backend",
+              "targetId": "routing-a-request",
+              "offset": 94,
+              "length": 21
+            },
+            {
+              "name": "The server",
+              "targetSlug": "10-loom-website/06-the-backend",
+              "targetId": "the-server",
+              "offset": 117,
+              "length": 14
+            }
+          ]
+        }
+      ]
+    },
+    {
       "slug": "10-loom-website/03-the-reading-app",
       "title": "The reading app",
       "part": "Loom Website",
@@ -1012,7 +1641,7 @@
             "chapter": "10-loom-website/03-the-reading-app",
             "section": "the-reading-app"
           },
-          "markdown": "The reading app is the woven book, running. It is a Foldkit application — the Elm Architecture on Effect: the shared `Model`, one `update`, and a `view` that is a pure function of the model. The view branches on the route: the landing fronts the site, and a chapter lays the book out in three columns — a sidebar of parts and chapters, the reading column, and the outline of the page. The book drives everything; the app lays it out."
+          "markdown": "The reading app is the woven book, running. It is a Foldkit application — the Elm Architecture on Effect: the shared `Model`, one `update`, and a `view` that is a pure function of the model. The view branches on the route: the landing fronts the site, and a chapter lays the book out in three columns — a sidebar of parts and chapters, the reading column, and the outline of the page. The book drives everything; the app lays it out.\n\nThe app never holds the whole book. It boots with the navigation tree and the one page a reader opened, and fetches each further page as they reach it. So the state carries a growing cache of pages, and the view renders whichever one the route names."
         },
         {
           "type": "heading",
@@ -1030,7 +1659,7 @@
             "chapter": "10-loom-website/03-the-reading-app",
             "section": "what-this-module-draws-on"
           },
-          "markdown": "The model module supplies the state, the messages, the routing, and the woven book itself. The landing module supplies its own view, which this app frames but does not build. From `effect` come the array, option, and match combinators; from `@athrio/foldkit` the runtime, the navigation, and the command that carries an effect. `marked` renders a prose block's Markdown to HTML."
+          "markdown": "The model module supplies the state, the messages, and the routing. The landing module supplies its own view, which this app frames but does not build. From `effect` come the array, option, and match combinators, and the schema that decodes a fetched page. From `@athrio/foldkit` come the runtime, the navigation, and the command that carries an effect. `marked` renders a prose block's Markdown to HTML."
         },
         {
           "type": "code",
@@ -1039,7 +1668,63 @@
             "section": "what-this-module-draws-on"
           },
           "language": "typescript",
-          "code": "import { Array, Effect, Match, Option, pipe, Schema as S } from 'effect'\nimport { Command, Navigation, Runtime, Url } from '@athrio/foldkit'\nimport { type Document, type Html } from '@athrio/foldkit/html'\nimport type { WovenBlock, WovenNavEntry, WovenPage, WovenPart } from '@athrio/loom-lang/weave/WovenCorpus'\nimport { marked } from 'marked'\nimport {\n  ChangedUrl,\n  ClickedLink,\n  Copy,\n  CompletedNavigation,\n  ToggledNav,\n  ToggledTheme,\n  ToggledToc,\n  Model,\n  firstSlug,\n  h,\n  pathForSlug,\n  routeForPath,\n  site,\n  type Message,\n} from './model'\nimport { landingView } from './landing'",
+          "code": "import { Array, Effect, Match, Option, pipe, Schema as S } from 'effect'\nimport { Command, Navigation, Runtime, Url } from '@athrio/foldkit'\nimport { type Document, type Html } from '@athrio/foldkit/html'\nimport { WovenPageSchema } from '@athrio/loom-lang/weave/WovenCorpus'\nimport type {\n  WovenBlock,\n  WovenNavEntry,\n  WovenPage,\n  WovenPart,\n} from '@athrio/loom-lang/weave/WovenCorpus'\nimport { marked } from 'marked'\nimport {\n  ChangedUrl,\n  ClickedCopy,\n  ClickedLink,\n  CompletedNavigation,\n  Flags,\n  GotPage,\n  Model,\n  ToggledNav,\n  ToggledTheme,\n  ToggledToc,\n  firstSlugOf,\n  h,\n  pageOf,\n  pathForSlug,\n  routeForPath,\n  type Message,\n} from './model'\nimport { landingView } from './landing'",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "10-loom-website/03-the-reading-app",
+            "section": "fetching-a-page"
+          },
+          "level": 2,
+          "title": "Fetching a page",
+          "id": "fetching-a-page"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "10-loom-website/03-the-reading-app",
+            "section": "fetching-a-page"
+          },
+          "markdown": "A chapter's data is not in the bundle, so the app fetches it. `FetchPage` reads `/data/pages/<slug>.json` — the file the build split out of the woven corpus — decodes it against the page schema, and returns it as `GotPage`. The other commands are the navigation the URL is driven by: `NavigateInternal` pushes a chapter's path onto history, `NavigateExternal` leaves for another site, and `CopyToClipboard` carries the one browser effect the landing needs. Each returns a message, so the effect stays a value the runtime runs."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "10-loom-website/03-the-reading-app",
+            "section": "fetching-a-page"
+          },
+          "language": "typescript",
+          "code": "const FetchPage = Command.define(\n  'FetchPage',\n  { slug: S.String },\n  GotPage,\n)(({ slug }) =>\n  Effect.promise(() =>\n    fetch(`/data/pages/${slug}.json`).then((response) => response.json()),\n  ).pipe(\n    Effect.map((data) =>\n      GotPage({ slug, page: S.decodeUnknownSync(WovenPageSchema)(data) }),\n    ),\n  ),\n)\n\nconst NavigateInternal = Command.define(\n  'NavigateInternal',\n  { url: S.String },\n  CompletedNavigation,\n)(({ url }) => Navigation.pushUrl(url).pipe(Effect.as(CompletedNavigation())))\n\nconst NavigateExternal = Command.define(\n  'NavigateExternal',\n  { href: S.String },\n  CompletedNavigation,\n)(({ href }) => Navigation.load(href).pipe(Effect.as(CompletedNavigation())))\n\nconst CopyToClipboard = Command.define(\n  'CopyToClipboard',\n  { text: S.String },\n  CompletedNavigation,\n)(({ text }) =>\n  Effect.promise(() => navigator.clipboard.writeText(text)).pipe(\n    Effect.as(CompletedNavigation()),\n  ),\n)",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "10-loom-website/03-the-reading-app",
+            "section": "booting-from-flags"
+          },
+          "level": 2,
+          "title": "Booting from flags",
+          "id": "booting-from-flags"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "10-loom-website/03-the-reading-app",
+            "section": "booting-from-flags"
+          },
+          "markdown": "The app starts from its flags. The `flags` effect runs once at startup: on a page the build pre-rendered, it reads the inline `loom-data` script the build injected — the navigation tree and this page — so `init` has everything and the view matches the served HTML with nothing to fetch. When that script is absent, as in development, it fetches the navigation tree alone and lets `init` request the page.\n\n`init` builds the first model from the flags and the address. It seeds the page cache with the inline page when there is one, and asks for the page the route names when the cache lacks it — the development path, and any deep link the build did not pre-render."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "10-loom-website/03-the-reading-app",
+            "section": "booting-from-flags"
+          },
+          "language": "typescript",
+          "code": "const flags: Effect.Effect<Flags> = Effect.gen(function* () {\n  const inline = Option.fromNullishOr(\n    document.getElementById('loom-data')?.textContent,\n  )\n  return yield* Option.match(inline, {\n    onSome: (text) =>\n      Effect.succeed(S.decodeUnknownSync(Flags)(JSON.parse(text))),\n    onNone: () =>\n      Effect.promise(() =>\n        fetch('/data/nav.json').then((response) => response.json()),\n      ).pipe(Effect.map((nav) => S.decodeUnknownSync(Flags)({ nav }))),\n  })\n})\n\nconst pageCommands = (\n  route: Model['route'],\n  pages: ReadonlyArray<WovenPage>,\n): ReadonlyArray<Command.Command<Message>> =>\n  route._tag === 'Docs' && Option.isNone(pageOf(pages, route.slug))\n    ? [FetchPage({ slug: route.slug })]\n    : []\n\nconst init = (\n  flagsIn: Flags,\n  url: Url.Url,\n): readonly [Model, ReadonlyArray<Command.Command<Message>>] => {\n  const route = routeForPath(flagsIn.nav, url.pathname)\n  const pages = flagsIn.page ? [flagsIn.page] : []\n  return [\n    {\n      route,\n      theme: 'dark',\n      navClosed: false,\n      tocClosed: false,\n      nav: flagsIn.nav,\n      pages,\n    },\n    pageCommands(route, pages),\n  ]\n}",
           "links": []
         },
         {
@@ -1058,7 +1743,7 @@
             "chapter": "10-loom-website/03-the-reading-app",
             "section": "updating-the-model"
           },
-          "markdown": "`update` is the state machine, driven through the URL. A clicked link issues a navigation command rather than changing state directly: `NavigateInternal` pushes a chapter's path onto history, `NavigateExternal` leaves for another site, and the address change returns as `ChangedUrl`, which sets the route. So back, forward, deep links, and refresh all work. `CopyToClipboard` carries the one browser effect the landing needs. The toggles flip their flags."
+          "markdown": "`update` is the state machine, driven through the URL. A clicked link issues a navigation command rather than changing state directly, and the address change returns as `ChangedUrl`, which resolves the new path to a route against the navigation tree and fetches the page when the cache lacks it. So back, forward, deep links, and refresh all work. `GotPage` files a fetched page into the cache, once. `ClickedCopy` carries the clipboard effect, and the toggles flip their flags."
         },
         {
           "type": "code",
@@ -1067,7 +1752,7 @@
             "section": "updating-the-model"
           },
           "language": "typescript",
-          "code": "const NavigateInternal = Command.define(\n  'NavigateInternal',\n  { url: S.String },\n  CompletedNavigation,\n)(({ url }) => Navigation.pushUrl(url).pipe(Effect.as(CompletedNavigation())))\n\nconst NavigateExternal = Command.define(\n  'NavigateExternal',\n  { href: S.String },\n  CompletedNavigation,\n)(({ href }) => Navigation.load(href).pipe(Effect.as(CompletedNavigation())))\n\nconst CopyToClipboard = Command.define(\n  'CopyToClipboard',\n  { text: S.String },\n  CompletedNavigation,\n)(({ text }) =>\n  Effect.promise(() => navigator.clipboard.writeText(text)).pipe(Effect.as(CompletedNavigation())),\n)\n\nconst init: Runtime.RoutingApplicationInit<Model, Message> = (url) => [\n  { route: routeForPath(url.pathname), theme: 'dark', navClosed: false, tocClosed: false },\n  [],\n]\n\nconst update = (\n  model: Model,\n  message: Message,\n): readonly [Model, ReadonlyArray<Command.Command<Message>>] =>\n  Match.value(message).pipe(\n    Match.withReturnType<readonly [Model, ReadonlyArray<Command.Command<Message>>]>(),\n    Match.tagsExhaustive({\n      ChangedUrl: ({ route }) => [{ ...model, route, navClosed: false }, []],\n      ClickedLink: ({ request }) =>\n        Match.value(request).pipe(\n          Match.withReturnType<readonly [Model, ReadonlyArray<Command.Command<Message>>]>(),\n          Match.tag('Internal', ({ url }) => [model, [NavigateInternal({ url: Url.toString(url) })]]),\n          Match.tag('External', ({ href }) => [model, [NavigateExternal({ href })]]),\n          Match.exhaustive,\n        ),\n      CompletedNavigation: () => [model, []],\n      ToggledTheme: () => [{ ...model, theme: model.theme === 'dark' ? 'light' : 'dark' }, []],\n      ToggledNav: () => [{ ...model, navClosed: !model.navClosed }, []],\n      ToggledToc: () => [{ ...model, tocClosed: !model.tocClosed }, []],\n      Copy: ({ text }) => [model, [CopyToClipboard({ text })]],\n    }),\n  )",
+          "code": "const update = (\n  model: Model,\n  message: Message,\n): readonly [Model, ReadonlyArray<Command.Command<Message>>] =>\n  Match.value(message).pipe(\n    Match.withReturnType<readonly [Model, ReadonlyArray<Command.Command<Message>>]>(),\n    Match.tagsExhaustive({\n      ChangedUrl: ({ pathname }) => {\n        const route = routeForPath(model.nav, pathname)\n        return [{ ...model, route, navClosed: false }, pageCommands(route, model.pages)]\n      },\n      ClickedLink: ({ request }) =>\n        Match.value(request).pipe(\n          Match.withReturnType<readonly [Model, ReadonlyArray<Command.Command<Message>>]>(),\n          Match.tag('Internal', ({ url }) => [model, [NavigateInternal({ url: Url.toString(url) })]]),\n          Match.tag('External', ({ href }) => [model, [NavigateExternal({ href })]]),\n          Match.exhaustive,\n        ),\n      GotPage: ({ page }) =>\n        Option.isSome(pageOf(model.pages, page.slug))\n          ? [model, []]\n          : [{ ...model, pages: [...model.pages, page] }, []],\n      CompletedNavigation: () => [model, []],\n      ToggledTheme: () => [{ ...model, theme: model.theme === 'dark' ? 'light' : 'dark' }, []],\n      ToggledNav: () => [{ ...model, navClosed: !model.navClosed }, []],\n      ToggledToc: () => [{ ...model, tocClosed: !model.tocClosed }, []],\n      ClickedCopy: ({ text }) => [model, [CopyToClipboard({ text })]],\n    }),\n  )",
           "links": []
         },
         {
@@ -1102,84 +1787,196 @@
           "type": "heading",
           "source": {
             "chapter": "10-loom-website/03-the-reading-app",
-            "section": "the-page-the-sidebar-and-the-outline"
+            "section": "the-page-outline"
           },
           "level": 2,
-          "title": "The page, the sidebar, and the outline",
-          "id": "the-page-the-sidebar-and-the-outline"
+          "title": "The page outline",
+          "id": "the-page-outline"
         },
         {
           "type": "prose",
           "source": {
             "chapter": "10-loom-website/03-the-reading-app",
-            "section": "the-page-the-sidebar-and-the-outline"
+            "section": "the-page-outline"
           },
-          "markdown": "`pageOf` finds a chapter by slug, and `docsPage` falls back to the first. `headingsOf` pulls a page's section headings — the `h2` and `h3` blocks — which the sidebar's active sublist and the outline both read to show where you are within a chapter. The sidebar lists every part and its chapters, the current one carrying the accent rail; the outline repeats its headings under an \"on this page\" label."
+          "markdown": "A page's outline is its second- and third-level headings, in order. `headingsOf` reads them from the blocks — the same list the sidebar shows under the open chapter and the outline column shows on the right."
         },
         {
           "type": "code",
           "source": {
             "chapter": "10-loom-website/03-the-reading-app",
-            "section": "the-page-the-sidebar-and-the-outline"
+            "section": "the-page-outline"
           },
           "language": "typescript",
-          "code": "type Heading = { readonly id: string; readonly level: number; readonly title: string }\n\nconst pageOf = (slug: string): Option.Option<WovenPage> =>\n  Array.findFirst(site.pages, (page) => page.slug === slug)\n\nconst docsPage = (slug: string): WovenPage => Option.getOrElse(pageOf(slug), () => site.pages[0])\n\nconst headingsOf = (page: WovenPage): ReadonlyArray<Heading> =>\n  pipe(\n    page.blocks,\n    Array.map((block) =>\n      block.type === 'heading' && block.level >= 2\n        ? Option.some<Heading>({ id: block.id, level: block.level, title: block.title })\n        : Option.none<Heading>(),\n    ),\n    Array.getSomes,\n  )\n\nconst subHeadingView = (heading: Heading): Html =>\n  h.li(\n    [h.Key(heading.id)],\n    [h.a([h.Href(`#${heading.id}`)], [h.span([h.Class('loom-sublist-dot')], []), heading.title])],\n  )\n\nconst chapterView = (current: string) => (chapter: WovenNavEntry): Html => {\n  const active = chapter.slug === current\n  return h.li(\n    active ? [h.Key(chapter.slug), h.Class('is-active')] : [h.Key(chapter.slug)],\n    [\n      h.a(\n        [h.Class('loom-sidebar-item'), h.Href(pathForSlug(chapter.slug))],\n        [\n          h.span([h.Class('loom-sidebar-rail')], []),\n          h.span([h.Class('loom-sidebar-num')], [chapter.number]),\n          h.span([], [chapter.title]),\n        ],\n      ),\n      ...(active\n        ? [\n            h.ul(\n              [h.Class('loom-sidebar-sublist')],\n              Array.map(\n                pipe(pageOf(chapter.slug), Option.map(headingsOf), Option.getOrElse(() => [] as ReadonlyArray<Heading>)),\n                subHeadingView,\n              ),\n            ),\n          ]\n        : []),\n    ],\n  )\n}\n\nconst partView = (current: string) => (part: WovenPart): Html =>\n  h.div(\n    [h.Class('loom-sidebar-section'), h.Key(part.number)],\n    [\n      h.div([h.Class('loom-sidebar-heading')], [part.name]),\n      ...(part.chapters.length > 0\n        ? [h.ul([h.Class('loom-sidebar-list')], Array.map(part.chapters, chapterView(current)))]\n        : []),\n    ],\n  )\n\nconst sidebarView = (current: string): Html =>\n  h.aside(\n    [h.Class('loom-sidebar')],\n    [\n      h.div(\n        [h.Class('loom-sidebar-inner')],\n        [\n          ...Array.map(site.nav, partView(current)),\n          h.div([h.Class('loom-sidebar-footer')], [h.div([h.Class('loom-sidebar-kicker')], ['loom · v0.9.0'])]),\n        ],\n      ),\n    ],\n  )\n\nconst outlineEntryView = (heading: Heading): Html =>\n  h.li(\n    heading.level >= 3 ? [h.Key(heading.id), h.Class('loom-toc-sub')] : [h.Key(heading.id)],\n    [h.a([h.Href(`#${heading.id}`)], [h.span([h.Class('loom-toc-rail')], []), heading.title])],\n  )\n\nconst outlineView = (page: WovenPage): Html =>\n  h.aside(\n    [h.Class('loom-toc')],\n    [\n      h.div([h.Class('loom-toc-heading')], ['On this page']),\n      h.ul([h.Class('loom-toc-list')], Array.map(headingsOf(page), outlineEntryView)),\n      h.div([h.Class('loom-toc-footer')], [h.a([h.Href('/')], ['Home']), h.a([h.Href('/')], ['Source'])]),\n    ],\n  )",
+          "code": "type Heading = { readonly id: string; readonly level: number; readonly title: string }\n\nconst headingsOf = (page: WovenPage): ReadonlyArray<Heading> =>\n  pipe(\n    page.blocks,\n    Array.map((block) =>\n      block.type === 'heading' && block.level >= 2\n        ? Option.some<Heading>({ id: block.id, level: block.level, title: block.title })\n        : Option.none<Heading>(),\n    ),\n    Array.getSomes,\n  )",
           "links": []
         },
         {
           "type": "heading",
           "source": {
             "chapter": "10-loom-website/03-the-reading-app",
-            "section": "the-top-bar-and-the-frame"
+            "section": "the-sidebar"
           },
           "level": 2,
-          "title": "The top bar and the frame",
-          "id": "the-top-bar-and-the-frame"
+          "title": "The sidebar",
+          "id": "the-sidebar"
         },
         {
           "type": "prose",
           "source": {
             "chapter": "10-loom-website/03-the-reading-app",
-            "section": "the-top-bar-and-the-frame"
+            "section": "the-sidebar"
           },
-          "markdown": "The top bar spans the app: the sidebar toggle and the wordmark on the left, the section link in the middle, the theme switch on the right — the sidebar toggle only where there is a sidebar to toggle. `appFrame` wraps the top bar over whatever content the route calls for, on a root that carries the theme class. The reading column centres the current chapter on the measure: a breadcrumb of part and title, then the chapter's blocks."
+          "markdown": "The sidebar is the navigation tree, drawn from the model. Each part is a section of numbered chapters; the open chapter carries the `is-active` class and expands to show its own headings, read from the page cache when that page has loaded. A chapter that no page has fetched yet shows its title alone."
         },
         {
           "type": "code",
           "source": {
             "chapter": "10-loom-website/03-the-reading-app",
-            "section": "the-top-bar-and-the-frame"
+            "section": "the-sidebar"
           },
           "language": "typescript",
-          "code": "const topBarView = (model: Model): Html =>\n  h.div(\n    [h.Class('loom-topbar')],\n    [\n      h.div(\n        [h.Class('loom-topbar-left')],\n        [\n          ...(model.route._tag === 'Docs'\n            ? [h.button([h.Class('loom-icon-btn'), h.OnClick(ToggledNav())], ['☰'])]\n            : []),\n          h.a(\n            [h.Class('loom-wordmark'), h.Href('/')],\n            [\n              h.span([h.Class('loom-wordmark-mark')], ['~']),\n              h.span([h.Class('loom-wordmark-text')], ['loom']),\n              h.span([h.Class('loom-wordmark-ver')], ['v0.9.0']),\n            ],\n          ),\n        ],\n      ),\n      h.nav(\n        [h.Class('loom-topnav')],\n        [\n          h.a(\n            [\n              h.Class(model.route._tag === 'Docs' ? 'loom-topnav-item loom-topnav-active' : 'loom-topnav-item'),\n              h.Href(pathForSlug(firstSlug)),\n            ],\n            ['Docs'],\n          ),\n        ],\n      ),\n      h.div(\n        [h.Class('loom-topbar-right')],\n        [\n          h.button(\n            [h.Class('loom-theme-toggle'), h.OnClick(ToggledTheme())],\n            [\n              h.span([h.Class(model.theme === 'dark' ? 'loom-theme-knob is-dark' : 'loom-theme-knob')], []),\n              h.span([], [model.theme === 'dark' ? 'Dark' : 'Light']),\n            ],\n          ),\n        ],\n      ),\n    ],\n  )\n\nconst appFrame = (model: Model, content: Html): Html =>\n  h.div([h.Class(`loom-app loom-theme-${model.theme}`)], [topBarView(model), content])\n\nconst mainView = (model: Model, page: WovenPage): Html =>\n  h.div(\n    [h.Class(model.navClosed ? 'loom-main is-wide' : 'loom-main')],\n    [\n      h.article(\n        [h.Class('loom-prose'), h.Key(page.slug)],\n        [\n          h.div(\n            [h.Class('loom-breadcrumbs')],\n            [\n              ...(page.part ? [h.span([], [page.part]), h.span([h.Class('loom-crumb-sep')], ['›'])] : []),\n              h.span([h.Class('is-current')], [page.title]),\n            ],\n          ),\n          ...Array.map(page.blocks, blockView),\n        ],\n      ),\n    ],\n  )",
+          "code": "const subHeadingView = (heading: Heading): Html =>\n  h.li(\n    [h.Key(heading.id)],\n    [h.a([h.Href(`#${heading.id}`)], [h.span([h.Class('loom-sublist-dot')], []), heading.title])],\n  )\n\nconst chapterView =\n  (pages: ReadonlyArray<WovenPage>, current: string) =>\n  (chapter: WovenNavEntry): Html => {\n    const active = chapter.slug === current\n    const subHeadings = active\n      ? pipe(\n          pageOf(pages, chapter.slug),\n          Option.map(headingsOf),\n          Option.getOrElse(() => [] as ReadonlyArray<Heading>),\n        )\n      : []\n    return h.li(\n      active ? [h.Key(chapter.slug), h.Class('is-active')] : [h.Key(chapter.slug)],\n      [\n        h.a(\n          [h.Class('loom-sidebar-item'), h.Href(pathForSlug(chapter.slug))],\n          [\n            h.span([h.Class('loom-sidebar-rail')], []),\n            h.span([h.Class('loom-sidebar-num')], [chapter.number]),\n            h.span([], [chapter.title]),\n          ],\n        ),\n        ...(active\n          ? [h.ul([h.Class('loom-sidebar-sublist')], Array.map(subHeadings, subHeadingView))]\n          : []),\n      ],\n    )\n  }\n\nconst partView =\n  (pages: ReadonlyArray<WovenPage>, current: string) =>\n  (part: WovenPart): Html =>\n    h.div(\n      [h.Class('loom-sidebar-section'), h.Key(part.number)],\n      [\n        h.div([h.Class('loom-sidebar-heading')], [part.name]),\n        ...(part.chapters.length > 0\n          ? [h.ul([h.Class('loom-sidebar-list')], Array.map(part.chapters, chapterView(pages, current)))]\n          : []),\n      ],\n    )\n\nconst sidebarView = (\n  nav: ReadonlyArray<WovenPart>,\n  pages: ReadonlyArray<WovenPage>,\n  current: string,\n): Html =>\n  h.aside(\n    [h.Class('loom-sidebar')],\n    [\n      h.div(\n        [h.Class('loom-sidebar-inner')],\n        [\n          ...Array.map(nav, partView(pages, current)),\n          h.div([h.Class('loom-sidebar-footer')], [h.div([h.Class('loom-sidebar-kicker')], ['loom · v0.9.0'])]),\n        ],\n      ),\n    ],\n  )",
           "links": []
         },
         {
           "type": "heading",
           "source": {
             "chapter": "10-loom-website/03-the-reading-app",
-            "section": "running-the-app"
+            "section": "the-outline-column"
           },
           "level": 2,
-          "title": "Running the app",
-          "id": "running-the-app"
+          "title": "The outline column",
+          "id": "the-outline-column"
         },
         {
           "type": "prose",
           "source": {
             "chapter": "10-loom-website/03-the-reading-app",
-            "section": "running-the-app"
+            "section": "the-outline-column"
           },
-          "markdown": "The docs shell keys the grid on the model's flags — a closed side becomes a `no-left` or `no-right` class. The view matches the route: a landing hands off to the landing module, a chapter builds the shell. The runtime mounts the app and drives the loop, handing it the address bar: a URL change arrives as `ChangedUrl`, a link click as `ClickedLink`."
+          "markdown": "The right column repeats the page's headings as an outline, each a link to its section, above a thin footer."
         },
         {
           "type": "code",
           "source": {
             "chapter": "10-loom-website/03-the-reading-app",
-            "section": "running-the-app"
+            "section": "the-outline-column"
           },
           "language": "typescript",
-          "code": "const shellClass = (model: Model): string =>\n  ['loom-shell', model.navClosed ? 'no-left' : '', model.tocClosed ? 'no-right' : '']\n    .filter(Boolean)\n    .join(' ')\n\nconst docsShell = (model: Model, page: WovenPage): Html =>\n  h.div(\n    [h.Class(shellClass(model))],\n    [\n      ...(model.navClosed ? [] : [sidebarView(page.slug)]),\n      mainView(model, page),\n      ...(model.tocClosed ? [] : [outlineView(page)]),\n    ],\n  )\n\nconst view = (model: Model): Document =>\n  Match.value(model.route).pipe(\n    Match.withReturnType<Document>(),\n    Match.tag('Landing', () => ({\n      title: 'Loom — literate programming',\n      body: appFrame(model, landingView()),\n    })),\n    Match.tag('Docs', ({ slug }) => {\n      const page = docsPage(slug)\n      return { title: `${page.title} · Loom`, body: appFrame(model, docsShell(model, page)) }\n    }),\n    Match.exhaustive,\n  )\n\nconst application = Runtime.makeApplication({\n  Model,\n  init,\n  update,\n  view,\n  routing: {\n    onUrlChange: (url: Url.Url) => ChangedUrl({ route: routeForPath(url.pathname) }),\n    onUrlRequest: (request: Navigation.UrlRequest) => ClickedLink({ request }),\n  },\n  container: document.getElementById('root')!,\n})\n\nRuntime.run(application)",
+          "code": "const outlineEntryView = (heading: Heading): Html =>\n  h.li(\n    heading.level >= 3 ? [h.Key(heading.id), h.Class('loom-toc-sub')] : [h.Key(heading.id)],\n    [h.a([h.Href(`#${heading.id}`)], [h.span([h.Class('loom-toc-rail')], []), heading.title])],\n  )\n\nconst outlineView = (page: WovenPage): Html =>\n  h.aside(\n    [h.Class('loom-toc')],\n    [\n      h.div([h.Class('loom-toc-heading')], ['On this page']),\n      h.ul([h.Class('loom-toc-list')], Array.map(headingsOf(page), outlineEntryView)),\n      h.div([h.Class('loom-toc-footer')], [h.a([h.Href('/')], ['Home']), h.a([h.Href('/')], ['Source'])]),\n    ],\n  )",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "10-loom-website/03-the-reading-app",
+            "section": "the-top-bar"
+          },
+          "level": 2,
+          "title": "The top bar",
+          "id": "the-top-bar"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "10-loom-website/03-the-reading-app",
+            "section": "the-top-bar"
+          },
+          "markdown": "The top bar carries the wordmark, the one nav link into the docs, and the theme toggle. On a chapter it also shows the button that hides the sidebar. The docs link opens the first chapter, read from the navigation tree."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "10-loom-website/03-the-reading-app",
+            "section": "the-top-bar"
+          },
+          "language": "typescript",
+          "code": "const topBarView = (model: Model): Html =>\n  h.div(\n    [h.Class('loom-topbar')],\n    [\n      h.div(\n        [h.Class('loom-topbar-left')],\n        [\n          ...(model.route._tag === 'Docs'\n            ? [h.button([h.Class('loom-icon-btn'), h.OnClick(ToggledNav())], ['☰'])]\n            : []),\n          h.a(\n            [h.Class('loom-wordmark'), h.Href('/')],\n            [\n              h.span([h.Class('loom-wordmark-mark')], ['~']),\n              h.span([h.Class('loom-wordmark-text')], ['loom']),\n              h.span([h.Class('loom-wordmark-ver')], ['v0.9.0']),\n            ],\n          ),\n        ],\n      ),\n      h.nav(\n        [h.Class('loom-topnav')],\n        [\n          h.a(\n            [\n              h.Class(model.route._tag === 'Docs' ? 'loom-topnav-item loom-topnav-active' : 'loom-topnav-item'),\n              h.Href(pathForSlug(firstSlugOf(model.nav))),\n            ],\n            ['Docs'],\n          ),\n        ],\n      ),\n      h.div(\n        [h.Class('loom-topbar-right')],\n        [\n          h.button(\n            [h.Class('loom-theme-toggle'), h.OnClick(ToggledTheme())],\n            [\n              h.span([h.Class(model.theme === 'dark' ? 'loom-theme-knob is-dark' : 'loom-theme-knob')], []),\n              h.span([], [model.theme === 'dark' ? 'Dark' : 'Light']),\n            ],\n          ),\n        ],\n      ),\n    ],\n  )",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "10-loom-website/03-the-reading-app",
+            "section": "the-page-and-the-shell"
+          },
+          "level": 2,
+          "title": "The page and the shell",
+          "id": "the-page-and-the-shell"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "10-loom-website/03-the-reading-app",
+            "section": "the-page-and-the-shell"
+          },
+          "markdown": "`mainView` lays out a loaded page: its breadcrumbs and its blocks in reading order. `loadingView` stands in for the brief moment between a client-side navigation and the page arriving. `docsShell` places the three columns — the sidebar, the reading column, and the outline — and folds a column away when its toggle is closed or, for the outline, when the page has not loaded yet."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "10-loom-website/03-the-reading-app",
+            "section": "the-page-and-the-shell"
+          },
+          "language": "typescript",
+          "code": "const appFrame = (model: Model, content: Html): Html =>\n  h.div([h.Class(`loom-app loom-theme-${model.theme}`)], [topBarView(model), content])\n\nconst mainClass = (model: Model): string =>\n  model.navClosed ? 'loom-main is-wide' : 'loom-main'\n\nconst mainView = (model: Model, page: WovenPage): Html =>\n  h.div(\n    [h.Class(mainClass(model))],\n    [\n      h.article(\n        [h.Class('loom-prose'), h.Key(page.slug)],\n        [\n          h.div(\n            [h.Class('loom-breadcrumbs')],\n            [\n              ...(page.part ? [h.span([], [page.part]), h.span([h.Class('loom-crumb-sep')], ['›'])] : []),\n              h.span([h.Class('is-current')], [page.title]),\n            ],\n          ),\n          ...Array.map(page.blocks, blockView),\n        ],\n      ),\n    ],\n  )\n\nconst loadingView = (model: Model): Html =>\n  h.div(\n    [h.Class(mainClass(model))],\n    [h.article([h.Class('loom-prose')], [h.p([h.Class('loom-loading')], ['Loading…'])])],\n  )\n\nconst shellClass = (model: Model): string =>\n  ['loom-shell', model.navClosed ? 'no-left' : '', model.tocClosed ? 'no-right' : '']\n    .filter(Boolean)\n    .join(' ')\n\nconst docsShell = (\n  model: Model,\n  slug: string,\n  page: Option.Option<WovenPage>,\n): Html =>\n  h.div(\n    [h.Class(shellClass(model))],\n    [\n      ...(model.navClosed ? [] : [sidebarView(model.nav, model.pages, slug)]),\n      Option.match(page, {\n        onSome: (loaded) => mainView(model, loaded),\n        onNone: () => loadingView(model),\n      }),\n      ...(model.tocClosed\n        ? []\n        : Option.match(page, { onSome: (loaded) => [outlineView(loaded)], onNone: () => [] })),\n    ],\n  )",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "10-loom-website/03-the-reading-app",
+            "section": "the-view"
+          },
+          "level": 2,
+          "title": "The view",
+          "id": "the-view"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "10-loom-website/03-the-reading-app",
+            "section": "the-view"
+          },
+          "markdown": "The view is a pure function of the model, branching on the route. The landing fronts the site, framed by the top bar. A chapter resolves its page from the cache — present after hydration or once a fetch has returned — and hands the shell whichever it finds."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "10-loom-website/03-the-reading-app",
+            "section": "the-view"
+          },
+          "language": "typescript",
+          "code": "const view = (model: Model): Document =>\n  Match.value(model.route).pipe(\n    Match.withReturnType<Document>(),\n    Match.tag('Landing', () => ({\n      title: 'Loom — literate programming',\n      body: appFrame(model, landingView(firstSlugOf(model.nav))),\n    })),\n    Match.tag('Docs', ({ slug }) => {\n      const page = pageOf(model.pages, slug)\n      const title = Option.match(page, {\n        onSome: (loaded) => `${loaded.title} · Loom`,\n        onNone: () => 'Loom',\n      })\n      return { title, body: appFrame(model, docsShell(model, slug, page)) }\n    }),\n    Match.exhaustive,\n  )",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "10-loom-website/03-the-reading-app",
+            "section": "the-application"
+          },
+          "level": 2,
+          "title": "The application",
+          "id": "the-application"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "10-loom-website/03-the-reading-app",
+            "section": "the-application"
+          },
+          "markdown": "`makeApplication` wires the model, the flags, `init`, `update`, `view`, and the routing that turns address changes and link clicks into messages. `run` mounts it into the `root` element, hydrating the pre-rendered HTML that is already there."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "10-loom-website/03-the-reading-app",
+            "section": "the-application"
+          },
+          "language": "typescript",
+          "code": "const application = Runtime.makeApplication({\n  Model,\n  Flags,\n  flags,\n  init,\n  update,\n  view,\n  routing: {\n    onUrlChange: (url: Url.Url) => ChangedUrl({ pathname: url.pathname }),\n    onUrlRequest: (request: Navigation.UrlRequest) => ClickedLink({ request }),\n  },\n  container: document.getElementById('root')!,\n})\n\nRuntime.run(application)",
           "links": []
         },
         {
@@ -1199,7 +1996,7 @@
             "section": "the-module"
           },
           "language": "typescript",
-          "code": "::[What this module draws on]\n\n::[Updating the model]\n\n::[Rendering the blocks]\n\n::[The page, the sidebar, and the outline]\n\n::[The top bar and the frame]\n\n::[Running the app]",
+          "code": "::[What this module draws on]\n\n::[Fetching a page]\n\n::[Booting from flags]\n\n::[Updating the model]\n\n::[Rendering the blocks]\n\n::[The page outline]\n\n::[The sidebar]\n\n::[The outline column]\n\n::[The top bar]\n\n::[The page and the shell]\n\n::[The view]\n\n::[The application]",
           "links": [
             {
               "name": "What this module draws on",
@@ -1209,38 +2006,80 @@
               "length": 29
             },
             {
+              "name": "Fetching a page",
+              "targetSlug": "10-loom-website/03-the-reading-app",
+              "targetId": "fetching-a-page",
+              "offset": 31,
+              "length": 19
+            },
+            {
+              "name": "Booting from flags",
+              "targetSlug": "10-loom-website/03-the-reading-app",
+              "targetId": "booting-from-flags",
+              "offset": 52,
+              "length": 22
+            },
+            {
               "name": "Updating the model",
               "targetSlug": "10-loom-website/03-the-reading-app",
               "targetId": "updating-the-model",
-              "offset": 31,
+              "offset": 76,
               "length": 22
             },
             {
               "name": "Rendering the blocks",
               "targetSlug": "10-loom-website/03-the-reading-app",
               "targetId": "rendering-the-blocks",
-              "offset": 55,
+              "offset": 100,
               "length": 24
             },
             {
-              "name": "The page, the sidebar, and the outline",
+              "name": "The page outline",
               "targetSlug": "10-loom-website/03-the-reading-app",
-              "targetId": "the-page-the-sidebar-and-the-outline",
-              "offset": 81,
-              "length": 42
+              "targetId": "the-page-outline",
+              "offset": 126,
+              "length": 20
             },
             {
-              "name": "The top bar and the frame",
+              "name": "The sidebar",
               "targetSlug": "10-loom-website/03-the-reading-app",
-              "targetId": "the-top-bar-and-the-frame",
-              "offset": 125,
-              "length": 29
+              "targetId": "the-sidebar",
+              "offset": 148,
+              "length": 15
             },
             {
-              "name": "Running the app",
+              "name": "The outline column",
               "targetSlug": "10-loom-website/03-the-reading-app",
-              "targetId": "running-the-app",
-              "offset": 156,
+              "targetId": "the-outline-column",
+              "offset": 165,
+              "length": 22
+            },
+            {
+              "name": "The top bar",
+              "targetSlug": "10-loom-website/03-the-reading-app",
+              "targetId": "the-top-bar",
+              "offset": 189,
+              "length": 15
+            },
+            {
+              "name": "The page and the shell",
+              "targetSlug": "10-loom-website/03-the-reading-app",
+              "targetId": "the-page-and-the-shell",
+              "offset": 206,
+              "length": 26
+            },
+            {
+              "name": "The view",
+              "targetSlug": "10-loom-website/03-the-reading-app",
+              "targetId": "the-view",
+              "offset": 234,
+              "length": 12
+            },
+            {
+              "name": "The application",
+              "targetSlug": "10-loom-website/03-the-reading-app",
+              "targetId": "the-application",
+              "offset": 248,
               "length": 19
             }
           ]
@@ -1268,34 +2107,62 @@
             "chapter": "10-loom-website/02-the-model",
             "section": "the-model"
           },
-          "markdown": "The model is the shared ground the whole app stands on — the state, the messages, and the routing that maps the address bar to a view. Both halves of the site read it: the reading app that lays out the book, and the landing that fronts it. Keeping it in one module gives each a clean boundary. Neither reaches into the other; both reach into here."
+          "markdown": "The model is the shared ground the whole app stands on — the state, the messages, and the routing that maps the address bar to a view. Both halves of the site read it: the reading app that lays out the book, and the landing that fronts it. Neither reaches into the other; both reach into here."
         },
         {
           "type": "heading",
           "source": {
             "chapter": "10-loom-website/02-the-model",
-            "section": "the-woven-book-and-the-styles"
+            "section": "the-data-it-renders-never-ships"
           },
           "level": 2,
-          "title": "The woven book and the styles",
-          "id": "the-woven-book-and-the-styles"
+          "title": "The data it renders, never ships",
+          "id": "the-data-it-renders-never-ships"
         },
         {
           "type": "prose",
           "source": {
             "chapter": "10-loom-website/02-the-model",
-            "section": "the-woven-book-and-the-styles"
+            "section": "the-data-it-renders-never-ships"
           },
-          "markdown": "The app renders a `WovenCorpus` — the shape the weave pass produces for one corpus — so it imports that schema from `@athrio/loom-lang` and decodes the built data against it. Any drift between what the book produces and what the app expects fails here, at the decode, rather than rendering wrong. This module also pulls in the stylesheet, so importing the model brings the design system with it."
+          "markdown": "The app renders a `WovenCorpus`, but it never ships one. The client bundle carries no book. Each page's data arrives at startup as flags — the navigation tree the sidebar draws, and, on a direct load, the one page the reader opened — and every other page is fetched on demand as the reader moves. So this module imports the woven schemas to decode that data, not the data itself, and the heavy corpus never sits in the bundle.\n\nThe module also pulls in the stylesheet, so importing the model brings the design system with it."
         },
         {
           "type": "code",
           "source": {
             "chapter": "10-loom-website/02-the-model",
-            "section": "the-woven-book-and-the-styles"
+            "section": "the-data-it-renders-never-ships"
           },
           "language": "typescript",
-          "code": "import { Array, Option, pipe, Schema as S } from 'effect'\nimport { Navigation } from '@athrio/foldkit'\nimport { html } from '@athrio/foldkit/html'\nimport { m } from '@athrio/foldkit/message'\nimport { WovenCorpusSchema } from '@athrio/loom-lang/weave/WovenCorpus'\nimport siteData from './data/site.json'\nimport './styles.css'\n\nexport const site = S.decodeUnknownSync(WovenCorpusSchema)(siteData)",
+          "code": "import { Array, Option, pipe, Schema as S } from 'effect'\nimport { Navigation } from '@athrio/foldkit'\nimport { html } from '@athrio/foldkit/html'\nimport { m } from '@athrio/foldkit/message'\nimport {\n  type WovenNavEntry,\n  type WovenPage,\n  type WovenPart,\n  WovenPageSchema,\n  WovenPartSchema,\n} from '@athrio/loom-lang/weave/WovenCorpus'\nimport './styles.css'",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "10-loom-website/02-the-model",
+            "section": "the-flags-the-app-boots-with"
+          },
+          "level": 2,
+          "title": "The flags the app boots with",
+          "id": "the-flags-the-app-boots-with"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "10-loom-website/02-the-model",
+            "section": "the-flags-the-app-boots-with"
+          },
+          "markdown": "Flags are the data the app starts from. Foldkit runs a `flags` effect once at startup and hands the result to `init`. Here the flags are the navigation tree, always, and the current page, present on a direct load and absent when the app boots on the landing. The runtime fetches any other page a reader visits."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "10-loom-website/02-the-model",
+            "section": "the-flags-the-app-boots-with"
+          },
+          "language": "typescript",
+          "code": "export const Flags = S.Struct({\n  nav: S.Array(WovenPartSchema),\n  page: S.optional(WovenPageSchema),\n})\nexport type Flags = typeof Flags.Type",
           "links": []
         },
         {
@@ -1342,7 +2209,7 @@
             "chapter": "10-loom-website/02-the-model",
             "section": "the-state-and-the-messages"
           },
-          "markdown": "The `Model` is the whole of the app's state: the route it shows, the theme it wears, and whether each side column is closed. The messages are what can happen to it. `ChangedUrl` sets the route from a new address; `ClickedLink` carries a link the runtime intercepted; `ToggledTheme` flips light and dark; `ToggledNav` and `ToggledToc` hide the sidebar and the outline; `Copy` asks for text to reach the clipboard; `CompletedNavigation` is the quiet reply a command returns."
+          "markdown": "The `Model` is the whole of the app's state: the route it shows, the theme it wears, whether each side column is closed, the navigation tree it draws the sidebar from, and the pages it has loaded so far. That last field is the cache — a page enters it once, on first visit, and stays, so returning to a chapter never fetches it twice.\n\nThe messages are what can happen to the model. `ChangedUrl` carries the raw pathname of a new address, which `update` resolves to a route against the navigation tree. `ClickedLink` carries a link the runtime intercepted. `GotPage` delivers a fetched page into the cache. `ToggledTheme` flips light and dark; `ToggledNav` and `ToggledToc` hide the sidebar and the outline; `ClickedCopy` asks for text to reach the clipboard; `CompletedNavigation` is the quiet reply a command returns."
         },
         {
           "type": "code",
@@ -1351,7 +2218,7 @@
             "section": "the-state-and-the-messages"
           },
           "language": "typescript",
-          "code": "export const Model = S.Struct({\n  route: RouteSchema,\n  theme: S.Literals(['light', 'dark']),\n  navClosed: S.Boolean,\n  tocClosed: S.Boolean,\n})\nexport type Model = typeof Model.Type\n\nexport const ChangedUrl = m('ChangedUrl', { route: RouteSchema })\nexport const ClickedLink = m('ClickedLink', { request: Navigation.UrlRequest })\nexport const CompletedNavigation = m('CompletedNavigation')\nexport const ToggledTheme = m('ToggledTheme')\nexport const ToggledNav = m('ToggledNav')\nexport const ToggledToc = m('ToggledToc')\nexport const Copy = m('Copy', { text: S.String })\n\nexport const Message = S.Union([\n  ChangedUrl,\n  ClickedLink,\n  CompletedNavigation,\n  ToggledTheme,\n  ToggledNav,\n  ToggledToc,\n  Copy,\n])\nexport type Message = typeof Message.Type\n\nexport const h = html<Message>()",
+          "code": "export const Model = S.Struct({\n  route: RouteSchema,\n  theme: S.Literals(['light', 'dark']),\n  navClosed: S.Boolean,\n  tocClosed: S.Boolean,\n  nav: S.Array(WovenPartSchema),\n  pages: S.Array(WovenPageSchema),\n})\nexport type Model = typeof Model.Type\n\nexport const ChangedUrl = m('ChangedUrl', { pathname: S.String })\nexport const ClickedLink = m('ClickedLink', { request: Navigation.UrlRequest })\nexport const GotPage = m('GotPage', { slug: S.String, page: WovenPageSchema })\nexport const CompletedNavigation = m('CompletedNavigation')\nexport const ToggledTheme = m('ToggledTheme')\nexport const ToggledNav = m('ToggledNav')\nexport const ToggledToc = m('ToggledToc')\nexport const ClickedCopy = m('ClickedCopy', { text: S.String })\n\nexport const Message = S.Union([\n  ChangedUrl,\n  ClickedLink,\n  GotPage,\n  CompletedNavigation,\n  ToggledTheme,\n  ToggledNav,\n  ToggledToc,\n  ClickedCopy,\n])\nexport type Message = typeof Message.Type\n\nexport const h = html<Message>()",
           "links": []
         },
         {
@@ -1370,7 +2237,7 @@
             "chapter": "10-loom-website/02-the-model",
             "section": "addresses-and-routes"
           },
-          "markdown": "The app is driven by the address bar, so it needs to move between a URL and a route. `pathForSlug` builds a chapter's clean URL, dropping the `NN-` ordering prefixes so the address reads plainly. `firstSlug` is the first chapter in the book, where the docs open. `slugForPath` maps a path back to its chapter, falling back to that first one; `routeForPath` wraps it — `/` is the landing, anything else is the chapter it names."
+          "markdown": "The app is driven by the address bar, so it moves between a URL and a route — and it does so against the navigation tree, the one thing it always holds, rather than the pages it may not have fetched yet. `pathForSlug` builds a chapter's clean URL, dropping the `NN-` ordering prefixes so the address reads plainly. `chaptersOf` flattens the tree to its chapters. `firstSlugOf` is the first chapter, where the docs open. `slugForPath` reverses a clean URL back to the slug whose chapter it names, falling back to that first one; `routeForPath` wraps it — `/` is the landing, anything else is the chapter it names."
         },
         {
           "type": "code",
@@ -1379,7 +2246,7 @@
             "section": "addresses-and-routes"
           },
           "language": "typescript",
-          "code": "const stripOrder = (segment: string): string => segment.replace(/^\\d+-/, '')\n\nexport const pathForSlug = (slug: string): string =>\n  `/${pipe(slug.split('/'), Array.map(stripOrder), Array.join('/'))}`\n\nexport const firstSlug = pipe(\n  Array.flatMap(site.nav, (part) => part.chapters),\n  Array.head,\n  Option.map((chapter) => chapter.slug),\n  Option.getOrElse(() => ''),\n)\n\nconst pathIndex = new Map(\n  Array.map(site.pages, (page) => [pathForSlug(page.slug), page.slug] as const),\n)\n\nconst slugForPath = (pathname: string): string =>\n  Option.getOrElse(Option.fromNullishOr(pathIndex.get(pathname)), () => firstSlug)\n\nexport const routeForPath = (pathname: string): Route =>\n  pathname === '/' ? { _tag: 'Landing' } : { _tag: 'Docs', slug: slugForPath(pathname) }",
+          "code": "const stripOrder = (segment: string): string => segment.replace(/^\\d+-/, '')\n\nexport const pathForSlug = (slug: string): string =>\n  `/${pipe(slug.split('/'), Array.map(stripOrder), Array.join('/'))}`\n\nconst chaptersOf = (\n  nav: ReadonlyArray<WovenPart>,\n): ReadonlyArray<WovenNavEntry> => Array.flatMap(nav, (part) => part.chapters)\n\nexport const firstSlugOf = (nav: ReadonlyArray<WovenPart>): string =>\n  pipe(\n    chaptersOf(nav),\n    Array.head,\n    Option.map((chapter) => chapter.slug),\n    Option.getOrElse(() => ''),\n  )\n\nconst slugForPath = (\n  nav: ReadonlyArray<WovenPart>,\n  pathname: string,\n): string =>\n  pipe(\n    chaptersOf(nav),\n    Array.findFirst((chapter) => pathForSlug(chapter.slug) === pathname),\n    Option.map((chapter) => chapter.slug),\n    Option.getOrElse(() => firstSlugOf(nav)),\n  )\n\nexport const routeForPath = (\n  nav: ReadonlyArray<WovenPart>,\n  pathname: string,\n): Route =>\n  pathname === '/'\n    ? { _tag: 'Landing' }\n    : { _tag: 'Docs', slug: slugForPath(nav, pathname) }\n\nexport const pageOf = (\n  pages: ReadonlyArray<WovenPage>,\n  slug: string,\n): Option.Option<WovenPage> =>\n  Array.findFirst(pages, (page) => page.slug === slug)",
           "links": []
         },
         {
@@ -1393,48 +2260,47 @@
           "id": "the-module"
         },
         {
-          "type": "prose",
-          "source": {
-            "chapter": "10-loom-website/02-the-model",
-            "section": "the-module"
-          },
-          "markdown": "The model module is the woven book it decodes, the route, the state and its messages, and the mapping between addresses and routes."
-        },
-        {
           "type": "code",
           "source": {
             "chapter": "10-loom-website/02-the-model",
             "section": "the-module"
           },
           "language": "typescript",
-          "code": "::[The woven book and the styles]\n\n::[The route]\n\n::[The state and the messages]\n\n::[Addresses and routes]",
+          "code": "::[The data it renders, never ships]\n\n::[The flags the app boots with]\n\n::[The route]\n\n::[The state and the messages]\n\n::[Addresses and routes]",
           "links": [
             {
-              "name": "The woven book and the styles",
+              "name": "The data it renders, never ships",
               "targetSlug": "10-loom-website/02-the-model",
-              "targetId": "the-woven-book-and-the-styles",
+              "targetId": "the-data-it-renders-never-ships",
               "offset": 0,
-              "length": 33
+              "length": 36
+            },
+            {
+              "name": "The flags the app boots with",
+              "targetSlug": "10-loom-website/02-the-model",
+              "targetId": "the-flags-the-app-boots-with",
+              "offset": 38,
+              "length": 32
             },
             {
               "name": "The route",
               "targetSlug": "10-loom-website/02-the-model",
               "targetId": "the-route",
-              "offset": 35,
+              "offset": 72,
               "length": 13
             },
             {
               "name": "The state and the messages",
               "targetSlug": "10-loom-website/02-the-model",
               "targetId": "the-state-and-the-messages",
-              "offset": 50,
+              "offset": 87,
               "length": 30
             },
             {
               "name": "Addresses and routes",
               "targetSlug": "10-loom-website/02-the-model",
               "targetId": "addresses-and-routes",
-              "offset": 82,
+              "offset": 119,
               "length": 24
             }
           ]

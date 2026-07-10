@@ -6,11 +6,13 @@ Language: TypeScript
 
 # The model
 
-The model is the shared ground the whole app stands on — the state, the messages, and the routing that maps the address bar to a view. Both halves of the site read it: the reading app that lays out the book, and the landing that fronts it. Keeping it in one module gives each a clean boundary. Neither reaches into the other; both reach into here.
+The model is the shared ground the whole app stands on — the state, the messages, and the routing that maps the address bar to a view. Both halves of the site read it: the reading app that lays out the book, and the landing that fronts it. Neither reaches into the other; both reach into here.
 
-## The woven book and the styles
+## The data it renders, never ships
 
-The app renders a `WovenCorpus` — the shape the weave pass produces for one corpus — so it imports that schema from `@athrio/loom-lang` and decodes the built data against it. Any drift between what the book produces and what the app expects fails here, at the decode, rather than rendering wrong. This module also pulls in the stylesheet, so importing the model brings the design system with it.
+The app renders a `WovenCorpus`, but it never ships one. The client bundle carries no book. Each page's data arrives at startup as flags — the navigation tree the sidebar draws, and, on a direct load, the one page the reader opened — and every other page is fetched on demand as the reader moves. So this module imports the woven schemas to decode that data, not the data itself, and the heavy corpus never sits in the bundle.
+
+The module also pulls in the stylesheet, so importing the model brings the design system with it.
 
 =>
 
@@ -18,11 +20,26 @@ import { Array, Option, pipe, Schema as S } from 'effect'
 import { Navigation } from '@athrio/foldkit'
 import { html } from '@athrio/foldkit/html'
 import { m } from '@athrio/foldkit/message'
-import { WovenCorpusSchema } from '@athrio/loom-lang/weave/WovenCorpus'
-import siteData from './data/site.json'
+import {
+  type WovenNavEntry,
+  type WovenPage,
+  type WovenPart,
+  WovenPageSchema,
+  WovenPartSchema,
+} from '@athrio/loom-lang/weave/WovenCorpus'
 import './styles.css'
 
-export const site = S.decodeUnknownSync(WovenCorpusSchema)(siteData)
+## The flags the app boots with
+
+Flags are the data the app starts from. Foldkit runs a `flags` effect once at startup and hands the result to `init`. Here the flags are the navigation tree, always, and the current page, present on a direct load and absent when the app boots on the landing. The runtime fetches any other page a reader visits.
+
+=>
+
+export const Flags = S.Struct({
+  nav: S.Array(WovenPartSchema),
+  page: S.optional(WovenPageSchema),
+})
+export type Flags = typeof Flags.Type
 
 ## The route
 
@@ -38,7 +55,9 @@ export type Route = typeof RouteSchema.Type
 
 ## The state and the messages
 
-The `Model` is the whole of the app's state: the route it shows, the theme it wears, and whether each side column is closed. The messages are what can happen to it. `ChangedUrl` sets the route from a new address; `ClickedLink` carries a link the runtime intercepted; `ToggledTheme` flips light and dark; `ToggledNav` and `ToggledToc` hide the sidebar and the outline; `Copy` asks for text to reach the clipboard; `CompletedNavigation` is the quiet reply a command returns.
+The `Model` is the whole of the app's state: the route it shows, the theme it wears, whether each side column is closed, the navigation tree it draws the sidebar from, and the pages it has loaded so far. That last field is the cache — a page enters it once, on first visit, and stays, so returning to a chapter never fetches it twice.
+
+The messages are what can happen to the model. `ChangedUrl` carries the raw pathname of a new address, which `update` resolves to a route against the navigation tree. `ClickedLink` carries a link the runtime intercepted. `GotPage` delivers a fetched page into the cache. `ToggledTheme` flips light and dark; `ToggledNav` and `ToggledToc` hide the sidebar and the outline; `ClickedCopy` asks for text to reach the clipboard; `CompletedNavigation` is the quiet reply a command returns.
 
 =>
 
@@ -47,25 +66,29 @@ export const Model = S.Struct({
   theme: S.Literals(['light', 'dark']),
   navClosed: S.Boolean,
   tocClosed: S.Boolean,
+  nav: S.Array(WovenPartSchema),
+  pages: S.Array(WovenPageSchema),
 })
 export type Model = typeof Model.Type
 
-export const ChangedUrl = m('ChangedUrl', { route: RouteSchema })
+export const ChangedUrl = m('ChangedUrl', { pathname: S.String })
 export const ClickedLink = m('ClickedLink', { request: Navigation.UrlRequest })
+export const GotPage = m('GotPage', { slug: S.String, page: WovenPageSchema })
 export const CompletedNavigation = m('CompletedNavigation')
 export const ToggledTheme = m('ToggledTheme')
 export const ToggledNav = m('ToggledNav')
 export const ToggledToc = m('ToggledToc')
-export const Copy = m('Copy', { text: S.String })
+export const ClickedCopy = m('ClickedCopy', { text: S.String })
 
 export const Message = S.Union([
   ChangedUrl,
   ClickedLink,
+  GotPage,
   CompletedNavigation,
   ToggledTheme,
   ToggledNav,
   ToggledToc,
-  Copy,
+  ClickedCopy,
 ])
 export type Message = typeof Message.Type
 
@@ -73,7 +96,7 @@ export const h = html<Message>()
 
 ## Addresses and routes
 
-The app is driven by the address bar, so it needs to move between a URL and a route. `pathForSlug` builds a chapter's clean URL, dropping the `NN-` ordering prefixes so the address reads plainly. `firstSlug` is the first chapter in the book, where the docs open. `slugForPath` maps a path back to its chapter, falling back to that first one; `routeForPath` wraps it — `/` is the landing, anything else is the chapter it names.
+The app is driven by the address bar, so it moves between a URL and a route — and it does so against the navigation tree, the one thing it always holds, rather than the pages it may not have fetched yet. `pathForSlug` builds a chapter's clean URL, dropping the `NN-` ordering prefixes so the address reads plainly. `chaptersOf` flattens the tree to its chapters. `firstSlugOf` is the first chapter, where the docs open. `slugForPath` reverses a clean URL back to the slug whose chapter it names, falling back to that first one; `routeForPath` wraps it — `/` is the landing, anything else is the chapter it names.
 
 =>
 
@@ -82,30 +105,50 @@ const stripOrder = (segment: string): string => segment.replace(/^\d+-/, '')
 export const pathForSlug = (slug: string): string =>
   `/${pipe(slug.split('/'), Array.map(stripOrder), Array.join('/'))}`
 
-export const firstSlug = pipe(
-  Array.flatMap(site.nav, (part) => part.chapters),
-  Array.head,
-  Option.map((chapter) => chapter.slug),
-  Option.getOrElse(() => ''),
-)
+const chaptersOf = (
+  nav: ReadonlyArray<WovenPart>,
+): ReadonlyArray<WovenNavEntry> => Array.flatMap(nav, (part) => part.chapters)
 
-const pathIndex = new Map(
-  Array.map(site.pages, (page) => [pathForSlug(page.slug), page.slug] as const),
-)
+export const firstSlugOf = (nav: ReadonlyArray<WovenPart>): string =>
+  pipe(
+    chaptersOf(nav),
+    Array.head,
+    Option.map((chapter) => chapter.slug),
+    Option.getOrElse(() => ''),
+  )
 
-const slugForPath = (pathname: string): string =>
-  Option.getOrElse(Option.fromNullishOr(pathIndex.get(pathname)), () => firstSlug)
+const slugForPath = (
+  nav: ReadonlyArray<WovenPart>,
+  pathname: string,
+): string =>
+  pipe(
+    chaptersOf(nav),
+    Array.findFirst((chapter) => pathForSlug(chapter.slug) === pathname),
+    Option.map((chapter) => chapter.slug),
+    Option.getOrElse(() => firstSlugOf(nav)),
+  )
 
-export const routeForPath = (pathname: string): Route =>
-  pathname === '/' ? { _tag: 'Landing' } : { _tag: 'Docs', slug: slugForPath(pathname) }
+export const routeForPath = (
+  nav: ReadonlyArray<WovenPart>,
+  pathname: string,
+): Route =>
+  pathname === '/'
+    ? { _tag: 'Landing' }
+    : { _tag: 'Docs', slug: slugForPath(nav, pathname) }
+
+export const pageOf = (
+  pages: ReadonlyArray<WovenPage>,
+  slug: string,
+): Option.Option<WovenPage> =>
+  Array.findFirst(pages, (page) => page.slug === slug)
 
 ## The module {Tangle}
 
-The model module is the woven book it decodes, the route, the state and its messages, and the mapping between addresses and routes.
-
 =>
 
-::[The woven book and the styles]
+::[The data it renders, never ships]
+
+::[The flags the app boots with]
 
 ::[The route]
 

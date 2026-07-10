@@ -5,11 +5,10 @@
     "moduleResolution": "bundler",
     "strict": true,
     "exactOptionalPropertyTypes": false,
-    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "lib": ["ESNext", "DOM"],
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "noEmit": true
   },
-  "include": ["src"],
-  "exclude": ["src/server.ts"]
+  "include": ["src/server.ts", "src/prerender.ts"]
 }
