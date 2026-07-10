@@ -1,3 +1,19 @@
+---
+Part X, Chapter 3: The reading app
+Package: site/src/main.ts
+Language: TypeScript
+---
+
+# The reading app
+
+The reading app is the woven book, running. It is a Foldkit application — the Elm Architecture on Effect: the shared `Model`, one `update`, and a `view` that is a pure function of the model. The view branches on the route: the landing fronts the site, and a chapter lays the book out in three columns — a sidebar of parts and chapters, the reading column, and the outline of the page. The book drives everything; the app lays it out.
+
+## What this module draws on
+
+The model module supplies the state, the messages, the routing, and the woven book itself. The landing module supplies its own view, which this app frames but does not build. From `effect` come the array, option, and match combinators; from `@athrio/foldkit` the runtime, the navigation, and the command that carries an effect. `marked` renders a prose block's Markdown to HTML.
+
+=>
+
 import { Array, Effect, Match, Option, pipe, Schema as S } from 'effect'
 import { Command, Navigation, Runtime, Url } from '@athrio/foldkit'
 import { type Document, type Html } from '@athrio/foldkit/html'
@@ -20,6 +36,12 @@ import {
   type Message,
 } from './model'
 import { landingView } from './landing'
+
+## Updating the model
+
+`update` is the state machine, driven through the URL. A clicked link issues a navigation command rather than changing state directly: `NavigateInternal` pushes a chapter's path onto history, `NavigateExternal` leaves for another site, and the address change returns as `ChangedUrl`, which sets the route. So back, forward, deep links, and refresh all work. `CopyToClipboard` carries the one browser effect the landing needs. The toggles flip their flags.
+
+=>
 
 const NavigateInternal = Command.define(
   'NavigateInternal',
@@ -68,6 +90,12 @@ const update = (
       Copy: ({ text }) => [model, [CopyToClipboard({ text })]],
     }),
   )
+
+## Rendering the blocks
+
+Each block renders to a view. A heading becomes an `h1`–`h3` carrying the fragment id an anchor targets, styled by its level. Prose renders its Markdown to HTML with `marked`, so the reading-column rules dress the paragraphs inside. A code section is split at its anchors: the text between them stays plain, and each `::[…]` becomes an accent link that opens the section it composes. `codeSegments` walks the anchors in order, slicing the code around each.
+
+=>
 
 const headingClass = (level: number): string =>
   Match.value(level).pipe(
@@ -130,6 +158,12 @@ const blockView = (block: WovenBlock): Html =>
     Match.when({ type: 'note' }, noteView),
     Match.exhaustive,
   )
+
+## The page, the sidebar, and the outline
+
+`pageOf` finds a chapter by slug, and `docsPage` falls back to the first. `headingsOf` pulls a page's section headings — the `h2` and `h3` blocks — which the sidebar's active sublist and the outline both read to show where you are within a chapter. The sidebar lists every part and its chapters, the current one carrying the accent rail; the outline repeats its headings under an "on this page" label.
+
+=>
 
 type Heading = { readonly id: string; readonly level: number; readonly title: string }
 
@@ -224,6 +258,12 @@ const outlineView = (page: WovenPage): Html =>
     ],
   )
 
+## The top bar and the frame
+
+The top bar spans the app: the sidebar toggle and the wordmark on the left, the section link in the middle, the theme switch on the right — the sidebar toggle only where there is a sidebar to toggle. `appFrame` wraps the top bar over whatever content the route calls for, on a root that carries the theme class. The reading column centres the current chapter on the measure: a breadcrumb of part and title, then the chapter's blocks.
+
+=>
+
 const topBarView = (model: Model): Html =>
   h.div(
     [h.Class('loom-topbar')],
@@ -294,6 +334,12 @@ const mainView = (model: Model, page: WovenPage): Html =>
     ],
   )
 
+## Running the app
+
+The docs shell keys the grid on the model's flags — a closed side becomes a `no-left` or `no-right` class. The view matches the route: a landing hands off to the landing module, a chapter builds the shell. The runtime mounts the app and drives the loop, handing it the address bar: a URL change arrives as `ChangedUrl`, a link click as `ClickedLink`.
+
+=>
+
 const shellClass = (model: Model): string =>
   ['loom-shell', model.navClosed ? 'no-left' : '', model.tocClosed ? 'no-right' : '']
     .filter(Boolean)
@@ -336,3 +382,19 @@ const application = Runtime.makeApplication({
 })
 
 Runtime.run(application)
+
+## The module {Tangle}
+
+=>
+
+::[What this module draws on]
+
+::[Updating the model]
+
+::[Rendering the blocks]
+
+::[The page, the sidebar, and the outline]
+
+::[The top bar and the frame]
+
+::[Running the app]

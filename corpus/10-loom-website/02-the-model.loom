@@ -1,0 +1,114 @@
+---
+Part X, Chapter 2: The model
+Package: site/src/model.ts
+Language: TypeScript
+---
+
+# The model
+
+The model is the shared ground the whole app stands on — the state, the messages, and the routing that maps the address bar to a view. Both halves of the site read it: the reading app that lays out the book, and the landing that fronts it. Keeping it in one module gives each a clean boundary. Neither reaches into the other; both reach into here.
+
+## The woven book and the styles
+
+The app renders a `WovenCorpus` — the shape the weave pass produces for one corpus — so it imports that schema from `@athrio/loom-lang` and decodes the built data against it. Any drift between what the book produces and what the app expects fails here, at the decode, rather than rendering wrong. This module also pulls in the stylesheet, so importing the model brings the design system with it.
+
+=>
+
+import { Array, Option, pipe, Schema as S } from 'effect'
+import { Navigation } from '@athrio/foldkit'
+import { html } from '@athrio/foldkit/html'
+import { m } from '@athrio/foldkit/message'
+import { WovenCorpusSchema } from '@athrio/loom-lang/weave/WovenCorpus'
+import siteData from './data/site.json'
+import './styles.css'
+
+export const site = S.decodeUnknownSync(WovenCorpusSchema)(siteData)
+
+## The route
+
+The site has two kinds of page, so it has two routes. `Landing` is the front page at `/`. `Docs` is a chapter, carrying the slug that names it. Modelling the route as a tagged union rather than a nullable slug means the view matches on it exhaustively — a landing can never be mistaken for a chapter with an empty name.
+
+=>
+
+export const RouteSchema = S.Union([
+  S.Struct({ _tag: S.tag('Landing') }),
+  S.Struct({ _tag: S.tag('Docs'), slug: S.String }),
+])
+export type Route = typeof RouteSchema.Type
+
+## The state and the messages
+
+The `Model` is the whole of the app's state: the route it shows, the theme it wears, and whether each side column is closed. The messages are what can happen to it. `ChangedUrl` sets the route from a new address; `ClickedLink` carries a link the runtime intercepted; `ToggledTheme` flips light and dark; `ToggledNav` and `ToggledToc` hide the sidebar and the outline; `Copy` asks for text to reach the clipboard; `CompletedNavigation` is the quiet reply a command returns.
+
+=>
+
+export const Model = S.Struct({
+  route: RouteSchema,
+  theme: S.Literals(['light', 'dark']),
+  navClosed: S.Boolean,
+  tocClosed: S.Boolean,
+})
+export type Model = typeof Model.Type
+
+export const ChangedUrl = m('ChangedUrl', { route: RouteSchema })
+export const ClickedLink = m('ClickedLink', { request: Navigation.UrlRequest })
+export const CompletedNavigation = m('CompletedNavigation')
+export const ToggledTheme = m('ToggledTheme')
+export const ToggledNav = m('ToggledNav')
+export const ToggledToc = m('ToggledToc')
+export const Copy = m('Copy', { text: S.String })
+
+export const Message = S.Union([
+  ChangedUrl,
+  ClickedLink,
+  CompletedNavigation,
+  ToggledTheme,
+  ToggledNav,
+  ToggledToc,
+  Copy,
+])
+export type Message = typeof Message.Type
+
+export const h = html<Message>()
+
+## Addresses and routes
+
+The app is driven by the address bar, so it needs to move between a URL and a route. `pathForSlug` builds a chapter's clean URL, dropping the `NN-` ordering prefixes so the address reads plainly. `firstSlug` is the first chapter in the book, where the docs open. `slugForPath` maps a path back to its chapter, falling back to that first one; `routeForPath` wraps it — `/` is the landing, anything else is the chapter it names.
+
+=>
+
+const stripOrder = (segment: string): string => segment.replace(/^\d+-/, '')
+
+export const pathForSlug = (slug: string): string =>
+  `/${pipe(slug.split('/'), Array.map(stripOrder), Array.join('/'))}`
+
+export const firstSlug = pipe(
+  Array.flatMap(site.nav, (part) => part.chapters),
+  Array.head,
+  Option.map((chapter) => chapter.slug),
+  Option.getOrElse(() => ''),
+)
+
+const pathIndex = new Map(
+  Array.map(site.pages, (page) => [pathForSlug(page.slug), page.slug] as const),
+)
+
+const slugForPath = (pathname: string): string =>
+  Option.getOrElse(Option.fromNullishOr(pathIndex.get(pathname)), () => firstSlug)
+
+export const routeForPath = (pathname: string): Route =>
+  pathname === '/' ? { _tag: 'Landing' } : { _tag: 'Docs', slug: slugForPath(pathname) }
+
+## The module {Tangle}
+
+The model module is the woven book it decodes, the route, the state and its messages, and the mapping between addresses and routes.
+
+=>
+
+::[The woven book and the styles]
+
+::[The route]
+
+::[The state and the messages]
+
+::[Addresses and routes]

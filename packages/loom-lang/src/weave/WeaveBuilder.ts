@@ -20,30 +20,32 @@ import {
   HeadingBlockSchema,
   NoteBlockSchema,
   ProseBlockSchema,
+  type SourceAnchor,
+  SourceAnchorSchema,
   type WovenBlock,
+  type WovenCorpus,
+  WovenCorpusSchema,
   type WovenNavEntry,
   WovenNavEntrySchema,
   type WovenPage,
   WovenPageSchema,
   type WovenPart,
   WovenPartSchema,
-  type WovenSite,
-  WovenSiteSchema,
-} from './WovenSite'
+} from './WovenCorpus'
 
 export class WeaveBuilder extends Context.Service<WeaveBuilder>()(
   'WeaveBuilder',
   {
     make: Effect.succeed({
-      build: (corpus: LoomCorpusAst): Effect.Effect<WovenSite> =>
-        Effect.sync(() => buildSite(corpus)),
+      build: (corpus: LoomCorpusAst): Effect.Effect<WovenCorpus> =>
+        Effect.sync(() => buildCorpus(corpus)),
     }),
   },
 ) {
   static readonly layer = Layer.effect(this, this.make)
 }
 
-export const buildSite = (corpus: LoomCorpusAst): WovenSite => {
+export const buildCorpus = (corpus: LoomCorpusAst): WovenCorpus => {
   const modules = Array.fromIterable(corpus.modules.values())
   const indexes = titleIndexes(corpus.modules)
   const nav = buildNav(modules)
@@ -51,7 +53,7 @@ export const buildSite = (corpus: LoomCorpusAst): WovenSite => {
   const pages = Array.getSomes(Array.map(modules, (module) =>
     buildPage(module, indexes, partOfSlug),
   ))
-  return WovenSiteSchema.make({ nav, pages })
+  return WovenCorpusSchema.make({ nav, pages })
 }
 
 type Span = { readonly start: number; readonly end: number }
@@ -207,15 +209,27 @@ const buildBlocks = (
 ): ReadonlyArray<WovenBlock> =>
   Array.flatMap(module.doc.sections, sectionBlocks(module, indexes))
 
+const sectionSource = (
+  module: LoomModule,
+  section: LoomSection,
+): SourceAnchor =>
+  SourceAnchorSchema.make({
+    chapter: slugFor(module.path),
+    section: slugify(titleSource(section)),
+  })
+
 const sectionBlocks =
   (module: LoomModule, indexes: TitleIndexes) =>
-  (section: LoomSection): ReadonlyArray<WovenBlock> => [
-    headingBlock(section),
-    ...pipe(
-      splitRuns(sectionBody(section)),
-      Array.flatMap(runBlocks(module, indexes, section)),
-    ),
-  ]
+  (section: LoomSection): ReadonlyArray<WovenBlock> => {
+    const source = sectionSource(module, section)
+    return [
+      headingBlock(section, source),
+      ...pipe(
+        splitRuns(sectionBody(section)),
+        Array.flatMap(runBlocks(module, indexes, section, source)),
+      ),
+    ]
+  }
 
 const titleSource = (section: LoomSection): string =>
   section.heading.title?.source ?? ''
@@ -225,8 +239,12 @@ const headingLevel = (section: LoomSection): number => {
   return marks === 0 ? 1 : marks
 }
 
-const headingBlock = (section: LoomSection): WovenBlock =>
+const headingBlock = (
+  section: LoomSection,
+  source: SourceAnchor,
+): WovenBlock =>
   HeadingBlockSchema.make({
+    source,
     level: headingLevel(section),
     title: titleSource(section),
     id: slugify(titleSource(section)),
@@ -317,12 +335,18 @@ const sectionLanguage = (module: LoomModule, section: LoomSection): string =>
 const notePattern =
   /^[ \t]*:::\[Note\][^\n]*\n([\s\S]*?)\n[ \t]*:::(?:[ \t])*$/gm
 
-const proseBlockOf = (markdown: string): ReadonlyArray<WovenBlock> =>
+const proseBlockOf = (
+  markdown: string,
+  source: SourceAnchor,
+): ReadonlyArray<WovenBlock> =>
   markdown.trim().length === 0
     ? []
-    : [ProseBlockSchema.make({ markdown: markdown.trim() })]
+    : [ProseBlockSchema.make({ source, markdown: markdown.trim() })]
 
-const proseBlocks = (markdown: string): ReadonlyArray<WovenBlock> => {
+const proseBlocks = (
+  markdown: string,
+  source: SourceAnchor,
+): ReadonlyArray<WovenBlock> => {
   const walked = Array.reduce(
     Array.fromIterable(markdown.matchAll(notePattern)),
     { blocks: [] as ReadonlyArray<WovenBlock>, cursor: 0 },
@@ -331,26 +355,28 @@ const proseBlocks = (markdown: string): ReadonlyArray<WovenBlock> => {
       return {
         blocks: [
           ...acc.blocks,
-          ...proseBlockOf(markdown.slice(acc.cursor, at)),
-          NoteBlockSchema.make({ markdown: (match[1] ?? '').trim() }),
+          ...proseBlockOf(markdown.slice(acc.cursor, at), source),
+          NoteBlockSchema.make({ source, markdown: (match[1] ?? '').trim() }),
         ],
         cursor: at + match[0].length,
       }
     },
   )
-  return [...walked.blocks, ...proseBlockOf(markdown.slice(walked.cursor))]
+  return [...walked.blocks, ...proseBlockOf(markdown.slice(walked.cursor), source)]
 }
 
 const codeBlock = (
   module: LoomModule,
   indexes: TitleIndexes,
   section: LoomSection,
+  source: SourceAnchor,
   run: ReadonlyArray<BodyWeft>,
   span: Span,
 ): WovenBlock =>
   CodeBlockSchema.make({
+    source,
     language: sectionLanguage(module, section),
-    source: sliceContent(module.text, span),
+    code: sliceContent(module.text, span),
     links: pipe(
       Array.flatMap(run, (weft) => weft.anchors),
       Array.filter(
@@ -365,7 +391,12 @@ const codeBlock = (
   })
 
 const runBlocks =
-  (module: LoomModule, indexes: TitleIndexes, section: LoomSection) =>
+  (
+    module: LoomModule,
+    indexes: TitleIndexes,
+    section: LoomSection,
+    source: SourceAnchor,
+  ) =>
   (run: ReadonlyArray<BodyWeft>): ReadonlyArray<WovenBlock> =>
     Array.matchLeft(run, {
       onEmpty: (): ReadonlyArray<WovenBlock> => [],
@@ -376,10 +407,10 @@ const runBlocks =
             Match.value(first).pipe(
               Match.withReturnType<ReadonlyArray<WovenBlock>>(),
               Match.when({ type: 'ArrowWeft' }, () => [
-                codeBlock(module, indexes, section, run, span),
+                codeBlock(module, indexes, section, source, run, span),
               ]),
               Match.orElse(() =>
-                proseBlocks(sliceContent(module.text, span)),
+                proseBlocks(sliceContent(module.text, span), source),
               ),
             ),
         }),

@@ -5,13 +5,13 @@ import { Effect, Option } from 'effect'
 import { LoomCorpusAstBuilder } from '#ast/LoomCorpusAstBuilder'
 import type { LoomCorpusAst } from '@athrio/loom-ast/LoomCorpusAst'
 import { WeaveBuilder } from '../src/weave/WeaveBuilder'
-import type { CodeBlock, HeadingBlock } from '../src/weave/WovenSite'
+import type { CodeBlock, HeadingBlock } from '../src/weave/WovenCorpus'
 
 // A two-file corpus: a book root whose `{TOC}` lists one chapter under one part,
 // and the chapter itself — a section that defines a name and a `{Tangle}` section
-// that composes it with `::[The name]`. Weave projects this into a `WovenSite`:
-// a menu from the contents, a page for the chapter, and the anchor turned into a
-// link back to the section it names.
+// that composes it with `::[The name]`. Weave projects this into a `WovenCorpus`:
+// a navigation tree from the contents, a page for the chapter, and the anchor
+// turned into a link back to the section it names.
 const book = `# Loom
 
 Intro prose.
@@ -121,13 +121,21 @@ describe('the weave projection', () => {
     expect(nameHeading.id).toBe('the-name')
     const nameCode = page.blocks[3] as CodeBlock
     expect(nameCode.language).toBe('typescript')
-    expect(nameCode.source).toBe("const name = 'world'")
+    expect(nameCode.code).toBe("const name = 'world'")
+  })
+
+  it('anchors every block to the chapter and section it came from', () => {
+    const page = weave(buildCorpus(files)).pages[0]!
+    const opening = page.blocks[0] as HeadingBlock
+    expect(opening.source).toEqual({ chapter: 'using/greeting', section: 'a-greeting' })
+    const nameCode = page.blocks[3] as CodeBlock
+    expect(nameCode.source).toEqual({ chapter: 'using/greeting', section: 'the-name' })
   })
 
   it('turns a code anchor into a link at its place in the block', () => {
     const page = weave(buildCorpus(files)).pages[0]!
     const tangle = page.blocks[5] as CodeBlock
-    expect(tangle.source.startsWith('::[The name]')).toBe(true)
+    expect(tangle.code.startsWith('::[The name]')).toBe(true)
     expect(tangle.links).toEqual([
       {
         name: 'The name',
@@ -137,9 +145,9 @@ describe('the weave projection', () => {
         length: '::[The name]'.length,
       },
     ])
-    // the link's span is exactly the anchor text in the block source
+    // the link's span is exactly the anchor text in the block code
     const link = tangle.links[0]!
-    expect(tangle.source.slice(link.offset, link.offset + link.length)).toBe(
+    expect(tangle.code.slice(link.offset, link.offset + link.length)).toBe(
       '::[The name]',
     )
   })

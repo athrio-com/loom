@@ -102,7 +102,28 @@ An editor runs its extensions in its own host, not a process Loom starts. This p
 2. Bundling the Loom extension
 3. Packaging the Loom extension
 
-### Part X — Work in progress
+### Part X — Loom Website
+
+The website is the woven book, running — the pages you are reading now. `loom weave` projects the corpus into a `WovenCorpus`, and a Foldkit application on Effect renders it: a landing that fronts the site, a top bar with a theme switch, a sidebar of parts and chapters, the reading column, and an outline of the current page. One design system dresses every surface, in a warm-paper light theme and a deep editor-slate dark, both drawn from a single vocabulary of tokens. This part builds it up — the tokens and their two themes, the shared model, the reading application, the landing, and the page it all mounts into.
+
+1. The theme system
+2. The model
+3. The reading app
+4. The landing
+5. The page
+
+### Part XI — The annotation utility
+
+Reviewing a user interface means pointing at it. This part is a Vite plugin that captures those points. While the development server runs, it draws an overlay over the page. You click an element to leave a remark on it, or type a message into a sidebar. The remarks accumulate in a log, ordered by the time you made them, and a coding agent reads the whole log at once and works through it. Nothing about the utility lives in the product — it is a development dependency, and a production build carries no trace of it.
+
+1. The annotation utility
+2. The feedback log
+3. The Vite plugin
+4. The overlay
+5. The command
+6. Packaging the annotation utility
+
+### Part XII — Work in progress
 
 This part is never finished. It holds the framework's active work — each open problem or unbuilt feature as its own loom, written to be worked out in place. When a chapter here is done, it graduates to its home part.
 
@@ -110,3 +131,4 @@ This part is never finished. It holds the framework's active work — each open 
 2. Testing in looms
 3. Orphaned tangle output
 4. The generated table of contents
+5. A duplicate section name

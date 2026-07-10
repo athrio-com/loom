@@ -1,0 +1,193 @@
+---
+Part XI, Chapter 2: The feedback log
+Package: packages/loom-annotate/src/feedback-log.ts
+Language: TypeScript
+---
+
+# The feedback log
+
+The feedback log is where remarks accumulate. It is a file of entries, one per line, in the order they were made — a format that reads plainly, appends cleanly, and commits to git without a merge fight. The log offers five operations: read every entry, record a new one, mark one addressed, discard one, and edit one's words.
+
+## Where the log lives
+
+The log lives at `.loom/feedback.jsonl` under the project root. The Vite plugin knows the resolved root and passes it down through the `LOOM_ANNOTATE_LOG` environment variable; when that variable is absent — a test, say — the log falls back to the same path under the current directory.
+
+=>
+
+import { Option } from 'effect'
+import { dirname, resolve } from 'node:path'
+
+const logPath = (): string =>
+  Option.match(Option.fromNullishOr(process.env.LOOM_ANNOTATE_LOG), {
+    onSome: (path) => path,
+    onNone: () => resolve(process.cwd(), '.loom', 'feedback.jsonl'),
+  })
+
+## Reading the log
+
+`readEntries` reads the file and decodes each line into an entry. A missing file is not a failure — an untouched project simply has no log yet — so an absent file reads as no entries. Each line is parsed from JSON and decoded against `EntrySchema`, which rejects a line that does not match either kind of remark.
+
+=>
+
+import { Effect, FileSystem, Schema } from 'effect'
+import { EntrySchema, type Entry } from './entry'
+
+const decodeLine = (line: string): Effect.Effect<Entry, unknown> =>
+  Effect.try(() => JSON.parse(line) as unknown).pipe(
+    Effect.flatMap(Schema.decodeUnknownEffect(EntrySchema)),
+  )
+
+export const readEntries = (
+  fs: FileSystem.FileSystem,
+  path: string,
+): Effect.Effect<ReadonlyArray<Entry>, unknown> =>
+  Effect.gen(function* () {
+    const there = yield* fs.exists(path)
+    if (!there) return []
+    const raw = yield* fs.readFileString(path)
+    const lines = raw.split('\n').filter((line) => line.trim().length > 0)
+    return yield* Effect.forEach(lines, decodeLine)
+  })
+
+## Writing the log
+
+`writeEntries` replaces the file with a fresh rendering of every entry. The log is small — a review is dozens of remarks, not millions — so recording and resolving both rewrite the whole file rather than seek within it. Writing first ensures the `.loom` directory exists, then joins the entries into lines.
+
+=>
+
+import { Array, pipe } from 'effect'
+
+const writeEntries = (
+  fs: FileSystem.FileSystem,
+  path: string,
+  entries: ReadonlyArray<Entry>,
+): Effect.Effect<void, unknown> =>
+  Effect.gen(function* () {
+    yield* fs.makeDirectory(dirname(path), { recursive: true })
+    const body = pipe(
+      entries,
+      Array.map((entry) => JSON.stringify(entry)),
+      Array.join('\n'),
+    )
+    yield* fs.writeFileString(path, body === '' ? '' : body + '\n')
+  })
+
+## Recording a remark
+
+`recordDraft` appends one remark. It reads what is there, stamps the draft with the next sequence number and the current time, writes the log back with the new entry at its end, and returns that entry. The sequence number is one past the highest in the log, so a number is never reused — even after a remark in the middle is discarded, later ones keep their sequences. The time comes from Effect's clock rather than a bare `Date`, so a test can fix it.
+
+=>
+
+import { Clock } from 'effect'
+import { stampDraft, type Draft } from './entry'
+
+const recordDraft = (
+  fs: FileSystem.FileSystem,
+  path: string,
+  draft: Draft,
+): Effect.Effect<Entry, unknown> =>
+  Effect.gen(function* () {
+    const entries = yield* readEntries(fs, path)
+    const millis = yield* Clock.currentTimeMillis
+    const nextSeq = Array.reduce(entries, 0, (max, entry) => (entry.seq > max ? entry.seq : max)) + 1
+    const entry = stampDraft(draft, nextSeq, new Date(millis).toISOString())
+    yield* writeEntries(fs, path, [...entries, entry])
+    return entry
+  })
+
+## Resolving a remark
+
+`resolveEntry` marks one remark addressed. The agent calls it once it has dealt with an entry, so the next read shows only what is still open. It reads every entry, turns the `addressed` flag true on the one whose sequence matches, and writes them all back. A resolved remark stays in the log as a record; it is not removed.
+
+=>
+
+export const resolveEntry = (
+  fs: FileSystem.FileSystem,
+  path: string,
+  seq: number,
+): Effect.Effect<void, unknown> =>
+  Effect.gen(function* () {
+    const entries = yield* readEntries(fs, path)
+    const updated = Array.map(entries, (entry) =>
+      entry.seq === seq ? { ...entry, addressed: true } : entry,
+    )
+    yield* writeEntries(fs, path, updated)
+  })
+
+## Discarding and editing a remark
+
+`discardEntry` drops a remark for good — the one whose sequence matches, gone from the log. `editEntry` changes a remark's words in place and leaves all else about it untouched. Both, like resolving, read the whole log, change the one entry, and write it back.
+
+=>
+
+export const discardEntry = (
+  fs: FileSystem.FileSystem,
+  path: string,
+  seq: number,
+): Effect.Effect<void, unknown> =>
+  Effect.gen(function* () {
+    const entries = yield* readEntries(fs, path)
+    yield* writeEntries(
+      fs,
+      path,
+      Array.filter(entries, (entry) => entry.seq !== seq),
+    )
+  })
+
+const editEntry = (
+  fs: FileSystem.FileSystem,
+  path: string,
+  seq: number,
+  text: string,
+): Effect.Effect<void, unknown> =>
+  Effect.gen(function* () {
+    const entries = yield* readEntries(fs, path)
+    const updated = Array.map(entries, (entry) =>
+      entry.seq === seq ? { ...entry, text } : entry,
+    )
+    yield* writeEntries(fs, path, updated)
+  })
+
+## The log service
+
+`FeedbackLog` is the service the plugin holds. Its `make` reads the filesystem once and resolves the log path once, then binds every operation to that filesystem and path. The service leaves the filesystem out of its own layer: the plugin provides `BunServices` at the runtime edge, the one place the platform is chosen.
+
+=>
+
+import { Context, Layer } from 'effect'
+
+export class FeedbackLog extends Context.Service<FeedbackLog>()('FeedbackLog', {
+  make: Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Effect.sync(logPath)
+    return {
+      list: readEntries(fs, path),
+      record: (draft: Draft) => recordDraft(fs, path, draft),
+      resolve: (seq: number) => resolveEntry(fs, path, seq),
+      discard: (seq: number) => discardEntry(fs, path, seq),
+      edit: (seq: number, text: string) => editEntry(fs, path, seq, text),
+    }
+  }),
+}) {
+  static readonly layer = Layer.effect(this, this.make)
+}
+
+## The module {Tangle}
+
+The log module is where it lives, how it reads and writes, the operations that change it, and the service that offers them all.
+
+=>
+
+::[Where the log lives]
+
+::[Reading the log]
+
+::[Writing the log]
+
+::[Recording a remark]
+
+::[Resolving a remark]
+
+::[Discarding and editing a remark]
+
+::[The log service]

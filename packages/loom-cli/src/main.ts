@@ -5,6 +5,7 @@ import { existsSync, writeFileSync } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
 import { DocumentSource } from '@athrio/loom-lang/LoomCompiler'
 import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
+import { LoomWeaver } from '@athrio/loom-lang/weave/LoomWeaver'
 import { PackageConfig } from '@athrio/loom-lang/PackageConfig'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
@@ -51,6 +52,16 @@ const tangle = (file: string) =>
       ),
     ),
   )
+
+const weave = (file: string, out: string) =>
+  Effect.gen(function* () {
+    const weaver = yield* LoomWeaver
+    const written = yield* weaver.weave(
+      resolvePath(process.cwd(), file),
+      resolvePath(process.cwd(), out),
+    )
+    yield* Console.log(`loom: wove ${file} → ${written}`)
+  })
 
 const init = (dir: Option.Option<string>) =>
   Effect.gen(function* () {
@@ -179,6 +190,12 @@ const tangleCommand = Command.make(
   ({ path }) => tangle(path),
 )
 
+const weaveCommand = Command.make(
+  'weave',
+  { path: Argument.string('path'), out: Argument.string('out') },
+  ({ path, out }) => weave(path, out),
+)
+
 const initCommand = Command.make(
   'init',
   { dir: Argument.optional(Argument.directory('dir')) },
@@ -202,6 +219,7 @@ const statusCommand = Command.make('status', {}, () => status)
 const loom = Command.make('loom').pipe(
   Command.withSubcommands([
     tangleCommand,
+    weaveCommand,
     initCommand,
     addCommand,
     removeCommand,
@@ -213,6 +231,7 @@ const program = Command.run(loom, {
   version: '0.9.0',
 }).pipe(
   Effect.provide(LoomTangler.layer),
+  Effect.provide(LoomWeaver.layer),
   Effect.provide(DocumentSource.layer),
   Effect.provide(PackageConfig.layer),
   Effect.provide(LoomConfig.layer),

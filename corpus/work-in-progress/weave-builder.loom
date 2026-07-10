@@ -11,7 +11,7 @@ The pass reads the parse, not the product. A woven page holds each section's pro
 
 ## What this module draws on
 
-The pass reads the Loom AST and writes the woven model, so it draws from both. From `effect` come the array and option combinators, `Match` for dispatching on a weft and a menu entry, and `pipe` for the spine. From the Loom side come the section a page is built from, the preamble and section-body wefts its runs are made of, the contents weft its menu is folded from, and the anchor token a code link resolves. The corpus supplies `titleIndexes` and `resolveAnchor` — the same lexical lookup the editor navigates by — so a code anchor reaches the very section a bare `::[…]` composes. From the woven side come the schema constructors for every node the pass builds: the site, its parts and entries, its pages, and the blocks and links a page holds.
+The pass reads the Loom AST and writes the woven model, so it draws from both. From `effect` come the array and option combinators, `Match` for dispatching on a weft and a menu entry, and `pipe` for the spine. From the Loom side come the section a page is built from, the preamble and section-body wefts its runs are made of, the contents weft its menu is folded from, and the anchor token a code link resolves. The corpus supplies `titleIndexes` and `resolveAnchor` — the same lexical lookup the editor navigates by — so a code anchor reaches the very section a bare `::[…]` composes. From the woven side come the schema constructors for every node the pass builds: the corpus, its parts and entries, its pages, the source anchor each block records, and the blocks and links a page holds.
 
 =>
 
@@ -37,22 +37,24 @@ import {
   HeadingBlockSchema,
   NoteBlockSchema,
   ProseBlockSchema,
+  type SourceAnchor,
+  SourceAnchorSchema,
   type WovenBlock,
+  type WovenCorpus,
+  WovenCorpusSchema,
   type WovenNavEntry,
   WovenNavEntrySchema,
   type WovenPage,
   WovenPageSchema,
   type WovenPart,
   WovenPartSchema,
-  type WovenSite,
-  WovenSiteSchema,
-} from './WovenSite'
+} from './WovenCorpus'
 
 ## The builder and its spine
 
-`WeaveBuilder` is the service the rest of the pipeline calls. Its one method, `build`, wraps the pure `buildSite` in an Effect so callers compose it like any other pass.
+`WeaveBuilder` is the service the rest of the pipeline calls. Its one method, `build`, wraps the pure `buildCorpus` in an Effect so callers compose it like any other pass.
 
-`buildSite` is the spine. It reads the corpus once for the title index a code link resolves through, folds the book's contents into the navigation menu, maps each chapter to its page, and pairs the two into a `WovenSite`. A page carries the name of the part it sits under, so the spine reads that from the menu it just built.
+`buildCorpus` is the spine. It reads the parsed corpus once for the title index a code link resolves through, folds the corpus's contents into the navigation tree, maps each chapter to its page, and pairs the two into a `WovenCorpus`. A page carries the name of the part it sits under, so the spine reads that from the tree it just built.
 
 =>
 
@@ -60,15 +62,15 @@ export class WeaveBuilder extends Context.Service<WeaveBuilder>()(
   'WeaveBuilder',
   {
     make: Effect.succeed({
-      build: (corpus: LoomCorpusAst): Effect.Effect<WovenSite> =>
-        Effect.sync(() => buildSite(corpus)),
+      build: (corpus: LoomCorpusAst): Effect.Effect<WovenCorpus> =>
+        Effect.sync(() => buildCorpus(corpus)),
     }),
   },
 ) {
   static readonly layer = Layer.effect(this, this.make)
 }
 
-export const buildSite = (corpus: LoomCorpusAst): WovenSite => {
+export const buildCorpus = (corpus: LoomCorpusAst): WovenCorpus => {
   const modules = Array.fromIterable(corpus.modules.values())
   const indexes = titleIndexes(corpus.modules)
   const nav = buildNav(modules)
@@ -76,7 +78,7 @@ export const buildSite = (corpus: LoomCorpusAst): WovenSite => {
   const pages = Array.getSomes(Array.map(modules, (module) =>
     buildPage(module, indexes, partOfSlug),
   ))
-  return WovenSiteSchema.make({ nav, pages })
+  return WovenCorpusSchema.make({ nav, pages })
 }
 
 ## Slugs and identifiers
@@ -226,9 +228,9 @@ const partIndex = (
 
 ## A page and its blocks
 
-`buildPage` builds a chapter's page. A chapter is any module with a frontmatter title, so a module without one — the book root that carries only the contents — yields no page. The page takes its slug from its path, its title from the frontmatter, its part from the menu, and its blocks from its sections.
+`buildPage` builds a chapter's page. A chapter is any module with a frontmatter title, so a module without one — the book root that carries only the contents — yields no page. The page takes its slug from its path, its title from the frontmatter, its part from the navigation tree, and its blocks from its sections.
 
-`buildBlocks` walks a chapter's sections in order, and `sectionBlocks` turns one section into its blocks: its heading, then a block for each run of its body. `headingBlock` reads the heading's level from the count of its `#` marks, and its title straight from the source. Cutting the body into runs is the next section's work.
+`buildBlocks` walks a chapter's sections in order, and `sectionBlocks` turns one section into its blocks: its heading, then a block for each run of its body. Every block a section yields shares one `source` anchor, which `sectionSource` builds from the chapter's slug and the section's heading id — the pin back to the loom. `headingBlock` reads the heading's level from the count of its `#` marks, and its title straight from the source. Cutting the body into runs is the next section's work.
 
 =>
 
@@ -256,15 +258,27 @@ const buildBlocks = (
 ): ReadonlyArray<WovenBlock> =>
   Array.flatMap(module.doc.sections, sectionBlocks(module, indexes))
 
+const sectionSource = (
+  module: LoomModule,
+  section: LoomSection,
+): SourceAnchor =>
+  SourceAnchorSchema.make({
+    chapter: slugFor(module.path),
+    section: slugify(titleSource(section)),
+  })
+
 const sectionBlocks =
   (module: LoomModule, indexes: TitleIndexes) =>
-  (section: LoomSection): ReadonlyArray<WovenBlock> => [
-    headingBlock(section),
-    ...pipe(
-      splitRuns(sectionBody(section)),
-      Array.flatMap(runBlocks(module, indexes, section)),
-    ),
-  ]
+  (section: LoomSection): ReadonlyArray<WovenBlock> => {
+    const source = sectionSource(module, section)
+    return [
+      headingBlock(section, source),
+      ...pipe(
+        splitRuns(sectionBody(section)),
+        Array.flatMap(runBlocks(module, indexes, section, source)),
+      ),
+    ]
+  }
 
 const titleSource = (section: LoomSection): string =>
   section.heading.title?.source ?? ''
@@ -274,8 +288,12 @@ const headingLevel = (section: LoomSection): number => {
   return marks === 0 ? 1 : marks
 }
 
-const headingBlock = (section: LoomSection): WovenBlock =>
+const headingBlock = (
+  section: LoomSection,
+  source: SourceAnchor,
+): WovenBlock =>
   HeadingBlockSchema.make({
+    source,
     level: headingLevel(section),
     title: titleSource(section),
     id: slugify(titleSource(section)),
@@ -285,7 +303,7 @@ const headingBlock = (section: LoomSection): WovenBlock =>
 
 A section's body is its preamble and its code together. `sectionBody` joins the two, so a fenced block that opens in the leading prose and runs on stays one prose block, not two split at the seam. `splitRuns` cuts that body at each `=>` and `~`: a run is one unbroken stretch of one mode, and a run that opens with no marker is prose — the leading paragraphs, or a fence the classifier left verbatim.
 
-`runBlocks` turns a run into its blocks. A run that `=>` opened is one code block; a prose run is its prose, with any `:::[Note] … :::` region split out into a note block by `proseBlocks`, so a reader's annotation stands apart from the text around it. `runSpan` bounds the content from the first non-blank line to the last, keeping a marker's own inline text but dropping the `=>` or `~` itself, so a block reads without the frame around it. `markerInline` reads the code or prose written on an arrow or tilde line; `pieceOfWeft` reads a plain line. `sectionLanguage` names a code block's language for the highlighter: the section's specifier, else the chapter's language, and never a Loom mark like `{Tangle}`.
+`runBlocks` turns a run into its blocks, and stamps each with the section's `source` anchor. A run that `=>` opened is one code block, holding its verbatim text as `code`; a prose run is its prose, with any `:::[Note] … :::` region split out into a note block by `proseBlocks`, so a reader's annotation stands apart from the text around it. `runSpan` bounds the content from the first non-blank line to the last, keeping a marker's own inline text but dropping the `=>` or `~` itself, so a block reads without the frame around it. `markerInline` reads the code or prose written on an arrow or tilde line; `pieceOfWeft` reads a plain line. `sectionLanguage` names a code block's language for the highlighter: the section's specifier, else the chapter's language, and never a Loom mark like `{Tangle}`.
 
 =>
 
@@ -374,12 +392,18 @@ const sectionLanguage = (module: LoomModule, section: LoomSection): string =>
 const notePattern =
   /^[ \t]*:::\[Note\][^\n]*\n([\s\S]*?)\n[ \t]*:::(?:[ \t])*$/gm
 
-const proseBlockOf = (markdown: string): ReadonlyArray<WovenBlock> =>
+const proseBlockOf = (
+  markdown: string,
+  source: SourceAnchor,
+): ReadonlyArray<WovenBlock> =>
   markdown.trim().length === 0
     ? []
-    : [ProseBlockSchema.make({ markdown: markdown.trim() })]
+    : [ProseBlockSchema.make({ source, markdown: markdown.trim() })]
 
-const proseBlocks = (markdown: string): ReadonlyArray<WovenBlock> => {
+const proseBlocks = (
+  markdown: string,
+  source: SourceAnchor,
+): ReadonlyArray<WovenBlock> => {
   const walked = Array.reduce(
     Array.fromIterable(markdown.matchAll(notePattern)),
     { blocks: [] as ReadonlyArray<WovenBlock>, cursor: 0 },
@@ -388,26 +412,28 @@ const proseBlocks = (markdown: string): ReadonlyArray<WovenBlock> => {
       return {
         blocks: [
           ...acc.blocks,
-          ...proseBlockOf(markdown.slice(acc.cursor, at)),
-          NoteBlockSchema.make({ markdown: (match[1] ?? '').trim() }),
+          ...proseBlockOf(markdown.slice(acc.cursor, at), source),
+          NoteBlockSchema.make({ source, markdown: (match[1] ?? '').trim() }),
         ],
         cursor: at + match[0].length,
       }
     },
   )
-  return [...walked.blocks, ...proseBlockOf(markdown.slice(walked.cursor))]
+  return [...walked.blocks, ...proseBlockOf(markdown.slice(walked.cursor), source)]
 }
 
 const codeBlock = (
   module: LoomModule,
   indexes: TitleIndexes,
   section: LoomSection,
+  source: SourceAnchor,
   run: ReadonlyArray<BodyWeft>,
   span: Span,
 ): WovenBlock =>
   CodeBlockSchema.make({
+    source,
     language: sectionLanguage(module, section),
-    source: sliceContent(module.text, span),
+    code: sliceContent(module.text, span),
     links: pipe(
       Array.flatMap(run, (weft) => weft.anchors),
       Array.filter(
@@ -422,7 +448,12 @@ const codeBlock = (
   })
 
 const runBlocks =
-  (module: LoomModule, indexes: TitleIndexes, section: LoomSection) =>
+  (
+    module: LoomModule,
+    indexes: TitleIndexes,
+    section: LoomSection,
+    source: SourceAnchor,
+  ) =>
   (run: ReadonlyArray<BodyWeft>): ReadonlyArray<WovenBlock> =>
     Array.matchLeft(run, {
       onEmpty: (): ReadonlyArray<WovenBlock> => [],
@@ -433,10 +464,10 @@ const runBlocks =
             Match.value(first).pipe(
               Match.withReturnType<ReadonlyArray<WovenBlock>>(),
               Match.when({ type: 'ArrowWeft' }, () => [
-                codeBlock(module, indexes, section, run, span),
+                codeBlock(module, indexes, section, source, run, span),
               ]),
               Match.orElse(() =>
-                proseBlocks(sliceContent(module.text, span)),
+                proseBlocks(sliceContent(module.text, span), source),
               ),
             ),
         }),

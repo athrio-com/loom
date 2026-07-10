@@ -1,0 +1,260 @@
+<!doctype html>
+<!--
+  Loom — documentation & review site: design template (mockup, iteration 4).
+  Stack preview: TailwindCSS (Play CDN here; PostCSS in the real build) + Twemoji
+  (open-source, one unified style) + Source Serif 4 / JetBrains Mono.
+
+  Notes are single-author annotations on a line (prose OR a code line), attributed
+  to the author's GitHub identity. Each note is Resolve-able and Remove-able — both
+  clickable and operable over the notes API (notes.resolve / notes.remove). Loom
+  exposes open notes as a pending-questions protocol any AI chat reads through a hook.
+
+  Local git state tints new/changed prose and code (added = green, modified = orange).
+  Theme tokens live in :root / .dark below — a consumer overrides them to reskin.
+  Shortcuts: ⌘/Ctrl-B sidebar · ⌘/Ctrl-J terminal · ⌘/Ctrl-. theme.
+-->
+<html lang="en" class="scroll-smooth">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>The classifier stage · loom</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap" rel="stylesheet" />
+    <!-- Consumers reskin by overriding the tokens below (or shipping their own):
+    <link rel="stylesheet" href="loom.theme.css" /> -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              bg: "var(--bg)", raised: "var(--raised)", high: "var(--high)", codebg: "var(--codebg)",
+              bd: "var(--bd)", bds: "var(--bds)",
+              fg: "var(--fg)", fg2: "var(--fg2)", muted: "var(--muted)", faint: "var(--faint)",
+              brand: "var(--brand)", link: "var(--link)",
+            },
+            fontFamily: {
+              serif: ['"Source Serif 4"', "Charter", "Georgia", "serif"],
+              mono: ['"JetBrains Mono"', "ui-monospace", "Menlo", "monospace"],
+            },
+          },
+        },
+      };
+    </script>
+    <script src="https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/dist/twemoji.min.js" crossorigin="anonymous"></script>
+    <style>
+      /* ===== Theme tokens — the consumer override surface ===== */
+      :root {
+        --bg:#f2e5bc; --raised:#ebdbb2; --high:#d5c4a1; --codebg:#ece0b8;
+        --bd:#e0d0a8; --bds:#bdae93;
+        --fg:#3c3836; --fg2:#504945; --muted:#665c54; --faint:#928374;
+        --brand:#427b58; --link:#076678;
+        --red:#9d0006; --green:#79740e; --yellow:#b57614; --orange:#af3a03; --purple:#8f3f71;
+        --note:rgba(66,123,88,.09); --add:rgba(121,116,14,.15); --mod:rgba(175,58,3,.12);
+      }
+      .dark {
+        --bg:#32302f; --raised:#3c3836; --high:#504945; --codebg:#282828;
+        --bd:#504945; --bds:#665c54;
+        --fg:#ebdbb2; --fg2:#d5c4a1; --muted:#bdae93; --faint:#928374;
+        --brand:#8ec07c; --link:#83a598;
+        --red:#fb4934; --green:#b8bb26; --yellow:#fabd2f; --orange:#fe8019; --purple:#d3869b;
+        --note:rgba(142,192,124,.14); --add:rgba(184,187,38,.16); --mod:rgba(254,128,25,.14);
+      }
+      body { transition: background .15s, color .15s; }
+
+      /* unified emoji sizing (Twemoji SVGs) */
+      img.emoji { height: 1.15em; width: 1.15em; vertical-align: -0.16em; margin: 0 .06em; display: inline-block; }
+
+      /* app grid + hideable sidebar */
+      .app { display: grid; grid-template-columns: 272px minmax(0,1fr); min-height: 100vh; transition: grid-template-columns .15s; }
+      .no-sidebar .app { grid-template-columns: 0 minmax(0,1fr); }
+      .no-sidebar .side { transform: translateX(-100%); }
+
+      /* code: lines are units; extra top room so line 1 clears the language label */
+      .code { background: var(--codebg); border-radius: 8px; padding: 26px 0 8px; position: relative; }
+      .cl { display: block; white-space: pre; padding: 0 16px; position: relative; }
+      .cl:hover { background: color-mix(in srgb, var(--fg) 5%, transparent); }
+      .k{color:var(--red)} .s{color:var(--green)} .t{color:var(--yellow)}
+      .fn{color:var(--link)} .c{color:var(--faint);font-style:italic}
+      .n{color:var(--purple)} .op{color:var(--orange)} .pn{color:var(--fg2)}
+
+      /* local git state */
+      .added    { background: var(--add); box-shadow: inset 3px 0 0 var(--green); }
+      .modified { background: var(--mod); box-shadow: inset 3px 0 0 var(--orange); }
+      .public .added, .public .modified { background: none; box-shadow: none; }
+
+      /* line-foot add-note affordance */
+      .add { opacity: 0; transition: opacity .12s; }
+      .block:hover .add, .cl:hover .add { opacity: 1; }
+
+      .public .badge, .public .add, .public .note, .public .archive, .public .drawer, .public .git-only { display: none; }
+
+      .drawer { position: fixed; left: 272px; right: 0; bottom: 0; z-index: 20; transition: left .15s; }
+      .no-sidebar .drawer { left: 0; }
+      .drawer.hidden { display: none; }
+      .drawer.full { top: 0; left: 0; }
+      .drawer.full .term { height: calc(100vh - 41px); }
+      .drawer.collapsed .term { display: none; }
+      .term { white-space: pre-wrap; }
+
+      @media (max-width: 860px) {
+        .app { grid-template-columns: 1fr; }
+        .side { position: fixed; z-index: 30; width: 272px; }
+        .drawer { left: 0; }
+      }
+    </style>
+  </head>
+
+  <body class="bg-bg text-fg font-serif text-[17px] leading-[1.65] antialiased">
+    <div class="app">
+      <!-- ===== Sidebar ===== -->
+      <aside class="side sticky top-0 h-screen overflow-y-auto bg-raised border-r border-bds px-3.5 pt-5 pb-10 transition-transform">
+        <div class="flex items-center gap-2.5 px-2 pb-4">
+          <span class="font-mono font-bold text-3xl text-brand leading-none">~</span>
+          <span class="font-mono font-medium text-xl tracking-tight">loom</span>
+          <span class="badge ml-auto font-mono text-[11px] text-brand border border-brand rounded-full px-2 py-0.5" style="background:var(--note)">Local</span>
+        </div>
+        <input class="w-full font-mono text-[13px] text-fg2 bg-codebg border border-bds rounded-lg px-3 py-2 mb-4 placeholder:text-faint" placeholder="Search…" />
+        <nav class="text-fg2">
+          <p class="text-sm font-semibold text-muted mx-2.5 mt-4 mb-1.5">Using Loom</p>
+          <a href="#" class="flex gap-2 px-2.5 py-1 rounded-md text-[15px] hover:bg-high"><span class="font-mono text-xs text-faint w-3">1</span> A first loom</a>
+          <a href="#" class="flex gap-2 px-2.5 py-1 rounded-md text-[15px] hover:bg-high"><span class="font-mono text-xs text-faint w-3">2</span> A workspace</a>
+          <p class="text-sm font-semibold text-muted mx-2.5 mt-4 mb-1.5">The shape of a loom</p>
+          <a href="#" class="flex gap-2 px-2.5 py-1 rounded-md text-[15px] hover:bg-high"><span class="font-mono text-xs text-faint w-3">1</span> The first syntax</a>
+          <a href="#" class="flex gap-2 px-2.5 py-1 rounded-md text-[15px] hover:bg-high"><span class="font-mono text-xs text-faint w-3">4</span> Wefts</a>
+          <p class="text-sm font-semibold text-muted mx-2.5 mt-4 mb-1.5">Reading the text</p>
+          <a href="#" class="flex gap-2 px-2.5 py-1 rounded-md text-[15px] hover:bg-high"><span class="font-mono text-xs text-faint w-3">1</span> Line ranges</a>
+          <a href="#" class="flex gap-2 px-2.5 py-1 rounded-md text-[15px] font-semibold text-link" style="background:var(--note)"><span class="font-mono text-xs text-link w-3">2</span> The classifier stage</a>
+          <a href="#" class="flex gap-2 px-2.5 py-1 rounded-md text-[15px] hover:bg-high"><span class="font-mono text-xs text-faint w-3">3</span> The tokeniser stage</a>
+        </nav>
+      </aside>
+
+      <!-- ===== Main ===== -->
+      <main class="min-w-0">
+        <div class="sticky top-0 z-[5] flex items-center gap-2.5 px-8 py-3 border-b border-bd" style="background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(6px)">
+          <span class="font-mono text-[13px] text-muted">Reading the text&nbsp;&nbsp;/&nbsp;&nbsp;<b class="font-medium text-fg2">The classifier stage</b></span>
+          <div class="ml-auto flex gap-1.5 font-mono text-[12.5px]">
+            <button id="tSide" class="tbtn flex items-center gap-1.5 bg-raised border border-bds rounded-lg px-2.5 py-1.5 hover:bg-high" title="Sidebar">📖<span class="text-faint text-[10px]">⌘B</span></button>
+            <button id="tTheme" class="tbtn flex items-center gap-1.5 bg-raised border border-bds rounded-lg px-2.5 py-1.5 hover:bg-high" title="Theme">🌗<span class="text-faint text-[10px]">⌘.</span></button>
+            <button id="tTerm" class="tbtn flex items-center gap-1.5 bg-raised border border-bds rounded-lg px-2.5 py-1.5 hover:bg-high" title="Terminal">🖥️<span class="text-faint text-[10px]">⌘J</span></button>
+            <button id="tMode" class="tbtn flex items-center gap-1.5 bg-raised border border-bds rounded-lg px-2.5 py-1.5 hover:bg-high">🔒 Local</button>
+          </div>
+        </div>
+
+        <article class="max-w-[780px] mx-auto px-10 pt-8 pb-56">
+          <p class="font-mono text-[12.5px] text-brand tracking-wide">Chapter 2</p>
+          <h1 class="font-mono font-bold text-3xl tracking-tight mt-1.5 mb-1">The classifier stage</h1>
+
+          <div class="block relative my-3.5">
+            <p><code class="font-mono text-[0.85em] bg-raised rounded px-1.5 py-px">WeftClassifier</code> labels each line with its weft kind by mode. It is a Mealy machine: the state is the previous weft and whether a heading has been seen, the input a pattern probe of the line, and the output weft also feeds the next state. The marks it emits are partial — the leading marker filled, the rest left for the <a href="#" class="text-brand font-mono text-[0.9em] hover:underline">::[The tokeniser stage]</a> to settle.</p>
+            <button class="add font-mono text-[12px] text-faint hover:text-brand pt-1">💬 note</button>
+          </div>
+
+          <h2 class="font-mono font-medium text-xl mt-9 mb-1">Classifying one line</h2>
+
+          <!-- a modified paragraph, per local git state -->
+          <div class="block relative my-3.5">
+            <p class="modified rounded-r pl-2.5 py-0.5"><code class="font-mono text-[0.85em] bg-raised rounded px-1.5 py-px">probeWeft</code> is the decision table. Frontmatter and a fenced block are handled first, before the marker probe — so a <code class="font-mono text-[0.85em] bg-raised rounded px-1.5 py-px">#</code> or <code class="font-mono text-[0.85em] bg-raised rounded px-1.5 py-px">=&gt;</code> quoted inside a fence reads as text, not a mark.</p>
+            <button class="add font-mono text-[12px] text-faint hover:text-brand pt-1">💬 note</button>
+            <!-- a note: single author (GitHub identity), Resolve + Remove -->
+            <div class="note my-2 rounded-[10px] border border-brand px-3 py-2.5 text-[15px]" style="background:var(--note)">
+              <div class="flex items-center gap-2">
+                <img class="w-[22px] h-[22px] rounded-full" src="https://avatars.githubusercontent.com/u/583231?v=4" alt="yegor" />
+                <span class="font-mono text-xs font-medium">Yegor</span>
+                <span class="font-mono text-[11px] text-faint">@yegor · 2h ago</span>
+                <span class="ml-auto font-mono text-[10.5px] text-brand">🟡 pending</span>
+              </div>
+              <p class="mt-1.5 text-fg2 leading-normal">Say explicitly that <code class="font-mono text-[0.85em] bg-raised rounded px-1.5 py-px">~~~</code> is not a fence here — backtick-only, since it collides with the tilde mark.</p>
+              <div class="flex gap-2 mt-2.5 font-mono text-[11.5px]">
+                <button class="rounded-md border border-brand text-brand bg-bg px-2.5 py-1">✅ Resolve</button>
+                <button class="rounded-md border border-bds text-muted bg-bg px-2.5 py-1">🗑️ Remove</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- code: split by an intermediate note; note is the same card as a prose note -->
+          <div class="code font-mono text-[13.5px] leading-[1.75] mt-0.5" style="border-radius:8px 8px 0 0">
+            <span class="absolute top-2 right-3 text-[10.5px] text-faint tracking-wide">typescript</span>
+<span class="cl"><span class="k">const</span> <span class="fn">probeWeft</span> <span class="op">=</span> <span class="pn">(</span>line<span class="pn">,</span> state<span class="pn">)</span> <span class="op">=&gt;</span> <span class="pn">{</span><button class="add absolute right-3 text-faint hover:text-brand">💬</button></span><span class="cl"><span class="pn">  </span><span class="k">if</span> <span class="pn">(</span>state<span class="pn">.</span>inFrontmatter<span class="pn">)</span> <span class="k">return</span> <span class="fn">frontmatter</span><span class="pn">(</span>line<span class="pn">)</span><button class="add absolute right-3 text-faint hover:text-brand">💬</button></span><span class="cl added">  <span class="k">if</span> <span class="pn">(</span>state<span class="pn">.</span>inFence<span class="pn">)</span> <span class="k">return</span> <span class="fn">prose</span><span class="pn">(</span>line<span class="pn">)</span>       <span class="c">// verbatim — new</span><button class="add absolute right-3 text-faint hover:text-brand">💬</button></span>
+          </div>
+          <div class="note my-2 rounded-[10px] border border-brand px-3 py-2.5 text-[15px]" style="background:var(--note)">
+            <div class="flex items-center gap-2">
+              <img class="w-[22px] h-[22px] rounded-full" src="https://avatars.githubusercontent.com/u/583231?v=4" alt="yegor" />
+              <span class="font-mono text-xs font-medium">Yegor</span>
+              <span class="font-mono text-[11px] text-faint">@yegor · just now</span>
+              <span class="ml-auto font-mono text-[10.5px] text-brand">🟡 pending</span>
+            </div>
+            <p class="mt-1.5 text-fg2 leading-normal">This guard should sit above the heading probe — put it first.</p>
+            <div class="flex gap-2 mt-2.5 font-mono text-[11.5px]">
+              <button class="rounded-md border border-brand text-brand bg-bg px-2.5 py-1">✅ Resolve</button>
+              <button class="rounded-md border border-bds text-muted bg-bg px-2.5 py-1">🗑️ Remove</button>
+            </div>
+          </div>
+          <div class="code font-mono text-[13.5px] leading-[1.75]" style="border-radius:0 0 8px 8px;padding-top:8px">
+<span class="cl">  <span class="k">const</span> probe <span class="op">=</span> <span class="fn">probeOf</span><span class="pn">(</span>line<span class="pn">)</span><button class="add absolute right-3 text-faint hover:text-brand">💬</button></span><span class="cl">  <span class="k">if</span> <span class="pn">(</span>probe<span class="pn">.</span>kind <span class="op">===</span> <span class="s">"heading"</span><span class="pn">)</span> <span class="k">return</span> <span class="fn">heading</span><span class="pn">(</span>line<span class="pn">,</span> probe<span class="pn">.</span>match<span class="pn">)</span><button class="add absolute right-3 text-faint hover:text-brand">💬</button></span><span class="cl">  <span class="k">return</span> <span class="fn">modeOf</span><span class="pn">(</span>state<span class="pn">.</span>prev<span class="pn">)</span> <span class="op">===</span> <span class="s">"code"</span> <span class="op">?</span> <span class="fn">code</span><span class="pn">(</span>line<span class="pn">)</span> <span class="op">:</span> <span class="fn">prose</span><span class="pn">(</span>line<span class="pn">)</span><button class="add absolute right-3 text-faint hover:text-brand">💬</button></span><span class="cl"><span class="pn">}</span><button class="add absolute right-3 text-faint hover:text-brand">💬</button></span>
+          </div>
+
+          <p class="git-only font-mono text-[11px] text-faint mt-3">🟢 added · 🟠 modified — reflects your local git state</p>
+
+          <details class="archive mt-11 border-t border-dashed border-bds pt-3.5">
+            <summary class="font-mono text-[12.5px] text-faint cursor-pointer">Resolved · 2</summary>
+            <div class="opacity-50 text-[13.5px] text-muted py-2 border-b border-bd">✅ “Rename weft → mark in the intro” — 1d ago</div>
+            <div class="opacity-50 text-[13.5px] text-muted py-2 border-b border-bd">✅ “Diagram the mode machine” — 2d ago</div>
+            <p class="font-mono text-[11px] text-faint mt-2.5">Resolved notes clear from the archive when the change that resolved them is committed.</p>
+          </details>
+        </article>
+      </main>
+    </div>
+
+    <!-- ===== Claude Code drawer (concept stub) ===== -->
+    <div class="drawer collapsed bg-codebg border-t border-bds" id="drawer" style="box-shadow:0 -8px 24px rgba(0,0,0,.12)">
+      <div class="flex items-center gap-2 px-4 py-2 font-mono text-[12.5px] text-fg2 border-b border-bd">
+        <span class="text-brand font-bold">~</span> Claude Code · local
+        <span class="text-faint text-[11px]">reads open notes through <span class="text-brand">loom notes</span></span>
+        <span class="ml-auto flex gap-1.5">
+          <button id="dFull" class="border border-bds rounded-md px-2 text-muted" title="Full screen">⤢</button>
+          <button id="dHide" class="border border-bds rounded-md px-2 text-muted" title="Hide">✕</button>
+        </span>
+      </div>
+      <div class="term font-mono text-[12.5px] leading-[1.75] text-fg2 h-[200px] overflow-y-auto" style="padding:12px 18px"><span class="text-fg">$ loom notes pending</span>
+<span class="text-muted">  #2  reading-the-text/02 · Classifying one line
+       "This guard should sit above the heading probe — put it first."
+  #3  the-shape-of-a-loom/04 · Wefts
+       "Rename weft → mark in the intro."</span>
+
+<span class="text-brand">⏺</span> Editing corpus/04-reading-the-text/02-classifying-lines.loom …
+<span class="text-brand">⏺</span> Moved the inFence guard above the heading probe; re-tangled.
+<span style="color:var(--green)">✅ loom note resolve #2  →  moved to the archive</span>
+<span class="text-brand">▋</span></div>
+    </div>
+
+    <script>
+      const root = document.documentElement, body = document.body;
+      const drawer = document.getElementById("drawer");
+      const click = (id, fn) => document.getElementById(id).addEventListener("click", fn);
+      const sidebar = () => body.classList.toggle("no-sidebar");
+      const theme = () => root.classList.toggle("dark");
+      const term = () => { drawer.classList.remove("hidden"); drawer.classList.toggle("collapsed"); };
+      click("tSide", sidebar);
+      click("tTheme", theme);
+      click("tTerm", term);
+      click("tMode", () => {
+        const pub = body.classList.toggle("public");
+        document.getElementById("tMode").textContent = pub ? "🌐 Public" : "🔒 Local";
+        twemoji.parse(document.getElementById("tMode"));
+      });
+      click("dFull", () => drawer.classList.toggle("full"));
+      click("dHide", () => drawer.classList.add("hidden"));
+      document.addEventListener("keydown", (e) => {
+        if (!(e.metaKey || e.ctrlKey)) return;
+        const k = e.key.toLowerCase();
+        if (k === "b") { e.preventDefault(); sidebar(); }
+        else if (k === "j") { e.preventDefault(); term(); }
+        else if (k === ".") { e.preventDefault(); theme(); }
+      });
+      twemoji.parse(document.body, { folder: "svg", ext: ".svg", base: "https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/" });
+    </script>
+  </body>
+</html>

@@ -57,6 +57,22 @@ const tangle = (file: string) =>
     ),
   )
 
+## Weaving a corpus
+
+The `weave` command projects a corpus into data. It takes the corpus entry and an output path, resolves both against the working directory, hands them to the weaver, and reports the file it wrote. The weaver asks the compiler to project the whole corpus into a `WovenCorpus` and writes it as JSON — one file a consumer renders however it likes, static or live.
+
+=>
+
+const weave = (file: string, out: string) =>
+  Effect.gen(function* () {
+    const weaver = yield* LoomWeaver
+    const written = yield* weaver.weave(
+      resolvePath(process.cwd(), file),
+      resolvePath(process.cwd(), out),
+    )
+    yield* Console.log(`loom: wove ${file} → ${written}`)
+  })
+
 ## Scaffolding a workspace
 
 `loom init` sets up a workspace. It writes `.loom/config.yaml` — the compiled configuration the editor and the tangler read — and a `.gitignore` beside it that keeps the generated service store out of version control. It asks for the primary language a specifier-less section inherits, and for the languages the editor activates services for, then records them. When a `.loom/config.yaml` is already there, it asks before overwriting, so a stray `init` never erases a configured workspace.
@@ -204,7 +220,7 @@ const status = Effect.gen(function* () {
 
 ## Where the world ends
 
-The CLI is six commands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them. `loom init [dir]` scaffolds a `.loom/config.yaml`, defaulting to the working directory. `loom add <language>` and `loom remove <language>` turn a language's service on and off. `loom status` reports what the workspace has activated and what the store holds. `loom lsp --stdio` starts the language server for any editor. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the package config, the configuration, and the Bun platform behind the prompts and the filesystem.
+The CLI is seven commands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them. `loom weave <path> <out>` projects a corpus into a `WovenCorpus` and writes it as JSON to `out`. `loom init [dir]` scaffolds a `.loom/config.yaml`, defaulting to the working directory. `loom add <language>` and `loom remove <language>` turn a language's service on and off. `loom status` reports what the workspace has activated and what the store holds. `loom lsp --stdio` starts the language server for any editor. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the package config, the configuration, and the Bun platform behind the prompts and the filesystem.
 
 The `lsp` branch sits outside the command program. It loads the server lazily, so a plain `tangle` never pays to bundle Volar, and the server runs on its own Bun runtime rather than nesting one inside a command. Volar is CommonJS and calls `require` at runtime for the built-in modules; this bundle is an ES module, where `require` is absent, so before loading the server the branch exposes one through `createRequire` on `globalThis` — the shim Volar's bundled code reaches for. The cost lands only on the `lsp` path.
 
@@ -214,6 +230,12 @@ const tangleCommand = Command.make(
   'tangle',
   { path: Argument.string('path') },
   ({ path }) => tangle(path),
+)
+
+const weaveCommand = Command.make(
+  'weave',
+  { path: Argument.string('path'), out: Argument.string('out') },
+  ({ path, out }) => weave(path, out),
 )
 
 const initCommand = Command.make(
@@ -239,6 +261,7 @@ const statusCommand = Command.make('status', {}, () => status)
 const loom = Command.make('loom').pipe(
   Command.withSubcommands([
     tangleCommand,
+    weaveCommand,
     initCommand,
     addCommand,
     removeCommand,
@@ -250,6 +273,7 @@ const program = Command.run(loom, {
   version: '0.9.0',
 }).pipe(
   Effect.provide(LoomTangler.layer),
+  Effect.provide(LoomWeaver.layer),
   Effect.provide(DocumentSource.layer),
   Effect.provide(PackageConfig.layer),
   Effect.provide(LoomConfig.layer),
@@ -267,7 +291,7 @@ if (process.argv[2] === 'lsp') {
 
 ## What the program needs
 
-The program is built on Effect, a functional TypeScript library for composing and running effectful programs. Effect's CLI toolkit parses the command line and drives the interactive prompts, and the Bun platform supplies the runtime, the terminal, and filesystem access. The language server contributes three services: `LoomTangler`, which walks a `.loom` file and emits the tangled output; `DocumentSource`, which feeds it source text from disk; and `PackageConfig`, which resolves a `.loom`'s package settings. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back. From `@athrio/loom-lang-services` come the store operations behind activation: `addService` and `removeService` install and uninstall a language's package, `installedServices` lists what the store holds, `storeDir` locates it, `workspaceRoot` finds the workspace it sits in, and `servicePackage` names a language's package.
+The program is built on Effect, a functional TypeScript library for composing and running effectful programs. Effect's CLI toolkit parses the command line and drives the interactive prompts, and the Bun platform supplies the runtime, the terminal, and filesystem access. The language server contributes four services: `LoomTangler`, which walks a `.loom` file and emits the tangled output; `LoomWeaver`, which projects a corpus and writes the woven data; `DocumentSource`, which feeds them source text from disk; and `PackageConfig`, which resolves a `.loom`'s package settings. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back. From `@athrio/loom-lang-services` come the store operations behind activation: `addService` and `removeService` install and uninstall a language's package, `installedServices` lists what the store holds, `storeDir` locates it, `workspaceRoot` finds the workspace it sits in, and `servicePackage` names a language's package.
 
 =>
 
@@ -278,6 +302,7 @@ import { existsSync, writeFileSync } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
 import { DocumentSource } from '@athrio/loom-lang/LoomCompiler'
 import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
+import { LoomWeaver } from '@athrio/loom-lang/weave/LoomWeaver'
 import { PackageConfig } from '@athrio/loom-lang/PackageConfig'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
@@ -298,6 +323,8 @@ import {
 ::[The wordmark]
 
 ::[Tangling a file]
+
+::[Weaving a corpus]
 
 ::[Scaffolding a workspace]
 

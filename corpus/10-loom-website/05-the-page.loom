@@ -1,0 +1,31 @@
+---
+Part X, Chapter 5: The page
+Package: site/index.html
+Language: HTML
+---
+
+# The page
+
+The page is the shell the app mounts into. It holds an empty root, loads the built module, and gives the document its height. Nothing else lives here: the stylesheet brings its own fonts through an `@import`, and the app draws everything below `body`.
+
+The one rule the shell must set is height. The app is a full-height flex column — a top bar over a scrolling body — so the root, the body, and the document all stretch to the window. Without that, a docs page has no height for its columns to fill.
+
+## The shell {Tangle}
+
+=>
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Loom</title>
+    <style>
+      html, body, #root { margin: 0; padding: 0; height: 100%; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

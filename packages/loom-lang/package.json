@@ -14,7 +14,8 @@
     "./PackageConfig": "./src/PackageConfig.ts",
     "./ManifestBuilder": "./src/ManifestBuilder.ts",
     "./LoomServer": "./src/LoomServer.ts",
-    "./weave/WovenSite": "./src/weave/WovenSite.ts"
+    "./weave/WovenCorpus": "./src/weave/WovenCorpus.ts",
+    "./weave/LoomWeaver": "./src/weave/LoomWeaver.ts"
   },
   "scripts": {
     "build": "vite build",

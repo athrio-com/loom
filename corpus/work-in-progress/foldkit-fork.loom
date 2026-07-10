@@ -4,7 +4,7 @@ Language: TypeScript
 
 # The Foldkit fork
 
-The reader is a Foldkit application — the Elm Architecture on Effect — and Foldkit is where the reader meets a problem the rest of Loom does not. Effect is in beta, and its betas break each other: an API that exists in one beta is renamed or reshaped in the next. A library built on a beta pins the exact beta it was tested against, because a later one might not compile. Foldkit pins `effect@4.0.0-beta.88`. Loom is on `4.0.0-beta.93`. The two cannot share one Effect, and a Foldkit app that also imports Loom — which the reader does, for the `WovenSite` the weave pass produces — needs them to.
+The reader is a Foldkit application — the Elm Architecture on Effect — and Foldkit is where the reader meets a problem the rest of Loom does not. Effect is in beta, and its betas break each other: an API that exists in one beta is renamed or reshaped in the next. A library built on a beta pins the exact beta it was tested against, because a later one might not compile. Foldkit pins `effect@4.0.0-beta.88`. Loom is on `4.0.0-beta.93`. The two cannot share one Effect, and a Foldkit app that also imports Loom — which the reader does, for the `WovenCorpus` the weave pass produces — needs them to.
 
 Pinning is the right instinct during a beta; it is the same instinct that pins Loom's own dependencies. But an exact pin travels. Everything downstream of Foldkit inherits `beta.88`, so the reader cannot move to `beta.93` while it takes Foldkit from the registry. Waiting for Foldkit to catch up would put Loom's schedule in another project's hands. So the reader owns its runtime: `@athrio/foldkit` is a fork of Foldkit, vendored into Loom and compiled against the same Effect as everything else.
 
@@ -12,7 +12,7 @@ Pinning is the right instinct during a beta; it is the same instinct that pins L
 
 Foldkit is MIT-licensed, so the fork is a matter of copying the source and keeping the notice. The surprise was how little the port cost. Compiled against `beta.93` instead of `beta.88`, Foldkit's source produced no errors — the churn between those betas never touched the API Foldkit uses. The whole delta is the version bump: the runtime that mounts the reader, the `html` builder, and the view all run on `beta.93` unchanged.
 
-The reader was rewired in step. It imports `Command`, `Runtime`, and `html` from `@athrio/foldkit`, and it imports the `WovenSite` schema from `@athrio/loom-lang`, decoding the built book against the one definition the weave pass produces. One Effect, one shared shape, no clash.
+The reader was rewired in step. It imports `Command`, `Runtime`, and `html` from `@athrio/foldkit`, and it imports the `WovenCorpus` schema from `@athrio/loom-lang`, decoding the built book against the one definition the weave pass produces. One Effect, one shared shape, no clash.
 
 ## A true fork, kept honest
 

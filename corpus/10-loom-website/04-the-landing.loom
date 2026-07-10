@@ -1,0 +1,172 @@
+---
+Part X, Chapter 4: The landing
+Package: site/src/landing.ts
+Language: TypeScript
+---
+
+# The landing
+
+The landing is the front page — the `/` route. It says what Loom is in one line, shows a real loom beside it, and points to the two ways in: read the book, or read the source. It is one exported view, `landingView`, that the reading app frames with the top bar. It is deliberately small: a hero, three plain claims, a footer. No chrome it does not need.
+
+## What it draws on
+
+The landing borrows the whole of its runtime from the model — the view builder `h`, the two helpers that address the book, and the `Copy` message that carries the install line to the clipboard. It builds `Html`, the same node type every view in the app returns.
+
+=>
+
+import { Copy, firstSlug, h, pathForSlug } from './model'
+import type { Html } from '@athrio/foldkit/html'
+
+## A loom to show
+
+The hero shows a real loom — the greeting from the first chapter, exactly as it is written. It is the shortest thing that shows the shape: frontmatter that names the language and the file, a `# heading` that names a section, `=>` that turns prose into code, a `{Tangle}` section that composes the rest by anchor. A reader sees the marks before they read a word about them.
+
+=>
+
+const example = [
+  '---',
+  'Language: TypeScript',
+  'Package: src/main.ts',
+  '---',
+  '',
+  '# A greeting',
+  '',
+  'The greet function welcomes someone by name.',
+  '',
+  '=>',
+  '',
+  'export const greet = (name: string): string =>',
+  '  `Hello, ${name}!`',
+  '',
+  '# The entry point {Tangle}',
+  '',
+  '=>',
+  '',
+  '::' + '[A greeting]',
+  '',
+  'console.log(greet("world"))',
+].join('\n')
+
+## The hero
+
+The hero is two halves. On the left, the line — “prose and code, woven into one source” — the lede beneath it, the install command with a copy button, and the two ways in. On the right, the loom. The install button dispatches `Copy`, so the one browser effect stays a message the app turns into a command.
+
+=>
+
+const install = 'bun install -g @athrio/loom-cli'
+
+const heroView = (): Html =>
+  h.div(
+    [h.Class('loom-hero')],
+    [
+      h.div(
+        [],
+        [
+          h.div([h.Class('loom-hero-eyebrow')], ['Literate programming']),
+          h.h1(
+            [h.Class('loom-hero-title')],
+            ['Prose and code, ', h.em([], ['woven']), ' into one source.'],
+          ),
+          h.p(
+            [h.Class('loom-hero-lede')],
+            [
+              'Loom is a literate programming framework. You write a .loom file as prose and code in reading order — then tangle composes it into real source on disk.',
+            ],
+          ),
+          h.div(
+            [h.Class('loom-hero-actions')],
+            [
+              h.div(
+                [h.Class('loom-install')],
+                [
+                  h.span([h.Class('loom-install-prompt')], ['$']),
+                  h.span([], [install]),
+                  h.button([h.Class('loom-copy'), h.OnClick(Copy({ text: install }))], ['copy']),
+                ],
+              ),
+            ],
+          ),
+          h.div(
+            [h.Class('loom-hero-actions'), h.Style({ 'margin-top': '14px' })],
+            [
+              h.a([h.Class('loom-btn loom-btn-primary'), h.Href(pathForSlug(firstSlug))], ['Read the docs']),
+              h.a([h.Class('loom-btn'), h.Href('#')], ['Browse the source']),
+            ],
+          ),
+        ],
+      ),
+      h.div(
+        [h.Class('loom-hero-panel')],
+        [
+          h.div([h.Class('loom-hero-panel-head')], ['greeting.loom']),
+          h.pre([], [example]),
+        ],
+      ),
+    ],
+  )
+
+## Below the hero
+
+Three claims say what makes a loom different — woven, tangled, alive in the editor — and a thin footer closes the page. `featureView` is the one repeated shape.
+
+=>
+
+const featureView = (title: string, body: string): Html =>
+  h.div(
+    [h.Class('loom-feature')],
+    [
+      h.div([h.Class('loom-feature-title')], [title]),
+      h.div([h.Class('loom-feature-body')], [body]),
+    ],
+  )
+
+const featuresView = (): Html =>
+  h.div(
+    [h.Class('loom-features')],
+    [
+      featureView(
+        'Woven, not commented',
+        'Prose and code are equal layers. A section draws in another by name — never by copying it.',
+      ),
+      featureView(
+        'Tangled to real source',
+        'loom tangle drops the prose and writes plain TypeScript, Bash, or JSON — the file the compiler sees.',
+      ),
+      featureView(
+        'Alive in the editor',
+        'Every section is first-class: go to an anchor’s definition, catch a broken one, type-check in place.',
+      ),
+    ],
+  )
+
+const footView = (): Html =>
+  h.div(
+    [h.Class('loom-foot')],
+    [
+      h.span([], ['© 2026 Loom']),
+      h.span(
+        [],
+        [h.a([h.Href(pathForSlug(firstSlug))], ['Docs']), ' · ', h.a([h.Href('#')], ['Source'])],
+      ),
+    ],
+  )
+
+## The view {Tangle}
+
+`landingView` is the scrolling page: the hero, the claims, and the footer, centred on one column.
+
+=>
+
+::[What it draws on]
+
+::[A loom to show]
+
+::[The hero]
+
+::[Below the hero]
+
+export const landingView = (): Html =>
+  h.div(
+    [h.Class('loom-landing')],
+    [h.div([h.Class('loom-landing-inner')], [heroView(), featuresView(), footView()])],
+  )

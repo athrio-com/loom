@@ -1,12 +1,12 @@
 {
-  "name": "loom-reader",
+  "name": "loom-website",
   "type": "module",
   "private": true,
   "version": "0.0.0",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "dev": "bunx --bun vite",
+    "build": "bunx --bun vite build",
+    "preview": "bunx --bun vite preview"
   },
   "dependencies": {
     "@athrio/foldkit": "workspace:*",
@@ -16,6 +16,7 @@
     "shiki": "^4.3.1"
   },
   "devDependencies": {
+    "@athrio/loom-annotate": "workspace:*",
     "@types/node": "^26.1.0",
     "typescript": "^6.0.3",
     "vite": "^8.1.3"

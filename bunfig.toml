@@ -1,0 +1,5 @@
+# Loom is a Bun program everywhere. Run scripts under the Bun runtime rather than
+# honouring a dependency binary's `#!/usr/bin/env node` shebang, so `bun run dev`
+# starts Vite — and the Bun-native annotation plugin — under Bun, not Node.
+[run]
+bun = true

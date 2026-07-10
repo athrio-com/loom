@@ -5,6 +5,12 @@ const intAtLeast = (min: number) =>
     Number.isInteger(n) && n >= min ? undefined : `must be an integer >= ${min}`,
   )
 
+export const SourceAnchorSchema = Schema.Struct({
+  chapter: Schema.String,
+  section: Schema.String,
+})
+export type SourceAnchor = typeof SourceAnchorSchema.Type
+
 export const AnchorLinkSchema = Schema.Struct({
   name: Schema.String,
   targetSlug: Schema.String,
@@ -16,12 +22,14 @@ export type AnchorLink = typeof AnchorLinkSchema.Type
 
 export const ProseBlockSchema = Schema.Struct({
   type: Schema.tag('prose'),
+  source: SourceAnchorSchema,
   markdown: Schema.String,
 })
 export type ProseBlock = typeof ProseBlockSchema.Type
 
 export const HeadingBlockSchema = Schema.Struct({
   type: Schema.tag('heading'),
+  source: SourceAnchorSchema,
   level: Schema.Number.check(intAtLeast(1)),
   title: Schema.String,
   id: Schema.String,
@@ -30,14 +38,16 @@ export type HeadingBlock = typeof HeadingBlockSchema.Type
 
 export const CodeBlockSchema = Schema.Struct({
   type: Schema.tag('code'),
+  source: SourceAnchorSchema,
   language: Schema.String,
-  source: Schema.String,
+  code: Schema.String,
   links: Schema.Array(AnchorLinkSchema),
 })
 export type CodeBlock = typeof CodeBlockSchema.Type
 
 export const NoteBlockSchema = Schema.Struct({
   type: Schema.tag('note'),
+  source: SourceAnchorSchema,
   markdown: Schema.String,
 })
 export type NoteBlock = typeof NoteBlockSchema.Type
@@ -72,8 +82,8 @@ export const WovenPartSchema = Schema.Struct({
 })
 export type WovenPart = typeof WovenPartSchema.Type
 
-export const WovenSiteSchema = Schema.Struct({
+export const WovenCorpusSchema = Schema.Struct({
   nav: Schema.Array(WovenPartSchema),
   pages: Schema.Array(WovenPageSchema),
 })
-export type WovenSite = typeof WovenSiteSchema.Type
+export type WovenCorpus = typeof WovenCorpusSchema.Type

@@ -1,0 +1,55 @@
+---
+Part XI, Chapter 6: Packaging the annotation utility
+Package: packages/loom-annotate/
+Language: JSON
+---
+
+# Packaging the annotation utility
+
+`@athrio/loom-annotate` ships as source. A project installs it as a development dependency, and its own Vite — run on Bun — reads the plugin straight from source; there is no build of its own.
+
+## The manifest {Tangle}[package.json]
+
+The `exports` field is the package's surface — the `loomAnnotate` plugin — and the `bin` field adds the `loom-annotate` command that prints the log. The three libraries the plugin builds on are peers: `effect` and `@effect/platform-bun` for the runtime and the log, and `vite` for the plugin type. A project using the plugin already has all three, so it supplies them. The same three sit in `devDependencies` so the package type-checks on its own.
+
+=>
+
+{
+  "name": "@athrio/loom-annotate",
+  "version": "0.0.1",
+  "description": "A Vite plugin that captures time-ordered feedback on a running app for a coding agent to read.",
+  "license": "Apache-2.0 OR MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/plugin.ts"
+  },
+  "bin": {
+    "loom-annotate": "./src/print.ts"
+  },
+  "peerDependencies": {
+    "effect": "4.0.0-beta.93",
+    "@effect/platform-bun": "4.0.0-beta.93",
+    "vite": "^8.1.3"
+  },
+  "devDependencies": {
+    "effect": "4.0.0-beta.93",
+    "@effect/platform-bun": "4.0.0-beta.93",
+    "vite": "^8.1.3"
+  }
+}
+
+## The TypeScript config {Tangle}[tsconfig.json]
+
+The config extends the workspace base and typechecks `src`. It widens the library beyond the base's, because the overlay runs in a browser and reaches for the document, `fetch`, and the DOM: the `DOM` and `DOM.Iterable` libraries type those. The config never ships.
+
+=>
+
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "out",
+    "rootDir": "src",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
+  },
+  "include": ["src"]
+}

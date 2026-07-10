@@ -38,6 +38,8 @@ import { type LoomVirtualCode, type Mapping } from '@athrio/loom-ast/LoomVirtual
 import { profileOf, symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 import { LoomMemo } from './LoomMemo'
 import { PackageConfig } from './PackageConfig'
+import { WeaveBuilder } from './weave/WeaveBuilder'
+import { type WovenCorpus } from './weave/WovenCorpus'
 
 type Modules = ReadonlyMap<Path, LoomModule>
 
@@ -270,6 +272,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()(
       const builder = yield* LoomCorpusAstBuilder
       const memo = yield* LoomMemo
       const config = yield* PackageConfig
+      const weaver = yield* WeaveBuilder
 
       const loadOne = (source: Source, path: Path): Effect.Effect<LoomModule> =>
         config.resolve(path).pipe(
@@ -378,6 +381,11 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()(
                 { concurrency: 'unbounded' },
               ).pipe(Effect.map(Array.flatten))
             ),
+          ),
+
+        weave: (path: Path): Effect.Effect<WovenCorpus> =>
+          buildCorpus(documents, path).pipe(
+            Effect.flatMap((modules) => weaver.build({ modules })),
           ),
 
         diagnose: (path: Path): Effect.Effect<ReadonlyArray<Diagnostic>> =>
@@ -518,6 +526,8 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()(
   },
 ) {
   static readonly layer = Layer.effect(this, this.make).pipe(
-    Layer.provide(Layer.mergeAll(LoomCorpusAstBuilder.layer, LoomMemo.layer)),
+    Layer.provide(
+      Layer.mergeAll(LoomCorpusAstBuilder.layer, LoomMemo.layer, WeaveBuilder.layer),
+    ),
   )
 }

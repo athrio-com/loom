@@ -1,0 +1,50 @@
+---
+Language: TypeScript
+Package: packages/loom-lang/src/weave/LoomWeaver.ts
+---
+
+# The weave writer
+
+`LoomWeaver` is weave's disk writer, the mirror of `LoomTangler`. Where the tangler asks the compiler to compose a file and writes the source it emits, the weaver asks the compiler to project a corpus and writes the data it returns. Tangle writes many source files; weave writes one — the `WovenCorpus` a consumer renders.
+
+The service is thin, because the compiler does the work. `weave` runs the compiler's `weave` verb for the corpus at `entry`, serialises the `WovenCorpus` to JSON, and writes it to `out`. It makes the output's directory first, so a fresh path lands without a missing-directory error, and returns the path it wrote, so the command can report it. The filesystem comes from the runtime, the same Bun platform the tangler writes through.
+
+=>
+
+import { Context, Effect, FileSystem, Layer } from 'effect'
+import { dirname } from 'node:path'
+import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
+import { LoomCompiler } from '../LoomCompiler'
+
+export class LoomWeaver extends Context.Service<LoomWeaver>()('LoomWeaver', {
+  make: Effect.gen(function* () {
+    const compiler = yield* LoomCompiler
+    const fs = yield* FileSystem.FileSystem
+
+    const weave = (entry: Path, out: Path): Effect.Effect<Path> =>
+      compiler.weave(entry).pipe(
+        Effect.map((corpus) => JSON.stringify(corpus, null, 2)),
+        Effect.flatMap((json) =>
+          fs
+            .makeDirectory(dirname(out), { recursive: true })
+            .pipe(
+              Effect.andThen(fs.writeFileString(out, json)),
+              Effect.orDie,
+              Effect.as(out),
+            ),
+        ),
+      )
+
+    return { weave }
+  }),
+}) {
+  static readonly layer = Layer.effect(this, this.make).pipe(
+    Layer.provide(LoomCompiler.layer),
+  )
+}
+
+## The module {Tangle}
+
+=>
+
+::[The weave writer]

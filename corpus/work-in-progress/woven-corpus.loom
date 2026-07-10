@@ -1,0 +1,166 @@
+---
+Language: TypeScript
+Package: packages/loom-lang/src/weave/WovenCorpus.ts
+---
+
+# The woven corpus
+
+Weave produces one value for one corpus: a `WovenCorpus`. It holds a whole corpus as data — a navigation tree of the corpus's parts and chapters, and a page for each chapter that carries its prose and its code in reading order. `WeaveBuilder` fills it from the parsed corpus, and whoever renders it reads it from there. Nothing else crosses between the two.
+
+The model says what a corpus contains, never how a site around it looks. Prose stays Markdown source, code stays its own text, and an anchor stays a link waiting to be drawn. The model carries no chrome — no top menu, no theme, no chosen sidebar — because those belong to whoever renders it. A top menu, in particular, spans several corpora that no single corpus knows about, so it can never come from this data. A consumer reads one `WovenCorpus`, or several side by side, and builds its own navigation over them.
+
+So the model is framework-agnostic on purpose. `loom weave` writes the data; the presentation is free. Swap the presentation — a different framework, a different theme, a different menu — and the projection does not move.
+
+## Built on Effect Schema
+
+Like every Loom model, a woven corpus is an Effect `Schema.Struct`, so one definition both validates the data and gives it a type.
+
+=>
+
+import { Schema } from 'effect'
+
+const intAtLeast = (min: number) =>
+  Schema.makeFilter<number>((n) =>
+    Number.isInteger(n) && n >= min ? undefined : `must be an integer >= ${min}`,
+  )
+
+## The source of a block
+
+Weave keeps every block tied to the loom it came from. A `SourceAnchor` is that tie: the `chapter` slug that names the block's page, and the `section` heading it was written under. Both are the same slug and heading id the page and its links already use, so an anchor names a place a reader can already reach.
+
+The anchor turns the rendered page back into the source. A consumer carries it onto the element it draws, and a reader who points at that element points at the loom section behind it — the spec — not merely a line of rendered HTML. The annotation utility reads the anchor to pin a remark to the source, where a re-weave and edits around it cannot shift it. The whole section is the unit, so the pin holds as long as the heading does.
+
+=>
+
+export const SourceAnchorSchema = Schema.Struct({
+  chapter: Schema.String,
+  section: Schema.String,
+})
+export type SourceAnchor = typeof SourceAnchorSchema.Type
+
+## Links between sections
+
+Within a code section an author writes `::[A greeting]` to draw in another section. Tangle inlines the named section; weave keeps the reference and turns it into a link. An `AnchorLink` is that resolved reference. It carries the `name` the author wrote, the page and heading it points to, and the span it occupies in the source — so the presentation can make just those characters a link.
+
+=>
+
+export const AnchorLinkSchema = Schema.Struct({
+  name: Schema.String,
+  targetSlug: Schema.String,
+  targetId: Schema.String,
+  offset: Schema.Number.check(intAtLeast(0)),
+  length: Schema.Number.check(intAtLeast(0)),
+})
+export type AnchorLink = typeof AnchorLinkSchema.Type
+
+## The blocks of a page
+
+A page is a sequence of blocks, in the order the author wrote them. A block is one of four. Prose is a run of Markdown, held as its Markdown source. A heading carries its level, its title, and the `id` a link targets. Code carries its language, its verbatim `code`, and the anchor links found within it. A note is a reader's annotation — its Markdown body holds the quoted fragment and the comment — kept apart from the prose so the editor can list it and, once addressed, remove it.
+
+Every block also carries the `source` anchor of the section it came from, so the reference back to the loom rides with the block wherever the presentation puts it.
+
+=>
+
+export const ProseBlockSchema = Schema.Struct({
+  type: Schema.tag('prose'),
+  source: SourceAnchorSchema,
+  markdown: Schema.String,
+})
+export type ProseBlock = typeof ProseBlockSchema.Type
+
+export const HeadingBlockSchema = Schema.Struct({
+  type: Schema.tag('heading'),
+  source: SourceAnchorSchema,
+  level: Schema.Number.check(intAtLeast(1)),
+  title: Schema.String,
+  id: Schema.String,
+})
+export type HeadingBlock = typeof HeadingBlockSchema.Type
+
+export const CodeBlockSchema = Schema.Struct({
+  type: Schema.tag('code'),
+  source: SourceAnchorSchema,
+  language: Schema.String,
+  code: Schema.String,
+  links: Schema.Array(AnchorLinkSchema),
+})
+export type CodeBlock = typeof CodeBlockSchema.Type
+
+export const NoteBlockSchema = Schema.Struct({
+  type: Schema.tag('note'),
+  source: SourceAnchorSchema,
+  markdown: Schema.String,
+})
+export type NoteBlock = typeof NoteBlockSchema.Type
+
+export const WovenBlockSchema = Schema.Union([
+  ProseBlockSchema,
+  HeadingBlockSchema,
+  CodeBlockSchema,
+  NoteBlockSchema,
+])
+export type WovenBlock = typeof WovenBlockSchema.Type
+
+## A page for each chapter
+
+Each chapter becomes one `WovenPage`: a `slug` for its URL, the chapter `title`, and its `blocks`. When the chapter belongs to a part, the page names that part, so the reader sees it above the title.
+
+=>
+
+export const WovenPageSchema = Schema.Struct({
+  slug: Schema.String,
+  title: Schema.String,
+  part: Schema.optional(Schema.String),
+  blocks: Schema.Array(WovenBlockSchema),
+})
+export type WovenPage = typeof WovenPageSchema.Type
+
+## The navigation tree
+
+The navigation tree is the corpus's own structure — its parts, and the chapters grouped under them, in the order the table of contents sets. A consumer renders it into whatever navigation it wants, a sidebar or a drop-down or nothing at all; the model only carries the shape. A `WovenNavEntry` is one chapter in that tree: its `number`, its `title`, and the `slug` that opens it. A `WovenPart` groups the entries that share a part, under the part's `number` and `name`.
+
+=>
+
+export const WovenNavEntrySchema = Schema.Struct({
+  number: Schema.String,
+  title: Schema.String,
+  slug: Schema.String,
+})
+export type WovenNavEntry = typeof WovenNavEntrySchema.Type
+
+export const WovenPartSchema = Schema.Struct({
+  number: Schema.String,
+  name: Schema.String,
+  chapters: Schema.Array(WovenNavEntrySchema),
+})
+export type WovenPart = typeof WovenPartSchema.Type
+
+## The corpus
+
+A `WovenCorpus` is the two halves together: the `nav` that holds the corpus's structure and the `pages` a reader reads.
+
+=>
+
+export const WovenCorpusSchema = Schema.Struct({
+  nav: Schema.Array(WovenPartSchema),
+  pages: Schema.Array(WovenPageSchema),
+})
+export type WovenCorpus = typeof WovenCorpusSchema.Type
+
+## The module {Tangle}
+
+=>
+
+::[Built on Effect Schema]
+
+::[The source of a block]
+
+::[Links between sections]
+
+::[The blocks of a page]
+
+::[A page for each chapter]
+
+::[The navigation tree]
+
+::[The corpus]

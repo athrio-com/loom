@@ -1,3 +1,22 @@
+---
+Part X: Loom Website
+Chapter 1: The theme system
+Package: site/src/styles.css
+Language: CSS
+---
+
+# The theme system
+
+The website wears one design system across every surface — the docs, the landing, the specimen. The system is two things: a vocabulary of design tokens, and two themes that give those tokens values. A theme is a class on the app root, `loom-theme-light` or `loom-theme-dark`, and everything downstream reads the tokens rather than raw colours. Switching theme swaps one class; nothing else moves.
+
+The type is literate before it is anything else. Reading matter is set in a serif — IBM Plex Serif — because long prose reads better with serifs. The interface around it — the top bar, the sidebar, the outline — is set in a sans, IBM Plex Sans, so the chrome stays quiet and distinct from the text. Code is IBM Plex Mono. Three faces from one family, each with a clear job.
+
+## The tokens and the type
+
+The app root carries the type scale and the layout measures, and reads its colours from whichever theme class sits beside it. The measure caps the reading column near seventy characters; collapsing a sidebar widens it. Oldstyle numerals and ligatures are on, because the page is a document.
+
+=>
+
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,500;1,400;1,500&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
 .loom-app {
@@ -28,6 +47,12 @@
 .loom-app ::selection { background: var(--selection); }
 .loom-app * { box-sizing: border-box; }
 .loom-app a { color: inherit; text-decoration: none; }
+
+## Two themes as tokens
+
+The two themes give the vocabulary its values. The light theme is Gruvbox Light Soft — a warm sand page, dark-brown text, a terracotta accent — softer on the eye than a paper white. The dark theme is the deep editor slate this project already used: the same page, surface, and code backgrounds as the landing, with a calm blue accent that carries the wordmark and every active mark. Each theme sets the whole vocabulary, so no surface has to reach outside its theme for a colour.
+
+=>
 
 .loom-theme-light {
   --bg-page:      #F2E5BC;
@@ -74,6 +99,12 @@
   --shadow-modal: 0 24px 60px -20px rgba(0, 0, 0, 0.75),
                   0 2px 6px rgba(0, 0, 0, 0.4);
 }
+
+## The top bar
+
+The top bar spans the app: the wordmark and section links on the left, the search trigger and the theme switch on the right. It is set in the sans, so it reads as chrome. The wordmark's mark is a serif italic tilde in the accent colour — the one place the brand shows. The theme switch is a pill with a knob that slides and recolours as the theme flips.
+
+=>
 
 .loom-topbar {
   display: flex;
@@ -205,6 +236,12 @@
 }
 .loom-theme-knob.is-dark::after { inset: 2px 8px 2px 2px; }
 
+## The shell and the left sidebar
+
+Below the top bar, three columns hold the page: the sidebar of parts and chapters, the reading column, and the outline. Collapsing either side rebalances the grid. The sidebar lists each part and its chapters; the active chapter carries an accent rail down its left edge, and its own headings unfold beneath it as a dotted sublist.
+
+=>
+
 .loom-shell {
   display: grid;
   grid-template-columns: var(--col-left) 1fr var(--col-right);
@@ -303,6 +340,12 @@
   border-top: 1px solid var(--border-hair);
 }
 .loom-sidebar-kicker { font-size: 11px; color: var(--fg-tertiary); font-variant-numeric: tabular-nums; }
+
+## The reading column
+
+The reading column is the document. It centres on the measure and sets everything in the serif: a large title, an italic deck beneath it, a sans meta line, then the prose. Each block type — a heading, a paragraph, a list, a code block with its language and path, a callout, a blockquote, a table, and the prev/next pager — has a settled shape. Code anchors keep the accent underline that links carry, so a reference reads as live.
+
+=>
 
 .loom-main {
   overflow-y: auto;
@@ -513,6 +556,12 @@
 .loom-pager-kicker { font-size: 11.5px; color: var(--fg-tertiary); letter-spacing: 0.04em; text-transform: uppercase; }
 .loom-pager-title { font-size: 14px; color: var(--fg-primary); font-weight: 500; }
 
+## The outline
+
+The outline is the right rail: the current page's headings, under an "on this page" label, each with the same accent rail the sidebar uses to mark where you are. Below them sit the page's own links — the source and the book.
+
+=>
+
 .loom-toc {
   border-left: 1px solid var(--border-hair);
   padding: 60px 24px 28px 28px;
@@ -563,6 +612,12 @@
 }
 .loom-toc-footer a { color: var(--fg-tertiary); transition: color 120ms ease; }
 .loom-toc-footer a:hover { color: var(--fg-primary); }
+
+## Search and shortcuts
+
+Two overlays float above the page. The search palette — the telescope — opens on a dim, blurred scrim: a serif italic title, a sans input, results grouped by kind with a mono path each, and a footer of key hints. The shortcuts card is quieter and smaller, a plain list of what each key does.
+
+=>
 
 .loom-scrim {
   position: absolute;
@@ -680,6 +735,36 @@
 .loom-shortcuts li { display: flex; align-items: center; justify-content: space-between; font-size: 13px; color: var(--fg-primary); }
 .loom-shortcut-keys { display: inline-flex; gap: 3px; }
 .loom-shortcut-label { color: var(--fg-secondary); }
+
+## Quiet scrollbars
+
+The scrollbars stay out of the way — thin, and only as dark as a strong border.
+
+=>
+
+.loom-sidebar, .loom-main, .loom-toc, .loom-modal-body {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+.loom-sidebar::-webkit-scrollbar,
+.loom-main::-webkit-scrollbar,
+.loom-toc::-webkit-scrollbar,
+.loom-modal-body::-webkit-scrollbar { width: 8px; height: 8px; }
+.loom-sidebar::-webkit-scrollbar-thumb,
+.loom-main::-webkit-scrollbar-thumb,
+.loom-toc::-webkit-scrollbar-thumb,
+.loom-modal-body::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+## The landing
+
+The landing has its own layout — a hero that pairs the headline with a real loom, a row of three claims, and a footer. It reads the same tokens as everything else, so it turns with the theme.
+
+=>
 
 .loom-landing { flex: 1; overflow-y: auto; }
 .loom-landing-inner { max-width: 1080px; margin: 0 auto; padding: 0 48px; }
@@ -820,20 +905,26 @@
 .loom-foot a { color: var(--fg-secondary); }
 .loom-foot a:hover { color: var(--fg-primary); }
 
-.loom-sidebar, .loom-main, .loom-toc, .loom-modal-body {
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-strong) transparent;
-}
-.loom-sidebar::-webkit-scrollbar,
-.loom-main::-webkit-scrollbar,
-.loom-toc::-webkit-scrollbar,
-.loom-modal-body::-webkit-scrollbar { width: 8px; height: 8px; }
-.loom-sidebar::-webkit-scrollbar-thumb,
-.loom-main::-webkit-scrollbar-thumb,
-.loom-toc::-webkit-scrollbar-thumb,
-.loom-modal-body::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
-  border-radius: 4px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
-}
+## The stylesheet {Tangle}
+
+The stylesheet is the type and tokens, the two themes, and then each surface that reads them: the top bar, the shell and sidebar, the reading column, the outline, the two overlays, the landing, and the quiet scrollbars.
+
+=>
+
+::[The tokens and the type]
+
+::[Two themes as tokens]
+
+::[The top bar]
+
+::[The shell and the left sidebar]
+
+::[The reading column]
+
+::[The outline]
+
+::[Search and shortcuts]
+
+::[The landing]
+
+::[Quiet scrollbars]

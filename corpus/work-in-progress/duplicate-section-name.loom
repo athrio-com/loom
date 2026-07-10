@@ -1,0 +1,21 @@
+---
+Language: TypeScript
+---
+
+# A duplicate section name
+
+Loom resolves a section by its heading. An anchor, `::[The greeting]`, names the section it draws in; a `{Tangle}` sink is itself a section, and its own heading is how the product finds the code it composes. Both look a section up by name, so a name is an identity. When two sections in one document share a name — a `## Handler {Tangle}` sink under a `# Handler` chapter, say — that identity is no longer unique, and the lookup returns whichever section the index happens to hold. The sink resolves to the wrong one and composes its body instead of its own. If that section carries no code, the sink writes an empty file, and nothing says so: the tangle reports success, and a zero-byte source lands on disk.
+
+The silence is the worst of it. A run that emits nothing looks exactly like a run that had nothing to emit, so the mistake reads as correct until something downstream fails to import.
+
+## Why it happens
+
+The product and the tangler resolve names through one index from title to section. The index maps a title to a single section, so a repeated title overwrites — one section wins and the other is lost, and the choice is invisible. A sink then asks the index for its own title and can be handed its namesake. Because the lookup succeeds — it found *a* section — no fault is raised. The section it found is simply the wrong, empty one, and its emptiness passes for legitimate output.
+
+## The shape of the fix
+
+A section name is unique within the document it lives in, because every anchor and every sink depends on it. So Loom names the violation. `DuplicateSectionName` joins the fault catalog: when a document holds two sections with the same heading, both carry the fault, and the editor underlines each where it is written — the same surface that already reports an unresolved anchor or a malformed heading. A duplicate is an error, not a warning, since it makes every reference to that name ambiguous.
+
+The tangler then refuses rather than guesses. `loom tangle` fails explicitly on a sink whose name is not unique: it raises a `TangleError` that names the collision and writes nothing, so the run ends with a message and a non-zero exit, exactly as an unresolved anchor already does. A silent zero-byte file is never an outcome — a re-tangle either writes the composed source or says precisely why it cannot.
+
+This chapter grows its code here — the duplicate check over a document's sections, the `DuplicateSectionName` fault, and the tangler's guard — and graduates to Part V, Tangling, and its fault catalog, once a colliding name fails at the diagnostic and at the tangle alike.
