@@ -1,6 +1,6 @@
 ---
 Part X, Chapter 3: The reading app
-Package: site/src/main.ts
+Package: site/src/client/main.ts
 Language: TypeScript
 ---
 

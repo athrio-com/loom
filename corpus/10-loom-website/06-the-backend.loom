@@ -1,6 +1,6 @@
 ---
 Part X, Chapter 6: The backend
-Package: site/src/server.ts
+Package: site/src/server/server.ts
 Language: TypeScript
 ---
 
@@ -12,7 +12,7 @@ The client and the server live in one package. Vite bundles the client from `ind
 
 ## What the backend draws on
 
-From `effect` come the schema that decodes the corpus and derives its JSON Schema, the array and option combinators, `Match` for dispatching on a path, and the service and layer machinery. From `effect/unstable/http` come the request the handler reads, the responses it returns, and the server that runs them. `@effect/platform-bun` supplies the Bun HTTP server and the runtime edge. Node's `path` and `url` locate the built assets and the woven data beside this file. `@athrio/loom-lang` supplies the woven-corpus schema — the one the frontend decodes against too.
+From `effect` come the schema that decodes the corpus and derives its JSON Schema, the array and option combinators, `Match` for dispatching on a path, and the service and layer machinery. From `effect/unstable/http` come the request the handler reads, the responses it returns, and the server that runs them. `@effect/platform-bun` supplies the Bun HTTP server and the runtime edge. Node's `path` and `url` locate the built assets and the woven data. `@athrio/loom-lang` supplies the woven-corpus schema — the one the frontend decodes against too.
 
 =>
 
@@ -34,8 +34,8 @@ import {
 =>
 
 const root = dirname(fileURLToPath(import.meta.url))
-const dataFile = join(root, 'data', 'site.json')
-const distDir = join(root, '..', 'dist')
+const dataFile = join(root, '..', '..', 'data', 'site.json')
+const distDir = join(root, '..', '..', 'dist')
 
 export class SiteData extends Context.Service<SiteData>()('SiteData', {
   make: Effect.gen(function* () {
@@ -163,7 +163,7 @@ const handle = (data: Site, pathname: string) =>
 
 ## The server
 
-The application is one handler: it reads the request and the data, resolves the path, and returns the response. `HttpServer.serve` turns it into a layer that serves each request; the Bun HTTP server underneath it provides the platform and the filesystem. `Layer.launch` runs the server and keeps it alive, and `BunRuntime.runMain` is the edge the whole process starts from. The port comes from the environment, defaulting to 4321.
+The application is one handler: it reads the request and the data, resolves the path, and returns the response. `HttpServer.serve` turns it into a layer that serves each request, and `withLogAddress` prints the address it binds — a plain `http://` URL — as the server starts, so an operator sees where to reach it and over which scheme. The Bun HTTP server underneath provides the platform and the filesystem. `Layer.launch` runs the server and keeps it alive, and `BunRuntime.runMain` is the edge the whole process starts from. The port comes from the environment, defaulting to 4321.
 
 =>
 
@@ -177,6 +177,7 @@ const app = Effect.gen(function* () {
 const port = Number(process.env.PORT ?? 4321)
 
 const server = HttpServer.serve(app).pipe(
+  HttpServer.withLogAddress,
   Layer.provide(SiteData.layer),
   Layer.provide(BunHttpServer.layer({ port })),
 )

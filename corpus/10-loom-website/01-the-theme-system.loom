@@ -1,7 +1,7 @@
 ---
 Part X: Loom Website
 Chapter 1: The theme system
-Package: site/src/styles.css
+Package: site/src/client/styles.css
 Language: CSS
 ---
 

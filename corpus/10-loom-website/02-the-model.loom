@@ -1,6 +1,6 @@
 ---
 Part X, Chapter 2: The model
-Package: site/src/model.ts
+Package: site/src/client/model.ts
 Language: TypeScript
 ---
 

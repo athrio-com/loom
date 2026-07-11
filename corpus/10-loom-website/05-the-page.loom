@@ -26,6 +26,6 @@ The one rule the shell must set is height. The app is a full-height flex column 
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.ts"></script>
+    <script type="module" src="/src/client/main.ts"></script>
   </body>
 </html>

@@ -6,11 +6,13 @@ Language: JSON
 
 # Packaging the website
 
-The website is one package holding both halves — the Foldkit client and the Effect backend. Vite bundles the client from `index.html`; Bun runs the server directly. Neither imports the other, so one package carries them without tangling their build steps together.
+The website is one package holding two programs: the Foldkit client that runs in the browser, and the Effect backend that runs on Bun. Vite bundles the client from `index.html`; Bun runs the server directly. Neither imports the other, so one package carries both without entangling their builds.
 
-The one place the two halves must be told apart is the type checker. The client runs in the browser and the server runs on Bun, and each has globals the other lacks — the browser's `import.meta.hot` that Foldkit's hot-reload reads, Bun's own module and filesystem types the server reaches for. Checked in one pass, those globals collide. So the package keeps two TypeScript configurations: one for the client that excludes the server file, one for the server alone. Same package, two lenses.
+The two programs cannot share one type check. Each reaches for globals the other lacks: the browser's `import.meta.hot`, which Foldkit's hot reload reads, and Bun's module and filesystem types, which the server calls into. Vite's types and Bun's types each declare `import.meta.hot`, and the two shapes differ. Checked together, Bun's shape shadows Vite's, and the client's Foldkit code, written against Vite's, no longer compiles.
 
-This chapter writes the package manifest, the two configurations, and the Vite build.
+A directory draws the line. The client lives under `src/client`, the server under `src/server`, and each side keeps a TypeScript configuration that checks its own directory alone. A file belongs to the browser or to Bun by where it sits, not by a list the other side must remember to exclude. A new server file drops into `src/server` and stays out of the client's check by construction.
+
+This chapter writes the package manifest, the two configurations, the client's Vite types, and the Vite build.
 
 ## The manifest {Tangle}[package.json]
 
@@ -24,10 +26,10 @@ The manifest names the package and its scripts. `build` bundles the client and t
   "private": true,
   "version": "0.0.0",
   "scripts": {
-    "build": "bunx --bun vite build && bun src/prerender.ts",
-    "serve": "bun src/server.ts",
-    "prerender": "bun src/prerender.ts",
-    "dev": "bunx --bun vite build --watch & bun src/server.ts"
+    "build": "bunx --bun vite build && bun src/server/prerender.ts",
+    "serve": "bun src/server/server.ts",
+    "prerender": "bun src/server/prerender.ts",
+    "dev": "bunx --bun vite build --watch & bun src/server/server.ts"
   },
   "dependencies": {
     "@athrio/foldkit": "workspace:*",
@@ -47,7 +49,7 @@ The manifest names the package and its scripts. `build` bundles the client and t
 
 ## The client's configuration {Tangle}[tsconfig.json]
 
-The client is browser code. It targets a modern baseline, resolves modules the way the bundler does, and carries the DOM libraries the view builds against. It checks everything under `src` except the server file, which belongs to the other lens.
+The client is browser code. It targets a modern baseline, resolves modules the way the bundler does, and carries the DOM libraries the view builds against. It checks the `src/client` directory alone. An empty `types` list keeps TypeScript from loading any ambient type package on its own — Bun's among them — so the client declares the one set it needs, Vite's, in the reference file that follows.
 
 =>
 
@@ -61,15 +63,23 @@ The client is browser code. It targets a modern baseline, resolves modules the w
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "noEmit": true
+    "noEmit": true,
+    "types": []
   },
-  "include": ["src"],
-  "exclude": ["src/server.ts"]
+  "include": ["src/client"]
 }
+
+## The client's Vite types {Tangle}[src/client/vite-env.d.ts]
+
+Foldkit's runtime reads `import.meta.hot`, the hot-reload channel Vite defines. This one-line reference brings Vite's client types into the check, so `import.meta.hot` carries the shape Foldkit's code expects.
+
+=>
+
+/// <reference types="vite/client" />
 
 ## The server's configuration {Tangle}[tsconfig.server.json]
 
-The server and the pre-render both run on Bun. This configuration checks them against the Bun and Node globals they use, and the DOM types the pre-render needs to script the headless browser, but not the Vite client types the client relies on — so the browser's hot-reload types and the server's never collide.
+The server and the pre-render both run on Bun, and both live under `src/server`. This configuration checks that directory against the Bun and Node globals the two files call into, and the DOM library the pre-render needs to script the headless browser. It never references the client's Vite types, so the two shapes of `import.meta.hot` never meet.
 
 =>
 
@@ -85,7 +95,7 @@ The server and the pre-render both run on Bun. This configuration checks them ag
     "resolveJsonModule": true,
     "noEmit": true
   },
-  "include": ["src/server.ts", "src/prerender.ts"]
+  "include": ["src/server"]
 }
 
 ## The Vite build {Tangle}[vite.config.ts]

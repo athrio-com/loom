@@ -10,8 +10,8 @@ import {
 } from '@athrio/loom-lang/weave/WovenCorpus'
 
 const root = dirname(fileURLToPath(import.meta.url))
-const dataFile = join(root, 'data', 'site.json')
-const distDir = join(root, '..', 'dist')
+const dataFile = join(root, '..', '..', 'data', 'site.json')
+const distDir = join(root, '..', '..', 'dist')
 
 export class SiteData extends Context.Service<SiteData>()('SiteData', {
   make: Effect.gen(function* () {
@@ -129,6 +129,7 @@ const app = Effect.gen(function* () {
 const port = Number(process.env.PORT ?? 4321)
 
 const server = HttpServer.serve(app).pipe(
+  HttpServer.withLogAddress,
   Layer.provide(SiteData.layer),
   Layer.provide(BunHttpServer.layer({ port })),
 )

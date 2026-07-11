@@ -1,6 +1,6 @@
 ---
 Part X, Chapter 4: The landing
-Package: site/src/landing.ts
+Package: site/src/client/landing.ts
 Language: TypeScript
 ---
 

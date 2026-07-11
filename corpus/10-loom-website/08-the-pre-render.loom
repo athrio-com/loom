@@ -1,6 +1,6 @@
 ---
 Part X, Chapter 8: The pre-render
-Package: site/src/prerender.ts
+Package: site/src/server/prerender.ts
 Language: TypeScript
 ---
 
@@ -25,13 +25,13 @@ import { WovenCorpusSchema } from '@athrio/loom-lang/weave/WovenCorpus'
 
 ## Where things sit
 
-The pre-render runs beside the built client. It reads the woven corpus from `site.json`, serves the client and the corpus through the backend on a private port, and writes each captured page under `dist/prerendered`. `pathForSlug` builds a chapter's clean URL — the same one the client routes by — dropping the `NN-` ordering prefixes. `outPath` places a route's capture, the landing at the root and every chapter under its own path.
+The pre-render reads the woven corpus from `site.json`, serves the client and the corpus through the backend on a private port, and writes each captured page under `dist/prerendered`. `pathForSlug` builds a chapter's clean URL — the same one the client routes by — dropping the `NN-` ordering prefixes. `outPath` places a route's capture, the landing at the root and every chapter under its own path.
 
 =>
 
 const root = dirname(fileURLToPath(import.meta.url))
-const distDir = join(root, '..', 'dist')
-const dataFile = join(root, 'data', 'site.json')
+const distDir = join(root, '..', '..', 'dist')
+const dataFile = join(root, '..', '..', 'data', 'site.json')
 const port = 4390
 const origin = `http://localhost:${port}`
 

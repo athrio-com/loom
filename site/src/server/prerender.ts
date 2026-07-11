@@ -6,8 +6,8 @@ import { fileURLToPath } from 'node:url'
 import { WovenCorpusSchema } from '@athrio/loom-lang/weave/WovenCorpus'
 
 const root = dirname(fileURLToPath(import.meta.url))
-const distDir = join(root, '..', 'dist')
-const dataFile = join(root, 'data', 'site.json')
+const distDir = join(root, '..', '..', 'dist')
+const dataFile = join(root, '..', '..', 'data', 'site.json')
 const port = 4390
 const origin = `http://localhost:${port}`
 

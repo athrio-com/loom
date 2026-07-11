@@ -4,10 +4,10 @@
   "private": true,
   "version": "0.0.0",
   "scripts": {
-    "build": "bunx --bun vite build && bun src/prerender.ts",
-    "serve": "bun src/server.ts",
-    "prerender": "bun src/prerender.ts",
-    "dev": "bunx --bun vite build --watch & bun src/server.ts"
+    "build": "bunx --bun vite build && bun src/server/prerender.ts",
+    "serve": "bun src/server/server.ts",
+    "prerender": "bun src/server/prerender.ts",
+    "dev": "bunx --bun vite build --watch & bun src/server/server.ts"
   },
   "dependencies": {
     "@athrio/foldkit": "workspace:*",
