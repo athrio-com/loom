@@ -1,12 +1,12 @@
 ---
 Part VIII, Chapter 11: Releasing the Loom CLI
-Package: packages/loom-cli/scripts/release.ts
+Package: packages/loom/scripts/release.ts
 Language: TypeScript
 ---
 
 # Releasing the Loom CLI
 
-The `bun run release` command runs this script to release the `@athrio/loom-cli` package. The script tests first — a failure aborts before anything changes — then builds, bumps the minor version, re-tangles with the freshly built `loom` binary, and publishes.
+The `bun run release` command runs this script to release the `@athrio/loom` package. The script tests first — a failure aborts before anything changes — then builds, bumps the minor version, re-tangles with the freshly built `loom` binary, and publishes.
 
 The tangle step copies the version field from the CLI's manifest chapter into `package.json`, so editing `package.json` by hand would be overwritten on the next tangle. The version must therefore be bumped in the manifest chapter itself — this script does that.
 
@@ -65,4 +65,4 @@ const version = after.match(/"version": "([^"]+)"/)?.[1] ?? '?'
 run('bun', ['run', 'build'])
 run('bun', ['dist/main.js', 'tangle', manifest])
 run('bun', ['publish'])
-console.log(`released @athrio/loom-cli ${version}`)
+console.log(`released @athrio/loom ${version}`)

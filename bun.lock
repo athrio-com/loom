@@ -70,6 +70,21 @@
         "effect": "4.0.0-beta.93",
       },
     },
+    "packages/loom": {
+      "name": "@athrio/loom",
+      "version": "0.9.0",
+      "bin": {
+        "loom": "dist/main.js",
+      },
+      "devDependencies": {
+        "@athrio/loom-config": "workspace:*",
+        "@athrio/loom-lang": "workspace:*",
+        "@athrio/loom-lang-services": "workspace:*",
+        "@effect/platform-bun": "4.0.0-beta.93",
+        "effect": "4.0.0-beta.93",
+        "vite": "^8.0.12",
+      },
+    },
     "packages/loom-annotate": {
       "name": "@athrio/loom-annotate",
       "version": "0.0.1",
@@ -95,21 +110,6 @@
       },
       "peerDependencies": {
         "effect": "4.0.0-beta.93",
-      },
-    },
-    "packages/loom-cli": {
-      "name": "@athrio/loom-cli",
-      "version": "0.9.0",
-      "bin": {
-        "loom": "dist/main.js",
-      },
-      "devDependencies": {
-        "@athrio/loom-config": "workspace:*",
-        "@athrio/loom-lang": "workspace:*",
-        "@athrio/loom-lang-services": "workspace:*",
-        "@effect/platform-bun": "4.0.0-beta.93",
-        "effect": "4.0.0-beta.93",
-        "vite": "^8.0.12",
       },
     },
     "packages/loom-config": {
@@ -248,11 +248,11 @@
 
     "@athrio/foldkit-vite-plugin": ["@athrio/foldkit-vite-plugin@workspace:foldkit/packages/vite-plugin-foldkit"],
 
+    "@athrio/loom": ["@athrio/loom@workspace:packages/loom"],
+
     "@athrio/loom-annotate": ["@athrio/loom-annotate@workspace:packages/loom-annotate"],
 
     "@athrio/loom-ast": ["@athrio/loom-ast@workspace:packages/loom-ast"],
-
-    "@athrio/loom-cli": ["@athrio/loom-cli@workspace:packages/loom-cli"],
 
     "@athrio/loom-config": ["@athrio/loom-config@workspace:packages/loom-config"],
 

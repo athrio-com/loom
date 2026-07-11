@@ -1,6 +1,6 @@
 ---
 Part VIII, Chapter 2: Bundling the Loom CLI
-Package: packages/loom-cli/vite.config.ts
+Package: packages/loom/vite.config.ts
 Language: TypeScript
 ---
 

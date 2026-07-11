@@ -1,12 +1,12 @@
 ---
 Part VIII, Chapter 10: Packaging the Loom CLI
-Package: packages/loom-cli/
+Package: packages/loom/
 Language: JSON
 ---
 
 # Packaging the Loom CLI
 
-The `@athrio/loom-cli` package ships to npm as a single self-contained file. Vite bundles the CLI program, the language server, and Effect into `dist/main.js` and adds a Bun shebang — a line that makes the file directly executable by Bun. The published package is therefore pure JavaScript with no runtime dependencies — every library it needs is already inside the bundle.
+The `@athrio/loom` package ships to npm as a single self-contained file. Vite bundles the CLI program, the language server, and Effect into `dist/main.js` and adds a Bun shebang — a line that makes the file directly executable by Bun. The published package is therefore pure JavaScript with no runtime dependencies — every library it needs is already inside the bundle.
 
 ## The manifest {Tangle}[package.json]
 
@@ -17,7 +17,7 @@ The `build` script bundles the tangled source files committed to the repository.
 =>
 
 {
-  "name": "@athrio/loom-cli",
+  "name": "@athrio/loom",
   "version": "0.9.0",
   "description": "Tangle Loom literate sources into real source files.",
   "license": "Apache-2.0 OR MIT",
@@ -34,7 +34,7 @@ The `build` script bundles the tangled source files committed to the repository.
   "repository": {
     "type": "git",
     "url": "git+https://github.com/athrio-com/loom.git",
-    "directory": "packages/loom-cli"
+    "directory": "packages/loom"
   },
   "publishConfig": {
     "access": "public"

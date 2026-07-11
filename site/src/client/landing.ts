@@ -25,7 +25,7 @@ const example = [
   'console.log(greet("world"))',
 ].join('\n')
 
-const install = 'bun install -g @athrio/loom-cli'
+const install = 'bun install -g @athrio/loom'
 
 const heroView = (firstSlug: string): Html =>
   h.div(

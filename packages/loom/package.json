@@ -1,5 +1,5 @@
 {
-  "name": "@athrio/loom-cli",
+  "name": "@athrio/loom",
   "version": "0.9.0",
   "description": "Tangle Loom literate sources into real source files.",
   "license": "Apache-2.0 OR MIT",
@@ -16,7 +16,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/athrio-com/loom.git",
-    "directory": "packages/loom-cli"
+    "directory": "packages/loom"
   },
   "publishConfig": {
     "access": "public"

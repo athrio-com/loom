@@ -1,13 +1,13 @@
 ---
 Part VIII: Loom builds Loom
 Chapter 1: The Loom CLI
-Package: packages/loom-cli/src/main.ts
+Package: packages/loom/src/main.ts
 Language: TypeScript
 ---
 
 # The Loom CLI
 
-The `@athrio/loom-cli` package is the command-line tool for Loom: it tangles `.loom` files into source, scaffolds a workspace's configuration, and activates the language services it uses. The tool is itself written in Loom.
+The `@athrio/loom` package is the command-line tool for Loom: it tangles `.loom` files into source, scaffolds a workspace's configuration, and activates the language services it uses. The tool is itself written in Loom.
 
 ## The wordmark
 

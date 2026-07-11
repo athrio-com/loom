@@ -23,7 +23,7 @@
     "build": "bun run --filter './packages/*' --filter './site' build",
     "watch": "bun run --filter './packages/*' watch",
     "pack:vsix": "bun run --filter loom-vscode pack:vsix",
-    "loom": "bun packages/loom-cli/dist/main.js",
+    "loom": "bun packages/loom/dist/main.js",
     "test": "bun test",
     "test:watch": "bun test --watch"
   },

@@ -19,7 +19,7 @@ A demo note, living in the loom source — this is what a reader's annotation lo
 Loom's command line is an npm package. Install it globally, and you have the `loom` command:
 
 ```sh
-bun install -g @athrio/loom-cli
+bun install -g @athrio/loom
 ```
 
 That one command is the whole tool — the tangler that writes your code, and the language server your editor talks to. It asks for Bun 1.2 or newer, and nothing else.

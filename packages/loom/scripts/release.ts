@@ -29,4 +29,4 @@ const version = after.match(/"version": "([^"]+)"/)?.[1] ?? '?'
 run('bun', ['run', 'build'])
 run('bun', ['dist/main.js', 'tangle', manifest])
 run('bun', ['publish'])
-console.log(`released @athrio/loom-cli ${version}`)
+console.log(`released @athrio/loom ${version}`)
