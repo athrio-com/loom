@@ -1,0 +1,101 @@
+---
+Part XI, Chapter 5: The agent's tools
+Package: packages/loom-notes/src/mcp.ts
+Language: TypeScript
+---
+
+# The agent's tools
+
+The agent reads the notes through this: a small MCP server that hands a coding agent the notes as tools it can call. Where the overlay writes over HTTP, the agent reads and settles over the Model Context Protocol — it lists the projects and their open notes, and marks a note addressed or discards it once it has acted. The server speaks the protocol over its standard input and output, the way an agent host launches and drives it, and reaches the same SQLite store the overlay's notes land in.
+
+An MCP server exposes its work as named tools with typed arguments, which the host discovers and the model calls directly. That is the difference from the overlay's HTTP API: the API is for the browser, and these tools are for the agent.
+
+# What it draws on
+
+From `effect` come the array and schema combinators and the layer machinery. From `effect/unstable/ai` come the tool and toolkit that define what the agent can call, and the MCP server that exposes them. `@effect/platform-bun` supplies Bun's platform services — the standard streams the protocol rides and the filesystem the store opens — and the runtime edge. The note module supplies the note schema the tools answer with, and the store module the service they act through.
+
+=>
+
+import { Array, Effect, Layer, Schema as S } from 'effect'
+import { McpServer, Tool, Toolkit } from 'effect/unstable/ai'
+import { BunRuntime, BunServices } from '@effect/platform-bun'
+import { NoteSchema } from './note'
+import { NoteStore } from './note-store'
+
+# The tools
+
+Four tools make up the agent's side of the review. `list_projects` names the projects that have notes. `list_open_notes` lists a project's unaddressed notes, in the order they were made — the work to do. `resolve` marks one addressed once the agent has dealt with it, and `discard` drops one that no longer applies. The two that act take a project and a sequence; the two that read take a project or nothing. Each declares the shape of what it answers with, so the agent receives typed notes rather than loose text.
+
+=>
+
+const listProjects = Tool.make('list_projects', {
+  description: 'List the projects that have notes.',
+  success: S.Array(S.String),
+})
+
+const listOpenNotes = Tool.make('list_open_notes', {
+  description: "List a project's open, unaddressed notes, in the order they were made.",
+  parameters: S.Struct({ project: S.String }),
+  success: S.Array(NoteSchema),
+})
+
+const resolve = Tool.make('resolve', {
+  description: 'Mark a note addressed, once you have dealt with it.',
+  parameters: S.Struct({ project: S.String, seq: S.Number }),
+})
+
+const discard = Tool.make('discard', {
+  description: 'Discard a note that no longer applies.',
+  parameters: S.Struct({ project: S.String, seq: S.Number }),
+})
+
+const toolkit = Toolkit.make(listProjects, listOpenNotes, resolve, discard)
+
+# The handlers
+
+The handlers are the tools' work, each reaching the store through the one `NoteStore` the layer provides. `list_open_notes` lists a project's notes and keeps the unaddressed ones; the rest pass straight through to the store. A note that fails to decode is a corrupt store, not a tool failure, so those errors become defects rather than answers.
+
+=>
+
+const handlers = toolkit.toLayer(
+  Effect.gen(function* () {
+    const store = yield* NoteStore
+    return {
+      list_projects: () => store.projects,
+      list_open_notes: ({ project }) =>
+        store.list(project).pipe(
+          Effect.map((notes) => Array.filter(notes, (note) => !note.addressed)),
+          Effect.orDie,
+        ),
+      resolve: ({ project, seq }) => store.resolve(project, seq).pipe(Effect.orDie),
+      discard: ({ project, seq }) => store.discard(project, seq),
+    }
+  }),
+)
+
+# The server
+
+The server registers the toolkit, exposes it over standard input and output, and runs until the host closes the stream. `McpServer.toolkit` needs the handlers and the store beneath them; `layerStdio` speaks the protocol; Bun's services supply the streams it rides and the filesystem the store opens; and `BunRuntime` is the edge the whole process starts from.
+
+=>
+
+const server = McpServer.toolkit(toolkit).pipe(
+  Layer.provide(handlers),
+  Layer.provide(McpServer.layerStdio({ name: 'loom-notes', version: '0.0.1' })),
+  Layer.provide(NoteStore.layer),
+  Layer.provide(BunServices.layer),
+)
+
+BunRuntime.runMain(Layer.launch(server))
+
+# The module {Tangle}
+
+=>
+
+::[What it draws on]
+
+::[The tools]
+
+::[The handlers]
+
+::[The server]
