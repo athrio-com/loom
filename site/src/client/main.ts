@@ -25,7 +25,7 @@ import {
   pageOf,
   pathForSlug,
   routeForPath,
-  type Message,
+  Message,
 } from './model'
 import { landingView } from './landing'
 
@@ -424,6 +424,10 @@ const application = Runtime.makeApplication({
   routing: {
     onUrlChange: (url: Url.Url) => ChangedUrl({ pathname: url.pathname }),
     onUrlRequest: (request: Navigation.UrlRequest) => ClickedLink({ request }),
+  },
+  devTools: {
+    show: 'Development',
+    Message,
   },
   container: document.getElementById('root')!,
 })

@@ -7,7 +7,7 @@
     "build": "bunx --bun vite build && bun src/server/prerender.ts",
     "serve": "bun src/server/server.ts",
     "prerender": "bun src/server/prerender.ts",
-    "dev": "bunx --bun vite build --watch & bun src/server/server.ts"
+    "dev": "bunx --bun vite & bun src/server/server.ts"
   },
   "dependencies": {
     "@athrio/foldkit": "workspace:*",
@@ -17,7 +17,7 @@
     "shiki": "^4.3.1"
   },
   "devDependencies": {
-    "@athrio/loom-annotate": "workspace:*",
+    "@athrio/foldkit-vite-plugin": "workspace:*",
     "@types/node": "^26.1.0",
     "playwright-core": "^1.49.0",
     "typescript": "^6.0.3",

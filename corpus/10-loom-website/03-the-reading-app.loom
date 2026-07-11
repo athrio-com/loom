@@ -43,7 +43,7 @@ import {
   pageOf,
   pathForSlug,
   routeForPath,
-  type Message,
+  Message,
 } from './model'
 import { landingView } from './landing'
 
@@ -496,7 +496,7 @@ const view = (model: Model): Document =>
 
 ## The application
 
-`makeApplication` wires the model, the flags, `init`, `update`, `view`, and the routing that turns address changes and link clicks into messages. `run` mounts it into the `root` element, hydrating the pre-rendered HTML that is already there.
+`makeApplication` wires the model, the flags, `init`, `update`, `view`, and the routing that turns address changes and link clicks into messages. In development it also turns on the Foldkit DevTools bridge. The runtime records every message and serves that history over a WebSocket, so an agent can inspect the running app. The message schema lets that agent dispatch a message back into the app. `run` mounts it into the `root` element, hydrating the pre-rendered HTML that is already there.
 
 =>
 
@@ -510,6 +510,10 @@ const application = Runtime.makeApplication({
   routing: {
     onUrlChange: (url: Url.Url) => ChangedUrl({ pathname: url.pathname }),
     onUrlRequest: (request: Navigation.UrlRequest) => ClickedLink({ request }),
+  },
+  devTools: {
+    show: 'Development',
+    Message,
   },
   container: document.getElementById('root')!,
 })

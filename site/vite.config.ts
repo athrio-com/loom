@@ -1,8 +1,13 @@
 import { defineConfig } from 'vite'
-import { loomAnnotate } from '@athrio/loom-annotate'
+import { foldkit } from '@athrio/foldkit-vite-plugin'
 
 export default defineConfig({
   esbuild: { target: 'es2022' },
   build: { target: 'es2022' },
-  plugins: [loomAnnotate()],
+  plugins: [foldkit({ devToolsMcpPort: 9988 })],
+  server: {
+    proxy: {
+      '/data': 'http://localhost:4321',
+    },
+  },
 })
