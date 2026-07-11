@@ -507,6 +507,18 @@ export const getOrElse: {
     Option.getOrElse(getData(self), onEmpty),
 )
 
+/** Collapses a possibly-missing cache entry to an AsyncData: `Some(entry)`
+ *  is the entry, `None` is `Idle`. The keyed-cache read idiom, where a key
+ *  that was never fetched is simply absent and absence means nothing was
+ *  requested yet:
+ *
+ *  ```ts
+ *  const notes = AsyncData.fromOptionOrIdle(HashMap.get(model.notesByNotebook, notebookId))
+ *  ``` */
+export const fromOptionOrIdle = <A, E>(
+  maybeEntry: Option.Option<AsyncData<A, E>>,
+): AsyncData<A, E> => Option.getOrElse(maybeEntry, () => Idle())
+
 /** Returns `true` only for the `Idle` state. Refinement. */
 export const isIdle = <A, E>(self: AsyncData<A, E>): self is Idle =>
   self._tag === 'Idle'
@@ -620,6 +632,20 @@ export const revalidate = <A, E>(
 ): Option.Option<AsyncData<A, E>> =>
   M.value(self).pipe(
     M.tag('Success', 'Stale', ({ data }) => Refreshing({ data })),
+    M.option,
+  )
+
+/** The first-visit load transition: the cold no-data states (`Idle`,
+ *  `Failure`) start a fresh `Loading`; every other state yields `None`, so
+ *  loaded data is kept without revalidation and a request in flight is not
+ *  restarted. The load-only sibling of `revalidateOrLoad` and `revalidate`,
+ *  and the state-machine form of TanStack Query's `staleTime: Infinity`:
+ *  fetch on first visit, keep the cache afterwards. */
+export const loadIfMissing = <A, E>(
+  self: AsyncData<A, E>,
+): Option.Option<AsyncData<A, E>> =>
+  M.value(self).pipe(
+    M.tag('Idle', 'Failure', () => Loading()),
     M.option,
   )
 

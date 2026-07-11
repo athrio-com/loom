@@ -69,6 +69,10 @@ import {
   RequestModelMessage,
   RestoreModelMessage,
 } from './hmrProtocol.js'
+import {
+  preserveScrollPosition,
+  restorePreservedScrollPosition,
+} from './hmrScroll.js'
 import type {
   ManagedResourceConfig,
   ManagedResources,
@@ -631,6 +635,22 @@ type RuntimeConfig<
    */
   freezeModel?: boolean
   /**
+   * Restores the window scroll position across Vite HMR reloads. Every edit
+   * triggers a full page reload, which resets scroll to the top; this captures
+   * `window.scrollX`/`scrollY` just before the reload and reapplies it once the
+   * restored view has rendered, so editing a page you've scrolled deep into
+   * doesn't bounce you back to the top on every save.
+   *
+   * Defaults to `true`. Activates only when Vite HMR is available and the
+   * runtime owns the document, so production builds and embedded `makeElement`
+   * apps (which do not own the page's scroll) pay nothing. Pass `false` to
+   * disable, for an app that drives its own scroll restoration.
+   *
+   * Scope: only the window scroll offset is preserved. Scroll positions of
+   * nested `overflow` containers are not.
+   */
+  preserveScroll?: boolean
+  /**
    * An Effect Layer providing services shared by every Command and
    * Subscription. The runtime builds the Layer once, the first time it is
    * needed: at startup in an app that declares Subscriptions (their
@@ -638,20 +658,23 @@ type RuntimeConfig<
    * Command runs. The built services are reused for the application's
    * lifetime and released at runtime teardown.
    *
-   * Put a service here when construction is expensive relative to how often
-   * Commands need it (an RPC client rebuilt on every invocation, for
-   * example), or when every Command must see the same instance (an
-   * AudioContext, an RTCPeerConnection). A Layer that fails to build crashes
-   * the app with the crash view: the runtime provides this Layer to every
-   * Command, so a service that cannot be constructed leaves no Command safe
-   * to run.
+   * Put a service here when it is a genuine app-wide singleton: when
+   * construction is expensive relative to how often Commands need it (an
+   * RPC client rebuilt on every invocation), or when every Command must
+   * share one instance (an AudioContext whose oscillators feed one audio
+   * graph, an RTCPeerConnection). A Layer that fails to build crashes the
+   * app with the crash view: the runtime provides this Layer to every
+   * Command, so a service that cannot be constructed leaves no Command
+   * safe to run.
    *
-   * Provide a service inside the Command's Effect instead when construction
-   * is cheap (`FetchHttpClient.layer`), when different Commands need
-   * different implementations of the same tag (`KeyValueStore` over
-   * localStorage in one Command and sessionStorage in another), or when a
-   * service that can fail to construct should only take down the Commands
-   * that use it.
+   * Provide a service inside the Command's Effect instead when
+   * construction is cheap and stateless (an HTTP client via `foldkit/http`
+   * is a thin `fetch` wrapper), when different Commands want different
+   * implementations of the same tag (`KeyValueStore` over localStorage in
+   * one Command and sessionStorage in another), or when a service that can
+   * fail to construct should only take down the Commands that use it. An
+   * HTTP client can graduate here once many Commands share one configured
+   * client, but it starts per-Command.
    */
   resources?: Layer.Layer<Resources>
   /**
@@ -691,6 +714,7 @@ type BaseApplicationConfig<
   crash?: CrashConfig<Model, Message>
   slow?: SlowConfig<Model, Message>
   freezeModel?: boolean
+  preserveScroll?: boolean
   resources?: Layer.Layer<Resources>
   managedResources?: ManagedResources<Model, Message, ManagedResourceServices>
   devTools?: DevToolsConfig
@@ -1249,6 +1273,7 @@ const makeRuntime = <
   crash,
   slow,
   freezeModel,
+  preserveScroll,
   resources,
   managedResources,
   devTools,
@@ -1281,6 +1306,9 @@ const makeRuntime = <
   )
 
   const isFreezeModelActive = freezeModel !== false && !!import.meta.hot
+
+  const isPreserveScrollActive =
+    preserveScroll !== false && manageDocument && !!import.meta.hot
 
   const duplicateIdScanner = import.meta.hot
     ? createDuplicateIdScanner()
@@ -1582,6 +1610,18 @@ const makeRuntime = <
               Effect.sync(() => hot.off('vite:beforeFullReload', handler)),
           )
           yield* Effect.addFinalizer(() => preserveScheduler.cancel)
+        }
+
+        if (hot && isPreserveScrollActive) {
+          yield* Effect.acquireRelease(
+            Effect.sync(() => {
+              const handler = (): void => preserveScrollPosition(runtimeId)
+              hot.on('vite:beforeFullReload', handler)
+              return handler
+            }),
+            handler =>
+              Effect.sync(() => hot.off('vite:beforeFullReload', handler)),
+          )
         }
 
         const schedulePreserveModel = (model: Model): Effect.Effect<void> =>
@@ -2123,6 +2163,10 @@ const makeRuntime = <
           // runtime scope and tear down the crash view; the scope must stay
           // open until the runtime is interrupted (dispose, or page unload).
           return yield* Effect.never
+        }
+
+        if (isPreserveScrollActive) {
+          yield* restorePreservedScrollPosition(runtimeId)
         }
 
         const initMountEvents = drainMountEvents()
@@ -2761,6 +2805,9 @@ export function makeApplication<
     ...(Predicate.isNotUndefined(config.freezeModel) && {
       freezeModel: config.freezeModel,
     }),
+    ...(Predicate.isNotUndefined(config.preserveScroll) && {
+      preserveScroll: config.preserveScroll,
+    }),
     ...(config.resources && { resources: config.resources }),
     ...(config.managedResources && {
       managedResources: config.managedResources,
@@ -2866,13 +2913,13 @@ export function makeApplication<
 }
 
 const toCrashConfig = <Model, Message>(
-  nullableCrash: ElementCrashConfig<Model, Message> | undefined,
+  crash: ElementCrashConfig<Model, Message> | undefined,
 ): CrashConfig<Model, Message> | undefined => {
-  if (Predicate.isUndefined(nullableCrash)) {
+  if (Predicate.isUndefined(crash)) {
     return undefined
   }
 
-  const elementCrashView = nullableCrash.view
+  const elementCrashView = crash.view
 
   return {
     ...(Predicate.isNotUndefined(elementCrashView) && {
@@ -2881,8 +2928,8 @@ const toCrashConfig = <Model, Message>(
         body: elementCrashView(context),
       }),
     }),
-    ...(Predicate.isNotUndefined(nullableCrash.report) && {
-      report: nullableCrash.report,
+    ...(Predicate.isNotUndefined(crash.report) && {
+      report: crash.report,
     }),
   }
 }
@@ -2964,7 +3011,7 @@ export function makeElement<
     body: elementView(model),
   })
 
-  const nullableCrash = toCrashConfig(config.crash)
+  const crash = toCrashConfig(config.crash)
 
   const baseConfig = {
     Model: config.Model,
@@ -2974,7 +3021,7 @@ export function makeElement<
     ports: config.ports,
     ...(config.subscriptions && { subscriptions: config.subscriptions }),
     container,
-    ...(Predicate.isNotUndefined(nullableCrash) && { crash: nullableCrash }),
+    ...(Predicate.isNotUndefined(crash) && { crash }),
     ...(Predicate.isNotUndefined(config.slow) && {
       slow: config.slow,
     }),
@@ -3194,13 +3241,12 @@ const buildPortHandles = <P extends Ports | undefined>(
 export const embed = <P extends Ports | undefined = undefined>(
   program: MakeRuntimeReturn<P>,
 ): EmbedHandle<P> => {
-  const nullableInternals = runtimeInternals.get(program)
-  if (Predicate.isUndefined(nullableInternals)) {
+  const internals = runtimeInternals.get(program)
+  if (Predicate.isUndefined(internals)) {
     throw new Error(
       '[foldkit] embed expects a program created by makeApplication or makeElement.',
     )
   }
-  const internals = nullableInternals
 
   if (internals.isEmbedActive) {
     throw new Error(

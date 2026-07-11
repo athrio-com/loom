@@ -4,8 +4,8 @@
   "type": "module",
   "forkedFrom": {
     "name": "foldkit",
-    "version": "0.122.1",
-    "commit": "9717a2ac9bbe352ea8b612affcbc70d77436eed9",
+    "version": "0.127.0",
+    "commit": "a81f7d6c42215d9d6c733e3dbfdd596e0394dcf0",
     "repository": "https://github.com/foldkit/foldkit"
   },
   "scripts": {
@@ -13,10 +13,33 @@
   },
   "exports": {
     ".": "./src/index.ts",
-    "./runtime": "./src/runtime/public.ts",
-    "./html": "./src/html/public.ts",
+    "./asyncData": "./src/asyncData/public.ts",
+    "./calendar": "./src/calendar/public.ts",
+    "./canvas": "./src/canvas/public.ts",
     "./command": "./src/command/public.ts",
-    "./message": "./src/message/public.ts"
+    "./customElement": "./src/customElement/public.ts",
+    "./dom": "./src/dom/public.ts",
+    "./html": "./src/html/public.ts",
+    "./http": "./src/http/public.ts",
+    "./managedResource": "./src/managedResource/public.ts",
+    "./message": "./src/message/public.ts",
+    "./mount": "./src/mount/public.ts",
+    "./navigation": "./src/navigation/public.ts",
+    "./port": "./src/port/public.ts",
+    "./render": "./src/render/public.ts",
+    "./route": "./src/route/public.ts",
+    "./runtime": "./src/runtime/public.ts",
+    "./hmr-protocol": "./src/runtime/hmrProtocolPublic.ts",
+    "./fieldValidation": "./src/fieldValidation/public.ts",
+    "./file": "./src/file/public.ts",
+    "./schema": "./src/schema/public.ts",
+    "./struct": "./src/struct/public.ts",
+    "./submodel": "./src/submodel/public.ts",
+    "./subscription": "./src/subscription/public.ts",
+    "./update": "./src/update/public.ts",
+    "./url": "./src/url/public.ts",
+    "./devtools-protocol": "./src/devTools/public.ts",
+    "./devtools-host": "./src/devTools/host.ts"
   },
   "dependencies": {
     "@effect/platform-browser": "4.0.0-beta.93",
