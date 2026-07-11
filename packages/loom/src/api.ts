@@ -8,8 +8,8 @@ import {
 import { BunHttpServer } from '@effect/platform-bun'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { DraftSchema } from './note'
-import { NoteStore } from './note-store'
+import { DraftSchema } from '@athrio/loom-notes/note'
+import { NoteStore } from './store'
 
 const SeqBody = Schema.Struct({ project: Schema.String, seq: Schema.Number })
 const EditBody = Schema.Struct({ project: Schema.String, seq: Schema.Number, text: Schema.String })

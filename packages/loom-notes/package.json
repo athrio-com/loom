@@ -8,8 +8,6 @@
   },
   "exports": {
     "./note": "./src/note.ts",
-    "./store": "./src/note-store.ts",
-    "./server": "./src/note-server.ts",
     "./overlay": "./src/overlay.ts"
   },
   "dependencies": {

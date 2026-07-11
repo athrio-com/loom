@@ -1,6 +1,6 @@
 ---
 Part XI, Chapter 2: The store
-Package: packages/loom-notes/src/note-store.ts
+Package: packages/loom/src/store.ts
 Language: TypeScript
 ---
 
@@ -53,7 +53,7 @@ const createTable = `CREATE TABLE IF NOT EXISTS notes (
 =>
 
 import { Schema } from 'effect'
-import { NoteSchema, type Note } from './note'
+import { NoteSchema, type Note } from '@athrio/loom-notes/note'
 
 const decodeNote = (data: string): Effect.Effect<Note, unknown> =>
   Effect.try(() => JSON.parse(data) as unknown).pipe(
@@ -78,7 +78,7 @@ const readNotes = (
 =>
 
 import { Clock } from 'effect'
-import { stampDraft, type Draft } from './note'
+import { stampDraft, type Draft } from '@athrio/loom-notes/note'
 
 const recordDraft = (
   database: Database,

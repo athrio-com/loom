@@ -1,6 +1,6 @@
 ---
 Part XI, Chapter 5: The agent's tools
-Package: packages/loom-notes/src/mcp.ts
+Package: packages/loom/src/mcp.ts
 Language: TypeScript
 ---
 
@@ -19,8 +19,8 @@ From `effect` come the array and schema combinators and the layer machinery. Fro
 import { Array, Effect, Layer, Schema as S } from 'effect'
 import { McpServer, Tool, Toolkit } from 'effect/unstable/ai'
 import { BunRuntime, BunServices } from '@effect/platform-bun'
-import { NoteSchema } from './note'
-import { NoteStore } from './note-store'
+import { NoteSchema } from '@athrio/loom-notes/note'
+import { NoteStore } from './store'
 
 # The tools
 

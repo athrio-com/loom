@@ -1,8 +1,8 @@
 import { Array, Effect, Layer, Schema as S } from 'effect'
 import { McpServer, Tool, Toolkit } from 'effect/unstable/ai'
 import { BunRuntime, BunServices } from '@effect/platform-bun'
-import { NoteSchema } from './note'
-import { NoteStore } from './note-store'
+import { NoteSchema } from '@athrio/loom-notes/note'
+import { NoteStore } from './store'
 
 const listProjects = Tool.make('list_projects', {
   description: 'List the projects that have notes.',

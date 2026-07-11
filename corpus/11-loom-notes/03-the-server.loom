@@ -1,6 +1,6 @@
 ---
 Part XI, Chapter 3: The server
-Package: packages/loom-notes/src/note-server.ts
+Package: packages/loom/src/api.ts
 Language: TypeScript
 ---
 
@@ -26,8 +26,8 @@ import {
 import { BunHttpServer } from '@effect/platform-bun'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { DraftSchema } from './note'
-import { NoteStore } from './note-store'
+import { DraftSchema } from '@athrio/loom-notes/note'
+import { NoteStore } from './store'
 
 # What a request carries
 

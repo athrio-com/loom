@@ -6,13 +6,13 @@ Language: TypeScript
 
 # Packaging
 
-Loom Notes is one package with two halves that never meet at runtime: the store and the server run on Bun, and the overlay runs in a browser. The Bun halves are read straight from source; the overlay is bundled, because a browser cannot chase down Foldkit and Effect on its own, and because its Tailwind stylesheet has to travel with it into the shadow root.
+Loom Notes is the note schemas and the browser overlay. The schemas fix the shape a note takes — the contract the overlay speaks when it writes a note, and the server speaks when it stores one. The overlay is the panel a person annotates through. It is bundled, because a browser cannot chase down Foldkit and Effect on its own, and its Tailwind stylesheet has to travel with it into the shadow root. The store, the server, and the agent's tools live in `@athrio/loom`, the package that serves them.
 
 This chapter is the manifest, the type configuration, the overlay's Tailwind input, and the build that turns the overlay into one self-contained script.
 
 ## The manifest {Tangle}[package.json]
 
-The manifest names the package, its build, and what it exports. Each Bun-side module is exported from source; the overlay is exported too, for an app on our own stack that would rather import it than load the built script. The overlay leans on Foldkit, Effect, and `clsx`; the store and server on Effect and Bun; and the build alone on the Tailwind command line.
+The manifest names the package, its build, and what it exports. It exports two modules from source: the note schemas and the overlay. The overlay leans on Foldkit, Effect, and `clsx`, and the build on the Tailwind command line.
 
 =>
 
@@ -26,8 +26,6 @@ The manifest names the package, its build, and what it exports. Each Bun-side mo
   },
   "exports": {
     "./note": "./src/note.ts",
-    "./store": "./src/note-store.ts",
-    "./server": "./src/note-server.ts",
     "./overlay": "./src/overlay.ts"
   },
   "dependencies": {

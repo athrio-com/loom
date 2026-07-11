@@ -23,7 +23,7 @@ const createTable = `CREATE TABLE IF NOT EXISTS notes (
 )`
 
 import { Schema } from 'effect'
-import { NoteSchema, type Note } from './note'
+import { NoteSchema, type Note } from '@athrio/loom-notes/note'
 
 const decodeNote = (data: string): Effect.Effect<Note, unknown> =>
   Effect.try(() => JSON.parse(data) as unknown).pipe(
@@ -42,7 +42,7 @@ const readNotes = (
   ).pipe(Effect.flatMap((rows) => Effect.forEach(rows, (row) => decodeNote(row.data))))
 
 import { Clock } from 'effect'
-import { stampDraft, type Draft } from './note'
+import { stampDraft, type Draft } from '@athrio/loom-notes/note'
 
 const recordDraft = (
   database: Database,
