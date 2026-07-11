@@ -346,7 +346,7 @@ const noteRow = (note: Note, editing: number | undefined, editText: string): Htm
 const highlight = (rect: Rect): Html =>
   h.div(
     [
-      h.Class('pointer-events-none fixed border-2 border-emerald-400 bg-emerald-400/10'),
+      h.Class('pointer-events-none fixed rounded border-2 border-emerald-400 bg-emerald-400/10'),
       h.Style({ left: `${rect.x}px`, top: `${rect.y}px`, width: `${rect.width}px`, height: `${rect.height}px` }),
     ],
     [],
@@ -358,14 +358,21 @@ const composer = (model: Model, action: Html, label: string): Html =>
     [
       h.textarea(
         [
-          h.Class('w-full resize-none rounded border border-white/10 bg-slate-950 p-2 text-slate-200'),
+          h.Class(
+            'h-16 w-full resize-none rounded-md border border-white/10 bg-slate-950 p-2 text-slate-100 focus:border-emerald-400 focus:outline-none',
+          ),
           h.Value(model.draft),
           h.OnInput((value: string) => DraftChanged({ value })),
         ],
         [],
       ),
       h.button(
-        [h.Class('mt-2 w-full rounded bg-emerald-400 py-2 text-slate-900 disabled:opacity-40'), h.OnClick(Sent())],
+        [
+          h.Class(
+            'mt-2 w-full rounded-md bg-emerald-400 py-1.5 font-medium text-slate-900 transition hover:bg-emerald-300',
+          ),
+          h.OnClick(Sent()),
+        ],
         [label],
       ),
       action,
@@ -375,39 +382,71 @@ const composer = (model: Model, action: Html, label: string): Html =>
 const pickButton = (model: Model): Html =>
   h.button(
     [
-      h.Class(clsx('mt-2 w-full rounded border border-white/10 py-2 text-slate-300', model.picking && 'border-emerald-400 text-emerald-400')),
+      h.Class(
+        clsx(
+          'mt-2 w-full rounded-md border py-1.5 transition',
+          model.picking
+            ? 'border-emerald-400 text-emerald-400'
+            : 'border-white/10 text-slate-400 hover:border-white/20 hover:text-slate-200',
+        ),
+      ),
       h.OnClick(ToggledPick()),
     ],
     ['◎ Pick an element'],
+  )
+
+const emptyState = (): Html =>
+  h.div(
+    [h.Class('px-3 py-12 text-center text-xs leading-relaxed text-slate-500')],
+    ['No notes yet — write one below, or pick an element on the page.'],
+  )
+
+const noteList = (model: Model): Html =>
+  h.div(
+    [h.Class('flex-1 overflow-auto px-3')],
+    model.notes.length === 0
+      ? [emptyState()]
+      : Array.map(model.notes, (note) => noteRow(note, model.editing, model.editText)),
+  )
+
+const header = (): Html =>
+  h.div(
+    [h.Class('flex items-center justify-between border-b border-white/10 px-3 py-2.5 text-slate-300')],
+    [
+      h.div(
+        [h.Class('flex items-center gap-2')],
+        [h.span([h.Class('h-2 w-2 rounded-full bg-emerald-400')], []), h.span([], ['Loom Notes'])],
+      ),
+      h.button(
+        [
+          h.Class('rounded px-1.5 text-slate-500 transition hover:bg-white/10 hover:text-slate-200'),
+          h.OnClick(Toggled()),
+        ],
+        ['×'],
+      ),
+    ],
   )
 
 const panel = (model: Model): Html =>
   h.div(
     [
       h.Class(
-        'pointer-events-auto fixed right-0 top-0 flex h-screen w-80 flex-col border-l border-white/10 bg-slate-900 font-mono text-sm text-slate-200',
+        'pointer-events-auto fixed right-0 top-0 flex h-screen w-[360px] flex-col border-l border-white/10 bg-slate-900/95 font-mono text-sm text-slate-200 shadow-2xl backdrop-blur',
       ),
     ],
-    [
-      h.div([h.Class('border-b border-white/10 px-3 py-2 text-slate-400')], ['Loom · Notes']),
-      h.div(
-        [h.Class('flex-1 overflow-auto px-3 py-2')],
-        Array.map(model.notes, (note) => noteRow(note, model.editing, model.editText)),
-      ),
-      composer(model, pickButton(model), 'Send'),
-    ],
+    [header(), noteList(model), composer(model, pickButton(model), 'Send')],
   )
 
 const popover = (model: Model, pending: Pending): Html =>
   h.div(
     [
       h.Class(
-        'pointer-events-auto fixed bottom-6 left-1/2 w-96 max-w-[86vw] -translate-x-1/2 rounded-lg border border-emerald-400 bg-slate-900 p-3 font-mono text-sm text-slate-200 shadow-xl',
+        'pointer-events-auto fixed bottom-6 left-1/2 w-96 max-w-[86vw] -translate-x-1/2 rounded-xl border border-emerald-400/60 bg-slate-900/95 p-3 font-mono text-sm text-slate-200 shadow-2xl backdrop-blur',
       ),
     ],
     [
       h.div([h.Class('mb-2 truncate text-xs text-emerald-400')], [`◎ ${pending.label}`]),
-      composer(model, h.div([], []), 'Add'),
+      composer(model, h.div([], []), 'Add note'),
     ],
   )
 
@@ -415,7 +454,7 @@ const launcher = (): Html =>
   h.button(
     [
       h.Class(
-        'pointer-events-auto fixed bottom-4 right-4 rounded-md bg-emerald-400 px-3 py-2 font-mono text-sm text-slate-900 shadow-lg',
+        'pointer-events-auto fixed bottom-4 right-4 flex items-center gap-1.5 rounded-full bg-emerald-400 px-4 py-2 font-mono text-sm font-medium text-slate-900 shadow-lg transition hover:bg-emerald-300',
       ),
       h.OnClick(Toggled()),
     ],
@@ -424,7 +463,7 @@ const launcher = (): Html =>
 
 const view = (model: Model): Html =>
   h.div(
-    [h.Class('pointer-events-none fixed inset-0')],
+    [h.Class('pointer-events-none fixed inset-0 font-mono')],
     [
       launcher(),
       ...(model.open && model.pending === undefined ? [panel(model)] : []),
