@@ -1,0 +1,26 @@
+{
+  "name": "@athrio/foldkit-vite-plugin",
+  "version": "0.0.1",
+  "type": "module",
+  "forkedFrom": {
+    "name": "@foldkit/vite-plugin",
+    "version": "0.10.0",
+    "commit": "a81f7d6c42215d9d6c733e3dbfdd596e0394dcf0",
+    "repository": "https://github.com/foldkit/foldkit",
+    "directory": "packages/vite-plugin-foldkit"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@athrio/foldkit": "workspace:*",
+    "effect": "4.0.0-beta.93",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "@types/ws": "^8.18.1",
+    "typescript": "^6.0.3",
+    "vite": "^8.1.3"
+  }
+}
