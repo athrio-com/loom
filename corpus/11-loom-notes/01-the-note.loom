@@ -1,0 +1,157 @@
+---
+Part XI: Loom Notes
+Chapter 1: The note
+Package: packages/loom-notes/src/note.ts
+Language: TypeScript
+---
+
+# The note
+
+Loom Notes lets you review a running app by pointing at it: you leave a note on an element you click, or type one as a message, and a coding agent reads them all and works through them. It runs on your machine, against any app, and writes nothing into your project.
+
+A note comes in three kinds: DOM annotations, Loom annotations, and chat notes. A DOM annotation points at an element by how to find it again in the page. A Loom annotation points instead at the Loom source the element was woven from, so it leads back to the loom's prose and code. A chat note stands alone, the way a message sent into a chat does. All three carry the page they were noted on and the words you wrote; each kind adds only what it needs to point where it points.
+
+This chapter is the note the rest of the tool passes around — its three kinds, and the draft the overlay sends before the store stamps it into a note kept for good.
+
+# What every note carries
+
+Every note, whichever kind, records the project it came from, the page it was made on, and the words you wrote. The project is a slug, set once when Loom Notes is switched on for an app, so a single store keeps the notes of many apps apart by where they came from. The page is the route — the address within the app's own navigation.
+
+=>
+
+import { Schema } from 'effect'
+
+const noteFields = {
+  project: Schema.String,
+  route: Schema.String,
+  text: Schema.String,
+}
+
+# Pointing at an element
+
+Two of the three kinds pin to an element, and both need the same two things to show it again: a label that names the element the way you would in conversation — its tag and a little of its text — and the rectangle it filled on screen when you pointed at it, so the overlay can draw a box back around it.
+
+=>
+
+export const RectSchema = Schema.Struct({
+  x: Schema.Number,
+  y: Schema.Number,
+  width: Schema.Number,
+  height: Schema.Number,
+})
+export type Rect = typeof RectSchema.Type
+
+const elementFields = {
+  ...noteFields,
+  label: Schema.String,
+  rect: RectSchema,
+}
+
+# A DOM annotation
+
+A DOM annotation is the kind that works on any app. It finds its element again by a CSS selector — a best-effort path down the page — so it asks nothing of the app but the running page itself.
+
+=>
+
+const domFields = {
+  kind: Schema.tag('dom'),
+  ...elementFields,
+  selector: Schema.String,
+}
+
+# A Loom annotation
+
+A Loom annotation is the kind that knows the app was woven from Loom. When Loom renders a page it marks each element with the source it came from, in two data attributes: `data-loom-chapter` for the chapter, and `data-loom-section` for the section within it. The overlay reads that pair off the element you point at and keeps it as the note's source.
+
+A selector points at a place in the page that the next edit may move; a source points at the chapter and section in the loom, which the edit is *for*. So a Loom annotation outlives a redesign that would strand a DOM annotation, and it hands the agent the exact prose and code to change.
+
+=>
+
+export const LoomSourceSchema = Schema.Struct({
+  chapter: Schema.String,
+  section: Schema.String,
+})
+export type LoomSource = typeof LoomSourceSchema.Type
+
+const loomFields = {
+  kind: Schema.tag('loom'),
+  ...elementFields,
+  source: LoomSourceSchema,
+}
+
+# A chat note
+
+A chat note carries no element at all — only the page and the words. It is the aside you make without pointing: a thought about the screen as a whole, or a message to the agent that has no one place to sit.
+
+=>
+
+const chatFields = {
+  kind: Schema.tag('chat'),
+  ...noteFields,
+}
+
+# A draft becomes a note
+
+The overlay sends a draft: a remark with its words and, for the two element kinds, where it points. A draft says nothing about its place in the record — the store owns that. When the store takes a draft it adds a stamp: a sequence number that fixes the order, the time it arrived, and an `addressed` flag that starts false and turns true once the agent has dealt with it.
+
+So each kind has two schemas that differ only by the stamp. A draft is what the overlay posts; a note is what the store keeps. Decoding the draft at the edge and trusting every field inward leaves the sequence and the time the store's alone to assign.
+
+=>
+
+export const DomDraftSchema = Schema.Struct(domFields)
+export const LoomDraftSchema = Schema.Struct(loomFields)
+export const ChatDraftSchema = Schema.Struct(chatFields)
+export const DraftSchema = Schema.Union([DomDraftSchema, LoomDraftSchema, ChatDraftSchema])
+export type Draft = typeof DraftSchema.Type
+
+const stamp = {
+  seq: Schema.Number,
+  at: Schema.String,
+  addressed: Schema.Boolean,
+}
+
+export const DomNoteSchema = Schema.Struct({ ...domFields, ...stamp })
+export const LoomNoteSchema = Schema.Struct({ ...loomFields, ...stamp })
+export const ChatNoteSchema = Schema.Struct({ ...chatFields, ...stamp })
+export const NoteSchema = Schema.Union([DomNoteSchema, LoomNoteSchema, ChatNoteSchema])
+export type Note = typeof NoteSchema.Type
+
+# Stamping a draft
+
+`stampDraft` turns a draft into a note by adding the three fields the store owns. It matches on the draft's kind so each branch builds the note that belongs to it, and `Match.exhaustive` makes a fourth kind of note a compile error until this function handles it too.
+
+=>
+
+import { Match } from 'effect'
+
+export const stampDraft = (draft: Draft, seq: number, at: string): Note =>
+  Match.value(draft).pipe(
+    Match.when({ kind: 'dom' }, (annotation) =>
+      DomNoteSchema.make({ ...annotation, seq, at, addressed: false }),
+    ),
+    Match.when({ kind: 'loom' }, (annotation) =>
+      LoomNoteSchema.make({ ...annotation, seq, at, addressed: false }),
+    ),
+    Match.when({ kind: 'chat' }, (message) =>
+      ChatNoteSchema.make({ ...message, seq, at, addressed: false }),
+    ),
+    Match.exhaustive,
+  )
+
+# The module {Tangle}
+
+=>
+
+::[What every note carries]
+
+::[Pointing at an element]
+
+::[A DOM annotation]
+
+::[A Loom annotation]
+
+::[A chat note]
+
+::[A draft becomes a note]
+
+::[Stamping a draft]

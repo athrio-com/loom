@@ -1,0 +1,28 @@
+{
+  "name": "@athrio/loom-notes",
+  "type": "module",
+  "private": true,
+  "version": "0.0.1",
+  "scripts": {
+    "build": "bun build.ts"
+  },
+  "exports": {
+    "./note": "./src/note.ts",
+    "./store": "./src/note-store.ts",
+    "./server": "./src/note-server.ts",
+    "./overlay": "./src/overlay.ts"
+  },
+  "dependencies": {
+    "@athrio/foldkit": "workspace:*",
+    "@effect/platform-browser": "4.0.0-beta.93",
+    "@effect/platform-bun": "4.0.0-beta.93",
+    "effect": "4.0.0-beta.93",
+    "clsx": "^2.1.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.0.0",
+    "tailwindcss": "^4.0.0",
+    "@types/bun": "^1.3.14",
+    "typescript": "^6.0.3"
+  }
+}

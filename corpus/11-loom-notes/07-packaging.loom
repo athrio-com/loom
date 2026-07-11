@@ -1,0 +1,129 @@
+---
+Part XI, Chapter 7: Packaging
+Package: packages/loom-notes/
+Language: TypeScript
+---
+
+# Packaging
+
+Loom Notes is one package with two halves that never meet at runtime: the store and the server run on Bun, and the overlay runs in a browser. The Bun halves are read straight from source; the overlay is bundled, because a browser cannot chase down Foldkit and Effect on its own, and because its Tailwind stylesheet has to travel with it into the shadow root.
+
+This chapter is the manifest, the type configuration, the overlay's Tailwind input, and the build that turns the overlay into one self-contained script.
+
+## The manifest {Tangle}[package.json]
+
+The manifest names the package, its build, and what it exports. Each Bun-side module is exported from source; the overlay is exported too, for an app on our own stack that would rather import it than load the built script. The overlay leans on Foldkit, Effect, and `clsx`; the store and server on Effect and Bun; and the build alone on the Tailwind command line.
+
+=>
+
+{
+  "name": "@athrio/loom-notes",
+  "type": "module",
+  "private": true,
+  "version": "0.0.1",
+  "scripts": {
+    "build": "bun build.ts"
+  },
+  "exports": {
+    "./note": "./src/note.ts",
+    "./store": "./src/note-store.ts",
+    "./server": "./src/note-server.ts",
+    "./overlay": "./src/overlay.ts"
+  },
+  "dependencies": {
+    "@athrio/foldkit": "workspace:*",
+    "@effect/platform-browser": "4.0.0-beta.93",
+    "@effect/platform-bun": "4.0.0-beta.93",
+    "effect": "4.0.0-beta.93",
+    "clsx": "^2.1.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.0.0",
+    "tailwindcss": "^4.0.0",
+    "@types/bun": "^1.3.14",
+    "typescript": "^6.0.3"
+  }
+}
+
+## The type configuration {Tangle}[tsconfig.json]
+
+The configuration checks the Bun-side source and the build against Bun's own types. The overlay stays out of it for now: it reaches into Foldkit's browser runtime, whose hot-reload types need a browser lens of their own, and it is checked instead by the bundler and by running it. That lens arrives when the overlay is finished.
+
+=>
+
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "exactOptionalPropertyTypes": false,
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["bun"]
+  },
+  "include": ["src", "build.ts"],
+  "exclude": ["src/overlay.ts"]
+}
+
+## The overlay's stylesheet {Tangle}[src/overlay.css]
+
+The overlay's styles are Tailwind. The input pulls in the framework and points it at the overlay source, so the build compiles exactly the utilities the view uses and nothing more.
+
+=>
+
+@import "tailwindcss";
+@source "./overlay.ts";
+
+## The build {Tangle}[build.ts]
+
+The build makes the one file a page loads. It compiles the overlay's Tailwind into a stylesheet, rewrites every `:root` to `:host` so the theme variables live inside the shadow root rather than the document, bundles the overlay into a single browser script, and splices the stylesheet into the `__LOOM_NOTES_CSS__` placeholder the overlay left for it. The stylesheet is escaped first, so quotes and newlines survive inside the string literal that carries it. It runs from a Bun runtime edge, the filesystem provided by Bun's services.
+
+=>
+
+import { Effect, FileSystem } from 'effect'
+import { BunRuntime, BunServices } from '@effect/platform-bun'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const root = dirname(fileURLToPath(import.meta.url))
+const src = join(root, 'src')
+const dist = join(root, 'dist')
+
+const scopeToShadow = (css: string): string => css.replaceAll(':root', ':host')
+
+const forStringLiteral = (css: string): string =>
+  css
+    .replaceAll('\\', '\\\\')
+    .replaceAll("'", "\\'")
+    .replaceAll('"', '\\"')
+    .replaceAll('\r', '')
+    .replaceAll('\n', '\\n')
+
+const program = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
+  yield* fs.makeDirectory(dist, { recursive: true })
+
+  const stylesheet = join(dist, 'overlay.css')
+  yield* Effect.tryPromise(() =>
+    Bun.spawn(['bunx', '@tailwindcss/cli', '-i', join(src, 'overlay.css'), '-o', stylesheet, '--minify'], {
+      stdout: 'inherit',
+      stderr: 'inherit',
+    }).exited,
+  )
+  const css = scopeToShadow(yield* fs.readFileString(stylesheet))
+
+  const built = yield* Effect.tryPromise(() =>
+    Bun.build({ entrypoints: [join(src, 'overlay.ts')], target: 'browser', minify: true }),
+  )
+  const bundle = yield* Effect.promise(() => built.outputs[0].text())
+
+  yield* fs.writeFileString(
+    join(dist, 'overlay.js'),
+    bundle.replaceAll('__LOOM_NOTES_CSS__', forStringLiteral(css)),
+  )
+  yield* Effect.log('built dist/overlay.js')
+}).pipe(Effect.provide(BunServices.layer))
+
+BunRuntime.runMain(program)
