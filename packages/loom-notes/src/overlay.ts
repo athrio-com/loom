@@ -22,6 +22,8 @@ export const Model = S.Struct({
   hover: S.optional(RectSchema),
   pending: S.optional(PendingSchema),
   draft: S.String,
+  editing: S.optional(S.Number),
+  editText: S.String,
 })
 export type Model = typeof Model.Type
 
@@ -33,6 +35,12 @@ export const Escaped = m('Escaped')
 export const DraftChanged = m('DraftChanged', { value: S.String })
 export const Sent = m('Sent')
 export const GotNotes = m('GotNotes', { notes: S.Array(NoteSchema) })
+export const Resolved = m('Resolved', { seq: S.Number })
+export const Discarded = m('Discarded', { seq: S.Number })
+export const StartedEdit = m('StartedEdit', { seq: S.Number, text: S.String })
+export const EditChanged = m('EditChanged', { value: S.String })
+export const SavedEdit = m('SavedEdit')
+export const CancelledEdit = m('CancelledEdit')
 
 export const Message = S.Union([
   Toggled,
@@ -43,6 +51,12 @@ export const Message = S.Union([
   DraftChanged,
   Sent,
   GotNotes,
+  Resolved,
+  Discarded,
+  StartedEdit,
+  EditChanged,
+  SavedEdit,
+  CancelledEdit,
 ])
 export type Message = typeof Message.Type
 
@@ -56,14 +70,17 @@ const fetchFeed = (base: string, project: string) =>
     Effect.map((data) => GotNotes({ notes: S.decodeUnknownSync(S.Array(NoteSchema))(data) })),
   )
 
-const post = (base: string, body: unknown): Effect.Effect<Response> =>
+const postJson = (base: string, path: string, body: unknown): Effect.Effect<Response> =>
   Effect.promise(() =>
-    fetch(`${base}/notes/capture`, {
+    fetch(`${base}${path}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     }),
   )
+
+const settle = (base: string, project: string, path: string, body: unknown) =>
+  postJson(base, path, body).pipe(Effect.andThen(fetchFeed(base, project)))
 
 const config = (): { readonly base: string; readonly project: string } =>
   Option.match(Option.fromNullishOr(document.querySelector('script[data-loom-project]')), {
@@ -83,7 +100,7 @@ const SendChat = Command.define(
   { base: S.String, project: S.String, route: S.String, text: S.String },
   GotNotes,
 )(({ base, project, route, text }) =>
-  post(base, { kind: 'chat', project, route, text }).pipe(Effect.andThen(fetchFeed(base, project))),
+  settle(base, project, '/notes/capture', { kind: 'chat', project, route, text }),
 )
 
 const SendAnnotation = Command.define(
@@ -91,8 +108,26 @@ const SendAnnotation = Command.define(
   { base: S.String, project: S.String, route: S.String, pending: PendingSchema, text: S.String },
   GotNotes,
 )(({ base, project, route, pending, text }) =>
-  post(base, { ...pending, project, route, text }).pipe(Effect.andThen(fetchFeed(base, project))),
+  settle(base, project, '/notes/capture', { ...pending, project, route, text }),
 )
+
+const SendResolve = Command.define(
+  'SendResolve',
+  { base: S.String, project: S.String, seq: S.Number },
+  GotNotes,
+)(({ base, project, seq }) => settle(base, project, '/notes/resolve', { project, seq }))
+
+const SendDiscard = Command.define(
+  'SendDiscard',
+  { base: S.String, project: S.String, seq: S.Number },
+  GotNotes,
+)(({ base, project, seq }) => settle(base, project, '/notes/discard', { project, seq }))
+
+const SendEdit = Command.define(
+  'SendEdit',
+  { base: S.String, project: S.String, seq: S.Number, text: S.String },
+  GotNotes,
+)(({ base, project, seq, text }) => settle(base, project, '/notes/edit', { project, seq, text }))
 
 const rectOf = (el: Element): Rect => {
   const box = el.getBoundingClientRect()
@@ -198,6 +233,14 @@ const sent = (model: Model): readonly [Model, ReadonlyArray<Command.Command<Mess
         ],
       ]
 
+const saved = (model: Model): readonly [Model, ReadonlyArray<Command.Command<Message>>] =>
+  model.editing === undefined
+    ? [model, []]
+    : [
+        { ...model, editing: undefined },
+        [SendEdit({ base: model.base, project: model.project, seq: model.editing, text: model.editText })],
+      ]
+
 const update = (
   model: Model,
   message: Message,
@@ -221,6 +264,18 @@ const update = (
     Match.tag('DraftChanged', ({ value }) => [{ ...model, draft: value }, []]),
     Match.tag('Sent', () => (model.draft.trim() === '' ? [model, []] : sent(model))),
     Match.tag('GotNotes', ({ notes }) => [{ ...model, notes }, []]),
+    Match.tag('Resolved', ({ seq }) => [
+      model,
+      [SendResolve({ base: model.base, project: model.project, seq })],
+    ]),
+    Match.tag('Discarded', ({ seq }) => [
+      model,
+      [SendDiscard({ base: model.base, project: model.project, seq })],
+    ]),
+    Match.tag('StartedEdit', ({ seq, text }) => [{ ...model, editing: seq, editText: text }, []]),
+    Match.tag('EditChanged', ({ value }) => [{ ...model, editText: value }, []]),
+    Match.tag('SavedEdit', () => saved(model)),
+    Match.tag('CancelledEdit', () => [{ ...model, editing: undefined }, []]),
     Match.exhaustive,
   )
 
@@ -232,14 +287,61 @@ const glyphOf = (note: Note): string =>
     Match.exhaustive,
   )
 
-const noteRow = (note: Note): Html =>
+const control = (label: string, message: Message): Html =>
+  h.button(
+    [h.Class('rounded px-1 text-slate-500 hover:bg-white/10 hover:text-slate-200'), h.OnClick(message)],
+    [label],
+  )
+
+const controls = (note: Note): Html =>
   h.div(
-    [h.Class(clsx('flex gap-2 border-b border-white/10 py-2', note.addressed && 'opacity-40'))],
+    [h.Class('ml-auto flex shrink-0 gap-1 opacity-0 group-hover:opacity-100')],
     [
-      h.span([h.Class('text-emerald-400')], [glyphOf(note)]),
-      h.span([h.Class('min-w-0 break-words')], [note.text]),
+      control('✎', StartedEdit({ seq: note.seq, text: note.text })),
+      ...(note.addressed ? [] : [control('✓', Resolved({ seq: note.seq }))]),
+      control('🗑', Discarded({ seq: note.seq })),
     ],
   )
+
+const editRow = (editText: string): Html =>
+  h.div(
+    [h.Class('flex flex-col gap-1 border-b border-white/10 py-2')],
+    [
+      h.textarea(
+        [
+          h.Class('w-full resize-none rounded border border-white/10 bg-slate-950 p-2 text-slate-200'),
+          h.Value(editText),
+          h.OnInput((value: string) => EditChanged({ value })),
+        ],
+        [],
+      ),
+      h.div(
+        [h.Class('flex gap-1')],
+        [
+          h.button(
+            [h.Class('rounded bg-emerald-400 px-2 py-1 text-xs text-slate-900'), h.OnClick(SavedEdit())],
+            ['Save'],
+          ),
+          h.button(
+            [h.Class('rounded border border-white/10 px-2 py-1 text-xs text-slate-300'), h.OnClick(CancelledEdit())],
+            ['Cancel'],
+          ),
+        ],
+      ),
+    ],
+  )
+
+const noteRow = (note: Note, editing: number | undefined, editText: string): Html =>
+  note.seq === editing
+    ? editRow(editText)
+    : h.div(
+        [h.Class(clsx('group flex gap-2 border-b border-white/10 py-2', note.addressed && 'opacity-40'))],
+        [
+          h.span([h.Class('text-emerald-400')], [glyphOf(note)]),
+          h.span([h.Class('min-w-0 break-words')], [note.text]),
+          controls(note),
+        ],
+      )
 
 const highlight = (rect: Rect): Html =>
   h.div(
@@ -288,7 +390,10 @@ const panel = (model: Model): Html =>
     ],
     [
       h.div([h.Class('border-b border-white/10 px-3 py-2 text-slate-400')], ['Loom · Notes']),
-      h.div([h.Class('flex-1 overflow-auto px-3 py-2')], Array.map(model.notes, noteRow)),
+      h.div(
+        [h.Class('flex-1 overflow-auto px-3 py-2')],
+        Array.map(model.notes, (note) => noteRow(note, model.editing, model.editText)),
+      ),
       composer(model, pickButton(model), 'Send'),
     ],
   )
@@ -350,7 +455,7 @@ import { makeElement, run } from '@athrio/foldkit/runtime'
 const init = (): readonly [Model, ReadonlyArray<Command.Command<Message>>] => {
   const { base, project } = config()
   return [
-    { base, project, route: location.pathname, notes: [], open: false, picking: false, draft: '' },
+    { base, project, route: location.pathname, notes: [], open: false, picking: false, draft: '', editText: '' },
     [FetchNotes({ base, project })],
   ]
 }
