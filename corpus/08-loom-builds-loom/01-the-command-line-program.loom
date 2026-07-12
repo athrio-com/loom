@@ -191,9 +191,108 @@ const remove = (language: string) =>
     yield* Console.log(`\n   ${teal('✓')} removed ${language}\n`)
   })
 
+## Running the notes server
+
+The notes server runs in the background so the overlay and the agent can reach it whenever they need to. `loom start` launches it and returns at once, leaving it running after the terminal that started it has closed; `loom stop` ends it again. Between the two, the server records itself in `api.json` under the Loom data directory — the process number the operating system gave it, and the port it listens on.
+
+That record is what lets three separate runs of the CLI find one server. `start`, `stop`, and `status` are separate processes that share no memory, and the operating system assigns the server's process number only when `start` spawns it. Nothing could name that process again once `start` has exited, so `start` writes the number down and `stop` and `status` read it back. Whether the server is up is then a question the record answers: read the process number, and ask the operating system whether it is still alive.
+
+Nothing that connects to the server reads the record. The overlay takes the port from the origin of its own `<script>` tag, and the agent takes it from the URL in `.mcp.json`, both fixed by `loom init` at the default `5710`. The record belongs to the lifecycle alone — `start`, `stop`, and `status` — and to nothing that talks to the server.
+
+`readRecord` reads the record and decodes it, and answers with nothing when the file is absent or malformed. `alive` asks the operating system whether a process still exists, by sending it the null signal — no signal at all, only the check that it could be sent. `runningServer` puts the two together: the record when its process is still up, and nothing when there is no record or the process it names is gone.
+
+=>
+
+const defaultPort = 5710
+
+const loomDir = process.env.LOOM_NOTES_DIR ?? join(homedir(), '.loom')
+const recordFile = join(loomDir, 'api.json')
+
+const ServerRecord = Schema.Struct({ pid: Schema.Number, port: Schema.Number })
+
+const readRecord = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
+  return yield* fs.readFileString(recordFile).pipe(
+    Effect.flatMap((text) => Effect.try(() => JSON.parse(text) as unknown)),
+    Effect.flatMap(Schema.decodeUnknownEffect(ServerRecord)),
+    Effect.map(Option.some),
+    Effect.orElseSucceed(() => Option.none<typeof ServerRecord.Type>()),
+  )
+})
+
+const alive = (pid: number): Effect.Effect<boolean> =>
+  Effect.try(() => process.kill(pid, 0)).pipe(
+    Effect.as(true),
+    Effect.orElseSucceed(() => false),
+  )
+
+const runningServer = readRecord.pipe(
+  Effect.flatMap(
+    Option.match({
+      onNone: () => Effect.succeed(Option.none<typeof ServerRecord.Type>()),
+      onSome: (record) =>
+        alive(record.pid).pipe(
+          Effect.map((up) => (up ? Option.some(record) : Option.none())),
+        ),
+    }),
+  ),
+)
+
+## Starting and stopping the server
+
+`start` looks for a server already running and does nothing when one answers, reporting the live one rather than launching a rival on the same port. Otherwise it spawns the server detached — in a session of its own, its output discarded, so it outlives this command — then records the new process and port and prints where the server listens. `stop` reads the record, ends the process, and clears the file; asked to stop a server that is not running, it clears any stale record and says so.
+
+=>
+
+const spawnServer = (port: number): Effect.Effect<number> =>
+  Effect.sync(() => {
+    const child = Bun.spawn([process.execPath, process.argv[1], 'serve', String(port)], {
+      detached: true,
+      stdio: ['ignore', 'ignore', 'ignore'],
+    })
+    child.unref()
+    return child.pid
+  })
+
+const start = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
+  yield* Option.match(yield* runningServer, {
+    onSome: (record) =>
+      Console.log(
+        `\n   ${teal('●')} notes server already running on http://localhost:${record.port}\n`,
+      ),
+    onNone: () =>
+      Effect.gen(function* () {
+        const pid = yield* spawnServer(defaultPort)
+        yield* fs.makeDirectory(loomDir, { recursive: true })
+        yield* fs.writeFileString(recordFile, JSON.stringify({ pid, port: defaultPort }))
+        yield* Console.log(
+          `\n   ${teal('✓')} notes server on http://localhost:${defaultPort}\n` +
+            `   ${dim('stop it with `loom stop`')}\n`,
+        )
+      }),
+  })
+})
+
+const stop = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
+  yield* Option.match(yield* runningServer, {
+    onSome: (record) =>
+      Effect.try(() => process.kill(record.pid)).pipe(
+        Effect.ignore,
+        Effect.andThen(fs.remove(recordFile, { force: true })),
+        Effect.andThen(Console.log(`\n   ${teal('✓')} stopped the notes server\n`)),
+      ),
+    onNone: () =>
+      fs.remove(recordFile, { force: true }).pipe(
+        Effect.andThen(Console.log(dim('\n   The notes server is not running.\n'))),
+      ),
+  })
+})
+
 ## Reporting the workspace
 
-`loom status` shows the state of activation at a glance: where the store sits, the primary language a specifier-less section inherits, and the activated languages. Beside each activated language it marks whether the service is installed — a filled dot when the store holds it, a hollow one and the `loom add` that would fix it when the store does not.
+`loom status` shows the state of the workspace at a glance: where the store sits, the primary language a specifier-less section inherits, the activated languages, and whether the notes server is running. Beside each activated language it marks whether the service is installed — a filled dot when the store holds it, a hollow one and the `loom add` that would fix it when the store does not. The server line reads the same record `start` wrote, and shows the address the server listens on while it is up.
 
 =>
 
@@ -204,6 +303,10 @@ const status = Effect.gen(function* () {
   const primary = manifest?.primary
   const languages = Object.keys(manifest?.languages ?? {})
   const installed = new Set(yield* installedServices(dir))
+  const server = Option.match(yield* runningServer, {
+    onSome: (record) => `${teal('●')} running on http://localhost:${record.port}`,
+    onNone: () => dim('○ stopped'),
+  })
   const mark = (id: string): string =>
     installed.has(id)
       ? `   ${teal('●')} ${id}`
@@ -213,16 +316,17 @@ const status = Effect.gen(function* () {
       `   ${dim('primary')}    ${primary ?? dim('(none)')}\n` +
       `   ${dim('activated')}  ${
         languages.length === 0 ? dim('(none)') : languages.join(', ')
-      }\n`,
+      }\n` +
+      `   ${dim('server')}     ${server}\n`,
   )
   if (languages.length > 0) yield* Console.log(`${languages.map(mark).join('\n')}\n`)
 })
 
 ## Where the world ends
 
-The CLI is seven commands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them. `loom weave <path> <out>` projects a corpus into a `WovenCorpus` and writes it as JSON to `out`. `loom init [dir]` scaffolds a `.loom/config.yaml`, defaulting to the working directory. `loom add <language>` and `loom remove <language>` turn a language's service on and off. `loom status` reports what the workspace has activated and what the store holds. `loom lsp --stdio` starts the language server for any editor. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the package config, the configuration, and the Bun platform behind the prompts and the filesystem.
+The command program is eight subcommands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them. `loom weave <path> <out>` projects a corpus into a `WovenCorpus` and writes it as JSON to `out`. `loom init [dir]` scaffolds a `.loom/config.yaml`, defaulting to the working directory. `loom add <language>` and `loom remove <language>` turn a language's service on and off. `loom status` reports what the workspace has activated, what the store holds, and whether the notes server is running. `loom start` and `loom stop` launch that server and end it. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the weaver, the package config, the configuration, and the Bun platform behind the prompts, the filesystem, and the server's record.
 
-The `lsp` branch sits outside the command program. It loads the server lazily, so a plain `tangle` never pays to bundle Volar, and the server runs on its own Bun runtime rather than nesting one inside a command. Volar is CommonJS and calls `require` at runtime for the built-in modules; this bundle is an ES module, where `require` is absent, so before loading the server the branch exposes one through `createRequire` on `globalThis` — the shim Volar's bundled code reaches for. The cost lands only on the `lsp` path.
+Two entry points sit outside the command program. `loom serve [port]` runs the notes server in the foreground, on the given port or the default `5710`; `loom start` spawns it, and a person debugging can run it in a terminal of their own. `loom lsp --stdio` starts the language server for any editor. Each loads its heavy code only when it is reached — the server module, or Volar — so a plain `tangle` never pays to bundle either, and each runs on its own Bun runtime rather than nesting one inside a command. Volar is CommonJS and calls `require` at runtime for the built-in modules; this bundle is an ES module, where `require` is absent, so before loading the server the `lsp` branch exposes one through `createRequire` on `globalThis` — the shim Volar's bundled code reaches for. That cost lands only on the `lsp` path.
 
 =>
 
@@ -258,6 +362,10 @@ const removeCommand = Command.make(
 
 const statusCommand = Command.make('status', {}, () => status)
 
+const startCommand = Command.make('start', {}, () => start)
+
+const stopCommand = Command.make('stop', {}, () => stop)
+
 const loom = Command.make('loom').pipe(
   Command.withSubcommands([
     tangleCommand,
@@ -266,6 +374,8 @@ const loom = Command.make('loom').pipe(
     addCommand,
     removeCommand,
     statusCommand,
+    startCommand,
+    stopCommand,
   ]),
 )
 
@@ -285,21 +395,28 @@ if (process.argv[2] === 'lsp') {
   ;(globalThis as { require?: unknown }).require = createRequire(import.meta.url)
   const { startLanguageServer } = await import('@athrio/loom-lang/LoomServer')
   startLanguageServer()
+} else if (process.argv[2] === 'serve') {
+  const { notesServer } = await import('./api')
+  const port = Number(process.argv[3] ?? defaultPort)
+  BunRuntime.runMain(
+    Layer.launch(notesServer(port)).pipe(Effect.provide(BunServices.layer)),
+  )
 } else {
   BunRuntime.runMain(program)
 }
 
 ## What the program needs
 
-The program is built on Effect, a functional TypeScript library for composing and running effectful programs. Effect's CLI toolkit parses the command line and drives the interactive prompts, and the Bun platform supplies the runtime, the terminal, and filesystem access. The language server contributes four services: `LoomTangler`, which walks a `.loom` file and emits the tangled output; `LoomWeaver`, which projects a corpus and writes the woven data; `DocumentSource`, which feeds them source text from disk; and `PackageConfig`, which resolves a `.loom`'s package settings. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back. From `@athrio/loom-lang-services` come the store operations behind activation: `addService` and `removeService` install and uninstall a language's package, `installedServices` lists what the store holds, `storeDir` locates it, `workspaceRoot` finds the workspace it sits in, and `servicePackage` names a language's package.
+The program is built on Effect, a functional TypeScript library for composing and running effectful programs. Effect's CLI toolkit parses the command line and drives the interactive prompts, and the Bun platform supplies the runtime, the terminal, and filesystem access. The notes server's lifecycle draws on a little more of Effect: `FileSystem` writes and reads the server's record, a `Schema` decodes it, and `Layer` launches the server; Node's `os` and `path` locate the record under the home directory. The language server contributes four services: `LoomTangler`, which walks a `.loom` file and emits the tangled output; `LoomWeaver`, which projects a corpus and writes the woven data; `DocumentSource`, which feeds them source text from disk; and `PackageConfig`, which resolves a `.loom`'s package settings. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back. From `@athrio/loom-lang-services` come the store operations behind activation: `addService` and `removeService` install and uninstall a language's package, `installedServices` lists what the store holds, `storeDir` locates it, `workspaceRoot` finds the workspace it sits in, and `servicePackage` names a language's package.
 
 =>
 
-import { Console, Effect, Option } from 'effect'
+import { Console, Effect, FileSystem, Layer, Option, Schema } from 'effect'
 import { Argument, Command, Prompt } from 'effect/unstable/cli'
 import { BunRuntime, BunServices } from '@effect/platform-bun'
 import { existsSync, writeFileSync } from 'node:fs'
-import { resolve as resolvePath } from 'node:path'
+import { homedir } from 'node:os'
+import { join, resolve as resolvePath } from 'node:path'
 import { DocumentSource } from '@athrio/loom-lang/LoomCompiler'
 import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
 import { LoomWeaver } from '@athrio/loom-lang/weave/LoomWeaver'
@@ -329,6 +446,10 @@ import {
 ::[Scaffolding a workspace]
 
 ::[Activating a language]
+
+::[Running the notes server]
+
+::[Starting and stopping the server]
 
 ::[Reporting the workspace]
 

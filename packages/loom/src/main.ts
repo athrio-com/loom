@@ -1,8 +1,9 @@
-import { Console, Effect, Option } from 'effect'
+import { Console, Effect, FileSystem, Layer, Option, Schema } from 'effect'
 import { Argument, Command, Prompt } from 'effect/unstable/cli'
 import { BunRuntime, BunServices } from '@effect/platform-bun'
 import { existsSync, writeFileSync } from 'node:fs'
-import { resolve as resolvePath } from 'node:path'
+import { homedir } from 'node:os'
+import { join, resolve as resolvePath } from 'node:path'
 import { DocumentSource } from '@athrio/loom-lang/LoomCompiler'
 import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
 import { LoomWeaver } from '@athrio/loom-lang/weave/LoomWeaver'
@@ -163,6 +164,87 @@ const remove = (language: string) =>
     yield* Console.log(`\n   ${teal('✓')} removed ${language}\n`)
   })
 
+const defaultPort = 5710
+
+const loomDir = process.env.LOOM_NOTES_DIR ?? join(homedir(), '.loom')
+const recordFile = join(loomDir, 'api.json')
+
+const ServerRecord = Schema.Struct({ pid: Schema.Number, port: Schema.Number })
+
+const readRecord = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
+  return yield* fs.readFileString(recordFile).pipe(
+    Effect.flatMap((text) => Effect.try(() => JSON.parse(text) as unknown)),
+    Effect.flatMap(Schema.decodeUnknownEffect(ServerRecord)),
+    Effect.map(Option.some),
+    Effect.orElseSucceed(() => Option.none<typeof ServerRecord.Type>()),
+  )
+})
+
+const alive = (pid: number): Effect.Effect<boolean> =>
+  Effect.try(() => process.kill(pid, 0)).pipe(
+    Effect.as(true),
+    Effect.orElseSucceed(() => false),
+  )
+
+const runningServer = readRecord.pipe(
+  Effect.flatMap(
+    Option.match({
+      onNone: () => Effect.succeed(Option.none<typeof ServerRecord.Type>()),
+      onSome: (record) =>
+        alive(record.pid).pipe(
+          Effect.map((up) => (up ? Option.some(record) : Option.none())),
+        ),
+    }),
+  ),
+)
+
+const spawnServer = (port: number): Effect.Effect<number> =>
+  Effect.sync(() => {
+    const child = Bun.spawn([process.execPath, process.argv[1], 'serve', String(port)], {
+      detached: true,
+      stdio: ['ignore', 'ignore', 'ignore'],
+    })
+    child.unref()
+    return child.pid
+  })
+
+const start = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
+  yield* Option.match(yield* runningServer, {
+    onSome: (record) =>
+      Console.log(
+        `\n   ${teal('●')} notes server already running on http://localhost:${record.port}\n`,
+      ),
+    onNone: () =>
+      Effect.gen(function* () {
+        const pid = yield* spawnServer(defaultPort)
+        yield* fs.makeDirectory(loomDir, { recursive: true })
+        yield* fs.writeFileString(recordFile, JSON.stringify({ pid, port: defaultPort }))
+        yield* Console.log(
+          `\n   ${teal('✓')} notes server on http://localhost:${defaultPort}\n` +
+            `   ${dim('stop it with `loom stop`')}\n`,
+        )
+      }),
+  })
+})
+
+const stop = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
+  yield* Option.match(yield* runningServer, {
+    onSome: (record) =>
+      Effect.try(() => process.kill(record.pid)).pipe(
+        Effect.ignore,
+        Effect.andThen(fs.remove(recordFile, { force: true })),
+        Effect.andThen(Console.log(`\n   ${teal('✓')} stopped the notes server\n`)),
+      ),
+    onNone: () =>
+      fs.remove(recordFile, { force: true }).pipe(
+        Effect.andThen(Console.log(dim('\n   The notes server is not running.\n'))),
+      ),
+  })
+})
+
 const status = Effect.gen(function* () {
   const config = yield* LoomConfig
   const dir = process.cwd()
@@ -170,6 +252,10 @@ const status = Effect.gen(function* () {
   const primary = manifest?.primary
   const languages = Object.keys(manifest?.languages ?? {})
   const installed = new Set(yield* installedServices(dir))
+  const server = Option.match(yield* runningServer, {
+    onSome: (record) => `${teal('●')} running on http://localhost:${record.port}`,
+    onNone: () => dim('○ stopped'),
+  })
   const mark = (id: string): string =>
     installed.has(id)
       ? `   ${teal('●')} ${id}`
@@ -179,7 +265,8 @@ const status = Effect.gen(function* () {
       `   ${dim('primary')}    ${primary ?? dim('(none)')}\n` +
       `   ${dim('activated')}  ${
         languages.length === 0 ? dim('(none)') : languages.join(', ')
-      }\n`,
+      }\n` +
+      `   ${dim('server')}     ${server}\n`,
   )
   if (languages.length > 0) yield* Console.log(`${languages.map(mark).join('\n')}\n`)
 })
@@ -216,6 +303,10 @@ const removeCommand = Command.make(
 
 const statusCommand = Command.make('status', {}, () => status)
 
+const startCommand = Command.make('start', {}, () => start)
+
+const stopCommand = Command.make('stop', {}, () => stop)
+
 const loom = Command.make('loom').pipe(
   Command.withSubcommands([
     tangleCommand,
@@ -224,6 +315,8 @@ const loom = Command.make('loom').pipe(
     addCommand,
     removeCommand,
     statusCommand,
+    startCommand,
+    stopCommand,
   ]),
 )
 
@@ -243,6 +336,12 @@ if (process.argv[2] === 'lsp') {
   ;(globalThis as { require?: unknown }).require = createRequire(import.meta.url)
   const { startLanguageServer } = await import('@athrio/loom-lang/LoomServer')
   startLanguageServer()
+} else if (process.argv[2] === 'serve') {
+  const { notesServer } = await import('./api')
+  const port = Number(process.argv[3] ?? defaultPort)
+  BunRuntime.runMain(
+    Layer.launch(notesServer(port)).pipe(Effect.provide(BunServices.layer)),
+  )
 } else {
   BunRuntime.runMain(program)
 }
