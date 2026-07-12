@@ -25,7 +25,7 @@ import { NoteStore } from './store'
 
 Four tools make up the agent's side of the review. `projects` names the projects the store holds, each with the id that keys its notes and the name to show it by. `notes` lists one project's unaddressed notes, in the order they were made — the work to do. `resolve` marks a note addressed once the agent has dealt with it, and `discard` drops one that no longer applies. The two that act take a project and a sequence; `notes` takes a project, and `projects` takes nothing.
 
-A tool's structured answer is a JSON object, so a list has to travel inside one. `projects` answers under a `projects` field and `notes` under a `notes` field, each wrapping its array. So the agent receives typed results under a named field, never a bare array the host would reject.
+Every tool answers with an object, because a result the host renders has to carry content, and a bare array or an empty answer gives it none. `projects` answers under a `projects` field and `notes` under a `notes` field, each wrapping its array; `resolve` and `discard` acknowledge with `{ ok: true }`. So the agent always receives a typed object, never a bare value the host would reject.
 
 =>
 
@@ -40,21 +40,25 @@ const notes = Tool.make('notes', {
   success: S.Struct({ notes: S.Array(NoteSchema) }),
 })
 
+const acknowledgement = S.Struct({ ok: S.Boolean })
+
 const resolve = Tool.make('resolve', {
   description: 'Mark a note addressed, once you have dealt with it.',
   parameters: S.Struct({ project: S.String, seq: S.Number }),
+  success: acknowledgement,
 })
 
 const discard = Tool.make('discard', {
   description: 'Discard a note that no longer applies.',
   parameters: S.Struct({ project: S.String, seq: S.Number }),
+  success: acknowledgement,
 })
 
 export const toolkit = Toolkit.make(projects, notes, resolve, discard)
 
 # The handlers
 
-The handlers are the tools' work, each reaching the store through the one `NoteStore` the layer provides. The store answers with bare arrays, so `projects` and `notes` box each in the field its tool declares — the object an MCP result must be. `notes` keeps only a project's unaddressed notes; `resolve` and `discard` pass straight through. A note that fails to decode is a corrupt store, not a tool failure, so `Effect.orDie` turns that error into a defect rather than an answer.
+The handlers are the tools' work, each reaching the store through the one `NoteStore` the layer provides. The store answers with bare arrays and void, so the handlers box each into the object its tool declares — `projects` and `notes` wrap their arrays, and `resolve` and `discard` do their work and acknowledge with `{ ok: true }`. `notes` keeps only a project's unaddressed notes. A note that fails to decode is a corrupt store, not a tool failure, so `Effect.orDie` turns that error into a defect rather than an answer.
 
 =>
 
@@ -68,8 +72,8 @@ export const handlers = toolkit.toLayer(
           Effect.map((list) => ({ notes: Array.filter(list, (note) => !note.addressed) })),
           Effect.orDie,
         ),
-      resolve: ({ project, seq }) => store.resolve(project, seq).pipe(Effect.orDie),
-      discard: ({ project, seq }) => store.discard(project, seq),
+      resolve: ({ project, seq }) => store.resolve(project, seq).pipe(Effect.orDie, Effect.as({ ok: true })),
+      discard: ({ project, seq }) => store.discard(project, seq).pipe(Effect.as({ ok: true })),
     }
   }),
 )

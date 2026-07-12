@@ -14,14 +14,18 @@ const notes = Tool.make('notes', {
   success: S.Struct({ notes: S.Array(NoteSchema) }),
 })
 
+const acknowledgement = S.Struct({ ok: S.Boolean })
+
 const resolve = Tool.make('resolve', {
   description: 'Mark a note addressed, once you have dealt with it.',
   parameters: S.Struct({ project: S.String, seq: S.Number }),
+  success: acknowledgement,
 })
 
 const discard = Tool.make('discard', {
   description: 'Discard a note that no longer applies.',
   parameters: S.Struct({ project: S.String, seq: S.Number }),
+  success: acknowledgement,
 })
 
 export const toolkit = Toolkit.make(projects, notes, resolve, discard)
@@ -36,8 +40,8 @@ export const handlers = toolkit.toLayer(
           Effect.map((list) => ({ notes: Array.filter(list, (note) => !note.addressed) })),
           Effect.orDie,
         ),
-      resolve: ({ project, seq }) => store.resolve(project, seq).pipe(Effect.orDie),
-      discard: ({ project, seq }) => store.discard(project, seq),
+      resolve: ({ project, seq }) => store.resolve(project, seq).pipe(Effect.orDie, Effect.as({ ok: true })),
+      discard: ({ project, seq }) => store.discard(project, seq).pipe(Effect.as({ ok: true })),
     }
   }),
 )
