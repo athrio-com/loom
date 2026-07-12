@@ -16,7 +16,7 @@ This chapter writes the package manifest, the two configurations, the client's V
 
 ## The manifest {Tangle}[package.json]
 
-The manifest names the package and its scripts. `build` bundles the client and then pre-renders every page to static HTML. `serve` runs the backend, and `prerender` captures the static pages on their own. `dev` runs the Vite dev server together with the backend. The dev server serves the client with hot module reloading, and forwards every data request on to the backend. The client depends on Foldkit, the woven-corpus schema from `@athrio/loom-lang`, Effect, `marked` for prose, and `shiki` for code. The Foldkit Vite plugin that drives the reload, the toolchain, and the headless browser the pre-render scripts are development-only.
+The manifest names the package and its scripts. `build` bundles the client and then pre-renders every page to static HTML. `serve` runs the backend, and `prerender` captures the static pages on their own. `dev` runs the Vite dev server together with the backend. The dev server serves the client with hot module reloading, and forwards every data request on to the backend. The client depends on Foldkit, the woven-corpus schema from `@athrio/loom-lang`, Effect, `marked` for prose, and `shiki` for code. Development-only are the Foldkit Vite plugin that drives the reload, the Loom Notes plugin that injects the review overlay, the toolchain, and the headless browser the pre-render scripts drive.
 
 =>
 
@@ -40,6 +40,7 @@ The manifest names the package and its scripts. `build` bundles the client and t
   },
   "devDependencies": {
     "@athrio/foldkit-vite-plugin": "workspace:*",
+    "@athrio/loom-notes": "workspace:*",
     "@types/node": "^26.1.0",
     "playwright-core": "^1.49.0",
     "typescript": "^6.0.3",
@@ -100,17 +101,18 @@ The server and the pre-render both run on Bun, and both live under `src/server`.
 
 ## The dev server and the build {Tangle}[vite.config.ts]
 
-Vite serves the client in development and bundles it for production. The Foldkit Vite plugin gives the dev server its hot reload. On a save it preserves the running model, reloads the page, and restores the model, so the app keeps its state across an edit. The plugin also opens a DevTools relay on port `9988`, the port the Foldkit DevTools MCP connects through to reach the running app. The client reads its data from the backend, so in development the dev server proxies every `/data` request to the backend at `http://localhost:4321`. Effect ships modern syntax, so both the dev transform and the build target a current baseline. Vite runs under Bun.
+Vite serves the client in development and bundles it for production. The Foldkit Vite plugin gives the dev server its hot reload. On a save it preserves the running model, reloads the page, and restores the model, so the app keeps its state across an edit. The plugin also opens a DevTools relay on port `9988`, the port the Foldkit DevTools MCP connects through to reach the running app. The Loom Notes plugin injects the review overlay under the project name `loom-website`, so the site can be annotated as it is read; it reaches the notes daemon on its default port. The client reads its data from the backend, so in development the dev server proxies every `/data` request to the backend at `http://localhost:4321`. Effect ships modern syntax, so both the dev transform and the build target a current baseline. Vite runs under Bun.
 
 =>
 
 import { defineConfig } from 'vite'
 import { foldkit } from '@athrio/foldkit-vite-plugin'
+import { loomNotes } from '@athrio/loom-notes/vite'
 
 export default defineConfig({
   esbuild: { target: 'es2022' },
   build: { target: 'es2022' },
-  plugins: [foldkit({ devToolsMcpPort: 9988 })],
+  plugins: [foldkit({ devToolsMcpPort: 9988 }), loomNotes({ project: 'loom-website' })],
   server: {
     proxy: {
       '/data': 'http://localhost:4321',

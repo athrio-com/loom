@@ -138,7 +138,7 @@ const init = (dir: Option.Option<string>, project: Option.Option<string>) =>
       `   ${teal('✓')} wrote ${resolvePath(root, '.mcp.json')}\n\n` +
         `   ${dim('paste this into the app you are reviewing:')}\n\n` +
         `   ${teal(
-          `<script src="http://localhost:${defaultPort}/notes.js" data-loom-project="${id}"></script>`,
+          `<script type="module" src="http://localhost:${defaultPort}/notes.js" data-loom-project="${id}"></script>`,
         )}\n`,
     )
     yield* start

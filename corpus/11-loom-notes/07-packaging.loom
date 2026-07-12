@@ -6,13 +6,13 @@ Language: TypeScript
 
 # Packaging
 
-Loom Notes is the note schemas and the browser overlay. The schemas fix the shape a note takes — the contract the overlay speaks when it writes a note, and the server speaks when it stores one. The overlay is the panel a person annotates through. It is bundled, because a browser cannot chase down Foldkit and Effect on its own, and its Tailwind stylesheet has to travel with it into the shadow root. The store, the server, and the agent's tools live in `@athrio/loom`, the package that serves them.
+Loom Notes is the note schemas, the browser overlay, and the Vite plugin that injects it. The schemas fix the shape a note takes — the contract the overlay speaks when it writes a note, and the server speaks when it stores one. The overlay is the panel a person annotates through. It is bundled, because a browser cannot chase down Foldkit and Effect on its own, and its Tailwind stylesheet has to travel with it into the shadow root. The plugin is the native path for a Vite app: it injects the overlay's script the way the pasted tag does, for any project whose stack Vite drives. The store, the server, and the agent's tools live in `@athrio/loom`, the package that serves them.
 
 This chapter is the manifest, the type configuration, the overlay's Tailwind input, and the build that turns the overlay into one self-contained script.
 
 ## The manifest {Tangle}[package.json]
 
-The manifest names the package, its build, and what it exports. It exports two modules from source: the note schemas and the overlay. The overlay leans on Foldkit, Effect, and `clsx`, and the build on the Tailwind command line.
+The manifest names the package, its build, and what it exports. It exports three modules from source: the note schemas, the overlay, and the Vite plugin. The overlay leans on Foldkit, Effect, and `clsx`; the build on the Tailwind command line; and the plugin on Vite's types alone.
 
 =>
 
@@ -26,7 +26,8 @@ The manifest names the package, its build, and what it exports. It exports two m
   },
   "exports": {
     "./note": "./src/note.ts",
-    "./overlay": "./src/overlay.ts"
+    "./overlay": "./src/overlay.ts",
+    "./vite": "./src/vite.ts"
   },
   "dependencies": {
     "@athrio/foldkit": "workspace:*",
@@ -39,7 +40,8 @@ The manifest names the package, its build, and what it exports. It exports two m
     "@tailwindcss/cli": "^4.0.0",
     "tailwindcss": "^4.0.0",
     "@types/bun": "^1.3.14",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vite": "^8.0.12"
   }
 }
 

@@ -1,0 +1,84 @@
+---
+Part XI, Chapter 6: The Vite plugin
+Package: packages/loom-notes/src/vite.ts
+Language: TypeScript
+---
+
+# The Vite plugin
+
+The overlay reaches an app through a `<script>` tag, a drop-in that works whatever the app is built with. A Vite project has a shorter path: it adds this plugin, and the plugin injects that same tag. Adding the overlay becomes one line in the Vite configuration, rather than a tag pasted into the page by hand.
+
+The plugin injects the daemon's own script, not a bundled copy of the overlay. So the overlay arrives whole: its server origin, the project it belongs to, and its compiled styles all ride the tag, exactly as they do when the tag is pasted. There is nothing to configure in the app and nothing to style, because the daemon serves the same script either way.
+
+It is a tool for reviewing an app as it runs, so it runs only while Vite serves — `apply: 'serve'` — and never in a production build.
+
+# What it draws on
+
+Vite's `Plugin` type shapes what the plugin function returns. The options name the project the notes belong to, the port the daemon listens on, and whether to start the daemon when it is not already running.
+
+=>
+
+import type { Plugin } from 'vite'
+
+export interface LoomNotesOptions {
+  readonly project: string
+  readonly port?: number
+  readonly autostart?: boolean
+}
+
+# Is the daemon up?
+
+The overlay and the agent's tools are useless without the daemon behind them, so the plugin checks. `daemonUp` asks the notes feed for the project; a reply means the daemon is serving, and any failure means it is not. When it is down, the plugin either starts it — spawning `loom start` detached, when `autostart` is set and `loom` is on the path — or prints the one command that fixes it. Starting stays opt-in, since a plugin that reaches out to launch a background process is a surprise unless it was asked for.
+
+=>
+
+const daemonUp = (port: number, project: string): Promise<boolean> =>
+  fetch(`http://localhost:${port}/notes/feed?project=${project}`)
+    .then((response) => response.ok)
+    .catch(() => false)
+
+const ensureDaemon = async (options: LoomNotesOptions, port: number): Promise<void> => {
+  if (await daemonUp(port, options.project)) return
+  if (options.autostart) {
+    Bun.spawn(['loom', 'start'], { detached: true, stdio: ['ignore', 'ignore', 'ignore'] }).unref()
+    console.log(`[loom-notes] started the notes server on http://localhost:${port}`)
+  } else {
+    console.warn('[loom-notes] the notes server is not running — start it with `loom start`')
+  }
+}
+
+# The plugin
+
+`loomNotes` is the plugin a Vite configuration adds. On startup it makes sure the daemon is up, and into every page it serves it injects the overlay's script, carrying the project so the overlay knows which app's notes are its own. The overlay is an ES module, so the tag is `type="module"`. The port defaults to the daemon's own `5710`.
+
+=>
+
+export const loomNotes = (options: LoomNotesOptions): Plugin => {
+  const port = options.port ?? 5710
+  return {
+    name: 'loom-notes',
+    apply: 'serve',
+    configureServer: () => void ensureDaemon(options, port),
+    transformIndexHtml: () => [
+      {
+        tag: 'script',
+        attrs: {
+          type: 'module',
+          src: `http://localhost:${port}/notes.js`,
+          'data-loom-project': options.project,
+        },
+        injectTo: 'body',
+      },
+    ],
+  }
+}
+
+# The module {Tangle}
+
+=>
+
+::[What it draws on]
+
+::[Is the daemon up?]
+
+::[The plugin]
