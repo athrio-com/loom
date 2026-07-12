@@ -3,15 +3,15 @@ import { Tool, Toolkit } from 'effect/unstable/ai'
 import { NoteSchema } from '@athrio/loom-notes/note'
 import { NoteStore } from './store'
 
-const listProjects = Tool.make('list_projects', {
+const projects = Tool.make('projects', {
   description: 'List the projects that have notes.',
-  success: S.Array(S.String),
+  success: S.Struct({ projects: S.Array(S.String) }),
 })
 
-const listOpenNotes = Tool.make('list_open_notes', {
+const notes = Tool.make('notes', {
   description: "List a project's open, unaddressed notes, in the order they were made.",
   parameters: S.Struct({ project: S.String }),
-  success: S.Array(NoteSchema),
+  success: S.Struct({ notes: S.Array(NoteSchema) }),
 })
 
 const resolve = Tool.make('resolve', {
@@ -24,16 +24,16 @@ const discard = Tool.make('discard', {
   parameters: S.Struct({ project: S.String, seq: S.Number }),
 })
 
-export const toolkit = Toolkit.make(listProjects, listOpenNotes, resolve, discard)
+export const toolkit = Toolkit.make(projects, notes, resolve, discard)
 
 export const handlers = toolkit.toLayer(
   Effect.gen(function* () {
     const store = yield* NoteStore
     return {
-      list_projects: () => store.projects,
-      list_open_notes: ({ project }) =>
+      projects: () => store.projects.pipe(Effect.map((list) => ({ projects: list }))),
+      notes: ({ project }) =>
         store.list(project).pipe(
-          Effect.map((notes) => Array.filter(notes, (note) => !note.addressed)),
+          Effect.map((list) => ({ notes: Array.filter(list, (note) => !note.addressed) })),
           Effect.orDie,
         ),
       resolve: ({ project, seq }) => store.resolve(project, seq).pipe(Effect.orDie),
