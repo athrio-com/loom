@@ -4,8 +4,8 @@ import { NoteSchema } from '@athrio/loom-notes/note'
 import { NoteStore } from './store'
 
 const projects = Tool.make('projects', {
-  description: 'List the projects that have notes.',
-  success: S.Struct({ projects: S.Array(S.String) }),
+  description: 'List the projects the store holds, each with its id and name.',
+  success: S.Struct({ projects: S.Array(S.Struct({ id: S.String, name: S.String })) }),
 })
 
 const notes = Tool.make('notes', {

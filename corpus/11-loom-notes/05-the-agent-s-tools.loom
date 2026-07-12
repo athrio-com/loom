@@ -23,15 +23,15 @@ import { NoteStore } from './store'
 
 # The tools
 
-Four tools make up the agent's side of the review. `projects` names the projects that have notes. `notes` lists one project's unaddressed notes, in the order they were made — the work to do. `resolve` marks a note addressed once the agent has dealt with it, and `discard` drops one that no longer applies. The two that act take a project and a sequence; `notes` takes a project, and `projects` takes nothing.
+Four tools make up the agent's side of the review. `projects` names the projects the store holds, each with the id that keys its notes and the name to show it by. `notes` lists one project's unaddressed notes, in the order they were made — the work to do. `resolve` marks a note addressed once the agent has dealt with it, and `discard` drops one that no longer applies. The two that act take a project and a sequence; `notes` takes a project, and `projects` takes nothing.
 
-A tool's structured answer is a JSON object, so a list has to travel inside one. `projects` answers under a `projects` field and `notes` under a `notes` field, each wrapping its array. So the agent receives typed notes under a named field, never a bare array the host would reject.
+A tool's structured answer is a JSON object, so a list has to travel inside one. `projects` answers under a `projects` field and `notes` under a `notes` field, each wrapping its array. So the agent receives typed results under a named field, never a bare array the host would reject.
 
 =>
 
 const projects = Tool.make('projects', {
-  description: 'List the projects that have notes.',
-  success: S.Struct({ projects: S.Array(S.String) }),
+  description: 'List the projects the store holds, each with its id and name.',
+  success: S.Struct({ projects: S.Array(S.Struct({ id: S.String, name: S.String })) }),
 })
 
 const notes = Tool.make('notes', {

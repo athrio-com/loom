@@ -3,8 +3,7 @@ import { Argument, Command, Flag, Prompt } from 'effect/unstable/cli'
 import { BunRuntime, BunServices } from '@effect/platform-bun'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join, resolve as resolvePath } from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { basename, join, resolve as resolvePath } from 'node:path'
 import { DocumentSource } from '@athrio/loom-lang/LoomCompiler'
 import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
 import { LoomWeaver } from '@athrio/loom-lang/weave/LoomWeaver'
@@ -18,6 +17,7 @@ import {
   storeDir,
   workspaceRoot,
 } from '@athrio/loom-lang-services/LoomStore'
+import { NoteStore } from './store'
 
 const reset = '\x1b[0m'
 const teal = (s: string): string => `\x1b[38;5;44m${s}${reset}`
@@ -87,52 +87,43 @@ const init = (dir: Option.Option<string>, project: Option.Option<string>) =>
     const config = yield* LoomConfig
     yield* banner
 
-    const exists = yield* Effect.sync(() =>
-      existsSync(resolvePath(root, '.loom', 'config.yaml')),
-    )
-    if (exists) {
-      const overwrite = yield* Prompt.run(
-        Prompt.confirm({
-          message: `.loom/config.yaml already exists in ${root} — overwrite it?`,
-          initial: false,
+    const configFile = resolvePath(root, '.loom', 'config.yaml')
+    const configured = yield* Effect.sync(() => existsSync(configFile))
+
+    if (configured) {
+      yield* Console.log(`\n   ${dim(`✓ using the configuration at ${configFile}`)}\n`)
+    } else {
+      const language = yield* Prompt.run(
+        Prompt.text({
+          message: 'Primary language for specifier-less sections',
+          default: 'typescript',
         }),
       )
-      if (!overwrite) {
-        return yield* Console.log(
-          dim('   Left the existing configuration untouched.\n'),
-        )
-      }
+      const activation = yield* Prompt.run(
+        Prompt.text({
+          message: 'Activate editor services for (space-separated language ids)',
+          default: language,
+        }),
+      )
+      const ids = activation.split(/\s+/).filter((id) => id.length > 0)
+      yield* config.materialize(root, {
+        corpus: 'corpus',
+        languages: Object.fromEntries(ids.map((id) => [id, {}])),
+        primary: language,
+      })
+      yield* Effect.sync(() =>
+        writeFileSync(resolvePath(root, '.loom', '.gitignore'), 'services/\n'),
+      )
+      yield* Console.log(
+        `\n   ${teal('✓')} wrote ${configFile}\n` +
+          `   ${dim(`primary language: ${language}`)}\n` +
+          `   ${dim(`activated: ${ids.join(', ') || 'none'}`)}\n`,
+      )
     }
 
-    const language = yield* Prompt.run(
-      Prompt.text({
-        message: 'Primary language for specifier-less sections',
-        default: 'typescript',
-      }),
-    )
-    const activation = yield* Prompt.run(
-      Prompt.text({
-        message: 'Activate editor services for (space-separated language ids)',
-        default: language,
-      }),
-    )
-    const ids = activation.split(/\s+/).filter((id) => id.length > 0)
-
-    yield* config.materialize(root, {
-      corpus: 'corpus',
-      languages: Object.fromEntries(ids.map((id) => [id, {}])),
-      primary: language,
-    })
-    yield* Effect.sync(() =>
-      writeFileSync(resolvePath(root, '.loom', '.gitignore'), 'services/\n'),
-    )
-    yield* Console.log(
-      `\n   ${teal('✓')} wrote ${resolvePath(root, '.loom', 'config.yaml')}\n` +
-        `   ${dim(`primary language: ${language}`)}\n` +
-        `   ${dim(`activated: ${ids.join(', ') || 'none'}`)}\n`,
-    )
-
-    const id = Option.getOrElse(project, () => randomUUID())
+    const id = Option.getOrElse(project, () => basename(root))
+    const store = yield* NoteStore
+    yield* store.register(id, root)
     yield* Effect.sync(() => mergeMcpConfig(root))
     yield* Console.log(
       `   ${teal('✓')} wrote ${resolvePath(root, '.mcp.json')}\n\n` +
@@ -317,7 +308,7 @@ const initCommand = Command.make(
     dir: Argument.optional(Argument.directory('dir')),
     project: Flag.optional(Flag.string('project')),
   },
-  ({ dir, project }) => init(dir, project),
+  ({ dir, project }) => init(dir, project).pipe(Effect.provide(NoteStore.layer)),
 )
 
 const addCommand = Command.make(

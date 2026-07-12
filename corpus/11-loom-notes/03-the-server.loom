@@ -77,6 +77,21 @@ const edit = Effect.gen(function* () {
   return yield* HttpServerResponse.json({ ok: true })
 })
 
+# Naming a project
+
+`rename` changes the name a project shows by. It names the project by its id and gives the new name; the id, and so the notes under it, stay as they are — only the label a person reads changes. Like the note changes, it answers with a small acknowledgement.
+
+=>
+
+const NameBody = Schema.Struct({ project: Schema.String, name: Schema.String })
+
+const rename = Effect.gen(function* () {
+  const store = yield* NoteStore
+  const { project, name } = yield* HttpServerRequest.schemaBodyJson(NameBody)
+  yield* store.rename(project, name)
+  return yield* HttpServerResponse.json({ ok: true })
+})
+
 # Listing notes and serving the overlay
 
 `feed` lists a project's notes. The project comes on the query string rather than in a body, since listing is a GET; without it, the request is incomplete and answers with a bad-request.
@@ -110,7 +125,7 @@ const overlay = overlayScript.startsWith('__LOOM_OVERLAY')
 
 # The routes
 
-The router carries the overlay's routes, each a method paired with a path so a GET and a POST at the same address reach different work. The overlay's five calls each match a route, and its request for its own script a sixth. The router answers any other request with a not-found of its own.
+The router carries the overlay's routes, each a method paired with a path so a GET and a POST at the same address reach different work. The overlay captures, lists, resolves, discards, and edits notes, renames its project, and asks for its own script — one route each. The router answers any other request with a not-found of its own.
 
 =>
 
@@ -120,6 +135,7 @@ const routes = Layer.mergeAll(
   HttpRouter.add('POST', '/notes/resolve', resolve),
   HttpRouter.add('POST', '/notes/discard', discard),
   HttpRouter.add('POST', '/notes/edit', edit),
+  HttpRouter.add('POST', '/project/name', rename),
   HttpRouter.add('GET', '/notes.js', overlay),
 )
 
@@ -161,6 +177,8 @@ export const notesServer = (port: number) =>
 ::[What a request carries]
 
 ::[Recording and changing a note]
+
+::[Naming a project]
 
 ::[Listing notes and serving the overlay]
 

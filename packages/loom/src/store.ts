@@ -15,11 +15,17 @@ const openDatabase = (path: string) =>
     (database) => Effect.sync(() => database.close()),
   )
 
-const createTable = `CREATE TABLE IF NOT EXISTS notes (
+const createNotes = `CREATE TABLE IF NOT EXISTS notes (
   project TEXT NOT NULL,
   seq INTEGER NOT NULL,
   data TEXT NOT NULL,
   PRIMARY KEY (project, seq)
+)`
+
+const createProjects = `CREATE TABLE IF NOT EXISTS projects (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  path TEXT
 )`
 
 import { Schema } from 'effect'
@@ -105,15 +111,36 @@ const discardNote = (database: Database, project: string, seq: number): Effect.E
     database.query('DELETE FROM notes WHERE project = ? AND seq = ?').run(project, seq)
   })
 
-import { Array } from 'effect'
+type Project = { readonly id: string; readonly name: string }
 
-const listProjects = (database: Database): Effect.Effect<ReadonlyArray<string>> =>
+const listProjects = (database: Database): Effect.Effect<ReadonlyArray<Project>> =>
   Effect.sync(
-    () =>
-      database
-        .query('SELECT DISTINCT project FROM notes ORDER BY project')
-        .all() as ReadonlyArray<{ readonly project: string }>,
-  ).pipe(Effect.map((rows) => Array.map(rows, (row) => row.project)))
+    () => database.query('SELECT id, name FROM projects ORDER BY name').all() as ReadonlyArray<Project>,
+  )
+
+const ensureProject = (database: Database, id: string): Effect.Effect<void> =>
+  Effect.sync(() => {
+    database.query('INSERT OR IGNORE INTO projects (id, name) VALUES (?, ?)').run(id, id)
+  })
+
+const backfillProjects = (database: Database): Effect.Effect<void> =>
+  Effect.sync(() => {
+    database.run('INSERT OR IGNORE INTO projects (id, name) SELECT DISTINCT project, project FROM notes')
+  })
+
+const renameProject = (database: Database, id: string, name: string): Effect.Effect<void> =>
+  Effect.sync(() => {
+    database.query('UPDATE projects SET name = ? WHERE id = ?').run(name, id)
+  })
+
+const registerProject = (database: Database, id: string, path: string): Effect.Effect<void> =>
+  Effect.sync(() => {
+    database
+      .query(
+        'INSERT INTO projects (id, name, path) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET path = excluded.path',
+      )
+      .run(id, id, path)
+  })
 
 import { Context, FileSystem, Layer } from 'effect'
 
@@ -123,14 +150,20 @@ export class NoteStore extends Context.Service<NoteStore>()('NoteStore', {
     const directory = storeDirectory()
     yield* fs.makeDirectory(directory, { recursive: true })
     const database = yield* openDatabase(join(directory, 'notes.db'))
-    yield* Effect.sync(() => database.run(createTable))
+    yield* Effect.sync(() => database.run('PRAGMA journal_mode = WAL'))
+    yield* Effect.sync(() => database.run(createNotes))
+    yield* Effect.sync(() => database.run(createProjects))
+    yield* backfillProjects(database)
     return {
       list: (project: string) => readNotes(database, project),
-      record: (draft: Draft) => recordDraft(database, draft),
+      record: (draft: Draft) =>
+        ensureProject(database, draft.project).pipe(Effect.andThen(recordDraft(database, draft))),
       resolve: (project: string, seq: number) => resolveNote(database, project, seq),
       edit: (project: string, seq: number, text: string) => editNote(database, project, seq, text),
       discard: (project: string, seq: number) => discardNote(database, project, seq),
       projects: listProjects(database),
+      rename: (id: string, name: string) => renameProject(database, id, name),
+      register: (id: string, path: string) => registerProject(database, id, path),
     } as const
   }),
 }) {

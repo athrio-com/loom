@@ -6,9 +6,9 @@ Language: TypeScript
 
 # The store
 
-The store is where notes live once they are made. It is a SQLite database on your machine, kept outside any project, so a note is never a file in the code you are reviewing. One database holds the notes of every app you point at, told apart by the project each note came from.
+The store is where notes live once they are made. It is a SQLite database on your machine, kept outside any project, so a note is never a file in the code you are reviewing. One database holds the notes of every app you point at, each note keyed by the project it came from.
 
-The store does five things to a note: read a project's notes, record a new one, resolve one, discard one, and change one's words. It does one more thing to itself — name the projects it holds — so a backup can walk them. Bun's built-in SQLite drives all of it, and nothing else is installed to make the store work.
+The store does five things to a note: read a project's notes, record a new one, resolve one, discard one, and change one's words. It keeps a small registry of its projects too — each one's stable id, an editable name to show it by, and the working directory it was set up in — so a project can be renamed without stranding its notes, and the daemon can find where it lives on disk. Bun's built-in SQLite drives all of it, and nothing else is installed to make the store work.
 
 # Where the store lives
 
@@ -33,17 +33,25 @@ const openDatabase = (path: string) =>
     (database) => Effect.sync(() => database.close()),
   )
 
-# The table
+# The tables
 
-The store keeps one table. Each row is a single note, held as the JSON the note decodes from, under the project it belongs to and the sequence number that orders it. The two together are the note's key, so a project's notes number from one upward on their own, and no project's sequence disturbs another's.
+The store keeps two tables. Each row of `notes` is a single note, held as the JSON the note decodes from, under the project it belongs to and the sequence number that orders it. The two together are the note's key, so a project's notes number from one upward on their own, and no project's sequence disturbs another's.
+
+Each row of `projects` is a project the store has seen. Its id is the key — it keys the notes, so it never changes. Its name is the label a person reads, and starts out equal to the id until someone edits it. Its path is the working directory `loom init` records, empty until then.
 
 =>
 
-const createTable = `CREATE TABLE IF NOT EXISTS notes (
+const createNotes = `CREATE TABLE IF NOT EXISTS notes (
   project TEXT NOT NULL,
   seq INTEGER NOT NULL,
   data TEXT NOT NULL,
   PRIMARY KEY (project, seq)
+)`
+
+const createProjects = `CREATE TABLE IF NOT EXISTS projects (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  path TEXT
 )`
 
 # Reading a project's notes
@@ -153,25 +161,50 @@ const discardNote = (database: Database, project: string, seq: number): Effect.E
     database.query('DELETE FROM notes WHERE project = ? AND seq = ?').run(project, seq)
   })
 
-# The projects it holds
+# The project registry
 
-`listProjects` names every project the store has a note for. A backup walks that list to dump each project's notes in turn, and the agent's tools read it to know which apps have been reviewed.
+The projects table is a registry the store keeps beside the notes. `listProjects` names every project in it — each id paired with the name to show it by — so the bar can label a project and the agent can see which apps have been reviewed.
+
+A project earns a row the moment it needs one. `ensureProject` files a project under its own id, as both the key and the starting name, and does nothing when the project is already there — so recording a project's first note registers it. `backfillProjects` does the same for every project already in the notes table, once at startup, so a store that predates the registry fills itself in.
+
+`renameProject` changes the name a project shows by, and leaves the id — and so the notes under it — untouched. `registerProject` records where a project lives: it files the project if new, and writes the working directory either way, the path `loom init` hands it.
 
 =>
 
-import { Array } from 'effect'
+type Project = { readonly id: string; readonly name: string }
 
-const listProjects = (database: Database): Effect.Effect<ReadonlyArray<string>> =>
+const listProjects = (database: Database): Effect.Effect<ReadonlyArray<Project>> =>
   Effect.sync(
-    () =>
-      database
-        .query('SELECT DISTINCT project FROM notes ORDER BY project')
-        .all() as ReadonlyArray<{ readonly project: string }>,
-  ).pipe(Effect.map((rows) => Array.map(rows, (row) => row.project)))
+    () => database.query('SELECT id, name FROM projects ORDER BY name').all() as ReadonlyArray<Project>,
+  )
+
+const ensureProject = (database: Database, id: string): Effect.Effect<void> =>
+  Effect.sync(() => {
+    database.query('INSERT OR IGNORE INTO projects (id, name) VALUES (?, ?)').run(id, id)
+  })
+
+const backfillProjects = (database: Database): Effect.Effect<void> =>
+  Effect.sync(() => {
+    database.run('INSERT OR IGNORE INTO projects (id, name) SELECT DISTINCT project, project FROM notes')
+  })
+
+const renameProject = (database: Database, id: string, name: string): Effect.Effect<void> =>
+  Effect.sync(() => {
+    database.query('UPDATE projects SET name = ? WHERE id = ?').run(name, id)
+  })
+
+const registerProject = (database: Database, id: string, path: string): Effect.Effect<void> =>
+  Effect.sync(() => {
+    database
+      .query(
+        'INSERT INTO projects (id, name, path) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET path = excluded.path',
+      )
+      .run(id, id, path)
+  })
 
 # The store service
 
-`NoteStore` is the service the server and the agent's tools reach for. Its `make` ensures the data directory, opens the database, and creates the table if it is not there yet, then binds every operation to that one connection. It leaves the filesystem out of its own layer: the runtime edge provides Bun's, the one place the platform is chosen. Because the connection is acquired, Effect opens it as the layer is built and closes it when the layer is torn down.
+`NoteStore` is the service the server, the agent's tools, and `loom init` reach for. Its `make` ensures the data directory and opens the database in write-ahead-log mode, so the CLI and the daemon can hold it at once without one blocking the other. It creates the two tables if they are not there yet, backfills the registry from any notes that predate it, then binds every operation to that one connection. Recording a note ensures its project has a registry row first, so a note never lands under a project the registry has not seen. It leaves the filesystem out of its own layer: the runtime edge provides Bun's, the one place the platform is chosen. Because the connection is acquired, Effect opens it as the layer is built and closes it when the layer is torn down.
 
 =>
 
@@ -183,14 +216,20 @@ export class NoteStore extends Context.Service<NoteStore>()('NoteStore', {
     const directory = storeDirectory()
     yield* fs.makeDirectory(directory, { recursive: true })
     const database = yield* openDatabase(join(directory, 'notes.db'))
-    yield* Effect.sync(() => database.run(createTable))
+    yield* Effect.sync(() => database.run('PRAGMA journal_mode = WAL'))
+    yield* Effect.sync(() => database.run(createNotes))
+    yield* Effect.sync(() => database.run(createProjects))
+    yield* backfillProjects(database)
     return {
       list: (project: string) => readNotes(database, project),
-      record: (draft: Draft) => recordDraft(database, draft),
+      record: (draft: Draft) =>
+        ensureProject(database, draft.project).pipe(Effect.andThen(recordDraft(database, draft))),
       resolve: (project: string, seq: number) => resolveNote(database, project, seq),
       edit: (project: string, seq: number, text: string) => editNote(database, project, seq, text),
       discard: (project: string, seq: number) => discardNote(database, project, seq),
       projects: listProjects(database),
+      rename: (id: string, name: string) => renameProject(database, id, name),
+      register: (id: string, path: string) => registerProject(database, id, path),
     } as const
   }),
 }) {
@@ -203,7 +242,7 @@ export class NoteStore extends Context.Service<NoteStore>()('NoteStore', {
 
 ::[Where the store lives]
 
-::[The table]
+::[The tables]
 
 ::[Reading a project's notes]
 
@@ -213,6 +252,6 @@ export class NoteStore extends Context.Service<NoteStore>()('NoteStore', {
 
 ::[Discarding a note]
 
-::[The projects it holds]
+::[The project registry]
 
 ::[The store service]

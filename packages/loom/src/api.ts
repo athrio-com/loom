@@ -47,6 +47,15 @@ const edit = Effect.gen(function* () {
   return yield* HttpServerResponse.json({ ok: true })
 })
 
+const NameBody = Schema.Struct({ project: Schema.String, name: Schema.String })
+
+const rename = Effect.gen(function* () {
+  const store = yield* NoteStore
+  const { project, name } = yield* HttpServerRequest.schemaBodyJson(NameBody)
+  yield* store.rename(project, name)
+  return yield* HttpServerResponse.json({ ok: true })
+})
+
 const feed = Effect.gen(function* () {
   const store = yield* NoteStore
   const request = yield* HttpServerRequest.HttpServerRequest
@@ -76,6 +85,7 @@ const routes = Layer.mergeAll(
   HttpRouter.add('POST', '/notes/resolve', resolve),
   HttpRouter.add('POST', '/notes/discard', discard),
   HttpRouter.add('POST', '/notes/edit', edit),
+  HttpRouter.add('POST', '/project/name', rename),
   HttpRouter.add('GET', '/notes.js', overlay),
 )
 

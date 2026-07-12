@@ -75,13 +75,13 @@ const weave = (file: string, out: string) =>
 
 ## Scaffolding a workspace
 
-`loom init` sets up a workspace. It writes `.loom/config.yaml` — the compiled configuration the editor and the tangler read — and a `.gitignore` beside it that keeps the generated service store out of version control. It asks for the primary language a specifier-less section inherits, and for the languages the editor activates services for, then records them. When a `.loom/config.yaml` is already there, it asks before overwriting, so a stray `init` never erases a configured workspace.
+`loom init` sets a workspace up for review, and it is safe to run again — a second run only fills in what a first left undone, and never undoes it. The first run writes `.loom/config.yaml`, the compiled configuration the editor and the tangler read, and a `.gitignore` beside it that keeps the generated service store out of version control. It asks for the primary language a specifier-less section inherits, and for the languages the editor activates services for. A later run finds that configuration and leaves it untouched; `loom add` and `loom remove` change the activated languages afterwards.
 
 The primary language defaults to TypeScript, and the activation answer defaults to that same language, so a TypeScript workspace is two key-presses away. The activation answer is a space-separated list, since one workspace may run several languages. A prompt the author quits — with `Ctrl-C` — fails with `QuitError`, which `init` catches to leave with a word rather than a stack trace.
 
-Beyond the configuration, `loom init` connects the project to the notes server. It gives the project an identifier — a random one, or the name passed with `--project` — so the notes made here stay apart from every other project's in the one store that holds them all.
+Every run connects the project to the notes server. The project's identifier is the directory's own name, or the name passed with `--project`. It is stable either way, so the notes made here keep landing under the same project however often `init` runs. The identifier tells the store where a note came from and the reader where to show it; it never narrows what the agent sees, since the agent reads every project the store holds.
 
-It then merges a `loom` entry into `.mcp.json`, the file a coding agent reads to find its tools, pointing the agent at the server and leaving any other servers there untouched. It prints the `<script>` tag to paste into the app under review, the tag that carries the project identifier the overlay reads from the page. And it starts the server, so the agent and the overlay have something to talk to at once.
+So each run does four more things, all of them repeatable. It records the project in the store — its id and the working directory it sits in — so the store knows the project by a stable id and where it lives on disk. It merges a `loom` entry into `.mcp.json`, the file a coding agent reads to find its tools, leaving any other servers there in place. It prints the `<script>` tag to paste into the app under review, carrying that identifier for the overlay. And it starts the server when nothing is already serving. Run twice, the record updates in place, the merge adds nothing new, the tag reads the same, and a running server is left alone.
 
 =>
 
@@ -107,52 +107,43 @@ const init = (dir: Option.Option<string>, project: Option.Option<string>) =>
     const config = yield* LoomConfig
     yield* banner
 
-    const exists = yield* Effect.sync(() =>
-      existsSync(resolvePath(root, '.loom', 'config.yaml')),
-    )
-    if (exists) {
-      const overwrite = yield* Prompt.run(
-        Prompt.confirm({
-          message: `.loom/config.yaml already exists in ${root} — overwrite it?`,
-          initial: false,
+    const configFile = resolvePath(root, '.loom', 'config.yaml')
+    const configured = yield* Effect.sync(() => existsSync(configFile))
+
+    if (configured) {
+      yield* Console.log(`\n   ${dim(`✓ using the configuration at ${configFile}`)}\n`)
+    } else {
+      const language = yield* Prompt.run(
+        Prompt.text({
+          message: 'Primary language for specifier-less sections',
+          default: 'typescript',
         }),
       )
-      if (!overwrite) {
-        return yield* Console.log(
-          dim('   Left the existing configuration untouched.\n'),
-        )
-      }
+      const activation = yield* Prompt.run(
+        Prompt.text({
+          message: 'Activate editor services for (space-separated language ids)',
+          default: language,
+        }),
+      )
+      const ids = activation.split(/\s+/).filter((id) => id.length > 0)
+      yield* config.materialize(root, {
+        corpus: 'corpus',
+        languages: Object.fromEntries(ids.map((id) => [id, {}])),
+        primary: language,
+      })
+      yield* Effect.sync(() =>
+        writeFileSync(resolvePath(root, '.loom', '.gitignore'), 'services/\n'),
+      )
+      yield* Console.log(
+        `\n   ${teal('✓')} wrote ${configFile}\n` +
+          `   ${dim(`primary language: ${language}`)}\n` +
+          `   ${dim(`activated: ${ids.join(', ') || 'none'}`)}\n`,
+      )
     }
 
-    const language = yield* Prompt.run(
-      Prompt.text({
-        message: 'Primary language for specifier-less sections',
-        default: 'typescript',
-      }),
-    )
-    const activation = yield* Prompt.run(
-      Prompt.text({
-        message: 'Activate editor services for (space-separated language ids)',
-        default: language,
-      }),
-    )
-    const ids = activation.split(/\s+/).filter((id) => id.length > 0)
-
-    yield* config.materialize(root, {
-      corpus: 'corpus',
-      languages: Object.fromEntries(ids.map((id) => [id, {}])),
-      primary: language,
-    })
-    yield* Effect.sync(() =>
-      writeFileSync(resolvePath(root, '.loom', '.gitignore'), 'services/\n'),
-    )
-    yield* Console.log(
-      `\n   ${teal('✓')} wrote ${resolvePath(root, '.loom', 'config.yaml')}\n` +
-        `   ${dim(`primary language: ${language}`)}\n` +
-        `   ${dim(`activated: ${ids.join(', ') || 'none'}`)}\n`,
-    )
-
-    const id = Option.getOrElse(project, () => randomUUID())
+    const id = Option.getOrElse(project, () => basename(root))
+    const store = yield* NoteStore
+    yield* store.register(id, root)
     yield* Effect.sync(() => mergeMcpConfig(root))
     yield* Console.log(
       `   ${teal('✓')} wrote ${resolvePath(root, '.mcp.json')}\n\n` +
@@ -379,7 +370,7 @@ const initCommand = Command.make(
     dir: Argument.optional(Argument.directory('dir')),
     project: Flag.optional(Flag.string('project')),
   },
-  ({ dir, project }) => init(dir, project),
+  ({ dir, project }) => init(dir, project).pipe(Effect.provide(NoteStore.layer)),
 )
 
 const addCommand = Command.make(
@@ -441,7 +432,7 @@ if (process.argv[2] === 'lsp') {
 
 ## What the program needs
 
-The program is built on Effect, a functional TypeScript library for composing and running effectful programs. Effect's CLI toolkit parses the command line and drives the interactive prompts, and the Bun platform supplies the runtime, the terminal, and filesystem access. The notes server's lifecycle draws on a little more of Effect: `FileSystem` writes and reads the server's record, a `Schema` decodes it, and `Layer` launches the server; Node's `os` and `path` locate the record under the home directory, and `crypto` mints a project's identifier for `init`. The language server contributes four services: `LoomTangler`, which walks a `.loom` file and emits the tangled output; `LoomWeaver`, which projects a corpus and writes the woven data; `DocumentSource`, which feeds them source text from disk; and `PackageConfig`, which resolves a `.loom`'s package settings. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back. From `@athrio/loom-lang-services` come the store operations behind activation: `addService` and `removeService` install and uninstall a language's package, `installedServices` lists what the store holds, `storeDir` locates it, `workspaceRoot` finds the workspace it sits in, and `servicePackage` names a language's package.
+The program is built on Effect, a functional TypeScript library for composing and running effectful programs. Effect's CLI toolkit parses the command line and drives the interactive prompts, and the Bun platform supplies the runtime, the terminal, and filesystem access. The notes server's lifecycle draws on a little more of Effect: `FileSystem` writes and reads the server's record, a `Schema` decodes it, and `Layer` launches the server; Node's `os` and `path` locate the record under the home directory, and `path` also names a project from its directory for `init`. The language server contributes four services: `LoomTangler`, which walks a `.loom` file and emits the tangled output; `LoomWeaver`, which projects a corpus and writes the woven data; `DocumentSource`, which feeds them source text from disk; and `PackageConfig`, which resolves a `.loom`'s package settings. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back. From `@athrio/loom-lang-services` come the store operations behind activation: `addService` and `removeService` install and uninstall a language's package, `installedServices` lists what the store holds, `storeDir` locates it, `workspaceRoot` finds the workspace it sits in, and `servicePackage` names a language's package. From the store module beside this file comes `NoteStore`, the notes database `loom init` registers the project with, recording its id and working directory.
 
 =>
 
@@ -450,8 +441,7 @@ import { Argument, Command, Flag, Prompt } from 'effect/unstable/cli'
 import { BunRuntime, BunServices } from '@effect/platform-bun'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join, resolve as resolvePath } from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { basename, join, resolve as resolvePath } from 'node:path'
 import { DocumentSource } from '@athrio/loom-lang/LoomCompiler'
 import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
 import { LoomWeaver } from '@athrio/loom-lang/weave/LoomWeaver'
@@ -465,6 +455,7 @@ import {
   storeDir,
   workspaceRoot,
 } from '@athrio/loom-lang-services/LoomStore'
+import { NoteStore } from './store'
 
 ## The program {Tangle}
 
