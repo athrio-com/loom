@@ -1,2 +1,19 @@
 @import "tailwindcss";
 @source "./overlay.ts";
+
+@theme {
+  --color-bg: #0f1014;
+  --color-bg-2: #15171d;
+  --color-bg-3: #1b1e26;
+  --color-bg-4: #232732;
+  --color-fg: #e6e6ea;
+  --color-fg-2: #b6b8c2;
+  --color-fg-3: #7a7e8c;
+  --color-fg-4: #4d5260;
+  --color-mint: #8fe0b6;
+  --color-cyan: #6cc7e0;
+  --color-violet: #b59bf1;
+  --color-amber: #e8b86c;
+  --font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+}

@@ -71,10 +71,29 @@ The configuration checks the Bun-side source and the build against Bun's own typ
 
 The overlay's styles are Tailwind. The input pulls in the framework and points it at the overlay source, so the build compiles exactly the utilities the view uses and nothing more.
 
+The input also defines the theme the overlay wears, taken from the design catalog: the dark surfaces `bg` through `bg-4`, the foregrounds `fg` through `fg-4`, the mint, cyan, violet, and amber accents, and the mono and sans type. The view names these directly, in classes like the `bg-mint` background and the `text-fg-3` foreground, so the overlay and the catalog read as one look.
+
 =>
 
 @import "tailwindcss";
 @source "./overlay.ts";
+
+@theme {
+  --color-bg: #0f1014;
+  --color-bg-2: #15171d;
+  --color-bg-3: #1b1e26;
+  --color-bg-4: #232732;
+  --color-fg: #e6e6ea;
+  --color-fg-2: #b6b8c2;
+  --color-fg-3: #7a7e8c;
+  --color-fg-4: #4d5260;
+  --color-mint: #8fe0b6;
+  --color-cyan: #6cc7e0;
+  --color-violet: #b59bf1;
+  --color-amber: #e8b86c;
+  --font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+}
 
 ## The build {Tangle}[build.ts]
 

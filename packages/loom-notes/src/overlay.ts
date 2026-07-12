@@ -17,6 +17,7 @@ export const Model = S.Struct({
   project: S.String,
   route: S.String,
   notes: S.Array(NoteSchema),
+  reachable: S.Boolean,
   open: S.Boolean,
   picking: S.Boolean,
   hover: S.optional(RectSchema),
@@ -35,6 +36,7 @@ export const Escaped = m('Escaped')
 export const DraftChanged = m('DraftChanged', { value: S.String })
 export const Sent = m('Sent')
 export const GotNotes = m('GotNotes', { notes: S.Array(NoteSchema) })
+export const Unreachable = m('Unreachable')
 export const Resolved = m('Resolved', { seq: S.Number })
 export const Discarded = m('Discarded', { seq: S.Number })
 export const StartedEdit = m('StartedEdit', { seq: S.Number, text: S.String })
@@ -51,6 +53,7 @@ export const Message = S.Union([
   DraftChanged,
   Sent,
   GotNotes,
+  Unreachable,
   Resolved,
   Discarded,
   StartedEdit,
@@ -66,12 +69,14 @@ const feedUrl = (base: string, project: string): string =>
   `${base}/notes/feed?project=${encodeURIComponent(project)}`
 
 const fetchFeed = (base: string, project: string) =>
-  Effect.promise(() => fetch(feedUrl(base, project)).then((response) => response.json())).pipe(
-    Effect.map((data) => GotNotes({ notes: S.decodeUnknownSync(S.Array(NoteSchema))(data) })),
-  )
+  Effect.tryPromise(() =>
+    fetch(feedUrl(base, project))
+      .then((response) => response.json())
+      .then((data) => GotNotes({ notes: S.decodeUnknownSync(S.Array(NoteSchema))(data) })),
+  ).pipe(Effect.catchCause(() => Effect.succeed(Unreachable())))
 
-const postJson = (base: string, path: string, body: unknown): Effect.Effect<Response> =>
-  Effect.promise(() =>
+const postJson = (base: string, path: string, body: unknown) =>
+  Effect.tryPromise(() =>
     fetch(`${base}${path}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -80,7 +85,10 @@ const postJson = (base: string, path: string, body: unknown): Effect.Effect<Resp
   )
 
 const settle = (base: string, project: string, path: string, body: unknown) =>
-  postJson(base, path, body).pipe(Effect.andThen(fetchFeed(base, project)))
+  postJson(base, path, body).pipe(
+    Effect.andThen(fetchFeed(base, project)),
+    Effect.catchCause(() => Effect.succeed(Unreachable())),
+  )
 
 const config = (): { readonly base: string; readonly project: string } =>
   Option.match(Option.fromNullishOr(document.querySelector('script[data-loom-project]')), {
@@ -91,14 +99,18 @@ const config = (): { readonly base: string; readonly project: string } =>
     }),
   })
 
-const FetchNotes = Command.define('FetchNotes', { base: S.String, project: S.String }, GotNotes)(
-  ({ base, project }) => fetchFeed(base, project),
-)
+const FetchNotes = Command.define(
+  'FetchNotes',
+  { base: S.String, project: S.String },
+  GotNotes,
+  Unreachable,
+)(({ base, project }) => fetchFeed(base, project))
 
 const SendChat = Command.define(
   'SendChat',
   { base: S.String, project: S.String, route: S.String, text: S.String },
   GotNotes,
+  Unreachable,
 )(({ base, project, route, text }) =>
   settle(base, project, '/notes/capture', { kind: 'chat', project, route, text }),
 )
@@ -107,6 +119,7 @@ const SendAnnotation = Command.define(
   'SendAnnotation',
   { base: S.String, project: S.String, route: S.String, pending: PendingSchema, text: S.String },
   GotNotes,
+  Unreachable,
 )(({ base, project, route, pending, text }) =>
   settle(base, project, '/notes/capture', { ...pending, project, route, text }),
 )
@@ -115,18 +128,21 @@ const SendResolve = Command.define(
   'SendResolve',
   { base: S.String, project: S.String, seq: S.Number },
   GotNotes,
+  Unreachable,
 )(({ base, project, seq }) => settle(base, project, '/notes/resolve', { project, seq }))
 
 const SendDiscard = Command.define(
   'SendDiscard',
   { base: S.String, project: S.String, seq: S.Number },
   GotNotes,
+  Unreachable,
 )(({ base, project, seq }) => settle(base, project, '/notes/discard', { project, seq }))
 
 const SendEdit = Command.define(
   'SendEdit',
   { base: S.String, project: S.String, seq: S.Number, text: S.String },
   GotNotes,
+  Unreachable,
 )(({ base, project, seq, text }) => settle(base, project, '/notes/edit', { project, seq, text }))
 
 const rectOf = (el: Element): Rect => {
@@ -263,7 +279,8 @@ const update = (
     ]),
     Match.tag('DraftChanged', ({ value }) => [{ ...model, draft: value }, []]),
     Match.tag('Sent', () => (model.draft.trim() === '' ? [model, []] : sent(model))),
-    Match.tag('GotNotes', ({ notes }) => [{ ...model, notes }, []]),
+    Match.tag('GotNotes', ({ notes }) => [{ ...model, notes, reachable: true }, []]),
+    Match.tag('Unreachable', () => [{ ...model, reachable: false }, []]),
     Match.tag('Resolved', ({ seq }) => [
       model,
       [SendResolve({ base: model.base, project: model.project, seq })],
@@ -279,51 +296,82 @@ const update = (
     Match.exhaustive,
   )
 
-const glyphOf = (note: Note): string =>
+const kindColor = (note: Note): string =>
   Match.value(note).pipe(
-    Match.when({ kind: 'dom' }, () => '◎'),
-    Match.when({ kind: 'loom' }, () => '⧉'),
-    Match.when({ kind: 'chat' }, () => '›'),
+    Match.when({ kind: 'chat' }, () => 'text-cyan'),
+    Match.when({ kind: 'dom' }, () => 'text-mint'),
+    Match.when({ kind: 'loom' }, () => 'text-violet'),
     Match.exhaustive,
   )
 
-const control = (label: string, message: Message): Html =>
+const pointerOf = (note: Note): Option.Option<string> =>
+  Match.value(note).pipe(
+    Match.withReturnType<Option.Option<string>>(),
+    Match.when({ kind: 'dom' }, (annotation) => Option.some(annotation.selector)),
+    Match.when({ kind: 'loom' }, (annotation) => Option.some(annotation.source.section)),
+    Match.when({ kind: 'chat' }, () => Option.none()),
+    Match.exhaustive,
+  )
+
+const control = (label: string, message: Message, tone: string): Html =>
   h.button(
-    [h.Class('rounded px-1 text-slate-500 hover:bg-white/10 hover:text-slate-200'), h.OnClick(message)],
+    [h.Class(clsx('rounded px-1.5 py-0.5 text-[11px] transition hover:bg-white/5', tone)), h.OnClick(message)],
     [label],
   )
 
 const controls = (note: Note): Html =>
   h.div(
-    [h.Class('ml-auto flex shrink-0 gap-1 opacity-0 group-hover:opacity-100')],
+    [h.Class('mt-1.5 flex gap-1 opacity-0 transition group-hover:opacity-100')],
     [
-      control('✎', StartedEdit({ seq: note.seq, text: note.text })),
-      ...(note.addressed ? [] : [control('✓', Resolved({ seq: note.seq }))]),
-      control('🗑', Discarded({ seq: note.seq })),
+      control('edit', StartedEdit({ seq: note.seq, text: note.text }), 'text-fg-3 hover:text-fg'),
+      ...(note.addressed ? [] : [control('resolve', Resolved({ seq: note.seq }), 'text-mint')]),
+      control('discard', Discarded({ seq: note.seq }), 'text-fg-3 hover:text-fg'),
+    ],
+  )
+
+const meta = (note: Note): Html =>
+  h.div(
+    [h.Class('mb-1 flex items-center gap-2 text-[11px]')],
+    [
+      h.span([h.Class('text-fg-3')], [`#${note.seq}`]),
+      h.span([h.Class(kindColor(note))], [note.kind]),
+      ...Option.match(pointerOf(note), {
+        onNone: () => [],
+        onSome: (pointer) => [h.span([h.Class('truncate text-violet')], [pointer])],
+      }),
+      h.span([h.Class('ml-auto shrink-0 text-fg-4')], [note.route]),
     ],
   )
 
 const editRow = (editText: string): Html =>
   h.div(
-    [h.Class('flex flex-col gap-1 border-b border-white/10 py-2')],
+    [h.Class('flex flex-col gap-2 border-b border-white/[0.07] px-3 py-2.5')],
     [
       h.textarea(
         [
-          h.Class('w-full resize-none rounded border border-white/10 bg-slate-950 p-2 text-slate-200'),
+          h.Class(
+            'w-full resize-none rounded-md border border-white/10 bg-bg px-2.5 py-2 font-sans text-[12.5px] text-fg focus:border-mint focus:outline-none',
+          ),
           h.Value(editText),
           h.OnInput((value: string) => EditChanged({ value })),
         ],
         [],
       ),
       h.div(
-        [h.Class('flex gap-1')],
+        [h.Class('flex gap-2')],
         [
           h.button(
-            [h.Class('rounded bg-emerald-400 px-2 py-1 text-xs text-slate-900'), h.OnClick(SavedEdit())],
+            [
+              h.Class('rounded-md bg-mint px-2.5 py-1 text-[11px] font-medium text-bg transition hover:brightness-105'),
+              h.OnClick(SavedEdit()),
+            ],
             ['Save'],
           ),
           h.button(
-            [h.Class('rounded border border-white/10 px-2 py-1 text-xs text-slate-300'), h.OnClick(CancelledEdit())],
+            [
+              h.Class('rounded-md border border-white/10 px-2.5 py-1 text-[11px] text-fg-2 transition hover:text-fg'),
+              h.OnClick(CancelledEdit()),
+            ],
             ['Cancel'],
           ),
         ],
@@ -335,10 +383,10 @@ const noteRow = (note: Note, editing: number | undefined, editText: string): Htm
   note.seq === editing
     ? editRow(editText)
     : h.div(
-        [h.Class(clsx('group flex gap-2 border-b border-white/10 py-2', note.addressed && 'opacity-40'))],
+        [h.Class(clsx('group border-b border-white/[0.07] px-3 py-2.5', note.addressed && 'opacity-40'))],
         [
-          h.span([h.Class('text-emerald-400')], [glyphOf(note)]),
-          h.span([h.Class('min-w-0 break-words')], [note.text]),
+          meta(note),
+          h.div([h.Class('font-sans text-[12.5px] leading-relaxed text-fg')], [note.text]),
           controls(note),
         ],
       )
@@ -346,37 +394,32 @@ const noteRow = (note: Note, editing: number | undefined, editText: string): Htm
 const highlight = (rect: Rect): Html =>
   h.div(
     [
-      h.Class('pointer-events-none fixed rounded border-2 border-emerald-400 bg-emerald-400/10'),
+      h.Class('pointer-events-none fixed rounded-md border-2 border-mint bg-mint/10'),
       h.Style({ left: `${rect.x}px`, top: `${rect.y}px`, width: `${rect.width}px`, height: `${rect.height}px` }),
     ],
     [],
   )
 
-const composer = (model: Model, action: Html, label: string): Html =>
-  h.div(
-    [h.Class('border-t border-white/10 p-3')],
+const draftArea = (model: Model, placeholder: string): Html =>
+  h.textarea(
     [
-      h.textarea(
-        [
-          h.Class(
-            'h-16 w-full resize-none rounded-md border border-white/10 bg-slate-950 p-2 text-slate-100 focus:border-emerald-400 focus:outline-none',
-          ),
-          h.Value(model.draft),
-          h.OnInput((value: string) => DraftChanged({ value })),
-        ],
-        [],
+      h.Class(
+        'h-16 w-full resize-none rounded-md border border-white/10 bg-bg px-2.5 py-2 font-sans text-[12.5px] leading-relaxed text-fg placeholder:text-fg-4 focus:border-mint focus:outline-none',
       ),
-      h.button(
-        [
-          h.Class(
-            'mt-2 w-full rounded-md bg-emerald-400 py-1.5 font-medium text-slate-900 transition hover:bg-emerald-300',
-          ),
-          h.OnClick(Sent()),
-        ],
-        [label],
-      ),
-      action,
+      h.Value(model.draft),
+      h.Placeholder(placeholder),
+      h.OnInput((value: string) => DraftChanged({ value })),
     ],
+    [],
+  )
+
+const sendButton = (label: string): Html =>
+  h.button(
+    [
+      h.Class('flex-1 rounded-md bg-mint py-2 text-[12px] font-medium text-bg transition hover:brightness-105'),
+      h.OnClick(Sent()),
+    ],
+    [label],
   )
 
 const pickButton = (model: Model): Html =>
@@ -384,45 +427,63 @@ const pickButton = (model: Model): Html =>
     [
       h.Class(
         clsx(
-          'mt-2 w-full rounded-md border py-1.5 transition',
+          'flex-1 rounded-md border py-2 text-[12px] transition',
           model.picking
-            ? 'border-emerald-400 text-emerald-400'
-            : 'border-white/10 text-slate-400 hover:border-white/20 hover:text-slate-200',
+            ? 'border-mint bg-mint/[0.14] text-mint'
+            : 'border-white/10 bg-bg-3 text-fg-2 hover:border-white/20 hover:text-fg',
         ),
       ),
       h.OnClick(ToggledPick()),
     ],
-    ['◎ Pick an element'],
+    [model.picking ? '◎ Picking…' : '◎ Pick element'],
+  )
+
+const composer = (model: Model): Html =>
+  h.div(
+    [h.Class('border-t border-white/[0.07] p-3')],
+    [draftArea(model, 'Leave a note…'), h.div([h.Class('mt-2 flex gap-2')], [pickButton(model), sendButton('Send')])],
   )
 
 const emptyState = (): Html =>
   h.div(
-    [h.Class('px-3 py-12 text-center text-xs leading-relaxed text-slate-500')],
-    ['No notes yet — write one below, or pick an element on the page.'],
+    [h.Class('px-3.5 py-10 text-center font-sans text-[12.5px] leading-relaxed text-fg-3')],
+    ['No notes yet. Point at something on the page, or type one below.'],
   )
 
 const noteList = (model: Model): Html =>
   h.div(
-    [h.Class('flex-1 overflow-auto px-3')],
+    [h.Class('flex flex-1 flex-col overflow-auto')],
     model.notes.length === 0
       ? [emptyState()]
       : Array.map(model.notes, (note) => noteRow(note, model.editing, model.editText)),
   )
 
-const header = (): Html =>
+const banner = (): Html =>
   h.div(
-    [h.Class('flex items-center justify-between border-b border-white/10 px-3 py-2.5 text-slate-300')],
+    [h.Class('border-b border-white/[0.07] bg-amber/[0.08] px-3 py-2.5 font-sans text-[12px] leading-relaxed')],
     [
+      h.div([h.Class('text-amber')], ["The notes server isn't running."]),
       h.div(
-        [h.Class('flex items-center gap-2')],
-        [h.span([h.Class('h-2 w-2 rounded-full bg-emerald-400')], []), h.span([], ['Loom Notes'])],
+        [h.Class('mt-0.5 text-fg-3')],
+        ['Start it with ', h.span([h.Class('font-mono text-fg')], ['loom start']), '.'],
       ),
+    ],
+  )
+
+const header = (model: Model): Html =>
+  h.div(
+    [h.Class('flex items-center gap-2 border-b border-white/[0.07] px-3 py-2.5 text-[13px] text-fg-3')],
+    [
+      h.span([h.Class('text-fg')], ['Notes']),
+      h.span([h.Class('text-fg-4')], [String(model.notes.length)]),
       h.button(
         [
-          h.Class('rounded px-1.5 text-slate-500 transition hover:bg-white/10 hover:text-slate-200'),
+          h.Class(
+            'ml-auto flex h-6 w-6 items-center justify-center rounded-md border border-white/10 text-fg-2 transition hover:bg-white/5 hover:text-fg',
+          ),
           h.OnClick(Toggled()),
         ],
-        ['×'],
+        ['✕'],
       ),
     ],
   )
@@ -431,41 +492,56 @@ const panel = (model: Model): Html =>
   h.div(
     [
       h.Class(
-        'pointer-events-auto fixed right-0 top-0 flex h-screen w-[360px] flex-col border-l border-white/10 bg-slate-900/95 font-mono text-sm text-slate-200 shadow-2xl backdrop-blur',
+        'pointer-events-auto fixed bottom-[4.5rem] right-4 flex max-h-[min(560px,calc(100vh-6rem))] w-[340px] flex-col overflow-hidden rounded-[10px] border border-white/10 bg-bg-2 font-mono text-[13px] text-fg shadow-[0_18px_50px_rgba(0,0,0,0.45)]',
       ),
     ],
-    [header(), noteList(model), composer(model, pickButton(model), 'Send')],
+    [header(model), ...(model.reachable ? [] : [banner()]), noteList(model), composer(model)],
   )
 
 const popover = (model: Model, pending: Pending): Html =>
   h.div(
     [
       h.Class(
-        'pointer-events-auto fixed bottom-6 left-1/2 w-96 max-w-[86vw] -translate-x-1/2 rounded-xl border border-emerald-400/60 bg-slate-900/95 p-3 font-mono text-sm text-slate-200 shadow-2xl backdrop-blur',
+        'pointer-events-auto fixed bottom-6 left-1/2 w-[340px] max-w-[86vw] -translate-x-1/2 rounded-[10px] border border-mint bg-bg-2 p-3 font-mono text-[13px] text-fg shadow-[0_12px_40px_rgba(0,0,0,0.5)]',
       ),
     ],
     [
-      h.div([h.Class('mb-2 truncate text-xs text-emerald-400')], [`◎ ${pending.label}`]),
-      composer(model, h.div([], []), 'Add note'),
+      h.div([h.Class('mb-2 flex items-center gap-1.5 truncate text-[11.5px] text-mint')], [`◎ ${pending.label}`]),
+      draftArea(model, 'What should this element say or do?'),
+      h.div(
+        [h.Class('mt-2.5 flex gap-2')],
+        [
+          h.button(
+            [
+              h.Class('flex-1 rounded-md border border-white/10 bg-bg-3 py-2 text-[12px] text-fg-2 transition hover:text-fg'),
+              h.OnClick(Escaped()),
+            ],
+            ['Cancel'],
+          ),
+          sendButton('Add note'),
+        ],
+      ),
     ],
   )
 
-const launcher = (): Html =>
-  h.button(
+const launcher = (model: Model): Html => {
+  const open = Array.filter(model.notes, (note) => !note.addressed).length
+  return h.button(
     [
       h.Class(
-        'pointer-events-auto fixed bottom-4 right-4 flex items-center gap-1.5 rounded-full bg-emerald-400 px-4 py-2 font-mono text-sm font-medium text-slate-900 shadow-lg transition hover:bg-emerald-300',
+        'pointer-events-auto fixed bottom-4 right-4 inline-flex items-center gap-2 rounded-md bg-mint px-3 py-2 font-mono text-[12px] font-medium text-bg shadow-[0_8px_24px_rgba(0,0,0,0.4)] transition hover:brightness-105',
       ),
       h.OnClick(Toggled()),
     ],
-    ['✎ Annotate'],
+    ['✎ Annotate', ...(open === 0 ? [] : [h.span([h.Class('text-bg/60')], [`· ${open}`])])],
   )
+}
 
 const view = (model: Model): Html =>
   h.div(
     [h.Class('pointer-events-none fixed inset-0 font-mono')],
     [
-      launcher(),
+      launcher(model),
       ...(model.open && model.pending === undefined ? [panel(model)] : []),
       ...(model.picking && model.hover !== undefined ? [highlight(model.hover)] : []),
       ...(model.pending !== undefined ? [popover(model, model.pending)] : []),
@@ -494,7 +570,17 @@ import { makeElement, run } from '@athrio/foldkit/runtime'
 const init = (): readonly [Model, ReadonlyArray<Command.Command<Message>>] => {
   const { base, project } = config()
   return [
-    { base, project, route: location.pathname, notes: [], open: false, picking: false, draft: '', editText: '' },
+    {
+      base,
+      project,
+      route: location.pathname,
+      notes: [],
+      reachable: true,
+      open: false,
+      picking: false,
+      draft: '',
+      editText: '',
+    },
     [FetchNotes({ base, project })],
   ]
 }
