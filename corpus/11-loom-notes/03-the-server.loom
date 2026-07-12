@@ -79,7 +79,9 @@ const edit = Effect.gen(function* () {
 
 # Listing notes and serving the overlay
 
-`feed` lists a project's notes. The project comes on the query string rather than in a body, since listing is a GET; without it, the request is incomplete and answers with a bad-request. `overlay` returns the overlay's built script from the package's `dist`, or a not-found while no build sits there yet.
+`feed` lists a project's notes. The project comes on the query string rather than in a body, since listing is a GET; without it, the request is incomplete and answers with a bad-request.
+
+The overlay's script travels inside this bundle. The build inlines it as `overlayScript` — encoded in base64, so it survives whole as a plain string — and `overlay` decodes and serves it, so the installed CLI needs no file beside it. Running from source, where no build has inlined anything, the placeholder is still in place: `overlay` sees it, reads the script from the `@athrio/loom-notes` package next door instead, and answers with a not-found when even that is missing.
 
 =>
 
@@ -94,9 +96,17 @@ const feed = Effect.gen(function* () {
   })
 })
 
-const overlay = HttpServerResponse.file(join(root, '..', 'dist', 'overlay.js')).pipe(
-  Effect.catchCause(() => notFound),
-)
+const overlayScript = '__LOOM_OVERLAY_B64__'
+
+const overlay = overlayScript.startsWith('__LOOM_OVERLAY')
+  ? HttpServerResponse.file(
+      join(root, '..', '..', 'loom-notes', 'dist', 'overlay.js'),
+    ).pipe(Effect.catchCause(() => notFound))
+  : Effect.succeed(
+      HttpServerResponse.text(Buffer.from(overlayScript, 'base64').toString('utf8'), {
+        contentType: 'text/javascript',
+      }),
+    )
 
 # The routes
 

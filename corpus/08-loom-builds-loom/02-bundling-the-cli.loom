@@ -18,10 +18,13 @@ The language server's `exports` field points to TypeScript source files rather t
 
 `ProseLanguage` loads `volar-service-markdown`, whose `vscode-markdown-languageservice` dependency imports `vscode-uri` by its default binding. The `vscode-uri` ES-module build exports no default, so the bundle resolves `vscode-uri` to its UMD build instead, where the bundler's CommonJS interop supplies one.
 
+The notes overlay is one browser script in `@athrio/loom-notes`, a package the published CLI does not carry. So the `inlineOverlay` plugin drops that script into the chunk that serves it, in place of the `__LOOM_OVERLAY_B64__` placeholder the server left for it — the server's own code splits into a chunk of its own, since the CLI loads it lazily, and the plugin rewrites whichever chunk holds the placeholder. It encodes the script in base64 first, so it lands inside a string literal untouched, whatever quotes or newlines it holds. The server decodes it at run time; running from source, where the plugin has not run, the placeholder stays and the server reads the script from the package next door.
+
 =>
 
 import { defineConfig } from 'vite'
 import { builtinModules, createRequire } from 'node:module'
+import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -48,6 +51,17 @@ const umd2esm = {
   },
 }
 
+const overlayFile = resolve(here, '..', 'loom-notes', 'dist', 'overlay.js')
+
+const inlineOverlay = {
+  name: 'inline-overlay',
+  renderChunk(code: string) {
+    if (!code.includes('__LOOM_OVERLAY_B64__')) return null
+    const base64 = readFileSync(overlayFile).toString('base64')
+    return { code: code.replaceAll('__LOOM_OVERLAY_B64__', base64), map: { mappings: '' } }
+  },
+}
+
 ~
 
 Vite's library mode builds a single entry point to `dist/main.js`. Bun runs the latest JavaScript, so the build targets `esnext` and down-levels nothing. The CLI package uses the ESM format — ECMAScript modules — so Vite emits an ESM bundle with a Bun shebang, making it directly executable. The VS Code extension runs in the editor's CommonJS host, so its Vite config emits that format instead.
@@ -55,7 +69,7 @@ Vite's library mode builds a single entry point to `dist/main.js`. Bun runs the 
 =>
 
 export default defineConfig({
-  plugins: [umd2esm],
+  plugins: [umd2esm, inlineOverlay],
   resolve: {
     conditions: ['node'],
     mainFields: ['main', 'module'],

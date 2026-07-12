@@ -58,9 +58,17 @@ const feed = Effect.gen(function* () {
   })
 })
 
-const overlay = HttpServerResponse.file(join(root, '..', 'dist', 'overlay.js')).pipe(
-  Effect.catchCause(() => notFound),
-)
+const overlayScript = '__LOOM_OVERLAY_B64__'
+
+const overlay = overlayScript.startsWith('__LOOM_OVERLAY')
+  ? HttpServerResponse.file(
+      join(root, '..', '..', 'loom-notes', 'dist', 'overlay.js'),
+    ).pipe(Effect.catchCause(() => notFound))
+  : Effect.succeed(
+      HttpServerResponse.text(Buffer.from(overlayScript, 'base64').toString('utf8'), {
+        contentType: 'text/javascript',
+      }),
+    )
 
 const routes = Layer.mergeAll(
   HttpRouter.add('POST', '/notes/capture', capture),
