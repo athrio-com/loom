@@ -6,32 +6,33 @@ Language: TypeScript
 
 # The server
 
-The server is the edge the overlay talks to. It is a small Effect HTTP server that owns the store and answers the overlay over the network: it records a note, lists a project's notes, resolves, discards, and edits one, and it hands out the overlay's own script. The CLI starts it on your machine; the overlay, wherever the app it sits in runs, posts to it.
+The server is the edge the overlay and the agent talk to. It is a small Effect HTTP server that owns the store: it records a note, lists a project's notes, resolves, discards, and edits one, and hands out the overlay's own script. It carries the agent's tools too, mounted at `/mcp`, so one server answers both the browser and the coding agent. The CLI starts it on your machine; the overlay posts to it from wherever its app runs, and the agent connects to `/mcp`.
 
 The overlay runs on the app's own origin and the server on another, so every reply carries the cross-origin headers a browser asks for before it will let the two talk. That is the one thing the server adds around its answers; the answers themselves are the store's work, returned as JSON.
 
 # What the server draws on
 
-From `effect` come the schema that decodes a request body, `Match` for dispatching on the method and path, `Option` for a missing query, and the effect and layer machinery. From `effect/unstable/http` come the request the handler reads, the responses it returns, the server that runs them, and the cross-origin middleware. `@effect/platform-bun` supplies the Bun HTTP server. Node's `path` and `url` locate the overlay script beside this file. The note module supplies the draft schema, and the store module the service every handler reaches through.
+From `effect` come the schema that decodes a request body, `Option` for a missing query, and the effect and layer machinery. From `effect/unstable/http` come the router that dispatches a request to a handler, the request that handler reads, the responses it returns, and the cross-origin middleware. From `effect/unstable/ai` comes the MCP server that mounts the agent's tools on the router. `@effect/platform-bun` supplies the Bun HTTP server. Node's `path` and `url` locate the overlay script beside this file. The note module supplies the draft schema, the store module the service every handler reaches through, and the tools module the toolkit and handlers the mount registers.
 
 =>
 
-import { Effect, Layer, Match, Option, Schema } from 'effect'
+import { Effect, Layer, Option, Schema } from 'effect'
 import {
-  HttpMiddleware,
-  HttpServer,
+  HttpRouter,
   HttpServerRequest,
   HttpServerResponse,
 } from 'effect/unstable/http'
+import { McpServer } from 'effect/unstable/ai'
 import { BunHttpServer } from '@effect/platform-bun'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DraftSchema } from '@athrio/loom-notes/note'
 import { NoteStore } from './store'
+import { handlers, toolkit } from './mcp'
 
 # What a request carries
 
-The server decodes each POST body against a schema at its edge, so a handler works with a typed value and never a raw payload. Capturing a note reads a whole draft. The three changes each name a note by its project and sequence, and an edit adds the new words. A request that matches no route is a plain not-found, and `root` is this file's own directory, where the built overlay script sits beside it.
+The server decodes each POST body against a schema at its edge, so a handler works with a typed value and never a raw payload. Capturing a note reads a whole draft. The three changes each name a note by its project and sequence, and an edit adds the new words. `root` is this file's own directory, where the built overlay script sits beside it, and `notFound` is the answer the overlay falls back to while no build sits there yet.
 
 =>
 
@@ -42,37 +43,39 @@ const notFound = Effect.succeed(HttpServerResponse.text('Not found', { status: 4
 
 const root = dirname(fileURLToPath(import.meta.url))
 
-type Store = NoteStore['Service']
-
 # Recording and changing a note
 
-Each write reads its body, asks the store to do the work, and replies. `capture` decodes a draft, records it, and returns the stamped note. `resolve` and `discard` name a note and settle it; `edit` names one and replaces its words. The three changes answer with a small acknowledgement, since the overlay reads the list back afterwards rather than the reply.
+Each write reaches the store, does its work, and replies, taking the store from the context the server provides. `capture` decodes a draft, records it, and returns the stamped note. `resolve` and `discard` name a note and settle it; `edit` names one and replaces its words. The three changes answer with a small acknowledgement, since the overlay reads the list back afterwards rather than the reply.
 
 =>
 
-const capture = (store: Store) =>
-  HttpServerRequest.schemaBodyJson(DraftSchema).pipe(
-    Effect.flatMap((draft) => store.record(draft)),
-    Effect.flatMap((note) => HttpServerResponse.json(note)),
-  )
+const capture = Effect.gen(function* () {
+  const store = yield* NoteStore
+  const draft = yield* HttpServerRequest.schemaBodyJson(DraftSchema)
+  const note = yield* store.record(draft)
+  return yield* HttpServerResponse.json(note)
+})
 
-const resolve = (store: Store) =>
-  HttpServerRequest.schemaBodyJson(SeqBody).pipe(
-    Effect.flatMap(({ project, seq }) => store.resolve(project, seq)),
-    Effect.flatMap(() => HttpServerResponse.json({ ok: true })),
-  )
+const resolve = Effect.gen(function* () {
+  const store = yield* NoteStore
+  const { project, seq } = yield* HttpServerRequest.schemaBodyJson(SeqBody)
+  yield* store.resolve(project, seq)
+  return yield* HttpServerResponse.json({ ok: true })
+})
 
-const discard = (store: Store) =>
-  HttpServerRequest.schemaBodyJson(SeqBody).pipe(
-    Effect.flatMap(({ project, seq }) => store.discard(project, seq)),
-    Effect.flatMap(() => HttpServerResponse.json({ ok: true })),
-  )
+const discard = Effect.gen(function* () {
+  const store = yield* NoteStore
+  const { project, seq } = yield* HttpServerRequest.schemaBodyJson(SeqBody)
+  yield* store.discard(project, seq)
+  return yield* HttpServerResponse.json({ ok: true })
+})
 
-const edit = (store: Store) =>
-  HttpServerRequest.schemaBodyJson(EditBody).pipe(
-    Effect.flatMap(({ project, seq, text }) => store.edit(project, seq, text)),
-    Effect.flatMap(() => HttpServerResponse.json({ ok: true })),
-  )
+const edit = Effect.gen(function* () {
+  const store = yield* NoteStore
+  const { project, seq, text } = yield* HttpServerRequest.schemaBodyJson(EditBody)
+  yield* store.edit(project, seq, text)
+  return yield* HttpServerResponse.json({ ok: true })
+})
 
 # Listing notes and serving the overlay
 
@@ -80,55 +83,61 @@ const edit = (store: Store) =>
 
 =>
 
-const feed = (store: Store, url: URL) =>
-  Option.match(Option.fromNullishOr(url.searchParams.get('project')), {
+const feed = Effect.gen(function* () {
+  const store = yield* NoteStore
+  const request = yield* HttpServerRequest.HttpServerRequest
+  const project = new URL(request.url, 'http://localhost').searchParams.get('project')
+  return yield* Option.match(Option.fromNullishOr(project), {
     onNone: () => Effect.succeed(HttpServerResponse.text('project is required', { status: 400 })),
-    onSome: (project) =>
-      store.list(project).pipe(Effect.flatMap((notes) => HttpServerResponse.json(notes))),
+    onSome: (found) =>
+      store.list(found).pipe(Effect.flatMap((notes) => HttpServerResponse.json(notes))),
   })
+})
 
 const overlay = HttpServerResponse.file(join(root, '..', 'dist', 'overlay.js')).pipe(
   Effect.catchCause(() => notFound),
 )
 
-# Routing a request
+# The routes
 
-`handle` dispatches on the method and the path together, so a GET and a POST at the same address reach different work. The overlay's five calls and its script each match one route; anything else is a not-found.
+The router carries the overlay's routes, each a method paired with a path so a GET and a POST at the same address reach different work. The overlay's five calls each match a route, and its request for its own script a sixth. The router answers any other request with a not-found of its own.
 
 =>
 
-const handle = (store: Store, method: string, url: URL) =>
-  Match.value({ method, path: url.pathname }).pipe(
-    Match.when({ method: 'POST', path: '/notes/capture' }, () => capture(store)),
-    Match.when({ method: 'GET', path: '/notes/feed' }, () => feed(store, url)),
-    Match.when({ method: 'POST', path: '/notes/resolve' }, () => resolve(store)),
-    Match.when({ method: 'POST', path: '/notes/discard' }, () => discard(store)),
-    Match.when({ method: 'POST', path: '/notes/edit' }, () => edit(store)),
-    Match.when({ method: 'GET', path: '/notes.js' }, () => overlay),
-    Match.orElse(() => notFound),
-  )
+const routes = Layer.mergeAll(
+  HttpRouter.add('POST', '/notes/capture', capture),
+  HttpRouter.add('GET', '/notes/feed', feed),
+  HttpRouter.add('POST', '/notes/resolve', resolve),
+  HttpRouter.add('POST', '/notes/discard', discard),
+  HttpRouter.add('POST', '/notes/edit', edit),
+  HttpRouter.add('GET', '/notes.js', overlay),
+)
+
+# Mounting the agent's tools
+
+The agent's tools ride the same router. `McpServer.layerHttp` registers a JSON-RPC route at `/mcp`, and `McpServer.toolkit` binds the toolkit and its handlers to it, so the agent reaches the tools where the overlay reaches the API. The handlers draw on the store, which the server provides once beneath everything.
+
+=>
+
+const mcp = McpServer.toolkit(toolkit).pipe(
+  Layer.provide(handlers),
+  Layer.provide(McpServer.layerHttp({ name: 'loom', version: '0.9.0', path: '/mcp' })),
+)
 
 # The server itself
 
-The application is one handler: it reads the store and the request, resolves the path, and returns the response, wrapped in the cross-origin middleware so a browser on any origin may call it. `notesServer` turns that into a server on a port, over the store and the Bun HTTP platform. It leaves the filesystem to the runtime edge — the CLI that launches it — the one place the platform is chosen.
+The application merges three layers on one router: the routes, the agent's tools at `/mcp`, and the cross-origin middleware that lets a browser on any origin call it. `notesServer` serves that application on a port, over the store and the Bun HTTP platform. It leaves the filesystem to the runtime edge — the CLI that launches it — the one place the platform is chosen.
 
 =>
 
-const app = Effect.gen(function* () {
-  const store = yield* NoteStore
-  const request = yield* HttpServerRequest.HttpServerRequest
-  const url = new URL(request.url, 'http://localhost')
-  return yield* handle(store, request.method, url)
-}).pipe(
-  HttpMiddleware.cors({
-    allowedOrigins: () => true,
-    allowedMethods: ['GET', 'POST'],
-    allowedHeaders: ['Content-Type'],
-  }),
+const app = Layer.mergeAll(
+  routes,
+  mcp,
+  HttpRouter.cors({ allowedMethods: ['GET', 'POST'], allowedHeaders: ['Content-Type'] }),
 )
 
 export const notesServer = (port: number) =>
-  HttpServer.serve(app).pipe(
+  HttpRouter.serve(app).pipe(
     Layer.provide(NoteStore.layer),
     Layer.provide(BunHttpServer.layer({ port })),
   )
@@ -145,6 +154,8 @@ export const notesServer = (port: number) =>
 
 ::[Listing notes and serving the overlay]
 
-::[Routing a request]
+::[The routes]
+
+::[Mounting the agent's tools]
 
 ::[The server itself]

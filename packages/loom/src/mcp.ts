@@ -1,6 +1,5 @@
-import { Array, Effect, Layer, Schema as S } from 'effect'
-import { McpServer, Tool, Toolkit } from 'effect/unstable/ai'
-import { BunRuntime, BunServices } from '@effect/platform-bun'
+import { Array, Effect, Schema as S } from 'effect'
+import { Tool, Toolkit } from 'effect/unstable/ai'
 import { NoteSchema } from '@athrio/loom-notes/note'
 import { NoteStore } from './store'
 
@@ -25,9 +24,9 @@ const discard = Tool.make('discard', {
   parameters: S.Struct({ project: S.String, seq: S.Number }),
 })
 
-const toolkit = Toolkit.make(listProjects, listOpenNotes, resolve, discard)
+export const toolkit = Toolkit.make(listProjects, listOpenNotes, resolve, discard)
 
-const handlers = toolkit.toLayer(
+export const handlers = toolkit.toLayer(
   Effect.gen(function* () {
     const store = yield* NoteStore
     return {
@@ -42,12 +41,3 @@ const handlers = toolkit.toLayer(
     }
   }),
 )
-
-const server = McpServer.toolkit(toolkit).pipe(
-  Layer.provide(handlers),
-  Layer.provide(McpServer.layerStdio({ name: 'loom-notes', version: '0.0.1' })),
-  Layer.provide(NoteStore.layer),
-  Layer.provide(BunServices.layer),
-)
-
-BunRuntime.runMain(Layer.launch(server))

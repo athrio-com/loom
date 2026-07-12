@@ -6,19 +6,18 @@ Language: TypeScript
 
 # The agent's tools
 
-The agent reads the notes through this: a small MCP server that hands a coding agent the notes as tools it can call. Where the overlay writes over HTTP, the agent reads and settles over the Model Context Protocol — it lists the projects and their open notes, and marks a note addressed or discards it once it has acted. The server speaks the protocol over its standard input and output, the way an agent host launches and drives it, and reaches the same SQLite store the overlay's notes land in.
+The agent reads the notes through a small set of tools it calls over the Model Context Protocol (MCP). Where the overlay writes notes over the HTTP API, the agent reads and settles them: it lists the projects and their open notes, then marks a note addressed or discards it once it has acted. The notes server mounts these tools at `/mcp`, on the same HTTP server the overlay talks to, and they reach the same SQLite store the overlay's notes land in.
 
-An MCP server exposes its work as named tools with typed arguments, which the host discovers and the model calls directly. That is the difference from the overlay's HTTP API: the API is for the browser, and these tools are for the agent.
+An MCP server exposes its work as named tools with typed arguments, which the host discovers and the model calls directly. That is what sets these apart from the overlay's HTTP API: the API is shaped for the browser, and the tools are shaped for the agent.
 
 # What it draws on
 
-From `effect` come the array and schema combinators and the layer machinery. From `effect/unstable/ai` come the tool and toolkit that define what the agent can call, and the MCP server that exposes them. `@effect/platform-bun` supplies Bun's platform services — the standard streams the protocol rides and the filesystem the store opens — and the runtime edge. The note module supplies the note schema the tools answer with, and the store module the service they act through.
+From `effect` come the array and schema combinators. From `effect/unstable/ai` come the tool and toolkit that define what the agent can call. The note module supplies the note schema the tools answer with, and the store module the service they act through.
 
 =>
 
-import { Array, Effect, Layer, Schema as S } from 'effect'
-import { McpServer, Tool, Toolkit } from 'effect/unstable/ai'
-import { BunRuntime, BunServices } from '@effect/platform-bun'
+import { Array, Effect, Schema as S } from 'effect'
+import { Tool, Toolkit } from 'effect/unstable/ai'
 import { NoteSchema } from '@athrio/loom-notes/note'
 import { NoteStore } from './store'
 
@@ -49,7 +48,7 @@ const discard = Tool.make('discard', {
   parameters: S.Struct({ project: S.String, seq: S.Number }),
 })
 
-const toolkit = Toolkit.make(listProjects, listOpenNotes, resolve, discard)
+export const toolkit = Toolkit.make(listProjects, listOpenNotes, resolve, discard)
 
 # The handlers
 
@@ -57,7 +56,7 @@ The handlers are the tools' work, each reaching the store through the one `NoteS
 
 =>
 
-const handlers = toolkit.toLayer(
+export const handlers = toolkit.toLayer(
   Effect.gen(function* () {
     const store = yield* NoteStore
     return {
@@ -73,21 +72,6 @@ const handlers = toolkit.toLayer(
   }),
 )
 
-# The server
-
-The server registers the toolkit, exposes it over standard input and output, and runs until the host closes the stream. `McpServer.toolkit` needs the handlers and the store beneath them; `layerStdio` speaks the protocol; Bun's services supply the streams it rides and the filesystem the store opens; and `BunRuntime` is the edge the whole process starts from.
-
-=>
-
-const server = McpServer.toolkit(toolkit).pipe(
-  Layer.provide(handlers),
-  Layer.provide(McpServer.layerStdio({ name: 'loom-notes', version: '0.0.1' })),
-  Layer.provide(NoteStore.layer),
-  Layer.provide(BunServices.layer),
-)
-
-BunRuntime.runMain(Layer.launch(server))
-
 # The module {Tangle}
 
 =>
@@ -97,5 +81,3 @@ BunRuntime.runMain(Layer.launch(server))
 ::[The tools]
 
 ::[The handlers]
-
-::[The server]
