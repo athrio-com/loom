@@ -1,9 +1,10 @@
 import { Console, Effect, FileSystem, Layer, Option, Schema } from 'effect'
-import { Argument, Command, Prompt } from 'effect/unstable/cli'
+import { Argument, Command, Flag, Prompt } from 'effect/unstable/cli'
 import { BunRuntime, BunServices } from '@effect/platform-bun'
-import { existsSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve as resolvePath } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { DocumentSource } from '@athrio/loom-lang/LoomCompiler'
 import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
 import { LoomWeaver } from '@athrio/loom-lang/weave/LoomWeaver'
@@ -64,7 +65,23 @@ const weave = (file: string, out: string) =>
     yield* Console.log(`loom: wove ${file} → ${written}`)
   })
 
-const init = (dir: Option.Option<string>) =>
+const mergeMcpConfig = (root: string): void => {
+  const path = resolvePath(root, '.mcp.json')
+  const existing = existsSync(path)
+    ? (JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>)
+    : {}
+  const servers = (existing.mcpServers as Record<string, unknown> | undefined) ?? {}
+  const merged = {
+    ...existing,
+    mcpServers: {
+      ...servers,
+      loom: { type: 'http', url: `http://localhost:${defaultPort}/mcp` },
+    },
+  }
+  writeFileSync(path, JSON.stringify(merged, null, 2) + '\n')
+}
+
+const init = (dir: Option.Option<string>, project: Option.Option<string>) =>
   Effect.gen(function* () {
     const root = resolvePath(process.cwd(), Option.getOrElse(dir, () => '.'))
     const config = yield* LoomConfig
@@ -114,6 +131,17 @@ const init = (dir: Option.Option<string>) =>
         `   ${dim(`primary language: ${language}`)}\n` +
         `   ${dim(`activated: ${ids.join(', ') || 'none'}`)}\n`,
     )
+
+    const id = Option.getOrElse(project, () => randomUUID())
+    yield* Effect.sync(() => mergeMcpConfig(root))
+    yield* Console.log(
+      `   ${teal('✓')} wrote ${resolvePath(root, '.mcp.json')}\n\n` +
+        `   ${dim('paste this into the app you are reviewing:')}\n\n` +
+        `   ${teal(
+          `<script src="http://localhost:${defaultPort}/notes.js" data-loom-project="${id}"></script>`,
+        )}\n`,
+    )
+    yield* start
   }).pipe(
     Effect.catchTag('QuitError', () => Console.log(dim('\n   Cancelled.\n'))),
   )
@@ -285,8 +313,11 @@ const weaveCommand = Command.make(
 
 const initCommand = Command.make(
   'init',
-  { dir: Argument.optional(Argument.directory('dir')) },
-  ({ dir }) => init(dir),
+  {
+    dir: Argument.optional(Argument.directory('dir')),
+    project: Flag.optional(Flag.string('project')),
+  },
+  ({ dir, project }) => init(dir, project),
 )
 
 const addCommand = Command.make(
