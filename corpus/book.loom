@@ -115,16 +115,17 @@ The website is the woven book, running — the pages you are reading now. `loom 
 7. Packaging the website
 8. The pre-render
 
-### Part XI — The annotation utility
+### Part XI — Loom Devtools
 
-Reviewing a user interface means pointing at it. This part is a Vite plugin that captures those points. While the development server runs, it draws an overlay over the page. You click an element to leave a remark on it, or type a message into a sidebar. The remarks accumulate in a log, ordered by the time you made them, and a coding agent reads the whole log at once and works through it. Nothing about the utility lives in the product — it is a development dependency, and a production build carries no trace of it.
+Loom Devtools rides along a running app: a bar you summon over the page to work on the app while you use it. It runs on your machine, against any app — woven from Loom or not — and writes nothing into the code you review. The bar gathers a few tools and is built to hold more. Today it carries Notes: you review by pointing, leaving a note on an element you click or a message you type, and a coding agent reads them over the Model Context Protocol and works through them. This part builds it up — the note the tools pass around, the store that keeps notes on your machine, the server that runs as the daemon behind the bar, the overlay you point with, the agent's tools, the Vite plugin that injects the overlay, and the package that ships it all.
 
-1. The annotation utility
-2. The feedback log
-3. The Vite plugin
+1. The note
+2. The store
+3. The server
 4. The overlay
-5. The command
-6. Packaging the annotation utility
+5. The agent's tools
+6. The Vite plugin
+7. Packaging
 
 ### Part XII — Work in progress
 

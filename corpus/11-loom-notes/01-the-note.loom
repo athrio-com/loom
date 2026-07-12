@@ -1,5 +1,5 @@
 ---
-Part XI: Loom Notes
+Part XI: Loom Devtools
 Chapter 1: The note
 Package: packages/loom-notes/src/note.ts
 Language: TypeScript
@@ -7,11 +7,11 @@ Language: TypeScript
 
 # The note
 
-Loom Notes lets you review a running app by pointing at it: you leave a note on an element you click, or type one as a message, and a coding agent reads them all and works through them. It runs on your machine, against any app, and writes nothing into your project.
+Loom Devtools rides along a running app: a bar you summon over the page to work on the app while you use it. Its first tool is Notes. You review by pointing — leaving a note on an element you click, or typing one as a message — and a coding agent reads them all over the Model Context Protocol and works through them. Devtools runs on your machine, against any app, and writes nothing into the code you review.
 
 A note comes in three kinds: DOM annotations, Loom annotations, and chat notes. A DOM annotation points at an element by how to find it again in the page. A Loom annotation points instead at the Loom source the element was woven from, so it leads back to the loom's prose and code. A chat note stands alone, the way a message sent into a chat does. All three carry the page they were noted on and the words you wrote; each kind adds only what it needs to point where it points.
 
-This chapter is the note the rest of the tool passes around — its three kinds, and the draft the overlay sends before the store stamps it into a note kept for good.
+This chapter is the note that the rest of Notes passes around — its three kinds, and the draft the overlay sends before the store stamps it into a note kept for good.
 
 # What every note carries
 
