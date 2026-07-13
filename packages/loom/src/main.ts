@@ -55,6 +55,26 @@ const tangle = (file: string) =>
     ),
   )
 
+const orphans = (prune: boolean) =>
+  Effect.gen(function* () {
+    const tangler = yield* LoomTangler
+    if (prune) {
+      const removed = yield* tangler.prune(process.cwd())
+      yield* removed.length === 0
+        ? Console.log('loom: no orphans to prune')
+        : Effect.forEach(removed, (path) => Console.log(`loom: pruned ${path}`))
+    } else {
+      const found = yield* tangler.orphans(process.cwd())
+      yield* Effect.forEach(found, (path) => Console.log(path))
+    }
+  }).pipe(
+    Effect.catchTag('TangleError', (e) =>
+      Console.error(e.message).pipe(
+        Effect.andThen(Effect.sync(() => void (process.exitCode = 1))),
+      ),
+    ),
+  )
+
 const weave = (file: string, out: string) =>
   Effect.gen(function* () {
     const weaver = yield* LoomWeaver
@@ -206,12 +226,17 @@ const alive = (pid: number): Effect.Effect<boolean> =>
     Effect.orElseSucceed(() => false),
   )
 
+const responds = (port: number): Effect.Effect<boolean> =>
+  Effect.tryPromise(() =>
+    fetch(`http://localhost:${port}/`, { signal: AbortSignal.timeout(700) }),
+  ).pipe(Effect.as(true), Effect.orElseSucceed(() => false))
+
 const runningServer = readRecord.pipe(
   Effect.flatMap(
     Option.match({
       onNone: () => Effect.succeed(Option.none<typeof ServerRecord.Type>()),
       onSome: (record) =>
-        alive(record.pid).pipe(
+        responds(record.port).pipe(
           Effect.map((up) => (up ? Option.some(record) : Option.none())),
         ),
     }),
@@ -228,40 +253,54 @@ const spawnServer = (port: number): Effect.Effect<number> =>
     return child.pid
   })
 
-const start = Effect.gen(function* () {
-  const fs = yield* FileSystem.FileSystem
-  yield* Option.match(yield* runningServer, {
-    onSome: (record) =>
-      Console.log(
-        `\n   ${teal('●')} notes server already running on http://localhost:${record.port}\n`,
-      ),
-    onNone: () =>
-      Effect.gen(function* () {
-        const pid = yield* spawnServer(defaultPort)
-        yield* fs.makeDirectory(loomDir, { recursive: true })
-        yield* fs.writeFileString(recordFile, JSON.stringify({ pid, port: defaultPort }))
-        yield* Console.log(
-          `\n   ${teal('✓')} notes server on http://localhost:${defaultPort}\n` +
-            `   ${dim('stop it with `loom stop`')}\n`,
-        )
-      }),
+const halt = (pid: number): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    yield* Effect.try(() => process.kill(pid, 'SIGTERM')).pipe(Effect.ignore)
+    yield* Effect.sleep('300 millis')
+    const stillUp = yield* alive(pid)
+    yield* stillUp
+      ? Effect.try(() => process.kill(pid, 'SIGKILL')).pipe(Effect.ignore)
+      : Effect.void
   })
+
+const launch = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
+  const pid = yield* spawnServer(defaultPort)
+  yield* fs.makeDirectory(loomDir, { recursive: true })
+  yield* fs.writeFileString(recordFile, JSON.stringify({ pid, port: defaultPort }))
+  yield* Console.log(
+    `\n   ${teal('✓')} notes server on http://localhost:${defaultPort}\n` +
+      `   ${dim('stop it with `loom stop`')}\n`,
+  )
+})
+
+const start = Effect.gen(function* () {
+  const record = yield* readRecord
+  const responding = yield* Option.match(record, {
+    onNone: () => Effect.succeed(false),
+    onSome: (found) => responds(found.port),
+  })
+  if (responding) {
+    yield* Console.log(
+      `\n   ${teal('●')} notes server already running on http://localhost:${defaultPort}\n`,
+    )
+    return
+  }
+  yield* Option.match(record, { onSome: (found) => halt(found.pid), onNone: () => Effect.void })
+  yield* launch
 })
 
 const stop = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
-  yield* Option.match(yield* runningServer, {
-    onSome: (record) =>
-      Effect.try(() => process.kill(record.pid)).pipe(
-        Effect.ignore,
-        Effect.andThen(fs.remove(recordFile, { force: true })),
+  const record = yield* readRecord
+  yield* Option.match(record, {
+    onSome: (found) =>
+      halt(found.pid).pipe(
         Effect.andThen(Console.log(`\n   ${teal('✓')} stopped the notes server\n`)),
       ),
-    onNone: () =>
-      fs.remove(recordFile, { force: true }).pipe(
-        Effect.andThen(Console.log(dim('\n   The notes server is not running.\n'))),
-      ),
+    onNone: () => Console.log(dim('\n   The notes server is not running.\n')),
   })
+  yield* fs.remove(recordFile, { force: true })
 })
 
 const status = Effect.gen(function* () {
@@ -294,6 +333,12 @@ const tangleCommand = Command.make(
   'tangle',
   { path: Argument.string('path') },
   ({ path }) => tangle(path),
+)
+
+const orphansCommand = Command.make(
+  'orphans',
+  { prune: Flag.boolean('prune') },
+  ({ prune }) => orphans(prune),
 )
 
 const weaveCommand = Command.make(
@@ -332,6 +377,7 @@ const stopCommand = Command.make('stop', {}, () => stop)
 const loom = Command.make('loom').pipe(
   Command.withSubcommands([
     tangleCommand,
+    orphansCommand,
     weaveCommand,
     initCommand,
     addCommand,
@@ -343,7 +389,7 @@ const loom = Command.make('loom').pipe(
 )
 
 const program = Command.run(loom, {
-  version: '0.9.0',
+  version: '0.10.0',
 }).pipe(
   Effect.provide(LoomTangler.layer),
   Effect.provide(LoomWeaver.layer),

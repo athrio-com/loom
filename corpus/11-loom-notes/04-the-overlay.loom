@@ -6,20 +6,26 @@ Language: TypeScript
 
 # The overlay
 
-The overlay is the surface you point with. It is a small Foldkit application injected into a page: a launcher in the corner, and a panel it opens that lists the notes made so far and holds a composer for the next one. You either type a chat note, or you enter pick mode, hover to an element, and click it to leave an annotation on it — a Loom annotation when the element was woven from Loom, a plain DOM annotation otherwise. Because it must sit over any app without its styles bleeding into the page or the page's bleeding into it, it lives inside a shadow root — a sealed corner of the document — and carries its own compiled Tailwind stylesheet there.
+The overlay is Loom Devtools drawn into a running app. It is a small Foldkit application injected into the page as a bar pinned along the bottom of the screen. The bar shows the branch the project sits on, names the project, carries a count of the notes still open, and holds the tools you work with — an aim to point at an element, and the notes card. When the bar is in the way you collapse it to a small handle at the edge, and click the handle to bring it back.
+
+You leave a note in one of two ways. You type one as a message, or you arm the aim, hover to an element, and click it to leave an annotation on that element. An element woven from Loom keeps a Loom annotation, which leads back to the loom's prose and code; any other element keeps a plain DOM annotation.
+
+The bar must sit over any app without its styles bleeding into the page, or the page's bleeding into it. So it lives inside a shadow root — a sealed corner of the document — and carries its own compiled Tailwind stylesheet there.
 
 # The model
 
-The overlay holds where it is and what it has. It reads two things from the page when it starts and keeps them for the rest of its life: the server it talks to, and the project it belongs to. It tracks the route it sits on, the notes it has fetched, and whether its last call reached that server — a notes server that isn't running turns this false, and the panel says so.
+The overlay holds where it is and what it has. It reads three things when it starts and keeps them: the server it talks to, the project it belongs to, and the project's name and branch, which the server reports. It tracks the route it sits on, the notes it has fetched, and whether its last call reached the server — a server that isn't running turns this false, and the card says so.
 
-It tracks the panel too: whether it is open, whether pick mode is on, the element the cursor is over while it is, and the element it has captured but not yet written a note for. It tracks the words being typed, and, when a note is being edited, which note and its new words. A pending capture is a Loom or a DOM anchor without its words yet; the popover fills those in.
+It tracks the bar and the card. It holds whether the card is open, whether the bar is collapsed to its handle, whether the note list rests at the bottom, and whether a scroll to the bottom is pending. It holds whether the name is being renamed in place along with the words typed so far, whether pick mode is on, the element the cursor is over while it is, and the element it has captured but has no note for yet. It holds the words being typed, and, while a note is being edited, which note and its new words.
+
+A hovered element carries two things: the rectangle it fills, for the highlight, and a short tag naming it, for the label the highlight wears. A pending capture is a Loom or a DOM anchor without its words yet; the popover fills those in.
 
 =>
 
-import { Array, Effect, Match, Option, Schema as S, Stream } from 'effect'
+import { Array, Effect, Match, Option, Queue, Schema as S, Stream } from 'effect'
 import { Command, Subscription } from '@athrio/foldkit'
 import { html } from '@athrio/foldkit/html'
-import type { Html } from '@athrio/foldkit/html'
+import type { Html, KeyboardModifiers } from '@athrio/foldkit/html'
 import { m } from '@athrio/foldkit/message'
 import { clsx } from 'clsx'
 import { LoomSourceSchema, NoteSchema, RectSchema, type Note, type Rect } from './note'
@@ -30,15 +36,29 @@ const PendingSchema = S.Union([
 ])
 type Pending = typeof PendingSchema.Type
 
+const HoverSchema = S.Struct({ rect: RectSchema, tag: S.String })
+type Hover = typeof HoverSchema.Type
+
+const TabSchema = S.Literals(['open', 'resolved'])
+type Tab = typeof TabSchema.Type
+
 export const Model = S.Struct({
   base: S.String,
   project: S.String,
+  name: S.String,
+  branch: S.String,
   route: S.String,
   notes: S.Array(NoteSchema),
   reachable: S.Boolean,
+  tab: TabSchema,
   open: S.Boolean,
+  collapsed: S.Boolean,
+  atBottom: S.Boolean,
+  pendingScroll: S.Boolean,
   picking: S.Boolean,
-  hover: S.optional(RectSchema),
+  renaming: S.Boolean,
+  nameDraft: S.String,
+  hover: S.optional(HoverSchema),
   pending: S.optional(PendingSchema),
   draft: S.String,
   editing: S.optional(S.Number),
@@ -48,15 +68,25 @@ export type Model = typeof Model.Type
 
 export const Toggled = m('Toggled')
 export const ToggledPick = m('ToggledPick')
-export const Hovered = m('Hovered', { rect: RectSchema })
+export const ToggledCollapse = m('ToggledCollapse')
+export const Hovered = m('Hovered', { hover: HoverSchema })
 export const Picked = m('Picked', { pending: PendingSchema })
 export const Escaped = m('Escaped')
 export const DraftChanged = m('DraftChanged', { value: S.String })
 export const Sent = m('Sent')
 export const GotNotes = m('GotNotes', { notes: S.Array(NoteSchema) })
+export const GotContext = m('GotContext', { name: S.String, branch: S.String })
 export const Unreachable = m('Unreachable')
+export const AtBottom = m('AtBottom', { at: S.Boolean })
+export const JumpToBottom = m('JumpToBottom')
+export const Scrolled = m('Scrolled')
+export const SelectedTab = m('SelectedTab', { tab: TabSchema })
 export const Resolved = m('Resolved', { seq: S.Number })
 export const Discarded = m('Discarded', { seq: S.Number })
+export const StartedRename = m('StartedRename')
+export const NameChanged = m('NameChanged', { value: S.String })
+export const SavedRename = m('SavedRename')
+export const CancelledRename = m('CancelledRename')
 export const StartedEdit = m('StartedEdit', { seq: S.Number, text: S.String })
 export const EditChanged = m('EditChanged', { value: S.String })
 export const SavedEdit = m('SavedEdit')
@@ -65,15 +95,25 @@ export const CancelledEdit = m('CancelledEdit')
 export const Message = S.Union([
   Toggled,
   ToggledPick,
+  ToggledCollapse,
   Hovered,
   Picked,
   Escaped,
   DraftChanged,
   Sent,
   GotNotes,
+  GotContext,
   Unreachable,
+  AtBottom,
+  JumpToBottom,
+  Scrolled,
+  SelectedTab,
   Resolved,
   Discarded,
+  StartedRename,
+  NameChanged,
+  SavedRename,
+  CancelledRename,
   StartedEdit,
   EditChanged,
   SavedEdit,
@@ -87,22 +127,34 @@ const h = html<Message>()
 
 The overlay reads its own script tag for where to reach the server and which project it belongs to. The tag's source names the origin, and its `data-loom-project` attribute names the project. `config` reads that pair, falling back to the page's own origin so the overlay still runs when a page loads it some other way.
 
-The commands carry the network over two shared pieces. `fetchFeed` reads the feed. `settle` writes: it posts to an endpoint and then reruns the feed, so a write refreshes the panel in one step.
+The commands carry the network over three shared pieces. `fetchFeed` reads the notes. `fetchContext` reads the project's name and branch, which the server keeps beside the notes. `settle` writes: it posts to an endpoint and then rereads the feed, so a write refreshes the card in one step.
 
-The notes server is a separate daemon, and it may not be running. A call to a server that isn't there fails, so both pieces treat that failure as a value rather than a crash. `Effect.tryPromise` lifts the failed fetch into the error channel, and `Effect.catchCause` folds any failure — a refused connection or a malformed reply alike — into an `Unreachable` message. So each piece answers with `GotNotes` when it reaches the server, and with `Unreachable` when it cannot — a dead server draws a banner in the panel and never takes the overlay down with it.
+The server is a separate daemon, and it may not be running. A call to a server that isn't there fails, so every piece treats that failure as a value rather than a crash. `Effect.tryPromise` lifts the failed fetch into the error channel, and `Effect.catchCause` folds any failure — a refused connection or a malformed reply alike — into an `Unreachable` message. So a live server answers with the notes or the context, and a dead one answers with `Unreachable`: a banner in the card, never a crash that takes the overlay down.
 
-`FetchNotes` reads. `SendChat` and `SendAnnotation` add a note. `SendResolve`, `SendDiscard`, and `SendEdit` act on one already there — marking it addressed, dropping it, or changing its words. Every command answers with the notes, or with `Unreachable`.
+`FetchNotes` reads the notes, and `FetchContext` reads the name and branch. `SendChat` and `SendAnnotation` add a note. `SendResolve`, `SendDiscard`, and `SendEdit` act on one already there. `SendRename` changes the project's name, then rereads the context so the bar shows the name the server settled on.
 
 =>
 
 const feedUrl = (base: string, project: string): string =>
   `${base}/notes/feed?project=${encodeURIComponent(project)}`
 
+const contextUrl = (base: string, project: string): string =>
+  `${base}/project/context?project=${encodeURIComponent(project)}`
+
+const ContextSchema = S.Struct({ name: S.String, branch: S.String })
+
 const fetchFeed = (base: string, project: string) =>
   Effect.tryPromise(() =>
     fetch(feedUrl(base, project))
       .then((response) => response.json())
       .then((data) => GotNotes({ notes: S.decodeUnknownSync(S.Array(NoteSchema))(data) })),
+  ).pipe(Effect.catchCause(() => Effect.succeed(Unreachable())))
+
+const fetchContext = (base: string, project: string) =>
+  Effect.tryPromise(() =>
+    fetch(contextUrl(base, project))
+      .then((response) => response.json())
+      .then((data) => GotContext(S.decodeUnknownSync(ContextSchema)(data))),
   ).pipe(Effect.catchCause(() => Effect.succeed(Unreachable())))
 
 const postJson = (base: string, path: string, body: unknown) =>
@@ -135,6 +187,13 @@ const FetchNotes = Command.define(
   GotNotes,
   Unreachable,
 )(({ base, project }) => fetchFeed(base, project))
+
+const FetchContext = Command.define(
+  'FetchContext',
+  { base: S.String, project: S.String },
+  GotContext,
+  Unreachable,
+)(({ base, project }) => fetchContext(base, project))
 
 const SendChat = Command.define(
   'SendChat',
@@ -175,9 +234,23 @@ const SendEdit = Command.define(
   Unreachable,
 )(({ base, project, seq, text }) => settle(base, project, '/notes/edit', { project, seq, text }))
 
+const SendRename = Command.define(
+  'SendRename',
+  { base: S.String, project: S.String, name: S.String },
+  GotContext,
+  Unreachable,
+)(({ base, project, name }) =>
+  postJson(base, '/project/name', { project, name }).pipe(
+    Effect.andThen(fetchContext(base, project)),
+    Effect.catchCause(() => Effect.succeed(Unreachable())),
+  ),
+)
+
 # Naming an element
 
 When you click an element, the overlay records where to find it again. An element woven from Loom carries its source in `data-loom-chapter` and `data-loom-section`; `anchorOf` reads the nearest ancestor that has them and keeps a Loom anchor. Failing that it keeps a DOM anchor, whose `selectorFor` is a best-effort CSS path — an id when the element has one, otherwise its tag and, where siblings share it, its position, up to five ancestors deep. Both anchors carry the element's label and the rectangle it fills, for the popover and the highlight.
+
+`tagFor` is the shorter label the highlight wears while you hover. It reads the same source `anchorOf` does — the nearest Loom source, or a DOM selector — but keeps only the pointer: the section for a Loom element, the selector for any other.
 
 =>
 
@@ -222,16 +295,117 @@ const anchorOf = (el: Element): Pending =>
     onNone: () => ({ kind: 'dom' as const, selector: selectorFor(el), label: labelOf(el), rect: rectOf(el) }),
   })
 
+const tagFor = (el: Element): string =>
+  Option.match(Option.fromNullishOr(el.closest('[data-loom-chapter][data-loom-section]')), {
+    onSome: (loom) => loom.getAttribute('data-loom-section') ?? '',
+    onNone: () => selectorFor(el),
+  })
+
 # Watching the page
 
-While pick mode is on, the overlay listens on the whole page. `hoverElement` follows the cursor and reports the rectangle under it, so the highlight can track. `clickElement` claims the next click — it stops the page from acting on it — and reports the anchor it captured. Both ignore events that land on the overlay itself: inside a shadow root, those arrive retargeted to the overlay's host, so a target that is the host is skipped. When pick mode is off, both streams are empty and no listener is attached.
+While pick mode is on, the overlay listens on the whole page. `hoverElement` follows the cursor and reports the rectangle under it and a tag naming it, so the highlight can track and label. `clickElement` claims the next click — it stops the page from acting on it — and reports the anchor it captured. Both ignore events that land on the overlay itself: inside a shadow root, those arrive retargeted to the overlay's host, so a target that is the host is skipped.
+
+`cursorLock` holds the cursor steady while you point. It drops a stylesheet into the page that forces the crosshair on every element, so the cursor no longer flickers from one element to the next, and lifts that stylesheet the moment pick mode ends. `escapeKey` gives you the way out: while pick mode is on, or a captured element is waiting for its words, pressing escape backs out.
+
+Three shortcuts drive the bar without the mouse: `Alt+A` arms the aim, `Alt+N` opens the notes, and `Alt+B` hides or shows the bar. `shortcut` reads a keystroke against them, but stands aside while you type — a field focused in the page or in the overlay turns `isTyping` true, so the letters reach the field rather than the bar.
+
+The card is a chat, so it belongs at the bottom. `ScrollNotes` runs after a render lands and drops the note list to its foot, showing the latest note. `bottomStream` watches the list while the card is open and reports whether it rests at the bottom, so the jump-to-latest arrow shows only when you have scrolled away from it. The list lives inside the shadow root and a fresh open rebuilds it, so the stream waits a frame at a time until the list exists, then follows its scrolling and lets go when the card closes.
+
+The shortcuts listen for as long as the overlay lives, so their stream keys on the project, which never changes. Every other stream is empty until the state it serves turns on — pick mode, a waiting capture, or the open card.
 
 =>
 
 const overlayHostId = 'loom-notes-overlay'
+const notesListId = 'loom-notes-list'
 
 const hostElement = (target: EventTarget | null): Option.Option<Element> =>
   target instanceof Element && target.id !== overlayHostId ? Option.some(target) : Option.none()
+
+const isEditable = (el: Element | null): boolean =>
+  el instanceof HTMLInputElement ||
+  el instanceof HTMLTextAreaElement ||
+  (el instanceof HTMLElement && el.isContentEditable)
+
+const isTyping = (): boolean =>
+  isEditable(document.activeElement) ||
+  isEditable(document.getElementById(overlayHostId)?.shadowRoot?.activeElement ?? null)
+
+const shortcut = (event: KeyboardEvent): Option.Option<Message> =>
+  isTyping() || !event.altKey || event.ctrlKey || event.metaKey
+    ? Option.none()
+    : Match.value(event.code).pipe(
+        Match.withReturnType<Option.Option<Message>>(),
+        Match.when('KeyA', () => Option.some(ToggledPick())),
+        Match.when('KeyN', () => Option.some(Toggled())),
+        Match.when('KeyB', () => Option.some(ToggledCollapse())),
+        Match.orElse(() => Option.none()),
+      )
+
+const cursorLock: Stream.Stream<Message> = Stream.scoped(
+  Stream.fromEffect(
+    Effect.acquireRelease(
+      Effect.sync(() => {
+        const style = document.createElement('style')
+        style.textContent = '*, *::before, *::after { cursor: crosshair !important }'
+        document.head.appendChild(style)
+        return style
+      }),
+      (style) => Effect.sync(() => style.remove()),
+    ),
+  ),
+).pipe(Stream.flatMap(() => Stream.never))
+
+const noteListElement = (): Element | null =>
+  document.getElementById(overlayHostId)?.shadowRoot?.querySelector(`#${notesListId}`) ?? null
+
+const ScrollNotes = Command.define('ScrollNotes', Scrolled)(
+  Effect.sync(() => {
+    requestAnimationFrame(() => {
+      const list = noteListElement()
+      if (list !== null) list.scrollTop = list.scrollHeight
+    })
+    return Scrolled()
+  }),
+)
+
+const nearBottom = (list: Element): boolean =>
+  list.scrollHeight - list.scrollTop - list.clientHeight < 40
+
+const bottomStream: Stream.Stream<Message> = Stream.callback<Message>((queue) =>
+  Effect.acquireRelease(
+    Effect.sync(() => {
+      const watch: { list: Element | null; onScroll: (() => void) | null; live: boolean } = {
+        list: null,
+        onScroll: null,
+        live: true,
+      }
+      const attach = (): void => {
+        if (!watch.live) return
+        const list = noteListElement()
+        if (list === null) {
+          requestAnimationFrame(attach)
+          return
+        }
+        const onScroll = (): void => {
+          Queue.offerUnsafe(queue, AtBottom({ at: nearBottom(list) }))
+        }
+        list.addEventListener('scroll', onScroll, { passive: true })
+        watch.list = list
+        watch.onScroll = onScroll
+        onScroll()
+      }
+      attach()
+      return watch
+    }),
+    (watch) =>
+      Effect.sync(() => {
+        watch.live = false
+        if (watch.list !== null && watch.onScroll !== null) {
+          watch.list.removeEventListener('scroll', watch.onScroll)
+        }
+      }),
+  ).pipe(Effect.flatMap(() => Effect.never)),
+)
 
 const subscriptions = Subscription.make<Model, Message>()((entry) => ({
   hoverElement: entry(
@@ -245,7 +419,9 @@ const subscriptions = Subscription.make<Model, Message>()((entry) => ({
               type: 'mousemove',
               options: { capture: true },
               toMessage: (event: Event) =>
-                Option.map(hostElement(event.target), (el) => Hovered({ rect: rectOf(el) })),
+                Option.map(hostElement(event.target), (el) =>
+                  Hovered({ hover: { rect: rectOf(el), tag: tagFor(el) } }),
+                ),
             })
           : Stream.empty,
     },
@@ -270,22 +446,74 @@ const subscriptions = Subscription.make<Model, Message>()((entry) => ({
           : Stream.empty,
     },
   ),
+  pickCursor: entry(
+    { picking: S.Boolean },
+    {
+      modelToDependencies: (model) => ({ picking: model.picking }),
+      dependenciesToStream: ({ picking }) => (picking ? cursorLock : Stream.empty),
+    },
+  ),
+  bottomWatch: entry(
+    { open: S.Boolean },
+    {
+      modelToDependencies: (model) => ({ open: model.open }),
+      dependenciesToStream: ({ open }) => (open ? bottomStream : Stream.empty),
+    },
+  ),
+  escapeKey: entry(
+    { active: S.Boolean },
+    {
+      modelToDependencies: (model) => ({ active: model.picking || model.pending !== undefined }),
+      dependenciesToStream: ({ active }) =>
+        active
+          ? Subscription.fromEventFilterMap<KeyboardEvent, Message>({
+              target: document,
+              type: 'keydown',
+              options: { capture: true },
+              toMessage: (event) => (event.key === 'Escape' ? Option.some(Escaped()) : Option.none()),
+            })
+          : Stream.empty,
+    },
+  ),
+  shortcuts: entry(
+    { project: S.String },
+    {
+      modelToDependencies: (model) => ({ project: model.project }),
+      dependenciesToStream: () =>
+        Subscription.fromEventFilterMap<KeyboardEvent, Message>({
+          target: document,
+          type: 'keydown',
+          options: { capture: true },
+          toMessage: (event) => {
+            const message = shortcut(event)
+            if (Option.isSome(message)) event.preventDefault()
+            return message
+          },
+        }),
+    },
+  ),
 }))
 
 # Updating the model
 
-`update` returns the next model and any commands. Opening the panel fetches the notes; entering pick mode hides the panel and leaves you pointing; hovering tracks the highlight; a click captures an anchor, ends pick mode, and opens the popover on it; escape backs out of either. Typing records the draft. Sending files it — as an annotation when one is pending, a chat note otherwise — and clears it. Resolving, discarding, and editing act on a note by its sequence, and an edit holds the row open as a field until it is saved or cancelled. A fresh list of notes replaces what the panel holds and marks the server reachable; a call that could not reach it marks the server unreachable, and the panel shows the banner.
+`update` returns the next model and any commands. Opening the card fetches the notes and scrolls to the latest; entering pick mode hides the card and leaves you pointing; either one brings a collapsed bar back first. Collapsing tucks the bar to its handle, closing the card and ending pick along the way. The card holds two tabs, the open notes and the resolved ones, and choosing one is all it takes to switch. Hovering tracks the highlight; a click captures an anchor, ends pick mode, and opens the popover on it; escape backs out of either.
+
+The card scrolls to the latest note when it opens and when you send one, but not when you settle an older one. A pending-scroll flag draws that line: opening the card and sending a note raise it, and the next batch of notes that arrives scrolls to the foot and lowers it again, while resolving, discarding, or editing leaves it down. As you scroll the list, it reports whether it rests at the bottom, and the jump-to-latest arrow drops you back there.
+
+Renaming the project runs in the bar. Starting it seeds the field with the current name; typing records the draft; saving sends the new name and shows it at once, and cancelling drops the field with the name unchanged. A blank name saves nothing.
+
+Typing a note records the draft. Sending files it — as an annotation when one is pending, a chat note otherwise — and clears it. Resolving, discarding, and editing act on a note by its sequence, and an edit holds the row open as a field until it is saved or cancelled. Fresh notes and a fresh context each mark the server reachable; a call that could not reach it marks the server unreachable, and the card shows the banner.
 
 =>
 
 const sent = (model: Model): readonly [Model, ReadonlyArray<Command.Command<Message>>] =>
   model.pending === undefined
     ? [
-        { ...model, draft: '' },
+        { ...model, draft: '', pendingScroll: true },
         [SendChat({ base: model.base, project: model.project, route: model.route, text: model.draft })],
       ]
     : [
-        { ...model, draft: '', pending: undefined },
+        { ...model, draft: '', pending: undefined, pendingScroll: true },
         [
           SendAnnotation({
             base: model.base,
@@ -305,18 +533,37 @@ const saved = (model: Model): readonly [Model, ReadonlyArray<Command.Command<Mes
         [SendEdit({ base: model.base, project: model.project, seq: model.editing, text: model.editText })],
       ]
 
+const renamed = (model: Model): readonly [Model, ReadonlyArray<Command.Command<Message>>] =>
+  model.nameDraft.trim() === ''
+    ? [{ ...model, renaming: false }, []]
+    : [
+        { ...model, renaming: false, name: model.nameDraft },
+        [SendRename({ base: model.base, project: model.project, name: model.nameDraft })],
+      ]
+
 const update = (
   model: Model,
   message: Message,
 ): readonly [Model, ReadonlyArray<Command.Command<Message>>] =>
   Match.value(message).pipe(
     Match.withReturnType<readonly [Model, ReadonlyArray<Command.Command<Message>>]>(),
-    Match.tag('Toggled', () => [
-      { ...model, open: !model.open },
-      model.open ? [] : [FetchNotes({ base: model.base, project: model.project })],
+    Match.tag('Toggled', () =>
+      model.open
+        ? [{ ...model, open: false }, []]
+        : [
+            { ...model, open: true, collapsed: false, pendingScroll: true },
+            [FetchNotes({ base: model.base, project: model.project }), ScrollNotes()],
+          ],
+    ),
+    Match.tag('ToggledPick', () => [
+      { ...model, picking: !model.picking, open: false, collapsed: false },
+      [],
     ]),
-    Match.tag('ToggledPick', () => [{ ...model, picking: !model.picking, open: false }, []]),
-    Match.tag('Hovered', ({ rect }) => [{ ...model, hover: rect }, []]),
+    Match.tag('ToggledCollapse', () => [
+      { ...model, collapsed: !model.collapsed, open: false, picking: false },
+      [],
+    ]),
+    Match.tag('Hovered', ({ hover }) => [{ ...model, hover }, []]),
     Match.tag('Picked', ({ pending }) => [
       { ...model, picking: false, pending, hover: undefined, open: true },
       [],
@@ -327,8 +574,17 @@ const update = (
     ]),
     Match.tag('DraftChanged', ({ value }) => [{ ...model, draft: value }, []]),
     Match.tag('Sent', () => (model.draft.trim() === '' ? [model, []] : sent(model))),
-    Match.tag('GotNotes', ({ notes }) => [{ ...model, notes, reachable: true }, []]),
+    Match.tag('GotNotes', ({ notes }) =>
+      model.pendingScroll
+        ? [{ ...model, notes, reachable: true, pendingScroll: false, atBottom: true }, [ScrollNotes()]]
+        : [{ ...model, notes, reachable: true }, []],
+    ),
+    Match.tag('GotContext', ({ name, branch }) => [{ ...model, name, branch, reachable: true }, []]),
     Match.tag('Unreachable', () => [{ ...model, reachable: false }, []]),
+    Match.tag('AtBottom', ({ at }) => [{ ...model, atBottom: at }, []]),
+    Match.tag('JumpToBottom', () => [{ ...model, atBottom: true }, [ScrollNotes()]]),
+    Match.tag('Scrolled', () => [model, []]),
+    Match.tag('SelectedTab', ({ tab }) => [{ ...model, tab }, []]),
     Match.tag('Resolved', ({ seq }) => [
       model,
       [SendResolve({ base: model.base, project: model.project, seq })],
@@ -337,6 +593,10 @@ const update = (
       model,
       [SendDiscard({ base: model.base, project: model.project, seq })],
     ]),
+    Match.tag('StartedRename', () => [{ ...model, renaming: true, nameDraft: model.name }, []]),
+    Match.tag('NameChanged', ({ value }) => [{ ...model, nameDraft: value }, []]),
+    Match.tag('SavedRename', () => renamed(model)),
+    Match.tag('CancelledRename', () => [{ ...model, renaming: false }, []]),
     Match.tag('StartedEdit', ({ seq, text }) => [{ ...model, editing: seq, editText: text }, []]),
     Match.tag('EditChanged', ({ value }) => [{ ...model, editText: value }, []]),
     Match.tag('SavedEdit', () => saved(model)),
@@ -344,11 +604,37 @@ const update = (
     Match.exhaustive,
   )
 
+# The outlined icons
+
+The bar draws its tools as outlined icons rather than glyphs: a git branch for the branch, a crosshair to aim with, a speech bubble for the notes, and chevrons to collapse the bar and jump to the latest note. Each icon is a small line drawing in the current text colour, so it takes the colour of whatever holds it — the crosshair mint on the aim, the branch violet beside the name.
+
+Foldkit renders through a virtual DOM that builds HTML elements, and an SVG drawing needs its own namespace to render. So each icon is set as markup through `InnerHTML`, and the browser parses it as SVG in its own right. `icon` wraps one drawing in a fixed square that carries the colour.
+
+=>
+
+const branchIcon =
+  '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>'
+
+const crosshairIcon =
+  '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><line x1="12" x2="12" y1="2" y2="5"/><line x1="12" x2="12" y1="19" y2="22"/><line x1="2" x2="5" y1="12" y2="12"/><line x1="19" x2="22" y1="12" y2="12"/></svg>'
+
+const messageIcon =
+  '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>'
+
+const chevronDownIcon =
+  '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>'
+
+const chevronUpIcon =
+  '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>'
+
+const icon = (svg: string, tone: string): Html =>
+  h.span([h.Class(clsx('block h-[15px] w-[15px] shrink-0', tone)), h.InnerHTML(svg)], [])
+
 # Rendering a note
 
-Each note is one row. A meta line names it: its sequence number, its kind coloured to tell the three apart — cyan for a chat note, mint for a DOM annotation, violet for a Loom one — what it points at, and the route it was made on. The words sit below the meta line, and the controls to edit, resolve, or discard the note appear on hover, the resolve gone once the note is addressed.
+Each note is one row. A meta line names it: its kind coloured to tell the three apart — cyan for a chat note, mint for a DOM annotation, violet for a Loom one — what it points at, and the route it was made on. The words sit below the meta line, and the controls to edit, resolve, or discard the note appear on hover, the resolve gone once the note is addressed. The list draws the thin line between one row and the next, so a row carries no rule of its own.
 
-`kindColor` matches on the kind, so a fourth kind is a compile error until it is coloured too. `pointerOf` reads what the note points at — a selector for a DOM annotation, a section for a Loom one, and nothing for a chat note, which points nowhere. Editing turns the row into a field with save and cancel, and an addressed note dims and stays.
+`kindColor` matches on the kind, so a fourth kind is a compile error until it is coloured too. `pointerOf` reads what the note points at — a selector for a DOM annotation, a section for a Loom one, and nothing for a chat note, which points nowhere. Editing turns the row into a field with save and cancel.
 
 =>
 
@@ -371,7 +657,10 @@ const pointerOf = (note: Note): Option.Option<string> =>
 
 const control = (label: string, message: Message, tone: string): Html =>
   h.button(
-    [h.Class(clsx('rounded px-1.5 py-0.5 text-[11px] transition hover:bg-white/5', tone)), h.OnClick(message)],
+    [
+      h.Class(clsx('cursor-pointer rounded px-1.5 py-0.5 text-[11px] transition hover:bg-white/5', tone)),
+      h.OnClick(message),
+    ],
     [label],
   )
 
@@ -389,7 +678,6 @@ const meta = (note: Note): Html =>
   h.div(
     [h.Class('mb-1 flex items-center gap-2 text-[11px]')],
     [
-      h.span([h.Class('text-fg-3')], [`#${note.seq}`]),
       h.span([h.Class(kindColor(note))], [note.kind]),
       ...Option.match(pointerOf(note), {
         onNone: () => [],
@@ -401,12 +689,12 @@ const meta = (note: Note): Html =>
 
 const editRow = (editText: string): Html =>
   h.div(
-    [h.Class('flex flex-col gap-2 border-b border-white/[0.07] px-3 py-2.5')],
+    [h.Class('flex flex-col gap-2 px-3 py-2.5')],
     [
       h.textarea(
         [
           h.Class(
-            'w-full resize-none rounded-md border border-white/10 bg-bg px-2.5 py-2 font-sans text-[12.5px] text-fg focus:border-mint focus:outline-none',
+            'w-full resize-none rounded-md border border-white/[0.12] bg-bg px-2.5 py-2 font-sans text-[12.5px] text-fg focus:border-mint focus:outline-none',
           ),
           h.Value(editText),
           h.OnInput((value: string) => EditChanged({ value })),
@@ -418,14 +706,18 @@ const editRow = (editText: string): Html =>
         [
           h.button(
             [
-              h.Class('rounded-md bg-mint px-2.5 py-1 text-[11px] font-medium text-bg transition hover:brightness-105'),
+              h.Class(
+                'cursor-pointer rounded-md bg-mint px-2.5 py-1 text-[11px] font-medium text-bg transition hover:brightness-105',
+              ),
               h.OnClick(SavedEdit()),
             ],
             ['Save'],
           ),
           h.button(
             [
-              h.Class('rounded-md border border-white/10 px-2.5 py-1 text-[11px] text-fg-2 transition hover:text-fg'),
+              h.Class(
+                'cursor-pointer rounded-md border border-white/[0.12] px-2.5 py-1 text-[11px] text-fg-2 transition hover:text-fg',
+              ),
               h.OnClick(CancelledEdit()),
             ],
             ['Cancel'],
@@ -439,7 +731,7 @@ const noteRow = (note: Note, editing: number | undefined, editText: string): Htm
   note.seq === editing
     ? editRow(editText)
     : h.div(
-        [h.Class(clsx('group border-b border-white/[0.07] px-3 py-2.5', note.addressed && 'opacity-40'))],
+        [h.Class('group px-3 py-2.5')],
         [
           meta(note),
           h.div([h.Class('font-sans text-[12.5px] leading-relaxed text-fg')], [note.text]),
@@ -447,34 +739,180 @@ const noteRow = (note: Note, editing: number | undefined, editText: string): Htm
         ],
       )
 
+# The bar
+
+The bar spans the bottom of the screen, pinned edge to edge like an editor's status bar. It shows the branch first, then the project name, and the name is editable: click it and it becomes a field you rename in place, saved on enter or on leaving it, abandoned on escape. The branch shows only when the server knows it. The tools sit at the far right, kept off the edge by the bar's own padding — the aim, the notes with a count of those still open, and the collapse.
+
+`nameField` is the name in its two states, the still label and the open field. `renameKey` is what the field listens for: enter saves, escape cancels. Each tool is a full-height segment tinted by what it does — the aim in mint, lit brighter while it is armed; the notes and collapse in the quiet foreground. Every control shows the pointer cursor on hover. The handle is the bar collapsed to a small tab at the bottom edge — an up chevron and the open count, the mirror of the collapse, one click from bringing the bar back.
+
+=>
+
+const openCount = (notes: ReadonlyArray<Note>): number =>
+  Array.filter(notes, (note) => !note.addressed).length
+
+const renameKey = (key: string): Option.Option<Message> =>
+  Match.value(key).pipe(
+    Match.withReturnType<Option.Option<Message>>(),
+    Match.when('Enter', () => Option.some(SavedRename())),
+    Match.when('Escape', () => Option.some(CancelledRename())),
+    Match.orElse(() => Option.none()),
+  )
+
+const nameField = (model: Model): Html =>
+  model.renaming
+    ? h.input([
+        h.Class('w-36 rounded border border-mint bg-bg px-1.5 py-0.5 font-mono text-[12px] text-fg focus:outline-none'),
+        h.Value(model.nameDraft),
+        h.OnInput((value: string) => NameChanged({ value })),
+        h.OnKeyDownPreventDefault(renameKey),
+        h.OnBlur(SavedRename()),
+      ])
+    : h.button(
+        [
+          h.Class('cursor-pointer whitespace-nowrap border-b border-dotted border-fg-4 text-fg'),
+          h.OnClick(StartedRename()),
+          h.Title('Rename this project'),
+        ],
+        [model.name],
+      )
+
+const branchItem = (branch: string): Html =>
+  h.span(
+    [h.Class('inline-flex items-center gap-1.5 whitespace-nowrap text-fg-3')],
+    [icon(branchIcon, 'text-violet'), branch],
+  )
+
+const pickControl = (model: Model): Html =>
+  h.button(
+    [
+      h.Class(
+        clsx(
+          'inline-flex h-full cursor-pointer items-center px-3 text-mint transition hover:bg-bg-3',
+          model.picking && 'bg-mint/[0.16]',
+        ),
+      ),
+      h.OnClick(ToggledPick()),
+      h.Title(model.picking ? 'Picking… (escape to cancel)' : 'Pick an element (Alt+A)'),
+    ],
+    [icon(crosshairIcon, '')],
+  )
+
+const notesControl = (model: Model): Html => {
+  const open = openCount(model.notes)
+  return h.button(
+    [
+      h.Class(
+        clsx(
+          'inline-flex h-full cursor-pointer items-center gap-1.5 px-3 transition hover:bg-bg-3 hover:text-fg',
+          model.open ? 'text-fg' : 'text-fg-3',
+        ),
+      ),
+      h.OnClick(Toggled()),
+      h.Title('Notes (Alt+N)'),
+    ],
+    [icon(messageIcon, ''), ...(open === 0 ? [] : [h.span([h.Class('text-mint')], [String(open)])])],
+  )
+}
+
+const collapseControl = (): Html =>
+  h.button(
+    [
+      h.Class(
+        'inline-flex h-full cursor-pointer items-center px-3 text-fg-2 transition hover:bg-bg-3 hover:text-fg',
+      ),
+      h.OnClick(ToggledCollapse()),
+      h.Title('Hide the bar (Alt+B)'),
+    ],
+    [icon(chevronDownIcon, '')],
+  )
+
+const bar = (model: Model): Html =>
+  h.div(
+    [
+      h.Class(
+        'pointer-events-auto fixed inset-x-0 bottom-0 flex h-8 items-center gap-2 border-t border-white/[0.12] bg-bg-2 pl-4 pr-3 text-[12px] text-fg-2',
+      ),
+    ],
+    [
+      h.div(
+        [h.Class('flex items-center gap-4')],
+        [...(model.branch === '' ? [] : [branchItem(model.branch)]), nameField(model)],
+      ),
+      h.div([h.Class('flex-1')], []),
+      pickControl(model),
+      notesControl(model),
+      collapseControl(),
+    ],
+  )
+
+const handle = (model: Model): Html => {
+  const open = openCount(model.notes)
+  return h.button(
+    [
+      h.Class(
+        'pointer-events-auto fixed bottom-0 right-6 inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-t-md border-l border-r border-t border-white/[0.12] bg-bg-2 px-3 text-[12px] text-fg-2 transition hover:bg-bg-3 hover:text-fg',
+      ),
+      h.OnClick(ToggledCollapse()),
+      h.Title('Show the bar (Alt+B)'),
+    ],
+    [icon(chevronUpIcon, 'text-mint'), ...(open === 0 ? [] : [h.span([h.Class('text-mint')], [String(open)])])],
+  )
+}
+
 # The view
 
 The view layers over the page, and nothing in it catches a click unless it must.
 
-The launcher sits in the corner and carries a count of the notes still open. The panel rises above it as a card: a header to close from and count by, the banner when the server is unreachable, the notes or a hint when there are none, and a composer along the bottom. The composer holds the draft you type, a button to pick an element, and the send.
+The bar spans the bottom of the screen, and the card rises above it at the right, growing with the thread up to most of the height of the screen before it scrolls. Collapsing the bar tucks it to the handle at the bottom edge. A highlight tracks the cursor while pick mode is on, wearing the tag of the element under it. A popover rises over a captured element to take its note, with its own send and a cancel to back out.
 
-A highlight tracks the cursor while pick mode is on. A popover rises over a captured element to take its note, with its own send and a cancel to back out.
+The card heads with two tabs, the open notes and the resolved ones, so the work to do stays apart from the work done; `tabButton` draws one, lit when it is the one you are on. `visibleNotes` keeps the notes the current tab shows, and a thin line divides one from the next.
+
+The composer holds the draft you type, a button to pick an element, and the send. `composerKey` makes the return key send: enter alone sends the note, and holding shift, control, or command keeps a plain newline. When the thread is scrolled away from the foot, `scrollDown` floats above the composer to drop you back to the latest.
 
 =>
 
-const highlight = (rect: Rect): Html =>
+const composerKey =
+  (draft: string) =>
+  (key: string, mods: KeyboardModifiers): Option.Option<Message> => {
+    if (key !== 'Enter') return Option.none()
+    if (mods.ctrlKey || mods.metaKey) return Option.some(DraftChanged({ value: `${draft}\n` }))
+    if (mods.shiftKey) return Option.none()
+    return Option.some(Sent())
+  }
+
+const highlight = (hover: Hover): Html =>
   h.div(
     [
-      h.Class('pointer-events-none fixed rounded-md border-2 border-mint bg-mint/10'),
-      h.Style({ left: `${rect.x}px`, top: `${rect.y}px`, width: `${rect.width}px`, height: `${rect.height}px` }),
+      h.Class('pointer-events-none fixed rounded-lg border-2 border-mint bg-mint/[0.09]'),
+      h.Style({
+        left: `${hover.rect.x}px`,
+        top: `${hover.rect.y}px`,
+        width: `${hover.rect.width}px`,
+        height: `${hover.rect.height}px`,
+      }),
     ],
-    [],
+    [
+      h.span(
+        [
+          h.Class(
+            'absolute -top-[22px] -left-0.5 whitespace-nowrap rounded bg-mint px-1.5 py-px font-mono text-[11px] text-bg',
+          ),
+        ],
+        [hover.tag],
+      ),
+    ],
   )
 
 const draftArea = (model: Model, placeholder: string): Html =>
   h.textarea(
     [
       h.Class(
-        'h-16 w-full resize-none rounded-md border border-white/10 bg-bg px-2.5 py-2 font-sans text-[12.5px] leading-relaxed text-fg placeholder:text-fg-4 focus:border-mint focus:outline-none',
+        'h-16 w-full resize-none rounded-md border border-white/[0.12] bg-bg px-2.5 py-2 font-sans text-[12.5px] leading-relaxed text-fg placeholder:text-fg-4 focus:border-mint focus:outline-none',
       ),
       h.Value(model.draft),
       h.Placeholder(placeholder),
       h.OnInput((value: string) => DraftChanged({ value })),
+      h.OnKeyDownPreventDefault(composerKey(model.draft)),
     ],
     [],
   )
@@ -482,7 +920,9 @@ const draftArea = (model: Model, placeholder: string): Html =>
 const sendButton = (label: string): Html =>
   h.button(
     [
-      h.Class('flex-1 rounded-md bg-mint py-2 text-[12px] font-medium text-bg transition hover:brightness-105'),
+      h.Class(
+        'flex-1 cursor-pointer rounded-md bg-mint py-2 text-[12px] font-medium text-bg transition hover:brightness-105',
+      ),
       h.OnClick(Sent()),
     ],
     [label],
@@ -493,10 +933,10 @@ const pickButton = (model: Model): Html =>
     [
       h.Class(
         clsx(
-          'flex-1 rounded-md border py-2 text-[12px] transition',
+          'flex-1 cursor-pointer rounded-md border py-2 text-[12px] transition',
           model.picking
             ? 'border-mint bg-mint/[0.14] text-mint'
-            : 'border-white/10 bg-bg-3 text-fg-2 hover:border-white/20 hover:text-fg',
+            : 'border-white/[0.12] bg-bg-3 text-fg-2 hover:border-white/20 hover:text-fg',
         ),
       ),
       h.OnClick(ToggledPick()),
@@ -504,25 +944,50 @@ const pickButton = (model: Model): Html =>
     [model.picking ? '◎ Picking…' : '◎ Pick element'],
   )
 
+const scrollDown = (): Html =>
+  h.button(
+    [
+      h.Class(
+        'absolute -top-12 right-2 inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-white/[0.12] bg-bg-3 text-fg-2 shadow-[0_6px_20px_rgba(0,0,0,0.5)] transition hover:text-fg',
+      ),
+      h.OnClick(JumpToBottom()),
+      h.Title('Jump to the latest'),
+    ],
+    [icon(chevronDownIcon, '')],
+  )
+
 const composer = (model: Model): Html =>
   h.div(
-    [h.Class('border-t border-white/[0.07] p-3')],
-    [draftArea(model, 'Leave a note…'), h.div([h.Class('mt-2 flex gap-2')], [pickButton(model), sendButton('Send')])],
+    [h.Class('relative border-t border-white/[0.07] p-3')],
+    [
+      ...(model.atBottom ? [] : [scrollDown()]),
+      draftArea(model, 'Leave a note…'),
+      h.div([h.Class('mt-2 flex gap-2')], [pickButton(model), sendButton('Send')]),
+    ],
   )
 
-const emptyState = (): Html =>
+const visibleNotes = (model: Model): ReadonlyArray<Note> =>
+  Array.filter(model.notes, (note) => (model.tab === 'resolved' ? note.addressed : !note.addressed))
+
+const emptyState = (model: Model): Html =>
   h.div(
     [h.Class('px-3.5 py-10 text-center font-sans text-[12.5px] leading-relaxed text-fg-3')],
-    ['No notes yet. Point at something on the page, or type one below.'],
+    [
+      model.tab === 'resolved'
+        ? 'No resolved notes yet.'
+        : 'No open notes. Point at something on the page, or type one below.',
+    ],
   )
 
-const noteList = (model: Model): Html =>
-  h.div(
-    [h.Class('flex flex-1 flex-col overflow-auto')],
-    model.notes.length === 0
-      ? [emptyState()]
-      : Array.map(model.notes, (note) => noteRow(note, model.editing, model.editText)),
+const noteList = (model: Model): Html => {
+  const notes = visibleNotes(model)
+  return h.div(
+    [h.Id(notesListId), h.Class('flex min-h-0 flex-1 flex-col divide-y divide-white/[0.07] overflow-auto')],
+    notes.length === 0
+      ? [emptyState(model)]
+      : Array.map(notes, (note) => noteRow(note, model.editing, model.editText)),
   )
+}
 
 const banner = (): Html =>
   h.div(
@@ -536,18 +1001,33 @@ const banner = (): Html =>
     ],
   )
 
+const tabButton = (label: string, value: Tab, active: boolean): Html =>
+  h.button(
+    [
+      h.Class(
+        clsx(
+          'cursor-pointer border-b-2 pb-1 text-[12px] transition',
+          active ? 'border-mint text-fg' : 'border-transparent text-fg-3 hover:text-fg',
+        ),
+      ),
+      h.OnClick(SelectedTab({ tab: value })),
+    ],
+    [label],
+  )
+
 const header = (model: Model): Html =>
   h.div(
-    [h.Class('flex items-center gap-2 border-b border-white/[0.07] px-3 py-2.5 text-[13px] text-fg-3')],
+    [h.Class('flex items-center gap-4 border-b border-white/[0.07] px-3 py-2.5 text-[13px]')],
     [
-      h.span([h.Class('text-fg')], ['Notes']),
-      h.span([h.Class('text-fg-4')], [String(model.notes.length)]),
+      tabButton('Open', 'open', model.tab === 'open'),
+      tabButton('Resolved', 'resolved', model.tab === 'resolved'),
       h.button(
         [
           h.Class(
-            'ml-auto flex h-6 w-6 items-center justify-center rounded-md border border-white/10 text-fg-2 transition hover:bg-white/5 hover:text-fg',
+            'ml-auto flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border border-white/[0.12] text-fg-2 transition hover:bg-white/5 hover:text-fg',
           ),
           h.OnClick(Toggled()),
+          h.Title('Close (Alt+N)'),
         ],
         ['✕'],
       ),
@@ -558,7 +1038,7 @@ const panel = (model: Model): Html =>
   h.div(
     [
       h.Class(
-        'pointer-events-auto fixed bottom-[4.5rem] right-4 flex max-h-[min(560px,calc(100vh-6rem))] w-[340px] flex-col overflow-hidden rounded-[10px] border border-white/10 bg-bg-2 font-mono text-[13px] text-fg shadow-[0_18px_50px_rgba(0,0,0,0.45)]',
+        'pointer-events-auto fixed bottom-10 right-4 flex max-h-[80vh] w-[360px] flex-col overflow-hidden rounded-[10px] border border-white/[0.12] bg-bg-2 font-mono text-[13px] text-fg shadow-[0_18px_50px_rgba(0,0,0,0.45)]',
       ),
     ],
     [header(model), ...(model.reachable ? [] : [banner()]), noteList(model), composer(model)],
@@ -568,7 +1048,7 @@ const popover = (model: Model, pending: Pending): Html =>
   h.div(
     [
       h.Class(
-        'pointer-events-auto fixed bottom-6 left-1/2 w-[340px] max-w-[86vw] -translate-x-1/2 rounded-[10px] border border-mint bg-bg-2 p-3 font-mono text-[13px] text-fg shadow-[0_12px_40px_rgba(0,0,0,0.5)]',
+        'pointer-events-auto fixed bottom-12 left-1/2 w-[340px] max-w-[86vw] -translate-x-1/2 rounded-[10px] border border-mint bg-bg-2 p-3 font-mono text-[13px] text-fg shadow-[0_12px_40px_rgba(0,0,0,0.5)]',
       ),
     ],
     [
@@ -579,7 +1059,9 @@ const popover = (model: Model, pending: Pending): Html =>
         [
           h.button(
             [
-              h.Class('flex-1 rounded-md border border-white/10 bg-bg-3 py-2 text-[12px] text-fg-2 transition hover:text-fg'),
+              h.Class(
+                'flex-1 cursor-pointer rounded-md border border-white/[0.12] bg-bg-3 py-2 text-[12px] text-fg-2 transition hover:text-fg',
+              ),
               h.OnClick(Escaped()),
             ],
             ['Cancel'],
@@ -590,24 +1072,11 @@ const popover = (model: Model, pending: Pending): Html =>
     ],
   )
 
-const launcher = (model: Model): Html => {
-  const open = Array.filter(model.notes, (note) => !note.addressed).length
-  return h.button(
-    [
-      h.Class(
-        'pointer-events-auto fixed bottom-4 right-4 inline-flex items-center gap-2 rounded-md bg-mint px-3 py-2 font-mono text-[12px] font-medium text-bg shadow-[0_8px_24px_rgba(0,0,0,0.4)] transition hover:brightness-105',
-      ),
-      h.OnClick(Toggled()),
-    ],
-    ['✎ Annotate', ...(open === 0 ? [] : [h.span([h.Class('text-bg/60')], [`· ${open}`])])],
-  )
-}
-
 const view = (model: Model): Html =>
   h.div(
     [h.Class('pointer-events-none fixed inset-0 font-mono')],
     [
-      launcher(model),
+      ...(model.collapsed ? [handle(model)] : [bar(model)]),
       ...(model.open && model.pending === undefined ? [panel(model)] : []),
       ...(model.picking && model.hover !== undefined ? [highlight(model.hover)] : []),
       ...(model.pending !== undefined ? [popover(model, model.pending)] : []),
@@ -639,7 +1108,7 @@ const mountPoint = (): HTMLElement => {
 
 # Starting the overlay
 
-`start` reads the page for its server and project, seeds the model on the current route with no notes, the panel closed, and pick mode off, and asks the server for the notes straightaway. It hands the shadow container to a Foldkit element — with the page-watching subscriptions — and runs it. It mounts once: a second script tag on the same page finds the host already there and does nothing.
+`start` reads the page for its server and project, seeds the model on the current route with no notes, the bar shown and the card closed, and asks the server for the notes and the project's context straightaway. It hands the shadow container to a Foldkit element — with the page-watching subscriptions — and runs it. It mounts once: a second script tag on the same page finds the host already there and does nothing.
 
 =>
 
@@ -651,15 +1120,23 @@ const init = (): readonly [Model, ReadonlyArray<Command.Command<Message>>] => {
     {
       base,
       project,
+      name: project,
+      branch: '',
       route: location.pathname,
       notes: [],
       reachable: true,
+      tab: 'open',
       open: false,
+      collapsed: false,
+      atBottom: true,
+      pendingScroll: false,
       picking: false,
+      renaming: false,
+      nameDraft: '',
       draft: '',
       editText: '',
     },
-    [FetchNotes({ base, project })],
+    [FetchNotes({ base, project }), FetchContext({ base, project })],
   ]
 }
 
@@ -684,7 +1161,11 @@ start()
 
 ::[Updating the model]
 
+::[The outlined icons]
+
 ::[Rendering a note]
+
+::[The bar]
 
 ::[The view]
 

@@ -179,4 +179,49 @@ describe('LoomTangler — tangle bracket sinks to disk', () => {
       expect(yield* fs.exists(`${corpus}/src/Widget.ts`)).toBe(false)
     }).pipe(Effect.provide(layers)),
   )
+
+  it.effect('records tangled files in the lock and lists those that lost their host', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const dir = yield* fs.makeTempDirectoryScoped()
+      yield* fs.makeDirectory(`${dir}/.loom`, { recursive: true })
+      yield* fs.writeFileString(`${dir}/one.loom`, loomWith('one', 'out/one.ts'))
+      yield* fs.writeFileString(`${dir}/two.loom`, loomWith('two', 'out/two.ts'))
+
+      const tangler = yield* LoomTangler
+      yield* tangler.tangle(dir)
+
+      // both outputs are recorded, sorted and relative to the workspace
+      const lock = JSON.parse(yield* fs.readFileString(`${dir}/.loom/loom.lock`))
+      expect(lock).toEqual({ version: 1, tangled: ['out/one.ts', 'out/two.ts'] })
+
+      // remove one host; its output now has no loom behind it
+      yield* fs.remove(`${dir}/two.loom`)
+      const orphans = yield* tangler.orphans(dir)
+      expect(orphans).toEqual([`${dir}/out/two.ts`])
+    }).pipe(Effect.provide(layers)),
+  )
+
+  it.effect('prunes files that lost their host and rewrites the lock', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const dir = yield* fs.makeTempDirectoryScoped()
+      yield* fs.makeDirectory(`${dir}/.loom`, { recursive: true })
+      yield* fs.writeFileString(`${dir}/one.loom`, loomWith('one', 'out/one.ts'))
+      yield* fs.writeFileString(`${dir}/two.loom`, loomWith('two', 'out/two.ts'))
+
+      const tangler = yield* LoomTangler
+      yield* tangler.tangle(dir)
+      yield* fs.remove(`${dir}/two.loom`)
+
+      const removed = yield* tangler.prune(dir)
+      expect(removed).toEqual([`${dir}/out/two.ts`])
+      expect(yield* fs.exists(`${dir}/out/two.ts`)).toBe(false)
+      expect(yield* fs.exists(`${dir}/out/one.ts`)).toBe(true)
+
+      // the lock now records only what the build still produces
+      const lock = JSON.parse(yield* fs.readFileString(`${dir}/.loom/loom.lock`))
+      expect(lock).toEqual({ version: 1, tangled: ['out/one.ts'] })
+    }).pipe(Effect.provide(layers)),
+  )
 })

@@ -73,10 +73,21 @@ The overlay's styles are Tailwind. The input pulls in the framework and points i
 
 The input also defines the theme the overlay wears, taken from the design catalog: the dark surfaces `bg` through `bg-4`, the foregrounds `fg` through `fg-4`, the mint, cyan, violet, and amber accents, and the mono and sans type. The view names these directly, in classes like the `bg-mint` background and the `text-fg-3` foreground, so the overlay and the catalog read as one look.
 
+One base rule earns its place. Tailwind draws a border's style from a `--tw-border-style` variable it registers with `@property`, defaulting it to `solid`. That registration does not reach inside a shadow root, so the variable resolves to nothing and every `border` utility collapses to no line at all. Setting the variable to `solid` on every element restores the outlines the overlay depends on — the card, the bar, the dividers between notes.
+
 =>
 
 @import "tailwindcss";
 @source "./overlay.ts";
+
+@layer base {
+  *,
+  ::before,
+  ::after,
+  ::backdrop {
+    --tw-border-style: solid;
+  }
+}
 
 @theme {
   --color-bg: #0f1014;

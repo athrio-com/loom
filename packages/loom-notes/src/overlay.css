@@ -1,6 +1,15 @@
 @import "tailwindcss";
 @source "./overlay.ts";
 
+@layer base {
+  *,
+  ::before,
+  ::after,
+  ::backdrop {
+    --tw-border-style: solid;
+  }
+}
+
 @theme {
   --color-bg: #0f1014;
   --color-bg-2: #15171d;

@@ -59,6 +59,22 @@ The `main` and `bin` fields point at built output: `dist/loom-server.js` is the 
   }
 }
 
+## The launcher {Tangle}[bin/loom-language-server.js]
+
+An editor starts the language server by spawning the `loom-language-server` binary. The binary is a thin launcher over the bundle, made runnable on its own by a shebang line.
+
+It answers `--version` from the package manifest, printing the version an editor reads to learn which server it runs. For every other invocation it loads the bundled server at `dist/loom-server.js`, which begins serving the moment it loads.
+
+=>
+
+#!/usr/bin/env node
+if (process.argv.includes('--version')) {
+  const pkgJSON = require('../package.json')
+  console.log(pkgJSON.version)
+} else {
+  require('../dist/loom-server.js')
+}
+
 ## The TypeScript config {Tangle}[tsconfig.json]
 
 The `tsconfig.json` extends the workspace-root `tsconfig.base.json` and covers both the `src` and `test` directories. Vite produces the `dist` bundle, so the configuration is a development tool only.

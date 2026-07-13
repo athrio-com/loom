@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>loom — the devtools bar · catalog</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;1,6..72,300&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./catalog.css">
+</head>
+<body>
+
+<!-- outlined icon set (Lucide-style), drawn in the current text colour -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <symbol id="i-branch" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></symbol>
+  <symbol id="i-route" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 10 20 15 15 20"/><path d="M4 4v7a4 4 0 0 0 4 4h12"/></symbol>
+  <symbol id="i-crosshair" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><line x1="12" x2="12" y1="2" y2="5"/><line x1="12" x2="12" y1="19" y2="22"/><line x1="2" x2="5" y1="12" y2="12"/><line x1="19" x2="22" y1="12" y2="12"/></symbol>
+  <symbol id="i-message" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></symbol>
+  <symbol id="i-chevron-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></symbol>
+</defs></svg>
+
+<header class="titlebar">
+  <div class="traffic"><span></span><span></span><span></span></div>
+  <div class="crumbs">
+    <span>loom</span><span class="sep">›</span>
+    <span>catalog</span><span class="sep">›</span>
+    <span class="file">the-devtools-bar</span>
+  </div>
+  <div class="right">
+    <nav class="topnav">
+      <a href="./index.html">landing</a>
+      <a href="./docs.html">docs</a>
+      <a href="./annotations.html">annotations</a>
+      <a href="./devtools.html" class="here">devtools</a>
+    </nav>
+    <span>non-interactive specimen</span>
+  </div>
+</header>
+
+<div class="tabbar">
+  <div class="tab active"><span class="dot"></span>the-bar.loom</div>
+  <div class="tab"><span class="dot"></span>overlay.loom</div>
+</div>
+
+<main class="wrap">
+  <section class="gallery">
+
+    <div class="gallery-intro">
+      <div class="eyebrow" style="font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-3)"><span style="color:var(--acc-mint);margin-right:6px">→</span>Catalog · Loom Devtools</div>
+      <h1>The Devtools bar</h1>
+      <p>
+        Loom Devtools rides along a running app as a bar. It names the project
+        first, carries the branch the project sits on beside it, and keeps the
+        tools to the right: an aim to point with, and the notes made so far. It
+        collapses to a handle when it is in the way, and returns from it. Drawn
+        here in the theme's own colours, alongside the real bar the overlay now
+        serves on every catalog page.
+      </p>
+    </div>
+
+    <!-- the bar at rest -->
+    <div class="specimen">
+      <div class="specimen-head"><span class="name">The bar</span><span class="note">branch and name left, tools right, a handle to collapse</span></div>
+      <div class="specimen-stage">
+        <div class="bar">
+          <span class="bar-ctx">
+            <span class="bar-item bar-branch"><svg class="bar-icon"><use href="#i-branch"/></svg>main</span>
+          </span>
+          <span class="bar-name">loom-design</span>
+          <span class="bar-spacer"></span>
+          <button class="bar-btn pick" title="Pick an element"><svg class="bar-icon"><use href="#i-crosshair"/></svg></button>
+          <button class="bar-btn notes" title="Notes"><svg class="bar-icon"><use href="#i-message"/></svg><span class="count">3</span></button>
+          <button class="bar-btn collapse" title="Collapse"><svg class="bar-icon"><use href="#i-chevron"/></svg></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- the bar with the notes card open -->
+    <div class="specimen">
+      <div class="specimen-head"><span class="name">With notes</span><span class="note">the card opens above the bar; the card is unchanged</span></div>
+      <div class="specimen-stage tall">
+        <div class="bar-stack">
+          <div class="ov-panel">
+            <div class="ov-header"><span class="title">Notes</span><span class="count">3</span><button class="ov-hide">✕</button></div>
+            <div class="ov-list">
+              <div class="ov-entry">
+                <div class="meta"><span class="ov-seq">#1</span><span class="ov-kind chat">chat</span><span class="ov-route">/devtools</span></div>
+                <div class="ov-text">The context row reads well — keep the branch in violet.</div>
+              </div>
+              <div class="ov-entry">
+                <div class="meta"><span class="ov-seq">#2</span><span class="ov-kind dom">dom</span><span class="ov-label">.bar-btn.pick</span><span class="ov-route">/devtools</span></div>
+                <div class="ov-text">The crosshair reads as an aim now — good.</div>
+                <div class="ov-controls"><button>edit</button><button class="done">resolve</button><button>discard</button></div>
+              </div>
+              <div class="ov-entry">
+                <div class="meta"><span class="ov-seq">#3</span><span class="ov-kind loom">loom</span><span class="ov-label">04-the-overlay.loom</span></div>
+                <div class="ov-text">Fold the launcher into the bar rather than the corner pill.</div>
+                <div class="ov-controls"><button>edit</button><button class="done">resolve</button><button>discard</button></div>
+              </div>
+            </div>
+            <div class="ov-composer">
+              <textarea rows="2" readonly placeholder="Leave a note…"></textarea>
+              <div class="ov-row"><button>◎ Pick element</button><button class="send">Send</button></div>
+            </div>
+          </div>
+          <div class="bar">
+            <span class="bar-ctx">
+              <span class="bar-item bar-branch"><svg class="bar-icon"><use href="#i-branch"/></svg>main</span>
+            </span>
+            <span class="bar-name">loom-design</span>
+            <span class="bar-spacer"></span>
+            <button class="bar-btn pick" title="Pick an element"><svg class="bar-icon"><use href="#i-crosshair"/></svg></button>
+            <button class="bar-btn notes on" title="Notes"><svg class="bar-icon"><use href="#i-message"/></svg><span class="count">3</span></button>
+            <button class="bar-btn collapse" title="Collapse"><svg class="bar-icon"><use href="#i-chevron"/></svg></button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- pick mode -->
+    <div class="specimen">
+      <div class="specimen-head"><span class="name">Picking</span><span class="note">the aim is armed; escape backs out</span></div>
+      <div class="specimen-stage">
+        <div class="bar">
+          <span class="bar-ctx">
+            <span class="bar-item bar-branch"><svg class="bar-icon"><use href="#i-branch"/></svg>main</span>
+          </span>
+          <span class="bar-name">loom-design</span>
+          <span class="bar-spacer"></span>
+          <button class="bar-btn pick on" title="Picking…"><svg class="bar-icon"><use href="#i-crosshair"/></svg></button>
+          <button class="bar-btn notes" title="Notes"><svg class="bar-icon"><use href="#i-message"/></svg><span class="count">3</span></button>
+          <button class="bar-btn collapse" title="Collapse"><svg class="bar-icon"><use href="#i-chevron"/></svg></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- collapsed to a handle -->
+    <div class="specimen">
+      <div class="specimen-head"><span class="name">Collapsed</span><span class="note">a tab at the bottom edge, one click from returning</span></div>
+      <div class="specimen-stage" style="align-items:flex-end">
+        <div class="bar-handle"><svg class="bar-icon"><use href="#i-chevron-up"/></svg><span class="count">3</span></div>
+      </div>
+    </div>
+
+  </section>
+</main>
+
+<script type="module" src="http://localhost:5710/notes.js" data-loom-project="loom-design"></script>
+</body>
+</html>

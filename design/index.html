@@ -88,6 +88,10 @@
     margin-left: auto; display: flex; gap: 18px; align-items: center;
     color: var(--fg-3);
   }
+  .topnav { display: flex; gap: 16px; }
+  .topnav a { color: var(--fg-3); transition: color .15s ease; }
+  .topnav a:hover { color: var(--fg-2); }
+  .topnav a.here { color: var(--acc-mint); }
   .titlebar .right kbd {
     font-family: var(--mono);
     font-size: 11px;
@@ -794,6 +798,12 @@
     <span class="file">a-first-loom.loom</span>
   </div>
   <div class="right">
+    <nav class="topnav">
+      <a href="./index.html" class="here">landing</a>
+      <a href="./docs.html">docs</a>
+      <a href="./annotations.html">annotations</a>
+      <a href="./devtools.html">devtools</a>
+    </nav>
     <span class="live-dot" title="tangled"></span>
     <span>v0.9.0 · literate programming</span>
     <span><kbd>⌘</kbd> <kbd>K</kbd></span>

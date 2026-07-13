@@ -1,11 +1,26 @@
 import { defineConfig } from 'vite'
 import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
 
-// Serve the landing design as a plain static page. The Loom Notes overlay is
-// added by a raw <script> tag in index.html — the agnostic path, no plugin —
-// so this proves the overlay works on any page. Start the notes daemon first
-// (`loom start`, default port 5710), then:
-//   bunx --bun vite --config design/vite.config.ts --port 5199
+// The Loom design catalog — a small multi-page web app.
+//   bun run dev     serve the catalog (http://localhost:5199)
+//   bun run build   bundle every page to dist/
+// Every page carries the Loom Notes overlay through a raw <script> tag (the
+// agnostic path); run `loom start` to have the daemon behind it.
+const root = fileURLToPath(new URL('.', import.meta.url))
+
 export default defineConfig({
-  root: fileURLToPath(new URL('.', import.meta.url)),
+  root,
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
+    rollupOptions: {
+      input: {
+        index: resolve(root, 'index.html'),
+        docs: resolve(root, 'docs.html'),
+        annotations: resolve(root, 'annotations.html'),
+        devtools: resolve(root, 'devtools.html'),
+      },
+    },
+  },
 })

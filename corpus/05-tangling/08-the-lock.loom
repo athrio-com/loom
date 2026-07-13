@@ -1,0 +1,77 @@
+---
+Part V, Chapter 8: The tangle lock
+Package: packages/loom-lang/src/LoomLock.ts
+Language: TypeScript
+---
+
+# The tangle lock
+
+The lock is how Loom remembers what it has written. Each file a `{Tangle}` sink produces is Loom's to keep; a file Loom never wrote is not. When the section that produced a file is removed, the file loses its host and lingers on disk, and nothing in the source distinguishes it from a hand-written neighbour. The lock draws that line. It is the record of every file Loom has tangled, held in `loom.lock` at the workspace root and committed the way `bun.lock` is, so a fresh checkout inherits it and a teammate prunes as safely as the author.
+
+The lock also settles what Loom leaves alone. A file that is not in the lock was never tangled, so Loom never touches it — a hand-written `README`, a test, a package Loom has not started authoring. Only what Loom has produced enters the lock, and only what is in the lock is Loom's to prune.
+
+## The shape of the lock
+
+The lock is a small document: a version and the paths it has tangled. Each path is relative to the workspace, so the file reads the same on every machine. `LoomLockSchema` decodes it from disk, `LoomLock` is its type, and `emptyLock` is the lock of a workspace that has tangled nothing.
+
+=>
+
+export const LoomLockSchema = Schema.Struct({
+  version: Schema.Literal(1),
+  tangled: Schema.Array(Schema.String),
+})
+
+export type LoomLock = typeof LoomLockSchema.Type
+
+export const emptyLock: LoomLock = { version: 1, tangled: [] }
+
+## Files that lost their host
+
+An orphan is a path the lock still records that the latest build no longer produces — the set difference `L \ P`, the lock's files minus the produced ones. `orphansOf` takes the lock and the set of paths produced now and returns the recorded paths absent from it. These are exactly the files whose host is gone, and they are safe to remove, because only a tangle ever wrote a path into the lock.
+
+=>
+
+export const orphansOf = (
+  lock: LoomLock,
+  produced: ReadonlySet<string>,
+): ReadonlyArray<string> =>
+  Array.filter(lock.tangled, (path) => !produced.has(path))
+
+## Recording and pruning
+
+Two moves keep the lock true to the build. Recording folds the paths a tangle just produced into the lock and drops nothing, so a file enters the lock the first time it is tangled and stays until it is pruned. Pruning rewrites the lock to exactly what the build produces — the record after the orphans are gone. Both sort the paths and drop duplicates, so the committed file changes only when the set of tangled files does, not on every build.
+
+=>
+
+const sortedUnique = (paths: ReadonlyArray<string>): ReadonlyArray<string> =>
+  pipe(paths, Array.dedupe, Array.sort(Order.String))
+
+export const recorded = (
+  lock: LoomLock,
+  produced: ReadonlyArray<string>,
+): LoomLock => ({ version: 1, tangled: sortedUnique([...lock.tangled, ...produced]) })
+
+export const pruned = (produced: ReadonlyArray<string>): LoomLock => ({
+  version: 1,
+  tangled: sortedUnique(produced),
+})
+
+## What this module draws on
+
+Effect supplies the `Schema` that decodes the lock, and the `Array`, `Order`, and `pipe` combinators that keep its paths sorted and free of duplicates.
+
+=>
+
+import { Array, Order, Schema, pipe } from 'effect'
+
+## The module {Tangle}
+
+=>
+
+::[What this module draws on]
+
+::[The shape of the lock]
+
+::[Files that lost their host]
+
+::[Recording and pruning]

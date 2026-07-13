@@ -1,7 +1,7 @@
-import { Array, Effect, Match, Option, Schema as S, Stream } from 'effect'
+import { Array, Effect, Match, Option, Queue, Schema as S, Stream } from 'effect'
 import { Command, Subscription } from '@athrio/foldkit'
 import { html } from '@athrio/foldkit/html'
-import type { Html } from '@athrio/foldkit/html'
+import type { Html, KeyboardModifiers } from '@athrio/foldkit/html'
 import { m } from '@athrio/foldkit/message'
 import { clsx } from 'clsx'
 import { LoomSourceSchema, NoteSchema, RectSchema, type Note, type Rect } from './note'
@@ -12,15 +12,29 @@ const PendingSchema = S.Union([
 ])
 type Pending = typeof PendingSchema.Type
 
+const HoverSchema = S.Struct({ rect: RectSchema, tag: S.String })
+type Hover = typeof HoverSchema.Type
+
+const TabSchema = S.Literals(['open', 'resolved'])
+type Tab = typeof TabSchema.Type
+
 export const Model = S.Struct({
   base: S.String,
   project: S.String,
+  name: S.String,
+  branch: S.String,
   route: S.String,
   notes: S.Array(NoteSchema),
   reachable: S.Boolean,
+  tab: TabSchema,
   open: S.Boolean,
+  collapsed: S.Boolean,
+  atBottom: S.Boolean,
+  pendingScroll: S.Boolean,
   picking: S.Boolean,
-  hover: S.optional(RectSchema),
+  renaming: S.Boolean,
+  nameDraft: S.String,
+  hover: S.optional(HoverSchema),
   pending: S.optional(PendingSchema),
   draft: S.String,
   editing: S.optional(S.Number),
@@ -30,15 +44,25 @@ export type Model = typeof Model.Type
 
 export const Toggled = m('Toggled')
 export const ToggledPick = m('ToggledPick')
-export const Hovered = m('Hovered', { rect: RectSchema })
+export const ToggledCollapse = m('ToggledCollapse')
+export const Hovered = m('Hovered', { hover: HoverSchema })
 export const Picked = m('Picked', { pending: PendingSchema })
 export const Escaped = m('Escaped')
 export const DraftChanged = m('DraftChanged', { value: S.String })
 export const Sent = m('Sent')
 export const GotNotes = m('GotNotes', { notes: S.Array(NoteSchema) })
+export const GotContext = m('GotContext', { name: S.String, branch: S.String })
 export const Unreachable = m('Unreachable')
+export const AtBottom = m('AtBottom', { at: S.Boolean })
+export const JumpToBottom = m('JumpToBottom')
+export const Scrolled = m('Scrolled')
+export const SelectedTab = m('SelectedTab', { tab: TabSchema })
 export const Resolved = m('Resolved', { seq: S.Number })
 export const Discarded = m('Discarded', { seq: S.Number })
+export const StartedRename = m('StartedRename')
+export const NameChanged = m('NameChanged', { value: S.String })
+export const SavedRename = m('SavedRename')
+export const CancelledRename = m('CancelledRename')
 export const StartedEdit = m('StartedEdit', { seq: S.Number, text: S.String })
 export const EditChanged = m('EditChanged', { value: S.String })
 export const SavedEdit = m('SavedEdit')
@@ -47,15 +71,25 @@ export const CancelledEdit = m('CancelledEdit')
 export const Message = S.Union([
   Toggled,
   ToggledPick,
+  ToggledCollapse,
   Hovered,
   Picked,
   Escaped,
   DraftChanged,
   Sent,
   GotNotes,
+  GotContext,
   Unreachable,
+  AtBottom,
+  JumpToBottom,
+  Scrolled,
+  SelectedTab,
   Resolved,
   Discarded,
+  StartedRename,
+  NameChanged,
+  SavedRename,
+  CancelledRename,
   StartedEdit,
   EditChanged,
   SavedEdit,
@@ -68,11 +102,23 @@ const h = html<Message>()
 const feedUrl = (base: string, project: string): string =>
   `${base}/notes/feed?project=${encodeURIComponent(project)}`
 
+const contextUrl = (base: string, project: string): string =>
+  `${base}/project/context?project=${encodeURIComponent(project)}`
+
+const ContextSchema = S.Struct({ name: S.String, branch: S.String })
+
 const fetchFeed = (base: string, project: string) =>
   Effect.tryPromise(() =>
     fetch(feedUrl(base, project))
       .then((response) => response.json())
       .then((data) => GotNotes({ notes: S.decodeUnknownSync(S.Array(NoteSchema))(data) })),
+  ).pipe(Effect.catchCause(() => Effect.succeed(Unreachable())))
+
+const fetchContext = (base: string, project: string) =>
+  Effect.tryPromise(() =>
+    fetch(contextUrl(base, project))
+      .then((response) => response.json())
+      .then((data) => GotContext(S.decodeUnknownSync(ContextSchema)(data))),
   ).pipe(Effect.catchCause(() => Effect.succeed(Unreachable())))
 
 const postJson = (base: string, path: string, body: unknown) =>
@@ -105,6 +151,13 @@ const FetchNotes = Command.define(
   GotNotes,
   Unreachable,
 )(({ base, project }) => fetchFeed(base, project))
+
+const FetchContext = Command.define(
+  'FetchContext',
+  { base: S.String, project: S.String },
+  GotContext,
+  Unreachable,
+)(({ base, project }) => fetchContext(base, project))
 
 const SendChat = Command.define(
   'SendChat',
@@ -144,6 +197,18 @@ const SendEdit = Command.define(
   GotNotes,
   Unreachable,
 )(({ base, project, seq, text }) => settle(base, project, '/notes/edit', { project, seq, text }))
+
+const SendRename = Command.define(
+  'SendRename',
+  { base: S.String, project: S.String, name: S.String },
+  GotContext,
+  Unreachable,
+)(({ base, project, name }) =>
+  postJson(base, '/project/name', { project, name }).pipe(
+    Effect.andThen(fetchContext(base, project)),
+    Effect.catchCause(() => Effect.succeed(Unreachable())),
+  ),
+)
 
 const rectOf = (el: Element): Rect => {
   const box = el.getBoundingClientRect()
@@ -186,10 +251,103 @@ const anchorOf = (el: Element): Pending =>
     onNone: () => ({ kind: 'dom' as const, selector: selectorFor(el), label: labelOf(el), rect: rectOf(el) }),
   })
 
+const tagFor = (el: Element): string =>
+  Option.match(Option.fromNullishOr(el.closest('[data-loom-chapter][data-loom-section]')), {
+    onSome: (loom) => loom.getAttribute('data-loom-section') ?? '',
+    onNone: () => selectorFor(el),
+  })
+
 const overlayHostId = 'loom-notes-overlay'
+const notesListId = 'loom-notes-list'
 
 const hostElement = (target: EventTarget | null): Option.Option<Element> =>
   target instanceof Element && target.id !== overlayHostId ? Option.some(target) : Option.none()
+
+const isEditable = (el: Element | null): boolean =>
+  el instanceof HTMLInputElement ||
+  el instanceof HTMLTextAreaElement ||
+  (el instanceof HTMLElement && el.isContentEditable)
+
+const isTyping = (): boolean =>
+  isEditable(document.activeElement) ||
+  isEditable(document.getElementById(overlayHostId)?.shadowRoot?.activeElement ?? null)
+
+const shortcut = (event: KeyboardEvent): Option.Option<Message> =>
+  isTyping() || !event.altKey || event.ctrlKey || event.metaKey
+    ? Option.none()
+    : Match.value(event.code).pipe(
+        Match.withReturnType<Option.Option<Message>>(),
+        Match.when('KeyA', () => Option.some(ToggledPick())),
+        Match.when('KeyN', () => Option.some(Toggled())),
+        Match.when('KeyB', () => Option.some(ToggledCollapse())),
+        Match.orElse(() => Option.none()),
+      )
+
+const cursorLock: Stream.Stream<Message> = Stream.scoped(
+  Stream.fromEffect(
+    Effect.acquireRelease(
+      Effect.sync(() => {
+        const style = document.createElement('style')
+        style.textContent = '*, *::before, *::after { cursor: crosshair !important }'
+        document.head.appendChild(style)
+        return style
+      }),
+      (style) => Effect.sync(() => style.remove()),
+    ),
+  ),
+).pipe(Stream.flatMap(() => Stream.never))
+
+const noteListElement = (): Element | null =>
+  document.getElementById(overlayHostId)?.shadowRoot?.querySelector(`#${notesListId}`) ?? null
+
+const ScrollNotes = Command.define('ScrollNotes', Scrolled)(
+  Effect.sync(() => {
+    requestAnimationFrame(() => {
+      const list = noteListElement()
+      if (list !== null) list.scrollTop = list.scrollHeight
+    })
+    return Scrolled()
+  }),
+)
+
+const nearBottom = (list: Element): boolean =>
+  list.scrollHeight - list.scrollTop - list.clientHeight < 40
+
+const bottomStream: Stream.Stream<Message> = Stream.callback<Message>((queue) =>
+  Effect.acquireRelease(
+    Effect.sync(() => {
+      const watch: { list: Element | null; onScroll: (() => void) | null; live: boolean } = {
+        list: null,
+        onScroll: null,
+        live: true,
+      }
+      const attach = (): void => {
+        if (!watch.live) return
+        const list = noteListElement()
+        if (list === null) {
+          requestAnimationFrame(attach)
+          return
+        }
+        const onScroll = (): void => {
+          Queue.offerUnsafe(queue, AtBottom({ at: nearBottom(list) }))
+        }
+        list.addEventListener('scroll', onScroll, { passive: true })
+        watch.list = list
+        watch.onScroll = onScroll
+        onScroll()
+      }
+      attach()
+      return watch
+    }),
+    (watch) =>
+      Effect.sync(() => {
+        watch.live = false
+        if (watch.list !== null && watch.onScroll !== null) {
+          watch.list.removeEventListener('scroll', watch.onScroll)
+        }
+      }),
+  ).pipe(Effect.flatMap(() => Effect.never)),
+)
 
 const subscriptions = Subscription.make<Model, Message>()((entry) => ({
   hoverElement: entry(
@@ -203,7 +361,9 @@ const subscriptions = Subscription.make<Model, Message>()((entry) => ({
               type: 'mousemove',
               options: { capture: true },
               toMessage: (event: Event) =>
-                Option.map(hostElement(event.target), (el) => Hovered({ rect: rectOf(el) })),
+                Option.map(hostElement(event.target), (el) =>
+                  Hovered({ hover: { rect: rectOf(el), tag: tagFor(el) } }),
+                ),
             })
           : Stream.empty,
     },
@@ -228,16 +388,62 @@ const subscriptions = Subscription.make<Model, Message>()((entry) => ({
           : Stream.empty,
     },
   ),
+  pickCursor: entry(
+    { picking: S.Boolean },
+    {
+      modelToDependencies: (model) => ({ picking: model.picking }),
+      dependenciesToStream: ({ picking }) => (picking ? cursorLock : Stream.empty),
+    },
+  ),
+  bottomWatch: entry(
+    { open: S.Boolean },
+    {
+      modelToDependencies: (model) => ({ open: model.open }),
+      dependenciesToStream: ({ open }) => (open ? bottomStream : Stream.empty),
+    },
+  ),
+  escapeKey: entry(
+    { active: S.Boolean },
+    {
+      modelToDependencies: (model) => ({ active: model.picking || model.pending !== undefined }),
+      dependenciesToStream: ({ active }) =>
+        active
+          ? Subscription.fromEventFilterMap<KeyboardEvent, Message>({
+              target: document,
+              type: 'keydown',
+              options: { capture: true },
+              toMessage: (event) => (event.key === 'Escape' ? Option.some(Escaped()) : Option.none()),
+            })
+          : Stream.empty,
+    },
+  ),
+  shortcuts: entry(
+    { project: S.String },
+    {
+      modelToDependencies: (model) => ({ project: model.project }),
+      dependenciesToStream: () =>
+        Subscription.fromEventFilterMap<KeyboardEvent, Message>({
+          target: document,
+          type: 'keydown',
+          options: { capture: true },
+          toMessage: (event) => {
+            const message = shortcut(event)
+            if (Option.isSome(message)) event.preventDefault()
+            return message
+          },
+        }),
+    },
+  ),
 }))
 
 const sent = (model: Model): readonly [Model, ReadonlyArray<Command.Command<Message>>] =>
   model.pending === undefined
     ? [
-        { ...model, draft: '' },
+        { ...model, draft: '', pendingScroll: true },
         [SendChat({ base: model.base, project: model.project, route: model.route, text: model.draft })],
       ]
     : [
-        { ...model, draft: '', pending: undefined },
+        { ...model, draft: '', pending: undefined, pendingScroll: true },
         [
           SendAnnotation({
             base: model.base,
@@ -257,18 +463,37 @@ const saved = (model: Model): readonly [Model, ReadonlyArray<Command.Command<Mes
         [SendEdit({ base: model.base, project: model.project, seq: model.editing, text: model.editText })],
       ]
 
+const renamed = (model: Model): readonly [Model, ReadonlyArray<Command.Command<Message>>] =>
+  model.nameDraft.trim() === ''
+    ? [{ ...model, renaming: false }, []]
+    : [
+        { ...model, renaming: false, name: model.nameDraft },
+        [SendRename({ base: model.base, project: model.project, name: model.nameDraft })],
+      ]
+
 const update = (
   model: Model,
   message: Message,
 ): readonly [Model, ReadonlyArray<Command.Command<Message>>] =>
   Match.value(message).pipe(
     Match.withReturnType<readonly [Model, ReadonlyArray<Command.Command<Message>>]>(),
-    Match.tag('Toggled', () => [
-      { ...model, open: !model.open },
-      model.open ? [] : [FetchNotes({ base: model.base, project: model.project })],
+    Match.tag('Toggled', () =>
+      model.open
+        ? [{ ...model, open: false }, []]
+        : [
+            { ...model, open: true, collapsed: false, pendingScroll: true },
+            [FetchNotes({ base: model.base, project: model.project }), ScrollNotes()],
+          ],
+    ),
+    Match.tag('ToggledPick', () => [
+      { ...model, picking: !model.picking, open: false, collapsed: false },
+      [],
     ]),
-    Match.tag('ToggledPick', () => [{ ...model, picking: !model.picking, open: false }, []]),
-    Match.tag('Hovered', ({ rect }) => [{ ...model, hover: rect }, []]),
+    Match.tag('ToggledCollapse', () => [
+      { ...model, collapsed: !model.collapsed, open: false, picking: false },
+      [],
+    ]),
+    Match.tag('Hovered', ({ hover }) => [{ ...model, hover }, []]),
     Match.tag('Picked', ({ pending }) => [
       { ...model, picking: false, pending, hover: undefined, open: true },
       [],
@@ -279,8 +504,17 @@ const update = (
     ]),
     Match.tag('DraftChanged', ({ value }) => [{ ...model, draft: value }, []]),
     Match.tag('Sent', () => (model.draft.trim() === '' ? [model, []] : sent(model))),
-    Match.tag('GotNotes', ({ notes }) => [{ ...model, notes, reachable: true }, []]),
+    Match.tag('GotNotes', ({ notes }) =>
+      model.pendingScroll
+        ? [{ ...model, notes, reachable: true, pendingScroll: false, atBottom: true }, [ScrollNotes()]]
+        : [{ ...model, notes, reachable: true }, []],
+    ),
+    Match.tag('GotContext', ({ name, branch }) => [{ ...model, name, branch, reachable: true }, []]),
     Match.tag('Unreachable', () => [{ ...model, reachable: false }, []]),
+    Match.tag('AtBottom', ({ at }) => [{ ...model, atBottom: at }, []]),
+    Match.tag('JumpToBottom', () => [{ ...model, atBottom: true }, [ScrollNotes()]]),
+    Match.tag('Scrolled', () => [model, []]),
+    Match.tag('SelectedTab', ({ tab }) => [{ ...model, tab }, []]),
     Match.tag('Resolved', ({ seq }) => [
       model,
       [SendResolve({ base: model.base, project: model.project, seq })],
@@ -289,12 +523,34 @@ const update = (
       model,
       [SendDiscard({ base: model.base, project: model.project, seq })],
     ]),
+    Match.tag('StartedRename', () => [{ ...model, renaming: true, nameDraft: model.name }, []]),
+    Match.tag('NameChanged', ({ value }) => [{ ...model, nameDraft: value }, []]),
+    Match.tag('SavedRename', () => renamed(model)),
+    Match.tag('CancelledRename', () => [{ ...model, renaming: false }, []]),
     Match.tag('StartedEdit', ({ seq, text }) => [{ ...model, editing: seq, editText: text }, []]),
     Match.tag('EditChanged', ({ value }) => [{ ...model, editText: value }, []]),
     Match.tag('SavedEdit', () => saved(model)),
     Match.tag('CancelledEdit', () => [{ ...model, editing: undefined }, []]),
     Match.exhaustive,
   )
+
+const branchIcon =
+  '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>'
+
+const crosshairIcon =
+  '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><line x1="12" x2="12" y1="2" y2="5"/><line x1="12" x2="12" y1="19" y2="22"/><line x1="2" x2="5" y1="12" y2="12"/><line x1="19" x2="22" y1="12" y2="12"/></svg>'
+
+const messageIcon =
+  '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>'
+
+const chevronDownIcon =
+  '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>'
+
+const chevronUpIcon =
+  '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>'
+
+const icon = (svg: string, tone: string): Html =>
+  h.span([h.Class(clsx('block h-[15px] w-[15px] shrink-0', tone)), h.InnerHTML(svg)], [])
 
 const kindColor = (note: Note): string =>
   Match.value(note).pipe(
@@ -315,7 +571,10 @@ const pointerOf = (note: Note): Option.Option<string> =>
 
 const control = (label: string, message: Message, tone: string): Html =>
   h.button(
-    [h.Class(clsx('rounded px-1.5 py-0.5 text-[11px] transition hover:bg-white/5', tone)), h.OnClick(message)],
+    [
+      h.Class(clsx('cursor-pointer rounded px-1.5 py-0.5 text-[11px] transition hover:bg-white/5', tone)),
+      h.OnClick(message),
+    ],
     [label],
   )
 
@@ -333,7 +592,6 @@ const meta = (note: Note): Html =>
   h.div(
     [h.Class('mb-1 flex items-center gap-2 text-[11px]')],
     [
-      h.span([h.Class('text-fg-3')], [`#${note.seq}`]),
       h.span([h.Class(kindColor(note))], [note.kind]),
       ...Option.match(pointerOf(note), {
         onNone: () => [],
@@ -345,12 +603,12 @@ const meta = (note: Note): Html =>
 
 const editRow = (editText: string): Html =>
   h.div(
-    [h.Class('flex flex-col gap-2 border-b border-white/[0.07] px-3 py-2.5')],
+    [h.Class('flex flex-col gap-2 px-3 py-2.5')],
     [
       h.textarea(
         [
           h.Class(
-            'w-full resize-none rounded-md border border-white/10 bg-bg px-2.5 py-2 font-sans text-[12.5px] text-fg focus:border-mint focus:outline-none',
+            'w-full resize-none rounded-md border border-white/[0.12] bg-bg px-2.5 py-2 font-sans text-[12.5px] text-fg focus:border-mint focus:outline-none',
           ),
           h.Value(editText),
           h.OnInput((value: string) => EditChanged({ value })),
@@ -362,14 +620,18 @@ const editRow = (editText: string): Html =>
         [
           h.button(
             [
-              h.Class('rounded-md bg-mint px-2.5 py-1 text-[11px] font-medium text-bg transition hover:brightness-105'),
+              h.Class(
+                'cursor-pointer rounded-md bg-mint px-2.5 py-1 text-[11px] font-medium text-bg transition hover:brightness-105',
+              ),
               h.OnClick(SavedEdit()),
             ],
             ['Save'],
           ),
           h.button(
             [
-              h.Class('rounded-md border border-white/10 px-2.5 py-1 text-[11px] text-fg-2 transition hover:text-fg'),
+              h.Class(
+                'cursor-pointer rounded-md border border-white/[0.12] px-2.5 py-1 text-[11px] text-fg-2 transition hover:text-fg',
+              ),
               h.OnClick(CancelledEdit()),
             ],
             ['Cancel'],
@@ -383,7 +645,7 @@ const noteRow = (note: Note, editing: number | undefined, editText: string): Htm
   note.seq === editing
     ? editRow(editText)
     : h.div(
-        [h.Class(clsx('group border-b border-white/[0.07] px-3 py-2.5', note.addressed && 'opacity-40'))],
+        [h.Class('group px-3 py-2.5')],
         [
           meta(note),
           h.div([h.Class('font-sans text-[12.5px] leading-relaxed text-fg')], [note.text]),
@@ -391,24 +653,160 @@ const noteRow = (note: Note, editing: number | undefined, editText: string): Htm
         ],
       )
 
-const highlight = (rect: Rect): Html =>
+const openCount = (notes: ReadonlyArray<Note>): number =>
+  Array.filter(notes, (note) => !note.addressed).length
+
+const renameKey = (key: string): Option.Option<Message> =>
+  Match.value(key).pipe(
+    Match.withReturnType<Option.Option<Message>>(),
+    Match.when('Enter', () => Option.some(SavedRename())),
+    Match.when('Escape', () => Option.some(CancelledRename())),
+    Match.orElse(() => Option.none()),
+  )
+
+const nameField = (model: Model): Html =>
+  model.renaming
+    ? h.input([
+        h.Class('w-36 rounded border border-mint bg-bg px-1.5 py-0.5 font-mono text-[12px] text-fg focus:outline-none'),
+        h.Value(model.nameDraft),
+        h.OnInput((value: string) => NameChanged({ value })),
+        h.OnKeyDownPreventDefault(renameKey),
+        h.OnBlur(SavedRename()),
+      ])
+    : h.button(
+        [
+          h.Class('cursor-pointer whitespace-nowrap border-b border-dotted border-fg-4 text-fg'),
+          h.OnClick(StartedRename()),
+          h.Title('Rename this project'),
+        ],
+        [model.name],
+      )
+
+const branchItem = (branch: string): Html =>
+  h.span(
+    [h.Class('inline-flex items-center gap-1.5 whitespace-nowrap text-fg-3')],
+    [icon(branchIcon, 'text-violet'), branch],
+  )
+
+const pickControl = (model: Model): Html =>
+  h.button(
+    [
+      h.Class(
+        clsx(
+          'inline-flex h-full cursor-pointer items-center px-3 text-mint transition hover:bg-bg-3',
+          model.picking && 'bg-mint/[0.16]',
+        ),
+      ),
+      h.OnClick(ToggledPick()),
+      h.Title(model.picking ? 'Picking… (escape to cancel)' : 'Pick an element (Alt+A)'),
+    ],
+    [icon(crosshairIcon, '')],
+  )
+
+const notesControl = (model: Model): Html => {
+  const open = openCount(model.notes)
+  return h.button(
+    [
+      h.Class(
+        clsx(
+          'inline-flex h-full cursor-pointer items-center gap-1.5 px-3 transition hover:bg-bg-3 hover:text-fg',
+          model.open ? 'text-fg' : 'text-fg-3',
+        ),
+      ),
+      h.OnClick(Toggled()),
+      h.Title('Notes (Alt+N)'),
+    ],
+    [icon(messageIcon, ''), ...(open === 0 ? [] : [h.span([h.Class('text-mint')], [String(open)])])],
+  )
+}
+
+const collapseControl = (): Html =>
+  h.button(
+    [
+      h.Class(
+        'inline-flex h-full cursor-pointer items-center px-3 text-fg-2 transition hover:bg-bg-3 hover:text-fg',
+      ),
+      h.OnClick(ToggledCollapse()),
+      h.Title('Hide the bar (Alt+B)'),
+    ],
+    [icon(chevronDownIcon, '')],
+  )
+
+const bar = (model: Model): Html =>
   h.div(
     [
-      h.Class('pointer-events-none fixed rounded-md border-2 border-mint bg-mint/10'),
-      h.Style({ left: `${rect.x}px`, top: `${rect.y}px`, width: `${rect.width}px`, height: `${rect.height}px` }),
+      h.Class(
+        'pointer-events-auto fixed inset-x-0 bottom-0 flex h-8 items-center gap-2 border-t border-white/[0.12] bg-bg-2 pl-4 pr-3 text-[12px] text-fg-2',
+      ),
     ],
-    [],
+    [
+      h.div(
+        [h.Class('flex items-center gap-4')],
+        [...(model.branch === '' ? [] : [branchItem(model.branch)]), nameField(model)],
+      ),
+      h.div([h.Class('flex-1')], []),
+      pickControl(model),
+      notesControl(model),
+      collapseControl(),
+    ],
+  )
+
+const handle = (model: Model): Html => {
+  const open = openCount(model.notes)
+  return h.button(
+    [
+      h.Class(
+        'pointer-events-auto fixed bottom-0 right-6 inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-t-md border-l border-r border-t border-white/[0.12] bg-bg-2 px-3 text-[12px] text-fg-2 transition hover:bg-bg-3 hover:text-fg',
+      ),
+      h.OnClick(ToggledCollapse()),
+      h.Title('Show the bar (Alt+B)'),
+    ],
+    [icon(chevronUpIcon, 'text-mint'), ...(open === 0 ? [] : [h.span([h.Class('text-mint')], [String(open)])])],
+  )
+}
+
+const composerKey =
+  (draft: string) =>
+  (key: string, mods: KeyboardModifiers): Option.Option<Message> => {
+    if (key !== 'Enter') return Option.none()
+    if (mods.ctrlKey || mods.metaKey) return Option.some(DraftChanged({ value: `${draft}\n` }))
+    if (mods.shiftKey) return Option.none()
+    return Option.some(Sent())
+  }
+
+const highlight = (hover: Hover): Html =>
+  h.div(
+    [
+      h.Class('pointer-events-none fixed rounded-lg border-2 border-mint bg-mint/[0.09]'),
+      h.Style({
+        left: `${hover.rect.x}px`,
+        top: `${hover.rect.y}px`,
+        width: `${hover.rect.width}px`,
+        height: `${hover.rect.height}px`,
+      }),
+    ],
+    [
+      h.span(
+        [
+          h.Class(
+            'absolute -top-[22px] -left-0.5 whitespace-nowrap rounded bg-mint px-1.5 py-px font-mono text-[11px] text-bg',
+          ),
+        ],
+        [hover.tag],
+      ),
+    ],
   )
 
 const draftArea = (model: Model, placeholder: string): Html =>
   h.textarea(
     [
       h.Class(
-        'h-16 w-full resize-none rounded-md border border-white/10 bg-bg px-2.5 py-2 font-sans text-[12.5px] leading-relaxed text-fg placeholder:text-fg-4 focus:border-mint focus:outline-none',
+        'h-16 w-full resize-none rounded-md border border-white/[0.12] bg-bg px-2.5 py-2 font-sans text-[12.5px] leading-relaxed text-fg placeholder:text-fg-4 focus:border-mint focus:outline-none',
       ),
       h.Value(model.draft),
       h.Placeholder(placeholder),
       h.OnInput((value: string) => DraftChanged({ value })),
+      h.OnKeyDownPreventDefault(composerKey(model.draft)),
     ],
     [],
   )
@@ -416,7 +814,9 @@ const draftArea = (model: Model, placeholder: string): Html =>
 const sendButton = (label: string): Html =>
   h.button(
     [
-      h.Class('flex-1 rounded-md bg-mint py-2 text-[12px] font-medium text-bg transition hover:brightness-105'),
+      h.Class(
+        'flex-1 cursor-pointer rounded-md bg-mint py-2 text-[12px] font-medium text-bg transition hover:brightness-105',
+      ),
       h.OnClick(Sent()),
     ],
     [label],
@@ -427,10 +827,10 @@ const pickButton = (model: Model): Html =>
     [
       h.Class(
         clsx(
-          'flex-1 rounded-md border py-2 text-[12px] transition',
+          'flex-1 cursor-pointer rounded-md border py-2 text-[12px] transition',
           model.picking
             ? 'border-mint bg-mint/[0.14] text-mint'
-            : 'border-white/10 bg-bg-3 text-fg-2 hover:border-white/20 hover:text-fg',
+            : 'border-white/[0.12] bg-bg-3 text-fg-2 hover:border-white/20 hover:text-fg',
         ),
       ),
       h.OnClick(ToggledPick()),
@@ -438,25 +838,50 @@ const pickButton = (model: Model): Html =>
     [model.picking ? '◎ Picking…' : '◎ Pick element'],
   )
 
+const scrollDown = (): Html =>
+  h.button(
+    [
+      h.Class(
+        'absolute -top-12 right-2 inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-white/[0.12] bg-bg-3 text-fg-2 shadow-[0_6px_20px_rgba(0,0,0,0.5)] transition hover:text-fg',
+      ),
+      h.OnClick(JumpToBottom()),
+      h.Title('Jump to the latest'),
+    ],
+    [icon(chevronDownIcon, '')],
+  )
+
 const composer = (model: Model): Html =>
   h.div(
-    [h.Class('border-t border-white/[0.07] p-3')],
-    [draftArea(model, 'Leave a note…'), h.div([h.Class('mt-2 flex gap-2')], [pickButton(model), sendButton('Send')])],
+    [h.Class('relative border-t border-white/[0.07] p-3')],
+    [
+      ...(model.atBottom ? [] : [scrollDown()]),
+      draftArea(model, 'Leave a note…'),
+      h.div([h.Class('mt-2 flex gap-2')], [pickButton(model), sendButton('Send')]),
+    ],
   )
 
-const emptyState = (): Html =>
+const visibleNotes = (model: Model): ReadonlyArray<Note> =>
+  Array.filter(model.notes, (note) => (model.tab === 'resolved' ? note.addressed : !note.addressed))
+
+const emptyState = (model: Model): Html =>
   h.div(
     [h.Class('px-3.5 py-10 text-center font-sans text-[12.5px] leading-relaxed text-fg-3')],
-    ['No notes yet. Point at something on the page, or type one below.'],
+    [
+      model.tab === 'resolved'
+        ? 'No resolved notes yet.'
+        : 'No open notes. Point at something on the page, or type one below.',
+    ],
   )
 
-const noteList = (model: Model): Html =>
-  h.div(
-    [h.Class('flex flex-1 flex-col overflow-auto')],
-    model.notes.length === 0
-      ? [emptyState()]
-      : Array.map(model.notes, (note) => noteRow(note, model.editing, model.editText)),
+const noteList = (model: Model): Html => {
+  const notes = visibleNotes(model)
+  return h.div(
+    [h.Id(notesListId), h.Class('flex min-h-0 flex-1 flex-col divide-y divide-white/[0.07] overflow-auto')],
+    notes.length === 0
+      ? [emptyState(model)]
+      : Array.map(notes, (note) => noteRow(note, model.editing, model.editText)),
   )
+}
 
 const banner = (): Html =>
   h.div(
@@ -470,18 +895,33 @@ const banner = (): Html =>
     ],
   )
 
+const tabButton = (label: string, value: Tab, active: boolean): Html =>
+  h.button(
+    [
+      h.Class(
+        clsx(
+          'cursor-pointer border-b-2 pb-1 text-[12px] transition',
+          active ? 'border-mint text-fg' : 'border-transparent text-fg-3 hover:text-fg',
+        ),
+      ),
+      h.OnClick(SelectedTab({ tab: value })),
+    ],
+    [label],
+  )
+
 const header = (model: Model): Html =>
   h.div(
-    [h.Class('flex items-center gap-2 border-b border-white/[0.07] px-3 py-2.5 text-[13px] text-fg-3')],
+    [h.Class('flex items-center gap-4 border-b border-white/[0.07] px-3 py-2.5 text-[13px]')],
     [
-      h.span([h.Class('text-fg')], ['Notes']),
-      h.span([h.Class('text-fg-4')], [String(model.notes.length)]),
+      tabButton('Open', 'open', model.tab === 'open'),
+      tabButton('Resolved', 'resolved', model.tab === 'resolved'),
       h.button(
         [
           h.Class(
-            'ml-auto flex h-6 w-6 items-center justify-center rounded-md border border-white/10 text-fg-2 transition hover:bg-white/5 hover:text-fg',
+            'ml-auto flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border border-white/[0.12] text-fg-2 transition hover:bg-white/5 hover:text-fg',
           ),
           h.OnClick(Toggled()),
+          h.Title('Close (Alt+N)'),
         ],
         ['✕'],
       ),
@@ -492,7 +932,7 @@ const panel = (model: Model): Html =>
   h.div(
     [
       h.Class(
-        'pointer-events-auto fixed bottom-[4.5rem] right-4 flex max-h-[min(560px,calc(100vh-6rem))] w-[340px] flex-col overflow-hidden rounded-[10px] border border-white/10 bg-bg-2 font-mono text-[13px] text-fg shadow-[0_18px_50px_rgba(0,0,0,0.45)]',
+        'pointer-events-auto fixed bottom-10 right-4 flex max-h-[80vh] w-[360px] flex-col overflow-hidden rounded-[10px] border border-white/[0.12] bg-bg-2 font-mono text-[13px] text-fg shadow-[0_18px_50px_rgba(0,0,0,0.45)]',
       ),
     ],
     [header(model), ...(model.reachable ? [] : [banner()]), noteList(model), composer(model)],
@@ -502,7 +942,7 @@ const popover = (model: Model, pending: Pending): Html =>
   h.div(
     [
       h.Class(
-        'pointer-events-auto fixed bottom-6 left-1/2 w-[340px] max-w-[86vw] -translate-x-1/2 rounded-[10px] border border-mint bg-bg-2 p-3 font-mono text-[13px] text-fg shadow-[0_12px_40px_rgba(0,0,0,0.5)]',
+        'pointer-events-auto fixed bottom-12 left-1/2 w-[340px] max-w-[86vw] -translate-x-1/2 rounded-[10px] border border-mint bg-bg-2 p-3 font-mono text-[13px] text-fg shadow-[0_12px_40px_rgba(0,0,0,0.5)]',
       ),
     ],
     [
@@ -513,7 +953,9 @@ const popover = (model: Model, pending: Pending): Html =>
         [
           h.button(
             [
-              h.Class('flex-1 rounded-md border border-white/10 bg-bg-3 py-2 text-[12px] text-fg-2 transition hover:text-fg'),
+              h.Class(
+                'flex-1 cursor-pointer rounded-md border border-white/[0.12] bg-bg-3 py-2 text-[12px] text-fg-2 transition hover:text-fg',
+              ),
               h.OnClick(Escaped()),
             ],
             ['Cancel'],
@@ -524,24 +966,11 @@ const popover = (model: Model, pending: Pending): Html =>
     ],
   )
 
-const launcher = (model: Model): Html => {
-  const open = Array.filter(model.notes, (note) => !note.addressed).length
-  return h.button(
-    [
-      h.Class(
-        'pointer-events-auto fixed bottom-4 right-4 inline-flex items-center gap-2 rounded-md bg-mint px-3 py-2 font-mono text-[12px] font-medium text-bg shadow-[0_8px_24px_rgba(0,0,0,0.4)] transition hover:brightness-105',
-      ),
-      h.OnClick(Toggled()),
-    ],
-    ['✎ Annotate', ...(open === 0 ? [] : [h.span([h.Class('text-bg/60')], [`· ${open}`])])],
-  )
-}
-
 const view = (model: Model): Html =>
   h.div(
     [h.Class('pointer-events-none fixed inset-0 font-mono')],
     [
-      launcher(model),
+      ...(model.collapsed ? [handle(model)] : [bar(model)]),
       ...(model.open && model.pending === undefined ? [panel(model)] : []),
       ...(model.picking && model.hover !== undefined ? [highlight(model.hover)] : []),
       ...(model.pending !== undefined ? [popover(model, model.pending)] : []),
@@ -573,15 +1002,23 @@ const init = (): readonly [Model, ReadonlyArray<Command.Command<Message>>] => {
     {
       base,
       project,
+      name: project,
+      branch: '',
       route: location.pathname,
       notes: [],
       reachable: true,
+      tab: 'open',
       open: false,
+      collapsed: false,
+      atBottom: true,
+      pendingScroll: false,
       picking: false,
+      renaming: false,
+      nameDraft: '',
       draft: '',
       editText: '',
     },
-    [FetchNotes({ base, project })],
+    [FetchNotes({ base, project }), FetchContext({ base, project })],
   ]
 }
 

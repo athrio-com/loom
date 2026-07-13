@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>loom — the product · docs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;1,6..72,300&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./catalog.css">
+</head>
+<body>
+
+<header class="titlebar">
+  <div class="traffic"><span></span><span></span><span></span></div>
+  <div class="crumbs">
+    <span>loom</span><span class="sep">›</span>
+    <span>docs</span><span class="sep">›</span>
+    <span class="file">the-product.loom</span>
+  </div>
+  <div class="right">
+    <nav class="topnav">
+      <a href="./index.html">landing</a>
+      <a href="./docs.html" class="here">docs</a>
+      <a href="./annotations.html">annotations</a>
+      <a href="./devtools.html">devtools</a>
+    </nav>
+    <span class="live-dot"></span><span>reading</span>
+  </div>
+</header>
+
+<div class="tabbar">
+  <div class="tab"><span class="dot"></span>the-compiler.loom</div>
+  <div class="tab active"><span class="dot"></span>the-product.loom</div>
+  <div class="tab"><span class="dot"></span>the-tangler.loom</div>
+</div>
+
+<main class="wrap">
+  <div class="docs">
+
+    <!-- left: navigation -->
+    <aside class="docs-nav">
+      <div class="part">Part V — Tangling</div>
+      <a href="#">The compiler</a>
+      <a href="#" class="here">The product</a>
+      <a href="#">The tangler</a>
+      <a href="#">Orphaned output</a>
+      <div class="part">Part I — A first loom</div>
+      <a href="#">What a loom is</a>
+      <a href="#">Prose and code</a>
+      <a href="#">The anchor</a>
+      <div class="part">Part III — Reading the text</div>
+      <a href="#">The classifier</a>
+      <a href="#">The parser</a>
+      <a href="#">The document</a>
+    </aside>
+
+    <!-- middle: the page -->
+    <article class="docs-main">
+      <div class="eyebrow"><span class="arrow">→</span>Part V · Chapter 2</div>
+      <h1>The product</h1>
+      <p class="lede">
+        A loom reads top to bottom as prose, but its code is written in whatever order
+        explains it best. The product is what the pieces become once assembled: real
+        source, composed from the sections the anchors name, with the narration left behind.
+      </p>
+
+      <h2 id="what"><span class="n">01</span>What the product is</h2>
+      <p>
+        Loom is not a templating engine but a composition system, and code is its product.
+        Within a chapter a section draws in another by a <code>::[…]</code> anchor; the
+        product pass resolves those anchors into one composed whole, and a <code>{Tangle}</code>
+        section binds it to the file path that <a class="link" href="#">tangle</a> writes.
+      </p>
+      <p>
+        The prose never appears in the product. Tangle discards it, keeping only the code and
+        the comments an author meant to ship. What a person reads and what a machine runs are
+        two layers of one file, and the product is only the second of them.
+      </p>
+
+      <h2 id="anchor"><span class="n">02</span>Composing by anchor</h2>
+      <p>
+        A section names another with an anchor rather than pasting its code inline. The order
+        on the page is the reader's; the order in the file is the compiler's. Below, the module
+        is assembled last from three sections defined earlier, each under the prose that explains it.
+      </p>
+
+      <figure>
+<pre class="code"><span class="op">#</span> <span class="hd">The module</span> <span class="op">{Tangle}</span>
+
+<span class="op">=></span>
+
+<span class="op">::[</span><span class="an">What it draws on</span><span class="op">]</span>
+
+<span class="op">::[</span><span class="an">The tools</span><span class="op">]</span>
+
+<span class="op">::[</span><span class="an">The handlers</span><span class="op">]</span></pre>
+        <figcaption>corpus/11-loom-notes/05-the-agent-s-tools.loom — the sink that binds the composed module to a file.</figcaption>
+      </figure>
+
+      <p>
+        When a section's code happens to be TypeScript it can look like Loom's own composition,
+        but it is product, not composition. Loom treats it as opaque text in its section's
+        language and composes it only by reference:
+      </p>
+
+      <figure>
+<pre class="code"><span class="k">export const</span> <span class="fn">toolkit</span> <span class="pun">=</span> <span class="ty">Toolkit</span><span class="pun">.</span><span class="fn">make</span><span class="pun">(</span>listProjects<span class="pun">,</span> listOpenNotes<span class="pun">,</span> resolve<span class="pun">,</span> discard<span class="pun">)</span>
+
+<span class="k">export const</span> <span class="fn">handlers</span> <span class="pun">=</span> toolkit<span class="pun">.</span><span class="fn">toLayer</span><span class="pun">(</span>
+  <span class="ty">Effect</span><span class="pun">.</span><span class="fn">gen</span><span class="pun">(</span><span class="k">function*</span> <span class="pun">() {</span>
+    <span class="k">const</span> store <span class="pun">=</span> <span class="k">yield*</span> <span class="ty">NoteStore</span>
+    <span class="k">return</span> <span class="pun">{</span> <span class="com">/* … */</span> <span class="pun">}</span>
+  <span class="pun">}),</span>
+<span class="pun">)</span></pre>
+        <figcaption>The de re layer — the code, in its own language, drawn in by anchor.</figcaption>
+      </figure>
+
+      <h2 id="why"><span class="n">03</span>Why keep the layers apart</h2>
+      <p>
+        Knuth's premise was that a program is a work of literature. Prose explains to a person
+        what we want a computer to do; code tells the computer to do it. Loom keeps the two
+        distinct so neither has to carry the other's weight — the prose can wander for clarity,
+        and the product stays exactly the source the language expects.
+      </p>
+      <blockquote>
+        Instead of imagining that our main task is to instruct a computer what to do, let us
+        concentrate rather on explaining to human beings what we want a computer to do.
+        <cite>— Donald E. Knuth, Literate Programming (1984)</cite>
+      </blockquote>
+
+      <h2 id="notes"><span class="n">04</span>Reviewing the product</h2>
+      <p>
+        Because the product runs, it can be reviewed as it runs. Loom Notes draws an overlay
+        over the page, so a reader points at what they see and leaves a note where it belongs;
+        a coding agent reads those notes and works through them. The next page shows every one
+        of the overlay's components at rest.
+      </p>
+      <ul>
+        <li>A chat note, typed straight into the panel.</li>
+        <li>A DOM annotation, pinned to any element on the page.</li>
+        <li>A Loom annotation, pinned to a fragment woven from a <code>.loom</code> source.</li>
+      </ul>
+    </article>
+
+    <!-- right: outline -->
+    <aside class="docs-outline">
+      <div class="cap">On this page</div>
+      <a href="#what" class="here">What the product is</a>
+      <a href="#anchor">Composing by anchor</a>
+      <a href="#why">Why keep the layers apart</a>
+      <a href="#notes">Reviewing the product</a>
+    </aside>
+
+  </div>
+</main>
+
+<script type="module" src="http://localhost:5710/notes.js" data-loom-project="loom-design"></script>
+</body>
+</html>

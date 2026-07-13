@@ -34,7 +34,7 @@ const banner = Console.log(
 
 ## Tangling a file
 
-The `tangle` command takes a file path, resolves it against the working directory, and hands it to the tangler. The tangler walks the file and emits each output; the command logs every path it writes. When the tangler refuses a file — an unresolved `::[…]` anchor would otherwise drop silently from the output — the command prints the error and exits non-zero, writing nothing.
+The `tangle` command takes a file path, resolves it against the working directory, and hands it to the tangler. The tangler walks the file, emits each output, and records what it wrote in the lock; the command logs every path. When the tangler refuses a file — an unresolved `::[…]` anchor would otherwise drop silently from the output — the command prints the error and exits non-zero, writing nothing.
 
 =>
 
@@ -48,6 +48,32 @@ const tangle = (file: string) =>
       yield* Effect.forEach(written, (f) =>
         Console.log(`loom: tangled ${f.section} → ${f.path}`),
       )
+    }
+  }).pipe(
+    Effect.catchTag('TangleError', (e) =>
+      Console.error(e.message).pipe(
+        Effect.andThen(Effect.sync(() => void (process.exitCode = 1))),
+      ),
+    ),
+  )
+
+## Listing orphans
+
+The `orphans` command lists the files that lost their host, one path per line and nothing else, so a shell can act on them — `loom orphans | xargs rm` removes every one. It takes no path: the lock covers the whole workspace, so the command does too, found from the working directory. It reads the lock, tangles the workspace to see what is still produced, and prints the recorded paths the build no longer yields. With `--prune` it removes them itself and rewrites the lock, instead of leaving removal to a pipe. Either way a broken corpus prints its error to standard error, exits non-zero, and lists no path, so a pipe into `rm` deletes nothing when the build is not whole.
+
+=>
+
+const orphans = (prune: boolean) =>
+  Effect.gen(function* () {
+    const tangler = yield* LoomTangler
+    if (prune) {
+      const removed = yield* tangler.prune(process.cwd())
+      yield* removed.length === 0
+        ? Console.log('loom: no orphans to prune')
+        : Effect.forEach(removed, (path) => Console.log(`loom: pruned ${path}`))
+    } else {
+      const found = yield* tangler.orphans(process.cwd())
+      yield* Effect.forEach(found, (path) => Console.log(path))
     }
   }).pipe(
     Effect.catchTag('TangleError', (e) =>
@@ -221,7 +247,7 @@ That record is what lets three separate runs of the CLI find one server. `start`
 
 Nothing that connects to the server reads the record. The overlay takes the port from the origin of its own `<script>` tag, and the agent takes it from the URL in `.mcp.json`, both fixed by `loom init` at the default `5710`. The record belongs to the lifecycle alone — `start`, `stop`, and `status` — and to nothing that talks to the server.
 
-`readRecord` reads the record and decodes it, and answers with nothing when the file is absent or malformed. `alive` asks the operating system whether a process still exists, by sending it the null signal — no signal at all, only the check that it could be sent. `runningServer` puts the two together: the record when its process is still up, and nothing when there is no record or the process it names is gone.
+`readRecord` reads the record and decodes it, and answers with nothing when the file is absent or malformed. A process existing is not the same as a server answering, though: a wedged process holds the port yet replies to nothing. So health is a matter of response, not existence. `responds` asks the server over HTTP with a short deadline, and a server that does not answer in time counts as down. `alive` still asks the operating system whether a process exists at all, by sending it the null signal — no signal, only the check that it could be sent — which is what tells a forced stop whether its work is done. `runningServer` is the record of a server that answers: the record when `responds` says yes, and nothing otherwise.
 
 =>
 
@@ -248,12 +274,17 @@ const alive = (pid: number): Effect.Effect<boolean> =>
     Effect.orElseSucceed(() => false),
   )
 
+const responds = (port: number): Effect.Effect<boolean> =>
+  Effect.tryPromise(() =>
+    fetch(`http://localhost:${port}/`, { signal: AbortSignal.timeout(700) }),
+  ).pipe(Effect.as(true), Effect.orElseSucceed(() => false))
+
 const runningServer = readRecord.pipe(
   Effect.flatMap(
     Option.match({
       onNone: () => Effect.succeed(Option.none<typeof ServerRecord.Type>()),
       onSome: (record) =>
-        alive(record.pid).pipe(
+        responds(record.port).pipe(
           Effect.map((up) => (up ? Option.some(record) : Option.none())),
         ),
     }),
@@ -262,7 +293,11 @@ const runningServer = readRecord.pipe(
 
 ## Starting and stopping the server
 
-`start` looks for a server already running and does nothing when one answers, reporting the live one rather than launching a rival on the same port. Otherwise it spawns the server detached — in a session of its own, its output discarded, so it outlives this command — then records the new process and port and prints where the server listens. `stop` reads the record, ends the process, and clears the file; asked to stop a server that is not running, it clears any stale record and says so.
+`start` looks for a server that answers and leaves it alone, reporting the live one rather than launching a rival on the same port. When the record names a server that no longer answers — wedged, or already gone — `start` ends that process first, then launches a fresh one. So a server that has hung, or one a crash left holding the port, is replaced rather than blocking the new one.
+
+`stop` ends the recorded process and clears the record. It escalates from a polite signal to a forced one, so a wedged server that ignores the first is killed by the second and the port comes free. Asked to stop a server that was never recorded, it clears any stale record and says so.
+
+`halt` is that escalation: it asks the process to end, waits a moment, and, if it is still there, kills it outright. `spawnServer` starts the server in a session of its own, its output discarded, so it outlives the command that launched it, and `launch` spawns one, records it, and prints where it listens.
 
 =>
 
@@ -276,45 +311,59 @@ const spawnServer = (port: number): Effect.Effect<number> =>
     return child.pid
   })
 
-const start = Effect.gen(function* () {
-  const fs = yield* FileSystem.FileSystem
-  yield* Option.match(yield* runningServer, {
-    onSome: (record) =>
-      Console.log(
-        `\n   ${teal('●')} notes server already running on http://localhost:${record.port}\n`,
-      ),
-    onNone: () =>
-      Effect.gen(function* () {
-        const pid = yield* spawnServer(defaultPort)
-        yield* fs.makeDirectory(loomDir, { recursive: true })
-        yield* fs.writeFileString(recordFile, JSON.stringify({ pid, port: defaultPort }))
-        yield* Console.log(
-          `\n   ${teal('✓')} notes server on http://localhost:${defaultPort}\n` +
-            `   ${dim('stop it with `loom stop`')}\n`,
-        )
-      }),
+const halt = (pid: number): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    yield* Effect.try(() => process.kill(pid, 'SIGTERM')).pipe(Effect.ignore)
+    yield* Effect.sleep('300 millis')
+    const stillUp = yield* alive(pid)
+    yield* stillUp
+      ? Effect.try(() => process.kill(pid, 'SIGKILL')).pipe(Effect.ignore)
+      : Effect.void
   })
+
+const launch = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
+  const pid = yield* spawnServer(defaultPort)
+  yield* fs.makeDirectory(loomDir, { recursive: true })
+  yield* fs.writeFileString(recordFile, JSON.stringify({ pid, port: defaultPort }))
+  yield* Console.log(
+    `\n   ${teal('✓')} notes server on http://localhost:${defaultPort}\n` +
+      `   ${dim('stop it with `loom stop`')}\n`,
+  )
+})
+
+const start = Effect.gen(function* () {
+  const record = yield* readRecord
+  const responding = yield* Option.match(record, {
+    onNone: () => Effect.succeed(false),
+    onSome: (found) => responds(found.port),
+  })
+  if (responding) {
+    yield* Console.log(
+      `\n   ${teal('●')} notes server already running on http://localhost:${defaultPort}\n`,
+    )
+    return
+  }
+  yield* Option.match(record, { onSome: (found) => halt(found.pid), onNone: () => Effect.void })
+  yield* launch
 })
 
 const stop = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
-  yield* Option.match(yield* runningServer, {
-    onSome: (record) =>
-      Effect.try(() => process.kill(record.pid)).pipe(
-        Effect.ignore,
-        Effect.andThen(fs.remove(recordFile, { force: true })),
+  const record = yield* readRecord
+  yield* Option.match(record, {
+    onSome: (found) =>
+      halt(found.pid).pipe(
         Effect.andThen(Console.log(`\n   ${teal('✓')} stopped the notes server\n`)),
       ),
-    onNone: () =>
-      fs.remove(recordFile, { force: true }).pipe(
-        Effect.andThen(Console.log(dim('\n   The notes server is not running.\n'))),
-      ),
+    onNone: () => Console.log(dim('\n   The notes server is not running.\n')),
   })
+  yield* fs.remove(recordFile, { force: true })
 })
 
 ## Reporting the workspace
 
-`loom status` shows the state of the workspace at a glance: where the store sits, the primary language a specifier-less section inherits, the activated languages, and whether the notes server is running. Beside each activated language it marks whether the service is installed — a filled dot when the store holds it, a hollow one and the `loom add` that would fix it when the store does not. The server line reads the same record `start` wrote, and shows the address the server listens on while it is up.
+`loom status` shows the state of the workspace at a glance: where the store sits, the primary language a specifier-less section inherits, the activated languages, and whether the notes server is running. Beside each activated language it marks whether the service is installed — a filled dot when the store holds it, a hollow one and the `loom add` that would fix it when the store does not. The server line reports the notes server as running only when it answers, so a wedged process the record still names reads as stopped, which is the state `loom start` then heals.
 
 =>
 
@@ -346,7 +395,7 @@ const status = Effect.gen(function* () {
 
 ## Where the world ends
 
-The command program is eight subcommands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them. `loom weave <path> <out>` projects a corpus into a `WovenCorpus` and writes it as JSON to `out`. `loom init [dir]` scaffolds a `.loom/config.yaml`, defaulting to the working directory. `loom add <language>` and `loom remove <language>` turn a language's service on and off. `loom status` reports what the workspace has activated, what the store holds, and whether the notes server is running. `loom start` and `loom stop` launch that server and end it. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the weaver, the package config, the configuration, and the Bun platform behind the prompts, the filesystem, and the server's record.
+The command program is nine subcommands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them, recording each in the lock. `loom orphans` lists the files across the workspace that the lock records but no loom still produces, one path per line for a shell to pipe into `rm`, and `--prune` removes them and rewrites the lock. `loom weave <path> <out>` projects a corpus into a `WovenCorpus` and writes it as JSON to `out`. `loom init [dir]` scaffolds a `.loom/config.yaml`, defaulting to the working directory. `loom add <language>` and `loom remove <language>` turn a language's service on and off. `loom status` reports what the workspace has activated, what the store holds, and whether the notes server is running. `loom start` and `loom stop` launch that server and end it. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the weaver, the package config, the configuration, and the Bun platform behind the prompts, the filesystem, and the server's record.
 
 Two entry points sit outside the command program. `loom serve [port]` runs the notes server in the foreground, on the given port or the default `5710`; `loom start` spawns it, and a person debugging can run it in a terminal of their own. `loom lsp --stdio` starts the language server for any editor. Each loads its heavy code only when it is reached — the server module, or Volar — so a plain `tangle` never pays to bundle either, and each runs on its own Bun runtime rather than nesting one inside a command. Volar is CommonJS and calls `require` at runtime for the built-in modules; this bundle is an ES module, where `require` is absent, so before loading the server the `lsp` branch exposes one through `createRequire` on `globalThis` — the shim Volar's bundled code reaches for. That cost lands only on the `lsp` path.
 
@@ -356,6 +405,12 @@ const tangleCommand = Command.make(
   'tangle',
   { path: Argument.string('path') },
   ({ path }) => tangle(path),
+)
+
+const orphansCommand = Command.make(
+  'orphans',
+  { prune: Flag.boolean('prune') },
+  ({ prune }) => orphans(prune),
 )
 
 const weaveCommand = Command.make(
@@ -394,6 +449,7 @@ const stopCommand = Command.make('stop', {}, () => stop)
 const loom = Command.make('loom').pipe(
   Command.withSubcommands([
     tangleCommand,
+    orphansCommand,
     weaveCommand,
     initCommand,
     addCommand,
@@ -405,7 +461,7 @@ const loom = Command.make('loom').pipe(
 )
 
 const program = Command.run(loom, {
-  version: '0.9.0',
+  version: '0.10.0',
 }).pipe(
   Effect.provide(LoomTangler.layer),
   Effect.provide(LoomWeaver.layer),
@@ -466,6 +522,8 @@ import { NoteStore } from './store'
 ::[The wordmark]
 
 ::[Tangling a file]
+
+::[Listing orphans]
 
 ::[Weaving a corpus]
 

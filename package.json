@@ -10,7 +10,8 @@
   "workspaces": [
     "packages/*",
     "foldkit/packages/*",
-    "site"
+    "site",
+    "design"
   ],
   "trustedDependencies": [
     "@parcel/watcher",
@@ -24,6 +25,7 @@
     "watch": "bun run --filter './packages/*' watch",
     "pack:vsix": "bun run --filter loom-vscode pack:vsix",
     "loom": "bun packages/loom/dist/main.js",
+    "catalog": "bun run --filter loom-design-catalog dev",
     "test": "bun test",
     "test:watch": "bun test --watch"
   },

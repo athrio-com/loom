@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>loom — annotation components · catalog</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;1,6..72,300&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./catalog.css">
+</head>
+<body>
+
+<header class="titlebar">
+  <div class="traffic"><span></span><span></span><span></span></div>
+  <div class="crumbs">
+    <span>loom</span><span class="sep">›</span>
+    <span>catalog</span><span class="sep">›</span>
+    <span class="file">annotation-components</span>
+  </div>
+  <div class="right">
+    <nav class="topnav">
+      <a href="./index.html">landing</a>
+      <a href="./docs.html">docs</a>
+      <a href="./annotations.html" class="here">annotations</a>
+      <a href="./devtools.html">devtools</a>
+    </nav>
+    <span>non-interactive specimen</span>
+  </div>
+</header>
+
+<div class="tabbar">
+  <div class="tab active"><span class="dot"></span>overlay.loom</div>
+  <div class="tab"><span class="dot"></span>note.loom</div>
+</div>
+
+<main class="wrap">
+  <section class="gallery">
+
+    <div class="gallery-intro">
+      <div class="eyebrow" style="font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-3)"><span style="color:var(--acc-mint);margin-right:6px">→</span>Catalog · Loom Notes overlay</div>
+      <h1>Annotation components</h1>
+      <p>
+        Every piece of the review overlay, at rest, drawn in the theme's own colours — the mint
+        primary, the cyan and violet kind markers, the faint white rules. Nothing here is live;
+        it is the reference for refining the Loom Notes overlay until it wears the palette the way
+        the old overlay did.
+      </p>
+    </div>
+
+    <!-- launcher -->
+    <div class="specimen">
+      <div class="specimen-head"><span class="name">Launcher</span><span class="note">the corner button that opens the panel</span></div>
+      <div class="specimen-stage">
+        <button class="ov-launcher">✎&nbsp; Annotate</button>
+        <button class="ov-launcher" style="background:var(--bg-3);color:var(--fg-2);border:1px solid var(--rule-2)">✎&nbsp; Annotate <span style="color:var(--acc-mint)">·3</span></button>
+      </div>
+    </div>
+
+    <!-- empty panel -->
+    <div class="specimen">
+      <div class="specimen-head"><span class="name">Panel · empty</span><span class="note">before the first note is made</span></div>
+      <div class="specimen-stage">
+        <div class="ov-panel">
+          <div class="ov-header"><span class="title">Notes</span><span class="count">0</span><button class="ov-hide">✕</button></div>
+          <div class="ov-list"><div class="ov-empty">No notes yet.<br>Point at something, or type below.</div></div>
+          <div class="ov-composer">
+            <textarea rows="3" readonly placeholder="Leave a note…"></textarea>
+            <div class="ov-row"><button>◎ Pick element</button><button class="send">Send</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- panel with notes -->
+    <div class="specimen">
+      <div class="specimen-head"><span class="name">Panel · with notes</span><span class="note">chat, DOM, and Loom kinds; controls on hover</span></div>
+      <div class="specimen-stage tall">
+        <div class="ov-panel">
+          <div class="ov-header"><span class="title">Notes</span><span class="count">3</span><button class="ov-hide">✕</button></div>
+          <div class="ov-list">
+
+            <div class="ov-entry">
+              <div class="meta"><span class="ov-seq">#1</span><span class="ov-kind chat">chat</span><span class="ov-route">/docs</span></div>
+              <div class="ov-text">The lede runs a touch long — cut it to two sentences.</div>
+            </div>
+
+            <div class="ov-entry">
+              <div class="meta"><span class="ov-seq">#2</span><span class="ov-kind dom">dom</span><span class="ov-label">.hero h1</span><span class="ov-route">/</span></div>
+              <div class="ov-text">Heading tracking feels tight at the large size — loosen it.</div>
+              <div class="ov-controls"><button>edit</button><button class="done">resolve</button><button>discard</button></div>
+            </div>
+
+            <div class="ov-entry">
+              <div class="meta"><span class="ov-seq">#3</span><span class="ov-kind loom">loom</span><span class="ov-label">05-the-agent-s-tools.loom</span></div>
+              <div class="ov-text">This tool description should name the return type.</div>
+              <div class="ov-controls"><button>edit</button><button class="done">resolve</button><button>discard</button></div>
+            </div>
+
+          </div>
+          <div class="ov-composer">
+            <textarea rows="3" readonly>The mint on the button reads a shade bright over the dark bg.</textarea>
+            <div class="ov-row"><button>◎ Pick element</button><button class="send">Send</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- composer states -->
+    <div class="specimen">
+      <div class="specimen-head"><span class="name">Composer</span><span class="note">idle, and with pick mode on</span></div>
+      <div class="specimen-stage">
+        <div class="ov-panel" style="box-shadow:none">
+          <div class="ov-composer" style="border-top:none">
+            <textarea rows="2" readonly placeholder="Leave a note…"></textarea>
+            <div class="ov-row"><button>◎ Pick element</button><button class="send">Send</button></div>
+          </div>
+        </div>
+        <div class="ov-panel" style="box-shadow:none">
+          <div class="ov-composer" style="border-top:none">
+            <textarea rows="2" readonly placeholder="Click an element on the page…"></textarea>
+            <div class="ov-row"><button class="on">◎ Picking…</button><button class="send">Send</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- pick highlight -->
+    <div class="specimen">
+      <div class="specimen-head"><span class="name">Pick highlight</span><span class="note">the outline that tracks the cursor in pick mode</span></div>
+      <div class="specimen-stage">
+        <div class="ov-hl-demo">
+          <div class="target">a page element</div>
+          <div class="ov-hl"><span class="tag">button.btn.primary</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- capture popover -->
+    <div class="specimen">
+      <div class="specimen-head"><span class="name">Capture popover</span><span class="note">rises over a picked element to take its note</span></div>
+      <div class="specimen-stage">
+        <div class="ov-popover">
+          <div class="plabel">◎ button.btn.primary</div>
+          <textarea rows="2" readonly>What should this element say or do?</textarea>
+          <div class="ov-row" style="margin-top:10px"><button>Cancel</button><button class="send">Add note</button></div>
+        </div>
+      </div>
+    </div>
+
+  </section>
+</main>
+
+<script type="module" src="http://localhost:5710/notes.js" data-loom-project="loom-design"></script>
+</body>
+</html>

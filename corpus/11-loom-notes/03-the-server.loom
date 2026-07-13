@@ -92,11 +92,50 @@ const rename = Effect.gen(function* () {
   return yield* HttpServerResponse.json({ ok: true })
 })
 
+# The project's context
+
+The bar shows a project by name and by the branch its work sits on, and `context` answers both from one call. It reads the project by its id, and when the registry knows it, reports the name recorded for it and the branch of the working directory it was set up in. A project the registry has not seen, or one with no directory, reports its id as the name and no branch, so the bar can still label it.
+
+`branchAt` reads the branch. It runs `git` in the project's directory and keeps the current branch. Anything that fails — no directory, no repository, no `git` — leaves the branch empty rather than an error, since a project without a branch is a state the bar shows by leaving the branch off.
+
+=>
+
+const branchAt = (path: string): Effect.Effect<string> =>
+  path === ''
+    ? Effect.succeed('')
+    : Effect.try(() => {
+        const git = Bun.spawnSync(['git', '-C', path, 'rev-parse', '--abbrev-ref', 'HEAD'])
+        return git.success ? git.stdout.toString().trim() : ''
+      }).pipe(Effect.catchCause(() => Effect.succeed('')))
+
+const context = Effect.gen(function* () {
+  const store = yield* NoteStore
+  const request = yield* HttpServerRequest.HttpServerRequest
+  const project = new URL(request.url, 'http://localhost').searchParams.get('project')
+  return yield* Option.match(Option.fromNullishOr(project), {
+    onNone: () => Effect.succeed(HttpServerResponse.text('project is required', { status: 400 })),
+    onSome: (id) =>
+      store.find(id).pipe(
+        Effect.flatMap((found) =>
+          Option.match(found, {
+            onNone: () => HttpServerResponse.json({ name: id, branch: '' }),
+            onSome: (record) =>
+              branchAt(record.path).pipe(
+                Effect.flatMap((branch) => HttpServerResponse.json({ name: record.name, branch })),
+              ),
+          }),
+        ),
+      ),
+  })
+})
+
 # Listing notes and serving the overlay
 
 `feed` lists a project's notes. The project comes on the query string rather than in a body, since listing is a GET; without it, the request is incomplete and answers with a bad-request.
 
 The overlay's script travels inside this bundle. The build inlines it as `overlayScript` — encoded in base64, so it survives whole as a plain string — and `overlay` decodes and serves it, so the installed CLI needs no file beside it. Running from source, where no build has inlined anything, the placeholder is still in place: `overlay` sees it, reads the script from the `@athrio/loom-notes` package next door instead, and answers with a not-found when even that is missing.
+
+The script answers with `Cache-Control: no-store`, so a browser fetches it afresh on every load. The overlay is a dev tool that changes as you build it, and a cached copy would leave a page running yesterday's overlay.
 
 =>
 
@@ -113,13 +152,16 @@ const feed = Effect.gen(function* () {
 
 const overlayScript = '__LOOM_OVERLAY_B64__'
 
+const noCache = { 'cache-control': 'no-store' }
+
 const overlay = overlayScript.startsWith('__LOOM_OVERLAY')
-  ? HttpServerResponse.file(
-      join(root, '..', '..', 'loom-notes', 'dist', 'overlay.js'),
-    ).pipe(Effect.catchCause(() => notFound))
+  ? HttpServerResponse.file(join(root, '..', '..', 'loom-notes', 'dist', 'overlay.js'), {
+      headers: noCache,
+    }).pipe(Effect.catchCause(() => notFound))
   : Effect.succeed(
       HttpServerResponse.text(Buffer.from(overlayScript, 'base64').toString('utf8'), {
         contentType: 'text/javascript',
+        headers: noCache,
       }),
     )
 
@@ -136,6 +178,7 @@ const routes = Layer.mergeAll(
   HttpRouter.add('POST', '/notes/discard', discard),
   HttpRouter.add('POST', '/notes/edit', edit),
   HttpRouter.add('POST', '/project/name', rename),
+  HttpRouter.add('GET', '/project/context', context),
   HttpRouter.add('GET', '/notes.js', overlay),
 )
 
@@ -179,6 +222,8 @@ export const notesServer = (port: number) =>
 ::[Recording and changing a note]
 
 ::[Naming a project]
+
+::[The project's context]
 
 ::[Listing notes and serving the overlay]
 

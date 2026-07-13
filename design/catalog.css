@@ -1,0 +1,297 @@
+/* ─────────────────────────────────────────────────────────────
+   Loom Design Catalog — shared theme + components
+   The landing (index.html) stays self-contained; the catalog pages
+   (docs.html, annotations.html) link this file so the theme is one place.
+   The annotation components below are drawn in the theme's own colours —
+   the same palette the old annotation overlay wore — as the refinement
+   target for the Loom Notes overlay.
+   ───────────────────────────────────────────────────────────── */
+
+:root {
+  --bg:        #0F1014;
+  --bg-2:      #15171D;
+  --bg-3:      #1B1E26;
+  --bg-4:      #232732;
+  --rule:      #FFFFFF12;
+  --rule-2:    #FFFFFF1F;
+  --fg:        #E6E6EA;
+  --fg-2:      #B6B8C2;
+  --fg-3:      #7A7E8C;
+  --fg-4:      #4D5260;
+
+  --acc-cyan:   #6CC7E0;
+  --acc-mint:   #8FE0B6;
+  --acc-violet: #B59BF1;
+  --acc-amber:  #E8B86C;
+  --acc-rose:   #E48A9A;
+  --acc-grey:   #8A92A6;
+
+  --primary:   var(--acc-mint);
+
+  --display: 'Newsreader', Georgia, serif;
+  --sans:    'Inter', system-ui, -apple-system, sans-serif;
+  --mono:    'JetBrains Mono', ui-monospace, Menlo, monospace;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; text-decoration: none; }
+::selection { background: color-mix(in srgb, var(--primary) 35%, transparent); color: var(--fg); }
+
+body::before {
+  content: "";
+  position: fixed; inset: 0;
+  pointer-events: none; z-index: 0;
+  background-image: linear-gradient(to right, #FFFFFF05 1px, transparent 1px);
+  background-size: 64px 100%;
+}
+main, header, footer { position: relative; z-index: 1; }
+.wrap { max-width: 1280px; margin: 0 auto; padding: 0 32px; }
+
+/* ───────── window chrome ───────── */
+.titlebar {
+  height: 36px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--bg-2);
+  display: flex; align-items: center;
+  padding: 0 14px;
+  font-family: var(--mono); font-size: 12px; color: var(--fg-3);
+  position: sticky; top: 0; z-index: 60;
+}
+.traffic { display: flex; gap: 6px; margin-right: 14px; }
+.traffic span { width: 11px; height: 11px; border-radius: 50%; background: #3A3D47; }
+.traffic span:nth-child(1) { background: var(--acc-rose); }
+.traffic span:nth-child(2) { background: var(--acc-amber); }
+.traffic span:nth-child(3) { background: var(--acc-mint); }
+.titlebar .crumbs { display: flex; align-items: center; gap: 8px; }
+.titlebar .crumbs .sep { color: var(--fg-4); }
+.titlebar .crumbs .file { color: var(--fg); }
+.titlebar .right { margin-left: auto; display: flex; gap: 18px; align-items: center; color: var(--fg-3); }
+.topnav { display: flex; gap: 16px; }
+.topnav a { color: var(--fg-3); transition: color .15s ease; }
+.topnav a:hover { color: var(--fg-2); }
+.topnav a.here { color: var(--acc-mint); }
+.live-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--acc-mint);
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--acc-mint) 50%, transparent); }
+  50%      { box-shadow: 0 0 0 6px transparent; }
+}
+
+/* ───────── tabbar — catalog navigation ───────── */
+.tabbar {
+  display: flex; align-items: stretch;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--rule);
+  height: 34px;
+  font-family: var(--mono); font-size: 12px;
+  position: sticky; top: 36px; z-index: 55;
+}
+.tab {
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 14px; color: var(--fg-3);
+  border-right: 1px solid var(--rule);
+  cursor: pointer; position: relative;
+  transition: color .15s ease, background .15s ease;
+}
+.tab.active { color: var(--fg); background: var(--bg); }
+.tab.active::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -1px;
+  height: 1px; background: var(--bg);
+}
+.tab:hover:not(.active) { color: var(--fg-2); background: var(--bg-3); }
+.tab .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--acc-cyan); }
+.tab:nth-child(2) .dot { background: var(--acc-violet); }
+.tab:nth-child(3) .dot { background: var(--acc-amber); }
+
+/* ───────── buttons ───────── */
+.btn {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 11px 16px;
+  background: var(--bg-3); border: 1px solid var(--rule-2);
+  color: var(--fg); border-radius: 6px;
+  font-family: var(--mono); font-size: 13px; cursor: pointer;
+  transition: background .15s ease, border-color .15s ease;
+}
+.btn:hover { background: var(--bg-4); border-color: var(--fg-4); }
+.btn.primary { background: var(--acc-mint); color: var(--bg); border-color: var(--acc-mint); font-weight: 500; }
+
+/* ───────── code — the loom syntax token palette ───────── */
+.code {
+  padding: 14px 16px; line-height: 1.6; white-space: pre; overflow-x: auto;
+  font-family: var(--mono); font-size: 12.5px;
+  background: var(--bg-2); border: 1px solid var(--rule-2); border-radius: 8px;
+  color: var(--fg);
+}
+.code .k  { color: var(--acc-violet); }
+.code .ty { color: var(--acc-cyan); }
+.code .str{ color: var(--acc-mint); }
+.code .num{ color: var(--acc-amber); }
+.code .com{ color: var(--fg-4); font-style: italic; }
+.code .pun{ color: var(--fg-3); }
+.code .fn { color: var(--acc-amber); }
+.code .op { color: var(--acc-mint); }
+.code .an { color: var(--acc-amber); }
+.code .pr { color: var(--fg-2); }
+.code .hd { color: var(--fg); font-weight: 500; }
+
+/* ═════════ DOCS PAGE — three columns ═════════ */
+.docs { display: grid; grid-template-columns: 248px 1fr 220px; gap: 40px; padding: 40px 0 96px; }
+@media (max-width: 1080px) { .docs { grid-template-columns: 220px 1fr; } .docs-outline { display: none; } }
+@media (max-width: 820px)  { .docs { grid-template-columns: 1fr; } .docs-nav { display: none; } }
+
+.docs-nav { position: sticky; top: 90px; align-self: start; font-family: var(--mono); font-size: 12.5px; }
+.docs-nav .part { color: var(--fg-4); text-transform: uppercase; letter-spacing: 0.12em; font-size: 10.5px; margin: 22px 0 8px; }
+.docs-nav .part:first-child { margin-top: 0; }
+.docs-nav a { display: block; color: var(--fg-3); padding: 4px 10px; border-radius: 5px; border-left: 2px solid transparent; }
+.docs-nav a:hover { color: var(--fg-2); background: var(--bg-2); }
+.docs-nav a.here { color: var(--fg); border-left-color: var(--acc-mint); background: color-mix(in srgb, var(--acc-mint) 8%, transparent); }
+
+.docs-main { min-width: 0; }
+.docs-main .eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--fg-3); }
+.docs-main .eyebrow .arrow { color: var(--acc-mint); margin-right: 6px; }
+.docs-main h1 { font-family: var(--display); font-weight: 300; font-size: clamp(34px, 4.4vw, 52px); line-height: 1.05; letter-spacing: -0.02em; margin: 12px 0 0; color: var(--fg); text-wrap: balance; }
+.docs-main .lede { font-family: var(--sans); color: var(--fg-2); font-size: 17px; line-height: 1.6; margin: 20px 0 40px; max-width: 62ch; text-wrap: pretty; }
+.docs-main h2 { font-family: var(--display); font-weight: 400; font-size: 27px; letter-spacing: -0.01em; color: var(--fg); margin: 52px 0 4px; scroll-margin-top: 90px; }
+.docs-main h2 .n { color: var(--fg-4); font-family: var(--mono); font-size: 14px; margin-right: 12px; }
+.docs-main h3 { font-family: var(--sans); font-weight: 600; font-size: 15px; color: var(--fg); margin: 32px 0 0; }
+.docs-main p { font-family: var(--sans); color: var(--fg-2); font-size: 15.5px; line-height: 1.7; max-width: 66ch; text-wrap: pretty; }
+.docs-main p code, .docs-main li code { font-family: var(--mono); font-size: 0.88em; color: var(--acc-cyan); background: var(--bg-2); border: 1px solid var(--rule); border-radius: 4px; padding: 1px 5px; }
+.docs-main a.link { color: var(--acc-mint); border-bottom: 1px solid color-mix(in srgb, var(--acc-mint) 40%, transparent); }
+.docs-main ul { font-family: var(--sans); color: var(--fg-2); font-size: 15.5px; line-height: 1.7; max-width: 66ch; padding-left: 22px; }
+.docs-main li { margin: 6px 0; }
+.docs-main li::marker { color: var(--fg-4); }
+.docs-main blockquote { margin: 28px 0; padding: 4px 0 4px 20px; border-left: 2px solid var(--acc-mint); font-family: var(--display); font-weight: 300; font-size: 20px; line-height: 1.5; color: var(--fg); }
+.docs-main blockquote cite { display: block; margin-top: 10px; font-family: var(--mono); font-size: 12px; font-style: normal; color: var(--fg-3); }
+.docs-main figure { margin: 28px 0; }
+.docs-main figure figcaption { font-family: var(--mono); font-size: 11px; color: var(--fg-3); margin-top: 8px; }
+
+.docs-outline { position: sticky; top: 90px; align-self: start; font-family: var(--mono); font-size: 11.5px; }
+.docs-outline .cap { color: var(--fg-4); text-transform: uppercase; letter-spacing: 0.12em; font-size: 10.5px; margin-bottom: 10px; }
+.docs-outline a { display: block; color: var(--fg-3); padding: 3px 0; }
+.docs-outline a:hover { color: var(--fg-2); }
+.docs-outline a.here { color: var(--acc-mint); }
+
+/* ═════════ CATALOG GALLERY (specimen frames) ═════════ */
+.gallery { padding: 40px 0 120px; }
+.gallery-intro { max-width: 64ch; margin-bottom: 44px; }
+.gallery-intro h1 { font-family: var(--display); font-weight: 300; font-size: clamp(34px, 4.4vw, 52px); letter-spacing: -0.02em; margin: 12px 0 16px; }
+.gallery-intro p { font-family: var(--sans); color: var(--fg-2); font-size: 16px; line-height: 1.6; }
+.specimen { border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; margin-bottom: 28px; background: var(--bg); }
+.specimen-head { display: flex; align-items: baseline; gap: 14px; padding: 12px 16px; border-bottom: 1px solid var(--rule); background: var(--bg-2); }
+.specimen-head .name { font-family: var(--mono); font-size: 12.5px; color: var(--fg); }
+.specimen-head .note { font-family: var(--sans); font-size: 12.5px; color: var(--fg-3); }
+.specimen-stage {
+  position: relative; min-height: 220px; padding: 32px;
+  display: flex; gap: 40px; flex-wrap: wrap; align-items: flex-start;
+  background:
+    radial-gradient(circle at 1px 1px, #FFFFFF08 1px, transparent 0);
+  background-size: 22px 22px;
+}
+.specimen-stage.tall { min-height: 560px; }
+
+/* ─────── the annotation overlay components (theme-coloured) ─────── */
+/* launcher */
+.ov-launcher {
+  display: inline-flex; align-items: center; gap: 8px;
+  font: 12px var(--mono); background: var(--acc-mint); color: var(--bg);
+  border: none; border-radius: 6px; padding: 8px 12px; cursor: default;
+}
+/* panel */
+.ov-panel {
+  width: 340px; background: var(--bg-2); color: var(--fg);
+  font: 13px var(--mono); border: 1px solid var(--rule-2); border-radius: 10px;
+  display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: 0 18px 50px rgba(0,0,0,.45);
+}
+.ov-header { display: flex; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--rule); color: var(--fg-3); }
+.ov-header .title { color: var(--fg); }
+.ov-header .count { margin-left: 8px; color: var(--fg-4); }
+.ov-hide { margin-left: auto; width: 26px; height: 26px; background: none; border: 1px solid var(--rule-2); border-radius: 5px; color: var(--fg-2); cursor: default; }
+.ov-list { display: flex; flex-direction: column; }
+.ov-empty { padding: 28px 14px; text-align: center; color: var(--fg-3); font: 12.5px var(--sans); }
+.ov-entry { padding: 10px 12px; border-bottom: 1px solid var(--rule); line-height: 1.5; }
+.ov-entry .meta { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.ov-seq { color: var(--fg-3); }
+.ov-kind.chat  { color: var(--acc-cyan); }
+.ov-kind.dom   { color: var(--acc-mint); }
+.ov-kind.loom  { color: var(--acc-violet); }
+.ov-label { color: var(--acc-violet); }
+.ov-route { margin-left: auto; color: var(--fg-4); font-size: 11px; }
+.ov-text { color: var(--fg); font: 12.5px var(--sans); }
+.ov-controls { display: flex; gap: 4px; margin-top: 7px; }
+.ov-controls button { background: none; border: none; color: var(--fg-3); cursor: default; font: 12px var(--mono); padding: 2px 6px; border-radius: 3px; }
+.ov-controls button.done { color: var(--acc-mint); }
+.ov-composer { padding: 10px 12px; border-top: 1px solid var(--rule); }
+.ov-composer textarea { width: 100%; background: var(--bg); color: var(--fg); border: 1px solid var(--rule-2); border-radius: 4px; padding: 7px 8px; resize: none; font: 12.5px var(--sans); line-height: 1.5; }
+.ov-row { display: flex; gap: 8px; margin-top: 8px; }
+.ov-row button { flex: 1; font: 12px var(--mono); background: var(--bg-3); color: var(--fg-2); border: 1px solid var(--rule-2); border-radius: 4px; padding: 7px; cursor: default; }
+.ov-row button.on { background: color-mix(in srgb, var(--acc-mint) 14%, transparent); color: var(--acc-mint); border-color: var(--acc-mint); }
+.ov-row button.send { background: var(--acc-mint); color: var(--bg); border-color: var(--acc-mint); }
+/* pick highlight */
+.ov-hl-demo { position: relative; width: 260px; height: 120px; }
+.ov-hl-demo .target { position: absolute; inset: 24px; border-radius: 8px; background: var(--bg-3); border: 1px solid var(--rule); display: flex; align-items: center; justify-content: center; color: var(--fg-3); font: 12px var(--sans); }
+.ov-hl { position: absolute; inset: 24px; border: 2px solid var(--acc-mint); background: color-mix(in srgb, var(--acc-mint) 9%, transparent); border-radius: 8px; pointer-events: none; }
+.ov-hl .tag { position: absolute; top: -22px; left: -2px; background: var(--acc-mint); color: var(--bg); font: 11px var(--mono); padding: 1px 6px; border-radius: 4px; }
+/* capture popover */
+.ov-popover {
+  width: 340px; background: var(--bg-2); color: var(--fg);
+  border: 1px solid var(--acc-mint); border-radius: 8px; padding: 12px;
+  box-shadow: 0 12px 40px rgba(0,0,0,.5); font: 13px var(--mono);
+}
+.ov-popover .plabel { color: var(--acc-mint); font-size: 11.5px; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+.ov-popover textarea { width: 100%; background: var(--bg); color: var(--fg); border: 1px solid var(--rule-2); border-radius: 4px; padding: 7px 8px; resize: none; font: 12.5px var(--sans); line-height: 1.5; }
+
+/* ─────── the Loom Devtools bar (theme-coloured) ─────── */
+/* a floating status bar that rides along the app: the project name first, the
+   branch the project sits on beside it, then, to the right, the tools (pick,
+   notes) and a handle to collapse the bar. Icons are outlined, drawn in the
+   current text colour. */
+.bar {
+  display: flex; align-items: center; gap: 16px;
+  width: 100%; height: 34px;
+  background: var(--bg-2); border-top: 1px solid var(--rule-2);
+  padding: 0 12px 0 16px; font: 12px var(--mono); color: var(--fg-2);
+}
+.bar-icon { width: 15px; height: 15px; display: block; flex-shrink: 0; }
+.bar-name { color: var(--fg); border-bottom: 1px dotted var(--fg-4); cursor: text; white-space: nowrap; }
+.bar-ctx { display: flex; align-items: center; gap: 12px; color: var(--fg-3); }
+.bar-item { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.bar-branch .bar-icon { color: var(--acc-violet); }
+.bar-spacer { flex: 1; }
+.bar-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 100%; min-width: 34px; padding: 0 12px;
+  background: none; border: none; color: var(--fg-3);
+  font: 12px var(--mono); cursor: pointer;
+}
+.bar-btn:hover { color: var(--fg); background: var(--bg-3); }
+.bar-btn.pick { color: var(--acc-mint); }
+.bar-btn.pick.on { background: color-mix(in srgb, var(--acc-mint) 16%, transparent); }
+.bar-btn .count { color: var(--acc-mint); }
+.bar-btn.collapse { color: var(--fg-2); }
+.bar-btn.collapse:hover { color: var(--fg); background: var(--bg-3); }
+/* collapsed to a tab attached to the bottom edge */
+.bar-handle {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--bg-2); border: 1px solid var(--rule-2); border-bottom: none;
+  border-radius: 7px 7px 0 0;
+  padding: 6px 12px; font: 12px var(--mono); color: var(--fg-2); cursor: default;
+}
+.bar-handle .bar-icon { color: var(--acc-mint); }
+.bar-handle .count { color: var(--acc-mint); }
+/* the card rests above the bar, both to the same edge */
+.bar-stack { display: inline-flex; flex-direction: column; align-items: stretch; gap: 12px; }
+.bar-stack .ov-panel { width: 340px; }
+.bar-stack .bar { min-width: 0; }

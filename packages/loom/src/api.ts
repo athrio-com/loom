@@ -56,6 +56,35 @@ const rename = Effect.gen(function* () {
   return yield* HttpServerResponse.json({ ok: true })
 })
 
+const branchAt = (path: string): Effect.Effect<string> =>
+  path === ''
+    ? Effect.succeed('')
+    : Effect.try(() => {
+        const git = Bun.spawnSync(['git', '-C', path, 'rev-parse', '--abbrev-ref', 'HEAD'])
+        return git.success ? git.stdout.toString().trim() : ''
+      }).pipe(Effect.catchCause(() => Effect.succeed('')))
+
+const context = Effect.gen(function* () {
+  const store = yield* NoteStore
+  const request = yield* HttpServerRequest.HttpServerRequest
+  const project = new URL(request.url, 'http://localhost').searchParams.get('project')
+  return yield* Option.match(Option.fromNullishOr(project), {
+    onNone: () => Effect.succeed(HttpServerResponse.text('project is required', { status: 400 })),
+    onSome: (id) =>
+      store.find(id).pipe(
+        Effect.flatMap((found) =>
+          Option.match(found, {
+            onNone: () => HttpServerResponse.json({ name: id, branch: '' }),
+            onSome: (record) =>
+              branchAt(record.path).pipe(
+                Effect.flatMap((branch) => HttpServerResponse.json({ name: record.name, branch })),
+              ),
+          }),
+        ),
+      ),
+  })
+})
+
 const feed = Effect.gen(function* () {
   const store = yield* NoteStore
   const request = yield* HttpServerRequest.HttpServerRequest
@@ -69,13 +98,16 @@ const feed = Effect.gen(function* () {
 
 const overlayScript = '__LOOM_OVERLAY_B64__'
 
+const noCache = { 'cache-control': 'no-store' }
+
 const overlay = overlayScript.startsWith('__LOOM_OVERLAY')
-  ? HttpServerResponse.file(
-      join(root, '..', '..', 'loom-notes', 'dist', 'overlay.js'),
-    ).pipe(Effect.catchCause(() => notFound))
+  ? HttpServerResponse.file(join(root, '..', '..', 'loom-notes', 'dist', 'overlay.js'), {
+      headers: noCache,
+    }).pipe(Effect.catchCause(() => notFound))
   : Effect.succeed(
       HttpServerResponse.text(Buffer.from(overlayScript, 'base64').toString('utf8'), {
         contentType: 'text/javascript',
+        headers: noCache,
       }),
     )
 
@@ -86,6 +118,7 @@ const routes = Layer.mergeAll(
   HttpRouter.add('POST', '/notes/discard', discard),
   HttpRouter.add('POST', '/notes/edit', edit),
   HttpRouter.add('POST', '/project/name', rename),
+  HttpRouter.add('GET', '/project/context', context),
   HttpRouter.add('GET', '/notes.js', overlay),
 )
 

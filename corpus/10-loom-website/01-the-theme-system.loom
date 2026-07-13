@@ -376,7 +376,7 @@ The reading column is the document. It centres on the measure and sets everythin
 
 .loom-h1 {
   font-family: var(--font-serif);
-  font-weight: 500;
+  font-weight: 400;
   font-size: 2.25rem;
   line-height: 1.15;
   letter-spacing: -0.012em;

@@ -73,3 +73,15 @@ The `tsconfig.json` extends the workspace-root `tsconfig.base.json` and covers t
   },
   "include": ["src"]
 }
+
+## What stays out of the package {Tangle}[.vscodeignore]
+
+The published `.vsix` needs only the bundled `dist` and the manifest. `.vscodeignore` keeps the rest out: the source under `src`, the Vite and TypeScript configs that built the bundle, the sourcemaps, and the editor settings under `.vscode`. None of these run at a user's end, so none of them ship.
+
+=>
+
+src/**
+vite.config.ts
+tsconfig.json
+**/*.map
+.vscode/**

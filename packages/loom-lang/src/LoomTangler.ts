@@ -1,7 +1,16 @@
-import { Array, Context, Effect, FileSystem, Layer, pipe } from 'effect'
-import { dirname, resolve as resolvePath } from 'node:path'
+import { Array, Context, Effect, FileSystem, Layer, Schema, pipe } from 'effect'
+import { dirname, relative, resolve as resolvePath } from 'node:path'
 import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
+import { workspaceRoot } from '@athrio/loom-lang-services/LoomStore'
 import { LoomCompiler, type TangledFile, type TangleError } from './LoomCompiler'
+import {
+  emptyLock,
+  orphansOf,
+  pruned,
+  recorded,
+  LoomLockSchema,
+  type LoomLock,
+} from './LoomLock'
 
 const ignoredSegment = new Set(['node_modules', '.loom', 'dist', '.git'])
 
@@ -41,18 +50,105 @@ export class LoomTangler extends Context.Service<LoomTangler>()('LoomTangler', {
         ),
       )
 
+    const loomsOf = (path: Path): Effect.Effect<ReadonlyArray<Path>> =>
+      fs.stat(path).pipe(
+        Effect.orDie,
+        Effect.flatMap((info) =>
+          info.type === 'Directory'
+            ? loomsUnder(path)
+            : Effect.succeed<ReadonlyArray<Path>>([path]),
+        ),
+      )
+
+    const workspaceOf = (path: Path): Effect.Effect<Path> =>
+      fs.stat(path).pipe(
+        Effect.orDie,
+        Effect.map((info) =>
+          workspaceRoot(info.type === 'Directory' ? path : dirname(path)),
+        ),
+      )
+
+    const lockFile = (root: Path): Path =>
+      resolvePath(root, '.loom', 'loom.lock')
+
+    const readLock = (root: Path): Effect.Effect<LoomLock> =>
+      fs.readFileString(lockFile(root)).pipe(
+        Effect.flatMap((text) => Effect.try(() => JSON.parse(text) as unknown)),
+        Effect.flatMap(Schema.decodeUnknownEffect(LoomLockSchema)),
+        Effect.orElseSucceed(() => emptyLock),
+      )
+
+    const writeLock = (root: Path, lock: LoomLock): Effect.Effect<void> =>
+      fs
+        .makeDirectory(dirname(lockFile(root)), { recursive: true })
+        .pipe(
+          Effect.andThen(
+            fs.writeFileString(
+              lockFile(root),
+              JSON.stringify(lock, null, 2) + '\n',
+            ),
+          ),
+          Effect.orDie,
+        )
+
     const tangle = (
       path: Path,
     ): Effect.Effect<ReadonlyArray<TangledFile>, TangleError> =>
       Effect.gen(function* () {
-        const info = yield* fs.stat(path).pipe(Effect.orDie)
-        const looms =
-          info.type === 'Directory' ? yield* loomsUnder(path) : [path]
-        const written = yield* Effect.forEach(looms, tangleFile)
-        return written.flat()
+        const looms = yield* loomsOf(path)
+        const written = (yield* Effect.forEach(looms, tangleFile)).flat()
+        const root = yield* workspaceOf(path)
+        const lock = yield* readLock(root)
+        yield* writeLock(
+          root,
+          recorded(lock, Array.map(written, (file) => relative(root, file.path))),
+        )
+        return written
       })
 
-    return { tangle }
+    const orphanState = (
+      from: Path,
+    ): Effect.Effect<
+      {
+        readonly root: Path
+        readonly produced: ReadonlyArray<string>
+        readonly orphans: ReadonlyArray<string>
+      },
+      TangleError
+    > =>
+      Effect.gen(function* () {
+        const root = workspaceRoot(from)
+        const looms = yield* loomsUnder(root)
+        const files = (
+          yield* Effect.forEach(looms, (loom) => compiler.tangle(loom))
+        ).flat()
+        const produced = Array.map(files, (file) => relative(root, file.path))
+        const lock = yield* readLock(root)
+        return { root, produced, orphans: orphansOf(lock, new Set(produced)) }
+      })
+
+    const orphans = (
+      from: Path,
+    ): Effect.Effect<ReadonlyArray<Path>, TangleError> =>
+      orphanState(from).pipe(
+        Effect.map(({ root, orphans }) =>
+          Array.map(orphans, (rel) => resolvePath(root, rel)),
+        ),
+      )
+
+    const prune = (
+      from: Path,
+    ): Effect.Effect<ReadonlyArray<Path>, TangleError> =>
+      Effect.gen(function* () {
+        const { root, produced, orphans } = yield* orphanState(from)
+        yield* Effect.forEach(orphans, (rel) =>
+          fs.remove(resolvePath(root, rel), { force: true }).pipe(Effect.orDie),
+        )
+        yield* writeLock(root, pruned(produced))
+        return Array.map(orphans, (rel) => resolvePath(root, rel))
+      })
+
+    return { tangle, orphans, prune }
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make).pipe(

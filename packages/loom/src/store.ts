@@ -118,6 +118,25 @@ const listProjects = (database: Database): Effect.Effect<ReadonlyArray<Project>>
     () => database.query('SELECT id, name FROM projects ORDER BY name').all() as ReadonlyArray<Project>,
   )
 
+type ProjectRow = { readonly id: string; readonly name: string; readonly path: string | null }
+type ProjectRecord = { readonly id: string; readonly name: string; readonly path: string }
+
+const findProject = (
+  database: Database,
+  id: string,
+): Effect.Effect<Option.Option<ProjectRecord>> =>
+  Effect.sync(
+    () => database.query('SELECT id, name, path FROM projects WHERE id = ?').get(id) as ProjectRow | null,
+  ).pipe(
+    Effect.map((row) =>
+      Option.map(Option.fromNullishOr(row), (found) => ({
+        id: found.id,
+        name: found.name,
+        path: found.path ?? '',
+      })),
+    ),
+  )
+
 const ensureProject = (database: Database, id: string): Effect.Effect<void> =>
   Effect.sync(() => {
     database.query('INSERT OR IGNORE INTO projects (id, name) VALUES (?, ?)').run(id, id)
@@ -162,6 +181,7 @@ export class NoteStore extends Context.Service<NoteStore>()('NoteStore', {
       edit: (project: string, seq: number, text: string) => editNote(database, project, seq, text),
       discard: (project: string, seq: number) => discardNote(database, project, seq),
       projects: listProjects(database),
+      find: (id: string) => findProject(database, id),
       rename: (id: string, name: string) => renameProject(database, id, name),
       register: (id: string, path: string) => registerProject(database, id, path),
     } as const

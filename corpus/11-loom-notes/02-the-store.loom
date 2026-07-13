@@ -163,7 +163,7 @@ const discardNote = (database: Database, project: string, seq: number): Effect.E
 
 # The project registry
 
-The projects table is a registry the store keeps beside the notes. `listProjects` names every project in it — each id paired with the name to show it by — so the bar can label a project and the agent can see which apps have been reviewed.
+The projects table is a registry the store keeps beside the notes. `listProjects` names every project in it — each id paired with the name to show it by — so the bar can label a project and the agent can see which apps have been reviewed. `findProject` reads one project on its own — its name and the working directory recorded for it — so the server can label the project in the bar and find the branch it sits on.
 
 A project earns a row the moment it needs one. `ensureProject` files a project under its own id, as both the key and the starting name, and does nothing when the project is already there — so recording a project's first note registers it. `backfillProjects` does the same for every project already in the notes table, once at startup, so a store that predates the registry fills itself in.
 
@@ -176,6 +176,25 @@ type Project = { readonly id: string; readonly name: string }
 const listProjects = (database: Database): Effect.Effect<ReadonlyArray<Project>> =>
   Effect.sync(
     () => database.query('SELECT id, name FROM projects ORDER BY name').all() as ReadonlyArray<Project>,
+  )
+
+type ProjectRow = { readonly id: string; readonly name: string; readonly path: string | null }
+type ProjectRecord = { readonly id: string; readonly name: string; readonly path: string }
+
+const findProject = (
+  database: Database,
+  id: string,
+): Effect.Effect<Option.Option<ProjectRecord>> =>
+  Effect.sync(
+    () => database.query('SELECT id, name, path FROM projects WHERE id = ?').get(id) as ProjectRow | null,
+  ).pipe(
+    Effect.map((row) =>
+      Option.map(Option.fromNullishOr(row), (found) => ({
+        id: found.id,
+        name: found.name,
+        path: found.path ?? '',
+      })),
+    ),
   )
 
 const ensureProject = (database: Database, id: string): Effect.Effect<void> =>
@@ -228,6 +247,7 @@ export class NoteStore extends Context.Service<NoteStore>()('NoteStore', {
       edit: (project: string, seq: number, text: string) => editNote(database, project, seq, text),
       discard: (project: string, seq: number) => discardNote(database, project, seq),
       projects: listProjects(database),
+      find: (id: string) => findProject(database, id),
       rename: (id: string, name: string) => renameProject(database, id, name),
       register: (id: string, path: string) => registerProject(database, id, path),
     } as const
