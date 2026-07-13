@@ -8,7 +8,7 @@
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "skipLibCheck": true,
     "noEmit": true,
-    "types": []
+    "types": ["bun"]
   },
-  "include": ["src/note.ts", "src/overlay.ts", "src/vite-env.d.ts"]
+  "include": ["src/vite.ts", "build.ts"]
 }

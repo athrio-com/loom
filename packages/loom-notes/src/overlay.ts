@@ -477,61 +477,60 @@ const update = (
 ): readonly [Model, ReadonlyArray<Command.Command<Message>>] =>
   Match.value(message).pipe(
     Match.withReturnType<readonly [Model, ReadonlyArray<Command.Command<Message>>]>(),
-    Match.tag('Toggled', () =>
-      model.open
-        ? [{ ...model, open: false }, []]
-        : [
-            { ...model, open: true, collapsed: false, pendingScroll: true },
-            [FetchNotes({ base: model.base, project: model.project }), ScrollNotes()],
-          ],
-    ),
-    Match.tag('ToggledPick', () => [
-      { ...model, picking: !model.picking, open: false, collapsed: false },
-      [],
-    ]),
-    Match.tag('ToggledCollapse', () => [
-      { ...model, collapsed: !model.collapsed, open: false, picking: false },
-      [],
-    ]),
-    Match.tag('Hovered', ({ hover }) => [{ ...model, hover }, []]),
-    Match.tag('Picked', ({ pending }) => [
-      { ...model, picking: false, pending, hover: undefined, open: true },
-      [],
-    ]),
-    Match.tag('Escaped', () => [
-      { ...model, picking: false, pending: undefined, hover: undefined },
-      [],
-    ]),
-    Match.tag('DraftChanged', ({ value }) => [{ ...model, draft: value }, []]),
-    Match.tag('Sent', () => (model.draft.trim() === '' ? [model, []] : sent(model))),
-    Match.tag('GotNotes', ({ notes }) =>
-      model.pendingScroll
-        ? [{ ...model, notes, reachable: true, pendingScroll: false, atBottom: true }, [ScrollNotes()]]
-        : [{ ...model, notes, reachable: true }, []],
-    ),
-    Match.tag('GotContext', ({ name, branch }) => [{ ...model, name, branch, reachable: true }, []]),
-    Match.tag('Unreachable', () => [{ ...model, reachable: false }, []]),
-    Match.tag('AtBottom', ({ at }) => [{ ...model, atBottom: at }, []]),
-    Match.tag('JumpToBottom', () => [{ ...model, atBottom: true }, [ScrollNotes()]]),
-    Match.tag('Scrolled', () => [model, []]),
-    Match.tag('SelectedTab', ({ tab }) => [{ ...model, tab }, []]),
-    Match.tag('Resolved', ({ seq }) => [
-      model,
-      [SendResolve({ base: model.base, project: model.project, seq })],
-    ]),
-    Match.tag('Discarded', ({ seq }) => [
-      model,
-      [SendDiscard({ base: model.base, project: model.project, seq })],
-    ]),
-    Match.tag('StartedRename', () => [{ ...model, renaming: true, nameDraft: model.name }, []]),
-    Match.tag('NameChanged', ({ value }) => [{ ...model, nameDraft: value }, []]),
-    Match.tag('SavedRename', () => renamed(model)),
-    Match.tag('CancelledRename', () => [{ ...model, renaming: false }, []]),
-    Match.tag('StartedEdit', ({ seq, text }) => [{ ...model, editing: seq, editText: text }, []]),
-    Match.tag('EditChanged', ({ value }) => [{ ...model, editText: value }, []]),
-    Match.tag('SavedEdit', () => saved(model)),
-    Match.tag('CancelledEdit', () => [{ ...model, editing: undefined }, []]),
-    Match.exhaustive,
+    Match.tagsExhaustive({
+      Toggled: () =>
+        model.open
+          ? [{ ...model, open: false }, []]
+          : [
+              { ...model, open: true, collapsed: false, pendingScroll: true },
+              [FetchNotes({ base: model.base, project: model.project }), ScrollNotes()],
+            ],
+      ToggledPick: () => [
+        { ...model, picking: !model.picking, open: false, collapsed: false },
+        [],
+      ],
+      ToggledCollapse: () => [
+        { ...model, collapsed: !model.collapsed, open: false, picking: false },
+        [],
+      ],
+      Hovered: ({ hover }) => [{ ...model, hover }, []],
+      Picked: ({ pending }) => [
+        { ...model, picking: false, pending, hover: undefined, open: true },
+        [],
+      ],
+      Escaped: () => [
+        { ...model, picking: false, pending: undefined, hover: undefined },
+        [],
+      ],
+      DraftChanged: ({ value }) => [{ ...model, draft: value }, []],
+      Sent: () => (model.draft.trim() === '' ? [model, []] : sent(model)),
+      GotNotes: ({ notes }) =>
+        model.pendingScroll
+          ? [{ ...model, notes, reachable: true, pendingScroll: false, atBottom: true }, [ScrollNotes()]]
+          : [{ ...model, notes, reachable: true }, []],
+      GotContext: ({ name, branch }) => [{ ...model, name, branch, reachable: true }, []],
+      Unreachable: () => [{ ...model, reachable: false }, []],
+      AtBottom: ({ at }) => [{ ...model, atBottom: at }, []],
+      JumpToBottom: () => [{ ...model, atBottom: true }, [ScrollNotes()]],
+      Scrolled: () => [model, []],
+      SelectedTab: ({ tab }) => [{ ...model, tab }, []],
+      Resolved: ({ seq }) => [
+        model,
+        [SendResolve({ base: model.base, project: model.project, seq })],
+      ],
+      Discarded: ({ seq }) => [
+        model,
+        [SendDiscard({ base: model.base, project: model.project, seq })],
+      ],
+      StartedRename: () => [{ ...model, renaming: true, nameDraft: model.name }, []],
+      NameChanged: ({ value }) => [{ ...model, nameDraft: value }, []],
+      SavedRename: () => renamed(model),
+      CancelledRename: () => [{ ...model, renaming: false }, []],
+      StartedEdit: ({ seq, text }) => [{ ...model, editing: seq, editText: text }, []],
+      EditChanged: ({ value }) => [{ ...model, editText: value }, []],
+      SavedEdit: () => saved(model),
+      CancelledEdit: () => [{ ...model, editing: undefined }, []],
+    }),
   )
 
 const branchIcon =

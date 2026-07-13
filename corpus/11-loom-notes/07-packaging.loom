@@ -12,7 +12,7 @@ This chapter is the manifest, the type configuration, the overlay's Tailwind inp
 
 ## The manifest {Tangle}[package.json]
 
-The manifest names the package, its build, and what it exports. It exports three modules from source: the note schemas, the overlay, and the Vite plugin. The overlay leans on Foldkit, Effect, and `clsx`; the build on the Tailwind command line; and the plugin on Vite's types alone.
+The manifest names the package, its scripts, and what it exports. It exports three modules from source: the note schemas, the overlay, and the Vite plugin. The overlay leans on Foldkit, Effect, and `clsx`; the build on the Tailwind command line; and the plugin on Vite's types alone.
 
 =>
 
@@ -22,7 +22,8 @@ The manifest names the package, its build, and what it exports. It exports three
   "private": true,
   "version": "0.0.1",
   "scripts": {
-    "build": "bun build.ts"
+    "build": "bun build.ts",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.node.json"
   },
   "exports": {
     "./note": "./src/note.ts",
@@ -45,9 +46,40 @@ The manifest names the package, its build, and what it exports. It exports three
   }
 }
 
-## The type configuration {Tangle}[tsconfig.json]
+## The browser configuration {Tangle}[tsconfig.json]
 
-The configuration checks the Bun-side source and the build against Bun's own types. The overlay stays out of it for now: it reaches into Foldkit's browser runtime, whose hot-reload types need a browser lens of their own, and it is checked instead by the bundler and by running it. That lens arrives when the overlay is finished.
+The package holds code for two runtimes, and each needs its own view of the ambient types. The overlay and the note schemas run in a browser; the Vite plugin and the build run under Bun. The two runtimes disagree about one handle — `import.meta.hot`, the hot-reload handle a dev server exposes. Vite gives that handle a `send` method and event listeners that carry a payload; Bun gives it neither. One configuration cannot hold both shapes at once, so the package keeps two: this browser configuration, and the Bun configuration below.
+
+The browser configuration is the one the type checker reads by default, and it checks the overlay and the schemas. It loads no global type package of its own, taking the hot-reload handle's shape from a one-line reference file instead. So the overlay and the Foldkit runtime it imports read `import.meta.hot` the way Vite defines it.
+
+=>
+
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "exactOptionalPropertyTypes": false,
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": []
+  },
+  "include": ["src/note.ts", "src/overlay.ts", "src/vite-env.d.ts"]
+}
+
+## The hot-reload reference {Tangle}[src/vite-env.d.ts]
+
+The reference file is a single line. It pulls Vite's client types into the browser configuration, and with them the `import.meta.hot` shape the Foldkit runtime is written against.
+
+=>
+
+/// <reference types="vite/client" />
+
+## The Bun configuration {Tangle}[tsconfig.node.json]
+
+The Bun configuration checks the Vite plugin and the build against Bun's own types, where `Bun.spawn` and `Bun.build` live.
 
 =>
 
@@ -63,8 +95,7 @@ The configuration checks the Bun-side source and the build against Bun's own typ
     "noEmit": true,
     "types": ["bun"]
   },
-  "include": ["src", "build.ts"],
-  "exclude": ["src/overlay.ts"]
+  "include": ["src/vite.ts", "build.ts"]
 }
 
 ## The overlay's stylesheet {Tangle}[src/overlay.css]
