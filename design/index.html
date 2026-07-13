@@ -185,24 +185,19 @@
   h1.loom-h {
     font-family: var(--display);
     font-weight: 300;
-    font-size: clamp(48px, 6.4vw, 88px);
-    line-height: 1.02;
+    font-size: clamp(36px, 4.6vw, 65px);
+    line-height: 1.2;
     letter-spacing: -0.025em;
     margin: 0;
     color: var(--fg);
     text-wrap: balance;
   }
-  h1.loom-h .verb {
-    color: var(--acc-mint);
-    font-style: normal;
-  }
+  h1.loom-h .hl-1 { color: var(--fg); }
+  h1.loom-h .hl-2 { color: var(--acc-mint); }
+  h1.loom-h .hl-3 { color: var(--acc-violet); }
   .rotator-host {
     display: inline-block;
     position: relative;
-    color: var(--acc-violet);
-    font-style: italic;
-    font-family: var(--display);
-    font-weight: 300;
   }
   .rotator-word {
     display: inline-block;
@@ -334,6 +329,7 @@
     background: var(--bg-2);
     user-select: none;
     line-height: 1.6;
+    white-space: pre;
   }
   .code {
     padding: 14px 16px;
@@ -830,16 +826,13 @@
           </div>
 
           <h1 class="loom-h">
-            Prose and code,<br/>
-            <span class="verb" id="verb">woven</span>
-            <span class="rotator-host" aria-live="polite"><span class="rotator-word" id="rotator">into one source</span></span><span class="caret" aria-hidden="true"></span>
+            <span class="hl-1">Literate framework</span><br/>
+            <span class="hl-2">for modern stacks</span><br/>
+            <span class="rotator-host hl-3" aria-live="polite"><span class="rotator-word" id="rotator">with AI</span></span><span class="caret" aria-hidden="true"></span>
           </h1>
 
           <p class="lede">
-            Loom is a literate programming framework in Effect-TS. You write a
-            <span class="tok-key">.loom</span> file as prose and code in reading order —
-            then <span class="tok-key">tangle</span> composes it into real source on disk.
-            <span class="tok-str">"the book is the program."</span>
+            Write programs the way you'd write a book. Loom is an AI-friendly framework where specifications and code do not drift apart <span class="tok-str">— because Loom prose is the program</span>.
           </p>
 
           <div class="actions">
@@ -1120,10 +1113,6 @@
   </div>
   <div class="tweaks-body">
     <div class="tweak-group">
-      <label>headline_verb</label>
-      <div class="tweak-options" id="tw-verb"></div>
-    </div>
-    <div class="tweak-group">
       <label>accent</label>
       <div class="tweak-row" id="tw-accent"></div>
     </div>
@@ -1141,13 +1130,11 @@
 
 <script>
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
-  "headlineVerb": "woven",
   "accent": "mint",
-  "rotatorWords": "into one source\nthen tangled apart\nthat stays in sync\na person can read",
+  "rotatorWords": "with AI\nwritten for people",
   "density": "airy"
 }/*EDITMODE-END*/;
 
-const VERBS = ["woven", "spun", "composed", "tangled", "kept"];
 const ACCENTS = {
   mint:   "#8FE0B6",
   cyan:   "#6CC7E0",
@@ -1158,13 +1145,12 @@ const ACCENTS = {
 const DENSITIES = ["compact", "comfortable", "airy"];
 
 let state = { ...TWEAK_DEFAULTS };
-let words = ["into one source","then tangled apart","that stays in sync","a person can read","as literature"];
+let words = ["with AI", "written for people"];
 
 function applyState() {
   document.documentElement.style.setProperty('--acc-mint', ACCENTS[state.accent] || ACCENTS.mint);
-  document.getElementById('verb').textContent = state.headlineVerb;
   words = state.rotatorWords.split('\n').map(s => s.trim()).filter(Boolean);
-  if (!words.length) words = ["into one source"];
+  if (!words.length) words = ["with AI"];
   // density just adjusts section padding
   const factor = state.density === 'compact' ? 0.85 : state.density === 'airy' ? 1.15 : 1;
   document.documentElement.style.setProperty('--density', factor);
@@ -1419,21 +1405,6 @@ document.querySelectorAll('[data-copy]').forEach(btn => {
 /* Tweaks */
 (function(){
   const panel = document.getElementById('tweaks');
-
-  const twVerb = document.getElementById('tw-verb');
-  VERBS.forEach(v => {
-    const b = document.createElement('button');
-    b.className = 'tweak-opt' + (v === state.headlineVerb ? ' on' : '');
-    b.textContent = v;
-    b.addEventListener('click', () => {
-      state.headlineVerb = v;
-      twVerb.querySelectorAll('.tweak-opt').forEach(x => x.classList.remove('on'));
-      b.classList.add('on');
-      applyState();
-      persist({ headlineVerb: v });
-    });
-    twVerb.appendChild(b);
-  });
 
   const twAcc = document.getElementById('tw-accent');
   Object.entries(ACCENTS).forEach(([k, v]) => {
