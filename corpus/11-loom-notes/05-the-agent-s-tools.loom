@@ -12,12 +12,12 @@ An MCP server exposes its work as named tools with typed arguments, which the ho
 
 # What it draws on
 
-From `effect` come the array and schema combinators. From `effect/unstable/ai` come the tool and toolkit that define what the agent can call. The note module supplies the note schema the tools answer with, and the store module the service they act through.
+From `effect` come the array and schema combinators. From `effect/unstable/ai` come the tool and toolkit that define what the agent can call, and the error a tool raises when its work fails. The note module supplies the note schema the tools answer with, and the store module the service they act through.
 
 =>
 
 import { Array, Effect, Schema as S } from 'effect'
-import { Tool, Toolkit } from 'effect/unstable/ai'
+import { AiError, Tool, Toolkit } from 'effect/unstable/ai'
 import { NoteSchema } from '@athrio/loom-notes/note'
 import { NoteStore } from './store'
 
@@ -56,9 +56,21 @@ const discard = Tool.make('discard', {
 
 export const toolkit = Toolkit.make(projects, notes, resolve, discard)
 
+# Surfacing a store failure
+
+A tool that cannot reach the store must tell the agent so, not fail in silence and not crash the daemon. `surface` is how every handler treats a store failure. It logs the fault to the devtools log with the tool's name, then raises it to the agent as an MCP error — an `AiError` the host reports back to the model. The daemon keeps running: a handler that raises an error answers that one call and serves the next, where the old `Effect.orDie` turned the same failure into a defect that could take the process down.
+
+=>
+
+const surface = <A, E>(tool: string, work: Effect.Effect<A, E>): Effect.Effect<A, AiError.UnknownError> =>
+  work.pipe(
+    Effect.tapError((error) => Effect.logError(`the ${tool} tool could not reach the store`, error)),
+    Effect.mapError(() => new AiError.UnknownError({ description: `the ${tool} tool could not reach the store` })),
+  )
+
 # The handlers
 
-The handlers are the tools' work, each reaching the store through the one `NoteStore` the layer provides. The store answers with bare arrays and void, so the handlers box each into the object its tool declares — `projects` and `notes` wrap their arrays, and `resolve` and `discard` do their work and acknowledge with `{ ok: true }`. `notes` keeps only a project's unaddressed notes. A note that fails to decode is a corrupt store, not a tool failure, so `Effect.orDie` turns that error into a defect rather than an answer.
+The handlers are the tools' work, each reaching the store through the one `NoteStore` the layer provides. The store answers with bare arrays and void, so the handlers box each into the object its tool declares — `projects` and `notes` wrap their arrays, and `resolve` and `discard` do their work and acknowledge with `{ ok: true }`. `notes` keeps only a project's unaddressed notes. Every reach for the store passes through `surface`, so a `DbError` or a `DecodeError` reaches the agent as a reported error and the devtools log, never as a swallowed empty answer or a crash.
 
 =>
 
@@ -66,14 +78,15 @@ export const handlers = toolkit.toLayer(
   Effect.gen(function* () {
     const store = yield* NoteStore
     return {
-      projects: () => store.projects.pipe(Effect.map((list) => ({ projects: list }))),
+      projects: () => surface('projects', store.projects).pipe(Effect.map((list) => ({ projects: list }))),
       notes: ({ project }) =>
-        store.list(project).pipe(
+        surface('notes', store.list(project)).pipe(
           Effect.map((list) => ({ notes: Array.filter(list, (note) => !note.addressed) })),
-          Effect.orDie,
         ),
-      resolve: ({ project, seq }) => store.resolve(project, seq).pipe(Effect.orDie, Effect.as({ ok: true })),
-      discard: ({ project, seq }) => store.discard(project, seq).pipe(Effect.as({ ok: true })),
+      resolve: ({ project, seq }) =>
+        surface('resolve', store.resolve(project, seq)).pipe(Effect.as({ ok: true })),
+      discard: ({ project, seq }) =>
+        surface('discard', store.discard(project, seq)).pipe(Effect.as({ ok: true })),
     }
   }),
 )
@@ -85,5 +98,7 @@ export const handlers = toolkit.toLayer(
 ::[What it draws on]
 
 ::[The tools]
+
+::[Surfacing a store failure]
 
 ::[The handlers]

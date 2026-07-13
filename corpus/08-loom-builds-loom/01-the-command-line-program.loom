@@ -397,7 +397,7 @@ const status = Effect.gen(function* () {
 
 The command program is nine subcommands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them, recording each in the lock. `loom orphans` lists the files across the workspace that the lock records but no loom still produces, one path per line for a shell to pipe into `rm`, and `--prune` removes them and rewrites the lock. `loom weave <path> <out>` projects a corpus into a `WovenCorpus` and writes it as JSON to `out`. `loom init [dir]` scaffolds a `.loom/config.yaml`, defaulting to the working directory. `loom add <language>` and `loom remove <language>` turn a language's service on and off. `loom status` reports what the workspace has activated, what the store holds, and whether the notes server is running. `loom start` and `loom stop` launch that server and end it. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the weaver, the package config, the configuration, and the Bun platform behind the prompts, the filesystem, and the server's record.
 
-Two entry points sit outside the command program. `loom serve [port]` runs the notes server in the foreground, on the given port or the default `5710`; `loom start` spawns it, and a person debugging can run it in a terminal of their own. `loom lsp --stdio` starts the language server for any editor. Each loads its heavy code only when it is reached — the server module, or Volar — so a plain `tangle` never pays to bundle either, and each runs on its own Bun runtime rather than nesting one inside a command. Volar is CommonJS and calls `require` at runtime for the built-in modules; this bundle is an ES module, where `require` is absent, so before loading the server the `lsp` branch exposes one through `createRequire` on `globalThis` — the shim Volar's bundled code reaches for. That cost lands only on the `lsp` path.
+Two entry points sit outside the command program. `loom serve [port]` runs the notes server in the foreground, on the given port or the default `5710`, under the devtools logger so its lines land in `devtools.log` rather than the discarded console of a detached process; `loom start` spawns it, and a person debugging can run it in a terminal of their own. `loom lsp --stdio` starts the language server for any editor. Each loads its heavy code only when it is reached — the server module, or Volar — so a plain `tangle` never pays to bundle either, and each runs on its own Bun runtime rather than nesting one inside a command. Volar is CommonJS and calls `require` at runtime for the built-in modules; this bundle is an ES module, where `require` is absent, so before loading the server the `lsp` branch exposes one through `createRequire` on `globalThis` — the shim Volar's bundled code reaches for. That cost lands only on the `lsp` path.
 
 =>
 
@@ -477,10 +477,13 @@ if (process.argv[2] === 'lsp') {
   const { startLanguageServer } = await import('@athrio/loom-lang/LoomServer')
   startLanguageServer()
 } else if (process.argv[2] === 'serve') {
-  const { notesServer } = await import('./api')
+  const { notesServer, devtoolsLogger } = await import('./api')
   const port = Number(process.argv[3] ?? defaultPort)
   BunRuntime.runMain(
-    Layer.launch(notesServer(port)).pipe(Effect.provide(BunServices.layer)),
+    Layer.launch(notesServer(port)).pipe(
+      Effect.provide(devtoolsLogger),
+      Effect.provide(BunServices.layer),
+    ),
   )
 } else {
   BunRuntime.runMain(program)

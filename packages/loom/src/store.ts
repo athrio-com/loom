@@ -1,4 +1,19 @@
-import { Effect, Option } from 'effect'
+import { Data, Effect } from 'effect'
+
+class DbError extends Data.TaggedError('DbError')<{
+  readonly op: string
+  readonly cause: unknown
+}> {}
+
+class DecodeError extends Data.TaggedError('DecodeError')<{
+  readonly data: string
+  readonly cause: unknown
+}> {}
+
+const query = <A>(op: string, run: () => A): Effect.Effect<A, DbError> =>
+  Effect.try({ try: run, catch: (cause) => new DbError({ op, cause }) })
+
+import { Option } from 'effect'
 import { Database } from 'bun:sqlite'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -11,7 +26,7 @@ const storeDirectory = (): string =>
 
 const openDatabase = (path: string) =>
   Effect.acquireRelease(
-    Effect.sync(() => new Database(path)),
+    query('open', () => new Database(path)),
     (database) => Effect.sync(() => database.close()),
   )
 
@@ -28,24 +43,45 @@ const createProjects = `CREATE TABLE IF NOT EXISTS projects (
   path TEXT
 )`
 
-import { Schema } from 'effect'
+import { Array, Schema } from 'effect'
 import { NoteSchema, type Note } from '@athrio/loom-notes/note'
 
-const decodeNote = (data: string): Effect.Effect<Note, unknown> =>
-  Effect.try(() => JSON.parse(data) as unknown).pipe(
-    Effect.flatMap(Schema.decodeUnknownEffect(NoteSchema)),
+const decodeNote = (data: string): Effect.Effect<Note, DecodeError> =>
+  Effect.try({
+    try: () => JSON.parse(data) as unknown,
+    catch: (cause) => new DecodeError({ data, cause }),
+  }).pipe(
+    Effect.flatMap((json) =>
+      Schema.decodeUnknownEffect(NoteSchema)(json).pipe(
+        Effect.mapError((cause) => new DecodeError({ data, cause })),
+      ),
+    ),
   )
 
 const readNotes = (
   database: Database,
   project: string,
-): Effect.Effect<ReadonlyArray<Note>, unknown> =>
-  Effect.sync(
+): Effect.Effect<ReadonlyArray<Note>, DbError> =>
+  query(
+    'list',
     () =>
       database
         .query('SELECT data FROM notes WHERE project = ? ORDER BY seq')
         .all(project) as ReadonlyArray<{ readonly data: string }>,
-  ).pipe(Effect.flatMap((rows) => Effect.forEach(rows, (row) => decodeNote(row.data))))
+  ).pipe(
+    Effect.flatMap((rows) =>
+      Effect.forEach(rows, (row) =>
+        decodeNote(row.data).pipe(
+          Effect.tapError((error) =>
+            Effect.logWarning('skipping a note that no longer decodes', error),
+          ),
+          Effect.map(Option.some),
+          Effect.catchTag('DecodeError', () => Effect.succeed(Option.none<Note>())),
+        ),
+      ),
+    ),
+    Effect.map(Array.getSomes),
+  )
 
 import { Clock } from 'effect'
 import { stampDraft, type Draft } from '@athrio/loom-notes/note'
@@ -53,17 +89,18 @@ import { stampDraft, type Draft } from '@athrio/loom-notes/note'
 const recordDraft = (
   database: Database,
   draft: Draft,
-): Effect.Effect<Note, unknown> =>
+): Effect.Effect<Note, DbError> =>
   Effect.gen(function* () {
     const millis = yield* Clock.currentTimeMillis
-    const highest = yield* Effect.sync(
+    const highest = yield* query(
+      'max-seq',
       () =>
         database
           .query('SELECT MAX(seq) AS seq FROM notes WHERE project = ?')
           .get(draft.project) as { readonly seq: number | null },
     )
     const note = stampDraft(draft, (highest.seq ?? 0) + 1, new Date(millis).toISOString())
-    yield* Effect.sync(() =>
+    yield* query('insert', () =>
       database
         .query('INSERT INTO notes (project, seq, data) VALUES (?, ?, ?)')
         .run(note.project, note.seq, JSON.stringify(note)),
@@ -76,9 +113,10 @@ const modifyNote = (
   project: string,
   seq: number,
   change: (note: Note) => Note,
-): Effect.Effect<void, unknown> =>
+): Effect.Effect<void, DbError | DecodeError> =>
   Effect.gen(function* () {
-    const row = yield* Effect.sync(
+    const row = yield* query(
+      'find',
       () =>
         database
           .query('SELECT data FROM notes WHERE project = ? AND seq = ?')
@@ -90,7 +128,7 @@ const modifyNote = (
         decodeNote(found.data).pipe(
           Effect.map(change),
           Effect.flatMap((updated) =>
-            Effect.sync(() =>
+            query('update', () =>
               database
                 .query('UPDATE notes SET data = ? WHERE project = ? AND seq = ?')
                 .run(JSON.stringify(updated), project, seq),
@@ -106,15 +144,20 @@ const resolveNote = (database: Database, project: string, seq: number) =>
 const editNote = (database: Database, project: string, seq: number, text: string) =>
   modifyNote(database, project, seq, (note) => ({ ...note, text }))
 
-const discardNote = (database: Database, project: string, seq: number): Effect.Effect<void> =>
-  Effect.sync(() => {
+const discardNote = (
+  database: Database,
+  project: string,
+  seq: number,
+): Effect.Effect<void, DbError> =>
+  query('discard', () => {
     database.query('DELETE FROM notes WHERE project = ? AND seq = ?').run(project, seq)
   })
 
 type Project = { readonly id: string; readonly name: string }
 
-const listProjects = (database: Database): Effect.Effect<ReadonlyArray<Project>> =>
-  Effect.sync(
+const listProjects = (database: Database): Effect.Effect<ReadonlyArray<Project>, DbError> =>
+  query(
+    'projects',
     () => database.query('SELECT id, name FROM projects ORDER BY name').all() as ReadonlyArray<Project>,
   )
 
@@ -124,8 +167,9 @@ type ProjectRecord = { readonly id: string; readonly name: string; readonly path
 const findProject = (
   database: Database,
   id: string,
-): Effect.Effect<Option.Option<ProjectRecord>> =>
-  Effect.sync(
+): Effect.Effect<Option.Option<ProjectRecord>, DbError> =>
+  query(
+    'find-project',
     () => database.query('SELECT id, name, path FROM projects WHERE id = ?').get(id) as ProjectRow | null,
   ).pipe(
     Effect.map((row) =>
@@ -137,23 +181,23 @@ const findProject = (
     ),
   )
 
-const ensureProject = (database: Database, id: string): Effect.Effect<void> =>
-  Effect.sync(() => {
+const ensureProject = (database: Database, id: string): Effect.Effect<void, DbError> =>
+  query('ensure-project', () => {
     database.query('INSERT OR IGNORE INTO projects (id, name) VALUES (?, ?)').run(id, id)
   })
 
-const backfillProjects = (database: Database): Effect.Effect<void> =>
-  Effect.sync(() => {
+const backfillProjects = (database: Database): Effect.Effect<void, DbError> =>
+  query('backfill', () => {
     database.run('INSERT OR IGNORE INTO projects (id, name) SELECT DISTINCT project, project FROM notes')
   })
 
-const renameProject = (database: Database, id: string, name: string): Effect.Effect<void> =>
-  Effect.sync(() => {
+const renameProject = (database: Database, id: string, name: string): Effect.Effect<void, DbError> =>
+  query('rename', () => {
     database.query('UPDATE projects SET name = ? WHERE id = ?').run(name, id)
   })
 
-const registerProject = (database: Database, id: string, path: string): Effect.Effect<void> =>
-  Effect.sync(() => {
+const registerProject = (database: Database, id: string, path: string): Effect.Effect<void, DbError> =>
+  query('register', () => {
     database
       .query(
         'INSERT INTO projects (id, name, path) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET path = excluded.path',
@@ -169,9 +213,9 @@ export class NoteStore extends Context.Service<NoteStore>()('NoteStore', {
     const directory = storeDirectory()
     yield* fs.makeDirectory(directory, { recursive: true })
     const database = yield* openDatabase(join(directory, 'notes.db'))
-    yield* Effect.sync(() => database.run('PRAGMA journal_mode = WAL'))
-    yield* Effect.sync(() => database.run(createNotes))
-    yield* Effect.sync(() => database.run(createProjects))
+    yield* query('pragma', () => database.run('PRAGMA journal_mode = WAL'))
+    yield* query('create-notes', () => database.run(createNotes))
+    yield* query('create-projects', () => database.run(createProjects))
     yield* backfillProjects(database)
     return {
       list: (project: string) => readNotes(database, project),
@@ -185,7 +229,7 @@ export class NoteStore extends Context.Service<NoteStore>()('NoteStore', {
       rename: (id: string, name: string) => renameProject(database, id, name),
       register: (id: string, path: string) => registerProject(database, id, path),
     } as const
-  }),
+  }).pipe(Effect.catchTag('DbError', (error) => Effect.die(error))),
 }) {
   static readonly layer = Layer.effect(this, this.make)
 }

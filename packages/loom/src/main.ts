@@ -405,10 +405,13 @@ if (process.argv[2] === 'lsp') {
   const { startLanguageServer } = await import('@athrio/loom-lang/LoomServer')
   startLanguageServer()
 } else if (process.argv[2] === 'serve') {
-  const { notesServer } = await import('./api')
+  const { notesServer, devtoolsLogger } = await import('./api')
   const port = Number(process.argv[3] ?? defaultPort)
   BunRuntime.runMain(
-    Layer.launch(notesServer(port)).pipe(Effect.provide(BunServices.layer)),
+    Layer.launch(notesServer(port)).pipe(
+      Effect.provide(devtoolsLogger),
+      Effect.provide(BunServices.layer),
+    ),
   )
 } else {
   BunRuntime.runMain(program)

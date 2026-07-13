@@ -1,5 +1,5 @@
 import { Array, Effect, Schema as S } from 'effect'
-import { Tool, Toolkit } from 'effect/unstable/ai'
+import { AiError, Tool, Toolkit } from 'effect/unstable/ai'
 import { NoteSchema } from '@athrio/loom-notes/note'
 import { NoteStore } from './store'
 
@@ -30,18 +30,25 @@ const discard = Tool.make('discard', {
 
 export const toolkit = Toolkit.make(projects, notes, resolve, discard)
 
+const surface = <A, E>(tool: string, work: Effect.Effect<A, E>): Effect.Effect<A, AiError.UnknownError> =>
+  work.pipe(
+    Effect.tapError((error) => Effect.logError(`the ${tool} tool could not reach the store`, error)),
+    Effect.mapError(() => new AiError.UnknownError({ description: `the ${tool} tool could not reach the store` })),
+  )
+
 export const handlers = toolkit.toLayer(
   Effect.gen(function* () {
     const store = yield* NoteStore
     return {
-      projects: () => store.projects.pipe(Effect.map((list) => ({ projects: list }))),
+      projects: () => surface('projects', store.projects).pipe(Effect.map((list) => ({ projects: list }))),
       notes: ({ project }) =>
-        store.list(project).pipe(
+        surface('notes', store.list(project)).pipe(
           Effect.map((list) => ({ notes: Array.filter(list, (note) => !note.addressed) })),
-          Effect.orDie,
         ),
-      resolve: ({ project, seq }) => store.resolve(project, seq).pipe(Effect.orDie, Effect.as({ ok: true })),
-      discard: ({ project, seq }) => store.discard(project, seq).pipe(Effect.as({ ok: true })),
+      resolve: ({ project, seq }) =>
+        surface('resolve', store.resolve(project, seq)).pipe(Effect.as({ ok: true })),
+      discard: ({ project, seq }) =>
+        surface('discard', store.discard(project, seq)).pipe(Effect.as({ ok: true })),
     }
   }),
 )

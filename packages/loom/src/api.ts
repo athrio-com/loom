@@ -56,13 +56,32 @@ const rename = Effect.gen(function* () {
   return yield* HttpServerResponse.json({ ok: true })
 })
 
+import { Data } from 'effect'
+
+class GitError extends Data.TaggedError('GitError')<{
+  readonly path: string
+  readonly cause: unknown
+}> {}
+
 const branchAt = (path: string): Effect.Effect<string> =>
   path === ''
     ? Effect.succeed('')
-    : Effect.try(() => {
-        const git = Bun.spawnSync(['git', '-C', path, 'rev-parse', '--abbrev-ref', 'HEAD'])
-        return git.success ? git.stdout.toString().trim() : ''
-      }).pipe(Effect.catchCause(() => Effect.succeed('')))
+    : Effect.tryPromise({
+        try: async () => {
+          const git = Bun.spawn(['git', '-C', path, 'rev-parse', '--abbrev-ref', 'HEAD'], {
+            stdout: 'pipe',
+            stderr: 'ignore',
+          })
+          const [out, code] = await Promise.all([new Response(git.stdout).text(), git.exited])
+          return code === 0 ? out.trim() : ''
+        },
+        catch: (cause) => new GitError({ path, cause }),
+      }).pipe(
+        Effect.timeout('2 seconds'),
+        Effect.catchCause((cause) =>
+          Effect.logWarning('git branch lookup failed', cause).pipe(Effect.as('')),
+        ),
+      )
 
 const context = Effect.gen(function* () {
   const store = yield* NoteStore
@@ -103,7 +122,11 @@ const noCache = { 'cache-control': 'no-store' }
 const overlay = overlayScript.startsWith('__LOOM_OVERLAY')
   ? HttpServerResponse.file(join(root, '..', '..', 'loom-notes', 'dist', 'overlay.js'), {
       headers: noCache,
-    }).pipe(Effect.catchCause(() => notFound))
+    }).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning('could not read the overlay script', cause).pipe(Effect.andThen(notFound)),
+      ),
+    )
   : Effect.succeed(
       HttpServerResponse.text(Buffer.from(overlayScript, 'base64').toString('utf8'), {
         contentType: 'text/javascript',
@@ -111,14 +134,25 @@ const overlay = overlayScript.startsWith('__LOOM_OVERLAY')
       }),
     )
 
+const handling = <R>(
+  work: Effect.Effect<HttpServerResponse.HttpServerResponse, unknown, R>,
+): Effect.Effect<HttpServerResponse.HttpServerResponse, never, R> =>
+  work.pipe(
+    Effect.catchCause((cause) =>
+      Effect.logError('a notes request failed', cause).pipe(
+        Effect.as(HttpServerResponse.text('The notes store failed', { status: 500 })),
+      ),
+    ),
+  )
+
 const routes = Layer.mergeAll(
-  HttpRouter.add('POST', '/notes/capture', capture),
-  HttpRouter.add('GET', '/notes/feed', feed),
-  HttpRouter.add('POST', '/notes/resolve', resolve),
-  HttpRouter.add('POST', '/notes/discard', discard),
-  HttpRouter.add('POST', '/notes/edit', edit),
-  HttpRouter.add('POST', '/project/name', rename),
-  HttpRouter.add('GET', '/project/context', context),
+  HttpRouter.add('POST', '/notes/capture', handling(capture)),
+  HttpRouter.add('GET', '/notes/feed', handling(feed)),
+  HttpRouter.add('POST', '/notes/resolve', handling(resolve)),
+  HttpRouter.add('POST', '/notes/discard', handling(discard)),
+  HttpRouter.add('POST', '/notes/edit', handling(edit)),
+  HttpRouter.add('POST', '/project/name', handling(rename)),
+  HttpRouter.add('GET', '/project/context', handling(context)),
   HttpRouter.add('GET', '/notes.js', overlay),
 )
 
@@ -126,6 +160,20 @@ const mcp = McpServer.toolkit(toolkit).pipe(
   Layer.provide(handlers),
   Layer.provide(McpServer.layerHttp({ name: 'loom', version: '0.9.0', path: '/mcp' })),
 )
+
+import { FileSystem, Logger } from 'effect'
+import { homedir } from 'node:os'
+
+const dataDirectory = process.env.LOOM_NOTES_DIR ?? join(homedir(), '.loom')
+const logFile = join(dataDirectory, 'devtools.log')
+
+export const devtoolsLogger = Logger.layer([
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    yield* fs.makeDirectory(dataDirectory, { recursive: true })
+    return yield* Logger.formatLogFmt.pipe(Logger.toFile(logFile, { flag: 'a' }))
+  }),
+])
 
 const app = Layer.mergeAll(
   routes,

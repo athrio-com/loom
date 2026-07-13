@@ -10,13 +10,40 @@ The store is where notes live once they are made. It is a SQLite database on you
 
 The store does five things to a note: read a project's notes, record a new one, resolve one, discard one, and change one's words. It keeps a small registry of its projects too — each one's stable id, an editable name to show it by, and the working directory it was set up in — so a project can be renamed without stranding its notes, and the daemon can find where it lives on disk. Bun's built-in SQLite drives all of it, and nothing else is installed to make the store work.
 
-# Where the store lives
+# The two ways it can fail
 
-The database sits at `notes.db` in the Loom data directory — `.loom` under your home directory, or wherever `LOOM_NOTES_DIR` points when it is set, which a test uses to write to a directory of its own. The connection is an acquired resource: opened when the store starts and closed when it stops.
+The store reaches past its own code to two things that can fail: the database it queries, and the shape of a note it reads back. Each failure is a value the caller sees in its type, not an exception thrown past it. A `DbError` marks a database call that did not complete — opening the connection, a query, a write — and names the operation that broke. A `DecodeError` marks a stored row whose JSON no longer decodes to a note, and carries the raw text that failed. Every operation below declares these in its signature, so a caller reads what can go wrong from the type rather than meeting it at runtime.
 
 =>
 
-import { Effect, Option } from 'effect'
+import { Data, Effect } from 'effect'
+
+class DbError extends Data.TaggedError('DbError')<{
+  readonly op: string
+  readonly cause: unknown
+}> {}
+
+class DecodeError extends Data.TaggedError('DecodeError')<{
+  readonly data: string
+  readonly cause: unknown
+}> {}
+
+# Every database call runs through one gate
+
+`query` is that gate. It names an operation and runs it, and turns anything the call throws into a `DbError` carrying the name. So no call to Bun's SQLite reaches the store's callers as a raw throw: each one either returns its result or fails with a `DbError` that says which operation broke. Every read, write, and schema statement below goes through it.
+
+=>
+
+const query = <A>(op: string, run: () => A): Effect.Effect<A, DbError> =>
+  Effect.try({ try: run, catch: (cause) => new DbError({ op, cause }) })
+
+# Where the store lives
+
+The database sits at `notes.db` in the Loom data directory — `.loom` under your home directory, or wherever `LOOM_NOTES_DIR` points when it is set, which a test uses to write to a directory of its own. The connection is an acquired resource: opened when the store starts and closed when it stops. Opening it goes through the gate, so a database that will not open fails the store's startup with a `DbError` rather than a bare throw.
+
+=>
+
+import { Option } from 'effect'
 import { Database } from 'bun:sqlite'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -29,7 +56,7 @@ const storeDirectory = (): string =>
 
 const openDatabase = (path: string) =>
   Effect.acquireRelease(
-    Effect.sync(() => new Database(path)),
+    query('open', () => new Database(path)),
     (database) => Effect.sync(() => database.close()),
   )
 
@@ -56,32 +83,55 @@ const createProjects = `CREATE TABLE IF NOT EXISTS projects (
 
 # Reading a project's notes
 
-`readNotes` reads every note of one project, in the order they were made. It selects the project's rows by sequence and decodes each against `NoteSchema`, so a row that does not match one of the three kinds is a failure, not a silent bad note. `decodeNote` is that step alone — parse the JSON, then decode it — and the changes below lean on it too.
+`readNotes` reads every note of one project, in the order they were made. It selects the project's rows through the gate, then decodes each against `NoteSchema`. `decodeNote` is that step alone — parse the JSON, then decode it — and it fails with a `DecodeError` when a row is neither, carrying the text that would not parse. The changes below lean on it too.
+
+One corrupt row does not hide the rest. A row that fails to decode is logged as a warning and left out of the list, so a single bad note never blocks a project's good ones from reaching the reader — and the `DecodeError` lands in the log rather than vanishing. Only a database failure stops the read, and it stops it as a `DbError`.
 
 =>
 
-import { Schema } from 'effect'
+import { Array, Schema } from 'effect'
 import { NoteSchema, type Note } from '@athrio/loom-notes/note'
 
-const decodeNote = (data: string): Effect.Effect<Note, unknown> =>
-  Effect.try(() => JSON.parse(data) as unknown).pipe(
-    Effect.flatMap(Schema.decodeUnknownEffect(NoteSchema)),
+const decodeNote = (data: string): Effect.Effect<Note, DecodeError> =>
+  Effect.try({
+    try: () => JSON.parse(data) as unknown,
+    catch: (cause) => new DecodeError({ data, cause }),
+  }).pipe(
+    Effect.flatMap((json) =>
+      Schema.decodeUnknownEffect(NoteSchema)(json).pipe(
+        Effect.mapError((cause) => new DecodeError({ data, cause })),
+      ),
+    ),
   )
 
 const readNotes = (
   database: Database,
   project: string,
-): Effect.Effect<ReadonlyArray<Note>, unknown> =>
-  Effect.sync(
+): Effect.Effect<ReadonlyArray<Note>, DbError> =>
+  query(
+    'list',
     () =>
       database
         .query('SELECT data FROM notes WHERE project = ? ORDER BY seq')
         .all(project) as ReadonlyArray<{ readonly data: string }>,
-  ).pipe(Effect.flatMap((rows) => Effect.forEach(rows, (row) => decodeNote(row.data))))
+  ).pipe(
+    Effect.flatMap((rows) =>
+      Effect.forEach(rows, (row) =>
+        decodeNote(row.data).pipe(
+          Effect.tapError((error) =>
+            Effect.logWarning('skipping a note that no longer decodes', error),
+          ),
+          Effect.map(Option.some),
+          Effect.catchTag('DecodeError', () => Effect.succeed(Option.none<Note>())),
+        ),
+      ),
+    ),
+    Effect.map(Array.getSomes),
+  )
 
 # Recording a note
 
-`recordDraft` takes a draft and files it. It reads the project's highest sequence, adds one, and stamps the draft into a note at that number, so a number is never reused — even after a note in the middle is discarded, the next one carries on past the highest. The time comes from Effect's clock rather than a bare `Date`, so a test can fix it. The note is written as its JSON and returned, stamped and whole.
+`recordDraft` takes a draft and files it. It reads the project's highest sequence, adds one, and stamps the draft into a note at that number, so a number is never reused — even after a note in the middle is discarded, the next one carries on past the highest. The time comes from Effect's clock rather than a bare `Date`, so a test can fix it. The note is written as its JSON and returned, stamped and whole. Both the read and the write run through the gate, so a database failure surfaces as a `DbError`.
 
 =>
 
@@ -91,17 +141,18 @@ import { stampDraft, type Draft } from '@athrio/loom-notes/note'
 const recordDraft = (
   database: Database,
   draft: Draft,
-): Effect.Effect<Note, unknown> =>
+): Effect.Effect<Note, DbError> =>
   Effect.gen(function* () {
     const millis = yield* Clock.currentTimeMillis
-    const highest = yield* Effect.sync(
+    const highest = yield* query(
+      'max-seq',
       () =>
         database
           .query('SELECT MAX(seq) AS seq FROM notes WHERE project = ?')
           .get(draft.project) as { readonly seq: number | null },
     )
     const note = stampDraft(draft, (highest.seq ?? 0) + 1, new Date(millis).toISOString())
-    yield* Effect.sync(() =>
+    yield* query('insert', () =>
       database
         .query('INSERT INTO notes (project, seq, data) VALUES (?, ?, ?)')
         .run(note.project, note.seq, JSON.stringify(note)),
@@ -111,7 +162,7 @@ const recordDraft = (
 
 # Changing a note
 
-Resolving a note and editing its words are the same move: read the one row, change the note it holds, write it back. `modifyNote` is that move, and it takes the change as a function so `resolveNote` and `editNote` each pass only what differs. A sequence that names no row changes nothing. Resolving turns the `addressed` flag true — a resolved note stays in the store as a record, never removed — and editing replaces the words and leaves all else untouched.
+Resolving a note and editing its words are the same move: read the one row, change the note it holds, write it back. `modifyNote` is that move, and it takes the change as a function so `resolveNote` and `editNote` each pass only what differs. A sequence that names no row changes nothing. Resolving turns the `addressed` flag true — a resolved note stays in the store as a record, never removed — and editing replaces the words and leaves all else untouched. A read or write that fails surfaces as a `DbError`, and a stored row that will not decode as a `DecodeError`, so the caller sees both.
 
 =>
 
@@ -120,9 +171,10 @@ const modifyNote = (
   project: string,
   seq: number,
   change: (note: Note) => Note,
-): Effect.Effect<void, unknown> =>
+): Effect.Effect<void, DbError | DecodeError> =>
   Effect.gen(function* () {
-    const row = yield* Effect.sync(
+    const row = yield* query(
+      'find',
       () =>
         database
           .query('SELECT data FROM notes WHERE project = ? AND seq = ?')
@@ -134,7 +186,7 @@ const modifyNote = (
         decodeNote(found.data).pipe(
           Effect.map(change),
           Effect.flatMap((updated) =>
-            Effect.sync(() =>
+            query('update', () =>
               database
                 .query('UPDATE notes SET data = ? WHERE project = ? AND seq = ?')
                 .run(JSON.stringify(updated), project, seq),
@@ -152,12 +204,16 @@ const editNote = (database: Database, project: string, seq: number, text: string
 
 # Discarding a note
 
-`discardNote` drops a note for good — the row for that project and sequence, gone. Unlike resolving, it leaves no record; the sequence it held is not filled again.
+`discardNote` drops a note for good — the row for that project and sequence, gone. Unlike resolving, it leaves no record; the sequence it held is not filled again. The delete runs through the gate, so a failure surfaces as a `DbError`.
 
 =>
 
-const discardNote = (database: Database, project: string, seq: number): Effect.Effect<void> =>
-  Effect.sync(() => {
+const discardNote = (
+  database: Database,
+  project: string,
+  seq: number,
+): Effect.Effect<void, DbError> =>
+  query('discard', () => {
     database.query('DELETE FROM notes WHERE project = ? AND seq = ?').run(project, seq)
   })
 
@@ -167,14 +223,15 @@ The projects table is a registry the store keeps beside the notes. `listProjects
 
 A project earns a row the moment it needs one. `ensureProject` files a project under its own id, as both the key and the starting name, and does nothing when the project is already there — so recording a project's first note registers it. `backfillProjects` does the same for every project already in the notes table, once at startup, so a store that predates the registry fills itself in.
 
-`renameProject` changes the name a project shows by, and leaves the id — and so the notes under it — untouched. `registerProject` records where a project lives: it files the project if new, and writes the working directory either way, the path `loom init` hands it.
+`renameProject` changes the name a project shows by, and leaves the id — and so the notes under it — untouched. `registerProject` records where a project lives: it files the project if new, and writes the working directory either way, the path `loom init` hands it. Every one of these runs through the gate, so a database failure reaches the caller as a `DbError`.
 
 =>
 
 type Project = { readonly id: string; readonly name: string }
 
-const listProjects = (database: Database): Effect.Effect<ReadonlyArray<Project>> =>
-  Effect.sync(
+const listProjects = (database: Database): Effect.Effect<ReadonlyArray<Project>, DbError> =>
+  query(
+    'projects',
     () => database.query('SELECT id, name FROM projects ORDER BY name').all() as ReadonlyArray<Project>,
   )
 
@@ -184,8 +241,9 @@ type ProjectRecord = { readonly id: string; readonly name: string; readonly path
 const findProject = (
   database: Database,
   id: string,
-): Effect.Effect<Option.Option<ProjectRecord>> =>
-  Effect.sync(
+): Effect.Effect<Option.Option<ProjectRecord>, DbError> =>
+  query(
+    'find-project',
     () => database.query('SELECT id, name, path FROM projects WHERE id = ?').get(id) as ProjectRow | null,
   ).pipe(
     Effect.map((row) =>
@@ -197,23 +255,23 @@ const findProject = (
     ),
   )
 
-const ensureProject = (database: Database, id: string): Effect.Effect<void> =>
-  Effect.sync(() => {
+const ensureProject = (database: Database, id: string): Effect.Effect<void, DbError> =>
+  query('ensure-project', () => {
     database.query('INSERT OR IGNORE INTO projects (id, name) VALUES (?, ?)').run(id, id)
   })
 
-const backfillProjects = (database: Database): Effect.Effect<void> =>
-  Effect.sync(() => {
+const backfillProjects = (database: Database): Effect.Effect<void, DbError> =>
+  query('backfill', () => {
     database.run('INSERT OR IGNORE INTO projects (id, name) SELECT DISTINCT project, project FROM notes')
   })
 
-const renameProject = (database: Database, id: string, name: string): Effect.Effect<void> =>
-  Effect.sync(() => {
+const renameProject = (database: Database, id: string, name: string): Effect.Effect<void, DbError> =>
+  query('rename', () => {
     database.query('UPDATE projects SET name = ? WHERE id = ?').run(name, id)
   })
 
-const registerProject = (database: Database, id: string, path: string): Effect.Effect<void> =>
-  Effect.sync(() => {
+const registerProject = (database: Database, id: string, path: string): Effect.Effect<void, DbError> =>
+  query('register', () => {
     database
       .query(
         'INSERT INTO projects (id, name, path) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET path = excluded.path',
@@ -223,7 +281,7 @@ const registerProject = (database: Database, id: string, path: string): Effect.E
 
 # The store service
 
-`NoteStore` is the service the server, the agent's tools, and `loom init` reach for. Its `make` ensures the data directory and opens the database in write-ahead-log mode, so the CLI and the daemon can hold it at once without one blocking the other. It creates the two tables if they are not there yet, backfills the registry from any notes that predate it, then binds every operation to that one connection. Recording a note ensures its project has a registry row first, so a note never lands under a project the registry has not seen. It leaves the filesystem out of its own layer: the runtime edge provides Bun's, the one place the platform is chosen. Because the connection is acquired, Effect opens it as the layer is built and closes it when the layer is torn down.
+`NoteStore` is the service the server, the agent's tools, and `loom init` reach for. Its `make` ensures the data directory and opens the database in write-ahead-log mode, so the CLI and the daemon can hold it at once without one blocking the other. It creates the two tables if they are not there yet, backfills the registry from any notes that predate it, then binds every operation to that one connection. Recording a note ensures its project has a registry row first, so a note never lands under a project the registry has not seen. It leaves the filesystem out of its own layer: the runtime edge provides Bun's, the one place the platform is chosen. Because the connection is acquired, Effect opens it as the layer is built and closes it when the layer is torn down. The mode and table statements run through the gate too, and a database that cannot be prepared makes the store's startup die with that `DbError` — the daemon exits rather than serve from a store it never set up.
 
 =>
 
@@ -235,9 +293,9 @@ export class NoteStore extends Context.Service<NoteStore>()('NoteStore', {
     const directory = storeDirectory()
     yield* fs.makeDirectory(directory, { recursive: true })
     const database = yield* openDatabase(join(directory, 'notes.db'))
-    yield* Effect.sync(() => database.run('PRAGMA journal_mode = WAL'))
-    yield* Effect.sync(() => database.run(createNotes))
-    yield* Effect.sync(() => database.run(createProjects))
+    yield* query('pragma', () => database.run('PRAGMA journal_mode = WAL'))
+    yield* query('create-notes', () => database.run(createNotes))
+    yield* query('create-projects', () => database.run(createProjects))
     yield* backfillProjects(database)
     return {
       list: (project: string) => readNotes(database, project),
@@ -251,7 +309,7 @@ export class NoteStore extends Context.Service<NoteStore>()('NoteStore', {
       rename: (id: string, name: string) => renameProject(database, id, name),
       register: (id: string, path: string) => registerProject(database, id, path),
     } as const
-  }),
+  }).pipe(Effect.catchTag('DbError', (error) => Effect.die(error))),
 }) {
   static readonly layer = Layer.effect(this, this.make)
 }
@@ -259,6 +317,10 @@ export class NoteStore extends Context.Service<NoteStore>()('NoteStore', {
 # The module {Tangle}
 
 =>
+
+::[The two ways it can fail]
+
+::[Every database call runs through one gate]
 
 ::[Where the store lives]
 

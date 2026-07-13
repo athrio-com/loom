@@ -47,6 +47,8 @@ const root = dirname(fileURLToPath(import.meta.url))
 
 Each write reaches the store, does its work, and replies, taking the store from the context the server provides. `capture` decodes a draft, records it, and returns the stamped note. `resolve` and `discard` name a note and settle it; `edit` names one and replaces its words. The three changes answer with a small acknowledgement, since the overlay reads the list back afterwards rather than the reply.
 
+A store failure is not swallowed here. When the store fails — a `DbError` from the database, a `DecodeError` from a corrupt row — the handler fails with it, and `handling`, the wrapper every store route runs through, logs the cause to the devtools log and answers the browser with a server error. The failure never becomes a defect that stops the daemon.
+
 =>
 
 const capture = Effect.gen(function* () {
@@ -96,17 +98,36 @@ const rename = Effect.gen(function* () {
 
 The bar shows a project by name and by the branch its work sits on, and `context` answers both from one call. It reads the project by its id, and when the registry knows it, reports the name recorded for it and the branch of the working directory it was set up in. A project the registry has not seen, or one with no directory, reports its id as the name and no branch, so the bar can still label it.
 
-`branchAt` reads the branch. It runs `git` in the project's directory and keeps the current branch. Anything that fails — no directory, no repository, no `git` — leaves the branch empty rather than an error, since a project without a branch is a state the bar shows by leaving the branch off.
+`branchAt` reads the branch, and it must never freeze the server. It runs `git` in the project's directory as a separate process rather than blocking the one event-loop thread on a synchronous call, and it holds the read to a two-second deadline. Anything that fails — no directory, no repository, no `git`, or a `git` that runs too long — is logged as a `GitError` and leaves the branch empty, since a project without a branch is a state the bar shows by leaving the branch off. The failure lands in the devtools log; only the empty branch reaches the caller.
 
 =>
+
+import { Data } from 'effect'
+
+class GitError extends Data.TaggedError('GitError')<{
+  readonly path: string
+  readonly cause: unknown
+}> {}
 
 const branchAt = (path: string): Effect.Effect<string> =>
   path === ''
     ? Effect.succeed('')
-    : Effect.try(() => {
-        const git = Bun.spawnSync(['git', '-C', path, 'rev-parse', '--abbrev-ref', 'HEAD'])
-        return git.success ? git.stdout.toString().trim() : ''
-      }).pipe(Effect.catchCause(() => Effect.succeed('')))
+    : Effect.tryPromise({
+        try: async () => {
+          const git = Bun.spawn(['git', '-C', path, 'rev-parse', '--abbrev-ref', 'HEAD'], {
+            stdout: 'pipe',
+            stderr: 'ignore',
+          })
+          const [out, code] = await Promise.all([new Response(git.stdout).text(), git.exited])
+          return code === 0 ? out.trim() : ''
+        },
+        catch: (cause) => new GitError({ path, cause }),
+      }).pipe(
+        Effect.timeout('2 seconds'),
+        Effect.catchCause((cause) =>
+          Effect.logWarning('git branch lookup failed', cause).pipe(Effect.as('')),
+        ),
+      )
 
 const context = Effect.gen(function* () {
   const store = yield* NoteStore
@@ -133,7 +154,7 @@ const context = Effect.gen(function* () {
 
 `feed` lists a project's notes. The project comes on the query string rather than in a body, since listing is a GET; without it, the request is incomplete and answers with a bad-request.
 
-The overlay's script travels inside this bundle. The build inlines it as `overlayScript` — encoded in base64, so it survives whole as a plain string — and `overlay` decodes and serves it, so the installed CLI needs no file beside it. Running from source, where no build has inlined anything, the placeholder is still in place: `overlay` sees it, reads the script from the `@athrio/loom-notes` package next door instead, and answers with a not-found when even that is missing.
+The overlay's script travels inside this bundle. The build inlines it as `overlayScript` — encoded in base64, so it survives whole as a plain string — and `overlay` decodes and serves it, so the installed CLI needs no file beside it. Running from source, where no build has inlined anything, the placeholder is still in place: `overlay` sees it, reads the script from the `@athrio/loom-notes` package next door instead, and, when even that is missing, logs the failure to the devtools log and answers with a not-found rather than swallowing it.
 
 The script answers with `Cache-Control: no-store`, so a browser fetches it afresh on every load. The overlay is a dev tool that changes as you build it, and a cached copy would leave a page running yesterday's overlay.
 
@@ -157,7 +178,11 @@ const noCache = { 'cache-control': 'no-store' }
 const overlay = overlayScript.startsWith('__LOOM_OVERLAY')
   ? HttpServerResponse.file(join(root, '..', '..', 'loom-notes', 'dist', 'overlay.js'), {
       headers: noCache,
-    }).pipe(Effect.catchCause(() => notFound))
+    }).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning('could not read the overlay script', cause).pipe(Effect.andThen(notFound)),
+      ),
+    )
   : Effect.succeed(
       HttpServerResponse.text(Buffer.from(overlayScript, 'base64').toString('utf8'), {
         contentType: 'text/javascript',
@@ -165,20 +190,37 @@ const overlay = overlayScript.startsWith('__LOOM_OVERLAY')
       }),
     )
 
+# Catching a failed request
+
+Every route that touches the store runs through `handling`. It catches any failure a handler raises — a store `DbError`, a `DecodeError` from a corrupt row, a request body that will not decode — logs the cause to the devtools log, and answers with a server error. So a failed request is logged and answered, and the daemon serves the next rather than falling over: no request failure becomes a defect that stops it.
+
+=>
+
+const handling = <R>(
+  work: Effect.Effect<HttpServerResponse.HttpServerResponse, unknown, R>,
+): Effect.Effect<HttpServerResponse.HttpServerResponse, never, R> =>
+  work.pipe(
+    Effect.catchCause((cause) =>
+      Effect.logError('a notes request failed', cause).pipe(
+        Effect.as(HttpServerResponse.text('The notes store failed', { status: 500 })),
+      ),
+    ),
+  )
+
 # The routes
 
-The router carries the overlay's routes, each a method paired with a path so a GET and a POST at the same address reach different work. The overlay captures, lists, resolves, discards, and edits notes, renames its project, and asks for its own script — one route each. The router answers any other request with a not-found of its own.
+The router carries the overlay's routes, each a method paired with a path so a GET and a POST at the same address reach different work. The overlay captures, lists, resolves, discards, and edits notes, renames its project, and asks for its own script — one route each; the script route serves a static file, so it alone skips `handling`. The router answers any other request with a not-found of its own.
 
 =>
 
 const routes = Layer.mergeAll(
-  HttpRouter.add('POST', '/notes/capture', capture),
-  HttpRouter.add('GET', '/notes/feed', feed),
-  HttpRouter.add('POST', '/notes/resolve', resolve),
-  HttpRouter.add('POST', '/notes/discard', discard),
-  HttpRouter.add('POST', '/notes/edit', edit),
-  HttpRouter.add('POST', '/project/name', rename),
-  HttpRouter.add('GET', '/project/context', context),
+  HttpRouter.add('POST', '/notes/capture', handling(capture)),
+  HttpRouter.add('GET', '/notes/feed', handling(feed)),
+  HttpRouter.add('POST', '/notes/resolve', handling(resolve)),
+  HttpRouter.add('POST', '/notes/discard', handling(discard)),
+  HttpRouter.add('POST', '/notes/edit', handling(edit)),
+  HttpRouter.add('POST', '/project/name', handling(rename)),
+  HttpRouter.add('GET', '/project/context', handling(context)),
   HttpRouter.add('GET', '/notes.js', overlay),
 )
 
@@ -193,9 +235,31 @@ const mcp = McpServer.toolkit(toolkit).pipe(
   Layer.provide(McpServer.layerHttp({ name: 'loom', version: '0.9.0', path: '/mcp' })),
 )
 
+# The devtools log
+
+The daemon keeps no console — the CLI starts it detached, with its output discarded — so without a log of its own it would fail in silence, which is how a wedged server stayed a mystery. `devtoolsLogger` gives it one. It writes every log line to `devtools.log` in the Loom data directory, the same directory the store sits in, appending so a restart adds to the record rather than erasing it. It ensures that directory first, so the log opens even on a machine that has never run Loom before.
+
+The daemon runs under this logger, and the HTTP server logs each request through it, so `devtools.log` holds a line per request and a line for every fault the store, the branch lookup, or the overlay raises. When the daemon next misbehaves, the last lines of the log say what it was doing.
+
+=>
+
+import { FileSystem, Logger } from 'effect'
+import { homedir } from 'node:os'
+
+const dataDirectory = process.env.LOOM_NOTES_DIR ?? join(homedir(), '.loom')
+const logFile = join(dataDirectory, 'devtools.log')
+
+export const devtoolsLogger = Logger.layer([
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    yield* fs.makeDirectory(dataDirectory, { recursive: true })
+    return yield* Logger.formatLogFmt.pipe(Logger.toFile(logFile, { flag: 'a' }))
+  }),
+])
+
 # The server itself
 
-The application merges three layers on one router: the routes, the agent's tools at `/mcp`, and the cross-origin middleware that lets a browser on any origin call it. `notesServer` serves that application on a port, over the store and the Bun HTTP platform. It leaves the filesystem to the runtime edge — the CLI that launches it — the one place the platform is chosen.
+The application merges three layers on one router: the routes, the agent's tools at `/mcp`, and the cross-origin middleware that lets a browser on any origin call it. `notesServer` serves that application on a port, over the store and the Bun HTTP platform. It leaves the filesystem and the logger to the runtime edge — the CLI that launches it — the one place the platform is chosen.
 
 =>
 
@@ -227,8 +291,12 @@ export const notesServer = (port: number) =>
 
 ::[Listing notes and serving the overlay]
 
+::[Catching a failed request]
+
 ::[The routes]
 
 ::[Mounting the agent's tools]
+
+::[The devtools log]
 
 ::[The server itself]
