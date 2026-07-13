@@ -77,17 +77,17 @@ That is ordinary TypeScript — no prose, no trace of Loom, the two sections ass
 
 ## Run it
 
-You need not write a file to run one. `loom run` composes the program in memory and runs it on the spot:
+The product is ordinary source, so you run it the ordinary way. Bun runs the tangled `src/main.ts`:
 
 ```sh
-loom run greeting.loom
+bun src/main.ts
 ```
 
 ```
 Hello, world!
 ```
 
-Tangling to disk is a step for shipping, not a precondition for seeing your program work.
+Loom leaves no trace in the file, so you run the product with the toolchain its language already uses.
 
 ## In the editor
 
