@@ -3,6 +3,11 @@
   "version": "0.0.3",
   "description": "The loadable TypeScript language service: the product's own editor program, held apart from the frame.",
   "license": "Apache-2.0 OR MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/athrio-com/loom.git",
+    "directory": "packages/loom-service-typescript"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "exports": {

@@ -10,7 +10,7 @@ Language: JSON
 
 ## The manifest {Tangle}[package.json]
 
-The `exports` field names the package's surface, and it is a single entry: the default `.`, the built `dist/index.js` whose default export is the service the loader reads. The `files` field ships only `dist`, so the published package is that one built file and its source map, and `publishConfig` makes the scoped package public.
+The `exports` field names the package's surface, and it is a single entry: the default `.`, the built `dist/index.js` whose default export is the service the loader reads. The `files` field ships only `dist`, so the published package is that one built file and its source map, and `publishConfig` makes the scoped package public. The `repository` field points npm at this package's directory in the monorepo, which the provenance signature verifies against the workflow that publishes it — a publish through Trusted Publishing fails without it.
 
 The package carries no dependencies. The build bundles `volar-service-typescript` and Volar's language layers into `dist/index.js`, and the `prepack` script runs it before each publish, so the package always ships a fresh bundle. The runtime bridge reads `effect`, the `@athrio/loom-lang-services` contract, and the editor's TypeScript from the host at load. Those three are neither bundled nor installed — the host lends them, so a second copy never shadows the `TypescriptSdk` the host provides. The `devDependencies` exist only to build and type-check the source; what the running service shares with the host is fixed by the runtime version `Runtime` declares, not by an npm range.
 
@@ -21,6 +21,11 @@ The package carries no dependencies. The build bundles `volar-service-typescript
   "version": "0.0.3",
   "description": "The loadable TypeScript language service: the product's own editor program, held apart from the frame.",
   "license": "Apache-2.0 OR MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/athrio-com/loom.git",
+    "directory": "packages/loom-service-typescript"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "exports": {
