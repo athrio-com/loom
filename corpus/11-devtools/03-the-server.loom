@@ -168,7 +168,7 @@ The agent's tools ride the same router. `McpServer.layerHttp` registers a JSON-R
 
 const mcp = McpServer.toolkit(toolkit).pipe(
   Layer.provide(handlers),
-  Layer.provide(McpServer.layerHttp({ name: 'loom', version: '0.0.2', path: '/mcp' })),
+  Layer.provide(McpServer.layerHttp({ name: 'loom', version: '0.0.3', path: '/mcp' })),
 )
 
 # Logging

@@ -50,7 +50,7 @@ const run = (command: ReadonlyArray<string>): Effect.Effect<void, BumpError> =>
 
 ## Rewriting one version to another
 
-The version appears in two shapes across the corpus. A JSON manifest writes `"version": "0.0.2"`, and a running tool reports itself with a `version: '0.0.2'` literal. `replaceVersion` rewrites both, and only both — it matches the version in a `version` position, so a dependency pinned elsewhere in a manifest stays untouched.
+The version appears in two shapes across the corpus. A JSON manifest writes `"version": "0.0.3"`, and a running tool reports itself with a `version: '0.0.3'` literal. `replaceVersion` rewrites both, and only both — it matches the version in a `version` position, so a dependency pinned elsewhere in a manifest stays untouched.
 
 =>
 

@@ -20,7 +20,7 @@ The manifest names the package and what it exports — the note schemas and the 
   "name": "@athrio/loom-devtools",
   "type": "module",
   "private": true,
-  "version": "0.0.2",
+  "version": "0.0.3",
   "scripts": {
     "build": "bun build.ts",
     "serve": "bun src/serve.ts",

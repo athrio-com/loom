@@ -16,7 +16,7 @@ The `exports` field is the package's surface — the `loomAnnotate` plugin — a
 
 {
   "name": "@athrio/loom-annotate",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "A Vite plugin that captures time-ordered feedback on a running app for a coding agent to read.",
   "license": "Apache-2.0 OR MIT",
   "type": "module",

@@ -18,7 +18,7 @@ The package carries no dependencies. The build bundles `volar-service-typescript
 
 {
   "name": "@athrio/loom-service-typescript",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "The loadable TypeScript language service: the product's own editor program, held apart from the frame.",
   "license": "Apache-2.0 OR MIT",
   "type": "module",

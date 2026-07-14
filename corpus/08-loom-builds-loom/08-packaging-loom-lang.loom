@@ -18,7 +18,7 @@ The `main` and `bin` fields point at built output: `dist/loom-server.js` is the 
 
 {
   "name": "@athrio/loom-lang",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "main": "./dist/loom-server.js",
   "bin": {
     "loom-language-server": "./bin/loom-language-server.js"
