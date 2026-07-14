@@ -1,0 +1,32 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: loom
+      POSTGRES_PASSWORD: loom
+      POSTGRES_DB: loom
+    ports:
+      - '5432:5432'
+    volumes:
+      - loom-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U loom -d loom']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  devtools:
+    build:
+      context: ../..
+      dockerfile: packages/loom-devtools/Dockerfile
+    environment:
+      DATABASE_URL: postgres://loom:loom@postgres:5432/loom
+      PORT: '5710'
+    ports:
+      - '5710:5710'
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  loom-pg:

@@ -1,7 +1,7 @@
 ---
 Part XI: Loom Devtools
 Chapter 1: The note
-Package: packages/loom-notes/src/note.ts
+Package: packages/loom-devtools/src/note.ts
 Language: TypeScript
 ---
 

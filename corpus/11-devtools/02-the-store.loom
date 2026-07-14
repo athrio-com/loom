@@ -1,0 +1,346 @@
+---
+Part XI, Chapter 2: The store
+Package: packages/loom-devtools/src/store.ts
+Language: TypeScript
+---
+
+# The store
+
+The store is where notes live once they are made. It is a PostgreSQL database the Devtools service owns, kept outside any project, so a note is never a file in the code you are reviewing. One database holds the notes of every app you point at, each note keyed by the project it came from.
+
+The store does five things to a note: read a project's notes, record a new one, resolve one, discard one, and change one's words. It keeps a small registry of its projects too — each one's stable id, an editable name to show it by, and the working directory it was set up in — so a project can be renamed without stranding its notes, and the service can find where it lives on disk. Effect's SQL layer drives all of it over the `pg` driver, and the service reaches the database as a network service rather than a file on the same machine.
+
+# Connecting to Postgres
+
+`PgLive` is the connection. It reads one setting — `DATABASE_URL`, a Postgres connection string — as a redacted value, so the password never reaches a log or a trace. The layer opens a connection pool and provides the SQL client every operation below draws on.
+
+A database the service cannot reach is fatal, not a state to serve around: a wrong URL or an unreachable host makes the connection die, so the container exits and its supervisor restarts it rather than answering from a store it never opened. `Layer.orDie` is that choice — a connection failure becomes a defect that stops the process.
+
+=>
+
+import { Config, Effect, Layer, Option } from 'effect'
+import { SqlClient, SqlError } from 'effect/unstable/sql'
+import { PgClient } from '@effect/sql-pg'
+
+export const PgLive = PgClient.layerConfig({
+  url: Config.redacted('DATABASE_URL'),
+}).pipe(Layer.orDie)
+
+# What can fail
+
+The store reaches past its own code to two things that can fail: the database it queries, and the shape of a note it reads back. A query that does not complete fails with Effect SQL's own `SqlError`, carrying the statement that broke. A stored row whose JSON no longer decodes to a note fails with a `DecodeError`, carrying the text that would not parse. Every operation below declares these in its type, so a caller reads what can go wrong rather than meeting it at runtime.
+
+=>
+
+import { Data } from 'effect'
+
+class DecodeError extends Data.TaggedError('DecodeError')<{
+  readonly data: string
+  readonly cause: unknown
+}> {}
+
+# The schema, migrated at boot
+
+The store carries its own migrations rather than a separate tool. `migrations` is the ordered list of changes to the schema, each with a number that never changes and the work that applies it. `migrate` runs the pending ones the moment the service starts: it ensures a `_migrations` table that records which numbers have run, reads those back, and applies every migration whose number is absent — each in its own transaction, recording the number as it goes. A migration already applied is skipped, so a restart is a no-op and a fresh database catches up in one pass.
+
+That is how a change reaches a consumer. Add a migration to the list, ship a new image, and the service applies it on the next start — no separate migration step, no tool to install. The first migration lays down the two tables the store keeps.
+
+=>
+
+const migrations: ReadonlyArray<{
+  readonly id: number
+  readonly name: string
+  readonly run: (sql: SqlClient.SqlClient) => Effect.Effect<void, SqlError.SqlError>
+}> = [
+  {
+    id: 1,
+    name: 'initial',
+    run: (sql) =>
+      Effect.gen(function* () {
+        yield* sql`CREATE TABLE IF NOT EXISTS notes (
+          project TEXT NOT NULL,
+          seq INTEGER NOT NULL,
+          data TEXT NOT NULL,
+          PRIMARY KEY (project, seq)
+        )`
+        yield* sql`CREATE TABLE IF NOT EXISTS projects (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          path TEXT
+        )`
+      }),
+  },
+]
+
+const migrate = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlError> =>
+  Effect.gen(function* () {
+    yield* sql`CREATE TABLE IF NOT EXISTS _migrations (
+      id INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`
+    const applied = yield* sql<{ readonly id: number }>`SELECT id FROM _migrations`
+    const done = new Set(applied.map((row) => row.id))
+    const pending = migrations.filter((migration) => !done.has(migration.id))
+    yield* Effect.forEach(
+      pending,
+      (migration) =>
+        sql.withTransaction(
+          migration
+            .run(sql)
+            .pipe(
+              Effect.andThen(
+                sql`INSERT INTO _migrations (id, name) VALUES (${migration.id}, ${migration.name})`,
+              ),
+            ),
+        ),
+      { discard: true },
+    )
+  })
+
+# Reading a project's notes
+
+`readNotes` reads every note of one project, in the order they were made. It selects the project's rows and decodes each against `NoteSchema`. `decodeNote` is that step alone — parse the JSON, then decode it — and it fails with a `DecodeError` when a row is neither, carrying the text that would not parse.
+
+One corrupt row does not hide the rest. A row that fails to decode is logged as a warning and left out of the list, so a single bad note never blocks a project's good ones from reaching the reader — and the `DecodeError` lands in the log rather than vanishing. Only a database failure stops the read, and it stops it as a `SqlError`.
+
+=>
+
+import { Array, Schema } from 'effect'
+import { NoteSchema, type Note } from './note'
+
+const decodeNote = (data: string): Effect.Effect<Note, DecodeError> =>
+  Effect.try({
+    try: () => JSON.parse(data) as unknown,
+    catch: (cause) => new DecodeError({ data, cause }),
+  }).pipe(
+    Effect.flatMap((json) =>
+      Schema.decodeUnknownEffect(NoteSchema)(json).pipe(
+        Effect.mapError((cause) => new DecodeError({ data, cause })),
+      ),
+    ),
+  )
+
+const readNotes = (
+  sql: SqlClient.SqlClient,
+  project: string,
+): Effect.Effect<ReadonlyArray<Note>, SqlError.SqlError> =>
+  sql<{ readonly data: string }>`
+    SELECT data FROM notes WHERE project = ${project} ORDER BY seq
+  `.pipe(
+    Effect.flatMap((rows) =>
+      Effect.forEach(rows, (row) =>
+        decodeNote(row.data).pipe(
+          Effect.tapError((error) =>
+            Effect.logWarning('skipping a note that no longer decodes', error),
+          ),
+          Effect.map(Option.some),
+          Effect.catchTag('DecodeError', () => Effect.succeed(Option.none<Note>())),
+        ),
+      ),
+    ),
+    Effect.map(Array.getSomes),
+  )
+
+# Recording a note
+
+`recordDraft` takes a draft and files it. It reads the project's highest sequence, adds one, and stamps the draft into a note at that number, so a number is never reused — even after a note in the middle is discarded, the next one carries on past the highest. The read and the insert run in one transaction, so two notes recorded at once cannot claim the same number. The time comes from Effect's clock rather than a bare `Date`, so a test can fix it. The note is written as its JSON and returned, stamped and whole.
+
+=>
+
+import { Clock } from 'effect'
+import { stampDraft, type Draft } from './note'
+
+const recordDraft = (
+  sql: SqlClient.SqlClient,
+  draft: Draft,
+): Effect.Effect<Note, SqlError.SqlError> =>
+  sql.withTransaction(
+    Effect.gen(function* () {
+      const millis = yield* Clock.currentTimeMillis
+      const rows = yield* sql<{ readonly max: number | null }>`
+        SELECT MAX(seq) AS max FROM notes WHERE project = ${draft.project}
+      `
+      const highest = Option.match(Option.fromNullishOr(rows[0]?.max), {
+        onSome: (seq) => seq,
+        onNone: () => 0,
+      })
+      const note = stampDraft(draft, highest + 1, new Date(millis).toISOString())
+      yield* sql`
+        INSERT INTO notes (project, seq, data)
+        VALUES (${note.project}, ${note.seq}, ${JSON.stringify(note)})
+      `
+      return note
+    }),
+  )
+
+# Changing a note
+
+Resolving a note and editing its words are the same move: read the one row, change the note it holds, write it back. `modifyNote` is that move, and it takes the change as a function so `resolveNote` and `editNote` each pass only what differs. A sequence that names no row changes nothing. Resolving turns the `addressed` flag true — a resolved note stays in the store as a record, never removed — and editing replaces the words and leaves all else untouched. A read or write that fails surfaces as a `SqlError`, and a stored row that will not decode as a `DecodeError`.
+
+=>
+
+const modifyNote = (
+  sql: SqlClient.SqlClient,
+  project: string,
+  seq: number,
+  change: (note: Note) => Note,
+): Effect.Effect<void, SqlError.SqlError | DecodeError> =>
+  Effect.gen(function* () {
+    const rows = yield* sql<{ readonly data: string }>`
+      SELECT data FROM notes WHERE project = ${project} AND seq = ${seq}
+    `
+    yield* Option.match(Option.fromNullishOr(rows[0]), {
+      onNone: () => Effect.void,
+      onSome: (row) =>
+        decodeNote(row.data).pipe(
+          Effect.map(change),
+          Effect.flatMap((updated) =>
+            sql`
+              UPDATE notes SET data = ${JSON.stringify(updated)}
+              WHERE project = ${project} AND seq = ${seq}
+            `,
+          ),
+        ),
+    })
+  })
+
+const resolveNote = (sql: SqlClient.SqlClient, project: string, seq: number) =>
+  modifyNote(sql, project, seq, (note) => ({ ...note, addressed: true }))
+
+const editNote = (sql: SqlClient.SqlClient, project: string, seq: number, text: string) =>
+  modifyNote(sql, project, seq, (note) => ({ ...note, text }))
+
+# Discarding a note
+
+`discardNote` drops a note for good — the row for that project and sequence, gone. Unlike resolving, it leaves no record; the sequence it held is not filled again.
+
+=>
+
+const discardNote = (
+  sql: SqlClient.SqlClient,
+  project: string,
+  seq: number,
+): Effect.Effect<void, SqlError.SqlError> =>
+  sql`DELETE FROM notes WHERE project = ${project} AND seq = ${seq}`.pipe(Effect.asVoid)
+
+# The project registry
+
+The projects table is a registry the store keeps beside the notes. `listProjects` names every project in it — each id paired with the name to show it by — so the bar can label a project and the agent can see which apps have been reviewed. `findProject` reads one project on its own — its name and the working directory recorded for it — so the service can label the project in the bar and find the branch it sits on.
+
+A project earns a row the moment it needs one. `ensureProject` files a project under its own id, as both the key and the starting name, and does nothing when the project is already there — so recording a project's first note registers it. `backfillProjects` does the same for every project already in the notes table, once at startup, so a store that predates the registry fills itself in.
+
+`renameProject` changes the name a project shows by, and leaves the id — and so the notes under it — untouched. `registerProject` records where a project lives: it files the project if new, and writes the working directory either way, the path `loom init` hands it.
+
+=>
+
+type Project = { readonly id: string; readonly name: string }
+
+const listProjects = (
+  sql: SqlClient.SqlClient,
+): Effect.Effect<ReadonlyArray<Project>, SqlError.SqlError> =>
+  sql<Project>`SELECT id, name FROM projects ORDER BY name`
+
+type ProjectRow = { readonly id: string; readonly name: string; readonly path: string | null }
+type ProjectRecord = { readonly id: string; readonly name: string; readonly path: string }
+
+const findProject = (
+  sql: SqlClient.SqlClient,
+  id: string,
+): Effect.Effect<Option.Option<ProjectRecord>, SqlError.SqlError> =>
+  sql<ProjectRow>`SELECT id, name, path FROM projects WHERE id = ${id}`.pipe(
+    Effect.map((rows) =>
+      Option.map(Option.fromNullishOr(rows[0]), (found) => ({
+        id: found.id,
+        name: found.name,
+        path: found.path ?? '',
+      })),
+    ),
+  )
+
+const ensureProject = (
+  sql: SqlClient.SqlClient,
+  id: string,
+): Effect.Effect<void, SqlError.SqlError> =>
+  sql`
+    INSERT INTO projects (id, name) VALUES (${id}, ${id})
+    ON CONFLICT (id) DO NOTHING
+  `.pipe(Effect.asVoid)
+
+const backfillProjects = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlError> =>
+  sql`
+    INSERT INTO projects (id, name)
+    SELECT DISTINCT project, project FROM notes
+    ON CONFLICT (id) DO NOTHING
+  `.pipe(Effect.asVoid)
+
+const renameProject = (
+  sql: SqlClient.SqlClient,
+  id: string,
+  name: string,
+): Effect.Effect<void, SqlError.SqlError> =>
+  sql`UPDATE projects SET name = ${name} WHERE id = ${id}`.pipe(Effect.asVoid)
+
+const registerProject = (
+  sql: SqlClient.SqlClient,
+  id: string,
+  path: string,
+): Effect.Effect<void, SqlError.SqlError> =>
+  sql`
+    INSERT INTO projects (id, name, path) VALUES (${id}, ${id}, ${path})
+    ON CONFLICT (id) DO UPDATE SET path = excluded.path
+  `.pipe(Effect.asVoid)
+
+# The store service
+
+`NoteStore` is the service the server, the agent's tools, and `loom init` reach for. Its `make` takes the SQL client from the context, migrates the schema, backfills the registry from any notes that predate it, then binds every operation to that one client. Recording a note ensures its project has a registry row first, so a note never lands under a project the registry has not seen. Its layer provides `PgLive`, so the store carries its own connection.
+
+Setting the store up is fatal when it fails: a migration or a backfill that a broken database rejects makes `make` die, so the service exits rather than serve from a store it never prepared. Once running, a query failure is an ordinary typed error the caller handles; only the startup is all-or-nothing.
+
+=>
+
+import { Context } from 'effect'
+
+export class NoteStore extends Context.Service<NoteStore>()('NoteStore', {
+  make: Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient
+    yield* migrate(sql)
+    yield* backfillProjects(sql)
+    return {
+      list: (project: string) => readNotes(sql, project),
+      record: (draft: Draft) =>
+        ensureProject(sql, draft.project).pipe(Effect.andThen(recordDraft(sql, draft))),
+      resolve: (project: string, seq: number) => resolveNote(sql, project, seq),
+      edit: (project: string, seq: number, text: string) => editNote(sql, project, seq, text),
+      discard: (project: string, seq: number) => discardNote(sql, project, seq),
+      projects: listProjects(sql),
+      find: (id: string) => findProject(sql, id),
+      rename: (id: string, name: string) => renameProject(sql, id, name),
+      register: (id: string, path: string) => registerProject(sql, id, path),
+    } as const
+  }).pipe(Effect.orDie),
+}) {
+  static readonly layer = Layer.effect(this, this.make).pipe(Layer.provide(PgLive))
+}
+
+# The module {Tangle}
+
+=>
+
+::[Connecting to Postgres]
+
+::[What can fail]
+
+::[The schema, migrated at boot]
+
+::[Reading a project's notes]
+
+::[Recording a note]
+
+::[Changing a note]
+
+::[Discarding a note]
+
+::[The project registry]
+
+::[The store service]

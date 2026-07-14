@@ -1,6 +1,6 @@
 ---
 Part XI, Chapter 6: The Vite plugin
-Package: packages/loom-notes/src/vite.ts
+Package: packages/loom-devtools/src/vite.ts
 Language: TypeScript
 ---
 

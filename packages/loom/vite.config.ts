@@ -1,6 +1,5 @@
 import { defineConfig } from 'vite'
 import { builtinModules, createRequire } from 'node:module'
-import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -27,19 +26,8 @@ const umd2esm = {
   },
 }
 
-const overlayFile = resolve(here, '..', 'loom-notes', 'dist', 'overlay.js')
-
-const inlineOverlay = {
-  name: 'inline-overlay',
-  renderChunk(code: string) {
-    if (!code.includes('__LOOM_OVERLAY_B64__')) return null
-    const base64 = readFileSync(overlayFile).toString('base64')
-    return { code: code.replaceAll('__LOOM_OVERLAY_B64__', base64), map: { mappings: '' } }
-  },
-}
-
 export default defineConfig({
-  plugins: [umd2esm, inlineOverlay],
+  plugins: [umd2esm],
   resolve: {
     conditions: ['node'],
     mainFields: ['main', 'module'],

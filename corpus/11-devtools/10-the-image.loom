@@ -1,0 +1,27 @@
+---
+Part XI, Chapter 10: The image
+Package: packages/loom-devtools/
+Language: Dockerfile
+---
+
+# The image
+
+The Devtools service ships as a Docker image. It runs from source under Bun rather than a bundle: the image carries the resolved workspace, builds the overlay once, and runs the service's entry directly. Docker gives it a named, managed lifecycle — you bring it up and stop it with `docker compose`, and its supervisor restarts it if it exits — which the spawned daemon never had.
+
+## The Dockerfile {Tangle}[Dockerfile]
+
+The build starts from Bun's Alpine image. It copies the whole workspace — the service leans on workspace packages such as Foldkit — installs against the committed lockfile, and builds the overlay into the one file the service serves. The runtime runs the service's entry from the package directory. `PORT` is where it listens; the compose file supplies `DATABASE_URL` at run time.
+
+=>
+
+FROM oven/bun:1.2.20-alpine
+
+WORKDIR /loom
+COPY . .
+RUN bun install --frozen-lockfile
+RUN bun run --filter @athrio/loom-devtools build
+
+WORKDIR /loom/packages/loom-devtools
+ENV PORT=5710
+EXPOSE 5710
+CMD ["bun", "src/serve.ts"]

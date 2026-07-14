@@ -1,6 +1,6 @@
 ---
 Part XI, Chapter 4: The overlay
-Package: packages/loom-notes/src/overlay.ts
+Package: packages/loom-devtools/src/overlay.ts
 Language: TypeScript
 ---
 

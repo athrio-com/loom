@@ -1,6 +1,6 @@
 ---
 Part XI, Chapter 3: The server
-Package: packages/loom/src/api.ts
+Package: packages/loom-devtools/src/api.ts
 Language: TypeScript
 ---
 
@@ -26,7 +26,7 @@ import { McpServer } from 'effect/unstable/ai'
 import { BunHttpServer } from '@effect/platform-bun'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { DraftSchema } from '@athrio/loom-notes/note'
+import { DraftSchema } from './note'
 import { NoteStore } from './store'
 import { handlers, toolkit } from './mcp'
 
@@ -154,7 +154,7 @@ const context = Effect.gen(function* () {
 
 `feed` lists a project's notes. The project comes on the query string rather than in a body, since listing is a GET; without it, the request is incomplete and answers with a bad-request.
 
-The overlay's script travels inside this bundle. The build inlines it as `overlayScript` — encoded in base64, so it survives whole as a plain string — and `overlay` decodes and serves it, so the installed CLI needs no file beside it. Running from source, where no build has inlined anything, the placeholder is still in place: `overlay` sees it, reads the script from the `@athrio/loom-notes` package next door instead, and, when even that is missing, logs the failure to the devtools log and answers with a not-found rather than swallowing it.
+The overlay's script sits beside the service, built into `dist/overlay.js` by the package's build. `overlay` serves that file, and when it is missing — no build has run yet — it logs the failure to the devtools log and answers with a not-found rather than swallowing it.
 
 The script answers with `Cache-Control: no-store`, so a browser fetches it afresh on every load. The overlay is a dev tool that changes as you build it, and a cached copy would leave a page running yesterday's overlay.
 
@@ -171,24 +171,15 @@ const feed = Effect.gen(function* () {
   })
 })
 
-const overlayScript = '__LOOM_OVERLAY_B64__'
-
 const noCache = { 'cache-control': 'no-store' }
 
-const overlay = overlayScript.startsWith('__LOOM_OVERLAY')
-  ? HttpServerResponse.file(join(root, '..', '..', 'loom-notes', 'dist', 'overlay.js'), {
-      headers: noCache,
-    }).pipe(
-      Effect.catchCause((cause) =>
-        Effect.logWarning('could not read the overlay script', cause).pipe(Effect.andThen(notFound)),
-      ),
-    )
-  : Effect.succeed(
-      HttpServerResponse.text(Buffer.from(overlayScript, 'base64').toString('utf8'), {
-        contentType: 'text/javascript',
-        headers: noCache,
-      }),
-    )
+const overlay = HttpServerResponse.file(join(root, '..', 'dist', 'overlay.js'), {
+  headers: noCache,
+}).pipe(
+  Effect.catchCause((cause) =>
+    Effect.logWarning('could not read the overlay script', cause).pipe(Effect.andThen(notFound)),
+  ),
+)
 
 # Catching a failed request
 
@@ -235,31 +226,21 @@ const mcp = McpServer.toolkit(toolkit).pipe(
   Layer.provide(McpServer.layerHttp({ name: 'loom', version: '0.9.0', path: '/mcp' })),
 )
 
-# The devtools log
+# Logging
 
-The daemon keeps no console — the CLI starts it detached, with its output discarded — so without a log of its own it would fail in silence, which is how a wedged server stayed a mystery. `devtoolsLogger` gives it one. It writes every log line to `devtools.log` in the Loom data directory, the same directory the store sits in, appending so a restart adds to the record rather than erasing it. It ensures that directory first, so the log opens even on a machine that has never run Loom before.
+The service runs in a container, so its log is its standard output — the stream Docker captures and `docker compose logs` reads. `devtoolsLogger` writes there, one line per event in logfmt, the format a log collector parses into fields.
 
-The daemon runs under this logger, and the HTTP server logs each request through it, so `devtools.log` holds a line per request and a line for every fault the store, the branch lookup, or the overlay raises. When the daemon next misbehaves, the last lines of the log say what it was doing.
+The service runs under this logger, and the HTTP server logs each request through it, so the output carries a line per request and a line for every fault the store, the branch lookup, or the overlay raises. When the service misbehaves, its recent output says what it was doing.
 
 =>
 
-import { FileSystem, Logger } from 'effect'
-import { homedir } from 'node:os'
+import { Logger } from 'effect'
 
-const dataDirectory = process.env.LOOM_NOTES_DIR ?? join(homedir(), '.loom')
-const logFile = join(dataDirectory, 'devtools.log')
-
-export const devtoolsLogger = Logger.layer([
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem
-    yield* fs.makeDirectory(dataDirectory, { recursive: true })
-    return yield* Logger.formatLogFmt.pipe(Logger.toFile(logFile, { flag: 'a' }))
-  }),
-])
+export const devtoolsLogger = Logger.layer([Logger.consoleLogFmt])
 
 # The server itself
 
-The application merges three layers on one router: the routes, the agent's tools at `/mcp`, and the cross-origin middleware that lets a browser on any origin call it. `notesServer` serves that application on a port, over the store and the Bun HTTP platform. It leaves the filesystem and the logger to the runtime edge — the CLI that launches it — the one place the platform is chosen.
+The application merges three layers on one router: the routes, the agent's tools at `/mcp`, and the cross-origin middleware that lets a browser on any origin call it. `notesServer` serves that application on a port, over the store and the Bun HTTP platform. It leaves the logger and Bun's platform to the runtime edge — the service entry that launches it — the one place the platform is chosen.
 
 =>
 
@@ -297,6 +278,6 @@ export const notesServer = (port: number) =>
 
 ::[Mounting the agent's tools]
 
-::[The devtools log]
+::[Logging]
 
 ::[The server itself]

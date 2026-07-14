@@ -5,10 +5,17 @@
     "moduleResolution": "bundler",
     "strict": true,
     "exactOptionalPropertyTypes": false,
-    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "lib": ["ESNext"],
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["bun"]
+    "types": ["bun", "node"]
   },
-  "include": ["src/vite.ts", "build.ts"]
+  "include": [
+    "src/vite.ts",
+    "build.ts",
+    "src/store.ts",
+    "src/api.ts",
+    "src/mcp.ts",
+    "src/serve.ts"
+  ]
 }

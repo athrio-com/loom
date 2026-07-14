@@ -31,7 +31,6 @@
     "@athrio/loom-config": "workspace:*",
     "@athrio/loom-lang": "workspace:*",
     "@athrio/loom-lang-services": "workspace:*",
-    "@athrio/loom-notes": "workspace:*",
     "@effect/platform-bun": "4.0.0-beta.93",
     "effect": "4.0.0-beta.93",
     "vite": "^8.0.12"

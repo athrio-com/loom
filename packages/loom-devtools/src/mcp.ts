@@ -1,6 +1,6 @@
 import { Array, Effect, Schema as S } from 'effect'
 import { AiError, Tool, Toolkit } from 'effect/unstable/ai'
-import { NoteSchema } from '@athrio/loom-notes/note'
+import { NoteSchema } from './note'
 import { NoteStore } from './store'
 
 const projects = Tool.make('projects', {

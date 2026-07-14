@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite'
 import { foldkit } from '@athrio/foldkit-vite-plugin'
-import { loomNotes } from '@athrio/loom-notes/vite'
+import { loomNotes } from '@athrio/loom-devtools/vite'
 
 export default defineConfig({
   esbuild: { target: 'es2022' },

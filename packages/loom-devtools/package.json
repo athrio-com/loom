@@ -1,21 +1,22 @@
 {
-  "name": "@athrio/loom-notes",
+  "name": "@athrio/loom-devtools",
   "type": "module",
   "private": true,
   "version": "0.0.1",
   "scripts": {
     "build": "bun build.ts",
+    "serve": "bun src/serve.ts",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.node.json"
   },
   "exports": {
     "./note": "./src/note.ts",
-    "./overlay": "./src/overlay.ts",
     "./vite": "./src/vite.ts"
   },
   "dependencies": {
     "@athrio/foldkit": "workspace:*",
     "@effect/platform-browser": "4.0.0-beta.93",
     "@effect/platform-bun": "4.0.0-beta.93",
+    "@effect/sql-pg": "4.0.0-beta.93",
     "effect": "4.0.0-beta.93",
     "clsx": "^2.1.1"
   },
@@ -23,6 +24,7 @@
     "@tailwindcss/cli": "^4.0.0",
     "tailwindcss": "^4.0.0",
     "@types/bun": "^1.3.14",
+    "@types/node": "^25.9.3",
     "typescript": "^6.0.3",
     "vite": "^8.0.12"
   }

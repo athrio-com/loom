@@ -8,7 +8,7 @@ import { McpServer } from 'effect/unstable/ai'
 import { BunHttpServer } from '@effect/platform-bun'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { DraftSchema } from '@athrio/loom-notes/note'
+import { DraftSchema } from './note'
 import { NoteStore } from './store'
 import { handlers, toolkit } from './mcp'
 
@@ -115,24 +115,15 @@ const feed = Effect.gen(function* () {
   })
 })
 
-const overlayScript = '__LOOM_OVERLAY_B64__'
-
 const noCache = { 'cache-control': 'no-store' }
 
-const overlay = overlayScript.startsWith('__LOOM_OVERLAY')
-  ? HttpServerResponse.file(join(root, '..', '..', 'loom-notes', 'dist', 'overlay.js'), {
-      headers: noCache,
-    }).pipe(
-      Effect.catchCause((cause) =>
-        Effect.logWarning('could not read the overlay script', cause).pipe(Effect.andThen(notFound)),
-      ),
-    )
-  : Effect.succeed(
-      HttpServerResponse.text(Buffer.from(overlayScript, 'base64').toString('utf8'), {
-        contentType: 'text/javascript',
-        headers: noCache,
-      }),
-    )
+const overlay = HttpServerResponse.file(join(root, '..', 'dist', 'overlay.js'), {
+  headers: noCache,
+}).pipe(
+  Effect.catchCause((cause) =>
+    Effect.logWarning('could not read the overlay script', cause).pipe(Effect.andThen(notFound)),
+  ),
+)
 
 const handling = <R>(
   work: Effect.Effect<HttpServerResponse.HttpServerResponse, unknown, R>,
@@ -161,19 +152,9 @@ const mcp = McpServer.toolkit(toolkit).pipe(
   Layer.provide(McpServer.layerHttp({ name: 'loom', version: '0.9.0', path: '/mcp' })),
 )
 
-import { FileSystem, Logger } from 'effect'
-import { homedir } from 'node:os'
+import { Logger } from 'effect'
 
-const dataDirectory = process.env.LOOM_NOTES_DIR ?? join(homedir(), '.loom')
-const logFile = join(dataDirectory, 'devtools.log')
-
-export const devtoolsLogger = Logger.layer([
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem
-    yield* fs.makeDirectory(dataDirectory, { recursive: true })
-    return yield* Logger.formatLogFmt.pipe(Logger.toFile(logFile, { flag: 'a' }))
-  }),
-])
+export const devtoolsLogger = Logger.layer([Logger.consoleLogFmt])
 
 const app = Layer.mergeAll(
   routes,

@@ -1,0 +1,32 @@
+---
+Part XI, Chapter 9: The service entry
+Package: packages/loom-devtools/src/serve.ts
+Language: TypeScript
+---
+
+# The service entry
+
+The service starts here. This is the runtime edge — the one place an Effect program begins — that launches the notes server on its port, under the devtools logger, over Bun's platform. The container runs this file as its command; a developer runs it with `bun serve`.
+
+The port comes from the environment, and falls back to 5710 when nothing sets it. The devtools logger sits beneath the server, so every line the server writes lands in `devtools.log`, and Bun's services supply the filesystem the logger and the store draw on. `Layer.launch` runs the server until the process ends.
+
+=>
+
+import { Effect, Layer } from 'effect'
+import { BunRuntime, BunServices } from '@effect/platform-bun'
+import { notesServer, devtoolsLogger } from './api'
+
+const port = Number(process.env.PORT ?? 5710)
+
+BunRuntime.runMain(
+  Layer.launch(notesServer(port)).pipe(
+    Effect.provide(devtoolsLogger),
+    Effect.provide(BunServices.layer),
+  ),
+)
+
+# The module {Tangle}
+
+=>
+
+::[The service entry]

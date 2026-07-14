@@ -1,0 +1,52 @@
+---
+Part XI, Chapter 8: The local stack
+Package: packages/loom-devtools/
+Language: YAML
+---
+
+# The local stack
+
+The Devtools service keeps its notes in Postgres, so running it means running two things: the database and the service that talks to it. This chapter is `docker-compose.yml`, the file that declares them as one stack. It replaces the daemon the CLI used to fork into the background — the one that left you guessing where it lived — with a named stack whose lifecycle Docker owns. `docker compose up -d --build` starts it in the background and returns; `docker compose down` stops it.
+
+Docker, or a Docker-compatible runtime such as OrbStack, is the one prerequisite.
+
+## The stack {Tangle}[docker-compose.yml]
+
+`postgres` is the store's database. It runs Postgres and keeps its data in a named volume, so stopping the stack does not lose your notes, and it publishes its port for a `psql` session from the host. It reports healthy only once it answers a query, which is the signal the service waits for before it connects.
+
+`devtools` is the service. It builds from the package's Dockerfile, with the whole workspace as its build context, and waits for the database to report healthy before it starts. It reaches the database by the `postgres` service name over the compose network, taking its connection string and port from the environment, and publishes its own port so the overlay and the agent reach it on `localhost`.
+
+=>
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: loom
+      POSTGRES_PASSWORD: loom
+      POSTGRES_DB: loom
+    ports:
+      - '5432:5432'
+    volumes:
+      - loom-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U loom -d loom']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  devtools:
+    build:
+      context: ../..
+      dockerfile: packages/loom-devtools/Dockerfile
+    environment:
+      DATABASE_URL: postgres://loom:loom@postgres:5432/loom
+      PORT: '5710'
+    ports:
+      - '5710:5710'
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  loom-pg:

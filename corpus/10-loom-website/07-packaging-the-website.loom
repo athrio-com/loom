@@ -40,7 +40,7 @@ The manifest names the package and its scripts. `build` bundles the client and t
   },
   "devDependencies": {
     "@athrio/foldkit-vite-plugin": "workspace:*",
-    "@athrio/loom-notes": "workspace:*",
+    "@athrio/loom-devtools": "workspace:*",
     "@types/node": "^26.1.0",
     "playwright-core": "^1.49.0",
     "typescript": "^6.0.3",
@@ -107,7 +107,7 @@ Vite serves the client in development and bundles it for production. The Foldkit
 
 import { defineConfig } from 'vite'
 import { foldkit } from '@athrio/foldkit-vite-plugin'
-import { loomNotes } from '@athrio/loom-notes/vite'
+import { loomNotes } from '@athrio/loom-devtools/vite'
 
 export default defineConfig({
   esbuild: { target: 'es2022' },

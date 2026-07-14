@@ -1,39 +1,40 @@
 ---
 Part XI, Chapter 7: Packaging
-Package: packages/loom-notes/
+Package: packages/loom-devtools/
 Language: TypeScript
 ---
 
 # Packaging
 
-Loom Notes is the note schemas, the browser overlay, and the Vite plugin that injects it. The schemas fix the shape a note takes — the contract the overlay speaks when it writes a note, and the server speaks when it stores one. The overlay is the panel a person annotates through. It is bundled, because a browser cannot chase down Foldkit and Effect on its own, and its Tailwind stylesheet has to travel with it into the shadow root. The plugin is the native path for a Vite app: it injects the overlay's script the way the pasted tag does, for any project whose stack Vite drives. The store, the server, and the agent's tools live in `@athrio/loom`, the package that serves them.
+`@athrio/loom-devtools` is the Devtools service: the note schemas, the store, the HTTP API, the agent's tools, the browser overlay, and the Vite plugin that injects it — one package that runs as a standalone, self-hosted service. The schemas fix the shape a note takes, the contract the overlay speaks when it writes a note and the store speaks when it keeps one. The overlay is the panel a person annotates through, bundled because a browser cannot chase down Foldkit and Effect on its own, with its Tailwind stylesheet travelling into the shadow root beside it. The plugin is the native path for a Vite app: it injects the overlay's script the way the pasted tag does.
 
-This chapter is the manifest, the type configuration, the overlay's Tailwind input, and the build that turns the overlay into one self-contained script.
+The service runs from source under Bun rather than a bundle, so the package ships its resolved source and the built overlay together. Only the overlay is built ahead of time, into the one file a page loads. This chapter is the manifest, the two type configurations, the overlay's Tailwind input, and that build.
 
 ## The manifest {Tangle}[package.json]
 
-The manifest names the package, its scripts, and what it exports. It exports three modules from source: the note schemas, the overlay, and the Vite plugin. The overlay leans on Foldkit, Effect, and `clsx`; the build on the Tailwind command line; and the plugin on Vite's types alone.
+The manifest names the package and what it exports — the note schemas and the Vite plugin, the two modules a consumer reaches for. The store, the API, and the agent's tools are the service's own; a page reaches them over HTTP, not through an import. The service leans on Effect's SQL layer and the Postgres driver; the overlay on Foldkit, Effect, and `clsx`; the build on the Tailwind command line. The `build` script compiles the overlay; `serve` runs the service straight from source.
 
 =>
 
 {
-  "name": "@athrio/loom-notes",
+  "name": "@athrio/loom-devtools",
   "type": "module",
   "private": true,
   "version": "0.0.1",
   "scripts": {
     "build": "bun build.ts",
+    "serve": "bun src/serve.ts",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.node.json"
   },
   "exports": {
     "./note": "./src/note.ts",
-    "./overlay": "./src/overlay.ts",
     "./vite": "./src/vite.ts"
   },
   "dependencies": {
     "@athrio/foldkit": "workspace:*",
     "@effect/platform-browser": "4.0.0-beta.93",
     "@effect/platform-bun": "4.0.0-beta.93",
+    "@effect/sql-pg": "4.0.0-beta.93",
     "effect": "4.0.0-beta.93",
     "clsx": "^2.1.1"
   },
@@ -41,6 +42,7 @@ The manifest names the package, its scripts, and what it exports. It exports thr
     "@tailwindcss/cli": "^4.0.0",
     "tailwindcss": "^4.0.0",
     "@types/bun": "^1.3.14",
+    "@types/node": "^25.9.3",
     "typescript": "^6.0.3",
     "vite": "^8.0.12"
   }
@@ -48,7 +50,7 @@ The manifest names the package, its scripts, and what it exports. It exports thr
 
 ## The browser configuration {Tangle}[tsconfig.json]
 
-The package holds code for two runtimes, and each needs its own view of the ambient types. The overlay and the note schemas run in a browser; the Vite plugin and the build run under Bun. The two runtimes disagree about one handle — `import.meta.hot`, the hot-reload handle a dev server exposes. Vite gives that handle a `send` method and event listeners that carry a payload; Bun gives it neither. One configuration cannot hold both shapes at once, so the package keeps two: this browser configuration, and the Bun configuration below.
+The package holds code for two runtimes, and each needs its own view of the ambient types. The overlay and the note schemas run in a browser; the Vite plugin, the build, and the service run under Bun. The two runtimes disagree about one handle — `import.meta.hot`, the hot-reload handle a dev server exposes. Vite gives that handle a `send` method and event listeners that carry a payload; Bun gives it neither. One configuration cannot hold both shapes at once, so the package keeps two: this browser configuration, and the Bun configuration below.
 
 The browser configuration is the one the type checker reads by default, and it checks the overlay and the schemas. It loads no global type package of its own, taking the hot-reload handle's shape from a one-line reference file instead. So the overlay and the Foldkit runtime it imports read `import.meta.hot` the way Vite defines it.
 
@@ -79,7 +81,7 @@ The reference file is a single line. It pulls Vite's client types into the brows
 
 ## The Bun configuration {Tangle}[tsconfig.node.json]
 
-The Bun configuration checks the Vite plugin and the build against Bun's own types, where `Bun.spawn` and `Bun.build` live.
+The Bun configuration checks everything that runs under Bun: the Vite plugin, the build, and the service — the store, the API, the agent's tools, and the entry that launches them. It reads Bun's and Node's types, where `Bun.spawn`, `Bun.build`, and Node's `path` and `url` live.
 
 =>
 
@@ -90,12 +92,19 @@ The Bun configuration checks the Vite plugin and the build against Bun's own typ
     "moduleResolution": "bundler",
     "strict": true,
     "exactOptionalPropertyTypes": false,
-    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "lib": ["ESNext"],
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["bun"]
+    "types": ["bun", "node"]
   },
-  "include": ["src/vite.ts", "build.ts"]
+  "include": [
+    "src/vite.ts",
+    "build.ts",
+    "src/store.ts",
+    "src/api.ts",
+    "src/mcp.ts",
+    "src/serve.ts"
+  ]
 }
 
 ## The overlay's stylesheet {Tangle}[src/overlay.css]
