@@ -50,7 +50,7 @@ const run = (command: ReadonlyArray<string>): Effect.Effect<void, BumpError> =>
 
 ## Rewriting one version to another
 
-The version appears in two shapes across the corpus. A JSON manifest writes `"version": "0.0.1"`, and a running tool reports itself with a `version: '0.0.1'` literal. `replaceVersion` rewrites both, and only both — it matches the version in a `version` position, so a dependency pinned elsewhere in a manifest stays untouched.
+The version appears in two shapes across the corpus. A JSON manifest writes `"version": "0.0.2"`, and a running tool reports itself with a `version: '0.0.2'` literal. `replaceVersion` rewrites both, and only both — it matches the version in a `version` position, so a dependency pinned elsewhere in a manifest stays untouched.
 
 =>
 
@@ -121,7 +121,7 @@ With the versions in step, the release tool publishes them. It walks the publish
 
 ## What the release tool draws on
 
-The tool reads the shared version from a manifest and spawns npm, so it draws on Effect's filesystem service and Bun's process spawning, as the bump tool does. The published set is the two npm packages: `@athrio/loom` and `@athrio/loom-service-typescript`, each named by its directory, where a `bun publish` runs.
+The tool reads the shared version from a manifest and spawns npm, so it draws on Effect's filesystem service and Bun's process spawning, as the bump tool does. The published set is the two npm packages: `@athrio/loom` and `@athrio/loom-service-typescript`, each named by its directory, where an `npm publish` runs.
 
 =>
 
@@ -147,7 +147,7 @@ const published: ReadonlyArray<Package> = [
 
 ~
 
-`run` spawns a command in a package's directory and fails with a `ReleaseError` when it exits non-zero, so a failed publish stops the release rather than passing silently. The `bun publish` command builds each package through its own `prepack` script before it uploads, so the release never ships a stale bundle.
+`run` spawns a command in a package's directory and fails with a `ReleaseError` when it exits non-zero, so a failed publish stops the release rather than passing silently. The `npm publish` command reads its token from `.npmrc`, which the release workflow writes, and builds each package through its own `prepack` script before it uploads, so the release authenticates and never ships a stale bundle.
 
 =>
 
@@ -196,7 +196,7 @@ const publish = (pkg: Package, version: string): Effect.Effect<void, ReleaseErro
     Effect.flatMap((already) =>
       already
         ? Console.log(`${pkg.name}@${version} is already published — skipping`)
-        : run(['bun', 'publish'], pkg.dir).pipe(
+        : run(['npm', 'publish'], pkg.dir).pipe(
             Effect.andThen(Console.log(`published ${pkg.name}@${version}`)),
           ),
     ),

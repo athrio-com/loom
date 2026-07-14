@@ -1,6 +1,6 @@
 {
   "name": "@athrio/loom-service-typescript",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "The loadable TypeScript language service: the product's own editor program, held apart from the frame.",
   "license": "Apache-2.0 OR MIT",
   "type": "module",
@@ -16,7 +16,8 @@
   },
   "scripts": {
     "build": "vite build",
-    "watch": "vite build --watch"
+    "watch": "vite build --watch",
+    "prepack": "bun run build"
   },
   "devDependencies": {
     "@athrio/loom-lang-services": "workspace:*",

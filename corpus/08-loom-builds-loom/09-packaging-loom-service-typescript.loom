@@ -12,13 +12,13 @@ Language: JSON
 
 The `exports` field names the package's surface, and it is a single entry: the default `.`, the built `dist/index.js` whose default export is the service the loader reads. The `files` field ships only `dist`, so the published package is that one built file and its source map, and `publishConfig` makes the scoped package public.
 
-The package carries no dependencies. The build bundles `volar-service-typescript` and Volar's language layers into `dist/index.js`, and the runtime bridge reads `effect`, the `@athrio/loom-lang-services` contract, and the editor's TypeScript from the host at load. Those three are neither bundled nor installed — the host lends them, so a second copy never shadows the `TypescriptSdk` the host provides. The `devDependencies` exist only to build and type-check the source; what the running service shares with the host is fixed by the runtime version `Runtime` declares, not by an npm range.
+The package carries no dependencies. The build bundles `volar-service-typescript` and Volar's language layers into `dist/index.js`, and the `prepack` script runs it before each publish, so the package always ships a fresh bundle. The runtime bridge reads `effect`, the `@athrio/loom-lang-services` contract, and the editor's TypeScript from the host at load. Those three are neither bundled nor installed — the host lends them, so a second copy never shadows the `TypescriptSdk` the host provides. The `devDependencies` exist only to build and type-check the source; what the running service shares with the host is fixed by the runtime version `Runtime` declares, not by an npm range.
 
 =>
 
 {
   "name": "@athrio/loom-service-typescript",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "The loadable TypeScript language service: the product's own editor program, held apart from the frame.",
   "license": "Apache-2.0 OR MIT",
   "type": "module",
@@ -34,7 +34,8 @@ The package carries no dependencies. The build bundles `volar-service-typescript
   },
   "scripts": {
     "build": "vite build",
-    "watch": "vite build --watch"
+    "watch": "vite build --watch",
+    "prepack": "bun run build"
   },
   "devDependencies": {
     "@athrio/loom-lang-services": "workspace:*",

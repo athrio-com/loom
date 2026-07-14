@@ -55,3 +55,5 @@ zed-extension/target/
 
 # Loom workspace store — installed services are generated; config.yaml is committed
 .loom/services/
+
+age.key

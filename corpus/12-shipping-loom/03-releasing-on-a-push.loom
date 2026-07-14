@@ -29,7 +29,7 @@ permissions:
 
 ## Publishing to npm
 
-The npm job decrypts the token, writes it where `bun publish` reads credentials, and runs the release tool. It installs SOPS, decrypts `secrets/ci.enc.yaml` with the age key from the one repository secret, and reads the `npm_token` line into the npm configuration. The release tool then publishes each package npm is missing and skips the rest, so a push that changes no version publishes nothing.
+The npm job decrypts the token, writes it where `npm publish` reads credentials, and runs the release tool. It installs SOPS, extracts the `npm_token` value from `secrets/ci.enc.yaml` with the age key from the one repository secret, and writes it into `~/.npmrc`. An empty token fails the step at once, rather than reaching the registry as a missing-authentication error. The release tool then publishes each package npm is missing and skips the rest, so a push that changes no version publishes nothing.
 
 =>
 
@@ -51,10 +51,9 @@ jobs:
         run: |
           curl -sSfL https://github.com/getsops/sops/releases/download/v3.9.4/sops-v3.9.4.linux.amd64 -o /usr/local/bin/sops
           chmod +x /usr/local/bin/sops
-          sops decrypt secrets/ci.enc.yaml > secrets.yaml
-          token=$(sed -n 's/^npm_token: *//p' secrets.yaml)
+          token=$(sops decrypt --extract '["npm_token"]' secrets/ci.enc.yaml)
+          test -n "$token" || { echo "npm token is empty — check secrets/ci.enc.yaml and SOPS_AGE_KEY"; exit 1; }
           echo "//registry.npmjs.org/:_authToken=${token}" > ~/.npmrc
-          rm secrets.yaml
       - name: Publish
         run: bun packages/loom/scripts/release.ts
 

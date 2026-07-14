@@ -49,7 +49,7 @@ const publish = (pkg: Package, version: string): Effect.Effect<void, ReleaseErro
     Effect.flatMap((already) =>
       already
         ? Console.log(`${pkg.name}@${version} is already published — skipping`)
-        : run(['bun', 'publish'], pkg.dir).pipe(
+        : run(['npm', 'publish'], pkg.dir).pipe(
             Effect.andThen(Console.log(`published ${pkg.name}@${version}`)),
           ),
     ),

@@ -16,7 +16,7 @@ The `exports` map names one entry point per model. There is no default entry: th
 
 {
   "name": "@athrio/loom-ast",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Loom's domain model: the foundation node and the de re AST the product pass builds.",
   "license": "Apache-2.0 OR MIT",
   "type": "module",

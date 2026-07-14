@@ -27,10 +27,9 @@ jobs:
         run: |
           curl -sSfL https://github.com/getsops/sops/releases/download/v3.9.4/sops-v3.9.4.linux.amd64 -o /usr/local/bin/sops
           chmod +x /usr/local/bin/sops
-          sops decrypt secrets/ci.enc.yaml > secrets.yaml
-          token=$(sed -n 's/^npm_token: *//p' secrets.yaml)
+          token=$(sops decrypt --extract '["npm_token"]' secrets/ci.enc.yaml)
+          test -n "$token" || { echo "npm token is empty — check secrets/ci.enc.yaml and SOPS_AGE_KEY"; exit 1; }
           echo "//registry.npmjs.org/:_authToken=${token}" > ~/.npmrc
-          rm secrets.yaml
       - name: Publish
         run: bun packages/loom/scripts/release.ts
 
