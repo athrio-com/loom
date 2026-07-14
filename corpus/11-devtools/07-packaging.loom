@@ -68,7 +68,7 @@ The browser configuration is the one the type checker reads by default, and it c
     "noEmit": true,
     "types": []
   },
-  "include": ["src/note.ts", "src/overlay.ts", "src/vite-env.d.ts"]
+  "include": ["src/note.ts", "src/overlay.ts", "src/ui.ts", "src/vite-env.d.ts"]
 }
 
 ## The hot-reload reference {Tangle}[src/vite-env.d.ts]
@@ -193,7 +193,14 @@ const program = Effect.gen(function* () {
     join(dist, 'overlay.js'),
     bundle.replaceAll('__LOOM_NOTES_CSS__', forStringLiteral(css)),
   )
-  yield* Effect.log('built dist/overlay.js')
+
+  const uiBuilt = yield* Effect.tryPromise(() =>
+    Bun.build({ entrypoints: [join(src, 'ui.ts')], target: 'browser', minify: true }),
+  )
+  const uiBundle = yield* Effect.promise(() => uiBuilt.outputs[0].text())
+  yield* fs.writeFileString(join(dist, 'ui.js'), uiBundle)
+
+  yield* Effect.log('built dist/overlay.js and dist/ui.js')
 }).pipe(Effect.provide(BunServices.layer))
 
 BunRuntime.runMain(program)

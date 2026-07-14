@@ -32,6 +32,8 @@
     "packages/loom-devtools/src/overlay.ts",
     "packages/loom-devtools/src/serve.ts",
     "packages/loom-devtools/src/store.ts",
+    "packages/loom-devtools/src/ui.html",
+    "packages/loom-devtools/src/ui.ts",
     "packages/loom-devtools/src/vite-env.d.ts",
     "packages/loom-devtools/src/vite.ts",
     "packages/loom-devtools/tsconfig.json",

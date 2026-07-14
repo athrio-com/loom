@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Loom Devtools</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500&family=Newsreader:opsz,wght@6..72,300;6..72,400&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #0f1014;
+    --bg-2: #15171d;
+    --bg-3: #1b1e26;
+    --fg: #e6e6ea;
+    --fg-2: #b6b8c2;
+    --fg-3: #7a7e8c;
+    --rule: #ffffff1f;
+    --mint: #8fe0b6;
+    --violet: #b59bf1;
+    --display: 'Newsreader', Georgia, serif;
+    --sans: 'Inter', system-ui, -apple-system, sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    display: grid;
+    place-items: center;
+    padding: 32px;
+  }
+  .card {
+    width: 100%;
+    max-width: 640px;
+    background: var(--bg-2);
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    padding: 36px;
+  }
+  .title {
+    font-family: var(--display);
+    font-weight: 300;
+    font-size: 34px;
+    letter-spacing: -0.02em;
+    margin-bottom: 12px;
+  }
+  .title .mint { color: var(--mint); }
+  .lede { color: var(--fg-2); line-height: 1.6; }
+  .label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    color: var(--fg-3);
+    margin: 28px 0 8px;
+  }
+  .input {
+    width: 100%;
+    background: var(--bg-3);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    color: var(--fg);
+    font-family: var(--mono);
+    font-size: 14px;
+    padding: 11px 12px;
+  }
+  .input:focus { outline: none; border-color: var(--mint); }
+  .snippet {
+    margin-top: 20px;
+    background: var(--bg-3);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 16px;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--fg-2);
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .copy {
+    margin-top: 16px;
+    background: var(--mint);
+    color: var(--bg);
+    border: none;
+    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 500;
+    padding: 11px 18px;
+    cursor: pointer;
+  }
+  .copy:hover { background: var(--violet); }
+</style>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module" src="/ui.js"></script>
+</body>
+</html>

@@ -39,7 +39,14 @@ const program = Effect.gen(function* () {
     join(dist, 'overlay.js'),
     bundle.replaceAll('__LOOM_NOTES_CSS__', forStringLiteral(css)),
   )
-  yield* Effect.log('built dist/overlay.js')
+
+  const uiBuilt = yield* Effect.tryPromise(() =>
+    Bun.build({ entrypoints: [join(src, 'ui.ts')], target: 'browser', minify: true }),
+  )
+  const uiBundle = yield* Effect.promise(() => uiBuilt.outputs[0].text())
+  yield* fs.writeFileString(join(dist, 'ui.js'), uiBundle)
+
+  yield* Effect.log('built dist/overlay.js and dist/ui.js')
 }).pipe(Effect.provide(BunServices.layer))
 
 BunRuntime.runMain(program)

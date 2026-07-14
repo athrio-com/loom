@@ -47,63 +47,6 @@ const edit = Effect.gen(function* () {
   return yield* HttpServerResponse.json({ ok: true })
 })
 
-const NameBody = Schema.Struct({ project: Schema.String, name: Schema.String })
-
-const rename = Effect.gen(function* () {
-  const store = yield* NoteStore
-  const { project, name } = yield* HttpServerRequest.schemaBodyJson(NameBody)
-  yield* store.rename(project, name)
-  return yield* HttpServerResponse.json({ ok: true })
-})
-
-import { Data } from 'effect'
-
-class GitError extends Data.TaggedError('GitError')<{
-  readonly path: string
-  readonly cause: unknown
-}> {}
-
-const branchAt = (path: string): Effect.Effect<string> =>
-  path === ''
-    ? Effect.succeed('')
-    : Effect.tryPromise({
-        try: async () => {
-          const git = Bun.spawn(['git', '-C', path, 'rev-parse', '--abbrev-ref', 'HEAD'], {
-            stdout: 'pipe',
-            stderr: 'ignore',
-          })
-          const [out, code] = await Promise.all([new Response(git.stdout).text(), git.exited])
-          return code === 0 ? out.trim() : ''
-        },
-        catch: (cause) => new GitError({ path, cause }),
-      }).pipe(
-        Effect.timeout('2 seconds'),
-        Effect.catchCause((cause) =>
-          Effect.logWarning('git branch lookup failed', cause).pipe(Effect.as('')),
-        ),
-      )
-
-const context = Effect.gen(function* () {
-  const store = yield* NoteStore
-  const request = yield* HttpServerRequest.HttpServerRequest
-  const project = new URL(request.url, 'http://localhost').searchParams.get('project')
-  return yield* Option.match(Option.fromNullishOr(project), {
-    onNone: () => Effect.succeed(HttpServerResponse.text('project is required', { status: 400 })),
-    onSome: (id) =>
-      store.find(id).pipe(
-        Effect.flatMap((found) =>
-          Option.match(found, {
-            onNone: () => HttpServerResponse.json({ name: id, branch: '' }),
-            onSome: (record) =>
-              branchAt(record.path).pipe(
-                Effect.flatMap((branch) => HttpServerResponse.json({ name: record.name, branch })),
-              ),
-          }),
-        ),
-      ),
-  })
-})
-
 const feed = Effect.gen(function* () {
   const store = yield* NoteStore
   const request = yield* HttpServerRequest.HttpServerRequest
@@ -125,6 +68,22 @@ const overlay = HttpServerResponse.file(join(root, '..', 'dist', 'overlay.js'), 
   ),
 )
 
+const page = HttpServerResponse.file(join(root, 'ui.html'), {
+  headers: noCache,
+}).pipe(
+  Effect.catchCause((cause) =>
+    Effect.logWarning('could not read the setup page', cause).pipe(Effect.andThen(notFound)),
+  ),
+)
+
+const uiScript = HttpServerResponse.file(join(root, '..', 'dist', 'ui.js'), {
+  headers: noCache,
+}).pipe(
+  Effect.catchCause((cause) =>
+    Effect.logWarning('could not read the setup script', cause).pipe(Effect.andThen(notFound)),
+  ),
+)
+
 const handling = <R>(
   work: Effect.Effect<HttpServerResponse.HttpServerResponse, unknown, R>,
 ): Effect.Effect<HttpServerResponse.HttpServerResponse, never, R> =>
@@ -142,9 +101,9 @@ const routes = Layer.mergeAll(
   HttpRouter.add('POST', '/notes/resolve', handling(resolve)),
   HttpRouter.add('POST', '/notes/discard', handling(discard)),
   HttpRouter.add('POST', '/notes/edit', handling(edit)),
-  HttpRouter.add('POST', '/project/name', handling(rename)),
-  HttpRouter.add('GET', '/project/context', handling(context)),
   HttpRouter.add('GET', '/notes.js', overlay),
+  HttpRouter.add('GET', '/ui.js', uiScript),
+  HttpRouter.add('GET', '/', page),
 )
 
 const mcp = McpServer.toolkit(toolkit).pipe(

@@ -31,8 +31,7 @@ const migrations: ReadonlyArray<{
         )`
         yield* sql`CREATE TABLE IF NOT EXISTS projects (
           id TEXT PRIMARY KEY,
-          name TEXT NOT NULL,
-          path TEXT
+          name TEXT NOT NULL
         )`
       }),
   },
@@ -171,23 +170,6 @@ const listProjects = (
 ): Effect.Effect<ReadonlyArray<Project>, SqlError.SqlError> =>
   sql<Project>`SELECT id, name FROM projects ORDER BY name`
 
-type ProjectRow = { readonly id: string; readonly name: string; readonly path: string | null }
-type ProjectRecord = { readonly id: string; readonly name: string; readonly path: string }
-
-const findProject = (
-  sql: SqlClient.SqlClient,
-  id: string,
-): Effect.Effect<Option.Option<ProjectRecord>, SqlError.SqlError> =>
-  sql<ProjectRow>`SELECT id, name, path FROM projects WHERE id = ${id}`.pipe(
-    Effect.map((rows) =>
-      Option.map(Option.fromNullishOr(rows[0]), (found) => ({
-        id: found.id,
-        name: found.name,
-        path: found.path ?? '',
-      })),
-    ),
-  )
-
 const ensureProject = (
   sql: SqlClient.SqlClient,
   id: string,
@@ -202,23 +184,6 @@ const backfillProjects = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlErro
     INSERT INTO projects (id, name)
     SELECT DISTINCT project, project FROM notes
     ON CONFLICT (id) DO NOTHING
-  `.pipe(Effect.asVoid)
-
-const renameProject = (
-  sql: SqlClient.SqlClient,
-  id: string,
-  name: string,
-): Effect.Effect<void, SqlError.SqlError> =>
-  sql`UPDATE projects SET name = ${name} WHERE id = ${id}`.pipe(Effect.asVoid)
-
-const registerProject = (
-  sql: SqlClient.SqlClient,
-  id: string,
-  path: string,
-): Effect.Effect<void, SqlError.SqlError> =>
-  sql`
-    INSERT INTO projects (id, name, path) VALUES (${id}, ${id}, ${path})
-    ON CONFLICT (id) DO UPDATE SET path = excluded.path
   `.pipe(Effect.asVoid)
 
 import { Context } from 'effect'
@@ -236,9 +201,6 @@ export class NoteStore extends Context.Service<NoteStore>()('NoteStore', {
       edit: (project: string, seq: number, text: string) => editNote(sql, project, seq, text),
       discard: (project: string, seq: number) => discardNote(sql, project, seq),
       projects: listProjects(sql),
-      find: (id: string) => findProject(sql, id),
-      rename: (id: string, name: string) => renameProject(sql, id, name),
-      register: (id: string, path: string) => registerProject(sql, id, path),
     } as const
   }).pipe(Effect.orDie),
 }) {

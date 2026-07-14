@@ -21,8 +21,6 @@ type Tab = typeof TabSchema.Type
 export const Model = S.Struct({
   base: S.String,
   project: S.String,
-  name: S.String,
-  branch: S.String,
   route: S.String,
   notes: S.Array(NoteSchema),
   reachable: S.Boolean,
@@ -32,8 +30,6 @@ export const Model = S.Struct({
   atBottom: S.Boolean,
   pendingScroll: S.Boolean,
   picking: S.Boolean,
-  renaming: S.Boolean,
-  nameDraft: S.String,
   hover: S.optional(HoverSchema),
   pending: S.optional(PendingSchema),
   draft: S.String,
@@ -51,7 +47,6 @@ export const Escaped = m('Escaped')
 export const DraftChanged = m('DraftChanged', { value: S.String })
 export const Sent = m('Sent')
 export const GotNotes = m('GotNotes', { notes: S.Array(NoteSchema) })
-export const GotContext = m('GotContext', { name: S.String, branch: S.String })
 export const Unreachable = m('Unreachable')
 export const AtBottom = m('AtBottom', { at: S.Boolean })
 export const JumpToBottom = m('JumpToBottom')
@@ -59,10 +54,6 @@ export const Scrolled = m('Scrolled')
 export const SelectedTab = m('SelectedTab', { tab: TabSchema })
 export const Resolved = m('Resolved', { seq: S.Number })
 export const Discarded = m('Discarded', { seq: S.Number })
-export const StartedRename = m('StartedRename')
-export const NameChanged = m('NameChanged', { value: S.String })
-export const SavedRename = m('SavedRename')
-export const CancelledRename = m('CancelledRename')
 export const StartedEdit = m('StartedEdit', { seq: S.Number, text: S.String })
 export const EditChanged = m('EditChanged', { value: S.String })
 export const SavedEdit = m('SavedEdit')
@@ -78,7 +69,6 @@ export const Message = S.Union([
   DraftChanged,
   Sent,
   GotNotes,
-  GotContext,
   Unreachable,
   AtBottom,
   JumpToBottom,
@@ -86,10 +76,6 @@ export const Message = S.Union([
   SelectedTab,
   Resolved,
   Discarded,
-  StartedRename,
-  NameChanged,
-  SavedRename,
-  CancelledRename,
   StartedEdit,
   EditChanged,
   SavedEdit,
@@ -102,23 +88,11 @@ const h = html<Message>()
 const feedUrl = (base: string, project: string): string =>
   `${base}/notes/feed?project=${encodeURIComponent(project)}`
 
-const contextUrl = (base: string, project: string): string =>
-  `${base}/project/context?project=${encodeURIComponent(project)}`
-
-const ContextSchema = S.Struct({ name: S.String, branch: S.String })
-
 const fetchFeed = (base: string, project: string) =>
   Effect.tryPromise(() =>
     fetch(feedUrl(base, project))
       .then((response) => response.json())
       .then((data) => GotNotes({ notes: S.decodeUnknownSync(S.Array(NoteSchema))(data) })),
-  ).pipe(Effect.catchCause(() => Effect.succeed(Unreachable())))
-
-const fetchContext = (base: string, project: string) =>
-  Effect.tryPromise(() =>
-    fetch(contextUrl(base, project))
-      .then((response) => response.json())
-      .then((data) => GotContext(S.decodeUnknownSync(ContextSchema)(data))),
   ).pipe(Effect.catchCause(() => Effect.succeed(Unreachable())))
 
 const postJson = (base: string, path: string, body: unknown) =>
@@ -151,13 +125,6 @@ const FetchNotes = Command.define(
   GotNotes,
   Unreachable,
 )(({ base, project }) => fetchFeed(base, project))
-
-const FetchContext = Command.define(
-  'FetchContext',
-  { base: S.String, project: S.String },
-  GotContext,
-  Unreachable,
-)(({ base, project }) => fetchContext(base, project))
 
 const SendChat = Command.define(
   'SendChat',
@@ -197,18 +164,6 @@ const SendEdit = Command.define(
   GotNotes,
   Unreachable,
 )(({ base, project, seq, text }) => settle(base, project, '/notes/edit', { project, seq, text }))
-
-const SendRename = Command.define(
-  'SendRename',
-  { base: S.String, project: S.String, name: S.String },
-  GotContext,
-  Unreachable,
-)(({ base, project, name }) =>
-  postJson(base, '/project/name', { project, name }).pipe(
-    Effect.andThen(fetchContext(base, project)),
-    Effect.catchCause(() => Effect.succeed(Unreachable())),
-  ),
-)
 
 const rectOf = (el: Element): Rect => {
   const box = el.getBoundingClientRect()
@@ -463,14 +418,6 @@ const saved = (model: Model): readonly [Model, ReadonlyArray<Command.Command<Mes
         [SendEdit({ base: model.base, project: model.project, seq: model.editing, text: model.editText })],
       ]
 
-const renamed = (model: Model): readonly [Model, ReadonlyArray<Command.Command<Message>>] =>
-  model.nameDraft.trim() === ''
-    ? [{ ...model, renaming: false }, []]
-    : [
-        { ...model, renaming: false, name: model.nameDraft },
-        [SendRename({ base: model.base, project: model.project, name: model.nameDraft })],
-      ]
-
 const update = (
   model: Model,
   message: Message,
@@ -508,7 +455,6 @@ const update = (
         model.pendingScroll
           ? [{ ...model, notes, reachable: true, pendingScroll: false, atBottom: true }, [ScrollNotes()]]
           : [{ ...model, notes, reachable: true }, []],
-      GotContext: ({ name, branch }) => [{ ...model, name, branch, reachable: true }, []],
       Unreachable: () => [{ ...model, reachable: false }, []],
       AtBottom: ({ at }) => [{ ...model, atBottom: at }, []],
       JumpToBottom: () => [{ ...model, atBottom: true }, [ScrollNotes()]],
@@ -522,19 +468,12 @@ const update = (
         model,
         [SendDiscard({ base: model.base, project: model.project, seq })],
       ],
-      StartedRename: () => [{ ...model, renaming: true, nameDraft: model.name }, []],
-      NameChanged: ({ value }) => [{ ...model, nameDraft: value }, []],
-      SavedRename: () => renamed(model),
-      CancelledRename: () => [{ ...model, renaming: false }, []],
       StartedEdit: ({ seq, text }) => [{ ...model, editing: seq, editText: text }, []],
       EditChanged: ({ value }) => [{ ...model, editText: value }, []],
       SavedEdit: () => saved(model),
       CancelledEdit: () => [{ ...model, editing: undefined }, []],
     }),
   )
-
-const branchIcon =
-  '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>'
 
 const crosshairIcon =
   '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><line x1="12" x2="12" y1="2" y2="5"/><line x1="12" x2="12" y1="19" y2="22"/><line x1="2" x2="5" y1="12" y2="12"/><line x1="19" x2="22" y1="12" y2="12"/></svg>'
@@ -655,37 +594,8 @@ const noteRow = (note: Note, editing: number | undefined, editText: string): Htm
 const openCount = (notes: ReadonlyArray<Note>): number =>
   Array.filter(notes, (note) => !note.addressed).length
 
-const renameKey = (key: string): Option.Option<Message> =>
-  Match.value(key).pipe(
-    Match.withReturnType<Option.Option<Message>>(),
-    Match.when('Enter', () => Option.some(SavedRename())),
-    Match.when('Escape', () => Option.some(CancelledRename())),
-    Match.orElse(() => Option.none()),
-  )
-
 const nameField = (model: Model): Html =>
-  model.renaming
-    ? h.input([
-        h.Class('w-36 rounded border border-mint bg-bg px-1.5 py-0.5 font-mono text-[12px] text-fg focus:outline-none'),
-        h.Value(model.nameDraft),
-        h.OnInput((value: string) => NameChanged({ value })),
-        h.OnKeyDownPreventDefault(renameKey),
-        h.OnBlur(SavedRename()),
-      ])
-    : h.button(
-        [
-          h.Class('cursor-pointer whitespace-nowrap border-b border-dotted border-fg-4 text-fg'),
-          h.OnClick(StartedRename()),
-          h.Title('Rename this project'),
-        ],
-        [model.name],
-      )
-
-const branchItem = (branch: string): Html =>
-  h.span(
-    [h.Class('inline-flex items-center gap-1.5 whitespace-nowrap text-fg-3')],
-    [icon(branchIcon, 'text-violet'), branch],
-  )
+  h.span([h.Class('whitespace-nowrap text-fg')], [model.project])
 
 const pickControl = (model: Model): Html =>
   h.button(
@@ -741,7 +651,7 @@ const bar = (model: Model): Html =>
     [
       h.div(
         [h.Class('flex items-center gap-4')],
-        [...(model.branch === '' ? [] : [branchItem(model.branch)]), nameField(model)],
+        [nameField(model)],
       ),
       h.div([h.Class('flex-1')], []),
       pickControl(model),
@@ -1001,8 +911,6 @@ const init = (): readonly [Model, ReadonlyArray<Command.Command<Message>>] => {
     {
       base,
       project,
-      name: project,
-      branch: '',
       route: location.pathname,
       notes: [],
       reachable: true,
@@ -1012,12 +920,10 @@ const init = (): readonly [Model, ReadonlyArray<Command.Command<Message>>] => {
       atBottom: true,
       pendingScroll: false,
       picking: false,
-      renaming: false,
-      nameDraft: '',
       draft: '',
       editText: '',
     },
-    [FetchNotes({ base, project }), FetchContext({ base, project })],
+    [FetchNotes({ base, project })],
   ]
 }
 

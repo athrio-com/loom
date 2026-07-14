@@ -6,7 +6,7 @@ Language: TypeScript
 
 # The overlay
 
-The overlay is Loom Devtools drawn into a running app. It is a small Foldkit application injected into the page as a bar pinned along the bottom of the screen. The bar shows the branch the project sits on, names the project, carries a count of the notes still open, and holds the tools you work with — an aim to point at an element, and the notes card. When the bar is in the way you collapse it to a small handle at the edge, and click the handle to bring it back.
+The overlay is Loom Devtools drawn into a running app. It is a small Foldkit application injected into the page as a bar pinned along the bottom of the screen. The bar names the project, carries a count of the notes still open, and holds the tools you work with — an aim to point at an element, and the notes card. When the bar is in the way you collapse it to a small handle at the edge, and click the handle to bring it back.
 
 You leave a note in one of two ways. You type one as a message, or you arm the aim, hover to an element, and click it to leave an annotation on that element. An element woven from Loom keeps a Loom annotation, which leads back to the loom's prose and code; any other element keeps a plain DOM annotation.
 
@@ -14,9 +14,9 @@ The bar must sit over any app without its styles bleeding into the page, or the 
 
 # The model
 
-The overlay holds where it is and what it has. It reads three things when it starts and keeps them: the server it talks to, the project it belongs to, and the project's name and branch, which the server reports. It tracks the route it sits on, the notes it has fetched, and whether its last call reached the server — a server that isn't running turns this false, and the card says so.
+The overlay holds where it is and what it has. It reads two things when it starts and keeps them: the server it talks to and the project it belongs to, both taken from its own script tag. It tracks the route it sits on, the notes it has fetched, and whether its last call reached the server — a server that isn't running turns this false, and the card says so.
 
-It tracks the bar and the card. It holds whether the card is open, whether the bar is collapsed to its handle, whether the note list rests at the bottom, and whether a scroll to the bottom is pending. It holds whether the name is being renamed in place along with the words typed so far, whether pick mode is on, the element the cursor is over while it is, and the element it has captured but has no note for yet. It holds the words being typed, and, while a note is being edited, which note and its new words.
+It tracks the bar and the card. It holds whether the card is open, whether the bar is collapsed to its handle, whether the note list rests at the bottom, and whether a scroll to the bottom is pending. It holds whether pick mode is on, the element the cursor is over while it is, and the element it has captured but has no note for yet. It holds the words being typed, and, while a note is being edited, which note and its new words.
 
 A hovered element carries two things: the rectangle it fills, for the highlight, and a short tag naming it, for the label the highlight wears. A pending capture is a Loom or a DOM anchor without its words yet; the popover fills those in.
 
@@ -45,8 +45,6 @@ type Tab = typeof TabSchema.Type
 export const Model = S.Struct({
   base: S.String,
   project: S.String,
-  name: S.String,
-  branch: S.String,
   route: S.String,
   notes: S.Array(NoteSchema),
   reachable: S.Boolean,
@@ -56,8 +54,6 @@ export const Model = S.Struct({
   atBottom: S.Boolean,
   pendingScroll: S.Boolean,
   picking: S.Boolean,
-  renaming: S.Boolean,
-  nameDraft: S.String,
   hover: S.optional(HoverSchema),
   pending: S.optional(PendingSchema),
   draft: S.String,
@@ -75,7 +71,6 @@ export const Escaped = m('Escaped')
 export const DraftChanged = m('DraftChanged', { value: S.String })
 export const Sent = m('Sent')
 export const GotNotes = m('GotNotes', { notes: S.Array(NoteSchema) })
-export const GotContext = m('GotContext', { name: S.String, branch: S.String })
 export const Unreachable = m('Unreachable')
 export const AtBottom = m('AtBottom', { at: S.Boolean })
 export const JumpToBottom = m('JumpToBottom')
@@ -83,10 +78,6 @@ export const Scrolled = m('Scrolled')
 export const SelectedTab = m('SelectedTab', { tab: TabSchema })
 export const Resolved = m('Resolved', { seq: S.Number })
 export const Discarded = m('Discarded', { seq: S.Number })
-export const StartedRename = m('StartedRename')
-export const NameChanged = m('NameChanged', { value: S.String })
-export const SavedRename = m('SavedRename')
-export const CancelledRename = m('CancelledRename')
 export const StartedEdit = m('StartedEdit', { seq: S.Number, text: S.String })
 export const EditChanged = m('EditChanged', { value: S.String })
 export const SavedEdit = m('SavedEdit')
@@ -102,7 +93,6 @@ export const Message = S.Union([
   DraftChanged,
   Sent,
   GotNotes,
-  GotContext,
   Unreachable,
   AtBottom,
   JumpToBottom,
@@ -110,10 +100,6 @@ export const Message = S.Union([
   SelectedTab,
   Resolved,
   Discarded,
-  StartedRename,
-  NameChanged,
-  SavedRename,
-  CancelledRename,
   StartedEdit,
   EditChanged,
   SavedEdit,
@@ -127,34 +113,22 @@ const h = html<Message>()
 
 The overlay reads its own script tag for where to reach the server and which project it belongs to. The tag's source names the origin, and its `data-loom-project` attribute names the project. `config` reads that pair, falling back to the page's own origin so the overlay still runs when a page loads it some other way.
 
-The commands carry the network over three shared pieces. `fetchFeed` reads the notes. `fetchContext` reads the project's name and branch, which the server keeps beside the notes. `settle` writes: it posts to an endpoint and then rereads the feed, so a write refreshes the card in one step.
+The commands carry the network over two shared pieces. `fetchFeed` reads the notes. `settle` writes: it posts to an endpoint and then rereads the feed, so a write refreshes the card in one step.
 
-The server is a separate daemon, and it may not be running. A call to a server that isn't there fails, so every piece treats that failure as a value rather than a crash. `Effect.tryPromise` lifts the failed fetch into the error channel, and `Effect.catchCause` folds any failure — a refused connection or a malformed reply alike — into an `Unreachable` message. So a live server answers with the notes or the context, and a dead one answers with `Unreachable`: a banner in the card, never a crash that takes the overlay down.
+The server is a separate daemon, and it may not be running. A call to a server that isn't there fails, so every piece treats that failure as a value rather than a crash. `Effect.tryPromise` lifts the failed fetch into the error channel, and `Effect.catchCause` folds any failure — a refused connection or a malformed reply alike — into an `Unreachable` message. So a live server answers with the notes, and a dead one answers with `Unreachable`: a banner in the card, never a crash that takes the overlay down.
 
-`FetchNotes` reads the notes, and `FetchContext` reads the name and branch. `SendChat` and `SendAnnotation` add a note. `SendResolve`, `SendDiscard`, and `SendEdit` act on one already there. `SendRename` changes the project's name, then rereads the context so the bar shows the name the server settled on.
+`FetchNotes` reads the notes. `SendChat` and `SendAnnotation` add a note. `SendResolve`, `SendDiscard`, and `SendEdit` act on one already there.
 
 =>
 
 const feedUrl = (base: string, project: string): string =>
   `${base}/notes/feed?project=${encodeURIComponent(project)}`
 
-const contextUrl = (base: string, project: string): string =>
-  `${base}/project/context?project=${encodeURIComponent(project)}`
-
-const ContextSchema = S.Struct({ name: S.String, branch: S.String })
-
 const fetchFeed = (base: string, project: string) =>
   Effect.tryPromise(() =>
     fetch(feedUrl(base, project))
       .then((response) => response.json())
       .then((data) => GotNotes({ notes: S.decodeUnknownSync(S.Array(NoteSchema))(data) })),
-  ).pipe(Effect.catchCause(() => Effect.succeed(Unreachable())))
-
-const fetchContext = (base: string, project: string) =>
-  Effect.tryPromise(() =>
-    fetch(contextUrl(base, project))
-      .then((response) => response.json())
-      .then((data) => GotContext(S.decodeUnknownSync(ContextSchema)(data))),
   ).pipe(Effect.catchCause(() => Effect.succeed(Unreachable())))
 
 const postJson = (base: string, path: string, body: unknown) =>
@@ -187,13 +161,6 @@ const FetchNotes = Command.define(
   GotNotes,
   Unreachable,
 )(({ base, project }) => fetchFeed(base, project))
-
-const FetchContext = Command.define(
-  'FetchContext',
-  { base: S.String, project: S.String },
-  GotContext,
-  Unreachable,
-)(({ base, project }) => fetchContext(base, project))
 
 const SendChat = Command.define(
   'SendChat',
@@ -233,18 +200,6 @@ const SendEdit = Command.define(
   GotNotes,
   Unreachable,
 )(({ base, project, seq, text }) => settle(base, project, '/notes/edit', { project, seq, text }))
-
-const SendRename = Command.define(
-  'SendRename',
-  { base: S.String, project: S.String, name: S.String },
-  GotContext,
-  Unreachable,
-)(({ base, project, name }) =>
-  postJson(base, '/project/name', { project, name }).pipe(
-    Effect.andThen(fetchContext(base, project)),
-    Effect.catchCause(() => Effect.succeed(Unreachable())),
-  ),
-)
 
 # Naming an element
 
@@ -500,9 +455,7 @@ const subscriptions = Subscription.make<Model, Message>()((entry) => ({
 
 The card scrolls to the latest note when it opens and when you send one, but not when you settle an older one. A pending-scroll flag draws that line: opening the card and sending a note raise it, and the next batch of notes that arrives scrolls to the foot and lowers it again, while resolving, discarding, or editing leaves it down. As you scroll the list, it reports whether it rests at the bottom, and the jump-to-latest arrow drops you back there.
 
-Renaming the project runs in the bar. Starting it seeds the field with the current name; typing records the draft; saving sends the new name and shows it at once, and cancelling drops the field with the name unchanged. A blank name saves nothing.
-
-Typing a note records the draft. Sending files it — as an annotation when one is pending, a chat note otherwise — and clears it. Resolving, discarding, and editing act on a note by its sequence, and an edit holds the row open as a field until it is saved or cancelled. Fresh notes and a fresh context each mark the server reachable; a call that could not reach it marks the server unreachable, and the card shows the banner.
+Typing a note records the draft. Sending files it — as an annotation when one is pending, a chat note otherwise — and clears it. Resolving, discarding, and editing act on a note by its sequence, and an edit holds the row open as a field until it is saved or cancelled. Fresh notes mark the server reachable; a call that could not reach it marks the server unreachable, and the card shows the banner.
 
 =>
 
@@ -531,14 +484,6 @@ const saved = (model: Model): readonly [Model, ReadonlyArray<Command.Command<Mes
     : [
         { ...model, editing: undefined },
         [SendEdit({ base: model.base, project: model.project, seq: model.editing, text: model.editText })],
-      ]
-
-const renamed = (model: Model): readonly [Model, ReadonlyArray<Command.Command<Message>>] =>
-  model.nameDraft.trim() === ''
-    ? [{ ...model, renaming: false }, []]
-    : [
-        { ...model, renaming: false, name: model.nameDraft },
-        [SendRename({ base: model.base, project: model.project, name: model.nameDraft })],
       ]
 
 const update = (
@@ -578,7 +523,6 @@ const update = (
         model.pendingScroll
           ? [{ ...model, notes, reachable: true, pendingScroll: false, atBottom: true }, [ScrollNotes()]]
           : [{ ...model, notes, reachable: true }, []],
-      GotContext: ({ name, branch }) => [{ ...model, name, branch, reachable: true }, []],
       Unreachable: () => [{ ...model, reachable: false }, []],
       AtBottom: ({ at }) => [{ ...model, atBottom: at }, []],
       JumpToBottom: () => [{ ...model, atBottom: true }, [ScrollNotes()]],
@@ -592,10 +536,6 @@ const update = (
         model,
         [SendDiscard({ base: model.base, project: model.project, seq })],
       ],
-      StartedRename: () => [{ ...model, renaming: true, nameDraft: model.name }, []],
-      NameChanged: ({ value }) => [{ ...model, nameDraft: value }, []],
-      SavedRename: () => renamed(model),
-      CancelledRename: () => [{ ...model, renaming: false }, []],
       StartedEdit: ({ seq, text }) => [{ ...model, editing: seq, editText: text }, []],
       EditChanged: ({ value }) => [{ ...model, editText: value }, []],
       SavedEdit: () => saved(model),
@@ -605,14 +545,11 @@ const update = (
 
 # The outlined icons
 
-The bar draws its tools as outlined icons rather than glyphs: a git branch for the branch, a crosshair to aim with, a speech bubble for the notes, and chevrons to collapse the bar and jump to the latest note. Each icon is a small line drawing in the current text colour, so it takes the colour of whatever holds it — the crosshair mint on the aim, the branch violet beside the name.
+The bar draws its tools as outlined icons rather than glyphs: a crosshair to aim with, a speech bubble for the notes, and chevrons to collapse the bar and jump to the latest note. Each icon is a small line drawing in the current text colour, so it takes the colour of whatever holds it — the crosshair mint on the aim.
 
 Foldkit renders through a virtual DOM that builds HTML elements, and an SVG drawing needs its own namespace to render. So each icon is set as markup through `InnerHTML`, and the browser parses it as SVG in its own right. `icon` wraps one drawing in a fixed square that carries the colour.
 
 =>
-
-const branchIcon =
-  '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>'
 
 const crosshairIcon =
   '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><line x1="12" x2="12" y1="2" y2="5"/><line x1="12" x2="12" y1="19" y2="22"/><line x1="2" x2="5" y1="12" y2="12"/><line x1="19" x2="22" y1="12" y2="12"/></svg>'
@@ -740,46 +677,17 @@ const noteRow = (note: Note, editing: number | undefined, editText: string): Htm
 
 # The bar
 
-The bar spans the bottom of the screen, pinned edge to edge like an editor's status bar. It shows the branch first, then the project name, and the name is editable: click it and it becomes a field you rename in place, saved on enter or on leaving it, abandoned on escape. The branch shows only when the server knows it. The tools sit at the far right, kept off the edge by the bar's own padding — the aim, the notes with a count of those still open, and the collapse.
+The bar spans the bottom of the screen, pinned edge to edge like an editor's status bar. It shows the project name at the left. The tools sit at the far right, kept off the edge by the bar's own padding — the aim, the notes with a count of those still open, and the collapse.
 
-`nameField` is the name in its two states, the still label and the open field. `renameKey` is what the field listens for: enter saves, escape cancels. Each tool is a full-height segment tinted by what it does — the aim in mint, lit brighter while it is armed; the notes and collapse in the quiet foreground. Every control shows the pointer cursor on hover. The handle is the bar collapsed to a small tab at the bottom edge — an up chevron and the open count, the mirror of the collapse, one click from bringing the bar back.
+`nameField` shows the project name. Each tool is a full-height segment tinted by what it does — the aim in mint, lit brighter while it is armed; the notes and collapse in the quiet foreground. Every control shows the pointer cursor on hover. The handle is the bar collapsed to a small tab at the bottom edge — an up chevron and the open count, the mirror of the collapse, one click from bringing the bar back.
 
 =>
 
 const openCount = (notes: ReadonlyArray<Note>): number =>
   Array.filter(notes, (note) => !note.addressed).length
 
-const renameKey = (key: string): Option.Option<Message> =>
-  Match.value(key).pipe(
-    Match.withReturnType<Option.Option<Message>>(),
-    Match.when('Enter', () => Option.some(SavedRename())),
-    Match.when('Escape', () => Option.some(CancelledRename())),
-    Match.orElse(() => Option.none()),
-  )
-
 const nameField = (model: Model): Html =>
-  model.renaming
-    ? h.input([
-        h.Class('w-36 rounded border border-mint bg-bg px-1.5 py-0.5 font-mono text-[12px] text-fg focus:outline-none'),
-        h.Value(model.nameDraft),
-        h.OnInput((value: string) => NameChanged({ value })),
-        h.OnKeyDownPreventDefault(renameKey),
-        h.OnBlur(SavedRename()),
-      ])
-    : h.button(
-        [
-          h.Class('cursor-pointer whitespace-nowrap border-b border-dotted border-fg-4 text-fg'),
-          h.OnClick(StartedRename()),
-          h.Title('Rename this project'),
-        ],
-        [model.name],
-      )
-
-const branchItem = (branch: string): Html =>
-  h.span(
-    [h.Class('inline-flex items-center gap-1.5 whitespace-nowrap text-fg-3')],
-    [icon(branchIcon, 'text-violet'), branch],
-  )
+  h.span([h.Class('whitespace-nowrap text-fg')], [model.project])
 
 const pickControl = (model: Model): Html =>
   h.button(
@@ -835,7 +743,7 @@ const bar = (model: Model): Html =>
     [
       h.div(
         [h.Class('flex items-center gap-4')],
-        [...(model.branch === '' ? [] : [branchItem(model.branch)]), nameField(model)],
+        [nameField(model)],
       ),
       h.div([h.Class('flex-1')], []),
       pickControl(model),
@@ -1107,7 +1015,7 @@ const mountPoint = (): HTMLElement => {
 
 # Starting the overlay
 
-`start` reads the page for its server and project, seeds the model on the current route with no notes, the bar shown and the card closed, and asks the server for the notes and the project's context straightaway. It hands the shadow container to a Foldkit element — with the page-watching subscriptions — and runs it. It mounts once: a second script tag on the same page finds the host already there and does nothing.
+`start` reads the page for its server and project, seeds the model on the current route with no notes, the bar shown and the card closed, and asks the server for the notes straightaway. It hands the shadow container to a Foldkit element — with the page-watching subscriptions — and runs it. It mounts once: a second script tag on the same page finds the host already there and does nothing.
 
 =>
 
@@ -1119,8 +1027,6 @@ const init = (): readonly [Model, ReadonlyArray<Command.Command<Message>>] => {
     {
       base,
       project,
-      name: project,
-      branch: '',
       route: location.pathname,
       notes: [],
       reachable: true,
@@ -1130,12 +1036,10 @@ const init = (): readonly [Model, ReadonlyArray<Command.Command<Message>>] => {
       atBottom: true,
       pendingScroll: false,
       picking: false,
-      renaming: false,
-      nameDraft: '',
       draft: '',
       editText: '',
     },
-    [FetchNotes({ base, project }), FetchContext({ base, project })],
+    [FetchNotes({ base, project })],
   ]
 }
 

@@ -10,5 +10,5 @@
     "noEmit": true,
     "types": []
   },
-  "include": ["src/note.ts", "src/overlay.ts", "src/vite-env.d.ts"]
+  "include": ["src/note.ts", "src/overlay.ts", "src/ui.ts", "src/vite-env.d.ts"]
 }
