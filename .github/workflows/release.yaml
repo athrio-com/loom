@@ -8,6 +8,7 @@ on:
 permissions:
   contents: read
   packages: write
+  id-token: write
 
 jobs:
   npm:
@@ -20,16 +21,8 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.2.20
+      - run: npm install --global npm@latest
       - run: bun install --frozen-lockfile
-      - name: Decrypt the npm token
-        env:
-          SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
-        run: |
-          curl -sSfL https://github.com/getsops/sops/releases/download/v3.9.4/sops-v3.9.4.linux.amd64 -o /usr/local/bin/sops
-          chmod +x /usr/local/bin/sops
-          token=$(sops decrypt --extract '["npm_token"]' secrets/ci.enc.yaml)
-          test -n "$token" || { echo "npm token is empty — check secrets/ci.enc.yaml and SOPS_AGE_KEY"; exit 1; }
-          echo "//registry.npmjs.org/:_authToken=${token}" > ~/.npmrc
       - name: Publish
         run: bun scripts/release.ts
 

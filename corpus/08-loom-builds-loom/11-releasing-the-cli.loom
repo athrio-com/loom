@@ -162,7 +162,7 @@ const published: ReadonlyArray<Package> = [
 
 ~
 
-`run` spawns a command in a package's directory and fails with a `ReleaseError` when it exits non-zero, so a failed publish stops the release rather than passing silently. The `npm publish` command reads its token from `.npmrc`, which the release workflow writes, and builds each package through its own `prepack` script before it uploads, so the release authenticates and never ships a stale bundle.
+`run` spawns a command in a package's directory and fails with a `ReleaseError` when it exits non-zero, so a failed publish stops the release rather than passing silently. The `npm publish` command builds each package through its own `prepack` script before it uploads, so the release never ships a stale bundle. It authenticates from the environment it runs in — the workflow's Trusted Publishing identity in CI.
 
 =>
 

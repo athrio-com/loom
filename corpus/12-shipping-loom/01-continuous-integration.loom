@@ -1,5 +1,5 @@
 ---
-Part XII, Chapter 2: Continuous integration
+Part XII, Chapter 1: Continuous integration
 Package: .github/workflows/
 Language: YAML
 ---

@@ -135,11 +135,10 @@ Loom Devtools rides along a running app: a bar you summon over the page to work 
 
 ### Part XII — Shipping Loom
 
-Loom ships itself on every push. A gate runs first — the tests, and a check that the committed source still matches the corpus it tangles from — and a green push to the default branch releases. It publishes the npm packages and pushes the Docker images for the Devtools service and the website. The release needs one secret, the npm token, which Loom keeps in the repository encrypted rather than tucked away in a settings page. This part is that pipeline: the encrypted secret, the gate that guards every change, and the workflow that releases on a push.
+Loom ships itself on every push. A gate runs first — the tests, and a check that the committed source still matches the corpus it tangles from — and a green push to the default branch releases. It publishes the npm packages through Trusted Publishing, so no token lives in the repository, and pushes the Docker images for the Devtools service and the website. This part is that pipeline: the gate that guards every change, and the workflow that releases on a push.
 
-1. Secrets
-2. Continuous integration
-3. Releasing on a push
+1. Continuous integration
+2. Releasing on a push
 
 ### Part XIII — Work in progress
 
