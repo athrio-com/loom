@@ -104,6 +104,8 @@
     "packages/loom/src/store.ts",
     "packages/loom/tsconfig.json",
     "packages/loom/vite.config.ts",
+    "scripts/bump.ts",
+    "scripts/release.ts",
     "secrets/.sops.yaml",
     "site/Dockerfile",
     "site/index.html",

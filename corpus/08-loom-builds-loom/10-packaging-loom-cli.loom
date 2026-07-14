@@ -42,9 +42,7 @@ The `build` script bundles the tangled source files committed to the repository.
   "scripts": {
     "build": "vite build",
     "test": "bun test",
-    "prepack": "bun run build",
-    "bump": "bun scripts/bump.ts",
-    "release": "bun scripts/release.ts"
+    "prepack": "bun run build"
   },
   "devDependencies": {
     "@athrio/loom-config": "workspace:*",

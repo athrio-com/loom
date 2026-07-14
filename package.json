@@ -25,6 +25,8 @@
     "watch": "bun run --filter './packages/*' watch",
     "pack:vsix": "bun run --filter loom-vscode pack:vsix",
     "loom": "bun packages/loom/dist/main.js",
+    "bump": "bun scripts/bump.ts",
+    "release": "bun scripts/release.ts",
     "catalog": "bun run --filter loom-design-catalog dev",
     "test": "bun test",
     "test:watch": "bun test --watch"

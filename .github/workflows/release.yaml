@@ -31,7 +31,7 @@ jobs:
           test -n "$token" || { echo "npm token is empty — check secrets/ci.enc.yaml and SOPS_AGE_KEY"; exit 1; }
           echo "//registry.npmjs.org/:_authToken=${token}" > ~/.npmrc
       - name: Publish
-        run: bun packages/loom/scripts/release.ts
+        run: bun scripts/release.ts
 
   images:
     if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}

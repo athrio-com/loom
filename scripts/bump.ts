@@ -3,7 +3,7 @@ import { BunRuntime, BunServices } from '@effect/platform-bun'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const workspace = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
+const workspace = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const corpus = join(workspace, 'corpus')
 const cli = join(workspace, 'packages', 'loom', 'dist', 'main.js')
 

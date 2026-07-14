@@ -1,6 +1,6 @@
 ---
 Part VIII, Chapter 11: Publishing to npm
-Package: packages/loom/
+Package: scripts/
 Language: TypeScript
 ---
 
@@ -16,7 +16,7 @@ The version lives in the corpus — in the manifest of each package, and in the 
 
 ## What the bump tool draws on
 
-The tool reads and writes files and runs the tangler, so it draws on Effect's filesystem service and Bun's process spawning. Node's `path` locates the workspace around the script, and `url` turns the script's own module URL into a directory. The workspace root sits two levels above the package; the corpus and the built CLI sit within it, and the CLI is the tangler the re-tangle step runs.
+The tool reads and writes files and runs the tangler, so it draws on Effect's filesystem service and Bun's process spawning. The scripts live in a `scripts` directory at the workspace root. Node's `path` locates the workspace around the script, and `url` turns the script's own module URL into a directory. The workspace root sits one level above that directory; the corpus and the built CLI sit within it, and the CLI is the tangler the re-tangle step runs.
 
 =>
 
@@ -25,7 +25,7 @@ import { BunRuntime, BunServices } from '@effect/platform-bun'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const workspace = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
+const workspace = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const corpus = join(workspace, 'corpus')
 const cli = join(workspace, 'packages', 'loom', 'dist', 'main.js')
 
@@ -105,7 +105,7 @@ const bump = Effect.gen(function* () {
 
 BunRuntime.runMain(bump)
 
-## The bump tool assembled {Tangle}[scripts/bump.ts]
+## The bump tool assembled {Tangle}[bump.ts]
 
 =>
 
@@ -130,7 +130,7 @@ import { BunRuntime, BunServices } from '@effect/platform-bun'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const workspace = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
+const workspace = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 interface Package {
   readonly name: string
@@ -212,7 +212,7 @@ const release = Effect.gen(function* () {
 
 BunRuntime.runMain(release)
 
-## The release tool assembled {Tangle}[scripts/release.ts]
+## The release tool assembled {Tangle}[release.ts]
 
 =>
 
