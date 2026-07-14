@@ -108,7 +108,7 @@ const routes = Layer.mergeAll(
 
 const mcp = McpServer.toolkit(toolkit).pipe(
   Layer.provide(handlers),
-  Layer.provide(McpServer.layerHttp({ name: 'loom', version: '0.9.0', path: '/mcp' })),
+  Layer.provide(McpServer.layerHttp({ name: 'loom', version: '0.0.1', path: '/mcp' })),
 )
 
 import { Logger } from 'effect'

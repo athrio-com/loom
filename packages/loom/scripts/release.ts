@@ -1,32 +1,66 @@
-import { execFileSync } from 'node:child_process'
-import { readFileSync, writeFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { Console, Data, Effect, FileSystem } from 'effect'
+import { BunRuntime, BunServices } from '@effect/platform-bun'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const cli = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const manifest = resolve(
-  cli,
-  '../../corpus/08-loom-builds-loom/10-packaging-loom-cli.loom',
-)
+const workspace = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 
-const run = (cmd: string, args: ReadonlyArray<string>): void =>
-  execFileSync(cmd, [...args], { cwd: cli, stdio: 'inherit' })
+interface Package {
+  readonly name: string
+  readonly dir: string
+}
 
-run('bun', ['test'])
+const published: ReadonlyArray<Package> = [
+  { name: '@athrio/loom', dir: join(workspace, 'packages', 'loom') },
+  {
+    name: '@athrio/loom-service-typescript',
+    dir: join(workspace, 'packages', 'loom-service-typescript'),
+  },
+]
 
-const bumpMinor = (text: string): string =>
-  text.replace(
-    /("version": ")(\d+)\.(\d+)\.\d+(")/,
-    (_m, pre, major, minor, post) => `${pre}${major}.${Number(minor) + 1}.0${post}`,
+class ReleaseError extends Data.TaggedError('ReleaseError')<{
+  readonly command: string
+}> {}
+
+const run = (command: ReadonlyArray<string>, cwd: string): Effect.Effect<void, ReleaseError> =>
+  Effect.promise(() =>
+    Bun.spawn([...command], { cwd, stdout: 'inherit', stderr: 'inherit' }).exited,
+  ).pipe(
+    Effect.flatMap((code) =>
+      code === 0 ? Effect.void : Effect.fail(new ReleaseError({ command: command.join(' ') })),
+    ),
   )
 
-const before = readFileSync(manifest, 'utf8')
-const after = bumpMinor(before)
-if (after === before) throw new Error('no "version" to bump in the manifest chapter')
-writeFileSync(manifest, after)
+const capture = (command: ReadonlyArray<string>): Effect.Effect<string> =>
+  Effect.promise(async () => {
+    const child = Bun.spawn([...command], { cwd: workspace, stdout: 'pipe', stderr: 'ignore' })
+    const text = await new Response(child.stdout).text()
+    await child.exited
+    return text.trim()
+  })
 
-const version = after.match(/"version": "([^"]+)"/)?.[1] ?? '?'
-run('bun', ['run', 'build'])
-run('bun', ['dist/main.js', 'tangle', manifest])
-run('bun', ['publish'])
-console.log(`released @athrio/loom ${version}`)
+const isPublished = (name: string, version: string): Effect.Effect<boolean> =>
+  capture(['npm', 'view', `${name}@${version}`, 'version']).pipe(
+    Effect.map((reported) => reported === version),
+  )
+
+const publish = (pkg: Package, version: string): Effect.Effect<void, ReleaseError> =>
+  isPublished(pkg.name, version).pipe(
+    Effect.flatMap((already) =>
+      already
+        ? Console.log(`${pkg.name}@${version} is already published — skipping`)
+        : run(['bun', 'publish'], pkg.dir).pipe(
+            Effect.andThen(Console.log(`published ${pkg.name}@${version}`)),
+          ),
+    ),
+  )
+
+const release = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
+  const manifest = yield* fs.readFileString(join(workspace, 'packages', 'loom', 'package.json'))
+  const version = (JSON.parse(manifest) as { version: string }).version
+  yield* Console.log(`releasing ${version}`)
+  yield* Effect.forEach(published, (pkg) => publish(pkg, version))
+}).pipe(Effect.provide(BunServices.layer))
+
+BunRuntime.runMain(release)

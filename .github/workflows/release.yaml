@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  npm:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.20
+      - run: bun install --frozen-lockfile
+      - name: Decrypt the npm token
+        env:
+          SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
+        run: |
+          curl -sSfL https://github.com/getsops/sops/releases/download/v3.9.4/sops-v3.9.4.linux.amd64 -o /usr/local/bin/sops
+          chmod +x /usr/local/bin/sops
+          sops decrypt secrets/ci.enc.yaml > secrets.yaml
+          token=$(sed -n 's/^npm_token: *//p' secrets.yaml)
+          echo "//registry.npmjs.org/:_authToken=${token}" > ~/.npmrc
+          rm secrets.yaml
+      - name: Publish
+        run: bun packages/loom/scripts/release.ts
+
+  images:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { name: loom-devtools, dockerfile: packages/loom-devtools/Dockerfile }
+          - { name: loom-website, dockerfile: site/Dockerfile }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - name: Log in to the registry
+        run: echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
+      - name: Build and push ${{ matrix.name }}
+        run: |
+          version=$(node -p "require('./packages/loom/package.json').version")
+          sha=$(git rev-parse --short HEAD)
+          image=ghcr.io/athrio-com/${{ matrix.name }}
+          docker build -f ${{ matrix.dockerfile }} \
+            -t "$image:latest" -t "$image:sha-$sha" -t "$image:v$version" .
+          docker push --all-tags "$image"

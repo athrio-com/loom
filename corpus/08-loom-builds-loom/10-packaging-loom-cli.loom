@@ -18,7 +18,7 @@ The `build` script bundles the tangled source files committed to the repository.
 
 {
   "name": "@athrio/loom",
-  "version": "0.9.0",
+  "version": "0.0.1",
   "description": "Tangle Loom literate sources into real source files.",
   "license": "Apache-2.0 OR MIT",
   "type": "module",
@@ -43,6 +43,7 @@ The `build` script bundles the tangled source files committed to the repository.
     "build": "vite build",
     "test": "bun test",
     "prepack": "bun run build",
+    "bump": "bun scripts/bump.ts",
     "release": "bun scripts/release.ts"
   },
   "devDependencies": {

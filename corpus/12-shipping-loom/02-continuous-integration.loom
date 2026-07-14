@@ -1,0 +1,40 @@
+---
+Part XII, Chapter 2: Continuous integration
+Package: .github/workflows/
+Language: YAML
+---
+
+# Continuous integration
+
+Every push and every pull request runs the same gate: the tests pass, and the committed source matches the corpus it tangles from. The second half is what a literate framework owes its readers. Loom commits its tangled output so a checkout builds without re-tangling, and that output is only trustworthy if it never drifts from the looms that produce it. The gate re-tangles the corpus and fails on any difference, so a loom edited without a re-tangle cannot reach the default branch.
+
+The release workflow waits on this one. It runs only after the gate passes on the default branch, so nothing publishes on a red build.
+
+## The workflow {Tangle}[ci.yaml]
+
+The job runs on Ubuntu with Bun pinned to the version the workspace declares. It installs against the committed lockfile, runs the whole test suite, then checks the tangle. The check builds the CLI from the committed source and tangles the corpus with it — self-tangling here is deliberate, since the check asks only whether the source and the corpus agree, not whether the tangler is the released one. `git diff --exit-code` then fails the job if the re-tangle changed anything, naming the files that drifted.
+
+=>
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.20
+      - run: bun install --frozen-lockfile
+      - run: bun test
+      - name: The committed source matches the corpus
+        run: |
+          bun run --filter @athrio/loom build
+          bun packages/loom/dist/main.js tangle corpus
+          git diff --exit-code

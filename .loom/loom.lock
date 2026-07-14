@@ -1,6 +1,10 @@
 {
   "version": 1,
   "tangled": [
+    ".github/workflows/ci.yaml",
+    ".github/workflows/ci.yml",
+    ".github/workflows/probe.yml",
+    ".github/workflows/release.yaml",
     "packages/loom-annotate/package.json",
     "packages/loom-annotate/src/entry.ts",
     "packages/loom-annotate/src/feedback-log.ts",
@@ -92,6 +96,7 @@
     "packages/loom-vscode/vite.config.ts",
     "packages/loom/docker-compose.yml",
     "packages/loom/package.json",
+    "packages/loom/scripts/bump.ts",
     "packages/loom/scripts/release.ts",
     "packages/loom/src/api.ts",
     "packages/loom/src/main.ts",
@@ -99,6 +104,8 @@
     "packages/loom/src/store.ts",
     "packages/loom/tsconfig.json",
     "packages/loom/vite.config.ts",
+    "secrets/.sops.yaml",
+    "site/Dockerfile",
     "site/index.html",
     "site/package.json",
     "site/src/client/landing.ts",

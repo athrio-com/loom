@@ -263,7 +263,7 @@ const loom = Command.make('loom').pipe(
 )
 
 const program = Command.run(loom, {
-  version: '0.10.0',
+  version: '0.0.1',
 }).pipe(
   Effect.provide(LoomTangler.layer),
   Effect.provide(LoomWeaver.layer),

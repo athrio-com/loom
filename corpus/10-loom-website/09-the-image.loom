@@ -1,0 +1,30 @@
+---
+Part X, Chapter 9: The image
+Package: site/
+Language: Dockerfile
+---
+
+# The image
+
+The website ships as a Docker image: the built client, the Bun backend that serves it, and the woven corpus the backend reads. Docker gives the site a named, managed lifecycle. The release workflow builds the image and pushes it to the registry on every push, and a host runs that one image behind whatever proxy terminates its traffic.
+
+## The Dockerfile {Tangle}[Dockerfile]
+
+The build starts from Bun's Alpine image and copies the whole workspace, since the client leans on workspace packages such as Foldkit. It installs against the committed lockfile, then bundles the client with Vite. It bundles the client alone, not the pre-render. The pre-render drives a headless browser the image does not carry, and the backend serves a page without it: it inlines the route's data into the shell for the client to paint from. The woven corpus travels in the workspace as the committed `data/site.json`, so the build needs no weave step.
+
+The runtime runs the backend from the package directory. The backend reads the port it listens on from the environment, defaulting to 4321.
+
+=>
+
+FROM oven/bun:1.2.20-alpine
+
+WORKDIR /loom
+COPY . .
+RUN bun install --frozen-lockfile
+
+WORKDIR /loom/site
+RUN bunx --bun vite build
+
+ENV PORT=4321
+EXPOSE 4321
+CMD ["bun", "src/server/server.ts"]

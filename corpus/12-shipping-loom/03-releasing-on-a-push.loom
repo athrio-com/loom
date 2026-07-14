@@ -1,0 +1,98 @@
+---
+Part XII, Chapter 3: Releasing on a push
+Package: .github/workflows/
+Language: YAML
+---
+
+# Releasing on a push
+
+When the gate passes on the default branch, this workflow ships. It publishes the npm packages and pushes the Docker images, and it does both on every push, so the registry always mirrors the default branch. Shipping on every push is only safe because each step is idempotent: the release tool publishes only versions npm is missing, and the images move their mutable tags without ever colliding on an immutable one.
+
+The workflow triggers on the gate's completion rather than on the push directly, so it runs only after the tests and the tangle check have passed. Both jobs check the same condition — the gate succeeded, on the default branch — before they do anything, and both check out the exact commit the gate validated rather than whatever the default branch points at now.
+
+## The trigger
+
+The workflow starts when the CI workflow finishes. It needs to write packages to the registry, so it grants the token that permission.
+
+=>
+
+name: Release
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: read
+  packages: write
+
+## Publishing to npm
+
+The npm job decrypts the token, writes it where `bun publish` reads credentials, and runs the release tool. It installs SOPS, decrypts `secrets/ci.enc.yaml` with the age key from the one repository secret, and reads the `npm_token` line into the npm configuration. The release tool then publishes each package npm is missing and skips the rest, so a push that changes no version publishes nothing.
+
+=>
+
+jobs:
+  npm:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.20
+      - run: bun install --frozen-lockfile
+      - name: Decrypt the npm token
+        env:
+          SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
+        run: |
+          curl -sSfL https://github.com/getsops/sops/releases/download/v3.9.4/sops-v3.9.4.linux.amd64 -o /usr/local/bin/sops
+          chmod +x /usr/local/bin/sops
+          sops decrypt secrets/ci.enc.yaml > secrets.yaml
+          token=$(sed -n 's/^npm_token: *//p' secrets.yaml)
+          echo "//registry.npmjs.org/:_authToken=${token}" > ~/.npmrc
+          rm secrets.yaml
+      - name: Publish
+        run: bun packages/loom/scripts/release.ts
+
+## Pushing the images
+
+The images job builds each service and pushes it to the container registry. It logs in with the workflow's own token, then builds `loom-devtools` and `loom-website` from their Dockerfiles, each with the whole repository as the build context. Every image carries three tags: `latest` and a short commit hash always move to this build, and `v<version>` records the shared version — so a rollback names a commit or a release, and a deployment tracking `latest` follows the default branch.
+
+=>
+
+  images:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { name: loom-devtools, dockerfile: packages/loom-devtools/Dockerfile }
+          - { name: loom-website, dockerfile: site/Dockerfile }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - name: Log in to the registry
+        run: echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
+      - name: Build and push ${{ matrix.name }}
+        run: |
+          version=$(node -p "require('./packages/loom/package.json').version")
+          sha=$(git rev-parse --short HEAD)
+          image=ghcr.io/athrio-com/${{ matrix.name }}
+          docker build -f ${{ matrix.dockerfile }} \
+            -t "$image:latest" -t "$image:sha-$sha" -t "$image:v$version" .
+          docker push --all-tags "$image"
+
+## The workflow assembled {Tangle}[release.yaml]
+
+=>
+
+::[The trigger]
+
+::[Publishing to npm]
+
+::[Pushing the images]

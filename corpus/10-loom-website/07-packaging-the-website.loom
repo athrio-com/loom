@@ -24,7 +24,7 @@ The manifest names the package and its scripts. `build` bundles the client and t
   "name": "loom-website",
   "type": "module",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.0.1",
   "scripts": {
     "build": "bunx --bun vite build && bun src/server/prerender.ts",
     "serve": "bun src/server/server.ts",

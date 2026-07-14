@@ -93,7 +93,7 @@ The book closes where it began, with the fact that Loom is written in Loom. This
 8. Packaging the Loom language
 9. Packaging the TypeScript service
 10. Packaging the Loom CLI
-11. Releasing the Loom CLI
+11. Publishing to npm
 
 ### Part IX — Extensions for IDEs
 
@@ -115,10 +115,11 @@ The website is the woven book, running — the pages you are reading now. `loom 
 6. The backend
 7. Packaging the website
 8. The pre-render
+9. The image
 
 ### Part XI — Loom Devtools
 
-Loom Devtools rides along a running app: a bar you summon over the page to work on the app while you use it. It works against any app — woven from Loom or not — and writes nothing into the code you review. The bar gathers a few tools and is built to hold more. Today it carries Notes: you review by pointing, leaving a note on an element you click or a message you type, and a coding agent reads them over the Model Context Protocol and works through them. Devtools is a standalone service — a Bun server backed by Postgres, shipped as a Docker image and run with `docker compose` — that both the overlay and the agent talk to. This part builds it up: the note the tools pass around, the store that keeps the notes in Postgres, the server that answers the overlay and the agent, the overlay you point with, the agent's tools, the Vite plugin that injects it, and the entry that launches the service — all shipped as `@athrio/loom-devtools`.
+Loom Devtools rides along a running app: a bar you summon over the page to work on the app while you use it. It works against any app — woven from Loom or not — and writes nothing into the code you review. The bar gathers a few tools and is built to hold more. Today it carries Notes: you review by pointing, leaving a note on an element you click or a message you type, and a coding agent reads them over the Model Context Protocol and works through them. Devtools is a standalone service — a Bun server backed by Postgres, shipped as a Docker image and run with `docker compose` — that both the overlay and the agent talk to. This part builds it up: the note the tools pass around, the store that keeps the notes in Postgres, the server that answers the overlay and the agent, the overlay you point with, the agent's tools, and the Vite plugin that injects it. It then ships the service — the package, the local Postgres stack, the entry that launches it, the Docker image, and the setup page that hands you the overlay's script — all as `@athrio/loom-devtools`.
 
 1. The note
 2. The store
@@ -127,8 +128,20 @@ Loom Devtools rides along a running app: a bar you summon over the page to work 
 5. The agent's tools
 6. The Vite plugin
 7. Packaging
+8. The local stack
+9. The service entry
+10. The image
+11. The setup UI
 
-### Part XII — Work in progress
+### Part XII — Shipping Loom
+
+Loom ships itself on every push. A gate runs first — the tests, and a check that the committed source still matches the corpus it tangles from — and a green push to the default branch releases. It publishes the npm packages and pushes the Docker images for the Devtools service and the website. The release needs one secret, the npm token, which Loom keeps in the repository encrypted rather than tucked away in a settings page. This part is that pipeline: the encrypted secret, the gate that guards every change, and the workflow that releases on a push.
+
+1. Secrets
+2. Continuous integration
+3. Releasing on a push
+
+### Part XIII — Work in progress
 
 This part is never finished. It holds the framework's active work — each open problem or unbuilt feature as its own loom, written to be worked out in place. When a chapter here is done, it graduates to its home part.
 
