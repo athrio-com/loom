@@ -73,16 +73,21 @@ const looms: Effect.Effect<ReadonlyArray<string>> = Effect.sync(() => [
 
 The tool takes the new version on the command line and reads the current one from the CLI's own manifest, the shared number every package tracks. It rewrites each loom that carries the current version, keeping the ones it changed, and re-tangles only those, so the manifests and the source they produce move to the new version together.
 
-The new version is required. Without it the tool fails with a `BumpError` naming the usage, rather than rewriting the corpus to the word `undefined`.
+The new version is required. Without it the tool prints its usage and exits, rather than rewriting the corpus to the word `undefined`.
 
 =>
 
 const bump = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
-  const to = yield* Option.match(Option.fromNullishOr(process.argv[2]), {
-    onNone: () => Effect.fail(new BumpError({ command: 'bump <version>' })),
-    onSome: (version) => Effect.succeed(version),
-  })
+  const target = Option.fromNullishOr(process.argv[2])
+  if (Option.isNone(target)) {
+    yield* Console.error('usage: bun run bump <version>')
+    yield* Effect.sync(() => {
+      process.exitCode = 1
+    })
+    return
+  }
+  const to = target.value
 
   const manifest = yield* fs.readFileString(join(workspace, 'packages', 'loom', 'package.json'))
   const from = (JSON.parse(manifest) as { version: string }).version
@@ -103,7 +108,17 @@ const bump = Effect.gen(function* () {
   yield* Console.log(`bumped ${from} → ${to} across ${changed.length} looms`)
 }).pipe(Effect.provide(BunServices.layer))
 
-BunRuntime.runMain(bump)
+BunRuntime.runMain(
+  bump.pipe(
+    Effect.catchTag('BumpError', (error) =>
+      Console.error(`bump: command failed — ${error.command}`).pipe(
+        Effect.andThen(Effect.sync(() => {
+          process.exitCode = 1
+        })),
+      ),
+    ),
+  ),
+)
 
 ## The bump tool assembled {Tangle}[bump.ts]
 
@@ -210,7 +225,17 @@ const release = Effect.gen(function* () {
   yield* Effect.forEach(published, (pkg) => publish(pkg, version))
 }).pipe(Effect.provide(BunServices.layer))
 
-BunRuntime.runMain(release)
+BunRuntime.runMain(
+  release.pipe(
+    Effect.catchTag('ReleaseError', (error) =>
+      Console.error(`release: command failed — ${error.command}`).pipe(
+        Effect.andThen(Effect.sync(() => {
+          process.exitCode = 1
+        })),
+      ),
+    ),
+  ),
+)
 
 ## The release tool assembled {Tangle}[release.ts]
 

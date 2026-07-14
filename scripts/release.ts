@@ -63,4 +63,14 @@ const release = Effect.gen(function* () {
   yield* Effect.forEach(published, (pkg) => publish(pkg, version))
 }).pipe(Effect.provide(BunServices.layer))
 
-BunRuntime.runMain(release)
+BunRuntime.runMain(
+  release.pipe(
+    Effect.catchTag('ReleaseError', (error) =>
+      Console.error(`release: command failed — ${error.command}`).pipe(
+        Effect.andThen(Effect.sync(() => {
+          process.exitCode = 1
+        })),
+      ),
+    ),
+  ),
+)

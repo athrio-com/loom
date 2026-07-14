@@ -31,10 +31,15 @@ const looms: Effect.Effect<ReadonlyArray<string>> = Effect.sync(() => [
 
 const bump = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
-  const to = yield* Option.match(Option.fromNullishOr(process.argv[2]), {
-    onNone: () => Effect.fail(new BumpError({ command: 'bump <version>' })),
-    onSome: (version) => Effect.succeed(version),
-  })
+  const target = Option.fromNullishOr(process.argv[2])
+  if (Option.isNone(target)) {
+    yield* Console.error('usage: bun run bump <version>')
+    yield* Effect.sync(() => {
+      process.exitCode = 1
+    })
+    return
+  }
+  const to = target.value
 
   const manifest = yield* fs.readFileString(join(workspace, 'packages', 'loom', 'package.json'))
   const from = (JSON.parse(manifest) as { version: string }).version
@@ -55,4 +60,14 @@ const bump = Effect.gen(function* () {
   yield* Console.log(`bumped ${from} → ${to} across ${changed.length} looms`)
 }).pipe(Effect.provide(BunServices.layer))
 
-BunRuntime.runMain(bump)
+BunRuntime.runMain(
+  bump.pipe(
+    Effect.catchTag('BumpError', (error) =>
+      Console.error(`bump: command failed — ${error.command}`).pipe(
+        Effect.andThen(Effect.sync(() => {
+          process.exitCode = 1
+        })),
+      ),
+    ),
+  ),
+)
