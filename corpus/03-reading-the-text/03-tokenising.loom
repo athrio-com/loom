@@ -72,7 +72,7 @@ const tokeniseWeft = (
 
 ## Frontmatter fields
 
-A frontmatter field is one `key: value` line, and `tokeniseFrontmatter` settles it by its key. It splits on the first colon and classifies what it finds. A `Part <Roman>` line announces a part, a `Chapter <n>` line a chapter — each carrying an ordinal past its keyword, and a name beside it. The joined `Part <Roman>, Chapter <n>` form carries a chapter by the part it belongs to, split at the comma. `Package` and `Language` are plain keys. A fence weft passes through whole, and a line that is no field settles bare, with no subtokens.
+A frontmatter field is one `key: value` line, and `tokeniseFrontmatter` settles it by its key. It splits on the first colon and classifies what it finds. A `Part <Roman>` line announces a numbered part, a `Chapter <n>` line a numbered chapter — each carrying an ordinal past its keyword and a name beside it. Drop the ordinal and the membership is numberless: a bare `Part` names a part with no number, a bare `Chapter` a chapter with no number, for a section a reader orders by hand rather than by position. The joined `Part <Roman>, Chapter <n>` form carries a chapter by the part it belongs to, split at the comma. `Package`, `Language`, `Status`, and `Priority` are plain keys, the last two the metadata a roadmap reads. A fence weft passes through whole, and a line that is no field settles bare, with no subtokens.
 
 =>
 
@@ -87,6 +87,8 @@ const tokeniseFrontmatter = (weft: FrontmatterWeft): LoomWeft => {
   const value = trimSpan(lineText.slice(colon + 1), base + colon + 1)
   return buildFrontmatterField(weft, line, key, value)
 }
+
+const frontmatterFields = new Set(['Package', 'Language', 'Status', 'Priority'])
 
 const buildFrontmatterField = (
   weft: FrontmatterWeft,
@@ -104,6 +106,13 @@ const buildFrontmatterField = (
       part: ordinalToken(FrontmatterPartTokenSchema, line, key, 'Part '),
       partName: fieldToken(FrontmatterPartNameTokenSchema, line, value),
     })
+  if (key.value === 'Part')
+    return FrontmatterWeftSchema.make({
+      position: weft.position,
+      source: weft.source,
+      health: okHealth,
+      partName: fieldToken(FrontmatterPartNameTokenSchema, line, value),
+    })
   if (key.value.startsWith('Chapter '))
     return FrontmatterWeftSchema.make({
       position: weft.position,
@@ -112,7 +121,14 @@ const buildFrontmatterField = (
       chapter: ordinalToken(FrontmatterChapterTokenSchema, line, key, 'Chapter '),
       title: fieldToken(FrontmatterTitleTokenSchema, line, value),
     })
-  if (key.value === 'Package' || key.value === 'Language')
+  if (key.value === 'Chapter')
+    return FrontmatterWeftSchema.make({
+      position: weft.position,
+      source: weft.source,
+      health: okHealth,
+      title: fieldToken(FrontmatterTitleTokenSchema, line, value),
+    })
+  if (frontmatterFields.has(key.value))
     return FrontmatterWeftSchema.make({
       position: weft.position,
       source: weft.source,

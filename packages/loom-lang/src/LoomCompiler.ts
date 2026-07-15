@@ -40,6 +40,7 @@ import { LoomMemo } from './LoomMemo'
 import { PackageConfig } from './PackageConfig'
 import { WeaveBuilder } from './weave/WeaveBuilder'
 import { type WovenCorpus } from './weave/WovenCorpus'
+import { TableOfContentsBuilder, rewriteBook } from './weave/TableOfContentsBuilder'
 
 type Modules = ReadonlyMap<Path, LoomModule>
 
@@ -273,6 +274,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()(
       const memo = yield* LoomMemo
       const config = yield* PackageConfig
       const weaver = yield* WeaveBuilder
+      const tocBuilder = yield* TableOfContentsBuilder
 
       const loadOne = (source: Source, path: Path): Effect.Effect<LoomModule> =>
         config.resolve(path).pipe(
@@ -386,6 +388,15 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()(
         weave: (path: Path): Effect.Effect<WovenCorpus> =>
           buildCorpus(documents, path).pipe(
             Effect.flatMap((modules) => weaver.build({ modules })),
+          ),
+
+        contents: (path: Path): Effect.Effect<string> =>
+          buildCorpus(documents, path).pipe(
+            Effect.flatMap((modules) =>
+              tocBuilder.build({ modules }).pipe(
+                Effect.map((toc) => rewriteBook({ modules }, path, toc)),
+              ),
+            ),
           ),
 
         diagnose: (path: Path): Effect.Effect<ReadonlyArray<Diagnostic>> =>
@@ -527,7 +538,12 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()(
 ) {
   static readonly layer = Layer.effect(this, this.make).pipe(
     Layer.provide(
-      Layer.mergeAll(LoomCorpusAstBuilder.layer, LoomMemo.layer, WeaveBuilder.layer),
+      Layer.mergeAll(
+        LoomCorpusAstBuilder.layer,
+        LoomMemo.layer,
+        WeaveBuilder.layer,
+        TableOfContentsBuilder.layer,
+      ),
     ),
   )
 }

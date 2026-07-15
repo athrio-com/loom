@@ -7,11 +7,11 @@ import type { LoomCorpusAst } from '@athrio/loom-ast/LoomCorpusAst'
 import { WeaveBuilder } from '../src/weave/WeaveBuilder'
 import type { CodeBlock, HeadingBlock } from '../src/weave/WovenCorpus'
 
-// A two-file corpus: a book root whose `{TOC}` lists one chapter under one part,
-// and the chapter itself — a section that defines a name and a `{Tangle}` section
-// that composes it with `::[The name]`. Weave projects this into a `WovenCorpus`:
-// a navigation tree from the contents, a page for the chapter, and the anchor
-// turned into a link back to the section it names.
+// A two-file corpus: a book root that carries a `{TOC}`, and a chapter whose
+// frontmatter opens Part I — a section that defines a name and a `{Tangle}`
+// section that composes it with `::[The name]`. Weave projects this into a
+// `WovenCorpus`: a navigation tree from the corpus frontmatter, a page for the
+// chapter, and the anchor turned into a link back to the section it names.
 const book = `# Loom
 
 Intro prose.
@@ -24,7 +24,8 @@ Intro prose.
 `
 
 const greeting = `---
-Part I, Chapter 1: A greeting
+Part I: Using Loom
+Chapter 1: A greeting
 Package: greeting.ts
 Language: TypeScript
 ---

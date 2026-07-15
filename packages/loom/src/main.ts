@@ -6,6 +6,7 @@ import { resolve as resolvePath } from 'node:path'
 import { DocumentSource } from '@athrio/loom-lang/LoomCompiler'
 import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
 import { LoomWeaver } from '@athrio/loom-lang/weave/LoomWeaver'
+import { LoomContents } from '@athrio/loom-lang/weave/LoomContents'
 import { PackageConfig } from '@athrio/loom-lang/PackageConfig'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
@@ -81,6 +82,13 @@ const weave = (file: string, out: string) =>
       resolvePath(process.cwd(), out),
     )
     yield* Console.log(`loom: wove ${file} → ${written}`)
+  })
+
+const toc = (file: string) =>
+  Effect.gen(function* () {
+    const contents = yield* LoomContents
+    const written = yield* contents.write(resolvePath(process.cwd(), file))
+    yield* Console.log(`loom: wrote the table of contents into ${written}`)
   })
 
 const mergeMcpConfig = (root: string): void => {
@@ -230,6 +238,12 @@ const weaveCommand = Command.make(
   ({ path, out }) => weave(path, out),
 )
 
+const tocCommand = Command.make(
+  'toc',
+  { path: Argument.string('path') },
+  ({ path }) => toc(path),
+)
+
 const initCommand = Command.make(
   'init',
   { dir: Argument.optional(Argument.directory('dir')) },
@@ -255,6 +269,7 @@ const loom = Command.make('loom').pipe(
     tangleCommand,
     orphansCommand,
     weaveCommand,
+    tocCommand,
     initCommand,
     addCommand,
     removeCommand,
@@ -267,6 +282,7 @@ const program = Command.run(loom, {
 }).pipe(
   Effect.provide(LoomTangler.layer),
   Effect.provide(LoomWeaver.layer),
+  Effect.provide(LoomContents.layer),
   Effect.provide(DocumentSource.layer),
   Effect.provide(PackageConfig.layer),
   Effect.provide(LoomConfig.layer),

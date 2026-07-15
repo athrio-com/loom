@@ -40,6 +40,8 @@ export const LoomFrontmatterSchema = loomNode('LoomFrontmatter', {
   title: Schema.optional(FrontmatterTitleTokenSchema),
   package: Schema.optional(FrontmatterValueTokenSchema),
   language: Schema.optional(FrontmatterValueTokenSchema),
+  status: Schema.optional(FrontmatterValueTokenSchema),
+  priority: Schema.optional(FrontmatterValueTokenSchema),
 })
 export type LoomFrontmatter = typeof LoomFrontmatterSchema.Type
 

@@ -159,6 +159,8 @@ const tokeniseFrontmatter = (weft: FrontmatterWeft): LoomWeft => {
   return buildFrontmatterField(weft, line, key, value)
 }
 
+const frontmatterFields = new Set(['Package', 'Language', 'Status', 'Priority'])
+
 const buildFrontmatterField = (
   weft: FrontmatterWeft,
   line: number,
@@ -175,6 +177,13 @@ const buildFrontmatterField = (
       part: ordinalToken(FrontmatterPartTokenSchema, line, key, 'Part '),
       partName: fieldToken(FrontmatterPartNameTokenSchema, line, value),
     })
+  if (key.value === 'Part')
+    return FrontmatterWeftSchema.make({
+      position: weft.position,
+      source: weft.source,
+      health: okHealth,
+      partName: fieldToken(FrontmatterPartNameTokenSchema, line, value),
+    })
   if (key.value.startsWith('Chapter '))
     return FrontmatterWeftSchema.make({
       position: weft.position,
@@ -183,7 +192,14 @@ const buildFrontmatterField = (
       chapter: ordinalToken(FrontmatterChapterTokenSchema, line, key, 'Chapter '),
       title: fieldToken(FrontmatterTitleTokenSchema, line, value),
     })
-  if (key.value === 'Package' || key.value === 'Language')
+  if (key.value === 'Chapter')
+    return FrontmatterWeftSchema.make({
+      position: weft.position,
+      source: weft.source,
+      health: okHealth,
+      title: fieldToken(FrontmatterTitleTokenSchema, line, value),
+    })
+  if (frontmatterFields.has(key.value))
     return FrontmatterWeftSchema.make({
       position: weft.position,
       source: weft.source,

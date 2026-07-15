@@ -15,7 +15,8 @@
     "./ManifestBuilder": "./src/ManifestBuilder.ts",
     "./LoomServer": "./src/LoomServer.ts",
     "./weave/WovenCorpus": "./src/weave/WovenCorpus.ts",
-    "./weave/LoomWeaver": "./src/weave/LoomWeaver.ts"
+    "./weave/LoomWeaver": "./src/weave/LoomWeaver.ts",
+    "./weave/LoomContents": "./src/weave/LoomContents.ts"
   },
   "scripts": {
     "build": "vite build",

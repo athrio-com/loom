@@ -180,7 +180,7 @@ const spanFrom = (
 
 ## Building the frontmatter
 
-`makeFrontmatter` gathers a file's frontmatter wefts into one `LoomFrontmatter`, or nothing when the file opened with no block. The membership fields come from two lines: the part and its name from one, the chapter and its title from the other.
+`makeFrontmatter` gathers a file's frontmatter wefts into one `LoomFrontmatter`, or nothing when the file opened with no block. The membership comes from up to two lines — the part from one, the chapter from the other — and each is numbered or not: a part carries a number and a name, or a name alone; a chapter a number and a title, or a title alone. The `Status` and `Priority` fields join the `Package` and `Language` ones, each read by name.
 
 =>
 
@@ -189,14 +189,18 @@ const makeFrontmatter = (
 ): Option.Option<LoomFrontmatter> => {
   if (wefts.length === 0) return Option.none()
   const partFields = Option.match(
-    Option.fromNullishOr(wefts.find((w) => w.part !== undefined)),
+    Option.fromNullishOr(
+      wefts.find((w) => w.part !== undefined || w.partName !== undefined),
+    ),
     {
       onNone: () => ({}),
       onSome: (w) => ({ part: w.part, partName: w.partName }),
     },
   )
   const chapterFields = Option.match(
-    Option.fromNullishOr(wefts.find((w) => w.chapter !== undefined)),
+    Option.fromNullishOr(
+      wefts.find((w) => w.chapter !== undefined || w.title !== undefined),
+    ),
     {
       onNone: () => ({}),
       onSome: (w) => ({ chapter: w.chapter, title: w.title }),
@@ -214,13 +218,15 @@ const makeFrontmatter = (
       ...chapterFields,
       package: Option.getOrUndefined(frontmatterField(wefts, 'Package')),
       language: Option.getOrUndefined(frontmatterField(wefts, 'Language')),
+      status: Option.getOrUndefined(frontmatterField(wefts, 'Status')),
+      priority: Option.getOrUndefined(frontmatterField(wefts, 'Priority')),
     }),
   )
 }
 
 ~
 
-`frontmatterField` reads a `key: value` field's value by name — the `Package` a `{Tangle}` section writes to, or the `Language` its sections inherit — lifting the missing case to `Option` at the `.find`.
+`frontmatterField` reads a `key: value` field's value by name — the `Package` a `{Tangle}` section writes to, the `Language` its sections inherit, or the `Status` and `Priority` a roadmap reads — lifting the missing case to `Option` at the `.find`.
 
 =>
 

@@ -72,6 +72,8 @@ export const WovenNavEntrySchema = Schema.Struct({
   number: Schema.String,
   title: Schema.String,
   slug: Schema.String,
+  status: Schema.optional(Schema.String),
+  priority: Schema.optional(Schema.String),
 })
 export type WovenNavEntry = typeof WovenNavEntrySchema.Type
 
@@ -84,6 +86,7 @@ export type WovenPart = typeof WovenPartSchema.Type
 
 export const WovenCorpusSchema = Schema.Struct({
   nav: Schema.Array(WovenPartSchema),
+  loose: Schema.Array(WovenNavEntrySchema),
   pages: Schema.Array(WovenPageSchema),
 })
 export type WovenCorpus = typeof WovenCorpusSchema.Type

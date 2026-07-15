@@ -1,5 +1,6 @@
 ---
-Part XII, Chapter 1: Continuous integration
+Part XII: Shipping Loom
+Chapter 1: Continuous integration
 Package: .github/workflows/
 Language: YAML
 ---

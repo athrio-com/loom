@@ -1,6 +1,8 @@
 ---
-Language: TypeScript
+Part: Work in progress
+Chapter: The woven corpus
 Package: packages/loom-lang/src/weave/WovenCorpus.ts
+Language: TypeScript
 ---
 
 # The woven corpus
@@ -117,7 +119,7 @@ export type WovenPage = typeof WovenPageSchema.Type
 
 ## The navigation tree
 
-The navigation tree is the corpus's own structure — its parts, and the chapters grouped under them, in the order the table of contents sets. A consumer renders it into whatever navigation it wants, a sidebar or a drop-down or nothing at all; the model only carries the shape. A `WovenNavEntry` is one chapter in that tree: its `number`, its `title`, and the `slug` that opens it. A `WovenPart` groups the entries that share a part, under the part's `number` and `name`.
+The navigation tree is the corpus's own structure — its parts, and the chapters grouped under them, in the order the table of contents sets. A consumer renders it into whatever navigation it wants, a sidebar or a drop-down or nothing at all; the model only carries the shape. A `WovenNavEntry` is one chapter in that tree: its `number` — empty when the chapter is numberless — its `title`, the `slug` that opens it, and the optional `status` and `priority` a roadmap reads. A `WovenPart` groups the entries that share a part, under the part's `number` — empty for a numberless part — and its `name`. A chapter that belongs to no part is a loose entry, the same `WovenNavEntry`, which the corpus keeps apart from the parts, unordered, for a consumer to place as it sees fit.
 
 =>
 
@@ -125,6 +127,8 @@ export const WovenNavEntrySchema = Schema.Struct({
   number: Schema.String,
   title: Schema.String,
   slug: Schema.String,
+  status: Schema.optional(Schema.String),
+  priority: Schema.optional(Schema.String),
 })
 export type WovenNavEntry = typeof WovenNavEntrySchema.Type
 
@@ -137,12 +141,13 @@ export type WovenPart = typeof WovenPartSchema.Type
 
 ## The corpus
 
-A `WovenCorpus` is the two halves together: the `nav` that holds the corpus's structure and the `pages` a reader reads.
+A `WovenCorpus` is the corpus as data: the `nav` that groups chapters under their parts, the `loose` chapters that belong to no part, and the `pages` a reader reads.
 
 =>
 
 export const WovenCorpusSchema = Schema.Struct({
   nav: Schema.Array(WovenPartSchema),
+  loose: Schema.Array(WovenNavEntrySchema),
   pages: Schema.Array(WovenPageSchema),
 })
 export type WovenCorpus = typeof WovenCorpusSchema.Type

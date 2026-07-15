@@ -94,6 +94,7 @@ The book closes where it began, with the fact that Loom is written in Loom. This
 9. Packaging the TypeScript service
 10. Packaging the Loom CLI
 11. Publishing to npm
+12. Generating the table of contents
 
 ### Part IX — Extensions for IDEs
 
@@ -140,11 +141,13 @@ Loom ships itself on every push. A gate runs first — the tests, and a check th
 1. Continuous integration
 2. Releasing on a push
 
-### Part XIII — Work in progress
+### Work in progress
 
-This part is never finished. It holds the framework's active work — each open problem or unbuilt feature as its own loom, written to be worked out in place. When a chapter here is done, it graduates to its home part.
-
-1. Rename freshness
-2. Testing in looms
-3. The generated table of contents
-4. A duplicate section name
+- A duplicate section name
+- Rename freshness
+- Testing in looms
+- The Foldkit fork
+- The weave pass
+- The weave writer
+- The woven corpus
+- Weaving

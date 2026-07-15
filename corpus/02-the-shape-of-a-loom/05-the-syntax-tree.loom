@@ -38,7 +38,7 @@ export type LoomSection = typeof LoomSectionSchema.Type
 
 ## The frontmatter
 
-A `LoomFrontmatter` is a chapter's opening block, parsed. It carries the membership line's `part`, `chapter`, and `title`, and the block's two fields: the `package` a `{Tangle}` section writes to, and the `language` its sections inherit. Every slot is optional, so a partial block still parses to a node the diagnostics can fault, and a file with no block has no frontmatter at all.
+A `LoomFrontmatter` is a chapter's opening block, parsed. It carries the membership line's `part`, `partName`, `chapter`, and `title`, and the block's fields: the `package` a `{Tangle}` section writes to, the `language` its sections inherit, and the `status` and `priority` a roadmap reads. A numbered part fills `part`; a numberless one fills `partName` alone. Every slot is optional, so a partial block still parses to a node the diagnostics can fault, and a file with no block has no frontmatter at all.
 
 =>
 
@@ -49,6 +49,8 @@ export const LoomFrontmatterSchema = loomNode('LoomFrontmatter', {
   title: Schema.optional(FrontmatterTitleTokenSchema),
   package: Schema.optional(FrontmatterValueTokenSchema),
   language: Schema.optional(FrontmatterValueTokenSchema),
+  status: Schema.optional(FrontmatterValueTokenSchema),
+  priority: Schema.optional(FrontmatterValueTokenSchema),
 })
 export type LoomFrontmatter = typeof LoomFrontmatterSchema.Type
 

@@ -1,6 +1,8 @@
 ---
-Language: TypeScript
+Part: Work in progress
+Chapter: The weave pass
 Package: packages/loom-lang/src/weave/WeaveBuilder.ts
+Language: TypeScript
 ---
 
 # The weave pass
@@ -11,7 +13,7 @@ The pass reads the parse, not the product. A woven page holds each section's pro
 
 ## What this module draws on
 
-The pass reads the Loom AST and writes the woven model, so it draws from both. From `effect` come the array and option combinators, `Match` for dispatching on a weft and a menu entry, and `pipe` for the spine. From the Loom side come the section a page is built from, the preamble and section-body wefts its runs are made of, the contents weft its menu is folded from, and the anchor token a code link resolves. The corpus supplies `titleIndexes` and `resolveAnchor` — the same lexical lookup the editor navigates by — so a code anchor reaches the very section a bare `::[…]` composes. From the woven side come the schema constructors for every node the pass builds: the corpus, its parts and entries, its pages, the source anchor each block records, and the blocks and links a page holds.
+The pass reads the Loom AST and writes the woven model, so it draws from both. From `effect` come the array and option combinators, `Match` for dispatching on a section's runs, and `pipe` for the spine. From the Loom side come the section a page is built from, the preamble and section-body wefts its runs are made of, and the anchor token a code link resolves. The corpus supplies `titleIndexes` and `resolveAnchor` — the same lexical lookup the editor navigates by — so a code anchor reaches the very section a bare `::[…]` composes. The table-of-contents pass supplies the book's structure: `buildContents` reads the corpus's frontmatter into parts and chapters, which the navigation projects into its tree. From the woven side come the schema constructors for every node the pass builds: the corpus, its parts and entries, its pages, the source anchor each block records, and the blocks and links a page holds.
 
 =>
 
@@ -20,7 +22,6 @@ import type { LoomSection } from '@athrio/loom-ast/LoomAst'
 import type {
   PreambleWeft,
   SectionBodyWeft,
-  TocWeft,
 } from '@athrio/loom-ast/Weft'
 import type { WarpAnchorToken } from '@athrio/loom-ast/LoomTokens'
 import {
@@ -49,12 +50,17 @@ import {
   type WovenPart,
   WovenPartSchema,
 } from './WovenCorpus'
+import {
+  buildContents,
+  type TocChapter,
+  type TocPart,
+} from './TableOfContentsBuilder'
 
 ## The builder and its spine
 
 `WeaveBuilder` is the service the rest of the pipeline calls. Its one method, `build`, wraps the pure `buildCorpus` in an Effect so callers compose it like any other pass.
 
-`buildCorpus` is the spine. It reads the parsed corpus once for the title index a code link resolves through, folds the corpus's contents into the navigation tree, maps each chapter to its page, and pairs the two into a `WovenCorpus`. A page carries the name of the part it sits under, so the spine reads that from the tree it just built.
+`buildCorpus` is the spine. It reads the corpus once for the title index a code link resolves through, projects the table of contents into the navigation tree and its loose chapters, maps each chapter to its page, and pairs them into a `WovenCorpus`. A page carries the name of the part it sits under, so the spine reads that from the tree it just built.
 
 =>
 
@@ -73,12 +79,14 @@ export class WeaveBuilder extends Context.Service<WeaveBuilder>()(
 export const buildCorpus = (corpus: LoomCorpusAst): WovenCorpus => {
   const modules = Array.fromIterable(corpus.modules.values())
   const indexes = titleIndexes(corpus.modules)
-  const nav = buildNav(modules)
+  const toc = buildContents(corpus)
+  const nav = Array.map(toc.parts, wovenPart)
+  const loose = Array.map(toc.loose, wovenEntry)
   const partOfSlug = partIndex(nav)
   const pages = Array.getSomes(Array.map(modules, (module) =>
     buildPage(module, indexes, partOfSlug),
   ))
-  return WovenCorpusSchema.make({ nav, pages })
+  return WovenCorpusSchema.make({ nav, loose, pages })
 }
 
 ## Slugs and identifiers
@@ -107,115 +115,25 @@ const sliceContent = (text: string, span: Span): string =>
 
 ## The navigation tree
 
-The menu is the book's own table of contents, projected. `bookEntries` finds the module that carries a `{TOC}` section and reads its entries in order; a corpus with no contents has an empty menu. `chapterSlugs` maps each chapter's frontmatter title to its page slug, so a contents entry — which names a chapter by title — resolves to the page it opens.
-
-`foldEntry` folds the entries into parts. A part entry opens a new `WovenPart`; each chapter entry after it that resolves to a page appends to that part. So the menu keeps the contents' own order and grouping, an interstitial part with no chapters included. An entry that names no page is left out — a dead link has no place in a menu, and the diagnostics already fault it. `classifyEntry` reads which an entry is from the slots it fills, `parsePart` splits a `Part I — Using Loom` label into its number and name, and `appendChapter` adds an entry to the part opened last. `partIndex` inverts the finished menu into a slug-to-part-name lookup, the breadcrumb each page shows.
+The navigation is the table of contents, projected into the woven model. `buildContents` has already read the corpus's frontmatter into ordered parts and their chapters, so the weave only turns each into its woven node. `wovenPart` maps a part — its number, empty for a numberless one, its name, and its chapters. `wovenEntry` maps a chapter to a `WovenNavEntry`: its number, its title, the slug its path opens, and the status and priority a board reads. `partIndex` inverts the finished tree into a slug-to-part-name lookup, the breadcrumb each page shows.
 
 =>
 
-const bookEntries = (
-  modules: ReadonlyArray<LoomModule>,
-): ReadonlyArray<TocWeft> =>
-  pipe(
-    Array.findFirst(modules, (m) =>
-      Array.some(m.doc.sections, (s) => s.entries !== undefined),
-    ),
-    Option.map((m) => Array.flatMap(m.doc.sections, (s) => s.entries ?? [])),
-    Option.getOrElse((): ReadonlyArray<TocWeft> => []),
-  )
-
-const chapterSlugs = (
-  modules: ReadonlyArray<LoomModule>,
-): ReadonlyMap<string, string> =>
-  pipe(
-    modules,
-    Array.map((m) =>
-      Option.map(
-        Option.fromNullishOr(m.doc.frontmatter?.title),
-        (title) => [title.value, slugFor(m.path)] as const,
-      ),
-    ), Array.getSomes,
-    Array.reduce(new Map<string, string>(), (index, [title, slug]) =>
-      index.has(title) ? index : new Map(index).set(title, slug),
-    ),
-  )
-
-type Entry =
-  | { readonly kind: 'part'; readonly label: string }
-  | { readonly kind: 'chapter'; readonly number: string; readonly title: string }
-  | { readonly kind: 'blank' }
-
-const classifyEntry = (entry: TocWeft): Entry =>
-  pipe(
-    Option.fromNullishOr(entry.part),
-    Option.map((p): Entry => ({ kind: 'part', label: p.value })),
-    Option.orElse(() =>
-      Option.map(
-        Option.all({
-          chapter: Option.fromNullishOr(entry.chapter),
-          title: Option.fromNullishOr(entry.title),
-        }),
-        ({ chapter, title }): Entry => ({
-          kind: 'chapter',
-          number: chapter.value,
-          title: title.value,
-        }),
-      ),
-    ),
-    Option.getOrElse((): Entry => ({ kind: 'blank' })),
-  )
-
-const partLabel = /^Part\s+(\S+)\s*[—–-]\s*(.+)$/
-
-const parsePart = (
-  label: string,
-): { readonly number: string; readonly name: string } =>
-  Option.match(Option.fromNullishOr(partLabel.exec(label)), {
-    onNone: () => ({ number: label, name: label }),
-    onSome: (m) => ({ number: m[1] ?? label, name: (m[2] ?? label).trim() }),
+const wovenEntry = (chapter: TocChapter): WovenNavEntry =>
+  WovenNavEntrySchema.make({
+    number: chapter.number,
+    title: chapter.title,
+    slug: slugFor(chapter.path),
+    status: chapter.status,
+    priority: chapter.priority,
   })
 
-const appendChapter = (
-  parts: ReadonlyArray<WovenPart>,
-  chapter: WovenNavEntry,
-): ReadonlyArray<WovenPart> =>
-  Option.match(Array.last(parts), {
-    onNone: () => parts,
-    onSome: (last) => [
-      ...Array.dropRight(parts, 1),
-      { ...last, chapters: [...last.chapters, chapter] },
-    ],
+const wovenPart = (part: TocPart): WovenPart =>
+  WovenPartSchema.make({
+    number: part.number,
+    name: part.name,
+    chapters: Array.map(part.chapters, wovenEntry),
   })
-
-const foldEntry =
-  (slugs: ReadonlyMap<string, string>) =>
-  (parts: ReadonlyArray<WovenPart>, entry: TocWeft): ReadonlyArray<WovenPart> =>
-    Match.value(classifyEntry(entry)).pipe(
-      Match.when({ kind: 'part' }, ({ label }) => {
-        const { number, name } = parsePart(label)
-        return [...parts, WovenPartSchema.make({ number, name, chapters: [] })]
-      }),
-      Match.when({ kind: 'chapter' }, ({ number, title }) =>
-        Option.match(Option.fromNullishOr(slugs.get(title)), {
-          onNone: () => parts,
-          onSome: (slug) =>
-            appendChapter(
-              parts,
-              WovenNavEntrySchema.make({ number, title, slug }),
-            ),
-        }),
-      ),
-      Match.orElse(() => parts),
-    )
-
-const buildNav = (
-  modules: ReadonlyArray<LoomModule>,
-): ReadonlyArray<WovenPart> =>
-  Array.reduce(
-    bookEntries(modules),
-    [] as ReadonlyArray<WovenPart>,
-    foldEntry(chapterSlugs(modules)),
-  )
 
 const partIndex = (
   nav: ReadonlyArray<WovenPart>,
@@ -226,9 +144,37 @@ const partIndex = (
     ),
   )
 
+## A chapter's title
+
+A page is titled from its loom. `chapterTitleOf` reads that title from the frontmatter, or from the first heading when the frontmatter declares none, so a work-in-progress loom with no membership still names its page. `firstHeadingTitle` finds that heading. `isBookRoot` marks the one module that carries the `{TOC}`, the contents itself, which is no chapter and so yields no page.
+
+=>
+
+const isBookRoot = (module: LoomModule): boolean =>
+  Array.some(module.doc.sections, (section) => section.entries !== undefined)
+
+const firstHeadingTitle = (module: LoomModule): Option.Option<string> =>
+  pipe(
+    Array.findFirst(
+      module.doc.sections,
+      (section) => section.heading.title !== undefined,
+    ),
+    Option.flatMap((section) => Option.fromNullishOr(section.heading.title)),
+    Option.map((title) => title.source),
+  )
+
+const chapterTitleOf = (module: LoomModule): Option.Option<string> =>
+  Option.orElse(
+    Option.map(
+      Option.fromNullishOr(module.doc.frontmatter?.title),
+      (title) => title.value,
+    ),
+    () => firstHeadingTitle(module),
+  )
+
 ## A page and its blocks
 
-`buildPage` builds a chapter's page. A chapter is any module with a frontmatter title, so a module without one — the book root that carries only the contents — yields no page. The page takes its slug from its path, its title from the frontmatter, its part from the navigation tree, and its blocks from its sections.
+`buildPage` builds a chapter's page. Every module is a chapter except the book root, so a loom with no frontmatter title still yields a page, its title read from the first heading instead. The page takes its slug from its path, its title from `chapterTitleOf`, its part from the navigation tree — absent for a loose chapter — and its blocks from its sections.
 
 `buildBlocks` walks a chapter's sections in order, and `sectionBlocks` turns one section into its blocks: its heading, then a block for each run of its body. Every block a section yields shares one `source` anchor, which `sectionSource` builds from the chapter's slug and the section's heading id — the pin back to the loom. `headingBlock` reads the heading's level from the count of its `#` marks, and its title straight from the source. Cutting the body into runs is the next section's work.
 
@@ -239,18 +185,17 @@ const buildPage = (
   indexes: TitleIndexes,
   partOfSlug: ReadonlyMap<string, string>,
 ): Option.Option<WovenPage> =>
-  Option.map(
-    Option.fromNullishOr(module.doc.frontmatter?.title),
-    (title): WovenPage => {
-      const slug = slugFor(module.path)
-      return WovenPageSchema.make({
-        slug,
-        title: title.value,
-        part: partOfSlug.get(slug),
-        blocks: buildBlocks(module, indexes),
+  isBookRoot(module)
+    ? Option.none()
+    : Option.map(chapterTitleOf(module), (title): WovenPage => {
+        const slug = slugFor(module.path)
+        return WovenPageSchema.make({
+          slug,
+          title,
+          part: partOfSlug.get(slug),
+          blocks: buildBlocks(module, indexes),
+        })
       })
-    },
-  )
 
 const buildBlocks = (
   module: LoomModule,
@@ -513,6 +458,8 @@ const resolveLink = (
 ::[Slugs and identifiers]
 
 ::[The navigation tree]
+
+::[A chapter's title]
 
 ::[A page and its blocks]
 

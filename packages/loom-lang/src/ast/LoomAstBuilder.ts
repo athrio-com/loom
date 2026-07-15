@@ -181,14 +181,18 @@ const makeFrontmatter = (
 ): Option.Option<LoomFrontmatter> => {
   if (wefts.length === 0) return Option.none()
   const partFields = Option.match(
-    Option.fromNullishOr(wefts.find((w) => w.part !== undefined)),
+    Option.fromNullishOr(
+      wefts.find((w) => w.part !== undefined || w.partName !== undefined),
+    ),
     {
       onNone: () => ({}),
       onSome: (w) => ({ part: w.part, partName: w.partName }),
     },
   )
   const chapterFields = Option.match(
-    Option.fromNullishOr(wefts.find((w) => w.chapter !== undefined)),
+    Option.fromNullishOr(
+      wefts.find((w) => w.chapter !== undefined || w.title !== undefined),
+    ),
     {
       onNone: () => ({}),
       onSome: (w) => ({ chapter: w.chapter, title: w.title }),
@@ -206,6 +210,8 @@ const makeFrontmatter = (
       ...chapterFields,
       package: Option.getOrUndefined(frontmatterField(wefts, 'Package')),
       language: Option.getOrUndefined(frontmatterField(wefts, 'Language')),
+      status: Option.getOrUndefined(frontmatterField(wefts, 'Status')),
+      priority: Option.getOrUndefined(frontmatterField(wefts, 'Priority')),
     }),
   )
 }

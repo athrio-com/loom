@@ -1,6 +1,8 @@
 ---
-Language: TypeScript
+Part: Work in progress
+Chapter: The weave writer
 Package: packages/loom-lang/src/weave/LoomWeaver.ts
+Language: TypeScript
 ---
 
 # The weave writer
