@@ -220,15 +220,14 @@ const status = Effect.gen(function* () {
   if (languages.length > 0) yield* Console.log(`${languages.map(mark).join('\n')}\n`)
 })
 
-const set = (key: string, value: string) =>
+const set = (name: string, value: string) =>
   Effect.gen(function* () {
     const config = yield* LoomConfig
     const tangler = yield* LoomTangler
     const workspace = workspaceRoot(process.cwd())
-    const [group, name] = key.split('.')
-    const usage = 'usage: loom set variables.<name> <value>'
-    if (group !== 'variables' || !name || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
-      yield* Console.error(`loom: set binds a workspace variable; \`${key}\` is not \`variables.<name>\` — ${usage}`)
+    const usage = 'usage: loom set <name> <value>'
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+      yield* Console.error(`loom: \`${name}\` is not a variable name — ${usage}`)
       yield* Effect.sync(() => void (process.exitCode = 1))
       return
     }
@@ -244,7 +243,7 @@ const set = (key: string, value: string) =>
     })
     const corpus = resolvePath(workspace, current?.corpus ?? 'corpus')
     const written = yield* tangler.tangle(corpus)
-    yield* Console.log(`loom: set ${key} = ${value} (re-tangled ${written.length} files)`)
+    yield* Console.log(`loom: set ${name} = ${value} (re-tangled ${written.length} files)`)
   }).pipe(
     Effect.catchTag('TangleError', (e) =>
       Console.error(e.message).pipe(
@@ -299,8 +298,8 @@ const statusCommand = Command.make('status', {}, () => status)
 
 const setCommand = Command.make(
   'set',
-  { key: Argument.string('key'), value: Argument.string('value') },
-  ({ key, value }) => set(key, value),
+  { name: Argument.string('name'), value: Argument.string('value') },
+  ({ name, value }) => set(name, value),
 )
 
 const loom = Command.make('loom').pipe(
