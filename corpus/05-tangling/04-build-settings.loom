@@ -10,11 +10,13 @@ Language: TypeScript
 
 ## What the compiler reads
 
-`BuildSettings` is the answer the compiler gets for one file. It holds a full anchor delimiter pair, the file's primary language, the root the file's package tangles under, the workspace root a book's higher-order sink resolves its directories against, and the corpus directory the compiler enumerates to discover the file's sibling looms.
+`BuildSettings` is the answer the compiler gets for one file. It holds a full anchor delimiter pair, the file's primary language, the workspace variables a warp interpolates, the root the file's package tangles under, the workspace root a book's higher-order sink resolves its directories against, and the corpus directory the compiler enumerates to discover the file's sibling looms.
 
-The anchor delimiters are always a complete pair. A `loom.json` may set one side, both, or neither, so `anchorDelimsOf` fills each missing side from `defaultAnchorDelims`, the built-in `::[` and `]`. A package overrides a delimiter only where the default would collide with its own product language.
+The anchor delimiters are always a complete pair. A configuration may set one side, both, or neither, so `anchorDelimsOf` fills each missing side from `defaultAnchorDelims`, the built-in `::[` and `]`. A package overrides a delimiter only where the default would collide with its own product language.
 
 The primary language is the language a specifier-less section inherits. It comes from the workspace configuration, and is absent when the configuration names none. The product pass reads it as the default beneath the document's own `lang` Warp, so a project can name its language once and let every document drop the Warp.
+
+The variables are the workspace's named strings, the values a warp interpolates with `${name}`. They come from the configuration and are empty when it declares none, so a document that names no variable composes untouched.
 
 The package root is the absolute directory the file's package tangles into — the directory holding the file's `corpus/`. `@athrio/loom-config` derives it from that convention, and it is absent when the file sits in no corpus directory.
 
@@ -23,6 +25,7 @@ The package root is the absolute directory the file's package tangles into — t
 export interface BuildSettings {
   readonly delims: AnchorDelims
   readonly primaryLanguage: string | undefined
+  readonly variables: Record<string, string>
   readonly packageRoot: string | undefined
   readonly workspaceRoot: string | undefined
   readonly corpusDir: string | undefined
@@ -52,6 +55,7 @@ export class PackageConfig extends Context.Service<PackageConfig>()(
             Effect.map((c) => ({
               delims: anchorDelimsOf(c.anchor),
               primaryLanguage: c.primary,
+              variables: c.variables,
               packageRoot: c.packageRoot,
               workspaceRoot: c.workspaceRoot,
               corpusDir: c.corpusDir,
@@ -68,7 +72,7 @@ export class PackageConfig extends Context.Service<PackageConfig>()(
 
 ## What this module draws on
 
-Effect supplies the service and the effect type. `LoomConfig`, from `@athrio/loom-config`, finds and reads a file's `loom.json`. `AnchorDelims` and `defaultAnchorDelims` come from the token layer, where the built-in delimiters live, and `Path` types a file path.
+Effect supplies the service and the effect type. `LoomConfig`, from `@athrio/loom-config`, finds and reads a file's configuration. `AnchorDelims` and `defaultAnchorDelims` come from the token layer, where the built-in delimiters live, and `Path` types a file path.
 
 =>
 

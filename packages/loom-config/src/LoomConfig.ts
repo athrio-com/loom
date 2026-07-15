@@ -22,25 +22,10 @@ const SettingsSchema = Schema.Record(
   Schema.Record(Schema.String, Schema.Unknown),
 )
 
-export const WorkspaceConfigSchema = Schema.Struct({
-  languages: Schema.Record(Schema.String, LanguageSchema),
-  corpus: Schema.optional(Schema.String),
-  primary: Schema.optional(Schema.String),
-  anchor: Schema.optional(AnchorSchema),
-  settings: Schema.optional(SettingsSchema),
-})
-
-export type WorkspaceConfig = typeof WorkspaceConfigSchema.Type
-
-const decodeConfig = Schema.decodeUnknownOption(WorkspaceConfigSchema)
-
-export const parseConfig = (text: string): WorkspaceConfig | undefined => {
-  try {
-    return Option.getOrUndefined(decodeConfig(parseYaml(text)))
-  } catch {
-    return undefined
-  }
-}
+const VariablesSchema = Schema.Record(
+  Schema.String,
+  Schema.Union([Schema.String, Schema.Number, Schema.Boolean]),
+)
 
 export const WorkspaceManifestSchema = Schema.Struct({
   languages: Schema.optional(
@@ -50,6 +35,7 @@ export const WorkspaceManifestSchema = Schema.Struct({
   primary: Schema.optional(Schema.String),
   anchor: Schema.optional(AnchorSchema),
   settings: Schema.optional(SettingsSchema),
+  variables: Schema.optional(VariablesSchema),
 })
 
 export type WorkspaceManifest = typeof WorkspaceManifestSchema.Type
@@ -59,6 +45,7 @@ export interface ResolvedConfig {
   readonly primary: string | undefined
   readonly languages: ReadonlyArray<string>
   readonly settings: Record<string, Record<string, unknown>>
+  readonly variables: Record<string, string>
   readonly services: Record<string, string>
   readonly packageRoot: string | undefined
   readonly workspaceRoot: string | undefined
@@ -70,6 +57,7 @@ const empty: ResolvedConfig = {
   primary: undefined,
   languages: [],
   settings: {},
+  variables: {},
   services: {},
   packageRoot: undefined,
   workspaceRoot: undefined,
@@ -104,6 +92,13 @@ const servicesOf = (
 ): Record<string, string> =>
   Object.fromEntries(
     Object.entries(languages ?? {}).map(([id, language]) => [id, serviceFor(id, language)]),
+  )
+
+const variablesOf = (
+  variables: Record<string, string | number | boolean> | undefined,
+): Record<string, string> =>
+  Object.fromEntries(
+    Object.entries(variables ?? {}).map(([name, value]) => [name, String(value)]),
   )
 
 const containerRoot = (
@@ -142,6 +137,7 @@ const resolveFromManifest = (
     primary: manifest.primary,
     languages: Object.keys(manifest.languages ?? {}),
     settings: manifest.settings ?? {},
+    variables: variablesOf(manifest.variables),
     services: servicesOf(manifest.languages),
     packageRoot: containerRoot(dirname(fromPath), container, workspace),
     workspaceRoot: workspace,

@@ -1,5 +1,5 @@
 ---
-Part V, Chapter 8: The tangle lock
+Part V, Chapter 7: The tangle lock
 Package: packages/loom-lang/src/LoomLock.ts
 Language: TypeScript
 ---

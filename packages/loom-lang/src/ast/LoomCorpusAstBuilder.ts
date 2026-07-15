@@ -80,10 +80,11 @@ export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>(
         path: Path,
         delims: AnchorDelims = defaultAnchorDelims,
         primaryLanguage?: string,
+        variables: Record<string, string> = {},
       ): Effect.Effect<LoomModule> =>
         Effect.gen(function* () {
           const { text, doc } = yield* parsed(source, path, delims)
-          const product = yield* products.build(doc, path, primaryLanguage)
+          const product = yield* products.build(doc, path, primaryLanguage, variables)
           return { path, text, doc, product }
         })
 

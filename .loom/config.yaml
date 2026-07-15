@@ -2,3 +2,5 @@ corpus: corpus
 languages:
   typescript: {}
 primary: typescript
+variables:
+  version: 0.0.3

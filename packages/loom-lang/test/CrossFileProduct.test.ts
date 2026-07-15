@@ -46,6 +46,7 @@ const checkerFor = async (entry: string) => {
         primary: 'typescript',
         languages: ['typescript'],
         settings: {},
+        variables: {},
         services: {},
         packageRoot: undefined,
         workspaceRoot: undefined,

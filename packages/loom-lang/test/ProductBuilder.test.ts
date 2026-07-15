@@ -19,12 +19,22 @@ import {
 // de re each construct produces. Where a probe asserts a diagnostic, it banners the
 // health it expects so the logged faults read as asserted, not as run defects.
 
-const productOf = (text: string, path = '/m.loom', lang?: string) =>
+const productOf = (
+  text: string,
+  path = '/m.loom',
+  lang?: string,
+  variables: Record<string, string> = {},
+) =>
   buildProduct(
     Effect.runSync(parseDocument(text).pipe(Effect.provide(ParseLayer))),
     path,
     lang,
+    variables,
   )
+
+// A literal `${name}` for a fixture, built so the test file's own template
+// literals never interpolate it as JavaScript.
+const varRef = (name: string) => '${' + name + '}'
 
 const codeNamed = (product: { readonly code: ReadonlyArray<Code> }, name: string) =>
   Array.findFirst(product.code, (c) => c.origin.name === name)
@@ -176,6 +186,66 @@ Language: TypeScript
       .map((f) => f.text)
       .join('')
     expect(text).toBe('const x = 1\n') // `::[c]` became `const`, quotes stripped
+  })
+})
+
+describe('ProductBuilder — a value warp interpolates a workspace variable', () => {
+  it('substitutes a workspace variable, bare and inside a string', () => {
+    const product = productOf(
+      `---
+Language: TypeScript
+---
+
+# Version
+
+{{ v = ${varRef('version')} }}
+{{ tag = "loom-${varRef('version')}" }}
+
+=>
+
+::[v]
+::[tag]
+`,
+      '/m.loom',
+      undefined,
+      { version: '1.2.3' },
+    )
+    const code = Option.getOrThrow(codeNamed(product, 'Version'))
+    expect(refs(code.fragments)).toEqual([]) // a value reaches no section
+    const text = fragments(code.fragments)
+      .map((f) => f.text)
+      .join('')
+    expect(text).toContain('1.2.3') // the bare workspace variable
+    expect(text).toContain('loom-1.2.3') // interpolated inside a string
+  })
+
+  it('leaves an undeclared variable in place and raises UnknownVariable', () => {
+    const product = productOf(
+      `---
+Language: TypeScript
+---
+
+# Missing
+
+{{ v = ${varRef('nope')} }}
+
+=>
+
+::[v]
+`,
+      '/m.loom',
+      undefined,
+      {},
+    )
+    const code = Option.getOrThrow(codeNamed(product, 'Missing'))
+    const faulted = Option.getOrThrow(
+      Array.findFirst(fragments(code.fragments), (f) => f.health.status === 'error'),
+    )
+    console.log(
+      '[expected — not a test failure] unknown-variable diagnostic:',
+      JSON.stringify(faulted.health.diagnostics),
+    )
+    expect(faulted.text).toContain(varRef('nope')) // the undeclared name kept verbatim
   })
 })
 

@@ -12,22 +12,24 @@ Both run from the workspace root under Bun, and both are safe to run twice. The 
 
 # Bumping the shared version
 
-The version lives in the corpus — in the manifest of each package, and in the string literals the running tools report themselves by. Editing those one at a time lets them drift apart. The `bump` tool takes the new version, finds the current one, rewrites every place that carries it, and re-tangles the looms it changed. One command moves the whole workspace to a new version at once.
+The version lives in one place: the `version` variable in `.loom/config.yaml`. Every package manifest and every running tool interpolates it through a warp, so the number is written once and composed wherever it is read. The `bump` tool takes the new version, writes it to that variable, and re-tangles the corpus. One command moves the whole workspace to a new version at once.
 
 ## What the bump tool draws on
 
-The tool reads and writes files and runs the tangler, so it draws on Effect's filesystem service and Bun's process spawning. The scripts live in a `scripts` directory at the workspace root. Node's `path` locates the workspace around the script, and `url` turns the script's own module URL into a directory. The workspace root sits one level above that directory; the corpus and the built CLI sit within it, and the CLI is the tangler the re-tangle step runs.
+The tool reads and writes files and runs the tangler, so it draws on Effect's filesystem service and Bun's process spawning. The scripts live in a `scripts` directory at the workspace root. Node's `path` locates the workspace around the script, and `url` turns the script's own module URL into a directory. The workspace root sits one level above that directory; the corpus, the built CLI, and the `.loom/config.yaml` that holds the version all sit within it. The `yaml` package reads and rewrites that configuration.
 
 =>
 
-import { Array, Console, Data, Effect, FileSystem, Option } from 'effect'
+import { Console, Data, Effect, FileSystem, Option } from 'effect'
 import { BunRuntime, BunServices } from '@effect/platform-bun'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 
 const workspace = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const corpus = join(workspace, 'corpus')
 const cli = join(workspace, 'packages', 'loom', 'dist', 'main.js')
+const configFile = join(workspace, '.loom', 'config.yaml')
 
 ~
 
@@ -48,32 +50,11 @@ const run = (command: ReadonlyArray<string>): Effect.Effect<void, BumpError> =>
     ),
   )
 
-## Rewriting one version to another
-
-The version appears in two shapes across the corpus. A JSON manifest writes `"version": "0.0.3"`, and a running tool reports itself with a `version: '0.0.3'` literal. `replaceVersion` rewrites both, and only both — it matches the version in a `version` position, so a dependency pinned elsewhere in a manifest stays untouched.
-
-=>
-
-const replaceVersion = (text: string, from: string, to: string): string =>
-  text
-    .replaceAll(`"version": "${from}"`, `"version": "${to}"`)
-    .replaceAll(`version: '${from}'`, `version: '${to}'`)
-
-~
-
-`looms` lists every loom in the corpus. It scans the corpus tree for `.loom` files and returns their absolute paths, the set the tool rewrites across.
-
-=>
-
-const looms: Effect.Effect<ReadonlyArray<string>> = Effect.sync(() => [
-  ...new Bun.Glob('**/*.loom').scanSync({ cwd: corpus, absolute: true }),
-])
-
 ## The bump tool itself
 
-The tool takes the new version on the command line and reads the current one from the CLI's own manifest, the shared number every package tracks. It rewrites each loom that carries the current version, keeping the ones it changed, and re-tangles only those, so the manifests and the source they produce move to the new version together.
+The tool takes the new version on the command line and reads the current one from the configuration, for its log. It writes the new version into the `version` variable and re-tangles the corpus, so every manifest and running tool that interpolates the variable moves to the new version at once.
 
-The new version is required. Without it the tool prints its usage and exits, rather than rewriting the corpus to the word `undefined`.
+The new version is required. Without it the tool prints its usage and exits, rather than writing the word `undefined` into the configuration.
 
 =>
 
@@ -89,23 +70,18 @@ const bump = Effect.gen(function* () {
   }
   const to = target.value
 
-  const manifest = yield* fs.readFileString(join(workspace, 'packages', 'loom', 'package.json'))
-  const from = (JSON.parse(manifest) as { version: string }).version
+  const current = yield* fs.readFileString(configFile)
+  const config = parseYaml(current) as {
+    readonly variables?: Record<string, string>
+  }
+  const from = config.variables?.version ?? 'unset'
+  yield* fs.writeFileString(
+    configFile,
+    stringifyYaml({ ...config, variables: { ...config.variables, version: to } }),
+  )
 
-  const paths = yield* looms
-  const changed = yield* Effect.forEach(paths, (path) =>
-    fs.readFileString(path).pipe(
-      Effect.flatMap((text) => {
-        const next = replaceVersion(text, from, to)
-        return next === text
-          ? Effect.succeed(Option.none<string>())
-          : fs.writeFileString(path, next).pipe(Effect.as(Option.some(path)))
-      }),
-    ),
-  ).pipe(Effect.map(Array.getSomes))
-
-  yield* Effect.forEach(changed, (path) => run(['bun', cli, 'tangle', path]))
-  yield* Console.log(`bumped ${from} → ${to} across ${changed.length} looms`)
+  yield* run(['bun', cli, 'tangle', corpus])
+  yield* Console.log(`bumped ${from} → ${to}`)
 }).pipe(Effect.provide(BunServices.layer))
 
 BunRuntime.runMain(
@@ -125,8 +101,6 @@ BunRuntime.runMain(
 =>
 
 ::[What the bump tool draws on]
-
-::[Rewriting one version to another]
 
 ::[The bump tool itself]
 

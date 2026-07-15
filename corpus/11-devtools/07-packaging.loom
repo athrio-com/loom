@@ -14,13 +14,15 @@ The service runs from source under Bun rather than a bundle, so the package ship
 
 The manifest names the package and what it exports — the note schemas and the Vite plugin, the two modules a consumer reaches for. The store, the API, and the agent's tools are the service's own; a page reaches them over HTTP, not through an import. The service leans on Effect's SQL layer and the Postgres driver; the overlay on Foldkit, Effect, and `clsx`; the build on the Tailwind command line. The `build` script compiles the overlay; `serve` runs the service straight from source.
 
+{{ version = ${version} }}
+
 =>
 
 {
   "name": "@athrio/loom-devtools",
   "type": "module",
   "private": true,
-  "version": "0.0.3",
+  "version": "::[version]",
   "scripts": {
     "build": "bun build.ts",
     "serve": "bun src/serve.ts",

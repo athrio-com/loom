@@ -6,6 +6,7 @@ import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
 export interface BuildSettings {
   readonly delims: AnchorDelims
   readonly primaryLanguage: string | undefined
+  readonly variables: Record<string, string>
   readonly packageRoot: string | undefined
   readonly workspaceRoot: string | undefined
   readonly corpusDir: string | undefined
@@ -29,6 +30,7 @@ export class PackageConfig extends Context.Service<PackageConfig>()(
             Effect.map((c) => ({
               delims: anchorDelimsOf(c.anchor),
               primaryLanguage: c.primary,
+              variables: c.variables,
               packageRoot: c.packageRoot,
               workspaceRoot: c.workspaceRoot,
               corpusDir: c.corpusDir,

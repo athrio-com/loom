@@ -35,6 +35,7 @@ describe('PackageConfig.resolve — per-file build settings', () => {
     expect(run(join(dir, 'a.loom'))).toEqual({
       delims: { open: '<<', close: '>>' },
       primaryLanguage: 'typescript',
+      variables: {},
       packageRoot: undefined,
       workspaceRoot: dir,
       corpusDir: dir,
@@ -47,6 +48,7 @@ describe('PackageConfig.resolve — per-file build settings', () => {
     expect(run(join(dir, 'a.loom'))).toEqual({
       delims: { open: '<<', close: defaultAnchorDelims.close },
       primaryLanguage: undefined,
+      variables: {},
       packageRoot: undefined,
       workspaceRoot: dir,
       corpusDir: dir,
@@ -61,6 +63,7 @@ describe('PackageConfig.resolve — per-file build settings', () => {
     expect(run(join(nested, 'b.loom'))).toEqual({
       delims: defaultAnchorDelims,
       primaryLanguage: 'bash',
+      variables: {},
       packageRoot: undefined,
       workspaceRoot: dir,
       corpusDir: nested,
@@ -71,6 +74,7 @@ describe('PackageConfig.resolve — per-file build settings', () => {
     expect(run(join(tempDir(), 'c.loom'))).toEqual({
       delims: defaultAnchorDelims,
       primaryLanguage: undefined,
+      variables: {},
       packageRoot: undefined,
       workspaceRoot: undefined,
       corpusDir: undefined,
@@ -81,6 +85,7 @@ describe('PackageConfig.resolve — per-file build settings', () => {
     expect(run('')).toEqual({
       delims: defaultAnchorDelims,
       primaryLanguage: undefined,
+      variables: {},
       packageRoot: undefined,
       workspaceRoot: undefined,
       corpusDir: undefined,

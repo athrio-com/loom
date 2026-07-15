@@ -1,5 +1,5 @@
 ---
-Part V, Chapter 6: The fault catalog
+Part V, Chapter 5: The fault catalog
 Package: packages/loom-lang/src/ast/LoomFault.ts
 Language: TypeScript
 ---
@@ -12,7 +12,7 @@ Writing them once is the point. A reader sees everything Loom can say, gathered 
 
 ## What Loom can get wrong
 
-A `LoomFault` is a tagged union, and each variant names one fault and carries only what its message needs. An `UnclosedDelimiter` carries the delimiter it expected to find. An `UnresolvedAnchor` carries the name that matched no section, and an `AmbiguousAnchor` adds the count that made it ambiguous. A `MissingWarpValue` carries the name of a Warp that bound nothing. A `CrossLanguageAnchor` carries the anchor name, the language found at the target, and the language the host section composes. An `UnresolvedTocEntry` carries the title of a table-of-contents entry that names no chapter.
+A `LoomFault` is a tagged union, and each variant names one fault and carries only what its message needs. An `UnclosedDelimiter` carries the delimiter it expected to find. An `UnresolvedAnchor` carries the name that matched no section, and an `AmbiguousAnchor` adds the count that made it ambiguous. A `MissingWarpValue` carries the name of a Warp that bound nothing. An `UnknownVariable` carries the name a warp interpolated that the configuration never declared. A `CrossLanguageAnchor` carries the anchor name, the language found at the target, and the language the host section composes. An `UnresolvedTocEntry` carries the title of a table-of-contents entry that names no chapter.
 
 The label faults fold many constructs into two variants. A construct is a named span the grammar validates — a specifier, a file path, a warp name, an anchor name. `EmptyLabel` is one with no text. `MalformedLabel` is one whose text breaks the construct's rule. Two further constructs — a warp annotation and a warp default — can only be empty, never malformed, so `EmptyConstruct` adds those two to `MalformedConstruct`.
 
@@ -37,6 +37,7 @@ export type LoomFault = Data.TaggedEnum<{
     readonly value: string
   }
   MissingWarpValue: { readonly name: string }
+  UnknownVariable: { readonly name: string }
   UnresolvedAnchor: { readonly name: string }
   AmbiguousAnchor: { readonly name: string; readonly count: number }
   CrossLanguageAnchor: {
@@ -58,6 +59,7 @@ export const {
   EmptyLabel,
   MalformedLabel,
   MissingWarpValue,
+  UnknownVariable,
   UnresolvedAnchor,
   AmbiguousAnchor,
   CrossLanguageAnchor,
@@ -108,6 +110,11 @@ export const describe = (fault: LoomFault): Note =>
     ),
     Match.tag('MissingWarpValue', ({ name }) =>
       error(`Warp \`${name}\` has no value; a Warp binds a value, as in \`${name} = …\`.`),
+    ),
+    Match.tag('UnknownVariable', ({ name }) =>
+      error(
+        `Unknown variable: no workspace variable named \`${name}\`. Declare it under \`variables:\` in the configuration.`,
+      ),
     ),
     Match.tag('UnresolvedAnchor', ({ name }) =>
       error(`Unresolved anchor: no section named \`${name}\`.`),

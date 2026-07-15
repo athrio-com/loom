@@ -50,10 +50,9 @@ With the product built, Loom writes it out. This part is the back half of the pi
 2. Tangling to disk
 3. A project's configuration
 4. Build settings for a file
-5. Compiling the configuration
-6. The fault catalog
-7. The build cache
-8. The tangle lock
+5. The fault catalog
+6. The build cache
+7. The tangle lock
 
 ### Part VI — In the editor
 

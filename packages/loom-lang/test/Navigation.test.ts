@@ -47,6 +47,7 @@ const TestConfig = Layer.succeed(
       Effect.succeed({
         delims: defaultAnchorDelims,
         primaryLanguage: undefined,
+        variables: {},
         packageRoot: undefined,
         workspaceRoot: undefined,
         corpusDir: undefined,

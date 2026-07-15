@@ -14,11 +14,13 @@ The `exports` field names the package's surface, and it is a single entry: the d
 
 The package carries no dependencies. The build bundles `volar-service-typescript` and Volar's language layers into `dist/index.js`, and the `prepack` script runs it before each publish, so the package always ships a fresh bundle. The runtime bridge reads `effect`, the `@athrio/loom-lang-services` contract, and the editor's TypeScript from the host at load. Those three are neither bundled nor installed — the host lends them, so a second copy never shadows the `TypescriptSdk` the host provides. The `devDependencies` exist only to build and type-check the source; what the running service shares with the host is fixed by the runtime version `Runtime` declares, not by an npm range.
 
+{{ version = ${version} }}
+
 =>
 
 {
   "name": "@athrio/loom-service-typescript",
-  "version": "0.0.3",
+  "version": "::[version]",
   "description": "The loadable TypeScript language service: the product's own editor program, held apart from the frame.",
   "license": "Apache-2.0 OR MIT",
   "repository": {

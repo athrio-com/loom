@@ -23,7 +23,7 @@ export const servicePackage = (id: string): string =>
 
 The store lives in the workspace, under `.loom/services/` — the directory `loom add` fills, beside the committed `config.yaml`. Git ignores the store, since Loom rebuilds it on demand, while the configuration is committed. Loom installs each language's service there once, to serve the whole workspace, and never under the user's home directory: a project's tools belong to the project, not to the machine.
 
-`workspaceRoot` finds the workspace by walking up for the `.loom/` directory, and `storeDir` names the store `services` within it. The loader passes the directory holding a `.loom` file and the commands pass the working directory; either way the walk reaches the one workspace store, so a service the loader looks for is the service `loom add` placed. `LOOM_HOME` overrides the search with an explicit store — the hook a test or a shared setup uses to point every resolver at one directory. The configuration compiler reuses `workspaceRoot` to find the workspace whose `{Config}` sources it gathers.
+`workspaceRoot` finds the workspace by walking up for the `.loom/` directory, and `storeDir` names the store `services` within it. The loader passes the directory holding a `.loom` file and the commands pass the working directory; either way the walk reaches the one workspace store, so a service the loader looks for is the service `loom add` placed. `LOOM_HOME` overrides the search with an explicit store — the hook a test or a shared setup uses to point every resolver at one directory.
 
 =>
 

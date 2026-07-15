@@ -20,6 +20,7 @@ export type LoomFault = Data.TaggedEnum<{
     readonly value: string
   }
   MissingWarpValue: { readonly name: string }
+  UnknownVariable: { readonly name: string }
   UnresolvedAnchor: { readonly name: string }
   AmbiguousAnchor: { readonly name: string; readonly count: number }
   CrossLanguageAnchor: {
@@ -35,6 +36,7 @@ export const {
   EmptyLabel,
   MalformedLabel,
   MissingWarpValue,
+  UnknownVariable,
   UnresolvedAnchor,
   AmbiguousAnchor,
   CrossLanguageAnchor,
@@ -77,6 +79,11 @@ export const describe = (fault: LoomFault): Note =>
     ),
     Match.tag('MissingWarpValue', ({ name }) =>
       error(`Warp \`${name}\` has no value; a Warp binds a value, as in \`${name} = …\`.`),
+    ),
+    Match.tag('UnknownVariable', ({ name }) =>
+      error(
+        `Unknown variable: no workspace variable named \`${name}\`. Declare it under \`variables:\` in the configuration.`,
+      ),
     ),
     Match.tag('UnresolvedAnchor', ({ name }) =>
       error(`Unresolved anchor: no section named \`${name}\`.`),

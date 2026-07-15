@@ -12,7 +12,6 @@
     "./LoomCompiler": "./src/LoomCompiler.ts",
     "./LoomTangler": "./src/LoomTangler.ts",
     "./PackageConfig": "./src/PackageConfig.ts",
-    "./ManifestBuilder": "./src/ManifestBuilder.ts",
     "./LoomServer": "./src/LoomServer.ts",
     "./weave/WovenCorpus": "./src/weave/WovenCorpus.ts",
     "./weave/LoomWeaver": "./src/weave/LoomWeaver.ts",

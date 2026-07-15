@@ -33,6 +33,7 @@ import {
   AmbiguousAnchor,
   CrossLanguageAnchor,
   faulty,
+  UnknownVariable,
   UnresolvedAnchor,
 } from '#ast/LoomFault'
 import { normaliseTitle } from '#ast/WeftTokeniser'
@@ -45,8 +46,9 @@ export class ProductBuilder extends Context.Service<ProductBuilder>()(
         doc: LoomDocument,
         path: string,
         packageLanguage?: string,
+        variables: Record<string, string> = {},
       ): Effect.Effect<Product> =>
-        Effect.sync(() => buildProduct(doc, path, packageLanguage)),
+        Effect.sync(() => buildProduct(doc, path, packageLanguage, variables)),
     }),
   },
 ) {
@@ -57,6 +59,7 @@ export const buildProduct = (
   doc: LoomDocument,
   modulePath: string,
   packageLanguage?: string,
+  variables: Record<string, string> = {},
 ): Product => {
   const fm = Option.fromNullishOr(doc.frontmatter)
   const pkg = pipe(
@@ -72,7 +75,7 @@ export const buildProduct = (
   const index = nameIndex(doc.sections, lang, pkg)
   return pipe(
     doc.sections,
-    Array.map(buildSection(index, lang, modulePath, pkg)),
+    Array.map(buildSection(index, lang, modulePath, pkg, variables)),
     Array.reduce(emptyProduct, appendSection),
   )
 }
@@ -92,8 +95,6 @@ type NameEntry = {
 }
 type NameIndex = ReadonlyMap<string, ReadonlyArray<NameEntry>>
 
-const reservedLanguage: Record<string, string> = { config: 'yaml' }
-
 const specifierLanguage = (
   label: string,
   sink: Option.Option<SinkToken>,
@@ -107,7 +108,7 @@ const specifierLanguage = (
       onSome: (p) => extensionLanguage(tangleFilePath(p, sink)),
     })
   if (id === 'toc') return 'prose'
-  return reservedLanguage[id] ?? id
+  return id
 }
 
 const sectionLanguage = (
@@ -182,6 +183,7 @@ const extensionLanguage = (path: string): string => {
 interface ValueWarp {
   readonly text: string
   readonly pos: Position
+  readonly health: Health
 }
 
 const decodeLiteral = (text: string): string => {
@@ -191,17 +193,43 @@ const decodeLiteral = (text: string): string => {
   return quoted ? s.slice(1, -1).replace(/\\(.)/g, (_, c) => c) : text
 }
 
+const variablePattern = /[$][{]([A-Za-z_][A-Za-z0-9_]*)[}]/g
+
+const interpolate = (
+  text: string,
+  variables: Record<string, string>,
+): { readonly text: string; readonly missing: Option.Option<string> } => ({
+  text: text.replace(variablePattern, (whole, name: string) =>
+    name in variables ? variables[name]! : whole,
+  ),
+  missing: pipe(
+    Array.fromIterable(text.matchAll(variablePattern)),
+    Array.map((match) => match[1]!),
+    Array.filter((name) => !(name in variables)),
+    Array.head,
+  ),
+})
+
 const valueWarps = (
   warps: ReadonlyArray<WarpToken>,
+  variables: Record<string, string>,
 ): ReadonlyMap<string, ValueWarp> =>
   new Map(
     Array.getSomes(Array.map(warps, (w) =>
-      w.default
-        ? Option.some([
-            w.name.value,
-            { text: decodeLiteral(w.default.value), pos: w.default.position },
-          ] as const)
-        : Option.none(),
+      Option.map(Option.fromNullishOr(w.default), (def) => {
+        const { text, missing } = interpolate(decodeLiteral(def.value), variables)
+        return [
+          w.name.value,
+          {
+            text,
+            pos: def.position,
+            health: Option.match(missing, {
+              onNone: () => okHealth,
+              onSome: (name) => faulty(UnknownVariable({ name }), def.position),
+            }),
+          },
+        ] as const
+      }),
     )),
   )
 
@@ -216,9 +244,10 @@ const buildSection =
     defaultLang: string,
     modulePath: string,
     pkg: Option.Option<string>,
+    variables: Record<string, string>,
   ) =>
   (section: LoomSection): Built => {
-    const values = valueWarps(section.preamble.flatMap((w) => w.warps))
+    const values = valueWarps(section.preamble.flatMap((w) => w.warps), variables)
     const origin: SectionId = { path: modulePath, name: sectionNameOf(section) }
     const languageId = sectionLanguage(section, defaultLang, pkg)
     const code = buildCode(section, values, index, origin, languageId)
@@ -385,7 +414,7 @@ const bindAnchor =
     if (anchor.health.status !== 'ok') return blankFragment(anchor.position)
     const value = values.get(name)
     if (value !== undefined) {
-      return FragmentSchema.make({ text: value.text, origin: at })
+      return FragmentSchema.make({ text: value.text, origin: at, health: value.health })
     }
     return Array.matchLeft(index.get(name) ?? [], {
       onEmpty: () => blankFragment(anchor.position, unresolved(name, at)),

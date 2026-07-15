@@ -83,6 +83,7 @@ import {
   AmbiguousAnchor,
   CrossLanguageAnchor,
   faulty,
+  UnknownVariable,
   UnresolvedAnchor,
 } from '#ast/LoomFault'
 import { normaliseTitle } from '#ast/WeftTokeniser'
@@ -113,8 +114,9 @@ export class ProductBuilder extends Context.Service<ProductBuilder>()(
         doc: LoomDocument,
         path: string,
         packageLanguage?: string,
+        variables: Record<string, string> = {},
       ): Effect.Effect<Product> =>
-        Effect.sync(() => buildProduct(doc, path, packageLanguage)),
+        Effect.sync(() => buildProduct(doc, path, packageLanguage, variables)),
     }),
   },
 ) {
@@ -125,6 +127,7 @@ export const buildProduct = (
   doc: LoomDocument,
   modulePath: string,
   packageLanguage?: string,
+  variables: Record<string, string> = {},
 ): Product => {
   const fm = Option.fromNullishOr(doc.frontmatter)
   const pkg = pipe(
@@ -140,7 +143,7 @@ export const buildProduct = (
   const index = nameIndex(doc.sections, lang, pkg)
   return pipe(
     doc.sections,
-    Array.map(buildSection(index, lang, modulePath, pkg)),
+    Array.map(buildSection(index, lang, modulePath, pkg, variables)),
     Array.reduce(emptyProduct, appendSection),
   )
 }
@@ -179,11 +182,8 @@ to `javascript` and `jsx`, and `.json` to `json`. An unlisted extension falls ba
 to itself, so a new language reads as its bare extension until a service claims it.
 A `.json` sink composes as JSON even in a TypeScript document.
 
-`sectionLanguage` resolves any section's language by these rules — its specifier,
-a sink's extension, or the document default — with one reserved specifier:
-`{Config}` is the workspace or package configuration, whose body is YAML, so it
-reads as YAML even though Loom loads the configuration from the compiled
-`.loom/config.yaml` rather than this section. `nameIndex` records the language
+`sectionLanguage` resolves any section's language by these rules: its specifier,
+a sink's extension, or the document default. `nameIndex` records the language
 beside each title, so when an anchor binds, the pass compares the composing
 section's language to the section it reaches and marks a cross-language
 transclusion when they differ.
@@ -196,8 +196,6 @@ type NameEntry = {
   readonly language: string
 }
 type NameIndex = ReadonlyMap<string, ReadonlyArray<NameEntry>>
-
-const reservedLanguage: Record<string, string> = { config: 'yaml' }
 
 const specifierLanguage = (
   label: string,
@@ -212,7 +210,7 @@ const specifierLanguage = (
       onSome: (p) => extensionLanguage(tangleFilePath(p, sink)),
     })
   if (id === 'toc') return 'prose'
-  return reservedLanguage[id] ?? id
+  return id
 }
 
 const sectionLanguage = (
@@ -287,24 +285,33 @@ const extensionLanguage = (path: string): string => {
 ## Value warps
 
 A warp binds a name its section's anchors compose. A value warp binds the name to
-a literal — a string, a number — and `::[n]` substitutes that literal's value where
-the anchor stood. A value needs no edge and no section: the pass drops the value in
-place. A quoted string yields its content — `{{kw = "const"}}` lands `const` — and
-the author writes any surrounding syntax, the quotes for a string slot, around the
-anchor itself.
+a literal — a string, a number — and `::[n]` substitutes that value where the anchor
+stood. A value needs no edge and no section: the pass drops it in place. A quoted
+string yields its content — `{{kw = "const"}}` lands `const` — and the author writes
+any surrounding syntax, the quotes for a string slot, around the anchor itself.
 
-`valueWarps` gathers them. It keeps each warp that carries a value, mapped to its
-decoded literal and its position. `decodeLiteral` unwraps a quoted string to its
-content and leaves a bare number as written, so the decode never evaluates an
-expression. A warp with no value binds nothing — a fault the tokeniser already
-raised. The document's `lang` warp carries an annotation rather than a value, so it
-never enters the map.
+A value may also draw on the workspace. Writing `${name}` in a value interpolates the
+workspace variable `name`, declared under `variables:` in the configuration, so a
+version or any value the whole corpus shares lives in one place. The reference resolves
+bare or inside a string, since the pass interpolates after it decodes the literal. A
+`${name}` that no variable declares stays in the text and raises an `UnknownVariable`
+on the warp, so a typo is loud rather than silent. Interpolation touches a warp's value alone,
+never a section's code, so a `${…}` a target language writes is left untouched.
+
+`valueWarps` gathers them. It keeps each warp that carries a value, decodes and
+interpolates it, and maps the name to that text, its position, and its health.
+`decodeLiteral` unwraps a quoted string to its content and leaves a bare number as
+written, and `interpolate` then fills each `${name}` from the variables, so a warp
+resolves to a literal value, never an evaluated expression. A warp with no value binds
+nothing — a fault the tokeniser already raised. The document's `lang` warp carries an
+annotation rather than a value, so it never enters the map.
 
 =>
 
 interface ValueWarp {
   readonly text: string
   readonly pos: Position
+  readonly health: Health
 }
 
 const decodeLiteral = (text: string): string => {
@@ -314,17 +321,43 @@ const decodeLiteral = (text: string): string => {
   return quoted ? s.slice(1, -1).replace(/\\(.)/g, (_, c) => c) : text
 }
 
+const variablePattern = /[$][{]([A-Za-z_][A-Za-z0-9_]*)[}]/g
+
+const interpolate = (
+  text: string,
+  variables: Record<string, string>,
+): { readonly text: string; readonly missing: Option.Option<string> } => ({
+  text: text.replace(variablePattern, (whole, name: string) =>
+    name in variables ? variables[name]! : whole,
+  ),
+  missing: pipe(
+    Array.fromIterable(text.matchAll(variablePattern)),
+    Array.map((match) => match[1]!),
+    Array.filter((name) => !(name in variables)),
+    Array.head,
+  ),
+})
+
 const valueWarps = (
   warps: ReadonlyArray<WarpToken>,
+  variables: Record<string, string>,
 ): ReadonlyMap<string, ValueWarp> =>
   new Map(
     Array.getSomes(Array.map(warps, (w) =>
-      w.default
-        ? Option.some([
-            w.name.value,
-            { text: decodeLiteral(w.default.value), pos: w.default.position },
-          ] as const)
-        : Option.none(),
+      Option.map(Option.fromNullishOr(w.default), (def) => {
+        const { text, missing } = interpolate(decodeLiteral(def.value), variables)
+        return [
+          w.name.value,
+          {
+            text,
+            pos: def.position,
+            health: Option.match(missing, {
+              onNone: () => okHealth,
+              onSome: (name) => faulty(UnknownVariable({ name }), def.position),
+            }),
+          },
+        ] as const
+      }),
     )),
   )
 
@@ -338,8 +371,8 @@ directory.
 
 A `Built` is the pair a section yields: its `Code`, which always lands in the
 product, and the `File` a `{Tangle}` section or a tangle sink adds, which an
-ordinary section leaves absent. `buildSection` gathers the section's value warps,
-resolves its language and identity, and composes its code.
+ordinary section leaves absent. `buildSection` gathers the section's value warps and interpolates each against
+the workspace variables, resolves its language and identity, and composes its code.
 
 =>
 
@@ -354,9 +387,10 @@ const buildSection =
     defaultLang: string,
     modulePath: string,
     pkg: Option.Option<string>,
+    variables: Record<string, string>,
   ) =>
   (section: LoomSection): Built => {
-    const values = valueWarps(section.preamble.flatMap((w) => w.warps))
+    const values = valueWarps(section.preamble.flatMap((w) => w.warps), variables)
     const origin: SectionId = { path: modulePath, name: sectionNameOf(section) }
     const languageId = sectionLanguage(section, defaultLang, pkg)
     const code = buildCode(section, values, index, origin, languageId)
@@ -556,8 +590,9 @@ never leaves a dangling reference: the section always composes, and the product 
 around the anchor keeps its language service.
 
 A resolved anchor takes one of two paths. When the name is a value warp, the anchor
-composes that warp's text as a `Fragment` landing where the anchor stood — no edge,
-since a literal reaches no section. Otherwise the name is looked up among the
+composes that warp's text as a `Fragment` where the anchor stood, carrying the warp's
+health so an undeclared `${name}` raises its fault at the warp. No edge, since a
+literal reaches no section. Otherwise the name is looked up among the
 section titles. One match resolves to a `NameRef`, the edge that carries the target
 section's identity; the projection follows it and inlines the section there. A match
 in another language is a cross-language transclusion: the edge stands, since the
@@ -586,7 +621,7 @@ const bindAnchor =
     if (anchor.health.status !== 'ok') return blankFragment(anchor.position)
     const value = values.get(name)
     if (value !== undefined) {
-      return FragmentSchema.make({ text: value.text, origin: at })
+      return FragmentSchema.make({ text: value.text, origin: at, health: value.health })
     }
     return Array.matchLeft(index.get(name) ?? [], {
       onEmpty: () => blankFragment(anchor.position, unresolved(name, at)),

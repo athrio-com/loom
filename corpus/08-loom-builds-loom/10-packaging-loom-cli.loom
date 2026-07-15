@@ -14,11 +14,13 @@ The `files` field restricts the published package to the `dist` directory, and t
 
 The `build` script bundles the tangled source files committed to the repository. Tangling the corpus is a separate step, performed with the published `loom` CLI rather than the in-progress source — using an unverified tangler to tangle the corpus that produces it would be circular. The `prepack` script re-bundles automatically before each publish. The `bun publish` command rewrites the `workspace:*` specifier for `@athrio/loom-lang` — Bun's protocol for local package references — into the real published version number.
 
+{{ version = ${version} }}
+
 =>
 
 {
   "name": "@athrio/loom",
-  "version": "0.0.3",
+  "version": "::[version]",
   "description": "Tangle Loom literate sources into real source files.",
   "license": "Apache-2.0 OR MIT",
   "type": "module",

@@ -15,11 +15,13 @@ and the language server inline this source when they bundle; `effect` is a peer,
 supplied by the host bundle. The `yaml` parser, which reads the compiled
 configuration, is a real dependency, bundled along with the source.
 
+{{ version = ${version} }}
+
 =>
 
 {
   "name": "@athrio/loom-config",
-  "version": "0.0.3",
+  "version": "::[version]",
   "description": "The loom.config.json model and reader for Loom projects.",
   "license": "Apache-2.0 OR MIT",
   "type": "module",

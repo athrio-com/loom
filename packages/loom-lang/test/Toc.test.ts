@@ -123,6 +123,7 @@ const makeCompilerLayer = (files: Record<string, string>) =>
             Effect.succeed({
               delims: defaultAnchorDelims,
               primaryLanguage: undefined,
+              variables: {},
               packageRoot: undefined,
               workspaceRoot: undefined,
               corpusDir: undefined,

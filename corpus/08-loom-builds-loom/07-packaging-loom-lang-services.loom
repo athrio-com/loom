@@ -22,11 +22,13 @@ peers — `@athrio/loom-ast` for Loom's shared types, `effect`,
 `@volar/language-service`, `typescript`, and `vscode-uri` for decoding an embedded
 document's uri — are supplied by the host bundle.
 
+{{ version = ${version} }}
+
 =>
 
 {
   "name": "@athrio/loom-lang-services",
-  "version": "0.0.3",
+  "version": "::[version]",
   "description": "Loom's language services and the LanguageService contract they share.",
   "license": "Apache-2.0 OR MIT",
   "type": "module",

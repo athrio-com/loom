@@ -36,8 +36,8 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()(
 
       const loadOne = (source: Source, path: Path): Effect.Effect<LoomModule> =>
         config.resolve(path).pipe(
-          Effect.flatMap(({ delims, primaryLanguage }) =>
-            memo.get(path, builder.build(source, path, delims, primaryLanguage)),
+          Effect.flatMap(({ delims, primaryLanguage, variables }) =>
+            memo.get(path, builder.build(source, path, delims, primaryLanguage, variables)),
           ),
         )
 

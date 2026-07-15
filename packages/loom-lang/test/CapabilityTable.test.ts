@@ -63,6 +63,7 @@ const layer = Layer.provide(
           Effect.succeed({
             delims: defaultAnchorDelims,
             primaryLanguage: undefined,
+            variables: {},
             packageRoot: undefined,
             workspaceRoot: undefined,
             corpusDir: undefined,

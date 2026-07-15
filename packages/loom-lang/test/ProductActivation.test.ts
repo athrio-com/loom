@@ -45,6 +45,7 @@ const checkerActivating = async (languages: ReadonlyArray<string>) => {
         primary: 'typescript',
         languages,
         settings: {},
+        variables: {},
         services: {},
         packageRoot: undefined,
         workspaceRoot: undefined,

@@ -164,11 +164,13 @@ const routes = Layer.mergeAll(
 
 The agent's tools ride the same router. `McpServer.layerHttp` registers a JSON-RPC route at `/mcp`, and `McpServer.toolkit` binds the toolkit and its handlers to it, so the agent reaches the tools where the overlay reaches the API. The handlers draw on the store, which the server provides once beneath everything.
 
+{{ version = ${version} }}
+
 =>
 
 const mcp = McpServer.toolkit(toolkit).pipe(
   Layer.provide(handlers),
-  Layer.provide(McpServer.layerHttp({ name: 'loom', version: '0.0.3', path: '/mcp' })),
+  Layer.provide(McpServer.layerHttp({ name: 'loom', version: '::[version]', path: '/mcp' })),
 )
 
 # Logging

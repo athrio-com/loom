@@ -273,6 +273,8 @@ The command program is eight subcommands. `loom tangle <path>` emits a `.loom`'s
 
 One entry point sits outside the command program. `loom lsp --stdio` starts the language server for any editor. It loads Volar only when it is reached, so a plain `tangle` never pays to bundle it, and it runs on its own Bun runtime rather than nesting one inside a command. Volar is CommonJS and calls `require` at runtime for the built-in modules; this bundle is an ES module, where `require` is absent, so before loading the server the `lsp` branch exposes one through `createRequire` on `globalThis` — the shim Volar's bundled code reaches for. That cost lands only on the `lsp` path.
 
+{{ version = ${version} }}
+
 =>
 
 const tangleCommand = Command.make(
@@ -333,7 +335,7 @@ const loom = Command.make('loom').pipe(
 )
 
 const program = Command.run(loom, {
-  version: '0.0.3',
+  version: '::[version]',
 }).pipe(
   Effect.provide(LoomTangler.layer),
   Effect.provide(LoomWeaver.layer),

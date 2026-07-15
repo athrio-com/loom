@@ -14,6 +14,8 @@ VS Code reads the manifest to learn what the extension is and when to run it. Th
 
 The `pack:vsix` script builds the bundle and then packages it with `vsce`. The bundle inlines every dependency, so all dependencies belong in the `devDependencies` field — nothing is installed at the user's end.
 
+{{ version = ${version} }}
+
 =>
 
 {
@@ -21,7 +23,7 @@ The `pack:vsix` script builds the bundle and then packages it with `vsce`. The b
   "publisher": "athrio",
   "displayName": "Loom",
   "description": "A VS Code extension for Loom",
-  "version": "0.0.3",
+  "version": "::[version]",
   "license": "MIT OR Apache-2.0",
   "repository": {
     "type": "git",

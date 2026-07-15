@@ -18,13 +18,15 @@ This chapter writes the package manifest, the two configurations, the client's V
 
 The manifest names the package and its scripts. `build` bundles the client and then pre-renders every page to static HTML. `serve` runs the backend, and `prerender` captures the static pages on their own. `dev` runs the Vite dev server together with the backend. The dev server serves the client with hot module reloading, and forwards every data request on to the backend. The client depends on Foldkit, the woven-corpus schema from `@athrio/loom-lang`, Effect, `marked` for prose, and `shiki` for code. Development-only are the Foldkit Vite plugin that drives the reload, the Loom Notes plugin that injects the review overlay, the toolchain, and the headless browser the pre-render scripts drive.
 
+{{ version = ${version} }}
+
 =>
 
 {
   "name": "loom-website",
   "type": "module",
   "private": true,
-  "version": "0.0.3",
+  "version": "::[version]",
   "scripts": {
     "build": "bunx --bun vite build && bun src/server/prerender.ts",
     "serve": "bun src/server/server.ts",

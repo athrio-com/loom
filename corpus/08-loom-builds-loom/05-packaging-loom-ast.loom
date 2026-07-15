@@ -12,11 +12,13 @@ Language: JSON
 
 The `exports` map names one entry point per model. There is no default entry: the builders and runners that construct these nodes live in `@athrio/loom-lang`, not here. The `imports` map defines one internal alias, `#ast/*`, so a model reaches its siblings by a stable name. `effect` is a peer dependency, shared with whoever installs the package rather than carried twice.
 
+{{ version = ${version} }}
+
 =>
 
 {
   "name": "@athrio/loom-ast",
-  "version": "0.0.3",
+  "version": "::[version]",
   "description": "Loom's domain model: the foundation node and the de re AST the product pass builds.",
   "license": "Apache-2.0 OR MIT",
   "type": "module",
