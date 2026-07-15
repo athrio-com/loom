@@ -1,5 +1,5 @@
 ---
-Part XII, Chapter 2: Releasing on a push
+Part XII, Chapter 3: Releasing on a push
 Package: .github/workflows/
 Language: YAML
 ---

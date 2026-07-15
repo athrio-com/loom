@@ -220,6 +220,33 @@ const status = Effect.gen(function* () {
   if (languages.length > 0) yield* Console.log(`${languages.map(mark).join('\n')}\n`)
 })
 
+const set = (key: string, value: string) =>
+  Effect.gen(function* () {
+    const config = yield* LoomConfig
+    const tangler = yield* LoomTangler
+    const workspace = workspaceRoot(process.cwd())
+    const [group, name] = key.split('.')
+    if (group !== 'variables' || !name) {
+      yield* Console.error(`loom: set expects \`variables.<name>\`, got \`${key}\``)
+      yield* Effect.sync(() => void (process.exitCode = 1))
+      return
+    }
+    const current = yield* config.manifest(workspace)
+    yield* config.materialize(workspace, {
+      ...(current ?? {}),
+      variables: { ...(current?.variables ?? {}), [name]: value },
+    })
+    const corpus = resolvePath(workspace, current?.corpus ?? 'corpus')
+    const written = yield* tangler.tangle(corpus)
+    yield* Console.log(`loom: set ${key} = ${value} (re-tangled ${written.length} files)`)
+  }).pipe(
+    Effect.catchTag('TangleError', (e) =>
+      Console.error(e.message).pipe(
+        Effect.andThen(Effect.sync(() => void (process.exitCode = 1))),
+      ),
+    ),
+  )
+
 const tangleCommand = Command.make(
   'tangle',
   { path: Argument.string('path') },
@@ -264,6 +291,12 @@ const removeCommand = Command.make(
 
 const statusCommand = Command.make('status', {}, () => status)
 
+const setCommand = Command.make(
+  'set',
+  { key: Argument.string('key'), value: Argument.string('value') },
+  ({ key, value }) => set(key, value),
+)
+
 const loom = Command.make('loom').pipe(
   Command.withSubcommands([
     tangleCommand,
@@ -274,6 +307,7 @@ const loom = Command.make('loom').pipe(
     addCommand,
     removeCommand,
     statusCommand,
+    setCommand,
   ]),
 )
 

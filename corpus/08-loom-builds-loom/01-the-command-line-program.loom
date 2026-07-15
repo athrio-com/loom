@@ -267,9 +267,44 @@ const status = Effect.gen(function* () {
   if (languages.length > 0) yield* Console.log(`${languages.map(mark).join('\n')}\n`)
 })
 
+## Setting a workspace variable
+
+`loom set variables.<name> <value>` writes a workspace variable and re-tangles the corpus. A variable feeds the value warps that interpolate it, so setting one without re-tangling would leave the composed output — a version in every manifest, say — behind the configuration. This command changes the one value and reconciles the whole corpus to it in a single step.
+
+The key names a variable under `variables.`, and any other key is rejected, since the command binds workspace variables and nothing else. It reads the workspace manifest, sets the one variable, writes the manifest back, and tangles the corpus directory the configuration names.
+
+=>
+
+const set = (key: string, value: string) =>
+  Effect.gen(function* () {
+    const config = yield* LoomConfig
+    const tangler = yield* LoomTangler
+    const workspace = workspaceRoot(process.cwd())
+    const [group, name] = key.split('.')
+    if (group !== 'variables' || !name) {
+      yield* Console.error(`loom: set expects \`variables.<name>\`, got \`${key}\``)
+      yield* Effect.sync(() => void (process.exitCode = 1))
+      return
+    }
+    const current = yield* config.manifest(workspace)
+    yield* config.materialize(workspace, {
+      ...(current ?? {}),
+      variables: { ...(current?.variables ?? {}), [name]: value },
+    })
+    const corpus = resolvePath(workspace, current?.corpus ?? 'corpus')
+    const written = yield* tangler.tangle(corpus)
+    yield* Console.log(`loom: set ${key} = ${value} (re-tangled ${written.length} files)`)
+  }).pipe(
+    Effect.catchTag('TangleError', (e) =>
+      Console.error(e.message).pipe(
+        Effect.andThen(Effect.sync(() => void (process.exitCode = 1))),
+      ),
+    ),
+  )
+
 ## Where the world ends
 
-The command program is eight subcommands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them, recording each in the lock. `loom orphans` lists the files across the workspace that the lock records but no loom still produces, one path per line for a shell to pipe into `rm`, and `--prune` removes them and rewrites the lock. `loom weave <path> <out>` projects a corpus into a `WovenCorpus` and writes it as JSON to `out`. `loom toc <path>` rewrites a book's table of contents from the corpus's own frontmatter. `loom init [dir]` scaffolds a `.loom/config.yaml` and an `.mcp.json`, defaulting to the working directory. `loom add <language>` and `loom remove <language>` turn a language's service on and off. `loom status` reports what the workspace has activated and what the store holds. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the weaver, the contents writer, the package config, the configuration, and the Bun platform behind the prompts and the filesystem.
+The command program is nine subcommands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them, recording each in the lock. `loom orphans` lists the files across the workspace that the lock records but no loom still produces, one path per line for a shell to pipe into `rm`, and `--prune` removes them and rewrites the lock. `loom weave <path> <out>` projects a corpus into a `WovenCorpus` and writes it as JSON to `out`. `loom toc <path>` rewrites a book's table of contents from the corpus's own frontmatter. `loom init [dir]` scaffolds a `.loom/config.yaml` and an `.mcp.json`, defaulting to the working directory. `loom add <language>` and `loom remove <language>` turn a language's service on and off. `loom status` reports what the workspace has activated and what the store holds. `loom set variables.<name> <value>` writes a workspace variable and re-tangles the corpus, so a version bump is one command. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the weaver, the contents writer, the package config, the configuration, and the Bun platform behind the prompts and the filesystem.
 
 One entry point sits outside the command program. `loom lsp --stdio` starts the language server for any editor. It loads Volar only when it is reached, so a plain `tangle` never pays to bundle it, and it runs on its own Bun runtime rather than nesting one inside a command. Volar is CommonJS and calls `require` at runtime for the built-in modules; this bundle is an ES module, where `require` is absent, so before loading the server the `lsp` branch exposes one through `createRequire` on `globalThis` — the shim Volar's bundled code reaches for. That cost lands only on the `lsp` path.
 
@@ -321,6 +356,12 @@ const removeCommand = Command.make(
 
 const statusCommand = Command.make('status', {}, () => status)
 
+const setCommand = Command.make(
+  'set',
+  { key: Argument.string('key'), value: Argument.string('value') },
+  ({ key, value }) => set(key, value),
+)
+
 const loom = Command.make('loom').pipe(
   Command.withSubcommands([
     tangleCommand,
@@ -331,6 +372,7 @@ const loom = Command.make('loom').pipe(
     addCommand,
     removeCommand,
     statusCommand,
+    setCommand,
   ]),
 )
 
@@ -402,5 +444,7 @@ import {
 ::[Activating a language]
 
 ::[Reporting the workspace]
+
+::[Setting a workspace variable]
 
 ::[Where the world ends]

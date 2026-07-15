@@ -92,8 +92,7 @@ The book closes where it began, with the fact that Loom is written in Loom. This
 8. Packaging the Loom language
 9. Packaging the TypeScript service
 10. Packaging the Loom CLI
-11. Publishing to npm
-12. Generating the table of contents
+11. Generating the table of contents
 
 ### Part IX — Extensions for IDEs
 
@@ -133,12 +132,13 @@ Loom Devtools rides along a running app: a bar you summon over the page to work 
 10. The image
 11. The setup UI
 
-### Part XII — Shipping Loom
+### Part XII — Releasing Loom
 
-Loom ships itself on every push. A gate runs first — the tests, and a check that the committed source still matches the corpus it tangles from — and a green push to the default branch releases. It publishes the npm packages through Trusted Publishing, so no token lives in the repository, and pushes the Docker images for the Devtools service and the website. This part is that pipeline: the gate that guards every change, and the workflow that releases on a push.
+Loom releases itself on every push. A gate runs first — the tests, and a check that the committed source still matches the corpus it tangles from — and a green push to the default branch releases. It publishes the npm packages through Trusted Publishing, so no token lives in the repository, and pushes the Docker images for the Devtools service and the website. This part is that pipeline: the gate that guards every change, the tool that publishes each package npm is missing, and the workflow that runs it and pushes the images on a push.
 
 1. Continuous integration
-2. Releasing on a push
+2. The release tool
+3. Releasing on a push
 
 ### Work in progress
 

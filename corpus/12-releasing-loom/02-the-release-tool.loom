@@ -1,0 +1,124 @@
+---
+Part XII, Chapter 2: The release tool
+Package: scripts/
+Language: TypeScript
+---
+
+# The release tool
+
+Loom publishes two packages to npm: `@athrio/loom`, the command-line tool, and `@athrio/loom-service-typescript`, the loadable TypeScript service. They share one version — the `version` variable a `loom set` writes across the corpus — so a reader who installs the pair never reconciles two numbers. The `release` tool publishes each package that npm does not already carry.
+
+It runs from the workspace root under Bun, and it is safe to run twice: it asks npm what it already holds and publishes only what is missing. The release workflow runs it on every push to the default branch, so it must never fail on a version that is already out.
+
+## What the release tool draws on
+
+The tool reads the shared version from a manifest and spawns npm, so it draws on Effect's filesystem service and Bun's process spawning. The scripts live in a `scripts` directory at the workspace root; Node's `path` locates the workspace around the script, and `url` turns the script's own module URL into a directory. The published set is the two npm packages, `@athrio/loom` and `@athrio/loom-service-typescript`, each named by its directory, where an `npm publish` runs.
+
+=>
+
+import { Console, Data, Effect, FileSystem } from 'effect'
+import { BunRuntime, BunServices } from '@effect/platform-bun'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const workspace = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+
+interface Package {
+  readonly name: string
+  readonly dir: string
+}
+
+const published: ReadonlyArray<Package> = [
+  { name: '@athrio/loom', dir: join(workspace, 'packages', 'loom') },
+  {
+    name: '@athrio/loom-service-typescript',
+    dir: join(workspace, 'packages', 'loom-service-typescript'),
+  },
+]
+
+~
+
+`run` spawns a command in a package's directory and fails with a `ReleaseError` when it exits non-zero, so a failed publish stops the release rather than passing silently. The `npm publish` command builds each package through its own `prepack` script before it uploads, so the release never ships a stale bundle. It authenticates from the environment it runs in — the workflow's Trusted Publishing identity in CI.
+
+=>
+
+class ReleaseError extends Data.TaggedError('ReleaseError')<{
+  readonly command: string
+}> {}
+
+const run = (command: ReadonlyArray<string>, cwd: string): Effect.Effect<void, ReleaseError> =>
+  Effect.promise(() =>
+    Bun.spawn([...command], { cwd, stdout: 'inherit', stderr: 'inherit' }).exited,
+  ).pipe(
+    Effect.flatMap((code) =>
+      code === 0 ? Effect.void : Effect.fail(new ReleaseError({ command: command.join(' ') })),
+    ),
+  )
+
+## Asking npm what it already holds
+
+`isPublished` asks the registry whether a package already carries a version. `npm view name@version version` prints that version back when the registry holds it and prints nothing when it does not, so the answer is whether the printed line matches. A registry that has never seen the package answers with an error on standard error, which the query ignores, so an unpublished package reads as not published rather than as a failure.
+
+=>
+
+const capture = (command: ReadonlyArray<string>): Effect.Effect<string> =>
+  Effect.promise(async () => {
+    const child = Bun.spawn([...command], { cwd: workspace, stdout: 'pipe', stderr: 'ignore' })
+    const text = await new Response(child.stdout).text()
+    await child.exited
+    return text.trim()
+  })
+
+const isPublished = (name: string, version: string): Effect.Effect<boolean> =>
+  capture(['npm', 'view', `${name}@${version}`, 'version']).pipe(
+    Effect.map((reported) => reported === version),
+  )
+
+## Publishing what is missing
+
+`publish` releases one package at the shared version, unless npm already carries it. This is what makes the tool safe to run on every push: the second run finds each version already out and publishes nothing.
+
+The tool reads the shared version from the CLI's manifest and publishes every package that npm is missing. A publish that fails — bad credentials, a network fault — fails the whole run with its `ReleaseError`, so a broken release is loud rather than silent.
+
+=>
+
+const publish = (pkg: Package, version: string): Effect.Effect<void, ReleaseError> =>
+  isPublished(pkg.name, version).pipe(
+    Effect.flatMap((already) =>
+      already
+        ? Console.log(`${pkg.name}@${version} is already published — skipping`)
+        : run(['npm', 'publish'], pkg.dir).pipe(
+            Effect.andThen(Console.log(`published ${pkg.name}@${version}`)),
+          ),
+    ),
+  )
+
+const release = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
+  const manifest = yield* fs.readFileString(join(workspace, 'packages', 'loom', 'package.json'))
+  const version = (JSON.parse(manifest) as { version: string }).version
+  yield* Console.log(`releasing ${version}`)
+  yield* Effect.forEach(published, (pkg) => publish(pkg, version))
+}).pipe(Effect.provide(BunServices.layer))
+
+BunRuntime.runMain(
+  release.pipe(
+    Effect.catchTag('ReleaseError', (error) =>
+      Console.error(`release: command failed — ${error.command}`).pipe(
+        Effect.andThen(Effect.sync(() => {
+          process.exitCode = 1
+        })),
+      ),
+    ),
+  ),
+)
+
+## The release tool assembled {Tangle}[release.ts]
+
+=>
+
+::[What the release tool draws on]
+
+::[Asking npm what it already holds]
+
+::[Publishing what is missing]
