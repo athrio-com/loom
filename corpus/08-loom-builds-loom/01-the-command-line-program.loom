@@ -271,7 +271,7 @@ const status = Effect.gen(function* () {
 
 `loom set variables.<name> <value>` writes a workspace variable and re-tangles the corpus. A variable feeds the value warps that interpolate it, so setting one without re-tangling would leave the composed output — a version in every manifest, say — behind the configuration. This command changes the one value and reconciles the whole corpus to it in a single step.
 
-The key names a variable under `variables.`, and any other key is rejected, since the command binds workspace variables and nothing else. It reads the workspace manifest, sets the one variable, writes the manifest back, and tangles the corpus directory the configuration names.
+The name and the value are two arguments with a space between them — `loom set variables.version 0.0.4`, no `=`. A key outside the `variables.` namespace, or a value written with a leading `=`, is rejected with the usage rather than bound, so a stray `=` never becomes the value. Given good input, the command reads the workspace manifest, sets the one variable, writes the manifest back, and tangles the corpus directory the configuration names.
 
 =>
 
@@ -281,8 +281,14 @@ const set = (key: string, value: string) =>
     const tangler = yield* LoomTangler
     const workspace = workspaceRoot(process.cwd())
     const [group, name] = key.split('.')
-    if (group !== 'variables' || !name) {
-      yield* Console.error(`loom: set expects \`variables.<name>\`, got \`${key}\``)
+    const usage = 'usage: loom set variables.<name> <value>'
+    if (group !== 'variables' || !name || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+      yield* Console.error(`loom: set binds a workspace variable; \`${key}\` is not \`variables.<name>\` — ${usage}`)
+      yield* Effect.sync(() => void (process.exitCode = 1))
+      return
+    }
+    if (value.startsWith('=')) {
+      yield* Console.error(`loom: a value cannot begin with \`=\`; give the name and value with a space, no \`=\` — ${usage}`)
       yield* Effect.sync(() => void (process.exitCode = 1))
       return
     }

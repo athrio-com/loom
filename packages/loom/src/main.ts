@@ -226,8 +226,14 @@ const set = (key: string, value: string) =>
     const tangler = yield* LoomTangler
     const workspace = workspaceRoot(process.cwd())
     const [group, name] = key.split('.')
-    if (group !== 'variables' || !name) {
-      yield* Console.error(`loom: set expects \`variables.<name>\`, got \`${key}\``)
+    const usage = 'usage: loom set variables.<name> <value>'
+    if (group !== 'variables' || !name || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+      yield* Console.error(`loom: set binds a workspace variable; \`${key}\` is not \`variables.<name>\` — ${usage}`)
+      yield* Effect.sync(() => void (process.exitCode = 1))
+      return
+    }
+    if (value.startsWith('=')) {
+      yield* Console.error(`loom: a value cannot begin with \`=\`; give the name and value with a space, no \`=\` — ${usage}`)
       yield* Effect.sync(() => void (process.exitCode = 1))
       return
     }
@@ -312,7 +318,7 @@ const loom = Command.make('loom').pipe(
 )
 
 const program = Command.run(loom, {
-  version: '0.0.3',
+  version: '0.0.4',
 }).pipe(
   Effect.provide(LoomTangler.layer),
   Effect.provide(LoomWeaver.layer),
