@@ -1,5 +1,6 @@
 {
   "lockfileVersion": 1,
+  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "loom",
@@ -79,7 +80,7 @@
     },
     "packages/loom": {
       "name": "@athrio/loom",
-      "version": "0.9.0",
+      "version": "0.0.4",
       "bin": {
         "loom": "dist/main.js",
       },
@@ -92,26 +93,9 @@
         "vite": "^8.0.12",
       },
     },
-    "packages/loom-annotate": {
-      "name": "@athrio/loom-annotate",
-      "version": "0.0.1",
-      "bin": {
-        "loom-annotate": "./src/print.ts",
-      },
-      "devDependencies": {
-        "@effect/platform-bun": "4.0.0-beta.93",
-        "effect": "4.0.0-beta.93",
-        "vite": "^8.1.3",
-      },
-      "peerDependencies": {
-        "@effect/platform-bun": "4.0.0-beta.93",
-        "effect": "4.0.0-beta.93",
-        "vite": "^8.1.3",
-      },
-    },
     "packages/loom-ast": {
       "name": "@athrio/loom-ast",
-      "version": "0.0.1",
+      "version": "0.0.4",
       "devDependencies": {
         "effect": "4.0.0-beta.93",
       },
@@ -121,7 +105,7 @@
     },
     "packages/loom-config": {
       "name": "@athrio/loom-config",
-      "version": "0.0.1",
+      "version": "0.0.4",
       "dependencies": {
         "yaml": "^2.9.0",
       },
@@ -134,7 +118,7 @@
     },
     "packages/loom-devtools": {
       "name": "@athrio/loom-devtools",
-      "version": "0.0.1",
+      "version": "0.0.4",
       "dependencies": {
         "@athrio/foldkit": "workspace:*",
         "@effect/platform-browser": "4.0.0-beta.93",
@@ -154,7 +138,7 @@
     },
     "packages/loom-lang": {
       "name": "@athrio/loom-lang",
-      "version": "0.0.1",
+      "version": "0.0.4",
       "bin": {
         "loom-language-server": "./bin/loom-language-server.js",
       },
@@ -179,7 +163,7 @@
     },
     "packages/loom-lang-services": {
       "name": "@athrio/loom-lang-services",
-      "version": "0.0.1",
+      "version": "0.0.4",
       "dependencies": {
         "volar-service-markdown": "^0.0.71",
         "volar-service-typescript": "^0.0.71",
@@ -201,7 +185,7 @@
     },
     "packages/loom-service-typescript": {
       "name": "@athrio/loom-service-typescript",
-      "version": "0.0.1",
+      "version": "0.0.4",
       "devDependencies": {
         "@athrio/loom-lang-services": "workspace:*",
         "@volar/language-core": "^2.4.28",
@@ -215,7 +199,7 @@
     },
     "packages/loom-vscode": {
       "name": "loom-vscode",
-      "version": "0.0.1",
+      "version": "0.0.4",
       "devDependencies": {
         "@types/vscode": "^1.120.0",
         "@volar/language-server": "^2.4.28",
@@ -225,7 +209,7 @@
     },
     "site": {
       "name": "loom-website",
-      "version": "0.0.0",
+      "version": "0.0.4",
       "dependencies": {
         "@athrio/foldkit": "workspace:*",
         "@athrio/loom-lang": "workspace:*",
@@ -260,8 +244,6 @@
     "@athrio/foldkit-vite-plugin": ["@athrio/foldkit-vite-plugin@workspace:foldkit/packages/vite-plugin-foldkit"],
 
     "@athrio/loom": ["@athrio/loom@workspace:packages/loom"],
-
-    "@athrio/loom-annotate": ["@athrio/loom-annotate@workspace:packages/loom-annotate"],
 
     "@athrio/loom-ast": ["@athrio/loom-ast@workspace:packages/loom-ast"],
 
