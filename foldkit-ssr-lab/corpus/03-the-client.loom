@@ -14,12 +14,12 @@ Every change also persists. A toggle, an add, a removal writes the whole list to
 
 ## What the client draws on
 
-The client is a small assembly. From `effect` come the `Schema` that decodes a model, the `Match` that dispatches the update over the messages, the `Array` combinators the update transforms todos with, the `Option` that chooses among the model's sources, and `Effect` for the flags and the save. From `@athrio/foldkit` come the `Runtime` that runs the app and the `Command` the save returns. The model and the view come from their own modules.
+The client is a small assembly. From `effect` come the `Schema` that decodes a model, the `Match` that dispatches the update over the messages, the `Array` combinators the update transforms todos with, the `Option` that chooses among the model's sources, and `Effect` for the flags and the save. From `foldkit` come the `Runtime` that runs the app and the `Command` the save returns. The model and the view come from their own modules.
 
 =>
 
 import { Array, Effect, Match, Option, Schema as S } from 'effect'
-import { Command, Runtime } from '@athrio/foldkit'
+import { Command, Runtime } from 'foldkit'
 import { ssrHydration } from '@athrio/foldkit-hydration'
 import { view } from './view'
 import {

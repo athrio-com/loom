@@ -2,7 +2,7 @@
 // The fork's base version is pinned in package.json `forkedFrom`; this compares
 // it against the latest release on the npm registry.
 //
-//   pnpm --filter @athrio/foldkit check-upstream
+//   pnpm --filter foldkit check-upstream
 //
 // A non-zero exit means a newer upstream release exists and the fork should be
 // reconciled — import the new release over the pristine base, rebase the port

@@ -1,7 +1,7 @@
 import { Array, Option, pipe, Schema as S } from 'effect'
-import { Navigation } from '@athrio/foldkit'
-import { html } from '@athrio/foldkit/html'
-import { m } from '@athrio/foldkit/message'
+import { Navigation } from 'foldkit'
+import { html } from 'foldkit/html'
+import { m } from 'foldkit/message'
 import {
   type WovenNavEntry,
   type WovenPage,

@@ -1,4 +1,4 @@
-import type { HydrationStrategy } from '@athrio/foldkit/runtime'
+import type { HydrationStrategy } from 'foldkit/runtime'
 import { adopt } from './adopt'
 import { replayPreHydrationInput } from './prehydration'
 import { snapshotServerNodes, warnOnHydrationRebuild } from './conformance'

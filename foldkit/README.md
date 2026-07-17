@@ -1,21 +1,26 @@
 # Vendored Foldkit
 
-This directory mirrors the upstream **foldkit** monorepo
-(https://github.com/foldkit/foldkit), so that Loom runs Foldkit on the same
-Effect version as the rest of the repository rather than the `effect` beta
-Foldkit pins. The `packages/` layout here matches upstream's `packages/`
-one-to-one, so a subtree reconciles against upstream as a single diff.
+`packages/foldkit` is a vendored fork of the upstream **foldkit** framework
+(https://github.com/foldkit/foldkit). Loom keeps it in-tree because it carries
+one change upstream does not ship — the server-side hydration seam its SSR
+needs. The vendored package takes Foldkit's own name, `foldkit`, shadowing the
+registry, so Loom's code and Foldkit's own sibling packages resolve `foldkit` to
+this copy.
 
-Vendored at base commit `a81f7d6c42215d9d6c733e3dbfdd596e0394dcf0`
-(`foldkit@0.127.0`). Each package keeps its own `UPSTREAM.md` recording what was
-taken and the delta from upstream.
+Vendored at base commit `9439cbf30c3d31baded144eca36a9897d00030a0`
+(`foldkit@0.128.1`). `UPSTREAM.md` beside the source records what was taken and
+the delta from upstream.
 
-- `packages/foldkit` — `@athrio/foldkit`, the framework.
-- `packages/vite-plugin-foldkit` — `@athrio/foldkit-vite-plugin`: hot module
-  reloading with model preservation, and the DevTools relay port.
-- `packages/devtools-mcp` — `@athrio/foldkit-devtools-mcp`: the DevTools MCP
-  server an agent drives the running app through.
+Only the framework is vendored. Loom pins the same `effect` beta as upstream
+now, so Foldkit's other packages — the Vite plugin, the DevTools MCP server —
+are taken from the registry directly rather than forked; the version mismatch
+that once forced forking them is gone.
 
-This is third-party source, copied verbatim apart from the mechanical delta each
-`UPSTREAM.md` describes. It is not authored in Loom and is not tangled. To change
-it, reconcile against upstream — do not hand-edit it as if it were ours.
+- `packages/foldkit` — `foldkit`, the framework. Third-party source, vendored.
+- `packages/foldkit-ssr`, `packages/foldkit-hydration` — Loom's own
+  loom-authored packages: the server renderer and the hydration strategy that
+  plug into the framework's seam. Not vendored.
+
+The framework source is third-party, copied verbatim apart from the mechanical
+delta `UPSTREAM.md` describes. It is not authored in Loom and is not tangled. To
+change it, reconcile against upstream — do not hand-edit it as if it were ours.

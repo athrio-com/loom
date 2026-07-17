@@ -1,5 +1,5 @@
 import { Array } from 'effect'
-import type { Document, Html } from '@athrio/foldkit/html'
+import type { Document, Html } from 'foldkit/html'
 import {
   ChangedDraft,
   ClearedCompleted,

@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite'
-import { foldkit } from '@athrio/foldkit-vite-plugin'
+import { foldkit } from '@foldkit/vite-plugin'
 import { loomNotes } from '@athrio/loom-devtools/vite'
 
 export default defineConfig({

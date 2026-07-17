@@ -10,14 +10,14 @@
     "dev": "bunx --bun vite & bun src/server/server.ts"
   },
   "dependencies": {
-    "@athrio/foldkit": "workspace:*",
+    "foldkit": "workspace:*",
     "@athrio/loom-lang": "workspace:*",
     "effect": "4.0.0-beta.97",
     "marked": "^18.0.5",
     "shiki": "^4.3.1"
   },
   "devDependencies": {
-    "@athrio/foldkit-vite-plugin": "workspace:*",
+    "@foldkit/vite-plugin": "0.10.1",
     "@athrio/loom-devtools": "workspace:*",
     "@types/node": "^26.1.0",
     "playwright-core": "^1.49.0",

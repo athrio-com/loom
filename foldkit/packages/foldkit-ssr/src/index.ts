@@ -11,7 +11,7 @@ import {
   pipe,
 } from 'effect'
 import type { VNode, VNodeData } from 'snabbdom'
-import type { Html } from '@athrio/foldkit/html'
+import type { Html } from 'foldkit/html'
 
 const escapeText = (value: string): string =>
   value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')

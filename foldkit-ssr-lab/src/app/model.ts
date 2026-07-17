@@ -1,6 +1,6 @@
 import { Array, Match, Schema as S } from 'effect'
-import { html } from '@athrio/foldkit/html'
-import { m } from '@athrio/foldkit/message'
+import { html } from 'foldkit/html'
+import { m } from 'foldkit/message'
 
 export const Todo = S.Struct({
   id: S.String,

@@ -24,7 +24,7 @@ export type { BoundaryFill } from './streaming'
 export { snapshotServerNodes, warnOnHydrationRebuild } from './conformance'
 export { ssrHydration } from './strategy'
 export type { SsrHydrationOptions } from './strategy'
-export { patch, toVNode } from '@athrio/foldkit/vdom'
+export { patch, toVNode } from 'foldkit/vdom'
 export type { VNode } from 'snabbdom'
 
 ## The module {Tangle}

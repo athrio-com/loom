@@ -1,7 +1,7 @@
 import { Array } from 'effect'
-import { type Document, type Html } from '@athrio/foldkit/html'
+import { type Document, type Html } from 'foldkit/html'
 import { BOUNDARY_ATTRIBUTE } from '@athrio/foldkit-hydration'
-import * as AsyncData from '@athrio/foldkit/asyncData'
+import * as AsyncData from 'foldkit/asyncData'
 import { h, type Card, type LogEntry, type Model } from './model'
 
 export const loadedBody = (body: string): Html => h.div([h.Key('bd'), h.Class('body')], [body])

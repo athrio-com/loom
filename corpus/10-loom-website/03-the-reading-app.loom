@@ -12,13 +12,13 @@ The app never holds the whole book. It boots with the navigation tree and the on
 
 ## What this module draws on
 
-The model module supplies the state, the messages, and the routing. The landing module supplies its own view, which this app frames but does not build. From `effect` come the array, option, and match combinators, and the schema that decodes a fetched page. From `@athrio/foldkit` come the runtime, the navigation, and the command that carries an effect. `marked` renders a prose block's Markdown to HTML.
+The model module supplies the state, the messages, and the routing. The landing module supplies its own view, which this app frames but does not build. From `effect` come the array, option, and match combinators, and the schema that decodes a fetched page. From `foldkit` come the runtime, the navigation, and the command that carries an effect. `marked` renders a prose block's Markdown to HTML.
 
 =>
 
 import { Array, Effect, Match, Option, pipe, Schema as S } from 'effect'
-import { Command, Navigation, Runtime, Url } from '@athrio/foldkit'
-import { type Document, type Html } from '@athrio/foldkit/html'
+import { Command, Navigation, Runtime, Url } from 'foldkit'
+import { type Document, type Html } from 'foldkit/html'
 import { WovenPageSchema } from '@athrio/loom-lang/weave/WovenCorpus'
 import type {
   WovenBlock,

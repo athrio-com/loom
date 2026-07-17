@@ -13,7 +13,7 @@
     "./vite": "./src/vite.ts"
   },
   "dependencies": {
-    "@athrio/foldkit": "workspace:*",
+    "foldkit": "workspace:*",
     "@effect/platform-browser": "4.0.0-beta.97",
     "@effect/platform-bun": "4.0.0-beta.97",
     "@effect/sql-pg": "4.0.0-beta.97",

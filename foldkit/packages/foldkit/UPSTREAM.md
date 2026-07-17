@@ -1,8 +1,11 @@
 # Upstream provenance
 
-`@athrio/foldkit` is a vendored fork of **foldkit**, kept in-tree so the reader
-can run on the same Effect version as the rest of Loom rather than the exact
-`effect` beta foldkit pins.
+`foldkit` here is a vendored fork of the npm package of the same name, kept
+in-tree because it carries one change upstream does not ship — the server-side
+hydration seam the reader's SSR needs (see the Foldkit fork chapter). Loom now
+pins the same Effect as upstream, so the version no longer diverges; the
+vendored package takes the name `foldkit`, shadowing the registry, so Foldkit's
+own sibling packages resolve their `foldkit` dependency to this copy.
 
 - **Upstream**: https://github.com/foldkit/foldkit (`packages/foldkit`)
 - **Base version**: `foldkit@0.128.1`

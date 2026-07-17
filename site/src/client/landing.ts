@@ -1,5 +1,5 @@
 import { ClickedCopy, h, pathForSlug } from './model'
-import type { Html } from '@athrio/foldkit/html'
+import type { Html } from 'foldkit/html'
 
 const example = [
   '---',

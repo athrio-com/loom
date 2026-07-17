@@ -23,10 +23,10 @@ A hovered element carries two things: the rectangle it fills, for the highlight,
 =>
 
 import { Array, Effect, Match, Option, Queue, Schema as S, Stream } from 'effect'
-import { Command, Subscription } from '@athrio/foldkit'
-import { html } from '@athrio/foldkit/html'
-import type { Html, KeyboardModifiers } from '@athrio/foldkit/html'
-import { m } from '@athrio/foldkit/message'
+import { Command, Subscription } from 'foldkit'
+import { html } from 'foldkit/html'
+import type { Html, KeyboardModifiers } from 'foldkit/html'
+import { m } from 'foldkit/message'
 import { clsx } from 'clsx'
 import { LoomSourceSchema, NoteSchema, RectSchema, type Note, type Rect } from './note'
 
@@ -1019,7 +1019,7 @@ const mountPoint = (): HTMLElement => {
 
 =>
 
-import { makeElement, run } from '@athrio/foldkit/runtime'
+import { makeElement, run } from 'foldkit/runtime'
 
 const init = (): readonly [Model, ReadonlyArray<Command.Command<Message>>] => {
   const { base, project } = config()

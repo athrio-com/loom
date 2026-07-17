@@ -1,6 +1,6 @@
 import { Array, Effect, Match, Option, pipe, Schema as S } from 'effect'
-import { Command, Navigation, Runtime, Url } from '@athrio/foldkit'
-import { type Document, type Html } from '@athrio/foldkit/html'
+import { Command, Navigation, Runtime, Url } from 'foldkit'
+import { type Document, type Html } from 'foldkit/html'
 import { WovenPageSchema } from '@athrio/loom-lang/weave/WovenCorpus'
 import type {
   WovenBlock,

@@ -1,6 +1,6 @@
 import { Array, Effect, Match, Option, Schema as S, Stream, pipe } from 'effect'
-import { Command, Runtime, Subscription } from '@athrio/foldkit'
-import * as AsyncData from '@athrio/foldkit/asyncData'
+import { Command, Runtime, Subscription } from 'foldkit'
+import * as AsyncData from 'foldkit/asyncData'
 import {
   BOUNDARY_FILL_EVENT,
   bufferedFills,

@@ -15,7 +15,7 @@ The view builds elements with the model's own `h`, so a handler it attaches is o
 =>
 
 import { Array } from 'effect'
-import type { Document, Html } from '@athrio/foldkit/html'
+import type { Document, Html } from 'foldkit/html'
 import {
   ChangedDraft,
   ClearedCompleted,

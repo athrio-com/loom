@@ -15,7 +15,7 @@ The landing borrows its runtime from the model: the view builder `h`, `pathForSl
 =>
 
 import { ClickedCopy, h, pathForSlug } from './model'
-import type { Html } from '@athrio/foldkit/html'
+import type { Html } from 'foldkit/html'
 
 ## A loom to show
 

@@ -1,7 +1,7 @@
 import { Schema as S } from 'effect'
-import { m } from '@athrio/foldkit/message'
-import * as AsyncData from '@athrio/foldkit/asyncData'
-import { html } from '@athrio/foldkit/html'
+import { m } from 'foldkit/message'
+import * as AsyncData from 'foldkit/asyncData'
+import { html } from 'foldkit/html'
 
 export const Session = S.Struct({
   id: S.String,

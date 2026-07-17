@@ -12,13 +12,13 @@ The observer is the heart of the page. It watches the cards region and, each tim
 
 ## What the client draws on
 
-The client draws widely. From `effect` come the `Schema` that decodes the inlined model, the `Match` that dispatches the update, the `Array` its transforms fold over, the `Option` that chooses the model's source, the `Duration` a fetch is delayed by, the `Stream` its subscriptions are, and `Effect`. From `@athrio/foldkit` come the `Runtime`, the `Command` a fetch returns, and the `Subscription` that carries the fills and the observer events. `AsyncData` reads a card's state and `Body` sets it. The hydration surface gives the fill event, the fill buffer, and the boot switch. The view, the card data, and the model are the app's own.
+The client draws widely. From `effect` come the `Schema` that decodes the inlined model, the `Match` that dispatches the update, the `Array` its transforms fold over, the `Option` that chooses the model's source, the `Duration` a fetch is delayed by, the `Stream` its subscriptions are, and `Effect`. From `foldkit` come the `Runtime`, the `Command` a fetch returns, and the `Subscription` that carries the fills and the observer events. `AsyncData` reads a card's state and `Body` sets it. The hydration surface gives the fill event, the fill buffer, and the boot switch. The view, the card data, and the model are the app's own.
 
 =>
 
 import { Array, Duration, Effect, Match, Option, Schema as S, Stream, pipe } from 'effect'
-import { Command, Runtime, Subscription } from '@athrio/foldkit'
-import * as AsyncData from '@athrio/foldkit/asyncData'
+import { Command, Runtime, Subscription } from 'foldkit'
+import * as AsyncData from 'foldkit/asyncData'
 import {
   BOUNDARY_FILL_EVENT,
   bufferedFills,

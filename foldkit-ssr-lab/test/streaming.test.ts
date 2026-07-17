@@ -12,7 +12,7 @@ import {
   patch,
   type VNode,
 } from '@athrio/foldkit-hydration'
-import { type Html } from '@athrio/foldkit/html'
+import { type Html } from 'foldkit/html'
 import { FoldkitRender } from '@athrio/foldkit-ssr'
 import { messageFeed, view } from '../src/chat/view'
 import { ChatMessage, Feed, type Model } from '../src/chat/model'

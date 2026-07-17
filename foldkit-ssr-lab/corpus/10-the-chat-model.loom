@@ -17,9 +17,9 @@ The model is built from Schema. From `effect` come the `Schema` that defines eve
 =>
 
 import { Schema as S } from 'effect'
-import { m } from '@athrio/foldkit/message'
-import * as AsyncData from '@athrio/foldkit/asyncData'
-import { html } from '@athrio/foldkit/html'
+import { m } from 'foldkit/message'
+import * as AsyncData from 'foldkit/asyncData'
+import { html } from 'foldkit/html'
 
 ## A channel and a message
 

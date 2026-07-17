@@ -1,5 +1,5 @@
 import { Array, Effect, Match, Option, Schema as S } from 'effect'
-import { Command, Runtime } from '@athrio/foldkit'
+import { Command, Runtime } from 'foldkit'
 import { ssrHydration } from '@athrio/foldkit-hydration'
 import { view } from './view'
 import {

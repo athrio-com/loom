@@ -1,5 +1,5 @@
 {
-  "name": "@athrio/foldkit",
+  "name": "foldkit",
   "version": "0.0.1",
   "type": "module",
   "forkedFrom": {

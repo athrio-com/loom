@@ -12,13 +12,13 @@ The history is where booting takes care. If the server's stream filled the room 
 
 ## What the client draws on
 
-The client draws widely. From `effect` come the `Schema` that decodes the inlined model and the fills, the `Match` that dispatches the update, the `Array` its transforms fold over, the `Option` that chooses among the model's sources, the `Stream` the fill subscription is built from, and `Effect` for the flags and the saves. From `@athrio/foldkit` come the `Runtime` that runs the app, the `Command` its saves and loads return, and the `Subscription` that listens for streamed fills. `AsyncData` reads the history's state and `Feed` sets it. The hydration surface supplies the fill buffer, the fill event, and the switch that marks the client booted. The view, the channel data, and the model are the app's own.
+The client draws widely. From `effect` come the `Schema` that decodes the inlined model and the fills, the `Match` that dispatches the update, the `Array` its transforms fold over, the `Option` that chooses among the model's sources, the `Stream` the fill subscription is built from, and `Effect` for the flags and the saves. From `foldkit` come the `Runtime` that runs the app, the `Command` its saves and loads return, and the `Subscription` that listens for streamed fills. `AsyncData` reads the history's state and `Feed` sets it. The hydration surface supplies the fill buffer, the fill event, and the switch that marks the client booted. The view, the channel data, and the model are the app's own.
 
 =>
 
 import { Array, Effect, Match, Option, Schema as S, Stream, pipe } from 'effect'
-import { Command, Runtime, Subscription } from '@athrio/foldkit'
-import * as AsyncData from '@athrio/foldkit/asyncData'
+import { Command, Runtime, Subscription } from 'foldkit'
+import * as AsyncData from 'foldkit/asyncData'
 import {
   BOUNDARY_FILL_EVENT,
   bufferedFills,

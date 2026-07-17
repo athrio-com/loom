@@ -1,9 +1,9 @@
 import { Effect, Match, Schema as S } from 'effect'
-import { Command } from '@athrio/foldkit'
-import { html } from '@athrio/foldkit/html'
-import type { Html } from '@athrio/foldkit/html'
-import { m } from '@athrio/foldkit/message'
-import { makeElement, run } from '@athrio/foldkit/runtime'
+import { Command } from 'foldkit'
+import { html } from 'foldkit/html'
+import type { Html } from 'foldkit/html'
+import { m } from 'foldkit/message'
+import { makeElement, run } from 'foldkit/runtime'
 
 export const Model = S.Struct({
   origin: S.String,

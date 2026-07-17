@@ -8,7 +8,7 @@ import {
   warnOnHydrationRebuild,
   type VNode,
 } from '@athrio/foldkit-hydration'
-import { html, type Html } from '@athrio/foldkit/html'
+import { html, type Html } from 'foldkit/html'
 import { FoldkitRender } from '@athrio/foldkit-ssr'
 import { Model } from '../src/app/model'
 
