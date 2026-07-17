@@ -28,7 +28,6 @@ export type {
   OutboundPortHandles,
   PortHandles,
   MakeRuntimeReturn,
-  HydrationStrategy,
   Visibility,
   SlowConfig,
   SlowContext,
@@ -43,3 +42,5 @@ export type {
   DevToolsOverlay,
   DevToolsPosition,
 } from './runtime.js'
+
+export type { HydrationStrategy } from '../vdom.js'

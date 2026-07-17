@@ -7,13 +7,13 @@ export {
   schemaSegment,
   root,
   rest,
+  restString,
   oneOf,
   mapTo,
   slash,
   query,
   parseUrlWithFallback,
   r,
-  isEntering,
 } from './index.js'
 
 export type {
@@ -23,5 +23,6 @@ export type {
   TerminalParser,
   ExtendableBiparser,
   Parser,
-  RouteTransition,
 } from './index.js'
+
+export * as Transition from './transition.js'

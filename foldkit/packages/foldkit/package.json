@@ -4,8 +4,8 @@
   "type": "module",
   "forkedFrom": {
     "name": "foldkit",
-    "version": "0.127.0",
-    "commit": "a81f7d6c42215d9d6c733e3dbfdd596e0394dcf0",
+    "version": "0.128.1",
+    "commit": "9439cbf30c3d31baded144eca36a9897d00030a0",
     "repository": "https://github.com/foldkit/foldkit"
   },
   "scripts": {
@@ -19,6 +19,8 @@
     "./command": "./src/command/public.ts",
     "./customElement": "./src/customElement/public.ts",
     "./dom": "./src/dom/public.ts",
+    "./experimental": "./src/experimental/public.ts",
+    "./experimental/machine": "./src/experimental/machine/public.ts",
     "./html": "./src/html/public.ts",
     "./http": "./src/http/public.ts",
     "./managedResource": "./src/managedResource/public.ts",
@@ -43,8 +45,8 @@
     "./devtools-host": "./src/devTools/host.ts"
   },
   "dependencies": {
-    "@effect/platform-browser": "4.0.0-beta.93",
-    "effect": "4.0.0-beta.93",
+    "@effect/platform-browser": "4.0.0-beta.97",
+    "effect": "4.0.0-beta.97",
     "snabbdom": "^3.6.3"
   }
 }

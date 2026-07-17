@@ -1,9 +1,11 @@
+import { Option, Predicate } from 'effect'
 import {
   type VNode,
   attributesModule,
   classModule,
   datasetModule,
   eventListenersModule,
+  h,
   init,
   styleModule,
   toVNode,
@@ -111,4 +113,42 @@ export const dedupeMemoizedResult = (
   }
   const nextChildren = dedupeChildList(root.children, seen)
   return nextChildren === undefined ? root : { ...root, children: nextChildren }
+}
+
+/** How the runtime hydrates a server-rendered DOM on the first render rather
+ *  than building fresh. `mountSource` reads the server DOM in the container
+ *  into the VNode the view is matched against — an adopt. The optional
+ *  `afterFirstPatch` runs once, right after that first hydrating patch, for
+ *  post-mount work: replaying input typed before the client booted, or warning
+ *  that a node was rebuilt instead of merged. Foldkit ships no strategy;
+ *  `@athrio/foldkit-hydration` provides `ssrHydration()`. */
+export type HydrationStrategy = Readonly<{
+  mountSource: (container: HTMLElement) => VNode
+  afterFirstPatch?: (container: HTMLElement) => void
+}>
+
+export const __patchVNode = (
+  maybeCurrentVNode: Option.Option<VNode>,
+  nextVNode: VNode | null,
+  container: HTMLElement,
+  seen?: Set<object>,
+  hydrate?: HydrationStrategy,
+): VNode => {
+  const dedupedVNode = Predicate.isNotNull(nextVNode)
+    ? dedupeSharedVNodes(nextVNode, seen)
+    : h('!')
+
+  // On the first render (no prior vnode), a hydration strategy reads the
+  // server-rendered DOM in the container instead of building fresh. The server
+  // nests the view's root inside the container, so a first child is the sign
+  // there is server DOM to adopt; with none the runtime mounts fresh.
+  const mountSource = (): VNode | Element =>
+    hydrate !== undefined && container.firstElementChild !== null
+      ? hydrate.mountSource(container)
+      : toVNode(container)
+
+  return Option.match(maybeCurrentVNode, {
+    onNone: () => patch(mountSource(), dedupedVNode),
+    onSome: currentVNode => patch(currentVNode, dedupedVNode),
+  })
 }

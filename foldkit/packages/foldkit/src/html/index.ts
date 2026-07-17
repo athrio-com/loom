@@ -32,6 +32,7 @@ import {
   type DispatchSync,
   type UnmountResolver,
   clearRuntime,
+  requireBoundaryMappers,
   requireDispatch,
   requireRuntimeContext,
   requireUnmountResolver,
@@ -395,11 +396,16 @@ export const __endReplayRender = (): void => {
 export const FOLDKIT_MOUNT_KEY = 'foldkitMount' as const
 
 /** Marker stamped on `VNodeData[FOLDKIT_MOUNT_KEY]` for any element with an
- *  `OnMount` attribute. Carries the Mount Definition's name so test
- *  introspection can identify pending mounts. */
+ *  `OnMount` attribute. Carries the Mount Definition's name (and args) so test
+ *  introspection can identify pending mounts. When the mount lives inside a
+ *  Submodel boundary, it also carries that boundary's `toParentMessage` chain
+ *  (innermost first), snapshotted at render time, so `Scene.Mount.resolve` can
+ *  replay the lift the result travels through in production. The chain is read
+ *  only by the Scene harness; production dispatch lifts via `ctx.dispatch`. */
 export type FoldkitMountMarker = Readonly<{
   name: string
   args?: Record<string, unknown>
+  messageMappers?: ReadonlyArray<(message: unknown) => unknown>
 }>
 
 /** Union of all HTML, SVG, and MathML attributes a virtual DOM element can carry.
@@ -475,6 +481,12 @@ export type Attribute<Message> = Data.TaggedEnum<{
       key: string,
       modifiers: KeyboardModifiers,
     ) => Option.Option<Message>
+  }
+  OnKeyDownFocus: {
+    readonly f: (
+      key: string,
+      modifiers: KeyboardModifiers,
+    ) => Option.Option<Readonly<{ focusSelector: string; message: Message }>>
   }
   OnKeyUp: {
     readonly f: (key: string, modifiers: KeyboardModifiers) => Message
@@ -809,6 +821,7 @@ const {
   OnPointerUp,
   OnKeyDown,
   OnKeyDownPreventDefault,
+  OnKeyDownFocus,
   OnKeyUp,
   OnKeyUpPreventDefault,
   OnKeyPress,
@@ -1098,6 +1111,7 @@ type BuildContext = Readonly<{
   postpatchProps: Array<Readonly<{ propName: string; value: unknown }>>
   dispatch: DispatchSync
   resolveUnmount: UnmountResolver
+  boundaryMappers: ReadonlyArray<(message: unknown) => unknown>
   getCapturedContext: () => Context.Context<never>
 }>
 
@@ -1384,6 +1398,23 @@ const attributeMatcher: (
             if (Option.isSome(maybeMessage)) {
               event.preventDefault()
               ctx.dispatch(maybeMessage.value)
+            }
+          },
+        }),
+    OnKeyDownFocus:
+      ({ f }) =>
+      (ctx: BuildContext) =>
+        updateDataOn(ctx, {
+          keydown: (event: KeyboardEvent) => {
+            const maybeResult = f(event.key, keyboardModifiers(event))
+            if (Option.isSome(maybeResult)) {
+              event.preventDefault()
+              const { focusSelector, message } = maybeResult.value
+              const focusTarget = document.querySelector(focusSelector)
+              if (focusTarget instanceof HTMLElement) {
+                focusTarget.focus()
+              }
+              ctx.dispatch(message)
             }
           },
         }),
@@ -2648,10 +2679,16 @@ const attributeMatcher: (
         const notifyEnded = Option.isSome(maybeTracker)
           ? () => maybeTracker.value.ended(action.name, action.args)
           : Function.constVoid
-        const marker: FoldkitMountMarker =
+        const markerWithArgs: FoldkitMountMarker =
           action.args === undefined
             ? { name: action.name }
             : { name: action.name, args: action.args }
+        const boundaryLift = ctx.boundaryMappers
+        const marker: FoldkitMountMarker = Array.isReadonlyArrayEmpty(
+          boundaryLift,
+        )
+          ? markerWithArgs
+          : { ...markerWithArgs, messageMappers: boundaryLift }
         /* eslint-disable-next-line @typescript-eslint/consistent-type-assertions */
         ;(ctx.data as Record<string, unknown>)[FOLDKIT_MOUNT_KEY] = marker
         const existingDestroy = ctx.data.hook?.destroy
@@ -2799,6 +2836,7 @@ const buildVNodeData = <Message>(
           postpatchProps,
           dispatch: item.dispatch,
           resolveUnmount: item.resolveUnmount,
+          boundaryMappers: item.boundaryMappers,
           getCapturedContext,
         }
         boundaryCtxByDispatch.set(item.dispatch, ctx)
@@ -2812,6 +2850,7 @@ const buildVNodeData = <Message>(
           postpatchProps,
           dispatch: getCurrentDispatch(),
           resolveUnmount: getCurrentUnmountResolver(),
+          boundaryMappers: requireBoundaryMappers(),
           getCapturedContext,
         }
       }
@@ -3490,6 +3529,18 @@ type HtmlAttributes<Message> = {
   OnKeyDown: (f: (key: string, modifiers: KeyboardModifiers) => Message) => {
     readonly _tag: 'OnKeyDown'
     readonly f: (key: string, modifiers: KeyboardModifiers) => Message
+  }
+  OnKeyDownFocus: (
+    f: (
+      key: string,
+      modifiers: KeyboardModifiers,
+    ) => Option.Option<Readonly<{ focusSelector: string; message: Message }>>,
+  ) => {
+    readonly _tag: 'OnKeyDownFocus'
+    readonly f: (
+      key: string,
+      modifiers: KeyboardModifiers,
+    ) => Option.Option<Readonly<{ focusSelector: string; message: Message }>>
   }
   OnKeyDownPreventDefault: (
     f: (key: string, modifiers: KeyboardModifiers) => Option.Option<Message>,
@@ -4517,6 +4568,34 @@ const htmlAttributes = <Message>(): HtmlAttributes<Message> => ({
   OnKeyDownPreventDefault: (
     f: (key: string, modifiers: KeyboardModifiers) => Option.Option<Message>,
   ) => OnKeyDownPreventDefault({ f }),
+  /**
+   * Keydown handler that, for a handled key, synchronously focuses the element
+   * matching `focusSelector` and dispatches `message`, both inside the
+   * originating event handler. Returns `Option.none()` for keys it does not
+   * handle, leaving default behavior intact; a `Some` result also
+   * `preventDefault`s.
+   *
+   * Use this for roving-tabindex widgets (radio groups, toolbars) where an
+   * arrow key must move DOM focus to the newly-active option. Because the focus
+   * runs inside the component's own handler, the parent never sees a focus
+   * command: the value flows out as a plain Message and the DOM mechanics stay
+   * in the view.
+   *
+   * @example
+   * ```typescript
+   * h.OnKeyDownFocus(key =>
+   *   key === 'ArrowDown'
+   *     ? Option.some({ focusSelector: '#option-2', message: Selected('b') })
+   *     : Option.none(),
+   * )
+   * ```
+   */
+  OnKeyDownFocus: (
+    f: (
+      key: string,
+      modifiers: KeyboardModifiers,
+    ) => Option.Option<Readonly<{ focusSelector: string; message: Message }>>,
+  ) => OnKeyDownFocus({ f }),
   OnKeyUp: (f: (key: string, modifiers: KeyboardModifiers) => Message) =>
     OnKeyUp({ f }),
   OnKeyUpPreventDefault: (

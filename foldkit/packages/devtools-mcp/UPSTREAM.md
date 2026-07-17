@@ -8,9 +8,9 @@ reaches the app through the relay port `@athrio/foldkit-vite-plugin` opens, and
 speaks the protocol to the agent over standard input and output.
 
 - **Upstream**: https://github.com/foldkit/foldkit (`packages/devtools-mcp`)
-- **Base version**: `@foldkit/devtools-mcp@0.1.0`
-- **Base commit**: `a81f7d6c42215d9d6c733e3dbfdd596e0394dcf0`
-- **Vendored**: 2026-07-11
+- **Base version**: `@foldkit/devtools-mcp@0.13.2`
+- **Base commit**: `9439cbf30c3d31baded144eca36a9897d00030a0`
+- **Vendored**: 2026-07-17
 - **License**: MIT (see `LICENSE`, retained from upstream)
 
 ## What was taken
@@ -22,12 +22,14 @@ runs under Bun, so its bin and its export both point at `./src/server.ts`.
 
 ## Our delta
 
-The same two mechanical patches the other forks carry. The two
+The same mechanical patches the other forks carry. The two
 `foldkit/devtools-protocol` import specifiers become
 `@athrio/foldkit/devtools-protocol`. The manifest pins `effect` at
-`4.0.0-beta.93`, takes `@athrio/foldkit` as a workspace dependency, and keeps
-the upstream `@modelcontextprotocol/sdk` and `ws` dependencies. The source
-compiles against `beta.93` unchanged.
+`4.0.0-beta.97`, takes `@athrio/foldkit` as a workspace dependency, and keeps
+the upstream `@modelcontextprotocol/sdk` and `ws` dependencies. The source is
+otherwise pristine `0.128.1`, which carries upstream's own move to `beta.97` —
+including the reconnect schedule's shift to the `Schedule.modifyDelay` metadata
+callback.
 
 ## Reconciling with upstream
 

@@ -36,7 +36,7 @@ The manifest names the package and its scripts. `build` bundles the client and t
   "dependencies": {
     "@athrio/foldkit": "workspace:*",
     "@athrio/loom-lang": "workspace:*",
-    "effect": "4.0.0-beta.93",
+    "effect": "4.0.0-beta.97",
     "marked": "^18.0.5",
     "shiki": "^4.3.1"
   },

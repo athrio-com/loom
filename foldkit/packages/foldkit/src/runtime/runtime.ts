@@ -22,7 +22,6 @@ import {
   SubscriptionRef,
   pipe,
 } from 'effect'
-import { h } from 'snabbdom'
 
 import { BrowserRuntime } from '@effect/platform-browser'
 
@@ -45,6 +44,10 @@ import {
   __endReplayRender as endReplayHtmlRender,
   __setRuntime as setHtmlRuntime,
 } from '../html/index.js'
+import type {
+  ManagedResourceConfig,
+  ManagedResources,
+} from '../managedResource/index.js'
 import { MountTracker } from '../mount/index.js'
 import { UrlRequest } from '../navigation/urlRequest.js'
 import {
@@ -56,8 +59,9 @@ import {
   type __PortChannels,
   __makeInboundChannel,
 } from '../port/index.js'
+import type { Subscriptions } from '../subscription/subscription.js'
 import { Url, fromString as urlFromString } from '../url/index.js'
-import { VNode, dedupeSharedVNodes, patch, toVNode } from '../vdom.js'
+import { VNode, __patchVNode, type HydrationStrategy } from '../vdom.js'
 import {
   addBfcacheRestoreListener,
   addNavigationEventListeners,
@@ -73,14 +77,9 @@ import {
   preserveScrollPosition,
   restorePreservedScrollPosition,
 } from './hmrScroll.js'
-import type {
-  ManagedResourceConfig,
-  ManagedResources,
-} from './managedResource.js'
 import { type EnvelopedMessage, orderByPriority } from './messagePriority.js'
 import { makePreserveScheduler } from './preserveScheduler.js'
 import { makeRenderLoop } from './renderLoop.js'
-import type { Subscriptions } from './subscription.js'
 
 type AnyCommand<T, E = never, R = never> = {
   readonly name: string
@@ -552,18 +551,6 @@ export class Dispatch extends Context.Service<
 >()('@foldkit/Dispatch') {}
 
 export type { Command } from '../command/index.js'
-
-/** How the runtime hydrates a server-rendered DOM on the first render rather
- *  than building fresh. `mountSource` reads the server DOM in the container
- *  into the VNode the view is matched against — an adopt. The optional
- *  `afterFirstPatch` runs once, right after that first hydrating patch, for
- *  post-mount work: replaying input typed before the client booted, or warning
- *  that a node was rebuilt instead of merged. Foldkit ships no strategy;
- *  `@athrio/foldkit-hydration` provides `ssrHydration()`. */
-export type HydrationStrategy = Readonly<{
-  mountSource: (container: HTMLElement) => VNode
-  afterFirstPatch?: (container: HTMLElement) => void
-}>
 
 /** Configuration for URL routing with handlers for URL requests and URL changes. */
 export type RoutingConfig<Message> = Readonly<{
@@ -1738,7 +1725,7 @@ const makeRuntime = <
               onNone: () => Effect.void,
               onSome: currentVNode =>
                 Effect.sync(() => {
-                  const placeholderNode = patchVNode(
+                  const placeholderNode = __patchVNode(
                     Option.some(currentVNode),
                     null,
                     container,
@@ -2026,7 +2013,7 @@ const makeRuntime = <
 
             const [patchedVNode, maybePatchDuration] = yield* Effect.sync(() =>
               measureSlowPhase(maybeLiveSlowPatch, () =>
-                patchVNode(
+                __patchVNode(
                   maybeCurrentVNode,
                   nextVNode,
                   container,
@@ -2572,34 +2559,6 @@ const makeRuntime = <
   return program
 }
 
-// NOTE: exported for `patchVNode.test.ts` to assert the dedupeSharedVNodes
-// wiring; not part of the public surface (`runtime/public.ts` is curated).
-export const patchVNode = (
-  maybeCurrentVNode: Option.Option<VNode>,
-  nextVNode: VNode | null,
-  container: HTMLElement,
-  seen?: Set<object>,
-  hydrate?: HydrationStrategy,
-): VNode => {
-  const dedupedVNode = Predicate.isNotNull(nextVNode)
-    ? dedupeSharedVNodes(nextVNode, seen)
-    : h('!')
-
-  // On the first render (no prior vnode), a hydration strategy reads the
-  // server-rendered DOM in the container instead of building fresh. The server
-  // nests the view's root inside the container, so a first child is the sign
-  // there is server DOM to adopt; with none the runtime mounts fresh.
-  const mountSource = (): VNode | Element =>
-    hydrate !== undefined && container.firstElementChild !== null
-      ? hydrate.mountSource(container)
-      : toVNode(container)
-
-  return Option.match(maybeCurrentVNode, {
-    onNone: () => patch(mountSource(), dedupedVNode),
-    onSome: currentVNode => patch(currentVNode, dedupedVNode),
-  })
-}
-
 const currentLocationUrl = (): string => {
   const { origin, pathname, search } = window.location
   return `${origin}${pathname}${search}`
@@ -2679,7 +2638,7 @@ const renderCrashView = <Model, Message>(
     }
 
     const maybeCurrentVNode = Effect.runSync(Ref.get(maybeCurrentVNodeRef))
-    const patchedVNode = patchVNode(
+    const patchedVNode = __patchVNode(
       maybeCurrentVNode,
       crashDocument.body,
       container,
@@ -2703,7 +2662,7 @@ const renderCrashView = <Model, Message>(
     }
 
     const maybeCurrentVNode = Effect.runSync(Ref.get(maybeCurrentVNodeRef))
-    const patchedVNode = patchVNode(
+    const patchedVNode = __patchVNode(
       maybeCurrentVNode,
       fallbackDocument.body,
       container,
