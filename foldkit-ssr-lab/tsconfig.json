@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "noEmit": true,
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "target": "es2022",
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "types": ["bun"],
+    "skipLibCheck": true
+  },
+  "include": ["src", "test", "e2e", "vite.config.ts"]
+}

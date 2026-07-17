@@ -1,0 +1,150 @@
+---
+Chapter 1: Adopting the server's DOM
+Package: src/adopt.ts
+Language: TypeScript
+---
+
+# Adopting the server's DOM
+
+Hydration begins by reading the server's DOM back into the shape a Foldkit view produces. `adopt` does that read: given a server-rendered element, it returns a `VNode` shaped the way the `html` builder shapes one — a bare-tag selector, the classes in the class bucket, the key recovered from the `data-fk-key` the serializer wrote, and every attribute the builder treats as a property sorted into the props bucket under its property name.
+
+The shape is the whole point. Snabbdom's own `toVNode` bakes the id and classes into the selector, as `div#app.todo`, which never matches a view's bare `div`, so the runtime would rebuild the server's tree. And it files every attribute in the attrs bucket, so a hydrating patch would move each one from attribute to property and churn. Adopting a node the view's way makes snabbdom's `sameVnode` match it node for node and each bucket match the view's, so the first patch reuses the server's DOM and attaches only the listeners the HTML could not carry. Every vnode keeps its `elm` on the real node, which is what lets the patch reuse it.
+
+## What the adopt draws on
+
+The read needs the `Array` combinators that fold an element's attributes into buckets and map its children, the `pipe` that threads them, and the `Match` that classifies one attribute. From `snabbdom` come the `VNode` it returns and the `VNodeData` it fills.
+
+=>
+
+import { Array, Match, pipe } from 'effect'
+import type { VNode, VNodeData } from 'snabbdom'
+
+## Which attributes are properties
+
+The `html` builder carries some attributes as DOM properties rather than HTML attributes — a checkbox's `checked`, an input's `value`, a link's `href`. `adopt` must file those where the builder files them, in the props bucket, or a hydrating patch would strip an attribute here and set a property there. `PROPERTY_NAMES` is that list, by property name; `propertyOfAttribute` inverts it so a lowercase HTML-attribute name resolves to its camel-cased property, with `for` mapping to `htmlFor`; and `BOOLEAN_PROPERTIES` names the ones whose mere presence in the markup means `true`. This table is the hydration package's copy of the builder's property routing, and the demo hydration suite's round trips catch it drifting.
+
+=>
+
+const PROPERTY_NAMES = [
+  'accept', 'action', 'alt', 'autocomplete', 'autofocus', 'autoplay', 'checked',
+  'cite', 'colSpan', 'cols', 'controls', 'dateTime', 'dir', 'disabled', 'download',
+  'draggable', 'enctype', 'formAction', 'formEnctype', 'formMethod', 'formNoValidate',
+  'formTarget', 'hidden', 'high', 'href', 'htmlFor', 'id', 'inert', 'isMap', 'label',
+  'lang', 'loop', 'low', 'max', 'maxLength', 'method', 'min', 'minLength', 'multiple',
+  'muted', 'name', 'noValidate', 'open', 'optimum', 'pattern', 'placeholder',
+  'playsInline', 'poster', 'preload', 'readOnly', 'rel', 'required', 'reversed',
+  'rowSpan', 'rows', 'selected', 'size', 'span', 'src', 'start', 'step', 'tabIndex',
+  'target', 'title', 'type', 'value', 'wrap',
+]
+
+const propertyOfAttribute: Readonly<Record<string, string>> = {
+  ...Object.fromEntries(PROPERTY_NAMES.map((name) => [name.toLowerCase(), name])),
+  for: 'htmlFor',
+}
+
+const BOOLEAN_PROPERTIES: ReadonlySet<string> = new Set([
+  'autofocus', 'autoplay', 'checked', 'controls', 'disabled', 'draggable', 'hidden',
+  'inert', 'isMap', 'loop', 'multiple', 'muted', 'noValidate', 'formNoValidate',
+  'open', 'playsInline', 'readOnly', 'required', 'reversed', 'selected',
+])
+
+const adoptClasses = (value: string): Record<string, boolean> =>
+  pipe(
+    value.split(/\s+/),
+    Array.filter((name) => name.length > 0),
+    Array.reduce({} as Record<string, boolean>, (classes, name) => ({ ...classes, [name]: true })),
+  )
+
+## Sorting the attributes into buckets
+
+`classify` sorts one attribute into the buckets. The `class` attribute becomes class entries, `data-fk-key` becomes the key, and `data-fk-html` raises the raw-HTML flag — the marker the serializer leaves on an element whose content came from the `innerHTML` property, an island to read back as a property rather than descend into. Anything the property table knows becomes a props entry, boolean or valued; anything else stays a plain attribute. `foldBuckets` runs `classify` over every attribute from an empty start.
+
+=>
+
+type Buckets = {
+  readonly props: Record<string, string | boolean>
+  readonly classes: Record<string, boolean>
+  readonly attrs: Record<string, string>
+  readonly key: string | undefined
+  readonly rawHtml: boolean
+}
+
+const emptyBuckets: Buckets = { props: {}, classes: {}, attrs: {}, key: undefined, rawHtml: false }
+
+const classify = (buckets: Buckets, attribute: Attr): Buckets =>
+  Match.value(attribute.name).pipe(
+    Match.when('class', () => ({
+      ...buckets,
+      classes: { ...buckets.classes, ...adoptClasses(attribute.value) },
+    })),
+    Match.when('data-fk-key', () => ({ ...buckets, key: attribute.value })),
+    Match.when('data-fk-html', () => ({ ...buckets, rawHtml: true })),
+    Match.orElse(() => {
+      const property = propertyOfAttribute[attribute.name]
+      return property === undefined
+        ? { ...buckets, attrs: { ...buckets.attrs, [attribute.name]: attribute.value } }
+        : {
+            ...buckets,
+            props: {
+              ...buckets.props,
+              [property]: BOOLEAN_PROPERTIES.has(property) ? true : attribute.value,
+            },
+          }
+    }),
+  )
+
+const foldBuckets = (element: Element): Buckets =>
+  Array.reduce(Array.fromIterable(element.attributes), emptyBuckets, classify)
+
+## Reading a node
+
+`adopt` reads one node. A text node carries its string and no selector; a comment carries snabbdom's `!` selector. Everything else is an element: its attributes fold into buckets, the buckets assemble into the vnode's data, and its children are adopted in turn — unless it is a raw-HTML island, whose parsed children are left alone and whose content is read back as the `innerHTML` property. Every returned vnode keeps its `elm` on the real node, so the first patch reuses it. Runs only in the browser, at the hydrating mount.
+
+=>
+
+export const adopt = (node: Node): VNode => {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return { sel: undefined, data: undefined, children: undefined, text: node.textContent ?? '', elm: node, key: undefined }
+  }
+  if (node.nodeType === Node.COMMENT_NODE) {
+    return { sel: '!', data: {}, children: [], text: node.textContent ?? '', elm: node, key: undefined }
+  }
+
+  const element = node as Element
+  const buckets = foldBuckets(element)
+  const props = buckets.rawHtml
+    ? { ...buckets.props, innerHTML: element.innerHTML }
+    : buckets.props
+
+  const data: VNodeData = {
+    ...(Object.keys(props).length > 0 ? { props } : {}),
+    ...(Object.keys(buckets.classes).length > 0 ? { class: buckets.classes } : {}),
+    ...(Object.keys(buckets.attrs).length > 0 ? { attrs: buckets.attrs } : {}),
+    ...(buckets.key !== undefined ? { key: buckets.key } : {}),
+  }
+
+  const children = buckets.rawHtml
+    ? []
+    : Array.map(Array.fromIterable(element.childNodes), adopt)
+
+  return {
+    sel: element.tagName.toLowerCase(),
+    data,
+    children,
+    text: undefined,
+    elm: element,
+    key: buckets.key,
+  }
+}
+
+## The module {Tangle}
+
+=>
+
+::[What the adopt draws on]
+
+::[Which attributes are properties]
+
+::[Sorting the attributes into buckets]
+
+::[Reading a node]

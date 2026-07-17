@@ -27,6 +27,7 @@
     "./navigation": "./src/navigation/public.ts",
     "./port": "./src/port/public.ts",
     "./render": "./src/render/public.ts",
+    "./vdom": "./src/vdom.ts",
     "./route": "./src/route/public.ts",
     "./runtime": "./src/runtime/public.ts",
     "./hmr-protocol": "./src/runtime/hmrProtocolPublic.ts",

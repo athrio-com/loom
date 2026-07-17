@@ -1,0 +1,19 @@
+{
+  "name": "foldkit-ssr-lab",
+  "type": "module",
+  "private": true,
+  "version": "0.0.1",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "serve": "bun src/server/server.ts",
+    "serve:chat": "bun src/chat/server.ts",
+    "serve:lab": "bun src/lab/server.ts",
+    "test": "bun test",
+    "e2e": "bun e2e/hydration.e2e.ts",
+    "e2e:chat": "bun e2e/chat.e2e.ts"
+  },
+  "devDependencies": {
+    "happy-dom": "^20.10.6"
+  }
+}

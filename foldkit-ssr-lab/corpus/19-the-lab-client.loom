@@ -1,0 +1,179 @@
+---
+Chapter 19: The strategy lab — its client
+Package: src/lab/client.ts
+Language: TypeScript
+---
+
+# The strategy lab — its client
+
+The client drives all three strategies and watches the result. It boots from the model the server inlined — the native cards already loaded — seeds any streamed cards a fill delivered before boot, and then does two things at once: it fetches the client cards on its own priority schedule, and it observes the cards' DOM, logging every change it sees. The streamed cards arrive on their own, pushed by the server; the client only has to render them.
+
+The observer is the heart of the page. It watches the cards region and, each time a card's body node appears, records the millisecond and which card, dispatching an `Observed` message that appends to the log. Because it watches only the cards region, the log it feeds never triggers it — the log lives in the other half of the split.
+
+## What the client draws on
+
+The client draws widely. From `effect` come the `Schema` that decodes the inlined model, the `Match` that dispatches the update, the `Array` its transforms fold over, the `Option` that chooses the model's source, the `Duration` a fetch is delayed by, the `Stream` its subscriptions are, and `Effect`. From `@athrio/foldkit` come the `Runtime`, the `Command` a fetch returns, and the `Subscription` that carries the fills and the observer events. `AsyncData` reads a card's state and `Body` sets it. The hydration surface gives the fill event, the fill buffer, and the boot switch. The view, the card data, and the model are the app's own.
+
+=>
+
+import { Array, Duration, Effect, Match, Option, Schema as S, Stream, pipe } from 'effect'
+import { Command, Runtime, Subscription } from '@athrio/foldkit'
+import * as AsyncData from '@athrio/foldkit/asyncData'
+import {
+  BOUNDARY_FILL_EVENT,
+  bufferedFills,
+  markBooted,
+  ssrHydration,
+} from '@athrio/foldkit-hydration'
+import { view } from './view'
+import { bodyOf, initialCards } from './cards'
+import {
+  Body,
+  CardLoaded,
+  Flags,
+  type LogEntry,
+  Message,
+  Model,
+  Observed,
+} from './model'
+
+type Step = readonly [Model, ReadonlyArray<Command.Command<Message>>]
+
+## Fetching a client card
+
+A client card loads through a command that waits, standing in for a fetch, then answers with the card's body as `CardLoaded`. The wait is the card's priority times a fixed step, so the first-priority card lands before the second — the client's own ordering, which streaming cannot express.
+
+=>
+
+const LoadCard = Command.define('LoadCard', { id: S.String, delayMs: S.Number }, CardLoaded)(
+  ({ id, delayMs }) =>
+    Effect.sleep(Duration.millis(delayMs)).pipe(Effect.as(CardLoaded({ id, body: bodyOf(id) }))),
+)
+
+const clientLoads = (model: Model): ReadonlyArray<Command.Command<Message>> =>
+  pipe(
+    model.cards,
+    Array.filter((card) => card.strategy === 'client' && !AsyncData.hasData(card.content)),
+    Array.map((card) => LoadCard({ id: card.id, delayMs: card.priority * 600 })),
+  )
+
+## Booting and seeding
+
+The client boots from the inlined model, and from the bundled cards when none is inlined, so the page runs under plain Vite too. `seedCards` folds the fills that arrived before boot into the cards, setting each streamed card `Success` with the body its fill carried, so the first hydrating render matches the painted DOM. `bufferedLog` reads what the inline observer recorded before boot — the native cards and any streamed early — to seed the log. `markBooted` runs first, so any later fill is left for the client to render.
+
+=>
+
+const decodeBody = S.decodeUnknownSync(S.String)
+
+const seedCards = (current: Model['cards']): Model['cards'] =>
+  Array.reduce(bufferedFills(), current, (soFar, fill) =>
+    Array.map(soFar, (card) =>
+      card.id === fill.id ? { ...card, content: Body.Success({ data: decodeBody(fill.data) }) } : card,
+    ),
+  )
+
+const bufferedLog = (): ReadonlyArray<LogEntry> =>
+  (window as unknown as { __domlog?: ReadonlyArray<LogEntry> }).__domlog ?? []
+
+const flags: Effect.Effect<Flags> = Effect.sync(() => {
+  markBooted()
+  const inlined = Option.fromNullishOr(document.getElementById('foldkit-model')?.textContent)
+  const shell = Option.match(inlined, {
+    onSome: (text) => S.decodeUnknownSync(Flags)(JSON.parse(text)),
+    onNone: (): Flags => ({ cards: initialCards, log: [] }),
+  })
+  return { ...shell, cards: seedCards(shell.cards), log: [...bufferedLog()] }
+})
+
+## The update
+
+`update` does one of two things. `CardLoaded` fills a card — the one whose id matches turns `Success` with its body, the rest are untouched. `Observed` appends one entry to the log. Neither issues a command; the fetches are launched at init and the fills arrive on their own.
+
+=>
+
+const withCardLoaded = (model: Model, id: string, body: string): Model => ({
+  ...model,
+  cards: Array.map(model.cards, (card) =>
+    card.id === id ? { ...card, content: Body.Success({ data: body }) } : card,
+  ),
+})
+
+const update = (model: Model, message: Message): Step =>
+  Match.value(message).pipe(
+    Match.withReturnType<Step>(),
+    Match.tagsExhaustive({
+      CardLoaded: ({ id, body }) => [withCardLoaded(model, id, body), []],
+      Observed: ({ at, label, strategy }) => [
+        { ...model, log: [...model.log, { at, label, strategy }] },
+        [],
+      ],
+    }),
+  )
+
+## Receiving the streamed fills
+
+A card streamed after the client booted arrives as a `foldkit:boundary-fill` event, whose detail carries the card's id and its body. The subscription turns each into `CardLoaded`, and the render that follows adds the body — which the observer then sees and logs, so a streamed card lands in the log like any other.
+
+=>
+
+const fillStream: Stream.Stream<Message> = Subscription.fromEvent<CustomEvent, Message>({
+  target: window,
+  type: BOUNDARY_FILL_EVENT,
+  toMessage: (event) => CardLoaded({ id: event.detail.id, body: decodeBody(event.detail.data) }),
+})
+
+## Observing the DOM
+
+The observer itself runs inline in the page, ahead of the client, because a streamed card paints before the client boots and only an observer already watching can time it. The client seeds its log from that observer's buffer at boot, and from here on receives each change as a `lab:dom` event. `domObservations` is that subscription: every event becomes an `Observed` the update appends. Watching the two subscriptions together — the fills the client renders and the changes the observer reports — is the whole page.
+
+=>
+
+const domObservations: Stream.Stream<Message> = Subscription.fromEvent<CustomEvent, Message>({
+  target: window,
+  type: 'lab:dom',
+  toMessage: (event) =>
+    Observed({ at: event.detail.at, label: event.detail.label, strategy: event.detail.strategy }),
+})
+
+const subscriptions = Subscription.make<Model, Message>()(() => ({
+  fills: Subscription.persistent(fillStream),
+  observations: Subscription.persistent(domObservations),
+}))
+
+## Starting the runtime
+
+The application binds the model, flags, update, view, and the two subscriptions, mounts at the container, and runs. `ssrHydration()` merges the first render onto the server's shell. `init` launches the client-card fetches; the native cards are already loaded and the streamed cards arrive on their own.
+
+=>
+
+const application = Runtime.makeApplication({
+  Model,
+  Flags,
+  flags,
+  init: (seed: Flags): Step => [seed, clientLoads(seed)],
+  update,
+  view,
+  subscriptions,
+  container: document.getElementById('root'),
+  hydrate: ssrHydration(),
+})
+
+Runtime.run(application)
+
+## The module {Tangle}
+
+=>
+
+::[What the client draws on]
+
+::[Fetching a client card]
+
+::[Booting and seeding]
+
+::[The update]
+
+::[Receiving the streamed fills]
+
+::[Observing the DOM]
+
+::[Starting the runtime]

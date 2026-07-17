@@ -1,0 +1,52 @@
+---
+Chapter 5: The strategy
+Package: src/strategy.ts
+Language: TypeScript
+---
+
+# The strategy
+
+`ssrHydration` is what an app passes to `makeApplication`'s `hydrate`. It is the implementation of Foldkit's `HydrationStrategy` seam: the runtime keeps only the hook, and this package fills it. `mountSource` adopts the server DOM the runtime found in the container, and `afterFirstPatch` runs the post-mount work — replaying the input captured before boot, and, when asked, warning that the merge rebuilt a node.
+
+The conformance warning is opt-in, because a library has no view onto whether it is running in development. The app decides, passing `warnOnRebuild: true` where it knows it is a dev build. When it is on, the strategy captures the server nodes as it adopts and checks them after the patch; the two runtime callbacks share that one snapshot.
+
+## Building the strategy
+
+The strategy draws its `HydrationStrategy` shape from the Foldkit runtime, and its work from this package: `adopt` reads the server DOM, `replayPreHydrationInput` restores pre-boot typing, and the conformance pair catches a rebuild. The runtime calls `mountSource` only when the container holds server DOM, so its first element child is present to adopt.
+
+=>
+
+import type { HydrationStrategy } from '@athrio/foldkit/runtime'
+import { adopt } from './adopt'
+import { replayPreHydrationInput } from './prehydration'
+import { snapshotServerNodes, warnOnHydrationRebuild } from './conformance'
+
+export type SsrHydrationOptions = Readonly<{ warnOnRebuild?: boolean }>
+
+export const ssrHydration = (options: SsrHydrationOptions = {}): HydrationStrategy => {
+  const warnOnRebuild = options.warnOnRebuild ?? false
+  // The two callbacks below share this one snapshot: mountSource captures the
+  // server nodes as it adopts, afterFirstPatch checks which the merge replaced.
+  let snapshot: ReadonlyArray<Element> = []
+
+  return {
+    mountSource: (container) => {
+      if (warnOnRebuild) {
+        snapshot = snapshotServerNodes(container)
+      }
+      return adopt(container.firstElementChild!)
+    },
+    afterFirstPatch: (container) => {
+      replayPreHydrationInput()
+      if (warnOnRebuild) {
+        warnOnHydrationRebuild(snapshot, container)
+      }
+    },
+  }
+}
+
+## The module {Tangle}
+
+=>
+
+::[Building the strategy]

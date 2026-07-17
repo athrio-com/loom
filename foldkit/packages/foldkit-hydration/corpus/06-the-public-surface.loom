@@ -1,0 +1,34 @@
+---
+Chapter 6: The public surface
+Package: src/index.ts
+Language: TypeScript
+---
+
+# The public surface
+
+The package's one entry gathers what a hydrating app and its tests reach for. Most apps need only `ssrHydration` — the strategy they pass to `hydrate` — and the two script constants their server injects. The rest is for the server that builds streamed fills, the client that reads them, and the tests that drive `adopt` and `patch` directly. `patch` comes from Foldkit's own VDOM, re-exported here so a test has one import for the whole hydrating path.
+
+=>
+
+export { adopt } from './adopt'
+export { PREHYDRATION_CAPTURE_SCRIPT, replayPreHydrationInput } from './prehydration'
+export {
+  BOUNDARY_ATTRIBUTE,
+  BOUNDARY_FILL_EVENT,
+  STREAMING_FILL_SCRIPT,
+  boundaryFillChunk,
+  bufferedFills,
+  markBooted,
+} from './streaming'
+export type { BoundaryFill } from './streaming'
+export { snapshotServerNodes, warnOnHydrationRebuild } from './conformance'
+export { ssrHydration } from './strategy'
+export type { SsrHydrationOptions } from './strategy'
+export { patch, toVNode } from '@athrio/foldkit/vdom'
+export type { VNode } from 'snabbdom'
+
+## The module {Tangle}
+
+=>
+
+::[The public surface]

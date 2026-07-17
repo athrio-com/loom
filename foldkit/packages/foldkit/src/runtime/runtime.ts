@@ -553,6 +553,18 @@ export class Dispatch extends Context.Service<
 
 export type { Command } from '../command/index.js'
 
+/** How the runtime hydrates a server-rendered DOM on the first render rather
+ *  than building fresh. `mountSource` reads the server DOM in the container
+ *  into the VNode the view is matched against — an adopt. The optional
+ *  `afterFirstPatch` runs once, right after that first hydrating patch, for
+ *  post-mount work: replaying input typed before the client booted, or warning
+ *  that a node was rebuilt instead of merged. Foldkit ships no strategy;
+ *  `@athrio/foldkit-hydration` provides `ssrHydration()`. */
+export type HydrationStrategy = Readonly<{
+  mountSource: (container: HTMLElement) => VNode
+  afterFirstPatch?: (container: HTMLElement) => void
+}>
+
 /** Configuration for URL routing with handlers for URL requests and URL changes. */
 export type RoutingConfig<Message> = Readonly<{
   onUrlRequest: (request: UrlRequest) => Message
@@ -651,6 +663,15 @@ type RuntimeConfig<
    */
   preserveScroll?: boolean
   /**
+   * A hydration strategy for the first render: instead of building a fresh
+   * tree, it reads the server-rendered DOM in the container and matches the
+   * view against it, reusing the server's nodes and attaching only the
+   * listeners the HTML could not carry. Foldkit ships no strategy;
+   * `@athrio/foldkit-hydration` provides `ssrHydration()`. With none set, or
+   * with no server DOM present, the runtime mounts fresh.
+   */
+  hydrate?: HydrationStrategy
+  /**
    * An Effect Layer providing services shared by every Command and
    * Subscription. The runtime builds the Layer once, the first time it is
    * needed: at startup in an app that declares Subscriptions (their
@@ -715,6 +736,10 @@ type BaseApplicationConfig<
   slow?: SlowConfig<Model, Message>
   freezeModel?: boolean
   preserveScroll?: boolean
+  /** A hydration strategy for the first render — the client half of
+   *  server-side rendering. Pass `ssrHydration()` from
+   *  `@athrio/foldkit-hydration`; with none set the runtime mounts fresh. */
+  hydrate?: HydrationStrategy
   resources?: Layer.Layer<Resources>
   managedResources?: ManagedResources<Model, Message, ManagedResourceServices>
   devTools?: DevToolsConfig
@@ -1274,6 +1299,7 @@ const makeRuntime = <
   slow,
   freezeModel,
   preserveScroll,
+  hydrate,
   resources,
   managedResources,
   devTools,
@@ -1993,6 +2019,11 @@ const makeRuntime = <
 
             const maybeCurrentVNode = yield* Ref.get(maybeCurrentVNodeRef)
 
+            const isHydratingMount =
+              hydrate !== undefined &&
+              renderMode === 'Live' &&
+              Option.isNone(maybeCurrentVNode)
+
             const [patchedVNode, maybePatchDuration] = yield* Effect.sync(() =>
               measureSlowPhase(maybeLiveSlowPatch, () =>
                 patchVNode(
@@ -2000,10 +2031,18 @@ const makeRuntime = <
                   nextVNode,
                   container,
                   boundaryRegistry.dedupeSeen,
+                  hydrate,
                 ),
               ),
             )
             yield* Ref.set(maybeCurrentVNodeRef, Option.some(patchedVNode))
+
+            // On the first hydrating render the model reconciles onto the
+            // server's DOM; the strategy does any post-mount work — replaying
+            // input typed before boot, warning on a rebuilt node in dev.
+            if (isHydratingMount) {
+              yield* Effect.sync(() => hydrate?.afterFirstPatch?.(container))
+            }
 
             reportSlowPhase<SlowPatchContext<Model, Message>>(
               maybeLiveSlowPatch,
@@ -2540,13 +2579,23 @@ export const patchVNode = (
   nextVNode: VNode | null,
   container: HTMLElement,
   seen?: Set<object>,
+  hydrate?: HydrationStrategy,
 ): VNode => {
   const dedupedVNode = Predicate.isNotNull(nextVNode)
     ? dedupeSharedVNodes(nextVNode, seen)
     : h('!')
 
+  // On the first render (no prior vnode), a hydration strategy reads the
+  // server-rendered DOM in the container instead of building fresh. The server
+  // nests the view's root inside the container, so a first child is the sign
+  // there is server DOM to adopt; with none the runtime mounts fresh.
+  const mountSource = (): VNode | Element =>
+    hydrate !== undefined && container.firstElementChild !== null
+      ? hydrate.mountSource(container)
+      : toVNode(container)
+
   return Option.match(maybeCurrentVNode, {
-    onNone: () => patch(toVNode(container), dedupedVNode),
+    onNone: () => patch(mountSource(), dedupedVNode),
     onSome: currentVNode => patch(currentVNode, dedupedVNode),
   })
 }
@@ -2807,6 +2856,9 @@ export function makeApplication<
     }),
     ...(Predicate.isNotUndefined(config.preserveScroll) && {
       preserveScroll: config.preserveScroll,
+    }),
+    ...(Predicate.isNotUndefined(config.hydrate) && {
+      hydrate: config.hydrate,
     }),
     ...(config.resources && { resources: config.resources }),
     ...(config.managedResources && {

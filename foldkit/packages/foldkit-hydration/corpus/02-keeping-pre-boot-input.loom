@@ -1,0 +1,96 @@
+---
+Chapter 2: Keeping pre-boot input
+Package: src/prehydration.ts
+Language: TypeScript
+---
+
+# Keeping pre-boot input
+
+A server-rendered page is visible and typable before its client bundle loads. Keystrokes in that window reach no handler — the runtime has not attached them yet — so a naive hydrating mount renders the stale model over the DOM and the controlled-input sync clobbers what the visitor typed. React 18 solves this by capturing discrete events during hydration and replaying them; this package does the same, narrowed to the form events that carry input.
+
+Two parts cooperate across the moment the client boots. An inline script the page runs first captures the events into a buffer on the window. The runtime, once it has hydrated, replays them so the model catches up. This chapter is both.
+
+## The contract on the window
+
+The capture script and the replay share two window keys: `__foldkitPending`, the buffer of captured events, and `__foldkitStopCapture`, the function the replay calls to detach the listeners once it is done. A captured entry keeps the event's type, the field's value and checked flag at the moment it fired, and the target node — a live reference, still valid after hydration because hydration merges rather than rebuilds.
+
+=>
+
+const PENDING_KEY = '__foldkitPending'
+const STOP_KEY = '__foldkitStopCapture'
+
+type PendingInput = {
+  readonly type: string
+  readonly value: string | undefined
+  readonly checked: boolean | undefined
+  readonly target: EventTarget & { value?: string; checked?: boolean }
+}
+
+type PrehydrationScope = {
+  [PENDING_KEY]?: Array<PendingInput>
+  [STOP_KEY]?: () => void
+}
+
+## The capture script
+
+`PREHYDRATION_CAPTURE_SCRIPT` is the inline script a server-rendering page runs in its `<head>`, before the module script that boots the app. It listens for `input` and `change` in the capture phase, so it sees them before any element handler would, and records each into `window.__foldkitPending`. It must be inline — a fetched script would run too late to catch the first keystrokes. Inject it as the text of a `<script>` element.
+
+=>
+
+export const PREHYDRATION_CAPTURE_SCRIPT = `(function () {
+  var pending = (window.${PENDING_KEY} = window.${PENDING_KEY} || [])
+  function capture(event) {
+    var target = event.target
+    if (target) {
+      pending.push({
+        type: event.type,
+        value: target.value,
+        checked: target.checked,
+        target: target,
+      })
+    }
+  }
+  window.addEventListener('input', capture, true)
+  window.addEventListener('change', capture, true)
+  window.${STOP_KEY} = function () {
+    window.removeEventListener('input', capture, true)
+    window.removeEventListener('change', capture, true)
+  }
+})();`
+
+## Replaying what was captured
+
+`replayPreHydrationInput` is the runtime's side, run once right after the first hydrating render. `replayEntry` restores one field's value and checked flag and re-dispatches the event, so the handler the mount just attached runs and the model catches up; restoring the value before dispatch means the mount's own value-sync — which ran in the same synchronous task, before the browser painted — is undone within that task, so no emptied field flickers. The replay detaches the capture listeners first and clears the buffer, and a page rendered without the capture script leaves the buffer absent, so it is a no-op.
+
+=>
+
+const replayEntry = (entry: PendingInput): void => {
+  const { target } = entry
+  if (entry.value !== undefined && 'value' in target) {
+    target.value = entry.value
+  }
+  if (entry.checked !== undefined && 'checked' in target) {
+    target.checked = entry.checked
+  }
+  target.dispatchEvent(new Event(entry.type, { bubbles: true }))
+}
+
+export const replayPreHydrationInput = (): void => {
+  const scope = window as unknown as PrehydrationScope
+  const pending = scope[PENDING_KEY]
+  scope[STOP_KEY]?.()
+  scope[PENDING_KEY] = []
+  if (pending !== undefined) {
+    pending.forEach(replayEntry)
+  }
+}
+
+## The module {Tangle}
+
+=>
+
+::[The contract on the window]
+
+::[The capture script]
+
+::[Replaying what was captured]

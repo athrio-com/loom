@@ -1,6 +1,5 @@
 {
   "lockfileVersion": 1,
-  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "loom",
@@ -52,6 +51,34 @@
       "version": "0.0.1",
       "dependencies": {
         "@effect/platform-browser": "4.0.0-beta.93",
+        "effect": "4.0.0-beta.93",
+        "snabbdom": "^3.6.3",
+      },
+    },
+    "foldkit/packages/foldkit-hydration": {
+      "name": "@athrio/foldkit-hydration",
+      "version": "0.0.1",
+      "devDependencies": {
+        "@athrio/foldkit": "workspace:*",
+        "effect": "4.0.0-beta.93",
+        "snabbdom": "^3.6.3",
+      },
+      "peerDependencies": {
+        "@athrio/foldkit": "*",
+        "effect": "4.0.0-beta.93",
+        "snabbdom": "^3.6.3",
+      },
+    },
+    "foldkit/packages/foldkit-ssr": {
+      "name": "@athrio/foldkit-ssr",
+      "version": "0.0.1",
+      "devDependencies": {
+        "@athrio/foldkit": "workspace:*",
+        "effect": "4.0.0-beta.93",
+        "snabbdom": "^3.6.3",
+      },
+      "peerDependencies": {
+        "@athrio/foldkit": "*",
         "effect": "4.0.0-beta.93",
         "snabbdom": "^3.6.3",
       },
@@ -240,6 +267,10 @@
     "@athrio/foldkit": ["@athrio/foldkit@workspace:foldkit/packages/foldkit"],
 
     "@athrio/foldkit-devtools-mcp": ["@athrio/foldkit-devtools-mcp@workspace:foldkit/packages/devtools-mcp"],
+
+    "@athrio/foldkit-hydration": ["@athrio/foldkit-hydration@workspace:foldkit/packages/foldkit-hydration"],
+
+    "@athrio/foldkit-ssr": ["@athrio/foldkit-ssr@workspace:foldkit/packages/foldkit-ssr"],
 
     "@athrio/foldkit-vite-plugin": ["@athrio/foldkit-vite-plugin@workspace:foldkit/packages/vite-plugin-foldkit"],
 

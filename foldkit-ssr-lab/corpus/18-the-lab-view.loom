@@ -1,0 +1,134 @@
+---
+Chapter 18: The strategy lab — its view
+Package: src/lab/view.ts
+Language: TypeScript
+---
+
+# The strategy lab — its view
+
+The page splits in two. On the left is the grid of cards, each coloured by its strategy and holding a skeleton until its content arrives. On the right is the log, a running list of the DOM changes the observer sees, each stamped with the millisecond it happened. Watching the two together is the point: the cards fill in an order, and the log names that order.
+
+A card is a header — a coloured tag and a title — over a body region. The region holds a skeleton while the card is `Loading` and the rendered body once it is `Success`. For a streamed card the region is a boundary, marked so the server's fill can swap into it; for the others it is a plain region the client fills. Every card carries its id and strategy as data attributes, which the observer reads to label what changed.
+
+## What the view draws on
+
+The view needs the element builder and its two types, the `Array` map that lays out cards and log rows, the `AsyncData` match that chooses skeleton or body, and the model's own shapes. It also takes the boundary attribute name from Foldkit's hydration surface, so a streamed card's region carries the mark the fill script looks for.
+
+=>
+
+import { Array } from 'effect'
+import { type Document, type Html } from '@athrio/foldkit/html'
+import { BOUNDARY_ATTRIBUTE } from '@athrio/foldkit-hydration'
+import * as AsyncData from '@athrio/foldkit/asyncData'
+import { h, type Card, type LogEntry, type Model } from './model'
+
+## A card and its region
+
+`loadedBody` is the node a filled card shows, exported so the server renders the very same markup into its streamed fills and the merge lines up. `skeleton` is the placeholder. `bodyNode` chooses between them on the card's state. The two carry different keys — `sk` and `bd` — so filling a card removes the skeleton node and adds a fresh body node rather than mutating the one in place. That makes the fill a real node replacement, which the observer reads as an added `.body` and the hydrating merge matches by key. `region` wraps the content — for a streamed card in a boundary marked `data-fk-boundary`, for the rest in a plain region. `cardView` sets the whole card: its strategy in the class and in a data attribute, its id in another, a coloured tag and the title in the header, and the region below.
+
+=>
+
+export const loadedBody = (body: string): Html => h.div([h.Key('bd'), h.Class('body')], [body])
+
+const skeleton = (): Html => h.div([h.Key('sk'), h.Class('skeleton')], [])
+
+const bodyNode = (card: Card): Html =>
+  AsyncData.match(card.content, {
+    onIdle: skeleton,
+    onLoading: skeleton,
+    onRefreshing: loadedBody,
+    onFailure: () => loadedBody('—'),
+    onStale: ({ data }) => loadedBody(data),
+    onSuccess: loadedBody,
+  })
+
+const region = (card: Card): Html =>
+  h.div(
+    card.strategy === 'streaming'
+      ? [h.Class('region'), h.Attribute(BOUNDARY_ATTRIBUTE, card.id)]
+      : [h.Class('region')],
+    [bodyNode(card)],
+  )
+
+const cardView = (card: Card): Html =>
+  h.div(
+    [
+      h.Key(card.id),
+      h.Class(`card ${card.strategy}`),
+      h.Attribute('data-card', card.id),
+      h.Attribute('data-strategy', card.strategy),
+    ],
+    [
+      h.div(
+        [h.Class('card-head')],
+        [h.span([h.Class('tag')], [card.strategy]), h.span([h.Class('title')], [card.title])],
+      ),
+      region(card),
+    ],
+  )
+
+## The log
+
+`logRow` renders one observed change: its millisecond and its label, coloured by the strategy it belongs to. The log reads top to bottom in the order the changes landed, so the three strategies' timings sit next to each other.
+
+=>
+
+const logRow = (entry: LogEntry): Html =>
+  h.li(
+    [h.Class(`entry ${entry.strategy}`)],
+    [h.span([h.Class('at')], [`${entry.at}ms`]), h.span([h.Class('label')], [entry.label])],
+  )
+
+## The page, split in two
+
+The view lays the two halves side by side under one app root. A header carries the title and a legend naming each strategy's colour. The left half is the cards grid, marked `#cards` so the observer can scope itself to it and never watch its own log. The right half is the log.
+
+=>
+
+export const view = (model: Model): Document => ({
+  title: 'SSR strategies — a comparison lab',
+  body: h.div(
+    [h.Id('app'), h.Class('lab')],
+    [
+      h.header(
+        [h.Class('bar')],
+        [
+          h.h1([], ['SSR fill strategies']),
+          h.p(
+            [h.Class('legend')],
+            [
+              h.span([h.Class('key native')], ['native — in the shell']),
+              h.span([h.Class('key streaming')], ['streaming — server-pushed']),
+              h.span([h.Class('key client')], ['client — fetched by priority']),
+            ],
+          ),
+        ],
+      ),
+      h.div(
+        [h.Class('split')],
+        [
+          h.section([h.Id('cards'), h.Class('cards')], Array.map(model.cards, cardView)),
+          h.section(
+            [h.Class('log')],
+            [
+              h.h2([], ['DOM changes, as they happen']),
+              h.ol([h.Class('entries')], Array.map(model.log, logRow)),
+            ],
+          ),
+        ],
+      ),
+    ],
+  ),
+})
+
+## The module {Tangle}
+
+=>
+
+::[What the view draws on]
+
+::[A card and its region]
+
+::[The log]
+
+::[The page, split in two]

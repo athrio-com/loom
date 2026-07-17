@@ -28,6 +28,7 @@ export type {
   OutboundPortHandles,
   PortHandles,
   MakeRuntimeReturn,
+  HydrationStrategy,
   Visibility,
   SlowConfig,
   SlowContext,

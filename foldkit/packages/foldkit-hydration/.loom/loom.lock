@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "tangled": [
+    "src/adopt.ts",
+    "src/conformance.ts",
+    "src/index.ts",
+    "src/prehydration.ts",
+    "src/strategy.ts",
+    "src/streaming.ts"
+  ]
+}

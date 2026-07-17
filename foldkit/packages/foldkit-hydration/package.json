@@ -1,0 +1,20 @@
+{
+  "name": "@athrio/foldkit-hydration",
+  "version": "0.0.1",
+  "description": "Client-side hydration for Foldkit server-rendered apps: adopt, the pre-boot bootstrap, streaming fills, and dev conformance checks.",
+  "license": "Apache-2.0 OR MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "peerDependencies": {
+    "@athrio/foldkit": "*",
+    "effect": "4.0.0-beta.93",
+    "snabbdom": "^3.6.3"
+  },
+  "devDependencies": {
+    "@athrio/foldkit": "workspace:*",
+    "effect": "4.0.0-beta.93",
+    "snabbdom": "^3.6.3"
+  }
+}

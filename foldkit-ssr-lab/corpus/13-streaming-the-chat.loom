@@ -1,0 +1,183 @@
+---
+Chapter 13: Streaming the chat
+Package: src/chat/server.ts
+Language: TypeScript
+---
+
+# Streaming the chat
+
+The chat server is what makes the shell arrive before the history. It renders the shell once — the navigation, the room's skeleton, the composer — and streams it whole, so the browser paints a working page at once. Then it waits, standing in for a slow query, and streams the message history as a second chunk that fills the room. One HTTP response carries both, flushed in two parts, so the visitor reads the frame while the messages are still on their way.
+
+This is streaming server-side rendering, the same shape React draws with `<Suspense>`. The room is a boundary the shell marks and leaves filled with a skeleton. The second chunk is a `<template>` holding the rendered feed and a call to `__foldkitFill`, the script Foldkit defined in the page's head. When that chunk lands, the call swaps the feed into the room — before the client bundle has run — and records it for the client to adopt when it boots.
+
+## Standing in for the browser
+
+The server renders a view built for the DOM, so it borrows the same `window` shim the todo server uses, loaded before any Foldkit module. One shim serves both apps.
+
+=>
+
+import '../server/browser-globals'
+
+## What the server draws on
+
+The server runs on Effect, on Bun. From `effect` come `Effect`, the `Match` that dispatches on the request path, the `FileSystem` that reads the built shell, the `Stream` the response body is, the `Schema` that encodes the inlined model and the streamed data, and the `Context` and `Layer` that define the server's data and wire it. From `effect/unstable/http` come the request and the responses; `@effect/platform-bun` supplies the HTTP server, its file services, and the runtime edge. The hydration surface gives the two boot scripts the page carries and the builder for the fill chunk. The renderer, the view, the model, and the channel data are the app's own.
+
+=>
+
+import { Context, Effect, FileSystem, Layer, Match, Schema as S, Stream } from 'effect'
+import { HttpServer, HttpServerRequest, HttpServerResponse } from 'effect/unstable/http'
+import { BunHttpServer, BunRuntime, BunServices } from '@effect/platform-bun'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import {
+  PREHYDRATION_CAPTURE_SCRIPT,
+  STREAMING_FILL_SCRIPT,
+  boundaryFillChunk,
+} from '@athrio/foldkit-hydration'
+import { FoldkitRender } from '@athrio/foldkit-ssr'
+import { messageFeed, view } from './view'
+import { ChatMessage, Feed, Model } from './model'
+import { messagesOf, sessions } from './conversations'
+
+const root = dirname(fileURLToPath(import.meta.url))
+const distDir = join(root, '..', '..', 'dist')
+
+## The shell model
+
+The shell opens on one channel with its room still loading. The model the server renders and inlines names every channel for the navigation, marks the first open, and leaves the history `Loading` — the state the room draws as a skeleton, and the state the client boots into until a fill lands.
+
+=>
+
+const openChannel = 'general'
+
+const shellModel: Model = {
+  sessions,
+  activeSessionId: openChannel,
+  messages: Feed.Loading(),
+  draft: '',
+}
+
+## Weaving the shell
+
+Two edits turn the built page into the shell the server streams first. `withShell` drops the rendered body into the empty `#root`, so the browser paints the frame before any script runs, and writes three scripts into the head: the two Foldkit boot scripts — one that captures input typed before the client boots, one that receives the streamed fills — and the model the client reads. Every replacement runs through a function, so a `<` in the data is never read as a replacement pattern; `inlineJson` escapes the one character that could close a script tag early.
+
+`splitOnce` cuts the woven shell at `</body>`, so the head can flush while the fill is still being awaited and the closing tags follow it.
+
+=>
+
+const inlineJson = (value: unknown): string => JSON.stringify(value).replace(/</g, '\\u003c')
+
+const encodeModel = S.encodeSync(Model)
+const encodeMessages = S.encodeSync(S.Array(ChatMessage))
+
+const bootScripts =
+  `<script>${PREHYDRATION_CAPTURE_SCRIPT}</script>` +
+  `<script>${STREAMING_FILL_SCRIPT}</script>`
+
+const withShell = (shell: string, body: string): string =>
+  shell
+    .replace('<div id="root"></div>', () => `<div id="root">${body}</div>`)
+    .replace(
+      '</head>',
+      () =>
+        `${bootScripts}<script id="foldkit-model" type="application/json">${inlineJson(
+          encodeModel(shellModel),
+        )}</script></head>`,
+    )
+
+const splitOnce = (text: string, marker: string): readonly [string, string] => {
+  const index = text.indexOf(marker)
+  return index < 0 ? [text, ''] : [text.slice(0, index), text.slice(index)]
+}
+
+## The rendered shell and its fill
+
+`ChatSite` is the server's data, built once at startup. It reads the built shell, renders the shell model into it, and cuts it in two at the closing body tag. It then renders the open channel's history into the fill chunk — the `<template>` and the `__foldkitFill` call — carrying both the feed's HTML, for the page to paint, and the feed's data as JSON, for the client to seed its model from. Building once is enough, because the seed never changes; every later change happens in the browser.
+
+=>
+
+export class ChatSite extends Context.Service<ChatSite>()('ChatSite', {
+  make: Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const render = yield* FoldkitRender
+    const shell = yield* fs.readFileString(join(distDir, 'chat.html'))
+    const shellBody = yield* render.renderToString(view(shellModel).body)
+    const [head, tail] = splitOnce(withShell(shell, shellBody), '</body>')
+
+    const messages = messagesOf(openChannel)
+    const feedHtml = yield* render.renderToString(messageFeed(messages))
+    const fill = boundaryFillChunk(
+      'messages',
+      feedHtml,
+      inlineJson({ sessionId: openChannel, messages: encodeMessages(messages) }),
+    )
+    return { head, tail, fill } as const
+  }),
+}) {
+  static readonly layer = Layer.effect(this, this.make).pipe(
+    Layer.provide(FoldkitRender.layer),
+    Layer.provide(BunServices.layer),
+  )
+}
+
+## Serving the page in two parts
+
+`pageStream` is the two-part body: the head flushes at once, then a pause stands in for the slow query, then the fill and the closing tags follow. The browser paints the shell from the first chunk and the messages from the second. The handler dispatches on the path — the root streams the page, every other path is a file in the build — and a Bun runtime edge launches it.
+
+=>
+
+const encoder = new TextEncoder()
+
+const pageStream = (site: ChatSite['Service']): Stream.Stream<Uint8Array> =>
+  Stream.concat(
+    Stream.make(encoder.encode(site.head)),
+    Stream.fromEffect(
+      Effect.as(Effect.sleep('700 millis'), encoder.encode(site.fill + site.tail)),
+    ),
+  )
+
+const notFound = Effect.succeed(HttpServerResponse.text('Not found', { status: 404 }))
+
+const asset = (pathname: string) =>
+  HttpServerResponse.file(join(distDir, pathname)).pipe(Effect.catchCause(() => notFound))
+
+const handle = (site: ChatSite['Service'], pathname: string) =>
+  Match.value(pathname).pipe(
+    Match.when('/', () =>
+      Effect.succeed(HttpServerResponse.stream(pageStream(site), { contentType: 'text/html' })),
+    ),
+    Match.orElse((path) => asset(path)),
+  )
+
+const app = Effect.gen(function* () {
+  const request = yield* HttpServerRequest.HttpServerRequest
+  const site = yield* ChatSite
+  const pathname = new URL(request.url, 'http://localhost').pathname
+  return yield* handle(site, pathname)
+})
+
+const port = Number(process.env.PORT ?? 4391)
+
+const server = HttpServer.serve(app).pipe(
+  HttpServer.withLogAddress,
+  Layer.provide(ChatSite.layer),
+  Layer.provide(BunHttpServer.layer({ port })),
+)
+
+BunRuntime.runMain(Layer.launch(server))
+
+## The module {Tangle}[server.ts]
+
+=>
+
+::[Standing in for the browser]
+
+::[What the server draws on]
+
+::[The shell model]
+
+::[Weaving the shell]
+
+::[The rendered shell and its fill]
+
+::[Serving the page in two parts]

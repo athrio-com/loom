@@ -1,0 +1,20 @@
+{
+  "name": "@athrio/foldkit-ssr",
+  "version": "0.0.1",
+  "description": "Server-side rendering for Foldkit: render a view to an HTML string or a stream of fragments.",
+  "license": "Apache-2.0 OR MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "peerDependencies": {
+    "@athrio/foldkit": "*",
+    "effect": "4.0.0-beta.93",
+    "snabbdom": "^3.6.3"
+  },
+  "devDependencies": {
+    "@athrio/foldkit": "workspace:*",
+    "effect": "4.0.0-beta.93",
+    "snabbdom": "^3.6.3"
+  }
+}

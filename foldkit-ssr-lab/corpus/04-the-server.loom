@@ -1,0 +1,150 @@
+---
+Chapter 4: The server
+Package: src/server/
+Language: TypeScript
+---
+
+# The server
+
+The server is a small Effect HTTP server, started from a Bun runtime edge. It renders the todo list once at startup — the view turned to HTML by `@athrio/foldkit-ssr` — and answers two kinds of request: the page itself, and the client bundle and its assets. The client renders in the browser; the server renders on the way there. What passes between them is the model, inlined in the page.
+
+## Standing in for the browser {Tangle}[browser-globals.ts]
+
+Snabbdom's style module reads `window` the moment it is imported, and a server has none — reading an undeclared `window` throws. This shim declares the global and leaves it undefined, before any Foldkit module loads, so importing the view on the server no longer throws. It changes nothing where a real `window` is already present, so the browser stays untouched. This is the server's one concession to code written for the DOM.
+
+=>
+
+const scope = globalThis as { window?: unknown }
+
+if (!('window' in scope)) {
+  scope.window = undefined
+}
+
+## What the server draws on
+
+The server opens by loading that shim, so it runs before any Foldkit module. From `effect` come `Effect` itself, the `Match` that dispatches on the request path, the `FileSystem` that reads the built shell and assets, and the `Context` and `Layer` that define the server's data and wire it. From `effect/unstable/http` come the request the handler reads and the responses it returns. `@effect/platform-bun` supplies the Bun HTTP server, its file services, and the runtime edge. Node's `path` and `url` locate the built files. From Foldkit's hydration surface comes the capture script the page runs before it boots. The `FoldkitRender` service, the view, and the model are the app's own.
+
+=>
+
+import './browser-globals'
+import { Context, Effect, FileSystem, Layer, Match } from 'effect'
+import { HttpServer, HttpServerRequest, HttpServerResponse } from 'effect/unstable/http'
+import { BunHttpServer, BunRuntime, BunServices } from '@effect/platform-bun'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { PREHYDRATION_CAPTURE_SCRIPT } from '@athrio/foldkit-hydration'
+import { FoldkitRender } from '@athrio/foldkit-ssr'
+import { view } from '../app/view'
+import { type Model } from '../app/model'
+
+const root = dirname(fileURLToPath(import.meta.url))
+const distDir = join(root, '..', '..', 'dist')
+
+## The seeded list
+
+The server starts the list with a few todos already on it, so the first paint shows real content rather than an empty box. The sequence counter picks up past the seeded ids, so the first todo a visitor adds does not collide with one of these.
+
+=>
+
+const seed: Model = {
+  todos: [
+    { id: '0', text: 'Read the Loom book', done: true },
+    { id: '1', text: 'Render a view to an HTML string', done: false },
+    { id: '2', text: 'Hydrate it in the browser', done: false },
+  ],
+  draft: '',
+  filter: 'all',
+  seq: 3,
+}
+
+## Weaving the model into the page
+
+Two edits turn the built shell into a served page. `withBody` drops the rendered HTML into the empty `#root` the shell ships with, so the browser paints the list before any script runs. `withSeed` writes two scripts into the head: the capture script that records what a visitor types before the client boots, and the model the client boots from, in a `<script id="foldkit-model">` tag. The capture script comes first, so it is listening from the moment the page is parsed. Both edits replace through a function, so a `$` in the todo text or the JSON is never read as a replacement pattern; `inlineJson` escapes the one character that could close the script tag early.
+
+=>
+
+const inlineJson = (value: unknown): string =>
+  JSON.stringify(value).replace(/</g, '\\u003c')
+
+const withBody = (shell: string, body: string): string =>
+  shell.replace('<div id="root"></div>', () => `<div id="root">${body}</div>`)
+
+const withSeed = (shell: string, model: Model): string =>
+  shell.replace(
+    '</head>',
+    () =>
+      `<script>${PREHYDRATION_CAPTURE_SCRIPT}</script>` +
+      `<script id="foldkit-model" type="application/json">${inlineJson(model)}</script></head>`,
+  )
+
+## The rendered page
+
+`TodoSite` is the server's data, built once at startup. It reads the built shell from disk, renders the seeded model to HTML through the `FoldkitRender` service, and weaves both into the page it will serve every visitor. Rendering once is enough, because the seed never changes; every later change happens in the browser.
+
+=>
+
+export class TodoSite extends Context.Service<TodoSite>()('TodoSite', {
+  make: Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const render = yield* FoldkitRender
+    const shell = yield* fs.readFileString(join(distDir, 'index.html'))
+    const body = yield* render.renderToString(view(seed).body)
+    const page = withSeed(withBody(shell, body), seed)
+    return { page } as const
+  }),
+}) {
+  static readonly layer = Layer.effect(this, this.make).pipe(
+    Layer.provide(FoldkitRender.layer),
+    Layer.provide(BunServices.layer),
+  )
+}
+
+## Serving the page and its assets
+
+The handler dispatches on the request path. The root serves the rendered page. Every other path is a file in the build — the client bundle, chiefly — served from disk, or a plain not-found when there is none. The program reads the request, resolves its path, and answers; a Bun runtime edge launches it.
+
+=>
+
+const notFound = Effect.succeed(HttpServerResponse.text('Not found', { status: 404 }))
+
+const asset = (pathname: string) =>
+  HttpServerResponse.file(join(distDir, pathname)).pipe(Effect.catchCause(() => notFound))
+
+const handle = (site: TodoSite['Service'], pathname: string) =>
+  Match.value(pathname).pipe(
+    Match.when('/', () =>
+      Effect.succeed(HttpServerResponse.text(site.page, { contentType: 'text/html' })),
+    ),
+    Match.orElse((path) => asset(path)),
+  )
+
+const app = Effect.gen(function* () {
+  const request = yield* HttpServerRequest.HttpServerRequest
+  const site = yield* TodoSite
+  const pathname = new URL(request.url, 'http://localhost').pathname
+  return yield* handle(site, pathname)
+})
+
+const port = Number(process.env.PORT ?? 4390)
+
+const server = HttpServer.serve(app).pipe(
+  HttpServer.withLogAddress,
+  Layer.provide(TodoSite.layer),
+  Layer.provide(BunHttpServer.layer({ port })),
+)
+
+BunRuntime.runMain(Layer.launch(server))
+
+## The module {Tangle}[server.ts]
+
+=>
+
+::[What the server draws on]
+
+::[The seeded list]
+
+::[Weaving the model into the page]
+
+::[The rendered page]
+
+::[Serving the page and its assets]

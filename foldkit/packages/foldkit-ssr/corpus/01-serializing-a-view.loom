@@ -1,0 +1,320 @@
+---
+Chapter 1: Serializing a view
+Package: src/index.ts
+Language: TypeScript
+---
+
+# Serializing a view
+
+`@athrio/foldkit-ssr` renders a Foldkit view on the server. A Foldkit view is a pure function from a model to a virtual DOM node — a `VNode`, the plain data structure that `h.div`, `h.button`, and the rest construct. In the browser the runtime patches that node into the live document. A server has no document to patch, so this package takes the other road: it walks the `VNode` and writes the HTML text the node describes.
+
+The output is a sequence of fragments. A fragment is one piece of that text: an opening tag, a run of escaped content, a closing tag. The `FoldkitRender` service exposes two ways to read the sequence. Its `renderToString` method joins the fragments into one document, the way a server hands a browser a finished page. Its `renderToStream` method emits them one at a time, the way React streams its server markup. Both draw on a single walk, so the string and the stream can never disagree.
+
+The walk is pure, and it drops what a server cannot use. A node's event handlers are functions that mean something only to a live document, so serializing a node discards them and keeps what a browser paints from text alone: the tag, its attributes, its children. The client attaches the handlers again when it takes over.
+
+## What the serializer draws on
+
+The walk needs little. From `effect` come the `Array` combinators that turn each node into its fragments, the `Option` that carries an attribute's absence, the `Match` that dispatches on a node's kind, the `Data` that names those kinds, the `Predicate` that recognizes an absent value, and the `Stream` the streaming method returns, alongside the service and layer machinery. From `snabbdom`, the virtual-DOM library Foldkit builds on, come the `VNode` and its `VNodeData` — the shapes the walk reads. The `Html` type, a `VNode` or nothing, is Foldkit's own name for what a view returns.
+
+=>
+
+import {
+  Array,
+  Context,
+  Data,
+  Effect,
+  Layer,
+  Match,
+  Option,
+  Predicate,
+  Stream,
+  pipe,
+} from 'effect'
+import type { VNode, VNodeData } from 'snabbdom'
+import type { Html } from '@athrio/foldkit/html'
+
+## Escaping the text a model carries
+
+Text drawn from a model can hold the characters that mark up HTML. Left alone, a `<` in a title would open a tag that was never meant. Two escapes prevent that. `escapeText` replaces the three characters that matter inside element content: the ampersand first, so the replacements it makes are not themselves rewritten, then the two angle brackets. `escapeAttr` adds the double quote, because an attribute value is written inside quotes.
+
+=>
+
+const escapeText = (value: string): string =>
+  value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+const escapeAttr = (value: string): string =>
+  escapeText(value).replace(/"/g, '&quot;')
+
+## The tag and its selector
+
+Every element begins with a selector, the `sel` field of its node. Foldkit writes the bare tag there — `div`, `button` — and carries the id and classes in the node's data. Snabbdom's own convention folds them into the selector instead, as `div#new.done`, so `parseSelector` reads a selector written either way. It splits the classes off at each `.`, then splits the leading id off at the `#`, and falls back to `div` for the empty selector snabbdom uses for a fragment.
+
+=>
+
+type Selector = {
+  readonly tag: string
+  readonly id: Option.Option<string>
+  readonly classes: ReadonlyArray<string>
+}
+
+const parseSelector = (sel: string): Selector => {
+  const [head = '', ...classes] = sel.split('.')
+  const [tag = '', id] = head.split('#')
+  return { tag: tag === '' ? 'div' : tag, id: Option.fromNullishOr(id), classes }
+}
+
+## Foldkit's attribute buckets
+
+Foldkit sorts an element's attributes into buckets on the node's data. An id and most properties — `href`, `value`, `disabled` — sit in `props`, each under its DOM-property name. Classes sit in `class`, a record from a class name to a boolean that says whether the class is on. Inline styles sit in `style`. A few plain HTML attributes, and every `data-` attribute, sit in `attrs`. Event handlers sit in `on`, the one bucket the serializer never reads.
+
+A DOM-property name is not always its HTML-attribute name. The `class` list is reached through the `className` property, the `for` attribute through `htmlFor`, and `tabindex`, `readonly`, `maxlength`, and `minlength` through camel-cased properties. `propAttrNames` records those exceptions, and `attrNameOf` looks a property up, returning the property's own name when it is not an exception.
+
+=>
+
+const propAttrNames: Readonly<Record<string, string>> = {
+  className: 'class',
+  htmlFor: 'for',
+  tabIndex: 'tabindex',
+  readOnly: 'readonly',
+  maxLength: 'maxlength',
+  minLength: 'minlength',
+}
+
+const attrNameOf = (property: string): string =>
+  Option.getOrElse(Option.fromNullishOr(propAttrNames[property]), () => property)
+
+## One attribute, written three ways
+
+A value renders to an attribute in one of three shapes, so `attributeText` matches on the value itself. A boolean that is on becomes a bare word — a checked box is `checked` — and a boolean that is off, or an absent value, becomes no attribute at all. Everything else becomes a quoted pair, its value escaped.
+
+=>
+
+const attributeText = (name: string, value: unknown): Option.Option<string> =>
+  Match.value(value).pipe(
+    Match.when(true, () => Option.some(name)),
+    Match.when(Predicate.isNullish, () => Option.none<string>()),
+    Match.when(false, () => Option.none<string>()),
+    Match.orElse((present) => Option.some(`${name}="${escapeAttr(String(present))}"`)),
+  )
+
+## Gathering an element's attributes
+
+Each bucket contributes its fragments, and `attributeFragments` gathers them in a fixed order: the id, the classes, the properties, the plain attributes, the style, the data attributes, the key, and last the raw-HTML marker. The id is taken from the selector when snabbdom wrote it there, and from the `id` property otherwise. The classes are drawn from both the selector and the `class` bucket. The properties skip the three names handled elsewhere: the `id` and the `className` already folded into id and class, and the `innerHTML` that is content rather than an attribute.
+
+`joinedAttribute` builds the class and the style, since each is a list that collapses to one attribute. It joins the pieces and wraps them under the attribute's name, or yields nothing when the list is empty, so an element with no classes carries no hollow `class`. A style property is camel-cased in the node and hyphenated in CSS, so `kebab` rewrites `backgroundColor` to `background-color` before the join.
+
+The key is the bridge to hydration. Snabbdom tells a node from its neighbors across renders by its key, but a key lives in the node's data, not in the HTML, so a plain serialization would lose it and the client could not line a keyed list back up. Writing the key as a `data-fk-key` attribute carries it through the text, where `@athrio/foldkit-hydration` reads it back.
+
+A raw-HTML element needs a second bridge. Its content comes from the `innerHTML` property, which the serializer prints verbatim, but a client reading the result back finds ordinary parsed children and would try to hydrate them as nodes of its own. The `data-fk-html` marker tells it otherwise: the content is an island, to be read back as a property and left alone, not descended into. These two `data-fk-*` names are the serializer's half of the wire contract the hydration package reads.
+
+=>
+
+const kebab = (name: string): string =>
+  name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)
+
+const joinedAttribute = (
+  name: string,
+  values: ReadonlyArray<string>,
+  separator: string,
+): Option.Option<string> =>
+  values.length === 0
+    ? Option.none()
+    : Option.some(`${name}="${escapeAttr(Array.join(values, separator))}"`)
+
+const idFragment = (selector: Selector, data: VNodeData): Option.Option<string> =>
+  pipe(
+    Option.orElse(selector.id, () =>
+      Option.fromNullishOr(data.props?.id as string | undefined),
+    ),
+    Option.map((id) => `id="${escapeAttr(id)}"`),
+  )
+
+const classFragment = (selector: Selector, data: VNodeData): Option.Option<string> => {
+  const declared = pipe(
+    Object.entries(data.class ?? {}),
+    Array.filter(([, on]) => on),
+    Array.map(([name]) => name),
+  )
+  return joinedAttribute('class', [...selector.classes, ...declared], ' ')
+}
+
+const propsFragments = (data: VNodeData): ReadonlyArray<string> =>
+  pipe(
+    Object.entries(data.props ?? {}),
+    Array.filter(([name]) => name !== 'id' && name !== 'className' && name !== 'innerHTML'),
+    Array.map(([name, value]) => attributeText(attrNameOf(name), value)),
+    Array.getSomes,
+  )
+
+const attrsFragments = (data: VNodeData): ReadonlyArray<string> =>
+  pipe(
+    Object.entries(data.attrs ?? {}),
+    Array.map(([name, value]) => attributeText(name, value)),
+    Array.getSomes,
+  )
+
+const styleFragment = (data: VNodeData): Option.Option<string> =>
+  joinedAttribute(
+    'style',
+    pipe(
+      Object.entries(data.style ?? {}),
+      Array.map(([property, value]) => `${kebab(property)}: ${value}`),
+    ),
+    '; ',
+  )
+
+const datasetFragments = (data: VNodeData): ReadonlyArray<string> =>
+  pipe(
+    Object.entries(data.dataset ?? {}),
+    Array.map(([name, value]) => `data-${kebab(name)}="${escapeAttr(String(value))}"`),
+  )
+
+const keyFragment = (data: VNodeData): Option.Option<string> =>
+  pipe(
+    Option.fromNullishOr(data.key),
+    Option.map((key) => `data-fk-key="${escapeAttr(String(key))}"`),
+  )
+
+const htmlMarkerFragment = (data: VNodeData): Option.Option<string> =>
+  data.props?.innerHTML === undefined ? Option.none() : Option.some('data-fk-html')
+
+const attributeFragments = (selector: Selector, data: VNodeData): ReadonlyArray<string> => [
+  ...Array.getSomes([idFragment(selector, data), classFragment(selector, data)]),
+  ...propsFragments(data),
+  ...attrsFragments(data),
+  ...Array.getSomes([styleFragment(data)]),
+  ...datasetFragments(data),
+  ...Array.getSomes([keyFragment(data), htmlMarkerFragment(data)]),
+]
+
+## Elements, void tags, and raw HTML
+
+An element renders as an opening tag, its content, and a closing tag — unless it is a void element. A void element, such as `<br>` or `<img>`, holds no content and takes no closing tag, so `elementFragments` emits only its opening tag. `voidTags` names them.
+
+Content comes from one of two places. Most elements hold children, other nodes or runs of text, which the walk serializes in turn. An element handed raw HTML through the `innerHTML` property holds that string verbatim and unescaped instead, so a view can place markup it rendered elsewhere. `innerFragments` chooses between them: the raw string when the property is present, the serialized children otherwise.
+
+=>
+
+const voidTags: ReadonlySet<string> = new Set([
+  'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
+  'link', 'meta', 'param', 'source', 'track', 'wbr',
+])
+
+const openingTag = (tag: string, attributes: ReadonlyArray<string>): string =>
+  attributes.length === 0
+    ? `<${tag}>`
+    : `<${tag} ${Array.join(attributes, ' ')}>`
+
+const childFragments = (child: VNode | string): ReadonlyArray<string> =>
+  typeof child === 'string' ? [escapeText(child)] : nodeFragments(child)
+
+const innerFragments = (
+  data: VNodeData,
+  children: ReadonlyArray<VNode | string>,
+): ReadonlyArray<string> =>
+  Option.match(Option.fromNullishOr(data.props?.innerHTML as string | undefined), {
+    onSome: (raw) => [raw],
+    onNone: () => Array.flatMap(children, childFragments),
+  })
+
+const elementFragments = (
+  sel: string,
+  data: VNodeData,
+  children: ReadonlyArray<VNode | string>,
+): ReadonlyArray<string> => {
+  const selector = parseSelector(sel)
+  const opening = openingTag(selector.tag, attributeFragments(selector, data))
+  return voidTags.has(selector.tag)
+    ? [opening]
+    : [opening, ...innerFragments(data, children), `</${selector.tag}>`]
+}
+
+## The three kinds of node
+
+Snabbdom draws a handful of node kinds, and the walk names each so it can never mistake one for another. A text node carries a string and no selector. A comment node carries the selector `!`, snabbdom's placeholder for an element that renders nothing. A fragment carries children and no selector, a run of nodes with no wrapper of their own. Everything else is an element. `nodeKindOf` reads a raw `VNode` into one of these, and `nodeFragments` matches on the kind under `Match.exhaustive`, so a new kind would break the build rather than fall through unhandled.
+
+=>
+
+type NodeKind = Data.TaggedEnum<{
+  Text: { readonly text: string }
+  Comment: { readonly text: string }
+  Fragment: { readonly children: ReadonlyArray<VNode | string> }
+  Element: {
+    readonly sel: string
+    readonly data: VNodeData
+    readonly children: ReadonlyArray<VNode | string>
+  }
+}>
+
+const { Text, Comment, Fragment, Element } = Data.taggedEnum<NodeKind>()
+
+const nodeKindOf = (node: VNode): NodeKind =>
+  Match.value(node).pipe(
+    Match.when({ sel: '!' }, (comment) => Comment({ text: comment.text ?? '' })),
+    Match.when(
+      (candidate) => candidate.sel === undefined && typeof candidate.text === 'string',
+      (text) => Text({ text: text.text as string }),
+    ),
+    Match.when(
+      (candidate) => candidate.sel === undefined,
+      (fragment) => Fragment({ children: fragment.children ?? [] }),
+    ),
+    Match.orElse((element) =>
+      Element({
+        sel: element.sel as string,
+        data: element.data ?? {},
+        children: element.children ?? [],
+      }),
+    ),
+  )
+
+const nodeFragments = (node: VNode): ReadonlyArray<string> =>
+  Match.value(nodeKindOf(node)).pipe(
+    Match.tag('Text', ({ text }) => [escapeText(text)]),
+    Match.tag('Comment', ({ text }) => [`<!--${text}-->`]),
+    Match.tag('Fragment', ({ children }) => Array.flatMap(children, childFragments)),
+    Match.tag('Element', ({ sel, data, children }) => elementFragments(sel, data, children)),
+    Match.exhaustive,
+  )
+
+const fragmentsOfHtml = (html: Html): ReadonlyArray<string> =>
+  html === null ? [] : nodeFragments(html)
+
+## Rendering to a string or a stream
+
+`FoldkitRender` is the service a server reaches for. Its two methods share the one walk: `renderToString` runs it and joins the fragments into a whole document, and `renderToStream` runs it and emits the fragments in order as an Effect `Stream`. The string is what a server sends today; the stream is the seam a future backend writes down the wire as it renders, the way React's `renderToReadableStream` does.
+
+=>
+
+export class FoldkitRender extends Context.Service<FoldkitRender>()('FoldkitRender', {
+  make: Effect.succeed({
+    renderToString: (html: Html): Effect.Effect<string> =>
+      Effect.succeed(Array.join(fragmentsOfHtml(html), '')),
+    renderToStream: (html: Html): Stream.Stream<string> =>
+      Stream.fromIterable(fragmentsOfHtml(html)),
+  } as const),
+}) {
+  static readonly layer = Layer.effect(this, this.make)
+}
+
+## The module {Tangle}
+
+=>
+
+::[What the serializer draws on]
+
+::[Escaping the text a model carries]
+
+::[The tag and its selector]
+
+::[Foldkit's attribute buckets]
+
+::[One attribute, written three ways]
+
+::[Gathering an element's attributes]
+
+::[Elements, void tags, and raw HTML]
+
+::[The three kinds of node]
+
+::[Rendering to a string or a stream]

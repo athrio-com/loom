@@ -1,0 +1,66 @@
+---
+Chapter 17: The strategy lab — its cards
+Package: src/lab/cards.ts
+Language: TypeScript
+---
+
+# The strategy lab — its cards
+
+Six cards stand in for heavy components, two to a strategy: two rendered natively in the shell, two streamed, two fetched by the client. This is their seed — the id, title, strategy, priority, and the rendered body each ends up showing. The server draws on it to render and stream, and the client draws on it to fetch; both read the one list, so a card's body is the same wherever it comes from.
+
+## The six components
+
+Each seed pairs a card with the body it resolves to. The two native cards are the shell's own content, so they carry a strategy of `native` and no priority. The two streamed cards the server pushes as fills. The two client cards the browser fetches, ordered by their priority — the first ahead of the second.
+
+=>
+
+import { Array, Option, pipe } from 'effect'
+import { Body, type Card } from './model'
+
+type Seed = {
+  readonly id: string
+  readonly title: string
+  readonly strategy: Card['strategy']
+  readonly priority: number
+  readonly body: string
+}
+
+const seeds: ReadonlyArray<Seed> = [
+  { id: 'metrics', title: 'Service metrics', strategy: 'native', priority: 0, body: 'uptime 99.98% · p95 142ms · 3.2k req/s' },
+  { id: 'profile', title: 'Profile card', strategy: 'native', priority: 0, body: 'Ada Lovelace · staff engineer · joined 2021' },
+  { id: 'feed', title: 'Activity feed', strategy: 'streaming', priority: 0, body: '12 new events · deploy #4821 succeeded' },
+  { id: 'reco', title: 'Recommendations', strategy: 'streaming', priority: 0, body: '3 picks · loom-lang, foldkit, effect' },
+  { id: 'chart', title: 'Heavy chart', strategy: 'client', priority: 1, body: '▁▂▄▆█▆▄▂ eight-week trend, rendered client-side' },
+  { id: 'map', title: 'Map widget', strategy: 'client', priority: 2, body: '4 regions · 12 nodes healthy' },
+]
+
+## Reading the seed
+
+`cards` is the seed itself, for the client and server to filter by strategy. `bodyOf` looks a card's body up by id, for whoever renders it. `initialCards` is the starting model's cards: the native two begin `Success` with their body already in hand, since the shell renders them, and the rest begin `Loading`, waiting for a fill or a fetch.
+
+=>
+
+export const cards: ReadonlyArray<Seed> = seeds
+
+export const bodyOf = (id: string): string =>
+  pipe(
+    Array.findFirst(seeds, (seed) => seed.id === id),
+    Option.map((seed) => seed.body),
+    Option.getOrElse(() => ''),
+  )
+
+export const initialCards: ReadonlyArray<Card> = Array.map(seeds, (seed) => ({
+  id: seed.id,
+  title: seed.title,
+  strategy: seed.strategy,
+  priority: seed.priority,
+  content: seed.strategy === 'native' ? Body.Success({ data: seed.body }) : Body.Loading(),
+}))
+
+## The module {Tangle}
+
+=>
+
+::[The six components]
+
+::[Reading the seed]

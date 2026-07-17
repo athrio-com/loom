@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "tangled": [
+    "chat.html",
+    "e2e/chat.e2e.ts",
+    "e2e/hydration.e2e.ts",
+    "index.html",
+    "lab.html",
+    "package.json",
+    "src/app/client.ts",
+    "src/app/model.ts",
+    "src/app/view.ts",
+    "src/app/vite-env.d.ts",
+    "src/chat/client.ts",
+    "src/chat/conversations.ts",
+    "src/chat/model.ts",
+    "src/chat/server.ts",
+    "src/chat/view.ts",
+    "src/lab/cards.ts",
+    "src/lab/client.ts",
+    "src/lab/model.ts",
+    "src/lab/server.ts",
+    "src/lab/view.ts",
+    "src/server/browser-globals.ts",
+    "src/server/server.ts",
+    "test/hydration-setup.ts",
+    "test/hydration.test.ts",
+    "test/ssr.test.ts",
+    "test/streaming.test.ts",
+    "tsconfig.json",
+    "vite.config.ts"
+  ]
+}

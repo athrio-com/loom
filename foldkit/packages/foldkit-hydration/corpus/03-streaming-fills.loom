@@ -1,0 +1,86 @@
+---
+Chapter 3: Streaming fills
+Package: src/streaming.ts
+Language: TypeScript
+---
+
+# Streaming fills
+
+A page's shell is ready long before the data inside it. Streaming server-side rendering flushes the shell first, then streams each slow region's HTML as it resolves. A region is a BOUNDARY: an element the shell marks with `data-fk-boundary` and fills with a fallback, later swapped for the real content. React does this with `<Suspense>` and out-of-band chunks; this is the same shape, and it is a wire contract between three parties — the server that streams the fills, the inline script that receives them, and the client that adopts them.
+
+## The wire contract
+
+`BOUNDARY_ATTRIBUTE` marks a boundary element, and `BOUNDARY_FILL_EVENT` is the event the fill script emits for each fill so a booted client can render it. A `BoundaryFill` is one fill: which region, and the data the client decodes into its model. The two window keys hold the state the parties share — `__foldkitFills`, the buffer of fills, and `__foldkitBooted`, the flag the client raises when it takes over.
+
+=>
+
+const FILLS_KEY = '__foldkitFills'
+const BOOTED_KEY = '__foldkitBooted'
+
+export const BOUNDARY_ATTRIBUTE = 'data-fk-boundary'
+export const BOUNDARY_FILL_EVENT = 'foldkit:boundary-fill'
+
+export type BoundaryFill = { readonly id: string; readonly data: unknown }
+
+type StreamingScope = {
+  [FILLS_KEY]?: Array<BoundaryFill>
+  [BOOTED_KEY]?: boolean
+}
+
+## The fill script
+
+`STREAMING_FILL_SCRIPT` is the inline script the page runs before its module, defining `window.__foldkitFill`. Before the client boots, a fill swaps its `<template>` into the boundary — so the region paints with no framework running — records itself on `window.__foldkitFills`, and emits a `foldkit:boundary-fill` event. Once the client has raised `__foldkitBooted`, the swap stops and the fill is left for the client to render through its own patch.
+
+=>
+
+export const STREAMING_FILL_SCRIPT = `(function () {
+  var fills = (window.${FILLS_KEY} = window.${FILLS_KEY} || [])
+  window.__foldkitFill = function (id, data) {
+    var slot = document.querySelector('[${BOUNDARY_ATTRIBUTE}="' + id + '"]')
+    var template = document.querySelector('template[data-fk-fill="' + id + '"]')
+    if (!window.${BOOTED_KEY} && slot && template) {
+      slot.replaceChildren(template.content.cloneNode(true))
+    }
+    fills.push({ id: id, data: data })
+    window.dispatchEvent(new CustomEvent('${BOUNDARY_FILL_EVENT}', { detail: { id: id, data: data } }))
+  }
+})();`
+
+## Building a fill chunk
+
+`boundaryFillChunk` is what the server streams for one boundary: a `<template>` holding the region's rendered HTML and a call to `__foldkitFill` carrying its data. `innerHtml` is the serialized content, and `dataJson` is the data already encoded as JSON with any `<` escaped so it cannot close the script tag early.
+
+=>
+
+export const boundaryFillChunk = (
+  id: string,
+  innerHtml: string,
+  dataJson: string,
+): string =>
+  `<template data-fk-fill="${id}">${innerHtml}</template>` +
+  `<script>window.__foldkitFill(${JSON.stringify(id)},${dataJson})</script>`
+
+## The client's window onto the fills
+
+Two helpers give the booting client its side of the contract. `markBooted` raises the flag, so `__foldkitFill` stops swapping and leaves later fills to the client; the client calls it as it boots, before its first render. `bufferedFills` reads the fills that arrived before then, so the client can seed its model to match the DOM those fills already painted and merge onto it rather than rebuild.
+
+=>
+
+export const markBooted = (): void => {
+  ;(window as unknown as StreamingScope)[BOOTED_KEY] = true
+}
+
+export const bufferedFills = (): ReadonlyArray<BoundaryFill> =>
+  (window as unknown as StreamingScope)[FILLS_KEY] ?? []
+
+## The module {Tangle}
+
+=>
+
+::[The wire contract]
+
+::[The fill script]
+
+::[Building a fill chunk]
+
+::[The client's window onto the fills]

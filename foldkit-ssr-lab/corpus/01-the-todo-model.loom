@@ -1,0 +1,105 @@
+---
+Chapter 1: The model
+Package: src/app/model.ts
+Language: TypeScript
+---
+
+# The model
+
+The model is the whole of a todo list's state, and the messages are everything that can change it. Both halves of the app build on it. The server seeds a first model and renders it; the client decodes that same model and takes over. Neither computes state the other cannot see, which is what lets the server's HTML and the client's first render agree.
+
+## A todo and the filter
+
+A todo is an id, the text a person typed, and whether it is done. The id names the todo across every change, so a message can point at one without carrying the whole record. The filter is which todos the list shows — all of them, the active ones, or the completed ones — modelled as a closed set of three, so the view never faces a fourth it has no branch for.
+
+=>
+
+import { Array, Match, Schema as S } from 'effect'
+import { html } from '@athrio/foldkit/html'
+import { m } from '@athrio/foldkit/message'
+
+export const Todo = S.Struct({
+  id: S.String,
+  text: S.String,
+  done: S.Boolean,
+})
+export type Todo = typeof Todo.Type
+
+export const Filter = S.Literals(['all', 'active', 'completed'])
+export type Filter = typeof Filter.Type
+
+## The state and its seed
+
+The `Model` holds the todos, the draft in the new-todo field, the filter in force, and a sequence counter. The counter is how a new todo earns a fresh id without reaching outside the update: a todo added takes the current count for its id, and the count moves on. `Flags` is the model the app boots from. The server inlines one into the page, and the client decodes it into the state `init` begins with, so the first client render reproduces the server's.
+
+=>
+
+export const Model = S.Struct({
+  todos: S.Array(Todo),
+  draft: S.String,
+  filter: Filter,
+  seq: S.Number,
+})
+export type Model = typeof Model.Type
+
+export const Flags = Model
+export type Flags = typeof Flags.Type
+
+## What can happen
+
+A message is one thing that happened. `ChangedDraft` carries a keystroke in the new-todo field. `SubmittedDraft` turns the draft into a todo. `ToggledTodo` and `RemovedTodo` name by id the todo they act on. `SetFilter` chooses which todos to show, and `ClearedCompleted` drops the done ones. `Persisted` is the quiet reply the client's autosave returns once a change has reached local storage, and changes nothing. `Message` is the union of them all, and `h` is the element builder bound to that union, so every handler a view writes returns one of these.
+
+=>
+
+export const ChangedDraft = m('ChangedDraft', { text: S.String })
+export const SubmittedDraft = m('SubmittedDraft')
+export const ToggledTodo = m('ToggledTodo', { id: S.String })
+export const RemovedTodo = m('RemovedTodo', { id: S.String })
+export const SetFilter = m('SetFilter', { filter: Filter })
+export const ClearedCompleted = m('ClearedCompleted')
+export const Persisted = m('Persisted')
+
+export const Message = S.Union([
+  ChangedDraft,
+  SubmittedDraft,
+  ToggledTodo,
+  RemovedTodo,
+  SetFilter,
+  ClearedCompleted,
+  Persisted,
+])
+export type Message = typeof Message.Type
+
+export const h = html<Message>()
+
+## Querying the model
+
+The view asks the model two questions, and each is a pure function of it. `visibleTodos` is the todos the current filter admits, which `matchesFilter` decides one todo at a time under an exhaustive match. `remaining` is how many todos are still active, the count the footer shows.
+
+=>
+
+const matchesFilter = (filter: Filter, todo: Todo): boolean =>
+  Match.value(filter).pipe(
+    Match.when('all', () => true),
+    Match.when('active', () => !todo.done),
+    Match.when('completed', () => todo.done),
+    Match.exhaustive,
+  )
+
+export const visibleTodos = (model: Model): ReadonlyArray<Todo> =>
+  Array.filter(model.todos, (todo) => matchesFilter(model.filter, todo))
+
+export const remaining = (model: Model): number =>
+  Array.filter(model.todos, (todo) => !todo.done).length
+
+## The module {Tangle}
+
+=>
+
+::[A todo and the filter]
+
+::[The state and its seed]
+
+::[What can happen]
+
+::[Querying the model]

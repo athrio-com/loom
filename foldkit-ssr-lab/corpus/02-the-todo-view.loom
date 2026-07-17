@@ -1,0 +1,142 @@
+---
+Chapter 2: The view
+Package: src/app/view.ts
+Language: TypeScript
+---
+
+# The view
+
+The view is a pure function from the model to a document. It draws the whole todo list — the new-todo field, the todos the filter admits, and the footer that counts and filters them — and nothing in it runs; it only describes. The runtime paints the description in the browser, and `@athrio/foldkit-ssr` turns the same description into the HTML the server sends. One view, two readers.
+
+## What the view draws on
+
+The view builds elements with the model's own `h`, so a handler it attaches is one of the model's messages. It reads the model through the two queries the model exposes, `visibleTodos` and `remaining`, and it names each message it dispatches. The `Document` and `Html` types are Foldkit's names for a whole page and a single element.
+
+=>
+
+import { Array } from 'effect'
+import type { Document, Html } from '@athrio/foldkit/html'
+import {
+  ChangedDraft,
+  ClearedCompleted,
+  RemovedTodo,
+  SetFilter,
+  SubmittedDraft,
+  ToggledTodo,
+  h,
+  remaining,
+  visibleTodos,
+  type Filter,
+  type Model,
+  type Todo,
+} from './model'
+
+## The new-todo field
+
+The head of the list is its title and the field that adds to it. The field is controlled: its value is the model's draft, each keystroke sends `ChangedDraft`, and the button sends `SubmittedDraft`. Because the value comes from the model, the server renders the field already holding whatever draft it seeded, and the client finds the same text there when it takes over.
+
+=>
+
+const draftField = (model: Model): Html =>
+  h.header(
+    [h.Class('head')],
+    [
+      h.h1([], ['Todos']),
+      h.div(
+        [h.Class('compose')],
+        [
+          h.input([
+            h.Class('new'),
+            h.Placeholder('What needs doing?'),
+            h.Value(model.draft),
+            h.OnInput((text) => ChangedDraft({ text })),
+          ]),
+          h.button([h.Class('add'), h.OnClick(SubmittedDraft())], ['Add']),
+        ],
+      ),
+    ],
+  )
+
+## A todo in the list
+
+Each todo renders as one list item, keyed by its id. The key is what carries the item through a reorder or a removal without the runtime rebuilding it, and the serializer writes it into the HTML so the client can line the list back up. The item holds a checkbox bound to `done`, the text, and a button that removes it.
+
+=>
+
+const todoItem = (todo: Todo): Html =>
+  h.li(
+    [h.Key(todo.id), h.Class(todo.done ? 'item done' : 'item')],
+    [
+      h.input([
+        h.Class('check'),
+        h.Type('checkbox'),
+        h.Checked(todo.done),
+        h.OnChange(() => ToggledTodo({ id: todo.id })),
+      ]),
+      h.span([h.Class('text')], [todo.text]),
+      h.button([h.Class('remove'), h.OnClick(RemovedTodo({ id: todo.id }))], ['×']),
+    ],
+  )
+
+## The list and the filters
+
+The list is the visible todos, each an item. The footer counts what is left, offers the three filters as buttons that mark the one in force, and clears the completed. `filterButton` reads which filter is current so the active one wears its own class, the single place the footer's state shows.
+
+=>
+
+const listView = (model: Model): Html =>
+  h.ul([h.Class('list')], Array.map(visibleTodos(model), todoItem))
+
+const filterButton = (current: Filter, filter: Filter, label: string): Html =>
+  h.button(
+    [h.Class(current === filter ? 'filter on' : 'filter'), h.OnClick(SetFilter({ filter }))],
+    [label],
+  )
+
+const footerView = (model: Model): Html =>
+  h.footer(
+    [h.Class('foot')],
+    [
+      h.span([h.Class('count')], [`${remaining(model)} left`]),
+      h.div(
+        [h.Class('filters')],
+        [
+          filterButton(model.filter, 'all', 'All'),
+          filterButton(model.filter, 'active', 'Active'),
+          filterButton(model.filter, 'completed', 'Completed'),
+        ],
+      ),
+      h.button([h.Class('clear'), h.OnClick(ClearedCompleted())], ['Clear completed']),
+    ],
+  )
+
+## The document
+
+`appView` frames the three parts under one root, and that root carries the id and class the client's mount matches when it adopts the server's HTML. `view` wraps the frame in a `Document`, giving the page its title. This is what both the runtime and the serializer are handed.
+
+=>
+
+const appView = (model: Model): Html =>
+  h.div(
+    [h.Id('app'), h.Class('todo')],
+    [draftField(model), listView(model), footerView(model)],
+  )
+
+export const view = (model: Model): Document => ({
+  title: 'Foldkit SSR — Todos',
+  body: appView(model),
+})
+
+## The module {Tangle}
+
+=>
+
+::[What the view draws on]
+
+::[The new-todo field]
+
+::[A todo in the list]
+
+::[The list and the filters]
+
+::[The document]

@@ -1,0 +1,103 @@
+---
+Chapter 10: The chat model
+Package: src/chat/model.ts
+Language: TypeScript
+---
+
+# The chat model
+
+The chat is a second app in this corpus, and where the todo proved static server-side rendering, the chat proves the streaming kind: a shell that paints at once over a message history that arrives late. Its model names the four things the app holds — the channels, which one is open, the open channel's messages, and the draft being typed — and the messages that change them.
+
+The history is the point of interest. It is not a plain array but an `AsyncData`, Foldkit's type for a value that loads: it is `Loading` while the server is still fetching, and `Success` once the messages are in hand. The view renders a skeleton for the first and the real feed for the second, and that one distinction is what lets the shell render before the history does.
+
+## What the model draws on
+
+The model is built from Schema. From `effect` come the `Schema` that defines every shape and the `Array` a helper folds over. `m` builds a message constructor. `AsyncData` supplies the loading-state type the history is carried in, and `html` the element builder the view and this module share, typed once here to the app's `Message`.
+
+=>
+
+import { Schema as S } from 'effect'
+import { m } from '@athrio/foldkit/message'
+import * as AsyncData from '@athrio/foldkit/asyncData'
+import { html } from '@athrio/foldkit/html'
+
+## A channel and a message
+
+A `Session` is a channel: an id the app routes by, and a title the navigation shows. A `ChatMessage` is one line in a channel — an id to key it by across renders, an author that is either the visitor or someone else, and the text. The author is a closed pair of literals, so a third value cannot be built.
+
+=>
+
+export const Session = S.Struct({
+  id: S.String,
+  title: S.String,
+})
+export type Session = typeof Session.Type
+
+export const Author = S.Literals(['me', 'them'])
+export type Author = typeof Author.Type
+
+export const ChatMessage = S.Struct({
+  id: S.String,
+  author: Author,
+  text: S.String,
+})
+export type ChatMessage = typeof ChatMessage.Type
+
+## The history that loads
+
+The message history is an `AsyncData` over an array of messages. `AsyncData.Schema` builds the codec for that loading value, given the schema of the data it carries and of the error it may fail with. `Feed.schema` is the codec the model embeds; `Feed.Loading` and `Feed.Success` are the constructors typed to this history, used where the client and server set its state.
+
+=>
+
+export const Feed = AsyncData.Schema(S.Array(ChatMessage), S.String)
+
+## The model and its messages
+
+The `Model` holds the channels, the open channel's id, its message history, and the draft. `Flags` is the whole model, because the client boots from a model the server handed it, exactly as the todo does.
+
+Five messages change the model. `ChangedDraft` carries a keystroke. `SelectedSession` opens another channel. `MessagesArrived` delivers a channel's history — from the server's stream or a client-side load — tagged with the channel it belongs to, so a history for a channel no longer open is dropped rather than shown in the wrong room. `SentMessage` posts the draft. `SavedDraft` is the reply to persisting a draft, and means nothing to the model.
+
+=>
+
+export const Model = S.Struct({
+  sessions: S.Array(Session),
+  activeSessionId: S.String,
+  messages: Feed.schema,
+  draft: S.String,
+})
+export type Model = typeof Model.Type
+
+export const Flags = Model
+export type Flags = typeof Flags.Type
+
+export const ChangedDraft = m('ChangedDraft', { text: S.String })
+export const SelectedSession = m('SelectedSession', { id: S.String })
+export const MessagesArrived = m('MessagesArrived', {
+  sessionId: S.String,
+  messages: S.Array(ChatMessage),
+})
+export const SentMessage = m('SentMessage')
+export const SavedDraft = m('SavedDraft')
+
+export const Message = S.Union([
+  ChangedDraft,
+  SelectedSession,
+  MessagesArrived,
+  SentMessage,
+  SavedDraft,
+])
+export type Message = typeof Message.Type
+
+export const h = html<Message>()
+
+## The module {Tangle}
+
+=>
+
+::[What the model draws on]
+
+::[A channel and a message]
+
+::[The history that loads]
+
+::[The model and its messages]
