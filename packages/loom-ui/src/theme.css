@@ -1,0 +1,149 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+.loom-app {
+  --font-serif: "IBM Plex Serif", "Noto Serif", Georgia, serif;
+  --font-sans:  "IBM Plex Sans", "Noto Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono:  "IBM Plex Mono", "Noto Sans Mono", ui-monospace, Menlo, monospace;
+
+  --text-xs:   0.6875rem;
+  --text-sm:   0.8125rem;
+  --text-base: 0.9375rem;
+  --text-md:   1.0625rem;
+  --text-lg:   1.25rem;
+  --text-xl:   1.55rem;
+  --text-2xl:  2.25rem;
+
+  --measure: 70ch;
+  --measure-wide: 82ch;
+
+  background: var(--bg-page);
+  color: var(--fg-primary);
+  font-family: var(--font-sans);
+  font-feature-settings: "kern", "liga";
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100%;
+}
+
+.loom-app ::selection { background: var(--selection); }
+.loom-app * { box-sizing: border-box; }
+.loom-app a { color: inherit; text-decoration: none; }
+
+.loom-app {
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-pill: 999px;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.12);
+  --shadow-2: 0 24px 60px -24px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.18);
+}
+
+.loom-theme-light {
+  --bg-page:       #F2E5BC;
+  --bg-surface:    #EBDBB2;
+  --bg-code:       #ECDFB3;
+  --bg-inline:     rgba(60, 56, 54, 0.06);
+  --fg-primary:    #3C3836;
+  --fg-secondary:  #504945;
+  --fg-tertiary:   #7C6F64;
+  --border-hair:   rgba(60, 56, 54, 0.12);
+  --border-soft:   rgba(60, 56, 54, 0.07);
+  --border-strong: rgba(60, 56, 54, 0.20);
+  --accent:        #B8553A;
+  --accent-soft:   rgba(184, 85, 58, 0.12);
+  --accent-ring:   rgba(184, 85, 58, 0.32);
+  --accent-fg:     #FFFFFF;
+  --success:       #79740E;
+  --warning:       #B57614;
+  --danger:        #9D0006;
+  --selection:     rgba(184, 85, 58, 0.20);
+}
+
+.loom-theme-dark {
+  --bg-page:       #0F1014;
+  --bg-surface:    #15171D;
+  --bg-code:       #1B1E26;
+  --bg-inline:     rgba(255, 255, 255, 0.06);
+  --fg-primary:    #E6E6EA;
+  --fg-secondary:  #B6B8C2;
+  --fg-tertiary:   #7A7E8C;
+  --border-hair:   rgba(255, 255, 255, 0.07);
+  --border-soft:   rgba(255, 255, 255, 0.04);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --accent:        #3E7DBF;
+  --accent-soft:   rgba(62, 125, 191, 0.16);
+  --accent-ring:   rgba(62, 125, 191, 0.45);
+  --accent-fg:     #F5F8FC;
+  --success:       #81B48C;
+  --warning:       #DEC184;
+  --danger:        #E48A9A;
+  --selection:     rgba(62, 125, 191, 0.32);
+}
+
+.loom-theme-light {
+  --syntax-keyword:     #8F3F71;
+  --syntax-type:        #076678;
+  --syntax-string:      #79740E;
+  --syntax-number:      #B57614;
+  --syntax-comment:     #928374;
+  --syntax-punctuation: #7C6F64;
+  --syntax-function:    #B57614;
+  --syntax-operator:    #79740E;
+  --syntax-anchor:      #AF3A03;
+  --syntax-prose:       #504945;
+  --syntax-heading:     #3C3836;
+}
+
+.loom-theme-dark {
+  --syntax-keyword:     #B59BF1;
+  --syntax-type:        #6CC7E0;
+  --syntax-string:      #8FE0B6;
+  --syntax-number:      #E8B86C;
+  --syntax-comment:     #4D5260;
+  --syntax-punctuation: #7A7E8C;
+  --syntax-function:    #E8B86C;
+  --syntax-operator:    #8FE0B6;
+  --syntax-anchor:      #E8B86C;
+  --syntax-prose:       #B6B8C2;
+  --syntax-heading:     #E6E6EA;
+}
+
+.loom-theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 4px;
+  border: 1px solid var(--border-hair);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  cursor: pointer;
+  transition: border-color 120ms ease;
+}
+.loom-theme-toggle:hover { border-color: var(--border-strong); }
+.loom-theme-knob {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--fg-primary);
+  position: relative;
+  overflow: hidden;
+  transition: background-color 180ms ease;
+}
+.loom-theme-knob.is-dark { background: var(--accent); }
+.loom-theme-knob::after {
+  content: "";
+  position: absolute;
+  inset: 2px 2px 2px 8px;
+  border-radius: 50%;
+  background: var(--bg-page);
+  transition: inset 180ms ease;
+}
+.loom-theme-knob.is-dark::after { inset: 2px 8px 2px 2px; }

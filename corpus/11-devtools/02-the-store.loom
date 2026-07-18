@@ -6,9 +6,9 @@ Language: TypeScript
 
 # The store
 
-The store is where notes live once they are made. It is a PostgreSQL database the Devtools service owns, kept outside any project, so a note is never a file in the code you are reviewing. One database holds the notes of every app you point at, each note keyed by the project it came from.
+The store is where notes live once they are made. It is a small SQL database, and the Devtools runs it two ways. The shared service keeps notes in PostgreSQL, a database it owns outside any project, so one store holds the notes of every app you point at — the stack-agnostic path any project reaches over the network. The Vite plugin keeps them in a SQLite file instead, one the plugin opens beside the app it serves, so a Vite project runs the Devtools with no database to stand up. The store's code neither knows nor cares which is underneath: Effect's SQL layer drives either, and everything below is written against the one SQL client.
 
-The store does five things to a note: read a project's notes, record a new one, resolve one, discard one, and change one's words. It keeps a small registry of its projects too — each one's stable id, an editable name to show it by, and the working directory it was set up in — so a project can be renamed without stranding its notes, and the service can find where it lives on disk. Effect's SQL layer drives all of it over the `pg` driver, and the service reaches the database as a network service rather than a file on the same machine.
+The store does five things to a note: read a project's notes, record a new one, resolve one, discard one, and change one's words. It keeps a small registry of its projects too, each one's stable id paired with a name to show it by, so the agent can see which apps have been reviewed. Every note is keyed by the project it came from.
 
 # Connecting to Postgres
 
@@ -76,7 +76,7 @@ const migrate = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlErro
     yield* sql`CREATE TABLE IF NOT EXISTS _migrations (
       id INTEGER PRIMARY KEY,
       name TEXT NOT NULL,
-      applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`
     const applied = yield* sql<{ readonly id: number }>`SELECT id FROM _migrations`
     const done = new Set(applied.map((row) => row.id))
@@ -251,12 +251,15 @@ const backfillProjects = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlErro
   sql`
     INSERT INTO projects (id, name)
     SELECT DISTINCT project, project FROM notes
+    WHERE true
     ON CONFLICT (id) DO NOTHING
   `.pipe(Effect.asVoid)
 
 # The store service
 
-`NoteStore` is the service the server, the agent's tools, and `loom init` reach for. Its `make` takes the SQL client from the context, migrates the schema, backfills the registry from any notes that predate it, then binds every operation to that one client. Recording a note ensures its project has a registry row first, so a note never lands under a project the registry has not seen. Its layer provides `PgLive`, so the store carries its own connection.
+`NoteStore` is the service the server and the agent's tools reach for. Its `make` takes a SQL client from the context, migrates the schema, backfills the registry from any notes that predate it, then binds every operation to that one client. Recording a note ensures its project has a registry row first, so a note never lands under a project the registry has not seen. The `make` names no database of its own — it asks only for a SQL client — so the same store runs on either backing.
+
+`NoteStore.layer` is the shared service's binding: it provides `PgLive`, so the store opens its own Postgres connection.
 
 Setting the store up is fatal when it fails: a migration or a backfill that a broken database rejects makes `make` die, so the service exits rather than serve from a store it never prepared. Once running, a query failure is an ordinary typed error the caller handles; only the startup is all-or-nothing.
 
@@ -283,6 +286,19 @@ export class NoteStore extends Context.Service<NoteStore>()('NoteStore', {
   static readonly layer = Layer.effect(this, this.make).pipe(Layer.provide(PgLive))
 }
 
+# A SQLite file for the plugin
+
+The Vite plugin runs the same store over a SQLite file, so a Vite app carries the Devtools with no database to stand up. `sqliteStore` is that binding: it takes a filename, provides a Bun SQLite client that opens the file — and creates it when it is not there — and lays the store's `make` on top. The migrations that built the schema on Postgres build it on SQLite unchanged, because the store's SQL is the portable subset both dialects speak.
+
+=>
+
+import { SqliteClient } from '@effect/sql-sqlite-bun'
+
+export const sqliteStore = (filename: string): Layer.Layer<NoteStore> =>
+  Layer.effect(NoteStore, NoteStore.make).pipe(
+    Layer.provide(SqliteClient.layer({ filename, create: true })),
+  )
+
 # The module {Tangle}
 
 =>
@@ -304,3 +320,5 @@ export class NoteStore extends Context.Service<NoteStore>()('NoteStore', {
 ::[The project registry]
 
 ::[The store service]
+
+::[A SQLite file for the plugin]

@@ -103,18 +103,18 @@ The server and the pre-render both run on Bun, and both live under `src/server`.
 
 ## The dev server and the build {Tangle}[vite.config.ts]
 
-Vite serves the client in development and bundles it for production. The Foldkit Vite plugin gives the dev server its hot reload. On a save it preserves the running model, reloads the page, and restores the model, so the app keeps its state across an edit. The plugin also opens a DevTools relay on port `9988`, the port the Foldkit DevTools MCP connects through to reach the running app. The Loom Notes plugin injects the review overlay under the project name `loom-website`, so the site can be annotated as it is read; it reaches the notes daemon on its default port. The client reads its data from the backend, so in development the dev server proxies every `/data` request to the backend at `http://localhost:4321`. Effect ships modern syntax, so both the dev transform and the build target a current baseline. Vite runs under Bun.
+Vite serves the client in development and bundles it for production. The Foldkit Vite plugin gives the dev server its hot reload. On a save it preserves the running model, reloads the page, and restores the model, so the app keeps its state across an edit. The plugin also opens a DevTools relay on port `9988`, the port the Foldkit DevTools MCP connects through to reach the running app. The Loom Devtools plugin runs the review overlay under the project name `loom-website`, so the site can be annotated as it is read; it starts the notes server itself over a SQLite file while Vite serves. The client reads its data from the backend, so in development the dev server proxies every `/data` request to the backend at `http://localhost:4321`. Effect ships modern syntax, so both the dev transform and the build target a current baseline. Vite runs under Bun.
 
 =>
 
 import { defineConfig } from 'vite'
 import { foldkit } from '@foldkit/vite-plugin'
-import { loomNotes } from '@athrio/loom-devtools/vite'
+import { loomDevtools } from '@athrio/loom-devtools/vite'
 
 export default defineConfig({
   esbuild: { target: 'es2022' },
   build: { target: 'es2022' },
-  plugins: [foldkit({ devToolsMcpPort: 9988 }), loomNotes({ project: 'loom-website' })],
+  plugins: [foldkit({ devToolsMcpPort: 9988 }), loomDevtools({ project: 'loom-website' })],
   server: {
     proxy: {
       '/data': 'http://localhost:4321',

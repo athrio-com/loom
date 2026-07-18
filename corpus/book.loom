@@ -118,7 +118,7 @@ The website is the woven book, running — the pages you are reading now. `loom 
 
 ### Part XI — Loom Devtools
 
-Loom Devtools rides along a running app: a bar you summon over the page to work on the app while you use it. It works against any app — woven from Loom or not — and writes nothing into the code you review. The bar gathers a few tools and is built to hold more. Today it carries Notes: you review by pointing, leaving a note on an element you click or a message you type, and a coding agent reads them over the Model Context Protocol and works through them. Devtools is a standalone service — a Bun server backed by Postgres, shipped as a Docker image and run with `docker compose` — that both the overlay and the agent talk to. This part builds it up: the note the tools pass around, the store that keeps the notes in Postgres, the server that answers the overlay and the agent, the overlay you point with, the agent's tools, and the Vite plugin that injects it. It then ships the service — the package, the local Postgres stack, the entry that launches it, the Docker image, and the setup page that hands you the overlay's script — all as `@athrio/loom-devtools`.
+Loom Devtools rides along a running app: a bar you summon over the page to work on the app while you use it. It works against any app — woven from Loom or not — and writes nothing into the code you review. The bar gathers a few tools and is built to hold more. Today it carries Notes: you review by pointing, leaving a note on an element you click or a message you type, and a coding agent reads them over the Model Context Protocol and works through them. There are two ways to run it. The stack-agnostic one is a standalone service — a Bun server backed by Postgres, shipped as a Docker image and run with `docker compose` — that any app talks to. The other is a Vite plugin that runs the same server inside a Vite project's own dev server, over a SQLite file, so a TypeScript app carries the Devtools with nothing else to start. This part builds it up: the note the tools pass around, the store that keeps the notes — in Postgres for the service, a SQLite file for the plugin — the server that answers the overlay and the agent, the overlay you point with, the agent's tools, and the Vite plugin that runs it. It then ships the service — the package, the local Postgres stack, the entry that launches it, the Docker image, and the setup page that hands you the overlay's script — all as `@athrio/loom-devtools`.
 
 1. The note
 2. The store
@@ -139,6 +139,33 @@ Loom releases itself on every push. A gate runs first — the tests, and a check
 1. Continuous integration
 2. The release tool
 3. Releasing on a push
+
+### Part XIII — Loom UI
+
+The design catalog, the reading website, and the demos beside them are all Foldkit applications, and they dress in the same components. This part is that shared wardrobe, `@athrio/loom-ui`: a theme system, a set of components, and the submodels among them. A component reads the theme's tokens for its look and takes the rest as properties, so the same button belongs on a warm-paper page and a deep-slate one, in any application. The library is the source; an application only consumes it. This part builds it up — the theme system and its light and dark modes, the presentational components that hold no state, the interactive ones that report a message but keep none, the window chrome that frames every surface, the code surface that paints highlighted source, the copy button and the command palette that own their own state as submodels, and the package that ships them together.
+
+1. The theme system
+2. Presentational components
+3. Interactive components
+4. The copy button
+5. The command palette
+6. Window chrome
+7. The code surface
+8. Packaging Loom UI
+
+### Part XIV — The landing
+
+The landing is the front page of the site, rebuilt as a Foldkit application: the window chrome, a hero whose headline rotates a word beside a live editor panel, a manifesto after Knuth, a walk through the pipeline with a searchable command palette, a get-started with a config and a quick start, and a footer. It renders on the server first, for a reader and a crawler, then hydrates and takes over — the tabs, the file tree, the palette, and the copy buttons come alive, while the rotating word and the typing line run on their own. It holds its own components for now, local to the landing, to be lifted into the shared library once the rest of the site joins them. This part builds it up — the stylesheet, the model, the local components, the hero, the manifesto and how-it-works, the get-started and the page, the client, the server, and the package that ships them.
+
+1. The landing styles
+2. The model
+3. Local components
+4. The hero
+5. The manifesto and how it works
+6. Get started and the page
+7. The client
+8. The server
+9. Packaging the landing
 
 ### Work in progress
 

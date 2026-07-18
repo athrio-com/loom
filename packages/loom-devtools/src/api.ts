@@ -121,8 +121,11 @@ const app = Layer.mergeAll(
   HttpRouter.cors({ allowedMethods: ['GET', 'POST'], allowedHeaders: ['Content-Type'] }),
 )
 
-export const notesServer = (port: number) =>
+export const notesServer = (
+  port: number,
+  store: Layer.Layer<NoteStore> = NoteStore.layer,
+) =>
   HttpRouter.serve(app).pipe(
-    Layer.provide(NoteStore.layer),
+    Layer.provide(store),
     Layer.provide(BunHttpServer.layer({ port })),
   )

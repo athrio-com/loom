@@ -1,0 +1,233 @@
+---
+Part XIII, Chapter 2: Presentational components
+Package: packages/loom-ui/src/
+Language: TypeScript
+---
+
+# Presentational components
+
+A component in Loom UI lives in one of three tiers, told apart by where its state lives and whether it speaks. A presentational component holds no state and sends no message: it is a function from properties to markup, and a badge is the type. An interactive component sends a message but keeps its state in the parent that hosts it, the way a button reports a click but remembers nothing. A stateful component owns its own model and its own update — a Foldkit Submodel, like the command palette that tracks a query and a highlighted row. This chapter is the first tier; the two that follow build the others.
+
+The tier decides the shape. A presentational component reads the design tokens for its look and takes everything else as properties, so a badge is one function of a label and a tone. It never reaches for a message type, because it never dispatches, and it returns `Html` — the markup a view splices in.
+
+## A component is a function
+
+Every component draws its markup with the same tool the applications use: the typed `html` factory. A presentational component parameterises that factory with no message type, because it has none to send.
+
+=>
+
+import { Array } from 'effect'
+import { html, type Html } from 'foldkit/html'
+
+const h = html()
+
+## The tone of a mark
+
+A tone names the meaning a mark carries — the accent for a hint, and the three signal colours for success, warning, and danger, with a neutral for the rest. Each tone is one class the design tokens resolve to a colour, so a component wears a tone by naming it.
+
+=>
+
+export type Tone = 'accent' | 'success' | 'warning' | 'danger' | 'neutral'
+
+const toneClass = (tone: Tone): string => `loom-tone-${tone}`
+
+## The badge
+
+A badge is a small pill that labels a thing with a word and a tone — a version, a status, a count. It is the plainest presentational component: a span with a class and its label, defaulting to the neutral tone when the caller names none.
+
+=>
+
+export const badge = (props: { label: string; tone?: Tone }): Html =>
+  h.span(
+    [h.Class(`loom-badge ${toneClass(props.tone ?? 'neutral')}`)],
+    [props.label],
+  )
+
+## The keycaps
+
+A keycap set renders a keyboard shortcut as a row of caps — `⌘` then `K`. It takes the keys in order and draws one `kbd` element for each, so the shortcut reads as keys, not text.
+
+=>
+
+export const kbd = (props: { keys: ReadonlyArray<string> }): Html =>
+  h.span(
+    [h.Class('loom-kbd')],
+    Array.map(props.keys, (key) => h.kbd([], [key])),
+  )
+
+## The status dot
+
+A status dot is a filled circle in a tone, with an optional label beside it — the live "reading" or "tangled" marker the chrome carries. The dot always shows; the label shows only when the caller gives one.
+
+=>
+
+export const statusDot = (props: { tone?: Tone; label?: string }): Html =>
+  h.span(
+    [h.Class('loom-status')],
+    [
+      h.span([h.Class(`loom-status-dot ${toneClass(props.tone ?? 'accent')}`)], []),
+      ...(props.label
+        ? [h.span([h.Class('loom-status-label')], [props.label])]
+        : []),
+    ],
+  )
+
+## The eyebrow
+
+An eyebrow is the small upper-case label that sits above a heading and names the section in a quieter voice. It is a single line of text under one class.
+
+=>
+
+export const eyebrow = (props: { label: string }): Html =>
+  h.div([h.Class('loom-eyebrow')], [props.label])
+
+## The panel
+
+A panel is a bordered surface that frames arbitrary content — a specimen, a group of controls, a note. It takes its content as children and an optional title, so it composes with any markup the caller hands it, presentational or not.
+
+=>
+
+export const panel = (props: {
+  children: ReadonlyArray<Html>
+  title?: string
+}): Html =>
+  h.div(
+    [h.Class('loom-panel')],
+    [
+      ...(props.title
+        ? [h.div([h.Class('loom-panel-title')], [props.title])]
+        : []),
+      h.div([h.Class('loom-panel-body')], props.children),
+    ],
+  )
+
+## The link
+
+A link is an anchor styled as a button — the call to action a landing carries to its docs. It is presentational because a plain anchor needs no message: the browser follows its `href`. It reads primary or quiet from one property.
+
+=>
+
+export const link = (props: {
+  label: string
+  href: string
+  primary?: boolean
+}): Html =>
+  h.a(
+    [
+      h.Class(props.primary ? 'loom-btn loom-btn-primary' : 'loom-btn'),
+      h.Href(props.href),
+    ],
+    [props.label],
+  )
+
+## Their styles {Tangle}[presentational.css]
+
+Each tone resolves to one colour through a `--tone` custom property, so a badge, a dot, or any marked component tints itself from `var(--tone)` and a soft mix of it. The rest is the settled shape of each mark: the pill of a badge, the caps of a shortcut, the circle of a dot, the quiet upper-case of an eyebrow, the border of a panel, and the two weights of a link.
+
+=>
+
+.loom-tone-accent  { --tone: var(--accent); }
+.loom-tone-success { --tone: var(--success); }
+.loom-tone-warning { --tone: var(--warning); }
+.loom-tone-danger  { --tone: var(--danger); }
+.loom-tone-neutral { --tone: var(--fg-tertiary); }
+
+.loom-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 14%, transparent);
+}
+
+.loom-kbd { display: inline-flex; gap: var(--space-1); }
+.loom-kbd kbd {
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  padding: 1px var(--space-1);
+  border: 1px solid var(--border-hair);
+  border-radius: var(--radius-sm);
+  color: var(--fg-secondary);
+  background: var(--bg-surface);
+}
+
+.loom-status { display: inline-flex; align-items: center; gap: var(--space-2); }
+.loom-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--tone);
+}
+.loom-status-label { font-size: var(--text-sm); color: var(--fg-tertiary); }
+
+.loom-eyebrow {
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+}
+
+.loom-panel {
+  border: 1px solid var(--border-hair);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  overflow: hidden;
+}
+.loom-panel-title {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-hair);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--fg-secondary);
+}
+.loom-panel-body { padding: var(--space-4); }
+
+.loom-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-hair);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--fg-primary);
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+.loom-btn:hover { border-color: var(--border-strong); }
+.loom-btn-primary {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent);
+}
+.loom-btn-primary:hover { filter: brightness(1.06); }
+
+## The module {Tangle}[presentational.ts]
+
+The module gathers the factory and the tone helper, then each presentational component in the order it was introduced.
+
+=>
+
+::[A component is a function]
+
+::[The tone of a mark]
+
+::[The badge]
+
+::[The keycaps]
+
+::[The status dot]
+
+::[The eyebrow]
+
+::[The panel]
+
+::[The link]

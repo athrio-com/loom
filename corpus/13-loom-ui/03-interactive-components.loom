@@ -1,0 +1,175 @@
+---
+Part XIII, Chapter 3: Interactive components
+Package: packages/loom-ui/src/
+Language: TypeScript
+---
+
+# Interactive components
+
+An interactive component reports what the reader did — a click, a keystroke — but keeps no state of its own. A button knows it was pressed and says so; it does not remember. The state that a press changes lives in the application that hosts the button, and the button only sends word.
+
+That word is a message, and here the design has one problem to solve. A button cannot know which message its host wants from a click, because a todo application and a chat application want different ones. So an interactive component is generic over the host's message type, written `M`. The caller passes the message as a property, and the component dispatches it on the reader's behalf. Because the returned `Html` carries no message type, the same button drops into any application's view, whatever its own messages are — which is why every application in this repository can stop hand-wiring its own buttons and reach for one.
+
+## A component that speaks
+
+An interactive component builds its markup from a factory parameterised by the host's message type, `html<M>()`, so the events it wires — a click, an input — are typed to the message the caller handed it. Each component makes its own factory, because each is generic in its own `M`.
+
+=>
+
+import { html, type Html } from 'foldkit/html'
+
+## The button
+
+A button carries a label and the message to send when pressed. It reads primary or quiet from one property, and disables itself from another — a disabled button dispatches nothing, so a form can hold it shut until its field is filled.
+
+=>
+
+export const button = <M>(props: {
+  label: string
+  onClick: M
+  primary?: boolean
+  disabled?: boolean
+}): Html => {
+  const h = html<M>()
+  return h.button(
+    [
+      h.Class(props.primary ? 'loom-btn loom-btn-primary' : 'loom-btn'),
+      h.OnClick(props.onClick),
+      ...(props.disabled ? [h.Disabled(true)] : []),
+    ],
+    [props.label],
+  )
+}
+
+## The toggle
+
+A toggle is a button that shows whether it is on. The filter tabs of a todo list and the channel tabs of a chat are the same control: a label, a flag for the active one, and a message to send when it is chosen. The flag drives one class, so the active toggle wears the accent.
+
+=>
+
+export const toggle = <M>(props: {
+  label: string
+  active: boolean
+  onClick: M
+}): Html => {
+  const h = html<M>()
+  return h.button(
+    [
+      h.Class(props.active ? 'loom-toggle loom-toggle-on' : 'loom-toggle'),
+      h.OnClick(props.onClick),
+    ],
+    [props.label],
+  )
+}
+
+## The text field
+
+A text field is a controlled input: the application owns the text, and the field reports each keystroke back through a function that turns the new value into a message. The todo's draft and the chat's composer are the same field — the value it shows and the message its input makes are all that differ.
+
+=>
+
+export const textField = <M>(props: {
+  value: string
+  onInput: (value: string) => M
+  placeholder?: string
+}): Html => {
+  const h = html<M>()
+  return h.input([
+    h.Class('loom-field'),
+    h.Value(props.value),
+    h.OnInput(props.onInput),
+    ...(props.placeholder ? [h.Placeholder(props.placeholder)] : []),
+  ])
+}
+
+## The icon button
+
+An icon button is a square, quiet button that carries a glyph instead of a label — the theme switch, the nav toggle, a close. It takes an accessible label for the name a screen reader announces, since its glyph is not words.
+
+=>
+
+export const iconButton = <M>(props: {
+  icon: string
+  label: string
+  onClick: M
+}): Html => {
+  const h = html<M>()
+  return h.button(
+    [
+      h.Class('loom-icon-btn'),
+      h.AriaLabel(props.label),
+      h.OnClick(props.onClick),
+    ],
+    [props.icon],
+  )
+}
+
+## Their styles {Tangle}[interactive.css]
+
+A toggle borrows the button's frame and adds the on state, where the accent tint and colour mark it chosen. A field is a plain bordered input that lights its border on focus. An icon button is a small square that fills on hover.
+
+=>
+
+.loom-toggle {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-hair);
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--fg-secondary);
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease, background-color 120ms ease;
+}
+.loom-toggle:hover { color: var(--fg-primary); }
+.loom-toggle-on {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.loom-field {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-page);
+  border: 1px solid var(--border-hair);
+  border-radius: var(--radius-md);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--fg-primary);
+}
+.loom-field::placeholder { color: var(--fg-tertiary); }
+.loom-field:focus { outline: none; border-color: var(--accent); }
+
+.loom-icon-btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--fg-secondary);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.loom-icon-btn:hover { background: var(--bg-surface); color: var(--fg-primary); }
+
+## The module {Tangle}[interactive.ts]
+
+The module is the factory import, then each interactive component: the button, the toggle, the text field, and the icon button.
+
+=>
+
+::[A component that speaks]
+
+::[The button]
+
+::[The toggle]
+
+::[The text field]
+
+::[The icon button]

@@ -1,0 +1,136 @@
+---
+Part XIV, Chapter 9: Packaging the landing
+Package: design/
+Language: JSON
+---
+
+# Packaging the landing
+
+The landing is a small web application: a page the browser loads, a client that boots it, and a server that renders it first for a reader and a crawler. Vite bundles the client; the server runs under Bun. This chapter is the files around the code — the page, the manifest, the TypeScript settings, and the build.
+
+## The page {Tangle}[index.html]
+
+The page is the shell the application fills. It loads the three type families the design wears — a serif for display, a sans for prose, a mono for code — carries an empty `#root` for the view to mount into, and the module that boots the client. The server rewrites two spots: the `#root` it fills with the rendered body, and the head where it inlines the model, so the strings `<div id="root"></div>` and `</head>` matter as much as the markup.
+
+=>
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>loom — programs written to be read</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;1,6..72,300&display=swap"
+      rel="stylesheet"
+    />
+    <script type="module" src="/src/client.ts"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
+
+## The manifest {Tangle}[package.json]
+
+The manifest names the package, its commands, and its dependencies. It is self-contained: the landing holds its own components, so it depends only on `@athrio/foldkit-ssr` and `@athrio/foldkit-hydration` for the render and the adopt, and `foldkit` and `effect` beneath them. `@athrio/loom-devtools` is a development dependency alone, since the Devtools plugin it lends runs only while Vite serves.
+
+=>
+
+{
+  "name": "loom-landing",
+  "type": "module",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "dev": "bunx --bun vite --port 5199",
+    "build": "bunx --bun vite build",
+    "serve": "bun src/server.ts",
+    "preview": "bunx --bun vite preview --port 5199"
+  },
+  "dependencies": {
+    "@athrio/foldkit-ssr": "workspace:*",
+    "@athrio/foldkit-hydration": "workspace:*",
+    "foldkit": "workspace:*",
+    "effect": "4.0.0-beta.97"
+  },
+  "devDependencies": {
+    "@athrio/loom-devtools": "workspace:*",
+    "vite": "^8.1.3"
+  }
+}
+
+## The browser TypeScript config {Tangle}[tsconfig.json]
+
+The client runs in the browser and the server on Bun, and their type environments cannot share one program. Foldkit's runtime reads Vite's `import.meta.hot`, and Bun's platform types declare a different `import.meta.hot`; in one program the two collide, and the client's reads stop type-checking. So the configuration splits. This one checks the browser half — the client, the view, and everything they reach — reading Vite's types through the ambient declaration beside it, and leaves the two server-only files to the server config.
+
+=>
+
+{
+  "compilerOptions": {
+    "strict": true,
+    "noEmit": true,
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "target": "es2022",
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "types": ["bun"],
+    "skipLibCheck": true
+  },
+  "include": ["src"],
+  "exclude": ["src/server.ts", "src/browser-globals.ts"]
+}
+
+## The server TypeScript config {Tangle}[tsconfig.server.json]
+
+This checks the server half — the server and its browser shim — under Bun. Because the server never imports the client runtime, Vite's `import.meta.hot` never enters its program, and the collision the browser config avoids by exclusion this one avoids by construction.
+
+=>
+
+{
+  "compilerOptions": {
+    "strict": true,
+    "noEmit": true,
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "target": "es2022",
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "types": ["bun"],
+    "skipLibCheck": true
+  },
+  "include": ["src/server.ts", "src/browser-globals.ts", "vite.config.ts"]
+}
+
+## The Vite types {Tangle}[src/vite-env.d.ts]
+
+The client reaches for Vite's ambient types — `import.meta.hot` above all, which Foldkit's runtime reads — so this one line brings them in.
+
+=>
+
+/// <reference types="vite/client" />
+
+## The build {Tangle}[vite.config.ts]
+
+The build is Vite with the page as its input, targeting a runtime recent enough that the Effect and Foldkit output needs no down-levelling. It writes the page and its assets to `dist`, where the server reads them.
+
+It also adds the Loom Devtools plugin, `loomDevtools`. The plugin runs the Devtools while Vite serves — the notes server over a SQLite file, and the review bar injected into every page — so the landing carries the devtools in development the way a browser's own ride a page, with nothing else to start. It runs only while Vite serves, never in the production build, so nothing of it reaches what the server renders. The project it is named for is the one its notes belong to.
+
+=>
+
+import { defineConfig } from 'vite'
+import { fileURLToPath } from 'node:url'
+import { loomDevtools } from '@athrio/loom-devtools/vite'
+
+export default defineConfig({
+  esbuild: { target: 'es2022' },
+  plugins: [loomDevtools({ project: 'loom-landing' })],
+  build: {
+    target: 'es2022',
+    outDir: 'dist',
+    rollupOptions: {
+      input: { index: fileURLToPath(new URL('index.html', import.meta.url)) },
+    },
+  },
+})

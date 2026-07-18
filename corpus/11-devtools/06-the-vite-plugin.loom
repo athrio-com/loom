@@ -6,59 +6,96 @@ Language: TypeScript
 
 # The Vite plugin
 
-The overlay reaches an app through a `<script>` tag, a drop-in that works whatever the app is built with. A Vite project has a shorter path: it adds this plugin, and the plugin injects that same tag. Adding the overlay becomes one line in the Vite configuration, rather than a tag pasted into the page by hand.
+There are two ways to run the Devtools. The stack-agnostic one is the service of the earlier chapters — a container with Postgres behind it — that any app reaches by pasting the overlay's script tag. This chapter is the other: a Vite plugin for a TypeScript-and-Vite project, which runs the whole Devtools itself so the bar is there the moment you serve the app, with nothing else to start.
 
-The plugin injects the daemon's own script, not a bundled copy of the overlay. So the overlay arrives whole: its server origin, the project it belongs to, and its compiled styles all ride the tag, exactly as they do when the tag is pasted. There is nothing to configure in the app and nothing to style, because the daemon serves the same script either way.
+The plugin *is* the server. When Vite starts serving, the plugin launches the same notes API and agent tools from the earlier chapters, in Vite's own process, over a SQLite file rather than Postgres — so a Vite app needs no database and no separate daemon. It then hands the page the overlay's script, and the overlay talks to the server the plugin is running. When Vite stops, the server stops with it.
 
-It is a tool for reviewing an app as it runs, so it runs only while Vite serves — `apply: 'serve'` — and never in a production build.
+The notes server is a Bun program, so the plugin runs it only when Vite runs under Bun. It reaches for that server the moment the dev server starts, not before — so loading a Vite config pulls none of it in, and a production build, which never starts the server, carries no trace of it.
 
-# What it draws on
+If a Devtools service is already answering on the port — the container, say, or another Vite app that got there first — the plugin uses that one instead of starting a second. Either way the notes reach the same coding agent, over the tools at `/mcp`.
 
-Vite's `Plugin` type shapes what the plugin function returns. The options name the project the notes belong to, the port the daemon listens on, and whether to start the daemon when it is not already running.
+Because it is a tool for reviewing an app as it runs, the plugin runs only while Vite serves — `apply: 'serve'` — and never in a production build.
+
+## What it draws on
+
+Vite's `Plugin` type shapes what the plugin returns. Only two things load with it: Node's `fs` and `path`, for the folder the SQLite file sits in. The server, the store, and the Effect machinery that launches them load later, inside the plugin, so the top of the file stays free of the Bun runtime they carry.
 
 =>
 
 import type { Plugin } from 'vite'
+import { mkdirSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 
-export interface LoomNotesOptions {
+export interface LoomDevtoolsOptions {
   readonly project: string
   readonly port?: number
-  readonly autostart?: boolean
+  readonly db?: string
 }
 
-# Is the daemon up?
+## Is one already serving?
 
-The overlay and the agent's tools are useless without the daemon behind them, so the plugin checks. `daemonUp` asks the notes feed for the project; a reply means the daemon is serving, and any failure means it is not. When it is down, the plugin either starts it — spawning `loom start` detached, when `autostart` is set and `loom` is on the path — or prints the one command that fixes it. Starting stays opt-in, since a plugin that reaches out to launch a background process is a surprise unless it was asked for.
+`alreadyServing` asks the notes feed on the port whether anyone is home. A reply — from the container, or another Vite app's plugin — means a Devtools is already running there, and the plugin leaves it be. A refused connection means the port is free, and the plugin takes it.
 
 =>
 
-const daemonUp = (port: number, project: string): Promise<boolean> =>
-  fetch(`http://localhost:${port}/notes/feed?project=${project}`)
-    .then((response) => response.ok)
+const alreadyServing = (port: number): Promise<boolean> =>
+  fetch(`http://localhost:${port}/notes/feed?project=_probe`)
+    .then(() => true)
     .catch(() => false)
 
-const ensureDaemon = async (options: LoomNotesOptions, port: number): Promise<void> => {
-  if (await daemonUp(port, options.project)) return
-  if (options.autostart) {
-    Bun.spawn(['loom', 'start'], { detached: true, stdio: ['ignore', 'ignore', 'ignore'] }).unref()
-    console.log(`[loom-notes] started the notes server on http://localhost:${port}`)
-  } else {
-    console.warn('[loom-notes] the notes server is not running — start it with `loom start`')
-  }
-}
+## Starting the server
 
-# The plugin
-
-`loomNotes` is the plugin a Vite configuration adds. On startup it makes sure the daemon is up, and into every page it serves it injects the overlay's script, carrying the project so the overlay knows which app's notes are its own. The overlay is an ES module, so the tag is `type="module"`. The port defaults to the daemon's own `5710`.
+`startDevtools` brings the notes server up in Vite's process. It imports the server, the store, and the Effect runtime here, at the point of use, so nothing above pulled them in. It opens the folder for the SQLite file, forks the server over that file into the process, and returns the one thing the caller needs back: how to stop it. Starting is where the Bun runtime is finally required, so a failure here — Vite run under plain Node, without Bun — is caught and reported rather than left to crash the dev server; the app still serves, only without the Devtools.
 
 =>
 
-export const loomNotes = (options: LoomNotesOptions): Plugin => {
+const startDevtools = async (port: number, database: string): Promise<() => void> => {
+  const { Effect, Fiber, Layer } = await import('effect')
+  const { BunServices } = await import('@effect/platform-bun')
+  const { notesServer, devtoolsLogger } = await import('./api')
+  const { sqliteStore } = await import('./store')
+  mkdirSync(dirname(database), { recursive: true })
+  const fiber = Effect.runFork(
+    Layer.launch(notesServer(port, sqliteStore(database))).pipe(
+      Effect.provide(devtoolsLogger),
+      Effect.provide(BunServices.layer),
+    ),
+  )
+  return () => void Effect.runFork(Fiber.interrupt(fiber))
+}
+
+## The plugin
+
+`loomDevtools` is the plugin a Vite configuration adds. When Vite's dev server comes up, the plugin either finds a Devtools already on the port and uses it, or starts its own over a SQLite file it opens beside the app. It holds the way to stop that server and calls it when the dev server closes, so the notes server goes down with Vite. The database defaults to a file under the project's `.loom` folder, and the port to the service's own `5710`.
+
+Into every page it serves, the plugin injects the overlay's script, pointed at the port the server runs on and carrying the project, so the overlay knows which app's notes are its own. The overlay is an ES module, so the tag is `type="module"`.
+
+=>
+
+export const loomDevtools = (options: LoomDevtoolsOptions): Plugin => {
   const port = options.port ?? 5710
+  const database = options.db ?? join(process.cwd(), '.loom', 'devtools.sqlite')
+  let stop: (() => void) | undefined
   return {
-    name: 'loom-notes',
+    name: 'loom-devtools',
     apply: 'serve',
-    configureServer: () => void ensureDaemon(options, port),
+    configureServer: async (server) => {
+      if (await alreadyServing(port)) {
+        console.log(`[loom-devtools] using the Devtools already on http://localhost:${port}`)
+      } else {
+        stop = await startDevtools(port, database).then(
+          (dispose) => {
+            console.log(`[loom-devtools] Devtools on http://localhost:${port} — notes in ${database}`)
+            return dispose
+          },
+          (cause) => {
+            console.warn('[loom-devtools] could not start the Devtools — run Vite under Bun (`bun --bun vite`)', cause)
+            return undefined
+          },
+        )
+      }
+      server.httpServer?.on('close', () => stop?.())
+    },
     transformIndexHtml: () => [
       {
         tag: 'script',
@@ -73,12 +110,14 @@ export const loomNotes = (options: LoomNotesOptions): Plugin => {
   }
 }
 
-# The module {Tangle}
+## The module {Tangle}
 
 =>
 
 ::[What it draws on]
 
-::[Is the daemon up?]
+::[Is one already serving?]
+
+::[Starting the server]
 
 ::[The plugin]

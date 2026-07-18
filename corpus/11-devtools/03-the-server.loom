@@ -187,7 +187,7 @@ export const devtoolsLogger = Logger.layer([Logger.consoleLogFmt])
 
 # The server itself
 
-The application merges three layers on one router: the routes, the agent's tools at `/mcp`, and the cross-origin middleware that lets a browser on any origin call it. `notesServer` serves that application on a port, over the store and the Bun HTTP platform. It leaves the logger and Bun's platform to the runtime edge — the service entry that launches it — the one place the platform is chosen.
+The application merges three layers on one router: the routes, the agent's tools at `/mcp`, and the cross-origin middleware that lets a browser on any origin call it. `notesServer` serves that application on a port, over a store and the Bun HTTP platform. The store is a parameter, defaulting to the shared service's Postgres; the Vite plugin passes its own SQLite store in its place, and the same server runs on either. It leaves the logger and Bun's platform to the runtime edge — the service entry or the plugin that launches it — the one place the platform is chosen.
 
 =>
 
@@ -197,9 +197,12 @@ const app = Layer.mergeAll(
   HttpRouter.cors({ allowedMethods: ['GET', 'POST'], allowedHeaders: ['Content-Type'] }),
 )
 
-export const notesServer = (port: number) =>
+export const notesServer = (
+  port: number,
+  store: Layer.Layer<NoteStore> = NoteStore.layer,
+) =>
   HttpRouter.serve(app).pipe(
-    Layer.provide(NoteStore.layer),
+    Layer.provide(store),
     Layer.provide(BunHttpServer.layer({ port })),
   )
 

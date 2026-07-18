@@ -1,0 +1,158 @@
+---
+Part XIV, Chapter 8: The server
+Package: design/src/
+Language: TypeScript
+---
+
+# The server
+
+The server renders the landing to HTML on the way to the browser, so a reader — and a crawler — sees the page before the client boots. It is a small Effect HTTP server started from a Bun runtime edge: it renders the page once at startup, then answers the page itself and the built assets. What passes to the client is the model, inlined for hydration to read.
+
+The server stays clear of the client runtime. It renders, inlines, and serves; the browser hydrates and takes over. So each thing it imports leaves the runtime out of its build — even the pre-boot capture script comes from `@athrio/foldkit-hydration/prehydration`, a deep path that skips the hydration strategy, because that strategy reaches into Foldkit's runtime and a server runs none of it.
+
+## Standing in for the browser {Tangle}[browser-globals.ts]
+
+Snabbdom's style module reads `window` the moment it is imported, and a server has none — reading an undeclared `window` throws. This shim declares the global and leaves it undefined, before any Foldkit module loads, so importing the view on the server no longer throws. Where a real `window` is already present it changes nothing, so the browser stays untouched.
+
+=>
+
+const scope = globalThis as { window?: unknown }
+
+if (!('window' in scope)) {
+  scope.window = undefined
+}
+
+## What the server draws on
+
+The server loads the shim first, before any Foldkit module. From `effect` come `Effect`, the `Match` that dispatches on the request path, the `FileSystem` that reads the built shell and assets, and the `Context` and `Layer` that define the server and wire it. From `effect/unstable/http` come the request and the responses. `@effect/platform-bun` supplies the Bun HTTP server, its file services, and the runtime edge. Foldkit lends `renderStatic` for the render, and, through `@athrio/foldkit-ssr`, the render itself; `@athrio/foldkit-hydration/prehydration` lends the capture script the page runs before it boots.
+
+=>
+
+import './browser-globals'
+import { Context, Effect, FileSystem, Layer, Match } from 'effect'
+import {
+  HttpServer,
+  HttpServerRequest,
+  HttpServerResponse,
+} from 'effect/unstable/http'
+import { BunHttpServer, BunRuntime, BunServices } from '@effect/platform-bun'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { renderStatic } from 'foldkit/html'
+import { PREHYDRATION_CAPTURE_SCRIPT } from '@athrio/foldkit-hydration/prehydration'
+import { FoldkitRender } from '@athrio/foldkit-ssr'
+import { view } from './view'
+import { type Model } from './model'
+
+const distDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist')
+
+## The page
+
+The page starts from the built shell and gains two things: the rendered body in place of the empty `#root`, and, in the head, the capture script and the model inlined as JSON for hydration. The seed is the landing at rest — the first tab, the first step, the rotator and typing line unstarted.
+
+=>
+
+const seed: Model = {
+  activeTab: 'a-first-loom.loom',
+  rotatorIndex: 0,
+  rotatorPhase: 'normal',
+  typed: '',
+  typingIndex: 0,
+  typingCount: 0,
+  typingDeleting: false,
+  howStep: 1,
+  query: '',
+  focus: 0,
+  copied: '',
+}
+
+const inlineJson = (value: unknown): string =>
+  JSON.stringify(value).replace(/</g, '\\u003c')
+
+const withBody = (shell: string, body: string): string =>
+  shell.replace('<div id="root"></div>', () => `<div id="root">${body}</div>`)
+
+const withSeed = (shell: string, model: Model): string =>
+  shell.replace(
+    '</head>',
+    () =>
+      `<script>${PREHYDRATION_CAPTURE_SCRIPT}</script>` +
+      `<script id="foldkit-model" type="application/json">${inlineJson(model)}</script></head>`,
+  )
+
+## Rendering it once
+
+The site is rendered at startup and held. It reads the built shell, turns the view into HTML through `renderStatic` and `FoldkitRender`, and folds the body and the seed into the shell.
+
+=>
+
+export class LandingSite extends Context.Service<LandingSite>()('LandingSite', {
+  make: Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const render = yield* FoldkitRender
+    const shell = yield* fs.readFileString(join(distDir, 'index.html'))
+    const body = yield* render.renderToString(renderStatic(() => view(seed).body))
+    return { page: withSeed(withBody(shell, body), seed) } as const
+  }),
+}) {
+  static readonly layer = Layer.effect(this, this.make).pipe(
+    Layer.provide(FoldkitRender.layer),
+    Layer.provide(BunServices.layer),
+  )
+}
+
+## Answering a request
+
+The server answers two paths. The root returns the rendered page; anything else is a file under `dist` — the client bundle and its assets — with a plain not-found when there is none.
+
+=>
+
+const notFound = Effect.succeed(
+  HttpServerResponse.text('Not found', { status: 404 }),
+)
+
+const asset = (pathname: string) =>
+  HttpServerResponse.file(join(distDir, pathname)).pipe(
+    Effect.catchCause(() => notFound),
+  )
+
+const handle = (site: LandingSite['Service'], pathname: string) =>
+  Match.value(pathname).pipe(
+    Match.when('/', () =>
+      Effect.succeed(
+        HttpServerResponse.text(site.page, { contentType: 'text/html' }),
+      ),
+    ),
+    Match.orElse((path) => asset(path)),
+  )
+
+## Serving it {Tangle}[server.ts]
+
+The handler reads the request path and answers it. The server serves that handler over a Bun HTTP layer and launches from the Bun runtime edge.
+
+=>
+
+::[What the server draws on]
+
+::[The page]
+
+::[Rendering it once]
+
+::[Answering a request]
+
+const app = Effect.gen(function* () {
+  const request = yield* HttpServerRequest.HttpServerRequest
+  const site = yield* LandingSite
+  const pathname = new URL(request.url, 'http://localhost').pathname
+  return yield* handle(site, pathname)
+})
+
+const port = Number(process.env.PORT ?? 5199)
+
+const server = HttpServer.serve(app).pipe(
+  HttpServer.withLogAddress,
+  Layer.provide(LandingSite.layer),
+  Layer.provide(BunHttpServer.layer({ port })),
+)
+
+BunRuntime.runMain(Layer.launch(server))

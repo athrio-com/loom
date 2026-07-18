@@ -1,0 +1,215 @@
+---
+Part XIII, Chapter 5: The command palette
+Package: packages/loom-ui/src/
+Language: TypeScript
+---
+
+# The command palette
+
+The command palette is the submodel that earns the tier. It is the search box that opens over an application — type a few letters, arrow to a command, press Enter to run it. It owns real state: the query typed so far, and which result is highlighted. And it needs a way to hand a chosen command back to the application that hosts it, because running the command is the application's business, not the palette's.
+
+That way back is an OutMessage — the outward channel a submodel uses to tell its parent something happened. Where an ordinary message loops back into the submodel's own update, an OutMessage rises to the parent, which handles it however it likes. The palette owns the query and the highlight; the parent owns the list of commands and acts when one is chosen.
+
+## What the palette knows
+
+The palette's state is the query and the index of the highlighted result. It does not hold the commands themselves — those belong to the parent, and arrive as view inputs when the palette draws. `init` is an empty query with the first result highlighted.
+
+=>
+
+import { Array, Match, Option, Schema as S } from 'effect'
+import { html } from 'foldkit/html'
+import { defineView } from 'foldkit/submodel'
+import { m } from 'foldkit/message'
+import type { ReturnWithOutMessage } from 'foldkit/update'
+
+export const Model = S.Struct({ query: S.String, highlighted: S.Number })
+export type Model = typeof Model.Type
+
+export const init: Model = { query: '', highlighted: 0 }
+
+## Its messages
+
+Five things happen to a palette. The reader `Typed` into the query. They `Moved` the highlight up or down, and the message carries the count of results the view is showing, so the update can clamp the highlight without knowing the results itself. They `Chose` a result, by click or by Enter. They `Dismissed` the palette with Escape. And a keystroke the palette does not act on is `Ignored`.
+
+=>
+
+export const Typed = m('Typed', { query: S.String })
+export const Moved = m('Moved', { delta: S.Number, count: S.Number })
+export const Chose = m('Chose', { id: S.String })
+export const Dismissed = m('Dismissed')
+export const Ignored = m('Ignored')
+
+export const Message = S.Union([Typed, Moved, Chose, Dismissed, Ignored])
+export type Message = typeof Message.Type
+
+const h = html<Message>()
+
+## What it tells the parent
+
+The palette speaks to its parent through two out-messages. `Selected` carries the id of a chosen command, for the parent to run. `Closed` says the reader dismissed the palette, for the parent to unmount it. Everything else stays inside the palette.
+
+=>
+
+export const Selected = m('Selected', { id: S.String })
+export const Closed = m('Closed')
+
+export const OutMessage = S.Union([Selected, Closed])
+export type OutMessage = typeof OutMessage.Type
+
+## The update
+
+The update returns the submodel's three-part answer: the next model, any commands, and an optional out-message for the parent. Typing sets the query and returns the highlight to the top. Moving clamps the highlight inside the results. Choosing and dismissing carry nothing back into the palette — they rise to the parent as `Selected` and `Closed`.
+
+=>
+
+export type Return = ReturnWithOutMessage<Model, Message, OutMessage>
+
+const clamp = (value: number, max: number): number =>
+  Math.max(0, Math.min(max, value))
+
+export const update = (model: Model, message: Message): Return =>
+  Match.value(message).pipe(
+    Match.withReturnType<Return>(),
+    Match.tagsExhaustive({
+      Typed: ({ query }) => [{ ...model, query, highlighted: 0 }, [], Option.none()],
+      Moved: ({ delta, count }) => [
+        { ...model, highlighted: clamp(model.highlighted + delta, count - 1) },
+        [],
+        Option.none(),
+      ],
+      Chose: ({ id }) => [model, [], Option.some(Selected({ id }))],
+      Dismissed: () => [model, [], Option.some(Closed())],
+      Ignored: () => [model, [], Option.none()],
+    }),
+  )
+
+## Filtering and keys
+
+The palette filters its commands by the query, matching a command whose label contains what the reader typed, ignoring case. From a key it builds a message: the arrows move the highlight and carry the result count; Enter chooses the highlighted result when there is one; Escape dismisses; every other key is ignored.
+
+=>
+
+export type Command = { id: string; label: string }
+
+const matches =
+  (query: string) =>
+  (command: Command): boolean =>
+    command.label.toLowerCase().includes(query.toLowerCase())
+
+const keyMessage = (
+  key: string,
+  results: ReadonlyArray<Command>,
+  highlighted: number,
+): Message =>
+  Match.value(key).pipe(
+    Match.when('ArrowDown', () => Moved({ delta: 1, count: results.length })),
+    Match.when('ArrowUp', () => Moved({ delta: -1, count: results.length })),
+    Match.when('Enter', () =>
+      Option.match(Array.get(results, highlighted), {
+        onNone: () => Ignored(),
+        onSome: (command) => Chose({ id: command.id }),
+      }),
+    ),
+    Match.when('Escape', () => Dismissed()),
+    Match.orElse(() => Ignored()),
+  )
+
+## The view
+
+The view takes the commands as inputs, filters them by the query, and draws the input above the results. The input reports each keystroke two ways: its text becomes a `Typed`, and its key becomes a move, a choice, or nothing. Each result is a row that chooses itself on click and wears the active class when the highlight is on it.
+
+=>
+
+export type ViewInputs = { commands: ReadonlyArray<Command> }
+
+const rowView =
+  (highlighted: number) =>
+  (command: Command, index: number) =>
+    h.li(
+      [
+        h.Class(
+          index === highlighted ? 'loom-cmd-item is-active' : 'loom-cmd-item',
+        ),
+        h.OnClick(Chose({ id: command.id })),
+      ],
+      [command.label],
+    )
+
+export const view = defineView<Model, Message, ViewInputs>((model, inputs) => {
+  const results = Array.filter(inputs.commands, matches(model.query))
+  return h.div(
+    [h.Class('loom-cmd')],
+    [
+      h.input([
+        h.Class('loom-cmd-input'),
+        h.Value(model.query),
+        h.Placeholder('Type a command…'),
+        h.OnInput((query) => Typed({ query })),
+        h.OnKeyDown((key) => keyMessage(key, results, model.highlighted)),
+      ]),
+      h.ul(
+        [h.Class('loom-cmd-list')],
+        Array.map(results, rowView(model.highlighted)),
+      ),
+    ],
+  )
+})
+
+## Its styles {Tangle}[commandPalette.css]
+
+The palette is a floating panel: an input across the top, a list beneath it, and the highlighted row in the accent tint.
+
+=>
+
+.loom-cmd {
+  width: min(540px, 90vw);
+  background: var(--bg-page);
+  border: 1px solid var(--border-hair);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+}
+.loom-cmd-input {
+  width: 100%;
+  padding: var(--space-4) var(--space-5);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border-hair);
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  color: var(--fg-primary);
+}
+.loom-cmd-input:focus { outline: none; }
+.loom-cmd-input::placeholder { color: var(--fg-tertiary); }
+.loom-cmd-list {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-2);
+  max-height: 320px;
+  overflow-y: auto;
+}
+.loom-cmd-item {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--fg-secondary);
+  cursor: pointer;
+}
+.loom-cmd-item.is-active { background: var(--accent-soft); color: var(--fg-primary); }
+
+## The module {Tangle}[commandPalette.ts]
+
+=>
+
+::[What the palette knows]
+
+::[Its messages]
+
+::[What it tells the parent]
+
+::[The update]
+
+::[Filtering and keys]
+
+::[The view]

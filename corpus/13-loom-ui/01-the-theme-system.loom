@@ -1,0 +1,254 @@
+---
+Part XIII: Loom UI
+Chapter 1: The theme system
+Package: packages/loom-ui/src/
+Language: CSS
+---
+
+# The theme system
+
+Loom UI is a library of reusable pieces for a Foldkit application: a theme system, a set of presentational and interactive components, and stateful components built as submodels. Any application composes it — the design catalog that showcases it, the demos beside it, the reading website. The library is the source; an application is only a consumer.
+
+The theme system is the ground the components stand on. It is a vocabulary of design tokens and two themes that give the tokens values. A token is a named value — a colour, a step of space, a radius, a size of type — that a component reads instead of a raw number. A button asks for `var(--accent)` and `var(--space-3)`, never `#3E7DBF` or `12px`, so the same button belongs on a warm-paper page and a deep-slate one without a line of it changing.
+
+A theme is a class on the application root — the class `themeClass` names for a mode. Light mode is `loom-theme-light`, dark mode `loom-theme-dark`, and every component downstream reads the tokens rather than the colours behind them. Switching mode swaps one class, and nothing else moves.
+
+## The type and the measures
+
+The type is literate before it is anything else. Prose is set in a serif, IBM Plex Serif, because long reading wants serifs. A control around it — a button's label, a field's placeholder, a badge — is set in the sans, IBM Plex Sans, so a control reads as a control. Code is IBM Plex Mono.
+
+The type scale is one ramp of sizes, from the fine print of a keycap to a specimen's heading, and a component steps through it by name. The measures cap a column of prose near seventy characters.
+
+=>
+
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+.loom-app {
+  --font-serif: "IBM Plex Serif", "Noto Serif", Georgia, serif;
+  --font-sans:  "IBM Plex Sans", "Noto Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono:  "IBM Plex Mono", "Noto Sans Mono", ui-monospace, Menlo, monospace;
+
+  --text-xs:   0.6875rem;
+  --text-sm:   0.8125rem;
+  --text-base: 0.9375rem;
+  --text-md:   1.0625rem;
+  --text-lg:   1.25rem;
+  --text-xl:   1.55rem;
+  --text-2xl:  2.25rem;
+
+  --measure: 70ch;
+  --measure-wide: 82ch;
+
+  background: var(--bg-page);
+  color: var(--fg-primary);
+  font-family: var(--font-sans);
+  font-feature-settings: "kern", "liga";
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100%;
+}
+
+.loom-app ::selection { background: var(--selection); }
+.loom-app * { box-sizing: border-box; }
+.loom-app a { color: inherit; text-decoration: none; }
+
+## The space, the radii, and the shadows
+
+A component measures itself in steps of space, not free pixels. The spacing scale is a short geometric ramp, so a padding and a gap that read as the same size are the same token. The radii round a control, a card, and a modal by three settled amounts. The two shadows lift a floating surface — a menu, a dialog — off the page.
+
+=>
+
+.loom-app {
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-pill: 999px;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.12);
+  --shadow-2: 0 24px 60px -24px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.18);
+}
+
+## Two themes as values
+
+Each theme sets the whole vocabulary of colour, so no component reaches outside its theme for a value. Light mode is Gruvbox Light Soft — a warm sand page, dark-brown text, a terracotta accent. Dark mode is the deep editor slate, with a calm blue accent that carries every active mark.
+
+The colours divide into four groups a component draws on. The backgrounds layer the page, a surface, and a code block. The foregrounds ramp from primary text to the faintest label. The borders draw a hairline, a soft fill, and a strong edge. The accent, and its soft and ring tints, mark what is active, selected, or focused.
+
+=>
+
+.loom-theme-light {
+  --bg-page:       #F2E5BC;
+  --bg-surface:    #EBDBB2;
+  --bg-code:       #ECDFB3;
+  --bg-inline:     rgba(60, 56, 54, 0.06);
+  --fg-primary:    #3C3836;
+  --fg-secondary:  #504945;
+  --fg-tertiary:   #7C6F64;
+  --border-hair:   rgba(60, 56, 54, 0.12);
+  --border-soft:   rgba(60, 56, 54, 0.07);
+  --border-strong: rgba(60, 56, 54, 0.20);
+  --accent:        #B8553A;
+  --accent-soft:   rgba(184, 85, 58, 0.12);
+  --accent-ring:   rgba(184, 85, 58, 0.32);
+  --accent-fg:     #FFFFFF;
+  --success:       #79740E;
+  --warning:       #B57614;
+  --danger:        #9D0006;
+  --selection:     rgba(184, 85, 58, 0.20);
+}
+
+.loom-theme-dark {
+  --bg-page:       #0F1014;
+  --bg-surface:    #15171D;
+  --bg-code:       #1B1E26;
+  --bg-inline:     rgba(255, 255, 255, 0.06);
+  --fg-primary:    #E6E6EA;
+  --fg-secondary:  #B6B8C2;
+  --fg-tertiary:   #7A7E8C;
+  --border-hair:   rgba(255, 255, 255, 0.07);
+  --border-soft:   rgba(255, 255, 255, 0.04);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --accent:        #3E7DBF;
+  --accent-soft:   rgba(62, 125, 191, 0.16);
+  --accent-ring:   rgba(62, 125, 191, 0.45);
+  --accent-fg:     #F5F8FC;
+  --success:       #81B48C;
+  --warning:       #DEC184;
+  --danger:        #E48A9A;
+  --selection:     rgba(62, 125, 191, 0.32);
+}
+
+## The syntax palette
+
+Highlighted code needs more colours than a control does. A keyword, a type, a string, and a comment each want their own hue, and the four signal colours are not enough. So each theme sets a syntax palette beside its other colours — one value per token kind the code surface paints — and the surface reads these tokens rather than naming a colour. Light mode draws the palette from Gruvbox, and dark mode from the cool accents the old catalog wore.
+
+=>
+
+.loom-theme-light {
+  --syntax-keyword:     #8F3F71;
+  --syntax-type:        #076678;
+  --syntax-string:      #79740E;
+  --syntax-number:      #B57614;
+  --syntax-comment:     #928374;
+  --syntax-punctuation: #7C6F64;
+  --syntax-function:    #B57614;
+  --syntax-operator:    #79740E;
+  --syntax-anchor:      #AF3A03;
+  --syntax-prose:       #504945;
+  --syntax-heading:     #3C3836;
+}
+
+.loom-theme-dark {
+  --syntax-keyword:     #B59BF1;
+  --syntax-type:        #6CC7E0;
+  --syntax-string:      #8FE0B6;
+  --syntax-number:      #E8B86C;
+  --syntax-comment:     #4D5260;
+  --syntax-punctuation: #7A7E8C;
+  --syntax-function:    #E8B86C;
+  --syntax-operator:    #8FE0B6;
+  --syntax-anchor:      #E8B86C;
+  --syntax-prose:       #B6B8C2;
+  --syntax-heading:     #E6E6EA;
+}
+
+## The switch, styled
+
+The theme switch is a pill with a knob that slides and recolours as the mode flips — dark on the left, the accent on the right. It reads the tokens like everything else, so it turns with the mode it toggles.
+
+=>
+
+.loom-theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 4px;
+  border: 1px solid var(--border-hair);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  cursor: pointer;
+  transition: border-color 120ms ease;
+}
+.loom-theme-toggle:hover { border-color: var(--border-strong); }
+.loom-theme-knob {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--fg-primary);
+  position: relative;
+  overflow: hidden;
+  transition: background-color 180ms ease;
+}
+.loom-theme-knob.is-dark { background: var(--accent); }
+.loom-theme-knob::after {
+  content: "";
+  position: absolute;
+  inset: 2px 2px 2px 8px;
+  border-radius: 50%;
+  background: var(--bg-page);
+  transition: inset 180ms ease;
+}
+.loom-theme-knob.is-dark::after { inset: 2px 8px 2px 2px; }
+
+## The stylesheet {Tangle}[theme.css]
+
+The stylesheet is the type and its measures, the scales of space and shape, the two themes, the syntax palette each theme carries, and the switch that flips between them.
+
+=>
+
+::[The type and the measures]
+
+::[The space, the radii, and the shadows]
+
+::[Two themes as values]
+
+::[The syntax palette]
+
+::[The switch, styled]
+
+## The theme, in code {Tangle}[theme.ts]
+
+A theme has two modes, so `Theme` is the pair `'light'` and `'dark'`. `themeClass` names the class an application root wears for a mode, and `nextTheme` flips one mode to the other — the whole of what a toggle message needs to compute.
+
+The switch itself is `themeToggle`, an interactive component of the kind the interactive-components chapter builds. It takes the current mode and the message to send when pressed, and draws the knob in the mode's position. It is generic over the host's message type, `M`, so any application's toggle message flows through it.
+
+=>
+
+import { html, type Html } from 'foldkit/html'
+
+export type Theme = 'light' | 'dark'
+
+export const themeClass = (theme: Theme): string => `loom-theme-${theme}`
+
+export const nextTheme = (theme: Theme): Theme =>
+  theme === 'light' ? 'dark' : 'light'
+
+export const themeToggle = <M>(props: { theme: Theme; onToggle: M }): Html => {
+  const h = html<M>()
+  return h.button(
+    [
+      h.Class('loom-theme-toggle'),
+      h.AriaLabel('Toggle theme'),
+      h.OnClick(props.onToggle),
+    ],
+    [
+      h.span(
+        [
+          h.Class(
+            props.theme === 'dark'
+              ? 'loom-theme-knob is-dark'
+              : 'loom-theme-knob',
+          ),
+        ],
+        [],
+      ),
+    ],
+  )
+}

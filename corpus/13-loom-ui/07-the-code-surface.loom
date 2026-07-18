@@ -1,0 +1,105 @@
+---
+Part XIII, Chapter 7: The code surface
+Package: packages/loom-ui/src/
+Language: TypeScript
+---
+
+# The code surface
+
+Loom is a tool for writing code, so its surfaces are full of it — a specimen in the catalog, a fenced block in the reading website, a snippet in the devtools. They all show the same thing: source, highlighted, in a bordered block. The code surface is that block, and this chapter builds it.
+
+The surface holds no state and sends no message, so it is presentational. What makes it more than a pre-formatted string is the highlighting. The surface does not tokenise the code itself — that is the language service's work, and it differs by language — so the caller hands it code already cut into tokens, and the surface only paints each token its colour.
+
+## A token and its kind
+
+A token is a run of text with a kind — a keyword, a type name, a string, a comment. The kind is a closed set, the palette the theme gives a colour to, so a token names one of them and nothing else. A line of code is a sequence of tokens, and a block is a sequence of lines.
+
+=>
+
+import { Array } from 'effect'
+import { html, type Html } from 'foldkit/html'
+
+export type TokenKind =
+  | 'keyword'
+  | 'type'
+  | 'string'
+  | 'number'
+  | 'comment'
+  | 'punctuation'
+  | 'function'
+  | 'operator'
+  | 'anchor'
+  | 'prose'
+  | 'heading'
+  | 'plain'
+
+export type Token = { text: string; kind: TokenKind }
+export type Line = ReadonlyArray<Token>
+
+## Painting a token
+
+A token becomes one span that wears its kind as a class, and the stylesheet resolves the class to a colour. The plain kind takes a class too, so a run of ordinary code keeps the block's own colour without a special case.
+
+=>
+
+const h = html()
+
+const tokenView = (token: Token): Html =>
+  h.span([h.Class(`loom-tok-${token.kind}`)], [token.text])
+
+## The block
+
+The block is a `pre` that keeps each line on its own row. A line is a row of painted tokens; the row holds the whitespace, so the code keeps its indentation without a newline character between the tokens. The block stacks the lines in the order it was given.
+
+=>
+
+const lineView = (line: Line): Html =>
+  h.div([h.Class('loom-code-line')], Array.map(line, tokenView))
+
+export const codeBlock = (props: { lines: ReadonlyArray<Line> }): Html =>
+  h.pre([h.Class('loom-code')], Array.map(props.lines, lineView))
+
+## Its styles {Tangle}[code.css]
+
+The block is a bordered panel in the code background, set in the mono face. Each line preserves its whitespace so the indentation survives. Each kind reads its own colour from the theme's syntax palette — the group of tokens the theme system gives one value per mode — so the highlighting turns from warm-paper to deep-slate with everything else.
+
+=>
+
+.loom-code {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-code);
+  border: 1px solid var(--border-hair);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--fg-primary);
+  overflow-x: auto;
+}
+.loom-code-line { white-space: pre; }
+
+.loom-tok-plain { color: var(--fg-primary); }
+.loom-tok-keyword { color: var(--syntax-keyword); }
+.loom-tok-type { color: var(--syntax-type); }
+.loom-tok-string { color: var(--syntax-string); }
+.loom-tok-number { color: var(--syntax-number); }
+.loom-tok-comment { color: var(--syntax-comment); font-style: italic; }
+.loom-tok-punctuation { color: var(--syntax-punctuation); }
+.loom-tok-function { color: var(--syntax-function); }
+.loom-tok-operator { color: var(--syntax-operator); }
+.loom-tok-anchor { color: var(--syntax-anchor); }
+.loom-tok-prose { color: var(--syntax-prose); }
+.loom-tok-heading { color: var(--syntax-heading); font-weight: 500; }
+
+## The module {Tangle}[code.ts]
+
+The module is the token model, the function that paints one token, and the block that stacks the painted lines.
+
+=>
+
+::[A token and its kind]
+
+::[Painting a token]
+
+::[The block]

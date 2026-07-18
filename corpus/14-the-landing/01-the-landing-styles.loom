@@ -1,0 +1,770 @@
+---
+Part XIV: The landing
+Chapter 1: The landing styles
+Package: design/src/
+Language: CSS
+---
+
+# The landing styles
+
+The landing dresses itself as a code editor. Its palette is a deep editor slate with a handful of syntax accents, its type pairs a serif display face with a monospace body, and a faint vertical grid runs behind everything like a gutter. This chapter is that stylesheet — the tokens, the base, and the look of each region the later chapters build. Every value is a token, so the whole page turns on the variables at the top.
+
+## The tokens and the base
+
+The tokens name the palette and the faces. The backgrounds layer the page from the darkest surface up. The foregrounds ramp from bright text to the faintest label. The accents are the syntax colours — a cyan, a mint, a violet, an amber, a rose — and the mint is the primary, the colour a selection and a live mark wear. The base sets the page in the mono face on the slate, draws the faint editor grid behind the content, and lifts the real content above it.
+
+=>
+
+:root {
+  --bg:        #0F1014;
+  --bg-2:      #15171D;
+  --bg-3:      #1B1E26;
+  --bg-4:      #232732;
+  --rule:      #FFFFFF12;
+  --rule-2:    #FFFFFF1F;
+  --fg:        #E6E6EA;
+  --fg-2:      #B6B8C2;
+  --fg-3:      #7A7E8C;
+  --fg-4:      #4D5260;
+
+  --acc-cyan:   #6CC7E0;
+  --acc-mint:   #8FE0B6;
+  --acc-violet: #B59BF1;
+  --acc-amber:  #E8B86C;
+  --acc-rose:   #E48A9A;
+  --acc-grey:   #8A92A6;
+
+  --primary:   var(--acc-mint);
+
+  --display: 'Newsreader', Georgia, serif;
+  --sans:    'Inter', system-ui, -apple-system, sans-serif;
+  --mono:    'JetBrains Mono', ui-monospace, Menlo, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; text-decoration: none; }
+::selection { background: color-mix(in srgb, var(--primary) 35%, transparent); color: var(--fg); }
+
+body::before {
+  content: "";
+  position: fixed; inset: 0;
+  pointer-events: none; z-index: 0;
+  background-image:
+    linear-gradient(to right, #FFFFFF05 1px, transparent 1px);
+  background-size: 64px 100%;
+}
+main, header, footer { position: relative; z-index: 1; }
+
+.wrap { max-width: 1280px; margin: 0 auto; padding: 0 32px; }
+
+## The window chrome
+
+The page wears a window's chrome. A title bar runs across the top with three traffic lights, a breadcrumb trail, a navigation, and a live dot; a tab bar sits below it with a file tab for each open loom; a status bar rides the bottom edge. All three are sticky, so the chrome stays while the content scrolls.
+
+=>
+
+.titlebar {
+  height: 36px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--bg-2);
+  display: flex; align-items: center;
+  padding: 0 14px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--fg-3);
+  position: sticky; top: 0; z-index: 60;
+}
+.traffic { display: flex; gap: 6px; margin-right: 14px; }
+.traffic span {
+  width: 11px; height: 11px; border-radius: 50%;
+  background: #3A3D47;
+}
+.traffic span:nth-child(1) { background: #E48A9A; }
+.traffic span:nth-child(2) { background: #E8B86C; }
+.traffic span:nth-child(3) { background: #8FE0B6; }
+.titlebar .crumbs { display: flex; align-items: center; gap: 8px; }
+.titlebar .crumbs .sep { color: var(--fg-4); }
+.titlebar .crumbs .file { color: var(--fg); }
+.titlebar .right {
+  margin-left: auto; display: flex; gap: 18px; align-items: center;
+  color: var(--fg-3);
+}
+.topnav { display: flex; gap: 16px; }
+.topnav a { color: var(--fg-3); transition: color .15s ease; }
+.topnav a:hover { color: var(--fg-2); }
+.topnav a.here { color: var(--acc-mint); }
+.titlebar .right kbd {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--fg-3);
+  border: 1px solid var(--rule-2);
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-3);
+}
+.live-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--acc-mint);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--acc-mint) 60%, transparent);
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--acc-mint) 50%, transparent); }
+  50%      { box-shadow: 0 0 0 6px transparent; }
+}
+
+.tabbar {
+  display: flex; align-items: stretch;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--rule);
+  height: 34px;
+  font-family: var(--mono); font-size: 12px;
+  position: sticky; top: 36px; z-index: 55;
+}
+.tab {
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 14px;
+  color: var(--fg-3);
+  border-right: 1px solid var(--rule);
+  cursor: pointer;
+  position: relative;
+  transition: color .15s ease, background .15s ease;
+}
+.tab.active {
+  color: var(--fg);
+  background: var(--bg);
+}
+.tab.active::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -1px;
+  height: 1px; background: var(--bg);
+}
+.tab:hover:not(.active) { color: var(--fg-2); background: var(--bg-3); }
+.tab .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--acc-cyan);
+}
+.tab:nth-child(2) .dot { background: var(--acc-violet); }
+.tab:nth-child(3) .dot { background: var(--acc-amber); }
+.tab:nth-child(4) .dot { background: var(--acc-mint); }
+
+## The hero and its rotating headline
+
+The hero is the first screen: a two-column grid with the headline and its call to action on the left, and a live editor panel on the right. The headline is set large in the display serif, and one word of it rotates — swapping on a blur-and-slide transition — with a blinking caret after it. The lede beneath carries two inline code tokens in the syntax colours.
+
+=>
+
+.hero {
+  padding: 96px 0 64px;
+  border-bottom: 1px solid var(--rule);
+}
+.hero-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 80px;
+}
+@media (max-width: 980px) { .hero-grid { grid-template-columns: 1fr; gap: 56px; } }
+
+.gutter-row {
+  display: flex; align-items: baseline; gap: 18px;
+  color: var(--fg-4);
+  font-family: var(--mono); font-size: 12px;
+  margin-bottom: 6px;
+}
+.gutter { color: var(--fg-4); width: 22px; text-align: right; user-select: none; flex-shrink: 0; }
+
+.meta-row {
+  display: flex; align-items: center; gap: 14px;
+  color: var(--fg-3);
+  font-family: var(--mono); font-size: 11px;
+  margin-bottom: 36px;
+  letter-spacing: 0.04em;
+}
+.meta-row .pill {
+  border: 1px solid var(--rule-2);
+  border-radius: 4px;
+  padding: 3px 8px;
+  color: var(--fg-2);
+}
+.meta-row .pill .gh { color: var(--acc-mint); }
+
+h1.loom-h {
+  font-family: var(--display);
+  font-weight: 300;
+  font-size: clamp(36px, 4.6vw, 65px);
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+  margin: 0;
+  color: var(--fg);
+  text-wrap: balance;
+}
+h1.loom-h .hl-1 { color: var(--fg); }
+h1.loom-h .hl-2 { color: var(--acc-mint); }
+h1.loom-h .hl-3 { color: var(--acc-violet); }
+.rotator-host {
+  display: inline-block;
+  position: relative;
+}
+.rotator-word {
+  display: inline-block;
+  transition: opacity .35s ease, transform .35s ease, filter .35s ease;
+}
+.rotator-word.out { opacity: 0; transform: translateY(-0.18em); filter: blur(3px); }
+.rotator-word.in-start { opacity: 0; transform: translateY(0.18em); filter: blur(3px); }
+.caret {
+  display: inline-block;
+  width: 0.5ch; height: 1em;
+  background: var(--acc-mint);
+  margin-left: 0.2em;
+  vertical-align: -0.2em;
+  animation: blink 1.05s steps(2) infinite;
+}
+@keyframes blink { 0%,50% { opacity: 1; } 50.01%,100% { opacity: 0; } }
+
+.lede {
+  margin: 36px 0 0;
+  color: var(--fg-2);
+  font-family: var(--sans);
+  font-size: 17px;
+  line-height: 1.55;
+  max-width: 56ch;
+  text-wrap: pretty;
+  font-weight: 400;
+}
+.lede .tok-key  { color: var(--acc-cyan);   font-family: var(--mono); font-size: 0.92em; }
+.lede .tok-str  { color: var(--acc-mint);   font-family: var(--mono); font-size: 0.92em; }
+
+## The call to action
+
+Below the lede sit the actions: an install command line with a copy button, and a row of buttons — read the book, browse the source, search. A button is a quiet slate pill; the primary one wears the mint. The copy button flashes mint when it copies.
+
+=>
+
+.actions {
+  margin-top: 40px;
+  display: flex; gap: 12px; flex-wrap: wrap; align-items: center;
+}
+.btn {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 11px 16px;
+  background: var(--bg-3);
+  border: 1px solid var(--rule-2);
+  color: var(--fg);
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, transform .15s ease;
+}
+.btn:hover { background: var(--bg-4); border-color: var(--fg-4); }
+.btn.primary {
+  background: var(--acc-mint);
+  color: var(--bg);
+  border-color: var(--acc-mint);
+  font-weight: 500;
+}
+.btn.primary:hover { background: color-mix(in srgb, var(--acc-mint) 90%, white); }
+.btn .arrow { transition: transform .2s ease; }
+.btn:hover .arrow { transform: translateX(2px); }
+.keys {
+  color: var(--fg-3);
+  font-family: var(--mono); font-size: 12px;
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-left: 6px;
+}
+.keys kbd {
+  border: 1px solid var(--rule-2);
+  background: var(--bg-3);
+  color: var(--fg-2);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-family: var(--mono); font-size: 11px;
+}
+
+.cmd-line {
+  display: inline-flex; align-items: center; gap: 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--rule-2);
+  border-radius: 6px;
+  padding: 10px 10px 10px 15px;
+  font-family: var(--mono); font-size: 13.5px;
+  color: var(--fg);
+  max-width: 100%;
+}
+.cmd-line .prompt { color: var(--acc-mint); }
+.cmd-line code { color: var(--fg); white-space: nowrap; }
+.copy-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-left: 6px;
+  background: var(--bg-3); color: var(--fg-2);
+  border: 1px solid var(--rule-2); border-radius: 4px;
+  padding: 6px 9px; font-family: var(--mono); font-size: 11px;
+  cursor: pointer; transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+.copy-btn:hover { color: var(--fg); border-color: var(--fg-4); background: var(--bg-4); }
+.copy-btn.copied { color: var(--acc-mint); border-color: color-mix(in srgb, var(--acc-mint) 60%, transparent); }
+.copy-btn svg { flex-shrink: 0; }
+
+## The editor panel
+
+The right of the hero is a live editor panel — a real loom document, syntax-highlighted, with a gutter of line numbers and a typing line at the bottom that types loom syntax on a loop. The syntax classes colour each kind of token: a violet keyword, a cyan type, a mint string and operator, an amber number and anchor, a faint comment.
+
+=>
+
+.panel {
+  background: var(--bg-2);
+  border: 1px solid var(--rule-2);
+  border-radius: 8px;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+.panel-head {
+  display: flex; align-items: center; gap: 10px;
+  height: 30px; padding: 0 12px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--bg-3);
+  color: var(--fg-3);
+  font-size: 11px;
+}
+.panel-head .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--acc-mint); }
+.panel-head .right {
+  margin-left: auto; display: flex; align-items: center; gap: 12px;
+  color: var(--fg-4);
+}
+.editor {
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  color: var(--fg);
+}
+.gutter-col {
+  padding: 14px 8px 14px 0;
+  text-align: right;
+  color: var(--fg-4);
+  border-right: 1px solid var(--rule);
+  background: var(--bg-2);
+  user-select: none;
+  line-height: 1.6;
+  white-space: pre;
+}
+.code {
+  padding: 14px 16px;
+  line-height: 1.6;
+  white-space: pre;
+  overflow-x: auto;
+}
+.code .k    { color: var(--acc-violet); }
+.code .ty   { color: var(--acc-cyan); }
+.code .id   { color: var(--fg); }
+.code .str  { color: var(--acc-mint); }
+.code .num  { color: var(--acc-amber); }
+.code .com  { color: var(--fg-4); font-style: italic; }
+.code .pun  { color: var(--fg-3); }
+.code .fn   { color: var(--acc-amber); }
+.code .pr   { color: var(--fg-2); }
+.code .hd   { color: var(--fg); font-weight: 500; }
+.code .op   { color: var(--acc-mint); }
+.code .an   { color: var(--acc-amber); }
+.code .glow { color: var(--acc-mint); position: relative; }
+.code .typing::after {
+  content: ""; display: inline-block;
+  width: 0.5ch; height: 1em; background: var(--fg);
+  vertical-align: -0.15em; margin-left: 1px;
+  animation: blink 1.05s steps(2) infinite;
+}
+
+## The sections and the manifesto
+
+The body divides into numbered sections, each with a small eyebrow number and a display heading. The manifesto is the first: a pull quote in the display serif with the accent on its emphases, and a citation beneath.
+
+=>
+
+section.s {
+  padding: 88px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.sec-head {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 56px;
+  margin-bottom: 56px;
+}
+@media (max-width: 980px) { .sec-head { grid-template-columns: 1fr; gap: 16px; } }
+.sec-num {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--fg-3);
+  text-transform: uppercase;
+}
+.sec-num .arrow { color: var(--acc-mint); margin-right: 6px; }
+.sec-h {
+  font-family: var(--display);
+  font-weight: 300;
+  font-size: clamp(30px, 4vw, 48px);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  margin: 0 0 18px;
+  color: var(--fg);
+  max-width: 22ch;
+  text-wrap: balance;
+}
+.sec-lede {
+  font-family: var(--sans);
+  color: var(--fg-2);
+  font-size: 16px;
+  line-height: 1.6;
+  max-width: 60ch;
+  text-wrap: pretty;
+}
+
+.manifesto {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 56px;
+}
+@media (max-width: 980px) { .manifesto { grid-template-columns: 1fr; gap: 16px; } }
+.manifesto-text p {
+  font-family: var(--display);
+  font-weight: 300;
+  font-size: clamp(20px, 2vw, 26px);
+  line-height: 1.5;
+  color: var(--fg);
+  margin: 0;
+  max-width: 38ch;
+  text-wrap: pretty;
+}
+.manifesto-text p + p { margin-top: 22px; }
+.manifesto-text em { color: var(--acc-mint); font-style: italic; }
+.manifesto-text .quote-mark {
+  color: var(--fg-4);
+  font-family: var(--display);
+  font-size: 64px;
+  line-height: 1;
+  margin-bottom: 8px;
+  display: block;
+}
+.manifesto-text .cite {
+  display: block;
+  margin-top: 26px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--fg-3);
+  letter-spacing: 0.02em;
+}
+
+## How it works — the file tree and steps
+
+The how-it-works section pairs a file tree with a detail panel: click a loom in the tree and the panel shows that step of the pipeline — write, compose, tangle, read — with a code preview. A directory row wears a rotated cyan bullet; the active file a mint one.
+
+=>
+
+.how-grid {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 32px;
+}
+@media (max-width: 980px) { .how-grid { grid-template-columns: 1fr; } }
+
+.file-tree {
+  background: var(--bg-2);
+  border: 1px solid var(--rule-2);
+  border-radius: 8px;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+.file-tree .panel-head { background: var(--bg-3); }
+.tree-list {
+  padding: 10px 6px;
+  color: var(--fg-2);
+}
+.tree-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background .12s ease, color .12s ease;
+}
+.tree-row:hover { background: var(--bg-3); color: var(--fg); }
+.tree-row.active {
+  background: color-mix(in srgb, var(--acc-mint) 18%, transparent);
+  color: var(--fg);
+}
+.tree-row.active .tree-bullet { background: var(--acc-mint); }
+.tree-bullet {
+  width: 6px; height: 6px; border-radius: 1px;
+  background: var(--fg-4);
+  flex-shrink: 0;
+}
+.tree-row.dir .tree-bullet { background: var(--acc-cyan); transform: rotate(45deg); }
+.tree-row.dir { color: var(--fg); }
+.tree-meta { margin-left: auto; color: var(--fg-4); font-size: 11px; }
+.tree-indent { padding-left: 24px; }
+
+.how-detail {
+  background: var(--bg-2);
+  border: 1px solid var(--rule-2);
+  border-radius: 8px;
+  overflow: hidden;
+  min-height: 380px;
+}
+.how-body {
+  padding: 28px 32px;
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 32px;
+  align-items: start;
+}
+@media (max-width: 880px) { .how-body { grid-template-columns: 1fr; } }
+.how-step-num {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--fg-3);
+  letter-spacing: 0.12em;
+  margin-bottom: 14px;
+}
+.how-step-h {
+  font-family: var(--display);
+  font-weight: 300;
+  font-size: 32px;
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+  margin: 0 0 14px;
+  text-wrap: balance;
+}
+.how-step-p {
+  font-family: var(--sans);
+  color: var(--fg-2);
+  font-size: 15px;
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+.how-snippet {
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 16px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--fg-2);
+  white-space: pre;
+  overflow-x: auto;
+}
+
+## The command palette
+
+Beneath the steps sits a command palette that searches the book — type and the list filters, the arrows move the focus, and each result names its kind. The focused row wears the mint tint.
+
+=>
+
+.cmd-wrap {
+  margin-top: 56px;
+  background: var(--bg-2);
+  border: 1px solid var(--rule-2);
+  border-radius: 8px;
+  overflow: hidden;
+  max-width: 720px;
+  margin-left: auto;
+  margin-right: auto;
+  box-shadow: 0 30px 80px -30px #000000B0;
+}
+.cmd-input-wrap {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--rule);
+  font-family: var(--mono);
+}
+.cmd-input-wrap .prompt { color: var(--acc-mint); }
+.cmd-input {
+  flex: 1; background: transparent; border: none; outline: none;
+  color: var(--fg); font-family: var(--mono); font-size: 14px;
+}
+.cmd-input::placeholder { color: var(--fg-4); }
+.cmd-list {
+  max-height: 260px; overflow-y: auto;
+  padding: 6px 0;
+}
+.cmd-item {
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 9px 18px;
+  cursor: pointer;
+  color: var(--fg-2);
+  font-family: var(--mono); font-size: 13px;
+  transition: background .1s ease;
+}
+.cmd-item:hover, .cmd-item.focused {
+  background: color-mix(in srgb, var(--acc-mint) 14%, transparent);
+  color: var(--fg);
+}
+.cmd-glyph { color: var(--fg-4); }
+.cmd-item.focused .cmd-glyph { color: var(--acc-mint); }
+.cmd-kind {
+  color: var(--fg-4); font-size: 11px;
+  border: 1px solid var(--rule-2);
+  padding: 1px 6px; border-radius: 4px;
+}
+.cmd-hi { color: var(--acc-mint); }
+.cmd-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 18px;
+  border-top: 1px solid var(--rule);
+  color: var(--fg-4);
+  font-family: var(--mono); font-size: 11px;
+}
+.cmd-foot kbd {
+  font-family: var(--mono); font-size: 10px;
+  border: 1px solid var(--rule-2);
+  padding: 1px 5px; border-radius: 3px;
+  background: var(--bg-3);
+  color: var(--fg-3);
+}
+
+## Get started — the config and the quick start
+
+The get-started section pairs a workspace config file with a quick-start terminal — three commands to a first tangle, each with a copy button, and a result line beneath. The config colours its keys cyan and its values mint.
+
+=>
+
+.signup {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 48px;
+  align-items: start;
+}
+@media (max-width: 980px) { .signup { grid-template-columns: 1fr; gap: 32px; } }
+
+.config {
+  background: var(--bg-2);
+  border: 1px solid var(--rule-2);
+  border-radius: 8px;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.config .panel-head .dot { background: var(--acc-amber); }
+.config-body { padding: 18px 20px; line-height: 1.7; color: var(--fg-2); white-space: pre; overflow-x: auto; }
+.config-body .k    { color: var(--acc-cyan); }
+.config-body .v    { color: var(--acc-mint); }
+.config-body .num  { color: var(--acc-amber); }
+.config-body .com  { color: var(--fg-4); font-style: italic; }
+.config-body .pun  { color: var(--fg-3); }
+
+.form-label {
+  font-family: var(--mono); font-size: 11px;
+  color: var(--fg-3); letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.quickstart {
+  margin-top: 12px;
+  background: var(--bg);
+  border: 1px solid var(--rule-2);
+  border-radius: 8px;
+  padding: 8px 6px;
+  font-family: var(--mono); font-size: 13.5px;
+}
+.qs-line {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 12px;
+  border-radius: 5px;
+  transition: background .12s ease;
+}
+.qs-line:hover { background: var(--bg-2); }
+.qs-line .qs-prompt { color: var(--acc-mint); flex-shrink: 0; }
+.qs-line code { color: var(--fg); flex: 1; white-space: nowrap; overflow-x: auto; }
+.qs-line .copy-btn { margin-left: 0; }
+.qs-out {
+  padding: 10px 12px 6px;
+  color: var(--fg-3); font-size: 12.5px;
+  border-top: 1px solid var(--rule); margin-top: 4px;
+}
+.qs-out .ok { color: var(--acc-mint); }
+.qs-out .path { color: var(--acc-cyan); }
+
+## The footer
+
+The footer is a grid of link columns under the brand and its tagline.
+
+=>
+
+footer.foot {
+  padding: 64px 0 40px;
+  border-top: 1px solid var(--rule);
+}
+.foot-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr;
+  gap: 40px;
+  margin-bottom: 40px;
+}
+@media (max-width: 880px) { .foot-grid { grid-template-columns: 1fr 1fr; } }
+.foot-col h4 {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--fg-3);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin: 0 0 14px;
+  font-weight: 500;
+}
+.foot-col ul { list-style: none; padding: 0; margin: 0; }
+.foot-col li { margin-bottom: 8px; font-family: var(--mono); font-size: 13px; }
+.foot-col a { color: var(--fg-2); transition: color .15s ease; }
+.foot-col a:hover { color: var(--acc-mint); }
+.foot-mark .tag {
+  font-family: var(--display);
+  font-style: italic;
+  font-weight: 300;
+  font-size: 18px;
+  color: var(--fg-2);
+  line-height: 1.5;
+  max-width: 40ch;
+  margin-top: 16px;
+}
+.brand {
+  display: inline-flex; align-items: baseline; gap: 8px;
+  font-family: var(--mono);
+  font-size: 16px; font-weight: 500;
+  color: var(--fg);
+}
+.brand .b-mark {
+  color: var(--acc-mint);
+}
+
+## The stylesheet {Tangle}[landing.css]
+
+The stylesheet is the tokens and base, then each region top to bottom: the window chrome, the hero and its call to action, the editor panel, the sections and manifesto, how-it-works and the palette, get-started, and the footer.
+
+=>
+
+::[The tokens and the base]
+
+::[The window chrome]
+
+::[The hero and its rotating headline]
+
+::[The call to action]
+
+::[The editor panel]
+
+::[The sections and the manifesto]
+
+::[How it works — the file tree and steps]
+
+::[The command palette]
+
+::[Get started — the config and the quick start]
+
+::[The footer]

@@ -1,0 +1,80 @@
+.loom-titlebar {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-4);
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-hair);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-tertiary);
+  position: sticky;
+  top: 0;
+  z-index: 60;
+}
+.loom-titlebar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.loom-traffic { display: flex; gap: var(--space-1); }
+.loom-traffic-dot { width: 11px; height: 11px; border-radius: var(--radius-pill); }
+.loom-traffic-close { background: var(--danger); }
+.loom-traffic-min { background: var(--warning); }
+.loom-traffic-max { background: var(--success); }
+
+.loom-crumbs { display: flex; align-items: center; gap: var(--space-2); }
+.loom-crumb-sep { color: var(--fg-tertiary); }
+.loom-crumb-file { color: var(--fg-primary); }
+
+.loom-live { display: inline-flex; align-items: center; gap: var(--space-2); }
+.loom-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  animation: loom-live-pulse 2s ease-in-out infinite;
+}
+.loom-live-label { font-size: var(--text-xs); color: var(--fg-tertiary); }
+@keyframes loom-live-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--accent-ring); }
+  50% { box-shadow: 0 0 0 6px transparent; }
+}
+
+.loom-topnav { display: flex; gap: var(--space-4); }
+.loom-topnav-link {
+  color: var(--fg-tertiary);
+  transition: color 150ms ease;
+}
+.loom-topnav-link:hover { color: var(--fg-secondary); }
+.loom-topnav-link.is-here { color: var(--accent); }
+
+.loom-tabbar {
+  display: flex;
+  align-items: stretch;
+  height: 34px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-hair);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+.loom-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-4);
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--border-hair);
+  color: var(--fg-tertiary);
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  transition: color 150ms ease, background-color 150ms ease;
+}
+.loom-tab:hover { color: var(--fg-secondary); background: var(--bg-code); }
+.loom-tab.is-active { color: var(--fg-primary); background: var(--bg-page); }
+.loom-tab-dot { width: 6px; height: 6px; border-radius: var(--radius-pill); background: var(--tone); }

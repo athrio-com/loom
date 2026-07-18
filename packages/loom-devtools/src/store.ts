@@ -42,7 +42,7 @@ const migrate = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlErro
     yield* sql`CREATE TABLE IF NOT EXISTS _migrations (
       id INTEGER PRIMARY KEY,
       name TEXT NOT NULL,
-      applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`
     const applied = yield* sql<{ readonly id: number }>`SELECT id FROM _migrations`
     const done = new Set(applied.map((row) => row.id))
@@ -183,6 +183,7 @@ const backfillProjects = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlErro
   sql`
     INSERT INTO projects (id, name)
     SELECT DISTINCT project, project FROM notes
+    WHERE true
     ON CONFLICT (id) DO NOTHING
   `.pipe(Effect.asVoid)
 
@@ -206,3 +207,10 @@ export class NoteStore extends Context.Service<NoteStore>()('NoteStore', {
 }) {
   static readonly layer = Layer.effect(this, this.make).pipe(Layer.provide(PgLive))
 }
+
+import { SqliteClient } from '@effect/sql-sqlite-bun'
+
+export const sqliteStore = (filename: string): Layer.Layer<NoteStore> =>
+  Layer.effect(NoteStore, NoteStore.make).pipe(
+    Layer.provide(SqliteClient.layer({ filename, create: true })),
+  )

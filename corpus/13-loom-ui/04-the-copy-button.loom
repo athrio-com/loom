@@ -1,0 +1,138 @@
+---
+Part XIII, Chapter 4: The copy button
+Package: packages/loom-ui/src/
+Language: TypeScript
+---
+
+# The copy button
+
+The third tier is the stateful component. Where an interactive component reports a click and forgets, a stateful component remembers: it owns a model and an update of its own. In Foldkit that is a submodel — a small application embedded inside a larger one, running the same model-update-view loop at a smaller scale.
+
+The copy button is the smallest of them, and the reason the tier exists. It copies a piece of text and, for a moment, shows that it did — "Copy" becomes "Copied", then falls back. That moment is state: a flag that turns on when pressed and off a second and a half later. A presentational or interactive component cannot hold it; a submodel can.
+
+## A submodel is a small application
+
+A submodel is the same four parts as the application around it. A `Model` holds its state. A `Message` names what can happen to it. An `update` folds a message into the next model and the commands to run. A view draws the model — but a submodel's view is branded with `defineView`, so the parent that embeds it through `h.submodel` knows which message the view dispatches and can lift it into its own.
+
+The parent holds the submodel's model as one field and relays its messages back to it. Everything else — routing a click inside the submodel up to the parent — Foldkit does through the boundary the embed opens. So a submodel is written once and dropped in anywhere, like any other component, and it brings its behaviour with it.
+
+=>
+
+import { Effect, Match, Schema as S } from 'effect'
+import { define, type Command } from 'foldkit/command'
+import { html } from 'foldkit/html'
+import { defineView } from 'foldkit/submodel'
+import { m } from 'foldkit/message'
+
+## Its state
+
+The whole of the copy button's state is whether it is mid-flash. `init` is the resting button, before any press.
+
+=>
+
+export const Model = S.Struct({ copied: S.Boolean })
+export type Model = typeof Model.Type
+
+export const init: Model = { copied: false }
+
+## What can happen
+
+Two things happen to a copy button. The reader `Pressed` it, carrying the text to copy — the view knows the text, so the message carries it rather than the model holding it. Then, a moment later, the flash times out and the button `Reset`s.
+
+=>
+
+export const Pressed = m('Pressed', { text: S.String })
+export const Reset = m('Reset')
+
+export const Message = S.Union([Pressed, Reset])
+export type Message = typeof Message.Type
+
+const h = html<Message>()
+
+## Writing, then resetting
+
+One command does the work of a press: it writes the text to the clipboard, waits out the flash, and resolves to `Reset`. The write can fail — a browser may refuse the clipboard — so the command ignores the outcome and flashes regardless; the copy is a courtesy, not a transaction.
+
+=>
+
+const CopyText = define('CopyText', { text: S.String }, Reset)(({ text }) =>
+  Effect.tryPromise(() => navigator.clipboard.writeText(text)).pipe(
+    Effect.ignore,
+    Effect.andThen(Effect.sleep('1500 millis')),
+    Effect.as(Reset()),
+  ),
+)
+
+## The update
+
+The update is two cases. A press turns the flash on and runs the command; the command's own `Reset`, when it lands, turns the flash off. Nothing else touches the model.
+
+=>
+
+export type Return = readonly [Model, ReadonlyArray<Command<Message>>]
+
+export const update = (model: Model, message: Message): Return =>
+  Match.value(message).pipe(
+    Match.withReturnType<Return>(),
+    Match.tagsExhaustive({
+      Pressed: ({ text }) => [{ ...model, copied: true }, [CopyText({ text })]],
+      Reset: () => [{ ...model, copied: false }, []],
+    }),
+  )
+
+## The view
+
+The view is branded with `defineView`, which pins the model, the message, and the view inputs. The inputs carry the text to copy — data the parent supplies at embed time — so pressing the button dispatches `Pressed` with that text. The label reads the flash: "Copied" while it lasts, "Copy" otherwise.
+
+=>
+
+export type ViewInputs = { text: string }
+
+export const view = defineView<Model, Message, ViewInputs>((model, inputs) =>
+  h.button(
+    [
+      h.Class(model.copied ? 'loom-copy is-copied' : 'loom-copy'),
+      h.OnClick(Pressed({ text: inputs.text })),
+    ],
+    [model.copied ? 'Copied' : 'Copy'],
+  ),
+)
+
+## Its styles {Tangle}[copyButton.css]
+
+The button is quiet until it flashes, when it takes the accent to confirm the copy.
+
+=>
+
+.loom-copy {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-hair);
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--fg-secondary);
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease;
+}
+.loom-copy:hover { color: var(--fg-primary); border-color: var(--border-strong); }
+.loom-copy.is-copied,
+.loom-copy:active { color: var(--accent); border-color: var(--accent); }
+
+## The module {Tangle}[copyButton.ts]
+
+=>
+
+::[A submodel is a small application]
+
+::[Its state]
+
+::[What can happen]
+
+::[Writing, then resetting]
+
+::[The update]
+
+::[The view]

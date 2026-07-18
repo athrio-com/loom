@@ -1,0 +1,26 @@
+.loom-code {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-code);
+  border: 1px solid var(--border-hair);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--fg-primary);
+  overflow-x: auto;
+}
+.loom-code-line { white-space: pre; }
+
+.loom-tok-plain { color: var(--fg-primary); }
+.loom-tok-keyword { color: var(--syntax-keyword); }
+.loom-tok-type { color: var(--syntax-type); }
+.loom-tok-string { color: var(--syntax-string); }
+.loom-tok-number { color: var(--syntax-number); }
+.loom-tok-comment { color: var(--syntax-comment); font-style: italic; }
+.loom-tok-punctuation { color: var(--syntax-punctuation); }
+.loom-tok-function { color: var(--syntax-function); }
+.loom-tok-operator { color: var(--syntax-operator); }
+.loom-tok-anchor { color: var(--syntax-anchor); }
+.loom-tok-prose { color: var(--syntax-prose); }
+.loom-tok-heading { color: var(--syntax-heading); font-weight: 500; }

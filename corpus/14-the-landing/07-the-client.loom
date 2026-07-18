@@ -1,0 +1,192 @@
+---
+Part XIV, Chapter 7: The client
+Package: design/src/
+Language: TypeScript
+---
+
+# The client
+
+The client is the landing's update and its boot. Most messages change one field and run nothing. The exceptions are the ones that loop: copying a command flashes it and resets a moment later, and the rotating word and the typing line each drive themselves through a small chain of timed commands.
+
+## The update return
+
+The update returns the next model and the commands to run — the pair every Foldkit update returns.
+
+=>
+
+import { Effect, Match, Option, Schema as S } from 'effect'
+import { Runtime } from 'foldkit'
+import { define, type Command } from 'foldkit/command'
+import { ssrHydration } from '@athrio/foldkit-hydration'
+import { view } from './view'
+import { ROTATOR_WORDS } from './hero'
+import {
+  CopyReset,
+  type Message,
+  Model,
+  RotatedIn,
+  RotatedOut,
+  RotatorSettled,
+  TypingTicked,
+} from './model'
+
+type Step = readonly [Model, ReadonlyArray<Command<Message>>]
+
+## The timed commands
+
+Five commands carry the timers. Copying writes the text to the clipboard, waits out the flash, and resets — the write may fail on a browser that refuses the clipboard, so it flashes regardless. The rotator runs a three-command chain: fade the word out, swap it in, then settle and wait for the next turn. The typing line ticks on a delay it chooses each time, faster when deleting than when typing.
+
+=>
+
+const CopyThenReset = define('CopyThenReset', { text: S.String }, CopyReset)(
+  ({ text }) =>
+    Effect.tryPromise(() => navigator.clipboard.writeText(text)).pipe(
+      Effect.ignore,
+      Effect.andThen(Effect.sleep('1400 millis')),
+      Effect.as(CopyReset()),
+    ),
+)
+
+const DelayRotateOut = define('DelayRotateOut', RotatedOut)(
+  Effect.sleep('2200 millis').pipe(Effect.as(RotatedOut())),
+)
+const DelayRotateIn = define('DelayRotateIn', RotatedIn)(
+  Effect.sleep('350 millis').pipe(Effect.as(RotatedIn())),
+)
+const DelayRotatorSettled = define('DelayRotatorSettled', RotatorSettled)(
+  Effect.sleep('40 millis').pipe(Effect.as(RotatorSettled())),
+)
+const DelayTyping = define('DelayTyping', { ms: S.Number }, TypingTicked)(
+  ({ ms }) => Effect.sleep(`${ms} millis`).pipe(Effect.as(TypingTicked())),
+)
+
+## The typing line
+
+The typing line types a loom phrase to its end, holds a beat, deletes it, and moves to the next. Each tick reads the current phrase and where it is, shows one more or one fewer character, and schedules the next tick — a long pause at the end of a phrase, a short one between characters.
+
+=>
+
+const PHRASES = [
+  '::' + '[A friendly greeting]',
+  'greet("world")',
+]
+
+const tickTyping = (model: Model): Step => {
+  const phrase = PHRASES[model.typingIndex] ?? PHRASES[0]
+  if (!model.typingDeleting) {
+    if (model.typingCount >= phrase.length)
+      return [{ ...model, typed: phrase, typingDeleting: true }, [DelayTyping({ ms: 1400 })]]
+    const grown = model.typingCount + 1
+    return [
+      { ...model, typed: phrase.slice(0, grown), typingCount: grown },
+      [DelayTyping({ ms: 55 })],
+    ]
+  }
+  if (model.typingCount <= 0) {
+    const nextIndex = (model.typingIndex + 1) % PHRASES.length
+    return [
+      { ...model, typed: '', typingCount: 0, typingDeleting: false, typingIndex: nextIndex },
+      [DelayTyping({ ms: 300 })],
+    ]
+  }
+  const shrunk = model.typingCount - 1
+  return [
+    { ...model, typed: phrase.slice(0, shrunk), typingCount: shrunk },
+    [DelayTyping({ ms: 26 })],
+  ]
+}
+
+## The update
+
+The plain messages set one field: the active tab, the selected step, the query, the focus clamped to the results. Copying flashes the pressed button and runs its reset. The rotator's three messages move it through its phases and hand off to the next command; the typing tick delegates to its own step.
+
+=>
+
+const clamp = (value: number, max: number): number =>
+  Math.max(0, Math.min(max, value))
+
+const update = (model: Model, message: Message): Step =>
+  Match.value(message).pipe(
+    Match.withReturnType<Step>(),
+    Match.tagsExhaustive({
+      SelectedTab: ({ id }) => [{ ...model, activeTab: id }, []],
+      SelectedStep: ({ step }) => [{ ...model, howStep: step }, []],
+      Typed: ({ query }) => [{ ...model, query, focus: 0 }, []],
+      MovedFocus: ({ delta, count }) => [
+        { ...model, focus: clamp(model.focus + delta, Math.max(0, count - 1)) },
+        [],
+      ],
+      Copied: ({ id, text }) => [{ ...model, copied: id }, [CopyThenReset({ text })]],
+      CopyReset: () => [{ ...model, copied: '' }, []],
+      RotatedOut: () => [{ ...model, rotatorPhase: 'out' }, [DelayRotateIn()]],
+      RotatedIn: () => [
+        {
+          ...model,
+          rotatorIndex: (model.rotatorIndex + 1) % ROTATOR_WORDS.length,
+          rotatorPhase: 'in-start',
+        },
+        [DelayRotatorSettled()],
+      ],
+      RotatorSettled: () => [{ ...model, rotatorPhase: 'normal' }, [DelayRotateOut()]],
+      TypingTicked: () => tickTyping(model),
+    }),
+  )
+
+## Booting
+
+The client boots from a model — the one the server inlined on a real load, or a default in development. It starts the two loops in `init`: the rotator after its first turn, the typing line after a short delay. Importing the stylesheet here, in the browser entry, keeps it out of the server's path.
+
+=>
+
+import './landing.css'
+
+const emptyModel: Model = {
+  activeTab: 'a-first-loom.loom',
+  rotatorIndex: 0,
+  rotatorPhase: 'normal',
+  typed: '',
+  typingIndex: 0,
+  typingCount: 0,
+  typingDeleting: false,
+  howStep: 1,
+  query: '',
+  focus: 0,
+  copied: '',
+}
+
+const flags: Effect.Effect<Model> = Effect.sync(() => {
+  const inlined = Option.fromNullishOr(
+    document.getElementById('foldkit-model')?.textContent,
+  )
+  return Option.match(inlined, {
+    onSome: (text) => S.decodeUnknownSync(Model)(JSON.parse(text)),
+    onNone: () => emptyModel,
+  })
+})
+
+const application = Runtime.makeApplication({
+  Model,
+  Flags: Model,
+  flags,
+  init: (seed: Model): Step => [seed, [DelayRotateOut(), DelayTyping({ ms: 500 })]],
+  update,
+  view,
+  container: document.getElementById('root'),
+  hydrate: ssrHydration(),
+})
+
+Runtime.run(application)
+
+## The module {Tangle}[client.ts]
+
+=>
+
+::[The update return]
+
+::[The timed commands]
+
+::[The typing line]
+
+::[The update]
+
+::[Booting]

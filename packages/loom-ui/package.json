@@ -1,0 +1,35 @@
+{
+  "name": "@athrio/loom-ui",
+  "version": "0.0.4",
+  "description": "Loom's Foldkit UI library: a theme system, presentational and interactive components, and stateful submodels.",
+  "license": "Apache-2.0 OR MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./theme": "./src/theme.ts",
+    "./presentational": "./src/presentational.ts",
+    "./interactive": "./src/interactive.ts",
+    "./chrome": "./src/chrome.ts",
+    "./code": "./src/code.ts",
+    "./copyButton": "./src/copyButton.ts",
+    "./commandPalette": "./src/commandPalette.ts",
+    "./theme.css": "./src/theme.css",
+    "./presentational.css": "./src/presentational.css",
+    "./interactive.css": "./src/interactive.css",
+    "./chrome.css": "./src/chrome.css",
+    "./code.css": "./src/code.css",
+    "./copyButton.css": "./src/copyButton.css",
+    "./commandPalette.css": "./src/commandPalette.css"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "effect": "4.0.0-beta.97",
+    "foldkit": "workspace:*"
+  },
+  "devDependencies": {
+    "effect": "4.0.0-beta.97",
+    "foldkit": "workspace:*"
+  }
+}

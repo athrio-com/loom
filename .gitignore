@@ -56,4 +56,9 @@ zed-extension/target/
 # Loom workspace store — installed services are generated; config.yaml is committed
 .loom/services/
 
+# Loom Devtools — the Vite plugin's local SQLite note store
+**/.loom/devtools.sqlite
+**/.loom/devtools.sqlite-wal
+**/.loom/devtools.sqlite-shm
+
 age.key

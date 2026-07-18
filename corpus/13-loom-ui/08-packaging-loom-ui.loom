@@ -1,0 +1,86 @@
+---
+Part XIII, Chapter 8: Packaging Loom UI
+Package: packages/loom-ui/
+Language: JSON
+---
+
+# Packaging Loom UI
+
+`@athrio/loom-ui` is the library the rest of Loom's applications dress in — the theme system, the presentational and interactive components, and the stateful submodels. Like every Loom package it ships TypeScript source with no build step, so an application resolves a component straight from the source it reads here.
+
+## The manifest {Tangle}[package.json]
+
+The `exports` map names one entry point per module, and a default that re-exports them, so an application reaches a single component by name or the whole library at once. Each module's stylesheet is exported beside it, because a component is markup and its styles are the other half. `foldkit` and `effect` are peer dependencies, shared with the application that installs the library rather than carried twice.
+
+{{ version = ${version} }}
+
+=>
+
+{
+  "name": "@athrio/loom-ui",
+  "version": "::[version]",
+  "description": "Loom's Foldkit UI library: a theme system, presentational and interactive components, and stateful submodels.",
+  "license": "Apache-2.0 OR MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./theme": "./src/theme.ts",
+    "./presentational": "./src/presentational.ts",
+    "./interactive": "./src/interactive.ts",
+    "./chrome": "./src/chrome.ts",
+    "./code": "./src/code.ts",
+    "./copyButton": "./src/copyButton.ts",
+    "./commandPalette": "./src/commandPalette.ts",
+    "./theme.css": "./src/theme.css",
+    "./presentational.css": "./src/presentational.css",
+    "./interactive.css": "./src/interactive.css",
+    "./chrome.css": "./src/chrome.css",
+    "./code.css": "./src/code.css",
+    "./copyButton.css": "./src/copyButton.css",
+    "./commandPalette.css": "./src/commandPalette.css"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "effect": "4.0.0-beta.97",
+    "foldkit": "workspace:*"
+  },
+  "devDependencies": {
+    "effect": "4.0.0-beta.97",
+    "foldkit": "workspace:*"
+  }
+}
+
+## The TypeScript config {Tangle}[tsconfig.json]
+
+The library draws the browser in — it builds DOM markup through Foldkit — so its configuration adds the DOM libraries the workspace root leaves out, and resolves modules the way a bundler does. It ships source, so it checks the components and emits nothing.
+
+=>
+
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "sourceMap": false,
+    "noEmit": true,
+    "moduleResolution": "bundler",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"]
+  },
+  "include": ["src"]
+}
+
+## The barrel {Tangle}[src/index.ts]
+
+The default entry gathers the stateless modules flat — the theme, the presentational pieces, the interactive ones, the window chrome, and the code surface — so an application imports a component by name. A submodel is gathered under its own namespace instead, because each one names its parts the same way (`Model`, `update`, `view`), and a flat re-export would collide.
+
+=>
+
+export * from './theme'
+export * from './presentational'
+export * from './interactive'
+export * from './chrome'
+export * from './code'
+export * as CopyButton from './copyButton'
+export * as CommandPalette from './commandPalette'
