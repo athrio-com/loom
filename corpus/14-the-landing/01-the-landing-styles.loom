@@ -67,7 +67,7 @@ main, header, footer { position: relative; z-index: 1; }
 
 ## The window chrome
 
-The page wears a window's chrome. A title bar runs across the top with three traffic lights, a breadcrumb trail, a navigation, and a live dot; a tab bar sits below it with a file tab for each open loom; a status bar rides the bottom edge. All three are sticky, so the chrome stays while the content scrolls.
+The page wears a window's chrome. A title bar runs across the top with three traffic lights, a breadcrumb trail, and a live dot; below it, a tab bar carries the site's menu, styled as a row of open tabs. Both stay sticky, so the chrome stays while the content scrolls.
 
 =>
 
@@ -97,10 +97,6 @@ The page wears a window's chrome. A title bar runs across the top with three tra
   margin-left: auto; display: flex; gap: 18px; align-items: center;
   color: var(--fg-3);
 }
-.topnav { display: flex; gap: 16px; }
-.topnav a { color: var(--fg-3); transition: color .15s ease; }
-.topnav a:hover { color: var(--fg-2); }
-.topnav a.here { color: var(--acc-mint); }
 .titlebar .right kbd {
   font-family: var(--mono);
   font-size: 11px;
@@ -133,6 +129,7 @@ The page wears a window's chrome. A title bar runs across the top with three tra
   display: flex; align-items: center; gap: 8px;
   padding: 0 14px;
   color: var(--fg-3);
+  text-decoration: none;
   border-right: 1px solid var(--rule);
   cursor: pointer;
   position: relative;
@@ -314,7 +311,7 @@ Below the lede sit the actions: an install command line with a copy button, and 
 
 ## The editor panel
 
-The right of the hero is a live editor panel — a real loom document, syntax-highlighted, with a gutter of line numbers and a typing line at the bottom that types loom syntax on a loop. The syntax classes colour each kind of token: a violet keyword, a cyan type, a mint string and operator, an amber number and anchor, a faint comment.
+The right of the hero is a live editor panel — a real loom document, syntax-highlighted, with a gutter of line numbers and, on its last line, the anchor that draws the greeting in. The syntax classes colour each kind of token: a violet keyword, a cyan type, a mint string and operator, an amber number and anchor, a faint comment.
 
 =>
 
@@ -373,16 +370,10 @@ The right of the hero is a live editor panel — a real loom document, syntax-hi
 .code .op   { color: var(--acc-mint); }
 .code .an   { color: var(--acc-amber); }
 .code .glow { color: var(--acc-mint); position: relative; }
-.code .typing::after {
-  content: ""; display: inline-block;
-  width: 0.5ch; height: 1em; background: var(--fg);
-  vertical-align: -0.15em; margin-left: 1px;
-  animation: blink 1.05s steps(2) infinite;
-}
 
-## The sections and the manifesto
+## The numbered sections
 
-The body divides into numbered sections, each with a small eyebrow number and a display heading. The manifesto is the first: a pull quote in the display serif with the accent on its emphases, and a citation beneath.
+The body divides into numbered sections, each with a small eyebrow number and a display heading.
 
 =>
 
@@ -423,41 +414,6 @@ section.s {
   line-height: 1.6;
   max-width: 60ch;
   text-wrap: pretty;
-}
-
-.manifesto {
-  display: grid;
-  grid-template-columns: 240px 1fr;
-  gap: 56px;
-}
-@media (max-width: 980px) { .manifesto { grid-template-columns: 1fr; gap: 16px; } }
-.manifesto-text p {
-  font-family: var(--display);
-  font-weight: 300;
-  font-size: clamp(20px, 2vw, 26px);
-  line-height: 1.5;
-  color: var(--fg);
-  margin: 0;
-  max-width: 38ch;
-  text-wrap: pretty;
-}
-.manifesto-text p + p { margin-top: 22px; }
-.manifesto-text em { color: var(--acc-mint); font-style: italic; }
-.manifesto-text .quote-mark {
-  color: var(--fg-4);
-  font-family: var(--display);
-  font-size: 64px;
-  line-height: 1;
-  margin-bottom: 8px;
-  display: block;
-}
-.manifesto-text .cite {
-  display: block;
-  margin-top: 26px;
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--fg-3);
-  letter-spacing: 0.02em;
 }
 
 ## How it works — the file tree and steps
@@ -745,7 +701,7 @@ footer.foot {
 
 ## The stylesheet {Tangle}[landing.css]
 
-The stylesheet is the tokens and base, then each region top to bottom: the window chrome, the hero and its call to action, the editor panel, the sections and manifesto, how-it-works and the palette, get-started, and the footer.
+The stylesheet is the tokens and base, then each region top to bottom: the window chrome, the hero and its call to action, the editor panel, the numbered sections, how-it-works and the palette, get-started, and the footer.
 
 =>
 
@@ -759,7 +715,7 @@ The stylesheet is the tokens and base, then each region top to bottom: the windo
 
 ::[The editor panel]
 
-::[The sections and the manifesto]
+::[The numbered sections]
 
 ::[How it works — the file tree and steps]
 

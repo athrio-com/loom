@@ -6,11 +6,11 @@ Language: TypeScript
 
 # The model
 
-The landing is a Foldkit application, so it begins with the state a reader changes as they move through the page. Most of the page is static prose and chrome, but a few regions are live: the file tabs, the rotating word in the headline, the typing line in the editor, the step the file tree selects, the command palette, and the copy buttons. The model holds exactly what those regions need and nothing more.
+The landing is a Foldkit application, so it begins with the state a reader changes as they move through the page. Most of the page is static prose and chrome, but a few regions are live: the rotating word in the headline, the step the file tree selects, the command palette, and the copy buttons. The model holds exactly what those regions need and nothing more.
 
 ## The state
 
-The state is one flat struct. The active tab names the file the tab bar highlights. The rotator holds the index of the headline word and the phase of its transition, so the word can fade out, swap, and fade in. The typing line holds the phrase it is typing, how many characters show, and whether it is deleting. The how-step is the pipeline step the file tree has selected. The query and focus drive the command palette. The copied field names the copy button flashing its confirmation, or the empty string when none is.
+The state is one flat struct. The rotator holds the index of the headline word and the phase of its transition, so the word can fade out, swap, and fade in. The how-step is the pipeline step the file tree has selected. The query and focus drive the command palette. The copied field names the copy button flashing its confirmation, or the empty string when none is.
 
 =>
 
@@ -19,13 +19,8 @@ import { html } from 'foldkit/html'
 import { m } from 'foldkit/message'
 
 export const Model = S.Struct({
-  activeTab: S.String,
   rotatorIndex: S.Number,
   rotatorPhase: S.Literals(['normal', 'out', 'in-start']),
-  typed: S.String,
-  typingIndex: S.Number,
-  typingCount: S.Number,
-  typingDeleting: S.Boolean,
   howStep: S.Number,
   query: S.String,
   focus: S.Number,
@@ -35,11 +30,10 @@ export type Model = typeof Model.Type
 
 ## The messages
 
-The reader does a handful of things. They select a file tab, or a step in the file tree. They type into the command palette, and move its focus up or down with the arrows. They copy a command, and a moment later the flash resets. The rotating word and the typing line advance on their own timers, so their messages arrive from commands rather than the reader — the rotator through its three phases, the typing line one tick at a time.
+The reader does a handful of things. They select a step in the file tree. They type into the command palette, and move its focus up or down with the arrows. They copy a command, and a moment later the flash resets. The rotating word advances on its own timer, so its messages arrive from a command rather than the reader, moving through three phases as it swaps.
 
 =>
 
-export const SelectedTab = m('SelectedTab', { id: S.String })
 export const SelectedStep = m('SelectedStep', { step: S.Number })
 export const Typed = m('Typed', { query: S.String })
 export const MovedFocus = m('MovedFocus', { delta: S.Number, count: S.Number })
@@ -48,10 +42,8 @@ export const CopyReset = m('CopyReset')
 export const RotatedOut = m('RotatedOut')
 export const RotatedIn = m('RotatedIn')
 export const RotatorSettled = m('RotatorSettled')
-export const TypingTicked = m('TypingTicked')
 
 export const Message = S.Union([
-  SelectedTab,
   SelectedStep,
   Typed,
   MovedFocus,
@@ -60,7 +52,6 @@ export const Message = S.Union([
   RotatedOut,
   RotatedIn,
   RotatorSettled,
-  TypingTicked,
 ])
 export type Message = typeof Message.Type
 

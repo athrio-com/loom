@@ -48,18 +48,13 @@ const distDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist')
 
 ## The page
 
-The page starts from the built shell and gains two things: the rendered body in place of the empty `#root`, and, in the head, the capture script and the model inlined as JSON for hydration. The seed is the landing at rest — the first tab, the first step, the rotator and typing line unstarted.
+The page starts from the built shell and gains two things: the rendered body in place of the empty `#root`, and, in the head, the capture script and the model inlined as JSON for hydration. The seed is the landing at rest — the first step selected, the rotator unstarted.
 
 =>
 
 const seed: Model = {
-  activeTab: 'a-first-loom.loom',
   rotatorIndex: 0,
   rotatorPhase: 'normal',
-  typed: '',
-  typingIndex: 0,
-  typingCount: 0,
-  typingDeleting: false,
   howStep: 1,
   query: '',
   focus: 0,

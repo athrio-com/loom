@@ -2,70 +2,6 @@ import { Array, Match } from 'effect'
 import type { Html } from 'foldkit/html'
 import { h, type Message, type Model, MovedFocus, SelectedStep, Typed } from './model'
 
-const manifesto = (): Html =>
-  h.section(
-    [h.Class('s')],
-    [
-      h.div(
-        [h.Class('wrap')],
-        [
-          h.div(
-            [h.Class('manifesto')],
-            [
-              h.div(
-                [],
-                [
-                  h.div(
-                    [h.Class('sec-num')],
-                    [h.span([h.Class('arrow')], ['▸']), ' 01 · WHY LOOM'],
-                  ),
-                ],
-              ),
-              h.div(
-                [h.Class('manifesto-text')],
-                [
-                  h.span([h.Class('quote-mark')], ['"']),
-                  h.p(
-                    [],
-                    [
-                      `Don't just tell the computer what to do. `,
-                      h.em([], ['Explain to a person']),
-                      ` what you want the computer to do — and let the code follow the explanation.`,
-                    ],
-                  ),
-                  h.p(
-                    [],
-                    [
-                      'A loom is that explanation, made real. Prose and code, woven in the order you would read them — then ',
-                      h.em([], ['tangled']),
-                      ' into the source files the compiler sees.',
-                    ],
-                  ),
-                  h.p(
-                    [],
-                    [
-                      'The prose sits beside the code it describes, so the two ',
-                      h.em([], ['cannot drift.']),
-                      ' The book is the program.',
-                    ],
-                  ),
-                  h.span(
-                    [h.Class('cite')],
-                    [
-                      '— after Knuth, ',
-                      h.span([h.Style({ fontStyle: 'italic' })], ['Literate Programming']),
-                      ', 1984',
-                    ],
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ],
-      ),
-    ],
-  )
-
 type Step = {
   file: string
   lines: number
@@ -337,15 +273,12 @@ const howItWorks = (model: Model): Html =>
             [
               h.div(
                 [h.Class('sec-num')],
-                [h.span([h.Class('arrow')], ['▸']), ' 02 · HOW IT WORKS'],
+                [h.span([h.Class('arrow')], ['▸']), ' 01 · HOW IT WORKS'],
               ),
               h.div(
                 [],
                 [
-                  h.h2(
-                    [h.Class('sec-h')],
-                    ['Written to be read.', h.br([]), 'Tangled to be run.'],
-                  ),
+                  h.h2([h.Class('sec-h')], ['Written to be read.']),
                   h.p(
                     [h.Class('sec-lede')],
                     [
@@ -354,7 +287,7 @@ const howItWorks = (model: Model): Html =>
                         [h.Style({ fontFamily: 'var(--mono)', color: 'var(--acc-cyan)', fontSize: '0.92em' })],
                         ['.loom'],
                       ),
-                      ' corpus is files a person reads in order. Open one and walk it — from writing prose and code, to composing by name, to tangling real source.',
+                      ' corpus is a set of files written to be read in order, like chapters in a book. Open one and follow it through: prose and code side by side, sections composed by name, then tangled into real source.',
                     ],
                   ),
                 ],
@@ -368,5 +301,4 @@ const howItWorks = (model: Model): Html =>
     ],
   )
 
-export const middle = (model: Model): Html =>
-  h.div([], [manifesto(), howItWorks(model)])
+export const middle = (model: Model): Html => howItWorks(model)

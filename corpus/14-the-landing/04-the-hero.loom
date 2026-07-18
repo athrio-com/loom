@@ -6,7 +6,7 @@ Language: TypeScript
 
 # The hero
 
-The hero is the first screen. On the left it makes the pitch — a meta line, a large headline whose last word rotates, a lede, an install command, and the calls to action. On the right it shows the thing itself: a live editor panel holding a real loom document, syntax-highlighted, with a line typing loom syntax at the bottom.
+The hero is the first screen. On the left it makes the pitch — a meta line, a large headline whose last word rotates, a lede, an install command, and the calls to action. On the right it shows the thing itself: a live editor panel holding a real loom document, syntax-highlighted, with the anchor that draws the greeting in on its last line.
 
 ## The rotating headline
 
@@ -16,7 +16,7 @@ The headline is set in three lines, the last of which rotates through a few word
 
 import { Array, Match } from 'effect'
 import type { Html } from 'foldkit/html'
-import { copyButton, bookIcon, externalIcon, searchIcon } from './components'
+import { copyButton, bookIcon, externalIcon } from './components'
 import { h, type Model } from './model'
 
 export const ROTATOR_WORDS = ['a book', 'an article', 'a prompt']
@@ -51,7 +51,7 @@ const headline = (model: Model): Html =>
 
 ## The pitch
 
-Above the headline sits a meta line of two pills; below it, a lede with one phrase in the string colour, then the install command with its copy button, then the calls to action. The first action row is the install line; the second is the three buttons — read the book, browse the source, search.
+Above the headline sits a meta line of two pills; below it, a lede with one phrase in the string colour, then the install command with its copy button, then the calls to action. The first action row is the install line; the second is the two buttons — read the book, browse the source.
 
 =>
 
@@ -106,7 +106,6 @@ const pitch = (model: Model): Html =>
             [h.Class('btn'), h.Href('#')],
             ['Browse the source', externalIcon()],
           ),
-          h.button([h.Class('btn')], [searchIcon(), 'Search the book']),
         ],
       ),
     ],
@@ -114,13 +113,13 @@ const pitch = (model: Model): Html =>
 
 ## The editor, in tokens
 
-The editor panel shows a loom document token by token — a heading, the prose beside it, the code it describes, and the `{Tangle}` and anchor marks that compose it. A small `tk` names one coloured token; the document is those tokens with the whitespace between them, kept literal because the panel preserves it.
+The editor panel shows a loom document token by token — a heading, the prose beside it, the code it describes, and the `{Tangle}` and anchor marks that compose it. A small `tk` names one coloured token; the document is those tokens with the whitespace between them, kept literal because the panel preserves it. The last line shows the anchor that draws the greeting in, set once rather than typed, so the panel reads as a still frame of a real editor.
 
 =>
 
 const tk = (cls: string, text: string): Html => h.span([h.Class(cls)], [text])
 
-const editorCode = (model: Model): ReadonlyArray<Html | string> => [
+const editorCode: ReadonlyArray<Html | string> = [
   tk('pun', '---'),
   '\n',
   tk('k', 'Language:'), ' ', tk('ty', 'TypeScript'),
@@ -142,7 +141,7 @@ const editorCode = (model: Model): ReadonlyArray<Html | string> => [
   '\n\n',
   tk('op', '#'), ' ', tk('hd', 'The module'), ' ', tk('op', '{Tangle}'),
   '\n\n',
-  h.span([h.Class('glow typing'), h.Id('typing-line')], [model.typed]),
+  h.span([h.Class('glow')], ['::' + '[A friendly greeting]']),
 ]
 
 ## The editor panel
@@ -153,7 +152,7 @@ The panel wraps the document in an editor frame: a head naming the file, a gutte
 
 const gutter = Array.makeBy(17, (index) => String(index + 1)).join('\n')
 
-const editorPanel = (model: Model): Html =>
+const editorPanel = (): Html =>
   h.div(
     [h.Class('panel'), h.AriaHidden(true)],
     [
@@ -169,7 +168,7 @@ const editorPanel = (model: Model): Html =>
         [h.Class('editor')],
         [
           h.div([h.Class('gutter-col')], [gutter]),
-          h.div([h.Class('code')], editorCode(model)),
+          h.div([h.Class('code')], editorCode),
         ],
       ),
     ],
@@ -187,7 +186,7 @@ export const hero = (model: Model): Html =>
     [
       h.div(
         [h.Class('wrap')],
-        [h.div([h.Class('hero-grid')], [pitch(model), editorPanel(model)])],
+        [h.div([h.Class('hero-grid')], [pitch(model), editorPanel()])],
       ),
     ],
   )

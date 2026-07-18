@@ -10,13 +10,13 @@ The landing is built from small pieces the sections share — a set of line icon
 
 ## The icons
 
-The icons are the line drawings the buttons carry — a copy glyph, an open book, an external arrow, a forward arrow, a plus for search. Each is an inline SVG drawn in the current text colour, so it takes the colour of the button around it.
+The icons are the line drawings the buttons carry — a copy glyph, an open book, an external arrow, a forward arrow. Each is an inline SVG drawn in the current text colour, so it takes the colour of the button around it.
 
 =>
 
 import { Array } from 'effect'
 import type { Html } from 'foldkit/html'
-import { Copied, h, type Model, SelectedTab } from './model'
+import { Copied, h } from './model'
 
 const strokeIcon = (size: string, paths: ReadonlyArray<Html>): Html =>
   h.svg(
@@ -107,22 +107,6 @@ export const arrowIcon = (): Html =>
     ],
   )
 
-export const searchIcon = (): Html =>
-  h.svg(
-    [h.Width('13'), h.Height('13'), h.ViewBox('0 0 13 13'), h.Fill('none')],
-    [
-      h.path(
-        [
-          h.D('M2 6.5h9M6.5 2v9'),
-          h.Stroke('currentColor'),
-          h.StrokeWidth('1.4'),
-          h.StrokeLinecap('round'),
-        ],
-        [],
-      ),
-    ],
-  )
-
 ## The copy button
 
 The copy button copies a command to the clipboard and flashes to confirm it. It reads the model's `copied` field to know whether it is the one flashing, since the reader may copy any of several commands and only the pressed one lights. A press dispatches `Copied` with the button's id and the text to write.
@@ -151,16 +135,9 @@ export const copyButton = (props: {
 
 ## The title bar
 
-The title bar is the window's top edge: three traffic lights, a breadcrumb trail to the open file, and on the right a navigation between the site's pages, a live dot, the version, and the search shortcut. The navigation marks the landing as the current page.
+The title bar is the window's top edge: three traffic lights, a breadcrumb trail to the open file, and on the right a live dot, the version, and the search shortcut.
 
 =>
-
-const NAV = [
-  { label: 'landing', href: '#', here: true },
-  { label: 'docs', href: '#' },
-  { label: 'annotations', href: '#' },
-  { label: 'devtools', href: '#' },
-]
 
 export const titlebar = (): Html =>
   h.div(
@@ -183,15 +160,6 @@ export const titlebar = (): Html =>
       h.div(
         [h.Class('right')],
         [
-          h.nav(
-            [h.Class('topnav')],
-            Array.map(NAV, (link) =>
-              h.a(
-                [h.Class(link.here ? 'here' : ''), h.Href(link.href)],
-                [link.label],
-              ),
-            ),
-          ),
           h.span([h.Class('live-dot'), h.Title('tangled')], []),
           h.span([], ['v0.9.0 · literate programming']),
           h.span([], [h.kbd([], ['⌘']), ' ', h.kbd([], ['K'])]),
@@ -200,24 +168,26 @@ export const titlebar = (): Html =>
     ],
   )
 
-## The tab bar
+## The site menu
 
-The tab bar is the row of open looms below the title bar, one of them active. Each tab carries a coloured dot and a filename, and clicking one selects it. The dots take their colours from the stylesheet by position, so the tabs read apart at a glance.
+Below the title bar sits the site's menu, styled as a row of open tabs to match the window it belongs to. Each entry names a page and carries a coloured dot; the current page — the landing — wears the active tab's look, so a reader always sees where they are.
 
 =>
 
-const TABS = ['a-first-loom.loom', 'book.loom', 'classifier.loom', 'loom.json']
+const NAV = [
+  { label: 'landing', href: '#', here: true },
+  { label: 'docs', href: '#' },
+  { label: 'annotations', href: '#' },
+  { label: 'devtools', href: '#' },
+]
 
-export const tabbar = (model: Model): Html =>
-  h.div(
-    [h.Class('tabbar'), h.Role('tablist')],
-    Array.map(TABS, (file) =>
-      h.div(
-        [
-          h.Class(file === model.activeTab ? 'tab active' : 'tab'),
-          h.OnClick(SelectedTab({ id: file })),
-        ],
-        [h.span([h.Class('dot')], []), file],
+export const tabbar = (): Html =>
+  h.nav(
+    [h.Class('tabbar'), h.AriaLabel('Site')],
+    Array.map(NAV, (link) =>
+      h.a(
+        [h.Class(link.here ? 'tab active' : 'tab'), h.Href(link.href)],
+        [h.span([h.Class('dot')], []), link.label],
       ),
     ),
   )
@@ -234,4 +204,4 @@ The module is the icons, the copy button, and the two pieces of the window chrom
 
 ::[The title bar]
 
-::[The tab bar]
+::[The site menu]

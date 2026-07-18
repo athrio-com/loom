@@ -6,7 +6,7 @@ Language: TypeScript
 
 # Get started and the page
 
-The last section shows the reader how to begin — a workspace config beside three commands to a first tangle — and the footer closes the page. This chapter builds both, then assembles the whole document: the chrome, the sections, the footer, and the status bar.
+The last section shows the reader how to begin — a workspace config beside three commands to a first tangle — and the footer closes the page. This chapter builds both, then assembles the whole document: the chrome, the sections, and the footer.
 
 ## The config panel
 
@@ -122,7 +122,7 @@ const getStarted = (model: Model): Html =>
             [
               h.div(
                 [h.Class('sec-num')],
-                [h.span([h.Class('arrow')], ['▸']), ' 03 · GET STARTED'],
+                [h.span([h.Class('arrow')], ['▸']), ' 02 · GET STARTED'],
               ),
               h.div(
                 [],
@@ -228,7 +228,7 @@ const page = (model: Model): Html =>
     [],
     [
       titlebar(),
-      tabbar(model),
+      tabbar(),
       h.main([], [hero(model), middle(model), getStarted(model)]),
       footer(),
     ],

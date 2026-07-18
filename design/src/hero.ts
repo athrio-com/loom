@@ -1,6 +1,6 @@
 import { Array, Match } from 'effect'
 import type { Html } from 'foldkit/html'
-import { copyButton, bookIcon, externalIcon, searchIcon } from './components'
+import { copyButton, bookIcon, externalIcon } from './components'
 import { h, type Model } from './model'
 
 export const ROTATOR_WORDS = ['a book', 'an article', 'a prompt']
@@ -84,7 +84,6 @@ const pitch = (model: Model): Html =>
             [h.Class('btn'), h.Href('#')],
             ['Browse the source', externalIcon()],
           ),
-          h.button([h.Class('btn')], [searchIcon(), 'Search the book']),
         ],
       ),
     ],
@@ -92,7 +91,7 @@ const pitch = (model: Model): Html =>
 
 const tk = (cls: string, text: string): Html => h.span([h.Class(cls)], [text])
 
-const editorCode = (model: Model): ReadonlyArray<Html | string> => [
+const editorCode: ReadonlyArray<Html | string> = [
   tk('pun', '---'),
   '\n',
   tk('k', 'Language:'), ' ', tk('ty', 'TypeScript'),
@@ -114,12 +113,12 @@ const editorCode = (model: Model): ReadonlyArray<Html | string> => [
   '\n\n',
   tk('op', '#'), ' ', tk('hd', 'The module'), ' ', tk('op', '{Tangle}'),
   '\n\n',
-  h.span([h.Class('glow typing'), h.Id('typing-line')], [model.typed]),
+  h.span([h.Class('glow')], ['::' + '[A friendly greeting]']),
 ]
 
 const gutter = Array.makeBy(17, (index) => String(index + 1)).join('\n')
 
-const editorPanel = (model: Model): Html =>
+const editorPanel = (): Html =>
   h.div(
     [h.Class('panel'), h.AriaHidden(true)],
     [
@@ -135,7 +134,7 @@ const editorPanel = (model: Model): Html =>
         [h.Class('editor')],
         [
           h.div([h.Class('gutter-col')], [gutter]),
-          h.div([h.Class('code')], editorCode(model)),
+          h.div([h.Class('code')], editorCode),
         ],
       ),
     ],
@@ -147,7 +146,7 @@ export const hero = (model: Model): Html =>
     [
       h.div(
         [h.Class('wrap')],
-        [h.div([h.Class('hero-grid')], [pitch(model), editorPanel(model)])],
+        [h.div([h.Class('hero-grid')], [pitch(model), editorPanel()])],
       ),
     ],
   )

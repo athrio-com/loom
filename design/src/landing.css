@@ -74,10 +74,6 @@ main, header, footer { position: relative; z-index: 1; }
   margin-left: auto; display: flex; gap: 18px; align-items: center;
   color: var(--fg-3);
 }
-.topnav { display: flex; gap: 16px; }
-.topnav a { color: var(--fg-3); transition: color .15s ease; }
-.topnav a:hover { color: var(--fg-2); }
-.topnav a.here { color: var(--acc-mint); }
 .titlebar .right kbd {
   font-family: var(--mono);
   font-size: 11px;
@@ -110,6 +106,7 @@ main, header, footer { position: relative; z-index: 1; }
   display: flex; align-items: center; gap: 8px;
   padding: 0 14px;
   color: var(--fg-3);
+  text-decoration: none;
   border-right: 1px solid var(--rule);
   cursor: pointer;
   position: relative;
@@ -332,12 +329,6 @@ h1.loom-h .hl-3 { color: var(--acc-violet); }
 .code .op   { color: var(--acc-mint); }
 .code .an   { color: var(--acc-amber); }
 .code .glow { color: var(--acc-mint); position: relative; }
-.code .typing::after {
-  content: ""; display: inline-block;
-  width: 0.5ch; height: 1em; background: var(--fg);
-  vertical-align: -0.15em; margin-left: 1px;
-  animation: blink 1.05s steps(2) infinite;
-}
 
 section.s {
   padding: 88px 0;
@@ -376,41 +367,6 @@ section.s {
   line-height: 1.6;
   max-width: 60ch;
   text-wrap: pretty;
-}
-
-.manifesto {
-  display: grid;
-  grid-template-columns: 240px 1fr;
-  gap: 56px;
-}
-@media (max-width: 980px) { .manifesto { grid-template-columns: 1fr; gap: 16px; } }
-.manifesto-text p {
-  font-family: var(--display);
-  font-weight: 300;
-  font-size: clamp(20px, 2vw, 26px);
-  line-height: 1.5;
-  color: var(--fg);
-  margin: 0;
-  max-width: 38ch;
-  text-wrap: pretty;
-}
-.manifesto-text p + p { margin-top: 22px; }
-.manifesto-text em { color: var(--acc-mint); font-style: italic; }
-.manifesto-text .quote-mark {
-  color: var(--fg-4);
-  font-family: var(--display);
-  font-size: 64px;
-  line-height: 1;
-  margin-bottom: 8px;
-  display: block;
-}
-.manifesto-text .cite {
-  display: block;
-  margin-top: 26px;
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--fg-3);
-  letter-spacing: 0.02em;
 }
 
 .how-grid {

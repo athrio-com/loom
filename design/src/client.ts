@@ -11,7 +11,6 @@ import {
   RotatedIn,
   RotatedOut,
   RotatorSettled,
-  TypingTicked,
 } from './model'
 
 type Step = readonly [Model, ReadonlyArray<Command<Message>>]
@@ -34,39 +33,6 @@ const DelayRotateIn = define('DelayRotateIn', RotatedIn)(
 const DelayRotatorSettled = define('DelayRotatorSettled', RotatorSettled)(
   Effect.sleep('40 millis').pipe(Effect.as(RotatorSettled())),
 )
-const DelayTyping = define('DelayTyping', { ms: S.Number }, TypingTicked)(
-  ({ ms }) => Effect.sleep(`${ms} millis`).pipe(Effect.as(TypingTicked())),
-)
-
-const PHRASES = [
-  '::' + '[A friendly greeting]',
-  'greet("world")',
-]
-
-const tickTyping = (model: Model): Step => {
-  const phrase = PHRASES[model.typingIndex] ?? PHRASES[0]
-  if (!model.typingDeleting) {
-    if (model.typingCount >= phrase.length)
-      return [{ ...model, typed: phrase, typingDeleting: true }, [DelayTyping({ ms: 1400 })]]
-    const grown = model.typingCount + 1
-    return [
-      { ...model, typed: phrase.slice(0, grown), typingCount: grown },
-      [DelayTyping({ ms: 55 })],
-    ]
-  }
-  if (model.typingCount <= 0) {
-    const nextIndex = (model.typingIndex + 1) % PHRASES.length
-    return [
-      { ...model, typed: '', typingCount: 0, typingDeleting: false, typingIndex: nextIndex },
-      [DelayTyping({ ms: 300 })],
-    ]
-  }
-  const shrunk = model.typingCount - 1
-  return [
-    { ...model, typed: phrase.slice(0, shrunk), typingCount: shrunk },
-    [DelayTyping({ ms: 26 })],
-  ]
-}
 
 const clamp = (value: number, max: number): number =>
   Math.max(0, Math.min(max, value))
@@ -75,7 +41,6 @@ const update = (model: Model, message: Message): Step =>
   Match.value(message).pipe(
     Match.withReturnType<Step>(),
     Match.tagsExhaustive({
-      SelectedTab: ({ id }) => [{ ...model, activeTab: id }, []],
       SelectedStep: ({ step }) => [{ ...model, howStep: step }, []],
       Typed: ({ query }) => [{ ...model, query, focus: 0 }, []],
       MovedFocus: ({ delta, count }) => [
@@ -94,20 +59,14 @@ const update = (model: Model, message: Message): Step =>
         [DelayRotatorSettled()],
       ],
       RotatorSettled: () => [{ ...model, rotatorPhase: 'normal' }, [DelayRotateOut()]],
-      TypingTicked: () => tickTyping(model),
     }),
   )
 
 import './landing.css'
 
 const emptyModel: Model = {
-  activeTab: 'a-first-loom.loom',
   rotatorIndex: 0,
   rotatorPhase: 'normal',
-  typed: '',
-  typingIndex: 0,
-  typingCount: 0,
-  typingDeleting: false,
   howStep: 1,
   query: '',
   focus: 0,
@@ -128,7 +87,7 @@ const application = Runtime.makeApplication({
   Model,
   Flags: Model,
   flags,
-  init: (seed: Model): Step => [seed, [DelayRotateOut(), DelayTyping({ ms: 500 })]],
+  init: (seed: Model): Step => [seed, [DelayRotateOut()]],
   update,
   view,
   container: document.getElementById('root'),

@@ -17,13 +17,8 @@ import { type Model } from './model'
 const distDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist')
 
 const seed: Model = {
-  activeTab: 'a-first-loom.loom',
   rotatorIndex: 0,
   rotatorPhase: 'normal',
-  typed: '',
-  typingIndex: 0,
-  typingCount: 0,
-  typingDeleting: false,
   howStep: 1,
   query: '',
   focus: 0,

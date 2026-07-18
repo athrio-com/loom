@@ -6,7 +6,7 @@ Language: TypeScript
 
 # The client
 
-The client is the landing's update and its boot. Most messages change one field and run nothing. The exceptions are the ones that loop: copying a command flashes it and resets a moment later, and the rotating word and the typing line each drive themselves through a small chain of timed commands.
+The client is the landing's update and its boot. Most messages change one field and run nothing. The exceptions are the ones that loop: copying a command flashes it and resets a moment later, and the rotating word drives itself through a small chain of timed commands.
 
 ## The update return
 
@@ -27,14 +27,13 @@ import {
   RotatedIn,
   RotatedOut,
   RotatorSettled,
-  TypingTicked,
 } from './model'
 
 type Step = readonly [Model, ReadonlyArray<Command<Message>>]
 
 ## The timed commands
 
-Five commands carry the timers. Copying writes the text to the clipboard, waits out the flash, and resets — the write may fail on a browser that refuses the clipboard, so it flashes regardless. The rotator runs a three-command chain: fade the word out, swap it in, then settle and wait for the next turn. The typing line ticks on a delay it chooses each time, faster when deleting than when typing.
+Four commands carry the timers. Copying writes the text to the clipboard, waits out the flash, and resets — the write may fail on a browser that refuses the clipboard, so it flashes regardless. The rotator runs a three-command chain: fade the word out, swap it in, then settle and wait for the next turn.
 
 =>
 
@@ -56,49 +55,10 @@ const DelayRotateIn = define('DelayRotateIn', RotatedIn)(
 const DelayRotatorSettled = define('DelayRotatorSettled', RotatorSettled)(
   Effect.sleep('40 millis').pipe(Effect.as(RotatorSettled())),
 )
-const DelayTyping = define('DelayTyping', { ms: S.Number }, TypingTicked)(
-  ({ ms }) => Effect.sleep(`${ms} millis`).pipe(Effect.as(TypingTicked())),
-)
-
-## The typing line
-
-The typing line types a loom phrase to its end, holds a beat, deletes it, and moves to the next. Each tick reads the current phrase and where it is, shows one more or one fewer character, and schedules the next tick — a long pause at the end of a phrase, a short one between characters.
-
-=>
-
-const PHRASES = [
-  '::' + '[A friendly greeting]',
-  'greet("world")',
-]
-
-const tickTyping = (model: Model): Step => {
-  const phrase = PHRASES[model.typingIndex] ?? PHRASES[0]
-  if (!model.typingDeleting) {
-    if (model.typingCount >= phrase.length)
-      return [{ ...model, typed: phrase, typingDeleting: true }, [DelayTyping({ ms: 1400 })]]
-    const grown = model.typingCount + 1
-    return [
-      { ...model, typed: phrase.slice(0, grown), typingCount: grown },
-      [DelayTyping({ ms: 55 })],
-    ]
-  }
-  if (model.typingCount <= 0) {
-    const nextIndex = (model.typingIndex + 1) % PHRASES.length
-    return [
-      { ...model, typed: '', typingCount: 0, typingDeleting: false, typingIndex: nextIndex },
-      [DelayTyping({ ms: 300 })],
-    ]
-  }
-  const shrunk = model.typingCount - 1
-  return [
-    { ...model, typed: phrase.slice(0, shrunk), typingCount: shrunk },
-    [DelayTyping({ ms: 26 })],
-  ]
-}
 
 ## The update
 
-The plain messages set one field: the active tab, the selected step, the query, the focus clamped to the results. Copying flashes the pressed button and runs its reset. The rotator's three messages move it through its phases and hand off to the next command; the typing tick delegates to its own step.
+The plain messages set one field: the selected step, the query, the focus clamped to the results. Copying flashes the pressed button and runs its reset. The rotator's three messages move it through its phases and hand off to the next command.
 
 =>
 
@@ -109,7 +69,6 @@ const update = (model: Model, message: Message): Step =>
   Match.value(message).pipe(
     Match.withReturnType<Step>(),
     Match.tagsExhaustive({
-      SelectedTab: ({ id }) => [{ ...model, activeTab: id }, []],
       SelectedStep: ({ step }) => [{ ...model, howStep: step }, []],
       Typed: ({ query }) => [{ ...model, query, focus: 0 }, []],
       MovedFocus: ({ delta, count }) => [
@@ -128,26 +87,20 @@ const update = (model: Model, message: Message): Step =>
         [DelayRotatorSettled()],
       ],
       RotatorSettled: () => [{ ...model, rotatorPhase: 'normal' }, [DelayRotateOut()]],
-      TypingTicked: () => tickTyping(model),
     }),
   )
 
 ## Booting
 
-The client boots from a model — the one the server inlined on a real load, or a default in development. It starts the two loops in `init`: the rotator after its first turn, the typing line after a short delay. Importing the stylesheet here, in the browser entry, keeps it out of the server's path.
+The client boots from a model — the one the server inlined on a real load, or a default in development. It starts the rotator's loop in `init`, after its first turn. Importing the stylesheet here, in the browser entry, keeps it out of the server's path.
 
 =>
 
 import './landing.css'
 
 const emptyModel: Model = {
-  activeTab: 'a-first-loom.loom',
   rotatorIndex: 0,
   rotatorPhase: 'normal',
-  typed: '',
-  typingIndex: 0,
-  typingCount: 0,
-  typingDeleting: false,
   howStep: 1,
   query: '',
   focus: 0,
@@ -168,7 +121,7 @@ const application = Runtime.makeApplication({
   Model,
   Flags: Model,
   flags,
-  init: (seed: Model): Step => [seed, [DelayRotateOut(), DelayTyping({ ms: 500 })]],
+  init: (seed: Model): Step => [seed, [DelayRotateOut()]],
   update,
   view,
   container: document.getElementById('root'),
@@ -184,8 +137,6 @@ Runtime.run(application)
 ::[The update return]
 
 ::[The timed commands]
-
-::[The typing line]
 
 ::[The update]
 

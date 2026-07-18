@@ -94,7 +94,7 @@ const getStarted = (model: Model): Html =>
             [
               h.div(
                 [h.Class('sec-num')],
-                [h.span([h.Class('arrow')], ['▸']), ' 03 · GET STARTED'],
+                [h.span([h.Class('arrow')], ['▸']), ' 02 · GET STARTED'],
               ),
               h.div(
                 [],
@@ -188,7 +188,7 @@ const page = (model: Model): Html =>
     [],
     [
       titlebar(),
-      tabbar(model),
+      tabbar(),
       h.main([], [hero(model), middle(model), getStarted(model)]),
       footer(),
     ],

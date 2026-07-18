@@ -1,6 +1,6 @@
 import { Array } from 'effect'
 import type { Html } from 'foldkit/html'
-import { Copied, h, type Model, SelectedTab } from './model'
+import { Copied, h } from './model'
 
 const strokeIcon = (size: string, paths: ReadonlyArray<Html>): Html =>
   h.svg(
@@ -91,22 +91,6 @@ export const arrowIcon = (): Html =>
     ],
   )
 
-export const searchIcon = (): Html =>
-  h.svg(
-    [h.Width('13'), h.Height('13'), h.ViewBox('0 0 13 13'), h.Fill('none')],
-    [
-      h.path(
-        [
-          h.D('M2 6.5h9M6.5 2v9'),
-          h.Stroke('currentColor'),
-          h.StrokeWidth('1.4'),
-          h.StrokeLinecap('round'),
-        ],
-        [],
-      ),
-    ],
-  )
-
 export const copyButton = (props: {
   id: string
   text: string
@@ -126,13 +110,6 @@ export const copyButton = (props: {
     ],
   )
 }
-
-const NAV = [
-  { label: 'landing', href: '#', here: true },
-  { label: 'docs', href: '#' },
-  { label: 'annotations', href: '#' },
-  { label: 'devtools', href: '#' },
-]
 
 export const titlebar = (): Html =>
   h.div(
@@ -155,15 +132,6 @@ export const titlebar = (): Html =>
       h.div(
         [h.Class('right')],
         [
-          h.nav(
-            [h.Class('topnav')],
-            Array.map(NAV, (link) =>
-              h.a(
-                [h.Class(link.here ? 'here' : ''), h.Href(link.href)],
-                [link.label],
-              ),
-            ),
-          ),
           h.span([h.Class('live-dot'), h.Title('tangled')], []),
           h.span([], ['v0.9.0 · literate programming']),
           h.span([], [h.kbd([], ['⌘']), ' ', h.kbd([], ['K'])]),
@@ -172,18 +140,20 @@ export const titlebar = (): Html =>
     ],
   )
 
-const TABS = ['a-first-loom.loom', 'book.loom', 'classifier.loom', 'loom.json']
+const NAV = [
+  { label: 'landing', href: '#', here: true },
+  { label: 'docs', href: '#' },
+  { label: 'annotations', href: '#' },
+  { label: 'devtools', href: '#' },
+]
 
-export const tabbar = (model: Model): Html =>
-  h.div(
-    [h.Class('tabbar'), h.Role('tablist')],
-    Array.map(TABS, (file) =>
-      h.div(
-        [
-          h.Class(file === model.activeTab ? 'tab active' : 'tab'),
-          h.OnClick(SelectedTab({ id: file })),
-        ],
-        [h.span([h.Class('dot')], []), file],
+export const tabbar = (): Html =>
+  h.nav(
+    [h.Class('tabbar'), h.AriaLabel('Site')],
+    Array.map(NAV, (link) =>
+      h.a(
+        [h.Class(link.here ? 'tab active' : 'tab'), h.Href(link.href)],
+        [h.span([h.Class('dot')], []), link.label],
       ),
     ),
   )
