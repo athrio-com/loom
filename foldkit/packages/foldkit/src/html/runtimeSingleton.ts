@@ -1,4 +1,4 @@
-import type { Context } from 'effect'
+import { Context } from 'effect'
 
 import {
   type BoundaryId,
@@ -99,6 +99,26 @@ export const clearRuntime = (): void => {
     )
   }
   stack.pop()
+}
+
+/** Runs a view-building thunk within a fresh root frame and returns its
+ *  result. A view that embeds a Submodel reaches the frame through
+ *  `h.submodel`, which calls {@link getCurrentFrame}; outside the runtime —
+ *  server-side rendering, where the view is built once to be serialized —
+ *  there is no frame, and the embed would throw. This establishes a
+ *  throwaway one (a no-op dispatch, an empty context, a fresh boundary
+ *  registry), runs the thunk, and clears the frame even if it throws.
+ *
+ *  Dispatch never fires during a static render — no event handler runs when
+ *  a `VNode` is walked to text — so the no-op dispatch is safe, and the
+ *  registry it builds is discarded with the frame. */
+export const renderStatic = <A>(thunk: () => A): A => {
+  setRuntime(() => {}, Context.empty())
+  try {
+    return thunk()
+  } finally {
+    clearRuntime()
+  }
 }
 
 /** Returns the current dispatcher. For frames in the root boundary, this

@@ -6,6 +6,8 @@ export {
   submodel,
 } from './index.js'
 
+export { renderStatic } from './runtimeSingleton.js'
+
 export type {
   Attribute,
   ChildAttribute,

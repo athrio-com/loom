@@ -32,6 +32,14 @@ that, on the first render with server DOM present, reads that DOM through the
 strategy instead of building fresh. `@athrio/foldkit-hydration` supplies the
 strategy; the fork holds only the hook.
 
+The same SSR capability adds one more small export, `renderStatic` in
+`html/runtimeSingleton.ts` (re-exported from `foldkit/html`). It runs a
+view-building thunk inside a throwaway root frame so a view that embeds a
+Submodel can be built outside the runtime — server-side rendering, where the
+view is serialized rather than mounted. Without a frame, `h.submodel` throws;
+`renderStatic` establishes one, runs the thunk, and clears it. Like the
+hydration hook, it is a candidate to upstream.
+
 The rest of the delta is packaging, not logic: the export map serves
 `./src/*.ts` rather than a built `./dist`, adds `./vdom`, and `src/index.ts`
 drops the two `./test/*` re-exports (`Scene`, `Story`), since the test files are

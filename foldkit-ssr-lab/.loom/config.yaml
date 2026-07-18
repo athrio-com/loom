@@ -1,6 +1,0 @@
-languages:
-  typescript: {}
-corpus: corpus
-primary: typescript
-variables:
-  version: 0.0.1
