@@ -875,16 +875,18 @@ const popover = (model: Model, pending: Pending): Html =>
     ],
   )
 
-const view = (model: Model): Html =>
-  h.div(
+const view = (model: Model): Html => {
+  const pointing = model.picking || model.pending !== undefined
+  return h.div(
     [h.Class('pointer-events-none fixed inset-0 font-mono')],
     [
-      ...(model.collapsed ? [handle(model)] : [bar(model)]),
+      ...(pointing ? [] : model.collapsed ? [handle(model)] : [bar(model)]),
       ...(model.open && model.pending === undefined ? [panel(model)] : []),
       ...(model.picking && model.hover !== undefined ? [highlight(model.hover)] : []),
       ...(model.pending !== undefined ? [popover(model, model.pending)] : []),
     ],
   )
+}
 
 const overlayStyles = '__LOOM_NOTES_CSS__'
 

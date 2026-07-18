@@ -451,7 +451,9 @@ const subscriptions = Subscription.make<Model, Message>()((entry) => ({
 
 # Updating the model
 
-`update` returns the next model and any commands. Opening the card fetches the notes and scrolls to the latest; entering pick mode hides the card and leaves you pointing; either one brings a collapsed bar back first. Collapsing tucks the bar to its handle, closing the card and ending pick along the way. The card holds two tabs, the open notes and the resolved ones, and choosing one is all it takes to switch. Hovering tracks the highlight; a click captures an anchor, ends pick mode, and opens the popover on it; escape backs out of either.
+`update` returns the next model and any commands. Opening the card fetches the notes and scrolls to the latest; entering pick mode hides the card and leaves you pointing. Toggling either one first un-collapses the bar, since a collapsed handle can hold neither a card nor the tools pick mode needs. Collapsing tucks the bar to its handle instead, closing the card and ending pick along the way. The card holds two tabs, the open notes and the resolved ones, and choosing one is all it takes to switch. Hovering tracks the highlight; a click captures an anchor, ends pick mode, and opens the popover on it; escape backs out of either.
+
+The bar disappears completely, handle included, for as long as you are pointing — pick mode armed, or a captured element still waiting on its note. While you point at the page, nothing of the overlay's own chrome sits between the cursor and it. The bar returns, as the full bar, the moment you cancel the pick or send the note.
 
 The card scrolls to the latest note when it opens and when you send one, but not when you settle an older one. A pending-scroll flag draws that line: opening the card and sending a note raise it, and the next batch of notes that arrives scrolls to the foot and lowers it again, while resolving, discarding, or editing leaves it down. As you scroll the list, it reports whether it rests at the bottom, and the jump-to-latest arrow drops you back there.
 
@@ -770,7 +772,7 @@ const handle = (model: Model): Html => {
 
 The view layers over the page, and nothing in it catches a click unless it must.
 
-The bar spans the bottom of the screen, and the card rises above it at the right, growing with the thread up to most of the height of the screen before it scrolls. Collapsing the bar tucks it to the handle at the bottom edge. A highlight tracks the cursor while pick mode is on, wearing the tag of the element under it. A popover rises over a captured element to take its note, with its own send and a cancel to back out.
+The bar spans the bottom of the screen, and the card rises above it at the right, growing with the thread up to most of the height of the screen before it scrolls. Collapsing the bar tucks it to the handle at the bottom edge; pointing hides it entirely instead, bar and handle alike, since the whole point of pointing at the page is to see the page. A highlight tracks the cursor while pick mode is on, wearing the tag of the element under it. A popover rises over a captured element to take its note, with its own send and a cancel to back out.
 
 The card heads with two tabs, the open notes and the resolved ones, so the work to do stays apart from the work done; `tabButton` draws one, lit when it is the one you are on. `visibleNotes` keeps the notes the current tab shows, and a thin line divides one from the next.
 
@@ -979,16 +981,18 @@ const popover = (model: Model, pending: Pending): Html =>
     ],
   )
 
-const view = (model: Model): Html =>
-  h.div(
+const view = (model: Model): Html => {
+  const pointing = model.picking || model.pending !== undefined
+  return h.div(
     [h.Class('pointer-events-none fixed inset-0 font-mono')],
     [
-      ...(model.collapsed ? [handle(model)] : [bar(model)]),
+      ...(pointing ? [] : model.collapsed ? [handle(model)] : [bar(model)]),
       ...(model.open && model.pending === undefined ? [panel(model)] : []),
       ...(model.picking && model.hover !== undefined ? [highlight(model.hover)] : []),
       ...(model.pending !== undefined ? [popover(model, model.pending)] : []),
     ],
   )
+}
 
 # Mounting in a shadow root
 
