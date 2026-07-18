@@ -10,7 +10,7 @@ Language: TypeScript
 
 ## The tangler service
 
-`LoomTangler` holds the compiler and the filesystem. `writeFile` creates a target's directory and writes its content, returning the file it wrote. `tangleFile` asks the compiler to resolve one file's sinks — which fails with a `TangleError` if any module in the corpus carries an error — and writes each. `loomsUnder` lists every `.loom` source file beneath a directory, skipping the generated stores — `node_modules`, `dist`, `.git`, and the `.loom` activation store — so it never reads one as source. `loomsOf` resolves a path to the looms it covers: the looms under a directory, or the single file itself.
+`LoomTangler` holds the compiler and the filesystem. `writeFile` first checks whether the target already holds the tangled content, and only touches the file when it does not. A rerun that changes nothing then leaves the file's modified time alone, so a bundler's dev server watching it sees a real change only when the tangled content actually changed — not on every tangle regardless. When the content does differ, `writeFile` creates the target's directory and writes it, returning the file either way. `tangleFile` asks the compiler to resolve one file's sinks — which fails with a `TangleError` if any module in the corpus carries an error — and writes each. `loomsUnder` lists every `.loom` source file beneath a directory, skipping the generated stores — `node_modules`, `dist`, `.git`, and the `.loom` activation store — so it never reads one as source. `loomsOf` resolves a path to the looms it covers: the looms under a directory, or the single file itself.
 
 `tangle` tangles each loom a path covers and records the result. It writes every sink, then folds the paths it produced into the lock at the workspace root, so a file enters the lock the first time it is tangled and every file is written once.
 
@@ -30,14 +30,24 @@ export class LoomTangler extends Context.Service<LoomTangler>()('LoomTangler', {
     const compiler = yield* LoomCompiler
     const fs = yield* FileSystem.FileSystem
 
+    const matchesDisk = (file: TangledFile): Effect.Effect<boolean> =>
+      fs.readFileString(file.path).pipe(
+        Effect.option,
+        Effect.map(Option.contains(file.content)),
+      )
+
     const writeFile = (file: TangledFile): Effect.Effect<TangledFile> =>
-      fs
-        .makeDirectory(dirname(file.path), { recursive: true })
-        .pipe(
-          Effect.andThen(fs.writeFileString(file.path, file.content)),
-          Effect.orDie,
-          Effect.as(file),
-        )
+      matchesDisk(file).pipe(
+        Effect.flatMap((same) =>
+          same
+            ? Effect.void
+            : fs
+                .makeDirectory(dirname(file.path), { recursive: true })
+                .pipe(Effect.andThen(fs.writeFileString(file.path, file.content))),
+        ),
+        Effect.orDie,
+        Effect.as(file),
+      )
 
     const tangleFile = (
       entry: Path,
@@ -166,11 +176,11 @@ export class LoomTangler extends Context.Service<LoomTangler>()('LoomTangler', {
 
 ## What this module draws on
 
-It draws on `LoomCompiler` to resolve each file's sinks to content and target, gating a broken corpus with its `TangleError`. Effect's `FileSystem`, with Bun's path module, lists a directory's looms, writes each file, and reads and writes the lock. `Schema` decodes the lock from disk. From `LoomLock` come the lock's shape and the set algebra over it — `orphansOf`, `recorded`, and `pruned`, with `emptyLock` for a workspace that has tangled nothing. `workspaceRoot`, from the language store, finds the `.loom` directory a path belongs to, where the lock lives. Effect supplies the array and effect primitives. `TangledFile` is the resolved sink the compiler hands back, and `Path` a file path.
+It draws on `LoomCompiler` to resolve each file's sinks to content and target, gating a broken corpus with its `TangleError`. Effect's `FileSystem`, with Bun's path module, lists a directory's looms, reads a target back to compare it against what tangle would write, writes each file, and reads and writes the lock. `Option` carries whether that target already exists, since a first tangle finds nothing there to compare against. `Schema` decodes the lock from disk. From `LoomLock` come the lock's shape and the set algebra over it — `orphansOf`, `recorded`, and `pruned`, with `emptyLock` for a workspace that has tangled nothing. `workspaceRoot`, from the language store, finds the `.loom` directory a path belongs to, where the lock lives. Effect supplies the array and effect primitives. `TangledFile` is the resolved sink the compiler hands back, and `Path` a file path.
 
 =>
 
-import { Array, Context, Effect, FileSystem, Layer, Schema, pipe } from 'effect'
+import { Array, Context, Effect, FileSystem, Layer, Option, Schema, pipe } from 'effect'
 import { dirname, relative, resolve as resolvePath } from 'node:path'
 import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
 import { workspaceRoot } from '@athrio/loom-lang-services/LoomStore'

@@ -1,4 +1,4 @@
-import { Array, Context, Effect, FileSystem, Layer, Schema, pipe } from 'effect'
+import { Array, Context, Effect, FileSystem, Layer, Option, Schema, pipe } from 'effect'
 import { dirname, relative, resolve as resolvePath } from 'node:path'
 import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
 import { workspaceRoot } from '@athrio/loom-lang-services/LoomStore'
@@ -22,14 +22,24 @@ export class LoomTangler extends Context.Service<LoomTangler>()('LoomTangler', {
     const compiler = yield* LoomCompiler
     const fs = yield* FileSystem.FileSystem
 
+    const matchesDisk = (file: TangledFile): Effect.Effect<boolean> =>
+      fs.readFileString(file.path).pipe(
+        Effect.option,
+        Effect.map(Option.contains(file.content)),
+      )
+
     const writeFile = (file: TangledFile): Effect.Effect<TangledFile> =>
-      fs
-        .makeDirectory(dirname(file.path), { recursive: true })
-        .pipe(
-          Effect.andThen(fs.writeFileString(file.path, file.content)),
-          Effect.orDie,
-          Effect.as(file),
-        )
+      matchesDisk(file).pipe(
+        Effect.flatMap((same) =>
+          same
+            ? Effect.void
+            : fs
+                .makeDirectory(dirname(file.path), { recursive: true })
+                .pipe(Effect.andThen(fs.writeFileString(file.path, file.content))),
+        ),
+        Effect.orDie,
+        Effect.as(file),
+      )
 
     const tangleFile = (
       entry: Path,
