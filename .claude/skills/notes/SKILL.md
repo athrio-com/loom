@@ -1,6 +1,6 @@
 ---
 name: notes
-description: Check the Loom MCP for notes left on a running app and work through them. Use when the user says "check my notes", "check notes", "check the annotations", "review notes", or otherwise refers to feedback left through the Loom Notes overlay. Reads open notes per project over the Loom MCP tools and addresses each in order.
+description: Check the Loom MCP for notes left on a running app and work through them, or subscribe to be notified as new ones land. Use when the user says "check my notes", "check notes", "check the annotations", "review notes", "watch for notes", "subscribe to notes", or otherwise refers to feedback left through the Loom Notes overlay. Reads open notes per project over the Loom MCP tools and addresses each in order; for an ongoing watch, arms a Monitor on the daemon's live feed instead of polling.
 ---
 
 # Reviewing Loom Notes
@@ -17,6 +17,22 @@ The notes daemon serves the MCP at `http://localhost:5710/mcp`; a `.mcp.json` re
 Show what you find in the chat so the notes are on the record, then work from it.
 
 If the tools are not available, the daemon is not running or the MCP is not connected. Say so rather than guessing, and point to the fix: start it with `loom start` (default port `5710`), and make sure the project's `.mcp.json` carries `{ "type": "http", "url": "http://localhost:5710/mcp" }`.
+
+## Subscribing for notes as they land
+
+Reading the store once catches whatever is already there. When the user asks you to keep watching — or wraps this skill in `/loop` — the daemon can push new notes to you instead, so you are not stuck asking again on a timer.
+
+The daemon exposes `GET /notes/live?project=<id>`, upgraded to a WebSocket: hold it open and it writes each new note for that project as one JSON frame, the instant the note is recorded. Build the URL from the same host and port `.mcp.json` names for the MCP endpoint — swap `http` for `ws` and `/mcp` for `/notes/live` — since a project may run the daemon on a port other than the default `5710`.
+
+Arm a persistent Monitor on it, one per project you are watching:
+
+    Monitor({
+      ws: { url: "ws://localhost:5710/notes/live?project=<id>" },
+      persistent: true,
+      description: "New Loom notes on <id>",
+    })
+
+Each frame is one note, in the same shape a single entry from `notes` takes. Treat it exactly like a note found in the batch read below — understand it, act where you can, then `resolve` or `discard` it. The channel carries only what is published after you subscribe, so still call `notes` once at the start to pick up anything that landed first.
 
 ## Work through the open notes
 

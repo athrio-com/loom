@@ -187,21 +187,26 @@ const backfillProjects = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlErro
     ON CONFLICT (id) DO NOTHING
   `.pipe(Effect.asVoid)
 
-import { Context } from 'effect'
+import { Context, PubSub } from 'effect'
 
 export class NoteStore extends Context.Service<NoteStore>()('NoteStore', {
   make: Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient
     yield* migrate(sql)
     yield* backfillProjects(sql)
+    const changes = yield* PubSub.unbounded<Note>()
     return {
       list: (project: string) => readNotes(sql, project),
       record: (draft: Draft) =>
-        ensureProject(sql, draft.project).pipe(Effect.andThen(recordDraft(sql, draft))),
+        ensureProject(sql, draft.project).pipe(
+          Effect.andThen(recordDraft(sql, draft)),
+          Effect.tap((note) => PubSub.publish(changes, note)),
+        ),
       resolve: (project: string, seq: number) => resolveNote(sql, project, seq),
       edit: (project: string, seq: number, text: string) => editNote(sql, project, seq, text),
       discard: (project: string, seq: number) => discardNote(sql, project, seq),
       projects: listProjects(sql),
+      changes,
     } as const
   }).pipe(Effect.orDie),
 }) {

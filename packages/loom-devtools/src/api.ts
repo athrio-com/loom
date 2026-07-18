@@ -1,4 +1,4 @@
-import { Effect, Layer, Option, Schema } from 'effect'
+import { Effect, Layer, Option, PubSub, Schema } from 'effect'
 import {
   HttpRouter,
   HttpServerRequest,
@@ -84,6 +84,33 @@ const uiScript = HttpServerResponse.file(join(root, '..', 'dist', 'ui.js'), {
   ),
 )
 
+const live = Effect.gen(function* () {
+  const store = yield* NoteStore
+  const request = yield* HttpServerRequest.HttpServerRequest
+  const project = new URL(request.url, 'http://localhost').searchParams.get('project')
+  return yield* Option.match(Option.fromNullishOr(project), {
+    onNone: () => Effect.succeed(HttpServerResponse.text('project is required', { status: 400 })),
+    onSome: (found) =>
+      Effect.gen(function* () {
+        const socket = yield* request.upgrade
+        const write = yield* socket.writer
+        const subscription = yield* PubSub.subscribe(store.changes)
+        const pushMatching = Effect.forever(
+          PubSub.take(subscription).pipe(
+            Effect.flatMap((note) =>
+              note.project === found ? write(JSON.stringify(note)) : Effect.void,
+            ),
+          ),
+        )
+        yield* Effect.race(pushMatching, socket.run(() => Effect.void))
+        return HttpServerResponse.empty()
+      }).pipe(
+        Effect.catchCause((cause) => Effect.logDebug('a live notes socket closed', cause)),
+        Effect.as(HttpServerResponse.empty()),
+      ),
+  })
+})
+
 const handling = <R>(
   work: Effect.Effect<HttpServerResponse.HttpServerResponse, unknown, R>,
 ): Effect.Effect<HttpServerResponse.HttpServerResponse, never, R> =>
@@ -98,6 +125,7 @@ const handling = <R>(
 const routes = Layer.mergeAll(
   HttpRouter.add('POST', '/notes/capture', handling(capture)),
   HttpRouter.add('GET', '/notes/feed', handling(feed)),
+  HttpRouter.add('GET', '/notes/live', live),
   HttpRouter.add('POST', '/notes/resolve', handling(resolve)),
   HttpRouter.add('POST', '/notes/discard', handling(discard)),
   HttpRouter.add('POST', '/notes/edit', handling(edit)),

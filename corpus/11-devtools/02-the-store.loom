@@ -259,27 +259,34 @@ const backfillProjects = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlErro
 
 `NoteStore` is the service the server and the agent's tools reach for. Its `make` takes a SQL client from the context, migrates the schema, backfills the registry from any notes that predate it, then binds every operation to that one client. Recording a note ensures its project has a registry row first, so a note never lands under a project the registry has not seen. The `make` names no database of its own — it asks only for a SQL client — so the same store runs on either backing.
 
+Recording a note does one more thing: it publishes the stamped note to `changes`, an in-memory channel every request shares. A watcher subscribes to it and hears each note the moment it lands, so a reader of the store need not come back and ask again. The channel is not a second copy of the store's history — a subscriber who joins late gets nothing from before they joined, since the table, not the channel, is the record of everything already there.
+
 `NoteStore.layer` is the shared service's binding: it provides `PgLive`, so the store opens its own Postgres connection.
 
 Setting the store up is fatal when it fails: a migration or a backfill that a broken database rejects makes `make` die, so the service exits rather than serve from a store it never prepared. Once running, a query failure is an ordinary typed error the caller handles; only the startup is all-or-nothing.
 
 =>
 
-import { Context } from 'effect'
+import { Context, PubSub } from 'effect'
 
 export class NoteStore extends Context.Service<NoteStore>()('NoteStore', {
   make: Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient
     yield* migrate(sql)
     yield* backfillProjects(sql)
+    const changes = yield* PubSub.unbounded<Note>()
     return {
       list: (project: string) => readNotes(sql, project),
       record: (draft: Draft) =>
-        ensureProject(sql, draft.project).pipe(Effect.andThen(recordDraft(sql, draft))),
+        ensureProject(sql, draft.project).pipe(
+          Effect.andThen(recordDraft(sql, draft)),
+          Effect.tap((note) => PubSub.publish(changes, note)),
+        ),
       resolve: (project: string, seq: number) => resolveNote(sql, project, seq),
       edit: (project: string, seq: number, text: string) => editNote(sql, project, seq, text),
       discard: (project: string, seq: number) => discardNote(sql, project, seq),
       projects: listProjects(sql),
+      changes,
     } as const
   }).pipe(Effect.orDie),
 }) {

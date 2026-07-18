@@ -6,17 +6,17 @@ Language: TypeScript
 
 # The server
 
-The server is the edge the overlay and the agent talk to. It is a small Effect HTTP server that owns the store: it records a note, lists a project's notes, resolves, discards, and edits one, and hands out the overlay's own script. It carries the agent's tools too, mounted at `/mcp`, so one server answers both the browser and the coding agent. The CLI starts it on your machine; the overlay posts to it from wherever its app runs, and the agent connects to `/mcp`.
+The server is the edge the overlay and the agent talk to. It is a small Effect HTTP server that owns the store: it records a note, lists a project's notes, streams them live as they land, resolves, discards, and edits one, and hands out the overlay's own script. It carries the agent's tools too, mounted at `/mcp`, so one server answers both the browser and the coding agent. The CLI starts it on your machine; the overlay posts to it from wherever its app runs, and the agent connects to `/mcp`.
 
 The overlay runs on the app's own origin and the server on another, so every reply carries the cross-origin headers a browser asks for before it will let the two talk. That is the one thing the server adds around its answers; the answers themselves are the store's work, returned as JSON.
 
 # What the server draws on
 
-From `effect` come the schema that decodes a request body, `Option` for a missing query, and the effect and layer machinery. From `effect/unstable/http` come the router that dispatches a request to a handler, the request that handler reads, the responses it returns, and the cross-origin middleware. From `effect/unstable/ai` comes the MCP server that mounts the agent's tools on the router. `@effect/platform-bun` supplies the Bun HTTP server. Node's `path` and `url` locate the overlay script beside this file. The note module supplies the draft schema, the store module the service every handler reaches through, and the tools module the toolkit and handlers the mount registers.
+From `effect` come the schema that decodes a request body, `Option` for a missing query, `PubSub` for the channel the live route subscribes to, and the effect and layer machinery. From `effect/unstable/http` come the router that dispatches a request to a handler, the request that handler reads, the responses it returns, and the cross-origin middleware. From `effect/unstable/ai` comes the MCP server that mounts the agent's tools on the router. `@effect/platform-bun` supplies the Bun HTTP server. Node's `path` and `url` locate the overlay script beside this file. The note module supplies the draft schema, the store module the service every handler reaches through, and the tools module the toolkit and handlers the mount registers.
 
 =>
 
-import { Effect, Layer, Option, Schema } from 'effect'
+import { Effect, Layer, Option, PubSub, Schema } from 'effect'
 import {
   HttpRouter,
   HttpServerRequest,
@@ -126,6 +126,43 @@ const uiScript = HttpServerResponse.file(join(root, '..', 'dist', 'ui.js'), {
   ),
 )
 
+# Streaming notes as they land
+
+`live` is `feed`'s open-ended twin. `feed` answers once, with every note a project already has. `live` holds the connection open instead, and answers again each time a new one arrives. A request names its project the same way `feed`'s does; once one is named, `live` upgrades the connection to a socket, subscribes to the store's `changes`, and writes each note whose project matches as JSON — one frame per note, for as long as the connection lasts.
+
+The connection ends eventually — the reader closes the tab, or the network drops — and `socket.run` is what notices: it holds the socket open and resolves the moment the socket closes. Racing it against the loop that writes notes stops that loop the instant the socket does, so nothing keeps writing to a connection nobody is reading anymore.
+
+A closed socket is not a fault here; it is how almost every one of these connections ends. So `live` answers it at the quiet log level and closes out with an empty body, rather than the server error `handling` would send — there is no request left to answer with an error once the connection has already become a socket.
+
+=>
+
+const live = Effect.gen(function* () {
+  const store = yield* NoteStore
+  const request = yield* HttpServerRequest.HttpServerRequest
+  const project = new URL(request.url, 'http://localhost').searchParams.get('project')
+  return yield* Option.match(Option.fromNullishOr(project), {
+    onNone: () => Effect.succeed(HttpServerResponse.text('project is required', { status: 400 })),
+    onSome: (found) =>
+      Effect.gen(function* () {
+        const socket = yield* request.upgrade
+        const write = yield* socket.writer
+        const subscription = yield* PubSub.subscribe(store.changes)
+        const pushMatching = Effect.forever(
+          PubSub.take(subscription).pipe(
+            Effect.flatMap((note) =>
+              note.project === found ? write(JSON.stringify(note)) : Effect.void,
+            ),
+          ),
+        )
+        yield* Effect.race(pushMatching, socket.run(() => Effect.void))
+        return HttpServerResponse.empty()
+      }).pipe(
+        Effect.catchCause((cause) => Effect.logDebug('a live notes socket closed', cause)),
+        Effect.as(HttpServerResponse.empty()),
+      ),
+  })
+})
+
 # Catching a failed request
 
 Every route that touches the store runs through `handling`. It catches any failure a handler raises — a store `DbError`, a `DecodeError` from a corrupt row, a request body that will not decode — logs the cause to the devtools log, and answers with a server error. So a failed request is logged and answered, and the daemon serves the next rather than falling over: no request failure becomes a defect that stops it.
@@ -145,13 +182,14 @@ const handling = <R>(
 
 # The routes
 
-The router carries every route the browser and the agent reach. The overlay captures, lists, resolves, discards, and edits notes, renames its project, and asks for its own script — one route each. The root serves the setup page and `/ui.js` its application; those and the overlay script are static files, so they alone skip `handling`. The router answers any other request with a not-found of its own.
+The router carries every route the browser and the agent reach. The overlay captures, lists, resolves, discards, and edits notes, renames its project, and asks for its own script — one route each. `live` skips `handling` too, but for a different reason than the static files below. Once a request has upgraded to a socket, a fault is a closed connection, not a response `handling` could send, so `live` catches its own. The root serves the setup page and `/ui.js` its application; those and the overlay script are static files, with no store call that could fail, so they alone skip `handling` for the ordinary reason. The router answers any other request with a not-found of its own.
 
 =>
 
 const routes = Layer.mergeAll(
   HttpRouter.add('POST', '/notes/capture', handling(capture)),
   HttpRouter.add('GET', '/notes/feed', handling(feed)),
+  HttpRouter.add('GET', '/notes/live', live),
   HttpRouter.add('POST', '/notes/resolve', handling(resolve)),
   HttpRouter.add('POST', '/notes/discard', handling(discard)),
   HttpRouter.add('POST', '/notes/edit', handling(edit)),
@@ -217,6 +255,8 @@ export const notesServer = (
 ::[Recording and changing a note]
 
 ::[Listing notes and serving the overlay]
+
+::[Streaming notes as they land]
 
 ::[Catching a failed request]
 
