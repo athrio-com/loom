@@ -222,7 +222,7 @@ export const toVolar = (vc: LoomVirtualCode): VirtualCode => ({
   embeddedCodes: Array.map(vc.embeddedCodes, toVolar),
 })
 
-const ignoredDir = new Set(['node_modules', '.loom', 'dist', '.git'])
+export const ignoredDirs = new Set(['node_modules', '.loom', 'dist', '.git'])
 
 const entriesIn = (dir: Path): ReadonlyArray<Dirent> => {
   try {
@@ -237,7 +237,7 @@ export const loomsUnder = (dir: Path): ReadonlyArray<Path> =>
     const full = resolvePath(dir, entry.name)
     return Match.value(entry).pipe(
       Match.when(
-        (e) => ignoredDir.has(e.name),
+        (e) => ignoredDirs.has(e.name),
         (): ReadonlyArray<Path> => [],
       ),
       Match.when((e) => e.isDirectory(), () => loomsUnder(full)),

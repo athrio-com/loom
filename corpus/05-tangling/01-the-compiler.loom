@@ -538,11 +538,11 @@ export const toVolar = (vc: LoomVirtualCode): VirtualCode => ({
 
 `DocumentSource` is the compiler's disk seam. It reads a `.loom` file's text by path through Bun's synchronous `fs`, and fails with `ReadError` when the file cannot be read. The read is synchronous because the editor projects inside Volar's synchronous hook, which cannot await. The tangler injects this source; the editor injects one of its own.
 
-It also lists a directory's looms. `list` reads the directory tree under a corpus root and returns every `.loom` path in it, the file's siblings the compiler builds into one corpus. `loomsUnder` walks the tree itself, one directory at a time, so it can prune the generated and vendored directories a corpus never includes — `node_modules`, the `.loom` store, `dist`, and `.git` — rather than descend into them and filter after. `entriesIn` reads one directory's entries and lists nothing when it cannot be read, so a path outside any project still resolves to a corpus of one.
+It also lists a directory's looms. `list` reads the directory tree under a corpus root and returns every `.loom` path in it, the file's siblings the compiler builds into one corpus. `loomsUnder` walks the tree itself, one directory at a time, so it can prune the generated and vendored directories a corpus never includes rather than descend into them and filter after. `ignoredDirs` names them — `node_modules`, the `.loom` store, `dist`, and `.git` — and the tangler reuses the set, so every walk over a corpus skips exactly these. `entriesIn` reads one directory's entries and lists nothing when it cannot be read, so a path outside any project still resolves to a corpus of one.
 
 =>
 
-const ignoredDir = new Set(['node_modules', '.loom', 'dist', '.git'])
+export const ignoredDirs = new Set(['node_modules', '.loom', 'dist', '.git'])
 
 const entriesIn = (dir: Path): ReadonlyArray<Dirent> => {
   try {
@@ -557,7 +557,7 @@ export const loomsUnder = (dir: Path): ReadonlyArray<Path> =>
     const full = resolvePath(dir, entry.name)
     return Match.value(entry).pipe(
       Match.when(
-        (e) => ignoredDir.has(e.name),
+        (e) => ignoredDirs.has(e.name),
         (): ReadonlyArray<Path> => [],
       ),
       Match.when((e) => e.isDirectory(), () => loomsUnder(full)),

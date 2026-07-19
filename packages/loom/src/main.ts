@@ -1,9 +1,13 @@
-import { Console, Effect, Option } from 'effect'
+import { Console, Effect, Option, Result, Stream } from 'effect'
 import { Argument, Command, Flag, Prompt } from 'effect/unstable/cli'
 import { BunRuntime, BunServices } from '@effect/platform-bun'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
-import { DocumentSource } from '@athrio/loom-lang/LoomCompiler'
+import {
+  DocumentSource,
+  type TangledFile,
+  type TangleError,
+} from '@athrio/loom-lang/LoomCompiler'
 import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
 import { LoomWeaver } from '@athrio/loom-lang/weave/LoomWeaver'
 import { LoomContents } from '@athrio/loom-lang/weave/LoomContents'
@@ -35,17 +39,22 @@ const banner = Console.log(
   `\n${teal(wordmark)}\n   ${dim('a literate framework')}\n`,
 )
 
-const tangle = (file: string) =>
+const reportWritten = (
+  written: ReadonlyArray<TangledFile>,
+): Effect.Effect<void> =>
+  written.length === 0
+    ? Console.log('loom: no {path} sinks to tangle')
+    : Effect.forEach(
+        written,
+        (f) => Console.log(`loom: tangled ${f.section} → ${f.path}`),
+        { discard: true },
+      )
+
+const tangleOnce = (file: string) =>
   Effect.gen(function* () {
     const tangler = yield* LoomTangler
     const written = yield* tangler.tangle(resolvePath(process.cwd(), file))
-    if (written.length === 0) {
-      yield* Console.log('loom: no {path} sinks to tangle')
-    } else {
-      yield* Effect.forEach(written, (f) =>
-        Console.log(`loom: tangled ${f.section} → ${f.path}`),
-      )
-    }
+    yield* reportWritten(written)
   }).pipe(
     Effect.catchTag('TangleError', (e) =>
       Console.error(e.message).pipe(
@@ -53,6 +62,22 @@ const tangle = (file: string) =>
       ),
     ),
   )
+
+const tangleWatch = (file: string) =>
+  Effect.gen(function* () {
+    const tangler = yield* LoomTangler
+    yield* Console.log(`loom: watching ${file} — re-tangling on change`)
+    yield* Stream.runForEach(
+      tangler.watch(resolvePath(process.cwd(), file)),
+      Result.match({
+        onSuccess: reportWritten,
+        onFailure: (error: TangleError) => Console.error(error.message),
+      }),
+    )
+  })
+
+const tangle = (file: string, watch: boolean) =>
+  watch ? tangleWatch(file) : tangleOnce(file)
 
 const orphans = (prune: boolean) =>
   Effect.gen(function* () {
@@ -254,8 +279,8 @@ const set = (name: string, value: string) =>
 
 const tangleCommand = Command.make(
   'tangle',
-  { path: Argument.string('path') },
-  ({ path }) => tangle(path),
+  { path: Argument.string('path'), watch: Flag.boolean('watch') },
+  ({ path, watch }) => tangle(path, watch),
 )
 
 const orphansCommand = Command.make(

@@ -1,8 +1,9 @@
-import { Array, Context, Effect, FileSystem, Layer, Option, Schema, pipe } from 'effect'
+import { Array, Context, Effect, FileSystem, Layer, Option, Result, Schema, Stream, pipe } from 'effect'
 import { dirname, relative, resolve as resolvePath } from 'node:path'
 import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
 import { workspaceRoot } from '@athrio/loom-lang-services/LoomStore'
-import { LoomCompiler, type TangledFile, type TangleError } from './LoomCompiler'
+import { LoomCompiler, ignoredDirs, type TangledFile, type TangleError } from './LoomCompiler'
+import { PackageConfig } from './PackageConfig'
 import {
   emptyLock,
   orphansOf,
@@ -12,15 +13,14 @@ import {
   type LoomLock,
 } from './LoomLock'
 
-const ignoredSegment = new Set(['node_modules', '.loom', 'dist', '.git'])
-
 const isStorePath = (name: string): boolean =>
-  name.split('/').some((segment) => ignoredSegment.has(segment))
+  name.split('/').some((segment) => ignoredDirs.has(segment))
 
 export class LoomTangler extends Context.Service<LoomTangler>()('LoomTangler', {
   make: Effect.gen(function* () {
     const compiler = yield* LoomCompiler
     const fs = yield* FileSystem.FileSystem
+    const config = yield* PackageConfig
 
     const matchesDisk = (file: TangledFile): Effect.Effect<boolean> =>
       fs.readFileString(file.path).pipe(
@@ -158,7 +158,54 @@ export class LoomTangler extends Context.Service<LoomTangler>()('LoomTangler', {
         return Array.map(orphans, (rel) => resolvePath(root, rel))
       })
 
-    return { tangle, orphans, prune }
+    const batchWindow = '50 millis'
+    const batchLimit = 1000
+
+    const isLoomEvent = (event: FileSystem.WatchEvent): boolean =>
+      event.path.endsWith('.loom') && !isStorePath(event.path)
+
+    const watchRoot = (path: Path): Effect.Effect<Path> =>
+      fs.stat(path).pipe(
+        Effect.orDie,
+        Effect.flatMap((info) =>
+          info.type === 'Directory'
+            ? Effect.succeed(path)
+            : config.resolve(path).pipe(
+                Effect.map(({ corpusDir }) =>
+                  Option.getOrElse(Option.fromNullishOr(corpusDir), () => dirname(path)),
+                ),
+              ),
+        ),
+      )
+
+    const watch = (
+      path: Path,
+    ): Stream.Stream<Result.Result<ReadonlyArray<TangledFile>, TangleError>> =>
+      Stream.unwrap(
+        watchRoot(path).pipe(
+          Effect.map((root) =>
+            Stream.concat(
+              Stream.fromEffect(Effect.result(tangle(path))),
+              fs.watch(root).pipe(
+                Stream.filter(isLoomEvent),
+                Stream.groupedWithin(batchLimit, batchWindow),
+                Stream.mapEffect((events) =>
+                  Effect.forEach(
+                    Array.dedupe(
+                      Array.map(events, (event) => resolvePath(root, event.path)),
+                    ),
+                    (changed) => compiler.invalidate(changed),
+                    { discard: true },
+                  ).pipe(Effect.andThen(Effect.result(tangle(path)))),
+                ),
+                Stream.orDie,
+              ),
+            ),
+          ),
+        ),
+      )
+
+    return { tangle, orphans, prune, watch }
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make).pipe(
