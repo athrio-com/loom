@@ -1,6 +1,6 @@
 {
   "name": "@athrio/loom-lang",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "main": "./dist/loom-server.js",
   "bin": {
     "loom-language-server": "./bin/loom-language-server.js"
