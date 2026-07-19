@@ -11,7 +11,7 @@ export interface LoomDevtoolsOptions {
 
 const startDevtools = async (port: number, database: string): Promise<boolean> => {
   const { Effect, Exit, Fiber, Layer } = await import('effect')
-  const { BunServices } = await import('@effect/platform-bun')
+  const { NodeServices } = await import('@effect/platform-node')
   const { notesServer, devtoolsLogger } = await import('./api')
   const { sqliteStore } = await import('./store')
   mkdirSync(dirname(database), { recursive: true })
@@ -19,7 +19,7 @@ const startDevtools = async (port: number, database: string): Promise<boolean> =
   const fiber = Effect.runFork(
     Layer.launch(notesServer(port, sqliteStore(database))).pipe(
       Effect.provide(devtoolsLogger),
-      Effect.provide(BunServices.layer),
+      Effect.provide(NodeServices.layer),
     ),
   )
   const settled = await Effect.runPromise(
@@ -47,7 +47,7 @@ export const loomDevtools = (options: LoomDevtoolsOptions): Plugin => {
           return bound
         },
         (cause) => {
-          console.warn('[loom-devtools] could not start the Devtools — run Vite under Bun (`bun --bun vite`)', cause)
+          console.warn('[loom-devtools] could not start the Devtools', cause)
           return false
         },
       )

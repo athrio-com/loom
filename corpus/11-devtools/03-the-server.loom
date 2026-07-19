@@ -12,7 +12,7 @@ The overlay runs on the app's own origin and the server on another, so every rep
 
 # What the server draws on
 
-From `effect` come the schema that decodes a request body, `Option` for a missing query, `PubSub` for the channel the live route subscribes to, and the effect and layer machinery. From `effect/unstable/http` come the router that dispatches a request to a handler, the request that handler reads, the responses it returns, and the cross-origin middleware. From `effect/unstable/ai` comes the MCP server that mounts the agent's tools on the router. `@effect/platform-bun` supplies the Bun HTTP server. Node's `path` and `url` locate the overlay script beside this file. The note module supplies the draft schema, the store module the service every handler reaches through, and the tools module the toolkit and handlers the mount registers.
+From `effect` come the schema that decodes a request body, `Option` for a missing query, `PubSub` for the channel the live route subscribes to, and the effect and layer machinery. From `effect/unstable/http` come the router that dispatches a request to a handler, the request that handler reads, the responses it returns, and the cross-origin middleware. From `effect/unstable/ai` comes the MCP server that mounts the agent's tools on the router. `@effect/platform-node` supplies the Node HTTP server, which runs under Bun as well. Node's `http` opens the underlying server, and Node's `path` and `url` locate the overlay script beside this file. The note module supplies the draft schema, the store module the service every handler reaches through, and the tools module the toolkit and handlers the mount registers.
 
 =>
 
@@ -23,7 +23,8 @@ import {
   HttpServerResponse,
 } from 'effect/unstable/http'
 import { McpServer } from 'effect/unstable/ai'
-import { BunHttpServer } from '@effect/platform-bun'
+import { NodeHttpServer } from '@effect/platform-node'
+import { createServer } from 'node:http'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DraftSchema } from './note'
@@ -225,7 +226,7 @@ export const devtoolsLogger = Logger.layer([Logger.consoleLogFmt])
 
 # The server itself
 
-The application merges three layers on one router: the routes, the agent's tools at `/mcp`, and the cross-origin middleware that lets a browser on any origin call it. `notesServer` serves that application on a port, over a store and the Bun HTTP platform. The store is a parameter, defaulting to the shared service's Postgres; the Vite plugin passes its own SQLite store in its place, and the same server runs on either. It leaves the logger and Bun's platform to the runtime edge — the service entry or the plugin that launches it — the one place the platform is chosen.
+The application merges three layers on one router: the routes, the agent's tools at `/mcp`, and the cross-origin middleware that lets a browser on any origin call it. `notesServer` serves that application on a port, over a store and the Node HTTP platform. The store is a parameter, defaulting to the shared service's Postgres; the Vite plugin passes its own SQLite store in its place, and the same server runs on either. It leaves the logger and the platform to the runtime edge — the service entry or the plugin that launches it — the one place the platform is chosen.
 
 =>
 
@@ -241,7 +242,7 @@ export const notesServer = (
 ) =>
   HttpRouter.serve(app).pipe(
     Layer.provide(store),
-    Layer.provide(BunHttpServer.layer({ port })),
+    Layer.provide(NodeHttpServer.layer(() => createServer(), { port })),
   )
 
 # The module {Tangle}

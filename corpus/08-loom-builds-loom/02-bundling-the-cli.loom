@@ -6,11 +6,11 @@ Language: TypeScript
 
 # Bundling the Loom CLI
 
-Vite bundles the CLI program, the language server's TypeScript source, and Effect into a single `dist/main.js` module, adding a Bun shebang — a line that makes the file directly executable by Bun. The installed `loom` binary therefore carries no runtime dependencies and no TypeScript source to compile.
+Vite bundles the CLI program, the language server's TypeScript source, and Effect into a single `dist/main.js` module and adds a Node shebang, the line that makes the file directly executable. The installed `loom` binary therefore carries no runtime dependencies and no TypeScript source to compile.
 
 ## Vite build {Tangle}
 
-The `node:` built-in modules stay external: Bun supplies them at runtime, so the bundle need not carry them. The `bun` module stays external for the same reason — the platform adapter reaches the Bun runtime through it. Everything else, the language server's TypeScript source and Effect, is inlined into `dist/main.js`.
+The `node:` built-in modules stay external, since the runtime supplies them and the bundle need not carry them. Everything else — the language server's TypeScript source and Effect — is inlined into `dist/main.js`.
 
 The language server's `exports` field points to TypeScript source files rather than pre-compiled output. Bun runs these files directly, as do tools like `tsx` and code editors, with no compilation step. Vite inlines them at build time, so the published CLI is pure JavaScript. The `loom lsp` command pulls in the server, and with it Volar; some of Volar's dependencies — the `vscode-*-languageservice` packages and `jsonc-parser` — ship only UMD bundles the bundler cannot follow statically, so the `umd2esm` plugin rewrites each to its ESM sibling, the same trick the language-server build uses.
 
@@ -33,8 +33,6 @@ const nodeBuiltins = [
   ...builtinModules.map((m) => `node:${m}`),
 ]
 
-const bunBuiltins = ['bun', /^bun:/]
-
 const umd2esm = {
   name: 'umd2esm',
   enforce: 'pre' as const,
@@ -50,7 +48,7 @@ const umd2esm = {
 
 ~
 
-Vite's library mode builds a single entry point to `dist/main.js`. Bun runs the latest JavaScript, so the build targets `esnext` and down-levels nothing. The CLI package uses the ESM format — ECMAScript modules — so Vite emits an ESM bundle with a Bun shebang, making it directly executable. The VS Code extension runs in the editor's CommonJS host, so its Vite config emits that format instead.
+Vite's library mode builds a single entry point to `dist/main.js`. The bundle targets Node 20, so Node runs it directly and Bun, being Node-compatible, runs the same bundle unchanged. The CLI package uses the ESM format — ECMAScript modules — so Vite emits an ESM bundle with a `#!/usr/bin/env node` shebang, making it directly executable. The VS Code extension runs in the editor's CommonJS host, so its Vite config emits that format instead.
 
 =>
 
@@ -70,7 +68,7 @@ export default defineConfig({
     },
   },
   build: {
-    target: 'esnext',
+    target: 'node20',
     outDir: 'dist',
     emptyOutDir: true,
     sourcemap: true,
@@ -81,8 +79,8 @@ export default defineConfig({
       fileName: () => 'main.js',
     },
     rollupOptions: {
-      external: [...nodeBuiltins, ...bunBuiltins],
-      output: { banner: '#!/usr/bin/env bun' },
+      external: [...nodeBuiltins],
+      output: { banner: '#!/usr/bin/env node' },
     },
   },
 })

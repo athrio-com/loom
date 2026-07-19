@@ -1,6 +1,6 @@
 import { Console, Effect, Option, Result, Stream } from 'effect'
 import { Argument, Command, Flag, Prompt } from 'effect/unstable/cli'
-import { BunRuntime, BunServices } from '@effect/platform-bun'
+import { NodeRuntime, NodeServices } from '@effect/platform-node'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
 import {
@@ -350,7 +350,7 @@ const program = Command.run(loom, {
   Effect.provide(DocumentSource.layer),
   Effect.provide(PackageConfig.layer),
   Effect.provide(LoomConfig.layer),
-  Effect.provide(BunServices.layer),
+  Effect.provide(NodeServices.layer),
 )
 
 if (process.argv[2] === 'lsp') {
@@ -359,5 +359,5 @@ if (process.argv[2] === 'lsp') {
   const { startLanguageServer } = await import('@athrio/loom-lang/LoomServer')
   startLanguageServer()
 } else {
-  BunRuntime.runMain(program)
+  NodeRuntime.runMain(program)
 }

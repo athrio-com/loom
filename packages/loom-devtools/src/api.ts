@@ -5,7 +5,8 @@ import {
   HttpServerResponse,
 } from 'effect/unstable/http'
 import { McpServer } from 'effect/unstable/ai'
-import { BunHttpServer } from '@effect/platform-bun'
+import { NodeHttpServer } from '@effect/platform-node'
+import { createServer } from 'node:http'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DraftSchema } from './note'
@@ -155,5 +156,5 @@ export const notesServer = (
 ) =>
   HttpRouter.serve(app).pipe(
     Layer.provide(store),
-    Layer.provide(BunHttpServer.layer({ port })),
+    Layer.provide(NodeHttpServer.layer(() => createServer(), { port })),
   )

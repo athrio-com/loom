@@ -25,7 +25,6 @@
     "@athrio/loom-config": "workspace:*",
     "@athrio/loom-ast": "workspace:*",
     "@athrio/loom-lang-services": "workspace:*",
-    "@effect/platform-bun": "4.0.0-beta.97",
     "@volar/language-core": "^2.4.28",
     "@volar/language-server": "^2.4.28",
     "@volar/language-service": "^2.4.28",
@@ -37,6 +36,7 @@
   },
   "devDependencies": {
     "@athrio/loom-service-typescript": "workspace:*",
+    "@effect/platform-bun": "4.0.0-beta.97",
     "vscode-uri": "^3.1.0"
   }
 }

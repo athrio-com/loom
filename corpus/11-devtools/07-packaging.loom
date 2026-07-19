@@ -8,11 +8,11 @@ Language: TypeScript
 
 `@athrio/loom-devtools` is the Devtools service: the note schemas, the store, the HTTP API, the agent's tools, the browser overlay, and the Vite plugin that injects it — one package that runs as a standalone, self-hosted service. The schemas fix the shape a note takes, the contract the overlay speaks when it writes a note and the store speaks when it keeps one. The overlay is the panel a person annotates through, bundled because a browser cannot chase down Foldkit and Effect on its own, with its Tailwind stylesheet travelling into the shadow root beside it. The plugin is the native path for a Vite app: it injects the overlay's script the way the pasted tag does.
 
-The service runs from source under Bun rather than a bundle, so the package ships its resolved source and the built overlay together. Only the overlay is built ahead of time, into the one file a page loads. This chapter is the manifest, the two type configurations, the overlay's Tailwind input, and that build.
+The service runs from source rather than a bundle, so the package ships its resolved source alongside its built artifacts. The overlay is built into the one file a page loads, and the Vite plugin into a Node module a Node-hosted Vite can load. This chapter is the manifest, the two type configurations, the overlay's Tailwind input, and that build.
 
 ## The manifest {Tangle}[package.json]
 
-The manifest names the package and what it exports — the note schemas and the Vite plugin, the two modules a consumer reaches for. The store, the API, and the agent's tools are the service's own; a page reaches them over HTTP, not through an import. The service leans on Effect's SQL layer and the Postgres driver; the overlay on Foldkit, Effect, and `clsx`; the build on the Tailwind command line. The `build` script compiles the overlay; `serve` runs the service straight from source.
+The manifest names the package and what it exports — the note schemas and the Vite plugin, the two modules a consumer reaches for. The store, the API, and the agent's tools are the service's own; a page reaches them over HTTP, not through an import. The service runs on the Node platform, which Bun runs unchanged. Its store leans on Effect's SQL layer with three drivers — Postgres for the shared service, and `bun:sqlite` or `node:sqlite` for the Vite plugin's file, one per runtime. The overlay leans on Foldkit, Effect, and `clsx`, and the build, which runs under Bun, on the Tailwind command line. The `build` script compiles the overlay and the plugin; `serve` runs the service straight from source. The `./vite` export resolves to the plugin's source under Bun and to the built `dist/vite.js` under Node, so each runtime loads the form it runs.
 
 {{ version = ${version} }}
 
@@ -30,20 +30,25 @@ The manifest names the package and what it exports — the note schemas and the 
   },
   "exports": {
     "./note": "./src/note.ts",
-    "./vite": "./src/vite.ts"
+    "./vite": {
+      "bun": "./src/vite.ts",
+      "default": "./dist/vite.js"
+    }
   },
   "dependencies": {
     "foldkit": "workspace:*",
     "@effect/platform-browser": "4.0.0-beta.97",
-    "@effect/platform-bun": "4.0.0-beta.97",
+    "@effect/platform-node": "4.0.0-beta.97",
     "@effect/sql-pg": "4.0.0-beta.97",
     "@effect/sql-sqlite-bun": "4.0.0-beta.97",
+    "@effect/sql-sqlite-node": "4.0.0-beta.97",
     "effect": "4.0.0-beta.97",
     "clsx": "^2.1.1"
   },
   "devDependencies": {
     "@tailwindcss/cli": "^4.0.0",
     "tailwindcss": "^4.0.0",
+    "@effect/platform-bun": "4.0.0-beta.97",
     "@types/bun": "^1.3.14",
     "@types/node": "^25.9.3",
     "typescript": "^6.0.3",
@@ -53,7 +58,7 @@ The manifest names the package and what it exports — the note schemas and the 
 
 ## The browser configuration {Tangle}[tsconfig.json]
 
-The package holds code for two runtimes, and each needs its own view of the ambient types. The overlay and the note schemas run in a browser; the Vite plugin, the build, and the service run under Bun. The two runtimes disagree about one handle — `import.meta.hot`, the hot-reload handle a dev server exposes. Vite gives that handle a `send` method and event listeners that carry a payload; Bun gives it neither. One configuration cannot hold both shapes at once, so the package keeps two: this browser configuration, and the Bun configuration below.
+The package holds code for two runtimes, and each needs its own view of the ambient types. The overlay and the note schemas run in a browser; the Vite plugin and the service run under Node or Bun, and the build under Bun. The two runtimes disagree about one handle — `import.meta.hot`, the hot-reload handle a dev server exposes. Vite gives that handle a `send` method and event listeners that carry a payload; Bun gives it neither. One configuration cannot hold both shapes at once, so the package keeps two: this browser configuration, and the Bun configuration below.
 
 The browser configuration is the one the type checker reads by default, and it checks the overlay and the schemas. It loads no global type package of its own, taking the hot-reload handle's shape from a one-line reference file instead. So the overlay and the Foldkit runtime it imports read `import.meta.hot` the way Vite defines it.
 
@@ -151,7 +156,7 @@ One base rule earns its place. Tailwind draws a border's style from a `--tw-bord
 
 ## The build {Tangle}[build.ts]
 
-The build makes the one file a page loads. It compiles the overlay's Tailwind into a stylesheet, rewrites every `:root` to `:host` so the theme variables live inside the shadow root rather than the document, bundles the overlay into a single browser script, and splices the stylesheet into the `__LOOM_NOTES_CSS__` placeholder the overlay left for it. The stylesheet is escaped first, so quotes and newlines survive inside the string literal that carries it. It runs from a Bun runtime edge, the filesystem provided by Bun's services.
+The build produces the browser assets a page loads and the plugin a Node host loads. It compiles the overlay's Tailwind into a stylesheet, rewrites every `:root` to `:host` so the theme variables live inside the shadow root rather than the document, bundles the overlay into a single browser script, and splices the stylesheet into the `__LOOM_NOTES_CSS__` placeholder the overlay left for it. The stylesheet is escaped first, so quotes and newlines survive inside the string literal that carries it. It also bundles the Vite plugin into `dist/vite.js`, a Node module with the daemon's source inlined, so a Node-hosted Vite loads the plugin without following the extensionless imports only Bun resolves. It runs from a Bun runtime edge, the filesystem provided by Bun's services.
 
 =>
 
@@ -203,7 +208,19 @@ const program = Effect.gen(function* () {
   const uiBundle = yield* Effect.promise(() => uiBuilt.outputs[0].text())
   yield* fs.writeFileString(join(dist, 'ui.js'), uiBundle)
 
-  yield* Effect.log('built dist/overlay.js and dist/ui.js')
+  const pluginBuilt = yield* Effect.tryPromise(() =>
+    Bun.build({
+      entrypoints: [join(src, 'vite.ts')],
+      target: 'node',
+      packages: 'external',
+    }),
+  )
+  yield* fs.writeFileString(
+    join(dist, 'vite.js'),
+    yield* Effect.promise(() => pluginBuilt.outputs[0].text()),
+  )
+
+  yield* Effect.log('built dist/overlay.js, dist/ui.js, and dist/vite.js')
 }).pipe(Effect.provide(BunServices.layer))
 
 BunRuntime.runMain(program)

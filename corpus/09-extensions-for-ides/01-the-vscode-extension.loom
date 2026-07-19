@@ -7,9 +7,9 @@ Language: TypeScript
 
 # The Loom VS Code extension
 
-Loom runs on Bun — the CLI, the tangler, the tests. An editor is where it meets a runtime it does not choose: an IDE loads an extension into its own *host*, whose runtime is the editor's. VS Code's is Node, so this extension is the one place Node remains — everywhere else, Loom is a Bun program.
+Loom runs on Node and Bun alike — the CLI, the tangler, the tests. An editor is where it meets a runtime it does not choose: an IDE loads an extension into its own *host*, whose runtime is the editor's. VS Code's host is Node, so the extension and the Node language server it spawns run on a platform Loom already targets.
 
-The `loom-vscode` extension is Loom's client for that host. When VS Code opens a `.loom` file, the extension starts the Loom language server, `@athrio/loom-lang`, in a separate Node process and connects to it, so the server's diagnostics, hovers, and completions appear in the editor. The build bundles the server beside this client into the extension's `dist` directory. The same server, started by `loom lsp`, runs on Bun instead.
+The `loom-vscode` extension is Loom's client for that host. When VS Code opens a `.loom` file, the extension starts the Loom language server, `@athrio/loom-lang`, in a separate Node process and connects to it, so the server's diagnostics, hovers, and completions appear in the editor. The build bundles the server beside this client into the extension's `dist` directory. The `loom lsp` command starts the same server from the command line instead.
 
 ## What the client is built on
 

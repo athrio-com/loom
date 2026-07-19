@@ -11,6 +11,7 @@
     "dist"
   ],
   "engines": {
+    "node": ">=20",
     "bun": ">=1.2"
   },
   "repository": {
@@ -30,7 +31,7 @@
     "@athrio/loom-config": "workspace:*",
     "@athrio/loom-lang": "workspace:*",
     "@athrio/loom-lang-services": "workspace:*",
-    "@effect/platform-bun": "4.0.0-beta.97",
+    "@effect/platform-node": "4.0.0-beta.97",
     "effect": "4.0.0-beta.97",
     "vite": "^8.0.12"
   }

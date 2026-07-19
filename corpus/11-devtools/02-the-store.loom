@@ -295,15 +295,30 @@ export class NoteStore extends Context.Service<NoteStore>()('NoteStore', {
 
 # A SQLite file for the plugin
 
-The Vite plugin runs the same store over a SQLite file, so a Vite app carries the Devtools with no database to stand up. `sqliteStore` is that binding: it takes a filename, provides a Bun SQLite client that opens the file — and creates it when it is not there — and lays the store's `make` on top. The migrations that built the schema on Postgres build it on SQLite unchanged, because the store's SQL is the portable subset both dialects speak.
+The Vite plugin runs the same store over a SQLite file, so a Vite app carries the Devtools with no database to stand up. `sqliteStore` takes a filename and lays the store's `make` over a SQLite client that opens the file.
+
+Which client it opens with depends on the runtime. Bun and Node each ship their own SQLite — `bun:sqlite` and `node:sqlite` — and neither module loads on the other, so `sqliteClientLayer` imports the matching driver at runtime and never names the wrong one. Under Bun it opens the file with `@effect/sql-sqlite-bun`, creating the file when it is missing; under Node, with `@effect/sql-sqlite-node`. Either way the schema and its migrations are unchanged, because the store's SQL is the portable subset both the SQLite and the Postgres dialects speak.
 
 =>
 
-import { SqliteClient } from '@effect/sql-sqlite-bun'
+const sqliteClientLayer = (
+  filename: string,
+): Layer.Layer<SqlClient.SqlClient> =>
+  Layer.unwrap(
+    Effect.promise((): Promise<Layer.Layer<SqlClient.SqlClient>> =>
+      typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined'
+        ? import('@effect/sql-sqlite-bun').then((m) =>
+            m.SqliteClient.layer({ filename, create: true }),
+          )
+        : import('@effect/sql-sqlite-node').then((m) =>
+            m.SqliteClient.layer({ filename }),
+          ),
+    ),
+  )
 
 export const sqliteStore = (filename: string): Layer.Layer<NoteStore> =>
   Layer.effect(NoteStore, NoteStore.make).pipe(
-    Layer.provide(SqliteClient.layer({ filename, create: true })),
+    Layer.provide(sqliteClientLayer(filename)),
   )
 
 # The module {Tangle}

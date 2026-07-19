@@ -46,7 +46,19 @@ const program = Effect.gen(function* () {
   const uiBundle = yield* Effect.promise(() => uiBuilt.outputs[0].text())
   yield* fs.writeFileString(join(dist, 'ui.js'), uiBundle)
 
-  yield* Effect.log('built dist/overlay.js and dist/ui.js')
+  const pluginBuilt = yield* Effect.tryPromise(() =>
+    Bun.build({
+      entrypoints: [join(src, 'vite.ts')],
+      target: 'node',
+      packages: 'external',
+    }),
+  )
+  yield* fs.writeFileString(
+    join(dist, 'vite.js'),
+    yield* Effect.promise(() => pluginBuilt.outputs[0].text()),
+  )
+
+  yield* Effect.log('built dist/overlay.js, dist/ui.js, and dist/vite.js')
 }).pipe(Effect.provide(BunServices.layer))
 
 BunRuntime.runMain(program)

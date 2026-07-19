@@ -213,9 +213,22 @@ export class NoteStore extends Context.Service<NoteStore>()('NoteStore', {
   static readonly layer = Layer.effect(this, this.make).pipe(Layer.provide(PgLive))
 }
 
-import { SqliteClient } from '@effect/sql-sqlite-bun'
+const sqliteClientLayer = (
+  filename: string,
+): Layer.Layer<SqlClient.SqlClient> =>
+  Layer.unwrap(
+    Effect.promise((): Promise<Layer.Layer<SqlClient.SqlClient>> =>
+      typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined'
+        ? import('@effect/sql-sqlite-bun').then((m) =>
+            m.SqliteClient.layer({ filename, create: true }),
+          )
+        : import('@effect/sql-sqlite-node').then((m) =>
+            m.SqliteClient.layer({ filename }),
+          ),
+    ),
+  )
 
 export const sqliteStore = (filename: string): Layer.Layer<NoteStore> =>
   Layer.effect(NoteStore, NoteStore.make).pipe(
-    Layer.provide(SqliteClient.layer({ filename, create: true })),
+    Layer.provide(sqliteClientLayer(filename)),
   )

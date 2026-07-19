@@ -11,8 +11,6 @@ const nodeBuiltins = [
   ...builtinModules.map((m) => `node:${m}`),
 ]
 
-const bunBuiltins = ['bun', /^bun:/]
-
 const umd2esm = {
   name: 'umd2esm',
   enforce: 'pre' as const,
@@ -42,7 +40,7 @@ export default defineConfig({
     },
   },
   build: {
-    target: 'esnext',
+    target: 'node20',
     outDir: 'dist',
     emptyOutDir: true,
     sourcemap: true,
@@ -53,8 +51,8 @@ export default defineConfig({
       fileName: () => 'main.js',
     },
     rollupOptions: {
-      external: [...nodeBuiltins, ...bunBuiltins],
-      output: { banner: '#!/usr/bin/env bun' },
+      external: [...nodeBuiltins],
+      output: { banner: '#!/usr/bin/env node' },
     },
   },
 })
