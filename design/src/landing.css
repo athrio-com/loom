@@ -369,6 +369,14 @@ section.s {
   text-wrap: pretty;
 }
 
+.how-head {
+  display: grid;
+  grid-template-columns: 240px 1fr 1fr;
+  gap: 40px;
+  margin-bottom: 56px;
+}
+@media (max-width: 980px) { .how-head { grid-template-columns: 1fr; gap: 24px; } }
+
 .how-grid {
   display: grid;
   grid-template-columns: 280px 1fr;

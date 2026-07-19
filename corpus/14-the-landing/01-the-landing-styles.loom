@@ -418,9 +418,17 @@ section.s {
 
 ## How it works — the file tree and steps
 
-The how-it-works section pairs a file tree with a detail panel: click a loom in the tree and the panel shows that step of the pipeline — write, compose, tangle, read — with a code preview. A directory row wears a rotated cyan bullet; the active file a mint one.
+The section heads with its number and words beside a complete example, in a three-column row of its own — the how-grid below it is a second, narrower pairing: a file tree with a detail panel. Click a loom in the tree and the panel shows that step of the pipeline — write, compose, tangle, read — with a code preview. A directory row wears a rotated cyan bullet; the active file a mint one.
 
 =>
+
+.how-head {
+  display: grid;
+  grid-template-columns: 240px 1fr 1fr;
+  gap: 40px;
+  margin-bottom: 56px;
+}
+@media (max-width: 980px) { .how-head { grid-template-columns: 1fr; gap: 24px; } }
 
 .how-grid {
   display: grid;

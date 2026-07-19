@@ -6,7 +6,70 @@ Language: TypeScript
 
 # How it works
 
-The middle of the page walks the pipeline — write, compose, tangle, read — through a file tree the reader clicks, and closes with a command palette that searches the book.
+The middle of the page opens on a complete loom, tokenised beside the section's own words, then walks the pipeline that produces one — write, compose, tangle, read — through a file tree the reader clicks, and closes with a command palette that searches the book.
+
+## The editor, in tokens
+
+The editor panel shows a loom document token by token — a heading, the prose beside it, the code it describes, and the `{Tangle}` and anchor marks that compose it. A small `tk` names one coloured token; the document is those tokens with the whitespace between them, kept literal because the panel preserves it. The last line shows the anchor that draws the greeting in, set once rather than typed, so the panel reads as a still frame of a real editor.
+
+=>
+
+const tk = (cls: string, text: string): Html => h.span([h.Class(cls)], [text])
+
+const editorCode: ReadonlyArray<Html | string> = [
+  tk('pun', '---'),
+  '\n',
+  tk('k', 'Language:'), ' ', tk('ty', 'TypeScript'),
+  '\n',
+  tk('k', 'Package:'), ' ', tk('ty', 'src/greeter.ts'),
+  '\n',
+  tk('pun', '---'),
+  '\n\n',
+  tk('op', '#'), ' ', tk('hd', 'A friendly greeting'),
+  '\n\n',
+  tk('pr', 'A greeter turns a name into a line to say back.'),
+  '\n\n',
+  tk('op', '=>'),
+  '\n\n',
+  tk('k', 'export'), ' ', tk('k', 'const'), ' ', tk('id', 'greet'), ' ',
+  tk('pun', '= ('), tk('id', 'name'), tk('pun', ':'), ' ', tk('ty', 'string'), tk('pun', ') =>'),
+  '\n',
+  '  ', tk('str', '`Hello, ${name}.`'),
+  '\n\n',
+  tk('op', '#'), ' ', tk('hd', 'The module'), ' ', tk('op', '{Tangle}'),
+  '\n\n',
+  h.span([h.Class('glow')], ['::' + '[A friendly greeting]']),
+]
+
+## The editor panel
+
+The panel wraps the document in an editor frame: a head naming the file, a gutter of line numbers, and the tokenised code beside it. The gutter counts the document's seventeen lines.
+
+=>
+
+const gutter = Array.makeBy(17, (index) => String(index + 1)).join('\n')
+
+const editorPanel = (): Html =>
+  h.div(
+    [h.Class('panel'), h.AriaHidden(true)],
+    [
+      h.div(
+        [h.Class('panel-head')],
+        [
+          h.span([h.Class('dot')], []),
+          h.span([], ['~/loom/greeter/a-first-loom.loom']),
+          h.span([h.Class('right')], ['UTF-8 · LF · 17 lines']),
+        ],
+      ),
+      h.div(
+        [h.Class('editor')],
+        [
+          h.div([h.Class('gutter-col')], [gutter]),
+          h.div([h.Class('code')], editorCode),
+        ],
+      ),
+    ],
+  )
 
 ## The pipeline steps
 
@@ -303,7 +366,7 @@ const palette = (model: Model): Html => {
 
 ## The how-it-works section
 
-The section heads with its number and title, lays the file tree beside the detail panel, and closes with the palette.
+The section heads with its number, its words, and the complete example beside them in one row. Below that row, the file tree pairs with the detail panel, and the palette closes the section out.
 
 =>
 
@@ -315,7 +378,7 @@ const howItWorks = (model: Model): Html =>
         [h.Class('wrap')],
         [
           h.div(
-            [h.Class('sec-head')],
+            [h.Class('how-head')],
             [
               h.div(
                 [h.Class('sec-num')],
@@ -324,7 +387,7 @@ const howItWorks = (model: Model): Html =>
               h.div(
                 [],
                 [
-                  h.h2([h.Class('sec-h')], ['Written to be read.']),
+                  h.h2([h.Class('sec-h')], ['Built for reading and narrative development experience.']),
                   h.p(
                     [h.Class('sec-lede')],
                     [
@@ -338,6 +401,7 @@ const howItWorks = (model: Model): Html =>
                   ),
                 ],
               ),
+              editorPanel(),
             ],
           ),
           h.div([h.Class('how-grid')], [fileTree(model), stepDetail(model)]),
@@ -349,11 +413,15 @@ const howItWorks = (model: Model): Html =>
 
 ## The module {Tangle}[middle.ts]
 
-The module is the pipeline steps and the tree and detail that show them, the book search, and the section that gathers them.
+The module is the complete example shown in tokens and framed, the pipeline steps and the tree and detail that show them, the book search, and the section that gathers them.
 
 =>
 
 ::[The pipeline steps]
+
+::[The editor, in tokens]
+
+::[The editor panel]
 
 ::[The file tree]
 

@@ -48,6 +48,57 @@ const STEPS: ReadonlyArray<Step> = [
   },
 ]
 
+const tk = (cls: string, text: string): Html => h.span([h.Class(cls)], [text])
+
+const editorCode: ReadonlyArray<Html | string> = [
+  tk('pun', '---'),
+  '\n',
+  tk('k', 'Language:'), ' ', tk('ty', 'TypeScript'),
+  '\n',
+  tk('k', 'Package:'), ' ', tk('ty', 'src/greeter.ts'),
+  '\n',
+  tk('pun', '---'),
+  '\n\n',
+  tk('op', '#'), ' ', tk('hd', 'A friendly greeting'),
+  '\n\n',
+  tk('pr', 'A greeter turns a name into a line to say back.'),
+  '\n\n',
+  tk('op', '=>'),
+  '\n\n',
+  tk('k', 'export'), ' ', tk('k', 'const'), ' ', tk('id', 'greet'), ' ',
+  tk('pun', '= ('), tk('id', 'name'), tk('pun', ':'), ' ', tk('ty', 'string'), tk('pun', ') =>'),
+  '\n',
+  '  ', tk('str', '`Hello, ${name}.`'),
+  '\n\n',
+  tk('op', '#'), ' ', tk('hd', 'The module'), ' ', tk('op', '{Tangle}'),
+  '\n\n',
+  h.span([h.Class('glow')], ['::' + '[A friendly greeting]']),
+]
+
+const gutter = Array.makeBy(17, (index) => String(index + 1)).join('\n')
+
+const editorPanel = (): Html =>
+  h.div(
+    [h.Class('panel'), h.AriaHidden(true)],
+    [
+      h.div(
+        [h.Class('panel-head')],
+        [
+          h.span([h.Class('dot')], []),
+          h.span([], ['~/loom/greeter/a-first-loom.loom']),
+          h.span([h.Class('right')], ['UTF-8 · LF · 17 lines']),
+        ],
+      ),
+      h.div(
+        [h.Class('editor')],
+        [
+          h.div([h.Class('gutter-col')], [gutter]),
+          h.div([h.Class('code')], editorCode),
+        ],
+      ),
+    ],
+  )
+
 const treeRow = (step: Step, index: number, active: number): Html =>
   h.div(
     [
@@ -269,7 +320,7 @@ const howItWorks = (model: Model): Html =>
         [h.Class('wrap')],
         [
           h.div(
-            [h.Class('sec-head')],
+            [h.Class('how-head')],
             [
               h.div(
                 [h.Class('sec-num')],
@@ -278,7 +329,7 @@ const howItWorks = (model: Model): Html =>
               h.div(
                 [],
                 [
-                  h.h2([h.Class('sec-h')], ['Written to be read.']),
+                  h.h2([h.Class('sec-h')], ['Built for reading and narrative development experience.']),
                   h.p(
                     [h.Class('sec-lede')],
                     [
@@ -292,6 +343,7 @@ const howItWorks = (model: Model): Html =>
                   ),
                 ],
               ),
+              editorPanel(),
             ],
           ),
           h.div([h.Class('how-grid')], [fileTree(model), stepDetail(model)]),

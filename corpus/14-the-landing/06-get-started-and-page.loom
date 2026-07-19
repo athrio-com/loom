@@ -6,7 +6,7 @@ Language: TypeScript
 
 # Get started and the page
 
-The last section shows the reader how to begin — a workspace config beside three commands to a first tangle — and the footer closes the page. This chapter builds both, then assembles the whole document: the chrome, the sections, and the footer.
+The last section shows the reader what a workspace looks like once they have begun — a config beside the way to go deeper — and the footer closes the page. This chapter builds both, then assembles the whole document: the chrome, the sections, and the footer.
 
 ## The config panel
 
@@ -16,7 +16,7 @@ The config panel shows a workspace `loom.json` the way an editor would, keys in 
 
 import { Array } from 'effect'
 import type { Document, Html } from 'foldkit/html'
-import { arrowIcon, copyButton, tabbar, titlebar } from './components'
+import { arrowIcon, tabbar, titlebar } from './components'
 import { hero } from './hero'
 import { middle } from './middle'
 import { h, type Model } from './model'
@@ -56,57 +56,24 @@ const configPanel = (): Html =>
     ],
   )
 
-## The quick start
+## Reading further
 
-The quick start is a terminal of three commands — install, scaffold, tangle — each with a copy button, and a result line beneath confirming the tangle wrote real source. The copy buttons share the model's `copied` field, so only the pressed one flashes.
+The three commands to reach this workspace already ran, at the top of the page. Beside the config sits the way to go further: read the book, or browse the source directly.
 
 =>
 
-const qsLine = (id: string, command: string, copied: string): Html =>
+const signupRight = (): Html =>
   h.div(
-    [h.Class('qs-line')],
+    [h.Class('actions')],
     [
-      h.span([h.Class('qs-prompt')], ['$']),
-      h.code([], [command]),
-      copyButton({ id, text: command, copied }),
-    ],
-  )
-
-const signupRight = (model: Model): Html =>
-  h.div(
-    [],
-    [
-      h.div([h.Class('form-label')], ['$ three commands to your first tangle']),
-      h.div(
-        [h.Class('quickstart')],
-        [
-          qsLine('qs-install', 'bun add -g @athrio/loom-cli', model.copied),
-          qsLine('qs-new', 'loom new greeter', model.copied),
-          qsLine('qs-tangle', 'loom tangle', model.copied),
-          h.div(
-            [h.Class('qs-out')],
-            [
-              h.span([h.Class('ok')], ['✓']),
-              ' wrote ',
-              h.span([h.Class('path')], ['src/greeter.ts']),
-              ' — prose left no trace.',
-            ],
-          ),
-        ],
-      ),
-      h.div(
-        [h.Class('actions'), h.Style({ marginTop: '24px' })],
-        [
-          h.a([h.Class('btn primary'), h.Href('#')], ['Read the book', arrowIcon()]),
-          h.a([h.Class('btn'), h.Href('#')], ['Browse the source']),
-        ],
-      ),
+      h.a([h.Class('btn primary'), h.Href('#')], ['Read the book', arrowIcon()]),
+      h.a([h.Class('btn'), h.Href('#')], ['Browse the source']),
     ],
   )
 
 ## The get-started section
 
-The section heads with its number and title, then lays the config beside the quick start.
+The section heads with its number and title, then lays the config beside the way to read further.
 
 =>
 
@@ -134,14 +101,14 @@ const getStarted = (model: Model): Html =>
                   h.p(
                     [h.Class('sec-lede')],
                     [
-                      'Install the CLI, scaffold a loom, tangle it to source. Three commands — then read the whole book to go further.',
+                      'What those commands produce is one workspace config, shown here. From there, the whole book goes further.',
                     ],
                   ),
                 ],
               ),
             ],
           ),
-          h.div([h.Class('signup')], [configPanel(), signupRight(model)]),
+          h.div([h.Class('signup')], [configPanel(), signupRight()]),
         ],
       ),
     ],
@@ -241,13 +208,13 @@ export const view = (model: Model): Document => ({
 
 ## The module {Tangle}[view.ts]
 
-The module is the config panel, the quick start beside it, the get-started section they fill, the footer, and the page that assembles the whole document.
+The module is the config panel, the way to read further beside it, the get-started section they fill, the footer, and the page that assembles the whole document.
 
 =>
 
 ::[The config panel]
 
-::[The quick start]
+::[Reading further]
 
 ::[The get-started section]
 

@@ -63,7 +63,7 @@ const pitch = (model: Model): Html =>
             [h.Class('cmd-line'), h.Title('Copy the install command')],
             [
               h.span([h.Class('prompt')], ['$']),
-              h.code([], ['bun add -g @athrio/loom-cli']),
+              h.code([], ['bun add -g @athrio/loom']),
               copyButton({
                 id: 'install',
                 text: 'bun add -g @athrio/loom-cli',
@@ -89,52 +89,43 @@ const pitch = (model: Model): Html =>
     ],
   )
 
-const tk = (cls: string, text: string): Html => h.span([h.Class(cls)], [text])
-
-const editorCode: ReadonlyArray<Html | string> = [
-  tk('pun', '---'),
-  '\n',
-  tk('k', 'Language:'), ' ', tk('ty', 'TypeScript'),
-  '\n',
-  tk('k', 'Package:'), ' ', tk('ty', 'src/greeter.ts'),
-  '\n',
-  tk('pun', '---'),
-  '\n\n',
-  tk('op', '#'), ' ', tk('hd', 'A friendly greeting'),
-  '\n\n',
-  tk('pr', 'A greeter turns a name into a line to say back.'),
-  '\n\n',
-  tk('op', '=>'),
-  '\n\n',
-  tk('k', 'export'), ' ', tk('k', 'const'), ' ', tk('id', 'greet'), ' ',
-  tk('pun', '= ('), tk('id', 'name'), tk('pun', ':'), ' ', tk('ty', 'string'), tk('pun', ') =>'),
-  '\n',
-  '  ', tk('str', '`Hello, ${name}.`'),
-  '\n\n',
-  tk('op', '#'), ' ', tk('hd', 'The module'), ' ', tk('op', '{Tangle}'),
-  '\n\n',
-  h.span([h.Class('glow')], ['::' + '[A friendly greeting]']),
-]
-
-const gutter = Array.makeBy(17, (index) => String(index + 1)).join('\n')
-
-const editorPanel = (): Html =>
+const qsLine = (id: string, command: string, copied: string): Html =>
   h.div(
-    [h.Class('panel'), h.AriaHidden(true)],
+    [h.Class('qs-line')],
+    [
+      h.span([h.Class('qs-prompt')], ['$']),
+      h.code([], [command]),
+      copyButton({ id, text: command, copied }),
+    ],
+  )
+
+const quickstart = (model: Model): Html =>
+  h.div(
+    [h.Class('panel')],
     [
       h.div(
         [h.Class('panel-head')],
         [
           h.span([h.Class('dot')], []),
-          h.span([], ['~/loom/greeter/a-first-loom.loom']),
-          h.span([h.Class('right')], ['UTF-8 · LF · 17 lines']),
+          h.span([], ['~/greeter']),
+          h.span([h.Class('right')], ['zero to tangled']),
         ],
       ),
       h.div(
-        [h.Class('editor')],
+        [h.Class('quickstart'), h.Style({ padding: '14px' })],
         [
-          h.div([h.Class('gutter-col')], [gutter]),
-          h.div([h.Class('code')], editorCode),
+          qsLine('qs-install', 'bun add -g @athrio/loom-cli', model.copied),
+          qsLine('qs-new', 'loom new greeter', model.copied),
+          qsLine('qs-tangle', 'loom tangle', model.copied),
+          h.div(
+            [h.Class('qs-out')],
+            [
+              h.span([h.Class('ok')], ['✓']),
+              ' wrote ',
+              h.span([h.Class('path')], ['src/greeter.ts']),
+              ' — prose left no trace.',
+            ],
+          ),
         ],
       ),
     ],
@@ -146,7 +137,7 @@ export const hero = (model: Model): Html =>
     [
       h.div(
         [h.Class('wrap')],
-        [h.div([h.Class('hero-grid')], [pitch(model), editorPanel()])],
+        [h.div([h.Class('hero-grid')], [pitch(model), quickstart(model)])],
       ),
     ],
   )

@@ -6,7 +6,7 @@ Language: TypeScript
 
 # The hero
 
-The hero is the first screen. On the left it makes the pitch — a meta line, a large headline whose last word rotates, a lede, an install command, and the calls to action. On the right it shows the thing itself: a live editor panel holding a real loom document, syntax-highlighted, with the anchor that draws the greeting in on its last line.
+The hero is the first screen. On the left it makes the pitch — a meta line, a large headline whose last word rotates, a lede, an install command, and the calls to action. On the right it gives the fastest way in: the three commands from install to a first tangle, each with its own copy button, so a reader ready to move can start before they scroll any further.
 
 ## The rotating headline
 
@@ -85,7 +85,7 @@ const pitch = (model: Model): Html =>
             [h.Class('cmd-line'), h.Title('Copy the install command')],
             [
               h.span([h.Class('prompt')], ['$']),
-              h.code([], ['bun add -g @athrio/loom-cli']),
+              h.code([], ['bun add -g @athrio/loom']),
               copyButton({
                 id: 'install',
                 text: 'bun add -g @athrio/loom-cli',
@@ -111,64 +111,49 @@ const pitch = (model: Model): Html =>
     ],
   )
 
-## The editor, in tokens
+## The quick start
 
-The editor panel shows a loom document token by token — a heading, the prose beside it, the code it describes, and the `{Tangle}` and anchor marks that compose it. A small `tk` names one coloured token; the document is those tokens with the whitespace between them, kept literal because the panel preserves it. The last line shows the anchor that draws the greeting in, set once rather than typed, so the panel reads as a still frame of a real editor.
-
-=>
-
-const tk = (cls: string, text: string): Html => h.span([h.Class(cls)], [text])
-
-const editorCode: ReadonlyArray<Html | string> = [
-  tk('pun', '---'),
-  '\n',
-  tk('k', 'Language:'), ' ', tk('ty', 'TypeScript'),
-  '\n',
-  tk('k', 'Package:'), ' ', tk('ty', 'src/greeter.ts'),
-  '\n',
-  tk('pun', '---'),
-  '\n\n',
-  tk('op', '#'), ' ', tk('hd', 'A friendly greeting'),
-  '\n\n',
-  tk('pr', 'A greeter turns a name into a line to say back.'),
-  '\n\n',
-  tk('op', '=>'),
-  '\n\n',
-  tk('k', 'export'), ' ', tk('k', 'const'), ' ', tk('id', 'greet'), ' ',
-  tk('pun', '= ('), tk('id', 'name'), tk('pun', ':'), ' ', tk('ty', 'string'), tk('pun', ') =>'),
-  '\n',
-  '  ', tk('str', '`Hello, ${name}.`'),
-  '\n\n',
-  tk('op', '#'), ' ', tk('hd', 'The module'), ' ', tk('op', '{Tangle}'),
-  '\n\n',
-  h.span([h.Class('glow')], ['::' + '[A friendly greeting]']),
-]
-
-## The editor panel
-
-The panel wraps the document in an editor frame: a head naming the file, a gutter of line numbers, and the tokenised code beside it. The gutter counts the document's seventeen lines.
+The right of the hero holds the three commands from install to a first tangle, each with its own copy button, and a line confirming the last one wrote real source. `qsLine` draws one command row; the whole panel wears the same editor chrome as the rest of the page, so it reads as one more pane in the window rather than a bolted-on widget. Unlike the tokenised examples elsewhere on the page, every control here is real, so nothing in it is hidden from a screen reader.
 
 =>
 
-const gutter = Array.makeBy(17, (index) => String(index + 1)).join('\n')
-
-const editorPanel = (): Html =>
+const qsLine = (id: string, command: string, copied: string): Html =>
   h.div(
-    [h.Class('panel'), h.AriaHidden(true)],
+    [h.Class('qs-line')],
+    [
+      h.span([h.Class('qs-prompt')], ['$']),
+      h.code([], [command]),
+      copyButton({ id, text: command, copied }),
+    ],
+  )
+
+const quickstart = (model: Model): Html =>
+  h.div(
+    [h.Class('panel')],
     [
       h.div(
         [h.Class('panel-head')],
         [
           h.span([h.Class('dot')], []),
-          h.span([], ['~/loom/greeter/a-first-loom.loom']),
-          h.span([h.Class('right')], ['UTF-8 · LF · 17 lines']),
+          h.span([], ['~/greeter']),
+          h.span([h.Class('right')], ['zero to tangled']),
         ],
       ),
       h.div(
-        [h.Class('editor')],
+        [h.Class('quickstart'), h.Style({ padding: '14px' })],
         [
-          h.div([h.Class('gutter-col')], [gutter]),
-          h.div([h.Class('code')], editorCode),
+          qsLine('qs-install', 'bun add -g @athrio/loom-cli', model.copied),
+          qsLine('qs-new', 'loom new greeter', model.copied),
+          qsLine('qs-tangle', 'loom tangle', model.copied),
+          h.div(
+            [h.Class('qs-out')],
+            [
+              h.span([h.Class('ok')], ['✓']),
+              ' wrote ',
+              h.span([h.Class('path')], ['src/greeter.ts']),
+              ' — prose left no trace.',
+            ],
+          ),
         ],
       ),
     ],
@@ -176,7 +161,7 @@ const editorPanel = (): Html =>
 
 ## The section
 
-The hero section lays the pitch and the panel side by side in the two-column grid.
+The hero section lays the pitch and the quick start side by side in the two-column grid.
 
 =>
 
@@ -186,14 +171,14 @@ export const hero = (model: Model): Html =>
     [
       h.div(
         [h.Class('wrap')],
-        [h.div([h.Class('hero-grid')], [pitch(model), editorPanel()])],
+        [h.div([h.Class('hero-grid')], [pitch(model), quickstart(model)])],
       ),
     ],
   )
 
 ## The module {Tangle}[hero.ts]
 
-The module is the rotating headline, the pitch around it, the editor's tokens and the panel that frames them, and the section that lays the two out.
+The module is the rotating headline, the pitch around it, the quick start beside it, and the section that lays the two out.
 
 =>
 
@@ -201,8 +186,6 @@ The module is the rotating headline, the pitch around it, the editor's tokens an
 
 ::[The pitch]
 
-::[The editor, in tokens]
-
-::[The editor panel]
+::[The quick start]
 
 ::[The section]

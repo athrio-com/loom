@@ -1,6 +1,6 @@
 import { Array } from 'effect'
 import type { Document, Html } from 'foldkit/html'
-import { arrowIcon, copyButton, tabbar, titlebar } from './components'
+import { arrowIcon, tabbar, titlebar } from './components'
 import { hero } from './hero'
 import { middle } from './middle'
 import { h, type Model } from './model'
@@ -40,45 +40,12 @@ const configPanel = (): Html =>
     ],
   )
 
-const qsLine = (id: string, command: string, copied: string): Html =>
+const signupRight = (): Html =>
   h.div(
-    [h.Class('qs-line')],
+    [h.Class('actions')],
     [
-      h.span([h.Class('qs-prompt')], ['$']),
-      h.code([], [command]),
-      copyButton({ id, text: command, copied }),
-    ],
-  )
-
-const signupRight = (model: Model): Html =>
-  h.div(
-    [],
-    [
-      h.div([h.Class('form-label')], ['$ three commands to your first tangle']),
-      h.div(
-        [h.Class('quickstart')],
-        [
-          qsLine('qs-install', 'bun add -g @athrio/loom-cli', model.copied),
-          qsLine('qs-new', 'loom new greeter', model.copied),
-          qsLine('qs-tangle', 'loom tangle', model.copied),
-          h.div(
-            [h.Class('qs-out')],
-            [
-              h.span([h.Class('ok')], ['✓']),
-              ' wrote ',
-              h.span([h.Class('path')], ['src/greeter.ts']),
-              ' — prose left no trace.',
-            ],
-          ),
-        ],
-      ),
-      h.div(
-        [h.Class('actions'), h.Style({ marginTop: '24px' })],
-        [
-          h.a([h.Class('btn primary'), h.Href('#')], ['Read the book', arrowIcon()]),
-          h.a([h.Class('btn'), h.Href('#')], ['Browse the source']),
-        ],
-      ),
+      h.a([h.Class('btn primary'), h.Href('#')], ['Read the book', arrowIcon()]),
+      h.a([h.Class('btn'), h.Href('#')], ['Browse the source']),
     ],
   )
 
@@ -106,14 +73,14 @@ const getStarted = (model: Model): Html =>
                   h.p(
                     [h.Class('sec-lede')],
                     [
-                      'Install the CLI, scaffold a loom, tangle it to source. Three commands — then read the whole book to go further.',
+                      'What those commands produce is one workspace config, shown here. From there, the whole book goes further.',
                     ],
                   ),
                 ],
               ),
             ],
           ),
-          h.div([h.Class('signup')], [configPanel(), signupRight(model)]),
+          h.div([h.Class('signup')], [configPanel(), signupRight()]),
         ],
       ),
     ],
