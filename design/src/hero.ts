@@ -3,7 +3,7 @@ import type { Html } from 'foldkit/html'
 import { copyButton, bookIcon, externalIcon } from './components'
 import { h, type Model, SelectedPackageManager } from './model'
 
-export const ROTATOR_WORDS = ['a book', 'an article', 'a prompt']
+export const ROTATOR_WORDS = ['a book', 'an article', 'a spec']
 
 const rotatorClass = (phase: Model['rotatorPhase']): string =>
   Match.value(phase).pipe(
@@ -16,9 +16,9 @@ const headline = (model: Model): Html =>
   h.h1(
     [h.Class('loom-h')],
     [
-      h.span([h.Class('hl-1')], ['Write programs']),
+      h.span([h.Class('hl-1')], ['Write your program']),
       h.br([]),
-      h.span([h.Class('hl-2')], [`the way you'd write`]),
+      h.span([h.Class('hl-2')], [`the way you write`]),
       h.br([]),
       h.span(
         [h.Class('rotator-host hl-3'), h.AriaLive('polite')],

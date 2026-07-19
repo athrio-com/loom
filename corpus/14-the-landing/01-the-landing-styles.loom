@@ -309,20 +309,12 @@ Below the lede sit the actions: an install command line with a copy button, and 
 .copy-btn.copied { color: var(--acc-mint); border-color: color-mix(in srgb, var(--acc-mint) 60%, transparent); }
 .copy-btn svg { flex-shrink: 0; }
 
-## The editor panel
+## The shared panel head
 
-The right of the hero is a live editor panel — a real loom document, syntax-highlighted, with a gutter of line numbers and, on its last line, the anchor that draws the greeting in. The syntax classes colour each kind of token: a violet keyword, a cyan type, a mint string and operator, an amber number and anchor, a faint comment.
+Every panel on the page — the workspace config, the file tree, the step detail — frames itself the same way: a small head naming what it holds, a dot, and a right-aligned label. `panel-head` is that one shared chrome, so a reader learns to read a panel once.
 
 =>
 
-.panel {
-  background: var(--bg-2);
-  border: 1px solid var(--rule-2);
-  border-radius: 8px;
-  overflow: hidden;
-  font-family: var(--mono);
-  font-size: 12.5px;
-}
 .panel-head {
   display: flex; align-items: center; gap: 10px;
   height: 30px; padding: 0 12px;
@@ -336,40 +328,6 @@ The right of the hero is a live editor panel — a real loom document, syntax-hi
   margin-left: auto; display: flex; align-items: center; gap: 12px;
   color: var(--fg-4);
 }
-.editor {
-  display: grid;
-  grid-template-columns: 36px 1fr;
-  color: var(--fg);
-}
-.gutter-col {
-  padding: 14px 8px 14px 0;
-  text-align: right;
-  color: var(--fg-4);
-  border-right: 1px solid var(--rule);
-  background: var(--bg-2);
-  user-select: none;
-  line-height: 1.6;
-  white-space: pre;
-}
-.code {
-  padding: 14px 16px;
-  line-height: 1.6;
-  white-space: pre;
-  overflow-x: auto;
-}
-.code .k    { color: var(--acc-violet); }
-.code .ty   { color: var(--acc-cyan); }
-.code .id   { color: var(--fg); }
-.code .str  { color: var(--acc-mint); }
-.code .num  { color: var(--acc-amber); }
-.code .com  { color: var(--fg-4); font-style: italic; }
-.code .pun  { color: var(--fg-3); }
-.code .fn   { color: var(--acc-amber); }
-.code .pr   { color: var(--fg-2); }
-.code .hd   { color: var(--fg); font-weight: 500; }
-.code .op   { color: var(--acc-mint); }
-.code .an   { color: var(--acc-amber); }
-.code .glow { color: var(--acc-mint); position: relative; }
 
 ## The numbered sections
 
@@ -418,17 +376,9 @@ section.s {
 
 ## How it works — the file tree and steps
 
-The section heads with its number and words beside a complete example, in a three-column row of its own — the how-grid below it is a second, narrower pairing: a file tree with a detail panel. Click a loom in the tree and the panel shows that step of the pipeline — write, compose, tangle, read — with a code preview. A directory row wears a rotated cyan bullet; the active file a mint one.
+The section heads with its number and words, then pairs a file tree with a detail panel: click a loom in the tree and the panel shows that step of the pipeline — write, compose, tangle, read — with a code preview. A directory row wears a rotated cyan bullet; the active file a mint one.
 
 =>
-
-.how-head {
-  display: grid;
-  grid-template-columns: 240px 1fr 1fr;
-  gap: 40px;
-  margin-bottom: 56px;
-}
-@media (max-width: 980px) { .how-head { grid-template-columns: 1fr; gap: 24px; } }
 
 .how-grid {
   display: grid;
@@ -725,7 +675,7 @@ footer.foot {
 
 ## The stylesheet {Tangle}[landing.css]
 
-The stylesheet is the tokens and base, then each region top to bottom: the window chrome, the hero and its call to action, the editor panel, the numbered sections, how-it-works and the palette, get-started, and the footer.
+The stylesheet is the tokens and base, then each region top to bottom: the window chrome, the hero and its call to action, the shared panel head, the numbered sections, how-it-works and the palette, get-started, and the footer.
 
 =>
 
@@ -737,7 +687,7 @@ The stylesheet is the tokens and base, then each region top to bottom: the windo
 
 ::[The call to action]
 
-::[The editor panel]
+::[The shared panel head]
 
 ::[The numbered sections]
 
