@@ -154,7 +154,7 @@ The page wears a window's chrome. A title bar runs across the top with three tra
 
 ## The hero and its rotating headline
 
-The hero is the first screen: a two-column grid with the headline and its call to action on the left, and a live editor panel on the right. The headline is set large in the display serif, and one word of it rotates — swapping on a blur-and-slide transition — with a blinking caret after it. The lede beneath carries two inline code tokens in the syntax colours.
+The hero is the first screen: a two-column grid with the headline and its call to action on the left, and the quick start on the right. The headline is set large in the display serif, and one word of it rotates — swapping on a blur-and-slide transition — with a blinking caret after it.
 
 =>
 
@@ -225,22 +225,9 @@ h1.loom-h .hl-3 { color: var(--acc-violet); }
 }
 @keyframes blink { 0%,50% { opacity: 1; } 50.01%,100% { opacity: 0; } }
 
-.lede {
-  margin: 36px 0 0;
-  color: var(--fg-2);
-  font-family: var(--sans);
-  font-size: 17px;
-  line-height: 1.55;
-  max-width: 56ch;
-  text-wrap: pretty;
-  font-weight: 400;
-}
-.lede .tok-key  { color: var(--acc-cyan);   font-family: var(--mono); font-size: 0.92em; }
-.lede .tok-str  { color: var(--acc-mint);   font-family: var(--mono); font-size: 0.92em; }
-
 ## The call to action
 
-Below the lede sit the actions: an install command line with a copy button, and a row of buttons — read the book, browse the source, search. A button is a quiet slate pill; the primary one wears the mint. The copy button flashes mint when it copies.
+Below the headline sit the actions: an install command line with a copy button, and a row of buttons — read the book, browse the source, search. A button is a quiet slate pill; the primary one wears the mint. The copy button flashes mint when it copies.
 
 =>
 

@@ -73,14 +73,6 @@ const pitch = (model: Model): Html =>
         ],
       ),
       headline(model),
-      h.p(
-        [h.Class('lede')],
-        [
-          'Loom is an AI-friendly framework where specifications and code do not drift apart ',
-          h.span([h.Class('tok-str')], ['— because prose is the program']),
-          '.',
-        ],
-      ),
       h.div(
         [h.Class('actions')],
         [

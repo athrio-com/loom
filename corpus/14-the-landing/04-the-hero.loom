@@ -6,7 +6,7 @@ Language: TypeScript
 
 # The hero
 
-The hero is the first screen. On the left it makes the pitch — a meta line, a large headline whose last word rotates, a lede, an install command, and the calls to action. On the right it gives the fastest way in: the three commands from install to a first tangle, each with its own copy button, in whichever package manager the reader picks, so a reader ready to move can start before they scroll any further.
+The hero is the first screen. On the left it makes the pitch — a meta line, a large headline whose last word rotates, an install command, and the calls to action. On the right it gives the fastest way in: the three commands from install to a first tangle, each with its own copy button, in whichever package manager the reader picks, so a reader ready to move can start before they scroll any further.
 
 ## The rotating headline
 
@@ -82,7 +82,7 @@ const packageManagerTabs = (model: Model): Html =>
 
 ## The pitch
 
-Above the headline sits a meta line of two pills; below it, a lede with one phrase in the string colour, then the install command, then the calls to action. The install line carries whichever package manager is picked, with its copy button. The calls to action are two buttons — read the book, and browse the source.
+Above the headline sits a meta line of two pills, then the install command, then the calls to action. The install line carries whichever package manager is picked, with its copy button. The calls to action are two buttons — read the book, and browse the source.
 
 =>
 
@@ -101,14 +101,6 @@ const pitch = (model: Model): Html =>
         ],
       ),
       headline(model),
-      h.p(
-        [h.Class('lede')],
-        [
-          'Loom is an AI-friendly framework where specifications and code do not drift apart ',
-          h.span([h.Class('tok-str')], ['— because prose is the program']),
-          '.',
-        ],
-      ),
       h.div(
         [h.Class('actions')],
         [

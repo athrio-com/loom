@@ -196,19 +196,6 @@ h1.loom-h .hl-3 { color: var(--acc-violet); }
 }
 @keyframes blink { 0%,50% { opacity: 1; } 50.01%,100% { opacity: 0; } }
 
-.lede {
-  margin: 36px 0 0;
-  color: var(--fg-2);
-  font-family: var(--sans);
-  font-size: 17px;
-  line-height: 1.55;
-  max-width: 56ch;
-  text-wrap: pretty;
-  font-weight: 400;
-}
-.lede .tok-key  { color: var(--acc-cyan);   font-family: var(--mono); font-size: 0.92em; }
-.lede .tok-str  { color: var(--acc-mint);   font-family: var(--mono); font-size: 0.92em; }
-
 .actions {
   margin-top: 40px;
   display: flex; gap: 12px; flex-wrap: wrap; align-items: center;
