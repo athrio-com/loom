@@ -209,8 +209,8 @@ const COMMANDS: ReadonlyArray<Command> = [
   { glyph: '¶', label: 'The editor', kind: 'part', tags: ['editor', 'volar', 'lsp'] },
   { glyph: '❯', label: 'loom tangle', kind: 'command', tags: ['tangle', 'cli', 'build'] },
   { glyph: '❯', label: 'loom weave', kind: 'command', tags: ['weave', 'site', 'docs'] },
-  { glyph: '❯', label: 'loom new', kind: 'command', tags: ['new', 'init', 'scaffold'] },
-  { glyph: '◈', label: '@athrio/loom-cli', kind: 'package', tags: ['cli', 'package', 'npm'] },
+  { glyph: '❯', label: 'loom init', kind: 'command', tags: ['new', 'init', 'scaffold'] },
+  { glyph: '◈', label: '@athrio/loom', kind: 'package', tags: ['cli', 'package', 'npm'] },
   { glyph: '◈', label: '@athrio/loom-lang', kind: 'package', tags: ['lang', 'composition', 'package'] },
 ]
 

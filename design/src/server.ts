@@ -23,6 +23,7 @@ const seed: Model = {
   query: '',
   focus: 0,
   copied: '',
+  packageManager: 'npm',
 }
 
 const inlineJson = (value: unknown): string =>

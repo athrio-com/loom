@@ -6,7 +6,7 @@ Language: TypeScript
 
 # The hero
 
-The hero is the first screen. On the left it makes the pitch — a meta line, a large headline whose last word rotates, a lede, an install command, and the calls to action. On the right it gives the fastest way in: the three commands from install to a first tangle, each with its own copy button, so a reader ready to move can start before they scroll any further.
+The hero is the first screen. On the left it makes the pitch — a meta line, a large headline whose last word rotates, a lede, an install command, and the calls to action. On the right it gives the fastest way in: the three commands from install to a first tangle, each with its own copy button, in whichever package manager the reader picks, so a reader ready to move can start before they scroll any further.
 
 ## The rotating headline
 
@@ -17,7 +17,7 @@ The headline is set in three lines, the last of which rotates through a few word
 import { Array, Match } from 'effect'
 import type { Html } from 'foldkit/html'
 import { copyButton, bookIcon, externalIcon } from './components'
-import { h, type Model } from './model'
+import { h, type Model, SelectedPackageManager } from './model'
 
 export const ROTATOR_WORDS = ['a book', 'an article', 'a prompt']
 
@@ -49,9 +49,40 @@ const headline = (model: Model): Html =>
     ],
   )
 
+## Picking a package manager
+
+Every place the page shows the install command reads the same choice: which package manager the reader wants to see and copy. `installCommand` gives that command in one manager's own words — the `loom` CLI installs the same way from any of them, so only this one line changes. `packageManagerTabs` draws the row of names the reader picks from, the current one lit.
+
+=>
+
+const PACKAGE_MANAGERS = ['npm', 'pnpm', 'yarn', 'bun'] as const
+
+const installCommand = (packageManager: Model['packageManager']): string =>
+  Match.value(packageManager).pipe(
+    Match.when('npm', () => 'npm install -g @athrio/loom'),
+    Match.when('pnpm', () => 'pnpm add -g @athrio/loom'),
+    Match.when('yarn', () => 'yarn global add @athrio/loom'),
+    Match.when('bun', () => 'bun add -g @athrio/loom'),
+    Match.exhaustive,
+  )
+
+const packageManagerTabs = (model: Model): Html =>
+  h.div(
+    [h.Class('pm-tabs')],
+    Array.map(PACKAGE_MANAGERS, (packageManager) =>
+      h.button(
+        [
+          h.Class(packageManager === model.packageManager ? 'pm-tab active' : 'pm-tab'),
+          h.OnClick(SelectedPackageManager({ packageManager })),
+        ],
+        [packageManager],
+      ),
+    ),
+  )
+
 ## The pitch
 
-Above the headline sits a meta line of two pills; below it, a lede with one phrase in the string colour, then the install command with its copy button, then the calls to action. The first action row is the install line; the second is the two buttons — read the book, browse the source.
+Above the headline sits a meta line of two pills; below it, a lede with one phrase in the string colour, then the install command, then the calls to action. The install line carries whichever package manager is picked, with its copy button. The calls to action are two buttons — read the book, and browse the source.
 
 =>
 
@@ -85,10 +116,10 @@ const pitch = (model: Model): Html =>
             [h.Class('cmd-line'), h.Title('Copy the install command')],
             [
               h.span([h.Class('prompt')], ['$']),
-              h.code([], ['bun add -g @athrio/loom']),
+              h.code([], [installCommand(model.packageManager)]),
               copyButton({
                 id: 'install',
-                text: 'bun add -g @athrio/loom-cli',
+                text: installCommand(model.packageManager),
                 copied: model.copied,
               }),
             ],
@@ -113,7 +144,7 @@ const pitch = (model: Model): Html =>
 
 ## The quick start
 
-The right of the hero holds the three commands from install to a first tangle, each with its own copy button, and a line confirming the last one wrote real source. `qsLine` draws one command row; the quickstart carries its own border and background, so it stands on its own beside the pitch rather than needing an editor frame around it. Every control here is real, so nothing in it is hidden from a screen reader.
+The right of the hero holds the three commands from install to a first tangle, each with its own copy button, and a line confirming the last one wrote real source. `qsLine` draws one command row; the quickstart carries its own border and background, so it stands on its own beside the pitch rather than needing an editor frame around it. Every control here is real, so nothing in it is hidden from a screen reader. The package manager tabs sit above the install line, since that is the one line their choice changes.
 
 =>
 
@@ -131,8 +162,9 @@ const quickstart = (model: Model): Html =>
   h.div(
     [h.Class('quickstart')],
     [
-      qsLine('qs-install', 'bun add -g @athrio/loom-cli', model.copied),
-      qsLine('qs-new', 'loom new greeter', model.copied),
+      packageManagerTabs(model),
+      qsLine('qs-install', installCommand(model.packageManager), model.copied),
+      qsLine('qs-new', 'loom init greeter', model.copied),
       qsLine('qs-tangle', 'loom tangle', model.copied),
       h.div(
         [h.Class('qs-out')],
@@ -165,11 +197,13 @@ export const hero = (model: Model): Html =>
 
 ## The module {Tangle}[hero.ts]
 
-The module is the rotating headline, the pitch around it, the quick start beside it, and the section that lays the two out.
+The module is the rotating headline, the package manager the pitch and the quick start both read, the pitch, the quick start beside it, and the section that lays the two out.
 
 =>
 
 ::[The rotating headline]
+
+::[Picking a package manager]
 
 ::[The pitch]
 

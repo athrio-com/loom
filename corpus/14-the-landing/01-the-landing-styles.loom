@@ -597,7 +597,7 @@ Beneath the steps sits a command palette that searches the book — type and the
 
 ## The config, and the quick start's terminal
 
-The get-started section shows a workspace config file the way an editor would, keys in cyan and values in mint. The quick-start terminal — three commands to a first tangle, each with a copy button, and a result line beneath — moved into the hero, but keeps its style here beside the config's.
+The get-started section shows a workspace config file the way an editor would, keys in cyan and values in mint. The quick-start terminal — three commands to a first tangle, each with a copy button, and a result line beneath — moved into the hero, but keeps its style here beside the config's. Above the install line sit the package manager tabs; the picked one is lit, the rest sit quiet.
 
 =>
 
@@ -631,6 +631,29 @@ The get-started section shows a workspace config file the way an editor would, k
   border-radius: 8px;
   padding: 8px 6px;
   font-family: var(--mono); font-size: 13.5px;
+}
+.pm-tabs {
+  display: flex; gap: 4px;
+  padding: 4px 6px 8px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 4px;
+}
+.pm-tab {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--fg-3);
+  cursor: pointer;
+  transition: background .12s ease, color .12s ease;
+}
+.pm-tab:hover { color: var(--fg-2); background: var(--bg-2); }
+.pm-tab.active {
+  color: var(--fg);
+  background: var(--bg-2);
+  border-color: var(--rule-2);
 }
 .qs-line {
   display: flex; align-items: center; gap: 12px;

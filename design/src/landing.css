@@ -567,6 +567,29 @@ section.s {
   padding: 8px 6px;
   font-family: var(--mono); font-size: 13.5px;
 }
+.pm-tabs {
+  display: flex; gap: 4px;
+  padding: 4px 6px 8px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 4px;
+}
+.pm-tab {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--fg-3);
+  cursor: pointer;
+  transition: background .12s ease, color .12s ease;
+}
+.pm-tab:hover { color: var(--fg-2); background: var(--bg-2); }
+.pm-tab.active {
+  color: var(--fg);
+  background: var(--bg-2);
+  border-color: var(--rule-2);
+}
 .qs-line {
   display: flex; align-items: center; gap: 12px;
   padding: 8px 12px;

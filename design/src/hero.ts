@@ -1,7 +1,7 @@
 import { Array, Match } from 'effect'
 import type { Html } from 'foldkit/html'
 import { copyButton, bookIcon, externalIcon } from './components'
-import { h, type Model } from './model'
+import { h, type Model, SelectedPackageManager } from './model'
 
 export const ROTATOR_WORDS = ['a book', 'an article', 'a prompt']
 
@@ -31,6 +31,31 @@ const headline = (model: Model): Html =>
       ),
       h.span([h.Class('caret'), h.AriaHidden(true)], []),
     ],
+  )
+
+const PACKAGE_MANAGERS = ['npm', 'pnpm', 'yarn', 'bun'] as const
+
+const installCommand = (packageManager: Model['packageManager']): string =>
+  Match.value(packageManager).pipe(
+    Match.when('npm', () => 'npm install -g @athrio/loom'),
+    Match.when('pnpm', () => 'pnpm add -g @athrio/loom'),
+    Match.when('yarn', () => 'yarn global add @athrio/loom'),
+    Match.when('bun', () => 'bun add -g @athrio/loom'),
+    Match.exhaustive,
+  )
+
+const packageManagerTabs = (model: Model): Html =>
+  h.div(
+    [h.Class('pm-tabs')],
+    Array.map(PACKAGE_MANAGERS, (packageManager) =>
+      h.button(
+        [
+          h.Class(packageManager === model.packageManager ? 'pm-tab active' : 'pm-tab'),
+          h.OnClick(SelectedPackageManager({ packageManager })),
+        ],
+        [packageManager],
+      ),
+    ),
   )
 
 const pitch = (model: Model): Html =>
@@ -63,10 +88,10 @@ const pitch = (model: Model): Html =>
             [h.Class('cmd-line'), h.Title('Copy the install command')],
             [
               h.span([h.Class('prompt')], ['$']),
-              h.code([], ['bun add -g @athrio/loom']),
+              h.code([], [installCommand(model.packageManager)]),
               copyButton({
                 id: 'install',
-                text: 'bun add -g @athrio/loom-cli',
+                text: installCommand(model.packageManager),
                 copied: model.copied,
               }),
             ],
@@ -103,8 +128,9 @@ const quickstart = (model: Model): Html =>
   h.div(
     [h.Class('quickstart')],
     [
-      qsLine('qs-install', 'bun add -g @athrio/loom-cli', model.copied),
-      qsLine('qs-new', 'loom new greeter', model.copied),
+      packageManagerTabs(model),
+      qsLine('qs-install', installCommand(model.packageManager), model.copied),
+      qsLine('qs-new', 'loom init greeter', model.copied),
       qsLine('qs-tangle', 'loom tangle', model.copied),
       h.div(
         [h.Class('qs-out')],

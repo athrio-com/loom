@@ -47,6 +47,7 @@ const update = (model: Model, message: Message): Step =>
         { ...model, focus: clamp(model.focus + delta, Math.max(0, count - 1)) },
         [],
       ],
+      SelectedPackageManager: ({ packageManager }) => [{ ...model, packageManager }, []],
       Copied: ({ id, text }) => [{ ...model, copied: id }, [CopyThenReset({ text })]],
       CopyReset: () => [{ ...model, copied: '' }, []],
       RotatedOut: () => [{ ...model, rotatorPhase: 'out' }, [DelayRotateIn()]],
@@ -71,6 +72,7 @@ const emptyModel: Model = {
   query: '',
   focus: 0,
   copied: '',
+  packageManager: 'npm',
 }
 
 const flags: Effect.Effect<Model> = Effect.sync(() => {
