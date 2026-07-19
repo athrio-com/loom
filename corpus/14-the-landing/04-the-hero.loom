@@ -113,7 +113,7 @@ const pitch = (model: Model): Html =>
 
 ## The quick start
 
-The right of the hero holds the three commands from install to a first tangle, each with its own copy button, and a line confirming the last one wrote real source. `qsLine` draws one command row; the whole panel wears the same editor chrome as the rest of the page, so it reads as one more pane in the window rather than a bolted-on widget. Unlike the tokenised examples elsewhere on the page, every control here is real, so nothing in it is hidden from a screen reader.
+The right of the hero holds the three commands from install to a first tangle, each with its own copy button, and a line confirming the last one wrote real source. `qsLine` draws one command row; the quickstart carries its own border and background, so it stands on its own beside the pitch rather than needing an editor frame around it. Every control here is real, so nothing in it is hidden from a screen reader.
 
 =>
 
@@ -129,31 +129,18 @@ const qsLine = (id: string, command: string, copied: string): Html =>
 
 const quickstart = (model: Model): Html =>
   h.div(
-    [h.Class('panel')],
+    [h.Class('quickstart')],
     [
+      qsLine('qs-install', 'bun add -g @athrio/loom-cli', model.copied),
+      qsLine('qs-new', 'loom new greeter', model.copied),
+      qsLine('qs-tangle', 'loom tangle', model.copied),
       h.div(
-        [h.Class('panel-head')],
+        [h.Class('qs-out')],
         [
-          h.span([h.Class('dot')], []),
-          h.span([], ['~/greeter']),
-          h.span([h.Class('right')], ['zero to tangled']),
-        ],
-      ),
-      h.div(
-        [h.Class('quickstart'), h.Style({ padding: '14px' })],
-        [
-          qsLine('qs-install', 'bun add -g @athrio/loom-cli', model.copied),
-          qsLine('qs-new', 'loom new greeter', model.copied),
-          qsLine('qs-tangle', 'loom tangle', model.copied),
-          h.div(
-            [h.Class('qs-out')],
-            [
-              h.span([h.Class('ok')], ['✓']),
-              ' wrote ',
-              h.span([h.Class('path')], ['src/greeter.ts']),
-              ' — prose left no trace.',
-            ],
-          ),
+          h.span([h.Class('ok')], ['✓']),
+          ' wrote ',
+          h.span([h.Class('path')], ['src/greeter.ts']),
+          ' — prose left no trace.',
         ],
       ),
     ],

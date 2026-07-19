@@ -595,9 +595,9 @@ Beneath the steps sits a command palette that searches the book — type and the
   color: var(--fg-3);
 }
 
-## Get started — the config and the quick start
+## The config, and the quick start's terminal
 
-The get-started section pairs a workspace config file with a quick-start terminal — three commands to a first tangle, each with a copy button, and a result line beneath. The config colours its keys cyan and its values mint.
+The get-started section shows a workspace config file the way an editor would, keys in cyan and values in mint. The quick-start terminal — three commands to a first tangle, each with a copy button, and a result line beneath — moved into the hero, but keeps its style here beside the config's.
 
 =>
 
@@ -625,14 +625,7 @@ The get-started section pairs a workspace config file with a quick-start termina
 .config-body .com  { color: var(--fg-4); font-style: italic; }
 .config-body .pun  { color: var(--fg-3); }
 
-.form-label {
-  font-family: var(--mono); font-size: 11px;
-  color: var(--fg-3); letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
 .quickstart {
-  margin-top: 12px;
   background: var(--bg);
   border: 1px solid var(--rule-2);
   border-radius: 8px;
@@ -729,6 +722,6 @@ The stylesheet is the tokens and base, then each region top to bottom: the windo
 
 ::[The command palette]
 
-::[Get started — the config and the quick start]
+::[The config, and the quick start's terminal]
 
 ::[The footer]

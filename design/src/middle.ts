@@ -329,7 +329,7 @@ const howItWorks = (model: Model): Html =>
               h.div(
                 [],
                 [
-                  h.h2([h.Class('sec-h')], ['Built for reading and narrative development experience.']),
+                  h.h2([h.Class('sec-h')], ['Built for reading by people.']),
                   h.p(
                     [h.Class('sec-lede')],
                     [

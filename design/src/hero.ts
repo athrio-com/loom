@@ -101,31 +101,18 @@ const qsLine = (id: string, command: string, copied: string): Html =>
 
 const quickstart = (model: Model): Html =>
   h.div(
-    [h.Class('panel')],
+    [h.Class('quickstart')],
     [
+      qsLine('qs-install', 'bun add -g @athrio/loom-cli', model.copied),
+      qsLine('qs-new', 'loom new greeter', model.copied),
+      qsLine('qs-tangle', 'loom tangle', model.copied),
       h.div(
-        [h.Class('panel-head')],
+        [h.Class('qs-out')],
         [
-          h.span([h.Class('dot')], []),
-          h.span([], ['~/greeter']),
-          h.span([h.Class('right')], ['zero to tangled']),
-        ],
-      ),
-      h.div(
-        [h.Class('quickstart'), h.Style({ padding: '14px' })],
-        [
-          qsLine('qs-install', 'bun add -g @athrio/loom-cli', model.copied),
-          qsLine('qs-new', 'loom new greeter', model.copied),
-          qsLine('qs-tangle', 'loom tangle', model.copied),
-          h.div(
-            [h.Class('qs-out')],
-            [
-              h.span([h.Class('ok')], ['✓']),
-              ' wrote ',
-              h.span([h.Class('path')], ['src/greeter.ts']),
-              ' — prose left no trace.',
-            ],
-          ),
+          h.span([h.Class('ok')], ['✓']),
+          ' wrote ',
+          h.span([h.Class('path')], ['src/greeter.ts']),
+          ' — prose left no trace.',
         ],
       ),
     ],

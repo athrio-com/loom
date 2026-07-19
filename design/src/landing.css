@@ -560,14 +560,7 @@ section.s {
 .config-body .com  { color: var(--fg-4); font-style: italic; }
 .config-body .pun  { color: var(--fg-3); }
 
-.form-label {
-  font-family: var(--mono); font-size: 11px;
-  color: var(--fg-3); letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
 .quickstart {
-  margin-top: 12px;
   background: var(--bg);
   border: 1px solid var(--rule-2);
   border-radius: 8px;
