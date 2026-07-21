@@ -2,7 +2,7 @@
   "name": "loom-website",
   "type": "module",
   "private": true,
-  "version": "0.0.6",
+  "version": "0.0.7",
   "scripts": {
     "build": "bunx --bun vite build && bun src/server/prerender.ts",
     "serve": "bun src/server/server.ts",
