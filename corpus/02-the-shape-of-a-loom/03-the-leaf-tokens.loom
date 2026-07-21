@@ -78,7 +78,7 @@ export type SpecifierToken = typeof SpecifierTokenSchema.Type
 
 ## Sinks
 
-A `Sink` is the bracketed file a `{Tangle}` section writes to, written `[file]`. Brackets set a sink apart from a language `Specifier`, which wears braces. When a chapter's `Package` names a directory, each `{Tangle}` section marks the file it emits there — `[LoomNode.ts]` under `packages/loom-ast/src/ast/` — so the file travels with its section, not with the frontmatter. A sink exposes its `open`, `file`, and `close` as separate subnodes, each carrying its own health, so a diagnostic lands on the part at fault.
+A `Sink` is the bracketed file a section tangles to, written `[file]`. A section carrying one names a file to write, whether or not it also wears a `{Tangle}` specifier. Brackets set a sink apart from a language `Specifier`, which wears braces. When a chapter's `Package` names a directory, each `{Tangle}` section marks the file it emits there — `[LoomNode.ts]` under `packages/loom-ast/src/ast/` — so the file travels with its section, not with the frontmatter. A sink exposes its `open`, `file`, and `close` as separate subnodes, each carrying its own health, so a diagnostic lands on the part at fault.
 
 =>
 

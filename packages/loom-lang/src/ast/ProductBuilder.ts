@@ -263,23 +263,30 @@ const tangleFilePath = (
     ? pkg + Option.getOrElse(Option.map(sink, (s) => s.file.value), () => '')
     : pkg
 
+const filePath = (
+  pkg: Option.Option<string>,
+  sink: Option.Option<SinkToken>,
+): Option.Option<string> =>
+  Option.match(pkg, {
+    onSome: (p) => Option.some(tangleFilePath(p, sink)),
+    onNone: () => Option.map(sink, (s) => s.file.value),
+  })
+
 const tangleFile = (
   section: LoomSection,
   pkg: Option.Option<string>,
   code: Code,
 ): Option.Option<File> => {
-  const { specifier, sink } = section.heading
-  if (
-    specifier !== undefined &&
-    specifier.label.value.toLowerCase() === 'tangle'
-  )
-    return Option.map(pkg, (p) =>
-      FileSchema.make({
-        path: tangleFilePath(p, Option.fromNullishOr(sink)),
-        code,
-      }),
-    )
-  return Option.none()
+  const sink = Option.fromNullishOr(section.heading.sink)
+  const target = Option.match(Option.fromNullishOr(section.heading.specifier), {
+    onNone: () => Option.flatMap(sink, () => filePath(pkg, sink)),
+    onSome: (spec) =>
+      Match.value(spec.label.value.toLowerCase()).pipe(
+        Match.when('tangle', () => filePath(pkg, sink)),
+        Match.orElse(() => Option.none<string>()),
+      ),
+  })
+  return Option.map(target, (path) => FileSchema.make({ path, code }))
 }
 
 const buildCode = (

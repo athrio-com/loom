@@ -17,8 +17,9 @@ rather than generating a program to compute the same result.
 
 The pass is a build, the same shape as the parser before it. The parser folds a
 stream of wefts into the Loom AST; this folds that AST's sections into the product.
-It is total by construction. Every section becomes one `Code`, and a section
-whose sink names a file becomes a `File` as well. An anchor that resolves to
+It is total by construction. Every section becomes one `Code`, and a section that
+names a file to write — with a `[file]` sink, or a `{Tangle}` specifier — becomes a
+`File` as well. An anchor that resolves to
 nothing becomes an empty `Fragment` carrying error health on its own node — a
 fault the editor reports, never a thrown exception. Grammatical health, a
 malformed anchor say, is already on the parse; semantic health, an anchor that
@@ -365,9 +366,8 @@ const valueWarps = (
 
 A section's heading decides what it contributes. Every section composes to one
 `Code`: its identity, its language, and its fragments in composition order. A
-`{Tangle}` section contributes a `File` on top — the same `Code` paired with the
-frontmatter `Package` path, and the `[file]` tag appended when the package names a
-directory.
+section that names a file — through a `[file]` sink, or a `{Tangle}` specifier —
+contributes a `File` on top, the same `Code` paired with the path it tangles to.
 
 A `Built` is the pair a section yields: its `Code`, which always lands in the
 product, and the `File` a `{Tangle}` section or a tangle sink adds, which an
@@ -400,10 +400,15 @@ const buildSection =
 
 ~
 
-`tangleFile` decides a section's file. A `{Tangle}` section writes to the package
-path, so it emits a `File` there when the frontmatter names a package; any other
-section emits nothing. `tangleFilePath` appends the `[file]` tag to a directory
-package, and passes a file package through unchanged.
+`tangleFile` decides whether a section names a file, and `filePath` decides where.
+A heading names a file two ways: a `[file]` sink under no specifier, or a `{Tangle}`
+specifier. Any other specifier is a language label, so the section composes in place
+and writes nothing. `filePath` then resolves the target. Under a frontmatter
+`Package` the file lands there, where `tangleFilePath` appends the `[file]` tag to a
+directory package and passes a file package through unchanged. Under no package the
+sink names the file by itself, and the compiler resolves where it lands. So the
+smallest program that tangles is a heading with a sink, an arrow, and its code:
+`# Hi there! [mini.ts]` writes `mini.ts`, its language read from the extension.
 
 =>
 
@@ -415,23 +420,30 @@ const tangleFilePath = (
     ? pkg + Option.getOrElse(Option.map(sink, (s) => s.file.value), () => '')
     : pkg
 
+const filePath = (
+  pkg: Option.Option<string>,
+  sink: Option.Option<SinkToken>,
+): Option.Option<string> =>
+  Option.match(pkg, {
+    onSome: (p) => Option.some(tangleFilePath(p, sink)),
+    onNone: () => Option.map(sink, (s) => s.file.value),
+  })
+
 const tangleFile = (
   section: LoomSection,
   pkg: Option.Option<string>,
   code: Code,
 ): Option.Option<File> => {
-  const { specifier, sink } = section.heading
-  if (
-    specifier !== undefined &&
-    specifier.label.value.toLowerCase() === 'tangle'
-  )
-    return Option.map(pkg, (p) =>
-      FileSchema.make({
-        path: tangleFilePath(p, Option.fromNullishOr(sink)),
-        code,
-      }),
-    )
-  return Option.none()
+  const sink = Option.fromNullishOr(section.heading.sink)
+  const target = Option.match(Option.fromNullishOr(section.heading.specifier), {
+    onNone: () => Option.flatMap(sink, () => filePath(pkg, sink)),
+    onSome: (spec) =>
+      Match.value(spec.label.value.toLowerCase()).pipe(
+        Match.when('tangle', () => filePath(pkg, sink)),
+        Match.orElse(() => Option.none<string>()),
+      ),
+  })
+  return Option.map(target, (path) => FileSchema.make({ path, code }))
 }
 
 ## Composing a section's code

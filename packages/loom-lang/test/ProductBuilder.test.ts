@@ -166,6 +166,56 @@ export const thing = 1
   })
 })
 
+describe('ProductBuilder — a bare sink tangles without a {Tangle} specifier', () => {
+  it('emits a File from a heading sink alone, under the package', () => {
+    const product = productOf(`---
+Package: src/
+---
+
+# Greeting [greet.ts]
+
+We greet the world.
+
+=>
+
+export const greeting = 'Hello!'
+`)
+    expect(product.files).toHaveLength(1)
+    const file = product.files[0]!
+    expect(file.path).toBe('src/greet.ts')
+    expect(file.code.origin.name).toBe('Greeting')
+    expect(file.code.languageId).toBe('typescript') // read from the .ts extension
+  })
+
+  it('names the file by the sink alone when no frontmatter package', () => {
+    const product = productOf(`# Hi there! [mini.ts]
+
+The simplest Loom program.
+
+=>
+
+console.log('Hi there!')
+`)
+    expect(product.files).toHaveLength(1)
+    expect(product.files[0]!.path).toBe('mini.ts')
+    expect(product.files[0]!.code.languageId).toBe('typescript')
+  })
+
+  it('leaves a language-specified section untangled', () => {
+    const product = productOf(`---
+Package: src/
+---
+
+# Data {json} [data.json]
+
+=>
+
+{ "x": 1 }
+`)
+    expect(product.files).toEqual([]) // a language label composes in place, no File
+  })
+})
+
 describe('ProductBuilder — a value warp substitutes its literal', () => {
   it('drops the decoded string in place, quotes stripped, no edge', () => {
     const product = productOf(`---

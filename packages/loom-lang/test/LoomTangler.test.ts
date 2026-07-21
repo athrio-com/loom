@@ -82,6 +82,26 @@ describe('LoomTangler — tangle bracket sinks to disk', () => {
     }).pipe(Effect.provide(layers)),
   )
 
+  it.effect('tangles a bare sink with no frontmatter, beside the loom', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const dir = yield* fs.makeTempDirectoryScoped()
+      const entry = `${dir}/mini.loom`
+      yield* fs.writeFileString(
+        entry,
+        `# Hi there! [mini.ts]\n\nThe simplest Loom program.\n\n=>\n\nconsole.log("Hi there!")\n`,
+      )
+
+      const tangler = yield* LoomTangler
+      const written = yield* tangler.tangle(entry)
+
+      expect(written).toHaveLength(1) // the bare sink alone names a file
+      // no frontmatter package, so the file lands beside the loom
+      const out = yield* fs.readFileString(`${dir}/mini.ts`)
+      expect(out).toContain('console.log("Hi there!")')
+    }).pipe(Effect.provide(layers)),
+  )
+
   it.effect('tangles every .loom under a directory, recursively', () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
