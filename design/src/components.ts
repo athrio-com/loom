@@ -91,6 +91,33 @@ export const arrowIcon = (): Html =>
     ],
   )
 
+export const playIcon = (): Html =>
+  h.svg(
+    [h.Width('12'), h.Height('12'), h.ViewBox('0 0 24 24'), h.Fill('currentColor'), h.AriaHidden(true)],
+    [h.path([h.D('M8 5v14l11-7z')], [])],
+  )
+
+export const loomIcon = (): Html =>
+  h.svg(
+    [h.Width('15'), h.Height('15'), h.ViewBox('0 0 100 100'), h.Fill('none'), h.AriaHidden(true)],
+    [
+      h.g(
+        [
+          h.Transform('rotate(-13 50 50)'),
+          h.Stroke('currentColor'),
+          h.StrokeWidth('13'),
+          h.StrokeLinecap('round'),
+        ],
+        [
+          strokePath('M18 38C34 36 66 36 82 38'),
+          strokePath('M18 62C34 60 66 64 82 62'),
+          strokePath('M38 18V54'), strokePath('M38 70V82'),
+          strokePath('M62 18V30'), strokePath('M62 46V82'),
+        ],
+      ),
+    ],
+  )
+
 export const copyButton = (props: {
   id: string
   text: string
@@ -111,7 +138,7 @@ export const copyButton = (props: {
   )
 }
 
-export const titlebar = (): Html =>
+export const titlebar = (version: string): Html =>
   h.div(
     [h.Class('titlebar'), h.Role('banner')],
     [
@@ -133,7 +160,7 @@ export const titlebar = (): Html =>
         [h.Class('right')],
         [
           h.span([h.Class('live-dot'), h.Title('tangled')], []),
-          h.span([], ['v0.9.0 · literate programming']),
+          h.span([], [`v${version} · literate programming`]),
           h.span([], [h.kbd([], ['⌘']), ' ', h.kbd([], ['K'])]),
         ],
       ),

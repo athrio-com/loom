@@ -1,144 +1,205 @@
-import { Array, Match } from 'effect'
+import { Array, Match, Option, pipe } from 'effect'
 import type { Html } from 'foldkit/html'
-import { h, type Message, type Model, MovedFocus, SelectedStep, Typed } from './model'
+import { marked } from 'marked'
+import {
+  GotGameMessage,
+  h,
+  type Message,
+  type Model,
+  MovedFocus,
+  SelectedLoomView,
+  SelectedSection,
+  SelectedTab,
+  Typed,
+} from './model'
+import * as Gomoku from '../../examples/gomoku/gomoku'
+import { loomIcon, playIcon } from './components'
+import wovenCorpus from './gomoku.woven.json'
+import highlighted from './gomoku.highlighted.json'
 
-type Step = {
-  file: string
-  lines: number
-  num: string
-  heading: string
-  body: string
-  code: string
+type AnchorLink = { readonly targetId: string; readonly offset: number; readonly length: number }
+type Source = { readonly chapter: string; readonly section: string }
+
+type Block =
+  | { readonly type: 'heading'; readonly source: Source; readonly level: number; readonly title: string; readonly id: string }
+  | { readonly type: 'prose'; readonly markdown: string }
+  | { readonly type: 'code'; readonly source: Source; readonly language: string; readonly code: string; readonly links: ReadonlyArray<AnchorLink> }
+  | { readonly type: 'note'; readonly markdown: string }
+
+type Heading = Extract<Block, { type: 'heading' }>
+type Code = Extract<Block, { type: 'code' }>
+type Page = { readonly slug: string; readonly title: string; readonly blocks: ReadonlyArray<Block> }
+type Highlighted = { readonly loomHtml: string; readonly tangledHtml: string; readonly codeHtml: ReadonlyArray<string> }
+
+const page: Page = (wovenCorpus as unknown as { pages: ReadonlyArray<Page> }).pages[0]
+const marks = highlighted as unknown as Highlighted
+
+const isHeading = (block: Block): block is Heading => block.type === 'heading'
+const isCode = (block: Block): block is Code => block.type === 'code'
+
+const headings = pipe(page.blocks, Array.filter(isHeading))
+const loomTitle = headings[0]
+const sections = Array.filter(headings, (heading) => heading.level === 2)
+const codeHtmlOf: ReadonlyMap<Code, string> = new Map(Array.zip(Array.filter(page.blocks, isCode), marks.codeHtml))
+
+const sinkSections: ReadonlySet<string> = new Set(
+  pipe(
+    page.blocks,
+    Array.filter(isCode),
+    Array.filter((code) => code.links.length > 0),
+    Array.map((code) => code.source.section),
+  ),
+)
+
+const activeClass = (base: string, on: boolean): string =>
+  on ? `${base} active` : base
+
+const proseMarkup = (markdown: string): Html =>
+  h.div([h.Class('how-prose'), h.InnerHTML(marked.parse(markdown) as string)], [])
+
+const headingMarkup = (active: string) => (block: Heading): Html => {
+  const label: ReadonlyArray<Html | string> = sinkSections.has(block.source.section)
+    ? [block.title, h.span([h.Class('how-spec')], ['{Tangle}'])]
+    : [block.title]
+  return Match.value(block.level).pipe(
+    Match.when(1, () =>
+      h.h3([h.Class(activeClass('how-file-title', block.id === active)), h.Id(block.id)], label),
+    ),
+    Match.orElse(() =>
+      h.h4([h.Class(activeClass('how-section-h', block.id === active)), h.Id(block.id)], label),
+    ),
+  )
 }
 
-const anchorMark = '::' + '['
+const codeMarkup = (block: Code): Html =>
+  h.div(
+    [
+      h.Class('how-code'),
+      h.InnerHTML(Option.getOrElse(Option.fromNullishOr(codeHtmlOf.get(block)), () => '')),
+    ],
+    [],
+  )
 
-const STEPS: ReadonlyArray<Step> = [
-  {
-    file: 'corpus/01-write.loom',
-    lines: 24,
-    num: 'STEP 01 · WRITE',
-    heading: 'Prose and code, in one file.',
-    body: 'A section is a heading, the prose that explains it, and the code it describes — kept in the order a person reads, not the order the compiler needs.',
-    code: '# A friendly greeting\nA greeter turns a name into a line.\n\n=> greet\nexport const greet = (name) =>\n  `Hello, ${name}.`',
-  },
-  {
-    file: 'corpus/02-compose.loom',
-    lines: 31,
-    num: 'STEP 02 · COMPOSE',
-    heading: 'Compose by name, not by paste.',
-    body: `A section draws in another with a ${anchorMark}…] anchor. The product pass resolves every anchor and assembles the sections into one whole — nothing is copied, nothing drifts.`,
-    code: `# The module\n${anchorMark}imports]\n${anchorMark}greet]\n${anchorMark}export]\n\n→ one file, composed by name`,
-  },
-  {
-    file: 'corpus/03-tangle.loom',
-    lines: 18,
-    num: 'STEP 03 · TANGLE',
-    heading: 'Tangle it into real source.',
-    body: 'A {Tangle} section binds the composed code to a path. loom tangle writes plain source to disk — TypeScript, Bash, JSON — and the prose leaves no trace.',
-    code: '$ loom tangle\n✓ src/greeter.ts       17 lines\n✓ src/classifier.ts    58 lines\n→ prose left no trace',
-  },
-  {
-    file: 'corpus/04-read.loom',
-    lines: 22,
-    num: 'STEP 04 · READ',
-    heading: 'Read the whole thing as a book.',
-    body: 'loom weave projects the corpus into a documentation site — parts, chapters, and code you can navigate. The program and the book are one source.',
-    code: '$ loom weave\n✓ 10 parts · 51 chapters\n→ serving the book at :4321',
-  },
+const blockView = (active: string) => (block: Block): Html =>
+  Match.value(block).pipe(
+    Match.when({ type: 'heading' }, headingMarkup(active)),
+    Match.when({ type: 'prose' }, (prose) => proseMarkup(prose.markdown)),
+    Match.when({ type: 'code' }, codeMarkup),
+    Match.when({ type: 'note' }, (note) => proseMarkup(note.markdown)),
+    Match.exhaustive,
+  )
+
+const outlineRow = (active: string) => (section: Heading): Html =>
+  h.div(
+    [h.Class(activeClass('how-outline-row', section.id === active)), h.OnClick(SelectedSection({ id: section.id }))],
+    [section.title],
+  )
+
+const previewTab = (active: string): Html =>
+  h.div(
+    [h.Class('how-preview'), h.Key('preview')],
+    [
+      h.div([h.Class('how-scroll')], Array.map(page.blocks, blockView(active))),
+      h.div(
+        [h.Class('how-outline')],
+        [
+          h.div([h.Class('how-outline-head')], ['OUTLINE']),
+          outlineRow(active)(loomTitle),
+          ...Array.map(sections, outlineRow(active)),
+        ],
+      ),
+    ],
+  )
+
+type TabId = 'loom' | 'tangled' | 'play'
+
+const TABS: ReadonlyArray<{ readonly id: TabId; readonly label: string }> = [
+  { id: 'loom', label: 'gomoku.loom' },
+  { id: 'tangled', label: 'gomoku.ts' },
+  { id: 'play', label: 'Play' },
 ]
 
-const treeRow = (step: Step, index: number, active: number): Html =>
-  h.div(
-    [
-      h.Class(
-        index + 1 === active
-          ? 'tree-row tree-indent active'
-          : 'tree-row tree-indent',
-      ),
-      h.OnClick(SelectedStep({ step: index + 1 })),
-    ],
-    [
-      h.span([h.Class('tree-bullet')], []),
-      step.file.replace('corpus/', ''),
-      h.span([h.Class('tree-meta')], [`∙ ${step.lines} lines`]),
-    ],
+const tabIcon = (id: TabId): Html =>
+  Match.value(id).pipe(
+    Match.when('loom', () => h.span([h.Class('ex-icon white')], [loomIcon()])),
+    Match.when('tangled', () => h.span([h.Class('tab-badge white')], ['TS'])),
+    Match.when('play', () => h.span([h.Class('ex-icon green')], [playIcon()])),
+    Match.exhaustive,
   )
 
-const tangledRow = (name: string): Html =>
-  h.div(
-    [h.Class('tree-row tree-indent'), h.Style({ color: 'var(--fg-3)' })],
-    [h.span([h.Class('tree-bullet')], []), name],
+const tabClass = (id: TabId, active: TabId): string =>
+  `ex-tab${id === active ? ' active' : ''}${id === 'play' ? ' play' : ''}`
+
+const tabButton = (active: TabId) => (item: { readonly id: TabId; readonly label: string }): Html =>
+  h.button(
+    [h.Class(tabClass(item.id, active)), h.OnClick(SelectedTab({ tab: item.id }))],
+    [tabIcon(item.id), item.label],
   )
 
-const fileTree = (model: Model): Html =>
+const codeCanvas = (key: string, html: string): Html =>
+  h.div([h.Class('how-scroll shiki-scroll'), h.Key(key), h.InnerHTML(html)], [])
+
+type LoomView = 'preview' | 'source'
+
+const loomToggleButton = (view: LoomView, label: string, active: LoomView): Html =>
+  h.button(
+    [
+      h.Class(view === active ? 'loom-toggle-btn active' : 'loom-toggle-btn'),
+      h.OnClick(SelectedLoomView({ view })),
+    ],
+    [label],
+  )
+
+const loomBody = (model: Model): Html =>
+  Match.value(model.loomView).pipe(
+    Match.when('preview', () => previewTab(model.activeSection)),
+    Match.when('source', () => codeCanvas('source', marks.loomHtml)),
+    Match.exhaustive,
+  )
+
+const loomPane = (model: Model): Html =>
   h.div(
-    [h.Class('file-tree')],
+    [h.Class('how-loom'), h.Key('loom')],
     [
       h.div(
-        [h.Class('panel-head')],
+        [h.Class('loom-toggle')],
         [
-          h.span([h.Class('dot'), h.Style({ background: 'var(--acc-cyan)' })], []),
-          h.span([], ['EXPLORER']),
-          h.span([h.Class('right')], ['loom · main']),
+          loomToggleButton('preview', 'Preview', model.loomView),
+          loomToggleButton('source', 'Source', model.loomView),
         ],
       ),
-      h.div(
-        [h.Class('tree-list')],
-        [
-          h.div(
-            [h.Class('tree-row dir')],
-            [h.span([h.Class('tree-bullet')], []), 'corpus/'],
-          ),
-          ...Array.map(STEPS, (step, index) => treeRow(step, index, model.howStep)),
-          h.div(
-            [h.Class('tree-row dir'), h.Style({ marginTop: '10px' })],
-            [h.span([h.Class('tree-bullet')], []), 'tangled/'],
-          ),
-          tangledRow('greeter.ts'),
-          tangledRow('classifier.ts'),
-          tangledRow('index.ts'),
-        ],
-      ),
+      loomBody(model),
     ],
   )
 
-const stepDetail = (model: Model): Html => {
-  const step = STEPS[model.howStep - 1] ?? STEPS[0]
-  return h.div(
+const tabBody = (model: Model): Html =>
+  Match.value(model.exampleTab).pipe(
+    Match.when('loom', () => loomPane(model)),
+    Match.when('tangled', () => codeCanvas('tangled', marks.tangledHtml)),
+    Match.when('play', () =>
+      h.div(
+        [h.Class('how-play'), h.Key('play')],
+        [
+          h.submodel({
+            slotId: 'gomoku',
+            model: model.game,
+            view: Gomoku.view,
+            toParentMessage: (message) => GotGameMessage({ message }),
+          }),
+        ],
+      ),
+    ),
+    Match.exhaustive,
+  )
+
+const examplePanel = (model: Model): Html =>
+  h.div(
     [h.Class('how-detail')],
     [
-      h.div(
-        [h.Class('panel-head')],
-        [
-          h.span([h.Class('dot')], []),
-          h.span([], [step.file]),
-          h.span([h.Class('right')], ['read-only · preview']),
-        ],
-      ),
-      h.div(
-        [h.Class('how-body')],
-        [
-          h.div(
-            [],
-            [
-              h.div([h.Class('how-step-num')], [step.num]),
-              h.h3([h.Class('how-step-h')], [step.heading]),
-              h.p([h.Class('how-step-p')], [step.body]),
-            ],
-          ),
-          h.div(
-            [h.Class('how-snippet')],
-            [
-              h.span([h.Style({ color: 'var(--fg-4)' })], ['// preview']),
-              `\n${step.code}`,
-            ],
-          ),
-        ],
-      ),
+      h.div([h.Class('ex-tabs')], Array.map(TABS, tabButton(model.exampleTab))),
+      h.div([h.Class('how-body')], [tabBody(model)]),
     ],
   )
-}
 
 type Command = {
   glyph: string
@@ -287,15 +348,14 @@ const howItWorks = (model: Model): Html =>
                         [h.Style({ fontFamily: 'var(--mono)', color: 'var(--acc-cyan)', fontSize: '0.92em' })],
                         ['.loom'],
                       ),
-                      ' corpus is a set of files written to be read in order, like chapters in a book. Open one and follow it through: prose and code side by side, sections composed by name, then tangled into real source.',
+                      ' corpus is a set of files read in order, like chapters in a book. Open one and read it top to bottom: each section explains a piece in prose, then shows the code that piece becomes. The sections compose by name, and tangle resolves them into real source.',
                     ],
                   ),
                 ],
               ),
             ],
           ),
-          h.div([h.Class('how-grid')], [fileTree(model), stepDetail(model)]),
-          palette(model),
+          examplePanel(model),
         ],
       ),
     ],

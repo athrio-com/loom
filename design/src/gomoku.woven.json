@@ -1,0 +1,1146 @@
+{
+  "nav": [],
+  "loose": [],
+  "pages": [
+    {
+      "slug": "gomoku/gomoku",
+      "title": "Gomoku",
+      "blocks": [
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "gomoku"
+          },
+          "level": 1,
+          "title": "Gomoku",
+          "id": "gomoku"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "gomoku"
+          },
+          "markdown": "Gomoku — five in a row — is played on a fifteen-by-fifteen grid. Two players take turns placing a stone on an empty point, one playing black and the other white, while black moves first. The winner is the first to line up five of their own stones along a row, a column, or a diagonal.\n\nOur Gomoku variant has a twist. Some board points hide a bomb 💣. Play onto one and it detonates 💥 — the stone is lost, and the point is left blocked for both players for the rest of the game. Bombs are placed randomly, so every move is a small gamble.\n\nComputer moves come from an alpha-beta engine. It reads the board, looks a few moves ahead, and plays the point that best blocks your lines and builds its own.\n\nThis game is built with Foldkit."
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "the-board"
+          },
+          "level": 2,
+          "title": "The board",
+          "id": "the-board"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "the-board"
+          },
+          "markdown": "We build the game from the ground up, starting with the board it is played on. A board is two hundred twenty-five points, a fifteen-by-fifteen grid read left to right and top to bottom. Each point is one player's stone, a point broken by a bomb, or nothing at all — so its value is `'black'`, `'white'`, `'broken'`, or `null`. A broken point belongs to no one and can never be played; it simply blocks. The empty board is that grid of nothing, the game before anyone has played."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "the-board"
+          },
+          "language": "typescript",
+          "code": "export const SIZE = 15\nconst WIN = 5\n\nexport type Player = 'black' | 'white'\nexport type Cell = Player | 'broken' | null\nexport type Board = ReadonlyArray<Cell>\n\nconst inBounds = (row: number, col: number): boolean =>\n  row >= 0 && row < SIZE && col >= 0 && col < SIZE\n\nexport const emptyBoard: Board = Array.makeBy(\n  SIZE * SIZE,\n  () => null,\n)",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "a-move"
+          },
+          "level": 2,
+          "title": "A move",
+          "id": "a-move"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "a-move"
+          },
+          "markdown": "The board can hold stones; next they need a way to land. A move places a stone on an empty point and returns a new board, leaving the one before it untouched. A point that is already taken — by a stone or by a bomb's wreckage — is refused, and the same board comes back unchanged. The `detonate` function is a move's dark twin: it leaves the point broken instead of placing a stone."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "a-move"
+          },
+          "language": "typescript",
+          "code": "const other = (player: Player): Player =>\n  player === 'black' ? 'white' : 'black'\n\nexport const move = (\n  board: Board,\n  cell: number,\n  player: Player,\n): Board =>\n  board[cell] === null\n    ? board.map((existing, index) =>\n        index === cell ? player : existing,\n      )\n    : board\n\nexport const detonate = (\n  board: Board,\n  cell: number,\n): Board =>\n  board.map((existing, index) =>\n    index === cell ? 'broken' : existing,\n  )\n\nexport const full = (board: Board): boolean =>\n  board.every((cell) => cell !== null)",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "five-in-a-row"
+          },
+          "level": 2,
+          "title": "Five in a row",
+          "id": "five-in-a-row"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "five-in-a-row"
+          },
+          "markdown": "Stones can be placed now, but nothing yet ends a game — winning does. A player wins with five stones in an unbroken line, along a row, down a column, or on either diagonal. Those four directions cover every line, and each line is walked one step at a time from a starting point."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "five-in-a-row"
+          },
+          "language": "typescript",
+          "code": "const DIRECTIONS: ReadonlyArray<\n  readonly [number, number]\n> = [\n  [0, 1],\n  [1, 0],\n  [1, 1],\n  [1, -1],\n]",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "five-in-a-row"
+          },
+          "markdown": "A line is walked one step at a time, so the walk must read points that may fall off the board. The `cellAt` helper reads the point at a row and column and treats anything past the edge as empty, letting a walk run off the grid without a bounds check at each step."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "five-in-a-row"
+          },
+          "language": "typescript",
+          "code": "const cellAt = (\n  board: Board,\n  row: number,\n  col: number,\n): Cell =>\n  inBounds(row, col) ? board[row * SIZE + col] : null",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "five-in-a-row"
+          },
+          "markdown": "The `lineWinner` function asks the one question the rest is built on: does a full five of a single player begin at this point and run in this direction? It reads the starting point and — as long as that point holds a stone, not a break — checks that the next four steps hold the same player. A broken point belongs to no one, so it can neither begin nor complete a line."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "five-in-a-row"
+          },
+          "language": "typescript",
+          "code": "const lineWinner = (\n  board: Board,\n  row: number,\n  col: number,\n  dRow: number,\n  dCol: number,\n): Player | null => {\n  const start = cellAt(board, row, col)\n  if (start === null || start === 'broken') {\n    return null\n  }\n  const complete = Array.range(1, WIN - 1).every(\n    (step) =>\n      cellAt(\n        board,\n        row + dRow * step,\n        col + dCol * step,\n      ) === start,\n  )\n  return complete ? start : null\n}",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "five-in-a-row"
+          },
+          "markdown": "The `winner` and `winningLine` functions both need to look at every line on the board, so `eachLine` runs that sweep once — every point, in every direction — and hands each line to a reader."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "five-in-a-row"
+          },
+          "language": "typescript",
+          "code": "const eachLine = <A>(\n  read: (\n    row: number,\n    col: number,\n    dRow: number,\n    dCol: number,\n  ) => A,\n): ReadonlyArray<A> =>\n  pipe(\n    Array.range(0, SIZE - 1),\n    Array.flatMap((row) =>\n      Array.flatMap(\n        Array.range(0, SIZE - 1),\n        (col) =>\n          Array.map(\n            DIRECTIONS,\n            ([dRow, dCol]) =>\n              read(row, col, dRow, dCol),\n          ),\n      ),\n    ),\n  )",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "five-in-a-row"
+          },
+          "markdown": "The `winner` function reads each line for a completed five and returns the first it finds, or `null` while none is — the view reads it to name the outcome."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "five-in-a-row"
+          },
+          "language": "typescript",
+          "code": "export const winner = (\n  board: Board,\n): Player | null =>\n  pipe(\n    eachLine((row, col, dRow, dCol) =>\n      lineWinner(board, row, col, dRow, dCol),\n    ),\n    Array.findFirst(\n      (found): found is Player => found !== null,\n    ),\n    Option.getOrNull,\n  )",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "five-in-a-row"
+          },
+          "markdown": "The `lineCells` helper lists the five points a line covers, from its start in one direction."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "five-in-a-row"
+          },
+          "language": "typescript",
+          "code": "const lineCells = (\n  row: number,\n  col: number,\n  dRow: number,\n  dCol: number,\n): ReadonlyArray<number> =>\n  Array.map(\n    Array.range(0, WIN - 1),\n    (step) =>\n      (row + dRow * step) * SIZE +\n      (col + dCol * step),\n  )",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "five-in-a-row"
+          },
+          "markdown": "The `winningLine` function runs the same sweep, but returns the five points of the line it finds — the ones the view lights up when the game ends."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "five-in-a-row"
+          },
+          "language": "typescript",
+          "code": "export const winningLine = (\n  board: Board,\n): ReadonlyArray<number> =>\n  pipe(\n    eachLine((row, col, dRow, dCol) =>\n      lineWinner(board, row, col, dRow, dCol) === null\n        ? Option.none<ReadonlyArray<number>>()\n        : Option.some(lineCells(row, col, dRow, dCol)),\n    ),\n    Array.getSomes,\n    Array.head,\n    Option.getOrElse(() => []),\n  )",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "did-that-move-win"
+          },
+          "level": 2,
+          "title": "Did that move win?",
+          "id": "did-that-move-win"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "did-that-move-win"
+          },
+          "markdown": "One more reading of the board belongs here, though this one is the computer's. The opponent we build next tries move after move as it looks ahead, and it cannot rescan the whole grid each time. So it asks a narrower question than `winner`: did the stone just placed finish a five? `rayLength` counts the unbroken run of one player from a point outward in a single direction."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "did-that-move-win"
+          },
+          "language": "typescript",
+          "code": "const rayLength = (\n  board: Board,\n  row: number,\n  col: number,\n  dRow: number,\n  dCol: number,\n  player: Player,\n): number =>\n  cellAt(board, row, col) === player\n    ? 1 +\n      rayLength(\n        board,\n        row + dRow,\n        col + dCol,\n        dRow,\n        dCol,\n        player,\n      )\n    : 0",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "did-that-move-win"
+          },
+          "markdown": "The `wonAt` function adds the two runs that meet at the placed stone — one each way — along each of the four directions, and reports whether any of them reaches five."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "did-that-move-win"
+          },
+          "language": "typescript",
+          "code": "const wonAt = (board: Board, cell: number): boolean => {\n  const player = board[cell]\n  if (\n    player === null ||\n    player === undefined ||\n    player === 'broken'\n  ) {\n    return false\n  }\n  const row = Math.floor(cell / SIZE)\n  const col = cell % SIZE\n  return DIRECTIONS.some(\n    ([dRow, dCol]) =>\n      1 +\n        rayLength(\n          board,\n          row + dRow,\n          col + dCol,\n          dRow,\n          dCol,\n          player,\n        ) +\n        rayLength(\n          board,\n          row - dRow,\n          col - dCol,\n          -dRow,\n          -dCol,\n          player,\n        ) >=\n      WIN,\n  )\n}",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "reading-a-position"
+          },
+          "level": 2,
+          "title": "Reading a position",
+          "id": "reading-a-position"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "reading-a-position"
+          },
+          "markdown": "That completes the rules; the rest of the file is the opponent. Its first need is judgment — a single number for how good a position is, positive when it favours white and negative when it favours black. Everything the engine does rests on this one score.\n\nIt reads the board as lines of text. Every row, column, and diagonal long enough to hold a five becomes a string of four characters — `w` for white, `b` for black, `.` for an empty point, and `x` for a point a bomb has broken, which blocks both players. Building a line starts with a walk: `rayCells` steps from a point in one direction to the edge, gathering the points it crosses."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "reading-a-position"
+          },
+          "language": "typescript",
+          "code": "const rayCells = (\n  row: number,\n  col: number,\n  dRow: number,\n  dCol: number,\n): ReadonlyArray<number> =>\n  inBounds(row, col)\n    ? [\n        row * SIZE + col,\n        ...rayCells(row + dRow, col + dCol, dRow, dCol),\n      ]\n    : []",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "reading-a-position"
+          },
+          "markdown": "The `LINE_STARTS` table names where each line begins and which way it runs: every row, every column, and each diagonal from the two edges it can start on. (`range` is `0 … SIZE-1`; `rest` is `1 … SIZE-1`, which skips the main diagonal already counted.)"
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "reading-a-position"
+          },
+          "language": "typescript",
+          "code": "const range = Array.range(0, SIZE - 1)\nconst rest = Array.range(1, SIZE - 1)\n\nconst LINE_STARTS: ReadonlyArray<\n  readonly [number, number, number, number]\n> = [\n  ...Array.map(range, (r) => [r, 0, 0, 1] as const),\n  ...Array.map(range, (c) => [0, c, 1, 0] as const),\n  ...Array.map(range, (c) => [0, c, 1, 1] as const),\n  ...Array.map(rest, (r) => [r, 0, 1, 1] as const),\n  ...Array.map(range, (c) => [0, c, 1, -1] as const),\n  ...Array.map(rest, (r) => [r, SIZE - 1, 1, -1] as const),\n]",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "reading-a-position"
+          },
+          "markdown": "The `LINE_CELLS` list turns those starts into point-sequences with `rayCells`, keeping the ones long enough to hold a five — computed once and reused on every position."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "reading-a-position"
+          },
+          "language": "typescript",
+          "code": "const LINE_CELLS: ReadonlyArray<\n  ReadonlyArray<number>\n> = pipe(\n  LINE_STARTS,\n  Array.map(([row, col, dRow, dCol]) =>\n    rayCells(row, col, dRow, dCol),\n  ),\n  Array.filter((cells) => cells.length >= WIN),\n)",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "reading-a-position"
+          },
+          "markdown": "The `glyph` function gives a point its character."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "reading-a-position"
+          },
+          "language": "typescript",
+          "code": "const glyph = (cell: Cell): string =>\n  Match.value(cell).pipe(\n    Match.when('white', () => 'w'),\n    Match.when('black', () => 'b'),\n    Match.when('broken', () => 'x'),\n    Match.orElse(() => '.'),\n  )",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "reading-a-position"
+          },
+          "markdown": "The `lineText` function renders one line of a board into its string."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "reading-a-position"
+          },
+          "language": "typescript",
+          "code": "const lineText = (\n  board: Board,\n  cells: ReadonlyArray<number>,\n): string =>\n  cells.map((cell) => glyph(board[cell])).join('')",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "reading-a-position"
+          },
+          "markdown": "A threat is a shape in that string, and the shape is what decides its worth. Most shapes are matched inline, but one earns a name of its own: a broken three, three stones around a single gap (`.ww.w.` or `.w.ww.`), a hair away from an open four."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "reading-a-position"
+          },
+          "language": "typescript",
+          "code": "const brokenThree = (me: string): RegExp =>\n  new RegExp(\n    `\\\\.${me}{2}\\\\.${me}\\\\.|\\\\.${me}\\\\.${me}{2}\\\\.`,\n    'g',\n  )",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "reading-a-position"
+          },
+          "markdown": "The `patternsFor` function writes the whole ladder for one player, highest threat first: an open four (`.wwww.`), unstoppable with two ways to finish; a plain four; an open three (`.www.`), which forces a block; the broken three; then the lesser threes and twos. Each shape is paired with its worth."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "reading-a-position"
+          },
+          "language": "typescript",
+          "code": "const patternsFor = (\n  me: string,\n): ReadonlyArray<readonly [RegExp, number]> => [\n  [new RegExp(`\\\\.${me}{4}\\\\.`, 'g'), 100_000],\n  [new RegExp(`${me}{4}`, 'g'), 10_000],\n  [new RegExp(`\\\\.${me}{3}\\\\.`, 'g'), 5_000],\n  [brokenThree(me), 4_000],\n  [new RegExp(`${me}{3}`, 'g'), 500],\n  [new RegExp(`\\\\.${me}{2}\\\\.`, 'g'), 100],\n]\n\nconst WHITE_PATTERNS = patternsFor('w')\nconst BLACK_PATTERNS = patternsFor('b')",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "reading-a-position"
+          },
+          "markdown": "Defence gets a small thumb on the scale. The `DEFENCE` factor scales black's total up a little, so the engine answers a live black threat before it chases a line of its own."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "reading-a-position"
+          },
+          "language": "typescript",
+          "code": "const DEFENCE = 1.1",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "reading-a-position"
+          },
+          "markdown": "The `countIn` function counts how many times one shape appears across all the lines."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "reading-a-position"
+          },
+          "language": "typescript",
+          "code": "const countIn = (\n  lines: ReadonlyArray<string>,\n  pattern: RegExp,\n): number =>\n  Array.reduce(\n    lines,\n    0,\n    (total, line) =>\n      total + (line.match(pattern)?.length ?? 0),\n  )",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "reading-a-position"
+          },
+          "markdown": "The `patternScore` function weighs a player's whole ladder: each shape's count times its worth, summed."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "reading-a-position"
+          },
+          "language": "typescript",
+          "code": "const patternScore = (\n  lines: ReadonlyArray<string>,\n  patterns: ReadonlyArray<readonly [RegExp, number]>,\n): number =>\n  Array.reduce(\n    patterns,\n    0,\n    (total, [pattern, weight]) =>\n      total + countIn(lines, pattern) * weight,\n  )",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "reading-a-position"
+          },
+          "markdown": "The `evaluate` function puts it together: render every line, score white's ladder, subtract black's scaled by `DEFENCE`, and hand back the difference. White always tries to make this number bigger."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "reading-a-position"
+          },
+          "language": "typescript",
+          "code": "const evaluate = (board: Board): number => {\n  const lines = Array.map(LINE_CELLS, (cells) =>\n    lineText(board, cells),\n  )\n  return (\n    patternScore(lines, WHITE_PATTERNS) -\n    DEFENCE * patternScore(lines, BLACK_PATTERNS)\n  )\n}",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "where-to-play"
+          },
+          "level": 2,
+          "title": "Where to play",
+          "id": "where-to-play"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "where-to-play"
+          },
+          "markdown": "Judgment tells the engine which board is better, not which move to make; for that it first narrows the field. A board has two hundred twenty-five points, but almost all of them are irrelevant: a good move sits next to stones already down. Searching every empty point would be hopeless, so the engine looks at far fewer. Three constants set the bounds: `CENTER` is the middle point, `REACH` how close to a stone still counts as nearby, and `WIDTH` how many moves the search will weigh."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "where-to-play"
+          },
+          "language": "typescript",
+          "code": "const CENTER = Math.floor((SIZE * SIZE) / 2)\nconst REACH = 2\nconst WIDTH = 14",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "where-to-play"
+          },
+          "markdown": "The `NEIGHBOURHOOD` value is the ring of offsets within `REACH` of a point, with the point itself left out."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "where-to-play"
+          },
+          "language": "typescript",
+          "code": "const NEIGHBOURHOOD: ReadonlyArray<\n  readonly [number, number]\n> = pipe(\n  Array.range(-REACH, REACH),\n  Array.flatMap((dRow) =>\n    Array.map(\n      Array.range(-REACH, REACH),\n      (dCol) => [dRow, dCol] as const,\n    ),\n  ),\n  Array.filter(\n    ([dRow, dCol]) => dRow !== 0 || dCol !== 0,\n  ),\n)",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "where-to-play"
+          },
+          "markdown": "The `neighbours` function counts how many stones sit in that ring around a point."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "where-to-play"
+          },
+          "language": "typescript",
+          "code": "const neighbours = (\n  board: Board,\n  cell: number,\n): number => {\n  const row = Math.floor(cell / SIZE)\n  const col = cell % SIZE\n  return pipe(\n    NEIGHBOURHOOD,\n    Array.filter(\n      ([dRow, dCol]) =>\n        cellAt(board, row + dRow, col + dCol) !==\n        null,\n    ),\n    Array.length,\n  )\n}",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "where-to-play"
+          },
+          "markdown": "Points beside stones are worth weighing, but which first? The engine ranks them by urgency. The `runThrough` function measures, for one player, the longest two-way run a stone at this point would join, taken across the four directions."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "where-to-play"
+          },
+          "language": "typescript",
+          "code": "const runThrough = (\n  board: Board,\n  cell: number,\n  player: Player,\n): number => {\n  const row = Math.floor(cell / SIZE)\n  const col = cell % SIZE\n  return Math.max(\n    ...Array.map(DIRECTIONS, ([dRow, dCol]) =>\n      rayLength(\n        board,\n        row + dRow,\n        col + dCol,\n        dRow,\n        dCol,\n        player,\n      ) +\n      rayLength(\n        board,\n        row - dRow,\n        col - dCol,\n        -dRow,\n        -dCol,\n        player,\n      ),\n    ),\n  )\n}",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "where-to-play"
+          },
+          "markdown": "The `urgency` function takes the larger of a point's two runs — the move matters if it helps white or blocks black."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "where-to-play"
+          },
+          "language": "typescript",
+          "code": "const urgency = (board: Board, cell: number): number =>\n  Math.max(\n    runThrough(board, cell, 'white'),\n    runThrough(board, cell, 'black'),\n  )",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "where-to-play"
+          },
+          "markdown": "The `byUrgency` order ranks points by that score, highest first — it sorts on the negated urgency, since number order runs low to high."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "where-to-play"
+          },
+          "language": "typescript",
+          "code": "const byUrgency = (board: Board): Order.Order<number> =>\n  Order.mapInput(\n    Order.Number,\n    (cell: number) => -urgency(board, cell),\n  )",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "where-to-play"
+          },
+          "markdown": "The `candidates` function puts it together: the empty board returns the centre; otherwise it keeps the empty points beside a stone, orders them by urgency, and takes the top `WIDTH`. That cap is why the order matters — rank the move that blocks a four below a dozen quiet ones and the cap would drop it, so the engine would never even weigh the block."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "where-to-play"
+          },
+          "language": "typescript",
+          "code": "const candidates = (\n  board: Board,\n): ReadonlyArray<number> =>\n  board.every((cell) => cell === null)\n    ? [CENTER]\n    : pipe(\n        Array.range(0, SIZE * SIZE - 1),\n        Array.filter(\n          (cell) =>\n            board[cell] === null &&\n            neighbours(board, cell) > 0,\n        ),\n        Array.sort(byUrgency(board)),\n        Array.take(WIDTH),\n      )",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "looking-ahead"
+          },
+          "level": 2,
+          "title": "Looking ahead",
+          "id": "looking-ahead"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "looking-ahead"
+          },
+          "markdown": "A way to score positions and a short list of moves to weigh are the two halves; search is what joins them. The engine plays by looking ahead: it tries a move for white, imagines black's best reply, then its own reply to that, a couple of moves deep, and keeps the line that leaves the board best for white. This is the minimax idea: white moves to make `evaluate` as large as it can, black to make it as small as it can, and each assumes the other plays its best. Two constants tune it: `DEPTH` sets how many moves ahead it looks, and `WIN_SCORE` is the value of a finished five, larger than any shape score so a real win always wins."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "looking-ahead"
+          },
+          "language": "typescript",
+          "code": "const WIN_SCORE = 1_000_000\nconst DEPTH = 2",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "looking-ahead"
+          },
+          "markdown": "Searching every reply to every reply would be far too slow, so the search prunes. It carries two running bounds: `alpha`, the best score white has already guaranteed itself somewhere else, and `beta`, the best black has. The moment a branch proves it cannot beat those bounds, no deeper look can change the final choice, so the search drops it unexamined. This is alpha-beta pruning, and it is what makes a few moves of depth feel instant.\n\nThe `step` function walks one player's candidate moves at one depth, carrying the best score found so far. For each move it places the stone, scores the reply with `minimax` a level deeper, and folds that into the running best — a maximum for white, a minimum for black. When the bounds cross, `alpha >= beta`, the remaining moves cannot matter, so it stops early."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "looking-ahead"
+          },
+          "language": "typescript",
+          "code": "const step = (\n  board: Board,\n  toMove: Player,\n  depth: number,\n  alpha: number,\n  beta: number,\n  moves: ReadonlyArray<number>,\n  best: number,\n): number => {\n  if (moves.length === 0) {\n    return best\n  }\n  const [cell, ...rest] = moves\n  const score = minimax(\n    move(board, cell, toMove),\n    other(toMove),\n    depth - 1,\n    alpha,\n    beta,\n    cell,\n  )\n  const white = toMove === 'white'\n  const nextBest = white\n    ? Math.max(best, score)\n    : Math.min(best, score)\n  const nextAlpha = white ? Math.max(alpha, nextBest) : alpha\n  const nextBeta = white ? beta : Math.min(beta, nextBest)\n  if (nextAlpha >= nextBeta) {\n    return nextBest\n  }\n  return step(\n    board,\n    toMove,\n    depth,\n    nextAlpha,\n    nextBeta,\n    rest,\n    nextBest,\n  )\n}",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "looking-ahead"
+          },
+          "markdown": "The `minimax` function scores one position. If the last stone placed completed a five, the game is already decided, so it returns `WIN_SCORE` signed for whoever just moved. At the depth limit, or on a full board, it falls back to `evaluate`. Otherwise it hands the position's candidates to `step` and the search goes on, one level deeper."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "looking-ahead"
+          },
+          "language": "typescript",
+          "code": "const minimax = (\n  board: Board,\n  toMove: Player,\n  depth: number,\n  alpha: number,\n  beta: number,\n  lastCell: number,\n): number => {\n  if (wonAt(board, lastCell)) {\n    return toMove === 'white' ? -WIN_SCORE : WIN_SCORE\n  }\n  if (depth === 0 || full(board)) {\n    return evaluate(board)\n  }\n  const start = toMove === 'white' ? -Infinity : Infinity\n  return step(\n    board,\n    toMove,\n    depth,\n    alpha,\n    beta,\n    candidates(board),\n    start,\n  )\n}",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "looking-ahead"
+          },
+          "markdown": "The `bestMove` function sits one level above the search. It tries each candidate for white, scores the position that follows with `minimax`, and keeps the point with the highest score — the point itself, not its number. It has no idea where the bombs are, so it can walk onto one just as you can."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "looking-ahead"
+          },
+          "language": "typescript",
+          "code": "export const bestMove = (board: Board): number =>\n  pipe(\n    candidates(board),\n    Array.reduce(\n      { cell: CENTER, value: -Infinity },\n      (best, cell) => {\n        const value = minimax(\n          move(board, cell, 'white'),\n          'black',\n          DEPTH,\n          -Infinity,\n          Infinity,\n          cell,\n        )\n        return value > best.value\n          ? { cell, value }\n          : best\n      },\n    ),\n    (best) => best.cell,\n  )",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "the-model"
+          },
+          "level": 2,
+          "title": "The model",
+          "id": "the-model"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "the-model"
+          },
+          "markdown": "That is the whole game — rules and opponent, every line so far a pure function. What makes it playable is a Foldkit component, which begins with its state. Here that is the board, the hidden bombs, the phase — `idle` while the game waits for you, `thinking` in the beat before white replies — and the last move — the point where white last played, which the view rings so the computer's reply is easy to spot. Whether the game is won, lost, or drawn is read from the board rather than stored, so it never falls out of step with the stones. A small schema, `CellSchema`, names the values a point can hold, once."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "the-model"
+          },
+          "language": "typescript",
+          "code": "const CellSchema = S.NullOr(\n  S.Literals(['black', 'white', 'broken']),\n)\n\nexport const Model = S.Struct({\n  board: S.Array(CellSchema),\n  bombs: S.Array(S.Number),\n  phase: S.Literals(['idle', 'thinking']),\n  lastMove: S.NullOr(S.Number),\n})\nexport type Model = typeof Model.Type",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "the-model"
+          },
+          "markdown": "The `init` value is the bare empty game — no stones, no bombs."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "the-model"
+          },
+          "language": "typescript",
+          "code": "export const init: Model = {\n  board: emptyBoard,\n  bombs: [],\n  phase: 'idle',\n  lastMove: null,\n}",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "the-model"
+          },
+          "markdown": "The bombs are spread evenly rather than scattered freely. The board is cut into fifteen equal blocks — `BOMB_BLOCK_ROWS` by `BOMB_BLOCK_COLS` — and `randomBombs` hides one bomb at a random point in each, so a game never bunches its bombs into one corner and no two layouts come out alike."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "the-model"
+          },
+          "language": "typescript",
+          "code": "const BOMB_BLOCK_ROWS = 3\nconst BOMB_BLOCK_COLS = 5\nconst BLOCK_HEIGHT = SIZE / BOMB_BLOCK_ROWS\nconst BLOCK_WIDTH = SIZE / BOMB_BLOCK_COLS\n\nconst randomBombs = (): ReadonlyArray<number> =>\n  Array.makeBy(\n    BOMB_BLOCK_ROWS * BOMB_BLOCK_COLS,\n    (block) => {\n      const band = Math.floor(block / BOMB_BLOCK_COLS)\n      const file = block % BOMB_BLOCK_COLS\n      const row =\n        band * BLOCK_HEIGHT +\n        Math.floor(Math.random() * BLOCK_HEIGHT)\n      const col =\n        file * BLOCK_WIDTH +\n        Math.floor(Math.random() * BLOCK_WIDTH)\n      return row * SIZE + col\n    },\n  )",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "the-model"
+          },
+          "markdown": "The `newGame` function is the one a player actually gets: the empty board with a fresh set of bombs."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "the-model"
+          },
+          "language": "typescript",
+          "code": "export const newGame = (): Model => ({\n  board: emptyBoard,\n  bombs: randomBombs(),\n  phase: 'idle',\n  lastMove: null,\n})",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "taking-turns"
+          },
+          "level": 2,
+          "title": "Taking turns",
+          "id": "taking-turns"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "taking-turns"
+          },
+          "markdown": "State is what changes; messages are what change it. You play black and the computer plays white, and four messages carry the game: you play a point, white's move arrives, a new game's bombs are placed, or someone starts over. The `Message` union gathers them, and `h` is the typed element builder the view draws with."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "taking-turns"
+          },
+          "language": "typescript",
+          "code": "export const Played = m('Played', { cell: S.Number })\nexport const ComputerMoved = m('ComputerMoved', { cell: S.Number })\nexport const BombsPlaced = m('BombsPlaced', { bombs: S.Array(S.Number) })\nexport const Reset = m('Reset')\n\nexport const Message = S.Union([Played, ComputerMoved, BombsPlaced, Reset])\nexport type Message = typeof Message.Type\n\nconst h = html<Message>()",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "taking-turns"
+          },
+          "markdown": "White's move is a command, not something you trigger. The `ThinkThenMove` command waits a beat so the reply reads as a considered move rather than an instant snap, then runs `bestMove` off the render path and hands back a `ComputerMoved`. The engine is local, so the command can only succeed."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "taking-turns"
+          },
+          "language": "typescript",
+          "code": "export const ThinkThenMove = define(\n  'ThinkThenMove',\n  { board: S.Array(CellSchema) },\n  ComputerMoved,\n)(({ board }) =>\n  Effect.sleep('220 millis').pipe(\n    Effect.andThen(\n      Effect.sync(() =>\n        ComputerMoved({ cell: bestMove(board) }),\n      ),\n    ),\n  ),\n)",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "taking-turns"
+          },
+          "markdown": "The `ArmBombs` command scatters a fresh set of bombs when a new game starts — a new layout each time."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "taking-turns"
+          },
+          "language": "typescript",
+          "code": "export const ArmBombs = define('ArmBombs', BombsPlaced)(\n  Effect.sync(() => BombsPlaced({ bombs: randomBombs() })),\n)",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "playing-a-move"
+          },
+          "level": 2,
+          "title": "Playing a move",
+          "id": "playing-a-move"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "playing-a-move"
+          },
+          "markdown": "A message only names what happened; the update decides what it does. Playing joins the two turns, and a bomb can interrupt either. Each turn returns the pair every Foldkit update does — the next model and any commands to run — which `Return` names. The `over` helper is the small question both turns ask: is the game already decided, by a five or a full board?"
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "playing-a-move"
+          },
+          "language": "typescript",
+          "code": "export type Return = readonly [\n  Model,\n  ReadonlyArray<Command<Message>>,\n]\n\nconst over = (board: Board): boolean =>\n  winner(board) !== null || full(board)",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "playing-a-move"
+          },
+          "markdown": "The `place` helper is the move both players share. It checks the point against the hidden bombs: a clear point takes the player's stone, and a white one becomes the ringed last move; a mined one detonates instead — the point is left broken, the bomb spent, no stone laid, and the last move left where it was. So the ring follows the computer's move alone, not yours."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "playing-a-move"
+          },
+          "language": "typescript",
+          "code": "type Placed = {\n  board: Board\n  bombs: ReadonlyArray<number>\n  lastMove: number | null\n}\n\nconst place = (\n  model: Model,\n  cell: number,\n  player: Player,\n): Placed =>\n  model.bombs.includes(cell)\n    ? {\n        board: detonate(model.board, cell),\n        bombs: model.bombs.filter(\n          (bomb) => bomb !== cell,\n        ),\n        lastMove: model.lastMove,\n      }\n    : {\n        board: move(model.board, cell, player),\n        bombs: model.bombs,\n        lastMove: player === 'white' ? cell : model.lastMove,\n      }",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "playing-a-move"
+          },
+          "markdown": "The `playHuman` function runs your turn. It ignores a click that comes out of turn, on a finished game, or on a taken point; otherwise it plays your black stone and — unless that ended the game — passes the turn to white, entering `thinking` and handing back `ThinkThenMove`."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "playing-a-move"
+          },
+          "language": "typescript",
+          "code": "const playHuman = (\n  model: Model,\n  cell: number,\n): Return => {\n  if (\n    model.phase !== 'idle' ||\n    over(model.board) ||\n    model.board[cell] !== null\n  ) {\n    return [model, []]\n  }\n  const { board, bombs, lastMove } = place(\n    model,\n    cell,\n    'black',\n  )\n  return over(board)\n    ? [{ board, bombs, lastMove, phase: 'idle' }, []]\n    : [\n        { board, bombs, lastMove, phase: 'thinking' },\n        [ThinkThenMove({ board })],\n      ]\n}",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "playing-a-move"
+          },
+          "markdown": "The `playComputer` function runs white's reply: place the stone, then hand the turn back to you."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "playing-a-move"
+          },
+          "language": "typescript",
+          "code": "const playComputer = (\n  model: Model,\n  cell: number,\n): Return => {\n  const { board, bombs, lastMove } = place(\n    model,\n    cell,\n    'white',\n  )\n  return [\n    { board, bombs, lastMove, phase: 'idle' },\n    [],\n  ]\n}",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "playing-a-move"
+          },
+          "markdown": "The `update` function is the dispatch: it routes each message to the turn it drives, and a reset starts over from `init` and re-arms the bombs."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "playing-a-move"
+          },
+          "language": "typescript",
+          "code": "export const update = (model: Model, message: Message): Return =>\n  Match.value(message).pipe(\n    Match.withReturnType<Return>(),\n    Match.tagsExhaustive({\n      Played: ({ cell }) => playHuman(model, cell),\n      ComputerMoved: ({ cell }) => playComputer(model, cell),\n      BombsPlaced: ({ bombs }) => [{ ...model, bombs }, []],\n      Reset: () => [init, [ArmBombs()]],\n    }),\n  )",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "the-view"
+          },
+          "level": 2,
+          "title": "The view",
+          "id": "the-view"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "the-view"
+          },
+          "markdown": "State, messages, and the update keep the game moving; the last piece is what the player sees. The view gives the whole canvas to the board: a fifteen-by-fifteen grid where each point shows what sits on it — a black or white stone, or the burst that marks a point a bomb has broken. The `cellClass` function gives a point its classes, stacking the ones the stylesheet reads for a stone, the winning line, the last move, and a revealed bomb."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "the-view"
+          },
+          "language": "typescript",
+          "code": "const cellClass = (\n  cell: Cell,\n  won: boolean,\n  last: boolean,\n  mine: boolean,\n): string => {\n  const base = Match.value(cell).pipe(\n    Match.when('black', () => 'gomoku-cell black'),\n    Match.when('white', () => 'gomoku-cell white'),\n    Match.when('broken', () => 'gomoku-cell broken'),\n    Match.orElse(() => 'gomoku-cell'),\n  )\n  const withWin = won ? `${base} win` : base\n  const withLast = last ? `${withWin} last` : withWin\n  return mine ? `${withLast} mine` : withLast\n}",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "the-view"
+          },
+          "markdown": "The `winCells` function lights the winning line: once the game is over it returns the five points of `winningLine` for the stylesheet to pulse. That blink alone tells the outcome — there is no scoreboard."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "the-view"
+          },
+          "language": "typescript",
+          "code": "const winCells = (\n  model: Model,\n): ReadonlyArray<number> => {\n  if (\n    model.phase !== 'idle' ||\n    winner(model.board) === null\n  ) {\n    return []\n  }\n  return winningLine(model.board)\n}",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "the-view"
+          },
+          "markdown": "The `revealedBombs` function uncovers the rest: however the game ends, win or draw, the bombs still hidden show themselves, so you see the ones you never stepped on."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "the-view"
+          },
+          "language": "typescript",
+          "code": "const revealedBombs = (\n  model: Model,\n): ReadonlyArray<number> =>\n  over(model.board) ? model.bombs : []",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "the-view"
+          },
+          "markdown": "The `cellSquare` function builds one point: a `div` that dispatches a `Played` for its index and wears the classes for its state. A ring hugs the last stone, so white's reply stands out without the board having to dim."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "the-view"
+          },
+          "language": "typescript",
+          "code": "const cellSquare =\n  (\n    won: ReadonlySet<number>,\n    lastMove: number | null,\n    mines: ReadonlySet<number>,\n  ) =>\n  (cell: Cell, index: number) =>\n    h.div(\n      [\n        h.Class(\n          cellClass(\n            cell,\n            won.has(index),\n            index === lastMove,\n            mines.has(index),\n          ),\n        ),\n        h.OnClick(Played({ cell: index })),\n      ],\n      [],\n    )",
+          "links": []
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "the-view"
+          },
+          "markdown": "The `view` function lays out the grid and flags it `thinking` while white computes, which the stylesheet uses to stop clicks. It is defined for embedding, so the landing drops the whole game into a slot and lifts its messages into its own."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "the-view"
+          },
+          "language": "typescript",
+          "code": "export const view = defineView<Model, Message>(\n  (model) =>\n    h.div(\n      [\n        h.Class(\n          model.phase === 'thinking'\n            ? 'gomoku thinking'\n            : 'gomoku',\n        ),\n      ],\n      [\n        h.div(\n          [h.Class('gomoku-grid')],\n          model.board.map(\n            cellSquare(\n              new Set(winCells(model)),\n              model.lastMove,\n              new Set(revealedBombs(model)),\n            ),\n          ),\n        ),\n      ],\n    ),\n)",
+          "links": []
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "stitching-code-together"
+          },
+          "level": 2,
+          "title": "Stitching code together",
+          "id": "stitching-code-together"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "stitching-code-together"
+          },
+          "markdown": "Finally, we stitch the pieces together. A loom reads top to bottom in the order that tells the story, but the tangle needs them in the order the code compiles — the imports first, then the rules, the engine, and the component. This section composes `gomoku.ts` in that order, and opens the file with a note that it is generated, not hand-written."
+        },
+        {
+          "type": "code",
+          "source": {
+            "chapter": "gomoku/gomoku",
+            "section": "stitching-code-together"
+          },
+          "language": "typescript",
+          "code": "// Tangled from gomoku.loom by the Loom CLI.\n// Do not edit this file directly — change the loom and re-tangle.\n\nimport { Array, Effect, Match, Option, Order, Schema as S, pipe } from 'effect'\nimport { type Command, define } from 'foldkit/command'\nimport { html } from 'foldkit/html'\nimport { m } from 'foldkit/message'\nimport { defineView } from 'foldkit/submodel'\n\n::[The board]\n\n::[A move]\n\n::[Five in a row]\n\n::[Did that move win?]\n\n::[Reading a position]\n\n::[Where to play]\n\n::[Looking ahead]\n\n::[The model]\n\n::[Taking turns]\n\n::[Playing a move]\n\n::[The view]",
+          "links": [
+            {
+              "name": "The board",
+              "targetSlug": "gomoku/gomoku",
+              "targetId": "the-board",
+              "offset": 367,
+              "length": 13
+            },
+            {
+              "name": "A move",
+              "targetSlug": "gomoku/gomoku",
+              "targetId": "a-move",
+              "offset": 382,
+              "length": 10
+            },
+            {
+              "name": "Five in a row",
+              "targetSlug": "gomoku/gomoku",
+              "targetId": "five-in-a-row",
+              "offset": 394,
+              "length": 17
+            },
+            {
+              "name": "Did that move win?",
+              "targetSlug": "gomoku/gomoku",
+              "targetId": "did-that-move-win",
+              "offset": 413,
+              "length": 22
+            },
+            {
+              "name": "Reading a position",
+              "targetSlug": "gomoku/gomoku",
+              "targetId": "reading-a-position",
+              "offset": 437,
+              "length": 22
+            },
+            {
+              "name": "Where to play",
+              "targetSlug": "gomoku/gomoku",
+              "targetId": "where-to-play",
+              "offset": 461,
+              "length": 17
+            },
+            {
+              "name": "Looking ahead",
+              "targetSlug": "gomoku/gomoku",
+              "targetId": "looking-ahead",
+              "offset": 480,
+              "length": 17
+            },
+            {
+              "name": "The model",
+              "targetSlug": "gomoku/gomoku",
+              "targetId": "the-model",
+              "offset": 499,
+              "length": 13
+            },
+            {
+              "name": "Taking turns",
+              "targetSlug": "gomoku/gomoku",
+              "targetId": "taking-turns",
+              "offset": 514,
+              "length": 16
+            },
+            {
+              "name": "Playing a move",
+              "targetSlug": "gomoku/gomoku",
+              "targetId": "playing-a-move",
+              "offset": 532,
+              "length": 18
+            },
+            {
+              "name": "The view",
+              "targetSlug": "gomoku/gomoku",
+              "targetId": "the-view",
+              "offset": 552,
+              "length": 12
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

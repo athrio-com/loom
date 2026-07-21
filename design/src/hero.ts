@@ -67,7 +67,7 @@ const pitch = (model: Model): Html =>
         [
           h.span(
             [h.Class('pill')],
-            [h.span([h.Class('gh')], ['~']), ' loom · v0.9.0'],
+            [h.span([h.Class('gh')], ['~']), ` loom · v${model.version}`],
           ),
           h.span([], ['literate programming · open source']),
         ],
@@ -95,7 +95,7 @@ const pitch = (model: Model): Html =>
         [
           h.a(
             [h.Class('btn primary'), h.Href('#')],
-            ['Read the book', bookIcon()],
+            ['Read the docs', bookIcon()],
           ),
           h.a(
             [h.Class('btn'), h.Href('#')],
@@ -123,16 +123,6 @@ const quickstart = (model: Model): Html =>
       packageManagerTabs(model),
       qsLine('qs-install', installCommand(model.packageManager), model.copied),
       qsLine('qs-new', 'loom init greeter', model.copied),
-      qsLine('qs-tangle', 'loom tangle', model.copied),
-      h.div(
-        [h.Class('qs-out')],
-        [
-          h.span([h.Class('ok')], ['✓']),
-          ' wrote ',
-          h.span([h.Class('path')], ['src/greeter.ts']),
-          ' — prose left no trace.',
-        ],
-      ),
     ],
   )
 

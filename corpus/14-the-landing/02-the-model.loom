@@ -6,22 +6,27 @@ Language: TypeScript
 
 # The model
 
-The landing is a Foldkit application, so it begins with the state a reader changes as they move through the page. Most of the page is static prose and chrome, but a few regions are live: the rotating word in the headline, the step the file tree selects, the command palette, and the copy buttons. The model holds exactly what those regions need and nothing more.
+The landing is a Foldkit application, so it begins with the state a reader changes as they move through the page. A few regions are live: the rotating word in the headline, the copy buttons, and the package manager tabs. The model holds what those regions need, the version the server hands the page, and the query and focus of the book-search palette — a design the landing holds ready but does not place yet.
 
 ## The state
 
-The state is one flat struct. The rotator holds the index of the headline word and the phase of its transition, so the word can fade out, swap, and fade in. The how-step is the pipeline step the file tree has selected. The query and focus drive the command palette. The copied field names the copy button flashing its confirmation, or the empty string when none is. The package manager names which install command the reader wants to see and copy — the same choice everywhere the page shows one, so picking `pnpm` once is not something a reader repeats.
+The state is one flat struct. The rotator holds the index of the headline word and the phase of its transition, so the word can fade out, swap, and fade in. The example tab is which of the three the How-it-works panel shows — the loom, the tangled TypeScript, or the playable game. The loom view chooses how the loom tab reads: the rendered preview or the raw source, flipped by a switch inside the canvas. The game is the embedded Gomoku component's own model, the board it plays on, which the Play tab hosts. The active section is the piece of the example the reader last jumped to in the preview's outline. The version is the latest release, which the server reads from npm so the pill and the title bar never fall behind. The query and focus drive the book-search palette, the design the landing holds ready but does not place yet. The copied field names the copy button flashing its confirmation, or the empty string when none is. The package manager names which install command the reader wants to see and copy — the same choice everywhere the page shows one, so picking `pnpm` once is not something a reader repeats.
 
 =>
 
 import { Schema as S } from 'effect'
 import { html } from 'foldkit/html'
 import { m } from 'foldkit/message'
+import * as Gomoku from '../../examples/gomoku/gomoku'
 
 export const Model = S.Struct({
   rotatorIndex: S.Number,
   rotatorPhase: S.Literals(['normal', 'out', 'in-start']),
-  howStep: S.Number,
+  activeSection: S.String,
+  exampleTab: S.Literals(['loom', 'tangled', 'play']),
+  loomView: S.Literals(['preview', 'source']),
+  game: Gomoku.Model,
+  version: S.String,
   query: S.String,
   focus: S.Number,
   copied: S.String,
@@ -31,11 +36,15 @@ export type Model = typeof Model.Type
 
 ## The messages
 
-The reader does a handful of things. They select a step in the file tree. They type into the command palette, and move its focus up or down with the arrows. They copy a command, and a moment later the flash resets. They pick which package manager the install command should speak. The rotating word advances on its own timer, so its messages arrive from a command rather than the reader, moving through three phases as it swaps.
+The reader does a handful of things. They switch the example among its three tabs, and flip the loom tab between its rendered preview and its raw source. They play the embedded game, whose own messages the panel lifts into one of the landing's. They jump to a section in the preview's outline, and the canvas scrolls to it alone. They type into the command palette, and move its focus up or down with the arrows. They copy a command, and a moment later the flash resets. They pick which package manager the install command should speak. The rotating word advances on its own timer, so its messages arrive from a command rather than the reader, moving through three phases as it swaps.
 
 =>
 
-export const SelectedStep = m('SelectedStep', { step: S.Number })
+export const SelectedTab = m('SelectedTab', { tab: S.Literals(['loom', 'tangled', 'play']) })
+export const SelectedLoomView = m('SelectedLoomView', { view: S.Literals(['preview', 'source']) })
+export const GotGameMessage = m('GotGameMessage', { message: Gomoku.Message })
+export const SelectedSection = m('SelectedSection', { id: S.String })
+export const SectionScrolled = m('SectionScrolled')
 export const Typed = m('Typed', { query: S.String })
 export const MovedFocus = m('MovedFocus', { delta: S.Number, count: S.Number })
 export const Copied = m('Copied', { id: S.String, text: S.String })
@@ -48,7 +57,11 @@ export const RotatedIn = m('RotatedIn')
 export const RotatorSettled = m('RotatorSettled')
 
 export const Message = S.Union([
-  SelectedStep,
+  SelectedTab,
+  SelectedLoomView,
+  GotGameMessage,
+  SelectedSection,
+  SectionScrolled,
   Typed,
   MovedFocus,
   Copied,

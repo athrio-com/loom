@@ -24,12 +24,12 @@ if (!('window' in scope)) {
 
 ## What the server draws on
 
-The server loads the shim first, before any Foldkit module. From `effect` come `Effect`, the `Match` that dispatches on the request path, the `FileSystem` that reads the built shell and assets, and the `Context` and `Layer` that define the server and wire it. From `effect/unstable/http` come the request and the responses. `@effect/platform-bun` supplies the Bun HTTP server, its file services, and the runtime edge. Foldkit lends `renderStatic` for the render, and, through `@athrio/foldkit-ssr`, the render itself; `@athrio/foldkit-hydration/prehydration` lends the capture script the page runs before it boots.
+The server loads the shim first, before any Foldkit module. From `effect` come `Effect`, the `Match` that dispatches on the request path, the `FileSystem` that reads the built shell and assets, the `Schema` that parses what the npm registry returns, and the `Context` and `Layer` that define the server and wire it. From `effect/unstable/http` come the request and the responses. `@effect/platform-bun` supplies the Bun HTTP server, its file services, and the runtime edge. Foldkit lends `renderStatic` for the render, and, through `@athrio/foldkit-ssr`, the render itself; `@athrio/foldkit-hydration/prehydration` lends the capture script the page runs before it boots.
 
 =>
 
 import './browser-globals'
-import { Context, Effect, FileSystem, Layer, Match } from 'effect'
+import { Context, Effect, FileSystem, Layer, Match, Schema as S } from 'effect'
 import {
   HttpServer,
   HttpServerRequest,
@@ -43,19 +43,26 @@ import { PREHYDRATION_CAPTURE_SCRIPT } from '@athrio/foldkit-hydration/prehydrat
 import { FoldkitRender } from '@athrio/foldkit-ssr'
 import { view } from './view'
 import { type Model } from './model'
+import * as Gomoku from '../../examples/gomoku/gomoku'
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist')
 
 ## The page
 
-The page starts from the built shell and gains two things: the rendered body in place of the empty `#root`, and, in the head, the capture script and the model inlined as JSON for hydration. The seed is the landing at rest — the first step selected, the rotator unstarted.
+The page starts from the built shell and gains two things: the rendered body in place of the empty `#root`, and, in the head, the capture script and the model inlined as JSON for hydration. The seed is the landing at rest — no section jumped to, the rotator unstarted, the version standing at the workspace's own until the render fetches the latest.
+
+{{ version = ${version} }}
 
 =>
 
 const seed: Model = {
   rotatorIndex: 0,
   rotatorPhase: 'normal',
-  howStep: 1,
+  activeSection: '',
+  exampleTab: 'loom',
+  loomView: 'preview',
+  game: Gomoku.newGame(),
+  version: '::[version]',
   query: '',
   focus: 0,
   copied: '',
@@ -76,9 +83,26 @@ const withSeed = (shell: string, model: Model): string =>
       `<script id="foldkit-model" type="application/json">${inlineJson(model)}</script></head>`,
   )
 
+## The latest release
+
+The pill and the title bar both name the version, and that version is whatever npm serves as the latest `@athrio/loom` release. The server reads it once, when it renders, so a new release reaches the page with the next deploy and no change to the code. The registry answers with the release's metadata, and the `Release` schema keeps the one field the page needs — the version. A registry the server cannot reach leaves the fallback in place, so the render never fails for want of the network.
+
+=>
+
+const NPM_LATEST = 'https://registry.npmjs.org/@athrio/loom/latest'
+
+const Release = S.Struct({ version: S.String })
+
+const latestVersion = (fallback: string): Effect.Effect<string> =>
+  Effect.tryPromise(() =>
+    fetch(NPM_LATEST)
+      .then((response) => response.json())
+      .then((body) => S.decodeUnknownSync(Release)(body).version),
+  ).pipe(Effect.catchCause(() => Effect.succeed(fallback)))
+
 ## Rendering it once
 
-The site is rendered at startup and held. It reads the built shell, turns the view into HTML through `renderStatic` and `FoldkitRender`, and folds the body and the seed into the shell.
+The site is rendered at startup and held. It reads the built shell, fetches the latest release, renders the view to HTML through `renderStatic` and `FoldkitRender`, and folds the body and the seeded model into the shell.
 
 =>
 
@@ -87,8 +111,10 @@ export class LandingSite extends Context.Service<LandingSite>()('LandingSite', {
     const fs = yield* FileSystem.FileSystem
     const render = yield* FoldkitRender
     const shell = yield* fs.readFileString(join(distDir, 'index.html'))
-    const body = yield* render.renderToString(renderStatic(() => view(seed).body))
-    return { page: withSeed(withBody(shell, body), seed) } as const
+    const version = yield* latestVersion(seed.version)
+    const model = { ...seed, version }
+    const body = yield* render.renderToString(renderStatic(() => view(model).body))
+    return { page: withSeed(withBody(shell, body), model) } as const
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make).pipe(
@@ -131,6 +157,8 @@ The handler reads the request path and answers it. The server serves that handle
 ::[What the server draws on]
 
 ::[The page]
+
+::[The latest release]
 
 ::[Rendering it once]
 

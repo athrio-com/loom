@@ -16,18 +16,22 @@ The update returns the next model and the commands to run — the pair every Fol
 
 import { Effect, Match, Option, Schema as S } from 'effect'
 import { Runtime } from 'foldkit'
-import { define, type Command } from 'foldkit/command'
+import { define, mapMessages, type Command } from 'foldkit/command'
 import { ssrHydration } from '@athrio/foldkit-hydration'
 import { view } from './view'
 import { ROTATOR_WORDS } from './hero'
 import {
   CopyReset,
+  GotGameMessage,
   type Message,
   Model,
   RotatedIn,
   RotatedOut,
   RotatorSettled,
+  SectionScrolled,
+  SelectedSection,
 } from './model'
+import * as Gomoku from '../../examples/gomoku/gomoku'
 
 type Step = readonly [Model, ReadonlyArray<Command<Message>>]
 
@@ -56,9 +60,25 @@ const DelayRotatorSettled = define('DelayRotatorSettled', RotatorSettled)(
   Effect.sleep('40 millis').pipe(Effect.as(RotatorSettled())),
 )
 
+## Jumping to a section
+
+The preview grows to its full height and the page carries the scroll, so the outline points at real headings on the page. Jumping to a section scrolls the window to that heading; the room left above it for a fixed header is the heading's own `scroll-margin-top`, set in the stylesheet. A heading that never rendered — a page without the example — does nothing.
+
+=>
+
+const scrollIntoPreview = (id: string): void =>
+  Option.match(Option.fromNullishOr(document.getElementById(id)), {
+    onNone: () => undefined,
+    onSome: (target) => target.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+  })
+
+const ScrollToSection = define('ScrollToSection', { id: S.String }, SectionScrolled)(
+  ({ id }) => Effect.sync(() => scrollIntoPreview(id)).pipe(Effect.as(SectionScrolled())),
+)
+
 ## The update
 
-The plain messages set one field: the selected step, the query, the focus clamped to the results, the package manager. Copying flashes the pressed button and runs its reset. The rotator's three messages move it through its phases and hand off to the next command.
+Most messages set one field: the query, the focus clamped to the results, the package manager, the loom tab's view. Switching the example tab sets it too, with one exception — clicking the Play tab while it is already open starts a fresh game, running the component's own reset. The embedded game otherwise runs its own update; the panel keeps the board it returns and lifts the game's commands — the one that thinks out the computer's move, and the one that arms a new game's bombs — into its own, so they run. Selecting a section sets the active one and asks the preview to scroll to it. Copying flashes the pressed button and runs its reset. The rotator's three messages move it through its phases and hand off to the next command.
 
 =>
 
@@ -69,7 +89,21 @@ const update = (model: Model, message: Message): Step =>
   Match.value(message).pipe(
     Match.withReturnType<Step>(),
     Match.tagsExhaustive({
-      SelectedStep: ({ step }) => [{ ...model, howStep: step }, []],
+      SelectedTab: ({ tab }) => {
+        const replay = tab === 'play' && model.exampleTab === 'play'
+        if (!replay) {
+          return [{ ...model, exampleTab: tab }, []]
+        }
+        const [game, commands] = Gomoku.update(model.game, Gomoku.Reset())
+        return [{ ...model, game }, mapMessages(commands, (message) => GotGameMessage({ message }))]
+      },
+      SelectedLoomView: ({ view }) => [{ ...model, loomView: view }, []],
+      GotGameMessage: ({ message }) => {
+        const [game, commands] = Gomoku.update(model.game, message)
+        return [{ ...model, game }, mapMessages(commands, (message) => GotGameMessage({ message }))]
+      },
+      SelectedSection: ({ id }) => [{ ...model, activeSection: id }, [ScrollToSection({ id })]],
+      SectionScrolled: () => [model, []],
       Typed: ({ query }) => [{ ...model, query, focus: 0 }, []],
       MovedFocus: ({ delta, count }) => [
         { ...model, focus: clamp(model.focus + delta, Math.max(0, count - 1)) },
@@ -93,16 +127,23 @@ const update = (model: Model, message: Message): Step =>
 
 ## Booting
 
-The client boots from a model — the one the server inlined on a real load, or a default in development. It starts the rotator's loop in `init`, after its first turn. Importing the stylesheet here, in the browser entry, keeps it out of the server's path.
+The client boots from a model — the one the server inlined on a real load, or a default in development. The default names the workspace version, since no server has fetched the latest release. It starts the rotator's loop in `init`, after its first turn. Importing the stylesheet here, in the browser entry, keeps it out of the server's path.
+
+{{ version = ${version} }}
 
 =>
 
+import '@fontsource/ia-writer-quattro'
 import './landing.css'
 
 const emptyModel: Model = {
   rotatorIndex: 0,
   rotatorPhase: 'normal',
-  howStep: 1,
+  activeSection: '',
+  exampleTab: 'loom',
+  loomView: 'preview',
+  game: Gomoku.newGame(),
+  version: '::[version]',
   query: '',
   focus: 0,
   copied: '',
@@ -139,6 +180,8 @@ Runtime.run(application)
 ::[The update return]
 
 ::[The timed commands]
+
+::[Jumping to a section]
 
 ::[The update]
 

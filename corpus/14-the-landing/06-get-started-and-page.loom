@@ -1,124 +1,25 @@
 ---
-Part XIV, Chapter 6: Get started and the page
+Part XIV, Chapter 6: The footer and the page
 Package: design/src/
 Language: TypeScript
 ---
 
-# Get started and the page
+# The footer and the page
 
-The last section shows the reader what a workspace looks like once they have begun — a config beside the way to go deeper — and the footer closes the page. This chapter builds both, then assembles the whole document: the chrome, the sections, and the footer.
-
-## The config panel
-
-The config panel shows a workspace `loom.json` the way an editor would, keys in cyan and values in mint. A small `tk` names one coloured token, and the panel preserves the whitespace so the object keeps its shape.
-
-=>
-
-import { Array } from 'effect'
-import type { Document, Html } from 'foldkit/html'
-import { arrowIcon, tabbar, titlebar } from './components'
-import { hero } from './hero'
-import { middle } from './middle'
-import { h, type Model } from './model'
-
-const tk = (cls: string, text: string): Html => h.span([h.Class(cls)], [text])
-
-const configPanel = (): Html =>
-  h.div(
-    [h.Class('config'), h.AriaHidden(true)],
-    [
-      h.div(
-        [h.Class('panel-head')],
-        [
-          h.span([h.Class('dot')], []),
-          h.span([], ['~/greeter/loom.json']),
-          h.span([h.Class('right')], ['workspace']),
-        ],
-      ),
-      h.div(
-        [h.Class('config-body')],
-        [
-          tk('com', '// loom.json — the workspace config'),
-          '\n',
-          tk('pun', '{'),
-          '\n',
-          '  ', tk('k', '"primary"'), tk('pun', ':'), '   ', tk('v', '"TypeScript"'), tk('pun', ','),
-          '\n',
-          '  ', tk('k', '"languages"'), tk('pun', ':'), ' ', tk('pun', '['), tk('v', '"TypeScript"'), tk('pun', ','), ' ', tk('v', '"Bash"'), tk('pun', ','), ' ', tk('v', '"JSON"'), tk('pun', ']'), tk('pun', ','),
-          '\n',
-          '  ', tk('k', '"anchor"'), tk('pun', ':'), '    ', tk('v', '"::' + '[name]"'), tk('pun', ','),
-          '\n',
-          '  ', tk('k', '"book"'), tk('pun', ':'), '      ', tk('v', '"corpus/book.loom"'),
-          '\n',
-          tk('pun', '}'),
-        ],
-      ),
-    ],
-  )
-
-## Reading further
-
-The three commands to reach this workspace already ran, at the top of the page. Beside the config sits the way to go further: read the book, or browse the source directly.
-
-=>
-
-const signupRight = (): Html =>
-  h.div(
-    [h.Class('actions')],
-    [
-      h.a([h.Class('btn primary'), h.Href('#')], ['Read the book', arrowIcon()]),
-      h.a([h.Class('btn'), h.Href('#')], ['Browse the source']),
-    ],
-  )
-
-## The get-started section
-
-The section heads with its number and title, then lays the config beside the way to read further.
-
-=>
-
-const getStarted = (model: Model): Html =>
-  h.section(
-    [h.Class('s'), h.Id('start')],
-    [
-      h.div(
-        [h.Class('wrap')],
-        [
-          h.div(
-            [h.Class('sec-head')],
-            [
-              h.div(
-                [h.Class('sec-num')],
-                [h.span([h.Class('arrow')], ['▸']), ' 02 · GET STARTED'],
-              ),
-              h.div(
-                [],
-                [
-                  h.h2(
-                    [h.Class('sec-h')],
-                    ['From zero to your', h.br([]), 'first tangle.'],
-                  ),
-                  h.p(
-                    [h.Class('sec-lede')],
-                    [
-                      'What those commands produce is one workspace config, shown here. From there, the whole book goes further.',
-                    ],
-                  ),
-                ],
-              ),
-            ],
-          ),
-          h.div([h.Class('signup')], [configPanel(), signupRight()]),
-        ],
-      ),
-    ],
-  )
+This chapter closes the page. The footer gathers the brand and its links; the page then assembles the whole document — the chrome across the top, the hero and the example down the middle, and the footer beneath.
 
 ## The footer
 
 The footer gathers the brand and its tagline beside three columns of links — the framework, the reference, the source. Each column heads with a comment-styled label.
 
 =>
+
+import { Array } from 'effect'
+import type { Document, Html } from 'foldkit/html'
+import { tabbar, titlebar } from './components'
+import { hero } from './hero'
+import { middle } from './middle'
+import { h, type Model } from './model'
 
 const footColumn = (
   title: string,
@@ -164,7 +65,6 @@ const footer = (): Html =>
               ),
               footColumn('// Framework', [
                 { label: 'The book', href: '#' },
-                { label: 'Getting started', href: '#start' },
                 { label: 'How it works', href: '#how' },
               ]),
               footColumn('// Reference', [
@@ -186,7 +86,7 @@ const footer = (): Html =>
 
 ## The page
 
-The page is the whole document: the title bar and tab bar across the top, the main column of hero, middle, and get-started, then the footer. The view returns it as a Foldkit document, titled for the tab and the crawler.
+The page is the whole document: the title bar and tab bar across the top, the main column of the hero and the example, then the footer. The view returns it as a Foldkit document, titled for the tab and the crawler.
 
 =>
 
@@ -194,9 +94,9 @@ const page = (model: Model): Html =>
   h.div(
     [],
     [
-      titlebar(),
+      titlebar(model.version),
       tabbar(),
-      h.main([], [hero(model), middle(model), getStarted(model)]),
+      h.main([], [hero(model), middle(model)]),
       footer(),
     ],
   )
@@ -208,15 +108,9 @@ export const view = (model: Model): Document => ({
 
 ## The module {Tangle}[view.ts]
 
-The module is the config panel, the way to read further beside it, the get-started section they fill, the footer, and the page that assembles the whole document.
+The module is the footer and the page that assembles the whole document.
 
 =>
-
-::[The config panel]
-
-::[Reading further]
-
-::[The get-started section]
 
 ::[The footer]
 

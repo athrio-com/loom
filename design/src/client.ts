@@ -1,17 +1,21 @@
 import { Effect, Match, Option, Schema as S } from 'effect'
 import { Runtime } from 'foldkit'
-import { define, type Command } from 'foldkit/command'
+import { define, mapMessages, type Command } from 'foldkit/command'
 import { ssrHydration } from '@athrio/foldkit-hydration'
 import { view } from './view'
 import { ROTATOR_WORDS } from './hero'
 import {
   CopyReset,
+  GotGameMessage,
   type Message,
   Model,
   RotatedIn,
   RotatedOut,
   RotatorSettled,
+  SectionScrolled,
+  SelectedSection,
 } from './model'
+import * as Gomoku from '../../examples/gomoku/gomoku'
 
 type Step = readonly [Model, ReadonlyArray<Command<Message>>]
 
@@ -34,6 +38,16 @@ const DelayRotatorSettled = define('DelayRotatorSettled', RotatorSettled)(
   Effect.sleep('40 millis').pipe(Effect.as(RotatorSettled())),
 )
 
+const scrollIntoPreview = (id: string): void =>
+  Option.match(Option.fromNullishOr(document.getElementById(id)), {
+    onNone: () => undefined,
+    onSome: (target) => target.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+  })
+
+const ScrollToSection = define('ScrollToSection', { id: S.String }, SectionScrolled)(
+  ({ id }) => Effect.sync(() => scrollIntoPreview(id)).pipe(Effect.as(SectionScrolled())),
+)
+
 const clamp = (value: number, max: number): number =>
   Math.max(0, Math.min(max, value))
 
@@ -41,7 +55,21 @@ const update = (model: Model, message: Message): Step =>
   Match.value(message).pipe(
     Match.withReturnType<Step>(),
     Match.tagsExhaustive({
-      SelectedStep: ({ step }) => [{ ...model, howStep: step }, []],
+      SelectedTab: ({ tab }) => {
+        const replay = tab === 'play' && model.exampleTab === 'play'
+        if (!replay) {
+          return [{ ...model, exampleTab: tab }, []]
+        }
+        const [game, commands] = Gomoku.update(model.game, Gomoku.Reset())
+        return [{ ...model, game }, mapMessages(commands, (message) => GotGameMessage({ message }))]
+      },
+      SelectedLoomView: ({ view }) => [{ ...model, loomView: view }, []],
+      GotGameMessage: ({ message }) => {
+        const [game, commands] = Gomoku.update(model.game, message)
+        return [{ ...model, game }, mapMessages(commands, (message) => GotGameMessage({ message }))]
+      },
+      SelectedSection: ({ id }) => [{ ...model, activeSection: id }, [ScrollToSection({ id })]],
+      SectionScrolled: () => [model, []],
       Typed: ({ query }) => [{ ...model, query, focus: 0 }, []],
       MovedFocus: ({ delta, count }) => [
         { ...model, focus: clamp(model.focus + delta, Math.max(0, count - 1)) },
@@ -63,12 +91,17 @@ const update = (model: Model, message: Message): Step =>
     }),
   )
 
+import '@fontsource/ia-writer-quattro'
 import './landing.css'
 
 const emptyModel: Model = {
   rotatorIndex: 0,
   rotatorPhase: 'normal',
-  howStep: 1,
+  activeSection: '',
+  exampleTab: 'loom',
+  loomView: 'preview',
+  game: Gomoku.newGame(),
+  version: '0.0.6',
   query: '',
   focus: 0,
   copied: '',

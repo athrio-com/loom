@@ -4,7 +4,12 @@
   "private": true,
   "version": "0.0.0",
   "scripts": {
+    "weave:example": "bunx @athrio/loom weave ../examples/gomoku src/gomoku.woven.json",
+    "highlight:example": "bun scripts/highlight-example.ts",
+    "example": "bun run weave:example && bun run highlight:example",
+    "predev": "bun run example",
     "dev": "bunx --bun vite --port 5199",
+    "prebuild": "bun run example",
     "build": "bunx --bun vite build",
     "serve": "bun src/server.ts",
     "preview": "bunx --bun vite preview --port 5199"
@@ -12,11 +17,14 @@
   "dependencies": {
     "@athrio/foldkit-ssr": "workspace:*",
     "@athrio/foldkit-hydration": "workspace:*",
+    "@fontsource/ia-writer-quattro": "^5.3.0",
     "foldkit": "workspace:*",
-    "effect": "4.0.0-beta.97"
+    "effect": "4.0.0-beta.97",
+    "marked": "^18.0.5"
   },
   "devDependencies": {
     "@athrio/loom-devtools": "workspace:*",
+    "shiki": "^4.3.1",
     "vite": "^8.1.3"
   }
 }

@@ -10,7 +10,7 @@ The landing is a small web application: a page the browser loads, a client that 
 
 ## The page {Tangle}[index.html]
 
-The page is the shell the application fills. It loads the three type families the design wears — a serif for display, a sans for prose, a mono for code — carries an empty `#root` for the view to mount into, and the module that boots the client. The server rewrites two spots: the `#root` it fills with the rendered body, and the head where it inlines the model, so the strings `<div id="root"></div>` and `</head>` matter as much as the markup.
+The page is the shell the application fills. It loads two type families from Google — a serif for display, a mono for code — while the prose sans, iA Writer Quattro, rides in with the client bundle. It carries an empty `#root` for the view to mount into, and the module that boots the client. The server rewrites two spots: the `#root` it fills with the rendered body, and the head where it inlines the model, so the strings `<div id="root"></div>` and `</head>` matter as much as the markup.
 
 =>
 
@@ -23,7 +23,7 @@ The page is the shell the application fills. It loads the three type families th
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;1,6..72,300&display=swap"
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;1,6..72,300&display=swap"
       rel="stylesheet"
     />
     <script type="module" src="/src/client.ts"></script>
@@ -35,7 +35,7 @@ The page is the shell the application fills. It loads the three type families th
 
 ## The manifest {Tangle}[package.json]
 
-The manifest names the package, its commands, and its dependencies. It is self-contained: the landing holds its own components, so it depends only on `@athrio/foldkit-ssr` and `@athrio/foldkit-hydration` for the render and the adopt, and `foldkit` and `effect` beneath them. `@athrio/loom-devtools` is a development dependency alone, since the Devtools plugin it lends runs only while Vite serves.
+The manifest names the package, its commands, and its dependencies. The landing holds its own components, so it leans on only a few packages: `@athrio/foldkit-ssr` and `@athrio/foldkit-hydration` for the render and the adopt, `foldkit` and `effect` beneath them, `marked` to turn the woven prose into HTML, and `@fontsource/ia-writer-quattro` for the prose face. Before the landing runs or builds, two steps prepare the example: a weave turns the Gomoku loom into the JSON the preview reads, and a highlight pass colours its source and its tangle with Shiki. Both derive from the loom itself, so the example on the page is never a copy of it. Shiki and `@athrio/loom-devtools` are development dependencies alone — the highlight runs at build time, and the Devtools plugin runs only while Vite serves.
 
 =>
 
@@ -45,7 +45,12 @@ The manifest names the package, its commands, and its dependencies. It is self-c
   "private": true,
   "version": "0.0.0",
   "scripts": {
+    "weave:example": "bunx @athrio/loom weave ../examples/gomoku src/gomoku.woven.json",
+    "highlight:example": "bun scripts/highlight-example.ts",
+    "example": "bun run weave:example && bun run highlight:example",
+    "predev": "bun run example",
     "dev": "bunx --bun vite --port 5199",
+    "prebuild": "bun run example",
     "build": "bunx --bun vite build",
     "serve": "bun src/server.ts",
     "preview": "bunx --bun vite preview --port 5199"
@@ -53,11 +58,14 @@ The manifest names the package, its commands, and its dependencies. It is self-c
   "dependencies": {
     "@athrio/foldkit-ssr": "workspace:*",
     "@athrio/foldkit-hydration": "workspace:*",
+    "@fontsource/ia-writer-quattro": "^5.3.0",
     "foldkit": "workspace:*",
-    "effect": "4.0.0-beta.97"
+    "effect": "4.0.0-beta.97",
+    "marked": "^18.0.5"
   },
   "devDependencies": {
     "@athrio/loom-devtools": "workspace:*",
+    "shiki": "^4.3.1",
     "vite": "^8.1.3"
   }
 }
@@ -74,6 +82,7 @@ The client runs in the browser and the server on Bun, and their type environment
     "noEmit": true,
     "module": "preserve",
     "moduleResolution": "bundler",
+    "resolveJsonModule": true,
     "target": "es2022",
     "lib": ["es2023", "dom", "dom.iterable"],
     "types": ["bun"],
@@ -95,6 +104,7 @@ This checks the server half — the server and its browser shim — under Bun. B
     "noEmit": true,
     "module": "preserve",
     "moduleResolution": "bundler",
+    "resolveJsonModule": true,
     "target": "es2022",
     "lib": ["es2023", "dom", "dom.iterable"],
     "types": ["bun"],

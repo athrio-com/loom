@@ -1,5 +1,5 @@
 import './browser-globals'
-import { Context, Effect, FileSystem, Layer, Match } from 'effect'
+import { Context, Effect, FileSystem, Layer, Match, Schema as S } from 'effect'
 import {
   HttpServer,
   HttpServerRequest,
@@ -13,13 +13,18 @@ import { PREHYDRATION_CAPTURE_SCRIPT } from '@athrio/foldkit-hydration/prehydrat
 import { FoldkitRender } from '@athrio/foldkit-ssr'
 import { view } from './view'
 import { type Model } from './model'
+import * as Gomoku from '../../examples/gomoku/gomoku'
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist')
 
 const seed: Model = {
   rotatorIndex: 0,
   rotatorPhase: 'normal',
-  howStep: 1,
+  activeSection: '',
+  exampleTab: 'loom',
+  loomView: 'preview',
+  game: Gomoku.newGame(),
+  version: '0.0.6',
   query: '',
   focus: 0,
   copied: '',
@@ -40,13 +45,26 @@ const withSeed = (shell: string, model: Model): string =>
       `<script id="foldkit-model" type="application/json">${inlineJson(model)}</script></head>`,
   )
 
+const NPM_LATEST = 'https://registry.npmjs.org/@athrio/loom/latest'
+
+const Release = S.Struct({ version: S.String })
+
+const latestVersion = (fallback: string): Effect.Effect<string> =>
+  Effect.tryPromise(() =>
+    fetch(NPM_LATEST)
+      .then((response) => response.json())
+      .then((body) => S.decodeUnknownSync(Release)(body).version),
+  ).pipe(Effect.catchCause(() => Effect.succeed(fallback)))
+
 export class LandingSite extends Context.Service<LandingSite>()('LandingSite', {
   make: Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
     const render = yield* FoldkitRender
     const shell = yield* fs.readFileString(join(distDir, 'index.html'))
-    const body = yield* render.renderToString(renderStatic(() => view(seed).body))
-    return { page: withSeed(withBody(shell, body), seed) } as const
+    const version = yield* latestVersion(seed.version)
+    const model = { ...seed, version }
+    const body = yield* render.renderToString(renderStatic(() => view(model).body))
+    return { page: withSeed(withBody(shell, body), model) } as const
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make).pipe(

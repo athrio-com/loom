@@ -1,90 +1,9 @@
 import { Array } from 'effect'
 import type { Document, Html } from 'foldkit/html'
-import { arrowIcon, tabbar, titlebar } from './components'
+import { tabbar, titlebar } from './components'
 import { hero } from './hero'
 import { middle } from './middle'
 import { h, type Model } from './model'
-
-const tk = (cls: string, text: string): Html => h.span([h.Class(cls)], [text])
-
-const configPanel = (): Html =>
-  h.div(
-    [h.Class('config'), h.AriaHidden(true)],
-    [
-      h.div(
-        [h.Class('panel-head')],
-        [
-          h.span([h.Class('dot')], []),
-          h.span([], ['~/greeter/loom.json']),
-          h.span([h.Class('right')], ['workspace']),
-        ],
-      ),
-      h.div(
-        [h.Class('config-body')],
-        [
-          tk('com', '// loom.json — the workspace config'),
-          '\n',
-          tk('pun', '{'),
-          '\n',
-          '  ', tk('k', '"primary"'), tk('pun', ':'), '   ', tk('v', '"TypeScript"'), tk('pun', ','),
-          '\n',
-          '  ', tk('k', '"languages"'), tk('pun', ':'), ' ', tk('pun', '['), tk('v', '"TypeScript"'), tk('pun', ','), ' ', tk('v', '"Bash"'), tk('pun', ','), ' ', tk('v', '"JSON"'), tk('pun', ']'), tk('pun', ','),
-          '\n',
-          '  ', tk('k', '"anchor"'), tk('pun', ':'), '    ', tk('v', '"::' + '[name]"'), tk('pun', ','),
-          '\n',
-          '  ', tk('k', '"book"'), tk('pun', ':'), '      ', tk('v', '"corpus/book.loom"'),
-          '\n',
-          tk('pun', '}'),
-        ],
-      ),
-    ],
-  )
-
-const signupRight = (): Html =>
-  h.div(
-    [h.Class('actions')],
-    [
-      h.a([h.Class('btn primary'), h.Href('#')], ['Read the book', arrowIcon()]),
-      h.a([h.Class('btn'), h.Href('#')], ['Browse the source']),
-    ],
-  )
-
-const getStarted = (model: Model): Html =>
-  h.section(
-    [h.Class('s'), h.Id('start')],
-    [
-      h.div(
-        [h.Class('wrap')],
-        [
-          h.div(
-            [h.Class('sec-head')],
-            [
-              h.div(
-                [h.Class('sec-num')],
-                [h.span([h.Class('arrow')], ['▸']), ' 02 · GET STARTED'],
-              ),
-              h.div(
-                [],
-                [
-                  h.h2(
-                    [h.Class('sec-h')],
-                    ['From zero to your', h.br([]), 'first tangle.'],
-                  ),
-                  h.p(
-                    [h.Class('sec-lede')],
-                    [
-                      'What those commands produce is one workspace config, shown here. From there, the whole book goes further.',
-                    ],
-                  ),
-                ],
-              ),
-            ],
-          ),
-          h.div([h.Class('signup')], [configPanel(), signupRight()]),
-        ],
-      ),
-    ],
-  )
 
 const footColumn = (
   title: string,
@@ -130,7 +49,6 @@ const footer = (): Html =>
               ),
               footColumn('// Framework', [
                 { label: 'The book', href: '#' },
-                { label: 'Getting started', href: '#start' },
                 { label: 'How it works', href: '#how' },
               ]),
               footColumn('// Reference', [
@@ -154,9 +72,9 @@ const page = (model: Model): Html =>
   h.div(
     [],
     [
-      titlebar(),
+      titlebar(model.version),
       tabbar(),
-      h.main([], [hero(model), middle(model), getStarted(model)]),
+      h.main([], [hero(model), middle(model)]),
       footer(),
     ],
   )
