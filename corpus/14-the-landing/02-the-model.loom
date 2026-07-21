@@ -36,7 +36,7 @@ export type Model = typeof Model.Type
 
 ## The messages
 
-The reader does a handful of things. They switch the example among its three tabs, and flip the loom tab between its rendered preview and its raw source. They play the embedded game, whose own messages the panel lifts into one of the landing's. They jump to a section in the preview's outline, and the canvas scrolls to it alone. They type into the command palette, and move its focus up or down with the arrows. They copy a command, and a moment later the flash resets. They pick which package manager the install command should speak. The rotating word advances on its own timer, so its messages arrive from a command rather than the reader, moving through three phases as it swaps.
+The reader does a handful of things. They switch the example among its three tabs, and flip the loom tab between its rendered preview and its raw source. They play the embedded game, whose own messages the panel lifts into one of the landing's. They jump to a section in the preview's outline, and the canvas scrolls to it alone. As they scroll the preview by hand instead, the outline follows, lifting the row of the section now in view. They type into the command palette, and move its focus up or down with the arrows. They copy a command, and a moment later the flash resets. They pick which package manager the install command should speak. The rotating word advances on its own timer, so its messages arrive from a command rather than the reader, moving through three phases as it swaps.
 
 =>
 
@@ -45,6 +45,7 @@ export const SelectedLoomView = m('SelectedLoomView', { view: S.Literals(['previ
 export const GotGameMessage = m('GotGameMessage', { message: Gomoku.Message })
 export const SelectedSection = m('SelectedSection', { id: S.String })
 export const SectionScrolled = m('SectionScrolled')
+export const SpottedSection = m('SpottedSection', { id: S.String })
 export const Typed = m('Typed', { query: S.String })
 export const MovedFocus = m('MovedFocus', { delta: S.Number, count: S.Number })
 export const Copied = m('Copied', { id: S.String, text: S.String })
@@ -62,6 +63,7 @@ export const Message = S.Union([
   GotGameMessage,
   SelectedSection,
   SectionScrolled,
+  SpottedSection,
   Typed,
   MovedFocus,
   Copied,

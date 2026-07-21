@@ -319,12 +319,11 @@ section.s {
   border-bottom: 1px solid var(--rule);
 }
 .sec-head {
-  display: grid;
-  grid-template-columns: 240px 1fr;
-  gap: 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
   margin-bottom: 32px;
 }
-@media (max-width: 980px) { .sec-head { grid-template-columns: 1fr; gap: 16px; } }
 .sec-num {
   font-family: var(--mono);
   font-size: 14px;
@@ -353,9 +352,130 @@ section.s {
   text-wrap: pretty;
 }
 
+## What Loom is — the story
+
+The what-loom-is section tells its story in prose and shows it in one specimen, the greeter. A lead sentence sets it up, the specimen sits in the mono face with no frame, a reflection beneath it flows in two columns, and a row of the remaining marks closes the section. Every mark — in the specimen and the row alike — carries a tooltip that a hover reveals, a small card holding its note. Each mark wears an accent, the six a reader types in colour and the structural parts muted, so a mark and its tooltip read as one.
+
+=>
+
+.wstory { margin-top: 8px; }
+
+.wlead {
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--fg-2);
+  max-width: 62ch;
+  margin: 0 0 24px;
+}
+
+.wspec {
+  margin: 0 0 32px;
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 2;
+  color: var(--fg-2);
+}
+.wspec-line { white-space: pre-wrap; }
+.wspec-line.gap { height: 0.55em; }
+
+.wprose {
+  columns: 2;
+  column-gap: 44px;
+  max-width: 860px;
+  margin: 0 0 30px;
+}
+.wprose p {
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.68;
+  color: var(--fg-2);
+  margin: 0 0 14px;
+  break-inside: avoid;
+}
+.wprose p:first-child { margin-top: 0; }
+@media (max-width: 760px) { .wprose { columns: 1; } }
+
+.wrest {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.wmark {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--rule-2);
+  border-radius: 8px;
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--fg-2);
+  cursor: pointer;
+}
+.wmark-glyph {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--accent, var(--fg-2));
+}
+
+.tok {
+  position: relative;
+  cursor: pointer;
+  color: var(--accent, var(--fg-2));
+  border-bottom: 1px dotted color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.tok.a-prose {
+  color: var(--fg-3);
+  border-bottom: none;
+}
+.tok.a-arrow,
+.tok.a-tilde { font-weight: 600; }
+
+.tip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 20;
+  width: max-content;
+  max-width: 260px;
+  padding: 9px 12px;
+  border: 1px solid var(--rule-2);
+  border-radius: 8px;
+  background: var(--bg-3);
+  color: var(--fg-2);
+  font-family: var(--sans);
+  font-size: 12.5px;
+  font-weight: 400;
+  font-style: normal;
+  line-height: 1.5;
+  white-space: normal;
+  letter-spacing: 0;
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition: opacity .12s ease, transform .12s ease;
+}
+.tok:hover .tip,
+.wmark:hover .tip {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.a-front { --accent: var(--fg-3); }
+.a-head { --accent: var(--fg-2); }
+.a-prose { --accent: var(--fg-3); }
+.a-warp { --accent: var(--acc-amber); }
+.a-arrow { --accent: var(--acc-mint); }
+.a-tilde { --accent: var(--acc-cyan); }
+.a-anchor { --accent: var(--acc-violet); }
+.a-spec { --accent: var(--acc-rose); }
+.a-sink { --accent: var(--acc-grey); }
+
 ## How it works — the tabbed panel
 
-The how-it-works section gives its width to one panel, an editor with three tabs: the loom, the tangled TypeScript, and the playable game. The loom tab reads as a rendered document or, at the flick of a switch, as its raw source. In the preview a canvas of prose and code sits beside an outline that stays in view as the page scrolls, and a row in that outline jumps the page to its heading and lifts it to mint. The tangle tab holds the whole file, coloured at build time in the landing's own palette. The panel grows to the height of whatever it shows, so the page carries the scroll and nothing nests inside; only the game keeps a fixed height, a square board that stays in reach. Prose reads as prose, code keeps its syntax colour, and an anchor the loom has not resolved stays violet.
+The how-it-works section gives its width to one panel, an editor with three tabs: the loom, the tangled TypeScript, and the playable game. The loom tab reads as a rendered document or, at the flick of a switch, as its raw source. In the preview a canvas of prose and code sits beside an outline that stays in view as the page scrolls, and a row in that outline jumps the page to its heading and lifts it to mint. The tangle tab holds the whole file, coloured at build time in the landing's own palette. The panel grows to the height of whatever it shows, so the page carries the scroll and nothing nests inside; only the game keeps a fixed height, a square board that stays in reach. Prose reads as prose, code keeps its syntax colour, and an anchor the loom has not resolved stays violet. The prose holds a measure of a hundred characters, so a line stays readable instead of running the full width of the pane.
 
 =>
 
@@ -532,7 +652,7 @@ The how-it-works section gives its width to one panel, an editor with three tabs
   margin-left: 0.5em;
 }
 
-.how-prose { margin: 0; }
+.how-prose { margin: 0; max-width: 100ch; }
 .how-prose p {
   font-family: var(--sans);
   color: var(--fg-2);
@@ -806,16 +926,11 @@ The quick-start terminal — three commands to a first tangle, each with a copy 
 =>
 
 .quickstart {
-  background: var(--bg);
-  border: 1px solid var(--rule-2);
-  border-radius: 8px;
-  padding: 8px 6px;
   font-family: var(--mono); font-size: 13.5px;
 }
 .pm-tabs {
   display: flex; gap: 4px;
-  padding: 4px 6px 8px;
-  border-bottom: 1px solid var(--rule);
+  padding: 0 0 8px;
   margin-bottom: 4px;
 }
 .pm-tab {
@@ -905,7 +1020,7 @@ footer.foot {
 
 ## The stylesheet {Tangle}[landing.css]
 
-The stylesheet is the tokens and base, then each region top to bottom: the window chrome, the hero and its call to action, the shared panel head, the numbered sections, how-it-works and the palette, get-started, and the footer.
+The stylesheet is the tokens and base, then each region top to bottom: the window chrome, the hero and its call to action, the shared panel head, the numbered sections, the what-loom-is story, how-it-works and the palette, get-started, and the footer.
 
 =>
 
@@ -920,6 +1035,8 @@ The stylesheet is the tokens and base, then each region top to bottom: the windo
 ::[The shared panel head]
 
 ::[The numbered sections]
+
+::[What Loom is — the story]
 
 ::[How it works — the tabbed panel]
 

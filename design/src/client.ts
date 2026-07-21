@@ -1,5 +1,5 @@
-import { Effect, Match, Option, Schema as S } from 'effect'
-import { Runtime } from 'foldkit'
+import { Array, Effect, Match, Option, pipe, Schema as S, Stream } from 'effect'
+import { Runtime, Subscription } from 'foldkit'
 import { define, mapMessages, type Command } from 'foldkit/command'
 import { ssrHydration } from '@athrio/foldkit-hydration'
 import { view } from './view'
@@ -14,6 +14,7 @@ import {
   RotatorSettled,
   SectionScrolled,
   SelectedSection,
+  SpottedSection,
 } from './model'
 import * as Gomoku from '../../examples/gomoku/gomoku'
 
@@ -70,6 +71,8 @@ const update = (model: Model, message: Message): Step =>
       },
       SelectedSection: ({ id }) => [{ ...model, activeSection: id }, [ScrollToSection({ id })]],
       SectionScrolled: () => [model, []],
+      SpottedSection: ({ id }) =>
+        id === model.activeSection ? [model, []] : [{ ...model, activeSection: id }, []],
       Typed: ({ query }) => [{ ...model, query, focus: 0 }, []],
       MovedFocus: ({ delta, count }) => [
         { ...model, focus: clamp(model.focus + delta, Math.max(0, count - 1)) },
@@ -91,6 +94,40 @@ const update = (model: Model, message: Message): Step =>
     }),
   )
 
+const SPY_OFFSET = 96
+
+const activeSectionId = (): Option.Option<string> => {
+  const headings = Array.fromIterable(
+    document.querySelectorAll<HTMLElement>('.how-file-title, .how-section-h'),
+  )
+  return pipe(
+    Array.last(Array.filter(headings, (el) => el.getBoundingClientRect().top <= SPY_OFFSET)),
+    Option.orElse(() => Array.head(headings)),
+    Option.map((el) => el.id),
+    Option.filter((id) => id.length > 0),
+  )
+}
+
+const subscriptions = Subscription.make<Model, Message>()((entry) => ({
+  sectionSpy: entry(
+    { previewing: S.Boolean },
+    {
+      modelToDependencies: (model) => ({
+        previewing: model.exampleTab === 'loom' && model.loomView === 'preview',
+      }),
+      dependenciesToStream: ({ previewing }) =>
+        previewing
+          ? Subscription.fromEventFilterMap<Event, Message>({
+              target: window,
+              type: 'scroll',
+              options: { passive: true },
+              toMessage: () => Option.map(activeSectionId(), (id) => SpottedSection({ id })),
+            })
+          : Stream.empty,
+    },
+  ),
+}))
+
 import '@fontsource/ia-writer-quattro'
 import './landing.css'
 
@@ -101,7 +138,7 @@ const emptyModel: Model = {
   exampleTab: 'loom',
   loomView: 'preview',
   game: Gomoku.newGame(),
-  version: '0.0.6',
+  version: '0.0.7',
   query: '',
   focus: 0,
   copied: '',
@@ -125,6 +162,7 @@ const application = Runtime.makeApplication({
   init: (seed: Model): Step => [seed, [DelayRotateOut()]],
   update,
   view,
+  subscriptions,
   container: document.getElementById('root'),
   hydrate: ssrHydration(),
 })

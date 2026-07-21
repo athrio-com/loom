@@ -14,8 +14,8 @@ The update returns the next model and the commands to run — the pair every Fol
 
 =>
 
-import { Effect, Match, Option, Schema as S } from 'effect'
-import { Runtime } from 'foldkit'
+import { Array, Effect, Match, Option, pipe, Schema as S, Stream } from 'effect'
+import { Runtime, Subscription } from 'foldkit'
 import { define, mapMessages, type Command } from 'foldkit/command'
 import { ssrHydration } from '@athrio/foldkit-hydration'
 import { view } from './view'
@@ -30,6 +30,7 @@ import {
   RotatorSettled,
   SectionScrolled,
   SelectedSection,
+  SpottedSection,
 } from './model'
 import * as Gomoku from '../../examples/gomoku/gomoku'
 
@@ -78,7 +79,7 @@ const ScrollToSection = define('ScrollToSection', { id: S.String }, SectionScrol
 
 ## The update
 
-Most messages set one field: the query, the focus clamped to the results, the package manager, the loom tab's view. Switching the example tab sets it too, with one exception — clicking the Play tab while it is already open starts a fresh game, running the component's own reset. The embedded game otherwise runs its own update; the panel keeps the board it returns and lifts the game's commands — the one that thinks out the computer's move, and the one that arms a new game's bombs — into its own, so they run. Selecting a section sets the active one and asks the preview to scroll to it. Copying flashes the pressed button and runs its reset. The rotator's three messages move it through its phases and hand off to the next command.
+Most messages set one field: the query, the focus clamped to the results, the package manager, the loom tab's view. Switching the example tab sets it too, with one exception — clicking the Play tab while it is already open starts a fresh game, running the component's own reset. The embedded game otherwise runs its own update; the panel keeps the board it returns and lifts the game's commands — the one that thinks out the computer's move, and the one that arms a new game's bombs — into its own, so they run. Selecting a section sets the active one and asks the preview to scroll to it. A section spotted while the reader scrolls sets the active one too, but runs nothing, so the outline follows the scroll rather than fighting it. Copying flashes the pressed button and runs its reset. The rotator's three messages move it through its phases and hand off to the next command.
 
 =>
 
@@ -104,6 +105,8 @@ const update = (model: Model, message: Message): Step =>
       },
       SelectedSection: ({ id }) => [{ ...model, activeSection: id }, [ScrollToSection({ id })]],
       SectionScrolled: () => [model, []],
+      SpottedSection: ({ id }) =>
+        id === model.activeSection ? [model, []] : [{ ...model, activeSection: id }, []],
       Typed: ({ query }) => [{ ...model, query, focus: 0 }, []],
       MovedFocus: ({ delta, count }) => [
         { ...model, focus: clamp(model.focus + delta, Math.max(0, count - 1)) },
@@ -124,6 +127,46 @@ const update = (model: Model, message: Message): Step =>
       RotatorSettled: () => [{ ...model, rotatorPhase: 'normal' }, [DelayRotateOut()]],
     }),
   )
+
+## Spotting the section on scroll
+
+The outline should follow the reader, not only lead them. While the preview shows, a subscription watches the window scroll: it finds the heading nearest the top of the view — the section the reader is in — and lifts that row in the outline. `activeSectionId` reads the rendered headings, keeps the ones scrolled up past a small offset, and takes the last; when none has reached the offset yet, it falls back to the first. The subscription runs only while the loom tab shows its preview, the one time those headings are on the page.
+
+=>
+
+const SPY_OFFSET = 96
+
+const activeSectionId = (): Option.Option<string> => {
+  const headings = Array.fromIterable(
+    document.querySelectorAll<HTMLElement>('.how-file-title, .how-section-h'),
+  )
+  return pipe(
+    Array.last(Array.filter(headings, (el) => el.getBoundingClientRect().top <= SPY_OFFSET)),
+    Option.orElse(() => Array.head(headings)),
+    Option.map((el) => el.id),
+    Option.filter((id) => id.length > 0),
+  )
+}
+
+const subscriptions = Subscription.make<Model, Message>()((entry) => ({
+  sectionSpy: entry(
+    { previewing: S.Boolean },
+    {
+      modelToDependencies: (model) => ({
+        previewing: model.exampleTab === 'loom' && model.loomView === 'preview',
+      }),
+      dependenciesToStream: ({ previewing }) =>
+        previewing
+          ? Subscription.fromEventFilterMap<Event, Message>({
+              target: window,
+              type: 'scroll',
+              options: { passive: true },
+              toMessage: () => Option.map(activeSectionId(), (id) => SpottedSection({ id })),
+            })
+          : Stream.empty,
+    },
+  ),
+}))
 
 ## Booting
 
@@ -167,6 +210,7 @@ const application = Runtime.makeApplication({
   init: (seed: Model): Step => [seed, [DelayRotateOut()]],
   update,
   view,
+  subscriptions,
   container: document.getElementById('root'),
   hydrate: ssrHydration(),
 })
@@ -184,5 +228,7 @@ Runtime.run(application)
 ::[Jumping to a section]
 
 ::[The update]
+
+::[Spotting the section on scroll]
 
 ::[Booting]

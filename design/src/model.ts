@@ -23,6 +23,7 @@ export const SelectedLoomView = m('SelectedLoomView', { view: S.Literals(['previ
 export const GotGameMessage = m('GotGameMessage', { message: Gomoku.Message })
 export const SelectedSection = m('SelectedSection', { id: S.String })
 export const SectionScrolled = m('SectionScrolled')
+export const SpottedSection = m('SpottedSection', { id: S.String })
 export const Typed = m('Typed', { query: S.String })
 export const MovedFocus = m('MovedFocus', { delta: S.Number, count: S.Number })
 export const Copied = m('Copied', { id: S.String, text: S.String })
@@ -40,6 +41,7 @@ export const Message = S.Union([
   GotGameMessage,
   SelectedSection,
   SectionScrolled,
+  SpottedSection,
   Typed,
   MovedFocus,
   Copied,

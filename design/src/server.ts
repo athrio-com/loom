@@ -24,7 +24,7 @@ const seed: Model = {
   exampleTab: 'loom',
   loomView: 'preview',
   game: Gomoku.newGame(),
-  version: '0.0.6',
+  version: '0.0.7',
   query: '',
   focus: 0,
   copied: '',
