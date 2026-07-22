@@ -1,6 +1,6 @@
 {
   "name": "@athrio/loom-ui",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "description": "Loom's Foldkit UI library: a theme system, presentational and interactive components, and stateful submodels.",
   "license": "Apache-2.0 OR MIT",
   "type": "module",
