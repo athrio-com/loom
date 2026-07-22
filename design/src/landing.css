@@ -877,21 +877,19 @@ section.s {
 .install-rows {
   margin-top: 40px;
   max-width: 560px;
-  border: 1px solid var(--rule-2);
-  border-radius: 10px;
-  overflow: hidden;
   font-family: var(--mono);
 }
 .install-row {
   display: flex; align-items: center; gap: 14px;
-  padding: 11px 15px;
+  padding: 7px 0;
 }
-.install-row + .install-row { border-top: 1px solid var(--rule); }
 .rt-mark {
   flex-shrink: 0;
-  display: inline-flex; align-items: center;
+  display: inline-flex; align-items: center; justify-content: center;
   width: 18px; height: 18px;
 }
+.rt-logo { display: inline-flex; }
+.rt-mark svg { display: block; width: 18px; height: 18px; }
 .rt-mark.then { color: var(--fg-4); }
 .rt-cmd {
   flex: 1;
@@ -899,13 +897,9 @@ section.s {
   white-space: nowrap; overflow-x: auto;
 }
 .rt-cmd::-webkit-scrollbar { display: none; }
-.init-row {
-  border-top: 1px solid var(--rule-2);
-  background: var(--bg-2);
-}
-.init-row .install-row { border-top: 0; }
+.init-row { margin-top: 12px; }
 .rt-note {
-  padding: 0 15px 12px 47px;
+  padding: 4px 0 0 32px;
   color: var(--fg-3);
   font-family: var(--sans); font-size: 12.5px;
 }
