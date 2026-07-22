@@ -147,7 +147,7 @@ const emptyModel: Model = {
   loomView: 'preview',
   exampleExpanded: false,
   game: Gomoku.newGame(),
-  version: '0.0.7',
+  version: '0.0.8',
   query: '',
   focus: 0,
   copied: '',
