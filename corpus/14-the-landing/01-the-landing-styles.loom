@@ -146,7 +146,7 @@ The page wears a window's chrome. A title bar runs across the top with three tra
 
 ## The hero and its rotating headline
 
-The hero is the first screen: a two-column grid with the headline and its call to action on the left, and the quick start on the right. The headline is set large in the display serif, and one word of it rotates — swapping on a blur-and-slide transition — with a blinking caret after it.
+The hero is the first screen: one column, wide enough to read, holding the meta line, the headline, the install rows beneath it, and the calls to action. The headline is set large in the display serif, and one word of it rotates — swapping on a blur-and-slide transition — with a blinking caret after it.
 
 =>
 
@@ -154,12 +154,9 @@ The hero is the first screen: a two-column grid with the headline and its call t
   padding: 96px 0 64px;
   border-bottom: 1px solid var(--rule);
 }
-.hero-grid {
-  display: grid;
-  grid-template-columns: 1.4fr 1fr;
-  gap: 80px;
+.hero-col {
+  max-width: 680px;
 }
-@media (max-width: 980px) { .hero-grid { grid-template-columns: 1fr; gap: 56px; } }
 
 .gutter-row {
   display: flex; align-items: baseline; gap: 18px;
@@ -219,7 +216,7 @@ h1.loom-h .hl-3 { color: var(--acc-violet); }
 
 ## The call to action
 
-Below the headline sit the actions: an install command line with a copy button, and a row of buttons — read the book, browse the source, search. A button is a quiet slate pill; the primary one wears the mint. The copy button flashes mint when it copies.
+Below the install rows sit the calls to action, a row of two buttons — read the docs, browse the source. A button is a quiet slate pill; the primary one wears the mint. The copy button, shared by the install rows above, flashes mint when it copies.
 
 =>
 
@@ -264,18 +261,6 @@ Below the headline sit the actions: an install command line with a copy button, 
   font-family: var(--mono); font-size: 11px;
 }
 
-.cmd-line {
-  display: inline-flex; align-items: center; gap: 10px;
-  background: var(--bg-2);
-  border: 1px solid var(--rule-2);
-  border-radius: 6px;
-  padding: 10px 10px 10px 15px;
-  font-family: var(--mono); font-size: 13.5px;
-  color: var(--fg);
-  max-width: 100%;
-}
-.cmd-line .prompt { color: var(--acc-mint); }
-.cmd-line code { color: var(--fg); white-space: nowrap; }
 .copy-btn {
   display: inline-flex; align-items: center; gap: 6px;
   margin-left: 6px;
@@ -555,17 +540,17 @@ The how-it-works section gives its width to one panel, an editor with three tabs
   padding: 9px 18px;
   border: 1px solid var(--acc-violet);
   border-radius: 999px;
-  background: var(--bg-3);
-  color: var(--fg);
+  background: color-mix(in srgb, var(--acc-violet) 12%, var(--bg-3));
+  color: var(--acc-violet);
   font-family: var(--sans);
   font-size: 13px;
   letter-spacing: 0.01em;
-  transition: color .12s ease, background .12s ease;
+  transition: transform .16s ease, background .16s ease;
 }
 .how-expand-label::after { content: '↓'; opacity: 0.7; }
 .how-expand:hover .how-expand-label {
-  color: var(--acc-violet);
-  background: color-mix(in srgb, var(--acc-violet) 14%, var(--bg-3));
+  transform: translateY(-2px);
+  background: color-mix(in srgb, var(--acc-violet) 20%, var(--bg-3));
 }
 .ex-icon { display: inline-flex; }
 .ex-icon.white { color: var(--fg); }
@@ -954,54 +939,47 @@ Beneath the steps sits a command palette that searches the book — type and the
   color: var(--fg-3);
 }
 
-## The quick start's terminal
+## The install rows
 
-The quick-start terminal — three commands to a first tangle, each with a copy button, and a result line beneath — lives in the hero. Above the install line sit the package manager tabs; the picked one is lit, the rest sit quiet.
+Under the headline sits the install: one row per runtime, then the `loom init` step set apart by a rule. The rows share a bordered card set in the mono face. Each row leads with the runtime's coloured mark, gives the install command room to run, and ends with its copy button. The init step tints its own row and carries a plain-language line beneath it, aligned under the command.
 
 =>
 
-.quickstart {
-  font-family: var(--mono); font-size: 13.5px;
-}
-.pm-tabs {
-  display: flex; gap: 4px;
-  padding: 0 0 8px;
-  margin-bottom: 4px;
-}
-.pm-tab {
+.install-rows {
+  margin-top: 40px;
+  max-width: 560px;
+  border: 1px solid var(--rule-2);
+  border-radius: 10px;
+  overflow: hidden;
   font-family: var(--mono);
-  font-size: 11px;
-  padding: 4px 10px;
-  border-radius: 5px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--fg-3);
-  cursor: pointer;
-  transition: background .12s ease, color .12s ease;
 }
-.pm-tab:hover { color: var(--fg-2); background: var(--bg-2); }
-.pm-tab.active {
-  color: var(--fg);
+.install-row {
+  display: flex; align-items: center; gap: 14px;
+  padding: 11px 15px;
+}
+.install-row + .install-row { border-top: 1px solid var(--rule); }
+.rt-mark {
+  flex-shrink: 0;
+  display: inline-flex; align-items: center;
+  width: 18px; height: 18px;
+}
+.rt-mark.then { color: var(--fg-4); }
+.rt-cmd {
+  flex: 1;
+  color: var(--fg); font-size: 13px;
+  white-space: nowrap; overflow-x: auto;
+}
+.rt-cmd::-webkit-scrollbar { display: none; }
+.init-row {
+  border-top: 1px solid var(--rule-2);
   background: var(--bg-2);
-  border-color: var(--rule-2);
 }
-.qs-line {
-  display: flex; align-items: center; gap: 12px;
-  padding: 8px 12px;
-  border-radius: 5px;
-  transition: background .12s ease;
+.init-row .install-row { border-top: 0; }
+.rt-note {
+  padding: 0 15px 12px 47px;
+  color: var(--fg-3);
+  font-family: var(--sans); font-size: 12.5px;
 }
-.qs-line:hover { background: var(--bg-2); }
-.qs-line .qs-prompt { color: var(--acc-mint); flex-shrink: 0; }
-.qs-line code { color: var(--fg); flex: 1; white-space: nowrap; overflow-x: auto; }
-.qs-line .copy-btn { margin-left: 0; }
-.qs-out {
-  padding: 10px 12px 6px;
-  color: var(--fg-3); font-size: 12.5px;
-  border-top: 1px solid var(--rule); margin-top: 4px;
-}
-.qs-out .ok { color: var(--acc-mint); }
-.qs-out .path { color: var(--acc-cyan); }
 
 ## The footer
 
@@ -1077,6 +1055,6 @@ The stylesheet is the tokens and base, then each region top to bottom: the windo
 
 ::[The command palette]
 
-::[The quick start's terminal]
+::[The install rows]
 
 ::[The footer]

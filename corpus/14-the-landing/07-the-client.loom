@@ -83,7 +83,7 @@ const ScrollToSection = define('ScrollToSection', { id: S.String }, SectionScrol
 
 ## The update
 
-Most messages set one field: the query, the focus clamped to the results, the package manager, the loom tab's view, whether the example stands at full height. Switching the example tab sets it too, with one exception — clicking the Play tab while it is already open starts a fresh game, running the component's own reset. The embedded game otherwise runs its own update; the panel keeps the board it returns and lifts the game's commands — the one that thinks out the computer's move, and the one that arms a new game's bombs — into its own, so they run. Selecting a section sets the active one and asks the preview to scroll to it. A section spotted while the reader scrolls sets the active one too, but runs nothing, so the outline follows the scroll rather than fighting it. Copying flashes the pressed button and runs its reset. The rotator's three messages move it through its phases and hand off to the next command.
+Most messages set one field: the query, the focus clamped to the results, the loom tab's view, whether the example stands at full height. Switching the example tab sets it too, with one exception — clicking the Play tab while it is already open starts a fresh game, running the component's own reset. The embedded game otherwise runs its own update; the panel keeps the board it returns and lifts the game's commands — the one that thinks out the computer's move, and the one that arms a new game's bombs — into its own, so they run. Selecting a section sets the active one and asks the preview to scroll to it. A section spotted while the reader scrolls sets the active one too, but runs nothing, so the outline follows the scroll rather than fighting it. Copying flashes the pressed button and runs its reset. The rotator's three messages move it through its phases and hand off to the next command.
 
 =>
 
@@ -120,7 +120,6 @@ const update = (model: Model, message: Message): Step =>
         { ...model, focus: clamp(model.focus + delta, Math.max(0, count - 1)) },
         [],
       ],
-      SelectedPackageManager: ({ packageManager }) => [{ ...model, packageManager }, []],
       Copied: ({ id, text }) => [{ ...model, copied: id }, [CopyThenReset({ text })]],
       CopyReset: () => [{ ...model, copied: '' }, []],
       RotatedOut: () => [{ ...model, rotatorPhase: 'out' }, [DelayRotateIn()]],
@@ -199,7 +198,6 @@ const emptyModel: Model = {
   query: '',
   focus: 0,
   copied: '',
-  packageManager: 'npm',
 }
 
 const flags: Effect.Effect<Model> = Effect.sync(() => {

@@ -118,6 +118,55 @@ export const loomIcon = (): Html =>
     ],
   )
 
+const badge = (fill: string, marks: ReadonlyArray<Html>): Html =>
+  h.svg(
+    [h.Width('18'), h.Height('18'), h.ViewBox('0 0 24 24'), h.AriaHidden(true)],
+    [h.rect([h.X('1'), h.Y('1'), h.Width('22'), h.Height('22'), h.Rx('6'), h.Fill(fill)], []), ...marks],
+  )
+
+const bar = (x: string, fill: string): Html =>
+  h.rect([h.X(x), h.Y('7.5'), h.Width('3.4'), h.Height('9'), h.Fill(fill)], [])
+
+export const npmIcon = (): Html =>
+  badge('#CB3837', [
+    bar('5.4', '#fff'),
+    bar('10.3', '#fff'),
+    bar('15.2', '#fff'),
+    h.rect([h.X('12.2'), h.Y('10.5'), h.Width('1.5'), h.Height('6'), h.Fill('#CB3837')], []),
+    h.rect([h.X('18.6'), h.Y('7.5'), h.Width('1.5'), h.Height('5'), h.Fill('#CB3837')], []),
+  ])
+
+export const pnpmIcon = (): Html =>
+  h.svg(
+    [h.Width('18'), h.Height('18'), h.ViewBox('0 0 24 24'), h.AriaHidden(true)],
+    [
+      h.rect([h.X('13'), h.Y('2'), h.Width('9'), h.Height('9'), h.Rx('2'), h.Fill('#F9AD00')], []),
+      h.rect([h.X('2'), h.Y('13'), h.Width('9'), h.Height('9'), h.Rx('2'), h.Fill('#F9AD00')], []),
+      h.rect([h.X('13'), h.Y('13'), h.Width('9'), h.Height('9'), h.Rx('2'), h.Fill('#4A4A4A')], []),
+    ],
+  )
+
+export const bunIcon = (): Html =>
+  h.svg(
+    [h.Width('18'), h.Height('18'), h.ViewBox('0 0 24 24'), h.AriaHidden(true)],
+    [
+      h.rect([h.X('1'), h.Y('1'), h.Width('22'), h.Height('22'), h.Rx('11'), h.Fill('#FBF0DF'), h.Stroke('#E7D9BE'), h.StrokeWidth('1')], []),
+      h.rect([h.X('7'), h.Y('10.5'), h.Width('2.6'), h.Height('2.6'), h.Rx('1.3'), h.Fill('#1b1b1b')], []),
+      h.rect([h.X('14.4'), h.Y('10.5'), h.Width('2.6'), h.Height('2.6'), h.Rx('1.3'), h.Fill('#1b1b1b')], []),
+      h.rect([h.X('5'), h.Y('14'), h.Width('2.2'), h.Height('2.2'), h.Rx('1.1'), h.Fill('#F4B8B8')], []),
+      h.rect([h.X('16.8'), h.Y('14'), h.Width('2.2'), h.Height('2.2'), h.Rx('1.1'), h.Fill('#F4B8B8')], []),
+      h.path([h.D('M9.3 15.2c1.6 1.6 3.8 1.6 5.4 0'), h.Stroke('#1b1b1b'), h.StrokeWidth('1'), h.Fill('none'), h.StrokeLinecap('round')], []),
+    ],
+  )
+
+export const denoIcon = (): Html =>
+  badge('#111827', [
+    h.rect([h.X('6.5'), h.Y('12'), h.Width('9'), h.Height('7'), h.Rx('3.5'), h.Fill('#f4f4f5')], []),
+    h.path([h.D('M13 15.5C13 10 14 8 16.5 8'), h.Stroke('#f4f4f5'), h.StrokeWidth('2.6'), h.Fill('none'), h.StrokeLinecap('round')], []),
+    h.rect([h.X('14.6'), h.Y('6'), h.Width('3.4'), h.Height('3.4'), h.Rx('1.7'), h.Fill('#f4f4f5')], []),
+    h.rect([h.X('16.4'), h.Y('7.1'), h.Width('1'), h.Height('1'), h.Rx('0.5'), h.Fill('#111827')], []),
+  ])
+
 export const copyButton = (props: {
   id: string
   text: string

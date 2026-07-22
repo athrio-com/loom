@@ -1,7 +1,16 @@
 import { Array, Match } from 'effect'
 import type { Html } from 'foldkit/html'
-import { copyButton, bookIcon, externalIcon } from './components'
-import { h, type Model, SelectedPackageManager } from './model'
+import {
+  copyButton,
+  bookIcon,
+  externalIcon,
+  arrowIcon,
+  bunIcon,
+  denoIcon,
+  npmIcon,
+  pnpmIcon,
+} from './components'
+import { h, type Model } from './model'
 
 export const ROTATOR_WORDS = ['a book', 'an article', 'a spec']
 
@@ -33,96 +42,63 @@ const headline = (model: Model): Html =>
     ],
   )
 
-const PACKAGE_MANAGERS = ['npm', 'pnpm', 'yarn', 'bun'] as const
+type Runtime = {
+  readonly id: string
+  readonly command: string
+  readonly icon: Html
+}
 
-const installCommand = (packageManager: Model['packageManager']): string =>
-  Match.value(packageManager).pipe(
-    Match.when('npm', () => 'npm install -g @athrio/loom'),
-    Match.when('pnpm', () => 'pnpm add -g @athrio/loom'),
-    Match.when('yarn', () => 'yarn global add @athrio/loom'),
-    Match.when('bun', () => 'bun add -g @athrio/loom'),
-    Match.exhaustive,
+const RUNTIMES: ReadonlyArray<Runtime> = [
+  { id: 'bun', command: 'bun add -g @athrio/loom', icon: bunIcon() },
+  { id: 'deno', command: 'deno install -g -n loom npm:@athrio/loom', icon: denoIcon() },
+  { id: 'npm', command: 'npm install -g @athrio/loom', icon: npmIcon() },
+  { id: 'pnpm', command: 'pnpm add -g @athrio/loom', icon: pnpmIcon() },
+]
+
+const installRow = (copied: string) => (runtime: Runtime): Html =>
+  h.div(
+    [h.Class('install-row')],
+    [
+      h.span([h.Class('rt-mark')], [runtime.icon]),
+      h.code([h.Class('rt-cmd')], [runtime.command]),
+      copyButton({ id: `install-${runtime.id}`, text: runtime.command, copied }),
+    ],
   )
 
-const packageManagerTabs = (model: Model): Html =>
+const initRow = (copied: string): Html =>
   h.div(
-    [h.Class('pm-tabs')],
-    Array.map(PACKAGE_MANAGERS, (packageManager) =>
-      h.button(
-        [
-          h.Class(packageManager === model.packageManager ? 'pm-tab active' : 'pm-tab'),
-          h.OnClick(SelectedPackageManager({ packageManager })),
-        ],
-        [packageManager],
-      ),
-    ),
-  )
-
-const pitch = (model: Model): Html =>
-  h.div(
-    [],
+    [h.Class('init-row')],
     [
       h.div(
-        [h.Class('meta-row')],
+        [h.Class('install-row')],
         [
-          h.span(
-            [h.Class('pill')],
-            [h.span([h.Class('gh')], ['~']), ` loom · v${model.version}`],
-          ),
-          h.span([], ['literate programming · open source']),
-        ],
-      ),
-      headline(model),
-      h.div(
-        [h.Class('actions')],
-        [
-          h.div(
-            [h.Class('cmd-line'), h.Title('Copy the install command')],
-            [
-              h.span([h.Class('prompt')], ['$']),
-              h.code([], [installCommand(model.packageManager)]),
-              copyButton({
-                id: 'install',
-                text: installCommand(model.packageManager),
-                copied: model.copied,
-              }),
-            ],
-          ),
+          h.span([h.Class('rt-mark then')], [arrowIcon()]),
+          h.code([h.Class('rt-cmd')], ['loom init']),
+          copyButton({ id: 'loom-init', text: 'loom init', copied }),
         ],
       ),
       h.div(
-        [h.Class('actions'), h.Style({ marginTop: '16px' })],
-        [
-          h.a(
-            [h.Class('btn primary'), h.Href('#')],
-            ['Read the docs', bookIcon()],
-          ),
-          h.a(
-            [h.Class('btn'), h.Href('#')],
-            ['Browse the source', externalIcon()],
-          ),
-        ],
+        [h.Class('rt-note')],
+        ['Scaffolds a Loom workspace in the current directory.'],
       ),
     ],
   )
 
-const qsLine = (id: string, command: string, copied: string): Html =>
+const installRows = (model: Model): Html =>
   h.div(
-    [h.Class('qs-line')],
-    [
-      h.span([h.Class('qs-prompt')], ['$']),
-      h.code([], [command]),
-      copyButton({ id, text: command, copied }),
-    ],
+    [h.Class('install-rows')],
+    [...Array.map(RUNTIMES, installRow(model.copied)), initRow(model.copied)],
   )
 
-const quickstart = (model: Model): Html =>
+const metaRow = (version: string): Html =>
   h.div(
-    [h.Class('quickstart')],
+    [h.Class('meta-row')],
     [
-      packageManagerTabs(model),
-      qsLine('qs-install', installCommand(model.packageManager), model.copied),
-      qsLine('qs-new', 'loom init greeter', model.copied),
+      h.span(
+        [h.Class('pill')],
+        [h.span([h.Class('gh')], ['~']), ` loom · v${version}`],
+      ),
+      h.span([], ['Built with Loom']),
     ],
   )
 
@@ -132,7 +108,29 @@ export const hero = (model: Model): Html =>
     [
       h.div(
         [h.Class('wrap')],
-        [h.div([h.Class('hero-grid')], [pitch(model), quickstart(model)])],
+        [
+          h.div(
+            [h.Class('hero-col')],
+            [
+              metaRow(model.version),
+              headline(model),
+              installRows(model),
+              h.div(
+                [h.Class('actions hero-cta')],
+                [
+                  h.a(
+                    [h.Class('btn primary'), h.Href('#')],
+                    ['Read the docs', bookIcon()],
+                  ),
+                  h.a(
+                    [h.Class('btn'), h.Href('#')],
+                    ['Browse the source', externalIcon()],
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
       ),
     ],
   )

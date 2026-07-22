@@ -15,7 +15,6 @@ export const Model = S.Struct({
   query: S.String,
   focus: S.Number,
   copied: S.String,
-  packageManager: S.Literals(['npm', 'pnpm', 'yarn', 'bun']),
 })
 export type Model = typeof Model.Type
 
@@ -30,9 +29,6 @@ export const Typed = m('Typed', { query: S.String })
 export const MovedFocus = m('MovedFocus', { delta: S.Number, count: S.Number })
 export const Copied = m('Copied', { id: S.String, text: S.String })
 export const CopyReset = m('CopyReset')
-export const SelectedPackageManager = m('SelectedPackageManager', {
-  packageManager: S.Literals(['npm', 'pnpm', 'yarn', 'bun']),
-})
 export const RotatedOut = m('RotatedOut')
 export const RotatedIn = m('RotatedIn')
 export const RotatorSettled = m('RotatorSettled')
@@ -49,7 +45,6 @@ export const Message = S.Union([
   MovedFocus,
   Copied,
   CopyReset,
-  SelectedPackageManager,
   RotatedOut,
   RotatedIn,
   RotatorSettled,

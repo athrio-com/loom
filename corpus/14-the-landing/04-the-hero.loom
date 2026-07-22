@@ -6,7 +6,7 @@ Language: TypeScript
 
 # The hero
 
-The hero is the first screen. On the left it makes the pitch — a meta line, a large headline whose last word rotates, an install command, and the calls to action. On the right it gives the fastest way in: the two commands that reach a workspace of your own — install, then scaffold — each with its own copy button, in whichever package manager the reader picks, so a reader ready to move can start before they scroll any further.
+The hero is the first screen, and it makes its pitch in one column. A meta line sits above a large headline whose last word rotates, and beneath the headline is the fastest way in: the one command that installs the `loom` CLI, given in each runtime's own words, and the command that scaffolds a workspace once the CLI is on. A reader ready to move can copy a line and start before scrolling any further.
 
 ## The rotating headline
 
@@ -16,8 +16,17 @@ The headline is set in three lines, the last of which rotates through a few word
 
 import { Array, Match } from 'effect'
 import type { Html } from 'foldkit/html'
-import { copyButton, bookIcon, externalIcon } from './components'
-import { h, type Model, SelectedPackageManager } from './model'
+import {
+  copyButton,
+  bookIcon,
+  externalIcon,
+  arrowIcon,
+  bunIcon,
+  denoIcon,
+  npmIcon,
+  pnpmIcon,
+} from './components'
+import { h, type Model } from './model'
 
 export const ROTATOR_WORDS = ['a book', 'an article', 'a spec']
 
@@ -49,122 +58,79 @@ const headline = (model: Model): Html =>
     ],
   )
 
-## Picking a package manager
+## The install rows
 
-Every place the page shows the install command reads the same choice: which package manager the reader wants to see and copy. `installCommand` gives that command in one manager's own words — the `loom` CLI installs the same way from any of them, so only this one line changes. `packageManagerTabs` draws the row of names the reader picks from, the current one lit.
+Under the headline the install runs as a short stack of rows — one per runtime, in the order a reader is likely to reach for: bun, deno, npm, pnpm. Each row leads with the runtime's coloured mark and shows the one command that installs the `loom` CLI from it, its own copy button on the right. The command names the runtime and the mark carries its colour, so the two are label enough and the row needs no third. The CLI installs the same way from any of them, so only the command's words change from row to row.
 
-=>
-
-const PACKAGE_MANAGERS = ['npm', 'pnpm', 'yarn', 'bun'] as const
-
-const installCommand = (packageManager: Model['packageManager']): string =>
-  Match.value(packageManager).pipe(
-    Match.when('npm', () => 'npm install -g @athrio/loom'),
-    Match.when('pnpm', () => 'pnpm add -g @athrio/loom'),
-    Match.when('yarn', () => 'yarn global add @athrio/loom'),
-    Match.when('bun', () => 'bun add -g @athrio/loom'),
-    Match.exhaustive,
-  )
-
-const packageManagerTabs = (model: Model): Html =>
-  h.div(
-    [h.Class('pm-tabs')],
-    Array.map(PACKAGE_MANAGERS, (packageManager) =>
-      h.button(
-        [
-          h.Class(packageManager === model.packageManager ? 'pm-tab active' : 'pm-tab'),
-          h.OnClick(SelectedPackageManager({ packageManager })),
-        ],
-        [packageManager],
-      ),
-    ),
-  )
-
-## The pitch
-
-Above the headline sits a meta line of two pills, then the install command, then the calls to action. The first pill names the latest release, read from the model the server fills, so it never falls behind what npm serves. The install line carries whichever package manager is picked, with its copy button. The calls to action are two buttons — read the docs, and browse the source.
+A final row, set apart by a rule, is the step that follows once the CLI is on: `loom init`, with a line saying what it does. Yarn is left out — its global install works only on Yarn 1, so a command shown here would fail on the version most readers now run.
 
 =>
 
-const pitch = (model: Model): Html =>
+type Runtime = {
+  readonly id: string
+  readonly command: string
+  readonly icon: Html
+}
+
+const RUNTIMES: ReadonlyArray<Runtime> = [
+  { id: 'bun', command: 'bun add -g @athrio/loom', icon: bunIcon() },
+  { id: 'deno', command: 'deno install -g -n loom npm:@athrio/loom', icon: denoIcon() },
+  { id: 'npm', command: 'npm install -g @athrio/loom', icon: npmIcon() },
+  { id: 'pnpm', command: 'pnpm add -g @athrio/loom', icon: pnpmIcon() },
+]
+
+const installRow = (copied: string) => (runtime: Runtime): Html =>
   h.div(
-    [],
+    [h.Class('install-row')],
+    [
+      h.span([h.Class('rt-mark')], [runtime.icon]),
+      h.code([h.Class('rt-cmd')], [runtime.command]),
+      copyButton({ id: `install-${runtime.id}`, text: runtime.command, copied }),
+    ],
+  )
+
+const initRow = (copied: string): Html =>
+  h.div(
+    [h.Class('init-row')],
     [
       h.div(
-        [h.Class('meta-row')],
+        [h.Class('install-row')],
         [
-          h.span(
-            [h.Class('pill')],
-            [h.span([h.Class('gh')], ['~']), ` loom · v${model.version}`],
-          ),
-          h.span([], ['literate programming · open source']),
-        ],
-      ),
-      headline(model),
-      h.div(
-        [h.Class('actions')],
-        [
-          h.div(
-            [h.Class('cmd-line'), h.Title('Copy the install command')],
-            [
-              h.span([h.Class('prompt')], ['$']),
-              h.code([], [installCommand(model.packageManager)]),
-              copyButton({
-                id: 'install',
-                text: installCommand(model.packageManager),
-                copied: model.copied,
-              }),
-            ],
-          ),
+          h.span([h.Class('rt-mark then')], [arrowIcon()]),
+          h.code([h.Class('rt-cmd')], ['loom init']),
+          copyButton({ id: 'loom-init', text: 'loom init', copied }),
         ],
       ),
       h.div(
-        [h.Class('actions'), h.Style({ marginTop: '16px' })],
-        [
-          h.a(
-            [h.Class('btn primary'), h.Href('#')],
-            ['Read the docs', bookIcon()],
-          ),
-          h.a(
-            [h.Class('btn'), h.Href('#')],
-            ['Browse the source', externalIcon()],
-          ),
-        ],
+        [h.Class('rt-note')],
+        ['Scaffolds a Loom workspace in the current directory.'],
       ),
     ],
   )
 
-## The quick start
+const installRows = (model: Model): Html =>
+  h.div(
+    [h.Class('install-rows')],
+    [...Array.map(RUNTIMES, installRow(model.copied)), initRow(model.copied)],
+  )
 
-The right of the hero holds the two commands that reach a workspace of your own — install the CLI, then scaffold a project. `qsLine` draws one command row; the quickstart carries its own border and background, so it stands on its own beside the pitch rather than needing an editor frame around it. Every control here is real, so nothing in it is hidden from a screen reader. The package manager tabs sit above the install line, since that is the one line their choice changes.
+## The hero column
+
+The hero lays out in a single column, wide enough to read comfortably: the meta line, then the rotating headline, then the install rows directly beneath it, and last the two calls to action — read the docs, browse the source. The meta line carries two marks: a pill naming the latest release, which the server fills from npm so it never falls behind, and a note that this very page is built with Loom.
 
 =>
 
-const qsLine = (id: string, command: string, copied: string): Html =>
+const metaRow = (version: string): Html =>
   h.div(
-    [h.Class('qs-line')],
+    [h.Class('meta-row')],
     [
-      h.span([h.Class('qs-prompt')], ['$']),
-      h.code([], [command]),
-      copyButton({ id, text: command, copied }),
+      h.span(
+        [h.Class('pill')],
+        [h.span([h.Class('gh')], ['~']), ` loom · v${version}`],
+      ),
+      h.span([], ['Built with Loom']),
     ],
   )
-
-const quickstart = (model: Model): Html =>
-  h.div(
-    [h.Class('quickstart')],
-    [
-      packageManagerTabs(model),
-      qsLine('qs-install', installCommand(model.packageManager), model.copied),
-      qsLine('qs-new', 'loom init greeter', model.copied),
-    ],
-  )
-
-## The section
-
-The hero section lays the pitch and the quick start side by side in the two-column grid.
-
-=>
 
 export const hero = (model: Model): Html =>
   h.section(
@@ -172,23 +138,41 @@ export const hero = (model: Model): Html =>
     [
       h.div(
         [h.Class('wrap')],
-        [h.div([h.Class('hero-grid')], [pitch(model), quickstart(model)])],
+        [
+          h.div(
+            [h.Class('hero-col')],
+            [
+              metaRow(model.version),
+              headline(model),
+              installRows(model),
+              h.div(
+                [h.Class('actions hero-cta')],
+                [
+                  h.a(
+                    [h.Class('btn primary'), h.Href('#')],
+                    ['Read the docs', bookIcon()],
+                  ),
+                  h.a(
+                    [h.Class('btn'), h.Href('#')],
+                    ['Browse the source', externalIcon()],
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
       ),
     ],
   )
 
 ## The module {Tangle}[hero.ts]
 
-The module is the rotating headline, the package manager the pitch and the quick start both read, the pitch, the quick start beside it, and the section that lays the two out.
+The module is the rotating headline, the install rows beneath it, and the section that stacks the meta line, the headline, the rows, and the calls to action into one column.
 
 =>
 
 ::[The rotating headline]
 
-::[Picking a package manager]
+::[The install rows]
 
-::[The pitch]
-
-::[The quick start]
-
-::[The section]
+::[The hero column]
