@@ -27,6 +27,10 @@ const VariablesSchema = Schema.Record(
   Schema.Union([Schema.String, Schema.Number, Schema.Boolean]),
 )
 
+const HeaderSchema = Schema.Struct({
+  ascii: Schema.optional(Schema.Boolean),
+})
+
 export const WorkspaceManifestSchema = Schema.Struct({
   languages: Schema.optional(
     Schema.Record(Schema.String, LanguageSchema),
@@ -36,6 +40,7 @@ export const WorkspaceManifestSchema = Schema.Struct({
   anchor: Schema.optional(AnchorSchema),
   settings: Schema.optional(SettingsSchema),
   variables: Schema.optional(VariablesSchema),
+  header: Schema.optional(HeaderSchema),
 })
 
 export type WorkspaceManifest = typeof WorkspaceManifestSchema.Type
@@ -46,6 +51,7 @@ export interface ResolvedConfig {
   readonly languages: ReadonlyArray<string>
   readonly settings: Record<string, Record<string, unknown>>
   readonly variables: Record<string, string>
+  readonly header?: { readonly ascii: boolean }
   readonly services: Record<string, string>
   readonly packageRoot: string | undefined
   readonly workspaceRoot: string | undefined
@@ -58,6 +64,7 @@ const empty: ResolvedConfig = {
   languages: [],
   settings: {},
   variables: {},
+  header: undefined,
   services: {},
   packageRoot: undefined,
   workspaceRoot: undefined,
@@ -138,6 +145,10 @@ const resolveFromManifest = (
     languages: Object.keys(manifest.languages ?? {}),
     settings: manifest.settings ?? {},
     variables: variablesOf(manifest.variables),
+    header:
+      manifest.header === undefined
+        ? undefined
+        : { ascii: manifest.header.ascii ?? false },
     services: servicesOf(manifest.languages),
     packageRoot: containerRoot(dirname(fromPath), container, workspace),
     workspaceRoot: workspace,

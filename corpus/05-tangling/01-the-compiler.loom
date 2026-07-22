@@ -107,8 +107,13 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()(
               return failures.length > 0
                 ? Effect.fail(new TangleError({ entry: path, failures }))
                 : config.resolve(path).pipe(
-                    Effect.map(({ packageRoot }) =>
-                      resolveSinks(scoped, path, Option.fromNullishOr(packageRoot)),
+                    Effect.map(({ packageRoot, header }) =>
+                      resolveSinks(
+                        scoped,
+                        path,
+                        Option.fromNullishOr(packageRoot),
+                        Option.fromNullishOr(header),
+                      ),
                     ),
                   )
             }),
@@ -344,7 +349,7 @@ const entryOf = (
 
 `composition` is that same resolution turned to the editor: every root in the corpus, the code it composes and the path it composes to, ungated and unscoped. It is the live product as a filesystem — what a product language service builds its analyzer's program over, so a cross-file import resolves against a section's live composition rather than its output on disk.
 
-`resolveSinks` gathers the files this tangle emits: the entry module's own tangle sinks — one per `[dir, file]` section — and every sink a book in the corpus routes into place. For each it flattens the composed code across the corpus with `fromProduct`, then resolves where the file lands. A module's file emits only when the entry produced it or a book routes it, so importing a module to transclude its code never re-emits that module's own files. `outputPath` places a sink under a root, so a sink names its file relative to that root rather than climbing out of the corpus. `fileRoot` chooses that root for each sink: the chapter prefix a book places the sink under, resolved against the workspace, or the package root the configuration gives when no chapter places it. A file the workspace assigns to no package falls back to the module's own directory. `resolveSinks` returns a `TangledFile` per sink: the section that produced it, where it lands, and its content. `LoomTangler` performs the writes; `tangle` itself touches no disk.
+`resolveSinks` gathers the files this tangle emits: the entry module's own tangle sinks — one per `[dir, file]` section — and every sink a book in the corpus routes into place. For each it flattens the composed code across the corpus with `fromProduct`, then resolves where the file lands. A module's file emits only when the entry produced it or a book routes it, so importing a module to transclude its code never re-emits that module's own files. `outputPath` places a sink under a root, so a sink names its file relative to that root rather than climbing out of the corpus. `fileRoot` chooses that root for each sink: the chapter prefix a book places the sink under, resolved against the workspace, or the package root the configuration gives when no chapter places it. A file the workspace assigns to no package falls back to the module's own directory. `resolveSinks` returns a `TangledFile` per sink: the section that produced it, where it lands, and its content — stamped with a generated-file banner when the workspace turns the header on. `LoomTangler` performs the writes; `tangle` itself touches no disk.
 
 A tangle must never emit an anchor it could not resolve, nor build on a file it could not read. So `tangle` runs `corpusErrors` over the whole corpus first — every module's document and product — and fails with a `TangleError` the moment any module carries an error. A missing import, a malformed parse, an unresolved `::[…]` reference each stops the build rather than leaving a file with a silently dropped reference. The failure is loud, and names every file and line.
 
@@ -370,6 +375,7 @@ const resolveSinks = (
   modules: Modules,
   entry: Path,
   packageRoot: Option.Option<string>,
+  header: Option.Option<{ readonly ascii: boolean }>,
 ): ReadonlyArray<TangledFile> =>
   pipe(
     Option.fromNullishOr(modules.get(entry)),
@@ -379,7 +385,12 @@ const resolveSinks = (
         Array.map(module.product.files, (file) => ({
           section: file.code.origin.name,
           path: outputPath(packageRoot, entry, file.path),
-          content: fromProduct(modules, file.code.origin).code,
+          content: stamped(
+            header,
+            file.code.languageId,
+            basename(entry),
+            fromProduct(modules, file.code.origin).code,
+          ),
         })),
     }),
   )
@@ -401,6 +412,105 @@ export class TangleError extends Data.TaggedError('TangleError')<{
     return `loom: refusing to tangle ${this.entry} — ${count} error(s) across the corpus:\n${lines.join('\n')}`
   }
 }
+
+## Stamping a generated file
+
+A tangled file is generated, not authored, so a reader who opens one should see that at a glance. `stamped` gives them that when the workspace turns the header on. It prefixes the file with a short banner in the file's own comment syntax, naming the loom the file was tangled from and asking the reader to change that loom rather than the file.
+
+`commentStyles` maps a language to the way it comments. The C family and CSS take a `/* … */` block, markup an `<!-- … -->` block, the shells and YAML a `#` line. A language with no comment of its own — JSON among them — maps to nothing, and `stamped` returns the content untouched, since a banner it cannot phrase is worse than none.
+
+`bannerLines` writes the banner's three lines of text, and draws the Loom wordmark above them when the header asks for the `ascii` logo. `commentBlock` wraps those lines in the chosen style, a fenced block or a run of prefixed lines. `belowShebang` places the banner after a leading `#!` line rather than above it, so an executable keeps its interpreter line first and still runs.
+
+=>
+
+type CommentStyle =
+  | {
+      readonly kind: 'block'
+      readonly open: string
+      readonly mid: string
+      readonly close: string
+    }
+  | { readonly kind: 'line'; readonly prefix: string }
+
+const cStyle: CommentStyle = { kind: 'block', open: '/*', mid: ' * ', close: ' */' }
+const markupStyle: CommentStyle = { kind: 'block', open: '<!--', mid: '  ', close: '-->' }
+const hashStyle: CommentStyle = { kind: 'line', prefix: '# ' }
+
+const commentStyles: ReadonlyMap<string, CommentStyle> = new Map<string, CommentStyle>([
+  ['typescript', cStyle],
+  ['tsx', cStyle],
+  ['javascript', cStyle],
+  ['jsx', cStyle],
+  ['css', cStyle],
+  ['scss', cStyle],
+  ['less', cStyle],
+  ['html', markupStyle],
+  ['xml', markupStyle],
+  ['vue', markupStyle],
+  ['svelte', markupStyle],
+  ['bash', hashStyle],
+  ['sh', hashStyle],
+  ['shell', hashStyle],
+  ['yaml', hashStyle],
+  ['yml', hashStyle],
+  ['toml', hashStyle],
+  ['python', hashStyle],
+  ['ruby', hashStyle],
+])
+
+const loomLogo: ReadonlyArray<string> = [
+  'L    OOOO OOOO M   M',
+  'L    O  O O  O MM MM',
+  'L    O  O O  O M M M',
+  'LLLL OOOO OOOO M   M',
+]
+
+const bannerLines = (ascii: boolean, loom: string): ReadonlyArray<string> => [
+  ...(ascii ? [...loomLogo, ''] : []),
+  `Tangled by Loom from ${loom} — composed from that`,
+  `loom's code sections. Edit the loom and re-tangle;`,
+  `changes made here are overwritten.`,
+]
+
+const commentBlock = (
+  style: CommentStyle,
+  lines: ReadonlyArray<string>,
+): string =>
+  Match.value(style).pipe(
+    Match.when({ kind: 'block' }, (s) =>
+      [
+        s.open,
+        ...Array.map(lines, (text) => `${s.mid}${text}`.trimEnd()),
+        s.close,
+      ].join('\n'),
+    ),
+    Match.when({ kind: 'line' }, (s) =>
+      Array.map(lines, (text) => `${s.prefix}${text}`.trimEnd()).join('\n'),
+    ),
+    Match.exhaustive,
+  )
+
+const belowShebang = (content: string, banner: string): string => {
+  const newline = content.indexOf('\n')
+  const cut = content.startsWith('#!') && newline !== -1 ? newline + 1 : 0
+  return `${content.slice(0, cut)}${banner}\n\n${content.slice(cut)}`
+}
+
+const stamped = (
+  header: Option.Option<{ readonly ascii: boolean }>,
+  languageId: string,
+  loom: string,
+  content: string,
+): string =>
+  Option.match(header, {
+    onNone: () => content,
+    onSome: ({ ascii }) =>
+      Option.match(Option.fromNullishOr(commentStyles.get(languageId)), {
+        onNone: () => content,
+        onSome: (style) =>
+          belowShebang(content, commentBlock(style, bannerLines(ascii, loom))),
+      }),
+  })
 
 ## Locating a source span
 
@@ -594,7 +704,7 @@ From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. F
 import type { CodeMapping, VirtualCode } from '@volar/language-core'
 import { Array, Context, Data, Effect, Layer, Match, Option, pipe } from 'effect'
 import { readFileSync, readdirSync, type Dirent } from 'node:fs'
-import { dirname, resolve as resolvePath } from 'node:path'
+import { basename, dirname, resolve as resolvePath } from 'node:path'
 import type * as ts from 'typescript'
 import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
 import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
@@ -646,6 +756,8 @@ import { TableOfContentsBuilder, rewriteBook } from './weave/TableOfContentsBuil
 ::[Resolving the entry]
 
 ::[Tangling a file]
+
+::[Stamping a generated file]
 
 ::[Locating a source span]
 

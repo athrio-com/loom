@@ -14,7 +14,7 @@ The read is synchronous. The editor resolves a file's configuration inside Volar
 
 ## The pieces a configuration is built from
 
-Four small shapes recur across every configuration. The anchor pair holds the delimiters a section's anchors open and close with, each side optional so a configuration overrides only the one it cares about. A language entry carries the one thing activating a language can override — the `service` package that gives it editor support — and is otherwise empty, since a language's presence is what activates it. The settings map holds, for each language id, a free-form bag the host passes to that language's service untouched. The variables map holds the named strings a warp interpolates, one value — a version, say — the whole workspace shares.
+Five small shapes recur across every configuration. The anchor pair holds the delimiters a section's anchors open and close with, each side optional so a configuration overrides only the one it cares about. A language entry carries the one thing activating a language can override — the `service` package that gives it editor support — and is otherwise empty, since a language's presence is what activates it. The settings map holds, for each language id, a free-form bag the host passes to that language's service untouched. The variables map holds the named strings a warp interpolates, one value — a version, say — the whole workspace shares. The header block turns on the banner the tangler stamps atop each generated file, and its one field, `ascii`, asks whether to draw the Loom wordmark above the banner's text.
 
 =>
 
@@ -37,6 +37,10 @@ const VariablesSchema = Schema.Record(
   Schema.Union([Schema.String, Schema.Number, Schema.Boolean]),
 )
 
+const HeaderSchema = Schema.Struct({
+  ascii: Schema.optional(Schema.Boolean),
+})
+
 ## What a configuration declares
 
 A project has one configuration, kept in `.loom/config.yaml`. It names the languages the project activates — one set for the whole project, because the editor runs a single language server over it — and sets the defaults every section inherits: the primary language a specifier-less section falls back to, the anchor delimiters, the per-language settings, the variables a warp interpolates, and the name of the corpus directory looms sit in. A package declares no configuration of its own; a book composes the package layout literately, in its higher-order sinks, rather than in the configuration.
@@ -54,13 +58,14 @@ export const WorkspaceManifestSchema = Schema.Struct({
   anchor: Schema.optional(AnchorSchema),
   settings: Schema.optional(SettingsSchema),
   variables: Schema.optional(VariablesSchema),
+  header: Schema.optional(HeaderSchema),
 })
 
 export type WorkspaceManifest = typeof WorkspaceManifestSchema.Type
 
 ## What a reader receives
 
-`ResolvedConfig` is the resolved shape every reader works with: the workspace defaults that apply to one file. Its `anchor`, `primary`, `languages`, `settings`, and `variables` come straight from the manifest. Three fields complete it. The `services` map names, for each activated language, the package that serves it — the one the language declared, or the conventional `@athrio/loom-service-<id>` when it declared none. The `packageRoot` is the absolute path the resolved file's package tangles under — the directory above the corpus folder its loom sits in — or `undefined` when the file sits in no corpus folder. The `workspaceRoot` is the absolute path of the workspace itself, the directory a book's higher-order sink resolves its directories against; it is `undefined` only when the file belongs to no workspace.
+`ResolvedConfig` is the resolved shape every reader works with: the workspace defaults that apply to one file. Its `anchor`, `primary`, `languages`, `settings`, `variables`, and `header` come from the manifest, the header with its `ascii` filled to a definite `false` when the block leaves it unsaid. Three fields complete it. The `services` map names, for each activated language, the package that serves it — the one the language declared, or the conventional `@athrio/loom-service-<id>` when it declared none. The `packageRoot` is the absolute path the resolved file's package tangles under — the directory above the corpus folder its loom sits in — or `undefined` when the file sits in no corpus folder. The `workspaceRoot` is the absolute path of the workspace itself, the directory a book's higher-order sink resolves its directories against; it is `undefined` only when the file belongs to no workspace.
 
 A file that resolves to nothing — no workspace, no configuration — receives the empty configuration: no anchor, no primary, no languages, no services, no root.
 
@@ -72,6 +77,7 @@ export interface ResolvedConfig {
   readonly languages: ReadonlyArray<string>
   readonly settings: Record<string, Record<string, unknown>>
   readonly variables: Record<string, string>
+  readonly header?: { readonly ascii: boolean }
   readonly services: Record<string, string>
   readonly packageRoot: string | undefined
   readonly workspaceRoot: string | undefined
@@ -84,6 +90,7 @@ const empty: ResolvedConfig = {
   languages: [],
   settings: {},
   variables: {},
+  header: undefined,
   services: {},
   packageRoot: undefined,
   workspaceRoot: undefined,
@@ -198,6 +205,10 @@ const resolveFromManifest = (
     languages: Object.keys(manifest.languages ?? {}),
     settings: manifest.settings ?? {},
     variables: variablesOf(manifest.variables),
+    header:
+      manifest.header === undefined
+        ? undefined
+        : { ascii: manifest.header.ascii ?? false },
     services: servicesOf(manifest.languages),
     packageRoot: containerRoot(dirname(fromPath), container, workspace),
     workspaceRoot: workspace,
