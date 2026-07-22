@@ -23,6 +23,7 @@ const seed: Model = {
   activeSection: '',
   exampleTab: 'loom',
   loomView: 'preview',
+  exampleExpanded: false,
   game: Gomoku.newGame(),
   version: '0.0.7',
   query: '',

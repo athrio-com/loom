@@ -22,7 +22,7 @@ import { h } from './model'
 
 ~
 
-The section reads as the others do — an eyebrow, a heading, a lede. Then it leads with the smallest loom, reflects in two columns on its balance of prose to code, and closes on the marks the greeter leaves for later.
+Only the eyebrow and the heading stand apart. Beneath them one run of prose flows through the columns — what Loom is, the greeter set among the paragraphs, the three marks that carry it, and why the words outweigh the code — and a row of the remaining marks closes it.
 
 =>
 
@@ -40,37 +40,26 @@ const whatLoomIs = (): Html =>
                 [h.Class('sec-num')],
                 [h.span([h.Class('arrow')], ['▸']), ' 01 · WHAT LOOM IS'],
               ),
-              h.div(
-                [],
-                [
-                  h.h2([h.Class('sec-h')], ['Written in the order you think.']),
-                  h.p(
-                    [h.Class('sec-lede')],
-                    [
-                      'Loom is a small compositional language for writing a program in the order you reason about it — a narrative order, which is often the opposite of what a compiler wants.',
-                    ],
-                  ),
-                ],
-              ),
+              h.h2([h.Class('sec-h')], ['Written in the order you think.']),
             ],
           ),
           h.div(
             [h.Class('wstory')],
             [
-              h.p(
-                [h.Class('wlead')],
-                [
-                  'The smallest program is three marks: a section heading, an arrow into code, and a sink that names the file it tangles to.',
-                ],
-              ),
-              specimen(),
               h.div(
                 [h.Class('wprose')],
                 [
                   h.p(
                     [],
                     [
-                      'The greeter is a whole, tangling loom. The heading opens a section, the arrow turns prose into code, and the sink names the file it writes — its language read from the .ts extension.',
+                      'Loom is a small compositional language for writing a program in the order you reason about it — a narrative order, often the opposite of what a compiler wants.',
+                    ],
+                  ),
+                  specimen(),
+                  h.p(
+                    [],
+                    [
+                      'The greeter is a whole program, and about the smallest one. Three marks carry it: a heading opens the section, an arrow turns prose into code, and a sink names the file it tangles to — its language read from the extension.',
                     ],
                   ),
                   h.p(
@@ -188,6 +177,7 @@ Weaving a loom turns it into JSON: a page of blocks, where a block is a heading,
 import { Match, Option, pipe } from 'effect'
 import { marked } from 'marked'
 import {
+  ExpandedExample,
   GotGameMessage,
   type Message,
   type Model,
@@ -304,7 +294,7 @@ const previewTab = (active: string): Html =>
 
 ## The three tabs
 
-The panel wears a row of three tabs, each with a small mark: the Loom weave for the loom, a TS badge for the tangle, a play triangle for the game. The loom tab opens on the rendered preview and its outline, and a switch inside the canvas flips it to the raw loom source; both read the same woven file. The tangle tab shows the whole tangled file, highlighted. The play tab hosts the game itself — the example embedded as a Foldkit submodel, the very component the loom tab renders, given its own slot, its model held in the landing's `game` field and its messages lifted home through `GotGameMessage`. The tab the model names is lit, and clicking a tab tells the model to switch. Each pane carries its own key, so switching tabs replaces the whole pane rather than morphing one into the next. A rendered document and a canvas of injected HTML share no structure to reconcile, and morphing across that seam would leave the renderer holding nodes it no longer owns.
+The panel wears a row of three tabs, each with a small mark: the Loom weave for the loom, a TS badge for the tangle, a play triangle for the game. The loom tab opens on the rendered preview and its outline, and a switch inside the canvas flips it to the raw loom source; both read the same woven file. The tangle tab shows the whole tangled file, highlighted. The play tab hosts the game itself — the example embedded as a Foldkit submodel, the very component the loom tab renders, given its own slot, its model held in the landing's `game` field and its messages lifted home through `GotGameMessage`. The tab the model names is lit, and clicking a tab tells the model to switch. The loom and tangle tabs open capped a little above the game's height, their long text fading out under an overlay a reader clicks to read the whole example; the play tab, the game itself, needs no cap. Each pane carries its own key, so switching tabs replaces the whole pane rather than morphing one into the next. A rendered document and a canvas of injected HTML share no structure to reconcile, and morphing across that seam would leave the renderer holding nodes it no longer owns.
 
 =>
 
@@ -389,14 +379,25 @@ const tabBody = (model: Model): Html =>
     Match.exhaustive,
   )
 
-const examplePanel = (model: Model): Html =>
-  h.div(
+const expandOverlay = (): Html =>
+  h.button(
+    [h.Class('how-expand'), h.OnClick(ExpandedExample())],
+    [h.span([h.Class('how-expand-label')], ['Read the full example'])],
+  )
+
+const examplePanel = (model: Model): Html => {
+  const capped = !model.exampleExpanded && model.exampleTab !== 'play'
+  return h.div(
     [h.Class('how-detail')],
     [
       h.div([h.Class('ex-tabs')], Array.map(TABS, tabButton(model.exampleTab))),
-      h.div([h.Class('how-body')], [tabBody(model)]),
+      h.div(
+        [h.Class(capped ? 'how-body capped' : 'how-body')],
+        capped ? [tabBody(model), expandOverlay()] : [tabBody(model)],
+      ),
     ],
   )
+}
 
 ## The book search
 

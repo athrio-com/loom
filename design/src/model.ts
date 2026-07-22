@@ -9,6 +9,7 @@ export const Model = S.Struct({
   activeSection: S.String,
   exampleTab: S.Literals(['loom', 'tangled', 'play']),
   loomView: S.Literals(['preview', 'source']),
+  exampleExpanded: S.Boolean,
   game: Gomoku.Model,
   version: S.String,
   query: S.String,
@@ -20,6 +21,7 @@ export type Model = typeof Model.Type
 
 export const SelectedTab = m('SelectedTab', { tab: S.Literals(['loom', 'tangled', 'play']) })
 export const SelectedLoomView = m('SelectedLoomView', { view: S.Literals(['preview', 'source']) })
+export const ExpandedExample = m('ExpandedExample')
 export const GotGameMessage = m('GotGameMessage', { message: Gomoku.Message })
 export const SelectedSection = m('SelectedSection', { id: S.String })
 export const SectionScrolled = m('SectionScrolled')
@@ -38,6 +40,7 @@ export const RotatorSettled = m('RotatorSettled')
 export const Message = S.Union([
   SelectedTab,
   SelectedLoomView,
+  ExpandedExample,
   GotGameMessage,
   SelectedSection,
   SectionScrolled,

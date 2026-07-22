@@ -10,7 +10,7 @@ The landing is a Foldkit application, so it begins with the state a reader chang
 
 ## The state
 
-The state is one flat struct. The rotator holds the index of the headline word and the phase of its transition, so the word can fade out, swap, and fade in. The example tab is which of the three the How-it-works panel shows — the loom, the tangled TypeScript, or the playable game. The loom view chooses how the loom tab reads: the rendered preview or the raw source, flipped by a switch inside the canvas. The game is the embedded Gomoku component's own model, the board it plays on, which the Play tab hosts. The active section is the piece of the example the reader last jumped to in the preview's outline. The version is the latest release, which the server reads from npm so the pill and the title bar never fall behind. The query and focus drive the book-search palette, the design the landing holds ready but does not place yet. The copied field names the copy button flashing its confirmation, or the empty string when none is. The package manager names which install command the reader wants to see and copy — the same choice everywhere the page shows one, so picking `pnpm` once is not something a reader repeats.
+The state is one flat struct. The rotator holds the index of the headline word and the phase of its transition, so the word can fade out, swap, and fade in. The example tab is which of the three the How-it-works panel shows — the loom, the tangled TypeScript, or the playable game. The loom view chooses how the loom tab reads: the rendered preview or the raw source, flipped by a switch inside the canvas. The example expanded flag lifts the height cap on the loom and tangle tabs, which otherwise stand at a fixed height a little taller than the game, so the long text does not run on until a reader opens it. The game is the embedded Gomoku component's own model, the board it plays on, which the Play tab hosts. The active section is the piece of the example the reader last jumped to in the preview's outline. The version is the latest release, which the server reads from npm so the pill and the title bar never fall behind. The query and focus drive the book-search palette, the design the landing holds ready but does not place yet. The copied field names the copy button flashing its confirmation, or the empty string when none is. The package manager names which install command the reader wants to see and copy — the same choice everywhere the page shows one, so picking `pnpm` once is not something a reader repeats.
 
 =>
 
@@ -25,6 +25,7 @@ export const Model = S.Struct({
   activeSection: S.String,
   exampleTab: S.Literals(['loom', 'tangled', 'play']),
   loomView: S.Literals(['preview', 'source']),
+  exampleExpanded: S.Boolean,
   game: Gomoku.Model,
   version: S.String,
   query: S.String,
@@ -36,12 +37,13 @@ export type Model = typeof Model.Type
 
 ## The messages
 
-The reader does a handful of things. They switch the example among its three tabs, and flip the loom tab between its rendered preview and its raw source. They play the embedded game, whose own messages the panel lifts into one of the landing's. They jump to a section in the preview's outline, and the canvas scrolls to it alone. As they scroll the preview by hand instead, the outline follows, lifting the row of the section now in view. They type into the command palette, and move its focus up or down with the arrows. They copy a command, and a moment later the flash resets. They pick which package manager the install command should speak. The rotating word advances on its own timer, so its messages arrive from a command rather than the reader, moving through three phases as it swaps.
+The reader does a handful of things. They switch the example among its three tabs, and flip the loom tab between its rendered preview and its raw source. They open the capped example to its full height. They play the embedded game, whose own messages the panel lifts into one of the landing's. They jump to a section in the preview's outline, and the canvas scrolls to it alone. As they scroll the preview by hand instead, the outline follows, lifting the row of the section now in view. They type into the command palette, and move its focus up or down with the arrows. They copy a command, and a moment later the flash resets. They pick which package manager the install command should speak. The rotating word advances on its own timer, so its messages arrive from a command rather than the reader, moving through three phases as it swaps.
 
 =>
 
 export const SelectedTab = m('SelectedTab', { tab: S.Literals(['loom', 'tangled', 'play']) })
 export const SelectedLoomView = m('SelectedLoomView', { view: S.Literals(['preview', 'source']) })
+export const ExpandedExample = m('ExpandedExample')
 export const GotGameMessage = m('GotGameMessage', { message: Gomoku.Message })
 export const SelectedSection = m('SelectedSection', { id: S.String })
 export const SectionScrolled = m('SectionScrolled')
@@ -60,6 +62,7 @@ export const RotatorSettled = m('RotatorSettled')
 export const Message = S.Union([
   SelectedTab,
   SelectedLoomView,
+  ExpandedExample,
   GotGameMessage,
   SelectedSection,
   SectionScrolled,

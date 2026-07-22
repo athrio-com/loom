@@ -354,35 +354,26 @@ section.s {
 
 ## What Loom is — the story
 
-The what-loom-is section tells its story in prose and shows it in one specimen, the greeter. A lead sentence sets it up, the specimen sits in the mono face with no frame, a reflection beneath it flows in two columns, and a row of the remaining marks closes the section. Every mark — in the specimen and the row alike — carries a tooltip that a hover reveals, a small card holding its note. Each mark wears an accent, the six a reader types in colour and the structural parts muted, so a mark and its tooltip read as one.
+The what-loom-is section tells its story in prose and shows it in one specimen, the greeter. One run of prose fills the width in up to three columns — as many as the page allows, one on a phone — with the specimen set among the paragraphs in the mono face, kept whole in its column. A row of the remaining marks closes the section. Every mark — in the specimen and the row alike — carries a tooltip that a hover reveals, a small card holding its note. Each mark wears an accent, the six a reader types in colour and the structural parts muted, so a mark and its tooltip read as one.
 
 =>
 
 .wstory { margin-top: 8px; }
 
-.wlead {
-  font-family: var(--sans);
-  font-size: 16px;
-  line-height: 1.6;
-  color: var(--fg-2);
-  max-width: 62ch;
-  margin: 0 0 24px;
-}
-
 .wspec {
-  margin: 0 0 32px;
+  margin: 2px 0 18px;
   font-family: var(--mono);
-  font-size: 14px;
-  line-height: 2;
+  font-size: 13px;
+  line-height: 1.9;
   color: var(--fg-2);
+  break-inside: avoid;
 }
 .wspec-line { white-space: pre-wrap; }
-.wspec-line.gap { height: 0.55em; }
+.wspec-line.gap { height: 0.5em; }
 
 .wprose {
-  columns: 2;
-  column-gap: 44px;
-  max-width: 860px;
+  columns: 18rem 3;
+  column-gap: 40px;
   margin: 0 0 30px;
 }
 .wprose p {
@@ -394,7 +385,6 @@ The what-loom-is section tells its story in prose and shows it in one specimen, 
   break-inside: avoid;
 }
 .wprose p:first-child { margin-top: 0; }
-@media (max-width: 760px) { .wprose { columns: 1; } }
 
 .wrest {
   display: flex;
@@ -529,6 +519,53 @@ The how-it-works section gives its width to one panel, an editor with three tabs
   background: var(--bg-2);
   border: 1px solid var(--rule-2);
   border-radius: 0 0 8px 8px;
+}
+.how-body.capped {
+  max-height: clamp(572px, 94vh, 936px);
+  overflow: hidden;
+  position: relative;
+}
+.how-expand {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 200px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0 0 30px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.how-expand::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, transparent, var(--bg-2) 85%);
+  -webkit-backdrop-filter: blur(2.5px);
+  backdrop-filter: blur(2.5px);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 45%);
+  mask-image: linear-gradient(to bottom, transparent, #000 45%);
+}
+.how-expand-label {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 18px;
+  border: 1px solid color-mix(in srgb, var(--acc-violet) 45%, var(--rule-2));
+  border-radius: 999px;
+  background: var(--bg-3);
+  color: var(--fg);
+  font-family: var(--sans);
+  font-size: 13px;
+  letter-spacing: 0.01em;
+  transition: color .12s ease, border-color .12s ease;
+}
+.how-expand-label::after { content: '↓'; opacity: 0.7; }
+.how-expand:hover .how-expand-label {
+  color: var(--acc-violet);
+  border-color: var(--acc-violet);
 }
 .ex-icon { display: inline-flex; }
 .ex-icon.white { color: var(--fg); }

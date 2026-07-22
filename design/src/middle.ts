@@ -16,37 +16,26 @@ const whatLoomIs = (): Html =>
                 [h.Class('sec-num')],
                 [h.span([h.Class('arrow')], ['▸']), ' 01 · WHAT LOOM IS'],
               ),
-              h.div(
-                [],
-                [
-                  h.h2([h.Class('sec-h')], ['Written in the order you think.']),
-                  h.p(
-                    [h.Class('sec-lede')],
-                    [
-                      'Loom is a small compositional language for writing a program in the order you reason about it — a narrative order, which is often the opposite of what a compiler wants.',
-                    ],
-                  ),
-                ],
-              ),
+              h.h2([h.Class('sec-h')], ['Written in the order you think.']),
             ],
           ),
           h.div(
             [h.Class('wstory')],
             [
-              h.p(
-                [h.Class('wlead')],
-                [
-                  'The smallest program is three marks: a section heading, an arrow into code, and a sink that names the file it tangles to.',
-                ],
-              ),
-              specimen(),
               h.div(
                 [h.Class('wprose')],
                 [
                   h.p(
                     [],
                     [
-                      'The greeter is a whole, tangling loom. The heading opens a section, the arrow turns prose into code, and the sink names the file it writes — its language read from the .ts extension.',
+                      'Loom is a small compositional language for writing a program in the order you reason about it — a narrative order, often the opposite of what a compiler wants.',
+                    ],
+                  ),
+                  specimen(),
+                  h.p(
+                    [],
+                    [
+                      'The greeter is a whole program, and about the smallest one. Three marks carry it: a heading opens the section, an arrow turns prose into code, and a sink names the file it tangles to — its language read from the extension.',
                     ],
                   ),
                   h.p(
@@ -140,6 +129,7 @@ const restMark = (chip: Chip): Html =>
 import { Match, Option, pipe } from 'effect'
 import { marked } from 'marked'
 import {
+  ExpandedExample,
   GotGameMessage,
   type Message,
   type Model,
@@ -329,14 +319,25 @@ const tabBody = (model: Model): Html =>
     Match.exhaustive,
   )
 
-const examplePanel = (model: Model): Html =>
-  h.div(
+const expandOverlay = (): Html =>
+  h.button(
+    [h.Class('how-expand'), h.OnClick(ExpandedExample())],
+    [h.span([h.Class('how-expand-label')], ['Read the full example'])],
+  )
+
+const examplePanel = (model: Model): Html => {
+  const capped = !model.exampleExpanded && model.exampleTab !== 'play'
+  return h.div(
     [h.Class('how-detail')],
     [
       h.div([h.Class('ex-tabs')], Array.map(TABS, tabButton(model.exampleTab))),
-      h.div([h.Class('how-body')], [tabBody(model)]),
+      h.div(
+        [h.Class(capped ? 'how-body capped' : 'how-body')],
+        capped ? [tabBody(model), expandOverlay()] : [tabBody(model)],
+      ),
     ],
   )
+}
 
 type Command = {
   glyph: string

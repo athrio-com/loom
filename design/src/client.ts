@@ -65,6 +65,7 @@ const update = (model: Model, message: Message): Step =>
         return [{ ...model, game }, mapMessages(commands, (message) => GotGameMessage({ message }))]
       },
       SelectedLoomView: ({ view }) => [{ ...model, loomView: view }, []],
+      ExpandedExample: () => [{ ...model, exampleExpanded: true }, []],
       GotGameMessage: ({ message }) => {
         const [game, commands] = Gomoku.update(model.game, message)
         return [{ ...model, game }, mapMessages(commands, (message) => GotGameMessage({ message }))]
@@ -137,6 +138,7 @@ const emptyModel: Model = {
   activeSection: '',
   exampleTab: 'loom',
   loomView: 'preview',
+  exampleExpanded: false,
   game: Gomoku.newGame(),
   version: '0.0.7',
   query: '',
