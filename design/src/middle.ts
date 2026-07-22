@@ -156,7 +156,14 @@ type Block =
 type Heading = Extract<Block, { type: 'heading' }>
 type Code = Extract<Block, { type: 'code' }>
 type Page = { readonly slug: string; readonly title: string; readonly blocks: ReadonlyArray<Block> }
-type Highlighted = { readonly loomHtml: string; readonly tangledHtml: string; readonly codeHtml: ReadonlyArray<string> }
+type OutlineEntry = { readonly id: string; readonly label: string; readonly kind: string }
+type Highlighted = {
+  readonly loomHtml: string
+  readonly tangledHtml: string
+  readonly sourceOutline: ReadonlyArray<OutlineEntry>
+  readonly tangledOutline: ReadonlyArray<OutlineEntry>
+  readonly codeHtml: ReadonlyArray<string>
+}
 
 const page: Page = (wovenCorpus as unknown as { pages: ReadonlyArray<Page> }).pages[0]
 const marks = highlighted as unknown as Highlighted
@@ -216,25 +223,29 @@ const blockView = (active: string) => (block: Block): Html =>
     Match.exhaustive,
   )
 
-const outlineRow = (active: string) => (section: Heading): Html =>
+const outlineRow = (active: string) => (entry: OutlineEntry): Html =>
   h.div(
-    [h.Class(activeClass('how-outline-row', section.id === active)), h.OnClick(SelectedSection({ id: section.id }))],
-    [section.title],
+    [h.Class(activeClass('how-outline-row', entry.id === active)), h.OnClick(SelectedSection({ id: entry.id }))],
+    entry.kind === ''
+      ? [entry.label]
+      : [h.span([h.Class('how-outline-kind')], [entry.kind]), entry.label],
   )
+
+const headingEntry = (heading: Heading): OutlineEntry => ({
+  id: heading.id,
+  label: heading.title,
+  kind: '',
+})
+
+const outline = (active: string, entries: ReadonlyArray<OutlineEntry>): Html =>
+  h.div([h.Class('how-outline')], Array.map(entries, outlineRow(active)))
 
 const previewTab = (active: string): Html =>
   h.div(
     [h.Class('how-preview'), h.Key('preview')],
     [
       h.div([h.Class('how-scroll')], Array.map(page.blocks, blockView(active))),
-      h.div(
-        [h.Class('how-outline')],
-        [
-          h.div([h.Class('how-outline-head')], ['OUTLINE']),
-          outlineRow(active)(loomTitle),
-          ...Array.map(sections, outlineRow(active)),
-        ],
-      ),
+      outline(active, [headingEntry(loomTitle), ...Array.map(sections, headingEntry)]),
     ],
   )
 
@@ -263,8 +274,19 @@ const tabButton = (active: TabId) => (item: { readonly id: TabId; readonly label
     [tabIcon(item.id), item.label],
   )
 
-const codeCanvas = (key: string, html: string): Html =>
-  h.div([h.Class('how-scroll shiki-scroll'), h.Key(key), h.InnerHTML(html)], [])
+const canvasWithOutline = (
+  key: string,
+  html: string,
+  entries: ReadonlyArray<OutlineEntry>,
+  active: string,
+): Html =>
+  h.div(
+    [h.Class('how-preview'), h.Key(key)],
+    [
+      h.div([h.Class('how-scroll shiki-scroll'), h.InnerHTML(html)], []),
+      outline(active, entries),
+    ],
+  )
 
 type LoomView = 'preview' | 'source'
 
@@ -280,7 +302,9 @@ const loomToggleButton = (view: LoomView, label: string, active: LoomView): Html
 const loomBody = (model: Model): Html =>
   Match.value(model.loomView).pipe(
     Match.when('preview', () => previewTab(model.activeSection)),
-    Match.when('source', () => codeCanvas('source', marks.loomHtml)),
+    Match.when('source', () =>
+      canvasWithOutline('source', marks.loomHtml, marks.sourceOutline, model.activeSection),
+    ),
     Match.exhaustive,
   )
 
@@ -302,7 +326,9 @@ const loomPane = (model: Model): Html =>
 const tabBody = (model: Model): Html =>
   Match.value(model.exampleTab).pipe(
     Match.when('loom', () => loomPane(model)),
-    Match.when('tangled', () => codeCanvas('tangled', marks.tangledHtml)),
+    Match.when('tangled', () =>
+      canvasWithOutline('tangled', marks.tangledHtml, marks.tangledOutline, model.activeSection),
+    ),
     Match.when('play', () =>
       h.div(
         [h.Class('how-play'), h.Key('play')],
@@ -322,7 +348,7 @@ const tabBody = (model: Model): Html =>
 const expandOverlay = (): Html =>
   h.button(
     [h.Class('how-expand'), h.OnClick(ExpandedExample())],
-    [h.span([h.Class('how-expand-label')], ['Read the full example'])],
+    [h.span([h.Class('how-expand-label')], ['See full example'])],
   )
 
 const examplePanel = (model: Model): Html => {

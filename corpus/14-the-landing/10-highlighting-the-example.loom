@@ -14,10 +14,10 @@ Shiki knows TypeScript, but no one has taught it Loom. A loom is a thin syntax o
 
 =>
 
-import { Array, Effect, pipe } from 'effect'
+import { Array, Effect, Option, pipe } from 'effect'
 import { BunRuntime } from '@effect/platform-bun'
 import { readFileSync, writeFileSync } from 'node:fs'
-import { createHighlighter } from 'shiki'
+import { createHighlighter, type ShikiTransformer } from 'shiki'
 
 const loomGrammar = {
   name: 'loom',
@@ -102,9 +102,61 @@ const loomTheme = {
   ],
 }
 
+## An outline to jump by
+
+The preview jumps by heading; the source and the tangle should jump too — by their own headings, and by the TypeScript symbols an editor's outline would list. Two pieces make that work. `lineIds` is a Shiki transformer that stamps every rendered line with an id, so a click can scroll to it — the loom's lines under a `loom-` prefix, the tangle's under `ts-`. Then a scan reads the outline itself: `headingLine` keeps a loom's `#` and `##` headings, its label the title with any specifier or sink stripped away; `symbolLine` keeps the tangle's top-level `export`s, its label the name and its kind the declaration. `outlineOf` runs one of these down a file's lines and gathers what it finds, each entry paired with the id of the line it sits on.
+
+=>
+
+type OutlineEntry = {
+  readonly id: string
+  readonly label: string
+  readonly kind: string
+}
+
+const lineIds = (prefix: string): ShikiTransformer => ({
+  name: 'line-ids',
+  line(node, line) {
+    node.properties['id'] = `${prefix}${line}`
+    return node
+  },
+})
+
+const cleanTitle = (title: string): string =>
+  title
+    .replace(/\s*\{[^}]*\}/g, '')
+    .replace(/\s*\[[^\]]*\]/g, '')
+    .trim()
+
+const headingLine =
+  (prefix: string) =>
+  (line: string, index: number): Option.Option<OutlineEntry> => {
+    const match = line.match(/^(#{1,2})\s+(.+)$/)
+    return match === null
+      ? Option.none()
+      : Option.some({ id: `${prefix}${index + 1}`, label: cleanTitle(match[2] ?? ''), kind: '' })
+  }
+
+const symbolLine =
+  (prefix: string) =>
+  (line: string, index: number): Option.Option<OutlineEntry> => {
+    const match = line.match(
+      /^export (?:default )?(const|let|function|async function|class|abstract class|type|interface|enum) (\w+)/,
+    )
+    return match === null
+      ? Option.none()
+      : Option.some({ id: `${prefix}${index + 1}`, label: match[2] ?? '', kind: match[1] ?? '' })
+  }
+
+const outlineOf = (
+  source: string,
+  entry: (line: string, index: number) => Option.Option<OutlineEntry>,
+): ReadonlyArray<OutlineEntry> =>
+  pipe(source.split('\n'), Array.map(entry), Array.getSomes)
+
 ## Colouring the files
 
-The script reads the three inputs — the loom, the tangle, and the woven page the weave already wrote — colours each, and writes one JSON file: the loom source and the tangle as whole highlighted documents, and the woven code sections as a list, in the order the preview shows them. It runs as an Effect from Bun's runtime edge, so a read that fails or a grammar that will not load surfaces as a typed failure rather than a silent empty file.
+The script reads the three inputs — the loom, the tangle, and the woven page the weave already wrote — colours each, and writes one JSON file: the loom source and the tangle as whole highlighted documents with their lines stamped for the outline to reach, the outline of each, and the woven code sections as a list, in the order the preview shows them. It runs as an Effect from Bun's runtime edge, so a read that fails or a grammar that will not load surfaces as a typed failure rather than a silent empty file.
 
 =>
 
@@ -136,8 +188,18 @@ const program = Effect.gen(function* () {
   )
 
   const data = {
-    loomHtml: highlighter.codeToHtml(loomSource, { lang: 'loom', theme }),
-    tangledHtml: highlighter.codeToHtml(tangledSource, { lang: 'typescript', theme }),
+    loomHtml: highlighter.codeToHtml(loomSource, {
+      lang: 'loom',
+      theme,
+      transformers: [lineIds('loom-')],
+    }),
+    tangledHtml: highlighter.codeToHtml(tangledSource, {
+      lang: 'typescript',
+      theme,
+      transformers: [lineIds('ts-')],
+    }),
+    sourceOutline: outlineOf(loomSource, headingLine('loom-')),
+    tangledOutline: outlineOf(tangledSource, symbolLine('ts-')),
     codeHtml,
   }
 
@@ -155,6 +217,8 @@ The module gathers the two grammars, the theme, and the program that runs them f
 ::[A small grammar for Loom]
 
 ::[A theme in the landing's palette]
+
+::[An outline to jump by]
 
 ::[Colouring the files]
 

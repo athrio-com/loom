@@ -46,7 +46,11 @@ const scrollIntoPreview = (id: string): void =>
   })
 
 const ScrollToSection = define('ScrollToSection', { id: S.String }, SectionScrolled)(
-  ({ id }) => Effect.sync(() => scrollIntoPreview(id)).pipe(Effect.as(SectionScrolled())),
+  ({ id }) =>
+    Effect.sleep('30 millis').pipe(
+      Effect.andThen(Effect.sync(() => scrollIntoPreview(id))),
+      Effect.as(SectionScrolled()),
+    ),
 )
 
 const clamp = (value: number, max: number): number =>
@@ -70,7 +74,10 @@ const update = (model: Model, message: Message): Step =>
         const [game, commands] = Gomoku.update(model.game, message)
         return [{ ...model, game }, mapMessages(commands, (message) => GotGameMessage({ message }))]
       },
-      SelectedSection: ({ id }) => [{ ...model, activeSection: id }, [ScrollToSection({ id })]],
+      SelectedSection: ({ id }) => [
+        { ...model, activeSection: id, exampleExpanded: true },
+        [ScrollToSection({ id })],
+      ],
       SectionScrolled: () => [model, []],
       SpottedSection: ({ id }) =>
         id === model.activeSection ? [model, []] : [{ ...model, activeSection: id }, []],

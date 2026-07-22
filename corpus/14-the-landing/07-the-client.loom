@@ -63,7 +63,7 @@ const DelayRotatorSettled = define('DelayRotatorSettled', RotatorSettled)(
 
 ## Jumping to a section
 
-The preview grows to its full height and the page carries the scroll, so the outline points at real headings on the page. Jumping to a section scrolls the window to that heading; the room left above it for a fixed header is the heading's own `scroll-margin-top`, set in the stylesheet. A heading that never rendered — a page without the example — does nothing.
+An outline row points at a target by id — a heading in the rendered preview, or a stamped line in the loom source or the tangle. Clicking a row lifts the example's height cap, then scrolls that target into view. The scroll waits a beat first, so the panel has finished growing back to full height before the browser measures where the target sits. Nothing nests once the cap is lifted, so `scrollIntoView` scrolls the window itself, and the target clears the fixed header by its own `scroll-margin-top` from the stylesheet. A target that never rendered — a page without the example — does nothing.
 
 =>
 
@@ -74,7 +74,11 @@ const scrollIntoPreview = (id: string): void =>
   })
 
 const ScrollToSection = define('ScrollToSection', { id: S.String }, SectionScrolled)(
-  ({ id }) => Effect.sync(() => scrollIntoPreview(id)).pipe(Effect.as(SectionScrolled())),
+  ({ id }) =>
+    Effect.sleep('30 millis').pipe(
+      Effect.andThen(Effect.sync(() => scrollIntoPreview(id))),
+      Effect.as(SectionScrolled()),
+    ),
 )
 
 ## The update
@@ -104,7 +108,10 @@ const update = (model: Model, message: Message): Step =>
         const [game, commands] = Gomoku.update(model.game, message)
         return [{ ...model, game }, mapMessages(commands, (message) => GotGameMessage({ message }))]
       },
-      SelectedSection: ({ id }) => [{ ...model, activeSection: id }, [ScrollToSection({ id })]],
+      SelectedSection: ({ id }) => [
+        { ...model, activeSection: id, exampleExpanded: true },
+        [ScrollToSection({ id })],
+      ],
       SectionScrolled: () => [model, []],
       SpottedSection: ({ id }) =>
         id === model.activeSection ? [model, []] : [{ ...model, activeSection: id }, []],

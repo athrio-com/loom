@@ -1,7 +1,7 @@
-import { Array, Effect, pipe } from 'effect'
+import { Array, Effect, Option, pipe } from 'effect'
 import { BunRuntime } from '@effect/platform-bun'
 import { readFileSync, writeFileSync } from 'node:fs'
-import { createHighlighter } from 'shiki'
+import { createHighlighter, type ShikiTransformer } from 'shiki'
 
 const loomGrammar = {
   name: 'loom',
@@ -80,6 +80,52 @@ const loomTheme = {
   ],
 }
 
+type OutlineEntry = {
+  readonly id: string
+  readonly label: string
+  readonly kind: string
+}
+
+const lineIds = (prefix: string): ShikiTransformer => ({
+  name: 'line-ids',
+  line(node, line) {
+    node.properties['id'] = `${prefix}${line}`
+    return node
+  },
+})
+
+const cleanTitle = (title: string): string =>
+  title
+    .replace(/\s*\{[^}]*\}/g, '')
+    .replace(/\s*\[[^\]]*\]/g, '')
+    .trim()
+
+const headingLine =
+  (prefix: string) =>
+  (line: string, index: number): Option.Option<OutlineEntry> => {
+    const match = line.match(/^(#{1,2})\s+(.+)$/)
+    return match === null
+      ? Option.none()
+      : Option.some({ id: `${prefix}${index + 1}`, label: cleanTitle(match[2] ?? ''), kind: '' })
+  }
+
+const symbolLine =
+  (prefix: string) =>
+  (line: string, index: number): Option.Option<OutlineEntry> => {
+    const match = line.match(
+      /^export (?:default )?(const|let|function|async function|class|abstract class|type|interface|enum) (\w+)/,
+    )
+    return match === null
+      ? Option.none()
+      : Option.some({ id: `${prefix}${index + 1}`, label: match[2] ?? '', kind: match[1] ?? '' })
+  }
+
+const outlineOf = (
+  source: string,
+  entry: (line: string, index: number) => Option.Option<OutlineEntry>,
+): ReadonlyArray<OutlineEntry> =>
+  pipe(source.split('\n'), Array.map(entry), Array.getSomes)
+
 const example = '../examples/gomoku'
 const theme = 'loom-dark'
 
@@ -108,8 +154,18 @@ const program = Effect.gen(function* () {
   )
 
   const data = {
-    loomHtml: highlighter.codeToHtml(loomSource, { lang: 'loom', theme }),
-    tangledHtml: highlighter.codeToHtml(tangledSource, { lang: 'typescript', theme }),
+    loomHtml: highlighter.codeToHtml(loomSource, {
+      lang: 'loom',
+      theme,
+      transformers: [lineIds('loom-')],
+    }),
+    tangledHtml: highlighter.codeToHtml(tangledSource, {
+      lang: 'typescript',
+      theme,
+      transformers: [lineIds('ts-')],
+    }),
+    sourceOutline: outlineOf(loomSource, headingLine('loom-')),
+    tangledOutline: outlineOf(tangledSource, symbolLine('ts-')),
     codeHtml,
   }
 

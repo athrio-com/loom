@@ -204,7 +204,14 @@ type Block =
 type Heading = Extract<Block, { type: 'heading' }>
 type Code = Extract<Block, { type: 'code' }>
 type Page = { readonly slug: string; readonly title: string; readonly blocks: ReadonlyArray<Block> }
-type Highlighted = { readonly loomHtml: string; readonly tangledHtml: string; readonly codeHtml: ReadonlyArray<string> }
+type OutlineEntry = { readonly id: string; readonly label: string; readonly kind: string }
+type Highlighted = {
+  readonly loomHtml: string
+  readonly tangledHtml: string
+  readonly sourceOutline: ReadonlyArray<OutlineEntry>
+  readonly tangledOutline: ReadonlyArray<OutlineEntry>
+  readonly codeHtml: ReadonlyArray<string>
+}
 
 const page: Page = (wovenCorpus as unknown as { pages: ReadonlyArray<Page> }).pages[0]
 const marks = highlighted as unknown as Highlighted
@@ -270,31 +277,35 @@ const blockView = (active: string) => (block: Block): Html =>
     Match.exhaustive,
   )
 
-const outlineRow = (active: string) => (section: Heading): Html =>
+const outlineRow = (active: string) => (entry: OutlineEntry): Html =>
   h.div(
-    [h.Class(activeClass('how-outline-row', section.id === active)), h.OnClick(SelectedSection({ id: section.id }))],
-    [section.title],
+    [h.Class(activeClass('how-outline-row', entry.id === active)), h.OnClick(SelectedSection({ id: entry.id }))],
+    entry.kind === ''
+      ? [entry.label]
+      : [h.span([h.Class('how-outline-kind')], [entry.kind]), entry.label],
   )
+
+const headingEntry = (heading: Heading): OutlineEntry => ({
+  id: heading.id,
+  label: heading.title,
+  kind: '',
+})
+
+const outline = (active: string, entries: ReadonlyArray<OutlineEntry>): Html =>
+  h.div([h.Class('how-outline')], Array.map(entries, outlineRow(active)))
 
 const previewTab = (active: string): Html =>
   h.div(
     [h.Class('how-preview'), h.Key('preview')],
     [
       h.div([h.Class('how-scroll')], Array.map(page.blocks, blockView(active))),
-      h.div(
-        [h.Class('how-outline')],
-        [
-          h.div([h.Class('how-outline-head')], ['OUTLINE']),
-          outlineRow(active)(loomTitle),
-          ...Array.map(sections, outlineRow(active)),
-        ],
-      ),
+      outline(active, [headingEntry(loomTitle), ...Array.map(sections, headingEntry)]),
     ],
   )
 
 ## The three tabs
 
-The panel wears a row of three tabs, each with a small mark: the Loom weave for the loom, a TS badge for the tangle, a play triangle for the game. The loom tab opens on the rendered preview and its outline, and a switch inside the canvas flips it to the raw loom source; both read the same woven file. The tangle tab shows the whole tangled file, highlighted. The play tab hosts the game itself — the example embedded as a Foldkit submodel, the very component the loom tab renders, given its own slot, its model held in the landing's `game` field and its messages lifted home through `GotGameMessage`. The tab the model names is lit, and clicking a tab tells the model to switch. The loom and tangle tabs open capped a little above the game's height, their long text fading out under an overlay a reader clicks to read the whole example; the play tab, the game itself, needs no cap. Each pane carries its own key, so switching tabs replaces the whole pane rather than morphing one into the next. A rendered document and a canvas of injected HTML share no structure to reconcile, and morphing across that seam would leave the renderer holding nodes it no longer owns.
+The panel wears a row of three tabs, each with a small mark: the Loom weave for the loom, a TS badge for the tangle, a play triangle for the game. The loom tab opens on the rendered preview and its outline, and a switch inside the canvas flips it to the raw loom source, which carries an outline of the loom's own headings; both read the same woven file. The tangle tab shows the whole tangled file, highlighted, beside an outline of the symbols it exports. An outline row, clicked, lifts the height cap and scrolls its line into view, so a reader jumps straight to a section or a symbol without opening the example by hand first. The play tab hosts the game itself — the example embedded as a Foldkit submodel, the very component the loom tab renders, given its own slot, its model held in the landing's `game` field and its messages lifted home through `GotGameMessage`. The tab the model names is lit, and clicking a tab tells the model to switch. The loom and tangle tabs open capped a little above the game's height, their long text fading out under an overlay a reader clicks to read the whole example; the play tab, the game itself, needs no cap. Each pane carries its own key, so switching tabs replaces the whole pane rather than morphing one into the next. A rendered document and a canvas of injected HTML share no structure to reconcile, and morphing across that seam would leave the renderer holding nodes it no longer owns.
 
 =>
 
@@ -323,8 +334,19 @@ const tabButton = (active: TabId) => (item: { readonly id: TabId; readonly label
     [tabIcon(item.id), item.label],
   )
 
-const codeCanvas = (key: string, html: string): Html =>
-  h.div([h.Class('how-scroll shiki-scroll'), h.Key(key), h.InnerHTML(html)], [])
+const canvasWithOutline = (
+  key: string,
+  html: string,
+  entries: ReadonlyArray<OutlineEntry>,
+  active: string,
+): Html =>
+  h.div(
+    [h.Class('how-preview'), h.Key(key)],
+    [
+      h.div([h.Class('how-scroll shiki-scroll'), h.InnerHTML(html)], []),
+      outline(active, entries),
+    ],
+  )
 
 type LoomView = 'preview' | 'source'
 
@@ -340,7 +362,9 @@ const loomToggleButton = (view: LoomView, label: string, active: LoomView): Html
 const loomBody = (model: Model): Html =>
   Match.value(model.loomView).pipe(
     Match.when('preview', () => previewTab(model.activeSection)),
-    Match.when('source', () => codeCanvas('source', marks.loomHtml)),
+    Match.when('source', () =>
+      canvasWithOutline('source', marks.loomHtml, marks.sourceOutline, model.activeSection),
+    ),
     Match.exhaustive,
   )
 
@@ -362,7 +386,9 @@ const loomPane = (model: Model): Html =>
 const tabBody = (model: Model): Html =>
   Match.value(model.exampleTab).pipe(
     Match.when('loom', () => loomPane(model)),
-    Match.when('tangled', () => codeCanvas('tangled', marks.tangledHtml)),
+    Match.when('tangled', () =>
+      canvasWithOutline('tangled', marks.tangledHtml, marks.tangledOutline, model.activeSection),
+    ),
     Match.when('play', () =>
       h.div(
         [h.Class('how-play'), h.Key('play')],
@@ -382,7 +408,7 @@ const tabBody = (model: Model): Html =>
 const expandOverlay = (): Html =>
   h.button(
     [h.Class('how-expand'), h.OnClick(ExpandedExample())],
-    [h.span([h.Class('how-expand-label')], ['Read the full example'])],
+    [h.span([h.Class('how-expand-label')], ['See full example'])],
   )
 
 const examplePanel = (model: Model): Html => {

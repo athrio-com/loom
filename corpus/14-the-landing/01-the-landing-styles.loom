@@ -378,8 +378,8 @@ The what-loom-is section tells its story in prose and shows it in one specimen, 
 }
 .wprose p {
   font-family: var(--sans);
-  font-size: 15px;
-  line-height: 1.68;
+  font-size: 16px;
+  line-height: 1.7;
   color: var(--fg-2);
   margin: 0 0 14px;
   break-inside: avoid;
@@ -465,7 +465,7 @@ The what-loom-is section tells its story in prose and shows it in one specimen, 
 
 ## How it works — the tabbed panel
 
-The how-it-works section gives its width to one panel, an editor with three tabs: the loom, the tangled TypeScript, and the playable game. The loom tab reads as a rendered document or, at the flick of a switch, as its raw source. In the preview a canvas of prose and code sits beside an outline that stays in view as the page scrolls, and a row in that outline jumps the page to its heading and lifts it to mint. The tangle tab holds the whole file, coloured at build time in the landing's own palette. The panel grows to the height of whatever it shows, so the page carries the scroll and nothing nests inside; only the game keeps a fixed height, a square board that stays in reach. Prose reads as prose, code keeps its syntax colour, and an anchor the loom has not resolved stays violet. The prose holds a measure of a hundred characters, so a line stays readable instead of running the full width of the pane.
+The how-it-works section gives its width to one panel, an editor with three tabs: the loom, the tangled TypeScript, and the playable game. The loom tab reads as a rendered document or, at the flick of a switch, as its raw source. Every document view sets its canvas beside an outline that stays in view as the page scrolls: the preview lists the example's headings, the raw source the loom's own, the tangle the symbols it exports behind a muted chip for each one's kind. A row in any of them jumps to its target and lifts to mint. The tangle tab holds the whole file, coloured at build time in the landing's own palette. The panel grows to the height of whatever it shows, so the page carries the scroll and nothing nests inside; only the game keeps a fixed height, a square board that stays in reach. Prose reads as prose, code keeps its syntax colour, and an anchor the loom has not resolved stays violet. The prose holds a measure of a hundred characters, so a line stays readable instead of running the full width of the pane.
 
 =>
 
@@ -553,19 +553,19 @@ The how-it-works section gives its width to one panel, an editor with three tabs
   align-items: center;
   gap: 8px;
   padding: 9px 18px;
-  border: 1px solid color-mix(in srgb, var(--acc-violet) 45%, var(--rule-2));
+  border: 1px solid var(--acc-violet);
   border-radius: 999px;
   background: var(--bg-3);
   color: var(--fg);
   font-family: var(--sans);
   font-size: 13px;
   letter-spacing: 0.01em;
-  transition: color .12s ease, border-color .12s ease;
+  transition: color .12s ease, background .12s ease;
 }
 .how-expand-label::after { content: '↓'; opacity: 0.7; }
 .how-expand:hover .how-expand-label {
   color: var(--acc-violet);
-  border-color: var(--acc-violet);
+  background: color-mix(in srgb, var(--acc-violet) 14%, var(--bg-3));
 }
 .ex-icon { display: inline-flex; }
 .ex-icon.white { color: var(--fg); }
@@ -633,25 +633,22 @@ The how-it-works section gives its width to one panel, an editor with three tabs
   font-family: var(--mono);
   font-size: 12px;
 }
-.how-outline-head {
-  color: var(--fg-4);
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  margin-bottom: 12px;
-}
 .how-outline-row {
   padding: 5px 8px;
   border-radius: 4px;
   color: var(--fg-3);
   cursor: pointer;
-  border-left: 2px solid transparent;
-  transition: background .12s ease, color .12s ease, border-color .12s ease;
+  transition: background .12s ease, color .12s ease;
 }
 .how-outline-row:hover { color: var(--fg); background: var(--bg-3); }
 .how-outline-row.active {
   color: var(--acc-mint);
-  border-left-color: var(--acc-mint);
-  background: color-mix(in srgb, var(--acc-mint) 10%, transparent);
+  background: color-mix(in srgb, var(--acc-mint) 12%, transparent);
+}
+.how-outline-kind {
+  margin-right: 7px;
+  color: var(--fg-4);
+  font-size: 10px;
 }
 
 .how-file-title {
@@ -749,6 +746,7 @@ The how-it-works section gives its width to one panel, an editor with three tabs
   color: var(--fg-4);
   user-select: none;
 }
+.shiki-scroll .line { scroll-margin-top: 84px; }
 .shiki-scroll .line::before {
   position: absolute;
   left: 0;
