@@ -1,7 +1,7 @@
 import type { CodeMapping, VirtualCode } from '@volar/language-core'
 import { Array, Context, Data, Effect, Layer, Match, Option, pipe } from 'effect'
 import { readFileSync, readdirSync, type Dirent } from 'node:fs'
-import { basename, dirname, resolve as resolvePath } from 'node:path'
+import { dirname, resolve as resolvePath } from 'node:path'
 import type * as ts from 'typescript'
 import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
 import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
@@ -78,7 +78,6 @@ const resolveSinks = (
   modules: Modules,
   entry: Path,
   packageRoot: Option.Option<string>,
-  header: Option.Option<{ readonly ascii: boolean }>,
 ): ReadonlyArray<TangledFile> =>
   pipe(
     Option.fromNullishOr(modules.get(entry)),
@@ -88,12 +87,7 @@ const resolveSinks = (
         Array.map(module.product.files, (file) => ({
           section: file.code.origin.name,
           path: outputPath(packageRoot, entry, file.path),
-          content: stamped(
-            header,
-            file.code.languageId,
-            basename(entry),
-            fromProduct(modules, file.code.origin).code,
-          ),
+          content: fromProduct(modules, file.code.origin).code,
         })),
     }),
   )
@@ -115,95 +109,6 @@ export class TangleError extends Data.TaggedError('TangleError')<{
     return `loom: refusing to tangle ${this.entry} — ${count} error(s) across the corpus:\n${lines.join('\n')}`
   }
 }
-
-type CommentStyle =
-  | {
-      readonly kind: 'block'
-      readonly open: string
-      readonly mid: string
-      readonly close: string
-    }
-  | { readonly kind: 'line'; readonly prefix: string }
-
-const cStyle: CommentStyle = { kind: 'block', open: '/*', mid: ' * ', close: ' */' }
-const markupStyle: CommentStyle = { kind: 'block', open: '<!--', mid: '  ', close: '-->' }
-const hashStyle: CommentStyle = { kind: 'line', prefix: '# ' }
-
-const commentStyles: ReadonlyMap<string, CommentStyle> = new Map<string, CommentStyle>([
-  ['typescript', cStyle],
-  ['tsx', cStyle],
-  ['javascript', cStyle],
-  ['jsx', cStyle],
-  ['css', cStyle],
-  ['scss', cStyle],
-  ['less', cStyle],
-  ['html', markupStyle],
-  ['xml', markupStyle],
-  ['vue', markupStyle],
-  ['svelte', markupStyle],
-  ['bash', hashStyle],
-  ['sh', hashStyle],
-  ['shell', hashStyle],
-  ['yaml', hashStyle],
-  ['yml', hashStyle],
-  ['toml', hashStyle],
-  ['python', hashStyle],
-  ['ruby', hashStyle],
-])
-
-const loomLogo: ReadonlyArray<string> = [
-  'L    OOOO OOOO M   M',
-  'L    O  O O  O MM MM',
-  'L    O  O O  O M M M',
-  'LLLL OOOO OOOO M   M',
-]
-
-const bannerLines = (ascii: boolean, loom: string): ReadonlyArray<string> => [
-  ...(ascii ? [...loomLogo, ''] : []),
-  `Tangled by Loom from ${loom} — composed from that`,
-  `loom's code sections. Edit the loom and re-tangle;`,
-  `changes made here are overwritten.`,
-]
-
-const commentBlock = (
-  style: CommentStyle,
-  lines: ReadonlyArray<string>,
-): string =>
-  Match.value(style).pipe(
-    Match.when({ kind: 'block' }, (s) =>
-      [
-        s.open,
-        ...Array.map(lines, (text) => `${s.mid}${text}`.trimEnd()),
-        s.close,
-      ].join('\n'),
-    ),
-    Match.when({ kind: 'line' }, (s) =>
-      Array.map(lines, (text) => `${s.prefix}${text}`.trimEnd()).join('\n'),
-    ),
-    Match.exhaustive,
-  )
-
-const belowShebang = (content: string, banner: string): string => {
-  const newline = content.indexOf('\n')
-  const cut = content.startsWith('#!') && newline !== -1 ? newline + 1 : 0
-  return `${content.slice(0, cut)}${banner}\n\n${content.slice(cut)}`
-}
-
-const stamped = (
-  header: Option.Option<{ readonly ascii: boolean }>,
-  languageId: string,
-  loom: string,
-  content: string,
-): string =>
-  Option.match(header, {
-    onNone: () => content,
-    onSome: ({ ascii }) =>
-      Option.match(Option.fromNullishOr(commentStyles.get(languageId)), {
-        onNone: () => content,
-        onSome: (style) =>
-          belowShebang(content, commentBlock(style, bannerLines(ascii, loom))),
-      }),
-  })
 
 const lineCharAt = (
   text: string,
@@ -444,13 +349,8 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()(
               return failures.length > 0
                 ? Effect.fail(new TangleError({ entry: path, failures }))
                 : config.resolve(path).pipe(
-                    Effect.map(({ packageRoot, header }) =>
-                      resolveSinks(
-                        scoped,
-                        path,
-                        Option.fromNullishOr(packageRoot),
-                        Option.fromNullishOr(header),
-                      ),
+                    Effect.map(({ packageRoot }) =>
+                      resolveSinks(scoped, path, Option.fromNullishOr(packageRoot)),
                     ),
                   )
             }),

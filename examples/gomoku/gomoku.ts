@@ -1,14 +1,3 @@
-/*
- * L    OOOO OOOO M   M
- * L    O  O O  O MM MM
- * L    O  O O  O M M M
- * LLLL OOOO OOOO M   M
- *
- * Tangled by Loom from gomoku.loom — composed from that
- * loom's code sections. Edit the loom and re-tangle;
- * changes made here are overwritten.
- */
-
 import { Array, Effect, Match, Option, Order, Schema as S, pipe } from 'effect'
 import { type Command, define } from 'foldkit/command'
 import { html } from 'foldkit/html'

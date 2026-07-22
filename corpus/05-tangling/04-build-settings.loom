@@ -10,7 +10,7 @@ Language: TypeScript
 
 ## What the compiler reads
 
-`BuildSettings` is the answer the compiler gets for one file. It holds a full anchor delimiter pair, the file's primary language, the workspace variables a warp interpolates, the header that turns on the tangler's generated-file banner, the root the file's package tangles under, the workspace root a book's higher-order sink resolves its directories against, and the corpus directory the compiler enumerates to discover the file's sibling looms.
+`BuildSettings` is the answer the compiler gets for one file. It holds a full anchor delimiter pair, the file's primary language, the workspace variables a warp interpolates, the root the file's package tangles under, the workspace root a book's higher-order sink resolves its directories against, and the corpus directory the compiler enumerates to discover the file's sibling looms.
 
 The anchor delimiters are always a complete pair. A configuration may set one side, both, or neither, so `anchorDelimsOf` fills each missing side from `defaultAnchorDelims`, the built-in `::[` and `]`. A package overrides a delimiter only where the default would collide with its own product language.
 
@@ -26,7 +26,6 @@ export interface BuildSettings {
   readonly delims: AnchorDelims
   readonly primaryLanguage: string | undefined
   readonly variables: Record<string, string>
-  readonly header?: { readonly ascii: boolean }
   readonly packageRoot: string | undefined
   readonly workspaceRoot: string | undefined
   readonly corpusDir: string | undefined
@@ -57,7 +56,6 @@ export class PackageConfig extends Context.Service<PackageConfig>()(
               delims: anchorDelimsOf(c.anchor),
               primaryLanguage: c.primary,
               variables: c.variables,
-              header: c.header,
               packageRoot: c.packageRoot,
               workspaceRoot: c.workspaceRoot,
               corpusDir: c.corpusDir,
