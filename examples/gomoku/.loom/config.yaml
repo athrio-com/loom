@@ -2,3 +2,5 @@ corpus: .
 languages:
   typescript: {}
 primary: typescript
+header:
+  ascii: true
