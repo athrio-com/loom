@@ -91,4 +91,22 @@ describe('PackageConfig.resolve — per-file build settings', () => {
       corpusDir: undefined,
     })
   })
+
+  it('reads the header block that turns the generated-file banner on', () => {
+    const dir = tempDir()
+    writeConfig(dir, 'header:\n  ascii: true\n')
+    expect(run(join(dir, 'a.loom')).header).toEqual({ ascii: true })
+  })
+
+  it('fills header.ascii to a definite false when the block omits it', () => {
+    const dir = tempDir()
+    writeConfig(dir, 'header: {}\n')
+    expect(run(join(dir, 'a.loom')).header).toEqual({ ascii: false })
+  })
+
+  it('leaves the header unset when the workspace declares none', () => {
+    const dir = tempDir()
+    writeConfig(dir, 'primary: typescript\n')
+    expect(run(join(dir, 'a.loom')).header).toBeUndefined()
+  })
 })
