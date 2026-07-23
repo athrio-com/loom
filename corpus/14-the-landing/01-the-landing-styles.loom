@@ -146,7 +146,9 @@ The page wears a window's chrome. A title bar runs across the top with three tra
 
 ## The hero and its rotating headline
 
-The hero is the first screen: one column, wide enough to read, holding the meta line, the headline, the install rows beneath it, and the calls to action. The headline is set large in the display serif, and one word of it rotates — swapping on a blur-and-slide transition — with a blinking caret after it.
+The hero is the first screen, laid out in two columns. On the left is the pitch: the meta line, the headline, the install rows beneath it, and the calls to action. On the right is a loom, the quicksort example. The headline is set large in the display serif, and one word of it rotates — swapping on a blur-and-slide transition — with a blinking caret after it. Below a set width the two columns fall into one, the pitch above the loom.
+
+The example is a small editor panel: a file head naming `quicksort.loom` over a specimen of the loom's source. A prose line in that source reads muted, a step down from the code around it.
 
 =>
 
@@ -154,9 +156,29 @@ The hero is the first screen: one column, wide enough to read, holding the meta 
   padding: 96px 0 64px;
   border-bottom: 1px solid var(--rule);
 }
+.hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 48px;
+  align-items: start;
+}
+@media (max-width: 1080px) {
+  .hero-grid { grid-template-columns: 1fr; gap: 40px; }
+}
 .hero-col {
   max-width: 680px;
 }
+.hero-example {
+  border: 1px solid var(--rule-2);
+  border-radius: 10px;
+  background: var(--bg-2);
+  overflow: hidden;
+}
+.hero-example .wspec {
+  margin: 0;
+  padding: 22px 26px 26px;
+}
+.wspec-prose { color: var(--fg-3); }
 
 .gutter-row {
   display: flex; align-items: baseline; gap: 18px;
@@ -275,7 +297,7 @@ Below the install rows sit the calls to action, a row of two buttons — read th
 
 ## The shared panel head
 
-Every panel on the page — the workspace config, the file tree, the step detail — frames itself the same way: a small head naming what it holds, a dot, and a right-aligned label. `panel-head` is that one shared chrome, so a reader learns to read a panel once.
+A panel that frames a file wears a small head: a mint dot, the name of the file it holds, and a right-aligned slot for a label. The hero's quicksort example is one such panel. `panel-head` is the shared chrome, so every panel that wears it reads the same.
 
 =>
 

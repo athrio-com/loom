@@ -1,5 +1,19 @@
 import { Array } from 'effect'
 import type { Html } from 'foldkit/html'
+import {
+  anchor,
+  arrow,
+  frontmatter,
+  heading,
+  type Mark,
+  preamble,
+  sink,
+  specifier,
+  specimenView,
+  tilde,
+  tip,
+  warp,
+} from './components'
 import { h } from './model'
 
 const whatLoomIs = (): Html =>
@@ -66,24 +80,6 @@ const whatLoomIs = (): Html =>
     ],
   )
 
-type Mark = {
-  readonly accent: string
-  readonly note: string
-}
-
-const frontmatter: Mark = { accent: 'front', note: 'The block at the top of a chapter, fenced by triple dashes. It names the part and title, the package its sections tangle to, and the language they are written in.' }
-const heading: Mark = { accent: 'head', note: 'A line of one to six hashes that opens a section, the way a heading opens a chapter of a book.' }
-const preamble: Mark = { accent: 'prose', note: "A section's opening prose, from its heading to the first arrow. Here you say what the code does and why — the specification the code implements." }
-const warp: Mark = { accent: 'warp', note: 'A declaration that binds a value the code reads, so a name lives in one place instead of many.' }
-const arrow: Mark = { accent: 'arrow', note: 'Opens a block of code — the turn from prose into the code the prose has just described.' }
-const anchor: Mark = { accent: 'anchor', note: 'A reference by name. It reads a bound value, or draws another section in whole, so a file is composed from named parts.' }
-const tilde: Mark = { accent: 'tilde', note: 'Closes a block of code and returns to prose. Prose and code alternate down a section, each arrow in and each tilde out.' }
-const specifier: Mark = { accent: 'spec', note: "A brace label on a heading. It sets a section's language, or marks the section a {Tangle} that writes a file." }
-const sink: Mark = { accent: 'sink', note: 'The bracketed file a heading tangles to. A section carrying one names a file to write.' }
-
-const tip = (mark: Mark, text: string): Html =>
-  h.span([h.Class(`tok a-${mark.accent}`)], [text, h.span([h.Class('tip')], [mark.note])])
-
 const SPECIMEN: ReadonlyArray<ReadonlyArray<Html | string>> = [
   [tip(heading, '# Hi there!'), ' ', tip(sink, '[mini.ts]')],
   [],
@@ -94,13 +90,7 @@ const SPECIMEN: ReadonlyArray<ReadonlyArray<Html | string>> = [
   ['console.log("Hi there!")'],
 ]
 
-const specimenLine = (parts: ReadonlyArray<Html | string>): Html =>
-  parts.length === 0
-    ? h.div([h.Class('wspec-line gap')], [])
-    : h.div([h.Class('wspec-line')], parts)
-
-const specimen = (): Html =>
-  h.div([h.Class('wspec')], Array.map(SPECIMEN, specimenLine))
+const specimen = (): Html => specimenView(SPECIMEN)
 
 type Chip = {
   readonly mark: Mark

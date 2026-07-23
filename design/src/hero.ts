@@ -9,6 +9,12 @@ import {
   denoIcon,
   npmIcon,
   pnpmIcon,
+  arrow,
+  heading,
+  prose,
+  specimenView,
+  tilde,
+  tip,
 } from './components'
 import { h, type Model } from './model'
 
@@ -90,6 +96,46 @@ const installRows = (model: Model): Html =>
     [...Array.map(RUNTIMES, installRow(model.copied)), initRow(model.copied)],
   )
 
+const QUICKSORT: ReadonlyArray<ReadonlyArray<Html | string>> = [
+  [tip(heading, '# Quicksort, in halves')],
+  [],
+  [prose('Quicksort chooses the first element as its pivot, then divides the rest into the elements smaller than the pivot and the elements at least as large.')],
+  [],
+  [tip(arrow, '=>')],
+  [],
+  ['const partition = (pivot: number, rest: number[]) => ({'],
+  ['  smaller: rest.filter((x) => x < pivot),'],
+  ['  larger: rest.filter((x) => x >= pivot),'],
+  ['})'],
+  [],
+  [tip(tilde, '~')],
+  [],
+  [prose('Sorting the smaller elements, then the pivot, then the larger ones, sorts the whole list. A list of one element or none is already sorted, which ends the recursion.')],
+  [],
+  [tip(arrow, '=>')],
+  [],
+  ['const sort = (xs: number[]): number[] => {'],
+  ['  if (xs.length <= 1) return xs'],
+  ['  const [pivot, ...rest] = xs'],
+  ['  const { smaller, larger } = partition(pivot, rest)'],
+  ['  return [...sort(smaller), pivot, ...sort(larger)]'],
+  ['}'],
+  [],
+  ['console.log(sort([5, 2, 8, 1, 9, 3]))'],
+]
+
+const quicksortExample = (): Html =>
+  h.div(
+    [h.Class('hero-example')],
+    [
+      h.div(
+        [h.Class('panel-head')],
+        [h.span([h.Class('dot')], []), 'quicksort.loom'],
+      ),
+      specimenView(QUICKSORT),
+    ],
+  )
+
 const metaRow = (version: string): Html =>
   h.div(
     [h.Class('meta-row')],
@@ -102,35 +148,36 @@ const metaRow = (version: string): Html =>
     ],
   )
 
+const pitch = (model: Model): Html =>
+  h.div(
+    [h.Class('hero-col')],
+    [
+      metaRow(model.version),
+      headline(model),
+      installRows(model),
+      h.div(
+        [h.Class('actions hero-cta')],
+        [
+          h.a(
+            [h.Class('btn primary'), h.Href('#')],
+            ['Read the docs', bookIcon()],
+          ),
+          h.a(
+            [h.Class('btn'), h.Href('#')],
+            ['Browse the source', externalIcon()],
+          ),
+        ],
+      ),
+    ],
+  )
+
 export const hero = (model: Model): Html =>
   h.section(
     [h.Class('hero')],
     [
       h.div(
         [h.Class('wrap')],
-        [
-          h.div(
-            [h.Class('hero-col')],
-            [
-              metaRow(model.version),
-              headline(model),
-              installRows(model),
-              h.div(
-                [h.Class('actions hero-cta')],
-                [
-                  h.a(
-                    [h.Class('btn primary'), h.Href('#')],
-                    ['Read the docs', bookIcon()],
-                  ),
-                  h.a(
-                    [h.Class('btn'), h.Href('#')],
-                    ['Browse the source', externalIcon()],
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ],
+        [h.div([h.Class('hero-grid')], [pitch(model), quicksortExample()])],
       ),
     ],
   )

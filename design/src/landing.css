@@ -125,9 +125,29 @@ main, header, footer { position: relative; }
   padding: 96px 0 64px;
   border-bottom: 1px solid var(--rule);
 }
+.hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 48px;
+  align-items: start;
+}
+@media (max-width: 1080px) {
+  .hero-grid { grid-template-columns: 1fr; gap: 40px; }
+}
 .hero-col {
   max-width: 680px;
 }
+.hero-example {
+  border: 1px solid var(--rule-2);
+  border-radius: 10px;
+  background: var(--bg-2);
+  overflow: hidden;
+}
+.hero-example .wspec {
+  margin: 0;
+  padding: 22px 26px 26px;
+}
+.wspec-prose { color: var(--fg-3); }
 
 .gutter-row {
   display: flex; align-items: baseline; gap: 18px;
