@@ -34,6 +34,7 @@ import {
   type Route,
 } from './model'
 import {
+  externalIcon,
   broadSeam,
   burgerIcon,
   carpetMark,
@@ -937,11 +938,13 @@ export const palette = (model: Model, h: HtmlBuilder<Message>): Html => {
 
 The footer carries the brand on the left and every link the site offers on the right. The brand is the Loom mark in its cream face, since the ground here is dark, beside the wordmark and the one sentence that says what Loom is.
 
-The links are one flat list, and each is a chip rather than a line of a column. Nine short labels in one run beat three headed groups here: a footer is where a reader goes looking for one particular door, and nine doors side by side are read faster than nine sorted into piles. The order runs from what a reader most often wants to what they rarely do — the documentation first, the organisation last. That last chip leaves the site for the Quadrivium Academy foundation's own, at qda.ee, and the line under everything names the foundation and the year.
+The links are one flat list, and each is a chip rather than a line of a column. Eight short labels in one run beat three headed groups here: a footer is where a reader goes looking for one particular door, and eight doors side by side are read faster than eight sorted into piles. The order runs from what a reader most often wants to what they rarely do — the documentation first, the organisation last. That last chip leaves the site for the Quadrivium Academy foundation's own, at qda.ee, and the line under everything names the foundation and the year. A chip that leaves the site, for the foundation, the repository or the Telegram group, opens in a new tab, so a reader who follows it still has Loom's page open behind it. It says so before the click, with an outward arrow after its label.
 
 =>
 
 type FooterLink = { readonly label: string; readonly href: string; readonly ink: string }
+
+const leavesSite = (link: FooterLink): boolean => /^https?:\/\//.test(link.href)
 
 const footerLinks: ReadonlyArray<FooterLink> = [
   { label: 'Docs', href: '/docs', ink: '#6E9BFF' },
@@ -950,8 +953,7 @@ const footerLinks: ReadonlyArray<FooterLink> = [
   { label: 'Community', href: '/community', ink: '#A987FF' },
   { label: 'Telegram', href: 'https://t.me/athrio', ink: '#26A5E4' },
   { label: 'Github', href: 'https://github.com/athrio-com/loom', ink: '#19D69C' },
-  { label: 'License', href: '/community', ink: '#FFC53D' },
-  { label: 'Sponsors', href: '/community', ink: '#E8318A' },
+  { label: 'License', href: '/license', ink: '#FFC53D' },
   { label: 'About Nonprofit', href: 'https://qda.ee', ink: '#6E9BFF' },
 ]
 
@@ -985,8 +987,13 @@ export const footer = (h: HtmlBuilder<Message>): Html =>
                 [h.Class('footer-chips')],
                 Array.map(footerLinks, (link) =>
                   h.a(
-                    [h.Class('footer-chip'), h.Href(link.href), h.Style({ '--chip-ink': link.ink })],
-                    [link.label],
+                    [
+                      h.Class('footer-chip'),
+                      h.Href(link.href),
+                      h.Style({ '--chip-ink': link.ink }),
+                      ...(leavesSite(link) ? [h.Target('_blank'), h.Rel('noopener noreferrer')] : []),
+                    ],
+                    [link.label, ...(leavesSite(link) ? [externalIcon()] : [])],
                   ),
                 ),
               ),

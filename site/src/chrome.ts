@@ -12,6 +12,7 @@ import {
   type Route,
 } from './model'
 import {
+  externalIcon,
   broadSeam,
   burgerIcon,
   carpetMark,
@@ -757,6 +758,8 @@ export const palette = (model: Model, h: HtmlBuilder<Message>): Html => {
 
 type FooterLink = { readonly label: string; readonly href: string; readonly ink: string }
 
+const leavesSite = (link: FooterLink): boolean => /^https?:\/\//.test(link.href)
+
 const footerLinks: ReadonlyArray<FooterLink> = [
   { label: 'Docs', href: '/docs', ink: '#6E9BFF' },
   { label: 'Source', href: '/source', ink: '#FF6A3D' },
@@ -764,8 +767,7 @@ const footerLinks: ReadonlyArray<FooterLink> = [
   { label: 'Community', href: '/community', ink: '#A987FF' },
   { label: 'Telegram', href: 'https://t.me/athrio', ink: '#26A5E4' },
   { label: 'Github', href: 'https://github.com/athrio-com/loom', ink: '#19D69C' },
-  { label: 'License', href: '/community', ink: '#FFC53D' },
-  { label: 'Sponsors', href: '/community', ink: '#E8318A' },
+  { label: 'License', href: '/license', ink: '#FFC53D' },
   { label: 'About Nonprofit', href: 'https://qda.ee', ink: '#6E9BFF' },
 ]
 
@@ -799,8 +801,13 @@ export const footer = (h: HtmlBuilder<Message>): Html =>
                 [h.Class('footer-chips')],
                 Array.map(footerLinks, (link) =>
                   h.a(
-                    [h.Class('footer-chip'), h.Href(link.href), h.Style({ '--chip-ink': link.ink })],
-                    [link.label],
+                    [
+                      h.Class('footer-chip'),
+                      h.Href(link.href),
+                      h.Style({ '--chip-ink': link.ink }),
+                      ...(leavesSite(link) ? [h.Target('_blank'), h.Rel('noopener noreferrer')] : []),
+                    ],
+                    [link.label, ...(leavesSite(link) ? [externalIcon()] : [])],
                   ),
                 ),
               ),

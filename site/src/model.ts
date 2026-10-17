@@ -13,7 +13,7 @@ export type Player = typeof Player.Type
 import { Array, Match, Option, Schema as S } from 'effect'
 import { defineMessageUnion } from 'foldkit/message'
 
-export const Route = S.Literals(['home', 'why-loom', 'docs', 'community', 'source'])
+export const Route = S.Literals(['home', 'why-loom', 'docs', 'community', 'source', 'license'])
 export type Route = typeof Route.Type
 
 export const Runtime = S.Literals(['bun', 'npm', 'pnpm'])
@@ -44,6 +44,7 @@ export const pathOf = (route: Route): string =>
     Match.when('why-loom', () => '/why-loom'),
     Match.when('community', () => '/community'),
     Match.when('source', () => '/source'),
+    Match.when('license', () => '/license'),
     Match.exhaustive,
   )
 

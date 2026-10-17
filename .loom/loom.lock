@@ -108,6 +108,7 @@
     "site/src/example.ts",
     "site/src/hero.ts",
     "site/src/landing.css",
+    "site/src/license.ts",
     "site/src/model.ts",
     "site/src/operations.ts",
     "site/src/page-head.ts",

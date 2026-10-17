@@ -969,11 +969,14 @@ Under both sits the copyright, and nothing rules it off. Sixty-eight pixels of a
   padding: 0 16px;
   border: 1px solid #2C2C2C;
   border-radius: var(--radius-sm);
+  gap: 8px;
   font-size: var(--t-code);
   white-space: nowrap;
   color: var(--footer-ink);
   transition: border-color 140ms ease, color 140ms ease;
 }
+
+.footer-chip svg { flex: none; opacity: 0.7; }
 
 .footer-chip:hover { border-color: var(--chip-ink); color: var(--chip-ink); }
 
@@ -2073,6 +2076,22 @@ The community page lists its channels as cards packed into columns of uneven hei
 @media (max-width: 1179px) { .channel-set { column-count: 2; } }
 @media (max-width: 639px)  { .channel-set { column-count: 1; } }
 
+## The licence
+
+The licence page reads like a document. Its plain account sits under the page's name at the width running text always takes. The licence follows in a single column at the same measure, never two, since a reader checking terms reads them in order and should not have to jump between columns. The column stands in the middle of the page, the way a printed document sits on its sheet, and the text in it stays ranged left. The copyright notice under the heading takes the muted ink, because it says whose the terms are rather than what they say.
+
+=>
+
+.license-column { max-width: 62ch; margin: 0 auto; }
+
+.license-plain > p { margin: 0 0 var(--stack); }
+.license-plain > p:last-child { margin-bottom: 0; }
+
+.license-body > p { margin: 0 0 var(--stack); text-wrap: pretty; }
+.license-body > p:last-child { margin-bottom: 0; }
+
+.license-notice { color: var(--ink-3); }
+
 ## The pager
 
 The pager carries the cream air above the footer as its own bottom padding, so it is the last thing on the page in the layout as well as in the reading.
@@ -2702,6 +2721,8 @@ The stylesheet is the three schemes first — colour, type and measure — then 
 ::[The argument page]
 
 ::[The channels]
+
+::[The licence]
 
 ::[The pager]
 

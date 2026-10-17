@@ -21,7 +21,7 @@ const at = (route: Route, over: Partial<Model> = {}): Model =>
 
 const render = (model: Model): string => renderHtml((h) => view(model, h).body)
 
-const ROUTES: ReadonlyArray<Route> = ['home', 'docs', 'why-loom', 'community', 'source']
+const ROUTES: ReadonlyArray<Route> = ['home', 'docs', 'why-loom', 'community', 'source', 'license']
 
 describe('the page', () => {
   it('renders every route without throwing, and ends each on the footer', () => {
@@ -106,6 +106,28 @@ describe('the page', () => {
       'https://github.com/athrio-com/loom/pulls',
       'https://github.com/athrio-com/loom/discussions',
     ].forEach((href) => expect(html).toContain(`href="${href}"`))
+  })
+
+  it('sets the licence out in full on its own page, read from the repository file', () => {
+    const html = render(at('license'))
+    expect(html).toContain('License</h1>')
+    expect(html).toContain('MIT License</h2>')
+    expect(html).toContain('Copyright (c) 2026 Quadrivium Academy Sihtasutus and Loom contributors')
+    expect(html).toContain('Permission is hereby granted, free of charge, to any person obtaining a copy of this software')
+    expect(html).toContain('THE SOFTWARE IS PROVIDED')
+    expect(render(at('home'))).toContain('href="/license"')
+  })
+
+  it('opens the footer chips that leave the site in a new tab, and only those', () => {
+    const html = render(at('home'))
+    const chips = html.match(/<a class="footer-chip"[^>]*>/g) ?? []
+    chips.forEach((chip) =>
+      expect(chip.includes('target="_blank"')).toBe(/href="https?:/.test(chip)),
+    )
+    const nonprofit = html.match(/<a class="footer-chip" href="https:\/\/qda\.ee"[^>]*>About Nonprofit<svg/)
+    expect(nonprofit?.[0]).toContain('target="_blank"')
+    expect(nonprofit?.[0]).toContain('rel="noopener noreferrer"')
+    expect(html).toMatch(/href="\/license"[^>]*>License<\/a>/)
   })
 
   it('points every community link at Telegram, never the dead Discord invite', () => {
@@ -271,11 +293,11 @@ describe('the box model, where it differs from the reset', () => {
 })
 
 describe('the address of every page', () => {
-  const routes: ReadonlyArray<Route> = ['home', 'docs', 'why-loom', 'community', 'source']
+  const routes: ReadonlyArray<Route> = ['home', 'docs', 'why-loom', 'community', 'source', 'license']
 
   it('gives every route a path of its own', () => {
     const paths = routes.map(pathOf)
-    expect(paths).toEqual(['/', '/docs', '/why-loom', '/community', '/source'])
+    expect(paths).toEqual(['/', '/docs', '/why-loom', '/community', '/source', '/license'])
     expect(new Set(paths).size).toBe(routes.length)
   })
 

@@ -6,7 +6,7 @@ Language: TypeScript
 
 # The page
 
-Five pages share one document. This chapter is the part that decides which of them a reader is looking at, and wraps it in the chrome they all wear.
+Six pages share one document. This chapter is the part that decides which of them a reader is looking at, and wraps it in the chrome they all wear.
 
 The decision is a single match on the route, closed so that adding a page to the site cannot compile until this chapter has somewhere to put it. That is the point of closing it: a route with no page is a broken link, and the compiler is a better place to find one than the browser.
 
@@ -30,6 +30,7 @@ import { fromInitToEject } from './operations'
 import { vocabulary } from './vocabulary'
 import { whyLoom } from './why-loom'
 import { community } from './community'
+import { license } from './license'
 import { type Message, type Model, type Route } from './model'
 
 const overlay = (model: Model, h: HtmlBuilder<Message>): ReadonlyArray<Html> =>
@@ -63,7 +64,7 @@ const documentation = (model: Model, h: HtmlBuilder<Message>): Html =>
 
 ## The page a route names
 
-Four routes are built. The landing runs the hero, the example, the vocabulary and the commands down one column; the argument page and the community page each run their head and one section the same way; the documentation draws its own corpus.
+Five routes are built. The landing runs the hero, the example, the vocabulary and the commands down one column; the argument page, the community page and the licence each run their head and one section the same way; the documentation draws its own corpus.
 
 The remaining one, the source, is scaffolded rather than faked. It says plainly that it is being written, because a page that quietly showed something else would send a reader somewhere they did not ask to go — and because the match is closed, it is a single branch to replace when its chapter lands.
 
@@ -101,6 +102,7 @@ const pageFor = (model: Model, h: HtmlBuilder<Message>): Html =>
     Match.when('docs', () => documentation(model, h)),
     Match.when('why-loom', () => marketingPage(model, whyLoom(), h)),
     Match.when('community', () => marketingPage(model, community(), h)),
+    Match.when('license', () => marketingPage(model, license(), h)),
     Match.when('source', () =>
       marketingPage(model, [
         beingWritten(
@@ -115,7 +117,7 @@ const pageFor = (model: Model, h: HtmlBuilder<Message>): Html =>
 
 ## What the tab says
 
-A document needs a title, and the title should say which page it is rather than repeat the site's name five times. Each route names itself, and the landing keeps the line that says what Loom is.
+A document needs a title, and the title should say which page it is rather than repeat the site's name six times. Each route names itself, and the landing keeps the line that says what Loom is.
 
 =>
 
@@ -126,6 +128,7 @@ const titleOf = (route: Route): string =>
     Match.when('why-loom', () => 'Why Loom'),
     Match.when('community', () => 'Community — Loom'),
     Match.when('source', () => 'Source — Loom'),
+    Match.when('license', () => 'License — Loom'),
     Match.exhaustive,
   )
 
