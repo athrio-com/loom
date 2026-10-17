@@ -1,10 +1,10 @@
 import { Array, Option, pipe } from 'effect'
-import type { Html } from 'foldkit/html'
+import type { Html, HtmlBuilder } from 'foldkit/html'
 import {
   Copied,
   PickedRuntime,
   WentTo,
-  h,
+  type Message,
   type Model,
   type Runtime,
 } from './model'
@@ -15,7 +15,7 @@ import {
   pnpmIcon,
 } from './components'
 
-const wordmark = (): Html =>
+const wordmark = (h: HtmlBuilder<Message>): Html =>
   h.div(
     [h.Class('hero-mark')],
     [
@@ -24,7 +24,7 @@ const wordmark = (): Html =>
     ],
   )
 
-const claim = (): Html =>
+const claim = (h: HtmlBuilder<Message>): Html =>
   h.div(
     [h.Class('hero-claim')],
     [
@@ -60,7 +60,7 @@ const commandFor = (runtime: Runtime): string =>
     Option.getOrElse(() => ''),
   )
 
-const runtimeTab = (install: Install, here: boolean): Html =>
+const runtimeTab = (install: Install, here: boolean, h: HtmlBuilder<Message>): Html =>
   h.button(
     [
       h.Class(here ? 'rt-tab here' : 'rt-tab'),
@@ -70,7 +70,7 @@ const runtimeTab = (install: Install, here: boolean): Html =>
     [install.logo, install.label],
   )
 
-const installLine = (model: Model): Html => {
+const installLine = (model: Model, h: HtmlBuilder<Message>): Html => {
   const command = commandFor(model.runtime)
   const taken = model.copied === 'install'
   return h.div(
@@ -79,7 +79,7 @@ const installLine = (model: Model): Html => {
       h.div(
         [h.Class('rt-tabs')],
         Array.map(installs, (install) =>
-          runtimeTab(install, install.runtime === model.runtime),
+          runtimeTab(install, install.runtime === model.runtime, h),
         ),
       ),
       h.button(
@@ -99,7 +99,7 @@ const installLine = (model: Model): Html => {
   )
 }
 
-const onward = (): Html =>
+const onward = (h: HtmlBuilder<Message>): Html =>
   h.div(
     [h.Class('hero-onward')],
     [
@@ -124,16 +124,16 @@ const onward = (): Html =>
     ],
   )
 
-export const hero = (model: Model): Html =>
+export const hero = (model: Model, h: HtmlBuilder<Message>): Html =>
   h.div(
     [h.Class('section section-hero'), h.Id('loom-top')],
     [
-      wordmark(),
+      wordmark(h),
       h.div(
         [h.Class('hero-columns')],
         [
-          claim(),
-          h.div([h.Class('hero-right')], [installLine(model), onward()]),
+          claim(h),
+          h.div([h.Class('hero-right')], [installLine(model, h), onward(h)]),
         ],
       ),
     ],

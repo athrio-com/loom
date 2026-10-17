@@ -10,5 +10,5 @@
     "types": ["bun"],
     "skipLibCheck": true
   },
-  "include": ["src/server.ts", "src/browser-globals.ts", "vite.config.ts"]
+  "include": ["src/server.ts", "vite.config.ts"]
 }

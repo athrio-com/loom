@@ -9,7 +9,6 @@
   },
   "workspaces": [
     "packages/*",
-    "foldkit/packages/*",
     "site"
   ],
   "trustedDependencies": [

@@ -1,11 +1,9 @@
-import '../src/browser-globals'
 import { describe, expect, it } from 'bun:test'
-import { Effect, Layer, ManagedRuntime, Option } from 'effect'
-import { renderStatic } from 'foldkit/html'
-import { FoldkitRender } from '@athrio/foldkit-ssr'
+import { Option } from 'effect'
 import { CHARACTERS, RUN, example, frameAt, struckBy, wholeDocument } from '../src/example'
 import { fromInitToEject } from '../src/operations'
 import { type Model, type Player } from '../src/model'
+import { renderHtml } from './render'
 
 // The example is a replay, so the cases that matter are about the clock rather than the
 // markup: the run has to be monotonic, the document has to stand whole on the card before
@@ -29,14 +27,7 @@ const at = (over: Partial<Player> = {}): Model =>
     query: '', focus: 0, copied: '',
   }) as Model
 
-const runtime = ManagedRuntime.make(FoldkitRender.layer as Layer.Layer<FoldkitRender>)
-
-const render = (model: Model): string =>
-  runtime.runSync(
-    FoldkitRender.pipe(
-      Effect.flatMap((r) => r.renderToString(renderStatic(() => example(model)))),
-    ),
-  )
+const render = (model: Model): string => renderHtml((h) => example(model, h))
 
 const textOf = (html: string): string =>
   html
@@ -186,11 +177,7 @@ describe('the document being typed', () => {
 // worth pinning is that each card wears the same frame, that the loops really are
 // self-contained, and that nothing on this page is waiting for a clock in the model.
 describe('the command illustrations', () => {
-  const html = runtime.runSync(
-    FoldkitRender.pipe(
-      Effect.flatMap((r) => r.renderToString(renderStatic(() => fromInitToEject(at())))),
-    ),
-  )
+  const html = renderHtml((h) => fromInitToEject(at(), h))
 
   it('gives all four commands the same frame', () => {
     expect(html.split('class="ops-frame"').length - 1).toBe(4)

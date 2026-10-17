@@ -1,13 +1,11 @@
-import '../src/browser-globals'
 import { describe, expect, it } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { Effect, Layer, ManagedRuntime, Option } from 'effect'
-import { renderStatic } from 'foldkit/html'
-import { FoldkitRender } from '@athrio/foldkit-ssr'
+import { Option } from 'effect'
 import { view } from '../src/view'
 import { pager } from '../src/chrome'
 import { type Model, pathOf, type Route, routeOf } from '../src/model'
+import { renderDocument, renderHtml } from './render'
 
 // The router is the one place a broken link becomes a compile error rather than a 404, so
 // these cases render every route through the real SSR path — the same path the server uses.
@@ -21,14 +19,7 @@ const at = (route: Route, over: Partial<Model> = {}): Model =>
     ...over,
   }) as Model
 
-const runtime = ManagedRuntime.make(FoldkitRender.layer as Layer.Layer<FoldkitRender>)
-
-const renderHtml = (node: () => ReturnType<typeof pager>): string =>
-  runtime.runSync(
-    FoldkitRender.pipe(Effect.flatMap((r) => r.renderToString(renderStatic(node)))),
-  )
-
-const render = (model: Model): string => renderHtml(() => view(model).body)
+const render = (model: Model): string => renderHtml((h) => view(model, h).body)
 
 const ROUTES: ReadonlyArray<Route> = ['home', 'docs', 'why-loom', 'community', 'source']
 
@@ -42,9 +33,9 @@ describe('the page', () => {
   })
 
   it('titles each route for itself rather than repeating the site name', () => {
-    const titles = ROUTES.map((route) => view(at(route)).title)
+    const titles = ROUTES.map((route) => renderDocument((h) => view(at(route), h)).title)
     expect(new Set(titles).size).toBe(ROUTES.length)
-    expect(view(at('home')).title).toContain('literate programming')
+    expect(renderDocument((h) => view(at('home'), h)).title).toContain('literate programming')
   })
 
   it('gives the marketing pages the centred nav and the docs its own bar', () => {
@@ -167,10 +158,10 @@ describe('the page', () => {
 
   it('carries one card at each end of the order, not two', () => {
     // tested on the pager itself: the docs route wears variant B, which is not built yet
-    const first = renderHtml(() => pager('docs'))
+    const first = renderHtml((h) => pager('docs', h))
     expect(first).not.toContain('>Previous<')
     expect(first).toContain('class="pager-title">Community<')
-    const last = renderHtml(() => pager('source'))
+    const last = renderHtml((h) => pager('source', h))
     expect(last).toContain('class="pager-title">Why Loom<')
     expect(last).not.toContain('>Next<')
   })

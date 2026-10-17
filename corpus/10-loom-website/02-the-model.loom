@@ -23,8 +23,7 @@ The player is the example's own state, held apart because it changes on every fr
 =>
 
 import { Array, Match, Option, Schema as S } from 'effect'
-import { html } from 'foldkit/html'
-import { m } from 'foldkit/message'
+import { defineMessageUnion } from 'foldkit/message'
 
 export const Route = S.Literals(['home', 'why-loom', 'docs', 'community', 'source'])
 export type Route = typeof Route.Type
@@ -88,7 +87,7 @@ export const pathOf = (route: Route): string =>
 
 ~
 
-The server and the client read the same mapping the other way. Each starts from an address and nothing else, and the route decides which page the view draws, so the address has to name a route before anything renders. The `routeOf` function searches the routes for the one whose path matches. It derives its answer from the `pathOf` function rather than from a second table that could drift from it. An address the site does not serve names no route, so the answer is an `Option` rather than a guess.
+The server reads the same mapping the other way. A request arrives as an address and nothing else, and the route decides which page the view draws, so the address has to name a route before anything renders. The `routeOf` function searches the routes for the one whose path matches. It derives its answer from the `pathOf` function rather than from a second table that could drift from it. An address the site does not serve names no route, so the answer is an `Option` rather than a guess.
 
 =>
 
@@ -103,35 +102,40 @@ In the example they press play, pause it partway, send it back to the start, or 
 
 In the documentation they open a chapter, jump to one of its sections, and — scrolling by hand instead — let the outline follow them. They type into the palette and move its focus with the arrows. They copy a command, and a moment later the flash resets.
 
+Foldkit declares every message in one place, as a table from each tag to the fields it carries. The `defineMessageUnion` function turns that table into a schema that checks a message and a constructor for each tag. The module also exports each constructor under its own name, so the views and the update write `WentTo({ route })` rather than reaching through the union every time.
+
 =>
 
-export const WentTo = m('WentTo', { route: Route })
-export const OpenedChapter = m('OpenedChapter', { slug: S.String })
-export const PickedRuntime = m('PickedRuntime', { runtime: Runtime })
-export const ScrolledBar = m('ScrolledBar', { hidden: S.Boolean })
-export const OpenedDrawer = m('OpenedDrawer')
-export const ClosedDrawer = m('ClosedDrawer')
-export const OpenedSearch = m('OpenedSearch')
-export const ClosedSearch = m('ClosedSearch')
-export const MovedCaret = m('MovedCaret', { at: S.Number })
-export const SettledSearch = m('SettledSearch')
-export const ToggledPlay = m('ToggledPlay')
-export const ReplayedDocument = m('ReplayedDocument')
-export const SkippedToEnd = m('SkippedToEnd')
-export const ToggledFullHeight = m('ToggledFullHeight')
-export const GrewCard = m('GrewCard')
-export const Ticked = m('Ticked', { delta: S.Number })
-export const ShowedOutput = m('ShowedOutput', { which: PlayerOutput })
-export const StageMoved = m('StageMoved')
-export const SelectedSection = m('SelectedSection', { id: S.String })
-export const SectionScrolled = m('SectionScrolled')
-export const SpottedSection = m('SpottedSection', { id: S.String })
-export const Typed = m('Typed', { query: S.String })
-export const MovedFocus = m('MovedFocus', { delta: S.Number, count: S.Number })
-export const Copied = m('Copied', { id: S.String, text: S.String })
-export const CopyReset = m('CopyReset')
+export const Message = defineMessageUnion({
+  WentTo: { route: Route },
+  OpenedChapter: { slug: S.String },
+  PickedRuntime: { runtime: Runtime },
+  ScrolledBar: { hidden: S.Boolean },
+  OpenedDrawer: {},
+  ClosedDrawer: {},
+  OpenedSearch: {},
+  ClosedSearch: {},
+  MovedCaret: { at: S.Number },
+  SettledSearch: {},
+  ToggledPlay: {},
+  ReplayedDocument: {},
+  SkippedToEnd: {},
+  ToggledFullHeight: {},
+  GrewCard: {},
+  Ticked: { delta: S.Number },
+  ShowedOutput: { which: PlayerOutput },
+  StageMoved: {},
+  SelectedSection: { id: S.String },
+  SectionScrolled: {},
+  SpottedSection: { id: S.String },
+  Typed: { query: S.String },
+  MovedFocus: { delta: S.Number, count: S.Number },
+  Copied: { id: S.String, text: S.String },
+  CopyReset: {},
+})
+export type Message = typeof Message.Type
 
-export const Message = S.Union([
+export const {
   WentTo,
   OpenedChapter,
   PickedRuntime,
@@ -157,10 +161,7 @@ export const Message = S.Union([
   MovedFocus,
   Copied,
   CopyReset,
-])
-export type Message = typeof Message.Type
-
-export const h = html<Message>()
+} = Message
 
 ## The module {Tangle}[model.ts]
 

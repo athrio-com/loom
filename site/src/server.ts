@@ -1,18 +1,15 @@
-import './browser-globals'
 import { Context, Effect, FileSystem, Layer, Option, Schema as S } from 'effect'
 import {
   HttpServer,
   HttpServerRequest,
   HttpServerResponse,
-} from 'effect/unstable/http'
+} from 'effect/http'
 import { BunHttpServer, BunRuntime, BunServices } from '@effect/platform-bun'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { renderStatic } from 'foldkit/html'
-import { PREHYDRATION_CAPTURE_SCRIPT } from '@athrio/foldkit-hydration/prehydration'
-import { FoldkitRender } from '@athrio/foldkit-ssr'
+import { Server } from 'foldkit/experimental'
 import { view } from './view'
-import { type Model, routeOf } from './model'
+import { Model, routeOf } from './model'
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist')
 
@@ -33,26 +30,6 @@ const seed: Model = {
   copied: '',
 }
 
-const inlineJson = (value: unknown): string =>
-  JSON.stringify(value).replace(/</g, '\\u003c')
-
-const withBody = (shell: string, body: string): string =>
-  shell.replace('<div id="root"></div>', () => `<div id="root">${body}</div>`)
-
-const withSeed = (shell: string, model: Model): string =>
-  shell.replace(
-    '</head>',
-    () =>
-      `<script>${PREHYDRATION_CAPTURE_SCRIPT}</script>` +
-      `<script id="foldkit-model" type="application/json">${inlineJson(model)}</script></head>`,
-  )
-
-const escapeText = (text: string): string =>
-  text.replace(/&/g, '&amp;').replace(/</g, '&lt;')
-
-const withTitle = (shell: string, title: string): string =>
-  shell.replace(/<title>[\s\S]*?<\/title>/, () => `<title>${escapeText(title)}</title>`)
-
 const NPM_LATEST = 'https://registry.npmjs.org/@athrio/loom/latest'
 
 const Release = S.Struct({ version: S.String })
@@ -64,16 +41,26 @@ const latestVersion = (fallback: string): Effect.Effect<string> =>
       .then((body) => S.decodeUnknownSync(Release)(body).version),
   ).pipe(Effect.catchCause(() => Effect.succeed(fallback)))
 
-const pageOf = (
-  render: FoldkitRender['Service'],
-  shell: string,
-  model: Model,
-): Effect.Effect<string> =>
-  Effect.gen(function* () {
-    const document = view(model)
-    const body = yield* render.renderToString(renderStatic(() => document.body))
-    return withSeed(withTitle(withBody(shell, body), document.title), model)
+const application = {
+  Flags: Model,
+  init: (model: Model) => ({ model }),
+  view,
+}
+
+const ENTRY = /<script type="module"[^>]*\ssrc="([^"]+)"/
+
+const entryOf = (shell: string): Effect.Effect<string> =>
+  Option.match(Option.fromNullishOr(ENTRY.exec(shell)?.[1]), {
+    onNone: () => Effect.die(new Error('the shell loads no entry script')),
+    onSome: Effect.succeed,
   })
+
+const pageOf = (shell: string, model: Model): Effect.Effect<string> =>
+  Effect.gen(function* () {
+    const buildId = yield* entryOf(shell)
+    const rendered = yield* Server.renderToString(application, { flags: model, buildId })
+    return Server.injectIntoTemplate(shell, rendered)
+  }).pipe(Effect.orDie)
 
 const PAGE_STYLE = `
       :root { --paper: #F7F4EC; --ink: #14130F; --ink-3: #7C6F64; --rule: #E4DCCB; }
@@ -140,7 +127,6 @@ const NOT_BUILT = standalone(
 export class Site extends Context.Service<Site>()('Site', {
   make: Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
-    const render = yield* FoldkitRender
     const version = yield* latestVersion(seed.version)
     const shell = fs.readFileString(join(distDir, 'index.html'))
     return {
@@ -149,10 +135,10 @@ export class Site extends Context.Service<Site>()('Site', {
           onNone: () => Effect.succeed(Option.none()),
           onSome: (route) =>
             shell.pipe(
-              Effect.flatMap((held) =>
-                pageOf(render, held, { ...seed, route, version }),
-              ),
-              Effect.catchCause(() => Effect.succeed(NOT_BUILT)),
+              Effect.matchEffect({
+                onFailure: () => Effect.succeed(NOT_BUILT),
+                onSuccess: (held) => pageOf(held, { ...seed, route, version }),
+              }),
               Effect.map(Option.some),
             ),
         }),
@@ -164,7 +150,6 @@ export class Site extends Context.Service<Site>()('Site', {
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make).pipe(
-    Layer.provide(FoldkitRender.layer),
     Layer.provide(BunServices.layer),
   )
 }

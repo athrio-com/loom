@@ -1,6 +1,6 @@
 import { Array, Match } from 'effect'
-import type { Html } from 'foldkit/html'
-import { Copied, h, type Model } from './model'
+import type { Html, HtmlBuilder } from 'foldkit/html'
+import { Copied, type Message, type Model } from './model'
 import { broadSeam, carpetMark, operationsCarpet } from './components'
 import initDrawing from './init.svg?raw'
 import tangleDrawing from './tangle.svg?raw'
@@ -71,29 +71,35 @@ export const operations: ReadonlyArray<Operation> = [
   },
 ]
 
-const jsonLine = (line: ReadonlyArray<readonly [string, string]>): Html =>
+const jsonLine = (
+  line: ReadonlyArray<readonly [string, string]>,
+  h: HtmlBuilder<Message>,
+): Html =>
   h.div(
     [h.Class('json-line')],
     Array.map(line, ([text, kind]) => h.span([h.Class(`tok-${kind}`)], [text])),
   )
 
-const jsonBlock = (lines: ReadonlyArray<ReadonlyArray<readonly [string, string]>>): Html =>
-  h.div([h.Class('px-json')], Array.map(lines, jsonLine))
+const jsonBlock = (
+  lines: ReadonlyArray<ReadonlyArray<readonly [string, string]>>,
+  h: HtmlBuilder<Message>,
+): Html =>
+  h.div([h.Class('px-json')], Array.map(lines, (line) => jsonLine(line, h)))
 
-const illustration = (operation: Operation): Html =>
+const illustration = (operation: Operation, h: HtmlBuilder<Message>): Html =>
   h.div(
     [h.Class('ops-frame')],
     [
       Match.value(operation.drawing).pipe(
         Match.when(Match.undefined, () =>
-          h.div([h.Class('ops-art')], [jsonBlock(operation.json ?? [])]),
+          h.div([h.Class('ops-art')], [jsonBlock(operation.json ?? [], h)]),
         ),
         Match.orElse((drawing) => h.div([h.Class('ops-svg'), h.InnerHTML(drawing)], [])),
       ),
     ],
   )
 
-const operationCard = (operation: Operation, copied: string): Html =>
+const operationCard = (operation: Operation, copied: string, h: HtmlBuilder<Message>): Html =>
   h.div(
     [h.Class('ops-card')],
     [
@@ -119,12 +125,12 @@ const operationCard = (operation: Operation, copied: string): Html =>
           ),
         ],
       ),
-      illustration(operation),
+      illustration(operation, h),
       h.p([h.Class('ops-says')], [operation.says]),
     ],
   )
 
-export const fromInitToEject = (model: Model): Html =>
+export const fromInitToEject = (model: Model, h: HtmlBuilder<Message>): Html =>
   h.div(
     [h.Class('section'), h.Id('loom-operations')],
     [
@@ -143,7 +149,7 @@ export const fromInitToEject = (model: Model): Html =>
       ),
       h.div(
         [h.Class('ops-grid')],
-        Array.map(operations, (operation) => operationCard(operation, model.copied)),
+        Array.map(operations, (operation) => operationCard(operation, model.copied, h)),
       ),
     ],
   )

@@ -1,6 +1,5 @@
 import { Array } from 'effect'
-import type { Html } from 'foldkit/html'
-import { h } from './model'
+import { type Html, inertHtml as ih } from 'foldkit/html'
 import { broadSeam, carpetMark, vocabularyCarpet } from './components'
 
 type Mark = {
@@ -71,43 +70,43 @@ export const marks: ReadonlyArray<Mark> = [
 ]
 
 const glyphChip = (mark: Mark): Html =>
-  h.span(
-    [h.Class('mark-glyph'), h.Style({ color: mark.colour, background: `${mark.colour}1F` })],
+  ih.span(
+    [ih.Class('mark-glyph'), ih.Style({ color: mark.colour, background: `${mark.colour}1F` })],
     [mark.glyph],
   )
 
 const markCard = (mark: Mark): Html =>
-  h.div(
+  ih.div(
     [
-      h.Class('mark-card'),
-      h.Style({ '--mark-ink': mark.colour, '--mark-tint': mark.tint }),
+      ih.Class('mark-card'),
+      ih.Style({ '--mark-ink': mark.colour, '--mark-tint': mark.tint }),
     ],
     [
-      h.span(
-        [h.Class('mark-card-head')],
-        [glyphChip(mark), h.span([h.Class('mark-name')], [mark.name])],
+      ih.span(
+        [ih.Class('mark-card-head')],
+        [glyphChip(mark), ih.span([ih.Class('mark-name')], [mark.name])],
       ),
-      h.span([h.Class('mark-says')], [mark.says]),
+      ih.span([ih.Class('mark-says')], [mark.says]),
     ],
   )
 
 export const vocabulary = (): Html =>
-  h.div(
-    [h.Class('section'), h.Id('loom-marks')],
+  ih.div(
+    [ih.Class('section'), ih.Id('loom-marks')],
     [
-      h.div(
-        [h.Class('section-head')],
+      ih.div(
+        [ih.Class('section-head')],
         [
           carpetMark(vocabularyCarpet, '42px', broadSeam),
-          h.div(
-            [h.Class('lines')],
+          ih.div(
+            [ih.Class('lines')],
             [
-              h.span([h.Class('eyebrow')], ['Loom syntax']),
-              h.h2([], ['The whole vocabulary']),
+              ih.span([ih.Class('eyebrow')], ['Loom syntax']),
+              ih.h2([], ['The whole vocabulary']),
             ],
           ),
         ],
       ),
-      h.div([h.Class('mark-set')], Array.map(marks, markCard)),
+      ih.div([ih.Class('mark-set')], Array.map(marks, markCard)),
     ],
   )

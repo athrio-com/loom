@@ -19,8 +19,8 @@ The pill's ground is its own colour at a tenth or a thirteenth strength, dark en
 =>
 
 import { Array, Match } from 'effect'
-import type { Html } from 'foldkit/html'
-import { Copied, h, type Model } from './model'
+import type { Html, HtmlBuilder } from 'foldkit/html'
+import { Copied, type Message, type Model } from './model'
 import { broadSeam, carpetMark, operationsCarpet } from './components'
 import initDrawing from './init.svg?raw'
 import tangleDrawing from './tangle.svg?raw'
@@ -111,14 +111,20 @@ The weave's picture is not a tree but the document it produces, so it is drawn a
 
 =>
 
-const jsonLine = (line: ReadonlyArray<readonly [string, string]>): Html =>
+const jsonLine = (
+  line: ReadonlyArray<readonly [string, string]>,
+  h: HtmlBuilder<Message>,
+): Html =>
   h.div(
     [h.Class('json-line')],
     Array.map(line, ([text, kind]) => h.span([h.Class(`tok-${kind}`)], [text])),
   )
 
-const jsonBlock = (lines: ReadonlyArray<ReadonlyArray<readonly [string, string]>>): Html =>
-  h.div([h.Class('px-json')], Array.map(lines, jsonLine))
+const jsonBlock = (
+  lines: ReadonlyArray<ReadonlyArray<readonly [string, string]>>,
+  h: HtmlBuilder<Message>,
+): Html =>
+  h.div([h.Class('px-json')], Array.map(lines, (line) => jsonLine(line, h)))
 
 ## A command's card
 
@@ -126,20 +132,20 @@ The card is the pill, the illustration in its frame, and the sentence. Two of th
 
 =>
 
-const illustration = (operation: Operation): Html =>
+const illustration = (operation: Operation, h: HtmlBuilder<Message>): Html =>
   h.div(
     [h.Class('ops-frame')],
     [
       Match.value(operation.drawing).pipe(
         Match.when(Match.undefined, () =>
-          h.div([h.Class('ops-art')], [jsonBlock(operation.json ?? [])]),
+          h.div([h.Class('ops-art')], [jsonBlock(operation.json ?? [], h)]),
         ),
         Match.orElse((drawing) => h.div([h.Class('ops-svg'), h.InnerHTML(drawing)], [])),
       ),
     ],
   )
 
-const operationCard = (operation: Operation, copied: string): Html =>
+const operationCard = (operation: Operation, copied: string, h: HtmlBuilder<Message>): Html =>
   h.div(
     [h.Class('ops-card')],
     [
@@ -165,7 +171,7 @@ const operationCard = (operation: Operation, copied: string): Html =>
           ),
         ],
       ),
-      illustration(operation),
+      illustration(operation, h),
       h.p([h.Class('ops-says')], [operation.says]),
     ],
   )
@@ -176,7 +182,7 @@ The four cards sit in a grid of columns three hundred pixels wide, up to three o
 
 =>
 
-export const fromInitToEject = (model: Model): Html =>
+export const fromInitToEject = (model: Model, h: HtmlBuilder<Message>): Html =>
   h.div(
     [h.Class('section'), h.Id('loom-operations')],
     [
@@ -195,7 +201,7 @@ export const fromInitToEject = (model: Model): Html =>
       ),
       h.div(
         [h.Class('ops-grid')],
-        Array.map(operations, (operation) => operationCard(operation, model.copied)),
+        Array.map(operations, (operation) => operationCard(operation, model.copied, h)),
       ),
     ],
   )

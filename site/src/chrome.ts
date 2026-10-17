@@ -1,5 +1,5 @@
 import { Array, Match, Option, pipe } from 'effect'
-import type { Html } from 'foldkit/html'
+import { inertHtml as ih, type Html, type HtmlBuilder } from 'foldkit/html'
 import {
   ClosedSearch,
   MovedFocus,
@@ -7,7 +7,6 @@ import {
   OpenedSearch,
   Typed,
   WentTo,
-  h,
   type Message,
   type Model,
   type Route,
@@ -40,7 +39,7 @@ export const navPages: ReadonlyArray<NavPage> = [
   { route: 'source', label: 'source', href: '/source', carpet: sourceCarpet },
 ]
 
-const navLink = (page: NavPage, here: boolean): Html =>
+const navLink = (page: NavPage, here: boolean, h: HtmlBuilder<Message>): Html =>
   h.a(
     [
       h.Class(here ? 'nav-link here' : 'nav-link'),
@@ -50,11 +49,11 @@ const navLink = (page: NavPage, here: boolean): Html =>
     [page.label],
   )
 
-export const nav = (model: Model): Html =>
+export const nav = (model: Model, h: HtmlBuilder<Message>): Html =>
   h.nav(
     [h.Class('nav'), h.Role('navigation')],
     [
-      ...Array.map(Array.take(navPages, 2), (page) => navLink(page, page.route === model.route)),
+      ...Array.map(Array.take(navPages, 2), (page) => navLink(page, page.route === model.route, h)),
       h.a(
         [
           h.Class('nav-word'),
@@ -64,12 +63,12 @@ export const nav = (model: Model): Html =>
         ],
         ['Loom'],
       ),
-      ...Array.map(Array.drop(navPages, 2), (page) => navLink(page, page.route === model.route)),
-      findButton('nav-find', 'Search Loom — press /'),
+      ...Array.map(Array.drop(navPages, 2), (page) => navLink(page, page.route === model.route, h)),
+      findButton('nav-find', 'Search Loom — press /', h),
     ],
   )
 
-const findButton = (className: string, title: string): Html =>
+const findButton = (className: string, title: string, h: HtmlBuilder<Message>): Html =>
   h.button(
     [
       h.Class(className),
@@ -87,7 +86,7 @@ const findButton = (className: string, title: string): Html =>
 
 const REPO = 'https://github.com/athrio-com/loom'
 
-export const docsBar = (model: Model): Html =>
+export const docsBar = (model: Model, h: HtmlBuilder<Message>): Html =>
   h.div(
     [h.Class(model.navHidden ? 'docs-bar hidden' : 'docs-bar')],
     [
@@ -107,12 +106,12 @@ export const docsBar = (model: Model): Html =>
       ),
       h.div(
         [h.Class('bar-links')],
-        Array.map(navPages, (page) => navLink(page, page.route === model.route)),
+        Array.map(navPages, (page) => navLink(page, page.route === model.route, h)),
       ),
       h.div(
         [h.Class('bar-end')],
         [
-          findButton('bar-find', 'Search the docs — press /'),
+          findButton('bar-find', 'Search the docs — press /', h),
           h.a(
             [h.Class('bar-repo'), h.Href(REPO), h.Title('View the repo on GitHub')],
             [octocatIcon('15'), h.span([], [`v${model.version}`])],
@@ -168,7 +167,11 @@ const readingOrder: ReadonlyArray<Neighbour> = [
   },
 ]
 
-const pagerCard = (page: Neighbour, direction: 'Previous' | 'Next'): Html => {
+const pagerCard = (
+  page: Neighbour,
+  direction: 'Previous' | 'Next',
+  h: HtmlBuilder<Message>,
+): Html => {
   const mark = carpetMark(page.carpet, '42px', broadSeam)
   const words = h.div(
     [h.Class('pager-words')],
@@ -188,7 +191,7 @@ const pagerCard = (page: Neighbour, direction: 'Previous' | 'Next'): Html => {
   )
 }
 
-export const pager = (route: Route): Html => {
+export const pager = (route: Route, h: HtmlBuilder<Message>): Html => {
   const at = Array.findFirstIndex(readingOrder, (page) => page.route === route)
   const step = (by: number): Option.Option<Neighbour> =>
     pipe(
@@ -201,15 +204,19 @@ export const pager = (route: Route): Html => {
       h.div(
         [h.Class('pager-row')],
         [
-          ...Option.toArray(Option.map(step(-1), (page) => pagerCard(page, 'Previous'))),
-          ...Option.toArray(Option.map(step(1), (page) => pagerCard(page, 'Next'))),
+          ...Option.toArray(Option.map(step(-1), (page) => pagerCard(page, 'Previous', h))),
+          ...Option.toArray(Option.map(step(1), (page) => pagerCard(page, 'Next', h))),
         ],
       ),
     ],
   )
 }
 
-const docsPagerCard = (page: Neighbour, direction: 'Previous' | 'Next'): Html =>
+const docsPagerCard = (
+  page: Neighbour,
+  direction: 'Previous' | 'Next',
+  h: HtmlBuilder<Message>,
+): Html =>
   h.a(
     [
       h.Class(direction === 'Next' ? 'docs-pager-card next' : 'docs-pager-card'),
@@ -222,7 +229,7 @@ const docsPagerCard = (page: Neighbour, direction: 'Previous' | 'Next'): Html =>
     ],
   )
 
-export const docsPager = (route: Route): Html => {
+export const docsPager = (route: Route, h: HtmlBuilder<Message>): Html => {
   const at = Array.findFirstIndex(readingOrder, (page) => page.route === route)
   const step = (by: number): Option.Option<Neighbour> =>
     pipe(
@@ -232,8 +239,8 @@ export const docsPager = (route: Route): Html => {
   return h.div(
     [h.Class('docs-pager')],
     [
-      ...Option.toArray(Option.map(step(-1), (page) => docsPagerCard(page, 'Previous'))),
-      ...Option.toArray(Option.map(step(1), (page) => docsPagerCard(page, 'Next'))),
+      ...Option.toArray(Option.map(step(-1), (page) => docsPagerCard(page, 'Previous', h))),
+      ...Option.toArray(Option.map(step(1), (page) => docsPagerCard(page, 'Next', h))),
     ],
   )
 }
@@ -487,7 +494,7 @@ const paletteKey = (key: string, model: Model): Message => {
   )
 }
 
-const caretMirror = (model: Model): Html => {
+const caretMirror = (model: Model, h: HtmlBuilder<Message>): Html => {
   const at = Math.min(model.caret, model.query.length)
   return h.span(
     [h.Class('palette-mirror'), h.AriaHidden(true)],
@@ -498,7 +505,7 @@ const caretMirror = (model: Model): Html => {
   )
 }
 
-const queryField = (model: Model): Html =>
+const queryField = (model: Model, h: HtmlBuilder<Message>): Html =>
   h.span(
     [h.Class('palette-field')],
     [
@@ -511,7 +518,7 @@ const queryField = (model: Model): Html =>
         h.OnInput((query) => Typed({ query })),
         h.OnKeyDown((key) => paletteKey(key, model)),
       ]),
-      caretMirror(model),
+      caretMirror(model, h),
     ],
   )
 
@@ -522,11 +529,11 @@ type Pill = {
 }
 
 const brandMark = (viewBox: string, fill: string, path: string): Html =>
-  h.span(
+  ih.span(
     [
-      h.AriaHidden(true),
-      h.Style({ display: 'block', flex: 'none', width: '17px', height: '17px' }),
-      h.InnerHTML(
+      ih.AriaHidden(true),
+      ih.Style({ display: 'block', flex: 'none', width: '17px', height: '17px' }),
+      ih.InnerHTML(
         `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" fill="${fill}" width="17" height="17"><path d="${path}"/></svg>`,
       ),
     ],
@@ -562,7 +569,7 @@ const pills: ReadonlyArray<Pill> = [
   },
 ]
 
-const pillRow = (focus: number): Html =>
+const pillRow = (focus: number, h: HtmlBuilder<Message>): Html =>
   h.div(
     [h.Class('palette-pills')],
     Array.map(pills, (pill, index) =>
@@ -585,6 +592,7 @@ const passageRow = (
   passage: Passage,
   query: string,
   focused: boolean,
+  h: HtmlBuilder<Message>,
 ): Html => {
   const fragment = fragmentOf(passage, query)
   return h.button(
@@ -611,7 +619,13 @@ const passageRow = (
   )
 }
 
-const groupBlock = (group: Group, query: string, focus: number, from: number): Html =>
+const groupBlock = (
+  group: Group,
+  query: string,
+  focus: number,
+  from: number,
+  h: HtmlBuilder<Message>,
+): Html =>
   h.div(
     [h.Class('palette-kids-wrap')],
     [
@@ -631,7 +645,7 @@ const groupBlock = (group: Group, query: string, focus: number, from: number): H
       h.div(
         [h.Class('palette-kids')],
         Array.map(group.rows, (passage, index) =>
-          passageRow(group.page, passage, query, focus === from + 1 + index),
+          passageRow(group.page, passage, query, focus === from + 1 + index, h),
         ),
       ),
     ],
@@ -646,7 +660,7 @@ const focusedPage = (model: Model): SearchPage => {
   )
 }
 
-const results = (model: Model): Html => {
+const results = (model: Model, h: HtmlBuilder<Message>): Html => {
   const groups = groupsFor(model.query)
   const starts = pipe(
     groups,
@@ -661,12 +675,12 @@ const results = (model: Model): Html => {
     groups.length === 0
       ? [h.span([h.Class('palette-empty')], [`no match for “${model.query.trim()}”`])]
       : Array.map(groups, (group, index) =>
-          groupBlock(group, model.query, model.focus, starts[index] ?? 0),
+          groupBlock(group, model.query, model.focus, starts[index] ?? 0, h),
         ),
   )
 }
 
-const searching = (page: SearchPage): Html =>
+const searching = (page: SearchPage, h: HtmlBuilder<Message>): Html =>
   h.div(
     [h.Style({ display: 'flex', flexDirection: 'column', flex: 'none' })],
     [
@@ -683,7 +697,7 @@ const searching = (page: SearchPage): Html =>
 
 const countOf = (total: number): string => `${total} ${total === 1 ? 'result' : 'results'}`
 
-const hintBar = (model: Model, page: SearchPage): Html =>
+const hintBar = (model: Model, page: SearchPage, h: HtmlBuilder<Message>): Html =>
   h.div(
     [
       h.Class('palette-bar'),
@@ -700,14 +714,18 @@ const hintBar = (model: Model, page: SearchPage): Html =>
     ],
   )
 
-const paletteMiddle = (model: Model, page: SearchPage): ReadonlyArray<Html> =>
+const paletteMiddle = (
+  model: Model,
+  page: SearchPage,
+  h: HtmlBuilder<Message>,
+): ReadonlyArray<Html> =>
   Match.value({ typed: model.query.trim() !== '', settling: model.searching }).pipe(
-    Match.when({ typed: false }, () => [pillRow(model.focus)]),
-    Match.when({ settling: true }, () => [searching(page)]),
-    Match.orElse(() => [results(model), hintBar(model, page)]),
+    Match.when({ typed: false }, () => [pillRow(model.focus, h)]),
+    Match.when({ settling: true }, () => [searching(page, h)]),
+    Match.orElse(() => [results(model, h), hintBar(model, page, h)]),
   )
 
-export const palette = (model: Model): Html => {
+export const palette = (model: Model, h: HtmlBuilder<Message>): Html => {
   const page = focusedPage(model)
   return h.div(
     [h.Class('palette-shell'), h.Role('dialog')],
@@ -718,7 +736,7 @@ export const palette = (model: Model): Html => {
           h.div(
             [h.Class('palette-head')],
             [
-              queryField(model),
+              queryField(model, h),
               h.button(
                 [
                   h.Class('palette-esc'),
@@ -730,7 +748,7 @@ export const palette = (model: Model): Html => {
               ),
             ],
           ),
-          ...paletteMiddle(model, page),
+          ...paletteMiddle(model, page, h),
         ],
       ),
     ],
@@ -751,7 +769,7 @@ const footerLinks: ReadonlyArray<FooterLink> = [
   { label: 'About Nonprofit', href: '/community', ink: '#6E9BFF' },
 ]
 
-export const footer = (): Html =>
+export const footer = (h: HtmlBuilder<Message>): Html =>
   h.footer(
     [h.Class('footer')],
     [

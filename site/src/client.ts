@@ -1,7 +1,8 @@
-import { Array, Effect, Match, Option, pipe, Schema as S, Stream } from 'effect'
+import { Array, Effect, Filter, Match, Option, pipe, Schema as S, Stream } from 'effect'
 import { Runtime, Subscription } from 'foldkit'
-import { define, mapMessages, type Command } from 'foldkit/command'
-import { ssrHydration } from '@athrio/foldkit-hydration'
+import { define } from 'foldkit/command'
+import { animationFrameEntry } from 'foldkit/subscription'
+import type { Return } from 'foldkit/update'
 import { view } from './view'
 import {
   CopyReset,
@@ -9,7 +10,6 @@ import {
   type Message,
   Model,
   type Player,
-  routeOf,
   SectionScrolled,
   SelectedSection,
   SpottedSection,
@@ -19,16 +19,18 @@ import {
 } from './model'
 import { CHARACTERS, RUN, struckBy } from './example'
 
-type Step = readonly [Model, ReadonlyArray<Command<Message>>]
+type Step = Return<Model, Message>
 
-const CopyThenReset = define('CopyThenReset', { text: S.String }, CopyReset)(
-  ({ text }) =>
+const CopyThenReset = define('CopyThenReset', {
+  args: { text: S.String },
+  messages: [CopyReset],
+  execute: ({ text }) =>
     Effect.tryPromise(() => navigator.clipboard.writeText(text)).pipe(
       Effect.ignore,
       Effect.andThen(Effect.sleep('1400 millis')),
       Effect.as(CopyReset()),
     ),
-)
+})
 
 const scrollIntoPreview = (id: string): void =>
   Option.match(Option.fromNullishOr(document.getElementById(id)), {
@@ -36,13 +38,15 @@ const scrollIntoPreview = (id: string): void =>
     onSome: (target) => target.scrollIntoView({ behavior: 'smooth', block: 'start' }),
   })
 
-const ScrollToSection = define('ScrollToSection', { id: S.String }, SectionScrolled)(
-  ({ id }) =>
+const ScrollToSection = define('ScrollToSection', {
+  args: { id: S.String },
+  messages: [SectionScrolled],
+  execute: ({ id }) =>
     Effect.sleep('30 millis').pipe(
       Effect.andThen(Effect.sync(() => scrollIntoPreview(id))),
       Effect.as(SectionScrolled()),
     ),
-)
+})
 
 const LINE = 28
 const TAIL = LINE * 3
@@ -67,13 +71,15 @@ const moveStage = (mark: StageMark): void =>
     },
   })
 
-const MoveStage = define('MoveStage', { to: StageMark }, StageMoved)(
-  ({ to }) =>
+const MoveStage = define('MoveStage', {
+  args: { to: StageMark },
+  messages: [StageMoved],
+  execute: ({ to }) =>
     (to === 'foot' ? Effect.sleep('30 millis') : Effect.void).pipe(
       Effect.andThen(Effect.sync(() => moveStage(to))),
       Effect.as(StageMoved()),
     ),
-)
+})
 
 const CARD_AIR = 24
 const GLIDE = 320
@@ -100,8 +106,9 @@ const glide = (from: number, distance: number, started: number): Effect.Effect<v
     ),
   )
 
-const GlideToCard = define('GlideToCard', GrewCard)(
-  Effect.suspend(() =>
+const GlideToCard = define('GlideToCard', {
+  messages: [GrewCard],
+  execute: Effect.suspend(() =>
     Option.match(cardRest(), {
       onNone: () => Effect.void,
       onSome: (rest) => {
@@ -112,7 +119,7 @@ const GlideToCard = define('GlideToCard', GrewCard)(
       },
     }),
   ).pipe(Effect.as(GrewCard())),
-)
+})
 
 const clamp = (value: number, max: number): number =>
   Math.max(0, Math.min(max, value))
@@ -136,42 +143,42 @@ const toggled = (player: Player): Player => {
 const stepped = (model: Model, delta: number): Step => {
   const beat = model.player.beat + (Math.min(delta, 32) / 1000) * CHARS_PER_SECOND
   if (beat >= RUN) {
-    return [
-      { ...model, player: { ...model.player, struck: CHARACTERS, beat: RUN, playing: false } },
-      [MoveStage({ to: 'foot' })],
-    ]
+    return {
+      model: { ...model, player: { ...model.player, struck: CHARACTERS, beat: RUN, playing: false } },
+      commands: [MoveStage({ to: 'foot' })],
+    }
   }
   const struck = struckBy(beat)
-  return [
-    { ...model, player: { ...model.player, struck, beat } },
-    struck === model.player.struck ? [] : [MoveStage({ to: 'caret' })],
-  ]
+  return {
+    model: { ...model, player: { ...model.player, struck, beat } },
+    commands: struck === model.player.struck ? [] : [MoveStage({ to: 'caret' })],
+  }
 }
 
 const update = (model: Model, message: Message): Step =>
   Match.value(message).pipe(
     Match.withReturnType<Step>(),
     Match.tagsExhaustive({
-      ToggledPlay: () => [{ ...model, player: toggled(model.player) }, []],
+      ToggledPlay: () => ({ model: { ...model, player: toggled(model.player) } }),
       Ticked: ({ delta }) => stepped(model, delta),
-      SkippedToEnd: () => [
-        { ...model, player: { ...model.player, struck: CHARACTERS, beat: RUN, playing: false } },
-        [MoveStage({ to: 'foot' })],
-      ],
-      ReplayedDocument: () => [
-        {
+      SkippedToEnd: () => ({
+        model: { ...model, player: { ...model.player, struck: CHARACTERS, beat: RUN, playing: false } },
+        commands: [MoveStage({ to: 'foot' })],
+      }),
+      ReplayedDocument: () => ({
+        model: {
           ...model,
           player: { struck: 0, beat: 0, playing: false, output: Option.none(), full: false },
         },
-        [MoveStage({ to: 'head' })],
-      ],
+        commands: [MoveStage({ to: 'head' })],
+      }),
       ToggledFullHeight: () =>
         model.player.full
-          ? [{ ...model, player: { ...model.player, full: false } }, []]
-          : [model, [GlideToCard()]],
-      GrewCard: () => [{ ...model, player: { ...model.player, full: true } }, []],
-      ShowedOutput: ({ which }) => [
-        {
+          ? { model: { ...model, player: { ...model.player, full: false } } }
+          : { model, commands: [GlideToCard()] },
+      GrewCard: () => ({ model: { ...model, player: { ...model.player, full: true } } }),
+      ShowedOutput: ({ which }) => ({
+        model: {
           ...model,
           player: {
             ...model.player,
@@ -180,37 +187,39 @@ const update = (model: Model, message: Message): Step =>
               : Option.some(which),
           },
         },
-        [],
-      ],
-      StageMoved: () => [model, []],
-      SelectedSection: ({ id }) => [{ ...model, activeSection: id }, [ScrollToSection({ id })]],
-      SectionScrolled: () => [model, []],
+      }),
+      StageMoved: () => ({ model }),
+      SelectedSection: ({ id }) => ({
+        model: { ...model, activeSection: id },
+        commands: [ScrollToSection({ id })],
+      }),
+      SectionScrolled: () => ({ model }),
       SpottedSection: ({ id }) =>
-        id === model.activeSection ? [model, []] : [{ ...model, activeSection: id }, []],
-      WentTo: ({ route }) => [{ ...model, route, searchOpen: false }, []],
-      OpenedChapter: ({ slug }) => [
-        { ...model, chapter: slug, activeSection: '', drawerOpen: false },
-        [],
-      ],
-      PickedRuntime: ({ runtime }) => [{ ...model, runtime }, []],
+        id === model.activeSection ? { model } : { model: { ...model, activeSection: id } },
+      WentTo: ({ route }) => ({ model: { ...model, route, searchOpen: false } }),
+      OpenedChapter: ({ slug }) => ({
+        model: { ...model, chapter: slug, activeSection: '', drawerOpen: false },
+      }),
+      PickedRuntime: ({ runtime }) => ({ model: { ...model, runtime } }),
       ScrolledBar: ({ hidden }) =>
-        hidden === model.navHidden ? [model, []] : [{ ...model, navHidden: hidden }, []],
-      OpenedDrawer: () => [{ ...model, drawerOpen: true }, []],
-      ClosedDrawer: () => [{ ...model, drawerOpen: false }, []],
-      OpenedSearch: () => [{ ...model, searchOpen: true, focus: 0 }, []],
-      ClosedSearch: () => [
-        { ...model, searchOpen: false, query: '', focus: 0, caret: 0, searching: false },
-        [],
-      ],
-      MovedCaret: ({ at }) => [{ ...model, caret: at }, []],
-      SettledSearch: () => [{ ...model, searching: false }, []],
-      Typed: ({ query }) => [{ ...model, query, focus: 0 }, []],
-      MovedFocus: ({ delta, count }) => [
-        { ...model, focus: clamp(model.focus + delta, Math.max(0, count - 1)) },
-        [],
-      ],
-      Copied: ({ id, text }) => [{ ...model, copied: id }, [CopyThenReset({ text })]],
-      CopyReset: () => [{ ...model, copied: '' }, []],
+        hidden === model.navHidden ? { model } : { model: { ...model, navHidden: hidden } },
+      OpenedDrawer: () => ({ model: { ...model, drawerOpen: true } }),
+      ClosedDrawer: () => ({ model: { ...model, drawerOpen: false } }),
+      OpenedSearch: () => ({ model: { ...model, searchOpen: true, focus: 0 } }),
+      ClosedSearch: () => ({
+        model: { ...model, searchOpen: false, query: '', focus: 0, caret: 0, searching: false },
+      }),
+      MovedCaret: ({ at }) => ({ model: { ...model, caret: at } }),
+      SettledSearch: () => ({ model: { ...model, searching: false } }),
+      Typed: ({ query }) => ({ model: { ...model, query, focus: 0 } }),
+      MovedFocus: ({ delta, count }) => ({
+        model: { ...model, focus: clamp(model.focus + delta, Math.max(0, count - 1)) },
+      }),
+      Copied: ({ id, text }) => ({
+        model: { ...model, copied: id },
+        commands: [CopyThenReset({ text })],
+      }),
+      CopyReset: () => ({ model: { ...model, copied: '' } }),
     }),
   )
 
@@ -227,6 +236,15 @@ const activeSectionId = (): Option.Option<string> => {
   )
 }
 
+const windowEvents = <E extends Event>(
+  type: string,
+  toMessage: (event: E) => Option.Option<Message>,
+  options?: { readonly passive?: boolean },
+): Stream.Stream<Message> =>
+  Stream.fromEventListener<E>(window, type, options).pipe(
+    Stream.filterMap(Filter.fromPredicateOption(toMessage)),
+  )
+
 const subscriptions = Subscription.make<Model, Message>()((entry) => ({
   sectionSpy: entry(
     { spying: S.Boolean },
@@ -236,16 +254,15 @@ const subscriptions = Subscription.make<Model, Message>()((entry) => ({
       }),
       dependenciesToStream: ({ spying }) =>
         spying
-          ? Subscription.fromEventFilterMap<Event, Message>({
-              target: window,
-              type: 'scroll',
-              options: { passive: true },
-              toMessage: () => Option.map(activeSectionId(), (id) => SpottedSection({ id })),
-            })
+          ? windowEvents(
+              'scroll',
+              () => Option.map(activeSectionId(), (id) => SpottedSection({ id })),
+              { passive: true },
+            )
           : Stream.empty,
     },
   ),
-  typing: Subscription.animationFrame<Model, Message>({
+  typing: animationFrameEntry<Model, Message>({
     isActive: (model) => model.player.playing,
     toMessage: (delta) => Ticked({ delta }),
   }),
@@ -255,12 +272,9 @@ const subscriptions = Subscription.make<Model, Message>()((entry) => ({
       modelToDependencies: (model) => ({ full: model.player.full }),
       dependenciesToStream: ({ full }) =>
         full
-          ? Subscription.fromEventFilterMap<KeyboardEvent, Message>({
-              target: window,
-              type: 'keydown',
-              toMessage: (event) =>
-                event.key === 'Escape' ? Option.some(ToggledFullHeight()) : Option.none(),
-            })
+          ? windowEvents<KeyboardEvent>('keydown', (event) =>
+              event.key === 'Escape' ? Option.some(ToggledFullHeight()) : Option.none(),
+            )
           : Stream.empty,
     },
   ),
@@ -268,51 +282,14 @@ const subscriptions = Subscription.make<Model, Message>()((entry) => ({
 
 import './landing.css'
 
-const emptyModel: Model = {
-  route: 'home',
-  chapter: '',
-  navHidden: false,
-  drawerOpen: false,
-  runtime: 'bun',
-  searchOpen: false,
-  caret: 0,
-  searching: false,
-  activeSection: '',
-  player: { struck: 0, beat: 0, playing: false, output: Option.none(), full: false },
-  version: '0.0.11',
-  query: '',
-  focus: 0,
-  copied: '',
-}
-
-const routed = (model: Model): Model =>
-  Option.match(routeOf(window.location.pathname), {
-    onNone: () => model,
-    onSome: (route) => ({ ...model, route }),
-  })
-
-const flags: Effect.Effect<Model> = Effect.sync(() =>
-  routed(
-    Option.match(
-      Option.fromNullishOr(document.getElementById('foldkit-model')?.textContent),
-      {
-        onSome: (text) => S.decodeUnknownSync(Model)(JSON.parse(text)),
-        onNone: () => emptyModel,
-      },
-    ),
-  ),
-)
-
 const application = Runtime.makeApplication({
   Model,
   Flags: Model,
-  flags,
-  init: (seed: Model): Step => [seed, []],
+  init: (seed: Model): Step => ({ model: seed }),
   update,
   view,
   subscriptions,
   container: document.getElementById('root'),
-  hydrate: ssrHydration(),
 })
 
-Runtime.run(application)
+Runtime.hydrate(application, { buildId: new URL(import.meta.url).pathname })

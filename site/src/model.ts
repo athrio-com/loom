@@ -11,8 +11,7 @@ export const Player = S.Struct({
 export type Player = typeof Player.Type
 
 import { Array, Match, Option, Schema as S } from 'effect'
-import { html } from 'foldkit/html'
-import { m } from 'foldkit/message'
+import { defineMessageUnion } from 'foldkit/message'
 
 export const Route = S.Literals(['home', 'why-loom', 'docs', 'community', 'source'])
 export type Route = typeof Route.Type
@@ -51,33 +50,36 @@ export const pathOf = (route: Route): string =>
 export const routeOf = (pathname: string): Option.Option<Route> =>
   Array.findFirst(Route.literals, (route) => pathOf(route) === pathname)
 
-export const WentTo = m('WentTo', { route: Route })
-export const OpenedChapter = m('OpenedChapter', { slug: S.String })
-export const PickedRuntime = m('PickedRuntime', { runtime: Runtime })
-export const ScrolledBar = m('ScrolledBar', { hidden: S.Boolean })
-export const OpenedDrawer = m('OpenedDrawer')
-export const ClosedDrawer = m('ClosedDrawer')
-export const OpenedSearch = m('OpenedSearch')
-export const ClosedSearch = m('ClosedSearch')
-export const MovedCaret = m('MovedCaret', { at: S.Number })
-export const SettledSearch = m('SettledSearch')
-export const ToggledPlay = m('ToggledPlay')
-export const ReplayedDocument = m('ReplayedDocument')
-export const SkippedToEnd = m('SkippedToEnd')
-export const ToggledFullHeight = m('ToggledFullHeight')
-export const GrewCard = m('GrewCard')
-export const Ticked = m('Ticked', { delta: S.Number })
-export const ShowedOutput = m('ShowedOutput', { which: PlayerOutput })
-export const StageMoved = m('StageMoved')
-export const SelectedSection = m('SelectedSection', { id: S.String })
-export const SectionScrolled = m('SectionScrolled')
-export const SpottedSection = m('SpottedSection', { id: S.String })
-export const Typed = m('Typed', { query: S.String })
-export const MovedFocus = m('MovedFocus', { delta: S.Number, count: S.Number })
-export const Copied = m('Copied', { id: S.String, text: S.String })
-export const CopyReset = m('CopyReset')
+export const Message = defineMessageUnion({
+  WentTo: { route: Route },
+  OpenedChapter: { slug: S.String },
+  PickedRuntime: { runtime: Runtime },
+  ScrolledBar: { hidden: S.Boolean },
+  OpenedDrawer: {},
+  ClosedDrawer: {},
+  OpenedSearch: {},
+  ClosedSearch: {},
+  MovedCaret: { at: S.Number },
+  SettledSearch: {},
+  ToggledPlay: {},
+  ReplayedDocument: {},
+  SkippedToEnd: {},
+  ToggledFullHeight: {},
+  GrewCard: {},
+  Ticked: { delta: S.Number },
+  ShowedOutput: { which: PlayerOutput },
+  StageMoved: {},
+  SelectedSection: { id: S.String },
+  SectionScrolled: {},
+  SpottedSection: { id: S.String },
+  Typed: { query: S.String },
+  MovedFocus: { delta: S.Number, count: S.Number },
+  Copied: { id: S.String, text: S.String },
+  CopyReset: {},
+})
+export type Message = typeof Message.Type
 
-export const Message = S.Union([
+export const {
   WentTo,
   OpenedChapter,
   PickedRuntime,
@@ -103,7 +105,4 @@ export const Message = S.Union([
   MovedFocus,
   Copied,
   CopyReset,
-])
-export type Message = typeof Message.Type
-
-export const h = html<Message>()
+} = Message

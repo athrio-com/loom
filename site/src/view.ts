@@ -1,29 +1,43 @@
 import { Match } from 'effect'
-import type { Document, Html } from 'foldkit/html'
+import type { Document, Html, HtmlBuilder } from 'foldkit/html'
 import { docsBar, footer, nav, pager, palette } from './chrome'
 import { example } from './example'
 import { documentationPage } from './docs-page'
 import { hero } from './hero'
 import { fromInitToEject } from './operations'
 import { vocabulary } from './vocabulary'
-import { h, type Model, type Route } from './model'
+import { type Message, type Model, type Route } from './model'
 
-const overlay = (model: Model): ReadonlyArray<Html> =>
-  model.searchOpen ? [palette(model)] : []
+const overlay = (model: Model, h: HtmlBuilder<Message>): ReadonlyArray<Html> =>
+  model.searchOpen ? [palette(model, h)] : []
 
-const marketingPage = (model: Model, sections: ReadonlyArray<Html>): Html =>
+const marketingPage = (
+  model: Model,
+  sections: ReadonlyArray<Html>,
+  h: HtmlBuilder<Message>,
+): Html =>
   h.div(
     [],
-    [nav(model), h.main([], [...sections, pager(model.route)]), footer(), ...overlay(model)],
+    [
+      nav(model, h),
+      h.main([], [...sections, pager(model.route, h)]),
+      footer(h),
+      ...overlay(model, h),
+    ],
   )
 
-const documentation = (model: Model): Html =>
+const documentation = (model: Model, h: HtmlBuilder<Message>): Html =>
   h.div(
     [],
-    [docsBar(model), h.main([], [documentationPage(model)]), footer(), ...overlay(model)],
+    [
+      docsBar(model, h),
+      h.main([], [documentationPage(model, h)]),
+      footer(h),
+      ...overlay(model, h),
+    ],
   )
 
-const beingWritten = (title: string, line: string): Html =>
+const beingWritten = (title: string, line: string, h: HtmlBuilder<Message>): Html =>
   h.div(
     [h.Class('section')],
     [
@@ -43,37 +57,38 @@ const beingWritten = (title: string, line: string): Html =>
     ],
   )
 
-const pageFor = (model: Model): Html =>
+const pageFor = (model: Model, h: HtmlBuilder<Message>): Html =>
   Match.value(model.route).pipe(
     Match.when('home', () =>
-      marketingPage(model, [
-        hero(model),
-        example(model),
-        vocabulary(),
-        fromInitToEject(model),
-      ]),
+      marketingPage(
+        model,
+        [hero(model, h), example(model, h), vocabulary(), fromInitToEject(model, h)],
+        h,
+      ),
     ),
-    Match.when('docs', () => documentation(model)),
+    Match.when('docs', () => documentation(model, h)),
     Match.when('why-loom', () =>
       marketingPage(model, [
         beingWritten(
           'Why Loom',
           'The case for writing the document first, against the three approaches it replaces.',
+          h,
         ),
-      ]),
+      ], h),
     ),
     Match.when('community', () =>
       marketingPage(model, [
-        beingWritten('Community', 'The people, the corpora in the wild, and where to ask.'),
-      ]),
+        beingWritten('Community', 'The people, the corpora in the wild, and where to ask.', h),
+      ], h),
     ),
     Match.when('source', () =>
       marketingPage(model, [
         beingWritten(
           'Source',
           'Loom’s own book, read the way Loom renders one. It weaves to more than a megabyte, so this page fetches a chapter at a time rather than shipping the whole corpus to the browser.',
+          h,
         ),
-      ]),
+      ], h),
     ),
     Match.exhaustive,
   )
@@ -88,7 +103,7 @@ const titleOf = (route: Route): string =>
     Match.exhaustive,
   )
 
-export const view = (model: Model): Document => ({
+export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
   title: titleOf(model.route),
-  body: pageFor(model),
+  body: pageFor(model, h),
 })

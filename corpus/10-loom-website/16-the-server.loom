@@ -14,49 +14,34 @@ There is one server and one way it works. It reads the shell and the assets from
 
 That is worth more than it sounds. A server that renders one way and is developed another agrees with itself only in what a page finally says, and disagrees in everything about how the page arrives — which stylesheet, in which order, before or after the body is visible. Running one path twice settles all of it at once.
 
-The server stays clear of the client runtime. It renders, inlines, and serves; the browser hydrates and takes over. So each thing it imports leaves the runtime out of its build — even the pre-boot capture script comes from `@athrio/foldkit-hydration/prehydration`, a deep path that skips the hydration strategy, because that strategy reaches into Foldkit's runtime and a server runs none of it.
-
-## Standing in for the browser {Tangle}[browser-globals.ts]
-
-Snabbdom's style module reads `window` the moment it is imported, and a server has none — reading an undeclared `window` throws. This shim declares the global and leaves it undefined, before any Foldkit module loads, so importing the view on the server no longer throws. Where a real `window` is already present it changes nothing, so the browser stays untouched.
-
-=>
-
-const scope = globalThis as { window?: unknown }
-
-if (!('window' in scope)) {
-  scope.window = undefined
-}
+The server stays clear of the client runtime. It renders through Foldkit's server module, which runs the view once over a model and writes the result into the shell, and it never starts the runtime the browser boots. The browser hydrates and takes over.
 
 ## What the server draws on
 
-The server loads the shim first, before any Foldkit module. From `effect` come `Effect`, the `FileSystem` that reads the built shell, the `Option` that fills the model's empty fields and carries a path naming no route, the `Schema` that parses what the npm registry returns, and the `Context` and `Layer` that define the server and wire it. From `effect/unstable/http` come the request and the responses. `@effect/platform-bun` supplies the Bun HTTP server, its file services, and the runtime edge. Foldkit lends `renderStatic` for the render, and, through `@athrio/foldkit-ssr`, the render itself; `@athrio/foldkit-hydration/prehydration` lends the capture script the page runs before it boots.
+From `effect` come `Effect`, the `FileSystem` that reads the built shell, the `Option` that fills the model's empty fields and carries a path naming no route, the `Schema` that parses what the npm registry returns, and the `Context` and `Layer` that define the server and wire it. From `effect/http` come the request and the responses. `@effect/platform-bun` supplies the Bun HTTP server, its file services, and the runtime edge. Foldkit lends `Server`, from its experimental server module, which renders a view to HTML and writes it into the shell.
 
-The site's own modules supply the view and the model. The model also lends the `routeOf` function, which turns the path a request names into the route to render. The client reads the same function when it boots, so the server and the browser agree on which page an address names.
+The site's own modules supply the view and the model, whose schema doubles as the shape of the flags the page carries to the client. The model also lends the `routeOf` function, which turns the path a request names into the route to render. The client reads the same function when it boots, so the server and the browser agree on which page an address names.
 
 =>
 
-import './browser-globals'
 import { Context, Effect, FileSystem, Layer, Option, Schema as S } from 'effect'
 import {
   HttpServer,
   HttpServerRequest,
   HttpServerResponse,
-} from 'effect/unstable/http'
+} from 'effect/http'
 import { BunHttpServer, BunRuntime, BunServices } from '@effect/platform-bun'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { renderStatic } from 'foldkit/html'
-import { PREHYDRATION_CAPTURE_SCRIPT } from '@athrio/foldkit-hydration/prehydration'
-import { FoldkitRender } from '@athrio/foldkit-ssr'
+import { Server } from 'foldkit/experimental'
 import { view } from './view'
-import { type Model, routeOf } from './model'
+import { Model, routeOf } from './model'
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist')
 
 ## The page
 
-The page starts from the built shell and gains three things: the rendered body in place of the empty `#root`, the route's own title in place of the shell's, and, in the head, the capture script and the model inlined as JSON for hydration.
+The page starts from the built shell and gains three things: the rendered body in place of the empty `#root`, the route's own title in place of the shell's, and, beside the body, the model it was rendered from, which the client reads back to hydrate.
 
 The seed is the site at rest, and every page starts from it — no chapter opened, no section jumped to, the example standing at its first frame, and the version at the workspace's own until the render fetches the latest. It names the landing's route because a model must name one; each page then overrides that single field with its own.
 
@@ -81,32 +66,6 @@ const seed: Model = {
   copied: '',
 }
 
-const inlineJson = (value: unknown): string =>
-  JSON.stringify(value).replace(/</g, '\\u003c')
-
-const withBody = (shell: string, body: string): string =>
-  shell.replace('<div id="root"></div>', () => `<div id="root">${body}</div>`)
-
-const withSeed = (shell: string, model: Model): string =>
-  shell.replace(
-    '</head>',
-    () =>
-      `<script>${PREHYDRATION_CAPTURE_SCRIPT}</script>` +
-      `<script id="foldkit-model" type="application/json">${inlineJson(model)}</script></head>`,
-  )
-
-~
-
-A page's title belongs to its route, since a crawler reads the title before it reads anything in the body, and a reader sees it in the tab. The view already names one per route, so the server writes that name over whatever the shell carries. Matching the element rather than its exact text keeps the substitution working when the shell's own title changes.
-
-=>
-
-const escapeText = (text: string): string =>
-  text.replace(/&/g, '&amp;').replace(/</g, '&lt;')
-
-const withTitle = (shell: string, title: string): string =>
-  shell.replace(/<title>[\s\S]*?<\/title>/, () => `<title>${escapeText(title)}</title>`)
-
 ## The latest release
 
 The pill and the title bar both name the version, and that version is whatever npm serves as the latest `@athrio/loom` release. The server reads it once, when it renders, so a new release reaches the page with the next deploy and no change to the code. The registry answers with the release's metadata, and the `Release` schema keeps the one field the page needs — the version. A registry the server cannot reach leaves the fallback in place, so the render never fails for want of the network.
@@ -126,26 +85,42 @@ const latestVersion = (fallback: string): Effect.Effect<string> =>
 
 ## Rendering one page
 
-One model renders one page. The view turns the model into a document — a title and a body — `renderStatic` and `FoldkitRender` render that body to HTML, and the three substitutions fold the body, the title, and the model back into the shell.
+One model renders one page. The server hands Foldkit the same three things the client boots from: the model's schema as the shape of the flags, an `init` that returns the model it is given, and the view. `Server.renderToString` runs the view over that model and returns the body and the title, with the model serialized beside the body. `Server.injectIntoTemplate` then writes both into the shell, the body over the empty `#root` and the title over the shell's own.
 
 =>
 
-const pageOf = (
-  render: FoldkitRender['Service'],
-  shell: string,
-  model: Model,
-): Effect.Effect<string> =>
-  Effect.gen(function* () {
-    const document = view(model)
-    const body = yield* render.renderToString(renderStatic(() => document.body))
-    return withSeed(withTitle(withBody(shell, body), document.title), model)
+const application = {
+  Flags: Model,
+  init: (model: Model) => ({ model }),
+  view,
+}
+
+~
+
+Foldkit stamps the page with a build id, and the client refuses a page whose id differs from its own. The id is the path of the entry script the shell loads. Vite names that file after a hash of its contents, so the path changes with every build that changes the client, and the client reads the same path from its own address. A shell without an entry script is not a build the server can serve, so the render dies rather than stamping a page no client could ever boot.
+
+=>
+
+const ENTRY = /<script type="module"[^>]*\ssrc="([^"]+)"/
+
+const entryOf = (shell: string): Effect.Effect<string> =>
+  Option.match(Option.fromNullishOr(ENTRY.exec(shell)?.[1]), {
+    onNone: () => Effect.die(new Error('the shell loads no entry script')),
+    onSome: Effect.succeed,
   })
+
+const pageOf = (shell: string, model: Model): Effect.Effect<string> =>
+  Effect.gen(function* () {
+    const buildId = yield* entryOf(shell)
+    const rendered = yield* Server.renderToString(application, { flags: model, buildId })
+    return Server.injectIntoTemplate(shell, rendered)
+  }).pipe(Effect.orDie)
 
 ## The pages the server writes itself
 
 Two answers are pages the server writes on its own: the one for an address the site does not have, and the one for a `dist` that has not been built yet.
 
-Neither is built on the shell. The missing page cannot be, because the shell boots the client, and the client, finding no route at that address, would keep the model's own and draw the landing straight over the top. The unbuilt page cannot be either, for the plainer reason that the shell is the very thing absent.
+Neither is built on the shell. The missing page cannot be, because the shell boots the client, and the client hydrates only a page the server rendered for it. Handed a shell with no model in it, Foldkit refuses the page and locks it. The unbuilt page cannot be either, for the plainer reason that the shell is the very thing absent.
 
 So they stand alone and share a shape — centred on the site's paper, set in the site's type, one line of prose and nothing waiting on a bundle.
 
@@ -229,16 +204,15 @@ const NOT_BUILT = standalone(
 
 The site reads its shell for each page rather than holding one from startup, because `dist` is rewritten underneath a running server every time a build finishes. A shell held from startup would go on naming asset files a later build has already replaced, and the page would arrive pointing at bundles that are no longer there. Reading it per request costs one small file and keeps the server honest about whatever `dist` holds at that moment.
 
-Rendering per request follows, and costs about as little: a render is a view call, a static render, and three substitutions. The latest release is the one thing read once at startup, since a registry is slow to ask and a version changes on a release rather than on a request.
+Rendering per request follows, and costs about as little: a render is one pass of the view and one write into the shell. The latest release is the one thing read once at startup, since a registry is slow to ask and a version changes on a release rather than on a request.
 
-Two answers are the whole of what the site owes the handler. The `pageAt` function asks `routeOf` whether the path names a route at all, then renders that route through the shell it has just read; a `dist` it cannot read yields the unbuilt page instead of a failure. The `assetAt` function reads a file from `dist` — the client bundle, the stylesheet, the marks — and falls back to the missing page when there is no such file. Both take the request's whole URL, since a path alone is what the handler happens to match on rather than all it holds.
+Two answers are the whole of what the site owes the handler. The `pageAt` function asks `routeOf` whether the path names a route at all, then renders that route through the shell it has just read. A `dist` it cannot read yields the unbuilt page. A render that fails is a fault in the site rather than in the build, so it surfaces as one instead of hiding behind the unbuilt page. The `assetAt` function reads a file from `dist` — the client bundle, the stylesheet, the marks — and falls back to the missing page when there is no such file. Both take the request's whole URL, since a path alone is what the handler happens to match on rather than all it holds.
 
 =>
 
 export class Site extends Context.Service<Site>()('Site', {
   make: Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
-    const render = yield* FoldkitRender
     const version = yield* latestVersion(seed.version)
     const shell = fs.readFileString(join(distDir, 'index.html'))
     return {
@@ -247,10 +221,10 @@ export class Site extends Context.Service<Site>()('Site', {
           onNone: () => Effect.succeed(Option.none()),
           onSome: (route) =>
             shell.pipe(
-              Effect.flatMap((held) =>
-                pageOf(render, held, { ...seed, route, version }),
-              ),
-              Effect.catchCause(() => Effect.succeed(NOT_BUILT)),
+              Effect.matchEffect({
+                onFailure: () => Effect.succeed(NOT_BUILT),
+                onSuccess: (held) => pageOf(held, { ...seed, route, version }),
+              }),
               Effect.map(Option.some),
             ),
         }),
@@ -262,7 +236,6 @@ export class Site extends Context.Service<Site>()('Site', {
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make).pipe(
-    Layer.provide(FoldkitRender.layer),
     Layer.provide(BunServices.layer),
   )
 }

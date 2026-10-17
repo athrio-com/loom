@@ -10,7 +10,7 @@ The website ships as a Docker image. It carries the bundled client, the Bun serv
 
 ## The Dockerfile {Tangle}[Dockerfile]
 
-The build starts from Bun's Alpine image and copies the whole workspace, because the client leans on workspace packages — Foldkit, and the two packages beside it that render on the server and hydrate in the browser. It installs against the committed lockfile, then bundles the client with Vite.
+The build starts from Bun's Alpine image and copies the whole workspace, because the site is one member of it and installs against the workspace's single committed lockfile. Then it bundles the client with Vite.
 
 The build weaves nothing. The documentation travels in the workspace as the committed `docs.woven.json` file, so the image needs neither the published `loom` command nor a network to reach it. Development weaves that file afresh through the `content` script; the image trusts what the repository already holds.
 

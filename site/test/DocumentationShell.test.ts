@@ -1,11 +1,9 @@
-import '../src/browser-globals'
 import { describe, expect, it } from 'bun:test'
-import { Effect, Layer, ManagedRuntime, Option } from 'effect'
-import { renderStatic } from 'foldkit/html'
-import { FoldkitRender } from '@athrio/foldkit-ssr'
+import { Option } from 'effect'
 import { documentationPage, docsCorpus, firstSlugOf } from '../src/docs-page'
 import { docsBar } from '../src/chrome'
 import { type Model } from '../src/model'
+import { renderHtml } from './render'
 
 // The documentation shell draws whatever `loom weave` produced from the docs corpus, so
 // these cases assert against the committed weave rather than against a fixture. That is
@@ -20,15 +18,8 @@ const at = (chapter: string, activeSection: string): Model =>
     query: '', focus: 0, copied: '',
   }) as Model
 
-const runtime = ManagedRuntime.make(FoldkitRender.layer as Layer.Layer<FoldkitRender>)
-
-const renderHtml = (node: () => ReturnType<typeof documentationPage>): string =>
-  runtime.runSync(
-    FoldkitRender.pipe(Effect.flatMap((r) => r.renderToString(renderStatic(node)))),
-  )
-
-const render = (model: Model): string => renderHtml(() => documentationPage(model))
-const renderBar = (model: Model): string => renderHtml(() => docsBar(model))
+const render = (model: Model): string => renderHtml((h) => documentationPage(model, h))
+const renderBar = (model: Model): string => renderHtml((h) => docsBar(model, h))
 
 describe('the documentation shell', () => {
   it('rails every chapter of the woven corpus, grouped under its part', () => {

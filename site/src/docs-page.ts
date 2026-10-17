@@ -1,7 +1,13 @@
 import { Array, Match, Option, pipe } from 'effect'
 import { marked } from 'marked'
-import type { Html } from 'foldkit/html'
-import { ClosedDrawer, OpenedChapter, SelectedSection, h, type Model } from './model'
+import type { Html, HtmlBuilder } from 'foldkit/html'
+import {
+  ClosedDrawer,
+  OpenedChapter,
+  SelectedSection,
+  type Message,
+  type Model,
+} from './model'
 import { docsPager } from './chrome'
 import { loomMark } from './components'
 import wovenDocs from './docs.woven.json'
@@ -60,7 +66,7 @@ const partOf = (corpus: Corpus, slug: string): Option.Option<Part> =>
     Array.some(part.chapters, (chapter) => chapter.slug === slug),
   )
 
-const railRow = (chapter: Chapter, here: boolean): Html =>
+const railRow = (chapter: Chapter, here: boolean, h: HtmlBuilder<Message>): Html =>
   h.button(
     [
       h.Class(here ? 'rail-item here' : 'rail-item'),
@@ -70,7 +76,11 @@ const railRow = (chapter: Chapter, here: boolean): Html =>
     [chapter.title],
   )
 
-const railGroups = (corpus: Corpus, current: string): ReadonlyArray<Html> =>
+const railGroups = (
+  corpus: Corpus,
+  current: string,
+  h: HtmlBuilder<Message>,
+): ReadonlyArray<Html> =>
   Array.map(corpus.nav, (part) =>
     h.div(
       [h.Class('rail-group')],
@@ -78,19 +88,19 @@ const railGroups = (corpus: Corpus, current: string): ReadonlyArray<Html> =>
         h.span([h.Class('rail-label')], [part.name]),
         h.div(
           [h.Class('rail-items')],
-          Array.map(part.chapters, (chapter) => railRow(chapter, chapter.slug === current)),
+          Array.map(part.chapters, (chapter) => railRow(chapter, chapter.slug === current, h)),
         ),
       ],
     ),
   )
 
-export const rail = (corpus: Corpus, current: string): Html =>
+export const rail = (corpus: Corpus, current: string, h: HtmlBuilder<Message>): Html =>
   h.nav(
     [h.Class('docs-rail'), h.AriaLabel('Chapters')],
-    [h.div([h.Class('rail-sticky thin-scroll')], railGroups(corpus, current))],
+    [h.div([h.Class('rail-sticky thin-scroll')], railGroups(corpus, current, h))],
   )
 
-const breadcrumb = (corpus: Corpus, root: string, page: Page): Html =>
+const breadcrumb = (corpus: Corpus, root: string, page: Page, h: HtmlBuilder<Message>): Html =>
   h.div(
     [h.Class('docs-crumbs')],
     [
@@ -111,16 +121,16 @@ const breadcrumb = (corpus: Corpus, root: string, page: Page): Html =>
     ],
   )
 
-const headingOf = (block: HeadingBlock): Html =>
+const headingOf = (block: HeadingBlock, h: HtmlBuilder<Message>): Html =>
   Match.value(block.level).pipe(
     Match.when(1, () => h.h1([h.Id(block.id)], [block.title])),
     Match.when(2, () => h.h2([h.Id(block.id)], [block.title])),
     Match.orElse(() => h.h3([h.Id(block.id)], [block.title])),
   )
 
-const blockOf = (block: Block): Html =>
+const blockOf = (block: Block, h: HtmlBuilder<Message>): Html =>
   Match.value(block).pipe(
-    Match.when({ type: 'heading' }, (heading) => headingOf(heading)),
+    Match.when({ type: 'heading' }, (heading) => headingOf(heading, h)),
     Match.when({ type: 'prose' }, (prose) =>
       h.div(
         [h.Class('docs-prose'), h.InnerHTML(marked.parse(prose.markdown) as string)],
@@ -130,10 +140,13 @@ const blockOf = (block: Block): Html =>
     Match.exhaustive,
   )
 
-const article = (corpus: Corpus, root: string, page: Page): Html =>
+const article = (corpus: Corpus, root: string, page: Page, h: HtmlBuilder<Message>): Html =>
   h.article(
     [h.Class('docs-article')],
-    [breadcrumb(corpus, root, page), ...Array.map(page.blocks, blockOf)],
+    [
+      breadcrumb(corpus, root, page, h),
+      ...Array.map(page.blocks, (block) => blockOf(block, h)),
+    ],
   )
 
 const sectionsOf = (page: Page): ReadonlyArray<HeadingBlock> =>
@@ -143,7 +156,7 @@ const sectionsOf = (page: Page): ReadonlyArray<HeadingBlock> =>
     Array.filter((heading) => heading.level === 2),
   )
 
-const outline = (page: Page, active: string): Html =>
+const outline = (page: Page, active: string, h: HtmlBuilder<Message>): Html =>
   h.aside(
     [h.Class('docs-outline'), h.AriaLabel('On this page')],
     [
@@ -164,7 +177,7 @@ const outline = (page: Page, active: string): Html =>
     ],
   )
 
-const closeIcon = (): Html =>
+const closeIcon = (h: HtmlBuilder<Message>): Html =>
   h.svg(
     [
       h.Width('15'),
@@ -182,7 +195,12 @@ const closeIcon = (): Html =>
     ],
   )
 
-const drawer = (corpus: Corpus, model: Model, current: string): Html =>
+const drawer = (
+  corpus: Corpus,
+  model: Model,
+  current: string,
+  h: HtmlBuilder<Message>,
+): Html =>
   h.div(
     [h.Class(model.drawerOpen ? 'docs-drawer open' : 'docs-drawer')],
     [
@@ -198,15 +216,15 @@ const drawer = (corpus: Corpus, model: Model, current: string): Html =>
               h.AriaLabel('Close menu'),
               h.OnClick(ClosedDrawer()),
             ],
-            [closeIcon()],
+            [closeIcon(h)],
           ),
         ],
       ),
-      h.div([h.Class('drawer-body thin-scroll')], railGroups(corpus, current)),
+      h.div([h.Class('drawer-body thin-scroll')], railGroups(corpus, current, h)),
     ],
   )
 
-const scrim = (open: boolean): Html =>
+const scrim = (open: boolean, h: HtmlBuilder<Message>): Html =>
   h.div(
     [
       h.Class(open ? 'docs-scrim open' : 'docs-scrim'),
@@ -221,29 +239,44 @@ const shellClass = (model: Model, outlined: boolean): string => {
   return model.navHidden ? `${base} bar-hidden` : base
 }
 
-const shellFor = (corpus: Corpus, root: string, model: Model, page: Page): Html =>
+const shellFor = (
+  corpus: Corpus,
+  root: string,
+  model: Model,
+  page: Page,
+  h: HtmlBuilder<Message>,
+): Html =>
   pipe(
     sectionsOf(page),
     Array.match({
       onEmpty: () =>
         h.div(
           [h.Class(shellClass(model, false))],
-          [rail(corpus, page.slug), article(corpus, root, page), docsPager(model.route)],
+          [
+            rail(corpus, page.slug, h),
+            article(corpus, root, page, h),
+            docsPager(model.route, h),
+          ],
         ),
       onNonEmpty: () =>
         h.div(
           [h.Class(shellClass(model, true))],
           [
-            rail(corpus, page.slug),
-            article(corpus, root, page),
-            outline(page, model.activeSection),
-            docsPager(model.route),
+            rail(corpus, page.slug, h),
+            article(corpus, root, page, h),
+            outline(page, model.activeSection, h),
+            docsPager(model.route, h),
           ],
         ),
     }),
   )
 
-export const wovenPage = (corpus: Corpus, root: string, model: Model): Html => {
+export const wovenPage = (
+  corpus: Corpus,
+  root: string,
+  model: Model,
+  h: HtmlBuilder<Message>,
+): Html => {
   const slug = model.chapter === '' ? firstSlugOf(corpus) : model.chapter
   return pipe(
     pageOf(corpus, slug),
@@ -254,14 +287,14 @@ export const wovenPage = (corpus: Corpus, root: string, model: Model): Html => {
         h.div(
           [h.Class('docs-page')],
           [
-            shellFor(corpus, root, model, page),
-            scrim(model.drawerOpen),
-            drawer(corpus, model, page.slug),
+            shellFor(corpus, root, model, page, h),
+            scrim(model.drawerOpen, h),
+            drawer(corpus, model, page.slug, h),
           ],
         ),
     }),
   )
 }
 
-export const documentationPage = (model: Model): Html =>
-  wovenPage(docsCorpus, 'docs', model)
+export const documentationPage = (model: Model, h: HtmlBuilder<Message>): Html =>
+  wovenPage(docsCorpus, 'docs', model, h)

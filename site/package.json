@@ -14,10 +14,9 @@
     "preview": "bun run build && bun run serve"
   },
   "dependencies": {
-    "@athrio/foldkit-ssr": "workspace:*",
-    "@athrio/foldkit-hydration": "workspace:*",
-    "foldkit": "workspace:*",
-    "effect": "4.0.0-beta.97",
+    "@effect/platform-browser": "4.0.5",
+    "effect": "4.0.5",
+    "foldkit": "0.168.0",
     "marked": "^18.0.5"
   },
   "devDependencies": {

@@ -1,7 +1,7 @@
 import { Array, Match, Option, pipe } from 'effect'
-import type { Html } from 'foldkit/html'
+import type { Html, HtmlBuilder } from 'foldkit/html'
 import {
-  h,
+  type Message,
   type Model,
   type Player,
   type PlayerOutput,
@@ -389,7 +389,7 @@ const outputFile = (which: PlayerOutput): string =>
 const outputMeta = (which: PlayerOutput): string =>
   which === 'tangle' ? '5 lines' : 'the corpus as data'
 
-const tokenSpan = (token: Token): Html =>
+const tokenSpan = (token: Token, h: HtmlBuilder<Message>): Html =>
   h.span(
     [
       h.Class(token.padded ? 'pl-tok chip' : 'pl-tok'),
@@ -402,19 +402,19 @@ const tokenSpan = (token: Token): Html =>
     [token.text],
   )
 
-const shownLine = (shown: Shown): Html =>
+const shownLine = (shown: Shown, h: HtmlBuilder<Message>): Html =>
   h.div(
     [h.Class(shown.kept ? 'pl-line kept' : 'pl-line'), h.Style({ minHeight: shown.tall ? '1.4em' : '0.8em' })],
     [
       ...(shown.lit ? [h.span([h.AriaHidden(true), h.Class('pl-cur')], [])] : []),
-      ...Array.map(shown.tokens, tokenSpan),
+      ...Array.map(shown.tokens, (token) => tokenSpan(token, h)),
       ...(shown.caret
         ? [h.span([h.AriaHidden(true), h.Class(shown.held ? 'pl-caret blink' : 'pl-caret')], [])]
         : []),
     ],
   )
 
-const commandButton = (which: PlayerOutput, player: Player): Html =>
+const commandButton = (which: PlayerOutput, player: Player, h: HtmlBuilder<Message>): Html =>
   h.button(
     [
       h.Class(
@@ -429,7 +429,7 @@ const commandButton = (which: PlayerOutput, player: Player): Html =>
     ],
   )
 
-const outputPanel = (which: PlayerOutput): Html =>
+const outputPanel = (which: PlayerOutput, h: HtmlBuilder<Message>): Html =>
   h.div(
     [h.Class(`pl-result ${which}`)],
     [
@@ -443,7 +443,10 @@ const outputPanel = (which: PlayerOutput): Html =>
       h.div(
         [h.Class('pl-result-body')],
         Array.map(outputLines(which), (tokens) =>
-          h.div([h.Class('pl-result-line')], Array.map(tokens, tokenSpan)),
+          h.div(
+            [h.Class('pl-result-line')],
+            Array.map(tokens, (token) => tokenSpan(token, h)),
+          ),
         ),
       ),
     ],
@@ -452,7 +455,7 @@ const outputPanel = (which: PlayerOutput): Html =>
 const fullTitle = (player: Player): string =>
   player.full ? 'Leave full height' : 'Full height'
 
-const fullButton = (player: Player): Html =>
+const fullButton = (player: Player, h: HtmlBuilder<Message>): Html =>
   h.button(
     [
       h.Class('pl-full'),
@@ -464,7 +467,7 @@ const fullButton = (player: Player): Html =>
     [player.full ? collapseIcon() : expandIcon()],
   )
 
-const transport = (player: Player): Html =>
+const transport = (player: Player, h: HtmlBuilder<Message>): Html =>
   h.div(
     [h.Class('pl-bar')],
     [
@@ -511,7 +514,7 @@ const cardClass = (player: Player, done: boolean): string => {
   return `pl-card${running}${open}`
 }
 
-export const example = (model: Model): Html => {
+export const example = (model: Model, h: HtmlBuilder<Message>): Html => {
   const player = model.player
   const shown =
     player.struck === 0 && !player.playing ? wholeDocument() : frameAt(player.struck, player.playing)
@@ -543,7 +546,7 @@ export const example = (model: Model): Html => {
               h.Style({ '--pl-run': `${Math.round(progress * 1000) / 10}%` }),
             ],
             [
-              fullButton(player),
+              fullButton(player, h),
               h.span([h.AriaHidden(true), h.Class('pl-run')], []),
               h.div(
                 [h.Class('pl-stage'), h.Id('loom-stage')],
@@ -551,18 +554,18 @@ export const example = (model: Model): Html => {
                   h.div(
                     [h.Class('pl-column')],
                     [
-                      ...Array.map(shown, shownLine),
+                      ...Array.map(shown, (line) => shownLine(line, h)),
                       ...(offering
                         ? [
                             h.div(
                               [h.Class('pl-outs')],
-                              [commandButton('tangle', player), commandButton('weave', player)],
+                              [commandButton('tangle', player, h), commandButton('weave', player, h)],
                             ),
                           ]
                         : []),
                       ...Option.match(player.output, {
                         onNone: (): ReadonlyArray<Html> => [],
-                        onSome: (which) => (offering ? [outputPanel(which)] : []),
+                        onSome: (which) => (offering ? [outputPanel(which, h)] : []),
                       }),
                     ],
                   ),
@@ -570,7 +573,7 @@ export const example = (model: Model): Html => {
                 ],
               ),
               h.div([h.AriaHidden(true), h.Class('pl-fade')], []),
-              transport(player),
+              transport(player, h),
             ],
           ),
         ],
