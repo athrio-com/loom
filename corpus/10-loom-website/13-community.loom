@@ -1,0 +1,137 @@
+---
+Part X, Chapter 13: Community
+Package: site/src/
+Language: TypeScript
+---
+
+# Community
+
+The community page tells a reader where to take Loom once they want to do more than read about it. It opens on the head the pages past the landing share, then lists the channels where the work on Loom happens, each with what to bring to it.
+
+Every channel is somewhere off the site, so each card is a plain link and the page answers no click with a message. It builds with Foldkit's inert builder, `ih`, like the head it opens on.
+
+## The page head
+
+The head says what contributing means while Loom is young: reading the source, asking a question and reporting a break all count. Its two cards lead to the repository and the community group.
+
+=>
+
+const communityHead = (): Html =>
+  pageHead(
+    'community-top',
+    'Community',
+    'Loom is young and the shape of it is still being argued over. Reading the source, asking a question and saying where it broke are all real contributions at this stage.',
+  )
+
+## Where the work happens
+
+Each channel suits one kind of contribution, and its card says which and what to bring. A question goes to the Telegram group, where an answer comes fastest. A break goes to an issue, with the corpus that broke. A new language goes to a pull request. An argument about the format goes to a discussion, where it is slower than chat and written down.
+
+=>
+
+type Channel = {
+  readonly place: string
+  readonly title: string
+  readonly body: string
+  readonly href: string
+}
+
+const channels: ReadonlyArray<Channel> = [
+  {
+    place: 'Telegram',
+    title: 'Ask anything',
+    body: 'The fastest way to get an answer. Bring a corpus that will not tangle, a language server that will not attach, or a question about what a section should mean. The group is Athrio’s community, and Loom is one of its topics.',
+    href: 'https://t.me/athrio',
+  },
+  {
+    place: 'Issues',
+    title: 'Say where it broke',
+    body: 'A file that tangles wrong is worth more than a feature request. Paste the corpus, the command and what you expected to come out.',
+    href: 'https://github.com/athrio-com/loom/issues',
+  },
+  {
+    place: 'Pull requests',
+    title: 'Add a language',
+    body: 'Every language arrives as a package behind the same contract: the language service the editor talks to. Start with the one you already write.',
+    href: 'https://github.com/athrio-com/loom/pulls',
+  },
+  {
+    place: 'GitHub Discussions',
+    title: 'Argue about the design',
+    body: 'Format changes, new marks and anything that would alter what a Loom document is. Slower than chat, and written down, which is the point.',
+    href: 'https://github.com/athrio-com/loom/discussions',
+  },
+]
+
+~
+
+A card names its channel in the eyebrow and the contribution in its title, then says in a sentence or two what to bring. The whole card is the link, since a reader aiming for a channel should not have to find a word inside the card to click.
+
+=>
+
+const channelCard = (channel: Channel): Html =>
+  ih.a(
+    [ih.Class('channel-card'), ih.Href(channel.href)],
+    [
+      ih.span(
+        [ih.Class('place-lines')],
+        [
+          ih.span([ih.Class('eyebrow')], [channel.place]),
+          ih.span([ih.Class('place-title')], [channel.title]),
+        ],
+      ),
+      ih.span([ih.Class('channel-body')], [channel.body]),
+    ],
+  )
+
+## The section
+
+The channels form one section of the landing's kind: a woven mark, an eyebrow and a heading, then the cards. Its mark is the one the nav already gives this page. The cards pack into columns of uneven height, so a long card never leaves a short one stranded beside a gap.
+
+=>
+
+const communityChannels = (): Html =>
+  ih.div(
+    [ih.Class('section'), ih.Id('community-ways')],
+    [
+      ih.div(
+        [ih.Class('section-head')],
+        [
+          carpetMark(communityCarpet, '42px', broadSeam),
+          ih.div(
+            [ih.Class('lines')],
+            [
+              ih.span([ih.Class('eyebrow')], ['Where the work happens']),
+              ih.h2([], ['Contribute in your way']),
+            ],
+          ),
+        ],
+      ),
+      ih.div([ih.Class('channel-set')], Array.map(channels, channelCard)),
+    ],
+  )
+
+export const community = (): ReadonlyArray<Html> => [communityHead(), communityChannels()]
+
+## What this module draws on
+
+Effect lends `Array` to map the cards. Foldkit lends the inert builder and the `Html` type. The page head lends the head, and the components lend the section's carpet mark and the carpet the nav gives this page.
+
+=>
+
+import { Array } from 'effect'
+import { type Html, inertHtml as ih } from 'foldkit/html'
+import { broadSeam, carpetMark, communityCarpet } from './components'
+import { pageHead } from './page-head'
+
+## The module {Tangle}[community.ts]
+
+=>
+
+::[What this module draws on]
+
+::[Where the work happens]
+
+::[The page head]
+
+::[The section]

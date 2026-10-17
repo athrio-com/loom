@@ -1889,15 +1889,15 @@ None of the controls answers the cursor. They hold their ink whether it is over 
   .pl-bar { padding: 0 14px; }
 }
 
-## The argument page
+## The page head
 
-The argument page opens like the landing, on the hero's padding, but its head is a heading rather than a masthead. The Loom mark stands beside the question at four fifths of its size, and the pair hold one line with sixteen pixels between them. Under that, the answer and the two link cards share a row of equal halves until the window drops below a thousand pixels, where the cards fall under the answer. The gutter between the halves narrows with the window, as every column gap on the site does. The landing's hero lays its parts out as a spaced column, and the argument page sets its own spacing, so its hero goes back to an ordinary block.
+The pages past the landing open on a shared head rather than a masthead, though on the hero's padding all the same. The Loom mark stands beside the page's name at four fifths of its size, and the pair hold one line with sixteen pixels between them. Under that, the paragraph and the two link cards share a row of equal halves until the window drops below a thousand pixels, where the cards fall under the paragraph. The gutter between the halves narrows with the window, as every column gap on the site does. The landing's hero lays its parts out as a spaced column, and this head sets its own spacing, so it goes back to an ordinary block.
 
 =>
 
-.why-hero { display: block; }
+.page-hero { display: block; }
 
-.why-title {
+.page-title {
   display: flex;
   align-items: center;
   gap: 16px;
@@ -1905,37 +1905,37 @@ The argument page opens like the landing, on the hero's padding, but its head is
   margin-bottom: 30px;
 }
 
-.why-hero-grid {
+.page-head-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 44px;
   align-items: start;
 }
 
-.why-lead { margin: 0; padding-top: 5px; text-wrap: pretty; }
+.page-lead { margin: 0; padding-top: 5px; text-wrap: pretty; }
 
-@media (max-width: 1179px) { .why-hero-grid { gap: 40px; } }
-@media (max-width: 999px)  { .why-hero-grid { grid-template-columns: minmax(0, 1fr); gap: 36px; } }
+@media (max-width: 1179px) { .page-head-grid { gap: 40px; } }
+@media (max-width: 999px)  { .page-head-grid { grid-template-columns: minmax(0, 1fr); gap: 36px; } }
 @media (max-width: 639px) {
-  .why-hero-grid { gap: 28px; }
-  .why-title h1 { font-size: 26px; }
-  .why-title .loom-mark { width: 69px; height: auto; }
+  .page-head-grid { gap: 28px; }
+  .page-title h1 { font-size: 26px; }
+  .page-title .loom-mark { width: 69px; height: auto; }
 }
 
 ~
 
-A link card is a pale panel with a pixel emblem over two lines of type. It stays the ink colour under the pointer rather than taking the muted ink every other link fades to, because the card already answers the pointer with its ground and its edge. Each card answers in its own emblem's colour, amber for GitHub and violet for Discord.
+A place card is a pale panel with a pixel emblem over two lines of type. It stays the ink colour under the pointer rather than taking the muted ink every other link fades to, because the card already answers the pointer with its ground and its edge. Each card answers in its own emblem's colour, amber for GitHub and blue for Telegram.
 
 =>
 
-.why-links {
+.page-places {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
   min-width: 0;
 }
 
-.why-link {
+.place-card {
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -1948,22 +1948,22 @@ A link card is a pale panel with a pixel emblem over two lines of type. It stays
   transition: background 180ms, border-color 180ms;
 }
 
-.why-link:hover { color: var(--ink); }
-.why-link.github:hover  { background: #FDF3DF; border-color: var(--amber); }
-.why-link.discord:hover { background: #F0EAFE; border-color: var(--violet); }
+.place-card:hover { color: var(--ink); }
+.place-card.github:hover   { background: #FDF3DF; border-color: var(--amber); }
+.place-card.telegram:hover { background: #E9F0FE; border-color: var(--blue); }
 
-.why-emblem { display: block; flex: none; width: 49px; height: 49px; }
+.place-emblem { display: block; flex: none; width: 49px; height: 49px; }
 
-.why-link-lines { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.place-lines { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 
-.why-link-title {
+.place-title {
   font-weight: 500;
   font-size: var(--t-sub);
   line-height: var(--lead-head);
   letter-spacing: -0.02em;
 }
 
-~
+## The argument page
 
 The motivation sets its four paragraphs justified and hyphenated across the two columns running text takes, so the two columns end on an even edge. Below six hundred and forty pixels they become one column.
 
@@ -2039,6 +2039,35 @@ Under the prose, a legend names the two glyphs before any card uses them, in the
   .why-prose { column-count: 1; }
   .why-pair-set { column-count: 1; }
 }
+
+## The channels
+
+The community page lists its channels as cards packed into columns of uneven height: three at full width, two below twelve hundred pixels, and one below six hundred and forty. A card is a pale panel with the channel's name, the contribution it suits, and a sentence or two on what to bring, set at the size of block code. The whole card is the link. Under the pointer its edge darkens to the muted ink, which is enough to say the card leads somewhere without dressing it as a button.
+
+=>
+
+.channel-set { column-count: 3; column-gap: 24px; }
+
+.channel-card {
+  break-inside: avoid;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0 0 24px;
+  padding: 20px 20px 22px;
+  background: var(--pale);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  color: var(--ink);
+  transition: border-color 180ms;
+}
+
+.channel-card:hover { color: var(--ink); border-color: var(--ink-3); }
+
+.channel-body { font-size: var(--t-code); line-height: var(--lead); text-wrap: pretty; }
+
+@media (max-width: 1179px) { .channel-set { column-count: 2; } }
+@media (max-width: 639px)  { .channel-set { column-count: 1; } }
 
 ## The pager
 
@@ -2664,7 +2693,11 @@ The stylesheet is the three schemes first — colour, type and measure — then 
 
 ::[The document being typed]
 
+::[The page head]
+
 ::[The argument page]
+
+::[The channels]
 
 ::[The pager]
 

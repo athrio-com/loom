@@ -29,6 +29,7 @@ import { hero } from './hero'
 import { fromInitToEject } from './operations'
 import { vocabulary } from './vocabulary'
 import { whyLoom } from './why-loom'
+import { community } from './community'
 import { type Message, type Model, type Route } from './model'
 
 const overlay = (model: Model, h: HtmlBuilder<Message>): ReadonlyArray<Html> =>
@@ -62,9 +63,9 @@ const documentation = (model: Model, h: HtmlBuilder<Message>): Html =>
 
 ## The page a route names
 
-Three routes are built. The landing runs the hero, the example, the vocabulary and the commands down one column; the argument page runs its head and its motivation the same way; the documentation draws its own corpus.
+Four routes are built. The landing runs the hero, the example, the vocabulary and the commands down one column; the argument page and the community page each run their head and one section the same way; the documentation draws its own corpus.
 
-The remaining two are scaffolded rather than faked. Each says plainly that it is being written, because a page that quietly showed something else would send a reader somewhere they did not ask to go — and because the match is closed, each one is a single branch to replace when its chapter lands.
+The remaining one, the source, is scaffolded rather than faked. It says plainly that it is being written, because a page that quietly showed something else would send a reader somewhere they did not ask to go — and because the match is closed, it is a single branch to replace when its chapter lands.
 
 =>
 
@@ -99,11 +100,7 @@ const pageFor = (model: Model, h: HtmlBuilder<Message>): Html =>
     ),
     Match.when('docs', () => documentation(model, h)),
     Match.when('why-loom', () => marketingPage(model, whyLoom(), h)),
-    Match.when('community', () =>
-      marketingPage(model, [
-        beingWritten('Community', 'The people, the corpora in the wild, and where to ask.', h),
-      ], h),
-    ),
+    Match.when('community', () => marketingPage(model, community(), h)),
     Match.when('source', () =>
       marketingPage(model, [
         beingWritten(

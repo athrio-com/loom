@@ -7,6 +7,7 @@ import { hero } from './hero'
 import { fromInitToEject } from './operations'
 import { vocabulary } from './vocabulary'
 import { whyLoom } from './why-loom'
+import { community } from './community'
 import { type Message, type Model, type Route } from './model'
 
 const overlay = (model: Model, h: HtmlBuilder<Message>): ReadonlyArray<Html> =>
@@ -69,11 +70,7 @@ const pageFor = (model: Model, h: HtmlBuilder<Message>): Html =>
     ),
     Match.when('docs', () => documentation(model, h)),
     Match.when('why-loom', () => marketingPage(model, whyLoom(), h)),
-    Match.when('community', () =>
-      marketingPage(model, [
-        beingWritten('Community', 'The people, the corpora in the wild, and where to ask.', h),
-      ], h),
-    ),
+    Match.when('community', () => marketingPage(model, community(), h)),
     Match.when('source', () =>
       marketingPage(model, [
         beingWritten(

@@ -78,21 +78,42 @@ describe('the page', () => {
   })
 
   it('says plainly which pages are still being written', () => {
-    ;(['community', 'source'] as ReadonlyArray<Route>).forEach((route) => {
-      expect(render(at(route))).toContain('Being written')
+    expect(render(at('source'))).toContain('Being written')
+    ;(['why-loom', 'community'] as ReadonlyArray<Route>).forEach((route) => {
+      expect(render(at(route))).not.toContain('Being written')
     })
-    expect(render(at('why-loom'))).not.toContain('Being written')
   })
 
   it('makes the case on the argument page: head, motivation, eight pairs', () => {
     const html = render(at('why-loom'))
     expect(html).toContain('Why Loom?</h1>')
     expect(html).toContain('href="https://github.com/athrio-com/loom"')
-    expect(html).toContain('href="https://discord.gg/loom"')
+    expect(html).toContain('href="https://t.me/athrio"')
     expect(html).toContain('The modern problem')
     expect(html.split('class="why-pair"').length - 1).toBe(8)
     expect(html).toContain('--pair-ink')
     expect(html).toContain('class="pager"')
+  })
+
+  it('lists where the work happens on the community page, each card a link', () => {
+    const html = render(at('community'))
+    expect(html).toContain('Community</h1>')
+    expect(html).toContain('Contribute in your way')
+    expect(html.split('class="channel-card"').length - 1).toBe(4)
+    ;[
+      'https://t.me/athrio',
+      'https://github.com/athrio-com/loom/issues',
+      'https://github.com/athrio-com/loom/pulls',
+      'https://github.com/athrio-com/loom/discussions',
+    ].forEach((href) => expect(html).toContain(`href="${href}"`))
+  })
+
+  it('points every community link at Telegram, never the dead Discord invite', () => {
+    ;(['home', 'docs', 'why-loom', 'community', 'source'] as ReadonlyArray<Route>).forEach((route) => {
+      const html = render(at(route, { searchOpen: true }))
+      expect(html).not.toContain('discord')
+      expect(html).toContain('https://t.me/athrio')
+    })
   })
 
   it('shows the whole vocabulary on the landing, all eight marks', () => {

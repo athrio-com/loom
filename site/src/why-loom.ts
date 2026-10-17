@@ -1,72 +1,7 @@
 import { Array, Option } from 'effect'
 import { type Html, inertHtml as ih } from 'foldkit/html'
-import {
-  broadSeam,
-  type Carpet,
-  carpetMark,
-  carpetStyle,
-  fineSeam,
-  loomMark,
-  whyLoomCarpet,
-} from './components'
-
-const NAVY = '#14204A'
-
-type Place = {
-  readonly name: string
-  readonly action: string
-  readonly href: string
-  readonly emblem: Carpet
-  readonly key: 'github' | 'discord'
-}
-
-const places: ReadonlyArray<Place> = [
-  {
-    name: 'GitHub',
-    action: 'Star the repo',
-    href: 'https://github.com/athrio-com/loom',
-    key: 'github',
-    emblem: {
-      rows: ['...a...', '..aaa..', 'aaaaaaa', '.aaaaa.', '..aaa..', '.aa.aa.', '.a...a.'],
-      threads: { '.': NAVY, a: '#FFC53D' },
-    },
-  },
-  {
-    name: 'Discord',
-    action: 'Join community',
-    href: 'https://discord.gg/loom',
-    key: 'discord',
-    emblem: {
-      rows: ['.......', '.vvvvv.', '.v.b.v.', '.vbpbv.', '.v.b.v.', '.vvvvv.', '.......'],
-      threads: { '.': NAVY, v: '#8B5CF6', b: '#2E6FF2', p: '#F2EFE6' },
-    },
-  },
-]
-
-const placeCard = (place: Place): Html =>
-  ih.a(
-    [ih.Class(`why-link ${place.key}`), ih.Href(place.href)],
-    [
-      pixels(place.emblem, 'why-emblem'),
-      ih.span(
-        [ih.Class('why-link-lines')],
-        [
-          ih.span([ih.Class('eyebrow')], [place.name]),
-          ih.span([ih.Class('why-link-title')], [place.action]),
-        ],
-      ),
-    ],
-  )
-
-const pixels = (carpet: Carpet, className: string): Html =>
-  ih.span(
-    [
-      ih.AriaHidden(true),
-      ih.Class(className),
-      ih.Style(carpetStyle(carpet, fineSeam)),
-    ],
-    [],
-  )
+import { broadSeam, type Carpet, carpetMark, whyLoomCarpet } from './components'
+import { pageHead, pixels } from './page-head'
 
 const motivation: ReadonlyArray<string> = [
   'AI-assisted engineering relies on natural language as a primary medium for building software. But the prose describing a system and the code that implements it tend to drift apart and fight for authority. The result is a split brain: the prose on one side, the code on the other.',
@@ -173,26 +108,10 @@ const pairCard = (pair: Pair, at: number): Html => {
 }
 
 const whyHead = (): Html =>
-  ih.div(
-    [ih.Class('section section-hero why-hero'), ih.Id('why-top')],
-    [
-      ih.div(
-        [ih.Class('why-title')],
-        [loomMark('paper', 0.8), ih.h1([], ['Why Loom?'])],
-      ),
-      ih.div(
-        [ih.Class('why-hero-grid')],
-        [
-          ih.p(
-            [ih.Class('prose why-lead')],
-            [
-              'The motivation behind Loom is simple. AI-assisted engineering relies on natural language as a primary medium for building software. Literate programming has been doing that since 1984.',
-            ],
-          ),
-          ih.div([ih.Class('why-links')], Array.map(places, placeCard)),
-        ],
-      ),
-    ],
+  pageHead(
+    'why-top',
+    'Why Loom?',
+    'The motivation behind Loom is simple. AI-assisted engineering relies on natural language as a primary medium for building software. Literate programming has been doing that since 1984.',
   )
 
 const whyMotivation = (): Html =>

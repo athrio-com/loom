@@ -1,0 +1,120 @@
+---
+Part X, Chapter 10: A page that opens on a question
+Package: site/src/
+Language: TypeScript
+---
+
+# A page that opens on a question
+
+The landing opens on a masthead, but the pages past it open on a heading. Why Loom and Community each start the same way: the Loom mark beside the page's own name, a short paragraph under it, and two cards to its right that lead off the site. This chapter builds that head once, so the two pages share it rather than drift apart.
+
+The head answers no click with a message. Its cards are plain links, so it builds with Foldkit's inert builder, `ih`, and a page can draw it without lending a builder of its own.
+
+## The head
+
+`pageHead` takes the id the head's section carries, the page's name, and the paragraph that answers it. The mark is the woven pill the landing's hero wears, drawn at four fifths of its size so it stands level with a heading rather than above one. The paragraph and the cards share a row of equal halves until the window drops below a thousand pixels, where the cards fall under the paragraph rather than squeeze it into half the width.
+
+=>
+
+export const pageHead = (id: string, title: string, lead: string): Html =>
+  ih.div(
+    [ih.Class('section section-hero page-hero'), ih.Id(id)],
+    [
+      ih.div([ih.Class('page-title')], [loomMark('paper', 0.8), ih.h1([], [title])]),
+      ih.div(
+        [ih.Class('page-head-grid')],
+        [
+          ih.p([ih.Class('prose page-lead')], [lead]),
+          ih.div([ih.Class('page-places')], Array.map(places, placeCard)),
+        ],
+      ),
+    ],
+  )
+
+## Two places to go next
+
+A reader who reaches the end of either page has two places to go: the repository, to read the source and star it, and the Telegram group, to ask a question. The group is Athrio's community, where Loom is one topic among several. Each card carries a pixel emblem woven from the mark's own threads, Telegram's a blue disc crossed by a paper plane as its own logo is, a small label naming the place, and what a reader does there. A card lights in its emblem's colour when the pointer reaches it, amber for GitHub and blue for Telegram, so the two read as different doors.
+
+=>
+
+type Place = {
+  readonly name: string
+  readonly action: string
+  readonly href: string
+  readonly emblem: Carpet
+  readonly key: 'github' | 'telegram'
+}
+
+const places: ReadonlyArray<Place> = [
+  {
+    name: 'GitHub',
+    action: 'Star the repo',
+    href: 'https://github.com/athrio-com/loom',
+    key: 'github',
+    emblem: {
+      rows: ['...a...', '..aaa..', 'aaaaaaa', '.aaaaa.', '..aaa..', '.aa.aa.', '.a...a.'],
+      threads: { '.': NAVY, a: '#FFC53D' },
+    },
+  },
+  {
+    name: 'Telegram',
+    action: 'Join community',
+    href: 'https://t.me/athrio',
+    key: 'telegram',
+    emblem: {
+      rows: ['.bbbbb.', 'bbbbbbb', 'bbbbbpb', 'bppppbb', 'bbbpbbb', 'bbbbbbb', '.bbbbb.'],
+      threads: { '.': NAVY, b: '#2E6FF2', p: '#F2EFE6' },
+    },
+  },
+]
+
+const placeCard = (place: Place): Html =>
+  ih.a(
+    [ih.Class(`place-card ${place.key}`), ih.Href(place.href)],
+    [
+      pixels(place.emblem, 'place-emblem'),
+      ih.span(
+        [ih.Class('place-lines')],
+        [
+          ih.span([ih.Class('eyebrow')], [place.name]),
+          ih.span([ih.Class('place-title')], [place.action]),
+        ],
+      ),
+    ],
+  )
+
+## Emblems woven as carpets
+
+Every emblem these pages draw is a carpet, the same grid of threads the section marks are woven from. `pixels` draws one at whatever size its class gives it. An empty cell takes no colour at all, so a glyph with gaps in it keeps the paper behind it.
+
+=>
+
+export const pixels = (carpet: Carpet, className: string): Html =>
+  ih.span(
+    [ih.AriaHidden(true), ih.Class(className), ih.Style(carpetStyle(carpet, fineSeam))],
+    [],
+  )
+
+## What this module draws on
+
+Effect lends `Array` to map the cards. Foldkit lends the inert builder and the `Html` type. The components lend the carpet machinery and the Loom mark.
+
+=>
+
+import { Array } from 'effect'
+import { type Html, inertHtml as ih } from 'foldkit/html'
+import { type Carpet, carpetStyle, fineSeam, loomMark } from './components'
+
+const NAVY = '#14204A'
+
+## The module {Tangle}[page-head.ts]
+
+=>
+
+::[What this module draws on]
+
+::[Emblems woven as carpets]
+
+::[Two places to go next]
+
+::[The head]
