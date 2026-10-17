@@ -33,7 +33,7 @@ export const pageHead = (id: string, title: string, lead: string): Html =>
 
 ## Two places to go next
 
-A reader who reaches the end of either page has two places to go: the repository, to read the source and star it, and the Telegram group, to ask a question. The group is Athrio's community, where Loom is one topic among several. Each card carries a pixel emblem woven from the mark's own threads, Telegram's a blue disc crossed by a paper plane as its own logo is, a small label naming the place, and what a reader does there. A card lights in its emblem's colour when the pointer reaches it, amber for GitHub and blue for Telegram, so the two read as different doors.
+A reader who reaches the end of either page has two places to go: the repository, to read the source and star it, and the Telegram group, to ask a question. The group is Athrio's community, where Loom is one topic among several. Each card carries a pixel emblem woven from the mark's own threads, Telegram's a blue chat bubble with three dots in it, a small label naming the place, and what a reader does there. A card lights in its emblem's colour when the pointer reaches it, amber for GitHub and blue for Telegram, so the two read as different doors.
 
 =>
 
@@ -62,7 +62,7 @@ const places: ReadonlyArray<Place> = [
     href: 'https://t.me/athrio',
     key: 'telegram',
     emblem: {
-      rows: ['.bbbbb.', 'bbbbbbb', 'bbbbbpb', 'bppppbb', 'bbbpbbb', 'bbbbbbb', '.bbbbb.'],
+      rows: ['.bbbbb.', 'bbbbbbb', 'bpbpbpb', 'bbbbbbb', '.bbbbb.', '.bb....', '.b.....'],
       threads: { '.': NAVY, b: '#2E6FF2', p: '#F2EFE6' },
     },
   },

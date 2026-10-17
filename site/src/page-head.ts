@@ -35,7 +35,7 @@ const places: ReadonlyArray<Place> = [
     href: 'https://t.me/athrio',
     key: 'telegram',
     emblem: {
-      rows: ['.bbbbb.', 'bbbbbbb', 'bbbbbpb', 'bppppbb', 'bbbpbbb', 'bbbbbbb', '.bbbbb.'],
+      rows: ['.bbbbb.', 'bbbbbbb', 'bpbpbpb', 'bbbbbbb', '.bbbbb.', '.bb....', '.b.....'],
       threads: { '.': NAVY, b: '#2E6FF2', p: '#F2EFE6' },
     },
   },

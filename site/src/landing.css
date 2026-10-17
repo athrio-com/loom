@@ -1212,10 +1212,14 @@ h2, .subhead {
   border: 1px solid var(--rule);
   border-radius: var(--radius);
   color: var(--ink);
-  transition: border-color 180ms;
+  transition: background 180ms, border-color 180ms;
 }
 
-.channel-card:hover { color: var(--ink); border-color: var(--ink-3); }
+.channel-card:hover {
+  color: var(--ink);
+  background: var(--channel-tint);
+  border-color: var(--channel-ink);
+}
 
 .channel-body { font-size: var(--t-code); line-height: var(--lead); text-wrap: pretty; }
 

@@ -2042,7 +2042,7 @@ Under the prose, a legend names the two glyphs before any card uses them, in the
 
 ## The channels
 
-The community page lists its channels as cards packed into columns of uneven height: three at full width, two below twelve hundred pixels, and one below six hundred and forty. A card is a pale panel with the channel's name, the contribution it suits, and a sentence or two on what to bring, set at the size of block code. The whole card is the link. Under the pointer its edge darkens to the muted ink, which is enough to say the card leads somewhere without dressing it as a button.
+The community page lists its channels as cards packed into columns of uneven height: three at full width, two below twelve hundred pixels, and one below six hundred and forty. A card is a pale panel with the channel's name, the contribution it suits, and a sentence or two on what to bring, set at the size of block code. The whole card is the link. Under the pointer it takes the tint and the edge of its channel's hue, which the card carries as two custom properties, the way the argument page's pairs light.
 
 =>
 
@@ -2059,10 +2059,14 @@ The community page lists its channels as cards packed into columns of uneven hei
   border: 1px solid var(--rule);
   border-radius: var(--radius);
   color: var(--ink);
-  transition: border-color 180ms;
+  transition: background 180ms, border-color 180ms;
 }
 
-.channel-card:hover { color: var(--ink); border-color: var(--ink-3); }
+.channel-card:hover {
+  color: var(--ink);
+  background: var(--channel-tint);
+  border-color: var(--channel-ink);
+}
 
 .channel-body { font-size: var(--t-code); line-height: var(--lead); text-wrap: pretty; }
 
