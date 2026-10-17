@@ -1,11 +1,13 @@
 import { Array, Effect, Filter, Match, Option, pipe, Schema as S, Stream } from 'effect'
-import { Runtime, Subscription } from 'foldkit'
+import { Dom, Runtime, Subscription } from 'foldkit'
 import { define } from 'foldkit/command'
+import { afterCommit } from 'foldkit/render'
 import { animationFrameEntry } from 'foldkit/subscription'
 import type { Return } from 'foldkit/update'
 import { view } from './view'
 import {
   CopyReset,
+  FocusedPalette,
   GrewCard,
   type Message,
   Model,
@@ -16,6 +18,8 @@ import {
   StageMoved,
   Ticked,
   ToggledFullHeight,
+  MovedCaret,
+  OpenedSearch,
 } from './model'
 import { CHARACTERS, RUN, struckBy } from './example'
 
@@ -30,6 +34,15 @@ const CopyThenReset = define('CopyThenReset', {
       Effect.andThen(Effect.sleep('1400 millis')),
       Effect.as(CopyReset()),
     ),
+})
+
+const FocusPalette = define('FocusPalette', {
+  messages: [FocusedPalette],
+  execute: afterCommit.pipe(
+    Effect.andThen(Dom.focus('.palette-input')),
+    Effect.ignore,
+    Effect.as(FocusedPalette()),
+  ),
 })
 
 const scrollIntoPreview = (id: string): void =>
@@ -205,7 +218,11 @@ const update = (model: Model, message: Message): Step =>
         hidden === model.navHidden ? { model } : { model: { ...model, navHidden: hidden } },
       OpenedDrawer: () => ({ model: { ...model, drawerOpen: true } }),
       ClosedDrawer: () => ({ model: { ...model, drawerOpen: false } }),
-      OpenedSearch: () => ({ model: { ...model, searchOpen: true, focus: 0 } }),
+      OpenedSearch: () => ({
+        model: { ...model, searchOpen: true, focus: 0 },
+        commands: [FocusPalette()],
+      }),
+      FocusedPalette: () => ({ model }),
       ClosedSearch: () => ({
         model: { ...model, searchOpen: false, query: '', focus: 0, caret: 0, searching: false },
       }),
@@ -245,6 +262,35 @@ const windowEvents = <E extends Event>(
     Stream.filterMap(Filter.fromPredicateOption(toMessage)),
   )
 
+const typingIn = (target: EventTarget | null): boolean =>
+  target instanceof HTMLElement &&
+  (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+
+const slashOpens = (event: KeyboardEvent): Option.Option<Message> =>
+  event.key === '/' && !event.metaKey && !event.ctrlKey && !event.altKey && !typingIn(event.target)
+    ? Option.some(OpenedSearch())
+    : Option.none()
+
+const paletteCaret = (): Option.Option<number> =>
+  pipe(
+    Option.fromNullishOr(document.querySelector<HTMLInputElement>('.palette-input')),
+    Option.filter((field) => field === document.activeElement),
+    Option.flatMapNullishOr((field) => field.selectionStart),
+  )
+
+const caretMoves: Stream.Stream<Message> = pipe(
+  [
+    Stream.fromEventListener(document, 'selectionchange'),
+    Stream.fromEventListener(window, 'keyup'),
+    Stream.fromEventListener(window, 'mouseup'),
+    Stream.fromEventListener(window, 'input'),
+  ],
+  Stream.mergeAll({ concurrency: 'unbounded' }),
+  Stream.filterMap(
+    Filter.fromPredicateOption(() => Option.map(paletteCaret(), (at) => MovedCaret({ at }))),
+  ),
+)
+
 const subscriptions = Subscription.make<Model, Message>()((entry) => ({
   sectionSpy: entry(
     { spying: S.Boolean },
@@ -260,6 +306,27 @@ const subscriptions = Subscription.make<Model, Message>()((entry) => ({
               { passive: true },
             )
           : Stream.empty,
+    },
+  ),
+  opening: entry(
+    { closed: S.Boolean },
+    {
+      modelToDependencies: (model) => ({ closed: !model.searchOpen }),
+      dependenciesToStream: ({ closed }) =>
+        closed
+          ? Dom.streamFromEventFilterMapPreventDefault({
+              target: window,
+              type: 'keydown',
+              filterMapEvent: slashOpens,
+            })
+          : Stream.empty,
+    },
+  ),
+  caret: entry(
+    { open: S.Boolean },
+    {
+      modelToDependencies: (model) => ({ open: model.searchOpen }),
+      dependenciesToStream: ({ open }) => (open ? caretMoves : Stream.empty),
     },
   ),
   typing: animationFrameEntry<Model, Message>({

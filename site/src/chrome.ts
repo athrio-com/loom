@@ -1,5 +1,5 @@
 import { Array, Match, Option, pipe } from 'effect'
-import { inertHtml as ih, type Html, type HtmlBuilder } from 'foldkit/html'
+import type { Html, HtmlBuilder } from 'foldkit/html'
 import {
   ClosedSearch,
   MovedFocus,
@@ -529,24 +529,6 @@ type Pill = {
   readonly mark: Html
 }
 
-const brandMark = (viewBox: string, fill: string, path: string): Html =>
-  ih.span(
-    [
-      ih.AriaHidden(true),
-      ih.Style({ display: 'block', flex: 'none', width: '17px', height: '17px' }),
-      ih.InnerHTML(
-        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" fill="${fill}" width="17" height="17"><path d="${path}"/></svg>`,
-      ),
-    ],
-    [],
-  )
-
-const GITHUB_PATH =
-  'M12 .5C5.7.5.6 5.6.6 12c0 5 3.3 9.3 7.8 10.8.6.1.8-.2.8-.6v-2c-3.2.7-3.9-1.5-3.9-1.5-.5-1.3-1.3-1.7-1.3-1.7-1-.7.1-.7.1-.7 1.1.1 1.7 1.2 1.7 1.2 1 1.8 2.7 1.3 3.4 1 .1-.8.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.8 0-1.3.4-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.2 1.2.9-.3 1.9-.4 2.9-.4s2 .1 2.9.4c2.2-1.5 3.2-1.2 3.2-1.2.6 1.6.2 2.8.1 3.1.8.8 1.2 1.8 1.2 3.1 0 4.5-2.7 5.5-5.3 5.8.4.4.8 1.1.8 2.2v3.3c0 .4.2.7.8.6 4.5-1.5 7.8-5.8 7.8-10.8C23.4 5.6 18.3.5 12 .5z'
-
-const TELEGRAM_PATH =
-  'M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z'
-
 const pills: ReadonlyArray<Pill> = [
   ...Array.map(navPages, (page) => ({
     label: Match.value(page.route).pipe(
@@ -558,16 +540,6 @@ const pills: ReadonlyArray<Pill> = [
     href: page.href,
     mark: carpetMark(page.carpet, '17px'),
   })),
-  {
-    label: 'GitHub',
-    href: 'https://github.com/athrio-com/loom',
-    mark: brandMark('0 0 24 24', '#C4CCE4', GITHUB_PATH),
-  },
-  {
-    label: 'Telegram',
-    href: 'https://t.me/athrio',
-    mark: brandMark('0 0 24 24', '#26A5E4', TELEGRAM_PATH),
-  },
 ]
 
 const pillRow = (focus: number, h: HtmlBuilder<Message>): Html =>

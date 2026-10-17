@@ -97,7 +97,7 @@ export const routeOf = (pathname: string): Option.Option<Route> =>
 
 ## The messages
 
-The reader does a handful of things. They follow a link to another page, and the site records which page they went to. They open the search palette with a slash and close it with escape, type a query into it, walk the results with the arrows, and move the caret inside what they have typed; a moment after the last keystroke the search settles.
+The reader does a handful of things. They follow a link to another page, and the site records which page they went to. They open the search palette with a slash and close it with escape, type a query into it, walk the results with the arrows, and move the caret inside what they have typed; a moment after the last keystroke the search settles. Opening the palette puts the keyboard's focus in its field, and the answer that focus has landed is a message of its own.
 
 In the example they press play, pause it partway, send it back to the start, or skip to the end, and while it runs each frame advances the clock. They also ask for the card at the height of the window; the page glides to the card first and the height opens only once it has arrived, which is a second message rather than the same one. Once the document has finished they ask for the file one of the two commands writes. Each frame the document may also need moving under the caret, and the answer to that says it has been done.
 
@@ -115,6 +115,7 @@ export const Message = defineMessageUnion({
   OpenedDrawer: {},
   ClosedDrawer: {},
   OpenedSearch: {},
+  FocusedPalette: {},
   ClosedSearch: {},
   MovedCaret: { at: S.Number },
   SettledSearch: {},
@@ -144,6 +145,7 @@ export const {
   OpenedDrawer,
   ClosedDrawer,
   OpenedSearch,
+  FocusedPalette,
   ClosedSearch,
   MovedCaret,
   SettledSearch,

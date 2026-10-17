@@ -15,13 +15,15 @@ The update returns the next model and the commands to run, as a record of the tw
 =>
 
 import { Array, Effect, Filter, Match, Option, pipe, Schema as S, Stream } from 'effect'
-import { Runtime, Subscription } from 'foldkit'
+import { Dom, Runtime, Subscription } from 'foldkit'
 import { define } from 'foldkit/command'
+import { afterCommit } from 'foldkit/render'
 import { animationFrameEntry } from 'foldkit/subscription'
 import type { Return } from 'foldkit/update'
 import { view } from './view'
 import {
   CopyReset,
+  FocusedPalette,
   GrewCard,
   type Message,
   Model,
@@ -32,6 +34,8 @@ import {
   StageMoved,
   Ticked,
   ToggledFullHeight,
+  MovedCaret,
+  OpenedSearch,
 } from './model'
 import { CHARACTERS, RUN, struckBy } from './example'
 
@@ -54,6 +58,21 @@ const CopyThenReset = define('CopyThenReset', {
     ),
 })
 
+
+## Focus where the reader will type
+
+A palette that opens without the keyboard's focus makes a reader click into it before they can type, which defeats the point of opening it from the keyboard. So opening the palette runs `FocusPalette`. It waits for the render that draws the palette to commit, since the field does not exist until then, and focuses it. A field that has already gone, because the reader closed the palette in the same breath, fails to focus, and the command lets that pass quietly.
+
+=>
+
+const FocusPalette = define('FocusPalette', {
+  messages: [FocusedPalette],
+  execute: afterCommit.pipe(
+    Effect.andThen(Dom.focus('.palette-input')),
+    Effect.ignore,
+    Effect.as(FocusedPalette()),
+  ),
+})
 
 ## Jumping to a section
 
@@ -184,7 +203,7 @@ const GlideToCard = define('GlideToCard', {
 
 ## The update
 
-Most messages set one field: the query, the focus clamped to the results, the loom tab's view. Following a link records the page it led to and closes the palette behind it. Opening a documentation chapter records its slug, clears the heading the outline was following — the previous chapter's headings are no longer on the page — and shuts the drawer behind the reader, since they have arrived where they were going. The bar's own message only writes when the answer changes, so a scroll that keeps it hidden costs no render. Opening the palette puts the focus on its first result; closing it clears the query, the focus and the caret together, so the palette opens empty the next time. Moving the caret records where it now sits, and the search settles a moment after the last keystroke. The example's messages move a position rather than set a flag: playing from the end starts again from the first character, a frame advances the clock and asks the stage to follow the caret, and skipping jumps both the clock and the stage to the foot. Going back to the start puts the clock, the height and the stage all back where they began — the document at its first character, the card down from full height, and the stage at the head of the document rather than wherever the reader stopped reading.
+Most messages set one field: the query, the focus clamped to the results, the loom tab's view. Following a link records the page it led to and closes the palette behind it. Opening a documentation chapter records its slug, clears the heading the outline was following — the previous chapter's headings are no longer on the page — and shuts the drawer behind the reader, since they have arrived where they were going. The bar's own message only writes when the answer changes, so a scroll that keeps it hidden costs no render. Opening the palette puts the focus on its first result and the keyboard in its field; closing it clears the query, the focus and the caret together, so the palette opens empty the next time. Moving the caret records where it now sits, and the search settles a moment after the last keystroke. The example's messages move a position rather than set a flag: playing from the end starts again from the first character, a frame advances the clock and asks the stage to follow the caret, and skipping jumps both the clock and the stage to the foot. Going back to the start puts the clock, the height and the stage all back where they began — the document at its first character, the card down from full height, and the stage at the head of the document rather than wherever the reader stopped reading.
 
 Asking for full height is the one press that changes nothing at once. It runs the glide and waits: the page arrives at the card, `GrewCard` comes back, and only then does the height open. Giving the height back is immediate, since nothing has to travel first. Asking for a command's file toggles it, so pressing the same button twice closes what it opened. Selecting a section sets the active one and asks the preview to scroll to it. A section spotted while the reader scrolls sets the active one too, but runs nothing, so the outline follows the scroll rather than fighting it. Copying flashes the pressed button and runs its reset.
 
@@ -274,7 +293,11 @@ const update = (model: Model, message: Message): Step =>
         hidden === model.navHidden ? { model } : { model: { ...model, navHidden: hidden } },
       OpenedDrawer: () => ({ model: { ...model, drawerOpen: true } }),
       ClosedDrawer: () => ({ model: { ...model, drawerOpen: false } }),
-      OpenedSearch: () => ({ model: { ...model, searchOpen: true, focus: 0 } }),
+      OpenedSearch: () => ({
+        model: { ...model, searchOpen: true, focus: 0 },
+        commands: [FocusPalette()],
+      }),
+      FocusedPalette: () => ({ model }),
       ClosedSearch: () => ({
         model: { ...model, searchOpen: false, query: '', focus: 0, caret: 0, searching: false },
       }),
@@ -317,6 +340,10 @@ Every listener here is conditional. Each one asks the model whether its work is 
 
 The spy and the escape key both listen on the window. The `windowEvents` function turns a window event into a stream and keeps only the events that name a message, so a key other than escape passes by without a sound.
 
+Two more belong to the search palette. While it is closed, a slash opens it, unless the reader is typing into a field of their own, where a slash is just a slash. The slash that opens the palette is kept from also landing in its field, so the opening key never becomes the first character of the query.
+
+While the palette is open, its caret follows the field's own. The palette draws a block caret of its own rather than the browser's, so it needs the field's caret position as state. A reader moves that position by typing, by the arrow keys, by clicking, or by selecting, and no single event covers all four. So the listener takes the selection changes the document reports, and the key, pointer and input events besides, and after each one reads where the field's caret now stands. It reads nothing while the field has lost focus.
+
 =>
 
 const windowEvents = <E extends Event>(
@@ -327,6 +354,35 @@ const windowEvents = <E extends Event>(
   Stream.fromEventListener<E>(window, type, options).pipe(
     Stream.filterMap(Filter.fromPredicateOption(toMessage)),
   )
+
+const typingIn = (target: EventTarget | null): boolean =>
+  target instanceof HTMLElement &&
+  (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+
+const slashOpens = (event: KeyboardEvent): Option.Option<Message> =>
+  event.key === '/' && !event.metaKey && !event.ctrlKey && !event.altKey && !typingIn(event.target)
+    ? Option.some(OpenedSearch())
+    : Option.none()
+
+const paletteCaret = (): Option.Option<number> =>
+  pipe(
+    Option.fromNullishOr(document.querySelector<HTMLInputElement>('.palette-input')),
+    Option.filter((field) => field === document.activeElement),
+    Option.flatMapNullishOr((field) => field.selectionStart),
+  )
+
+const caretMoves: Stream.Stream<Message> = pipe(
+  [
+    Stream.fromEventListener(document, 'selectionchange'),
+    Stream.fromEventListener(window, 'keyup'),
+    Stream.fromEventListener(window, 'mouseup'),
+    Stream.fromEventListener(window, 'input'),
+  ],
+  Stream.mergeAll({ concurrency: 'unbounded' }),
+  Stream.filterMap(
+    Filter.fromPredicateOption(() => Option.map(paletteCaret(), (at) => MovedCaret({ at }))),
+  ),
+)
 
 const subscriptions = Subscription.make<Model, Message>()((entry) => ({
   sectionSpy: entry(
@@ -343,6 +399,27 @@ const subscriptions = Subscription.make<Model, Message>()((entry) => ({
               { passive: true },
             )
           : Stream.empty,
+    },
+  ),
+  opening: entry(
+    { closed: S.Boolean },
+    {
+      modelToDependencies: (model) => ({ closed: !model.searchOpen }),
+      dependenciesToStream: ({ closed }) =>
+        closed
+          ? Dom.streamFromEventFilterMapPreventDefault({
+              target: window,
+              type: 'keydown',
+              filterMapEvent: slashOpens,
+            })
+          : Stream.empty,
+    },
+  ),
+  caret: entry(
+    { open: S.Boolean },
+    {
+      modelToDependencies: (model) => ({ open: model.searchOpen }),
+      dependenciesToStream: ({ open }) => (open ? caretMoves : Stream.empty),
     },
   ),
   typing: animationFrameEntry<Model, Message>({
@@ -396,6 +473,8 @@ Runtime.hydrate(application, { buildId: new URL(import.meta.url).pathname })
 ::[The update return]
 
 ::[The timed commands]
+
+::[Focus where the reader will type]
 
 ::[Jumping to a section]
 
