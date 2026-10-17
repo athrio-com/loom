@@ -6,7 +6,7 @@ Language: TypeScript
 
 # The model
 
-The website is a Foldkit application, so it begins with the state a reader changes as they move through it. Every live region on the site draws from one flat struct: the page they are on, the chapter of the documentation they opened, the search palette over it, the document being typed out in the example, and the notes the Design section has collected.
+The website is a Foldkit application, so it begins with the state a reader changes as they move through it. Every live region on the site draws from one flat struct: the page they are on, the chapter of the documentation they opened, the search palette over it, and the document being typed out in the example.
 
 ## The state
 
@@ -14,24 +14,22 @@ The state is one flat struct, and it opens on where the reader is. The route nam
 
 Within the documentation the route is not enough, because every chapter answers on the same page. So the chapter field names the woven chapter on show, and the rail, the article and the outline are all drawn from it. Two more fields belong to the documentation's own bar: whether it has slid out of the way as the reader scrolls down, and whether the drawer that replaces the rail on a narrow window is open. The active section is the heading the outline is following.
 
-The runtime is which package manager the hero's install line is written for, since a reader wants the one command that works on their machine rather than four to choose between.
+The runtime is which package manager the hero's install line is written for, since a reader wants the one command that works on their machine rather than three to choose between.
 
 Five fields carry the search palette, which opens over whatever page is showing: whether it is open, where the caret sits inside the query, whether the search is still settling, and — further down, beside the older fields — the query itself and the focused result. The palette draws its own block caret rather than the browser's, so the caret's position has to be state instead of something the input keeps to itself.
 
 The player is the example's own state, held apart because it changes on every frame while the document is being typed. The version is the latest release, which the server reads from npm so the hero never falls behind. The copied field names the copy button flashing its confirmation, or the empty string when none is.
 
-Eight more fields belong to the Design section, which runs its own tools over the page a reader is on rather than picturing them. The notes are the ones filed so far, and the sequence is the number the next one takes. Two flags say what the bar is showing: whether the notes panel stands open, and whether the bar has collapsed to its handle. The picking flag says the picker is armed and the next click files a note instead of following a link. The tab chooses which half of the notes the panel lists, the open ones or the resolved. What the reader aimed at is present only after they have clicked something, so it is an `Option` rather than a field with an empty meaning. The draft is the sentence being typed under it. The highlight is the rectangle drawn over whatever sits under the cursor, present only while the picker is armed and over something it may aim at.
-
 =>
 
-import { Option, Schema as S } from 'effect'
+import { Array, Match, Option, Schema as S } from 'effect'
 import { html } from 'foldkit/html'
 import { m } from 'foldkit/message'
 
 export const Route = S.Literals(['home', 'why-loom', 'docs', 'community', 'source'])
 export type Route = typeof Route.Type
 
-export const Runtime = S.Literals(['bun', 'deno', 'npm', 'pnpm'])
+export const Runtime = S.Literals(['bun', 'npm', 'pnpm'])
 export type Runtime = typeof Runtime.Type
 
 export const Model = S.Struct({
@@ -49,15 +47,6 @@ export const Model = S.Struct({
   query: S.String,
   focus: S.Number,
   copied: S.String,
-  notes: S.Array(Note),
-  seq: S.Number,
-  notesOpen: S.Boolean,
-  barCollapsed: S.Boolean,
-  picking: S.Boolean,
-  noteTab: NoteTab,
-  aimed: S.Option(Target),
-  draft: S.String,
-  highlight: S.Option(Highlight),
 })
 export type Model = typeof Model.Type
 
@@ -81,47 +70,30 @@ export const Player = S.Struct({
 })
 export type Player = typeof Player.Type
 
-## A note, and the thing it points at
+## Every page has an address
 
-A note carries a number, the kind of thing it was left on, a pointer to that thing, the route the reader was on, the sentence itself, and whether it has been addressed. The three kinds are the ones Design distinguishes everywhere: a `chat` note about the page as a whole, a `dom` note on an element, and a `loom` note on a fragment some `.loom` section wove. Each kind wears its own colour wherever a note appears.
-
-A target is what the picker resolved an element to. Its label is the short name the picker paints beside the outline, and its pointer is the longer form the note keeps — for a woven fragment those differ, since the label names the section and the pointer names the chapter as well.
-
-A highlight is the outline itself: the label to paint and a rectangle in the coordinates a fixed element uses, so the browser can draw it over the page without knowing how far the page has scrolled.
+Each route answers at one address. The home page sits at the root, and every other page sits at a path named after its route, so the `why-loom` route answers at `/why-loom`. The `pathOf` function writes that mapping out once, as an exhaustive match, so a route added to the list breaks the build until it is given an address.
 
 =>
 
-export const NoteKind = S.Literals(['chat', 'dom', 'loom'])
-export type NoteKind = typeof NoteKind.Type
+export const pathOf = (route: Route): string =>
+  Match.value(route).pipe(
+    Match.when('home', () => '/'),
+    Match.when('docs', () => '/docs'),
+    Match.when('why-loom', () => '/why-loom'),
+    Match.when('community', () => '/community'),
+    Match.when('source', () => '/source'),
+    Match.exhaustive,
+  )
 
-export const NoteTab = S.Literals(['open', 'resolved'])
-export type NoteTab = typeof NoteTab.Type
+~
 
-export const Note = S.Struct({
-  seq: S.Number,
-  kind: NoteKind,
-  pointer: S.String,
-  route: S.String,
-  text: S.String,
-  addressed: S.Boolean,
-})
-export type Note = typeof Note.Type
+The server and the client read the same mapping the other way. Each starts from an address and nothing else, and the route decides which page the view draws, so the address has to name a route before anything renders. The `routeOf` function searches the routes for the one whose path matches. It derives its answer from the `pathOf` function rather than from a second table that could drift from it. An address the site does not serve names no route, so the answer is an `Option` rather than a guess.
 
-export const Target = S.Struct({
-  kind: NoteKind,
-  label: S.String,
-  pointer: S.String,
-})
-export type Target = typeof Target.Type
+=>
 
-export const Highlight = S.Struct({
-  label: S.String,
-  left: S.Number,
-  top: S.Number,
-  width: S.Number,
-  height: S.Number,
-})
-export type Highlight = typeof Highlight.Type
+export const routeOf = (pathname: string): Option.Option<Route> =>
+  Array.findFirst(Route.literals, (route) => pathOf(route) === pathname)
 
 ## The messages
 
@@ -130,8 +102,6 @@ The reader does a handful of things. They follow a link to another page, and the
 In the example they press play, pause it partway, send it back to the start, or skip to the end, and while it runs each frame advances the clock. They also ask for the card at the height of the window; the page glides to the card first and the height opens only once it has arrived, which is a second message rather than the same one. Once the document has finished they ask for the file one of the two commands writes. Each frame the document may also need moving under the caret, and the answer to that says it has been done.
 
 In the documentation they open a chapter, jump to one of its sections, and — scrolling by hand instead — let the outline follow them. They type into the palette and move its focus with the arrows. They copy a command, and a moment later the flash resets.
-
-In the Design section they do more. They arm the picker and cancel it with escape, and while it is armed the pointer moves on and off the things it may aim at. They click one, and the section records the target. They open and close the notes panel, collapse the bar to its handle and pull it back out, and switch the panel between its open and resolved lists. On a single note they resolve it, put it back, or discard it. In the composer they clear the target they aimed at, type a sentence, and send it.
 
 =>
 
@@ -160,22 +130,6 @@ export const Typed = m('Typed', { query: S.String })
 export const MovedFocus = m('MovedFocus', { delta: S.Number, count: S.Number })
 export const Copied = m('Copied', { id: S.String, text: S.String })
 export const CopyReset = m('CopyReset')
-export const ToggledPicker = m('ToggledPicker')
-export const PickingApplied = m('PickingApplied')
-export const CancelledPick = m('CancelledPick')
-export const AimedAt = m('AimedAt', { highlight: Highlight })
-export const AimedAway = m('AimedAway')
-export const PickedTarget = m('PickedTarget', { target: Target })
-export const ToggledNotes = m('ToggledNotes')
-export const ClosedNotes = m('ClosedNotes')
-export const CollapsedBar = m('CollapsedBar')
-export const ExpandedBar = m('ExpandedBar')
-export const ShowedNotes = m('ShowedNotes', { tab: NoteTab })
-export const ResolvedNote = m('ResolvedNote', { seq: S.Number })
-export const DiscardedNote = m('DiscardedNote', { seq: S.Number })
-export const ClearedTarget = m('ClearedTarget')
-export const DraftedNote = m('DraftedNote', { text: S.String })
-export const SentNote = m('SentNote')
 
 export const Message = S.Union([
   WentTo,
@@ -203,22 +157,6 @@ export const Message = S.Union([
   MovedFocus,
   Copied,
   CopyReset,
-  ToggledPicker,
-  PickingApplied,
-  CancelledPick,
-  AimedAt,
-  AimedAway,
-  PickedTarget,
-  ToggledNotes,
-  ClosedNotes,
-  CollapsedBar,
-  ExpandedBar,
-  ShowedNotes,
-  ResolvedNote,
-  DiscardedNote,
-  ClearedTarget,
-  DraftedNote,
-  SentNote,
 ])
 export type Message = typeof Message.Type
 
@@ -226,14 +164,14 @@ export const h = html<Message>()
 
 ## The module {Tangle}[model.ts]
 
-The module leads with the player and the note, because the state is written in terms of both and a module evaluates top to bottom. The chapter reads the other way round — the state first, then the two structures inside it — since that is the order they are easier to learn in.
+The module puts the player first, because the state is written in terms of it and a module evaluates from the top down. The chapter tells it the other way round. It introduces the state before the player, since that is the easier order to learn them in.
 
 =>
 
 ::[What the player remembers]
 
-::[A note, and the thing it points at]
-
 ::[The state]
+
+::[Every page has an address]
 
 ::[The messages]

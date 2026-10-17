@@ -34,7 +34,6 @@ import {
 } from './model'
 import {
   bunIcon,
-  denoIcon,
   loomMark,
   npmIcon,
   pnpmIcon,
@@ -75,11 +74,9 @@ const claim = (): Html =>
 
 ## One command, in the reader's own package manager
 
-Four package managers install Loom, and the hero shows one line rather than four. A reader picks their own from a row of tabs and the line beneath rewrites itself.
+Three package managers install Loom, and the hero shows one line rather than three. A reader picks their own from a row of tabs and the line beneath rewrites itself.
 
 Each tab carries the runtime's real logo, vendored as inline markup rather than fetched as a file, so the mark is sharp at any size and the page makes no request for it. The chosen tab darkens to primary ink and draws a rule beneath itself; the others sit in muted ink with a transparent rule, so the row's baseline never shifts as the choice moves.
-
-Deno's line is the odd one, and it has to be: the package is scoped, so without `-n loom` the command would install itself under the scope's name instead of under `loom`.
 
 The command a tab shows and the command the button copies are the same string, read from the same row of the table. Writing them twice would be an invitation for one to drift while the other stays right.
 
@@ -94,12 +91,6 @@ type Install = {
 
 const installs: ReadonlyArray<Install> = [
   { runtime: 'bun', label: 'bun', command: 'bun add -g @athrio/loom', logo: bunIcon() },
-  {
-    runtime: 'deno',
-    label: 'deno',
-    command: 'deno install -g -n loom npm:@athrio/loom',
-    logo: denoIcon(),
-  },
   { runtime: 'npm', label: 'npm', command: 'npm install -g @athrio/loom', logo: npmIcon() },
   { runtime: 'pnpm', label: 'pnpm', command: 'pnpm add -g @athrio/loom', logo: pnpmIcon() },
 ]

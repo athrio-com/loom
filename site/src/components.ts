@@ -111,11 +111,6 @@ export const operationsCarpet: Carpet = {
   threads: { '.': NAVY, p: PAPER, g: '#00B37E', v: '#8B5CF6', o: '#FF6A3D' },
 }
 
-export const designCarpet: Carpet = {
-  rows: ['....b.b', '...bb..', 'b..b...', '.booo..', '.boyo.b', '..ooo.v', '.b.....'],
-  threads: { '.': NAVY, p: PAPER, b: '#2E6FF2', o: '#FF6A3D', y: '#FFC53D', v: '#8B5CF6' },
-}
-
 export type MarkGround = 'paper' | 'dark'
 
 const MARK_WIDTH = 112
@@ -221,12 +216,6 @@ export const arrowIcon = (): Html =>
     ],
   )
 
-export const downIcon = (): Html =>
-  strokeIcon('16', [strokePath('M6 9l6 6 6-6')])
-
-export const upIcon = (): Html =>
-  strokeIcon('16', [strokePath('M18 15l-6-6-6 6')])
-
 export const checkIcon = (): Html =>
   strokeIcon('13', [strokePath('M20 6 9 17l-5-5')])
 
@@ -235,17 +224,6 @@ export const burgerIcon = (): Html =>
     h.line([h.X1('3'), h.Y1('6'), h.X2('21'), h.Y2('6')], []),
     h.line([h.X1('3'), h.Y1('12'), h.X2('21'), h.Y2('12')], []),
     h.line([h.X1('3'), h.Y1('18'), h.X2('21'), h.Y2('18')], []),
-  ])
-
-export const pickerIcon = (): Html =>
-  strokeIcon('14', [
-    h.circle([h.Cx('12'), h.Cy('12'), h.R('8')], []),
-    strokePath('M12 2v3 M12 19v3 M2 12h3 M19 12h3'),
-  ])
-
-export const noteIcon = (): Html =>
-  strokeIcon('14', [
-    strokePath('M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'),
   ])
 
 const solidIcon = (width: string, height: string, box: string, parts: ReadonlyArray<Html>): Html =>
@@ -335,6 +313,5 @@ const svgMark = (svg: string): Html =>
   h.span([h.Class('rt-logo'), h.InnerHTML(svg)], [])
 
 export const bunIcon = (): Html => svgMark(logos.bun)
-export const denoIcon = (): Html => svgMark(logos.deno)
 export const npmIcon = (): Html => svgMark(logos.npm)
 export const pnpmIcon = (): Html => svgMark(logos.pnpm)

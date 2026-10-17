@@ -4,17 +4,12 @@ import { define, mapMessages, type Command } from 'foldkit/command'
 import { ssrHydration } from '@athrio/foldkit-hydration'
 import { view } from './view'
 import {
-  AimedAt,
-  AimedAway,
-  CancelledPick,
   CopyReset,
   GrewCard,
   type Message,
   Model,
-  type Note,
-  PickedTarget,
-  PickingApplied,
   type Player,
+  routeOf,
   SectionScrolled,
   SelectedSection,
   SpottedSection,
@@ -22,7 +17,6 @@ import {
   Ticked,
   ToggledFullHeight,
 } from './model'
-import { aimableAt, highlightOf, pathOf, routeOf, seedNotes, targetOf } from './design'
 import { CHARACTERS, RUN, struckBy } from './example'
 
 type Step = readonly [Model, ReadonlyArray<Command<Message>>]
@@ -119,39 +113,6 @@ const GlideToCard = define('GlideToCard', GrewCard)(
     }),
   ).pipe(Effect.as(GrewCard())),
 )
-
-const ApplyPicking = define('ApplyPicking', { picking: S.Boolean }, PickingApplied)(
-  ({ picking }) =>
-    Effect.sync(() =>
-      picking
-        ? document.documentElement.setAttribute('data-picking', 'on')
-        : document.documentElement.removeAttribute('data-picking'),
-    ).pipe(Effect.as(PickingApplied())),
-)
-
-const filed = (model: Model): Step => {
-  const text = model.draft.trim()
-  if (text === '') {
-    return [model, []]
-  }
-  const seq = model.seq + 1
-  const { kind, pointer } = Option.match(model.aimed, {
-    onNone: () => ({ kind: 'chat' as const, pointer: '' }),
-    onSome: (target) => ({ kind: target.kind, pointer: target.pointer }),
-  })
-  const note: Note = { seq, kind, pointer, route: pathOf(model.route), text, addressed: false }
-  return [
-    {
-      ...model,
-      seq,
-      notes: [...model.notes, note],
-      draft: '',
-      aimed: Option.none(),
-      noteTab: 'open',
-    },
-    [],
-  ]
-}
 
 const clamp = (value: number, max: number): number =>
   Math.max(0, Math.min(max, value))
@@ -250,59 +211,6 @@ const update = (model: Model, message: Message): Step =>
       ],
       Copied: ({ id, text }) => [{ ...model, copied: id }, [CopyThenReset({ text })]],
       CopyReset: () => [{ ...model, copied: '' }, []],
-      ToggledPicker: () => {
-        const picking = !model.picking
-        return [
-          { ...model, picking, highlight: Option.none(), notesOpen: picking ? false : model.notesOpen },
-          [ApplyPicking({ picking })],
-        ]
-      },
-      PickingApplied: () => [model, []],
-      CancelledPick: () => [
-        { ...model, picking: false, highlight: Option.none() },
-        [ApplyPicking({ picking: false })],
-      ],
-      AimedAt: ({ highlight }) => [{ ...model, highlight: Option.some(highlight) }, []],
-      AimedAway: () => [{ ...model, highlight: Option.none() }, []],
-      PickedTarget: ({ target }) => [
-        {
-          ...model,
-          picking: false,
-          highlight: Option.none(),
-          aimed: Option.some(target),
-          notesOpen: true,
-          barCollapsed: false,
-          noteTab: 'open',
-        },
-        [ApplyPicking({ picking: false })],
-      ],
-      ToggledNotes: () => [
-        { ...model, notesOpen: !model.notesOpen, barCollapsed: false },
-        [],
-      ],
-      ClosedNotes: () => [{ ...model, notesOpen: false }, []],
-      CollapsedBar: () => [
-        { ...model, barCollapsed: true, notesOpen: false, picking: false, highlight: Option.none() },
-        [ApplyPicking({ picking: false })],
-      ],
-      ExpandedBar: () => [{ ...model, barCollapsed: false }, []],
-      ShowedNotes: ({ tab }) => [{ ...model, noteTab: tab }, []],
-      ResolvedNote: ({ seq }) => [
-        {
-          ...model,
-          notes: Array.map(model.notes, (note) =>
-            note.seq === seq ? { ...note, addressed: !note.addressed } : note,
-          ),
-        },
-        [],
-      ],
-      DiscardedNote: ({ seq }) => [
-        { ...model, notes: Array.filter(model.notes, (note) => note.seq !== seq) },
-        [],
-      ],
-      ClearedTarget: () => [{ ...model, aimed: Option.none() }, []],
-      DraftedNote: ({ text }) => [{ ...model, draft: text }, []],
-      SentNote: () => filed(model),
     }),
   )
 
@@ -319,27 +227,6 @@ const activeSectionId = (): Option.Option<string> => {
   )
 }
 
-const aimedMessage = (event: Event): Option.Option<Message> =>
-  Option.some(
-    pipe(
-      aimableAt(event.target),
-      Option.match({
-        onNone: (): Message => AimedAway(),
-        onSome: (element) => AimedAt({ highlight: highlightOf(element) }),
-      }),
-    ),
-  )
-
-const pickedMessage = (event: MouseEvent): Option.Option<Message> =>
-  pipe(
-    aimableAt(event.target),
-    Option.map((element) => {
-      event.preventDefault()
-      event.stopPropagation()
-      return PickedTarget({ target: targetOf(element) })
-    }),
-  )
-
 const subscriptions = Subscription.make<Model, Message>()((entry) => ({
   sectionSpy: entry(
     { spying: S.Boolean },
@@ -354,51 +241,6 @@ const subscriptions = Subscription.make<Model, Message>()((entry) => ({
               type: 'scroll',
               options: { passive: true },
               toMessage: () => Option.map(activeSectionId(), (id) => SpottedSection({ id })),
-            })
-          : Stream.empty,
-    },
-  ),
-  aiming: entry(
-    { picking: S.Boolean },
-    {
-      modelToDependencies: (model) => ({ picking: model.picking }),
-      dependenciesToStream: ({ picking }) =>
-        picking
-          ? Subscription.fromEventFilterMap<MouseEvent, Message>({
-              target: document,
-              type: 'mouseover',
-              options: { capture: true },
-              toMessage: aimedMessage,
-            })
-          : Stream.empty,
-    },
-  ),
-  picking: entry(
-    { picking: S.Boolean },
-    {
-      modelToDependencies: (model) => ({ picking: model.picking }),
-      dependenciesToStream: ({ picking }) =>
-        picking
-          ? Subscription.fromEventFilterMap<MouseEvent, Message>({
-              target: document,
-              type: 'click',
-              options: { capture: true },
-              toMessage: pickedMessage,
-            })
-          : Stream.empty,
-    },
-  ),
-  cancelling: entry(
-    { picking: S.Boolean },
-    {
-      modelToDependencies: (model) => ({ picking: model.picking }),
-      dependenciesToStream: ({ picking }) =>
-        picking
-          ? Subscription.fromEventFilterMap<KeyboardEvent, Message>({
-              target: window,
-              type: 'keydown',
-              toMessage: (event) =>
-                event.key === 'Escape' ? Option.some(CancelledPick()) : Option.none(),
             })
           : Stream.empty,
     },
@@ -422,21 +264,6 @@ const subscriptions = Subscription.make<Model, Message>()((entry) => ({
           : Stream.empty,
     },
   ),
-  unaiming: entry(
-    { outlined: S.Boolean },
-    {
-      modelToDependencies: (model) => ({ outlined: Option.isSome(model.highlight) }),
-      dependenciesToStream: ({ outlined }) =>
-        outlined
-          ? Subscription.fromEvent<Event, Message>({
-              target: window,
-              type: 'scroll',
-              options: { passive: true, capture: true },
-              toMessage: () => AimedAway(),
-            })
-          : Stream.empty,
-    },
-  ),
 }))
 
 import './landing.css'
@@ -456,15 +283,6 @@ const emptyModel: Model = {
   query: '',
   focus: 0,
   copied: '',
-  notes: seedNotes,
-  seq: 3,
-  notesOpen: false,
-  barCollapsed: false,
-  picking: false,
-  noteTab: 'open',
-  aimed: Option.none(),
-  draft: '',
-  highlight: Option.none(),
 }
 
 const routed = (model: Model): Model =>

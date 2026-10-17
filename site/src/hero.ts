@@ -10,7 +10,6 @@ import {
 } from './model'
 import {
   bunIcon,
-  denoIcon,
   loomMark,
   npmIcon,
   pnpmIcon,
@@ -50,12 +49,6 @@ type Install = {
 
 const installs: ReadonlyArray<Install> = [
   { runtime: 'bun', label: 'bun', command: 'bun add -g @athrio/loom', logo: bunIcon() },
-  {
-    runtime: 'deno',
-    label: 'deno',
-    command: 'deno install -g -n loom npm:@athrio/loom',
-    logo: denoIcon(),
-  },
   { runtime: 'npm', label: 'npm', command: 'npm install -g @athrio/loom', logo: npmIcon() },
   { runtime: 'pnpm', label: 'pnpm', command: 'pnpm add -g @athrio/loom', logo: pnpmIcon() },
 ]

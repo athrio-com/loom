@@ -4,7 +4,6 @@ import { Effect, Layer, ManagedRuntime, Option } from 'effect'
 import { renderStatic } from 'foldkit/html'
 import { FoldkitRender } from '@athrio/foldkit-ssr'
 import { CHARACTERS, RUN, example, frameAt, struckBy, wholeDocument } from '../src/example'
-import { seedNotes } from '../src/design'
 import { fromInitToEject } from '../src/operations'
 import { type Model, type Player } from '../src/model'
 
@@ -28,8 +27,6 @@ const at = (over: Partial<Player> = {}): Model =>
     activeSection: '',
     player: player(over), version: '0.0.9',
     query: '', focus: 0, copied: '',
-    notes: seedNotes, seq: 3, notesOpen: false, barCollapsed: false, picking: false,
-    noteTab: 'open', aimed: Option.none(), draft: '', highlight: Option.none(),
   }) as Model
 
 const runtime = ManagedRuntime.make(FoldkitRender.layer as Layer.Layer<FoldkitRender>)

@@ -146,7 +146,7 @@ export const sourceCarpet: Carpet = {
 
 ## The marks the landing's sections wear
 
-Each section of the landing opens on a carpet of its own, and each is a little picture rather than a letter form. A seedling of green threads climbs through an orange bloom where the example sits; a magenta block meets green where the vocabulary is; the operations grow a violet flower on a green stem; and the Design section repeats the example's shape in blue, because they are the same idea seen through a tool.
+Each section of the landing opens on a carpet of its own, and each is a little picture rather than a letter form. A seedling of green threads climbs through an orange bloom where the example sits; a magenta block meets green where the vocabulary is; and the operations grow a violet flower on a green stem.
 
 They are read from the same eight threads as everything else, so a section mark can never introduce a colour the page does not already use.
 
@@ -165,11 +165,6 @@ export const vocabularyCarpet: Carpet = {
 export const operationsCarpet: Carpet = {
   rows: ['....g..', 'gg.....', 'g..vvv.', '.g.vpv.', '..gvvv.', '...g...', 'o...g.g'],
   threads: { '.': NAVY, p: PAPER, g: '#00B37E', v: '#8B5CF6', o: '#FF6A3D' },
-}
-
-export const designCarpet: Carpet = {
-  rows: ['....b.b', '...bb..', 'b..b...', '.booo..', '.boyo.b', '..ooo.v', '.b.....'],
-  threads: { '.': NAVY, p: PAPER, b: '#2E6FF2', o: '#FF6A3D', y: '#FFC53D', v: '#8B5CF6' },
 }
 
 ## The Loom mark
@@ -200,7 +195,7 @@ export const loomMark = (ground: MarkGround, scale: number): Html =>
 
 ## The icons
 
-The icons are the small marks the chrome and its buttons wear — a copy glyph, an open book, an external arrow, a forward arrow, a down chevron and an up one, a check, a burger that opens the documentation's drawer, the GitHub octocat, and the two the design bar wears: a crosshair for the picker and a speech bubble for the notes. Each is an inline SVG drawn in the current text colour, so it takes the colour of whatever sits around it.
+The icons are the small marks the chrome and its buttons wear — a copy glyph, an open book, an external arrow, a forward arrow, a check, a burger that opens the documentation's drawer, and the GitHub octocat. Each is an inline SVG drawn in the current text colour, so it takes the colour of whatever sits around it.
 
 The two chevrons point opposite ways for the same reason. A bar that collapses points down, towards where it is going, and the handle it leaves behind points up, towards where it came from.
 
@@ -299,12 +294,6 @@ export const arrowIcon = (): Html =>
     ],
   )
 
-export const downIcon = (): Html =>
-  strokeIcon('16', [strokePath('M6 9l6 6 6-6')])
-
-export const upIcon = (): Html =>
-  strokeIcon('16', [strokePath('M18 15l-6-6-6 6')])
-
 export const checkIcon = (): Html =>
   strokeIcon('13', [strokePath('M20 6 9 17l-5-5')])
 
@@ -313,17 +302,6 @@ export const burgerIcon = (): Html =>
     h.line([h.X1('3'), h.Y1('6'), h.X2('21'), h.Y2('6')], []),
     h.line([h.X1('3'), h.Y1('12'), h.X2('21'), h.Y2('12')], []),
     h.line([h.X1('3'), h.Y1('18'), h.X2('21'), h.Y2('18')], []),
-  ])
-
-export const pickerIcon = (): Html =>
-  strokeIcon('14', [
-    h.circle([h.Cx('12'), h.Cy('12'), h.R('8')], []),
-    strokePath('M12 2v3 M12 19v3 M2 12h3 M19 12h3'),
-  ])
-
-export const noteIcon = (): Html =>
-  strokeIcon('14', [
-    strokePath('M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'),
   ])
 
 ~
@@ -425,7 +403,7 @@ export const octocatIcon = (size: string): Html =>
 
 ## The runtime marks
 
-The install rows each lead with the mark of a runtime — bun, deno, npm, pnpm — in the brand's own logo, not a redrawing. Each logo is the project's official SVG, vendored in `logos.json` and dropped into a span as inline markup, so the page carries no image file and the mark stays sharp at any size. Most keep their own colours: npm's red block, pnpm's yellow-and-grey squares, bun's cream mascot. Deno's dinosaur ships as a black silhouette, so the vendored copy draws in the current text colour instead — pale on the dark theme, dark on the light — to read on either.
+The install rows each lead with the mark of a runtime — bun, npm, pnpm — in the brand's own logo, not a redrawing. Each logo is the project's official SVG, vendored in `logos.json` and dropped into a span as inline markup, so the page carries no image file and the mark stays sharp at any size. Each keeps its own colours: npm's red block, pnpm's yellow-and-grey squares, bun's cream mascot.
 
 =>
 
@@ -433,7 +411,6 @@ const svgMark = (svg: string): Html =>
   h.span([h.Class('rt-logo'), h.InnerHTML(svg)], [])
 
 export const bunIcon = (): Html => svgMark(logos.bun)
-export const denoIcon = (): Html => svgMark(logos.deno)
 export const npmIcon = (): Html => svgMark(logos.npm)
 export const pnpmIcon = (): Html => svgMark(logos.pnpm)
 

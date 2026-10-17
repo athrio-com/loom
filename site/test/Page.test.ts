@@ -7,8 +7,7 @@ import { renderStatic } from 'foldkit/html'
 import { FoldkitRender } from '@athrio/foldkit-ssr'
 import { view } from '../src/view'
 import { pager } from '../src/chrome'
-import { type Model, type Route } from '../src/model'
-import { seedNotes } from '../src/design'
+import { type Model, pathOf, type Route, routeOf } from '../src/model'
 
 // The router is the one place a broken link becomes a compile error rather than a 404, so
 // these cases render every route through the real SSR path — the same path the server uses.
@@ -19,8 +18,6 @@ const at = (route: Route, over: Partial<Model> = {}): Model =>
     activeSection: '',
     player: { struck: 0, beat: 0, playing: false, output: Option.none(), full: false }, version: '0.0.9',
     query: '', focus: 0, copied: '',
-    notes: seedNotes, seq: 3, notesOpen: false, barCollapsed: false, picking: false,
-    noteTab: 'open', aimed: Option.none(), draft: '', highlight: Option.none(),
     ...over,
   }) as Model
 
@@ -66,10 +63,10 @@ describe('the page', () => {
 
   it('rewrites the install line for the runtime a reader picks', () => {
     expect(render(at('home'))).toContain('bun add -g @athrio/loom')
-    const deno = render(at('home', { runtime: 'deno' }))
-    expect(deno).toContain('deno install -g -n loom npm:@athrio/loom')
-    expect(deno).not.toContain('bun add -g @athrio/loom')
-    expect(deno).toContain('class="rt-tab here"')
+    const npm = render(at('home', { runtime: 'npm' }))
+    expect(npm).toContain('npm install -g @athrio/loom')
+    expect(npm).not.toContain('bun add -g @athrio/loom')
+    expect(npm).toContain('class="rt-tab here"')
   })
 
   it('flashes the copy label only on the button that was pressed', () => {
@@ -241,10 +238,25 @@ describe('the box model, where it differs from the reset', () => {
     )
   })
 
-  it('leaves the Design section, the vocabulary card and the example card on the reset', () => {
+  it('leaves the vocabulary card and the example card on the reset', () => {
     // the example card carries no border of its own any more, so the reset costs it nothing
-    ;['.design-bar', '.design-panel', '.mark-card', '.pl-card'].forEach((selector) =>
+    ;['.mark-card', '.pl-card'].forEach((selector) =>
       expect(ruleFor(selector)).not.toContain('content-box'),
     )
+  })
+})
+
+describe('the address of every page', () => {
+  const routes: ReadonlyArray<Route> = ['home', 'docs', 'why-loom', 'community', 'source']
+
+  it('gives every route a path of its own', () => {
+    const paths = routes.map(pathOf)
+    expect(paths).toEqual(['/', '/docs', '/why-loom', '/community', '/source'])
+    expect(new Set(paths).size).toBe(routes.length)
+  })
+
+  it('reads each path back to the route it came from, and no route from an unknown one', () => {
+    routes.forEach((route) => expect(routeOf(pathOf(route))).toEqual(Option.some(route)))
+    expect(Option.isNone(routeOf('/nowhere'))).toBe(true)
   })
 })

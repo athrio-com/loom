@@ -21,7 +21,6 @@ Both end on the same pager and the same footer, and both can raise the same pale
 import { Match } from 'effect'
 import type { Document, Html } from 'foldkit/html'
 import { docsBar, footer, nav, pager, palette } from './chrome'
-import { design } from './design'
 import { example } from './example'
 import { documentationPage } from './docs-page'
 import { hero } from './hero'
@@ -46,7 +45,7 @@ const documentation = (model: Model): Html =>
 
 ## The page a route names
 
-Two routes are built. The landing runs the hero, the example, the vocabulary, the commands and Design down one column; the documentation draws its own corpus.
+Two routes are built. The landing runs the hero, the example, the vocabulary and the commands down one column; the documentation draws its own corpus.
 
 The remaining three are scaffolded rather than faked. Each says plainly that it is being written, because a page that quietly showed something else would send a reader somewhere they did not ask to go — and because the match is closed, each one is a single branch to replace when its chapter lands.
 
@@ -80,7 +79,6 @@ const pageFor = (model: Model): Html =>
         example(model),
         vocabulary(),
         fromInitToEject(model),
-        design(model),
       ]),
     ),
     Match.when('docs', () => documentation(model)),

@@ -6,7 +6,7 @@ Language: TypeScript
 
 # The client
 
-The client is the website's update and its boot. Most messages change one field and run nothing. Two do more: the example advances a frame at a time while it plays, and the picker listens across the whole document while it is armed. Every other animation on the site is an SVG that drives itself.
+The client is the website's update and its boot. Most messages change one field and run nothing. The example does more, advancing a frame at a time while it plays. Every other animation on the site is an SVG that drives itself.
 
 ## The update return
 
@@ -20,17 +20,12 @@ import { define, mapMessages, type Command } from 'foldkit/command'
 import { ssrHydration } from '@athrio/foldkit-hydration'
 import { view } from './view'
 import {
-  AimedAt,
-  AimedAway,
-  CancelledPick,
   CopyReset,
   GrewCard,
   type Message,
   Model,
-  type Note,
-  PickedTarget,
-  PickingApplied,
   type Player,
+  routeOf,
   SectionScrolled,
   SelectedSection,
   SpottedSection,
@@ -38,7 +33,6 @@ import {
   Ticked,
   ToggledFullHeight,
 } from './model'
-import { aimableAt, highlightOf, pathOf, routeOf, seedNotes, targetOf } from './design'
 import { CHARACTERS, RUN, struckBy } from './example'
 
 type Step = readonly [Model, ReadonlyArray<Command<Message>>]
@@ -181,58 +175,11 @@ const GlideToCard = define('GlideToCard', GrewCard)(
   ).pipe(Effect.as(GrewCard())),
 )
 
-## Arming the picker
-
-An armed picker changes the cursor over the whole page, not just over one section, so the change belongs on the document's root element beside the theme and the accent. `ApplyPicking` sets a `data-picking` attribute while the picker is armed and removes it when it is not, and the stylesheet turns that into a crosshair. Keeping the rule in the stylesheet means the look stays where every other look on this site is written.
-
-=>
-
-const ApplyPicking = define('ApplyPicking', { picking: S.Boolean }, PickingApplied)(
-  ({ picking }) =>
-    Effect.sync(() =>
-      picking
-        ? document.documentElement.setAttribute('data-picking', 'on')
-        : document.documentElement.removeAttribute('data-picking'),
-    ).pipe(Effect.as(PickingApplied())),
-)
-
-## Filing a note
-
-Sending is the one Design message that does more than set a field. An empty draft sends nothing, so a stray press of enter costs nothing. Otherwise the note takes the next number, the kind and pointer of whatever the reviewer aimed at, and the path of the page they are on; a note sent with nothing aimed at is a `chat` note about the page itself. Filing it clears the draft and the target together and swings the panel back to the open list, where the new note is.
-
-=>
-
-const filed = (model: Model): Step => {
-  const text = model.draft.trim()
-  if (text === '') {
-    return [model, []]
-  }
-  const seq = model.seq + 1
-  const { kind, pointer } = Option.match(model.aimed, {
-    onNone: () => ({ kind: 'chat' as const, pointer: '' }),
-    onSome: (target) => ({ kind: target.kind, pointer: target.pointer }),
-  })
-  const note: Note = { seq, kind, pointer, route: pathOf(model.route), text, addressed: false }
-  return [
-    {
-      ...model,
-      seq,
-      notes: [...model.notes, note],
-      draft: '',
-      aimed: Option.none(),
-      noteTab: 'open',
-    },
-    [],
-  ]
-}
-
 ## The update
 
 Most messages set one field: the query, the focus clamped to the results, the loom tab's view. Following a link records the page it led to and closes the palette behind it. Opening a documentation chapter records its slug, clears the heading the outline was following — the previous chapter's headings are no longer on the page — and shuts the drawer behind the reader, since they have arrived where they were going. The bar's own message only writes when the answer changes, so a scroll that keeps it hidden costs no render. Opening the palette puts the focus on its first result; closing it clears the query, the focus and the caret together, so the palette opens empty the next time. Moving the caret records where it now sits, and the search settles a moment after the last keystroke. The example's messages move a position rather than set a flag: playing from the end starts again from the first character, a frame advances the clock and asks the stage to follow the caret, and skipping jumps both the clock and the stage to the foot. Going back to the start puts the clock, the height and the stage all back where they began — the document at its first character, the card down from full height, and the stage at the head of the document rather than wherever the reader stopped reading.
 
 Asking for full height is the one press that changes nothing at once. It runs the glide and waits: the page arrives at the card, `GrewCard` comes back, and only then does the height open. Giving the height back is immediate, since nothing has to travel first. Asking for a command's file toggles it, so pressing the same button twice closes what it opened. Selecting a section sets the active one and asks the preview to scroll to it. A section spotted while the reader scrolls sets the active one too, but runs nothing, so the outline follows the scroll rather than fighting it. Copying flashes the pressed button and runs its reset.
-
-The Design messages mostly set a field as well, and the interesting ones are those that turn a tool off on the way past. Arming the picker shuts the notes panel, since a reviewer taking aim wants the page in front of them; disarming it leaves the panel as it found it. Escape cancels the aim. Picking a target disarms the picker, records what was aimed at, and opens the panel over the composer, which is where the reviewer is going next. Collapsing the bar puts away the panel and the picker with it, because a bar folded to a handle should leave nothing of itself on the page. Every message that changes whether the picker is armed also asks the command to write that to the document, so the cursor and the model never disagree.
 
 =>
 
@@ -333,59 +280,6 @@ const update = (model: Model, message: Message): Step =>
       ],
       Copied: ({ id, text }) => [{ ...model, copied: id }, [CopyThenReset({ text })]],
       CopyReset: () => [{ ...model, copied: '' }, []],
-      ToggledPicker: () => {
-        const picking = !model.picking
-        return [
-          { ...model, picking, highlight: Option.none(), notesOpen: picking ? false : model.notesOpen },
-          [ApplyPicking({ picking })],
-        ]
-      },
-      PickingApplied: () => [model, []],
-      CancelledPick: () => [
-        { ...model, picking: false, highlight: Option.none() },
-        [ApplyPicking({ picking: false })],
-      ],
-      AimedAt: ({ highlight }) => [{ ...model, highlight: Option.some(highlight) }, []],
-      AimedAway: () => [{ ...model, highlight: Option.none() }, []],
-      PickedTarget: ({ target }) => [
-        {
-          ...model,
-          picking: false,
-          highlight: Option.none(),
-          aimed: Option.some(target),
-          notesOpen: true,
-          barCollapsed: false,
-          noteTab: 'open',
-        },
-        [ApplyPicking({ picking: false })],
-      ],
-      ToggledNotes: () => [
-        { ...model, notesOpen: !model.notesOpen, barCollapsed: false },
-        [],
-      ],
-      ClosedNotes: () => [{ ...model, notesOpen: false }, []],
-      CollapsedBar: () => [
-        { ...model, barCollapsed: true, notesOpen: false, picking: false, highlight: Option.none() },
-        [ApplyPicking({ picking: false })],
-      ],
-      ExpandedBar: () => [{ ...model, barCollapsed: false }, []],
-      ShowedNotes: ({ tab }) => [{ ...model, noteTab: tab }, []],
-      ResolvedNote: ({ seq }) => [
-        {
-          ...model,
-          notes: Array.map(model.notes, (note) =>
-            note.seq === seq ? { ...note, addressed: !note.addressed } : note,
-          ),
-        },
-        [],
-      ],
-      DiscardedNote: ({ seq }) => [
-        { ...model, notes: Array.filter(model.notes, (note) => note.seq !== seq) },
-        [],
-      ],
-      ClearedTarget: () => [{ ...model, aimed: Option.none() }, []],
-      DraftedNote: ({ text }) => [{ ...model, draft: text }, []],
-      SentNote: () => filed(model),
     }),
   )
 
@@ -410,36 +304,9 @@ const activeSectionId = (): Option.Option<string> => {
 
 ## Listening only when there is something to hear
 
-Every listener here is conditional. Each one asks the model whether its work is happening at all, and a page with nothing playing, nothing armed and no outline on screen listens to nothing.
-
-The picker needs the whole document, not one section, so it listens on the document rather than on any element the section renders. Three listeners run only while it is armed, and a fourth runs only while an outline is on screen. Two more have nothing to do with the picker: the frame loop that advances the clock while the document plays, and the escape key that gives the page back while the card stands at full height.
-
-Both the pointer and the click listen in the capture phase, before the page's own handlers see the event. That is what lets a click on a link file a note instead of following the link: the mapper runs inside the browser's dispatch, so stopping the event there stops it in time.
-
-A pointer over something the picker may aim at measures it and paints the outline. Over anything it may not — the bar, the panel, the page itself — the outline goes away rather than sticking to the last thing it touched. Escape disarms. And any scroll drops the outline, because a rectangle measured against the window is wrong the moment the page moves under it; the next pointer move measures again.
+Every listener here is conditional. Each one asks the model whether its work is happening at all, and listens only while it is. The section spy runs only while the documentation is on show. The other two belong to the example: the frame loop advances the clock while the document plays, and the escape key gives the page back while the card stands at full height.
 
 =>
-
-const aimedMessage = (event: Event): Option.Option<Message> =>
-  Option.some(
-    pipe(
-      aimableAt(event.target),
-      Option.match({
-        onNone: (): Message => AimedAway(),
-        onSome: (element) => AimedAt({ highlight: highlightOf(element) }),
-      }),
-    ),
-  )
-
-const pickedMessage = (event: MouseEvent): Option.Option<Message> =>
-  pipe(
-    aimableAt(event.target),
-    Option.map((element) => {
-      event.preventDefault()
-      event.stopPropagation()
-      return PickedTarget({ target: targetOf(element) })
-    }),
-  )
 
 const subscriptions = Subscription.make<Model, Message>()((entry) => ({
   sectionSpy: entry(
@@ -459,51 +326,6 @@ const subscriptions = Subscription.make<Model, Message>()((entry) => ({
           : Stream.empty,
     },
   ),
-  aiming: entry(
-    { picking: S.Boolean },
-    {
-      modelToDependencies: (model) => ({ picking: model.picking }),
-      dependenciesToStream: ({ picking }) =>
-        picking
-          ? Subscription.fromEventFilterMap<MouseEvent, Message>({
-              target: document,
-              type: 'mouseover',
-              options: { capture: true },
-              toMessage: aimedMessage,
-            })
-          : Stream.empty,
-    },
-  ),
-  picking: entry(
-    { picking: S.Boolean },
-    {
-      modelToDependencies: (model) => ({ picking: model.picking }),
-      dependenciesToStream: ({ picking }) =>
-        picking
-          ? Subscription.fromEventFilterMap<MouseEvent, Message>({
-              target: document,
-              type: 'click',
-              options: { capture: true },
-              toMessage: pickedMessage,
-            })
-          : Stream.empty,
-    },
-  ),
-  cancelling: entry(
-    { picking: S.Boolean },
-    {
-      modelToDependencies: (model) => ({ picking: model.picking }),
-      dependenciesToStream: ({ picking }) =>
-        picking
-          ? Subscription.fromEventFilterMap<KeyboardEvent, Message>({
-              target: window,
-              type: 'keydown',
-              toMessage: (event) =>
-                event.key === 'Escape' ? Option.some(CancelledPick()) : Option.none(),
-            })
-          : Stream.empty,
-    },
-  ),
   typing: Subscription.animationFrame<Model, Message>({
     isActive: (model) => model.player.playing,
     toMessage: (delta) => Ticked({ delta }),
@@ -519,21 +341,6 @@ const subscriptions = Subscription.make<Model, Message>()((entry) => ({
               type: 'keydown',
               toMessage: (event) =>
                 event.key === 'Escape' ? Option.some(ToggledFullHeight()) : Option.none(),
-            })
-          : Stream.empty,
-    },
-  ),
-  unaiming: entry(
-    { outlined: S.Boolean },
-    {
-      modelToDependencies: (model) => ({ outlined: Option.isSome(model.highlight) }),
-      dependenciesToStream: ({ outlined }) =>
-        outlined
-          ? Subscription.fromEvent<Event, Message>({
-              target: window,
-              type: 'scroll',
-              options: { passive: true, capture: true },
-              toMessage: () => AimedAway(),
             })
           : Stream.empty,
     },
@@ -565,15 +372,6 @@ const emptyModel: Model = {
   query: '',
   focus: 0,
   copied: '',
-  notes: seedNotes,
-  seq: 3,
-  notesOpen: false,
-  barCollapsed: false,
-  picking: false,
-  noteTab: 'open',
-  aimed: Option.none(),
-  draft: '',
-  highlight: Option.none(),
 }
 
 ~
@@ -629,10 +427,6 @@ Runtime.run(application)
 ::[Moving the stage under the reader]
 
 ::[Gliding to the card before it opens]
-
-::[Arming the picker]
-
-::[Filing a note]
 
 ::[The update]
 

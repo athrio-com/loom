@@ -12,8 +12,7 @@ import { renderStatic } from 'foldkit/html'
 import { PREHYDRATION_CAPTURE_SCRIPT } from '@athrio/foldkit-hydration/prehydration'
 import { FoldkitRender } from '@athrio/foldkit-ssr'
 import { view } from './view'
-import { type Model } from './model'
-import { routeOf, seedNotes } from './design'
+import { type Model, routeOf } from './model'
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist')
 
@@ -32,15 +31,6 @@ const seed: Model = {
   query: '',
   focus: 0,
   copied: '',
-  notes: seedNotes,
-  seq: 3,
-  notesOpen: false,
-  barCollapsed: false,
-  picking: false,
-  noteTab: 'open',
-  aimed: Option.none(),
-  draft: '',
-  highlight: Option.none(),
 }
 
 const inlineJson = (value: unknown): string =>

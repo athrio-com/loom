@@ -449,11 +449,6 @@ export const passages: ReadonlyArray<Passage> = [
     title: 'From init to eject',
     text: 'loom init scaffolds a corpus, tangle writes the files, weave renders the document, and eject leaves plain source behind.',
   },
-  {
-    route: 'home',
-    title: 'Loom Design',
-    text: 'Point at anything in your running app and leave a note on it; the picker resolves back to the .loom file that produced it.',
-  },
 ]
 
 ## A fragment, windowed on the match

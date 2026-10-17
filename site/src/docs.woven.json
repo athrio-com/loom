@@ -77,7 +77,7 @@
             "chapter": "01-getting-started/01-installation",
             "section": "installation"
           },
-          "markdown": "Loom is a single command-line program. Install it once, globally, and the `loom` command is available in every project on the machine.\n\nPick whichever runtime you already have.\n\n```bash\nbun add -g @athrio/loom\n```\n\n```bash\ndeno install -g -n loom npm:@athrio/loom\n```\n\n```bash\nnpm install -g @athrio/loom\n```\n\n```bash\npnpm add -g @athrio/loom\n```\n\nDeno needs the `-n loom` flag because the package is scoped: without it the command would be installed under the scope's name rather than under `loom`.\n\nRun `loom` with no arguments to check the install. It prints the commands it knows, which is also the fastest way to see what the version you have can do.\n\nNothing else needs installing. Loom composes TypeScript out of the box, and a language it does not know yet arrives as a package rather than as a new version of the tool."
+          "markdown": "Loom is a single command-line program. Install it once, globally, and the `loom` command is available in every project on the machine.\n\nPick whichever runtime you already have.\n\n```bash\nbun add -g @athrio/loom\n```\n\n```bash\nnpm install -g @athrio/loom\n```\n\n```bash\npnpm add -g @athrio/loom\n```\n\nRun `loom` with no arguments to check the install. It prints the commands it knows, which is also the fastest way to see what the version you have can do.\n\nNothing else needs installing. Loom composes TypeScript out of the box, and a language it does not know yet arrives as a package rather than as a new version of the tool."
         }
       ]
     },

@@ -307,7 +307,6 @@ The site renders on the server first, for a reader and a crawler, then hydrates 
 7. A Loom document, written out
 8. The whole vocabulary
 9. From init to eject
-10. Loom Design points at this page
 12. The documentation shell
 15. The client
 16. The server

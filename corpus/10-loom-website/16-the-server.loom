@@ -32,7 +32,7 @@ if (!('window' in scope)) {
 
 The server loads the shim first, before any Foldkit module. From `effect` come `Effect`, the `FileSystem` that reads the built shell, the `Option` that fills the model's empty fields and carries a path naming no route, the `Schema` that parses what the npm registry returns, and the `Context` and `Layer` that define the server and wire it. From `effect/unstable/http` come the request and the responses. `@effect/platform-bun` supplies the Bun HTTP server, its file services, and the runtime edge. Foldkit lends `renderStatic` for the render, and, through `@athrio/foldkit-ssr`, the render itself; `@athrio/foldkit-hydration/prehydration` lends the capture script the page runs before it boots.
 
-The site's own modules supply the model and the routing. The `routeOf` function turns the path a request names into the route to render, reading the same mapping the Notes overlay stamps a note with, so a rendered page and a note agree on where the reader was standing.
+The site's own modules supply the view and the model. The model also lends the `routeOf` function, which turns the path a request names into the route to render. The client reads the same function when it boots, so the server and the browser agree on which page an address names.
 
 =>
 
@@ -50,8 +50,7 @@ import { renderStatic } from 'foldkit/html'
 import { PREHYDRATION_CAPTURE_SCRIPT } from '@athrio/foldkit-hydration/prehydration'
 import { FoldkitRender } from '@athrio/foldkit-ssr'
 import { view } from './view'
-import { type Model } from './model'
-import { routeOf, seedNotes } from './design'
+import { type Model, routeOf } from './model'
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist')
 
@@ -80,15 +79,6 @@ const seed: Model = {
   query: '',
   focus: 0,
   copied: '',
-  notes: seedNotes,
-  seq: 3,
-  notesOpen: false,
-  barCollapsed: false,
-  picking: false,
-  noteTab: 'open',
-  aimed: Option.none(),
-  draft: '',
-  highlight: Option.none(),
 }
 
 const inlineJson = (value: unknown): string =>

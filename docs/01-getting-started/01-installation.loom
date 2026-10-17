@@ -15,18 +15,12 @@ bun add -g @athrio/loom
 ```
 
 ```bash
-deno install -g -n loom npm:@athrio/loom
-```
-
-```bash
 npm install -g @athrio/loom
 ```
 
 ```bash
 pnpm add -g @athrio/loom
 ```
-
-Deno needs the `-n loom` flag because the package is scoped: without it the command would be installed under the scope's name rather than under `loom`.
 
 Run `loom` with no arguments to check the install. It prints the commands it knows, which is also the fastest way to see what the version you have can do.
 
