@@ -1,0 +1,299 @@
+---
+Part X, Chapter 11: Why Loom
+Package: site/src/
+Language: TypeScript
+---
+
+# Why Loom
+
+The argument page answers the question a visitor brings once the landing has shown them what Loom is: why write a program this way at all. It opens on the question itself and a short answer, with two ways to join in beside it. Then it makes the case in two forms. Four paragraphs set out the motivation, and eight cards pair a problem in today's practice with what Loom does about it.
+
+Nothing on the page answers a click with a message. Its links leave for GitHub or Discord, and the nav, the pager and the footer around it belong to the page wrapper. So the page builds with Foldkit's inert builder, `ih`, and the view calls it without lending its own.
+
+## The page head
+
+The head is the Loom mark beside the question, the answer under it, and the two link cards to its right. The mark is the same woven pill the landing's hero wears, drawn at four fifths of its size so it stands level with a heading rather than above one. The answer is one short paragraph. Below a thousand pixels the cards drop under it rather than squeezing it into half the width.
+
+=>
+
+const whyHead = (): Html =>
+  ih.div(
+    [ih.Class('section section-hero why-hero'), ih.Id('why-top')],
+    [
+      ih.div(
+        [ih.Class('why-title')],
+        [loomMark('paper', 0.8), ih.h1([], ['Why Loom?'])],
+      ),
+      ih.div(
+        [ih.Class('why-hero-grid')],
+        [
+          ih.p(
+            [ih.Class('prose why-lead')],
+            [
+              'The motivation behind Loom is simple. AI-assisted engineering relies on natural language as a primary medium for building software. Literate programming has been doing that since 1984.',
+            ],
+          ),
+          ih.div([ih.Class('why-links')], Array.map(places, placeCard)),
+        ],
+      ),
+    ],
+  )
+
+## Two places to go next
+
+A reader persuaded by the page has two places to take that: the repository, to read the source and star it, and the Discord server, to ask a question. Each card carries a pixel emblem woven from the mark's own threads, a small label naming the place, and what a reader does there. A card lights in its emblem's colour when the pointer reaches it, amber for GitHub and violet for Discord, so the two read as different doors.
+
+=>
+
+type Place = {
+  readonly name: string
+  readonly action: string
+  readonly href: string
+  readonly emblem: Carpet
+  readonly key: 'github' | 'discord'
+}
+
+const places: ReadonlyArray<Place> = [
+  {
+    name: 'GitHub',
+    action: 'Star the repo',
+    href: 'https://github.com/athrio-com/loom',
+    key: 'github',
+    emblem: {
+      rows: ['...a...', '..aaa..', 'aaaaaaa', '.aaaaa.', '..aaa..', '.aa.aa.', '.a...a.'],
+      threads: { '.': NAVY, a: '#FFC53D' },
+    },
+  },
+  {
+    name: 'Discord',
+    action: 'Join community',
+    href: 'https://discord.gg/loom',
+    key: 'discord',
+    emblem: {
+      rows: ['.......', '.vvvvv.', '.v.b.v.', '.vbpbv.', '.v.b.v.', '.vvvvv.', '.......'],
+      threads: { '.': NAVY, v: '#8B5CF6', b: '#2E6FF2', p: '#F2EFE6' },
+    },
+  },
+]
+
+const placeCard = (place: Place): Html =>
+  ih.a(
+    [ih.Class(`why-link ${place.key}`), ih.Href(place.href)],
+    [
+      pixels(place.emblem, 'why-emblem'),
+      ih.span(
+        [ih.Class('why-link-lines')],
+        [
+          ih.span([ih.Class('eyebrow')], [place.name]),
+          ih.span([ih.Class('why-link-title')], [place.action]),
+        ],
+      ),
+    ],
+  )
+
+~
+
+Every emblem on the page is a carpet, the same grid of threads the section marks are woven from. `pixels` draws one at whatever size its class gives it. An empty cell takes no colour at all, so a glyph like the question mark keeps the paper behind it.
+
+=>
+
+const pixels = (carpet: Carpet, className: string): Html =>
+  ih.span(
+    [
+      ih.AriaHidden(true),
+      ih.Class(className),
+      ih.Style(carpetStyle(carpet, fineSeam)),
+    ],
+    [],
+  )
+
+## The motivation
+
+The case opens in prose. Four paragraphs say what has gone wrong and why Loom answers it. The prose describing a system and the code implementing it drift apart. Literate programming already joins the two, and the join matters most when an agent writes the code. Literate programming has never had the tooling modern development expects, and that gap is the other half of Loom's reason to exist. The paragraphs flow across two balanced columns, the treatment every section of running text on the site takes.
+
+=>
+
+const motivation: ReadonlyArray<string> = [
+  'AI-assisted engineering relies on natural language as a primary medium for building software. But the prose describing a system and the code that implements it tend to drift apart and fight for authority. The result is a split brain: the prose on one side, the code on the other.',
+  'Loom applies literate programming principles to address this and the deeper problems behind it. It treats prose and code as equal constituents of a single program. We write prose beside each code chunk, defining what it does and why.',
+  'Keeping intent in the program itself matters most when writing code with AI. The agent reads the prose alongside the code it is changing. Prose and code stay in sync because they live together and change together.',
+  'The state of the art is the other reason for Loom. Literate programming has never come with the tooling modern development takes for granted, and every earlier attempt shows the same pattern: tangling that works for any language, with a full language server behind it, has never come together outside an experiment. Loom brings the two together.',
+]
+
+## Problem and solution, in pairs
+
+The rest of the case is made in pairs. Each card names a problem in the way software is written today, then what Loom does about it. A legend above the cards says which line is which: an orange question mark for the problem, a green check for the answer. The cards pack into columns of uneven height, so a long pair never leaves a short one stranded beside a gap.
+
+Each card has a hue of its own, taken in turn from the mark's palette by `hueAt`, which wraps round when the cards outnumber the hues. The hue stays hidden until the pointer reaches the card, then tints its ground and its edge, so a reader scanning the pairs can tell where they are.
+
+=>
+
+type Pair = { readonly problem: string; readonly answer: string }
+
+const pairs: ReadonlyArray<Pair> = [
+  {
+    problem: 'Specs and code drift. Sync machinery becomes a system within a system.',
+    answer: 'Prose and code stay in sync because they live together and change together.',
+  },
+  {
+    problem:
+      'AI code generation is approximate, never deterministic. The same prose interpreted twice gives two different programs.',
+    answer:
+      'You edit the source directly, with its prose beside it. Every change is an ordinary change to the source, never a re-roll of the generator.',
+  },
+  {
+    problem:
+      'In large codebases, prose can no longer be traced to its code, and the same ground gets covered again in new chapters.',
+    answer:
+      'Every passage sits beside the code it describes, and the table of contents is generated from the chapters themselves.',
+  },
+  {
+    problem: 'Natural language does not follow the order a compiler demands.',
+    answer:
+      'With Loom you write a program in the order you reason about it, and tangling puts each piece where the compiler wants it.',
+  },
+  {
+    problem:
+      'A program is a graph of files and modules pointing at one another, with no clear place to start reading.',
+    answer:
+      'A Loom project can grow into a book. Parts and chapters read top to bottom, under a table of contents generated from the chapters themselves.',
+  },
+  {
+    problem: 'Adopting a new format usually means converting a whole codebase before any of it pays off.',
+    answer:
+      'Loom can host one file at a time. The rest of the codebase stays as it is until you choose to move it.',
+  },
+  {
+    problem: 'Specs end up scattered across the codebase, with no shape of the whole.',
+    answer: 'Loom gives the corpus a shape of parts and chapters, so every chapter has a place.',
+  },
+  {
+    problem:
+      'Literate programming tools understand no language, so the document gets no completion, no diagnostics, no go-to-definition.',
+    answer: 'Loom gives every supported language a real language server.',
+  },
+]
+
+type Hue = { readonly ink: string; readonly tint: string }
+
+const hues: Array.NonEmptyReadonlyArray<Hue> = [
+  { ink: '#FF6A3D', tint: '#FDEDE6' },
+  { ink: '#2E6FF2', tint: '#E9F0FE' },
+  { ink: '#00B37E', tint: '#E4F5EF' },
+  { ink: '#8B5CF6', tint: '#F0EAFE' },
+  { ink: '#E8318A', tint: '#FCE8F1' },
+  { ink: '#FFC53D', tint: '#FDF3DF' },
+  { ink: '#14204A', tint: '#E8EAF1' },
+]
+
+~
+
+The two marks are pixel glyphs rather than characters, so they keep their weight at the small size the cards set them in. The question mark is a column taller than the check, and each sits beside its line at the offset that sets it on the line's first baseline.
+
+=>
+
+const problemMark: Carpet = {
+  rows: ['.ooo.', 'o...o', '...o.', '..o..', '.....', '..o..'],
+  threads: { '.': 'transparent', o: '#FF6A3D' },
+}
+
+const answerMark: Carpet = {
+  rows: ['....g', '...g.', 'g.g..', '.g...', '.....'],
+  threads: { '.': 'transparent', g: '#00714F' },
+}
+
+const legend = (): Html =>
+  ih.div(
+    [ih.Class('why-legend')],
+    [
+      ih.span([ih.Class('why-key problem')], [pixels(problemMark, 'why-q'), 'Problem']),
+      ih.span([ih.Class('why-key answer')], [pixels(answerMark, 'why-a'), 'Solution']),
+    ],
+  )
+
+const pairLine = (mark: Html, text: string): Html =>
+  ih.div([ih.Class('why-line')], [mark, ih.span([], [text])])
+
+const hueAt = (at: number): Hue =>
+  Option.getOrElse(Array.get(hues, at % hues.length), () => Array.headNonEmpty(hues))
+
+const pairCard = (pair: Pair, at: number): Html => {
+  const hue = hueAt(at)
+  return ih.div(
+    [
+      ih.Class('why-pair'),
+      ih.Style({ '--pair-ink': hue.ink, '--pair-tint': hue.tint }),
+    ],
+    [
+      pairLine(pixels(problemMark, 'why-q'), pair.problem),
+      pairLine(pixels(answerMark, 'why-a'), pair.answer),
+    ],
+  )
+}
+
+## The section
+
+The motivation is one section of the landing's kind: a woven mark, an eyebrow and a heading, then the content under them. Its mark is the one the nav already gives this page, so the page and the section that argues for it wear the same carpet. The prose comes first and the pairs after it, since the pairs restate the argument in brief once the reader has read it in full.
+
+=>
+
+const whyMotivation = (): Html =>
+  ih.div(
+    [ih.Class('section'), ih.Id('why-pairs')],
+    [
+      ih.div(
+        [ih.Class('section-head')],
+        [
+          carpetMark(whyLoomCarpet, '42px', broadSeam),
+          ih.div(
+            [ih.Class('lines')],
+            [ih.span([ih.Class('eyebrow')], ['The motivation']), ih.h2([], ['The modern problem'])],
+          ),
+        ],
+      ),
+      ih.div(
+        [ih.Class('prose-columns why-prose')],
+        Array.map(motivation, (paragraph) => ih.p([ih.Class('prose')], [paragraph])),
+      ),
+      legend(),
+      ih.div([ih.Class('why-pair-set')], Array.map(pairs, pairCard)),
+    ],
+  )
+
+export const whyLoom = (): ReadonlyArray<Html> => [whyHead(), whyMotivation()]
+
+## What this module draws on
+
+Effect lends `Array` to map the cards and pairs, and `Option` to pick each card's hue. Foldkit lends the inert builder and the `Html` type. The components lend the carpet machinery, the Loom mark, and the carpet the nav already gives this page.
+
+=>
+
+import { Array, Option } from 'effect'
+import { type Html, inertHtml as ih } from 'foldkit/html'
+import {
+  broadSeam,
+  type Carpet,
+  carpetMark,
+  carpetStyle,
+  fineSeam,
+  loomMark,
+  whyLoomCarpet,
+} from './components'
+
+const NAVY = '#14204A'
+
+## The module {Tangle}[why-loom.ts]
+
+=>
+
+::[What this module draws on]
+
+::[Two places to go next]
+
+::[The motivation]
+
+::[Problem and solution, in pairs]
+
+::[The page head]
+
+::[The section]

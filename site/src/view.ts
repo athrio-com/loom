@@ -6,6 +6,7 @@ import { documentationPage } from './docs-page'
 import { hero } from './hero'
 import { fromInitToEject } from './operations'
 import { vocabulary } from './vocabulary'
+import { whyLoom } from './why-loom'
 import { type Message, type Model, type Route } from './model'
 
 const overlay = (model: Model, h: HtmlBuilder<Message>): ReadonlyArray<Html> =>
@@ -67,15 +68,7 @@ const pageFor = (model: Model, h: HtmlBuilder<Message>): Html =>
       ),
     ),
     Match.when('docs', () => documentation(model, h)),
-    Match.when('why-loom', () =>
-      marketingPage(model, [
-        beingWritten(
-          'Why Loom',
-          'The case for writing the document first, against the three approaches it replaces.',
-          h,
-        ),
-      ], h),
-    ),
+    Match.when('why-loom', () => marketingPage(model, whyLoom(), h)),
     Match.when('community', () =>
       marketingPage(model, [
         beingWritten('Community', 'The people, the corpora in the wild, and where to ask.', h),

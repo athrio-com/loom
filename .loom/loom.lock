@@ -113,6 +113,7 @@
     "site/src/view.ts",
     "site/src/vite-env.d.ts",
     "site/src/vocabulary.ts",
+    "site/src/why-loom.ts",
     "site/tsconfig.json",
     "site/tsconfig.server.json",
     "site/vite.config.ts"

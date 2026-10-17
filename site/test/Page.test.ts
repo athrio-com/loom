@@ -78,9 +78,21 @@ describe('the page', () => {
   })
 
   it('says plainly which pages are still being written', () => {
-    ;(['why-loom', 'community', 'source'] as ReadonlyArray<Route>).forEach((route) => {
+    ;(['community', 'source'] as ReadonlyArray<Route>).forEach((route) => {
       expect(render(at(route))).toContain('Being written')
     })
+    expect(render(at('why-loom'))).not.toContain('Being written')
+  })
+
+  it('makes the case on the argument page: head, motivation, eight pairs', () => {
+    const html = render(at('why-loom'))
+    expect(html).toContain('Why Loom?</h1>')
+    expect(html).toContain('href="https://github.com/athrio-com/loom"')
+    expect(html).toContain('href="https://discord.gg/loom"')
+    expect(html).toContain('The modern problem')
+    expect(html.split('class="why-pair"').length - 1).toBe(8)
+    expect(html).toContain('--pair-ink')
+    expect(html).toContain('class="pager"')
   })
 
   it('shows the whole vocabulary on the landing, all eight marks', () => {
