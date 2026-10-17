@@ -23,6 +23,7 @@ peers — `@athrio/loom-ast` for Loom's shared types, `effect`,
 document's uri — are supplied by the host bundle.
 
 {{ version = ${version} }}
+{{ effect = ${effect} }}
 
 =>
 
@@ -48,14 +49,14 @@ document's uri — are supplied by the host bundle.
   "peerDependencies": {
     "@athrio/loom-ast": "workspace:*",
     "@volar/language-service": "^2.4.28",
-    "effect": "4.0.0-beta.97",
+    "effect": "::[effect]",
     "typescript": "^6.0.3",
     "vscode-uri": "^3.1.0"
   },
   "devDependencies": {
     "@athrio/loom-ast": "workspace:*",
     "@volar/language-service": "^2.4.28",
-    "effect": "4.0.0-beta.97",
+    "effect": "::[effect]",
     "typescript": "^6.0.3",
     "vscode-uri": "^3.1.0"
   }

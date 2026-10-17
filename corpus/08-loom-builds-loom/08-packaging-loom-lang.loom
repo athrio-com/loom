@@ -15,6 +15,7 @@ Two field groups carry the package's shape. The `imports` field defines one pack
 The `main` and `bin` fields point at built output: `dist/loom-server.js` is the bundled language server, and the `loom-language-server` binary launches it. The runtime libraries the server needs — Volar, Effect, the `volar-service-*` plugins — are `dependencies`. `@athrio/loom-service-typescript` is a `devDependency`: the server loads it at runtime from the Loom store rather than bundling it, so it is present only to build and test against. `@effect/platform-bun` is a `devDependency` used only by the tangler's end-to-end test, which provides it as the real filesystem the tangler writes through. `vscode-uri` is a type-only `devDependency`.
 
 {{ version = ${version} }}
+{{ effect = ${effect} }}
 
 =>
 
@@ -49,7 +50,7 @@ The `main` and `bin` fields point at built output: `dist/loom-server.js` is the 
     "@volar/language-core": "^2.4.28",
     "@volar/language-server": "^2.4.28",
     "@volar/language-service": "^2.4.28",
-    "effect": "4.0.0-beta.97",
+    "effect": "::[effect]",
     "volar-service-css": "^0.0.71",
     "volar-service-html": "^0.0.71",
     "volar-service-markdown": "^0.0.71",
@@ -57,7 +58,7 @@ The `main` and `bin` fields point at built output: `dist/loom-server.js` is the 
   },
   "devDependencies": {
     "@athrio/loom-service-typescript": "workspace:*",
-    "@effect/platform-bun": "4.0.0-beta.97",
+    "@effect/platform-bun": "::[effect]",
     "vscode-uri": "^3.1.0"
   }
 }

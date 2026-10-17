@@ -21,9 +21,9 @@
     "access": "public"
   },
   "peerDependencies": {
-    "effect": "4.0.0-beta.97"
+    "effect": "4.0.5"
   },
   "devDependencies": {
-    "effect": "4.0.0-beta.97"
+    "effect": "4.0.5"
   }
 }

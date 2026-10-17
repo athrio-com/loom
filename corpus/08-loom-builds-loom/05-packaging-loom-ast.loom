@@ -13,6 +13,7 @@ Language: JSON
 The `exports` map names one entry point per model. There is no default entry: the builders and runners that construct these nodes live in `@athrio/loom-lang`, not here. The `imports` map defines one internal alias, `#ast/*`, so a model reaches its siblings by a stable name. `effect` is a peer dependency, shared with whoever installs the package rather than carried twice.
 
 {{ version = ${version} }}
+{{ effect = ${effect} }}
 
 =>
 
@@ -39,10 +40,10 @@ The `exports` map names one entry point per model. There is no default entry: th
     "access": "public"
   },
   "peerDependencies": {
-    "effect": "4.0.0-beta.97"
+    "effect": "::[effect]"
   },
   "devDependencies": {
-    "effect": "4.0.0-beta.97"
+    "effect": "::[effect]"
   }
 }
 

@@ -1,6 +1,6 @@
 import { Cause, Console, Data, Effect, Option, Result, Stream } from 'effect'
-import { Argument, Command, Flag, Prompt } from 'effect/unstable/cli'
-import { ChildProcess } from 'effect/unstable/process'
+import { Argument, Command, Flag, Prompt } from 'effect/cli'
+import { ChildProcess } from 'effect/process'
 import { NodeRuntime, NodeServices } from '@effect/platform-node'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -147,13 +147,13 @@ const init = (dir: Option.Option<string>) =>
       yield* Console.log(`\n   ${dim(`✓ using the configuration at ${configFile}`)}\n`)
     } else {
       const language = yield* Prompt.run(
-        Prompt.text({
+        Prompt.String({
           message: 'Primary language for specifier-less sections',
           default: 'typescript',
         }),
       )
       const activation = yield* Prompt.run(
-        Prompt.text({
+        Prompt.String({
           message: 'Activate editor services for (space-separated language ids)',
           default: language,
         }),
@@ -327,43 +327,43 @@ const design = (project: string, application: string, port: number) =>
 
 const tangleCommand = Command.make(
   'tangle',
-  { path: Argument.string('path'), watch: Flag.boolean('watch') },
+  { path: Argument.String('path'), watch: Flag.Boolean('watch').pipe(Flag.withDefault(false)) },
   ({ path, watch }) => tangle(path, watch),
 )
 
 const orphansCommand = Command.make(
   'orphans',
-  { prune: Flag.boolean('prune') },
+  { prune: Flag.Boolean('prune').pipe(Flag.withDefault(false)) },
   ({ prune }) => orphans(prune),
 )
 
 const weaveCommand = Command.make(
   'weave',
-  { path: Argument.string('path'), out: Argument.string('out') },
+  { path: Argument.String('path'), out: Argument.String('out') },
   ({ path, out }) => weave(path, out),
 )
 
 const tocCommand = Command.make(
   'toc',
-  { path: Argument.string('path') },
+  { path: Argument.String('path') },
   ({ path }) => toc(path),
 )
 
 const initCommand = Command.make(
   'init',
-  { dir: Argument.optional(Argument.directory('dir')) },
+  { dir: Argument.optional(Argument.Directory('dir')) },
   ({ dir }) => init(dir),
 )
 
 const addCommand = Command.make(
   'add',
-  { language: Argument.string('language') },
+  { language: Argument.String('language') },
   ({ language }) => add(language),
 )
 
 const removeCommand = Command.make(
   'remove',
-  { language: Argument.string('language') },
+  { language: Argument.String('language') },
   ({ language }) => remove(language),
 )
 
@@ -371,16 +371,16 @@ const statusCommand = Command.make('status', {}, () => status)
 
 const setCommand = Command.make(
   'set',
-  { name: Argument.string('name'), value: Argument.string('value') },
+  { name: Argument.String('name'), value: Argument.String('value') },
   ({ name, value }) => set(name, value),
 )
 
 const designCommand = Command.make(
   'design',
   {
-    project: Argument.string('name'),
-    application: Argument.string('address'),
-    port: Flag.integer('port').pipe(Flag.withDefault(5710)),
+    project: Argument.String('name'),
+    application: Argument.String('address'),
+    port: Flag.Int('port').pipe(Flag.withDefault(5710)),
   },
   ({ project, application, port }) => design(project, application, port),
 )
