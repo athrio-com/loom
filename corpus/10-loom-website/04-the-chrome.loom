@@ -937,7 +937,7 @@ export const palette = (model: Model, h: HtmlBuilder<Message>): Html => {
 
 The footer carries the brand on the left and every link the site offers on the right. The brand is the Loom mark in its cream face, since the ground here is dark, beside the wordmark and the one sentence that says what Loom is.
 
-The links are one flat list, and each is a chip rather than a line of a column. Nine short labels in one run beat three headed groups here: a footer is where a reader goes looking for one particular door, and nine doors side by side are read faster than nine sorted into piles. The order runs from what a reader most often wants to what they rarely do — the documentation first, the organisation last.
+The links are one flat list, and each is a chip rather than a line of a column. Nine short labels in one run beat three headed groups here: a footer is where a reader goes looking for one particular door, and nine doors side by side are read faster than nine sorted into piles. The order runs from what a reader most often wants to what they rarely do — the documentation first, the organisation last. That last chip leaves the site for the Quadrivium Academy foundation's own, at qda.ee, and the line under everything names the foundation and the year.
 
 =>
 
@@ -952,7 +952,7 @@ const footerLinks: ReadonlyArray<FooterLink> = [
   { label: 'Github', href: 'https://github.com/athrio-com/loom', ink: '#19D69C' },
   { label: 'License', href: '/community', ink: '#FFC53D' },
   { label: 'Sponsors', href: '/community', ink: '#E8318A' },
-  { label: 'About Nonprofit', href: '/community', ink: '#6E9BFF' },
+  { label: 'About Nonprofit', href: 'https://qda.ee', ink: '#6E9BFF' },
 ]
 
 export const footer = (h: HtmlBuilder<Message>): Html =>
@@ -995,7 +995,7 @@ export const footer = (h: HtmlBuilder<Message>): Html =>
           h.div(
             [h.Class('footer-bottom')],
             [
-              h.span([], ['© Athrio Media OÜ 2026']),
+              h.span([], ['© Quadrivium Academy Sihtasutus 2026']),
             ],
           ),
         ],

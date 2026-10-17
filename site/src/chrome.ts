@@ -766,7 +766,7 @@ const footerLinks: ReadonlyArray<FooterLink> = [
   { label: 'Github', href: 'https://github.com/athrio-com/loom', ink: '#19D69C' },
   { label: 'License', href: '/community', ink: '#FFC53D' },
   { label: 'Sponsors', href: '/community', ink: '#E8318A' },
-  { label: 'About Nonprofit', href: '/community', ink: '#6E9BFF' },
+  { label: 'About Nonprofit', href: 'https://qda.ee', ink: '#6E9BFF' },
 ]
 
 export const footer = (h: HtmlBuilder<Message>): Html =>
@@ -809,7 +809,7 @@ export const footer = (h: HtmlBuilder<Message>): Html =>
           h.div(
             [h.Class('footer-bottom')],
             [
-              h.span([], ['© Athrio Media OÜ 2026']),
+              h.span([], ['© Quadrivium Academy Sihtasutus 2026']),
             ],
           ),
         ],

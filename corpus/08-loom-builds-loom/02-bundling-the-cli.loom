@@ -8,7 +8,7 @@ Language: TypeScript
 
 Vite bundles the CLI program, the language server's TypeScript source, and Effect into a single `dist/main.js` module and adds a Node shebang, the line that makes the file directly executable. The installed `loom` binary therefore carries no runtime dependencies and no TypeScript source to compile.
 
-Loom Design is in neither this bundle nor any other file this build writes. Athrio Media OÜ licenses Design commercially and this package permissively, so a copy of Design inside `dist/main.js` would publish the paid product under the free product's terms — which is what version 0.0.10 did, and a permissive grant once made cannot be taken back. `loom design` runs Design's own binary and imports nothing from it, which leaves the bundler no import to follow.
+Loom Design is in neither this bundle nor any other file this build writes. Athrio Media OÜ licenses Design commercially, while the Quadrivium Academy foundation licenses this package under MIT, so a copy of Design inside `dist/main.js` would publish the paid product under the free product's terms — which is what version 0.0.10 did, and a permissive grant once made cannot be taken back. `loom design` runs Design's own binary and imports nothing from it, which leaves the bundler no import to follow.
 
 ## Vite build {Tangle}
 

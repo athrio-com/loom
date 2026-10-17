@@ -57,5 +57,5 @@ loom lsp --stdio
 
 ## ⚖️ License
 
-[MIT](./LICENSE). Copyright Athrio Media OÜ and Loom contributors. Everything in
+[MIT](./LICENSE). Copyright Quadrivium Academy Sihtasutus and Loom contributors. Everything in
 this repository is under those terms.

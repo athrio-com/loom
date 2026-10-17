@@ -10,7 +10,7 @@ The `@athrio/loom` package ships to npm as a single self-contained file. Vite bu
 
 ## The manifest {Tangle}[package.json]
 
-The `files` field restricts the published package to the `dist` directory, and the `bin` field maps the `loom` command to the bundle. The bundle inlines every dependency, so all dependencies belong in the `devDependencies` field. Loom Design is not among them. Athrio Media OÜ owns both products but licenses them differently — this package under MIT, Design under terms of its own — so `loom design` runs Design's binary and this package neither imports nor builds it.
+The `files` field restricts the published package to the `dist` directory, and the `bin` field maps the `loom` command to the bundle. The bundle inlines every dependency, so all dependencies belong in the `devDependencies` field. Loom Design is not among them. The two products carry different licences. The Quadrivium Academy foundation licenses this package under MIT, and Athrio Media OÜ licenses Design under terms of its own, so `loom design` runs Design's binary and this package neither imports nor builds it.
 
 The `typecheck` script reads the source without writing anything — `--noEmit`, because the shared configuration sets an output directory that a check has no use for, and compiled copies of the tests left there are found twice by the test runner. It is the script this package went without, and the cost showed. Vite strips types rather than checking them, so `main.ts` shipped for months with an identifier that resolved to nothing — a failure message reaching for a variable that had gone out of scope, which would have thrown a `ReferenceError` on the one path it was written for. A type checker reads the whole file whether or not a path runs.
 
@@ -88,7 +88,7 @@ It also says what is *not* here. Athrio sells Loom Design under a licence of its
 
 MIT License
 
-Copyright (c) 2026 Athrio Media OÜ and Loom contributors
+Copyright (c) 2026 Quadrivium Academy Sihtasutus and Loom contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
