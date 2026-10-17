@@ -19,6 +19,7 @@ There are eight of them, and each does a single thing. Learn these and you can r
 | `[file.ts]` | names the file a section's code belongs to |
 | `{Tangle}` | labels a heading — what Loom should make of it, or what language it holds |
 | `=>` | opens a code block |
+| `~>` | opens a code block that only `~` closes |
 | `~` | closes a code block and returns to prose |
 | `::[a section]` | draws that section in, whole |
 | `{{ name }}` | binds a value into the text |
@@ -93,6 +94,22 @@ Trimming first means the caller never has to.
 ```
 
 Prose and code alternate as often as the explanation needs. A block is not a unit of compilation; it is a unit of narrative.
+
+A block opened with `=>` also ends at the next heading. That suits most code, but some files are full of lines that look like headings: a Markdown page, a shell script, a configuration file with `#` comments. Open those with `~>` instead. The block then holds until `~`, and every `#` line inside it stays part of the file.
+
+```loom
+## The skill [SKILL.md]
+
+~>
+
+# Writing for the reader
+
+## Put the actor in the subject
+
+~
+```
+
+The tilde that closes a block stands alone at the start of its line, or with a space and some prose after it. A line that merely begins with a tilde, such as `~/bin` in a script, stays code. An explicit block that never closes is an error, because it would otherwise swallow the rest of the chapter.
 
 ## Anchors
 

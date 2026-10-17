@@ -173,10 +173,14 @@ const languageByExtension: ReadonlyMap<string, string> = new Map([
   ['cjs', 'javascript'],
   ['jsx', 'jsx'],
   ['json', 'json'],
+  ['md', 'markdown'],
+  ['yml', 'yaml'],
 ])
 
 const extensionLanguage = (path: string): string => {
-  const ext = path.slice(path.lastIndexOf('.') + 1).toLowerCase()
+  const name = path.slice(path.lastIndexOf('/') + 1).toLowerCase()
+  const dot = name.lastIndexOf('.')
+  const ext = dot < 0 ? name : name.slice(dot + 1)
   return languageByExtension.get(ext) ?? ext
 }
 

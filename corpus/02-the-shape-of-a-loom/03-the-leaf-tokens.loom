@@ -185,17 +185,25 @@ export type TocTitleToken = typeof TocTitleTokenSchema.Type
 
 ## Transition markers
 
-`Arrow` (`=>`) opens a code chunk and `Tilde` (`~`) opens prose. Both are position-only — the marker is recognised here, the content after it elsewhere.
+An `Arrow` opens a code chunk and a `Tilde` opens prose. Both are position-only: the marker is recognised here, and the content after it elsewhere.
+
+An arrow comes in two strengths. The plain arrow, `=>`, opens code that runs until the next heading or tilde. The explicit arrow, `~>`, opens code that only a tilde closes, so a line that would otherwise read as a heading stays code inside it. A Markdown file, a shell script, or a configuration file with `#` comments needs that, because each of them writes lines that look like headings. The explicit arrow names its own closer, which is how a reader can tell the two apart at a glance.
 
 =>
 
 export const ArrowTokenSchema = loomNode('Arrow', {}).annotate({
-  [Probe]: /^\s*=>/,
+  [Probe]: /^\s*[=~]>/,
 })
 export type ArrowToken = typeof ArrowTokenSchema.Type
 
+~
+
+A tilde closes code only when it stands at the start of its line, followed by the end of the line or by a space and some prose. Content can begin with a tilde too: a home-relative path such as `~/bin`, a Markdown fence of three tildes, a lock-file pattern in an ignore list. None of these is followed by a space, so each one stays code. The explicit arrow begins with a tilde as well, and the `>` after it keeps it from reading as a closer.
+
+=>
+
 export const TildeTokenSchema = loomNode('Tilde', {}).annotate({
-  [Probe]: /^\s*~+/,
+  [Probe]: /^~(?=\s|$)/,
 })
 export type TildeToken = typeof TildeTokenSchema.Type
 
@@ -210,17 +218,17 @@ export type HeadingTitleToken = typeof HeadingTitleTokenSchema.Type
 
 ## Code and prose content
 
-`Code` is the content after `=>`, and `Prose` the content after `~`. Both are position-only; each one's `Probe` picks up the run of text following the marker.
+`Code` is the content after an arrow, and `Prose` the content after a tilde. Both are position-only; each one's `Probe` picks up the run of text following the marker.
 
 =>
 
 export const CodeTokenSchema = loomNode('Code', {}).annotate({
-  [Probe]: /(?<=^\s*=>\s*)\S.*$/,
+  [Probe]: /(?<=^\s*[=~]>\s*)\S.*$/,
 })
 export type CodeToken = typeof CodeTokenSchema.Type
 
 export const ProseTokenSchema = loomNode('Prose', {}).annotate({
-  [Probe]: /(?<=^\s*~+\s*)\S.*$/,
+  [Probe]: /(?<=^~\s+)\S.*$/,
 })
 export type ProseToken = typeof ProseTokenSchema.Type
 

@@ -29,6 +29,9 @@ export type LoomFault = Data.TaggedEnum<{
     readonly found: string
   }
   UnresolvedTocEntry: { readonly title: string }
+  UnclosedExplicitBlock: {}
+  StrayFragment: { readonly value: string }
+  HeadingAgainstCode: {}
 }>
 
 export const {
@@ -41,11 +44,16 @@ export const {
   AmbiguousAnchor,
   CrossLanguageAnchor,
   UnresolvedTocEntry,
+  UnclosedExplicitBlock,
+  StrayFragment,
+  HeadingAgainstCode,
 } = Data.taggedEnum<LoomFault>()
 
 type Note = { readonly severity: Severity; readonly message: string }
 
 const error = (message: string): Note => ({ severity: 'error', message })
+
+const warning = (message: string): Note => ({ severity: 'warning', message })
 
 const cap = (text: string): string =>
   text.charAt(0).toUpperCase() + text.slice(1)
@@ -100,6 +108,21 @@ export const describe = (fault: LoomFault): Note =>
     ),
     Match.tag('UnresolvedTocEntry', ({ title }) =>
       error(`Unresolved contents entry: no chapter titled \`${title}\`.`),
+    ),
+    Match.tag('StrayFragment', ({ value }) =>
+      error(
+        `Unexpected \`${value}\`: this line has no place for it, so Loom would ignore it. A heading carries one specifier and one sink.`,
+      ),
+    ),
+    Match.tag('HeadingAgainstCode', () =>
+      warning(
+        'This heading sits directly under a line of code, so it ends the code here. If the line belongs to the code, open the block with `~>` and close it with `~`; if it is a heading, leave a blank line above it.',
+      ),
+    ),
+    Match.tag('UnclosedExplicitBlock', () =>
+      error(
+        'Unclosed explicit block: `~>` holds its code until a tilde, and none follows. Close it with `~` on a line of its own.',
+      ),
     ),
     Match.exhaustive,
   )

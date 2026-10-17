@@ -376,7 +376,7 @@ describe('Subtoken health — marker tokens', () => {
   })
 
   it('TildeToken (real marker) carries okHealth', () => {
-    const out = classify(['## A', '~~~'])
+    const out = classify(['## A', '~'])
     const w = out[1]
     if (w.type !== 'TildeWeft') throw new Error('expected TildeWeft')
     expect(w.tilde.health).toEqual(okHealth)
@@ -542,5 +542,75 @@ describe('Mealy chain — output IS next state', () => {
     const b = classify(['## A', 'intro', '=>', 'x = 1'])
     expect(types(a)).toEqual(types(b))
     expect(a.map((w) => w.health.status)).toEqual(b.map((w) => w.health.status))
+  })
+})
+
+// =============================================================================
+// Explicit blocks — `~>` opens code that only a tilde closes.
+// =============================================================================
+
+describe('Explicit block — `~>` holds until a tilde', () => {
+  const types = (lines: ReadonlyArray<string>) => classify(lines).map((w) => w.type)
+
+  it('keeps `#` lines as code inside the block', () => {
+    expect(types(['## Skill', '~>', '# Title', '## Rule', 'body', '~'])).toEqual([
+      'HeadingWeft',
+      'ArrowWeft',
+      'CodeWeft',
+      'CodeWeft',
+      'CodeWeft',
+      'TildeWeft',
+    ])
+  })
+
+  it('reads a heading again once the tilde has closed the block', () => {
+    expect(types(['## Skill', '~>', '# kept', '~', '## Next'])).toEqual([
+      'HeadingWeft',
+      'ArrowWeft',
+      'CodeWeft',
+      'TildeWeft',
+      'HeadingWeft',
+    ])
+  })
+
+  it('keeps arrows, dashes and tilde-led content as code', () => {
+    expect(types(['## S', '~>', '=>', '---', '~/bin', '~~~', '~>', '~'])).toEqual([
+      'HeadingWeft',
+      'ArrowWeft',
+      'CodeWeft',
+      'CodeWeft',
+      'CodeWeft',
+      'CodeWeft',
+      'CodeWeft',
+      'TildeWeft',
+    ])
+  })
+
+  it('records the marker it was written with', () => {
+    const [, explicit] = classify(['## S', '~>', 'x', '~'])
+    const [, plain] = classify(['## S', '=>', 'x'])
+    if (explicit.type !== 'ArrowWeft' || plain.type !== 'ArrowWeft') throw new Error('expected ArrowWeft')
+    expect(explicit.arrow.source).toBe('~>')
+    expect(plain.arrow.source).toBe('=>')
+  })
+
+  it('leaves a plain arrow closed by the next heading, as before', () => {
+    expect(types(['## S', '=>', 'code', '## T'])).toEqual([
+      'HeadingWeft',
+      'ArrowWeft',
+      'CodeWeft',
+      'HeadingWeft',
+    ])
+  })
+
+  it('leaves a `~>` quoted inside a prose fence as prose', () => {
+    expect(types(['## S', 'prose', '```', '~>', '```', '## T'])).toEqual([
+      'HeadingWeft',
+      'PreambleWeft',
+      'PreambleWeft',
+      'ProseWeft',
+      'ProseWeft',
+      'HeadingWeft',
+    ])
   })
 })

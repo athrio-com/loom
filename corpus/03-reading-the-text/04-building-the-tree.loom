@@ -10,7 +10,7 @@ Language: TypeScript
 
 ## The build
 
-Grouping a heading with its body means looking ahead to the next heading, so `build` gathers the whole weft stream first with `Stream.runCollect`. `groupNodes` then splits the wefts into the document's top-level nodes, `appendToDocument` folds each node into a growing document, and `makeDocument` finishes it.
+Grouping a heading with its body means looking ahead to the next heading, so `build` gathers the whole weft stream first with `Stream.runCollect`. `faultUnclosedExplicit` first marks an explicit block that never closes, and `warnHeadingAgainstCode` marks a heading that most likely belonged to the code above it. `groupNodes` then splits the wefts into the document's top-level nodes, `appendToDocument` folds each node into a growing document, and `makeDocument` finishes it.
 
 =>
 
@@ -22,7 +22,11 @@ export class LoomAstBuilder extends Context.Service<LoomAstBuilder>()(
         Stream.runCollect(source).pipe(
           Effect.map((wefts) =>
             makeDocument(
-              Array.reduce(groupNodes(wefts), initialDocument, appendToDocument),
+              Array.reduce(
+                groupNodes(warnHeadingAgainstCode(faultUnclosedExplicit(wefts))),
+                initialDocument,
+                appendToDocument,
+              ),
             ),
           ),
         ),
@@ -31,6 +35,75 @@ export class LoomAstBuilder extends Context.Service<LoomAstBuilder>()(
 ) {
   static readonly layer = Layer.effect(this, this.make)
 }
+
+## An explicit block that never closes
+
+An explicit arrow, `~>`, holds its code until a tilde. The classifier honours that line by line, so when no tilde comes, every line to the end of the file reads as code, headings included. Nothing in the classifier can say so, because it has already emitted the arrow by the time the file runs out. The builder sees the whole weft list at once, so the check lives here.
+
+Only the last explicit arrow can be open. Inside an explicit block every line is code, so no second arrow can start while one is open. `unclosedExplicit` finds that last arrow and keeps it only when no tilde follows it. `faultUnclosedExplicit` then gives the arrow's own marker an `UnclosedExplicitBlock` fault. The fault is an error, so a tangle refuses the file rather than writing a section that swallowed the rest of it, and the editor underlines the `~>` where the block began.
+
+=>
+
+const isExplicitArrow = (weft: LoomWeft): weft is ArrowWeft =>
+  weft.type === 'ArrowWeft' && weft.arrow.source === '~>'
+
+const unclosedExplicit = (
+  wefts: ReadonlyArray<LoomWeft>,
+): Option.Option<number> =>
+  pipe(
+    Array.findLastIndex(wefts, isExplicitArrow),
+    Option.filter(
+      (at) => !Array.some(Array.drop(wefts, at + 1), (weft) => weft.type === 'TildeWeft'),
+    ),
+  )
+
+const faultedArrow = (weft: ArrowWeft): ArrowWeft => ({
+  ...weft,
+  arrow: {
+    ...weft.arrow,
+    health: faulty(UnclosedExplicitBlock(), weft.arrow.position),
+  },
+})
+
+const faultUnclosedExplicit = (
+  wefts: ReadonlyArray<LoomWeft>,
+): ReadonlyArray<LoomWeft> =>
+  Option.match(unclosedExplicit(wefts), {
+    onNone: () => wefts,
+    onSome: (open) =>
+      Array.map(wefts, (weft, at) =>
+        at === open && isExplicitArrow(weft) ? faultedArrow(weft) : weft,
+      ),
+  })
+
+## A heading against the code
+
+A plain arrow, `=>`, holds its code until the next heading. A `#` comment in a script, or a heading inside a Markdown file, reads as that heading, and the code stops short without a word. The explicit arrow is the cure, but an author has to know to reach for it.
+
+The tell is the blank line. A real heading has one above it, and a comment usually sits flush against the code it follows. So a heading whose previous weft is a non-blank code line gets a `HeadingAgainstCode` warning on its marker. A warning leaves the tangle running, because a heading flush against code may be what the author meant. It still reaches the editor, at the line where the code was cut.
+
+=>
+
+const isFlushCode = (weft: LoomWeft): boolean =>
+  weft.type === 'CodeWeft' && weft.source.trim() !== ''
+
+const warnedHeading = (weft: HeadingWeft): HeadingWeft => ({
+  ...weft,
+  headingStart: {
+    ...weft.headingStart,
+    health: faulty(HeadingAgainstCode(), weft.headingStart.position),
+  },
+})
+
+const warnHeadingAgainstCode = (
+  wefts: ReadonlyArray<LoomWeft>,
+): ReadonlyArray<LoomWeft> =>
+  Array.map(wefts, (weft, at) =>
+    isHeading(weft) &&
+    Option.exists(Array.get(wefts, at - 1), isFlushCode)
+      ? warnedHeading(weft)
+      : weft,
+  )
 
 ## Grouping the wefts
 
@@ -319,7 +392,7 @@ const eolName = (kind: 'lf' | 'crlf' | 'cr'): string => {
 
 ## What this module draws on
 
-Effect supplies `Stream` to gather the weft stream, `Array` to group and fold it, and `Match`, `Option`, `Context`, and `Layer` besides. The container schemas come from `LoomAst` and the frontmatter value token from `LoomTokens`; `Position` and `okHealth` from the foundation; the `MixedEOL` type from the line scanner; and the weft types from `Weft`.
+Effect supplies `Stream` to gather the weft stream, `Array` to group and fold it, and `Match`, `Option`, `Context`, and `Layer` besides. The container schemas come from `LoomAst` and the frontmatter value token from `LoomTokens`; `Position` and `okHealth` from the foundation; the `MixedEOL` type from the line scanner; and the weft types from `Weft`. The fault catalog lends `faulty` and the `UnclosedExplicitBlock` and `HeadingAgainstCode` faults.
 
 =>
 
@@ -346,7 +419,9 @@ import {
 import type { FrontmatterValueToken } from '@athrio/loom-ast/LoomTokens'
 import { okHealth, type Position } from '@athrio/loom-ast/LoomNode'
 import type { MixedEOL } from './LineRanges'
+import { faulty, HeadingAgainstCode, UnclosedExplicitBlock } from './LoomFault'
 import type {
+  ArrowWeft,
   FrontmatterWeft,
   HeadingWeft,
   LoomWeft,
@@ -362,6 +437,10 @@ import type {
 ::[What this module draws on]
 
 ::[The build]
+
+::[An explicit block that never closes]
+
+::[A heading against the code]
 
 ::[Grouping the wefts]
 

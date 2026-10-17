@@ -177,3 +177,117 @@ describe('loom cli', () => {
     rmSync(dir, { recursive: true, force: true })
   }, SPAWN_TIMEOUT)
 })
+
+// An explicit arrow, `~>`, holds its code until a tilde, so a file whose own lines
+// look like headings — Markdown, a commented script — tangles whole. These run the
+// real `tangle` over a temp workspace, the way a book uses it.
+const explicitWorkspace = (chapter: string): string => {
+  const dir = workspace('corpus: corpus\nlanguages:\n  typescript: {}\nprimary: typescript\n')
+  mkdirSync(join(dir, 'corpus'), { recursive: true })
+  writeFileSync(join(dir, 'corpus', 'book.loom'), '---\nPart I: Probe\n---\n\n# Probe\n')
+  writeFileSync(join(dir, 'corpus', '01-chapter.loom'), chapter)
+  return dir
+}
+
+describe('loom cli — explicit blocks', () => {
+  it('tangles a Markdown file whose headings and fences stay inside the block', () => {
+    const dir = explicitWorkspace(`---
+Part I, Chapter 1: A skill
+Package: ./
+Language: Markdown
+---
+
+# A skill
+
+## The rule
+
+=>
+
+Write for the reader.
+
+## The skill {Tangle}[SKILL.md]
+
+~>
+
+---
+name: probe
+---
+
+# Probe
+
+## The rule
+
+::[The rule]
+
+\`\`\`bash
+# a shell comment
+ls ~/bin
+\`\`\`
+
+~
+
+## After the block
+
+Prose that follows the closed block is prose again.
+`)
+    const { status, stderr } = loom(['tangle', 'corpus'], { cwd: dir })
+    expect(stderr).not.toContain('refusing')
+    expect(status).toBe(0)
+    const written = readFileSync(join(dir, 'SKILL.md'), 'utf8')
+    expect(written).toContain('name: probe')
+    expect(written).toContain('# Probe')
+    expect(written).toContain('## The rule')
+    expect(written).toContain('Write for the reader.')
+    expect(written).toContain('# a shell comment')
+    expect(written).toContain('ls ~/bin')
+    expect(written).not.toContain('Prose that follows')
+    rmSync(dir, { recursive: true, force: true })
+  }, SPAWN_TIMEOUT)
+
+  it('refuses an explicit block no tilde closes, and writes nothing', () => {
+    const dir = explicitWorkspace(`---
+Part I, Chapter 1: Open
+Package: ./
+Language: Markdown
+---
+
+# Open
+
+## The file {Tangle}[OPEN.md]
+
+~>
+
+# swallowed heading
+`)
+    const { status, stderr } = loom(['tangle', 'corpus'], { cwd: dir })
+    expect(status).not.toBe(0)
+    expect(stderr).toContain('Unclosed explicit block')
+    expect(existsSync(join(dir, 'OPEN.md'))).toBe(false)
+    rmSync(dir, { recursive: true, force: true })
+  }, SPAWN_TIMEOUT)
+
+  it('keeps a line that starts with a tilde as code in a plain block', () => {
+    const dir = explicitWorkspace(`---
+Part I, Chapter 1: Paths
+Package: ./
+Language: TypeScript
+---
+
+# Paths
+
+## The paths {Tangle}[paths.ts]
+
+=>
+
+export const home =
+~/bin
+export const done = true
+`)
+    const { status } = loom(['tangle', 'corpus'], { cwd: dir })
+    expect(status).toBe(0)
+    const written = readFileSync(join(dir, 'paths.ts'), 'utf8')
+    expect(written).toContain('~/bin')
+    expect(written).toContain('export const done = true')
+    rmSync(dir, { recursive: true, force: true })
+  }, SPAWN_TIMEOUT)
+})

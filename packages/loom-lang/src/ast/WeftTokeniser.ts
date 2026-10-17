@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Match, Option, Result, Schema, Stream, pipe } from 'effect'
+import { Array, Context, Effect, Layer, Match, Option, Result, Schema, Stream, pipe } from 'effect'
 import {
   okHealth,
   type Health,
@@ -67,6 +67,7 @@ import {
   faulty,
   MalformedLabel,
   MissingWarpValue,
+  StrayFragment,
   UnclosedDelimiter,
   type EmptyConstruct,
   type MalformedConstruct,
@@ -374,7 +375,7 @@ const tokeniseArrow = (
   return ArrowWeftSchema.make({
     position: weft.position,
     source: lineSlice(text, weft.position),
-    health: { status, diagnostics: [] },
+    health: strayHealth(text, status, unexpected),
     unexpected: unexpected.length > 0 ? unexpected : undefined,
     arrow: weft.arrow,
     code: Option.getOrUndefined(code),
@@ -405,7 +406,7 @@ const tokeniseTilde = (
   return TildeWeftSchema.make({
     position: weft.position,
     source: lineText,
-    health: { status, diagnostics: [] },
+    health: strayHealth(text, status, unexpected),
     unexpected: unexpected.length > 0 ? unexpected : undefined,
     tilde: weft.tilde,
     prose: Option.getOrUndefined(prose),
@@ -441,7 +442,7 @@ const tokenisePreamble = (
   return PreambleWeftSchema.make({
     position: weft.position,
     source: lineText,
-    health: { status, diagnostics: [] },
+    health: strayHealth(text, status, unexpected),
     unexpected: unexpected.length > 0 ? unexpected : undefined,
     warps,
     anchors,
@@ -468,7 +469,7 @@ const tokeniseProse = (
   return ProseWeftSchema.make({
     position: weft.position,
     source: lineText,
-    health: { status, diagnostics: [] },
+    health: strayHealth(text, status, unexpected),
     unexpected: unexpected.length > 0 ? unexpected : undefined,
     anchors,
   })
@@ -491,7 +492,7 @@ const tokeniseCode = (
   return CodeWeftSchema.make({
     position: weft.position,
     source: lineSlice(text, weft.position),
-    health: { status, diagnostics: [] },
+    health: strayHealth(text, status, unexpected),
     unexpected: unexpected.length > 0 ? unexpected : undefined,
     anchors,
   })
@@ -527,6 +528,47 @@ const missingClosing = (
   lineEnd: number,
   expected: string,
 ): Health => faulty(UnclosedDelimiter({ expected }), span(line, from, lineEnd))
+
+type Fragment = { readonly value: string; readonly position: Position }
+
+const closerOf: Readonly<Record<string, string>> = { '{': '}', '[': ']' }
+
+const closes = (opener: Fragment, stray: UnexpectedToken): boolean =>
+  closerOf[opener.value] === stray.value &&
+  opener.position.start.line === stray.position.start.line
+
+const strayFragments = (
+  text: string,
+  unexpected: ReadonlyArray<UnexpectedToken>,
+): ReadonlyArray<Fragment> =>
+  Array.reduce(unexpected, [] as ReadonlyArray<Fragment>, (fragments, stray) =>
+    Option.match(
+      Option.filter(Array.last(fragments), (last) => closes(last, stray)),
+      {
+        onNone: () => [...fragments, { value: stray.value, position: stray.position }],
+        onSome: (opener) => [
+          ...Array.dropRight(fragments, 1),
+          {
+            value: text.slice(opener.position.start.offset, stray.position.end.offset),
+            position: { start: opener.position.start, end: stray.position.end },
+          },
+        ],
+      },
+    ),
+  )
+
+const strayHealth = (
+  text: string,
+  status: Health['status'],
+  unexpected: ReadonlyArray<UnexpectedToken>,
+): Health => ({
+  status,
+  diagnostics: Array.flatMap(
+    strayFragments(text, unexpected),
+    (fragment) =>
+      faulty(StrayFragment({ value: fragment.value }), fragment.position).diagnostics,
+  ),
+})
 
 const brokenLabel = (
   construct: MalformedConstruct,
@@ -1527,7 +1569,7 @@ const tokeniseHeading = (text: string, weft: HeadingWeft): LoomWeft => {
   return HeadingWeftSchema.make({
     position: weft.position,
     source: lineSlice(text, weft.position),
-    health: { status, diagnostics: [] },
+    health: strayHealth(text, status, unexpected),
     unexpected: unexpected.length > 0 ? unexpected : undefined,
     headingStart: weft.headingStart,
     title: Option.getOrUndefined(title),

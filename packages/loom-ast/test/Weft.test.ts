@@ -156,14 +156,18 @@ describe('Arrow probe', () => {
 describe('Tilde probe', () => {
   const probe = Option.getOrThrow(getProbe(TildeTokenSchema))
 
-  it('matches one or more `~` with optional indent and trailing', () => {
+  it('matches a lone `~` at the start of a line, or `~` and a space before prose', () => {
     expect(probe.test('~')).toBe(true)
-    expect(probe.test('~~~~~')).toBe(true)
-    expect(probe.test('  ~~~ trailing')).toBe(true)
+    expect(probe.test('~ back to prose')).toBe(true)
+    expect('~ Text'.match(probe)?.[0]).toBe('~')
   })
 
-  it('captures the full tilde stack within its match', () => {
-    expect('~~~~~ Text'.match(probe)?.[0]).toBe('~~~~~')
+  it('leaves content that merely starts with a tilde alone', () => {
+    expect(probe.test('~/bin/run')).toBe(false)
+    expect(probe.test('~~~')).toBe(false)
+    expect(probe.test('~$lockfile')).toBe(false)
+    expect(probe.test('  ~')).toBe(false)
+    expect(probe.test('~>')).toBe(false)
   })
 
   it('rejects `~` mid-line', () => {

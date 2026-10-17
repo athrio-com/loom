@@ -177,11 +177,18 @@ reads the field and yields nothing when it is absent, so the fallback chain walk
 the three sources in turn.
 
 A tangle sink resolves its language a fourth way: it carries no specifier, only a
-path, so `extensionLanguage` reads the language off the path's extension. It maps
-`.ts` and its siblings to `typescript`, `.tsx` to `tsx`, the JavaScript extensions
-to `javascript` and `jsx`, and `.json` to `json`. An unlisted extension falls back
-to itself, so a new language reads as its bare extension until a service claims it.
-A `.json` sink composes as JSON even in a TypeScript document.
+path, so `extensionLanguage` reads the language off the file's name. It maps `.ts`
+and its siblings to `typescript`, `.tsx` to `tsx`, the JavaScript extensions to
+`javascript` and `jsx`, `.json` to `json`, `.md` to `markdown`, and `.yml` to
+`yaml`. Those last two are the short forms of names a frontmatter writes in full,
+so a Markdown chapter can anchor a section into its own `.md` sink. An unlisted
+extension falls back to itself, so a new language reads as its bare extension until
+a service claims it. A `.json` sink composes as JSON even in a TypeScript document.
+
+A file with no extension takes its whole name as its language, read from the last
+path segment only. A `Dockerfile` composes `dockerfile`, a `LICENSE` composes
+`license`, and a `.gitignore`, whose one dot only marks it hidden, composes
+`gitignore`. A chapter that declares the same language can then anchor into it.
 
 `sectionLanguage` resolves any section's language by these rules: its specifier,
 a sink's extension, or the document default. `nameIndex` records the language
@@ -276,10 +283,14 @@ const languageByExtension: ReadonlyMap<string, string> = new Map([
   ['cjs', 'javascript'],
   ['jsx', 'jsx'],
   ['json', 'json'],
+  ['md', 'markdown'],
+  ['yml', 'yaml'],
 ])
 
 const extensionLanguage = (path: string): string => {
-  const ext = path.slice(path.lastIndexOf('.') + 1).toLowerCase()
+  const name = path.slice(path.lastIndexOf('/') + 1).toLowerCase()
+  const dot = name.lastIndexOf('.')
+  const ext = dot < 0 ? name : name.slice(dot + 1)
   return languageByExtension.get(ext) ?? ext
 }
 

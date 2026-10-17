@@ -12,7 +12,7 @@ Writing them once is the point. A reader sees everything Loom can say, gathered 
 
 ## What Loom can get wrong
 
-A `LoomFault` is a tagged union, and each variant names one fault and carries only what its message needs. An `UnclosedDelimiter` carries the delimiter it expected to find. An `UnresolvedAnchor` carries the name that matched no section, and an `AmbiguousAnchor` adds the count that made it ambiguous. A `MissingWarpValue` carries the name of a Warp that bound nothing. An `UnknownVariable` carries the name a warp interpolated that the configuration never declared. A `CrossLanguageAnchor` carries the anchor name, the language found at the target, and the language the host section composes. An `UnresolvedTocEntry` carries the title of a table-of-contents entry that names no chapter.
+A `LoomFault` is a tagged union, and each variant names one fault and carries only what its message needs. An `UnclosedDelimiter` carries the delimiter it expected to find. An `UnresolvedAnchor` carries the name that matched no section, and an `AmbiguousAnchor` adds the count that made it ambiguous. A `MissingWarpValue` carries the name of a Warp that bound nothing. An `UnknownVariable` carries the name a warp interpolated that the configuration never declared. A `CrossLanguageAnchor` carries the anchor name, the language found at the target, and the language the host section composes. An `UnresolvedTocEntry` carries the title of a table-of-contents entry that names no chapter. A `HeadingAgainstCode` carries nothing either: it marks a heading written directly under a line of code, where a `#` comment most likely ended the code by mistake. A `StrayFragment` carries the text of a fragment a line had no place for, such as a second specifier on a heading. An `UnclosedExplicitBlock` carries nothing: it marks an explicit arrow, `~>`, that no tilde ever closes, and the arrow's own position says where the block began.
 
 The label faults fold many constructs into two variants. A construct is a named span the grammar validates — a specifier, a file path, a warp name, an anchor name. `EmptyLabel` is one with no text. `MalformedLabel` is one whose text breaks the construct's rule. Two further constructs — a warp annotation and a warp default — can only be empty, never malformed, so `EmptyConstruct` adds those two to `MalformedConstruct`.
 
@@ -46,6 +46,9 @@ export type LoomFault = Data.TaggedEnum<{
     readonly found: string
   }
   UnresolvedTocEntry: { readonly title: string }
+  UnclosedExplicitBlock: {}
+  StrayFragment: { readonly value: string }
+  HeadingAgainstCode: {}
 }>
 
 ~
@@ -64,6 +67,9 @@ export const {
   AmbiguousAnchor,
   CrossLanguageAnchor,
   UnresolvedTocEntry,
+  UnclosedExplicitBlock,
+  StrayFragment,
+  HeadingAgainstCode,
 } = Data.taggedEnum<LoomFault>()
 
 ## The table
@@ -77,6 +83,8 @@ Two small lookups carry the wording that varies by construct. `noun` gives each 
 type Note = { readonly severity: Severity; readonly message: string }
 
 const error = (message: string): Note => ({ severity: 'error', message })
+
+const warning = (message: string): Note => ({ severity: 'warning', message })
 
 const cap = (text: string): string =>
   text.charAt(0).toUpperCase() + text.slice(1)
@@ -131,6 +139,21 @@ export const describe = (fault: LoomFault): Note =>
     ),
     Match.tag('UnresolvedTocEntry', ({ title }) =>
       error(`Unresolved contents entry: no chapter titled \`${title}\`.`),
+    ),
+    Match.tag('StrayFragment', ({ value }) =>
+      error(
+        `Unexpected \`${value}\`: this line has no place for it, so Loom would ignore it. A heading carries one specifier and one sink.`,
+      ),
+    ),
+    Match.tag('HeadingAgainstCode', () =>
+      warning(
+        'This heading sits directly under a line of code, so it ends the code here. If the line belongs to the code, open the block with `~>` and close it with `~`; if it is a heading, leave a blank line above it.',
+      ),
+    ),
+    Match.tag('UnclosedExplicitBlock', () =>
+      error(
+        'Unclosed explicit block: `~>` holds its code until a tilde, and none follows. Close it with `~` on a line of its own.',
+      ),
     ),
     Match.exhaustive,
   )

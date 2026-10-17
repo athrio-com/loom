@@ -141,12 +141,12 @@ export const TocTitleTokenSchema = loomNode('TocTitle', {
 export type TocTitleToken = typeof TocTitleTokenSchema.Type
 
 export const ArrowTokenSchema = loomNode('Arrow', {}).annotate({
-  [Probe]: /^\s*=>/,
+  [Probe]: /^\s*[=~]>/,
 })
 export type ArrowToken = typeof ArrowTokenSchema.Type
 
 export const TildeTokenSchema = loomNode('Tilde', {}).annotate({
-  [Probe]: /^\s*~+/,
+  [Probe]: /^~(?=\s|$)/,
 })
 export type TildeToken = typeof TildeTokenSchema.Type
 
@@ -154,12 +154,12 @@ export const HeadingTitleTokenSchema = loomNode('HeadingTitle', {})
 export type HeadingTitleToken = typeof HeadingTitleTokenSchema.Type
 
 export const CodeTokenSchema = loomNode('Code', {}).annotate({
-  [Probe]: /(?<=^\s*=>\s*)\S.*$/,
+  [Probe]: /(?<=^\s*[=~]>\s*)\S.*$/,
 })
 export type CodeToken = typeof CodeTokenSchema.Type
 
 export const ProseTokenSchema = loomNode('Prose', {}).annotate({
-  [Probe]: /(?<=^\s*~+\s*)\S.*$/,
+  [Probe]: /(?<=^~\s+)\S.*$/,
 })
 export type ProseToken = typeof ProseTokenSchema.Type
 

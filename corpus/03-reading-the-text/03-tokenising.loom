@@ -321,7 +321,7 @@ const tokeniseArrow = (
   return ArrowWeftSchema.make({
     position: weft.position,
     source: lineSlice(text, weft.position),
-    health: { status, diagnostics: [] },
+    health: strayHealth(text, status, unexpected),
     unexpected: unexpected.length > 0 ? unexpected : undefined,
     arrow: weft.arrow,
     code: Option.getOrUndefined(code),
@@ -352,7 +352,7 @@ const tokeniseTilde = (
   return TildeWeftSchema.make({
     position: weft.position,
     source: lineText,
-    health: { status, diagnostics: [] },
+    health: strayHealth(text, status, unexpected),
     unexpected: unexpected.length > 0 ? unexpected : undefined,
     tilde: weft.tilde,
     prose: Option.getOrUndefined(prose),
@@ -388,7 +388,7 @@ const tokenisePreamble = (
   return PreambleWeftSchema.make({
     position: weft.position,
     source: lineText,
-    health: { status, diagnostics: [] },
+    health: strayHealth(text, status, unexpected),
     unexpected: unexpected.length > 0 ? unexpected : undefined,
     warps,
     anchors,
@@ -415,7 +415,7 @@ const tokeniseProse = (
   return ProseWeftSchema.make({
     position: weft.position,
     source: lineText,
-    health: { status, diagnostics: [] },
+    health: strayHealth(text, status, unexpected),
     unexpected: unexpected.length > 0 ? unexpected : undefined,
     anchors,
   })
@@ -438,7 +438,7 @@ const tokeniseCode = (
   return CodeWeftSchema.make({
     position: weft.position,
     source: lineSlice(text, weft.position),
-    health: { status, diagnostics: [] },
+    health: strayHealth(text, status, unexpected),
     unexpected: unexpected.length > 0 ? unexpected : undefined,
     anchors,
   })
@@ -447,6 +447,10 @@ const tokeniseCode = (
 ## Health and positions
 
 `aggregateStatus` folds a list of statuses up the lattice ok < incomplete < warning < error, the worst winning. `span` builds a position; `contentEnd` is the offset where a line's content ends, before its newline terminator, and is the bound every construct slices and positions against, so the EOL never leaks into a label, an anchor, or a diagnostic; `missingClosing` is the error health for an unclosed bracket, its diagnostic spanning the open delimiter to that content end so the squiggle lands on the construct rather than the gap after it. `brokenLabel` is the error health for a label the schema rejected. It raises an `EmptyLabel` or a `MalformedLabel` fault through the catalog, keyed by construct, so the same wording reaches the editor wherever a label is built.
+
+A weft that kept stray fragments takes its health from `strayHealth`. A stray is a fragment the line had no place for: a second specifier on a heading, an orphan bracket. Its status already fails the weft, but a status alone tells nobody anything. `strayHealth` gives each stray a `StrayFragment` diagnostic at its own position, so the tangle refuses the file and the editor underlines the stray itself.
+
+Pairing reports a stray by its delimiters, so a second `{Tangle}` arrives as an orphan `{` and an orphan `}`. A diagnostic that named the two braces apart would make a reader assemble the mistake. `strayFragments` stitches an orphan opener and the closer that matches it back into the one fragment the author wrote, and the diagnostic quotes `{Tangle}` whole.
 
 =>
 
@@ -480,6 +484,47 @@ const missingClosing = (
   lineEnd: number,
   expected: string,
 ): Health => faulty(UnclosedDelimiter({ expected }), span(line, from, lineEnd))
+
+type Fragment = { readonly value: string; readonly position: Position }
+
+const closerOf: Readonly<Record<string, string>> = { '{': '}', '[': ']' }
+
+const closes = (opener: Fragment, stray: UnexpectedToken): boolean =>
+  closerOf[opener.value] === stray.value &&
+  opener.position.start.line === stray.position.start.line
+
+const strayFragments = (
+  text: string,
+  unexpected: ReadonlyArray<UnexpectedToken>,
+): ReadonlyArray<Fragment> =>
+  Array.reduce(unexpected, [] as ReadonlyArray<Fragment>, (fragments, stray) =>
+    Option.match(
+      Option.filter(Array.last(fragments), (last) => closes(last, stray)),
+      {
+        onNone: () => [...fragments, { value: stray.value, position: stray.position }],
+        onSome: (opener) => [
+          ...Array.dropRight(fragments, 1),
+          {
+            value: text.slice(opener.position.start.offset, stray.position.end.offset),
+            position: { start: opener.position.start, end: stray.position.end },
+          },
+        ],
+      },
+    ),
+  )
+
+const strayHealth = (
+  text: string,
+  status: Health['status'],
+  unexpected: ReadonlyArray<UnexpectedToken>,
+): Health => ({
+  status,
+  diagnostics: Array.flatMap(
+    strayFragments(text, unexpected),
+    (fragment) =>
+      faulty(StrayFragment({ value: fragment.value }), fragment.position).diagnostics,
+  ),
+})
 
 const brokenLabel = (
   construct: MalformedConstruct,
@@ -1546,7 +1591,7 @@ const tokeniseHeading = (text: string, weft: HeadingWeft): LoomWeft => {
   return HeadingWeftSchema.make({
     position: weft.position,
     source: lineSlice(text, weft.position),
-    health: { status, diagnostics: [] },
+    health: strayHealth(text, status, unexpected),
     unexpected: unexpected.length > 0 ? unexpected : undefined,
     headingStart: weft.headingStart,
     title: Option.getOrUndefined(title),
@@ -1561,7 +1606,7 @@ Effect supplies `Stream` and `Match` for the per-weft pass, `Schema` for decodin
 
 =>
 
-import { Context, Effect, Layer, Match, Option, Result, Schema, Stream, pipe } from 'effect'
+import { Array, Context, Effect, Layer, Match, Option, Result, Schema, Stream, pipe } from 'effect'
 import {
   okHealth,
   type Health,
@@ -1630,6 +1675,7 @@ import {
   faulty,
   MalformedLabel,
   MissingWarpValue,
+  StrayFragment,
   UnclosedDelimiter,
   type EmptyConstruct,
   type MalformedConstruct,

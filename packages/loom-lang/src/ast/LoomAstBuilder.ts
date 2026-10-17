@@ -21,7 +21,9 @@ import {
 import type { FrontmatterValueToken } from '@athrio/loom-ast/LoomTokens'
 import { okHealth, type Position } from '@athrio/loom-ast/LoomNode'
 import type { MixedEOL } from './LineRanges'
+import { faulty, HeadingAgainstCode, UnclosedExplicitBlock } from './LoomFault'
 import type {
+  ArrowWeft,
   FrontmatterWeft,
   HeadingWeft,
   LoomWeft,
@@ -38,7 +40,11 @@ export class LoomAstBuilder extends Context.Service<LoomAstBuilder>()(
         Stream.runCollect(source).pipe(
           Effect.map((wefts) =>
             makeDocument(
-              Array.reduce(groupNodes(wefts), initialDocument, appendToDocument),
+              Array.reduce(
+                groupNodes(warnHeadingAgainstCode(faultUnclosedExplicit(wefts))),
+                initialDocument,
+                appendToDocument,
+              ),
             ),
           ),
         ),
@@ -47,6 +53,59 @@ export class LoomAstBuilder extends Context.Service<LoomAstBuilder>()(
 ) {
   static readonly layer = Layer.effect(this, this.make)
 }
+
+const isExplicitArrow = (weft: LoomWeft): weft is ArrowWeft =>
+  weft.type === 'ArrowWeft' && weft.arrow.source === '~>'
+
+const unclosedExplicit = (
+  wefts: ReadonlyArray<LoomWeft>,
+): Option.Option<number> =>
+  pipe(
+    Array.findLastIndex(wefts, isExplicitArrow),
+    Option.filter(
+      (at) => !Array.some(Array.drop(wefts, at + 1), (weft) => weft.type === 'TildeWeft'),
+    ),
+  )
+
+const faultedArrow = (weft: ArrowWeft): ArrowWeft => ({
+  ...weft,
+  arrow: {
+    ...weft.arrow,
+    health: faulty(UnclosedExplicitBlock(), weft.arrow.position),
+  },
+})
+
+const faultUnclosedExplicit = (
+  wefts: ReadonlyArray<LoomWeft>,
+): ReadonlyArray<LoomWeft> =>
+  Option.match(unclosedExplicit(wefts), {
+    onNone: () => wefts,
+    onSome: (open) =>
+      Array.map(wefts, (weft, at) =>
+        at === open && isExplicitArrow(weft) ? faultedArrow(weft) : weft,
+      ),
+  })
+
+const isFlushCode = (weft: LoomWeft): boolean =>
+  weft.type === 'CodeWeft' && weft.source.trim() !== ''
+
+const warnedHeading = (weft: HeadingWeft): HeadingWeft => ({
+  ...weft,
+  headingStart: {
+    ...weft.headingStart,
+    health: faulty(HeadingAgainstCode(), weft.headingStart.position),
+  },
+})
+
+const warnHeadingAgainstCode = (
+  wefts: ReadonlyArray<LoomWeft>,
+): ReadonlyArray<LoomWeft> =>
+  Array.map(wefts, (weft, at) =>
+    isHeading(weft) &&
+    Option.exists(Array.get(wefts, at - 1), isFlushCode)
+      ? warnedHeading(weft)
+      : weft,
+  )
 
 const isHeading = (w: LoomWeft): w is HeadingWeft => w.type === 'HeadingWeft'
 

@@ -35,6 +35,7 @@ type ClassifierState = {
   readonly inToc: boolean
   readonly inFence: boolean
   readonly inNote: boolean
+  readonly inExplicit: boolean
 }
 
 const initialState: ClassifierState = {
@@ -44,6 +45,7 @@ const initialState: ClassifierState = {
   inToc: false,
   inFence: false,
   inNote: false,
+  inExplicit: false,
 }
 
 export class WeftClassifier extends Context.Service<WeftClassifier>()(
@@ -68,6 +70,7 @@ export class WeftClassifier extends Context.Service<WeftClassifier>()(
                   : state.inToc,
               inFence: nextFence(state.inFence, state.inNote, weft),
               inNote: nextNote(state.inNote, state.inFence, weft),
+              inExplicit: nextExplicit(state.inExplicit, weft),
             }
             return [next, [weft]]
           }),
@@ -102,6 +105,11 @@ const probeWeft = (
       : makePreambleWeft(lineText, line, range)
 
   const probe = probeOf(lineText)
+
+  if (state.inExplicit)
+    return probe.kind === 'tilde'
+      ? makeTildeWeft(lineText, line, range, probe.m)
+      : makeCodeWeft(lineText, line, range)
 
   if (probe.kind === 'heading') {
     if (state.inToc && headingLevel(probe.m) > 1)
@@ -224,6 +232,12 @@ const nextNote = (
     ? !isNoteClose(weft.source)
     : !inFence && isProseWeft(weft) && isNoteOpen(weft.source)
 
+const isExplicitArrow = (weft: LoomWeft): boolean =>
+  weft.type === 'ArrowWeft' && weft.arrow.source === '~>'
+
+const nextExplicit = (inExplicit: boolean, weft: LoomWeft): boolean =>
+  inExplicit ? weft.type !== 'TildeWeft' : isExplicitArrow(weft)
+
 const headingLevel = (m: RegExpMatchArray): number =>
   m[0].replace(/[^#]/g, '').length
 
@@ -272,7 +286,7 @@ const makeArrowWeft = (
     health: incompleteHealth,
     arrow: ArrowTokenSchema.make({
       position: span(line, start, end),
-      source: '=>',
+      source: m[0].slice(-2),
       health: okHealth,
     }),
     anchors: [],

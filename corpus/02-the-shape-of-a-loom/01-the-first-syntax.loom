@@ -24,7 +24,7 @@ That is the whole rhythm. The primitives it rests on, gathered in one place:
 2. Sections `#`
 3. Prose
 4. Code
-5. Arrows `=>`
+5. Arrows `=>` and `~>`
 6. Tildes `~`
 7. Sinks `[file]`
 8. Specifiers `{Lang}`
