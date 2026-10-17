@@ -22,7 +22,6 @@ export type Runtime = typeof Runtime.Type
 export const Model = S.Struct({
   route: Route,
   chapter: S.String,
-  navHidden: S.Boolean,
   drawerOpen: S.Boolean,
   runtime: Runtime,
   searchOpen: S.Boolean,
@@ -55,7 +54,6 @@ export const Message = defineMessageUnion({
   WentTo: { route: Route },
   OpenedChapter: { slug: S.String },
   PickedRuntime: { runtime: Runtime },
-  ScrolledBar: { hidden: S.Boolean },
   OpenedDrawer: {},
   ClosedDrawer: {},
   OpenedSearch: {},
@@ -85,7 +83,6 @@ export const {
   WentTo,
   OpenedChapter,
   PickedRuntime,
-  ScrolledBar,
   OpenedDrawer,
   ClosedDrawer,
   OpenedSearch,

@@ -1,6 +1,6 @@
 import { Match } from 'effect'
 import type { Document, Html, HtmlBuilder } from 'foldkit/html'
-import { docsBar, footer, nav, pager, palette } from './chrome'
+import { footer, nav, pager, palette } from './chrome'
 import { example } from './example'
 import { documentationPage } from './docs-page'
 import { hero } from './hero'
@@ -33,7 +33,7 @@ const documentation = (model: Model, h: HtmlBuilder<Message>): Html =>
   h.div(
     [],
     [
-      docsBar(model, h),
+      nav(model, h),
       h.main([], [documentationPage(model, h)]),
       footer(h),
       ...overlay(model, h),

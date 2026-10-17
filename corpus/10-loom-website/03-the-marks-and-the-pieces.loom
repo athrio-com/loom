@@ -166,6 +166,66 @@ export const operationsCarpet: Carpet = {
   threads: { '.': NAVY, p: PAPER, g: '#00B37E', v: '#8B5CF6', o: '#FF6A3D' },
 }
 
+## The flower a chapter wears
+
+Each chapter of the documentation opens on a mark, as each section of the landing does, and the marks are flowers. The docs can hold any number of chapters, so these marks cannot be drawn one by one like the landing's three. They come instead from nine shapes of plant: a sunflower, a tulip, a spray of bells, a berry branch, a two-leaf sprout, a fern, a bouquet of three, a clover and a tuft of grass.
+
+Each shape is a carpet with its colours left open. The green of stems and leaves is fixed, and three letters stand for the colours of petals, centres and berries. A shape alone is not a mark until those three letters are given colours.
+
+=>
+
+const GREEN = '#00B37E'
+
+const sunflower = ['..aaa..', '.aacaa.', '.ac.ca.', '.aacaa.', '..aaa..', '..gg...', '...g...']
+const tulip = ['.a.a.a.', '.aaaaa.', '..aaa..', '...g...', '.gg.g..', '..ggg..', '...g...']
+const bells = ['.ggggg.', 'g....g.', 'a.g..a.', '..a..g.', '.....g.', '..b.gg.', '....g..']
+const berries = ['a...a..', 'g..aga.', '.g..g..', '..g.g.b', '...gggg', '....g..', '....g..']
+const sprout = ['...b...', '...g...', 'gg.g.gg', 'ggggggg', '.g.g.g.', '...g...', '..ggg..']
+const fern = ['....b..', '...g.g.', '.g.g...', '..gg.g.', '...gg..', '.g.g...', '...g...']
+const bouquet = ['a.....c', '.g.b.g.', '..g.g..', '...g...', '..ggg..', '...g...', '...g...']
+const clover = ['.gg.gg.', '.gg.gg.', '...b...', '..ggg..', '..gg...', '...g...', '...g...']
+const tuft = ['.....a.', '..a..g.', '..g..g.', 'g.g.g..', '.gg.g.g', '..ggg.g', '...g...']
+
+const flowerShapes: ReadonlyArray<ReadonlyArray<string>> = [
+  sunflower, tulip, bells, berries, sprout, fern, bouquet, clover, tuft,
+]
+
+const flowerThreads: ReadonlyArray<string> = ['#FF6A3D', '#8B5CF6', '#E8318A', '#2E6FF2', '#FFC53D', PAPER]
+
+~
+
+A chapter's flower follows from its place in the reading order, so it stays the same from one visit to the next and nothing about it is random. The first chapter wears the first shape, the second chapter the second, and so on round the nine. The colours turn with the place too: the three open letters take three consecutive colours of the palette, starting one colour further along for each chapter. So the first chapter, the quick start, opens on an orange sunflower with a magenta ring. Every second chapter faces the other way.
+
+No two chapters next to each other share a shape or a colour, which is what lets the pager tell them apart at a glance.
+
+=>
+
+const threadAt = (place: number, step: number): string =>
+  pipe(
+    Array.get(flowerThreads, (place + step) % flowerThreads.length),
+    Option.getOrElse(() => PAPER),
+  )
+
+const mirrored = (rows: ReadonlyArray<string>): ReadonlyArray<string> =>
+  Array.map(rows, (row) => row.split('').reverse().join(''))
+
+export const flowerFor = (place: number): Carpet => {
+  const shape = pipe(
+    Array.get(flowerShapes, place % flowerShapes.length),
+    Option.getOrElse(() => sunflower),
+  )
+  return {
+    rows: place % 2 === 0 ? shape : mirrored(shape),
+    threads: {
+      '.': NAVY,
+      g: GREEN,
+      a: threadAt(place, 0),
+      b: threadAt(place, 1),
+      c: threadAt(place, 2),
+    },
+  }
+}
+
 ## The Loom mark
 
 Loom's full mark is a pill with two carets on it, and it is the one piece of the site that moves. The carets blink, glance together, and a woven quilt drifts up behind them before fading out — a loop of twelve and four fifths seconds that runs on nothing but itself.
@@ -404,6 +464,8 @@ export const octocatIcon = (size: string): Html =>
 
 The install rows each lead with the mark of a runtime — bun, npm, pnpm — in the brand's own logo, not a redrawing. Each logo is the project's official SVG, vendored in `logos.json` and dropped into a span as inline markup, so the page carries no image file and the mark stays sharp at any size. Each keeps its own colours: npm's red block, pnpm's yellow-and-grey squares, bun's cream mascot.
 
+The documentation's run picker needs a fourth mark, for Node.js. That one is a plain drawing rather than the project's own file: the green hexagon of Node's mark on its own, kept in `logos.json` beside the other three.
+
 =>
 
 const svgMark = (svg: string): Html =>
@@ -412,6 +474,7 @@ const svgMark = (svg: string): Html =>
 export const bunIcon = (): Html => svgMark(logos.bun)
 export const npmIcon = (): Html => svgMark(logos.npm)
 export const pnpmIcon = (): Html => svgMark(logos.pnpm)
+export const nodeIcon = (): Html => svgMark(logos.node)
 
 ## The module {Tangle}[components.ts]
 
@@ -424,6 +487,8 @@ The module opens with the woven carpet, since the small marks a page wears are w
 ::[The marks a page wears]
 
 ::[The marks the landing's sections wear]
+
+::[The flower a chapter wears]
 
 ::[The Loom mark]
 

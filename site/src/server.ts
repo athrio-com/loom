@@ -16,7 +16,6 @@ const distDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist')
 const seed: Model = {
   route: 'home',
   chapter: '',
-  navHidden: false,
   drawerOpen: false,
   runtime: 'bun',
   searchOpen: false,

@@ -11,7 +11,7 @@ import { renderDocument, renderHtml } from './render'
 // these cases render every route through the real SSR path — the same path the server uses.
 const at = (route: Route, over: Partial<Model> = {}): Model =>
   ({
-    route, chapter: '', navHidden: false, drawerOpen: false, runtime: 'bun',
+    route, chapter: '', drawerOpen: false, runtime: 'bun',
     searchOpen: false, caret: 0, searching: false,
     activeSection: '',
     player: { struck: 0, beat: 0, playing: false, output: Option.none(), full: false }, version: '0.0.9',
@@ -38,11 +38,9 @@ describe('the page', () => {
     expect(renderDocument((h) => view(at('home'), h)).title).toContain('literate programming')
   })
 
-  it('gives the marketing pages the centred nav and the docs its own bar', () => {
-    expect(render(at('home'))).toContain('class="nav"')
-    expect(render(at('home'))).not.toContain('class="docs-bar"')
-    expect(render(at('docs'))).toContain('class="docs-bar"')
-    expect(render(at('docs'))).not.toContain('class="nav"')
+  it('gives every page, the docs included, the same centred nav', () => {
+    ROUTES.forEach((route) => expect(render(at(route))).toMatch(/class="nav( docs-nav)?"/))
+    expect(render(at('docs'))).not.toContain('docs-bar')
   })
 
   it('puts the hero and its install line on the landing', () => {
@@ -73,8 +71,8 @@ describe('the page', () => {
 
   it('draws the woven documentation on the docs route', () => {
     const html = render(at('docs'))
-    expect(html).toContain('class="docs-rail"')
-    expect(html).toContain('<h1 id="installation">Installation</h1>')
+    expect(html).toContain('class="menu-card thin-scroll"')
+    expect(html).toContain('<h1 id="quick-start">Quick start</h1>')
   })
 
   it('says plainly which pages are still being written', () => {

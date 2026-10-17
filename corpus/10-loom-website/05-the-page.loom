@@ -12,7 +12,7 @@ The decision is a single match on the route, closed so that adding a page to the
 
 ## Two kinds of page
 
-The site divides in two. The marketing pages — the landing, the argument, the community — wear the centred nav and range their sections down one column. The documentation wears its own sticky bar and lays a rail beside its article.
+The site divides in two. The marketing pages — the landing, the argument, the community — wear the centred nav and range their sections down one column. The documentation wears the same nav, and lays a floating rail of chapters beside its article, with the article's outline on the other side.
 
 Both end on the same pager and the same footer, and both can raise the same palette. So each kind is a small wrapper, and the pages themselves only supply what goes in the middle.
 
@@ -22,7 +22,7 @@ The view is where Foldkit hands over its builder, `h`, on every render. Each wra
 
 import { Match } from 'effect'
 import type { Document, Html, HtmlBuilder } from 'foldkit/html'
-import { docsBar, footer, nav, pager, palette } from './chrome'
+import { footer, nav, pager, palette } from './chrome'
 import { example } from './example'
 import { documentationPage } from './docs-page'
 import { hero } from './hero'
@@ -55,7 +55,7 @@ const documentation = (model: Model, h: HtmlBuilder<Message>): Html =>
   h.div(
     [],
     [
-      docsBar(model, h),
+      nav(model, h),
       h.main([], [documentationPage(model, h)]),
       footer(h),
       ...overlay(model, h),

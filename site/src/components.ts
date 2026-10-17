@@ -110,6 +110,50 @@ export const operationsCarpet: Carpet = {
   threads: { '.': NAVY, p: PAPER, g: '#00B37E', v: '#8B5CF6', o: '#FF6A3D' },
 }
 
+const GREEN = '#00B37E'
+
+const sunflower = ['..aaa..', '.aacaa.', '.ac.ca.', '.aacaa.', '..aaa..', '..gg...', '...g...']
+const tulip = ['.a.a.a.', '.aaaaa.', '..aaa..', '...g...', '.gg.g..', '..ggg..', '...g...']
+const bells = ['.ggggg.', 'g....g.', 'a.g..a.', '..a..g.', '.....g.', '..b.gg.', '....g..']
+const berries = ['a...a..', 'g..aga.', '.g..g..', '..g.g.b', '...gggg', '....g..', '....g..']
+const sprout = ['...b...', '...g...', 'gg.g.gg', 'ggggggg', '.g.g.g.', '...g...', '..ggg..']
+const fern = ['....b..', '...g.g.', '.g.g...', '..gg.g.', '...gg..', '.g.g...', '...g...']
+const bouquet = ['a.....c', '.g.b.g.', '..g.g..', '...g...', '..ggg..', '...g...', '...g...']
+const clover = ['.gg.gg.', '.gg.gg.', '...b...', '..ggg..', '..gg...', '...g...', '...g...']
+const tuft = ['.....a.', '..a..g.', '..g..g.', 'g.g.g..', '.gg.g.g', '..ggg.g', '...g...']
+
+const flowerShapes: ReadonlyArray<ReadonlyArray<string>> = [
+  sunflower, tulip, bells, berries, sprout, fern, bouquet, clover, tuft,
+]
+
+const flowerThreads: ReadonlyArray<string> = ['#FF6A3D', '#8B5CF6', '#E8318A', '#2E6FF2', '#FFC53D', PAPER]
+
+const threadAt = (place: number, step: number): string =>
+  pipe(
+    Array.get(flowerThreads, (place + step) % flowerThreads.length),
+    Option.getOrElse(() => PAPER),
+  )
+
+const mirrored = (rows: ReadonlyArray<string>): ReadonlyArray<string> =>
+  Array.map(rows, (row) => row.split('').reverse().join(''))
+
+export const flowerFor = (place: number): Carpet => {
+  const shape = pipe(
+    Array.get(flowerShapes, place % flowerShapes.length),
+    Option.getOrElse(() => sunflower),
+  )
+  return {
+    rows: place % 2 === 0 ? shape : mirrored(shape),
+    threads: {
+      '.': NAVY,
+      g: GREEN,
+      a: threadAt(place, 0),
+      b: threadAt(place, 1),
+      c: threadAt(place, 2),
+    },
+  }
+}
+
 export type MarkGround = 'paper' | 'dark'
 
 const MARK_WIDTH = 112
@@ -314,3 +358,4 @@ const svgMark = (svg: string): Html =>
 export const bunIcon = (): Html => svgMark(logos.bun)
 export const npmIcon = (): Html => svgMark(logos.npm)
 export const pnpmIcon = (): Html => svgMark(logos.pnpm)
+export const nodeIcon = (): Html => svgMark(logos.node)

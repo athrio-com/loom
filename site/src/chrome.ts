@@ -20,7 +20,6 @@ import {
   exampleCarpet,
   docsCarpet,
   loomMark,
-  octocatIcon,
   sourceCarpet,
   whyLoomCarpet,
   type Carpet,
@@ -50,10 +49,26 @@ const navLink = (page: NavPage, here: boolean, h: HtmlBuilder<Message>): Html =>
     [page.label],
   )
 
+const burger = (route: Route, h: HtmlBuilder<Message>): ReadonlyArray<Html> =>
+  route === 'docs'
+    ? [
+        h.button(
+          [
+            h.Class('nav-burger'),
+            h.Type('button'),
+            h.AriaLabel('Chapters'),
+            h.OnClick(OpenedDrawer()),
+          ],
+          [burgerIcon()],
+        ),
+      ]
+    : []
+
 export const nav = (model: Model, h: HtmlBuilder<Message>): Html =>
   h.nav(
-    [h.Class('nav'), h.Role('navigation')],
+    [h.Class(model.route === 'docs' ? 'nav docs-nav' : 'nav'), h.Role('navigation')],
     [
+      ...burger(model.route, h),
       ...Array.map(Array.take(navPages, 2), (page) => navLink(page, page.route === model.route, h)),
       h.a(
         [
@@ -62,7 +77,7 @@ export const nav = (model: Model, h: HtmlBuilder<Message>): Html =>
           h.AriaLabel('Loom'),
           h.OnClick(WentTo({ route: 'home' })),
         ],
-        ['Loom'],
+        [h.span([h.Class('nav-mark')], [loomMark('paper', 0.46)]), 'Loom'],
       ),
       ...Array.map(Array.drop(navPages, 2), (page) => navLink(page, page.route === model.route, h)),
       findButton('nav-find', 'Search Loom — press /', h),
@@ -82,43 +97,6 @@ const findButton = (className: string, title: string, h: HtmlBuilder<Message>): 
       h.span([h.Class('wide')], ['search']),
       h.span([h.Class('narrow')], ['navs']),
       h.span([h.Class('nav-key'), h.AriaHidden(true)], ['/']),
-    ],
-  )
-
-const REPO = 'https://github.com/athrio-com/loom'
-
-export const docsBar = (model: Model, h: HtmlBuilder<Message>): Html =>
-  h.div(
-    [h.Class(model.navHidden ? 'docs-bar hidden' : 'docs-bar')],
-    [
-      h.button(
-        [
-          h.Class('bar-burger'),
-          h.Type('button'),
-          h.Title('Menu'),
-          h.AriaLabel('Menu'),
-          h.OnClick(OpenedDrawer()),
-        ],
-        [burgerIcon()],
-      ),
-      h.a(
-        [h.Class('bar-word'), h.Href('/'), h.AriaLabel('Loom'), h.OnClick(WentTo({ route: 'home' }))],
-        [loomMark('paper', 0.495), h.span([h.Class('bar-word-text')], ['Loom'])],
-      ),
-      h.div(
-        [h.Class('bar-links')],
-        Array.map(navPages, (page) => navLink(page, page.route === model.route, h)),
-      ),
-      h.div(
-        [h.Class('bar-end')],
-        [
-          findButton('bar-find', 'Search the docs — press /', h),
-          h.a(
-            [h.Class('bar-repo'), h.Href(REPO), h.Title('View the repo on GitHub')],
-            [octocatIcon('15'), h.span([], [`v${model.version}`])],
-          ),
-        ],
-      ),
     ],
   )
 
@@ -209,39 +187,6 @@ export const pager = (route: Route, h: HtmlBuilder<Message>): Html => {
           ...Option.toArray(Option.map(step(1), (page) => pagerCard(page, 'Next', h))),
         ],
       ),
-    ],
-  )
-}
-
-const docsPagerCard = (
-  page: Neighbour,
-  direction: 'Previous' | 'Next',
-  h: HtmlBuilder<Message>,
-): Html =>
-  h.a(
-    [
-      h.Class(direction === 'Next' ? 'docs-pager-card next' : 'docs-pager-card'),
-      h.Href(page.href),
-      h.OnClick(WentTo({ route: page.route })),
-    ],
-    [
-      h.span([h.Class('eyebrow')], [direction]),
-      h.span([h.Class('pager-title')], [page.label]),
-    ],
-  )
-
-export const docsPager = (route: Route, h: HtmlBuilder<Message>): Html => {
-  const at = Array.findFirstIndex(readingOrder, (page) => page.route === route)
-  const step = (by: number): Option.Option<Neighbour> =>
-    pipe(
-      at,
-      Option.flatMap((index) => Option.fromNullishOr(readingOrder[index + by])),
-    )
-  return h.div(
-    [h.Class('docs-pager')],
-    [
-      ...Option.toArray(Option.map(step(-1), (page) => docsPagerCard(page, 'Previous', h))),
-      ...Option.toArray(Option.map(step(1), (page) => docsPagerCard(page, 'Next', h))),
     ],
   )
 }

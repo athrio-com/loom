@@ -1,0 +1,71 @@
+---
+Part I: Getting started
+Chapter 1: Quick start
+Language: Prose
+---
+
+# Quick start
+
+In about five minutes you will write a small program as a Loom document and turn it into a file you can run.
+
+```install
+```
+
+```bash
+loom --version
+```
+
+## Write your first loom
+
+Install the `loom` command once, with the package manager you already use. Make a new folder anywhere you like, and create a file in it called `hello.loom` with this inside:
+
+```loom
+---
+Chapter 1: Hello
+Language: TypeScript
+---
+
+# Saying hello
+
+A greeting needs one thing: the name of whoever is being greeted.
+
+=>
+
+const greet = (name: string): string => `Hello, ${name}!`
+
+# The program {Tangle}[hello.ts]
+
+The program greets the world once.
+
+=>
+
+::[Saying hello]
+
+console.log(greet('world'))
+```
+
+## Turn it into code
+
+Run `loom tangle` on your loom:
+
+```bash
+loom tangle hello.loom
+```
+
+Loom writes `hello.ts` next to `hello.loom`. Open it and you will find plain TypeScript, with the greeting first and the line that uses it after:
+
+```typescript
+const greet = (name: string): string => `Hello, ${name}!`
+
+console.log(greet('world'))
+```
+
+## Run it
+
+Run the file with the runtime you use:
+
+```run
+hello.ts
+```
+
+It prints `Hello, world!`.

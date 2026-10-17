@@ -52,7 +52,6 @@ The seed is the site at rest, and every page starts from it — no chapter opene
 const seed: Model = {
   route: 'home',
   chapter: '',
-  navHidden: false,
   drawerOpen: false,
   runtime: 'bun',
   searchOpen: false,

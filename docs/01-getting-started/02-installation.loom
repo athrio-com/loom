@@ -1,0 +1,34 @@
+---
+Part I: Getting started
+Chapter 2: Installation
+Language: Prose
+---
+
+# Installation
+
+Loom is one command-line program, `loom`. You install it once, and it works in every project on your computer. It runs on Bun, or on Node.js 22 or later.
+
+## Install the command
+
+Choose the package manager you already use. The command changes with your choice, and the button copies it for you.
+
+```install
+```
+
+## Check that it works
+
+Ask Loom for its version:
+
+```bash
+loom --version
+```
+
+It prints the version you installed. Run `loom` on its own, with nothing after it, to see every command it knows.
+
+## Update later
+
+To move to a newer release, run the same install command again. It always fetches the latest version.
+
+## Anything else to install?
+
+No. Loom writes TypeScript out of the box. Support for another language comes as a package you add to a project when you need it, not as a new version of Loom.

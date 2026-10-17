@@ -112,6 +112,7 @@
     "site/src/model.ts",
     "site/src/operations.ts",
     "site/src/page-head.ts",
+    "site/src/raw.d.ts",
     "site/src/server.ts",
     "site/src/view.ts",
     "site/src/vite-env.d.ts",

@@ -1,6 +1,7 @@
 import { Array, Match, Option, pipe } from 'effect'
 import type { Html, HtmlBuilder } from 'foldkit/html'
 import {
+  Copied,
   type Message,
   type Model,
   type Player,
@@ -12,6 +13,8 @@ import {
   ToggledPlay,
 } from './model'
 import {
+  checkIcon,
+  copyIcon,
   backIcon,
   broadSeam,
   carpetMark,
@@ -447,6 +450,122 @@ const outputPanel = (which: PlayerOutput, h: HtmlBuilder<Message>): Html =>
             [h.Class('pl-result-line')],
             Array.map(tokens, (token) => tokenSpan(token, h)),
           ),
+        ),
+      ),
+    ],
+  )
+
+const AMBER = '#8A5A00'
+const AMBER_WASH = 'rgba(255, 197, 61, 0.2)'
+
+type CanvasLine = { readonly tokens: ReadonlyArray<Token>; readonly kept: boolean }
+
+type Reading = {
+  readonly lines: ReadonlyArray<CanvasLine>
+  readonly inFrontmatter: boolean
+  readonly inCode: boolean
+  readonly explicit: boolean
+}
+
+const withAnchors = (text: string): ReadonlyArray<Token> =>
+  pipe(
+    text.split(/(::\[[^\]]*\])/),
+    Array.filter((piece) => piece !== ''),
+    Array.map((piece) =>
+      piece.startsWith(`::${'['}`) ? chip(piece, VIOLET, WASH.violet, false) : plain(piece),
+    ),
+  )
+
+const headingTokens = (marks: string, title: string): ReadonlyArray<Token> => [
+  chip(marks, BLUE, WASH.blue),
+  plain(' '),
+  ...pipe(
+    title.split(/(\{[^}]*\}|\[[^\]]*\])/),
+    Array.filter((piece) => piece !== ''),
+    Array.map((piece) =>
+      Match.value(piece.charAt(0)).pipe(
+        Match.when('{', () => chip(piece, AMBER, AMBER_WASH)),
+        Match.when('[', () => chip(piece, BLUE, WASH.blue, false)),
+        Match.orElse(() => plain(piece, BLUE, true)),
+      ),
+    ),
+  ),
+]
+
+const fieldTokens = (text: string): ReadonlyArray<Token> =>
+  Option.match(Option.fromNullishOr(/^([^:]+:)(.*)$/.exec(text)), {
+    onNone: () => [plain(text)],
+    onSome: ([, key, value]) => [plain(key ?? '', VIOLET, true), plain(value ?? '')],
+  })
+
+const headingOf = (text: string): Option.Option<readonly [string, string]> =>
+  Option.map(
+    Option.fromNullishOr(/^(#{1,6}) (.*)$/.exec(text)),
+    (found) => [found[1] ?? '#', found[2] ?? ''] as const,
+  )
+
+const readLine = (reading: Reading, text: string, at: number): Reading => {
+  const add = (tokens: ReadonlyArray<Token>, kept: boolean, next: Partial<Reading> = {}): Reading => ({
+    ...reading,
+    ...next,
+    lines: [...reading.lines, { tokens, kept }],
+  })
+  const when = (holds: boolean, read: () => Reading): Option.Option<Reading> =>
+    holds ? Option.some(read()) : Option.none()
+  return pipe(
+    when(text.trim() === '---' && (at === 0 || reading.inFrontmatter), () =>
+      add([chip('---', VIOLET, WASH.violet)], false, { inFrontmatter: !reading.inFrontmatter }),
+    ),
+    Option.orElse(() => when(reading.inFrontmatter, () => add(fieldTokens(text), false))),
+    Option.orElse(() =>
+      when(/^~(\s|$)/.test(text), () =>
+        add([chip('~', ORANGE, WASH.orange)], false, { inCode: false, explicit: false }),
+      ),
+    ),
+    Option.orElse(() => (reading.explicit ? Option.none() : headingOf(text)).pipe(
+      Option.map(([marks, title]) => add(headingTokens(marks, title), false, { inCode: false })),
+    )),
+    Option.orElse(() =>
+      when(!reading.inCode && /^\s*[=~]>/.test(text), () => {
+        const arrow = text.trim().slice(0, 2)
+        return add([chip(arrow, GREEN, WASH.green)], false, { inCode: true, explicit: arrow === '~>' })
+      }),
+    ),
+    Option.getOrElse(() => add(withAnchors(text), reading.inCode)),
+  )
+}
+
+const canvasLines = (source: string): ReadonlyArray<CanvasLine> =>
+  Array.reduce(
+    source.replace(/\n$/, '').split('\n'),
+    { lines: [], inFrontmatter: false, inCode: false, explicit: false } as Reading,
+    readLine,
+  ).lines
+
+const canvasCopy = (source: string, copied: string, h: HtmlBuilder<Message>): Html => {
+  const id = `loom:${source}`
+  const taken = copied === id
+  return h.button(
+    [
+      h.Class(taken ? 'canvas-copy done' : 'canvas-copy'),
+      h.Type('button'),
+      h.Title(taken ? 'Copied' : 'Copy the loom'),
+      h.AriaLabel('Copy the loom'),
+      h.OnClick(Copied({ id, text: source })),
+    ],
+    [taken ? checkIcon() : copyIcon()],
+  )
+}
+
+export const loomCanvas = (source: string, copied: string, h: HtmlBuilder<Message>): Html =>
+  h.div(
+    [h.Class('docs-canvas')],
+    [
+      canvasCopy(source, copied, h),
+      ...Array.map(canvasLines(source), (line) =>
+        h.div(
+          [h.Class(line.kept ? 'pl-line kept' : 'pl-line'), h.Style({ minHeight: '1em' })],
+          Array.map(line.tokens, (token) => tokenSpan(token, h)),
         ),
       ),
     ],

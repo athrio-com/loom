@@ -12,7 +12,7 @@ The website is a Foldkit application, so it begins with the state a reader chang
 
 The state is one flat struct, and it opens on where the reader is. The route names which of the site's six pages they are on, so the nav can mark that page current and the pager can name the two either side of it.
 
-Within the documentation the route is not enough, because every chapter answers on the same page. So the chapter field names the woven chapter on show, and the rail, the article and the outline are all drawn from it. Two more fields belong to the documentation's own bar: whether it has slid out of the way as the reader scrolls down, and whether the drawer that replaces the rail on a narrow window is open. The active section is the heading the outline is following.
+Within the documentation the route is not enough, because every chapter answers on the same page. So the chapter field names the woven chapter on show, and the rail, the article and the outline are all drawn from it. One more field says whether the drawer that replaces the rail on a narrow window is open. The active section is the heading the outline is following.
 
 The runtime is which package manager the hero's install line is written for, since a reader wants the one command that works on their machine rather than three to choose between.
 
@@ -34,7 +34,6 @@ export type Runtime = typeof Runtime.Type
 export const Model = S.Struct({
   route: Route,
   chapter: S.String,
-  navHidden: S.Boolean,
   drawerOpen: S.Boolean,
   runtime: Runtime,
   searchOpen: S.Boolean,
@@ -111,7 +110,6 @@ export const Message = defineMessageUnion({
   WentTo: { route: Route },
   OpenedChapter: { slug: S.String },
   PickedRuntime: { runtime: Runtime },
-  ScrolledBar: { hidden: S.Boolean },
   OpenedDrawer: {},
   ClosedDrawer: {},
   OpenedSearch: {},
@@ -141,7 +139,6 @@ export const {
   WentTo,
   OpenedChapter,
   PickedRuntime,
-  ScrolledBar,
   OpenedDrawer,
   ClosedDrawer,
   OpenedSearch,

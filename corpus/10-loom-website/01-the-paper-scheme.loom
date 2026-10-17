@@ -462,6 +462,8 @@ The wordmark is the one thing here in Space Grotesk, and it does not change colo
 
 Search sits apart from the row. It pins to the right edge rather than joining the flow, so the links stay centred whatever it says. The key badge beside it shows the slash that opens the palette.
 
+On a narrow window the Loom mark stands beside the wordmark, a little over half its full width, eight pixels from the word. It is hidden on a wide window, where the wordmark sits between the links and the page head shows the mark at full size.
+
 The nav's side padding steps down with the window, from eighty pixels to twenty-four. The links drop away earlier than that, at seven hundred and sixty-seven pixels, because search is pinned to the right edge rather than laid out in the row: nothing pushes back when the links grow toward it, and by seven hundred pixels the last of them is already under the button. So the row hands over while it still has forty pixels to spare, and from there the wordmark moves to the left edge, search says `navs` instead, and the palette becomes the way through the site.
 
 =>
@@ -574,7 +576,67 @@ The nav's side padding steps down with the window, from eighty pixels to twenty-
   .nav-find { right: 24px; }
 }
 
+.nav-mark { display: none; }
+
+@media (max-width: 767px) {
+  .nav-word { display: inline-flex; align-items: center; gap: 8px; margin-left: 0; }
+  .nav-mark { display: block; }
+  .nav-mark .loom-mark { width: 52px; height: auto; }
+}
+
 ~
+
+On the documentation, below a thousand pixels, the nav is the one thing that stays on screen. It pins to the top of the window as a compact bar fifty-two pixels tall on the paper ground. Under its lower edge a gradient twenty-eight pixels deep fades from paper to clear, so the page scrolling up beneath it fades out rather than meeting a hard line.
+
+The burger that opens the drawer sits at the bar's left end, its lines starting on the same line as the content below, which is why it stands nine pixels left of the side air. On the narrowest windows, where the wordmark has moved to the left edge, the wordmark steps forty pixels right to make room for it. Wherever the menu fits beside the sections, the burger is hidden.
+
+=>
+
+.nav-burger { display: none; }
+
+@media (max-width: 999px) {
+  .docs-nav {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    height: 52px;
+    background: var(--paper);
+  }
+
+  .docs-nav::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    height: 28px;
+    background: linear-gradient(var(--paper), rgba(247, 244, 236, 0));
+    pointer-events: none;
+  }
+
+  .nav-burger {
+    appearance: none;
+    cursor: pointer;
+    position: absolute;
+    left: 31px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--ink);
+  }
+
+  .nav-burger:hover { background: rgba(20, 19, 15, 0.06); }
+}
+
+@media (max-width: 767px) { .docs-nav .nav-word { margin-left: 40px; } }
+@media (max-width: 639px) { .nav-burger { left: 15px; } }
 
 ## The palette over the page
 
@@ -903,7 +965,7 @@ The chips are one flat list, not three groups. Each is a bordered box forty-four
 
 Under the cursor a chip takes its destination's colour in both its edge and its label. These are the bright values, not the deepened ones the pager uses: the same hue has to carry on near-black here and on paper there, and one value cannot do both.
 
-Under both sits the copyright, and nothing rules it off. Sixty-eight pixels of air below the chips is separation enough, and a line drawn there would be the third horizontal edge in as many inches. On a narrow window the two columns stack and the chips fall into two of equal width, with the last one spanning both so the block ends square.
+Under both sits the copyright, and nothing rules it off. Sixty-eight pixels of air below the chips is separation enough, and a line drawn there would be the third horizontal edge in as many inches. On a narrow window the two columns stack and the chips fall into two of equal width. When the count is odd, the last chip spans both columns so the block ends square; when it is even, every chip keeps its own cell.
 
 =>
 
@@ -1006,7 +1068,7 @@ Under both sits the copyright, and nothing rules it off. Sixty-eight pixels of a
     padding-bottom: 40px;
   }
   .footer-chips { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .footer-chip:last-child { grid-column: 1 / -1; }
+  .footer-chip:last-child:nth-child(odd) { grid-column: 1 / -1; }
 }
 
 ## The hero
@@ -1894,7 +1956,7 @@ None of the controls answers the cursor. They hold their ink whether it is over 
 
 ## The page head
 
-The pages past the landing open on a shared head rather than a masthead, though on the hero's padding all the same. The Loom mark stands beside the page's name at four fifths of its size, and the pair hold one line with sixteen pixels between them. Under that, the paragraph and the two link cards share a row of equal halves until the window drops below a thousand pixels, where the cards fall under the paragraph. The gutter between the halves narrows with the window, as every column gap on the site does. The landing's hero lays its parts out as a spaced column, and this head sets its own spacing, so it goes back to an ordinary block.
+The pages past the landing open on a shared head rather than a masthead, though on the hero's padding all the same. The Loom mark stands beside the page's name at four fifths of its size, and the pair hold one line with sixteen pixels between them. Below seven hundred and sixty-eight pixels the head drops the mark, because the nav shows it there beside the wordmark. Under that, the paragraph and the two link cards share a row of equal halves until the window drops below a thousand pixels, where the cards fall under the paragraph. The gutter between the halves narrows with the window, as every column gap on the site does. The landing's hero lays its parts out as a spaced column, and this head sets its own spacing, so it goes back to an ordinary block.
 
 =>
 
@@ -1919,10 +1981,10 @@ The pages past the landing open on a shared head rather than a masthead, though 
 
 @media (max-width: 1179px) { .page-head-grid { gap: 40px; } }
 @media (max-width: 999px)  { .page-head-grid { grid-template-columns: minmax(0, 1fr); gap: 36px; } }
+@media (max-width: 767px) { .page-title .loom-mark { display: none; } }
 @media (max-width: 639px) {
   .page-head-grid { gap: 28px; }
   .page-title h1 { font-size: 26px; }
-  .page-title .loom-mark { width: 69px; height: auto; }
 }
 
 ~
@@ -2096,9 +2158,11 @@ The licence page reads like a document. Its plain account sits under the page's 
 
 The pager carries the cream air above the footer as its own bottom padding, so it is the last thing on the page in the layout as well as in the reading.
 
-Its two cards sit at seventy percent of their half of the row, which leaves air between them rather than butting them together — they are two destinations, not a segmented control. They stay side by side at every width. Where the page ends, back and on are a pair, and stacking them would put the previous page above the next one as though one came before the other in the reading rather than either side of it. Below six hundred and forty pixels each card takes its whole half and the gutter narrows to twenty-four, and that is the last thing to happen to a pager card. No rule fires under the page's four-hundred-and-thirty-pixel floor: a media query reads the window rather than the page, so one written under the floor would go on restyling a card in a layout that had already stopped moving.
+Its two cards are as wide as their contents, the previous one at the left end of the row and the next one at the right, with at least forty-four pixels of air between them — they are two destinations, not a segmented control. When the two names are too long to share a line, the next card wraps onto a line of its own beneath the first and keeps to the right. So no width of window and no length of name ever wraps a name beside a card that did not wrap: a name breaks across lines only when it is wider than the whole row on its own, and then the card takes the full width. The order still reads as the pages do, previous first. The row is a wrapping flex line rather than a grid for exactly this reason: a grid splits the width in two whatever the names need, and a flex line lets each card claim what its name needs.
 
 A card is not a card. It draws no ground, no edge and no padding of its own — only the mark, the eyebrow and the name of the page, standing on the paper as plainly as the section above them. Under the cursor the card takes the destination's own colour and both lines inherit it; the eyebrow stays a quarter transparent, which is what has always made it quieter than the name. So one colour moves and the hierarchy between the two lines survives the move. The colour reaches the card as a custom property, since a hover rule cannot be written inline but the colour belongs to whichever page the card leads to.
+
+The mark and the words both hang from the top of the card. The two cards in a row stretch to the taller one's height, so a card that centred its contents would drop its eyebrow whenever the name across the row wrapped onto a second line. Hung from the top, both eyebrows start on the same line, and both marks with them, whatever the names do.
 
 =>
 
@@ -2109,21 +2173,20 @@ A card is not a card. It draws no ground, no edge and no padding of its own — 
 }
 
 .pager-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  column-gap: 44px;
-  align-items: stretch;
-  row-gap: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 24px 44px;
   padding-top: 44px;
 }
 
 .pager-card {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 16px;
   box-sizing: border-box;
-  width: 70%;
-  min-width: 0;
+  flex: 0 0 auto;
+  max-width: 100%;
   color: var(--ink);
   transition: color 140ms ease;
 }
@@ -2155,193 +2218,13 @@ A card is not a card. It draws no ground, no edge and no padding of its own — 
   transition: color 140ms ease;
 }
 
-.pager-card > span[aria-hidden] { align-self: flex-start; }
 
-@media (max-width: 1179px) { .pager-card { width: 80%; } }
 
-@media (max-width: 639px) {
-  .pager-row { column-gap: 24px; }
-  .pager-card { width: 100%; }
-}
+## The drawer, when the menu will not fit
 
-~
+Below a thousand pixels, where the menu no longer fits beside the sections, the drawer carries it instead. The panel slides in from the left edge over a scrim, and both move on their own curve — the panel on a long ease-out so it settles rather than stops, the scrim a little quicker so the dimming leads the movement.
 
-The documentation's own pager sits in the second row of the article's column, so it lines up with the prose above it rather than with the page. Its width tracks the article — the measure plus the padding on either side — which keeps it aligned at every breakpoint without repeating the article's numbers.
-
-=>
-
-.docs-pager {
-  grid-row: 2;
-  grid-column: 2;
-  display: flex;
-  gap: 24px;
-  box-sizing: border-box;
-  width: 100%;
-  max-width: calc(720px + 2 * var(--art-pad));
-  margin: 44px auto 0;
-  padding: 0 var(--art-pad) 96px;
-}
-
-.docs-pager-card {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  flex: 1 1 0;
-  min-width: 0;
-  padding: 20px;
-  border: 1px solid var(--rule);
-  border-radius: var(--radius);
-  color: var(--ink);
-  transition: background 180ms ease, border-color 180ms ease;
-}
-
-.docs-pager-card:hover { background: var(--card); border-color: var(--rule); color: var(--ink); }
-.docs-pager-card.next { text-align: right; align-items: flex-end; }
-
-@media (max-width: 639px) {
-  .docs-pager { flex-direction: column; }
-  .docs-pager-card { flex: none; width: 100%; }
-}
-
-## The bar the documentation wears
-
-The documentation's bar is the marketing nav's opposite in almost every respect. It sticks to the top of the window rather than scrolling away, it carries a rule beneath it, its wordmark sits hard left, and it slides up out of the way as a reader scrolls down.
-
-Hiding is a transform rather than a change of layout, so nothing below the bar moves when it goes. The rail's sticky top follows it — fifty-six pixels while the bar is showing, zero once it has gone — which is why that offset is a property the shell can turn from one place.
-
-Below a thousand pixels the links give way to a burger, and the wordmark loses the twenty pixels of lead that separated it from them. The repository link never hides, on the reasoning that the version a reader is looking at is worth the room at any width.
-
-=>
-
-.docs-bar {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 56px;
-  padding: 0 clamp(16px, 2vw, 24px) 0 32px;
-  background: var(--paper);
-  border-bottom: 1px solid var(--rule);
-  transform: translateY(0);
-  transition: transform 240ms cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.docs-bar.hidden { transform: translateY(-100%); }
-
-.bar-burger {
-  appearance: none;
-  cursor: pointer;
-  position: relative;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 30px;
-  height: 30px;
-  margin-left: -6px;
-  margin-right: -4px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--ink);
-}
-
-.bar-burger::before {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 44px;
-  height: 44px;
-  transform: translate(-50%, -50%);
-}
-
-.bar-burger:hover { background: rgba(20, 19, 15, 0.06); }
-
-.bar-word {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  flex: none;
-  color: var(--ink);
-}
-
-.bar-word:hover { color: var(--ink); }
-
-.bar-word-text {
-  font-family: var(--display);
-  font-weight: 500;
-  font-size: 24px;
-  letter-spacing: -0.03em;
-}
-
-.bar-links {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-left: 20px;
-  padding-top: 3px;
-  font-size: var(--t-eyebrow);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-}
-
-.bar-end {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.bar-find {
-  appearance: none;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  flex: none;
-  padding: 4px 6px 4px 8px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  font-family: var(--mono);
-  font-size: var(--t-eyebrow);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  transition: background-color .14s ease, color .14s ease;
-}
-
-.bar-find:hover { background-color: var(--rule-faint); color: var(--ink); }
-.bar-find .narrow { display: none; }
-
-.bar-repo {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  font-size: var(--t-eyebrow);
-  letter-spacing: 0.04em;
-  color: var(--ink-2);
-  white-space: nowrap;
-}
-
-.bar-repo:hover { color: var(--ink); }
-
-@media (max-width: 999px) {
-  .docs-bar { padding-left: 12px; }
-  .bar-burger { display: inline-flex; }
-  .bar-links { display: none; }
-}
-
-~
-
-Below the width where the rail fits, the drawer carries it instead. The panel slides in from the left edge over a scrim, and both move on their own curve — the panel on a long ease-out so it settles rather than stops, the scrim a little quicker so the dimming leads the movement.
-
-The scrim also stops taking clicks when it is invisible. An invisible layer that still swallows a click is the kind of bug that only shows up on the page it breaks.
+The scrim also stops taking clicks when it is invisible. An invisible layer that still swallows a click is the kind of bug that only shows up on the page it breaks. The panel drops its shadow while it is shut, or the shadow would show as a faint strip down the left edge of the window.
 
 =>
 
@@ -2370,13 +2253,13 @@ The scrim also stops taking clicks when it is invisible. An invisible layer that
   width: 296px;
   max-width: 84vw;
   background: var(--paper);
-  border-right: 1px solid var(--rule);
   box-shadow: 0 0 48px rgba(20, 19, 15, 0.14);
   transform: translateX(-104%);
   transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .docs-drawer.open { transform: translateX(0); }
+.docs-drawer:not(.open) { box-shadow: none; }
 
 .drawer-head {
   display: flex;
@@ -2385,8 +2268,14 @@ The scrim also stops taking clicks when it is invisible. An invisible layer that
   flex: none;
   min-height: 56px;
   padding: 0 12px;
-  border-bottom: 1px solid var(--rule);
   color: var(--ink);
+}
+
+.drawer-word {
+  font-family: var(--display);
+  font-weight: 500;
+  font-size: 24px;
+  letter-spacing: -0.03em;
 }
 
 .drawer-close {
@@ -2419,93 +2308,132 @@ The scrim also stops taking clicks when it is invisible. An invisible layer that
 
 .drawer-close:hover { background: rgba(20, 19, 15, 0.06); }
 
-.drawer-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 24px 0 96px; }
+.drawer-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  padding: 20px 24px 96px;
+}
 
-@media (max-width: 779px) {
+@media (max-width: 999px) {
   .docs-drawer { display: flex; }
 }
 
 ## The documentation shell
 
-The documentation is the one place on the site that reads like an editor rather than a page. Three columns fill the window: a rail of chapters, the article, and an outline of the headings inside it. The rail and the outline hold a width between a floor and a ceiling so neither collapses nor sprawls, and the article takes everything left over.
+A chapter of the docs is laid out like the site's other pages, on the same measure and the same side air. Its head is the page head, with one change of proportion. The lead and the commands beside it split the row as the landing's hero splits it, a little more to the lead, with seventy-six pixels between them. The head also gives back most of the air a page head leaves under itself, sixty-four pixels instead of a hundred and sixteen, because the menu and the first section follow straight on.
 
-Both side columns span the grid's two rows, so a pager placed under the article sits inside the middle column instead of running under the whole page.
-
-The article holds a seven-hundred-and-twenty-pixel measure and centres itself in whatever the middle column turns out to be. That is wider than the sixty-two characters a marketing page allows itself, because documentation is read by someone looking for an answer rather than by someone being persuaded.
-
-Each column is a property rather than a literal, so the window's width changes three numbers and the grid rule itself never moves. The columns give way in an order: the outline goes first, at eleven-eighty, since a reader can still see the headings by scrolling; then the rail, at seven-eighty, once there is no room for a page of chapters beside a page of prose.
-
-When the outline goes it does not simply vanish. Its column narrows to thirty-eight pixels and holds, because that strip is where the miniature ruler stands — the scrubber a reader drags to move between headings once the full outline is gone.
+Above the chapter's name, the line that says where it sits is set like an eyebrow: small capitals, muted ink, paler slashes between the steps. The steps that lead somewhere take the accent under the pointer. The chapter's own name stays in primary ink, since it is where the reader already is. Every gap between a heading and the text under it is twenty-four pixels, from the chapter's name down to the last section.
 
 =>
 
-.docs-shell {
-  --rail-track: minmax(180px, 268px);
-  --toc-track:  minmax(180px, 264px);
-  --art-pad:    64px;
-  --rail-top:   56px;
+.section-hero.doc-hero { padding-bottom: var(--section-pad); }
+
+.doc-hero-grid {
   display: grid;
-  grid-template-columns: var(--rail-track) minmax(0, 1fr) var(--toc-track);
-  min-height: 100vh;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.86fr);
+  gap: 76px;
+  align-items: start;
 }
 
-.docs-shell.alone {
-  grid-template-columns: var(--rail-track) minmax(0, 1fr);
+.doc-hero .page-title { margin-bottom: 24px; }
+.doc-hero .page-lead { padding-top: 0; }
+.doc-hero .page-lead p { margin: 0; max-width: 62ch; }
+.doc-hero .page-lead p + p { margin-top: 16px; }
+
+.hero-cli { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+.doc-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 22px;
 }
 
-.docs-shell.bar-hidden { --rail-top: 0px; }
+.doc-crumbs .crumb {
+  appearance: none;
+  cursor: pointer;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: var(--ink-3);
+  transition: color .12s ease;
+}
 
-.docs-rail    { grid-row: 1 / span 2; }
-.docs-outline { grid-row: 1 / span 2; }
+.doc-crumbs .crumb:hover { color: var(--accent); }
+.doc-crumbs .sep  { color: var(--rule); }
+.doc-crumbs .here { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.docs-article {
-  grid-row: 1;
-  max-width: 720px;
+~
+
+Under the head the page divides into two columns: the menu card, three hundred pixels wide, and the sections beside it. The menu card is the site's pale card, with the pale ground, the thin rule and the small corners of the link cards on the other pages. It sticks twenty-four pixels below the top of the window, and scrolls within itself when the docs hold more chapters than the window holds lines.
+
+The sections run down one column. A section is the site's section without its own measure, since the body already holds it to one. A section opens on its mark and its heading, the mark centred on the heading's line, and leaves forty pixels before the next one.
+
+The column of sections stretches to the height of the body, and the pager sits at its foot. So when a reader reaches the end of a chapter, the pager's lower edge lines up with the menu's.
+
+=>
+
+.docs-body {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: var(--col-gap);
+  max-width: var(--measure);
   margin: 0 auto;
-  padding: 44px var(--art-pad) 0;
+  padding: 0 var(--side) var(--section-pad);
 }
 
-@media (max-width: 1439px) { .docs-shell { --art-pad: 56px; } }
+.docs-article { display: flex; flex-direction: column; min-width: 0; }
 
-@media (max-width: 1179px) {
-  .docs-shell { --rail-track: minmax(180px, 240px); --toc-track: 38px; --art-pad: 44px; }
-  .docs-outline { display: none; }
-}
+.section.doc-section { max-width: none; margin: 0; padding: 8px 0 40px; }
+.doc-section .section-head { align-items: center; margin-bottom: 24px; }
+.doc-section h2 { scroll-margin-top: 24px; }
 
-@media (max-width: 999px) {
-  .docs-shell { --rail-track: minmax(180px, 220px); --art-pad: 32px; }
-}
+.doc-stack > * { margin: 0 0 18px; }
+.doc-stack > *:last-child { margin-bottom: 0; }
+.doc-stack h3 { margin: 12px 0 14px; font-size: var(--t-sub); }
 
-@media (max-width: 779px) {
-  .docs-shell { --rail-track: 0px; --art-pad: 24px; }
-  .docs-rail { display: none; }
+.doc-pager.pager-row { margin-top: auto; padding-top: 0; }
+
+.pager-card:is(button) {
+  appearance: none;
+  cursor: pointer;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: inherit;
 }
 
 ~
 
-The rail groups its chapters under each part. A label names the part, the rows beneath it name the chapters, and the row a reader is on carries a marker down its left edge.
+The menu holds three levels of type, and each is set apart from the next. A part's name is an eyebrow. A chapter is fourteen pixels in muted ink, and the chapter on show sets in primary ink at a heavier weight rather than in colour. The open chapter's sections hang beneath it a step smaller and sixteen pixels in, in the palest ink.
 
-That marker is an inset shadow, which occupies space inside the row. So the current row is set two pixels narrower on each side to compensate — without that, its text would sit out of line with every row above and below it.
+Only one thing in the menu is ever orange: the section the reader has reached. A small orange square stands in front of it, a pixel of the woven marks. A row the pointer is over only darkens, so hovering never puts a second orange row beside the reader's place.
+
+The drawer holds the same groups, so the rules below style both.
 
 =>
 
-.docs-rail {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  padding: 0 0 96px;
-  border-right: 1px solid var(--rule);
-}
-
-.rail-sticky {
+.menu-card {
   position: sticky;
-  top: var(--rail-top);
+  top: 24px;
+  align-self: start;
   display: flex;
   flex-direction: column;
-  gap: 32px;
-  padding-top: 44px;
-  max-height: calc(100vh - var(--rail-top));
+  gap: 28px;
+  max-height: calc(100vh - 48px);
   overflow-y: auto;
+  padding: 22px 22px 24px;
+  background: var(--pale);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
 }
 
 .thin-scroll { scrollbar-width: thin; scrollbar-color: transparent transparent; }
@@ -2515,82 +2443,56 @@ That marker is an inset shadow, which occupies space inside the row. So the curr
 .thin-scroll::-webkit-scrollbar-thumb { background: transparent; border-radius: var(--radius-sm); }
 .thin-scroll:hover::-webkit-scrollbar-thumb { background: rgba(124, 111, 100, 0.22); }
 
-.rail-group { display: flex; flex-direction: column; }
+.menu-part { display: flex; flex-direction: column; }
+.menu-part .eyebrow { margin-bottom: 10px; }
 
-.rail-label {
-  padding: 0 16px;
-  font-size: var(--t-eyebrow);
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-}
-
-.rail-items { display: flex; flex-direction: column; margin-top: 8px; }
-
-.rail-item {
+.menu-item,
+.menu-sub {
   appearance: none;
   cursor: pointer;
-  border: none;
+  padding: 0;
+  border: 0;
   background: transparent;
   text-align: left;
-  padding: 7px 16px;
   font-family: var(--mono);
-  font-size: var(--t-code);
-  line-height: 1.7;
-  color: var(--ink-2);
-  transition: background-color .12s ease;
+  transition: color .12s ease;
 }
 
-.rail-item:hover { background: rgba(20, 19, 15, 0.032); }
+.menu-item { font-size: 14px; line-height: 2.1; color: var(--ink-2); }
+.menu-item:hover { color: var(--ink); }
+.menu-item.here { color: var(--ink); font-weight: 500; cursor: default; }
 
-.rail-item.here {
-  padding: 7px 12px;
-  background: rgba(20, 19, 15, 0.045);
-  box-shadow: inset 2px 0 0 var(--accent);
-  color: var(--ink);
-}
+.menu-subs { display: flex; flex-direction: column; padding-bottom: 6px; }
 
-~
-
-A line above the article says where it sits — the documentation, its part, then the chapter — with a paler slash between each.
-
-=>
-
-.docs-crumbs {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: var(--t-eyebrow);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+.menu-sub {
+  position: relative;
+  padding-left: 16px;
+  font-size: 12.5px;
+  line-height: 2;
   color: var(--ink-3);
 }
 
-.docs-crumbs .sep  { color: #D8CFBB; }
-.docs-crumbs .here { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-sub:hover { color: var(--ink); }
+.menu-sub.here { color: var(--accent); }
+
+.menu-sub.here::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin-top: -2.5px;
+  background: var(--accent);
+}
 
 ~
 
-The article's own prose is Markdown the weave carried through, so the elements it produces are styled here rather than by the views: a heading, a paragraph, a list, a table, a fence, and code set inside a sentence.
+The chapter's own prose is Markdown the weave carried through, so the elements it produces are styled here rather than by the views: a paragraph, a list, a table, and code set inside a sentence. Running text keeps the site's measure of sixty-two characters, though the column is wider, so a line of prose stays a comfortable length beside a code sheet that uses the full width. Code inside a sentence sits on the same faint wash as a fence, in primary ink, so it reads as a word set in a different face rather than a highlight.
 
 =>
 
-.docs-article h1 {
-  margin: 24px 0 0;
-  font-family: var(--display);
-  font-weight: 500;
-  font-size: var(--t-hero);
-  line-height: var(--lead-head);
-  letter-spacing: -0.02em;
-}
-
-.docs-article h2 {
-  margin: 58px 0 0;
-  scroll-margin-top: 88px;
-}
-
-.docs-article h3 { margin: 32px 0 0; font-size: var(--t-sub); }
-
+.docs-prose > :first-child { margin-top: 0; }
 .docs-prose p { margin: 16px 0 0; max-width: 62ch; }
 
 .docs-prose ul,
@@ -2598,26 +2500,13 @@ The article's own prose is Markdown the weave carried through, so the elements i
 
 .docs-prose li { margin: 4px 0 0; }
 
-.docs-prose pre {
-  margin: 24px 0 0;
-  padding: 18px 20px;
-  border-radius: var(--radius);
-  background: var(--fence);
-  font-size: var(--t-code);
-  line-height: var(--lead);
-  white-space: pre;
-  overflow-x: auto;
-}
-
 .docs-prose code {
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  background: rgba(196, 30, 99, 0.07);
-  font-size: var(--t-body);
-  color: #C41E63;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--fence);
+  font-size: 0.92em;
+  color: var(--ink);
 }
-
-.docs-prose pre code { padding: 0; background: none; color: var(--ink); font-size: var(--t-code); }
 
 .docs-prose table {
   margin: 24px 0 0;
@@ -2642,47 +2531,75 @@ The article's own prose is Markdown the weave carried through, so the elements i
 
 ~
 
-The outline sticks as the article scrolls past it. Each heading is a link with a rule down its left edge, transparent until it is the one a reader has reached — so the rules stay in one column and only the colour moves.
+Every piece of code in a chapter sits on the menu's own card: the pale ground, the thin rule, the small corners. That holds for a quoted loom, for a code sheet, and for the command buttons, which on the landing stand on white. The card is flat on the page, with no shadow, since a quotation does not float above the text around it. Its type is a step smaller than the prose, so a full line of code fits the column, and a line too long for it scrolls sideways rather than wrapping.
+
+The copy button sits in the card's top corner in muted ink, with no frame until the pointer reaches it, so it never competes with the code it copies.
 
 =>
 
-.docs-outline {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  align-self: start;
-  position: sticky;
-  top: 80px;
-  max-height: calc(100vh - 112px);
-  padding: 44px 24px 0 0;
-  overflow-y: auto;
+.docs-canvas {
+  position: relative;
+  padding: 26px 28px;
+  overflow-x: auto;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--pale);
+  font-size: var(--t-code);
+  line-height: 2;
 }
 
-.outline-label {
-  font-size: var(--t-eyebrow);
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-}
-
-.outline-links { display: flex; flex-direction: column; }
-
-.outline-link {
-  appearance: none;
-  cursor: pointer;
-  border: none;
-  border-left: 2px solid transparent;
-  background: transparent;
-  text-align: left;
-  padding: 6px 0 6px 12px;
+.sheet-code {
+  margin: 0;
   font-family: var(--mono);
   font-size: var(--t-code);
-  color: var(--ink-3);
-  transition: color .12s ease, border-color .12s ease;
+  line-height: 2;
+  white-space: pre;
 }
 
-.outline-link:hover { color: var(--ink); }
-.outline-link.here { border-left-color: var(--accent); color: var(--ink); }
+.sheet-code code { padding: 0; background: none; color: var(--ink); font-size: inherit; }
+
+.docs-page .rt-command { background: var(--pale); border-radius: var(--radius); }
+.docs-page .rt-command:hover { border-color: var(--ink-3); }
+
+.canvas-copy {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: color 140ms, border-color 140ms;
+}
+
+.canvas-copy:hover { color: var(--ink); border-color: var(--rule); }
+.canvas-copy.done { color: var(--init); }
+
+~
+
+The page gives way as the window narrows. Below twelve hundred pixels the gap in the head narrows to fifty-six. Below a thousand the menu leaves the page for the drawer, the sections take the full width, and the line above the chapter's name goes with it, since the nav pinned to the top of the window now carries the way through the docs. The head then starts closer to the nav, and a heading scrolled to clears the pinned nav by seventy-six pixels instead of twenty-four. Below seven hundred and eighty the head stacks, the commands falling under the lead.
+
+=>
+
+@media (max-width: 1179px) { .doc-hero-grid { gap: 56px; } }
+
+@media (max-width: 999px) {
+  .docs-body { grid-template-columns: minmax(0, 1fr); }
+  .menu-card { display: none; }
+  .doc-crumbs { display: none; }
+  .section-hero.doc-hero { padding-top: 36px; }
+  .doc-section h2 { scroll-margin-top: 76px; }
+}
+
+@media (max-width: 779px) {
+  .doc-hero-grid { grid-template-columns: minmax(0, 1fr); gap: 32px; }
+}
 
 ## The stylesheet {Tangle}[landing.css]
 
@@ -2732,6 +2649,6 @@ The stylesheet is the three schemes first — colour, type and measure — then 
 
 ::[The footer that ends every page]
 
-::[The bar the documentation wears]
+::[The drawer, when the menu will not fit]
 
 ::[The documentation shell]

@@ -78,7 +78,7 @@ Three package managers install Loom, and the hero shows one line rather than thr
 
 Each tab carries the runtime's real logo, vendored as inline markup rather than fetched as a file, so the mark is sharp at any size and the page makes no request for it. The chosen tab darkens to primary ink and draws a rule beneath itself; the others sit in muted ink with a transparent rule, so the row's baseline never shifts as the choice moves.
 
-The command a tab shows and the command the button copies are the same string, read from the same row of the table. Writing them twice would be an invitation for one to drift while the other stays right.
+The command a tab shows and the command the button copies are the same string, read from the same row of the table. Writing them twice would be an invitation for one to drift while the other stays right. The install line is exported, because the documentation draws the very same widget wherever it tells a reader to install Loom, so the landing and the docs never offer two different commands. Its button is exported apart from it as `commandButton`: a prompt, the command, and a label that flashes `copied` once pressed. The documentation sets every one-line command it shows as one of these. The button flashes only when the model's copied id is its own, so two commands on one page never both flash.
 
 =>
 
@@ -118,10 +118,30 @@ const runtimeTab = (install: Install, here: boolean, h: HtmlBuilder<Message>): H
     [install.logo, install.label],
   )
 
-const installLine = (model: Model, h: HtmlBuilder<Message>): Html => {
-  const command = commandFor(model.runtime)
-  const taken = model.copied === 'install'
-  return h.div(
+export const commandButton = (
+  id: string,
+  command: string,
+  copied: string,
+  h: HtmlBuilder<Message>,
+): Html => {
+  const taken = copied === id
+  return h.button(
+    [
+      h.Class('rt-command'),
+      h.Type('button'),
+      h.Title('Copy the command'),
+      h.OnClick(Copied({ id, text: command })),
+    ],
+    [
+      h.span([h.Class('prompt')], ['$']),
+      h.span([h.Class('line')], [command]),
+      h.span([h.Class(taken ? 'took done' : 'took')], [taken ? 'copied' : 'copy']),
+    ],
+  )
+}
+
+export const installLine = (model: Model, h: HtmlBuilder<Message>): Html =>
+  h.div(
     [h.Class('hero-install')],
     [
       h.div(
@@ -130,22 +150,9 @@ const installLine = (model: Model, h: HtmlBuilder<Message>): Html => {
           runtimeTab(install, install.runtime === model.runtime, h),
         ),
       ),
-      h.button(
-        [
-          h.Class('rt-command'),
-          h.Type('button'),
-          h.Title('Copy install command'),
-          h.OnClick(Copied({ id: 'install', text: command })),
-        ],
-        [
-          h.span([h.Class('prompt')], ['$']),
-          h.span([h.Class('line')], [command]),
-          h.span([h.Class(taken ? 'took done' : 'took')], [taken ? 'copied' : 'copy']),
-        ],
-      ),
+      commandButton('install', commandFor(model.runtime), model.copied, h),
     ],
   )
-}
 
 ## The way onward
 

@@ -141,7 +141,18 @@ This checks the server half under Bun. Because the server never imports the clie
     "types": ["bun"],
     "skipLibCheck": true
   },
-  "include": ["src/server.ts", "vite.config.ts"]
+  "include": ["src/server.ts", "src/raw.d.ts", "vite.config.ts"]
+}
+
+## Text imported as text {Tangle}[src/raw.d.ts]
+
+The view reads a few files as plain text: the SVG drawings the commands are illustrated with, and the licence. Vite and Bun both read a path ending in `?raw` as the file's text, but the server's type check loads neither Vite's types nor any other declaration for such a path. This one line tells it that a `?raw` import is a string. The browser config already learns the same from Vite's own types.
+
+=>
+
+declare module '*?raw' {
+  const text: string
+  export default text
 }
 
 ## The Vite types {Tangle}[src/vite-env.d.ts]

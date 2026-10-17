@@ -70,10 +70,30 @@ const runtimeTab = (install: Install, here: boolean, h: HtmlBuilder<Message>): H
     [install.logo, install.label],
   )
 
-const installLine = (model: Model, h: HtmlBuilder<Message>): Html => {
-  const command = commandFor(model.runtime)
-  const taken = model.copied === 'install'
-  return h.div(
+export const commandButton = (
+  id: string,
+  command: string,
+  copied: string,
+  h: HtmlBuilder<Message>,
+): Html => {
+  const taken = copied === id
+  return h.button(
+    [
+      h.Class('rt-command'),
+      h.Type('button'),
+      h.Title('Copy the command'),
+      h.OnClick(Copied({ id, text: command })),
+    ],
+    [
+      h.span([h.Class('prompt')], ['$']),
+      h.span([h.Class('line')], [command]),
+      h.span([h.Class(taken ? 'took done' : 'took')], [taken ? 'copied' : 'copy']),
+    ],
+  )
+}
+
+export const installLine = (model: Model, h: HtmlBuilder<Message>): Html =>
+  h.div(
     [h.Class('hero-install')],
     [
       h.div(
@@ -82,22 +102,9 @@ const installLine = (model: Model, h: HtmlBuilder<Message>): Html => {
           runtimeTab(install, install.runtime === model.runtime, h),
         ),
       ),
-      h.button(
-        [
-          h.Class('rt-command'),
-          h.Type('button'),
-          h.Title('Copy install command'),
-          h.OnClick(Copied({ id: 'install', text: command })),
-        ],
-        [
-          h.span([h.Class('prompt')], ['$']),
-          h.span([h.Class('line')], [command]),
-          h.span([h.Class(taken ? 'took done' : 'took')], [taken ? 'copied' : 'copy']),
-        ],
-      ),
+      commandButton('install', commandFor(model.runtime), model.copied, h),
     ],
   )
-}
 
 const onward = (h: HtmlBuilder<Message>): Html =>
   h.div(

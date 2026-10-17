@@ -27,6 +27,7 @@ A line also carries its height, whether its whitespace is kept, and a rest: a pa
 import { Array, Match, Option, pipe } from 'effect'
 import type { Html, HtmlBuilder } from 'foldkit/html'
 import {
+  Copied,
   type Message,
   type Model,
   type Player,
@@ -38,6 +39,8 @@ import {
   ToggledPlay,
 } from './model'
 import {
+  checkIcon,
+  copyIcon,
   backIcon,
   broadSeam,
   carpetMark,
@@ -556,6 +559,132 @@ const outputPanel = (which: PlayerOutput, h: HtmlBuilder<Message>): Html =>
     ],
   )
 
+## Any loom, highlighted
+
+The documentation quotes looms of its own, and a reader should see them in the same colours the example uses. `loomCanvas` draws any loom's text on a card like the example's, without the player around it. Each mark wears the colour the vocabulary gives it. A heading is blue, and a sink in square brackets on it is a blue chip too. A specifier in braces is a deep amber chip. An arrow is a green chip and a tilde an orange one, and an anchor is a violet chip wherever it stands. The frontmatter fences are violet, and each field inside them names its key in violet.
+
+The classifier reads the text one line at a time and carries three facts from line to line: whether it is inside the frontmatter, whether it is inside code, and whether that code was opened by the explicit arrow. Code runs from an arrow to the next tilde or heading, as it does in Loom, and code an explicit arrow opened runs to the tilde alone. Each line takes the first rule that fits it, in that order: a frontmatter fence, a frontmatter field, a tilde, a heading, an arrow, and then whatever text is left. A code line keeps its spaces and never wraps; a prose line wraps to the card.
+
+A reader who wants the loom should not have to select it by hand, so the card carries a small copy button in its top corner. It copies the loom exactly as the chapter wrote it, and while the copy flashes its clipboard turns into a check.
+
+=>
+
+const AMBER = '#8A5A00'
+const AMBER_WASH = 'rgba(255, 197, 61, 0.2)'
+
+type CanvasLine = { readonly tokens: ReadonlyArray<Token>; readonly kept: boolean }
+
+type Reading = {
+  readonly lines: ReadonlyArray<CanvasLine>
+  readonly inFrontmatter: boolean
+  readonly inCode: boolean
+  readonly explicit: boolean
+}
+
+const withAnchors = (text: string): ReadonlyArray<Token> =>
+  pipe(
+    text.split(/(::\[[^\]]*\])/),
+    Array.filter((piece) => piece !== ''),
+    Array.map((piece) =>
+      piece.startsWith(`::${'['}`) ? chip(piece, VIOLET, WASH.violet, false) : plain(piece),
+    ),
+  )
+
+const headingTokens = (marks: string, title: string): ReadonlyArray<Token> => [
+  chip(marks, BLUE, WASH.blue),
+  plain(' '),
+  ...pipe(
+    title.split(/(\{[^}]*\}|\[[^\]]*\])/),
+    Array.filter((piece) => piece !== ''),
+    Array.map((piece) =>
+      Match.value(piece.charAt(0)).pipe(
+        Match.when('{', () => chip(piece, AMBER, AMBER_WASH)),
+        Match.when('[', () => chip(piece, BLUE, WASH.blue, false)),
+        Match.orElse(() => plain(piece, BLUE, true)),
+      ),
+    ),
+  ),
+]
+
+const fieldTokens = (text: string): ReadonlyArray<Token> =>
+  Option.match(Option.fromNullishOr(/^([^:]+:)(.*)$/.exec(text)), {
+    onNone: () => [plain(text)],
+    onSome: ([, key, value]) => [plain(key ?? '', VIOLET, true), plain(value ?? '')],
+  })
+
+const headingOf = (text: string): Option.Option<readonly [string, string]> =>
+  Option.map(
+    Option.fromNullishOr(/^(#{1,6}) (.*)$/.exec(text)),
+    (found) => [found[1] ?? '#', found[2] ?? ''] as const,
+  )
+
+const readLine = (reading: Reading, text: string, at: number): Reading => {
+  const add = (tokens: ReadonlyArray<Token>, kept: boolean, next: Partial<Reading> = {}): Reading => ({
+    ...reading,
+    ...next,
+    lines: [...reading.lines, { tokens, kept }],
+  })
+  const when = (holds: boolean, read: () => Reading): Option.Option<Reading> =>
+    holds ? Option.some(read()) : Option.none()
+  return pipe(
+    when(text.trim() === '---' && (at === 0 || reading.inFrontmatter), () =>
+      add([chip('---', VIOLET, WASH.violet)], false, { inFrontmatter: !reading.inFrontmatter }),
+    ),
+    Option.orElse(() => when(reading.inFrontmatter, () => add(fieldTokens(text), false))),
+    Option.orElse(() =>
+      when(/^~(\s|$)/.test(text), () =>
+        add([chip('~', ORANGE, WASH.orange)], false, { inCode: false, explicit: false }),
+      ),
+    ),
+    Option.orElse(() => (reading.explicit ? Option.none() : headingOf(text)).pipe(
+      Option.map(([marks, title]) => add(headingTokens(marks, title), false, { inCode: false })),
+    )),
+    Option.orElse(() =>
+      when(!reading.inCode && /^\s*[=~]>/.test(text), () => {
+        const arrow = text.trim().slice(0, 2)
+        return add([chip(arrow, GREEN, WASH.green)], false, { inCode: true, explicit: arrow === '~>' })
+      }),
+    ),
+    Option.getOrElse(() => add(withAnchors(text), reading.inCode)),
+  )
+}
+
+const canvasLines = (source: string): ReadonlyArray<CanvasLine> =>
+  Array.reduce(
+    source.replace(/\n$/, '').split('\n'),
+    { lines: [], inFrontmatter: false, inCode: false, explicit: false } as Reading,
+    readLine,
+  ).lines
+
+const canvasCopy = (source: string, copied: string, h: HtmlBuilder<Message>): Html => {
+  const id = `loom:${source}`
+  const taken = copied === id
+  return h.button(
+    [
+      h.Class(taken ? 'canvas-copy done' : 'canvas-copy'),
+      h.Type('button'),
+      h.Title(taken ? 'Copied' : 'Copy the loom'),
+      h.AriaLabel('Copy the loom'),
+      h.OnClick(Copied({ id, text: source })),
+    ],
+    [taken ? checkIcon() : copyIcon()],
+  )
+}
+
+export const loomCanvas = (source: string, copied: string, h: HtmlBuilder<Message>): Html =>
+  h.div(
+    [h.Class('docs-canvas')],
+    [
+      canvasCopy(source, copied, h),
+      ...Array.map(canvasLines(source), (line) =>
+        h.div(
+          [h.Class(line.kept ? 'pl-line kept' : 'pl-line'), h.Style({ minHeight: '1em' })],
+          Array.map(line.tokens, (token) => tokenSpan(token, h)),
+        ),
+      ),
+    ],
+  )
+
 ## The transport, and the button that grows the card
 
 The transport is on the card from the first frame — back to the start, play or pause, skip to the end. Skipping hides itself at the end rather than moving, so the row does not reflow under the cursor.
@@ -729,6 +858,8 @@ The module is the threads a line is written in, the document itself, the cost of
 ::[What the two commands write]
 
 ::[The stage]
+
+::[Any loom, highlighted]
 
 ::[The transport, and the button that grows the card]
 

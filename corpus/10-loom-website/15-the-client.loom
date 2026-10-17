@@ -76,7 +76,9 @@ const FocusPalette = define('FocusPalette', {
 
 ## Jumping to a section
 
-An outline row points at a heading by id, and clicking the row scrolls that heading into view. The scroll waits a beat first, so the browser measures where the heading sits after the row has redrawn rather than before. `scrollIntoView` scrolls the window itself, and the heading clears the fixed bar by its own `scroll-margin-top` from the stylesheet. A heading that never rendered — a chapter the reader has not opened — does nothing.
+A section in the documentation's menu points at its heading by id, and clicking it scrolls that heading into view. The scroll waits a beat first, so the browser measures where the heading sits after the menu has redrawn rather than before. `scrollIntoView` scrolls the window itself, and the heading clears the nav pinned above it by its own `scroll-margin-top` from the stylesheet. A heading that never rendered, in a chapter the reader has not opened, does nothing.
+
+Opening a chapter scrolls the other way, back to the top of the window. A reader who opens the next chapter from the pager at the foot of the page should land on that chapter's head, not halfway down it.
 
 =>
 
@@ -94,6 +96,11 @@ const ScrollToSection = define('ScrollToSection', {
       Effect.andThen(Effect.sync(() => scrollIntoPreview(id))),
       Effect.as(SectionScrolled()),
     ),
+})
+
+const ScrollToTop = define('ScrollToTop', {
+  messages: [SectionScrolled],
+  execute: Effect.sync(() => window.scrollTo(0, 0)).pipe(Effect.as(SectionScrolled())),
 })
 
 ## Moving the stage under the reader
@@ -203,9 +210,9 @@ const GlideToCard = define('GlideToCard', {
 
 ## The update
 
-Most messages set one field: the query, the focus clamped to the results, the loom tab's view. Following a link records the page it led to and closes the palette behind it. Opening a documentation chapter records its slug, clears the heading the outline was following — the previous chapter's headings are no longer on the page — and shuts the drawer behind the reader, since they have arrived where they were going. The bar's own message only writes when the answer changes, so a scroll that keeps it hidden costs no render. Opening the palette puts the focus on its first result and the keyboard in its field; closing it clears the query, the focus and the caret together, so the palette opens empty the next time. Moving the caret records where it now sits, and the search settles a moment after the last keystroke. The example's messages move a position rather than set a flag: playing from the end starts again from the first character, a frame advances the clock and asks the stage to follow the caret, and skipping jumps both the clock and the stage to the foot. Going back to the start puts the clock, the height and the stage all back where they began — the document at its first character, the card down from full height, and the stage at the head of the document rather than wherever the reader stopped reading.
+Most messages set one field: the query, the focus clamped to the results, the loom tab's view. Following a link records the page it led to and closes the palette behind it. Opening a documentation chapter records its slug, clears the section the menu was following, since the previous chapter's headings are no longer on the page, shuts the drawer behind the reader, and scrolls back to the top. Opening the palette puts the focus on its first result and the keyboard in its field; closing it clears the query, the focus and the caret together, so the palette opens empty the next time. Moving the caret records where it now sits, and the search settles a moment after the last keystroke. The example's messages move a position rather than set a flag: playing from the end starts again from the first character, a frame advances the clock and asks the stage to follow the caret, and skipping jumps both the clock and the stage to the foot. Going back to the start puts the clock, the height and the stage all back where they began — the document at its first character, the card down from full height, and the stage at the head of the document rather than wherever the reader stopped reading.
 
-Asking for full height is the one press that changes nothing at once. It runs the glide and waits: the page arrives at the card, `GrewCard` comes back, and only then does the height open. Giving the height back is immediate, since nothing has to travel first. Asking for a command's file toggles it, so pressing the same button twice closes what it opened. Selecting a section sets the active one and asks the preview to scroll to it. A section spotted while the reader scrolls sets the active one too, but runs nothing, so the outline follows the scroll rather than fighting it. Copying flashes the pressed button and runs its reset.
+Asking for full height is the one press that changes nothing at once. It runs the glide and waits: the page arrives at the card, `GrewCard` comes back, and only then does the height open. Giving the height back is immediate, since nothing has to travel first. Asking for a command's file toggles it, so pressing the same button twice closes what it opened. Selecting a section sets the active one, shuts the drawer if the section was picked from it, and asks the window to scroll to the section's heading. A section spotted while the reader scrolls sets the active one too, but runs nothing, so the outline follows the scroll rather than fighting it. Copying flashes the pressed button and runs its reset.
 
 =>
 
@@ -278,7 +285,7 @@ const update = (model: Model, message: Message): Step =>
       }),
       StageMoved: () => ({ model }),
       SelectedSection: ({ id }) => ({
-        model: { ...model, activeSection: id },
+        model: { ...model, activeSection: id, drawerOpen: false },
         commands: [ScrollToSection({ id })],
       }),
       SectionScrolled: () => ({ model }),
@@ -287,10 +294,9 @@ const update = (model: Model, message: Message): Step =>
       WentTo: ({ route }) => ({ model: { ...model, route, searchOpen: false } }),
       OpenedChapter: ({ slug }) => ({
         model: { ...model, chapter: slug, activeSection: '', drawerOpen: false },
+        commands: [ScrollToTop()],
       }),
       PickedRuntime: ({ runtime }) => ({ model: { ...model, runtime } }),
-      ScrolledBar: ({ hidden }) =>
-        hidden === model.navHidden ? { model } : { model: { ...model, navHidden: hidden } },
       OpenedDrawer: () => ({ model: { ...model, drawerOpen: true } }),
       ClosedDrawer: () => ({ model: { ...model, drawerOpen: false } }),
       OpenedSearch: () => ({
@@ -317,7 +323,7 @@ const update = (model: Model, message: Message): Step =>
 
 ## Spotting the section on scroll
 
-The outline should follow the reader, not only lead them. While the documentation is on show, a subscription watches the window scroll, finds the heading nearest the top of the article, and lifts that row in the outline. `activeSectionId` reads the article's own second-level headings — the same ones the outline lists — keeps the ones scrolled up past a small offset, and takes the last; when none has reached the offset yet, it falls back to the first.
+The menu should follow the reader, not only lead them. While the documentation is on show, a subscription watches the window scroll, finds the heading nearest the top of the article, and marks that section in the menu. `activeSectionId` reads the article's own second-level headings, the same ones the menu lists under the open chapter. It keeps the ones scrolled up past a small offset and takes the last. When none has reached the offset yet, it falls back to the first.
 
 =>
 

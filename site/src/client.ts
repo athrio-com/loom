@@ -61,6 +61,11 @@ const ScrollToSection = define('ScrollToSection', {
     ),
 })
 
+const ScrollToTop = define('ScrollToTop', {
+  messages: [SectionScrolled],
+  execute: Effect.sync(() => window.scrollTo(0, 0)).pipe(Effect.as(SectionScrolled())),
+})
+
 const LINE = 28
 const TAIL = LINE * 3
 
@@ -203,7 +208,7 @@ const update = (model: Model, message: Message): Step =>
       }),
       StageMoved: () => ({ model }),
       SelectedSection: ({ id }) => ({
-        model: { ...model, activeSection: id },
+        model: { ...model, activeSection: id, drawerOpen: false },
         commands: [ScrollToSection({ id })],
       }),
       SectionScrolled: () => ({ model }),
@@ -212,10 +217,9 @@ const update = (model: Model, message: Message): Step =>
       WentTo: ({ route }) => ({ model: { ...model, route, searchOpen: false } }),
       OpenedChapter: ({ slug }) => ({
         model: { ...model, chapter: slug, activeSection: '', drawerOpen: false },
+        commands: [ScrollToTop()],
       }),
       PickedRuntime: ({ runtime }) => ({ model: { ...model, runtime } }),
-      ScrolledBar: ({ hidden }) =>
-        hidden === model.navHidden ? { model } : { model: { ...model, navHidden: hidden } },
       OpenedDrawer: () => ({ model: { ...model, drawerOpen: true } }),
       ClosedDrawer: () => ({ model: { ...model, drawerOpen: false } }),
       OpenedSearch: () => ({

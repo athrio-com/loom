@@ -1,68 +1,124 @@
 import { describe, expect, it } from 'bun:test'
 import { Option } from 'effect'
-import { documentationPage, docsCorpus, firstSlugOf } from '../src/docs-page'
-import { docsBar } from '../src/chrome'
+import { type Corpus, documentationPage, docsCorpus, firstSlugOf, wovenPage } from '../src/docs-page'
 import { type Model } from '../src/model'
-import { renderHtml } from './render'
+import { view } from '../src/view'
+import { renderDocument, renderHtml } from './render'
 
 // The documentation shell draws whatever `loom weave` produced from the docs corpus, so
 // these cases assert against the committed weave rather than against a fixture. That is
 // deliberate: if a chapter is renamed, retitled or loses a heading, the weave changes and
-// this notices. The two cases that matter are a chapter with subheadings and one without,
-// because only the first grows a third column.
+// this notices. The quick start matters most, because it is the one chapter that opens
+// with commands, quotes a loom, and runs a file.
 const at = (chapter: string, activeSection: string): Model =>
   ({
-    route: 'docs', chapter, searchOpen: false, caret: 0, searching: false,
-    activeSection,
+    route: 'docs', chapter, runtime: 'bun', searchOpen: false, caret: 0, searching: false,
+    activeSection, drawerOpen: false,
     player: { struck: 0, beat: 0, playing: false, output: Option.none(), full: false }, version: '0.0.9',
     query: '', focus: 0, copied: '',
   }) as Model
 
 const render = (model: Model): string => renderHtml((h) => documentationPage(model, h))
-const renderBar = (model: Model): string => renderHtml((h) => docsBar(model, h))
+
+const QUICK = '01-getting-started/01-quick-start'
 
 describe('the documentation shell', () => {
-  it('rails every chapter of the woven corpus, grouped under its part', () => {
+  it('lists every chapter of the woven corpus in the menu, grouped under its part', () => {
     const html = render(at('', ''))
+    expect(html).toContain('class="menu-card thin-scroll"')
     docsCorpus.nav.forEach((part) => {
-      expect(html).toContain(`class="rail-label">${part.name}<`)
+      expect(html).toContain(`class="eyebrow">${part.name}<`)
       part.chapters.forEach((chapter) => expect(html).toContain(`>${chapter.title}<`))
     })
   })
 
-  it('opens on the first chapter when none is named, and marks it in the rail', () => {
+  it('opens on the first chapter when none is named, and marks it in the menu', () => {
     const html = render(at('', ''))
     expect(firstSlugOf(docsCorpus)).toBe(docsCorpus.pages[0]!.slug)
-    expect(html).toContain('class="rail-item here" type="button">Installation<')
+    expect(html).toContain('class="menu-item here" type="button">Quick start<')
   })
 
-  it('renders a chapter\'s prose as HTML, fences included', () => {
-    const html = render(at('01-getting-started/01-installation', ''))
-    expect(html).toContain('<h1 id="installation">Installation</h1>')
-    expect(html).toContain('<pre><code class="language-bash">bun add -g @athrio/loom')
+  it('hangs the open chapter\'s sections under it, the first one reached until the reader scrolls', () => {
+    const fresh = render(at(QUICK, ''))
+    expect(fresh).toContain('class="menu-sub here" type="button">Write your first loom<')
+    expect(fresh).toContain('class="menu-sub" type="button">Run it<')
+    const scrolled = render(at(QUICK, 'run-it'))
+    expect(scrolled).toContain('class="menu-sub here" type="button">Run it<')
+    expect(scrolled).toContain('class="menu-sub" type="button">Write your first loom<')
   })
 
-  it('outlines the headings of a chapter that has them, marking the active one', () => {
-    const html = render(at('02-the-format/01-syntax', 'anchors'))
-    expect(html).toContain('On this page')
-    expect(html).toContain('class="outline-link here" type="button">Anchors<')
-    expect(html).toContain('class="outline-link" type="button">Tangling<')
+  it('heads the chapter like the site\'s other pages: mark, name and lead', () => {
+    const html = render(at(QUICK, ''))
+    expect(html).toContain('class="section section-hero page-hero doc-hero"')
+    expect(html).toMatch(/class="page-title"><img[^>]*class="loom-mark"[^>]*><h1 id="quick-start">Quick start<\/h1>/)
+    expect(html).toContain('class="docs-prose page-lead"><p>In about five minutes')
   })
 
-  it('drops the third column when a chapter has no headings to outline', () => {
-    const bare = render(at('01-getting-started/01-installation', ''))
-    expect(bare).toContain('class="docs-shell alone"')
-    expect(bare).not.toContain('On this page')
-    const outlined = render(at('02-the-format/01-syntax', ''))
-    expect(outlined).toContain('class="docs-shell"')
-    expect(outlined).not.toContain('docs-shell alone')
+  it('sets the commands a chapter opens with beside its lead, not under it', () => {
+    const html = render(at(QUICK, ''))
+    const cli = html.slice(html.indexOf('class="hero-cli"'), html.indexOf('class="docs-body"'))
+    expect(cli).toContain('class="hero-install"')
+    expect(cli).toContain('bun add -g @athrio/loom')
+    expect(cli).toContain('<span class="line">loom --version</span>')
   })
 
   it('reads the breadcrumb out of the corpus, not out of the view', () => {
     const html = render(at('03-cli/03-loom-weave', ''))
-    expect(html).toContain('>docs<')
-    expect(html).toContain('>the command line<')
+    expect(html).toContain('class="crumb" type="button">Docs<')
+    expect(html).toContain('class="crumb" type="button">The command line<')
     expect(html).toContain('class="here">loom weave<')
+  })
+
+  it('opens the first section on the chapter\'s flower, and the rest on their heading alone', () => {
+    const html = render(at(QUICK, ''))
+    expect(html.split('class="section doc-section"').length - 1).toBe(3)
+    const marks = html.match(/class="section-head"><span aria-hidden="true"/g) ?? []
+    expect(marks.length).toBe(1)
+    expect(html).toMatch(/class="section-head"><span aria-hidden="true" style="[^"]*linear-gradient[^"]*"><\/span><div class="lines"><h2 id="write-your-first-loom">Write your first loom<\/h2>/)
+    expect(html).toContain('class="section-head"><div class="lines"><h2 id="turn-it-into-code">')
+  })
+
+  it('gives the quick start the orange sunflower, and its neighbour a different flower', () => {
+    const html = render(at(QUICK, ''))
+    const head = html.match(/class="section-head"><span aria-hidden="true" style="([^"]*)"/)?.[1] ?? ''
+    expect(head).toContain('#FF6A3D')
+    expect(head).toContain('#E8318A')
+    const next = render(at('01-getting-started/02-installation', ''))
+    const nextHead = next.match(/class="section-head"><span aria-hidden="true" style="([^"]*)"/)?.[1] ?? ''
+    expect(nextHead).not.toBe(head)
+  })
+
+  it('renders a chapter\'s prose as HTML, a one-line bash fence as a copy button', () => {
+    const html = render(at('01-getting-started/02-installation', ''))
+    expect(html).toContain('<h1 id="installation">Installation</h1>')
+    expect(html).toContain('class="docs-command"')
+    expect(html).not.toContain('language-bash')
+  })
+
+  it('draws a quoted loom as a highlighted card, its marks in their colours', () => {
+    const html = render(at(QUICK, ''))
+    expect(html).toContain('class="docs-canvas"')
+    expect(html).not.toContain('language-loom')
+    expect(html).toMatch(/class="pl-tok chip"[^>]*>=&gt;</)
+    expect(html).toMatch(/class="pl-tok chip"[^>]*>\{Tangle\}</)
+    expect(html).toMatch(/class="pl-tok chip"[^>]*>::\[Saying hello\]</)
+  })
+
+  it('draws any other fence as a code sheet with its own copy button', () => {
+    const html = render(at(QUICK, ''))
+    expect(html).toContain('class="sheet-code"')
+    expect(html).toContain('aria-label="Copy the code"')
+    expect(html).not.toContain('language-typescript')
+  })
+
+  it('runs a file with the runtime the install line chose', () => {
+    const bun = render(at(QUICK, ''))
+    expect(bun).toContain('<span class="line">bun hello.ts</span>')
+    expect(bun).toMatch(/class="rt-tab here" type="button">.*?bun<\/button><button class="rt-tab" type="button">.*?node</)
+    const npm = render({ ...at(QUICK, ''), runtime: 'npm' } as Model)
+    expect(npm).toContain('<span class="line">node hello.ts</span>')
+    const pnpm = render({ ...at(QUICK, ''), runtime: 'pnpm' } as Model)
+    expect(pnpm).toContain('<span class="line">node hello.ts</span>')
   })
 
   it('quotes Loom marks as text rather than resolving them', () => {
@@ -70,10 +126,19 @@ describe('the documentation shell', () => {
     expect(html).toContain('::[a section]')
   })
 
-  it('carries the rail into the drawer, marked identically', () => {
-    const html = render(at('02-the-format/01-syntax', ''))
-    // the rail row and the drawer row are the same markup, so the marker appears twice
-    const marked = html.split('class="rail-item here" type="button">Syntax<').length - 1
+  it('ends a chapter on the site\'s pager, naming the chapters either side of it', () => {
+    const first = render(at(QUICK, ''))
+    expect(first).toContain('class="pager-row doc-pager"><button class="pager-card next"')
+    expect(first).toContain('class="pager-title">Installation<')
+    expect(first).not.toContain('>Previous<')
+    const second = render(at('01-getting-started/02-installation', ''))
+    expect(second).toContain('class="pager-title">Quick start<')
+    expect(second).toContain('class="pager-title">Your first corpus<')
+  })
+
+  it('carries the menu into the drawer, marked identically', () => {
+    const html = render(at(QUICK, ''))
+    const marked = html.split('class="menu-item here" type="button">Quick start<').length - 1
     expect(marked).toBe(2)
     expect(html).toContain('class="docs-drawer"')
     expect(html).toContain('class="docs-scrim"')
@@ -88,41 +153,44 @@ describe('the documentation shell', () => {
     expect(open).toContain('class="docs-scrim open"')
   })
 
-  it('lifts the rail when the bar has slid away', () => {
-    expect(render(at('', ''))).not.toContain('bar-hidden')
-    expect(render({ ...at('', ''), navHidden: true } as Model)).toContain('bar-hidden')
+  it('draws a chapter with no sections as a head and an empty column', () => {
+    const single: Corpus = {
+      nav: [{ name: 'Getting started', chapters: [{ number: '1', title: 'Only', slug: 'only' }] }],
+      pages: [
+        {
+          slug: 'only',
+          title: 'Only',
+          blocks: [
+            { type: 'heading', level: 1, title: 'Only', id: 'only' },
+            { type: 'prose', markdown: 'A page with nothing under it.' },
+          ],
+        },
+      ],
+    } as unknown as Corpus
+    const bare = renderHtml((h) => wovenPage(single, 'docs', at('only', ''), h))
+    expect(bare).toContain('<h1 id="only">Only</h1>')
+    expect(bare).not.toContain('doc-section')
+    expect(bare).toContain('class="menu-subs"></div>')
   })
 })
 
-describe('the documentation bar', () => {
-  it('sets the wordmark left and names the real version', () => {
-    const html = renderBar(at('', ''))
-    expect(html).toContain('class="bar-word-text">Loom<')
-    expect(html).toContain('v0.0.9')
-    expect(html).toContain('View the repo on GitHub')
+describe('the documentation chrome', () => {
+  it('wears the site nav, pinned on a narrow window by a class of its own', () => {
+    const html = renderDocument((h) => view(at('', ''), h)).html
+    expect(html).toContain('class="nav docs-nav"')
+    expect(html).toContain('class="nav-link here" href="/docs"')
+    expect(html).not.toContain('docs-bar')
   })
 
-  it('marks the page it is on and leaves the others plain', () => {
-    const html = renderBar(at('', ''))
-    expect(html).toContain('class="nav-link here"')
+  it('opens the drawer from a burger at the nav\'s left end, on the docs only', () => {
+    const docs = renderDocument((h) => view(at('', ''), h)).html
+    expect(docs).toMatch(/<nav[^>]*class="nav docs-nav"[^>]*><button aria-label="Chapters" class="nav-burger"/)
+    const home = renderDocument((h) => view({ ...at('', ''), route: 'home' } as Model, h)).html
+    expect(home).not.toContain('nav-burger')
   })
 
-  it('hides by class rather than by leaving the document', () => {
-    expect(renderBar(at('', ''))).toContain('class="docs-bar"')
-    expect(renderBar({ ...at('', ''), navHidden: true } as Model)).toContain('class="docs-bar hidden"')
-  })
-
-  it('carries the burger that opens the drawer', () => {
-    expect(renderBar(at('', ''))).toContain('class="bar-burger"')
-  })
-
-  it('ends the documentation on its own plainer pager, inside the article column', () => {
-    const html = render(at('', ''))
-    expect(html).toContain('class="docs-pager"')
-    // the docs route is first in the reading order, so only a Next card
-    expect(html).not.toContain('>Previous<')
-    expect(html).toContain('class="pager-title">Community<')
-    // and it takes no woven mark, unlike the marketing pager
-    expect(html).not.toContain('class="docs-pager-card"><span aria-hidden')
+  it('puts the Loom mark beside the wordmark in every nav', () => {
+    const html = renderDocument((h) => view({ ...at('', ''), route: 'why-loom' } as Model, h)).html
+    expect(html).toMatch(/class="nav-word"[^>]*><span class="nav-mark"><img[^>]*class="loom-mark"/)
   })
 })

@@ -42,7 +42,6 @@ import {
   exampleCarpet,
   docsCarpet,
   loomMark,
-  octocatIcon,
   sourceCarpet,
   whyLoomCarpet,
   type Carpet,
@@ -68,6 +67,10 @@ The nav is a row of links with the wordmark set into the middle of it, so the si
 
 Search closes the row. It says `search` on a wide window and `navs` on a narrow one, where it has taken over from the links entirely, and the key badge beside it shows the slash that opens it.
 
+On a narrow window, where the links have gone and the wordmark has moved to the left edge, the Loom mark stands beside the wordmark. It is the same mark a page's head shows beside its name, and on a narrow window the head drops it, so the mark moves up into the nav rather than appearing twice.
+
+On the documentation the nav carries one more control. Below a thousand pixels the chapter menu no longer fits beside the sections, so a burger button at the nav's left end opens it in a drawer. The burger is drawn on every docs page and hidden by the stylesheet wherever the menu fits. The documentation's nav also gets a class of its own, `docs-nav`, which the stylesheet uses to pin it to the top of the window on a narrow screen.
+
 =>
 
 const navLink = (page: NavPage, here: boolean, h: HtmlBuilder<Message>): Html =>
@@ -80,10 +83,26 @@ const navLink = (page: NavPage, here: boolean, h: HtmlBuilder<Message>): Html =>
     [page.label],
   )
 
+const burger = (route: Route, h: HtmlBuilder<Message>): ReadonlyArray<Html> =>
+  route === 'docs'
+    ? [
+        h.button(
+          [
+            h.Class('nav-burger'),
+            h.Type('button'),
+            h.AriaLabel('Chapters'),
+            h.OnClick(OpenedDrawer()),
+          ],
+          [burgerIcon()],
+        ),
+      ]
+    : []
+
 export const nav = (model: Model, h: HtmlBuilder<Message>): Html =>
   h.nav(
-    [h.Class('nav'), h.Role('navigation')],
+    [h.Class(model.route === 'docs' ? 'nav docs-nav' : 'nav'), h.Role('navigation')],
     [
+      ...burger(model.route, h),
       ...Array.map(Array.take(navPages, 2), (page) => navLink(page, page.route === model.route, h)),
       h.a(
         [
@@ -92,7 +111,7 @@ export const nav = (model: Model, h: HtmlBuilder<Message>): Html =>
           h.AriaLabel('Loom'),
           h.OnClick(WentTo({ route: 'home' })),
         ],
-        ['Loom'],
+        [h.span([h.Class('nav-mark')], [loomMark('paper', 0.46)]), 'Loom'],
       ),
       ...Array.map(Array.drop(navPages, 2), (page) => navLink(page, page.route === model.route, h)),
       findButton('nav-find', 'Search Loom — press /', h),
@@ -101,7 +120,7 @@ export const nav = (model: Model, h: HtmlBuilder<Message>): Html =>
 
 ## The button that opens the palette
 
-Both bars carry the same search button, and it is the same markup in each — a word, and a key cap showing the slash that opens the palette. Only where it sits differs: the marketing bar pins it to the right edge so the links stay centred, while the documentation bar lets it sit in a row at the end. The class decides that, and the button itself does not know which bar it is in.
+The search button is a word and a key cap showing the slash that opens the palette. It takes its class from whoever draws it, and the class decides where it sits: the nav's class pins it to the right edge, so the links stay centred whatever the button says.
 
 =>
 
@@ -118,55 +137,6 @@ const findButton = (className: string, title: string, h: HtmlBuilder<Message>): 
       h.span([h.Class('wide')], ['search']),
       h.span([h.Class('narrow')], ['navs']),
       h.span([h.Class('nav-key'), h.AriaHidden(true)], ['/']),
-    ],
-  )
-
-## The documentation's own bar
-
-The documentation does not wear the marketing bar. It reads like an editor, so its bar behaves like one: the wordmark sits hard left rather than centred, the bar sticks to the top of the window with a rule beneath it, and it slides out of the way as a reader scrolls down and returns the moment they scroll back.
-
-The wordmark is larger here than in the marketing bar — twenty-four pixels against nineteen — because it is no longer competing with links on both sides for the middle of the row.
-
-At the right end sit the search button and a link to the repository, and that link names the version the server read from npm rather than a number written into the page.
-
-Below a thousand pixels the links give way to a burger, which opens the drawer that carries the rail.
-
-=>
-
-const REPO = 'https://github.com/athrio-com/loom'
-
-export const docsBar = (model: Model, h: HtmlBuilder<Message>): Html =>
-  h.div(
-    [h.Class(model.navHidden ? 'docs-bar hidden' : 'docs-bar')],
-    [
-      h.button(
-        [
-          h.Class('bar-burger'),
-          h.Type('button'),
-          h.Title('Menu'),
-          h.AriaLabel('Menu'),
-          h.OnClick(OpenedDrawer()),
-        ],
-        [burgerIcon()],
-      ),
-      h.a(
-        [h.Class('bar-word'), h.Href('/'), h.AriaLabel('Loom'), h.OnClick(WentTo({ route: 'home' }))],
-        [loomMark('paper', 0.495), h.span([h.Class('bar-word-text')], ['Loom'])],
-      ),
-      h.div(
-        [h.Class('bar-links')],
-        Array.map(navPages, (page) => navLink(page, page.route === model.route, h)),
-      ),
-      h.div(
-        [h.Class('bar-end')],
-        [
-          findButton('bar-find', 'Search the docs — press /', h),
-          h.a(
-            [h.Class('bar-repo'), h.Href(REPO), h.Title('View the repo on GitHub')],
-            [octocatIcon('15'), h.span([], [`v${model.version}`])],
-          ),
-        ],
-      ),
     ],
   )
 
@@ -275,47 +245,6 @@ export const pager = (route: Route, h: HtmlBuilder<Message>): Html => {
           ...Option.toArray(Option.map(step(1), (page) => pagerCard(page, 'Next', h))),
         ],
       ),
-    ],
-  )
-}
-
-~
-
-The documentation ends on a plainer pager. It sits inside the article's own column rather than across the page, so it has no room for a forty-two-pixel mark and does not try to find one — two cards of equal width, a name in each, and a ground that lifts on hover rather than taking on the destination's colour.
-
-Dropping the hue here is deliberate. On a marketing page the tint previews where a card goes; in the documentation a reader is moving between chapters of one thing, and five colours down the bottom of every page would be noise.
-
-=>
-
-const docsPagerCard = (
-  page: Neighbour,
-  direction: 'Previous' | 'Next',
-  h: HtmlBuilder<Message>,
-): Html =>
-  h.a(
-    [
-      h.Class(direction === 'Next' ? 'docs-pager-card next' : 'docs-pager-card'),
-      h.Href(page.href),
-      h.OnClick(WentTo({ route: page.route })),
-    ],
-    [
-      h.span([h.Class('eyebrow')], [direction]),
-      h.span([h.Class('pager-title')], [page.label]),
-    ],
-  )
-
-export const docsPager = (route: Route, h: HtmlBuilder<Message>): Html => {
-  const at = Array.findFirstIndex(readingOrder, (page) => page.route === route)
-  const step = (by: number): Option.Option<Neighbour> =>
-    pipe(
-      at,
-      Option.flatMap((index) => Option.fromNullishOr(readingOrder[index + by])),
-    )
-  return h.div(
-    [h.Class('docs-pager')],
-    [
-      ...Option.toArray(Option.map(step(-1), (page) => docsPagerCard(page, 'Previous', h))),
-      ...Option.toArray(Option.map(step(1), (page) => docsPagerCard(page, 'Next', h))),
     ],
   )
 }
@@ -991,8 +920,6 @@ The module opens with what the site contains — the pages the nav names, the pa
 ::[The nav across the top]
 
 ::[The button that opens the palette]
-
-::[The documentation's own bar]
 
 ::[The pager that names its neighbours]
 

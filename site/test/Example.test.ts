@@ -20,7 +20,7 @@ const player = (over: Partial<Player> = {}): Player => ({
 
 const at = (over: Partial<Player> = {}): Model =>
   ({
-    route: 'home', chapter: '', navHidden: false, drawerOpen: false, runtime: 'bun',
+    route: 'home', chapter: '', drawerOpen: false, runtime: 'bun',
     searchOpen: false, caret: 0, searching: false,
     activeSection: '',
     player: player(over), version: '0.0.9',

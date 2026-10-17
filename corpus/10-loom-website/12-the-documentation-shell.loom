@@ -8,15 +8,15 @@ Language: TypeScript
 
 The documentation reads nothing it was given by hand. Its own corpus of prose sits beside this one, `loom weave` renders that corpus to JSON before the site builds, and this chapter draws the result.
 
-Because the corpus supplies the content, the shell only has to supply the frame — and the frame is three columns. A rail down the left names every chapter. The article holds the one on show. An outline down the right lists the headings inside it, so a reader can see the shape of a page as well as its text.
+A chapter of the docs is drawn the way the site's other pages are drawn. It opens on a head: the Loom mark beside the chapter's name, its opening paragraph, and any commands it starts with set beside that paragraph. Its first section opens on a woven flower beside its heading, as the landing's sections do. The sections after it open on their heading alone. The chapter ends on a pager that names the chapters either side of it. Beside the sections a menu card lists every chapter in the docs, with the sections of the one on show under its name.
 
-The frame is not the page. The documentation and the source are separate pages over separate corpora — one is the manual, the other is Loom's own book — and each keeps its own chapter, its own weave and its own route. What they share is this machinery: a rail built from a corpus's parts, an article built from a page's blocks, an outline built from its headings. So every function here takes the corpus it should read, and the page that calls it decides which one that is.
+The shell is not tied to one corpus. Every function here takes the corpus it should read, and the page that calls it decides which one that is, so a second page over a second corpus could reuse it without a line changing.
 
 ## The woven corpus, read
 
-A weave is data, so the shell begins by saying what shape that data has. A page is a list of blocks, and a block is either a heading — carrying its depth, its title and the slug to link at — or a run of prose carrying Markdown.
+A weave is data, so the shell begins by saying what shape that data has. A page is a list of blocks, and a block is either a heading, carrying its depth, its title and the slug to link at, or a run of prose carrying Markdown.
 
-The types are declared here rather than imported because the weave is a build artifact: the JSON arrives typed as whatever it literally contains, which is too narrow to hold a second chapter and too wide to be worth reading.
+The types are declared here rather than imported because the weave is a build artifact. The JSON arrives typed as whatever it literally contains, which is too narrow to hold a second chapter and too wide to be worth reading.
 
 =>
 
@@ -25,13 +25,27 @@ import { marked } from 'marked'
 import type { Html, HtmlBuilder } from 'foldkit/html'
 import {
   ClosedDrawer,
+  Copied,
   OpenedChapter,
+  PickedRuntime,
   SelectedSection,
   type Message,
   type Model,
+  type Runtime,
 } from './model'
-import { docsPager } from './chrome'
-import { loomMark } from './components'
+import {
+  broadSeam,
+  bunIcon,
+  type Carpet,
+  carpetMark,
+  checkIcon,
+  copyIcon,
+  flowerFor,
+  loomMark,
+  nodeIcon,
+} from './components'
+import { commandButton, installLine } from './hero'
+import { loomCanvas } from './example'
 import wovenDocs from './docs.woven.json'
 
 type HeadingBlock = {
@@ -75,7 +89,7 @@ export const docsCorpus = wovenDocs as unknown as Corpus
 
 ~
 
-Two lookups serve the whole chapter. One finds the page a slug names, the other finds the part that page belongs to, and both answer with an `Option` so that a slug naming nothing stays a value rather than a crash.
+A few lookups serve the whole chapter. One finds the page a slug names, one finds the part that page belongs to, and one lists every chapter in reading order, parts and all. Each answers with an `Option` where a slug might name nothing, so a slug naming nothing stays a value rather than a crash.
 
 Where no chapter is named the shell opens the first one in the corpus, which is what a reader arriving at the documentation root expects.
 
@@ -96,156 +110,470 @@ const partOf = (corpus: Corpus, slug: string): Option.Option<Part> =>
     Array.some(part.chapters, (chapter) => chapter.slug === slug),
   )
 
-## The rail of every chapter
+const readingOrder = (corpus: Corpus): ReadonlyArray<Chapter> =>
+  Array.flatMap(corpus.nav, (part) => part.chapters)
 
-The rail is the corpus's own table of contents. Each part becomes a group under its name, and each chapter beneath it becomes a link.
+## A chapter, cut into its parts
 
-The chapter on show wears a marker down its left edge and a faint wash, and it sits two pixels further in than its neighbours — the inset shadow that draws the marker occupies that space, so without the compensation the current row's text would slide out of line with the rest.
+The weave hands over a chapter as one flat run of blocks. The shell needs it in three parts: the chapter's title, its opening, and its sections. The title is the one first-level heading. The opening is the prose between the title and the first second-level heading. A section is a second-level heading and every block after it, up to the next second-level heading.
 
-The rail sticks as the article scrolls, from just under the bar, and it scrolls within itself when there are more chapters than window. Its offset follows the bar: when the bar slides away the rail rises into the space, so the two never leave a gap between them.
-
-The groups come out of a function of their own, because the drawer draws exactly the same list — a reader who opens the drawer should find the rail they already know, current marker included, not a second navigation that merely resembles it.
+A third-level heading does not start a section. It stays inside the section it falls in and draws as a smaller heading there.
 
 =>
 
-const railRow = (chapter: Chapter, here: boolean, h: HtmlBuilder<Message>): Html =>
-  h.button(
-    [
-      h.Class(here ? 'rail-item here' : 'rail-item'),
-      h.Type('button'),
-      h.OnClick(OpenedChapter({ slug: chapter.slug })),
-    ],
-    [chapter.title],
-  )
+type Section = {
+  readonly heading: HeadingBlock
+  readonly blocks: ReadonlyArray<Block>
+}
 
-const railGroups = (
-  corpus: Corpus,
-  current: string,
+type Cut = {
+  readonly title: Option.Option<HeadingBlock>
+  readonly opening: ReadonlyArray<Block>
+  readonly sections: ReadonlyArray<Section>
+}
+
+const isTitle = (block: Block): block is HeadingBlock =>
+  block.type === 'heading' && block.level === 1
+
+const isSectionHead = (block: Block): block is HeadingBlock =>
+  block.type === 'heading' && block.level === 2
+
+const grow = (sections: ReadonlyArray<Section>, block: Block): ReadonlyArray<Section> =>
+  isSectionHead(block)
+    ? Array.append(sections, { heading: block, blocks: [] })
+    : pipe(
+        Array.last(sections),
+        Option.match({
+          onNone: () => sections,
+          onSome: (last) =>
+            Array.append(Array.dropRight(sections, 1), {
+              ...last,
+              blocks: Array.append(last.blocks, block),
+            }),
+        }),
+      )
+
+const cutOf = (page: Page): Cut => {
+  const body = Array.filter(page.blocks, (block) => !isTitle(block))
+  const [opening, rest] = Array.span(body, (block) => !isSectionHead(block))
+  return {
+    title: Array.findFirst(page.blocks, isTitle),
+    opening,
+    sections: Array.reduce(rest, [] as ReadonlyArray<Section>, grow),
+  }
+}
+
+## Prose and the fences inside it
+
+A run of prose is Markdown, and Markdown becomes HTML here rather than at weave time. The weave should stay a description of the document, not a description of a web page, so anything else reading that JSON gets the Markdown intact.
+
+Not every fence in that Markdown is drawn as Markdown would draw it. A fenced command becomes a button that copies it, and a quoted loom becomes the landing's highlighted card. So `piecesOf` first cuts a run of prose into pieces: stretches of text, and the fences between them, each fence carrying the word after its opening backticks and the lines it holds. A stretch of text that is only blank space is dropped, so two fences in a row leave nothing between them.
+
+=>
+
+type Piece =
+  | { readonly type: 'text'; readonly markdown: string }
+  | { readonly type: 'fence'; readonly kind: string; readonly body: string }
+
+const FENCE = /^```([\w-]*)[ \t]*\r?\n([\s\S]*?)^```[ \t]*$/m
+
+const piecesOf = (markdown: string): ReadonlyArray<Piece> => {
+  const [first, ...rest] = markdown.split(FENCE)
+  return Array.filter(
+    [
+      { type: 'text', markdown: first ?? '' } as Piece,
+      ...Array.flatMap(Array.chunksOf(rest, 3), ([kind, body, after]): ReadonlyArray<Piece> => [
+        { type: 'fence', kind: kind ?? '', body: body ?? '' },
+        { type: 'text', markdown: after ?? '' },
+      ]),
+    ],
+    (piece) => piece.type === 'fence' || piece.markdown.trim() !== '',
+  )
+}
+
+const textOf = (markdown: string, className: string, h: HtmlBuilder<Message>): Html =>
+  h.div([h.Class(className), h.InnerHTML(marked.parse(markdown) as string)], [])
+
+## Drawing a fence
+
+The word after a fence's backticks decides how the fence draws.
+
+- An empty fence tagged `install` draws the landing's install line in its place: the same tabs, the same commands, the same copy button.
+- A fence tagged `run` names a file, and draws a picker that runs it: a Bun tab and a Node tab over one command that copies.
+- A `bash` fence that holds a single command becomes the landing's copy button on its own, so a reader copies a command rather than selecting it.
+- A `loom` fence becomes a card in the example's colours, so a loom quoted in the docs reads the way the landing shows one.
+- Every other fence, a `bash` script of several lines included, becomes a code sheet: the same card as the loom, holding the code as plain text, with the same copy button in its corner.
+
+=>
+
+const fenceOf = (
+  kind: string,
+  body: string,
+  model: Model,
   h: HtmlBuilder<Message>,
-): ReadonlyArray<Html> =>
-  Array.map(corpus.nav, (part) =>
-    h.div(
-      [h.Class('rail-group')],
-      [
-        h.span([h.Class('rail-label')], [part.name]),
-        h.div(
-          [h.Class('rail-items')],
-          Array.map(part.chapters, (chapter) => railRow(chapter, chapter.slug === current, h)),
-        ),
-      ],
-    ),
+): Html =>
+  Match.value(kind).pipe(
+    Match.when('install', () => installLine(model, h)),
+    Match.when('run', () => runLine(body.trim(), model, h)),
+    Match.when('loom', () => loomCanvas(body, model.copied, h)),
+    Match.when('bash', () => commandsOf(body, model, h)),
+    Match.orElse(() => codeSheet(body, model.copied, h)),
   )
 
-export const rail = (corpus: Corpus, current: string, h: HtmlBuilder<Message>): Html =>
-  h.nav(
-    [h.Class('docs-rail'), h.AriaLabel('Chapters')],
-    [h.div([h.Class('rail-sticky thin-scroll')], railGroups(corpus, current, h))],
+const commandsOf = (body: string, model: Model, h: HtmlBuilder<Message>): Html => {
+  const lines = pipe(
+    body.split('\n'),
+    Array.map((line) => line.trim()),
+    Array.filter((line) => line !== ''),
   )
+  return pipe(
+    Array.head(lines),
+    Option.filter(() => lines.length === 1),
+    Option.match({
+      onNone: () => codeSheet(body, model.copied, h),
+      onSome: (command) =>
+        h.div([h.Class('docs-command')], [commandButton(`command:${command}`, command, model.copied, h)]),
+    }),
+  )
+}
 
-## Where a reader is
+~
 
-Above the article a single line says where the page sits: the documentation, the part that holds it, and the chapter itself. It is the one piece of the shell assembled from the corpus rather than drawn from it.
+The code sheet copies exactly the code it shows, without the newline the fence leaves at its end. Its button shows a tick once pressed and turns back to the copy glyph a moment later, as the loom card's does.
 
 =>
 
-const breadcrumb = (corpus: Corpus, root: string, page: Page, h: HtmlBuilder<Message>): Html =>
-  h.div(
-    [h.Class('docs-crumbs')],
+const codeSheet = (body: string, copied: string, h: HtmlBuilder<Message>): Html => {
+  const code = body.replace(/\n$/, '')
+  const id = `code:${code}`
+  const taken = copied === id
+  return h.div(
+    [h.Class('docs-canvas')],
     [
-      h.span([], [root]),
-      h.span([h.Class('sep'), h.AriaHidden(true)], ['/']),
-      h.span(
-        [],
+      h.button(
         [
-          pipe(
-            partOf(corpus, page.slug),
-            Option.map((part) => part.name.toLowerCase()),
-            Option.getOrElse(() => 'reference'),
-          ),
+          h.Class(taken ? 'canvas-copy done' : 'canvas-copy'),
+          h.Type('button'),
+          h.Title(taken ? 'Copied' : 'Copy the code'),
+          h.AriaLabel('Copy the code'),
+          h.OnClick(Copied({ id, text: code })),
         ],
+        [taken ? checkIcon() : copyIcon()],
       ),
-      h.span([h.Class('sep'), h.AriaHidden(true)], ['/']),
-      h.span([h.Class('here')], [page.title.toLowerCase()]),
+      h.pre([h.Class('sheet-code')], [h.code([], [code])]),
     ],
   )
+}
 
-## The article
+~
 
-A block becomes one of two things and never a third, so the match closes: a heading renders at its own depth carrying the slug an outline link jumps to, and a run of prose renders as the Markdown it is.
-
-Markdown becomes HTML here rather than at weave time, because the weave should stay a description of the document and not a description of a web page. Anything else reading that JSON gets the Markdown intact.
+The run picker follows the install line's choice rather than keeping one of its own. A reader who picked Bun to install Loom runs the file with Bun, and a reader who picked npm or pnpm runs it with Node. Pressing Node picks npm, and pressing Bun picks Bun, so the two pickers on a page always agree.
 
 =>
 
-const headingOf = (block: HeadingBlock, h: HtmlBuilder<Message>): Html =>
-  Match.value(block.level).pipe(
-    Match.when(1, () => h.h1([h.Id(block.id)], [block.title])),
-    Match.when(2, () => h.h2([h.Id(block.id)], [block.title])),
-    Match.orElse(() => h.h3([h.Id(block.id)], [block.title])),
+type Runner = {
+  readonly runtime: Runtime
+  readonly label: string
+  readonly logo: Html
+}
+
+const bunRunner: Runner = { runtime: 'bun', label: 'bun', logo: bunIcon() }
+const nodeRunner: Runner = { runtime: 'npm', label: 'node', logo: nodeIcon() }
+
+const runnerOf = (runtime: Runtime): Runner =>
+  Match.value(runtime).pipe(
+    Match.when('bun', () => bunRunner),
+    Match.orElse(() => nodeRunner),
   )
 
-const blockOf = (block: Block, h: HtmlBuilder<Message>): Html =>
-  Match.value(block).pipe(
-    Match.when({ type: 'heading' }, (heading) => headingOf(heading, h)),
-    Match.when({ type: 'prose' }, (prose) =>
+const runLine = (file: string, model: Model, h: HtmlBuilder<Message>): Html => {
+  const chosen = runnerOf(model.runtime)
+  return h.div(
+    [h.Class('hero-install')],
+    [
       h.div(
-        [h.Class('docs-prose'), h.InnerHTML(marked.parse(prose.markdown) as string)],
-        [],
+        [h.Class('rt-tabs')],
+        Array.map([bunRunner, nodeRunner], (runner) =>
+          h.button(
+            [
+              h.Class(runner.label === chosen.label ? 'rt-tab here' : 'rt-tab'),
+              h.Type('button'),
+              h.OnClick(PickedRuntime({ runtime: runner.runtime })),
+            ],
+            [runner.logo, runner.label],
+          ),
+        ),
+      ),
+      commandButton(`run:${file}`, `${chosen.label} ${file}`, model.copied, h),
+    ],
+  )
+}
+
+## A section, under its heading
+
+A block draws as one of two things and never a third, so the match closes. A heading inside a section draws as a third-level heading carrying its slug, and a run of prose draws as its pieces: each stretch of text as Markdown, each fence as `fenceOf` decides.
+
+=>
+
+const blockOf = (block: Block, model: Model, h: HtmlBuilder<Message>): ReadonlyArray<Html> =>
+  Match.value(block).pipe(
+    Match.when({ type: 'heading' }, (heading) => [h.h3([h.Id(heading.id)], [heading.title])]),
+    Match.when({ type: 'prose' }, (prose) =>
+      Array.map(piecesOf(prose.markdown), (piece) =>
+        piece.type === 'text'
+          ? textOf(piece.markdown, 'docs-prose', h)
+          : fenceOf(piece.kind, piece.body, model, h),
       ),
     ),
     Match.exhaustive,
   )
 
-const article = (corpus: Corpus, root: string, page: Page, h: HtmlBuilder<Message>): Html =>
-  h.article(
-    [h.Class('docs-article')],
-    [
-      breadcrumb(corpus, root, page, h),
-      ...Array.map(page.blocks, (block) => blockOf(block, h)),
-    ],
-  )
+~
 
-## On this page
-
-The outline is the article's own headings, one level down only — a page's title already stands above it, and a third level would turn a list into a tree for no gain.
-
-The heading a reader has scrolled to wears the current treatment. That is the same idea the landing uses to follow a reader down its example, so both read the active heading from one field of the model.
+The first section of a chapter opens on the chapter's flower beside its heading, as a section of the landing opens on its carpet. The sections after it open on their heading alone. One mark to a chapter is enough to say where a reader is, and a mark on every section would turn the docs into a row of stickers. Everything a section holds then runs in one column beneath its heading, in the order the chapter wrote it: a paragraph, then the command it introduces, then the next paragraph.
 
 =>
 
-const sectionsOf = (page: Page): ReadonlyArray<HeadingBlock> =>
-  pipe(
-    page.blocks,
-    Array.filter((block): block is HeadingBlock => block.type === 'heading'),
-    Array.filter((heading) => heading.level === 2),
-  )
-
-const outline = (page: Page, active: string, h: HtmlBuilder<Message>): Html =>
-  h.aside(
-    [h.Class('docs-outline'), h.AriaLabel('On this page')],
+const sectionOf = (
+  flower: Option.Option<Carpet>,
+  section: Section,
+  model: Model,
+  h: HtmlBuilder<Message>,
+): Html =>
+  h.div(
+    [h.Class('section doc-section')],
     [
-      h.span([h.Class('outline-label')], ['On this page']),
       h.div(
-        [h.Class('outline-links')],
-        Array.map(sectionsOf(page), (heading) =>
-          h.button(
-            [
-              h.Class(heading.id === active ? 'outline-link here' : 'outline-link'),
-              h.Type('button'),
-              h.OnClick(SelectedSection({ id: heading.id })),
-            ],
-            [heading.title],
-          ),
-        ),
+        [h.Class('section-head')],
+        [
+          ...Option.toArray(Option.map(flower, (carpet) => carpetMark(carpet, '42px', broadSeam))),
+          h.div([h.Class('lines')], [h.h2([h.Id(section.heading.id)], [section.heading.title])]),
+        ],
+      ),
+      h.div(
+        [h.Class('doc-stack')],
+        Array.flatMap(section.blocks, (block) => blockOf(block, model, h)),
       ),
     ],
   )
 
-## The drawer, where the rail will not fit
+## The head of a chapter
 
-Below the width that holds a rail beside an article, the same rail arrives in a drawer instead. It slides in from the left over a scrim, and it carries the wordmark again at its head so a reader knows what they opened.
+The head is the page head the site's other pages open on: the Loom mark at four fifths of its size beside the chapter's name. Above the name a line says where the chapter sits: the documentation, the part that holds it, then the chapter. The first two are buttons, one opening the first chapter of the docs and one the first chapter of the part.
 
-Its body is the rail's own groups — the identical list, marked with the identical current chapter — because a drawer that showed a second, similar navigation would be a second thing to keep in step.
+=>
+
+const crumbButton = (label: string, slug: string, h: HtmlBuilder<Message>): Html =>
+  h.button([h.Class('crumb'), h.Type('button'), h.OnClick(OpenedChapter({ slug }))], [label])
+
+const breadcrumb = (corpus: Corpus, root: string, page: Page, h: HtmlBuilder<Message>): Html =>
+  h.div(
+    [h.Class('eyebrow doc-crumbs')],
+    [
+      crumbButton(root, firstSlugOf(corpus), h),
+      h.span([h.Class('sep'), h.AriaHidden(true)], ['/']),
+      ...pipe(
+        partOf(corpus, page.slug),
+        Option.flatMap((part) =>
+          Option.map(Array.head(part.chapters), (first) => [
+            crumbButton(part.name, first.slug, h),
+            h.span([h.Class('sep'), h.AriaHidden(true)], ['/']),
+          ]),
+        ),
+        Option.getOrElse((): ReadonlyArray<Html> => []),
+      ),
+      h.span([h.Class('here')], [page.title]),
+    ],
+  )
+
+~
+
+The chapter's opening fills the rest of the head. Its text becomes the lead under the name. Its fences, when it has any, stand in a column of their own beside the lead, level with the line above the name. The quick start opens this way with the two commands a reader runs first, so they are on screen before the first section starts.
+
+=>
+
+const docHead = (
+  corpus: Corpus,
+  root: string,
+  page: Page,
+  cut: Cut,
+  model: Model,
+  h: HtmlBuilder<Message>,
+): Html => {
+  const pieces = Array.flatMap(cut.opening, (block) =>
+    block.type === 'prose' ? piecesOf(block.markdown) : [],
+  )
+  const heading = Option.getOrElse(cut.title, (): HeadingBlock => ({
+    type: 'heading',
+    level: 1,
+    title: page.title,
+    id: page.slug,
+  }))
+  return h.div(
+    [h.Class('section section-hero page-hero doc-hero')],
+    [
+      h.div(
+        [h.Class('doc-hero-grid')],
+        [
+          h.div(
+            [h.Class('doc-hero-lead')],
+            [
+              breadcrumb(corpus, root, page, h),
+              h.div(
+                [h.Class('page-title')],
+                [loomMark('paper', 0.8), h.h1([h.Id(heading.id)], [heading.title])],
+              ),
+              ...Array.flatMap(pieces, (piece) =>
+                piece.type === 'text' ? [textOf(piece.markdown, 'docs-prose page-lead', h)] : [],
+              ),
+            ],
+          ),
+          h.div(
+            [h.Class('hero-cli')],
+            Array.flatMap(pieces, (piece) =>
+              piece.type === 'fence' ? [fenceOf(piece.kind, piece.body, model, h)] : [],
+            ),
+          ),
+        ],
+      ),
+    ],
+  )
+}
+
+## The menu of every chapter
+
+The menu is the corpus's own table of contents, drawn on a pale card like the cards on the site's other pages. Each part is a label in small capitals, and each chapter under it is a button that opens it. The chapter on show sets in dark ink at a heavier weight, and its sections hang beneath it, smaller and indented.
+
+Only the section a reader has reached takes the accent. It turns orange and wears a small square in front, so the menu marks one place, never two. A section counts as reached once its heading has scrolled up to the top of the window. Before any has, the first is marked.
+
+The menu's groups come out of a function of their own, because the drawer draws exactly the same list on a narrow window. A reader who opens the drawer should find the menu they already know, current marker included, not a second navigation that merely resembles it.
+
+=>
+
+const sectionButton = (section: Section, here: boolean, h: HtmlBuilder<Message>): Html =>
+  h.button(
+    [
+      h.Class(here ? 'menu-sub here' : 'menu-sub'),
+      h.Type('button'),
+      h.OnClick(SelectedSection({ id: section.heading.id })),
+    ],
+    [section.heading.title],
+  )
+
+const reachedOf = (cut: Cut, active: string): string =>
+  active !== ''
+    ? active
+    : pipe(
+        Array.head(cut.sections),
+        Option.map((section) => section.heading.id),
+        Option.getOrElse(() => ''),
+      )
+
+const chapterRows = (
+  chapter: Chapter,
+  page: Page,
+  cut: Cut,
+  active: string,
+  h: HtmlBuilder<Message>,
+): ReadonlyArray<Html> =>
+  chapter.slug === page.slug
+    ? [
+        h.button([h.Class('menu-item here'), h.Type('button')], [chapter.title]),
+        h.div(
+          [h.Class('menu-subs')],
+          Array.map(cut.sections, (section) =>
+            sectionButton(section, section.heading.id === reachedOf(cut, active), h),
+          ),
+        ),
+      ]
+    : [
+        h.button(
+          [h.Class('menu-item'), h.Type('button'), h.OnClick(OpenedChapter({ slug: chapter.slug }))],
+          [chapter.title],
+        ),
+      ]
+
+const menuGroups = (
+  corpus: Corpus,
+  page: Page,
+  cut: Cut,
+  active: string,
+  h: HtmlBuilder<Message>,
+): ReadonlyArray<Html> =>
+  Array.map(corpus.nav, (part) =>
+    h.div(
+      [h.Class('menu-part')],
+      [
+        h.span([h.Class('eyebrow')], [part.name]),
+        ...Array.flatMap(part.chapters, (chapter) => chapterRows(chapter, page, cut, active, h)),
+      ],
+    ),
+  )
+
+const menu = (corpus: Corpus, page: Page, cut: Cut, active: string, h: HtmlBuilder<Message>): Html =>
+  h.nav(
+    [h.Class('menu-card thin-scroll'), h.AriaLabel('Chapters')],
+    menuGroups(corpus, page, cut, active, h),
+  )
+
+## The pager between chapters
+
+A chapter ends on the site's own pager, naming the chapters either side of it in reading order. A card is a flower and two lines of type, the direction and the chapter's name, and under the pointer both lines take the deep orange the source page answers to. The flower is the chapter's own, the one its first section wears, so a card shows a reader the mark they will meet on the page it leads to.
+
+The first chapter has nothing before it and the last nothing after, so a pager can carry one card rather than two. A next card keeps to the right even on its own, as every next card on the site does.
+
+=>
+
+const chapterFlower = (corpus: Corpus, slug: string): Carpet =>
+  flowerFor(
+    pipe(
+      Array.findFirstIndex(readingOrder(corpus), (chapter) => chapter.slug === slug),
+      Option.getOrElse(() => 0),
+    ),
+  )
+
+const chapterCard = (
+  corpus: Corpus,
+  chapter: Chapter,
+  direction: 'Previous' | 'Next',
+  h: HtmlBuilder<Message>,
+): Html => {
+  const mark = carpetMark(chapterFlower(corpus, chapter.slug), '42px', broadSeam)
+  const words = h.div(
+    [h.Class('pager-words')],
+    [
+      h.span([h.Class('eyebrow')], [direction]),
+      h.span([h.Class('pager-title')], [chapter.title]),
+    ],
+  )
+  return h.button(
+    [
+      h.Class(direction === 'Next' ? 'pager-card next' : 'pager-card'),
+      h.Type('button'),
+      h.Style({ '--pg-ink': '#C2410C' }),
+      h.OnClick(OpenedChapter({ slug: chapter.slug })),
+    ],
+    direction === 'Next' ? [words, mark] : [mark, words],
+  )
+}
+
+const chapterPager = (corpus: Corpus, page: Page, h: HtmlBuilder<Message>): Html => {
+  const order = readingOrder(corpus)
+  const at = Array.findFirstIndex(order, (chapter) => chapter.slug === page.slug)
+  const step = (by: number): Option.Option<Chapter> =>
+    Option.flatMap(at, (index) => Array.get(order, index + by))
+  return h.div(
+    [h.Class('pager-row doc-pager')],
+    [
+      ...Option.toArray(Option.map(step(-1), (chapter) => chapterCard(corpus, chapter, 'Previous', h))),
+      ...Option.toArray(Option.map(step(1), (chapter) => chapterCard(corpus, chapter, 'Next', h))),
+    ],
+  )
+}
+
+## The drawer, where the menu will not fit
+
+Below a thousand pixels there is no room for the menu beside the sections, so the same menu arrives in a drawer instead. It slides in from the left over a scrim, and it carries the Loom mark and wordmark at its head so a reader knows what they opened. The nav opens it: on the docs, a narrow window gives the nav a burger button at its left end.
 
 Both the scrim and the panel stay in the document whether the drawer is open or shut, and open is a class rather than a condition. That is what lets them animate: an element that appears only when open has nothing to slide in from.
 
@@ -271,8 +599,9 @@ const closeIcon = (h: HtmlBuilder<Message>): Html =>
 
 const drawer = (
   corpus: Corpus,
+  page: Page,
+  cut: Cut,
   model: Model,
-  current: string,
   h: HtmlBuilder<Message>,
 ): Html =>
   h.div(
@@ -282,7 +611,7 @@ const drawer = (
         [h.Class('drawer-head')],
         [
           loomMark('paper', 0.495),
-          h.span([h.Class('bar-word-text')], ['Loom']),
+          h.span([h.Class('drawer-word')], ['Loom']),
           h.button(
             [
               h.Class('drawer-close'),
@@ -294,7 +623,10 @@ const drawer = (
           ),
         ],
       ),
-      h.div([h.Class('drawer-body thin-scroll')], railGroups(corpus, current, h)),
+      h.div(
+        [h.Class('drawer-body thin-scroll')],
+        menuGroups(corpus, page, cut, model.activeSection, h),
+      ),
     ],
   )
 
@@ -308,52 +640,13 @@ const scrim = (open: boolean, h: HtmlBuilder<Message>): Html =>
     [],
   )
 
-## The three columns
+## The page, assembled
 
-The shell puts the rail, the article, the outline and the pager into one grid, over whichever corpus it is handed. The pager takes the second row of the middle column, which is why the side columns each span both rows — it belongs to the article, not to the page. The documentation binds its own weave to it and answers on `docs`; a second page can bind another corpus and answer somewhere else without a line of this changing. The rail and the outline each span both rows, so a pager placed under the article later sits inside the middle column rather than under the whole page.
-
-A short chapter may have no headings under its title, and then there is nothing to outline. Rather than stand an empty label in a quarter of the window, the shell drops the third column and gives the width back to the article.
+The shell stacks the head over a body of two columns, the menu on the left and the sections on the right, with the pager closing the right-hand column. The pager sits at the foot of that column, so once a reader has scrolled to the end, the pager's lower edge lines up with the menu's.
 
 A slug naming no chapter falls back to the first, so the documentation always has something to show.
 
 =>
-
-const shellClass = (model: Model, outlined: boolean): string => {
-  const base = outlined ? 'docs-shell' : 'docs-shell alone'
-  return model.navHidden ? `${base} bar-hidden` : base
-}
-
-const shellFor = (
-  corpus: Corpus,
-  root: string,
-  model: Model,
-  page: Page,
-  h: HtmlBuilder<Message>,
-): Html =>
-  pipe(
-    sectionsOf(page),
-    Array.match({
-      onEmpty: () =>
-        h.div(
-          [h.Class(shellClass(model, false))],
-          [
-            rail(corpus, page.slug, h),
-            article(corpus, root, page, h),
-            docsPager(model.route, h),
-          ],
-        ),
-      onNonEmpty: () =>
-        h.div(
-          [h.Class(shellClass(model, true))],
-          [
-            rail(corpus, page.slug, h),
-            article(corpus, root, page, h),
-            outline(page, model.activeSection, h),
-            docsPager(model.route, h),
-          ],
-        ),
-    }),
-  )
 
 export const wovenPage = (
   corpus: Corpus,
@@ -366,39 +659,65 @@ export const wovenPage = (
     pageOf(corpus, slug),
     Option.orElse(() => Option.fromNullishOr(corpus.pages[0])),
     Option.match({
-      onNone: () => h.div([h.Class('docs-shell')], []),
-      onSome: (page) =>
-        h.div(
+      onNone: () => h.div([h.Class('docs-page')], []),
+      onSome: (page) => {
+        const cut = cutOf(page)
+        return h.div(
           [h.Class('docs-page')],
           [
-            shellFor(corpus, root, model, page, h),
+            docHead(corpus, root, page, cut, model, h),
+            h.div(
+              [h.Class('docs-body')],
+              [
+                menu(corpus, page, cut, model.activeSection, h),
+                h.article(
+                  [h.Class('docs-article')],
+                  [
+                    ...Array.map(cut.sections, (section, place) =>
+                      sectionOf(
+                        place === 0 ? Option.some(chapterFlower(corpus, page.slug)) : Option.none(),
+                        section,
+                        model,
+                        h,
+                      ),
+                    ),
+                    chapterPager(corpus, page, h),
+                  ],
+                ),
+              ],
+            ),
             scrim(model.drawerOpen, h),
-            drawer(corpus, model, page.slug, h),
+            drawer(corpus, page, cut, model, h),
           ],
-        ),
+        )
+      },
     }),
   )
 }
 
 export const documentationPage = (model: Model, h: HtmlBuilder<Message>): Html =>
-  wovenPage(docsCorpus, 'docs', model, h)
+  wovenPage(docsCorpus, 'Docs', model, h)
 
 ## The module {Tangle}[docs-page.ts]
-
-The module reads the weave, then draws the rail, the breadcrumb, the article, the outline and the drawer, and closes with the grid that holds them.
 
 =>
 
 ::[The woven corpus, read]
 
-::[The rail of every chapter]
+::[A chapter, cut into its parts]
 
-::[Where a reader is]
+::[Prose and the fences inside it]
 
-::[The article]
+::[Drawing a fence]
 
-::[On this page]
+::[A section, under its heading]
 
-::[The drawer, where the rail will not fit]
+::[The head of a chapter]
 
-::[The three columns]
+::[The menu of every chapter]
+
+::[The pager between chapters]
+
+::[The drawer, where the menu will not fit]
+
+::[The page, assembled]
