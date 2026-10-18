@@ -304,3 +304,65 @@ Zed's outline panel lists the items its outline query captures. Each section is 
   (heading
     (heading_marker) @context
     title: (title) @name)) @item
+
+## The licence {Tangle}[LICENSE]
+
+The extension carries the licence the command line carries, MIT, in full. Zed's registry asks every extension for one at its root, and the repository that mirrors this folder publishes the code with the text beside it.
+
+=>
+
+MIT License
+
+Copyright (c) 2026 Quadrivium Academy Sihtasutus and Loom contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+## The mirror's front page {Tangle}[README.md]
+
+Gram installs an extension from a repository URL and looks for the manifest at the repository's root, where this folder's manifest is not. So the folder is mirrored to a repository of its own, `athrio-com/loom-zed`, whose root is the extension. The mirror's README tells a visitor what the extension does and how to install it. It also says the mirror is generated, so a change is made here, in the book, rather than there.
+
+The README is Markdown. Its headings are underlined rather than marked with `#`, so no line of it reads as a heading of this loom, whichever version of Loom tangles it.
+
+=>
+
+Loom for Zed and Gram
+=====================
+
+[Loom](https://github.com/athrio-com/loom) is a literate programming framework. This extension brings `.loom` files to life in Zed, and in Gram, Zed's fork without AI features or telemetry. Loom's own marks are coloured, the prose reads as Markdown, and each section's code is coloured in its own language. Loom's language server checks the looms and moves between their sections.
+
+This repository is generated. The extension is written in the Loom book, in `corpus/09-extensions-for-ides/10-loom-in-zed-and-gram.loom`, and tangled to `packages/tree-sitter-loom/editors/zed` in the Loom repository, which this repository mirrors. Make a change there, not here.
+
+Install
+-------
+
+Install the `loom` command first, with `npm install -g @athrio/loom` or `bun install -g @athrio/loom`. The extension starts Loom's language server with `loom lsp`.
+
+In Gram, open the Extensions page, choose **Install From URL**, and enter `https://github.com/athrio-com/loom-zed`. Gram builds the extension and its grammar on your machine. That takes Rust installed through rustup, and the first build downloads the WebAssembly toolchain, which takes a minute.
+
+In Zed, clone this repository, run `zed: install dev extension`, and choose the folder.
+
+TypeScript
+----------
+
+Loom's own checks work in any loom. To check TypeScript sections too, turn TypeScript on in the project with `loom add typescript`, and give the server a TypeScript 6 to check with, `bun add -d typescript@6`. TypeScript 7 has no JavaScript API for the server to load.
+
+Licence
+-------
+
+MIT. See [LICENSE](LICENSE).
