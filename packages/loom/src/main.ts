@@ -19,9 +19,11 @@ import { PackageConfig } from '@athrio/loom-lang/PackageConfig'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
   addService,
-  installedServices,
+  installedVersion,
   removeService,
+  ServiceInstall,
   servicePackage,
+  serviceVersion,
   storeDir,
   workspaceRoot,
 } from '@athrio/loom-lang-services/LoomStore'
@@ -208,12 +210,19 @@ const add = (language: string) =>
   Effect.gen(function* () {
     const config = yield* LoomConfig
     const dir = process.cwd()
-    yield* addService(language, dir)
+    const change = yield* addService(language, dir)
     yield* updateLanguages(config, dir, (ids) => [
       ...new Set([...ids, language]),
     ])
+    const service = `${servicePackage(language)} ${serviceVersion}`
+    const done = ServiceInstall.$match(change, {
+      Current: () => `${service} is already in the store`,
+      Installed: () => `installed ${service}`,
+      Updated: ({ from }) => `updated ${servicePackage(language)} from ${from} to ${serviceVersion}`,
+    })
     yield* Console.log(
       `\n   ${teal('✓')} activated ${language}\n` +
+        `   ${dim(done)}\n` +
         `   ${dim(`store: ${storeDir(dir)}`)}\n`,
     )
   }).pipe(
@@ -241,11 +250,14 @@ const status = Effect.gen(function* () {
   const manifest = yield* config.manifest(workspaceRoot(dir))
   const primary = manifest?.primary
   const languages = Object.keys(manifest?.languages ?? {})
-  const installed = new Set(yield* installedServices(dir))
   const mark = (id: string): string =>
-    installed.has(id)
-      ? `   ${teal('●')} ${id}`
-      : `   ${dim('○')} ${id}${dim(`  — run \`loom add ${id}\``)}`
+    Option.match(installedVersion(id, dir), {
+      onNone: () => `   ${dim('○')} ${id}${dim(`  — run \`loom add ${id}\``)}`,
+      onSome: (version) =>
+        version === serviceVersion
+          ? `   ${teal('●')} ${id}`
+          : `   ${dim('◐')} ${id}${dim(`  — ${version} is installed; run \`loom add ${id}\` for ${serviceVersion}`)}`,
+    })
   yield* Console.log(
     `\n   ${dim('store')}      ${storeDir(dir)}\n` +
       `   ${dim('primary')}    ${primary ?? dim('(none)')}\n` +

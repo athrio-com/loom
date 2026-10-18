@@ -60,11 +60,48 @@ export const installedServices = (
       .map((name) => name.slice(servicePrefix.length))
   })
 
+## The version a service must have
+
+Loom releases every package at one version, the command line and each language service alike, so a service works with the Loom that shares its version. `serviceVersion` is that version, the workspace's own, which the release sets for every package at once. A store can therefore check its services by a plain comparison: a service at `serviceVersion` belongs to this Loom, and a service at any other version was installed by another.
+
+The comparison matters because a store outlives the Loom that filled it. A service installed by an older release stays in the store when Loom is upgraded, and a service built against an older Effect fails inside the newer host, so a stale store breaks a language's checks in every editor.
+
+`installedVersion` reads the version of a service the store holds, from the package's own `package.json`. It yields nothing when the store does not hold the service.
+
+{{ version = ${version} }}
+
+=>
+
+export const serviceVersion = '::[version]'
+
+export const installedVersion = (
+  id: string,
+  dir: string,
+): Option.Option<string> =>
+  pipe(
+    Option.liftThrowable(() =>
+      readFileSync(
+        join(storeDir(dir), 'node_modules', servicePackage(id), 'package.json'),
+        'utf8',
+      ),
+    )(),
+    Option.flatMap(
+      Option.liftThrowable(
+        (text: string) => JSON.parse(text) as { readonly version?: unknown },
+      ),
+    ),
+    Option.flatMap((manifest) =>
+      typeof manifest.version === 'string'
+        ? Option.some(manifest.version)
+        : Option.none(),
+    ),
+  )
+
 ## Adding a service
 
-`addService` installs a language's package into the store. It runs only when the store lacks the package, so adding an already-installed language is a quick no-op that needs no network.
+`addService` brings a language's package in the store to `serviceVersion`. A store that already holds the service at that version is left alone, so adding a current language is a quick step that needs no network. A store that lacks the service gets it installed, and a store that holds it at another version gets it replaced. `ServiceInstall` records which of the three happened, the version replaced among it, so the command that called the function can say what it did.
 
-When it must install, it prepares the store as a package root — a directory with a private `package.json` for the package manager to install into — and runs `npm install` with peers omitted. Loom's runtime is the reason for that flag: Effect, Volar's contracts, and the service interface itself are the service's peer dependencies, supplied by the host that loads it, so the install leaves them out and the store stays small.
+When it must install, it prepares the store as a package root — a directory with a private `package.json` for the package manager to install into — and runs `npm install` for the package at `serviceVersion`, with peers omitted. Loom's runtime is the reason for that flag: Effect, Volar's contracts, and the service interface itself are the service's peer dependencies, supplied by the host that loads it, so the install leaves them out and the store stays small.
 
 An install that fails — `npm` absent, the registry unreachable, the package not published — fails with a `StoreError` carrying the cause, so the command that called it can report the reason rather than a stack trace.
 
@@ -85,19 +122,27 @@ const prepareStore = (store: string): void => {
     )
 }
 
+export type ServiceInstall = Data.TaggedEnum<{
+  Current: {}
+  Installed: {}
+  Updated: { readonly from: string }
+}>
+export const ServiceInstall = Data.taggedEnum<ServiceInstall>()
+
 export const addService = (
   id: string,
   dir: string,
-): Effect.Effect<void, StoreError> =>
+): Effect.Effect<ServiceInstall, StoreError> =>
   Effect.gen(function* () {
     const store = storeDir(dir)
-    if (existsSync(join(store, 'node_modules', servicePackage(id)))) return
+    const installed = installedVersion(id, dir)
+    if (Option.contains(installed, serviceVersion)) return ServiceInstall.Current()
     yield* Effect.sync(() => prepareStore(store))
     yield* Effect.tryPromise({
       try: () =>
         run('npm', [
           'install',
-          servicePackage(id),
+          `${servicePackage(id)}@${serviceVersion}`,
           '--prefix',
           store,
           '--omit=peer',
@@ -105,7 +150,11 @@ export const addService = (
           '--no-fund',
         ]),
       catch: (cause) => new StoreError({ id, cause }),
-    }).pipe(Effect.asVoid)
+    })
+    return Option.match(installed, {
+      onNone: () => ServiceInstall.Installed(),
+      onSome: (from) => ServiceInstall.Updated({ from }),
+    })
   })
 
 ## Removing a service
@@ -124,16 +173,17 @@ export const removeService = (id: string, dir: string): Effect.Effect<void> =>
 
 ## What this module draws on
 
-The store works in Effect: `Effect` runs each read and write, and `Data` gives `StoreError` its tag. Bun supplies the rest — `child_process` runs the package manager, which `promisify` turns into a promise `Effect.tryPromise` can await; `fs` reads the store's contents and adds and removes packages; `join` and `dirname` form and walk the store path up to the workspace root.
+The store works in Effect: `Effect` runs each read and write, `Data` gives `StoreError` and `ServiceInstall` their tags, and `Option` with `pipe` carries a version the store may not hold. Bun supplies the rest — `child_process` runs the package manager, which `promisify` turns into a promise `Effect.tryPromise` can await; `fs` reads the store's contents and a package's manifest, and adds and removes packages; `join` and `dirname` form and walk the store path up to the workspace root.
 
 =>
 
-import { Data, Effect } from 'effect'
+import { Data, Effect, Option, pipe } from 'effect'
 import { execFile } from 'node:child_process'
 import {
   existsSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
@@ -153,6 +203,8 @@ const run = promisify(execFile)
 ::[Where the store lives]
 
 ::[What the store holds]
+
+::[The version a service must have]
 
 ::[Adding a service]
 

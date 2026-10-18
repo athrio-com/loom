@@ -14,11 +14,25 @@ A language that fails to load costs only itself. Its sections stay at syntax hig
 
 The loader resolves a package from the project's store, imports it, and reads the package's default export. `storeDir` finds the store by walking up from `root`, the workspace folder the editor opened, to the first directory that holds a `.loom` folder. The import is dynamic — by name, at runtime — because a package is a unit the consumer installs after the editor ships, never one a build could fold in.
 
+A service the store holds at another version than this Loom's was installed by another release, and it may not work inside this host: a service built against an older Effect fails on its first request. The loader still loads it, since an old service may work, but first logs a warning that names both versions and the `loom add` that brings the service in step. The warning lands before the import, so it is there even when the old service then fails.
+
 What the import returns is unknown until checked. `isLanguageService` confirms the default export has the shape the contract requires, and the loader confirms the service's declared `id` is the one activated. A package that answers to another id, or exports something that is not a service at all, is not the language the project asked for. When the package is missing or fails either check, the loader logs the reason and yields nothing.
 
 =>
 
-const loadService = (
+const warnIfStale = (id: string, root: string): Effect.Effect<void> =>
+  Option.match(
+    Option.filter(installedVersion(id, root), (version) => version !== serviceVersion),
+    {
+      onNone: () => Effect.void,
+      onSome: (version) =>
+        Effect.logWarning(
+          `${servicePackage(id)} ${version} is installed, but this Loom is ${serviceVersion} — run \`loom add ${id}\` to update it`,
+        ),
+    },
+  )
+
+const importService = (
   id: string,
   root: string,
 ): Effect.Effect<Option.Option<LanguageService>> =>
@@ -44,6 +58,12 @@ const loadService = (
     ),
   )
 
+const loadService = (
+  id: string,
+  root: string,
+): Effect.Effect<Option.Option<LanguageService>> =>
+  Effect.andThen(warnIfStale(id, root), importService(id, root))
+
 ## The active set
 
 `loadActive` produces the services a project has turned on. Loom and Prose lead the set — every `.loom` has a frame and prose, so both services are always present — and each activated id follows, loaded by `loadService`. The loader drops an id equal to a built-in's, so naming `loom` or `prose` in the config never doubles it, and drops a repeated id, so activating a language twice loads it once. An id whose package does not load contributes nothing, and the set carries the languages that did.
@@ -68,7 +88,7 @@ export const loadActive = (
 
 ## What this module draws on
 
-The loader works in Effect: `Effect` runs the load, `Option` carries a language that may not load, and `Array` with `pipe` build the set. Bun loads the package — `createRequire` resolves it within the store, `pathToFileURL` forms the specifier the dynamic import takes, and `join` points the resolver into the store's directory. From `./LoomStore` come `servicePackage`, which names a language's package, and `storeDir`, which locates the project's store. From the contract module come the `LanguageService` type and the `isLanguageService` guard; `LoomLanguage` and `ProseLanguage` are the built-in services that always lead the set.
+The loader works in Effect: `Effect` runs the load, `Option` carries a language that may not load, and `Array` with `pipe` build the set. Bun loads the package — `createRequire` resolves it within the store, `pathToFileURL` forms the specifier the dynamic import takes, and `join` points the resolver into the store's directory. From `./LoomStore` come `servicePackage`, which names a language's package, `storeDir`, which locates the project's store, and `installedVersion` and `serviceVersion`, which tell a stale service from a current one. From the contract module come the `LanguageService` type and the `isLanguageService` guard; `LoomLanguage` and `ProseLanguage` are the built-in services that always lead the set.
 
 =>
 
@@ -76,7 +96,7 @@ import { Array, Effect, Option, pipe } from 'effect'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { servicePackage, storeDir } from './LoomStore'
+import { installedVersion, servicePackage, serviceVersion, storeDir } from './LoomStore'
 import { isLanguageService, type LanguageService } from './LanguageService'
 import { LoomLanguage } from './LoomLanguage'
 import { ProseLanguage } from './ProseLanguage'
