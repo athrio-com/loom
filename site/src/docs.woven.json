@@ -454,7 +454,7 @@
             "chapter": "03-loom-in-your-ide/01-supported-editors",
             "section": "a-language-server-for-each-language"
           },
-          "markdown": "Loom checks a section's code with that language's own server, which Loom installs into the project when you turn the language on. Run `$ loom add typescript`, and TypeScript sections are checked from then on. The servers live in `.loom/services`, which `loom init` already keeps out of Git. Loom's own checks, and moving between sections, need no language turned on: they work in any loom, even one that sits in no project."
+          "markdown": "Loom checks a section's code with that language's own server, which Loom installs into the project when you turn the language on. Run `$ loom add typescript`, and TypeScript sections are checked from then on. Run it again after you upgrade Loom: it brings the server up to the new release, and `loom status` marks a server that an older release installed. The servers live in `.loom/services`, which `loom init` already keeps out of Git. Loom's own checks, and moving between sections, need no language turned on: they work in any loom, even one that sits in no project."
         },
         {
           "type": "heading",

@@ -26,7 +26,7 @@ Rename a section from its heading, and every anchor that names it follows. The o
 
 ## A language server for each language
 
-Loom checks a section's code with that language's own server, which Loom installs into the project when you turn the language on. Run `$ loom add typescript`, and TypeScript sections are checked from then on. The servers live in `.loom/services`, which `loom init` already keeps out of Git. Loom's own checks, and moving between sections, need no language turned on: they work in any loom, even one that sits in no project.
+Loom checks a section's code with that language's own server, which Loom installs into the project when you turn the language on. Run `$ loom add typescript`, and TypeScript sections are checked from then on. Run it again after you upgrade Loom: it brings the server up to the new release, and `loom status` marks a server that an older release installed. The servers live in `.loom/services`, which `loom init` already keeps out of Git. Loom's own checks, and moving between sections, need no language turned on: they work in any loom, even one that sits in no project.
 
 ## Choose your editor
 

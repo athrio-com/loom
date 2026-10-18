@@ -2,12 +2,24 @@ import { Array, Effect, Option, pipe } from 'effect'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { servicePackage, storeDir } from './LoomStore'
+import { installedVersion, servicePackage, serviceVersion, storeDir } from './LoomStore'
 import { isLanguageService, type LanguageService } from './LanguageService'
 import { LoomLanguage } from './LoomLanguage'
 import { ProseLanguage } from './ProseLanguage'
 
-const loadService = (
+const warnIfStale = (id: string, root: string): Effect.Effect<void> =>
+  Option.match(
+    Option.filter(installedVersion(id, root), (version) => version !== serviceVersion),
+    {
+      onNone: () => Effect.void,
+      onSome: (version) =>
+        Effect.logWarning(
+          `${servicePackage(id)} ${version} is installed, but this Loom is ${serviceVersion} — run \`loom add ${id}\` to update it`,
+        ),
+    },
+  )
+
+const importService = (
   id: string,
   root: string,
 ): Effect.Effect<Option.Option<LanguageService>> =>
@@ -32,6 +44,12 @@ const loadService = (
       ).pipe(Effect.as(Option.none<LanguageService>())),
     ),
   )
+
+const loadService = (
+  id: string,
+  root: string,
+): Effect.Effect<Option.Option<LanguageService>> =>
+  Effect.andThen(warnIfStale(id, root), importService(id, root))
 
 export const loadActive = (
   ids: ReadonlyArray<string>,

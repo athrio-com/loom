@@ -35,6 +35,8 @@ const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
 
 const anchor = (name: string): string => `::${'['}${name}]`
 
+const loomVersion = '0.0.11'
+
 const workspace = (configYaml: string): string => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'loom-proj-')))
   mkdirSync(join(dir, '.loom'), { recursive: true })
@@ -48,14 +50,24 @@ const configText = (dir: string): string =>
 const userStore = (): string =>
   realpathSync(mkdtempSync(join(tmpdir(), 'loom-home-')))
 
-const installFake = (home: string, id: string): void => {
+const installFake = (home: string, id: string, version: string = loomVersion): void => {
   const pkg = join(home, 'services', 'node_modules', '@athrio', `loom-service-${id}`)
   mkdirSync(pkg, { recursive: true })
   writeFileSync(
     join(pkg, 'package.json'),
-    `${JSON.stringify({ name: `@athrio/loom-service-${id}`, version: '0.0.0' })}\n`,
+    `${JSON.stringify({ name: `@athrio/loom-service-${id}`, version })}\n`,
   )
 }
+
+const storedVersion = (home: string, id: string): string =>
+  (
+    JSON.parse(
+      readFileSync(
+        join(home, 'services', 'node_modules', '@athrio', `loom-service-${id}`, 'package.json'),
+        'utf8',
+      ),
+    ) as { readonly version: string }
+  ).version
 
 const fixture = lines(
   '---',
@@ -172,6 +184,94 @@ describe('loom cli — languages', () => {
     )
     const { stdout } = loom(['status'], { cwd: dir })
     expect(stdout).toContain(join(dir, '.loom', 'services'))
+    rmSync(dir, { recursive: true, force: true })
+  }, SPAWN_TIMEOUT)
+})
+
+const fakeNpm = (): { readonly bin: string; readonly calls: string; readonly path: string } => {
+  const bin = realpathSync(mkdtempSync(join(tmpdir(), 'loom-npm-')))
+  const calls = join(bin, 'calls.log')
+  writeFileSync(
+    join(bin, 'npm'),
+    `${[
+      '#!/bin/sh',
+      `echo "$*" >> '${calls}'`,
+      'spec="$2"',
+      'prefix=""',
+      'while [ "$#" -gt 0 ]; do',
+      '  if [ "$1" = "--prefix" ]; then prefix="$2"; fi',
+      '  shift',
+      'done',
+      'name="${spec%@*}"',
+      'version="${spec##*@}"',
+      'mkdir -p "$prefix/node_modules/$name"',
+      `printf '{"name":"%s","version":"%s"}\\n' "$name" "$version" > "$prefix/node_modules/$name/package.json"`,
+    ].join('\n')}\n`,
+    { mode: 0o755 },
+  )
+  return { bin, calls, path: `${bin}:${process.env.PATH ?? ''}` }
+}
+
+describe('loom cli — keeping a service current', () => {
+  it('add replaces a service an older release installed', () => {
+    const home = userStore()
+    const npm = fakeNpm()
+    const dir = workspace('corpus: corpus\nlanguages: {}\nprimary: typescript\n')
+    installFake(home, 'typescript', '0.0.1')
+    const { status, stdout } = loom(['add', 'typescript'], {
+      cwd: dir,
+      env: { LOOM_HOME: home, PATH: npm.path },
+    })
+    expect(status).toBe(0)
+    expect(stdout).toContain(`updated @athrio/loom-service-typescript from 0.0.1 to ${loomVersion}`)
+    expect(readFileSync(npm.calls, 'utf8')).toContain(`@athrio/loom-service-typescript@${loomVersion}`)
+    expect(storedVersion(home, 'typescript')).toBe(loomVersion)
+    rmSync(home, { recursive: true, force: true })
+    rmSync(npm.bin, { recursive: true, force: true })
+    rmSync(dir, { recursive: true, force: true })
+  }, SPAWN_TIMEOUT)
+
+  it('add leaves a current service alone and never calls the package manager', () => {
+    const home = userStore()
+    const npm = fakeNpm()
+    const dir = workspace('corpus: corpus\nlanguages: {}\nprimary: typescript\n')
+    installFake(home, 'typescript')
+    const { status, stdout } = loom(['add', 'typescript'], {
+      cwd: dir,
+      env: { LOOM_HOME: home, PATH: npm.path },
+    })
+    expect(status).toBe(0)
+    expect(stdout).toContain('is already in the store')
+    expect(existsSync(npm.calls)).toBe(false)
+    rmSync(home, { recursive: true, force: true })
+    rmSync(npm.bin, { recursive: true, force: true })
+    rmSync(dir, { recursive: true, force: true })
+  }, SPAWN_TIMEOUT)
+
+  it('add installs a service the store lacks', () => {
+    const home = userStore()
+    const npm = fakeNpm()
+    const dir = workspace('corpus: corpus\nlanguages: {}\nprimary: typescript\n')
+    const { status, stdout } = loom(['add', 'typescript'], {
+      cwd: dir,
+      env: { LOOM_HOME: home, PATH: npm.path },
+    })
+    expect(status).toBe(0)
+    expect(stdout).toContain(`installed @athrio/loom-service-typescript ${loomVersion}`)
+    expect(storedVersion(home, 'typescript')).toBe(loomVersion)
+    rmSync(home, { recursive: true, force: true })
+    rmSync(npm.bin, { recursive: true, force: true })
+    rmSync(dir, { recursive: true, force: true })
+  }, SPAWN_TIMEOUT)
+
+  it('status marks a service an older release installed', () => {
+    const home = userStore()
+    const dir = workspace('corpus: corpus\nlanguages:\n  typescript: {}\nprimary: typescript\n')
+    installFake(home, 'typescript', '0.0.1')
+    const { stdout } = loom(['status'], { cwd: dir, env: { LOOM_HOME: home } })
+    expect(stdout).toContain('0.0.1 is installed')
+    expect(stdout).toContain('loom add typescript')
+    rmSync(home, { recursive: true, force: true })
     rmSync(dir, { recursive: true, force: true })
   }, SPAWN_TIMEOUT)
 })
