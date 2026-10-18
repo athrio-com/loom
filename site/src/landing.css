@@ -1986,16 +1986,6 @@ h2, .subhead {
 
 .doc-pager.pager-row { margin-top: auto; padding-top: 0; }
 
-.pager-card:is(button) {
-  appearance: none;
-  cursor: pointer;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  font: inherit;
-  text-align: inherit;
-}
-
 .menu-card {
   position: sticky;
   top: 24px;

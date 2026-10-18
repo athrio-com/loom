@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'bun:test'
 import { Option } from 'effect'
-import { type Corpus, documentationPage, docsCorpus, firstSlugOf, wovenPage } from '../src/docs-page'
+import { Option as O } from 'effect'
+import {
+  type Corpus,
+  chapterPath,
+  docsChapterAt,
+  documentationPage,
+  docsCorpus,
+  firstSlugOf,
+  wovenPage,
+} from '../src/docs-page'
 import { type Model } from '../src/model'
 import { view } from '../src/view'
 import { renderDocument, renderHtml } from './render'
@@ -24,6 +33,20 @@ const QUICK = '01-getting-started/01-quick-start'
 const INIT = '01-getting-started/02-loom-projects'
 
 describe('the documentation shell', () => {
+  it('gives every chapter an address without its ordering numbers, and reads it back', () => {
+    expect(chapterPath('/docs', QUICK)).toBe('/docs/getting-started/quick-start')
+    docsCorpus.pages.forEach((page) => {
+      expect(docsChapterAt(chapterPath('/docs', page.slug))).toEqual(O.some(page.slug))
+    })
+    expect(O.isNone(docsChapterAt('/docs/getting-started/nowhere'))).toBe(true)
+    expect(O.isNone(docsChapterAt('/docs'))).toBe(true)
+  })
+
+  it('links every chapter in the menu to its address', () => {
+    const html = render(at(QUICK, ''))
+    expect(html).toContain('class="menu-item" href="/docs/getting-started/loom-projects">Loom projects<')
+  })
+
   it('lists every chapter of the woven corpus in the menu, grouped under its part', () => {
     const html = render(at('', ''))
     expect(html).toContain('class="menu-card thin-scroll"')
@@ -36,7 +59,7 @@ describe('the documentation shell', () => {
   it('opens on the first chapter when none is named, and marks it in the menu', () => {
     const html = render(at('', ''))
     expect(firstSlugOf(docsCorpus)).toBe(docsCorpus.pages[0]!.slug)
-    expect(html).toContain('class="menu-item here" type="button">Quick start<')
+    expect(html).toContain('class="menu-item here" href="/docs/getting-started/quick-start">Quick start<')
   })
 
   it('hangs the open chapter\'s sections under it, the first one reached until the reader scrolls', () => {
@@ -65,8 +88,8 @@ describe('the documentation shell', () => {
 
   it('reads the breadcrumb out of the corpus, not out of the view', () => {
     const html = render(at('03-cli/03-loom-weave', ''))
-    expect(html).toContain('class="crumb" type="button">Docs<')
-    expect(html).toContain('class="crumb" type="button">The command line<')
+    expect(html).toContain('class="crumb" href="/docs">Docs<')
+    expect(html).toContain('class="crumb" href="/docs/cli/loom-init">The command line<')
     expect(html).toContain('class="here">loom weave<')
   })
 
@@ -130,7 +153,7 @@ describe('the documentation shell', () => {
 
   it('ends a chapter on the site\'s pager, naming the chapters either side of it', () => {
     const first = render(at(QUICK, ''))
-    expect(first).toContain('class="pager-row doc-pager"><button class="pager-card next"')
+    expect(first).toContain('class="pager-row doc-pager"><a class="pager-card next" href="/docs/getting-started/loom-projects"')
     expect(first).toContain('class="pager-title">Loom projects<')
     expect(first).not.toContain('>Previous<')
     const second = render(at(INIT, ''))
@@ -140,7 +163,7 @@ describe('the documentation shell', () => {
 
   it('carries the menu into the drawer, marked identically', () => {
     const html = render(at(QUICK, ''))
-    const marked = html.split('class="menu-item here" type="button">Quick start<').length - 1
+    const marked = html.split('class="menu-item here" href="/docs/getting-started/quick-start">Quick start<').length - 1
     expect(marked).toBe(2)
     expect(html).toContain('class="docs-drawer"')
     expect(html).toContain('class="docs-scrim"')
@@ -169,7 +192,7 @@ describe('the documentation shell', () => {
         },
       ],
     } as unknown as Corpus
-    const bare = renderHtml((h) => wovenPage(single, 'docs', at('only', ''), h))
+    const bare = renderHtml((h) => wovenPage(single, 'Docs', '/docs', at('only', ''), h))
     expect(bare).toContain('<h1 id="only">Only</h1>')
     expect(bare).not.toContain('doc-section')
     expect(bare).toContain('class="menu-subs"></div>')

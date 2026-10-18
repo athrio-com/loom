@@ -2401,15 +2401,6 @@ The column of sections stretches to the height of the body, and the pager sits a
 
 .doc-pager.pager-row { margin-top: auto; padding-top: 0; }
 
-.pager-card:is(button) {
-  appearance: none;
-  cursor: pointer;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  font: inherit;
-  text-align: inherit;
-}
 
 ~
 

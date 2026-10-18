@@ -83,6 +83,24 @@ const partOf = (corpus: Corpus, slug: string): Option.Option<Part> =>
 const readingOrder = (corpus: Corpus): ReadonlyArray<Chapter> =>
   Array.flatMap(corpus.nav, (part) => part.chapters)
 
+const readable = (slug: string): string =>
+  pipe(
+    slug.split('/'),
+    Array.map((segment) => segment.replace(/^\d+-/, '')),
+    Array.join('/'),
+  )
+
+export const chapterPath = (base: string, slug: string): string => `${base}/${readable(slug)}`
+
+export const chapterAt = (corpus: Corpus, base: string, pathname: string): Option.Option<string> =>
+  pipe(
+    Array.findFirst(corpus.pages, (page) => chapterPath(base, page.slug) === pathname),
+    Option.map((page) => page.slug),
+  )
+
+export const docsChapterAt = (pathname: string): Option.Option<string> =>
+  chapterAt(docsCorpus, '/docs', pathname)
+
 type Section = {
   readonly heading: HeadingBlock
   readonly blocks: ReadonlyArray<Block>
@@ -275,20 +293,26 @@ const sectionOf = (
     ],
   )
 
-const crumbButton = (label: string, slug: string, h: HtmlBuilder<Message>): Html =>
-  h.button([h.Class('crumb'), h.Type('button'), h.OnClick(OpenedChapter({ slug }))], [label])
+const crumbLink = (label: string, href: string, slug: string, h: HtmlBuilder<Message>): Html =>
+  h.a([h.Class('crumb'), h.Href(href), h.OnClick(OpenedChapter({ slug }))], [label])
 
-const breadcrumb = (corpus: Corpus, root: string, page: Page, h: HtmlBuilder<Message>): Html =>
+const breadcrumb = (
+  corpus: Corpus,
+  root: string,
+  base: string,
+  page: Page,
+  h: HtmlBuilder<Message>,
+): Html =>
   h.div(
     [h.Class('eyebrow doc-crumbs')],
     [
-      crumbButton(root, firstSlugOf(corpus), h),
+      crumbLink(root, base, firstSlugOf(corpus), h),
       h.span([h.Class('sep'), h.AriaHidden(true)], ['/']),
       ...pipe(
         partOf(corpus, page.slug),
         Option.flatMap((part) =>
           Option.map(Array.head(part.chapters), (first) => [
-            crumbButton(part.name, first.slug, h),
+            crumbLink(part.name, chapterPath(base, first.slug), first.slug, h),
             h.span([h.Class('sep'), h.AriaHidden(true)], ['/']),
           ]),
         ),
@@ -301,6 +325,7 @@ const breadcrumb = (corpus: Corpus, root: string, page: Page, h: HtmlBuilder<Mes
 const docHead = (
   corpus: Corpus,
   root: string,
+  base: string,
   page: Page,
   cut: Cut,
   model: Model,
@@ -324,7 +349,7 @@ const docHead = (
           h.div(
             [h.Class('doc-hero-lead')],
             [
-              breadcrumb(corpus, root, page, h),
+              breadcrumb(corpus, root, base, page, h),
               h.div(
                 [h.Class('page-title')],
                 [loomMark('paper', 0.8), h.h1([h.Id(heading.id)], [heading.title])],
@@ -370,11 +395,12 @@ const chapterRows = (
   page: Page,
   cut: Cut,
   active: string,
+  base: string,
   h: HtmlBuilder<Message>,
 ): ReadonlyArray<Html> =>
   chapter.slug === page.slug
     ? [
-        h.button([h.Class('menu-item here'), h.Type('button')], [chapter.title]),
+        h.a([h.Class('menu-item here'), h.Href(chapterPath(base, chapter.slug))], [chapter.title]),
         h.div(
           [h.Class('menu-subs')],
           Array.map(cut.sections, (section) =>
@@ -383,8 +409,12 @@ const chapterRows = (
         ),
       ]
     : [
-        h.button(
-          [h.Class('menu-item'), h.Type('button'), h.OnClick(OpenedChapter({ slug: chapter.slug }))],
+        h.a(
+          [
+            h.Class('menu-item'),
+            h.Href(chapterPath(base, chapter.slug)),
+            h.OnClick(OpenedChapter({ slug: chapter.slug })),
+          ],
           [chapter.title],
         ),
       ]
@@ -394,6 +424,7 @@ const menuGroups = (
   page: Page,
   cut: Cut,
   active: string,
+  base: string,
   h: HtmlBuilder<Message>,
 ): ReadonlyArray<Html> =>
   Array.map(corpus.nav, (part) =>
@@ -401,15 +432,22 @@ const menuGroups = (
       [h.Class('menu-part')],
       [
         h.span([h.Class('eyebrow')], [part.name]),
-        ...Array.flatMap(part.chapters, (chapter) => chapterRows(chapter, page, cut, active, h)),
+        ...Array.flatMap(part.chapters, (chapter) => chapterRows(chapter, page, cut, active, base, h)),
       ],
     ),
   )
 
-const menu = (corpus: Corpus, page: Page, cut: Cut, active: string, h: HtmlBuilder<Message>): Html =>
+const menu = (
+  corpus: Corpus,
+  page: Page,
+  cut: Cut,
+  active: string,
+  base: string,
+  h: HtmlBuilder<Message>,
+): Html =>
   h.nav(
     [h.Class('menu-card thin-scroll'), h.AriaLabel('Chapters')],
-    menuGroups(corpus, page, cut, active, h),
+    menuGroups(corpus, page, cut, active, base, h),
   )
 
 const chapterFlower = (corpus: Corpus, slug: string): Carpet =>
@@ -422,6 +460,7 @@ const chapterFlower = (corpus: Corpus, slug: string): Carpet =>
 
 const chapterCard = (
   corpus: Corpus,
+  base: string,
   chapter: Chapter,
   direction: 'Previous' | 'Next',
   h: HtmlBuilder<Message>,
@@ -434,10 +473,10 @@ const chapterCard = (
       h.span([h.Class('pager-title')], [chapter.title]),
     ],
   )
-  return h.button(
+  return h.a(
     [
       h.Class(direction === 'Next' ? 'pager-card next' : 'pager-card'),
-      h.Type('button'),
+      h.Href(chapterPath(base, chapter.slug)),
       h.Style({ '--pg-ink': '#C2410C' }),
       h.OnClick(OpenedChapter({ slug: chapter.slug })),
     ],
@@ -445,7 +484,7 @@ const chapterCard = (
   )
 }
 
-const chapterPager = (corpus: Corpus, page: Page, h: HtmlBuilder<Message>): Html => {
+const chapterPager = (corpus: Corpus, base: string, page: Page, h: HtmlBuilder<Message>): Html => {
   const order = readingOrder(corpus)
   const at = Array.findFirstIndex(order, (chapter) => chapter.slug === page.slug)
   const step = (by: number): Option.Option<Chapter> =>
@@ -453,8 +492,8 @@ const chapterPager = (corpus: Corpus, page: Page, h: HtmlBuilder<Message>): Html
   return h.div(
     [h.Class('pager-row doc-pager')],
     [
-      ...Option.toArray(Option.map(step(-1), (chapter) => chapterCard(corpus, chapter, 'Previous', h))),
-      ...Option.toArray(Option.map(step(1), (chapter) => chapterCard(corpus, chapter, 'Next', h))),
+      ...Option.toArray(Option.map(step(-1), (chapter) => chapterCard(corpus, base, chapter, 'Previous', h))),
+      ...Option.toArray(Option.map(step(1), (chapter) => chapterCard(corpus, base, chapter, 'Next', h))),
     ],
   )
 }
@@ -479,6 +518,7 @@ const closeIcon = (h: HtmlBuilder<Message>): Html =>
 
 const drawer = (
   corpus: Corpus,
+  base: string,
   page: Page,
   cut: Cut,
   model: Model,
@@ -505,7 +545,7 @@ const drawer = (
       ),
       h.div(
         [h.Class('drawer-body thin-scroll')],
-        menuGroups(corpus, page, cut, model.activeSection, h),
+        menuGroups(corpus, page, cut, model.activeSection, base, h),
       ),
     ],
   )
@@ -523,6 +563,7 @@ const scrim = (open: boolean, h: HtmlBuilder<Message>): Html =>
 export const wovenPage = (
   corpus: Corpus,
   root: string,
+  base: string,
   model: Model,
   h: HtmlBuilder<Message>,
 ): Html => {
@@ -537,11 +578,11 @@ export const wovenPage = (
         return h.div(
           [h.Class('docs-page')],
           [
-            docHead(corpus, root, page, cut, model, h),
+            docHead(corpus, root, base, page, cut, model, h),
             h.div(
               [h.Class('docs-body')],
               [
-                menu(corpus, page, cut, model.activeSection, h),
+                menu(corpus, page, cut, model.activeSection, base, h),
                 h.article(
                   [h.Class('docs-article')],
                   [
@@ -553,13 +594,13 @@ export const wovenPage = (
                         h,
                       ),
                     ),
-                    chapterPager(corpus, page, h),
+                    chapterPager(corpus, base, page, h),
                   ],
                 ),
               ],
             ),
             scrim(model.drawerOpen, h),
-            drawer(corpus, page, cut, model, h),
+            drawer(corpus, base, page, cut, model, h),
           ],
         )
       },
@@ -568,4 +609,4 @@ export const wovenPage = (
 }
 
 export const documentationPage = (model: Model, h: HtmlBuilder<Message>): Html =>
-  wovenPage(docsCorpus, 'Docs', model, h)
+  wovenPage(docsCorpus, 'Docs', '/docs', model, h)

@@ -18,13 +18,13 @@ The server stays clear of the client runtime. It renders through Foldkit's serve
 
 ## What the server draws on
 
-From `effect` come `Effect`, the `FileSystem` that reads the built shell, the `Option` that fills the model's empty fields and carries a path naming no route, the `Schema` that parses what the npm registry returns, and the `Context` and `Layer` that define the server and wire it. From `effect/http` come the request and the responses. `@effect/platform-bun` supplies the Bun HTTP server, its file services, and the runtime edge. Foldkit lends `Server`, from its experimental server module, which renders a view to HTML and writes it into the shell.
+From `effect` come `Effect`, the `FileSystem` that reads the built shell, the `Option` that fills the model's empty fields and carries a path naming no page, the `pipe` that reads a path as a route or a chapter, the `Schema` that parses what the npm registry returns, and the `Context` and `Layer` that define the server and wire it. From `effect/http` come the request and the responses. `@effect/platform-bun` supplies the Bun HTTP server, its file services, and the runtime edge. Foldkit lends `Server`, from its experimental server module, which renders a view to HTML and writes it into the shell.
 
-The site's own modules supply the view and the model, whose schema doubles as the shape of the flags the page carries to the client. The model also lends the `routeOf` function, which turns the path a request names into the route to render. The client reads the same function when it boots, so the server and the browser agree on which page an address names.
+The site's own modules supply the view and the model, whose schema doubles as the shape of the flags the page carries to the client. The model also lends the `routeOf` function, which turns the path a request names into the route to render. The documentation shell lends `docsChapterAt`, which turns the address of a chapter into the chapter to open. The client never reads an address itself: it boots from the model the server rendered, so the two always agree on which page and which chapter are on show.
 
 =>
 
-import { Context, Effect, FileSystem, Layer, Option, Schema as S } from 'effect'
+import { Context, Effect, FileSystem, Layer, Option, pipe, Schema as S } from 'effect'
 import {
   HttpServer,
   HttpServerRequest,
@@ -35,7 +35,8 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Server } from 'foldkit/experimental'
 import { view } from './view'
-import { Model, routeOf } from './model'
+import { Model, routeOf, type Route } from './model'
+import { docsChapterAt } from './docs-page'
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist')
 
@@ -205,9 +206,20 @@ The site reads its shell for each page rather than holding one from startup, bec
 
 Rendering per request follows, and costs about as little: a render is one pass of the view and one write into the shell. The latest release is the one thing read once at startup, since a registry is slow to ask and a version changes on a release rather than on a request.
 
-Two answers are the whole of what the site owes the handler. The `pageAt` function asks `routeOf` whether the path names a route at all, then renders that route through the shell it has just read. A `dist` it cannot read yields the unbuilt page. A render that fails is a fault in the site rather than in the build, so it surfaces as one instead of hiding behind the unbuilt page. The `assetAt` function reads a file from `dist` — the client bundle, the stylesheet, the marks — and falls back to the missing page when there is no such file. Both take the request's whole URL, since a path alone is what the handler happens to match on rather than all it holds.
+Two answers are the whole of what the site owes the handler. The `pageAt` function asks `placeOf` whether the path names a page at all, then renders that page through the shell it has just read. A path names a page in one of two ways. It is a route's own path, such as `/why-loom` or `/docs`, which opens the route as it stands. Or it is a chapter's address under `/docs`, which opens the documentation on that chapter. Any other path names no page, so the server looks for an asset, and answers with the missing page when there is none. A `dist` it cannot read yields the unbuilt page. A render that fails is a fault in the site rather than in the build, so it surfaces as one instead of hiding behind the unbuilt page. The `assetAt` function reads a file from `dist` — the client bundle, the stylesheet, the marks — and falls back to the missing page when there is no such file. Both take the request's whole URL, since a path alone is what the handler happens to match on rather than all it holds.
 
 =>
+
+type Place = { readonly route: Route; readonly chapter: string }
+
+const placeOf = (pathname: string): Option.Option<Place> =>
+  pipe(
+    routeOf(pathname),
+    Option.map((route): Place => ({ route, chapter: '' })),
+    Option.orElse(() =>
+      Option.map(docsChapterAt(pathname), (chapter): Place => ({ route: 'docs', chapter })),
+    ),
+  )
 
 export class Site extends Context.Service<Site>()('Site', {
   make: Effect.gen(function* () {
@@ -216,13 +228,13 @@ export class Site extends Context.Service<Site>()('Site', {
     const shell = fs.readFileString(join(distDir, 'index.html'))
     return {
       pageAt: (url: URL): Effect.Effect<Option.Option<string>> =>
-        Option.match(routeOf(url.pathname), {
+        Option.match(placeOf(url.pathname), {
           onNone: () => Effect.succeed(Option.none()),
-          onSome: (route) =>
+          onSome: (place) =>
             shell.pipe(
               Effect.matchEffect({
                 onFailure: () => Effect.succeed(NOT_BUILT),
-                onSuccess: (held) => pageOf(held, { ...seed, route, version }),
+                onSuccess: (held) => pageOf(held, { ...seed, ...place, version }),
               }),
               Effect.map(Option.some),
             ),

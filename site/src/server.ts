@@ -1,4 +1,4 @@
-import { Context, Effect, FileSystem, Layer, Option, Schema as S } from 'effect'
+import { Context, Effect, FileSystem, Layer, Option, pipe, Schema as S } from 'effect'
 import {
   HttpServer,
   HttpServerRequest,
@@ -9,7 +9,8 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Server } from 'foldkit/experimental'
 import { view } from './view'
-import { Model, routeOf } from './model'
+import { Model, routeOf, type Route } from './model'
+import { docsChapterAt } from './docs-page'
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist')
 
@@ -123,6 +124,17 @@ const NOT_BUILT = standalone(
     <p class="line">The server renders from <code>dist</code>, and nothing is there yet. Run <code>bun run build</code>, or <code>bun run dev</code> to keep it building.</p>`,
 )
 
+type Place = { readonly route: Route; readonly chapter: string }
+
+const placeOf = (pathname: string): Option.Option<Place> =>
+  pipe(
+    routeOf(pathname),
+    Option.map((route): Place => ({ route, chapter: '' })),
+    Option.orElse(() =>
+      Option.map(docsChapterAt(pathname), (chapter): Place => ({ route: 'docs', chapter })),
+    ),
+  )
+
 export class Site extends Context.Service<Site>()('Site', {
   make: Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
@@ -130,13 +142,13 @@ export class Site extends Context.Service<Site>()('Site', {
     const shell = fs.readFileString(join(distDir, 'index.html'))
     return {
       pageAt: (url: URL): Effect.Effect<Option.Option<string>> =>
-        Option.match(routeOf(url.pathname), {
+        Option.match(placeOf(url.pathname), {
           onNone: () => Effect.succeed(Option.none()),
-          onSome: (route) =>
+          onSome: (place) =>
             shell.pipe(
               Effect.matchEffect({
                 onFailure: () => Effect.succeed(NOT_BUILT),
-                onSuccess: (held) => pageOf(held, { ...seed, route, version }),
+                onSuccess: (held) => pageOf(held, { ...seed, ...place, version }),
               }),
               Effect.map(Option.some),
             ),
