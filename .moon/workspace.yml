@@ -10,4 +10,5 @@ projects:
   loom-lang: "packages/loom-lang"
   loom: "packages/loom"
   loom-vscode: "packages/loom-vscode"
+  tree-sitter-loom: "packages/tree-sitter-loom"
   site: "site"
