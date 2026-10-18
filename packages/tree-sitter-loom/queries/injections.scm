@@ -18,14 +18,6 @@
   (#not-eq? @injection.language "Prose")
   (#not-eq? @injection.language "prose"))
 
-((section
-  (heading
-    specifier: (specifier
-      label: (label) @_language))
-  (code) @injection.content)
-  (#any-of? @_language "Prose" "prose")
-  (#set! injection.language "markdown"))
-
 (section
   (heading
     !specifier
@@ -69,6 +61,14 @@
   (#eq? @_key "Language")
   (#not-eq? @injection.language "Prose")
   (#not-eq? @injection.language "prose"))
+
+((section
+  (heading
+    specifier: (specifier
+      label: (label) @_language))
+  (code) @injection.content)
+  (#any-of? @_language "Prose" "prose")
+  (#set! injection.language "markdown"))
 
 ((document
   (frontmatter

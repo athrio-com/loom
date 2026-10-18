@@ -14,7 +14,11 @@ The capture names follow the list nvim-treesitter keeps. Helix shares every name
 
 ## The frontmatter's colours
 
-The frontmatter's fences are punctuation with a special role, and each field's value is a string. The key takes a colour of its own, in a section of its own, because the name of that colour is the one Helix spells differently.
+The frontmatter's fences are punctuation with a special role. A field's value takes the colour of what it names. A `Part` or `Chapter` line names a title, so its value is a heading, the way the headings below it are. A `Package` names a file or a folder, so its value is a path, as a sink's file is. A `Language` names a language, so its value is a type, as a specifier's label is. Any other field's value is a string.
+
+The patterns tell the fields apart by their keys. A `Part` key may carry a chapter as well, `Part III, Chapter 2`, so the two title keys match by the word they start with. The patterns use only a plain prefix and exact names, because Neovim reads a `#match?` pattern as a Vim regular expression and Helix as a Rust one, and only the plainest patterns mean the same to both. The last pattern excludes the four keys the others claim, so no value takes two colours.
+
+The key takes a colour of its own, in a section of its own, because the name of that colour is the one Helix spells differently.
 
 =>
 
@@ -23,8 +27,33 @@ The frontmatter's fences are punctuation with a special role, and each field's v
 (field
   ":" @punctuation.delimiter)
 
-(field
+((field
+  key: (key) @_key
+  value: (value) @markup.heading)
+  (#match? @_key "^Part"))
+
+((field
+  key: (key) @_key
+  value: (value) @markup.heading)
+  (#match? @_key "^Chapter"))
+
+((field
+  key: (key) @_key
+  value: (value) @string.special.path)
+  (#eq? @_key "Package"))
+
+((field
+  key: (key) @_key
+  value: (value) @type)
+  (#eq? @_key "Language"))
+
+((field
+  key: (key) @_key
   value: (value) @string)
+  (#not-match? @_key "^Part")
+  (#not-match? @_key "^Chapter")
+  (#not-eq? @_key "Package")
+  (#not-eq? @_key "Language"))
 
 ## A key in Neovim
 
@@ -183,9 +212,11 @@ Every run of prose is Markdown: a preamble, a prose block, and a table of conten
 
 ## A section's language
 
-Each code block is injected with its section's language, resolved by the rules of Part IV: the section's specifier, then its sink's extension, then the chapter's language. The patterns below take the rules one at a time. Each pattern matches only where the rules before it do not apply, so a code block is injected once.
+Each code block is injected with its section's language, resolved by the rules of Part IV: the section's specifier, then its sink's extension, then the chapter's language. The sections below take the rules one at a time. Each pattern matches only where the rules before it do not apply, so a code block is injected once.
 
-A specifier names the language outright, `{Bash}` or `{json}`. Neovim reads a language's name in lower case, and Helix matches the name against each language's own pattern. Three labels are not languages: `{Tangle}` and `{TOC}` are instructions, and a `{Prose}` section is Markdown, which the next pattern injects by name. The negations use `#not-eq?`, because Helix knows no `#not-any-of?`.
+## Named by a specifier
+
+A specifier names the language outright, `{Bash}` or `{json}`. Neovim reads a language's name in lower case. Three labels are not languages: `{Tangle}` and `{TOC}` are instructions, and a `{Prose}` section is Markdown, which a pattern of its own injects. The negations use `#not-eq?`, because Helix knows no `#not-any-of?`.
 
 =>
 
@@ -199,15 +230,7 @@ A specifier names the language outright, `{Bash}` or `{json}`. Neovim reads a la
   (#not-eq? @injection.language "Prose")
   (#not-eq? @injection.language "prose"))
 
-((section
-  (heading
-    specifier: (specifier
-      label: (label) @_language))
-  (code) @injection.content)
-  (#any-of? @_language "Prose" "prose")
-  (#set! injection.language "markdown"))
-
-~
+## Named by a sink
 
 A sink names the language by its file. Both Neovim and Helix take an `@injection.filename` capture and find the language the way they would for a file of that name, so `hello.ts` reads as TypeScript and `Dockerfile` as a Dockerfile. A sink sets the language when the heading has no specifier, or when the specifier is `{Tangle}`.
 
@@ -229,7 +252,7 @@ A sink names the language by its file. Both Neovim and Helix take an `@injection
   (code) @injection.content
   (#any-of? @_tangle "Tangle" "tangle"))
 
-~
+## Named by the Package file
 
 A `{Tangle}` section without a sink writes the chapter's own file, the one its `Package` field names, so that file's name sets the language.
 
@@ -249,9 +272,9 @@ A `{Tangle}` section without a sink writes the chapter's own file, the one its `
   (#eq? @_key "Package")
   (#any-of? @_tangle "Tangle" "tangle"))
 
-~
+## Named by the chapter
 
-A section with neither a specifier nor a sink takes the chapter's `Language` field. A chapter written in Prose is Markdown, as a `{Prose}` section is. When the chapter names no language, Loom falls back to the project's configured language, which a query cannot read, and the code stays uncoloured.
+A section with neither a specifier nor a sink takes the chapter's `Language` field. When the chapter names no language, Loom falls back to the project's configured language, which a query cannot read, and the code stays uncoloured.
 
 =>
 
@@ -269,6 +292,20 @@ A section with neither a specifier nor a sink takes the chapter's `Language` fie
   (#not-eq? @injection.language "Prose")
   (#not-eq? @injection.language "prose"))
 
+## A Prose section is Markdown
+
+A section in Prose is Markdown, whether a `{Prose}` specifier says so or the chapter's `Language` does.
+
+=>
+
+((section
+  (heading
+    specifier: (specifier
+      label: (label) @_language))
+  (code) @injection.content)
+  (#any-of? @_language "Prose" "prose")
+  (#set! injection.language "markdown"))
+
 ((document
   (frontmatter
     (field
@@ -282,6 +319,366 @@ A section with neither a specifier nor a sink takes the chapter's `Language` fie
   (#eq? @_key "Language")
   (#any-of? @_language "Prose" "prose")
   (#set! injection.language "markdown"))
+
+## Names Helix knows in lower case
+
+Helix finds an injected language by matching the name against each language's own pattern, and those patterns are lower case and match case by case. `typescript` reaches TypeScript, but `TypeScript`, the way a chapter writes it, does not, and Helix colours that code with a grammar that is not TypeScript's. A query cannot lower a name's case, so Helix's copy of the injections names each language a loom commonly writes with a capital, and sets the name Helix knows in its place.
+
+The two rules that read a name, the specifier and the chapter's `Language`, take a Helix form. Each maps the capitalised names one by one, and its general pattern, for every other name, leaves out the names the map has claimed, so no code block is injected twice. Helix reads its patterns as Rust regular expressions, and this file is Helix's alone, so its exclusions use one alternation each.
+
+=>
+
+(section
+  (heading
+    specifier: (specifier
+      label: (label) @injection.language))
+  (code) @injection.content
+  (#not-match? @injection.language "^(Tangle|tangle|TOC|toc|Prose|prose)$")
+  (#not-match? @injection.language "^(TypeScript|JavaScript|JSON|YAML|TOML|Markdown|CSS|HTML|Dockerfile|Rust|Python|Go|Lua|C|Bash)$"))
+
+((section
+  (heading
+    specifier: (specifier
+      label: (label) @_language))
+  (code) @injection.content)
+  (#eq? @_language "TypeScript")
+  (#set! injection.language "typescript"))
+
+((section
+  (heading
+    specifier: (specifier
+      label: (label) @_language))
+  (code) @injection.content)
+  (#eq? @_language "JavaScript")
+  (#set! injection.language "javascript"))
+
+((section
+  (heading
+    specifier: (specifier
+      label: (label) @_language))
+  (code) @injection.content)
+  (#eq? @_language "JSON")
+  (#set! injection.language "json"))
+
+((section
+  (heading
+    specifier: (specifier
+      label: (label) @_language))
+  (code) @injection.content)
+  (#eq? @_language "YAML")
+  (#set! injection.language "yaml"))
+
+((section
+  (heading
+    specifier: (specifier
+      label: (label) @_language))
+  (code) @injection.content)
+  (#eq? @_language "TOML")
+  (#set! injection.language "toml"))
+
+((section
+  (heading
+    specifier: (specifier
+      label: (label) @_language))
+  (code) @injection.content)
+  (#eq? @_language "Markdown")
+  (#set! injection.language "markdown"))
+
+((section
+  (heading
+    specifier: (specifier
+      label: (label) @_language))
+  (code) @injection.content)
+  (#eq? @_language "CSS")
+  (#set! injection.language "css"))
+
+((section
+  (heading
+    specifier: (specifier
+      label: (label) @_language))
+  (code) @injection.content)
+  (#eq? @_language "HTML")
+  (#set! injection.language "html"))
+
+((section
+  (heading
+    specifier: (specifier
+      label: (label) @_language))
+  (code) @injection.content)
+  (#eq? @_language "Dockerfile")
+  (#set! injection.language "dockerfile"))
+
+((section
+  (heading
+    specifier: (specifier
+      label: (label) @_language))
+  (code) @injection.content)
+  (#eq? @_language "Rust")
+  (#set! injection.language "rust"))
+
+((section
+  (heading
+    specifier: (specifier
+      label: (label) @_language))
+  (code) @injection.content)
+  (#eq? @_language "Python")
+  (#set! injection.language "python"))
+
+((section
+  (heading
+    specifier: (specifier
+      label: (label) @_language))
+  (code) @injection.content)
+  (#eq? @_language "Go")
+  (#set! injection.language "go"))
+
+((section
+  (heading
+    specifier: (specifier
+      label: (label) @_language))
+  (code) @injection.content)
+  (#eq? @_language "Lua")
+  (#set! injection.language "lua"))
+
+((section
+  (heading
+    specifier: (specifier
+      label: (label) @_language))
+  (code) @injection.content)
+  (#eq? @_language "C")
+  (#set! injection.language "c"))
+
+((section
+  (heading
+    specifier: (specifier
+      label: (label) @_language))
+  (code) @injection.content)
+  (#eq? @_language "Bash")
+  (#set! injection.language "bash"))
+
+(document
+  (frontmatter
+    (field
+      key: (key) @_key
+      value: (value) @injection.language))
+  (section
+    (heading
+      !specifier
+      !sink)
+    (code) @injection.content)
+  (#eq? @_key "Language")
+  (#not-match? @injection.language "^(Prose|prose)$")
+  (#not-match? @injection.language "^(TypeScript|JavaScript|JSON|YAML|TOML|Markdown|CSS|HTML|Dockerfile|Rust|Python|Go|Lua|C|Bash)$"))
+
+((document
+  (frontmatter
+    (field
+      key: (key) @_key
+      value: (value) @_language))
+  (section
+    (heading
+      !specifier
+      !sink)
+    (code) @injection.content))
+  (#eq? @_key "Language")
+  (#eq? @_language "TypeScript")
+  (#set! injection.language "typescript"))
+
+((document
+  (frontmatter
+    (field
+      key: (key) @_key
+      value: (value) @_language))
+  (section
+    (heading
+      !specifier
+      !sink)
+    (code) @injection.content))
+  (#eq? @_key "Language")
+  (#eq? @_language "JavaScript")
+  (#set! injection.language "javascript"))
+
+((document
+  (frontmatter
+    (field
+      key: (key) @_key
+      value: (value) @_language))
+  (section
+    (heading
+      !specifier
+      !sink)
+    (code) @injection.content))
+  (#eq? @_key "Language")
+  (#eq? @_language "JSON")
+  (#set! injection.language "json"))
+
+((document
+  (frontmatter
+    (field
+      key: (key) @_key
+      value: (value) @_language))
+  (section
+    (heading
+      !specifier
+      !sink)
+    (code) @injection.content))
+  (#eq? @_key "Language")
+  (#eq? @_language "YAML")
+  (#set! injection.language "yaml"))
+
+((document
+  (frontmatter
+    (field
+      key: (key) @_key
+      value: (value) @_language))
+  (section
+    (heading
+      !specifier
+      !sink)
+    (code) @injection.content))
+  (#eq? @_key "Language")
+  (#eq? @_language "TOML")
+  (#set! injection.language "toml"))
+
+((document
+  (frontmatter
+    (field
+      key: (key) @_key
+      value: (value) @_language))
+  (section
+    (heading
+      !specifier
+      !sink)
+    (code) @injection.content))
+  (#eq? @_key "Language")
+  (#eq? @_language "Markdown")
+  (#set! injection.language "markdown"))
+
+((document
+  (frontmatter
+    (field
+      key: (key) @_key
+      value: (value) @_language))
+  (section
+    (heading
+      !specifier
+      !sink)
+    (code) @injection.content))
+  (#eq? @_key "Language")
+  (#eq? @_language "CSS")
+  (#set! injection.language "css"))
+
+((document
+  (frontmatter
+    (field
+      key: (key) @_key
+      value: (value) @_language))
+  (section
+    (heading
+      !specifier
+      !sink)
+    (code) @injection.content))
+  (#eq? @_key "Language")
+  (#eq? @_language "HTML")
+  (#set! injection.language "html"))
+
+((document
+  (frontmatter
+    (field
+      key: (key) @_key
+      value: (value) @_language))
+  (section
+    (heading
+      !specifier
+      !sink)
+    (code) @injection.content))
+  (#eq? @_key "Language")
+  (#eq? @_language "Dockerfile")
+  (#set! injection.language "dockerfile"))
+
+((document
+  (frontmatter
+    (field
+      key: (key) @_key
+      value: (value) @_language))
+  (section
+    (heading
+      !specifier
+      !sink)
+    (code) @injection.content))
+  (#eq? @_key "Language")
+  (#eq? @_language "Rust")
+  (#set! injection.language "rust"))
+
+((document
+  (frontmatter
+    (field
+      key: (key) @_key
+      value: (value) @_language))
+  (section
+    (heading
+      !specifier
+      !sink)
+    (code) @injection.content))
+  (#eq? @_key "Language")
+  (#eq? @_language "Python")
+  (#set! injection.language "python"))
+
+((document
+  (frontmatter
+    (field
+      key: (key) @_key
+      value: (value) @_language))
+  (section
+    (heading
+      !specifier
+      !sink)
+    (code) @injection.content))
+  (#eq? @_key "Language")
+  (#eq? @_language "Go")
+  (#set! injection.language "go"))
+
+((document
+  (frontmatter
+    (field
+      key: (key) @_key
+      value: (value) @_language))
+  (section
+    (heading
+      !specifier
+      !sink)
+    (code) @injection.content))
+  (#eq? @_key "Language")
+  (#eq? @_language "Lua")
+  (#set! injection.language "lua"))
+
+((document
+  (frontmatter
+    (field
+      key: (key) @_key
+      value: (value) @_language))
+  (section
+    (heading
+      !specifier
+      !sink)
+    (code) @injection.content))
+  (#eq? @_key "Language")
+  (#eq? @_language "C")
+  (#set! injection.language "c"))
+
+((document
+  (frontmatter
+    (field
+      key: (key) @_key
+      value: (value) @_language))
+  (section
+    (heading
+      !specifier
+      !sink)
+    (code) @injection.content))
+  (#eq? @_key "Language")
+  (#eq? @_language "Bash")
+  (#set! injection.language "bash"))
 
 ## The highlights query {Tangle}[queries/highlights.scm]
 
@@ -309,7 +706,15 @@ A section with neither a specifier nor a sink takes the chapter's `Language` fie
 
 ::[Prose is Markdown]
 
-::[A section's language]
+::[Named by a specifier]
+
+::[Named by a sink]
+
+::[Named by the Package file]
+
+::[Named by the chapter]
+
+::[A Prose section is Markdown]
 
 ## The highlights query for Helix {Tangle}[editors/helix/queries/loom/highlights.scm]
 
@@ -335,10 +740,16 @@ Helix reads its queries from its own runtime directory, so a Helix setup copies 
 
 ## The injections query for Helix {Tangle}[editors/helix/queries/loom/injections.scm]
 
-The injections need no change for Helix, and the copy beside its highlights makes the folder whole, ready to place in Helix's runtime as it stands.
+Helix's copy of the injections shares the rules that work by a file's name, and takes its own form of the two that read a language's name.
 
 =>
 
 ::[Prose is Markdown]
 
-::[A section's language]
+::[Names Helix knows in lower case]
+
+::[Named by a sink]
+
+::[Named by the Package file]
+
+::[A Prose section is Markdown]
