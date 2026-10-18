@@ -27,7 +27,9 @@ bun = "1.2.20"
 
 ## The projects {Tangle}[.moon/workspace.yml]
 
-A moon project is a directory whose `moon.yml` names its tasks. The workspace file lists the projects: the book in `corpus`, the seven packages, and the website. Moon measures a change against the default branch, `main`, unless it is told which two commits to compare, as the workflow below tells it.
+A moon project is a directory whose `moon.yml` names its tasks. The workspace file lists the projects: the book, the seven packages, and the website. The book's project is the repository's root, since its one check reads the corpus and every directory the corpus writes into. The `corpus` folder itself holds looms and nothing else.
+
+The projects are listed by name. Left to itself, moon names a project after its folder, and the root's folder is called `loom`, the same as the CLI's. Moon measures a change against the default branch, `main`, unless it is told which two commits to compare, as the workflow below tells it.
 
 =>
 
@@ -35,17 +37,17 @@ $schema: "https://moonrepo.dev/schemas/workspace.json"
 vcs:
   defaultBranch: "main"
 projects:
-  - "corpus"
-  - "packages/loom-ast"
-  - "packages/loom-config"
-  - "packages/loom-lang-services"
-  - "packages/loom-service-typescript"
-  - "packages/loom-lang"
-  - "packages/loom"
-  - "packages/loom-vscode"
-  - "site"
+  book: "."
+  loom-ast: "packages/loom-ast"
+  loom-config: "packages/loom-config"
+  loom-lang-services: "packages/loom-lang-services"
+  loom-service-typescript: "packages/loom-service-typescript"
+  loom-lang: "packages/loom-lang"
+  loom: "packages/loom"
+  loom-vscode: "packages/loom-vscode"
+  site: "site"
 
-## The book {Tangle}[corpus/moon.yml]
+## The book {Tangle}[moon.yml]
 
 Every project's tasks need the workspace's packages, so each project has an `install` task the others depend on. It installs against the committed lockfile, from the repository's root, where the workspace is. A dependency runs before the task that needs it and never on its own, so a push that runs no task installs nothing. The install is never cached, because whether the packages are in place is a question about the machine, not about any file.
 
@@ -65,7 +67,7 @@ tasks:
 
 The book's own task is the tangle check. It builds the CLI from the committed source and tangles the corpus with it. Self-tangling is deliberate here, since the check asks only whether the source and the corpus agree, not whether the tangler is the released one. `git diff --exit-code` then fails the task if the re-tangle changed anything, naming the files that drifted.
 
-Its inputs are as wide as its question. They are the corpus, every directory the tangle writes into, and the lock that lists what it wrote, so a hand edit to a tangled file runs the check as surely as an edit to a loom does. The workspace's manifest, its lockfile and the pinned tools count too, since they decide which tangler runs.
+Its inputs are as wide as its question. They are the corpus, every directory the tangle writes into, and the lock that lists what it wrote, so a hand edit to a tangled file runs the check as surely as an edit to a loom does. The workspace's manifest, its lockfile and the pinned tools count too, since they decide which tangler runs. The project is the repository's root, so each input is named outright: the root's own `**/*` would be every file in the repository, and an edit to the README would tangle the book again.
 
 =>
 
@@ -73,17 +75,16 @@ Its inputs are as wide as its question. They are the corpus, every directory the
     script: "bun run --filter @athrio/loom build && bun packages/loom/dist/main.js tangle corpus && git diff --exit-code"
     deps: ["install"]
     inputs:
-      - "**/*"
-      - "/packages/**/*"
-      - "/site/**/*"
-      - "/.github/**/*"
-      - "/scripts/**/*"
-      - "/.loom/**/*"
-      - "/package.json"
-      - "/bun.lock"
-      - "/mise.toml"
-    options:
-      runFromWorkspaceRoot: true
+      - "corpus/**/*"
+      - "packages/**/*"
+      - "site/**/*"
+      - ".github/**/*"
+      - "scripts/**/*"
+      - ".loom/**/*"
+      - "package.json"
+      - "bun.lock"
+      - "mise.toml"
+      - "moon.yml"
 
 ## The packages
 
