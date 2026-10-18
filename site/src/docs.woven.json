@@ -11,13 +11,8 @@
         },
         {
           "number": "2",
-          "title": "Installation",
-          "slug": "01-getting-started/02-installation"
-        },
-        {
-          "number": "3",
-          "title": "Your first corpus",
-          "slug": "01-getting-started/03-your-first-corpus"
+          "title": "Loom projects",
+          "slug": "01-getting-started/02-loom-projects"
         }
       ]
     },
@@ -141,196 +136,99 @@
       ]
     },
     {
-      "slug": "01-getting-started/02-installation",
-      "title": "Installation",
+      "slug": "01-getting-started/02-loom-projects",
+      "title": "Loom projects",
       "part": "Getting started",
       "blocks": [
         {
           "type": "heading",
           "source": {
-            "chapter": "01-getting-started/02-installation",
-            "section": "installation"
+            "chapter": "01-getting-started/02-loom-projects",
+            "section": "loom-projects"
           },
           "level": 1,
-          "title": "Installation",
-          "id": "installation"
+          "title": "Loom projects",
+          "id": "loom-projects"
         },
         {
           "type": "prose",
           "source": {
-            "chapter": "01-getting-started/02-installation",
-            "section": "installation"
+            "chapter": "01-getting-started/02-loom-projects",
+            "section": "loom-projects"
           },
-          "markdown": "Loom is one command-line program, `loom`. You install it once, and it works in every project on your computer. It runs on Bun, or on Node.js 22 or later."
+          "markdown": "A single loom is enough to write a file. A project wants two more things: a folder where its looms live, and a language its sections use when they don't name one. `loom init` sets both up. Run it in the folder from the quick start.\n\n```bash\nloom init\n```"
         },
         {
           "type": "heading",
           "source": {
-            "chapter": "01-getting-started/02-installation",
-            "section": "install-the-command"
+            "chapter": "01-getting-started/02-loom-projects",
+            "section": "two-questions"
           },
           "level": 2,
-          "title": "Install the command",
-          "id": "install-the-command"
+          "title": "Two questions",
+          "id": "two-questions"
         },
         {
           "type": "prose",
           "source": {
-            "chapter": "01-getting-started/02-installation",
-            "section": "install-the-command"
+            "chapter": "01-getting-started/02-loom-projects",
+            "section": "two-questions"
           },
-          "markdown": "Choose the package manager you already use. The command changes with your choice, and the button copies it for you.\n\n```install\n```"
+          "markdown": "Loom asks which language your sections are written in when they don't say, and which languages your editor should understand. Both default to TypeScript, so press Enter twice.\n\nYour answers go into `.loom/config.yaml`, the project's settings. Commit it. Beside it, `.loom/.gitignore` keeps out the language services Loom downloads for your editor. The folder that holds `.loom` is now a Loom project.\n\nRunning `loom init` again changes nothing. To add a language later, use `loom add`."
         },
         {
           "type": "heading",
           "source": {
-            "chapter": "01-getting-started/02-installation",
-            "section": "check-that-it-works"
+            "chapter": "01-getting-started/02-loom-projects",
+            "section": "a-home-for-your-looms"
           },
           "level": 2,
-          "title": "Check that it works",
-          "id": "check-that-it-works"
+          "title": "A home for your looms",
+          "id": "a-home-for-your-looms"
         },
         {
           "type": "prose",
           "source": {
-            "chapter": "01-getting-started/02-installation",
-            "section": "check-that-it-works"
+            "chapter": "01-getting-started/02-loom-projects",
+            "section": "a-home-for-your-looms"
           },
-          "markdown": "Ask Loom for its version:\n\n```bash\nloom --version\n```\n\nIt prints the version you installed. Run `loom` on its own, with nothing after it, to see every command it knows."
+          "markdown": "Looms live in a folder called `corpus`. Create it and move your loom in:\n\n```bash\nmkdir corpus\n```\n\n```bash\nmv hello.loom corpus/\n```\n\nA loom in `corpus` writes its files to the project folder, the one that holds `corpus`. So `hello.ts` still lands where it did."
         },
         {
           "type": "heading",
           "source": {
-            "chapter": "01-getting-started/02-installation",
-            "section": "update-later"
+            "chapter": "01-getting-started/02-loom-projects",
+            "section": "one-label-fewer"
           },
           "level": 2,
-          "title": "Update later",
-          "id": "update-later"
+          "title": "One label fewer",
+          "id": "one-label-fewer"
         },
         {
           "type": "prose",
           "source": {
-            "chapter": "01-getting-started/02-installation",
-            "section": "update-later"
+            "chapter": "01-getting-started/02-loom-projects",
+            "section": "one-label-fewer"
           },
-          "markdown": "To move to a newer release, run the same install command again. It always fetches the latest version."
+          "markdown": "The project now has a primary language, TypeScript, and every section that names no language uses it. Open `corpus/hello.loom` and take `{TypeScript}` off the first heading, so it reads `# Saying hello`."
         },
         {
           "type": "heading",
           "source": {
-            "chapter": "01-getting-started/02-installation",
-            "section": "anything-else-to-install"
+            "chapter": "01-getting-started/02-loom-projects",
+            "section": "tangle-the-project"
           },
           "level": 2,
-          "title": "Anything else to install?",
-          "id": "anything-else-to-install"
+          "title": "Tangle the project",
+          "id": "tangle-the-project"
         },
         {
           "type": "prose",
           "source": {
-            "chapter": "01-getting-started/02-installation",
-            "section": "anything-else-to-install"
+            "chapter": "01-getting-started/02-loom-projects",
+            "section": "tangle-the-project"
           },
-          "markdown": "No. Loom writes TypeScript out of the box. Support for another language comes as a package you add to a project when you need it, not as a new version of Loom."
-        }
-      ]
-    },
-    {
-      "slug": "01-getting-started/03-your-first-corpus",
-      "title": "Your first corpus",
-      "part": "Getting started",
-      "blocks": [
-        {
-          "type": "heading",
-          "source": {
-            "chapter": "01-getting-started/03-your-first-corpus",
-            "section": "your-first-corpus"
-          },
-          "level": 1,
-          "title": "Your first corpus",
-          "id": "your-first-corpus"
-        },
-        {
-          "type": "prose",
-          "source": {
-            "chapter": "01-getting-started/03-your-first-corpus",
-            "section": "your-first-corpus"
-          },
-          "markdown": "A corpus is a directory of documents that Loom reads together. This chapter takes an empty project to a corpus that writes a real file."
-        },
-        {
-          "type": "heading",
-          "source": {
-            "chapter": "01-getting-started/03-your-first-corpus",
-            "section": "setting-the-project-up"
-          },
-          "level": 2,
-          "title": "Setting the project up",
-          "id": "setting-the-project-up"
-        },
-        {
-          "type": "prose",
-          "source": {
-            "chapter": "01-getting-started/03-your-first-corpus",
-            "section": "setting-the-project-up"
-          },
-          "markdown": "Run `loom init` in the project root.\n\n```bash\nloom init\n```\n\nIt asks two questions. The first is the primary language, the language a section is written in when it does not say otherwise, and `typescript` is the default. The second is which languages should have editor services activated, which defaults to whatever you answered first.\n\nThen it writes three things: `.loom/config.yaml`, holding those answers and the name of the directory Loom reads; `.loom/.gitignore`, so the services Loom downloads are not committed; and `.mcp.json`, which lets an agent talk to the workspace.\n\nInit does not create the corpus directory — it only records its name. Make it yourself:\n\n```bash\nmkdir corpus\n```"
-        },
-        {
-          "type": "heading",
-          "source": {
-            "chapter": "01-getting-started/03-your-first-corpus",
-            "section": "writing-a-chapter"
-          },
-          "level": 2,
-          "title": "Writing a chapter",
-          "id": "writing-a-chapter"
-        },
-        {
-          "type": "prose",
-          "source": {
-            "chapter": "01-getting-started/03-your-first-corpus",
-            "section": "writing-a-chapter"
-          },
-          "markdown": "A chapter is a Markdown file with a `.loom` extension. Write this into `corpus/01-greeting.loom`:\n\n```loom\n---\nPart I: A greeting\nChapter 1: Saying hello\nTarget: src/\nLanguage: TypeScript\n---\n\n# Saying hello\n\nA greeting takes a name and returns a sentence. It is the smallest thing worth\nwriting down, and the smallest thing worth explaining.\n\n## The greeting [greet.ts]\n\n=>\n\nexport const greet = (name: string): string => `Hello, ${name}!`\n```\n\nThe frontmatter says where the chapter sits and what it holds. `Target` names the directory its files are written into, and `Language` says what its code is written in.\n\nThe `#` heading opens a section. The `[greet.ts]` bracket on the second heading names the file that section's code belongs to, and `=>` opens the code itself."
-        },
-        {
-          "type": "heading",
-          "source": {
-            "chapter": "01-getting-started/03-your-first-corpus",
-            "section": "tangling-it"
-          },
-          "level": 2,
-          "title": "Tangling it",
-          "id": "tangling-it"
-        },
-        {
-          "type": "prose",
-          "source": {
-            "chapter": "01-getting-started/03-your-first-corpus",
-            "section": "tangling-it"
-          },
-          "markdown": "Point `loom tangle` at the corpus.\n\n```bash\nloom tangle corpus\n```\n\nIt writes `src/greet.ts`, and what it writes is ordinary TypeScript — no marker, no import, nothing of Loom in it. A person reading that file cannot tell it came from a document.\n\nChange the prose and tangle again and the file is untouched. Change the code and it is rewritten. The document is the source, and the file is what falls out of it."
-        },
-        {
-          "type": "heading",
-          "source": {
-            "chapter": "01-getting-started/03-your-first-corpus",
-            "section": "reading-it-back"
-          },
-          "level": 2,
-          "title": "Reading it back",
-          "id": "reading-it-back"
-        },
-        {
-          "type": "prose",
-          "source": {
-            "chapter": "01-getting-started/03-your-first-corpus",
-            "section": "reading-it-back"
-          },
-          "markdown": "The same corpus renders as a document:\n\n```bash\nloom weave corpus/01-greeting.loom greeting.json\n```\n\nThat gives you the chapter as data — its headings, its prose as Markdown, and its code — which is what a documentation site reads. These pages are exactly that, rendered from the corpus you are reading."
+          "markdown": "Point `loom tangle` at the folder rather than at one file:\n\n```bash\nloom tangle corpus\n```\n\nLoom reads every loom in `corpus` and writes `hello.ts`, the same file as before. It also records what it wrote in `.loom/loom.lock`, so it can tell its own files from yours. Commit that too."
         }
       ]
     },

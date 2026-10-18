@@ -1,0 +1,49 @@
+---
+Part I: Getting started
+Chapter 2: Loom projects
+Language: Prose
+---
+
+# Loom projects
+
+A single loom is enough to write a file. A project wants two more things: a folder where its looms live, and a language its sections use when they don't name one. `loom init` sets both up. Run it in the folder from the quick start.
+
+```bash
+loom init
+```
+
+## Two questions
+
+Loom asks which language your sections are written in when they don't say, and which languages your editor should understand. Both default to TypeScript, so press Enter twice.
+
+Your answers go into `.loom/config.yaml`, the project's settings. Commit it. Beside it, `.loom/.gitignore` keeps out the language services Loom downloads for your editor. The folder that holds `.loom` is now a Loom project.
+
+Running `loom init` again changes nothing. To add a language later, use `loom add`.
+
+## A home for your looms
+
+Looms live in a folder called `corpus`. Create it and move your loom in:
+
+```bash
+mkdir corpus
+```
+
+```bash
+mv hello.loom corpus/
+```
+
+A loom in `corpus` writes its files to the project folder, the one that holds `corpus`. So `hello.ts` still lands where it did.
+
+## One label fewer
+
+The project now has a primary language, TypeScript, and every section that names no language uses it. Open `corpus/hello.loom` and take `{TypeScript}` off the first heading, so it reads `# Saying hello`.
+
+## Tangle the project
+
+Point `loom tangle` at the folder rather than at one file:
+
+```bash
+loom tangle corpus
+```
+
+Loom reads every loom in `corpus` and writes `hello.ts`, the same file as before. It also records what it wrote in `.loom/loom.lock`, so it can tell its own files from yours. Commit that too.

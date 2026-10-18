@@ -21,6 +21,7 @@ const at = (chapter: string, activeSection: string): Model =>
 const render = (model: Model): string => renderHtml((h) => documentationPage(model, h))
 
 const QUICK = '01-getting-started/01-quick-start'
+const INIT = '01-getting-started/02-loom-projects'
 
 describe('the documentation shell', () => {
   it('lists every chapter of the woven corpus in the menu, grouped under its part', () => {
@@ -83,14 +84,14 @@ describe('the documentation shell', () => {
     const head = html.match(/class="section-head"><span aria-hidden="true" style="([^"]*)"/)?.[1] ?? ''
     expect(head).toContain('#FF6A3D')
     expect(head).toContain('#E8318A')
-    const next = render(at('01-getting-started/02-installation', ''))
+    const next = render(at(INIT, ''))
     const nextHead = next.match(/class="section-head"><span aria-hidden="true" style="([^"]*)"/)?.[1] ?? ''
     expect(nextHead).not.toBe(head)
   })
 
   it('renders a chapter\'s prose as HTML, a one-line bash fence as a copy button', () => {
-    const html = render(at('01-getting-started/02-installation', ''))
-    expect(html).toContain('<h1 id="installation">Installation</h1>')
+    const html = render(at(INIT, ''))
+    expect(html).toContain('<h1 id="loom-projects">Loom projects</h1>')
     expect(html).toContain('class="docs-command"')
     expect(html).not.toContain('language-bash')
   })
@@ -130,11 +131,11 @@ describe('the documentation shell', () => {
   it('ends a chapter on the site\'s pager, naming the chapters either side of it', () => {
     const first = render(at(QUICK, ''))
     expect(first).toContain('class="pager-row doc-pager"><button class="pager-card next"')
-    expect(first).toContain('class="pager-title">Installation<')
+    expect(first).toContain('class="pager-title">Loom projects<')
     expect(first).not.toContain('>Previous<')
-    const second = render(at('01-getting-started/02-installation', ''))
+    const second = render(at(INIT, ''))
     expect(second).toContain('class="pager-title">Quick start<')
-    expect(second).toContain('class="pager-title">Your first corpus<')
+    expect(second).toContain('class="pager-title">Syntax<')
   })
 
   it('carries the menu into the drawer, marked identically', () => {
