@@ -35,16 +35,6 @@
           "number": "1",
           "title": "Supported editors",
           "slug": "03-loom-in-your-ide/01-supported-editors"
-        },
-        {
-          "number": "2",
-          "title": "VS Code",
-          "slug": "03-loom-in-your-ide/02-vs-code"
-        },
-        {
-          "number": "3",
-          "title": "Helix",
-          "slug": "03-loom-in-your-ide/03-helix"
         }
       ]
     },
@@ -382,237 +372,133 @@
             "chapter": "03-loom-in-your-ide/01-supported-editors",
             "section": "supported-editors"
           },
-          "markdown": "Loom works in your editor through its language server, the same server in every editor. It reads a loom the way Loom does, so your editor understands the prose and the code in it, and how the sections fit together. Each editor reaches the server its own way, and the guides that follow cover each one."
+          "markdown": "Like any language, Loom needs two things from your editor: syntax highlighting and a language server. Loom provides both for the editors below. If yours isn't here, [ask for it](https://github.com/athrio-com/loom/issues)."
         },
         {
           "type": "heading",
           "source": {
             "chapter": "03-loom-in-your-ide/01-supported-editors",
-            "section": "code-that-knows-its-language"
-          },
-          "level": 2,
-          "title": "Code that knows its language",
-          "id": "code-that-knows-its-language"
-        },
-        {
-          "type": "prose",
-          "source": {
-            "chapter": "03-loom-in-your-ide/01-supported-editors",
-            "section": "code-that-knows-its-language"
-          },
-          "markdown": "Every section's code is highlighted and checked in its own language. Open `corpus/hello.loom` and misspell `greet` in the program: the error shows up under it as you type, just as it would in `hello.ts`.\n\nThe check runs on the whole file a section ends up in, not on the section alone. So `greet` is known in the program because `::[Greeting function]` brings it in, and TypeScript reads your project's `tsconfig.json` as it would for any other file. Hover and completion work the same way."
-        },
-        {
-          "type": "heading",
-          "source": {
-            "chapter": "03-loom-in-your-ide/01-supported-editors",
-            "section": "loom-s-own-mistakes"
-          },
-          "level": 2,
-          "title": "Loom's own mistakes",
-          "id": "loom-s-own-mistakes"
-        },
-        {
-          "type": "prose",
-          "source": {
-            "chapter": "03-loom-in-your-ide/01-supported-editors",
-            "section": "loom-s-own-mistakes"
-          },
-          "markdown": "Loom checks the parts that are its own, too. An anchor that names no section, two sections that share a name, and a section that pulls code from another language are all marked where you wrote them, before you run `loom tangle`."
-        },
-        {
-          "type": "heading",
-          "source": {
-            "chapter": "03-loom-in-your-ide/01-supported-editors",
-            "section": "moving-between-sections"
-          },
-          "level": 2,
-          "title": "Moving between sections",
-          "id": "moving-between-sections"
-        },
-        {
-          "type": "prose",
-          "source": {
-            "chapter": "03-loom-in-your-ide/01-supported-editors",
-            "section": "moving-between-sections"
-          },
-          "markdown": "An anchor is a link. Go to its definition and the editor jumps to the section it names. Find its references from a heading and you see every anchor that names that section.\n\nRename a section from its heading, and every anchor that names it follows. The outline lists your sections, so a long loom is one click from any part of it."
-        },
-        {
-          "type": "heading",
-          "source": {
-            "chapter": "03-loom-in-your-ide/01-supported-editors",
-            "section": "a-language-server-for-each-language"
-          },
-          "level": 2,
-          "title": "A language server for each language",
-          "id": "a-language-server-for-each-language"
-        },
-        {
-          "type": "prose",
-          "source": {
-            "chapter": "03-loom-in-your-ide/01-supported-editors",
-            "section": "a-language-server-for-each-language"
-          },
-          "markdown": "Loom checks a section's code with that language's own server, which Loom installs into the project when you turn the language on. Run `$ loom add typescript`, and TypeScript sections are checked from then on. Run it again after you upgrade Loom: it brings the server up to the new release, and `loom status` marks a server that an older release installed. The servers live in `.loom/services`, which `loom init` already keeps out of Git. Loom's own checks, and moving between sections, need no language turned on: they work in any loom, even one that sits in no project."
-        },
-        {
-          "type": "heading",
-          "source": {
-            "chapter": "03-loom-in-your-ide/01-supported-editors",
-            "section": "choose-your-editor"
-          },
-          "level": 2,
-          "title": "Choose your editor",
-          "id": "choose-your-editor"
-        },
-        {
-          "type": "prose",
-          "source": {
-            "chapter": "03-loom-in-your-ide/01-supported-editors",
-            "section": "choose-your-editor"
-          },
-          "markdown": "- [VS Code](/docs/loom-in-your-ide/vs-code), and the editors built on it: Cursor, Windsurf and VSCodium. They install the Loom extension.\n- Zed, and Gram, its fork. They install the Loom extension.\n- IntelliJ IDEA and the other JetBrains IDEs. They install the Loom plugin.\n- [Helix](/docs/loom-in-your-ide/helix). `loom helix` sets it up.\n- Neovim. Its own language client runs the server, with a few lines of settings.\n- Any other editor with a language client. Point it at `$ loom lsp`."
-        }
-      ]
-    },
-    {
-      "slug": "03-loom-in-your-ide/02-vs-code",
-      "title": "VS Code",
-      "part": "Loom in your IDE",
-      "blocks": [
-        {
-          "type": "heading",
-          "source": {
-            "chapter": "03-loom-in-your-ide/02-vs-code",
             "section": "vs-code"
           },
-          "level": 1,
+          "level": 2,
           "title": "VS Code",
           "id": "vs-code"
         },
         {
           "type": "prose",
           "source": {
-            "chapter": "03-loom-in-your-ide/02-vs-code",
+            "chapter": "03-loom-in-your-ide/01-supported-editors",
             "section": "vs-code"
           },
-          "markdown": "The Loom extension brings Loom's language server to VS Code, with everything Supported editors describes. Install it from the Extensions view by searching for Loom, or from the terminal:\n\n```bash\ncode --install-extension athrio.loom-vscode\n```"
+          "markdown": "Install the Loom extension from the Extensions view, or from the terminal:\n\n```bash\ncode --install-extension athrio.loom-vscode\n```\n\nCursor, Windsurf and VSCodium install the same extension from Open VSX, the registry they use in place of Microsoft's."
         },
         {
           "type": "heading",
           "source": {
-            "chapter": "03-loom-in-your-ide/02-vs-code",
-            "section": "editors-built-on-vs-code"
+            "chapter": "03-loom-in-your-ide/01-supported-editors",
+            "section": "zed"
           },
           "level": 2,
-          "title": "Editors built on VS Code",
-          "id": "editors-built-on-vs-code"
+          "title": "Zed",
+          "id": "zed"
         },
         {
           "type": "prose",
           "source": {
-            "chapter": "03-loom-in-your-ide/02-vs-code",
-            "section": "editors-built-on-vs-code"
+            "chapter": "03-loom-in-your-ide/01-supported-editors",
+            "section": "zed"
           },
-          "markdown": "Cursor, Windsurf and VSCodium install the same extension. They find it in Open VSX, the registry they use in place of Microsoft's: search for Loom in their Extensions view."
-        }
-      ]
-    },
-    {
-      "slug": "03-loom-in-your-ide/03-helix",
-      "title": "Helix",
-      "part": "Loom in your IDE",
-      "blocks": [
+          "markdown": "Zed builds the Loom extension on your machine, so install Rust from [rustup.rs](https://rustup.rs) first.\n\nZed's registry doesn't list the extension yet, so Zed installs it from a folder. Clone the extension, then run `zed: install dev extension` from the command palette and choose the `loom-zed` folder:\n\n```bash\ngit clone https://github.com/athrio-com/loom-zed\n```"
+        },
         {
           "type": "heading",
           "source": {
-            "chapter": "03-loom-in-your-ide/03-helix",
+            "chapter": "03-loom-in-your-ide/01-supported-editors",
+            "section": "gram"
+          },
+          "level": 2,
+          "title": "Gram",
+          "id": "gram"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "03-loom-in-your-ide/01-supported-editors",
+            "section": "gram"
+          },
+          "markdown": "Gram, a fork of Zed, installs the same extension straight from its repository, and builds it with Rust from [rustup.rs](https://rustup.rs). Open the Extensions page, click **Install From URL**, and enter `$ https://github.com/athrio-com/loom-zed`."
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "03-loom-in-your-ide/01-supported-editors",
             "section": "helix"
           },
-          "level": 1,
+          "level": 2,
           "title": "Helix",
           "id": "helix"
         },
         {
           "type": "prose",
           "source": {
-            "chapter": "03-loom-in-your-ide/03-helix",
+            "chapter": "03-loom-in-your-ide/01-supported-editors",
             "section": "helix"
           },
-          "markdown": "Helix needs no extension. It learns a language from its configuration, and one command sets Loom up there, with everything Supported editors describes:\n\n```bash\nloom helix\n```"
+          "markdown": "Helix needs no extension. One command builds Loom's grammar into Helix's configuration folder and adds Loom to Helix's `languages.toml`:\n\n```bash\nloom helix\n```\n\nThe build takes a C compiler, which is the Xcode Command Line Tools on macOS and your distribution's build tools on Linux. Run `loom helix` again after you upgrade Loom, and check the result with `$ hx --health loom`."
         },
         {
           "type": "heading",
           "source": {
-            "chapter": "03-loom-in-your-ide/03-helix",
-            "section": "what-it-needs"
+            "chapter": "03-loom-in-your-ide/01-supported-editors",
+            "section": "neovim"
           },
           "level": 2,
-          "title": "What it needs",
-          "id": "what-it-needs"
+          "title": "Neovim",
+          "id": "neovim"
         },
         {
           "type": "prose",
           "source": {
-            "chapter": "03-loom-in-your-ide/03-helix",
-            "section": "what-it-needs"
+            "chapter": "03-loom-in-your-ide/01-supported-editors",
+            "section": "neovim"
           },
-          "markdown": "`loom helix` builds Loom's grammar for Helix, and building it takes a C compiler, the same one Helix uses for its own grammars. On macOS that's the Xcode Command Line Tools, and on Linux your distribution's build tools.\n\nThe grammar comes with the `loom` command, so it always matches the Loom you have installed. Run `loom helix` again whenever you upgrade Loom, and it rebuilds the grammar from the new release. The command arrived after Loom 0.0.11, so you need a newer release."
+          "markdown": "Neovim 0.12 colours a loom with the grammar nvim-treesitter installs. Clone Loom's repository, add its Neovim folder to the runtime path in your `init.lua`, and install the grammar with `:TSInstall loom`.\n\n```bash\ngit clone --depth 1 https://github.com/athrio-com/loom ~/loom\n```\n\n```lua\nvim.opt.runtimepath:append(vim.fn.expand('~/loom/packages/tree-sitter-loom/editors/neovim'))\n```\n\nThe folder also turns on the language server, through Neovim's own language client."
         },
         {
           "type": "heading",
           "source": {
-            "chapter": "03-loom-in-your-ide/03-helix",
-            "section": "what-it-changes"
+            "chapter": "03-loom-in-your-ide/01-supported-editors",
+            "section": "any-other-editor"
           },
           "level": 2,
-          "title": "What it changes",
-          "id": "what-it-changes"
+          "title": "Any other editor",
+          "id": "any-other-editor"
         },
         {
           "type": "prose",
           "source": {
-            "chapter": "03-loom-in-your-ide/03-helix",
-            "section": "what-it-changes"
+            "chapter": "03-loom-in-your-ide/01-supported-editors",
+            "section": "any-other-editor"
           },
-          "markdown": "`loom helix` writes to Helix's configuration folder, `~/.config/helix` on macOS and Linux, and nowhere else. It puts three things there:\n\n- the compiled grammar, at `runtime/grammars/loom.so`;\n- the queries that tell Helix what to colour, in `runtime/queries/loom`;\n- a block of two tables in `languages.toml`.\n\nThe block names the `.loom` extension and starts the language server with `loom lsp`:\n\n```toml\n# Loom: written by `loom helix`, which replaces this block on every run\n[[language]]\nname = \"loom\"\nscope = \"source.loom\"\nfile-types = [\"loom\"]\nroots = [\".loom\"]\ninjection-regex = \"^loom$\"\nlanguage-servers = [\"loom\"]\n\n[language-server.loom]\ncommand = \"loom\"\nargs = [\"lsp\", \"--stdio\"]\n# Loom: end\n```\n\nA rerun replaces the block between its two comment lines and leaves the rest of the file as you wrote it. If the file already sets Loom up by hand, outside the block, `loom helix` changes nothing and tells you so: remove your own Loom entries, and run it again. To undo the setup, delete the block and the two runtime entries."
+          "markdown": "An editor with a language client starts the server with `$ loom lsp --stdio`, and the server treats the nearest folder holding a `.loom` directory as the project. An editor that colours with tree-sitter can build the grammar from [packages/tree-sitter-loom](https://github.com/athrio-com/loom/tree/main/packages/tree-sitter-loom)."
         },
         {
           "type": "heading",
           "source": {
-            "chapter": "03-loom-in-your-ide/03-helix",
-            "section": "colours"
+            "chapter": "03-loom-in-your-ide/01-supported-editors",
+            "section": "checking-typescript"
           },
           "level": 2,
-          "title": "Colours",
-          "id": "colours"
+          "title": "Checking TypeScript",
+          "id": "checking-typescript"
         },
         {
           "type": "prose",
           "source": {
-            "chapter": "03-loom-in-your-ide/03-helix",
-            "section": "colours"
+            "chapter": "03-loom-in-your-ide/01-supported-editors",
+            "section": "checking-typescript"
           },
-          "markdown": "Check the setup with `$ hx --health loom`. The tree-sitter parser and the highlight queries should both have a tick. Textobject and indent queries have a cross: Loom ships neither, and Helix works fine without them.\n\nThen open `$ hx corpus/hello.loom`. Loom's marks take colours of their own: headings take your theme's heading colour, the `[hello.ts]` sink reads as a path, `=>` and `~` read as operators, and `::[Greeting function]` reads as a label. The prose between them is Markdown, and the code in each section is coloured in its own language. The first section gets TypeScript from its sink, `hello.ts`, and the second from the frontmatter's `Language: TypeScript`.\n\nHelix colours a section in the language Loom would give it, with one gap. A section with no sink and no `{Lang}` takes the language the frontmatter names, and when the frontmatter names none, Loom falls back to the project's `primary` language. Helix can't read the project's settings, so it leaves that section's code plain. Write `Language` into the frontmatter, and the code takes its colour."
-        },
-        {
-          "type": "heading",
-          "source": {
-            "chapter": "03-loom-in-your-ide/03-helix",
-            "section": "checks-and-navigation"
-          },
-          "level": 2,
-          "title": "Checks and navigation",
-          "id": "checks-and-navigation"
-        },
-        {
-          "type": "prose",
-          "source": {
-            "chapter": "03-loom-in-your-ide/03-helix",
-            "section": "checks-and-navigation"
-          },
-          "markdown": "In Helix, `gd` on an anchor jumps to the section it names, `space k` shows the type under the cursor, and `space d` lists every problem in the file, Loom's own mistakes included.\n\nTypeScript's checks need TypeScript in the project. Turn it on with `$ loom add typescript`, then add a TypeScript for the server to check with, `$ bun add -d typescript@6`. It has to be TypeScript 6 or earlier. TypeScript 7 is a native program with no JavaScript API for the server to load, so the server passes it over."
+          "markdown": "Loom checks each section's code with that language's own server. Turn TypeScript on in a project with `$ loom add typescript`, and run it again after you upgrade Loom.\n\nOutside VS Code, the server checks with the project's own TypeScript, version 6 or earlier. Add one with `$ npm install -D typescript@6`. TypeScript 7 has no JavaScript API for the server to load."
         }
       ]
     },
