@@ -13,6 +13,11 @@
           "number": "2",
           "title": "Loom projects",
           "slug": "01-getting-started/02-loom-projects"
+        },
+        {
+          "number": "3",
+          "title": "Loom in your editor",
+          "slug": "01-getting-started/03-loom-in-your-editor"
         }
       ]
     },
@@ -174,7 +179,7 @@
             "chapter": "01-getting-started/02-loom-projects",
             "section": "initialise-project"
           },
-          "markdown": "To set up a project, run the `loom init` command. Loom asks which language your sections are written in when they don't say, and which languages your editor should understand. Both default to TypeScript, so press Enter twice.\n\nYour answers go into `.loom/config.yaml`, the project's settings. Commit it. Beside it, `.loom/.gitignore` keeps out the language services Loom downloads for your editor. The folder that holds `.loom` is now a Loom project.\n\nRunning `loom init` again changes nothing. To add a language later, use `loom add`."
+          "markdown": "To set up a project, run the `loom init` command. Loom asks which language your sections use by default. It's TypeScript unless you name another, so press Enter.\n\nYour answer goes into `.loom/config.yaml`, the project's settings. Commit it. Beside it, `.loom/.gitignore` keeps out the language servers Loom downloads. The folder that holds `.loom` is now a Loom project.\n\nRunning `loom init` again changes nothing, and it never touches the looms you already have."
         },
         {
           "type": "heading",
@@ -192,7 +197,7 @@
             "chapter": "01-getting-started/02-loom-projects",
             "section": "a-home-for-your-looms"
           },
-          "markdown": "Looms live in a folder called `corpus`. Create it and move your loom in:\n\n```bash\nmkdir corpus\n```\n\n```bash\nmv hello.loom corpus/\n```\n\nA loom in `corpus` writes its files to the project folder, the one that holds `corpus`. So `hello.ts` still lands where it did."
+          "markdown": "Looms live in a folder called `corpus`, and `loom init` creates it for you. Move your loom in:\n\n```bash\nmv hello.loom corpus/\n```\n\nA loom in `corpus` writes its files to the project folder, the one that holds `corpus`. So `hello.ts` still lands where it did."
         },
         {
           "type": "heading",
@@ -229,6 +234,103 @@
             "section": "tangle-the-project"
           },
           "markdown": "Point `loom tangle` at the folder rather than at one file:\n\n```bash\nloom tangle corpus\n```\n\nLoom reads every loom in `corpus` and writes `hello.ts`, the same file as before. It also records what it wrote in `.loom/loom.lock`, so it can tell its own files from yours. Commit that too."
+        }
+      ]
+    },
+    {
+      "slug": "01-getting-started/03-loom-in-your-editor",
+      "title": "Loom in your editor",
+      "part": "Getting started",
+      "blocks": [
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "01-getting-started/03-loom-in-your-editor",
+            "section": "loom-in-your-editor"
+          },
+          "level": 1,
+          "title": "Loom in your editor",
+          "id": "loom-in-your-editor"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "01-getting-started/03-loom-in-your-editor",
+            "section": "loom-in-your-editor"
+          },
+          "markdown": "Looms are best written with the Loom extension for VS Code. It reads a loom the way Loom does, so your editor understands the prose and the code in it, and how the sections fit together. Install it from the Extensions view, or from the terminal:\n\n```bash\ncode --install-extension athrio.loom-vscode\n```"
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "01-getting-started/03-loom-in-your-editor",
+            "section": "code-that-knows-its-language"
+          },
+          "level": 2,
+          "title": "Code that knows its language",
+          "id": "code-that-knows-its-language"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "01-getting-started/03-loom-in-your-editor",
+            "section": "code-that-knows-its-language"
+          },
+          "markdown": "Every section's code is highlighted and checked in its own language. Open `corpus/hello.loom` and misspell `greet` in the program: the error shows up under it as you type, just as it would in `hello.ts`.\n\nThe check runs on the whole file a section ends up in, not on the section alone. So `greet` is known in the program because `::[Saying hello]` brings it in, and TypeScript reads your project's `tsconfig.json` as it would for any other file. Hover and completion work the same way."
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "01-getting-started/03-loom-in-your-editor",
+            "section": "loom-s-own-mistakes"
+          },
+          "level": 2,
+          "title": "Loom's own mistakes",
+          "id": "loom-s-own-mistakes"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "01-getting-started/03-loom-in-your-editor",
+            "section": "loom-s-own-mistakes"
+          },
+          "markdown": "Loom checks the parts that are its own, too. An anchor that names no section, two sections that share a name, and a section that pulls code from another language are all marked where you wrote them, before you run `loom tangle`."
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "01-getting-started/03-loom-in-your-editor",
+            "section": "moving-between-sections"
+          },
+          "level": 2,
+          "title": "Moving between sections",
+          "id": "moving-between-sections"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "01-getting-started/03-loom-in-your-editor",
+            "section": "moving-between-sections"
+          },
+          "markdown": "An anchor is a link. Go to its definition and the editor jumps to the section it names. Find its references from a heading and you see every anchor that names that section.\n\nRename a section from its heading, and every anchor that names it follows. The outline lists your sections, so a long loom is one click from any part of it."
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "01-getting-started/03-loom-in-your-editor",
+            "section": "language-servers-brought-for-you"
+          },
+          "level": 2,
+          "title": "Language servers, brought for you",
+          "id": "language-servers-brought-for-you"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "01-getting-started/03-loom-in-your-editor",
+            "section": "language-servers-brought-for-you"
+          },
+          "markdown": "Loom brings the language server for every language your looms use, the first time it meets one. There is nothing to set up: write a section in a new language and the editor picks it up. The servers live in `.loom/services`, which `loom init` already keeps out of Git."
         }
       ]
     },

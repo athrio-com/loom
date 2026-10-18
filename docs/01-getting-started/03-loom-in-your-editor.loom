@@ -1,0 +1,33 @@
+---
+Part I: Getting started
+Chapter 3: Loom in your editor
+Language: Prose
+---
+
+# Loom in your editor
+
+Looms are best written with the Loom extension for VS Code. It reads a loom the way Loom does, so your editor understands the prose and the code in it, and how the sections fit together. Install it from the Extensions view, or from the terminal:
+
+```bash
+code --install-extension athrio.loom-vscode
+```
+
+## Code that knows its language
+
+Every section's code is highlighted and checked in its own language. Open `corpus/hello.loom` and misspell `greet` in the program: the error shows up under it as you type, just as it would in `hello.ts`.
+
+The check runs on the whole file a section ends up in, not on the section alone. So `greet` is known in the program because `::[Saying hello]` brings it in, and TypeScript reads your project's `tsconfig.json` as it would for any other file. Hover and completion work the same way.
+
+## Loom's own mistakes
+
+Loom checks the parts that are its own, too. An anchor that names no section, two sections that share a name, and a section that pulls code from another language are all marked where you wrote them, before you run `loom tangle`.
+
+## Moving between sections
+
+An anchor is a link. Go to its definition and the editor jumps to the section it names. Find its references from a heading and you see every anchor that names that section.
+
+Rename a section from its heading, and every anchor that names it follows. The outline lists your sections, so a long loom is one click from any part of it.
+
+## Language servers, brought for you
+
+Loom brings the language server for every language your looms use, the first time it meets one. There is nothing to set up: write a section in a new language and the editor picks it up. The servers live in `.loom/services`, which `loom init` already keeps out of Git.

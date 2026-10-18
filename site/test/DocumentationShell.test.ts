@@ -158,7 +158,7 @@ describe('the documentation shell', () => {
     expect(first).not.toContain('>Previous<')
     const second = render(at(INIT, ''))
     expect(second).toContain('class="pager-title">Quick start<')
-    expect(second).toContain('class="pager-title">Syntax<')
+    expect(second).toContain('class="pager-title">Loom in your editor<')
   })
 
   it('carries the menu into the drawer, marked identically', () => {

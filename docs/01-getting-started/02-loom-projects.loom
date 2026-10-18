@@ -14,19 +14,15 @@ loom init
 
 ## Initialise project
 
-To set up a project, run the `loom init` command. Loom asks which language your sections are written in when they don't say, and which languages your editor should understand. Both default to TypeScript, so press Enter twice.
+To set up a project, run the `loom init` command. Loom asks which language your sections use by default. It's TypeScript unless you name another, so press Enter.
 
-Your answers go into `.loom/config.yaml`, the project's settings. Commit it. Beside it, `.loom/.gitignore` keeps out the language services Loom downloads for your editor. The folder that holds `.loom` is now a Loom project.
+Your answer goes into `.loom/config.yaml`, the project's settings. Commit it. Beside it, `.loom/.gitignore` keeps out the language servers Loom downloads. The folder that holds `.loom` is now a Loom project.
 
-Running `loom init` again changes nothing. To add a language later, use `loom add`.
+Running `loom init` again changes nothing, and it never touches the looms you already have.
 
 ## A home for your looms
 
-Looms live in a folder called `corpus`. Create it and move your loom in:
-
-```bash
-mkdir corpus
-```
+Looms live in a folder called `corpus`, and `loom init` creates it for you. Move your loom in:
 
 ```bash
 mv hello.loom corpus/
