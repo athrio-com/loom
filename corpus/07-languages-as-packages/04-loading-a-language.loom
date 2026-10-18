@@ -12,7 +12,7 @@ A language that fails to load costs only itself. Its sections stay at syntax hig
 
 ## Importing one language's package
 
-The loader resolves a package from the store `storeDir` locates, imports it, and reads the package's default export. The import is dynamic — by name, at runtime — because a package is a unit the consumer installs after the editor ships, never one a build could fold in.
+The loader resolves a package from the project's store, imports it, and reads the package's default export. `storeDir` finds the store by walking up from `root`, the workspace folder the editor opened, to the first directory that holds a `.loom` folder. The import is dynamic — by name, at runtime — because a package is a unit the consumer installs after the editor ships, never one a build could fold in.
 
 What the import returns is unknown until checked. `isLanguageService` confirms the default export has the shape the contract requires, and the loader confirms the service's declared `id` is the one activated. A package that answers to another id, or exports something that is not a service at all, is not the language the project asked for. When the package is missing or fails either check, the loader logs the reason and yields nothing.
 
@@ -23,7 +23,7 @@ const loadService = (
   root: string,
 ): Effect.Effect<Option.Option<LanguageService>> =>
   Effect.tryPromise(async () => {
-    const from = join(storeDir(dirname(root)), 'index.js')
+    const from = join(storeDir(root), 'index.js')
     const entry = createRequire(from).resolve(servicePackage(id))
     const loaded = (await import(pathToFileURL(entry).href)) as {
       readonly default?: unknown
@@ -68,13 +68,13 @@ export const loadActive = (
 
 ## What this module draws on
 
-The loader works in Effect: `Effect` runs the load, `Option` carries a language that may not load, and `Array` with `pipe` build the set. Bun loads the package — `createRequire` resolves it within the store, `pathToFileURL` forms the specifier the dynamic import takes, and `dirname` with `join` point the resolver at the store's directory. From `./LoomStore` come `servicePackage`, which names a language's package, and `storeDir`, which locates the project's store. From the contract module come the `LanguageService` type and the `isLanguageService` guard; `LoomLanguage` and `ProseLanguage` are the built-in services that always lead the set.
+The loader works in Effect: `Effect` runs the load, `Option` carries a language that may not load, and `Array` with `pipe` build the set. Bun loads the package — `createRequire` resolves it within the store, `pathToFileURL` forms the specifier the dynamic import takes, and `join` points the resolver into the store's directory. From `./LoomStore` come `servicePackage`, which names a language's package, and `storeDir`, which locates the project's store. From the contract module come the `LanguageService` type and the `isLanguageService` guard; `LoomLanguage` and `ProseLanguage` are the built-in services that always lead the set.
 
 =>
 
 import { Array, Effect, Option, pipe } from 'effect'
 import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { servicePackage, storeDir } from './LoomStore'
 import { isLanguageService, type LanguageService } from './LanguageService'
