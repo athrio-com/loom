@@ -8,7 +8,7 @@ Language: TypeScript
 
 # Testing in looms
 
-Loom's tests are still hand-written `.ts` files under each package's `test/`, parallel to the looms they check. That is the one part of the framework not yet written in Loom — and once the book absorbs the source, the tests are all that sits outside it. A test file drifts from the code the way a spec did, and it is absent from the narrative that explains the code. So the tests become looms too, tangled to `.test.ts`, part of the chapters they prove.
+Loom's tests are mostly still hand-written `.ts` files under each package's `test/`, parallel to the looms they check. The CLI's are the first exception: the chapter Testing the Loom CLI tangles them. That is the one part of the framework not yet written in Loom — and once the book absorbs the source, the tests are all that sits outside it. A test file drifts from the code the way a spec did, and it is absent from the narrative that explains the code. So the tests become looms too, tangled to `.test.ts`, part of the chapters they prove.
 
 ## What already works
 

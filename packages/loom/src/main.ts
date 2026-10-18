@@ -2,7 +2,7 @@ import { Cause, Console, Data, Effect, Option, Result, Stream } from 'effect'
 import { Argument, Command, Flag, Prompt } from 'effect/cli'
 import { ChildProcess } from 'effect/process'
 import { NodeRuntime, NodeServices } from '@effect/platform-node'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, resolve as resolvePath } from 'node:path'
 import {
@@ -173,6 +173,12 @@ const init = (dir: Option.Option<string>) =>
           `   ${dim(`activated: ${ids.join(', ') || 'none'}`)}\n`,
       )
     }
+
+    const corpusDir = yield* config
+      .manifest(root)
+      .pipe(Effect.map((manifest) => resolvePath(root, manifest?.corpus ?? 'corpus')))
+    yield* Effect.sync(() => mkdirSync(corpusDir, { recursive: true }))
+    yield* Console.log(`   ${teal('✓')} corpus at ${corpusDir}\n`)
 
     yield* Effect.sync(() => mergeMcpConfig(root))
     yield* Console.log(`   ${teal('✓')} wrote ${resolvePath(root, '.mcp.json')}\n`)

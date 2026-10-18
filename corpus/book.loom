@@ -93,6 +93,7 @@ The book closes where it began, with the fact that Loom is written in Loom. This
 9. Packaging the TypeScript service
 10. Packaging the Loom CLI
 11. Generating the table of contents
+12. Testing the Loom CLI
 
 ### Part IX — Extensions for IDEs
 

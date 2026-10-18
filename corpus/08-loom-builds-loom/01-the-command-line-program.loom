@@ -141,6 +141,8 @@ const toc = (file: string) =>
 
 `loom init` sets a workspace up for review, and it is safe to run again — a second run only fills in what a first left undone, and never undoes it. The first run writes `.loom/config.yaml`, the compiled configuration the editor and the tangler read, and a `.gitignore` beside it that keeps the generated service store out of version control. It asks for the primary language a specifier-less section inherits, and for the languages the editor activates services for. A later run finds that configuration and leaves it untouched; `loom add` and `loom remove` change the activated languages afterwards.
 
+Every run makes sure the corpus folder exists. The configuration names it, `corpus` unless a project chose another, and `init` creates it when it is missing, so a fresh project has a place for its first loom straight away. A folder that is already there is left exactly as it is, looms and all, so running `init` again is as safe for the corpus as it is for the configuration.
+
 The primary language defaults to TypeScript, and the activation answer defaults to that same language, so a TypeScript workspace is two key-presses away. The activation answer is a space-separated list, since one workspace may run several languages. A prompt the author quits — with `Ctrl-C` — fails with `QuitError`, which `init` catches to leave with a word rather than a stack trace.
 
 Every run also connects the workspace to a coding agent. It merges a `loom` entry into `.mcp.json`, the file an agent reads to find its tools, pointing it at the Design service's `/mcp` and leaving any other servers there in place. Run twice, the merge adds nothing new.
@@ -202,6 +204,12 @@ const init = (dir: Option.Option<string>) =>
           `   ${dim(`activated: ${ids.join(', ') || 'none'}`)}\n`,
       )
     }
+
+    const corpusDir = yield* config
+      .manifest(root)
+      .pipe(Effect.map((manifest) => resolvePath(root, manifest?.corpus ?? 'corpus')))
+    yield* Effect.sync(() => mkdirSync(corpusDir, { recursive: true }))
+    yield* Console.log(`   ${teal('✓')} corpus at ${corpusDir}\n`)
 
     yield* Effect.sync(() => mergeMcpConfig(root))
     yield* Console.log(`   ${teal('✓')} wrote ${resolvePath(root, '.mcp.json')}\n`)
@@ -503,7 +511,7 @@ if (process.argv[2] === 'lsp') {
 
 ## What the program needs
 
-The program is built on Effect, a functional TypeScript library for composing and running effectful programs. Effect's CLI toolkit parses the command line and drives the interactive prompts, and the Node platform supplies the runtime, the terminal, and filesystem access. `Stream` drives `tangle --watch`, draining the tangler's watch as a sequence of passes, and `Result` carries each pass's outcome. Node's `path` resolves a workspace directory for `init`, and `node:fs` writes the configuration and the `.mcp.json`. Effect's child-process module runs Loom Design's binary for `design`, `Data` types the failure when that binary is absent, and `node:module` supplies the resolver that finds it — the same resolver the `lsp` branch borrows to give Volar a `require`. The language server contributes five services: `LoomTangler`, which walks a `.loom` file, emits the tangled output, and watches it for changes; `LoomWeaver`, which projects a corpus and writes the woven data; `LoomContents`, which regenerates a book's table of contents; `DocumentSource`, which feeds them source text from disk; and `PackageConfig`, which resolves a `.loom`'s package settings. `TangledFile` and `TangleError` ride along from the compiler, typing the files a pass writes and the error a broken corpus raises. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back. From `@athrio/loom-lang-services` come the store operations behind activation: `addService` and `removeService` install and uninstall a language's package, `installedServices` lists what the store holds, `storeDir` locates it, `workspaceRoot` finds the workspace it sits in, and `servicePackage` names a language's package.
+The program is built on Effect, a functional TypeScript library for composing and running effectful programs. Effect's CLI toolkit parses the command line and drives the interactive prompts, and the Node platform supplies the runtime, the terminal, and filesystem access. `Stream` drives `tangle --watch`, draining the tangler's watch as a sequence of passes, and `Result` carries each pass's outcome. Node's `path` resolves a workspace directory for `init`, and `node:fs` writes the configuration and the `.mcp.json` and creates the corpus folder. Effect's child-process module runs Loom Design's binary for `design`, `Data` types the failure when that binary is absent, and `node:module` supplies the resolver that finds it — the same resolver the `lsp` branch borrows to give Volar a `require`. The language server contributes five services: `LoomTangler`, which walks a `.loom` file, emits the tangled output, and watches it for changes; `LoomWeaver`, which projects a corpus and writes the woven data; `LoomContents`, which regenerates a book's table of contents; `DocumentSource`, which feeds them source text from disk; and `PackageConfig`, which resolves a `.loom`'s package settings. `TangledFile` and `TangleError` ride along from the compiler, typing the files a pass writes and the error a broken corpus raises. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back. From `@athrio/loom-lang-services` come the store operations behind activation: `addService` and `removeService` install and uninstall a language's package, `installedServices` lists what the store holds, `storeDir` locates it, `workspaceRoot` finds the workspace it sits in, and `servicePackage` names a language's package.
 
 =>
 
@@ -511,7 +519,7 @@ import { Cause, Console, Data, Effect, Option, Result, Stream } from 'effect'
 import { Argument, Command, Flag, Prompt } from 'effect/cli'
 import { ChildProcess } from 'effect/process'
 import { NodeRuntime, NodeServices } from '@effect/platform-node'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, resolve as resolvePath } from 'node:path'
 import {

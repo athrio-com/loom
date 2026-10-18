@@ -1,6 +1,5 @@
 import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
-const it = effectify(it_)
 import { spawnSync } from 'node:child_process'
 import {
   existsSync,
@@ -15,12 +14,8 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-// The CLI is an Effect program over the tangler, the config, and the service
-// store; this exercises it as a real process. Bun runs the CLI's TypeScript
-// source directly, so a case can run it from a temp workspace — `add`, `remove`,
-// and `status` read `process.cwd()`. The interactive `init` prompts need a real
-// terminal, so they are verified by hand; here we cover the command surface a
-// subprocess can reach.
+const it = effectify(it_)
+
 const cli = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const main = resolve(cli, 'src/main.ts')
 
@@ -34,35 +29,12 @@ const loom = (
     encoding: 'utf8',
   })
 
-const fixture = `---
-Language: TypeScript
-Package: out.ts
----
+const SPAWN_TIMEOUT = 30_000
 
-# Greeting
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
 
-=>
+const anchor = (name: string): string => `::${'['}${name}]`
 
-export const hi = "hello"
-
-# Out {Tangle}
-
-=>
-
-::[Greeting]
-`
-
-const tempDoc = (): { readonly dir: string; readonly doc: string } => {
-  const dir = mkdtempSync(join(tmpdir(), 'loom-cli-'))
-  const doc = join(dir, 'doc.loom')
-  writeFileSync(doc, fixture)
-  return { dir, doc }
-}
-
-// A workspace under a temp dir, with a committed .loom/config.yaml the
-// activation commands read and write. realpathSync resolves the macOS
-// /var → /private/var symlink so the path the child prints (from its resolved
-// cwd) matches what the test compares against.
 const workspace = (configYaml: string): string => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'loom-proj-')))
   mkdirSync(join(dir, '.loom'), { recursive: true })
@@ -76,17 +48,8 @@ const configText = (dir: string): string =>
 const userStore = (): string =>
   realpathSync(mkdtempSync(join(tmpdir(), 'loom-home-')))
 
-// Stand a service in the store without installing it. `add` finds the package
-// already present and skips the package manager, so the activation path runs
-// offline; `status` and `removeService` work over the same store layout.
 const installFake = (home: string, id: string): void => {
-  const pkg = join(
-    home,
-    'services',
-    'node_modules',
-    '@athrio',
-    `loom-service-${id}`,
-  )
+  const pkg = join(home, 'services', 'node_modules', '@athrio', `loom-service-${id}`)
   mkdirSync(pkg, { recursive: true })
   writeFileSync(
     join(pkg, 'package.json'),
@@ -94,18 +57,37 @@ const installFake = (home: string, id: string): void => {
   )
 }
 
-// Each case spawns `bun src/main.ts` cold — loading the whole tangler path on the
-// fly takes a moment, and the 5s default flakes when the first cold spawn runs
-// under full-suite load. Give these subprocess tests headroom.
-const SPAWN_TIMEOUT = 30_000
+const fixture = lines(
+  '---',
+  'Language: TypeScript',
+  'Package: out.ts',
+  '---',
+  '',
+  '# Greeting',
+  '',
+  '=>',
+  '',
+  'export const hi = "hello"',
+  '',
+  '# Out {Tangle}',
+  '',
+  '=>',
+  '',
+  anchor('Greeting'),
+)
+
+const tempDoc = (): { readonly dir: string; readonly doc: string } => {
+  const dir = mkdtempSync(join(tmpdir(), 'loom-cli-'))
+  const doc = join(dir, 'doc.loom')
+  writeFileSync(doc, fixture)
+  return { dir, doc }
+}
 
 describe('loom cli', () => {
   it('tangles a file through the `tangle` command', () => {
     const { dir, doc } = tempDoc()
     loom(['tangle', doc])
-    expect(readFileSync(join(dir, 'out.ts'), 'utf8')).toContain(
-      'export const hi = "hello"',
-    )
+    expect(readFileSync(join(dir, 'out.ts'), 'utf8')).toContain('export const hi = "hello"')
     rmSync(dir, { recursive: true, force: true })
   }, SPAWN_TIMEOUT)
 
@@ -116,12 +98,32 @@ describe('loom cli', () => {
     expect(stdout).toContain('add')
     expect(stdout).toContain('status')
   }, SPAWN_TIMEOUT)
+})
 
+describe('loom cli — init', () => {
+  it('creates the corpus folder the configuration names, and keeps it on a rerun', () => {
+    const dir = workspace('corpus: chapters\nlanguages:\n  typescript: {}\nprimary: typescript\n')
+    expect(existsSync(join(dir, 'chapters'))).toBe(false)
+    loom(['init'], { cwd: dir })
+    expect(existsSync(join(dir, 'chapters'))).toBe(true)
+    writeFileSync(join(dir, 'chapters', 'hello.loom'), lines('# Hello'))
+    loom(['init'], { cwd: dir })
+    expect(readFileSync(join(dir, 'chapters', 'hello.loom'), 'utf8')).toBe(lines('# Hello'))
+    rmSync(dir, { recursive: true, force: true })
+  }, SPAWN_TIMEOUT)
+
+  it('falls back to a folder named corpus when the configuration names none', () => {
+    const dir = workspace('languages:\n  typescript: {}\nprimary: typescript\n')
+    loom(['init'], { cwd: dir })
+    expect(existsSync(join(dir, 'corpus'))).toBe(true)
+    rmSync(dir, { recursive: true, force: true })
+  }, SPAWN_TIMEOUT)
+})
+
+describe('loom cli — languages', () => {
   it('status reports the store, the primary language, and what is activated', () => {
     const home = userStore()
-    const dir = workspace(
-      'corpus: corpus\nlanguages:\n  typescript: {}\nprimary: typescript\n',
-    )
+    const dir = workspace('corpus: corpus\nlanguages:\n  typescript: {}\nprimary: typescript\n')
     installFake(home, 'typescript')
     const { stdout } = loom(['status'], { cwd: dir, env: { LOOM_HOME: home } })
     expect(stdout).toContain('typescript')
@@ -156,18 +158,14 @@ describe('loom cli', () => {
     expect(text).toContain('python')
     expect(text).not.toContain('typescript')
     expect(
-      existsSync(
-        join(home, 'services', 'node_modules', '@athrio', 'loom-service-typescript'),
-      ),
+      existsSync(join(home, 'services', 'node_modules', '@athrio', 'loom-service-typescript')),
     ).toBe(false)
     rmSync(home, { recursive: true, force: true })
     rmSync(dir, { recursive: true, force: true })
   }, SPAWN_TIMEOUT)
 
   it('status uses the workspace .loom/services store when LOOM_HOME is unset', () => {
-    const dir = workspace(
-      'corpus: corpus\nlanguages:\n  typescript: {}\nprimary: typescript\n',
-    )
+    const dir = workspace('corpus: corpus\nlanguages:\n  typescript: {}\nprimary: typescript\n')
     mkdirSync(
       join(dir, '.loom', 'services', 'node_modules', '@athrio', 'loom-service-typescript'),
       { recursive: true },
@@ -178,58 +176,58 @@ describe('loom cli', () => {
   }, SPAWN_TIMEOUT)
 })
 
-// An explicit arrow, `~>`, holds its code until a tilde, so a file whose own lines
-// look like headings — Markdown, a commented script — tangles whole. These run the
-// real `tangle` over a temp workspace, the way a book uses it.
 const explicitWorkspace = (chapter: string): string => {
   const dir = workspace('corpus: corpus\nlanguages:\n  typescript: {}\nprimary: typescript\n')
   mkdirSync(join(dir, 'corpus'), { recursive: true })
-  writeFileSync(join(dir, 'corpus', 'book.loom'), '---\nPart I: Probe\n---\n\n# Probe\n')
+  writeFileSync(join(dir, 'corpus', 'book.loom'), lines('---', 'Part I: Probe', '---', '', '# Probe'))
   writeFileSync(join(dir, 'corpus', '01-chapter.loom'), chapter)
   return dir
 }
 
 describe('loom cli — explicit blocks', () => {
   it('tangles a Markdown file whose headings and fences stay inside the block', () => {
-    const dir = explicitWorkspace(`---
-Part I, Chapter 1: A skill
-Package: ./
-Language: Markdown
----
-
-# A skill
-
-## The rule
-
-=>
-
-Write for the reader.
-
-## The skill {Tangle}[SKILL.md]
-
-~>
-
----
-name: probe
----
-
-# Probe
-
-## The rule
-
-::[The rule]
-
-\`\`\`bash
-# a shell comment
-ls ~/bin
-\`\`\`
-
-~
-
-## After the block
-
-Prose that follows the closed block is prose again.
-`)
+    const dir = explicitWorkspace(
+      lines(
+        '---',
+        'Part I, Chapter 1: A skill',
+        'Package: ./',
+        'Language: Markdown',
+        '---',
+        '',
+        '# A skill',
+        '',
+        '## The rule',
+        '',
+        '=>',
+        '',
+        'Write for the reader.',
+        '',
+        '## The skill {Tangle}[SKILL.md]',
+        '',
+        '~>',
+        '',
+        '---',
+        'name: probe',
+        '---',
+        '',
+        '# Probe',
+        '',
+        '## The rule',
+        '',
+        anchor('The rule'),
+        '',
+        '```bash',
+        '# a shell comment',
+        'ls ~/bin',
+        '```',
+        '',
+        '~',
+        '',
+        '## After the block',
+        '',
+        'Prose that follows the closed block is prose again.',
+      ),
+    )
     const { status, stderr } = loom(['tangle', 'corpus'], { cwd: dir })
     expect(stderr).not.toContain('refusing')
     expect(status).toBe(0)
@@ -245,20 +243,23 @@ Prose that follows the closed block is prose again.
   }, SPAWN_TIMEOUT)
 
   it('refuses an explicit block no tilde closes, and writes nothing', () => {
-    const dir = explicitWorkspace(`---
-Part I, Chapter 1: Open
-Package: ./
-Language: Markdown
----
-
-# Open
-
-## The file {Tangle}[OPEN.md]
-
-~>
-
-# swallowed heading
-`)
+    const dir = explicitWorkspace(
+      lines(
+        '---',
+        'Part I, Chapter 1: Open',
+        'Package: ./',
+        'Language: Markdown',
+        '---',
+        '',
+        '# Open',
+        '',
+        '## The file {Tangle}[OPEN.md]',
+        '',
+        '~>',
+        '',
+        '# swallowed heading',
+      ),
+    )
     const { status, stderr } = loom(['tangle', 'corpus'], { cwd: dir })
     expect(status).not.toBe(0)
     expect(stderr).toContain('Unclosed explicit block')
@@ -267,22 +268,25 @@ Language: Markdown
   }, SPAWN_TIMEOUT)
 
   it('keeps a line that starts with a tilde as code in a plain block', () => {
-    const dir = explicitWorkspace(`---
-Part I, Chapter 1: Paths
-Package: ./
-Language: TypeScript
----
-
-# Paths
-
-## The paths {Tangle}[paths.ts]
-
-=>
-
-export const home =
-~/bin
-export const done = true
-`)
+    const dir = explicitWorkspace(
+      lines(
+        '---',
+        'Part I, Chapter 1: Paths',
+        'Package: ./',
+        'Language: TypeScript',
+        '---',
+        '',
+        '# Paths',
+        '',
+        '## The paths {Tangle}[paths.ts]',
+        '',
+        '=>',
+        '',
+        'export const home =',
+        '~/bin',
+        'export const done = true',
+      ),
+    )
     const { status } = loom(['tangle', 'corpus'], { cwd: dir })
     expect(status).toBe(0)
     const written = readFileSync(join(dir, 'paths.ts'), 'utf8')
