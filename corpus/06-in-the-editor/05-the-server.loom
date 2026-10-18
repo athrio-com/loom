@@ -51,21 +51,25 @@ const editorTsdk = (options: unknown): Option.Option<string> =>
 
 ~
 
-Every other editor starts `loom lsp` with no such option, so the server looks for the compiler itself. `installedTsdk` resolves the `typescript` package the way Node's `require` would from a given file, walking up its `node_modules` directories, and returns the directory that holds the resolved `typescript.js`. It yields nothing when the walk finds no package.
+Every other editor starts `loom lsp` with no such option, so the server looks for the compiler itself. What it looks for is TypeScript's JavaScript API, the `lib/typescript.js` file that TypeScript 6 and every earlier release ship. TypeScript 7 is a native program, and its package holds no such file for Volar to load.
+
+`installedTsdk` resolves `typescript/lib/typescript.js` the way Node's `require` would from a given file, walking up its `node_modules` directories, and returns the directory that holds it. It yields nothing when the walk finds no TypeScript, and nothing when the TypeScript it finds is version 7, so the search moves on to the next place.
 
 =>
 
 const installedTsdk = (from: string): Option.Option<string> =>
   Option.map(
-    Option.liftThrowable(() => createRequire(from).resolve('typescript'))(),
+    Option.liftThrowable(() =>
+      createRequire(from).resolve('typescript/lib/typescript.js'),
+    )(),
     dirname,
   )
 
 ~
 
-`tsdkFor` tries three places in order and takes the first that holds a compiler. The editor's own path comes first, so VS Code keeps the TypeScript it ships. The project being edited comes second, so a section is checked by the compiler the project builds with. Loom's own install comes last: the directories above the server's module, which hold `typescript` when Loom is installed beside it. Only the ES-module bundle that `loom lsp` runs knows its own location. The CommonJS bundles, the VS Code extension's `server.js` and the `loom-language-server` bin, compile `import.meta` to an empty object, so the last search finds nothing there, and VS Code never needs it.
+`tsdkFor` tries three places in order and takes the first that holds a compiler. The editor's own path comes first, so VS Code keeps the TypeScript it ships. The project being edited comes second, so a section is checked by the project's own TypeScript whenever it is one the server can load. Loom's own install comes last: the directories above the server's module, which hold `typescript` when Loom is installed beside it. Only the ES-module bundle that `loom lsp` runs knows its own location. The CommonJS bundles, the VS Code extension's `server.js` and the `loom-language-server` bin, compile `import.meta` to an empty object, so the last search finds nothing there, and VS Code never needs it.
 
-When no place holds a compiler, the server refuses to start and says why. `MissingTypeScript` names the workspace it searched and the two ways to supply a compiler. The error travels back to the editor as the answer to `initialize`, so the person reads the reason instead of watching a server die.
+When no place holds a compiler, the server refuses to start and says why. `MissingTypeScript` names the workspace it searched, says which TypeScript it can load, and gives the two ways to supply one. The error travels back to the editor as the answer to `initialize`, so the person reads the reason instead of watching a server die.
 
 =>
 
@@ -73,7 +77,7 @@ export class MissingTypeScript extends Data.TaggedError('MissingTypeScript')<{
   readonly root: string
 }> {
   get message(): string {
-    return `Loom's language server needs TypeScript, and found none in ${this.root} or beside Loom. Install it in the project with \`bun add -d typescript\`, or have the editor send its path as \`initializationOptions.typescript.tsdk\`.`
+    return `Loom's language server needs TypeScript 6 or earlier, and found none in ${this.root} or beside Loom. TypeScript 7 has no JavaScript API for it to load. Install one in the project with \`bun add -d typescript@6\`, or have the editor send its path as \`initializationOptions.typescript.tsdk\`.`
   }
 }
 
