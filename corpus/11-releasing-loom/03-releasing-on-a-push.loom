@@ -6,7 +6,7 @@ Language: YAML
 
 # Releasing on a push
 
-When the gate passes on the default branch, this workflow publishes the npm packages, and it does so on every push, so npm always mirrors the default branch. Publishing on every push is only safe because the release tool is idempotent: it publishes only versions npm is missing. The website's image ships from the gate's own workflow instead, and only when the website changed.
+When the gate passes on the default branch, this workflow publishes the npm packages and brings the Zed and Gram extension's mirror up to date. It does both on every push, so npm and the mirror always follow the default branch. Running on every push is only safe because each job is idempotent: the release tool publishes only versions npm is missing, and the mirror receives only commits it lacks. The website's image ships from the gate's own workflow instead, and only when the website changed.
 
 The workflow triggers on the gate's completion rather than on the push directly, so it runs only after the checks have passed. Its job checks that the gate succeeded, on the default branch, before it does anything, and checks out the exact commit the gate validated rather than whatever the default branch points at now.
 
@@ -49,6 +49,35 @@ jobs:
       - name: Publish
         run: bun scripts/release.ts
 
+## Mirroring the Zed extension
+
+The extension for Zed and Gram lives in this repository, in `packages/tree-sitter-loom/editors/zed`. Gram installs an extension from a repository URL and reads its manifest from the repository's root, so the folder is mirrored to a repository of its own, `athrio-com/loom-zed`, whose root is the extension. This job keeps that mirror in step with the default branch, so nobody edits or pushes it by hand.
+
+`git subtree split` builds the mirror's history from the folder's: one commit for each commit that changed the folder, holding the folder's files at the root. The split is deterministic. The same history gives the same commits, and a later split extends an earlier one, so the push to the mirror is a fast-forward, and a push that changed nothing in the folder sends nothing. The split reads the whole history, so the checkout fetches all of it.
+
+The job writes to the mirror with a deploy key, an SSH key that can push to `athrio-com/loom-zed` and to no other repository. Its private half is the `LOOM_ZED_DEPLOY_KEY` secret of this repository, and the job hands it to Git for the one push.
+
+=>
+
+  zed:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+      - name: Mirror the extension
+        env:
+          DEPLOY_KEY: ${{ secrets.LOOM_ZED_DEPLOY_KEY }}
+        run: |
+          key="$RUNNER_TEMP/loom-zed-key"
+          printf '%s\n' "$DEPLOY_KEY" > "$key"
+          chmod 600 "$key"
+          split=$(git subtree split --prefix=packages/tree-sitter-loom/editors/zed HEAD)
+          GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" \
+            git push git@github.com:athrio-com/loom-zed.git "$split:refs/heads/main"
+
 ## The workflow assembled {Tangle}[release.yaml]
 
 =>
@@ -56,4 +85,6 @@ jobs:
 ::[The trigger]
 
 ::[Publishing to npm]
+
+::[Mirroring the Zed extension]
 

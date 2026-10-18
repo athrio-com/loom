@@ -24,3 +24,22 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Publish
         run: bun scripts/release.ts
+
+  zed:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+      - name: Mirror the extension
+        env:
+          DEPLOY_KEY: ${{ secrets.LOOM_ZED_DEPLOY_KEY }}
+        run: |
+          key="$RUNNER_TEMP/loom-zed-key"
+          printf '%s\n' "$DEPLOY_KEY" > "$key"
+          chmod 600 "$key"
+          split=$(git subtree split --prefix=packages/tree-sitter-loom/editors/zed HEAD)
+          GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" \
+            git push git@github.com:athrio-com/loom-zed.git "$split:refs/heads/main"
