@@ -5,32 +5,66 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check:
+    name: The book, typed, tested and tangled
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      base: ${{ steps.base.outputs.sha }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: oven-sh/setup-bun@v2
+      - name: The commit the change is measured from
+        id: base
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PULL_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          base=$PULL_BASE
+          if [ -z "$base" ]; then
+            base=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yaml/runs?branch=main&event=push&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // empty')
+          fi
+          echo "sha=${base:-$PUSH_BEFORE}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
         with:
-          bun-version: 1.2.20
-      - run: bun install --frozen-lockfile
-      - run: bun test
-      - run: bun run --filter './packages/*' typecheck
-      - name: The committed source matches the corpus
-        run: |
-          bun run --filter @athrio/loom build
-          bun packages/loom/dist/main.js tangle corpus
-          git diff --exit-code
-      - name: The CLI carries none of Loom Design
-        working-directory: packages/loom
-        run: |
-          npm pack --ignore-scripts --silent
-          if tar tzf athrio-loom-*.tgz | grep -Eiq 'design|overlay|shell|ui\.'; then
-            echo "the tarball carries Loom Design:" >&2
-            tar tzf athrio-loom-*.tgz | grep -Ei 'design|overlay|shell|ui\.' >&2
-            exit 1
-          fi
-          if grep -oh '"sources":\[[^]]*\]' dist/*.js.map | grep -q 'loom-design'; then
-            echo "a source map carries Loom Design's source" >&2
-            exit 1
-          fi
+          fetch-depth: 0
+          filter: blob:none
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: bun npm:@moonrepo/cli
+      - name: The book's checks, asked of the change
+        run: moon ci --concurrency 1 :typecheck :test :tangle :nodesign
+        env:
+          MOON_BASE: ${{ steps.base.outputs.sha }}
+          MOON_HEAD: ${{ github.sha }}
+
+  ship:
+    name: The website's image, pushed to the registry
+    needs: check
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      MOON_BASE: ${{ needs.check.outputs.base }}
+      MOON_HEAD: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: npm:@moonrepo/cli
+      - name: Log in to the registry
+        run: echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
+      - name: The website's image, pushed to the registry
+        run: moon ci :image

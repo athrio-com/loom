@@ -1,0 +1,70 @@
+$schema: "https://moonrepo.dev/schemas/project.json"
+
+fileGroups:
+  sources:
+    - "src/**/*"
+    - "test/**/*"
+    - "package.json"
+    - "tsconfig.json"
+    - "vite.config.ts"
+    - "/packages/loom-ast/src/**/*"
+    - "/packages/loom-ast/package.json"
+    - "/packages/loom-config/src/**/*"
+    - "/packages/loom-config/package.json"
+    - "/packages/loom-lang-services/src/**/*"
+    - "/packages/loom-lang-services/package.json"
+    - "/packages/loom-service-typescript/src/**/*"
+    - "/packages/loom-service-typescript/package.json"
+    - "/packages/loom-lang/src/**/*"
+    - "/packages/loom-lang/package.json"
+    - "/packages/effect-test/**/*"
+    - "/tsconfig.base.json"
+    - "/package.json"
+    - "/bun.lock"
+    - "/bunfig.toml"
+
+tasks:
+  install:
+    command: "bun install --frozen-lockfile"
+    options:
+      cache: false
+      internal: true
+      runFromWorkspaceRoot: true
+
+  typecheck:
+    command: "bunx tsc --noEmit -p tsconfig.json"
+    deps: ["install"]
+    inputs:
+      - "@group(sources)"
+      - "moon.yml"
+      - "/mise.toml"
+
+  test:
+    command: "bun test"
+    deps: ["install"]
+    inputs:
+      - "@group(sources)"
+      - "moon.yml"
+      - "/mise.toml"
+
+  nodesign:
+    script: |
+      set -e
+      bun run build
+      npm pack --ignore-scripts --silent > /dev/null
+      contents=$(tar tzf athrio-loom-*.tgz)
+      rm -f athrio-loom-*.tgz
+      if echo "$contents" | grep -Eiq 'design|overlay|shell|ui\.'; then
+        echo "the tarball carries Loom Design:" >&2
+        echo "$contents" | grep -Ei 'design|overlay|shell|ui\.' >&2
+        exit 1
+      fi
+      if grep -oh '"sources":\[[^]]*\]' dist/*.js.map | grep -q 'loom-design'; then
+        echo "a source map carries Loom Design's source" >&2
+        exit 1
+      fi
+    deps: ["install"]
+    inputs:
+      - "@group(sources)"
+      - "moon.yml"
+      - "/mise.toml"

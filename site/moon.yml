@@ -1,0 +1,56 @@
+$schema: "https://moonrepo.dev/schemas/project.json"
+
+fileGroups:
+  sources:
+    - "src/**/*"
+    - "public/**/*"
+    - "index.html"
+    - "package.json"
+    - "tsconfig.json"
+    - "tsconfig.server.json"
+    - "vite.config.ts"
+    - "/LICENSE"
+    - "/package.json"
+    - "/bun.lock"
+    - "/bunfig.toml"
+
+tasks:
+  install:
+    command: "bun install --frozen-lockfile"
+    options:
+      cache: false
+      internal: true
+      runFromWorkspaceRoot: true
+
+  typecheck:
+    script: "bunx tsc --noEmit -p tsconfig.json && bunx tsc --noEmit -p tsconfig.server.json"
+    deps: ["install"]
+    inputs:
+      - "@group(sources)"
+      - "moon.yml"
+      - "/mise.toml"
+
+  test:
+    command: "bun test"
+    deps: ["install"]
+    inputs:
+      - "@group(sources)"
+      - "test/**/*"
+      - "moon.yml"
+      - "/mise.toml"
+
+  image:
+    script: >-
+      docker build . --file site/Dockerfile
+      --tag ghcr.io/athrio-com/loom-website:latest
+      --tag ghcr.io/athrio-com/loom-website:sha-${GITHUB_SHA::7}
+      --tag ghcr.io/athrio-com/loom-website:v$(node -p "require('./packages/loom/package.json').version")
+      && docker push --all-tags ghcr.io/athrio-com/loom-website
+    inputs:
+      - "@group(sources)"
+      - "Dockerfile"
+      - "moon.yml"
+    options:
+      cache: false
+      runInCI: "only"
+      runFromWorkspaceRoot: true

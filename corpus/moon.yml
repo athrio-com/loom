@@ -1,0 +1,25 @@
+$schema: "https://moonrepo.dev/schemas/project.json"
+
+tasks:
+  install:
+    command: "bun install --frozen-lockfile"
+    options:
+      cache: false
+      internal: true
+      runFromWorkspaceRoot: true
+
+  tangle:
+    script: "bun run --filter @athrio/loom build && bun packages/loom/dist/main.js tangle corpus && git diff --exit-code"
+    deps: ["install"]
+    inputs:
+      - "**/*"
+      - "/packages/**/*"
+      - "/site/**/*"
+      - "/.github/**/*"
+      - "/scripts/**/*"
+      - "/.loom/**/*"
+      - "/package.json"
+      - "/bun.lock"
+      - "/mise.toml"
+    options:
+      runFromWorkspaceRoot: true

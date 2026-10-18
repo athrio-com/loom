@@ -1,0 +1,13 @@
+$schema: "https://moonrepo.dev/schemas/workspace.json"
+vcs:
+  defaultBranch: "main"
+projects:
+  - "corpus"
+  - "packages/loom-ast"
+  - "packages/loom-config"
+  - "packages/loom-lang-services"
+  - "packages/loom-service-typescript"
+  - "packages/loom-lang"
+  - "packages/loom"
+  - "packages/loom-vscode"
+  - "site"

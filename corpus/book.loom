@@ -320,7 +320,7 @@ The site renders on the server first, for a reader and a crawler, then hydrates 
 
 ### Part XI — Releasing Loom
 
-Loom releases itself on every push. A gate runs first — the tests, and a check that the committed source still matches the corpus it tangles from — and a green push to the default branch releases. It publishes the npm packages through Trusted Publishing, so no token lives in the repository, and pushes the Docker image for the website. This part is that pipeline: the gate that guards every change, the tool that publishes each package npm is missing, and the workflow that runs it and pushes the image on a push.
+Loom releases itself on every push. A gate runs first — the tests, and a check that the committed source still matches the corpus it tangles from — and a green push to the default branch releases. It publishes the npm packages through Trusted Publishing, so no token lives in the repository, and ships the website's Docker image when the website changed. This part is that pipeline: the gate that guards every change, the tool that publishes each package npm is missing, and the workflow that runs it and pushes the image on a push.
 
 1. Continuous integration
 2. The release tool
