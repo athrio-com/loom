@@ -105,9 +105,14 @@ src/tree_sitter/** linguist-generated
 
 An editor that builds the grammar from a local checkout, as nvim-treesitter does from a path, leaves the compiled library in the package folder, and so does `tree-sitter build`. The library is specific to one machine, so Git ignores it in each form a platform gives it, and in WebAssembly.
 
+Zed and Gram build the extension in `editors/zed` in place, the same way. They leave Cargo's build folder and lockfile there, the compiled extension, and a clone of the grammar under `grammars`, and Git ignores all of it.
+
 =>
 
 *.so
 *.dylib
 *.dll
 *.wasm
+editors/zed/target/
+editors/zed/grammars/
+editors/zed/Cargo.lock

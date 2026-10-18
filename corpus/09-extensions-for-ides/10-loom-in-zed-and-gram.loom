@@ -1,0 +1,306 @@
+---
+Part IX, Chapter 10: Loom in Zed and Gram
+Package: packages/tree-sitter-loom/editors/zed/
+Language: Rust
+---
+
+# Loom in Zed and Gram
+
+Zed learns a language from an extension: a folder that names the language, the grammar that parses it, the queries that colour it, and the language server that serves it. Gram is a fork of Zed without its AI features or its telemetry, and it loads the same extensions. Gram has no registry, so a person installs an extension from its folder or its repository, and Gram builds it there from source.
+
+This chapter is that extension. Its manifest points at the grammar of this part. Its queries colour a loom with the names Zed's themes know. A few lines of Rust, compiled to WebAssembly, start the language server with `loom lsp`. The extension asks for nothing the two editors do not share, so one folder serves both.
+
+## The manifest {Tangle}[extension.toml]
+
+The manifest names the extension, the grammar, and the language server. Zed builds the grammar itself: it fetches the repository at the pinned revision, opens the subfolder that holds the grammar, and compiles the parser and the scanner to WebAssembly. The revision names the commit that last changed the grammar, the same commit the Helix form pins.
+
+The language server is declared by name and language here, and the Rust below tells the editor how to start it.
+
+{{ version = ${version} }}
+{{ revision = "93f7682f56b79fa284e1af318e24bf1438691f7c" }}
+
+=>
+
+id = "loom"
+name = "Loom"
+version = "::[version]"
+schema_version = 1
+authors = ["Quadrivium Academy <info@qda.one>"]
+description = "Loom literate documents: colour, checks, and navigation for .loom files"
+repository = "https://github.com/athrio-com/loom"
+
+[grammars.loom]
+repository = "https://github.com/athrio-com/loom"
+rev = "::[revision]"
+path = "packages/tree-sitter-loom"
+
+[language_servers.loom]
+name = "Loom"
+languages = ["Loom"]
+
+## Starting the language server {Tangle}[src/lib.rs]
+
+An extension's code is a Rust library that implements Zed's `Extension` trait, and the editor calls it whenever it needs the language server. `language_server_command` answers with the command to run. The server ships with the `loom` command line, so the extension looks for `loom` on the user's `PATH`, the way the user's shell would, and runs it as `loom lsp --stdio`.
+
+The server inherits the user's shell environment. `loom` may itself be a script that starts Node, and a server launched without the shell's `PATH` would not find it. When no `loom` is on the path, the editor shows the error the extension returns, which says how to install it.
+
+=>
+
+use zed_extension_api::{self as zed, LanguageServerId, Result};
+
+struct LoomExtension;
+
+impl zed::Extension for LoomExtension {
+    fn new() -> Self {
+        LoomExtension
+    }
+
+    fn language_server_command(
+        &mut self,
+        _language_server_id: &LanguageServerId,
+        worktree: &zed::Worktree,
+    ) -> Result<zed::Command> {
+        let loom = worktree.which("loom").ok_or_else(|| {
+            "Loom's language server comes with the loom command, which is not on your PATH. \
+             Install it with `npm install -g @athrio/loom`."
+                .to_string()
+        })?;
+        Ok(zed::Command {
+            command: loom,
+            args: vec!["lsp".into(), "--stdio".into()],
+            env: worktree.shell_env(),
+        })
+    }
+}
+
+zed::register_extension!(LoomExtension);
+
+## The crate {Tangle}[Cargo.toml]
+
+Zed compiles the library to WebAssembly, so the crate is a `cdylib`, a library with a C interface that the compiler can emit as a WebAssembly module. It depends on `zed_extension_api`, the crate that defines the trait and the types the editor passes in. The extension targets version 0.6.0, the newest interface Gram 3.3 carries, and Zed still loads it.
+
+{{ version = ${version} }}
+
+=>
+
+[package]
+name = "loom-zed"
+version = "::[version]"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[dependencies]
+zed_extension_api = "0.6.0"
+
+## The language {Tangle}[languages/loom/config.toml]
+
+The language's configuration gives the name the editor shows, the grammar that parses it, and the extension that marks its files. A loom's code is indented two spaces throughout this book, so a tab is two spaces wide.
+
+=>
+
+name = "Loom"
+grammar = "loom"
+path_suffixes = ["loom"]
+tab_size = 2
+
+## Colours in Zed's names {Tangle}[languages/loom/highlights.scm]
+
+Zed colours a capture by the name its theme gives the colour, and its names differ from the ones Neovim and Helix use. A heading is a title, a file is a link, and a note's marker is the marker of a doc comment. The rest follows the colours of the shared queries: the frontmatter's keys are properties, its values take the colour of what they name, the arrows and tildes are operators, and an anchor's name is a label. A `Part` or `Chapter` value is a title like a heading, a `Package` value a link like a sink's file, and a `Language` value a type like a specifier's label.
+
+A specifier's label is a type, except for the two labels that instruct Loom, `{Tangle}` and `{TOC}`, which are keywords. The two patterns exclude each other, so a label never carries both colours and leaves the editor to choose.
+
+=>
+
+(frontmatter_fence) @punctuation.special
+
+(field
+  key: (key) @property)
+
+(field
+  ":" @punctuation.delimiter)
+
+((field
+  key: (key) @_key
+  value: (value) @title)
+  (#match? @_key "^Part"))
+
+((field
+  key: (key) @_key
+  value: (value) @title)
+  (#match? @_key "^Chapter"))
+
+((field
+  key: (key) @_key
+  value: (value) @link_uri)
+  (#eq? @_key "Package"))
+
+((field
+  key: (key) @_key
+  value: (value) @type)
+  (#eq? @_key "Language"))
+
+((field
+  key: (key) @_key
+  value: (value) @string)
+  (#not-match? @_key "^Part")
+  (#not-match? @_key "^Chapter")
+  (#not-eq? @_key "Package")
+  (#not-eq? @_key "Language"))
+
+(heading) @title
+
+(specifier
+  [
+    "{"
+    "}"
+  ] @punctuation.bracket)
+
+((specifier
+  label: (label) @type)
+  (#not-any-of? @type "Tangle" "tangle" "TOC" "toc"))
+
+((specifier
+  label: (label) @keyword)
+  (#any-of? @keyword "Tangle" "tangle" "TOC" "toc"))
+
+(sink
+  [
+    "["
+    "]"
+  ] @punctuation.bracket)
+
+(sink
+  file: (file) @link_uri)
+
+(arrow) @operator
+
+(tilde) @operator
+
+(anchor
+  (anchor_open) @punctuation.special
+  "]" @punctuation.special)
+
+(anchor
+  name: (name) @label)
+
+(anchor
+  target: (target) @link_uri)
+
+(warp
+  [
+    "{{"
+    "}}"
+  ] @punctuation.special)
+
+(warp
+  name: (identifier) @variable)
+
+(warp
+  ":" @punctuation.delimiter)
+
+(warp
+  annotation: (annotation) @type)
+
+(warp
+  "=" @operator)
+
+(warp
+  default: (default) @string)
+
+(note) @comment
+
+(note_marker) @comment.doc
+
+## Each section in its language {Tangle}[languages/loom/injections.scm]
+
+Zed finds an injected language by its name or by one of its file extensions, in any case, so `TypeScript`, `typescript`, and `ts` all reach the same grammar. It does not read a whole file name, which is why the grammar gives a sink's extension a node of its own. The rules are Part IV's, taken in turn as in the shared queries: prose as Markdown, then the section's specifier, the extension of its sink, and the chapter's `Language`.
+
+One rule of the shared queries has no counterpart here. A `{Tangle}` section without a sink writes the chapter's `Package` file, and a `Package` value is a path whose extension no node holds, so Zed leaves that section's code plain.
+
+=>
+
+((preamble) @injection.content
+  (#set! injection.language "markdown"))
+
+((prose) @injection.content
+  (#set! injection.language "markdown"))
+
+((toc) @injection.content
+  (#set! injection.language "markdown")
+  (#set! injection.include-children))
+
+(section
+  (heading
+    specifier: (specifier
+      label: (label) @injection.language))
+  (code) @injection.content
+  (#not-any-of? @injection.language "Tangle" "tangle" "TOC" "toc" "Prose" "prose"))
+
+((section
+  (heading
+    specifier: (specifier
+      label: (label) @_language))
+  (code) @injection.content)
+  (#any-of? @_language "Prose" "prose")
+  (#set! injection.language "markdown"))
+
+(section
+  (heading
+    !specifier
+    sink: (sink
+      file: (file
+        extension: (extension) @injection.language)))
+  (code) @injection.content)
+
+(section
+  (heading
+    specifier: (specifier
+      label: (label) @_tangle)
+    sink: (sink
+      file: (file
+        extension: (extension) @injection.language)))
+  (code) @injection.content
+  (#any-of? @_tangle "Tangle" "tangle"))
+
+(document
+  (frontmatter
+    (field
+      key: (key) @_key
+      value: (value) @injection.language))
+  (section
+    (heading
+      !specifier
+      !sink)
+    (code) @injection.content)
+  (#eq? @_key "Language")
+  (#not-any-of? @injection.language "Prose" "prose"))
+
+((document
+  (frontmatter
+    (field
+      key: (key) @_key
+      value: (value) @_language))
+  (section
+    (heading
+      !specifier
+      !sink)
+    (code) @injection.content))
+  (#eq? @_key "Language")
+  (#any-of? @_language "Prose" "prose")
+  (#set! injection.language "markdown"))
+
+## The outline {Tangle}[languages/loom/outline.scm]
+
+Zed's outline panel lists the items its outline query captures. Each section is an item, named by its heading's title, with the heading's marks beside it as context, so a long loom is one click from any of its sections.
+
+=>
+
+(section
+  (heading
+    (heading_marker) @context
+    title: (title) @name)) @item

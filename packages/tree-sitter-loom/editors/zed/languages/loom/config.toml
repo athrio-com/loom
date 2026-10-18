@@ -1,0 +1,4 @@
+name = "Loom"
+grammar = "loom"
+path_suffixes = ["loom"]
+tab_size = 2

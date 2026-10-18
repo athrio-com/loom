@@ -108,6 +108,7 @@ An editor runs its extensions in its own host, not a process Loom starts. This p
 7. Packaging the grammar
 8. Testing the grammar
 9. Loom in Neovim and Helix
+10. Loom in Zed and Gram
 
 ### Part X — The website
 

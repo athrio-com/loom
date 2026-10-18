@@ -2,3 +2,6 @@
 *.dylib
 *.dll
 *.wasm
+editors/zed/target/
+editors/zed/grammars/
+editors/zed/Cargo.lock
