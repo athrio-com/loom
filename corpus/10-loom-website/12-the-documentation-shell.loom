@@ -46,6 +46,8 @@ import {
 } from './components'
 import { commandButton, installLine } from './hero'
 import { loomCanvas } from './example'
+import { operations } from './operations'
+import projectDrawing from './project.svg?raw'
 import wovenDocs from './docs.woven.json'
 
 type HeadingBlock = {
@@ -217,8 +219,69 @@ const piecesOf = (markdown: string): ReadonlyArray<Piece> => {
   )
 }
 
-const textOf = (markdown: string, className: string, h: HtmlBuilder<Message>): Html =>
-  h.div([h.Class(className), h.InnerHTML(marked.parse(markdown) as string)], [])
+const textOf = (
+  markdown: string,
+  className: string,
+  copied: string,
+  h: HtmlBuilder<Message>,
+): Html =>
+  h.div(
+    [h.Class(className), h.InnerHTML(inlineCommands(marked.parse(markdown) as string, copied))],
+    [],
+  )
+
+~
+
+A command can also sit inside a sentence: "run `$ loom init`". Code that starts with a dollar sign and a space is a command, the dollar sign standing for the prompt the command blocks show. It draws as a small button in the line of text, the command without its dollar sign and a copy glyph after it, and pressing the button copies the command. Once copied, the glyph turns to a tick in green, the way the label on a command block turns to `copied`. Code without the dollar sign stays code: a file name, a setting.
+
+A command wears a colour, so it stands out from the code around it. Loom's own commands wear the colours the landing gives them, green for `loom init`, blue for `loom tangle`, violet for `loom weave` and red for `loom eject`, so a reader meets the same command in the same colour wherever it appears. Any other command, a `mv` or a `bun`, wears the orange of the prompt.
+
+The prose arrives as HTML that Markdown produced, so the button cannot carry a click handler of its own the way the rest of the page does. It carries the command in a `data-copy` attribute instead, and the client listens for presses on any such button. The id a press reports is the command behind `inline:`, so the button knows it was the one pressed. Markdown has already escaped the command for HTML, and the browser reads the attribute back unescaped, so `commandOf` unescapes it the same way before comparing.
+
+=>
+
+const INLINE_COMMAND = /<code>\$ ([^<]+)<\/code>/g
+
+const COPY_GLYPH =
+  '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a2 2 0 0 1 2-2h10"></path></svg>'
+
+const TICK_GLYPH =
+  '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>'
+
+const ENTITIES: ReadonlyArray<readonly [string, string]> = [
+  ['&lt;', '<'],
+  ['&gt;', '>'],
+  ['&quot;', '"'],
+  ['&#39;', "'"],
+  ['&amp;', '&'],
+]
+
+const commandOf = (escaped: string): string =>
+  Array.reduce(ENTITIES, escaped, (text, [entity, glyph]) => text.split(entity).join(glyph))
+
+const COMMAND_INKS: ReadonlyArray<readonly [string, string]> = [
+  ['loom init', 'var(--init)'],
+  ['loom tangle', 'var(--tangle)'],
+  ['loom weave', 'var(--weave)'],
+  ['loom eject', 'var(--eject)'],
+]
+
+const inkOf = (command: string): string =>
+  pipe(
+    Array.findFirst(
+      COMMAND_INKS,
+      ([name]) => command === name || command.startsWith(`${name} `),
+    ),
+    Option.map(([, ink]) => ink),
+    Option.getOrElse(() => 'var(--prompt-paper)'),
+  )
+
+const inlineCommands = (html: string, copied: string): string =>
+  html.replace(INLINE_COMMAND, (_, escaped: string) => {
+    const command = commandOf(escaped)
+    const done = copied === `inline:${command}`
+    return `<button type="button" class="${done ? 'inline-copy done' : 'inline-copy'}" style="--cmd-ink: ${inkOf(command)}" data-copy="${escaped}" title="Copy the command"><code>${escaped}</code>${done ? TICK_GLYPH : COPY_GLYPH}</button>`
+  })
 
 ## Drawing a fence
 
@@ -228,6 +291,7 @@ The word after a fence's backticks decides how the fence draws.
 - A fence tagged `run` names a file, and draws a picker that runs it: a Bun tab and a Node tab over one command that copies.
 - A `bash` fence that holds a single command becomes the landing's copy button on its own, so a reader copies a command rather than selecting it.
 - A `loom` fence becomes a card in the example's colours, so a loom quoted in the docs reads the way the landing shows one.
+- A fence tagged `picture` names a picture and draws it: one of the docs' own, such as `project`, or the picture of one of the landing's commands, such as `loom init`.
 - Every other fence, a `bash` script of several lines included, becomes a code sheet: the same card as the loom, holding the code as plain text, with the same copy button in its corner.
 
 =>
@@ -240,6 +304,7 @@ const fenceOf = (
 ): Html =>
   Match.value(kind).pipe(
     Match.when('install', () => installLine(model, h)),
+    Match.when('picture', () => pictureOf(body.trim(), h)),
     Match.when('run', () => runLine(body.trim(), model, h)),
     Match.when('loom', () => loomCanvas(body, model.copied, h)),
     Match.when('bash', () => commandsOf(body, model, h)),
@@ -290,6 +355,37 @@ const codeSheet = (body: string, copied: string, h: HtmlBuilder<Message>): Html 
     ],
   )
 }
+
+~
+
+The docs keep a few pictures of their own, drawn for the example the chapters build: `project` is the quick start's folder grown into a project, with `hello.ts` written to its root. A picture fence looks its name up there first, then among the landing's commands. Either way the picture is drawn straight onto the page. A name with no picture, or a misspelt one, draws nothing, so a chapter never shows a broken frame.
+
+=>
+
+type Picture = { readonly name: string; readonly drawing: string }
+
+const docsPictures: ReadonlyArray<Picture> = [{ name: 'project', drawing: projectDrawing }]
+
+const landingPicture = (command: string): Option.Option<string> =>
+  pipe(
+    Array.findFirst(operations, (operation) => operation.command === command),
+    Option.flatMap((operation) => Option.fromNullishOr(operation.drawing)),
+  )
+
+const pictureOf = (name: string, h: HtmlBuilder<Message>): Html =>
+  pipe(
+    Array.findFirst(docsPictures, (picture) => picture.name === name),
+    Option.map((picture) => picture.drawing),
+    Option.orElse(() => landingPicture(name)),
+    Option.match({
+      onNone: () => h.div([], []),
+      onSome: (drawing) =>
+        h.div(
+          [h.Class('ops-frame doc-picture')],
+          [h.div([h.Class('ops-svg'), h.InnerHTML(drawing)], [])],
+        ),
+    }),
+  )
 
 ~
 
@@ -347,7 +443,7 @@ const blockOf = (block: Block, model: Model, h: HtmlBuilder<Message>): ReadonlyA
     Match.when({ type: 'prose' }, (prose) =>
       Array.map(piecesOf(prose.markdown), (piece) =>
         piece.type === 'text'
-          ? textOf(piece.markdown, 'docs-prose', h)
+          ? textOf(piece.markdown, 'docs-prose', model.copied, h)
           : fenceOf(piece.kind, piece.body, model, h),
       ),
     ),
@@ -457,7 +553,9 @@ const docHead = (
                 [loomMark('paper', 0.8), h.h1([h.Id(heading.id)], [heading.title])],
               ),
               ...Array.flatMap(pieces, (piece) =>
-                piece.type === 'text' ? [textOf(piece.markdown, 'docs-prose page-lead', h)] : [],
+                piece.type === 'text'
+                  ? [textOf(piece.markdown, 'docs-prose page-lead', model.copied, h)]
+                  : [],
               ),
             ],
           ),

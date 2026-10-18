@@ -24,6 +24,8 @@ import {
 } from './components'
 import { commandButton, installLine } from './hero'
 import { loomCanvas } from './example'
+import { operations } from './operations'
+import projectDrawing from './project.svg?raw'
 import wovenDocs from './docs.woven.json'
 
 type HeadingBlock = {
@@ -163,8 +165,59 @@ const piecesOf = (markdown: string): ReadonlyArray<Piece> => {
   )
 }
 
-const textOf = (markdown: string, className: string, h: HtmlBuilder<Message>): Html =>
-  h.div([h.Class(className), h.InnerHTML(marked.parse(markdown) as string)], [])
+const textOf = (
+  markdown: string,
+  className: string,
+  copied: string,
+  h: HtmlBuilder<Message>,
+): Html =>
+  h.div(
+    [h.Class(className), h.InnerHTML(inlineCommands(marked.parse(markdown) as string, copied))],
+    [],
+  )
+
+const INLINE_COMMAND = /<code>\$ ([^<]+)<\/code>/g
+
+const COPY_GLYPH =
+  '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a2 2 0 0 1 2-2h10"></path></svg>'
+
+const TICK_GLYPH =
+  '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>'
+
+const ENTITIES: ReadonlyArray<readonly [string, string]> = [
+  ['&lt;', '<'],
+  ['&gt;', '>'],
+  ['&quot;', '"'],
+  ['&#39;', "'"],
+  ['&amp;', '&'],
+]
+
+const commandOf = (escaped: string): string =>
+  Array.reduce(ENTITIES, escaped, (text, [entity, glyph]) => text.split(entity).join(glyph))
+
+const COMMAND_INKS: ReadonlyArray<readonly [string, string]> = [
+  ['loom init', 'var(--init)'],
+  ['loom tangle', 'var(--tangle)'],
+  ['loom weave', 'var(--weave)'],
+  ['loom eject', 'var(--eject)'],
+]
+
+const inkOf = (command: string): string =>
+  pipe(
+    Array.findFirst(
+      COMMAND_INKS,
+      ([name]) => command === name || command.startsWith(`${name} `),
+    ),
+    Option.map(([, ink]) => ink),
+    Option.getOrElse(() => 'var(--prompt-paper)'),
+  )
+
+const inlineCommands = (html: string, copied: string): string =>
+  html.replace(INLINE_COMMAND, (_, escaped: string) => {
+    const command = commandOf(escaped)
+    const done = copied === `inline:${command}`
+    return `<button type="button" class="${done ? 'inline-copy done' : 'inline-copy'}" style="--cmd-ink: ${inkOf(command)}" data-copy="${escaped}" title="Copy the command"><code>${escaped}</code>${done ? TICK_GLYPH : COPY_GLYPH}</button>`
+  })
 
 const fenceOf = (
   kind: string,
@@ -174,6 +227,7 @@ const fenceOf = (
 ): Html =>
   Match.value(kind).pipe(
     Match.when('install', () => installLine(model, h)),
+    Match.when('picture', () => pictureOf(body.trim(), h)),
     Match.when('run', () => runLine(body.trim(), model, h)),
     Match.when('loom', () => loomCanvas(body, model.copied, h)),
     Match.when('bash', () => commandsOf(body, model, h)),
@@ -219,6 +273,31 @@ const codeSheet = (body: string, copied: string, h: HtmlBuilder<Message>): Html 
   )
 }
 
+type Picture = { readonly name: string; readonly drawing: string }
+
+const docsPictures: ReadonlyArray<Picture> = [{ name: 'project', drawing: projectDrawing }]
+
+const landingPicture = (command: string): Option.Option<string> =>
+  pipe(
+    Array.findFirst(operations, (operation) => operation.command === command),
+    Option.flatMap((operation) => Option.fromNullishOr(operation.drawing)),
+  )
+
+const pictureOf = (name: string, h: HtmlBuilder<Message>): Html =>
+  pipe(
+    Array.findFirst(docsPictures, (picture) => picture.name === name),
+    Option.map((picture) => picture.drawing),
+    Option.orElse(() => landingPicture(name)),
+    Option.match({
+      onNone: () => h.div([], []),
+      onSome: (drawing) =>
+        h.div(
+          [h.Class('ops-frame doc-picture')],
+          [h.div([h.Class('ops-svg'), h.InnerHTML(drawing)], [])],
+        ),
+    }),
+  )
+
 type Runner = {
   readonly runtime: Runtime
   readonly label: string
@@ -263,7 +342,7 @@ const blockOf = (block: Block, model: Model, h: HtmlBuilder<Message>): ReadonlyA
     Match.when({ type: 'prose' }, (prose) =>
       Array.map(piecesOf(prose.markdown), (piece) =>
         piece.type === 'text'
-          ? textOf(piece.markdown, 'docs-prose', h)
+          ? textOf(piece.markdown, 'docs-prose', model.copied, h)
           : fenceOf(piece.kind, piece.body, model, h),
       ),
     ),
@@ -355,7 +434,9 @@ const docHead = (
                 [loomMark('paper', 0.8), h.h1([h.Id(heading.id)], [heading.title])],
               ),
               ...Array.flatMap(pieces, (piece) =>
-                piece.type === 'text' ? [textOf(piece.markdown, 'docs-prose page-lead', h)] : [],
+                piece.type === 'text'
+                  ? [textOf(piece.markdown, 'docs-prose page-lead', model.copied, h)]
+                  : [],
               ),
             ],
           ),

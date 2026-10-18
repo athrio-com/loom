@@ -113,8 +113,8 @@ describe('the documentation shell', () => {
   })
 
   it('renders a chapter\'s prose as HTML, a one-line bash fence as a copy button', () => {
-    const html = render(at(INIT, ''))
-    expect(html).toContain('<h1 id="loom-projects">Loom projects</h1>')
+    const html = render(at(QUICK, ''))
+    expect(html).toContain('<h1 id="quick-start">Quick start</h1>')
     expect(html).toContain('class="docs-command"')
     expect(html).not.toContain('language-bash')
   })
@@ -126,7 +126,7 @@ describe('the documentation shell', () => {
     expect(html).toMatch(/class="pl-tok chip"[^>]*>=&gt;</)
     expect(html).toMatch(/class="pl-tok chip"[^>]*>\[hello\.ts\]</)
     expect(html).not.toContain('{Tangle}')
-    expect(html).toMatch(/class="pl-tok chip"[^>]*>::\[Saying hello\]</)
+    expect(html).toMatch(/class="pl-tok chip"[^>]*>::\[Greeting function\]</)
   })
 
   it('draws any other fence as a code sheet with its own copy button', () => {
@@ -134,6 +134,35 @@ describe('the documentation shell', () => {
     expect(html).toContain('class="sheet-code"')
     expect(html).toContain('aria-label="Copy the code"')
     expect(html).not.toContain('language-typescript')
+  })
+
+  it('draws a picture fence as the docs\' own picture, beside the lead', () => {
+    const html = render(at(INIT, ''))
+    const cli = html.slice(html.indexOf('class="hero-cli"'), html.indexOf('class="docs-body"'))
+    expect(cli).toContain('class="ops-frame doc-picture"')
+    expect(cli).toContain('<svg')
+    expect(cli).toContain('>hello.loom</text>')
+    expect(cli).toContain('>hello.ts</text>')
+    expect(cli).not.toContain('loom init</span>')
+    expect(html).toContain('data-copy="loom init"')
+  })
+
+  it('draws a command inside a sentence as an inline copy button', () => {
+    const html = render(at(INIT, ''))
+    expect(html).toContain(
+      '<button type="button" class="inline-copy" style="--cmd-ink: var(--init)" data-copy="loom init" title="Copy the command"><code>loom init</code><svg',
+    )
+    expect(html).not.toContain('<code>$ loom init</code>')
+    expect(html).toContain('<code>.loom/config.yaml</code>')
+    expect(html).toContain('style="--cmd-ink: var(--tangle)" data-copy="loom tangle corpus"')
+    expect(html).toContain('style="--cmd-ink: var(--prompt-paper)" data-copy="mv hello.loom corpus/"')
+  })
+
+  it('marks the inline button it copied, and only that one', () => {
+    const html = render({ ...at(INIT, ''), copied: 'inline:loom init' } as Model)
+    expect(html).toContain('class="inline-copy done" style="--cmd-ink: var(--init)" data-copy="loom init"')
+    const other = render({ ...at(INIT, ''), copied: 'inline:something else' } as Model)
+    expect(other).not.toContain('inline-copy done')
   })
 
   it('runs a file with the runtime the install line chose', () => {

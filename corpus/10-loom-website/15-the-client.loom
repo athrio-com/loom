@@ -22,6 +22,7 @@ import { animationFrameEntry } from 'foldkit/subscription'
 import type { Return } from 'foldkit/update'
 import { view } from './view'
 import {
+  Copied,
   CopyReset,
   FocusedPalette,
   GrewCard,
@@ -348,6 +349,8 @@ The spy and the escape key both listen on the window. The `windowEvents` functio
 
 Two more belong to the search palette. While it is closed, a slash opens it, unless the reader is typing into a field of their own, where a slash is just a slash. The slash that opens the palette is kept from also landing in its field, so the opening key never becomes the first character of the query.
 
+One more belongs to the documentation's prose. A command written inside a sentence draws as a small copy button, but the prose is HTML that Markdown produced, so the button carries no handler of its own. While the documentation is on show, a listener on the window catches any click inside an element marked `data-copy`, and copies the command it carries, reporting it under the id the button checks for.
+
 While the palette is open, its caret follows the field's own. The palette draws a block caret of its own rather than the browser's, so it needs the field's caret position as state. A reader moves that position by typing, by the arrow keys, by clicking, or by selecting, and no single event covers all four. So the listener takes the selection changes the document reports, and the key, pointer and input events besides, and after each one reads where the field's caret now stands. It reads nothing while the field has lost focus.
 
 =>
@@ -375,6 +378,14 @@ const paletteCaret = (): Option.Option<number> =>
     Option.fromNullishOr(document.querySelector<HTMLInputElement>('.palette-input')),
     Option.filter((field) => field === document.activeElement),
     Option.flatMapNullishOr((field) => field.selectionStart),
+  )
+
+const inlineCopy = (event: MouseEvent): Option.Option<Message> =>
+  pipe(
+    Option.liftPredicate(event.target, (target): target is Element => target instanceof Element),
+    Option.flatMapNullishOr((target) => target.closest<HTMLElement>('[data-copy]')),
+    Option.flatMapNullishOr((button) => button.dataset.copy),
+    Option.map((text) => Copied({ id: `inline:${text}`, text })),
   )
 
 const caretMoves: Stream.Stream<Message> = pipe(
@@ -405,6 +416,14 @@ const subscriptions = Subscription.make<Model, Message>()((entry) => ({
               { passive: true },
             )
           : Stream.empty,
+    },
+  ),
+  inlineCopies: entry(
+    { reading: S.Boolean },
+    {
+      modelToDependencies: (model) => ({ reading: model.route === 'docs' }),
+      dependenciesToStream: ({ reading }) =>
+        reading ? windowEvents<MouseEvent>('click', inlineCopy) : Stream.empty,
     },
   ),
   opening: entry(

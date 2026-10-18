@@ -2479,7 +2479,7 @@ The drawer holds the same groups, so the rules below style both.
 
 ~
 
-The chapter's own prose is Markdown the weave carried through, so the elements it produces are styled here rather than by the views: a paragraph, a list, a table, and code set inside a sentence. Running text fills the column, as the code sheets and commands between its paragraphs do, so prose and code share one right edge rather than leaving a ragged gap beside every paragraph. Code inside a sentence sits on the same faint wash as a fence, in primary ink, so it reads as a word set in a different face rather than a highlight.
+The chapter's own prose is Markdown the weave carried through, so the elements it produces are styled here rather than by the views: a paragraph, a list, a table, and code set inside a sentence. Running text fills the column, as the code sheets and commands between its paragraphs do, so prose and code share one right edge rather than leaving a ragged gap beside every paragraph. Code inside a sentence sits on the same faint wash as a fence, in primary ink, so it reads as a word set in a different face rather than a highlight. A command inside a sentence is a button in the command's own colour: its text in that colour, on a faint wash of it inside a thin edge of it, and a small copy glyph after the command. The colour arrives as a custom property, since it belongs to the command rather than to the stylesheet. Under the pointer the edge takes the full colour and the wash deepens, and once the command is copied the glyph turns to a tick in the green the command blocks use for `copied`.
 
 =>
 
@@ -2498,6 +2498,29 @@ The chapter's own prose is Markdown the weave carried through, so the elements i
   font-size: 0.92em;
   color: var(--ink);
 }
+
+.inline-copy {
+  appearance: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 6px 1px 5px;
+  border: 1px solid color-mix(in srgb, var(--cmd-ink) 28%, transparent);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--cmd-ink) 9%, transparent);
+  font: inherit;
+  line-height: inherit;
+  vertical-align: baseline;
+  color: var(--cmd-ink);
+  transition: border-color .14s ease, background-color .14s ease;
+}
+
+.inline-copy code { padding: 0; background: none; color: var(--cmd-ink); }
+.inline-copy svg { opacity: 0.7; }
+.inline-copy:hover { border-color: var(--cmd-ink); background: color-mix(in srgb, var(--cmd-ink) 14%, transparent); }
+.inline-copy:hover svg { opacity: 1; }
+.inline-copy.done svg { opacity: 1; color: var(--init); }
 
 .docs-prose table {
   margin: 24px 0 0;
@@ -2526,7 +2549,7 @@ Every piece of code in a chapter sits on the menu's own card: the pale ground, t
 
 The copy button sits in the card's top corner in muted ink, with no frame until the pointer reaches it, so it never competes with the code it copies.
 
-A command is one short line, and stretched across the column it would be mostly empty card. So a command, and a picker of commands, stops at four hundred and forty pixels, about the width of the commands beside a chapter's lead. A code sheet keeps the full width, since its lines run long.
+A command is one short line, and stretched across the column it would be mostly empty card. So a command, and a picker of commands, stops at four hundred and forty pixels, about the width of the commands beside a chapter's lead. A code sheet keeps the full width, since its lines run long. A picture stands on the page itself, with no frame. A landing drawing carries a pale ground of its own for the landing's card, and here that ground is made transparent too, so only the picture shows. In a chapter's head a picture takes its size from the text beside it: its column stretches to the row, and the drawing scales to four fifths of that height, centred in it, which keeps a small drawing from looming over the title.
 
 =>
 
@@ -2556,6 +2579,13 @@ A command is one short line, and stretched across the column it would be mostly 
 
 .doc-stack .docs-command,
 .doc-stack .hero-install { max-width: 440px; }
+
+.doc-picture { margin-top: 0; padding: 0; background: none; }
+.hero-cli:has(.doc-picture) { align-self: stretch; }
+.hero-cli .doc-picture { height: 100%; }
+.hero-cli .doc-picture .ops-svg { height: 100%; align-items: center; }
+.hero-cli .doc-picture svg { width: auto; height: 80%; }
+.doc-picture svg > rect:first-of-type { fill: transparent; }
 
 .canvas-copy {
   position: absolute;

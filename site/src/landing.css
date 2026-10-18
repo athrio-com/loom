@@ -2067,6 +2067,29 @@ h2, .subhead {
   color: var(--ink);
 }
 
+.inline-copy {
+  appearance: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 6px 1px 5px;
+  border: 1px solid color-mix(in srgb, var(--cmd-ink) 28%, transparent);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--cmd-ink) 9%, transparent);
+  font: inherit;
+  line-height: inherit;
+  vertical-align: baseline;
+  color: var(--cmd-ink);
+  transition: border-color .14s ease, background-color .14s ease;
+}
+
+.inline-copy code { padding: 0; background: none; color: var(--cmd-ink); }
+.inline-copy svg { opacity: 0.7; }
+.inline-copy:hover { border-color: var(--cmd-ink); background: color-mix(in srgb, var(--cmd-ink) 14%, transparent); }
+.inline-copy:hover svg { opacity: 1; }
+.inline-copy.done svg { opacity: 1; color: var(--init); }
+
 .docs-prose table {
   margin: 24px 0 0;
   border-collapse: collapse;
@@ -2114,6 +2137,13 @@ h2, .subhead {
 
 .doc-stack .docs-command,
 .doc-stack .hero-install { max-width: 440px; }
+
+.doc-picture { margin-top: 0; padding: 0; background: none; }
+.hero-cli:has(.doc-picture) { align-self: stretch; }
+.hero-cli .doc-picture { height: 100%; }
+.hero-cli .doc-picture .ops-svg { height: 100%; align-items: center; }
+.hero-cli .doc-picture svg { width: auto; height: 80%; }
+.doc-picture svg > rect:first-of-type { fill: transparent; }
 
 .canvas-copy {
   position: absolute;

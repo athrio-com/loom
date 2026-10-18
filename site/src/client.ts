@@ -6,6 +6,7 @@ import { animationFrameEntry } from 'foldkit/subscription'
 import type { Return } from 'foldkit/update'
 import { view } from './view'
 import {
+  Copied,
   CopyReset,
   FocusedPalette,
   GrewCard,
@@ -282,6 +283,14 @@ const paletteCaret = (): Option.Option<number> =>
     Option.flatMapNullishOr((field) => field.selectionStart),
   )
 
+const inlineCopy = (event: MouseEvent): Option.Option<Message> =>
+  pipe(
+    Option.liftPredicate(event.target, (target): target is Element => target instanceof Element),
+    Option.flatMapNullishOr((target) => target.closest<HTMLElement>('[data-copy]')),
+    Option.flatMapNullishOr((button) => button.dataset.copy),
+    Option.map((text) => Copied({ id: `inline:${text}`, text })),
+  )
+
 const caretMoves: Stream.Stream<Message> = pipe(
   [
     Stream.fromEventListener(document, 'selectionchange'),
@@ -310,6 +319,14 @@ const subscriptions = Subscription.make<Model, Message>()((entry) => ({
               { passive: true },
             )
           : Stream.empty,
+    },
+  ),
+  inlineCopies: entry(
+    { reading: S.Boolean },
+    {
+      modelToDependencies: (model) => ({ reading: model.route === 'docs' }),
+      dependenciesToStream: ({ reading }) =>
+        reading ? windowEvents<MouseEvent>('click', inlineCopy) : Stream.empty,
     },
   ),
   opening: entry(

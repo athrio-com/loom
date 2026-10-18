@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="140" height="160" viewBox="80 27 140 160" role="img" aria-labelledby="pj-t">
+  <title id="pj-t">A Loom project — .loom/ holding config.yaml, corpus/ holding hello.loom, and hello.ts written to the project root</title>
+  <defs>
+    <filter id="pj-drop" x="-25%" y="-25%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="1" stdDeviation="0.5" flood-color="#14130F" flood-opacity="0.14"/>
+    </filter>
+  </defs>
+  <g>
+    <g fill="#DFD8C8" shape-rendering="crispEdges">
+      <rect x="95" y="43" width="1" height="32"/>
+      <rect x="95" y="74.5" width="19" height="1"/>
+    </g>
+    <g filter="url(#pj-drop)">
+      <path d="M114 65.5Q114 64 115.5 64H125L131 70V84.5Q131 86 129.5 86H115.5Q114 86 114 84.5Z" fill="#FCFAF4"/>
+      <path d="M125 64L131 70H125Z" fill="#D8CFBB"/>
+    </g>
+    <g fill="#7C6F64" opacity="0.24" shape-rendering="crispEdges">
+      <rect x="117" y="72" width="11" height="1.5"/>
+      <rect x="117" y="75.5" width="7.92" height="1.5"/>
+    </g>
+    <circle cx="119" cy="81" r="2" fill="#8B5CF6"/>
+    <text x="142" y="75" font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="600" fill="#14130F" dominant-baseline="central">config.yaml</text>
+  </g>
+  <g>
+    <g fill="#DFD8C8" shape-rendering="crispEdges">
+      <rect x="95" y="107" width="1" height="32"/>
+      <rect x="95" y="138.5" width="19" height="1"/>
+    </g>
+    <g filter="url(#pj-drop)">
+      <path d="M114 129.5Q114 128 115.5 128H125L131 134V148.5Q131 150 129.5 150H115.5Q114 150 114 148.5Z" fill="#FCFAF4"/>
+      <path d="M125 128L131 134H125Z" fill="#D8CFBB"/>
+    </g>
+    <g fill="#7C6F64" opacity="0.24" shape-rendering="crispEdges">
+      <rect x="117" y="136" width="11" height="1.5"/>
+      <rect x="117" y="139.5" width="7.92" height="1.5"/>
+    </g>
+    <circle cx="119" cy="145" r="2" fill="#8B5CF6"/>
+    <text x="142" y="139" font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="600" fill="#14130F" dominant-baseline="central">hello.loom</text>
+  </g>
+  <g>
+    <g filter="url(#pj-drop)">
+      <path d="M87 161.5Q87 160 88.5 160H98L104 166V180.5Q104 182 102.5 182H88.5Q87 182 87 180.5Z" fill="#FCFAF4"/>
+      <path d="M98 160L104 166H98Z" fill="#D8CFBB"/>
+    </g>
+    <g fill="#7C6F64" opacity="0.24" shape-rendering="crispEdges">
+      <rect x="90" y="168" width="11" height="1.5"/>
+      <rect x="90" y="171.5" width="7.92" height="1.5"/>
+    </g>
+    <circle cx="92" cy="177" r="2" fill="#2E6FF2"/>
+    <text x="117" y="171" font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="600" fill="#14130F" dominant-baseline="central">hello.ts</text>
+  </g>
+  <g transform="translate(86 33.7) scale(.62)">
+    <rect x="1" y="4" width="12" height="7" rx="1.5" fill="#00996B"/>
+    <rect x="1" y="8" width="26" height="18" rx="2" fill="#19D69C"/>
+  </g>
+  <text font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="600" fill="#14130F" dominant-baseline="central" x="117" y="43">.loom/</text>
+  <g transform="translate(86 97.7) scale(.62)">
+    <rect x="1" y="4" width="12" height="7" rx="1.5" fill="#00996B"/>
+    <rect x="1" y="8" width="26" height="18" rx="2" fill="#19D69C"/>
+  </g>
+  <text font-family="IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="600" fill="#14130F" dominant-baseline="central" x="117" y="107">corpus/</text>
+</svg>
