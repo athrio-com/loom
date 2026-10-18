@@ -271,6 +271,18 @@
           ]
         },
         {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "_space"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
           "type": "REPEAT",
           "content": {
             "type": "SEQ",
@@ -323,7 +335,7 @@
     },
     "title": {
       "type": "PATTERN",
-      "value": "[^{\\[\\r\\n]+"
+      "value": "[^{\\[\\r\\n]*[^{\\[\\s]"
     },
     "_heading_rest": {
       "type": "PATTERN",
@@ -376,8 +388,37 @@
       ]
     },
     "file": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "_file_stem"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "FIELD",
+          "name": "extension",
+          "content": {
+            "type": "SYMBOL",
+            "name": "extension"
+          }
+        }
+      ]
+    },
+    "_file_stem": {
       "type": "PATTERN",
-      "value": "[^\\]\\r\\n]+"
+      "value": "[^\\]\\r\\n]*\\."
+    },
+    "extension": {
+      "type": "PATTERN",
+      "value": "[^\\].\\r\\n]+"
     },
     "toc": {
       "type": "REPEAT1",

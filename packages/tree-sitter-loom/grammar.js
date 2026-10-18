@@ -67,6 +67,7 @@ module.exports = grammar({
         $._heading_line,
         $.heading_marker,
         optional(field('title', $.title)),
+        optional($._space),
         repeat(
           seq(
             choice(field('specifier', $.specifier), field('sink', $.sink)),
@@ -77,14 +78,16 @@ module.exports = grammar({
       ),
 
     heading_marker: (_) => /#{1,6} /,
-    title: (_) => /[^{\[\r\n]+/,
+    title: (_) => /[^{\[\r\n]*[^{\[\s]/,
     _heading_rest: (_) => /[^{\[\r\n]+/,
 
     specifier: ($) => seq('{', field('label', $.label), '}'),
     label: (_) => /[a-zA-Z0-9_-]+/,
 
     sink: ($) => seq('[', field('file', $.file), ']'),
-    file: (_) => /[^\]\r\n]+/,
+    file: ($) => seq(optional($._file_stem), field('extension', $.extension)),
+    _file_stem: (_) => /[^\]\r\n]*\./,
+    extension: (_) => /[^\].\r\n]+/,
 
     toc: ($) =>
       repeat1(

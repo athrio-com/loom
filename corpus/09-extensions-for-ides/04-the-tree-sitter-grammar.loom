@@ -92,7 +92,7 @@ section: ($) =>
 
 ~
 
-A heading is the heading marker — one to six `#` and a space — then the title, then any specifiers and sinks. The title runs to the first `{` or `[` on the line, the way Loom's tokeniser ends it at the first structural token. Text after a specifier or a sink is dropped, as the tokeniser drops it, so the grammar reads it into a hidden rule.
+A heading is the heading marker — one to six `#` and a space — then the title, then any specifiers and sinks. The title runs to the first `{` or `[` on the line, the way Loom's tokeniser ends it at the first structural token. Like the tokeniser's title, it is trimmed: it ends at its last character that is not a space, so an editor's outline shows `Hello world` for `# Hello world [hello.ts]`, and the spaces before the sink are hidden. Text after a specifier or a sink is dropped, as the tokeniser drops it, so the grammar reads it into a hidden rule.
 
 =>
 
@@ -101,6 +101,7 @@ heading: ($) =>
     $._heading_line,
     $.heading_marker,
     optional(field('title', $.title)),
+    optional($._space),
     repeat(
       seq(
         choice(field('specifier', $.specifier), field('sink', $.sink)),
@@ -111,12 +112,14 @@ heading: ($) =>
   ),
 
 heading_marker: (_) => /#{1,6} /,
-title: (_) => /[^{\[\r\n]+/,
+title: (_) => /[^{\[\r\n]*[^{\[\s]/,
 _heading_rest: (_) => /[^{\[\r\n]+/,
 
 ~
 
 A specifier is a language label in braces, `{Bash}`, `{json}`, `{Tangle}`. Its label takes the letters, digits, hyphens, and underscores the token schema allows. A sink is the file a section writes, in brackets, `[hello.ts]`.
+
+A sink's extension is a node of its own, because the extension names the section's language, and an editor that finds a language by its extension, as Zed does, reads it there. The extension is the text after the file's last dot, `ts` in `hello.ts`. A file with no dot is all extension, the way Loom reads `Dockerfile` as the language `dockerfile`. The stem runs to the last dot, since the longest match wins, so `vite.config.ts` has the extension `ts`.
 
 =>
 
@@ -124,7 +127,9 @@ specifier: ($) => seq('{', field('label', $.label), '}'),
 label: (_) => /[a-zA-Z0-9_-]+/,
 
 sink: ($) => seq('[', field('file', $.file), ']'),
-file: (_) => /[^\]\r\n]+/,
+file: ($) => seq(optional($._file_stem), field('extension', $.extension)),
+_file_stem: (_) => /[^\]\r\n]*\./,
+extension: (_) => /[^\].\r\n]+/,
 
 ## The table of contents
 
