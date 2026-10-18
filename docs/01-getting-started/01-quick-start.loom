@@ -20,12 +20,7 @@ loom --version
 Install the `loom` command once, with the package manager you already use. Make a new folder anywhere you like, and create a file in it called `hello.loom` with this inside:
 
 ```loom
----
-Chapter 1: Hello
-Language: TypeScript
----
-
-# Saying hello
+# Saying hello {TypeScript}
 
 A greeting needs one thing: the name of whoever is being greeted.
 
@@ -33,7 +28,7 @@ A greeting needs one thing: the name of whoever is being greeted.
 
 const greet = (name: string): string => `Hello, ${name}!`
 
-# The program {Tangle}[hello.ts]
+# The program [hello.ts]
 
 The program greets the world once.
 

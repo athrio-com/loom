@@ -100,7 +100,8 @@ describe('the documentation shell', () => {
     expect(html).toContain('class="docs-canvas"')
     expect(html).not.toContain('language-loom')
     expect(html).toMatch(/class="pl-tok chip"[^>]*>=&gt;</)
-    expect(html).toMatch(/class="pl-tok chip"[^>]*>\{Tangle\}</)
+    expect(html).toMatch(/class="pl-tok chip"[^>]*>\[hello\.ts\]</)
+    expect(html).not.toContain('{Tangle}')
     expect(html).toMatch(/class="pl-tok chip"[^>]*>::\[Saying hello\]</)
   })
 

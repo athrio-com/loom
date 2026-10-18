@@ -100,7 +100,7 @@
             "chapter": "01-getting-started/01-quick-start",
             "section": "write-your-first-loom"
           },
-          "markdown": "Install the `loom` command once, with the package manager you already use. Make a new folder anywhere you like, and create a file in it called `hello.loom` with this inside:\n\n```loom\n---\nChapter 1: Hello\nLanguage: TypeScript\n---\n\n# Saying hello\n\nA greeting needs one thing: the name of whoever is being greeted.\n\n=>\n\nconst greet = (name: string): string => `Hello, ${name}!`\n\n# The program {Tangle}[hello.ts]\n\nThe program greets the world once.\n\n=>\n\n::[Saying hello]\n\nconsole.log(greet('world'))\n```"
+          "markdown": "Install the `loom` command once, with the package manager you already use. Make a new folder anywhere you like, and create a file in it called `hello.loom` with this inside:\n\n```loom\n# Saying hello {TypeScript}\n\nA greeting needs one thing: the name of whoever is being greeted.\n\n=>\n\nconst greet = (name: string): string => `Hello, ${name}!`\n\n# The program [hello.ts]\n\nThe program greets the world once.\n\n=>\n\n::[Saying hello]\n\nconsole.log(greet('world'))\n```"
         },
         {
           "type": "heading",
