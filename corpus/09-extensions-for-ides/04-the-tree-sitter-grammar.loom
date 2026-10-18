@@ -1,0 +1,332 @@
+---
+Part IX, Chapter 4: The tree-sitter grammar
+Package: packages/tree-sitter-loom/
+Language: JavaScript
+---
+
+# The tree-sitter grammar
+
+VS Code colours a loom through the language server. The server sends semantic tokens, and the Loom extension ships no grammar of its own. Neovim, Helix, Zed, and Zed's fork Gram colour a file with tree-sitter instead. Tree-sitter is a parser generator. It compiles a grammar written in JavaScript into a C parser, and the editor runs that parser on every keystroke to keep a syntax tree of the open file. The editor's colours come from queries that name the tree's nodes.
+
+This chapter is the grammar that gives those editors a loom's tree. It parses the marks Part II names — the frontmatter, the headings with their specifiers and sinks, the arrows and tildes, the anchors and warps — and leaves each code section's text and each run of prose as a node of its own. The queries in a later chapter colour the marks and hand each node to the parser of its own language, so a TypeScript section is highlighted as TypeScript and the prose as Markdown.
+
+The grammar does not replace Loom's own parser. The language server still reads a loom the way Part III describes, and it alone composes, checks, and navigates. Tree-sitter supplies the layer an editor needs before the server answers: colour that follows every keystroke, in any editor that hosts the parser.
+
+## A line's kind comes from the scanner
+
+Loom reads a loom one line at a time, and what a line means depends on the lines before it. The classifier of Part III is a state machine for exactly that reason. A `#` line opens a section in prose but stays code inside an explicit block. A `---` line opens the frontmatter only on the first line. Every line inside a fenced block is verbatim, whatever it looks like.
+
+A tree-sitter grammar cannot express that state, because it describes its tokens with regular expressions, and a regular expression cannot see the lines before it. Tree-sitter lets a grammar hand some tokens to an external scanner, a C function the parser calls before its own lexer. Loom's external scanner is the next chapter. It runs the classifier's state machine, and at the start of every line it emits a token that names the line's kind and consumes nothing. The grammar takes that token as the line's first symbol and then reads the line's marks.
+
+The external tokens are listed here in the order the scanner's own list declares them, because tree-sitter pairs the two lists by position. The first eleven name a line's kind, from a frontmatter fence to a line inside a note. `_newline` ends every line. `_error_sentinel` is a token no rule uses. Tree-sitter marks every token valid while it recovers from a syntax error, so the scanner reads a valid sentinel as the sign that the parser is recovering.
+
+=>
+
+$._fence_line,
+$._field_line,
+$._heading_line,
+$._arrow_line,
+$._tilde_line,
+$._prose_line,
+$._code_line,
+$._toc_line,
+$._verbatim_line,
+$._note_line,
+$._note_body_line,
+$._newline,
+$._error_sentinel,
+
+~
+
+A grammar normally declares extras, the whitespace and comments the parser skips between any two tokens. A loom has nothing to skip. The spaces before an indented arrow and the break at the end of each line belong to the lines the grammar reads. So the grammar declares an empty list, and every character belongs to some rule.
+
+## The document
+
+A document is the frontmatter, the document preamble, and the sections, in that order, and any of them may be absent. The document preamble is every line before the first heading, where no arrow or tilde opens a block.
+
+=>
+
+document: ($) =>
+  seq(optional($.frontmatter), optional($.preamble), repeat($.section)),
+
+## The frontmatter
+
+The frontmatter is a block of field lines between two `---` fences, and only the first line of a file can open it. Each field is a key, a colon, and a value — `Language: TypeScript`, `Package: packages/loom-lang/src/`, `Part III, Chapter 2: The classifier stage`. The value omits the spaces around it, so a query that reads `TypeScript` as a language name sees no stray space. A file may end before its closing fence, and the block still parses.
+
+=>
+
+frontmatter: ($) =>
+  seq(
+    $._fence_line,
+    $.frontmatter_fence,
+    $._newline,
+    repeat(seq($._field_line, optional($.field), $._newline)),
+    optional(seq($._fence_line, $.frontmatter_fence, $._newline)),
+  ),
+
+frontmatter_fence: (_) => token(seq('---', /[ \t]*/)),
+
+field: ($) =>
+  seq(
+    field('key', $.key),
+    optional(seq(':', optional($._space), optional(field('value', $.value)))),
+  ),
+
+key: (_) => /[^:\r\n]+/,
+value: (_) => /[^ \t\r\n]([^\r\n]*[^ \t\r\n])?/,
+_space: (_) => /[ \t]+/,
+
+## Sections and their headings
+
+A section is a heading and the body that follows it, up to the next heading. The body opens with the section's preamble, the prose before any arrow or tilde. Code and prose blocks then alternate, each opened by its own arrow or tilde. A contents section takes a table of contents in place of a body.
+
+=>
+
+section: ($) =>
+  seq(
+    $.heading,
+    optional($.toc),
+    optional($.preamble),
+    repeat(choice($.code, $.prose)),
+  ),
+
+~
+
+A heading is the heading marker — one to six `#` and a space — then the title, then any specifiers and sinks. The title runs to the first `{` or `[` on the line, the way Loom's tokeniser ends it at the first structural token. Text after a specifier or a sink is dropped, as the tokeniser drops it, so the grammar reads it into a hidden rule.
+
+=>
+
+heading: ($) =>
+  seq(
+    $._heading_line,
+    $.heading_marker,
+    optional(field('title', $.title)),
+    repeat(
+      seq(
+        choice(field('specifier', $.specifier), field('sink', $.sink)),
+        optional($._heading_rest),
+      ),
+    ),
+    $._newline,
+  ),
+
+heading_marker: (_) => /#{1,6} /,
+title: (_) => /[^{\[\r\n]+/,
+_heading_rest: (_) => /[^{\[\r\n]+/,
+
+~
+
+A specifier is a language label in braces, `{Bash}`, `{json}`, `{Tangle}`. Its label takes the letters, digits, hyphens, and underscores the token schema allows. A sink is the file a section writes, in brackets, `[hello.ts]`.
+
+=>
+
+specifier: ($) => seq('{', field('label', $.label), '}'),
+label: (_) => /[a-zA-Z0-9_-]+/,
+
+sink: ($) => seq('[', field('file', $.file), ']'),
+file: (_) => /[^\]\r\n]+/,
+
+## The table of contents
+
+A `{TOC}` section lists the book's parts and chapters. The scanner marks every line of it as a contents line, up to the next top-level heading, so a part's `###` line never opens a section. A part line is a heading marker and the part's title. A chapter line is a number, a full stop, and the chapter's title. Any other line, a blank or a part's description, is plain text. The two markers take precedence over the plain text that would otherwise match the whole line.
+
+=>
+
+toc: ($) =>
+  repeat1(
+    seq(
+      $._toc_line,
+      optional(choice($.toc_part, $.toc_chapter, $._toc_text)),
+      $._newline,
+    ),
+  ),
+
+toc_part: ($) =>
+  seq(alias($._toc_part_marker, $.heading_marker), alias($._toc_text, $.title)),
+toc_chapter: ($) =>
+  seq(alias($._toc_number, $.number), alias($._toc_text, $.title)),
+_toc_part_marker: (_) => token(prec(1, /#{1,6}[ \t]+/)),
+_toc_number: (_) => token(prec(1, /[ \t]*\d+\.[ \t]+/)),
+_toc_text: (_) => /[^\r\n]+/,
+
+## Prose
+
+Prose takes two forms. A preamble is a run of prose lines that no tilde opened: the document preamble, or a section's lines before its first arrow. A prose block opens with a tilde and runs to the next arrow or heading. Both carry anchors, but only a preamble line carries warps, since the tokeniser looks for warps only there.
+
+Both forms also hold the two inert regions of Part III, where a loom's marks read as text. A fenced block is a verbatim run between two lines of three backticks. A note runs from its `:::[Note]` line to a lone `:::`.
+
+=>
+
+preamble: ($) =>
+  repeat1(
+    choice(
+      seq(
+        $._prose_line,
+        repeat(choice($._text, $._code_span, $.anchor, $.warp)),
+        $._newline,
+      ),
+      $._verbatim,
+      $.note,
+    ),
+  ),
+
+prose: ($) =>
+  seq(
+    $._tilde_line,
+    $.tilde,
+    repeat($._prose_inline),
+    $._newline,
+    repeat(
+      choice(
+        seq($._prose_line, repeat($._prose_inline), $._newline),
+        $._verbatim,
+        $.note,
+      ),
+    ),
+  ),
+
+tilde: (_) => '~',
+
+_prose_inline: ($) => choice($._text, $._code_span, $.anchor),
+
+~
+
+A verbatim line holds its whole text in one hidden token, so nothing inside a fence parses as an anchor. The fence's own lines are verbatim too, because the tokeniser skips the anchors on the line that opens a fence as well as on the lines inside it. A note gets a node of its own, so an editor can colour a reader's annotation apart from the prose around it.
+
+=>
+
+_verbatim: ($) => seq($._verbatim_line, optional(/[^\r\n]+/), $._newline),
+
+note: ($) =>
+  seq(
+    $._note_line,
+    optional($._space),
+    $.note_marker,
+    optional(/[^\r\n]+/),
+    $._newline,
+    repeat(seq($._note_body_line, optional(/[^\r\n]+/), $._newline)),
+  ),
+
+note_marker: (_) => ':' + anchorOpen + 'Note]',
+
+## Code
+
+A code block opens with an arrow and runs to the next tilde or heading. The plain arrow is `=>`, and the explicit arrow is `~>`, which only a tilde closes. The scanner tells the two apart, so the grammar reads either one the same way. Code may follow the arrow on the arrow's own line, and every later line of the block is code. Inside the code, only anchors are Loom's.
+
+=>
+
+code: ($) =>
+  seq(
+    $._arrow_line,
+    optional($._space),
+    $.arrow,
+    repeat($._code_inline),
+    $._newline,
+    repeat(seq($._code_line, repeat($._code_inline), $._newline)),
+  ),
+
+arrow: (_) => choice('=>', '~>'),
+
+_code_inline: ($) => choice($._code_text, $.anchor),
+
+## Text between the marks
+
+The text of a line is the part an editor hands to another parser: TypeScript for a code block, Markdown for prose. An editor builds that hand-off from a node's range minus its children's ranges. Neovim subtracts every named child, and Helix subtracts every child. So the text runs are hidden tokens, which appear in neither editor's list of children. That leaves only the anchors and warps to subtract, and they are exactly the spans no other parser should see.
+
+A text run stops at a colon, because a colon may start an anchor, and the run picks the colon up again as a token of its own when no anchor follows. Prose text also stops at a brace, where a warp may open, and at a backtick. A Markdown code span is one token from backtick to backtick, so an anchor inside it is never found, the way the tokeniser masks code spans before it looks for anchors.
+
+=>
+
+_text: (_) => choice(/[^`:{\r\n]+/, /:/, /\{/),
+_code_span: (_) => choice(/`[^`\r\n]*`/, /`/),
+_code_text: (_) => choice(/[^:\r\n]+/, /:/),
+
+## Anchors
+
+An anchor names a section, `::[Greeting function]`, and may carry a target, the `.loom` file the name lives in, `::[Greeting function](greeting.loom)`. The name runs to the first closing bracket. A target is one token, parentheses included, so a parenthesis with no close stays text, as it stays product code in the tokeniser. The target outranks the text that would otherwise swallow the rest of the line.
+
+=>
+
+anchor: ($) =>
+  seq(
+    alias(anchorOpen, $.anchor_open),
+    field('name', $.name),
+    ']',
+    optional(field('target', $.target)),
+  ),
+name: (_) => /[^\]\r\n]+/,
+target: (_) => token(prec(1, /\([^)\r\n]*\)/)),
+
+## An opening spelled in pieces
+
+The anchor rule and the note marker both need the characters that open an anchor. A loom's code is scanned for anchors like any other line, so this loom never writes them as one literal, or the literal would read as an anchor in its own section. `anchorOpen` joins them from two pieces.
+
+=>
+
+const anchorOpen = '::' + '['
+
+## Warps
+
+A warp declares a name in a preamble line. Between its double braces sit the name, an optional annotation after a colon, and an optional default after an equals sign. The name is an identifier. The default runs to the closing braces and may hold single braces of its own, so the `${version}` that a value warp interpolates reads as part of it.
+
+=>
+
+warp: ($) =>
+  seq(
+    '{{',
+    optional($._space),
+    field('name', $.identifier),
+    optional($._space),
+    optional(seq(':', field('annotation', $.annotation))),
+    optional(seq('=', field('default', $.default))),
+    '}}',
+  ),
+identifier: (_) => /[a-zA-Z_][a-zA-Z0-9_]*/,
+annotation: (_) => /[^=}\r\n]+/,
+default: (_) => /([^}\r\n]|\}[^}\r\n])+/,
+
+## The grammar module {Tangle}[grammar.js]
+
+Tree-sitter reads the grammar from `grammar.js`. The first rule is the start rule, so the document leads the rules.
+
+=>
+
+/**
+ * @file The Loom literate programming format
+ * @license MIT
+ */
+
+/// <reference types="tree-sitter-cli/dsl" />
+// @ts-check
+
+::[An opening spelled in pieces]
+
+module.exports = grammar({
+  name: 'loom',
+
+  extras: (_) => [],
+
+  externals: ($) => [
+    ::[A line's kind comes from the scanner]
+  ],
+
+  rules: {
+    ::[The document]
+
+    ::[The frontmatter]
+
+    ::[Sections and their headings]
+
+    ::[The table of contents]
+
+    ::[Prose]
+
+    ::[Code]
+
+    ::[Text between the marks]
+
+    ::[Anchors]
+
+    ::[Warps]
+  },
+})

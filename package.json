@@ -16,7 +16,8 @@
     "@vscode/vsce-sign",
     "esbuild",
     "keytar",
-    "msgpackr-extract"
+    "msgpackr-extract",
+    "tree-sitter-cli"
   ],
   "scripts": {
     "build": "bun run --filter './packages/*' --filter './site' build",

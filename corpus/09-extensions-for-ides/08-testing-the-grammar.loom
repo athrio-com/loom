@@ -1,0 +1,372 @@
+---
+Part IX, Chapter 8: Testing the grammar
+Package: packages/tree-sitter-loom/test/conformance.test.ts
+Language: TypeScript
+---
+
+# Testing the grammar
+
+The grammar is a second reading of a loom, and a second reading is only useful while it agrees with the first. Loom's own classifier decides the kind of every line, and every later pass builds on that decision. So the test of the grammar is agreement: for every line of a loom, the grammar must place the line in the block the classifier gives it. The test reads every loom in the repository both ways and compares them line by line, then does the same for a few looms built to reach the corners the repository does not.
+
+Two smaller checks come first. The parser in `src/` must be the one `grammar.js` generates today, since editors compile the committed parser and never run the generator. And a loom must parse without an error node, since an editor colours an error node as broken text.
+
+## Two readings of a line
+
+A line's kind, for this comparison, is the block the line belongs to. The frontmatter, a heading, and a table of contents are kinds of their own. A code block starts at its arrow and continues as code, and a prose block starts at its tilde. Every other line of prose is text. The classifier tells a preamble line from a prose line by the mode it is in, and the grammar folds both into its prose blocks, so the comparison names both text.
+
+`kindOfWeft` maps each weft the classifier emits to its kind. It is a record over every weft's type, so a new weft kind fails to compile here until the test decides what it is.
+
+=>
+
+type LineKind =
+  | 'frontmatter'
+  | 'heading'
+  | 'toc'
+  | 'arrow'
+  | 'code'
+  | 'tilde'
+  | 'text'
+  | 'none'
+
+const kindOfWeft: Record<LoomWeft['type'], LineKind> = {
+  FrontmatterWeft: 'frontmatter',
+  HeadingWeft: 'heading',
+  TocWeft: 'toc',
+  ArrowWeft: 'arrow',
+  CodeWeft: 'code',
+  TildeWeft: 'tilde',
+  PreambleWeft: 'text',
+  ProseWeft: 'text',
+}
+
+## The classifier's reading
+
+The classifier reads a loom as Part III describes: `LoomSourceRanges` cuts the text into lines, and `WeftClassifier` emits a weft for each. `classifierKinds` runs the two stages and maps every weft to its kind.
+
+=>
+
+const classifierKinds = (text: string): Effect.Effect<ReadonlyArray<LineKind>> =>
+  Effect.gen(function* () {
+    const sources = yield* LoomSourceRanges
+    const classifier = yield* WeftClassifier
+    const ranges = yield* sources.stream(text)
+    const wefts = yield* Stream.runCollect(classifier.classifyWefts(text)(ranges))
+    return Array.map(wefts, (weft) => kindOfWeft[weft.type])
+  }).pipe(
+    Effect.provide(LoomSourceRanges.layer),
+    Effect.provide(WeftClassifier.layer),
+    Effect.orDie,
+  )
+
+~
+
+The two readings count lines differently at the end of a file. A text that ends with a line break leaves an empty range after it, which the classifier reads as a last empty line and the grammar reads as no line at all. `lineCount` counts the lines the grammar sees, and the comparison takes that many from the classifier.
+
+=>
+
+const lineBreak = /\r\n|\r|\n/
+
+const lineCount = (text: string): number =>
+  text.length === 0
+    ? 0
+    : text.split(lineBreak).length - (/(\r\n|\r|\n)$/.test(text) ? 1 : 0)
+
+## The grammar's reading
+
+The test drives the `tree-sitter` command from the `tree-sitter-cli` package, the same version that generated the parser. `treeSitter` runs it in the grammar's folder and returns what it printed.
+
+=>
+
+const grammarDir = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+
+const treeSitterBinary = join(
+  dirname(createRequire(import.meta.url).resolve('tree-sitter-cli/package.json')),
+  process.platform === 'win32' ? 'tree-sitter.exe' : 'tree-sitter',
+)
+
+const treeSitter = (args: ReadonlyArray<string>): Effect.Effect<string> =>
+  Effect.sync(
+    () =>
+      spawnSync(treeSitterBinary, args, {
+        cwd: grammarDir,
+        encoding: 'utf8',
+        maxBuffer: 1 << 28,
+      }).stdout,
+  )
+
+~
+
+The parser is compiled once, into a scratch folder, before any test runs, and every loom is parsed with that one library. The command would otherwise keep its own compiled copy in a shared cache and decide for itself when to rebuild it.
+
+=>
+
+const scratch = mkdtempSync(join(tmpdir(), 'tree-sitter-loom-'))
+const library = join(scratch, 'loom.so')
+
+beforeAll(() => Effect.runPromise(treeSitter(['build', '--output', library])))
+
+const parseTree = (file: string): Effect.Effect<string> =>
+  treeSitter(['parse', '--lib-path', library, '--lang-name', 'loom', file])
+
+~
+
+The command prints the tree as nested nodes, each with the row and column where it starts and ends. `grammarKinds` reads the six block nodes off that print and gives each row the kind its block assigns. A block ends at the start of the row after its last line, at column zero, so its rows run up to that row. The first row of a code block is its arrow and the first row of a prose block its tilde. A row that no block claims has no kind, and the comparison then reports it.
+
+=>
+
+type Block = 'frontmatter' | 'heading' | 'toc' | 'preamble' | 'code' | 'prose'
+
+const blockKind: Record<Block, (offset: number) => LineKind> = {
+  frontmatter: () => 'frontmatter',
+  heading: () => 'heading',
+  toc: () => 'toc',
+  preamble: () => 'text',
+  code: (offset) => (offset === 0 ? 'arrow' : 'code'),
+  prose: (offset) => (offset === 0 ? 'tilde' : 'text'),
+}
+
+const blockPattern =
+  /\((frontmatter|heading|toc|preamble|code|prose) \[(\d+), \d+\] - \[(\d+), (\d+)\]/g
+
+const rowsOf = (
+  match: RegExpMatchArray,
+): ReadonlyArray<readonly [number, LineKind]> => {
+  const [, block, startRow, endRow, endColumn] = match
+  const start = Number(startRow)
+  const end = Number(endColumn) === 0 ? Number(endRow) - 1 : Number(endRow)
+  return Array.map(Array.range(start, end), (row) =>
+    [row, blockKind[block as Block](row - start)] as const,
+  )
+}
+
+const grammarKinds = (tree: string, count: number): ReadonlyArray<LineKind> => {
+  const rows = new Map(Array.flatMap(Array.fromIterable(tree.matchAll(blockPattern)), rowsOf))
+  return count === 0
+    ? []
+    : Array.map(Array.range(0, count - 1), (row) => rows.get(row) ?? 'none')
+}
+
+## Where the readings part
+
+`disagreements` lines the two readings up and keeps every line where they differ, with its number and both kinds. An empty list is agreement, and a failing test prints the lines that disagree rather than two long lists.
+
+=>
+
+type Disagreement = {
+  readonly line: number
+  readonly classifier: LineKind
+  readonly grammar: LineKind
+}
+
+const disagreements = (
+  classifier: ReadonlyArray<LineKind>,
+  grammar: ReadonlyArray<LineKind>,
+): ReadonlyArray<Disagreement> =>
+  pipe(
+    Array.zip(classifier, grammar),
+    Array.map(([c, g], i) => ({ line: i + 1, classifier: c, grammar: g })),
+    Array.filter((d) => d.classifier !== d.grammar),
+  )
+
+~
+
+`checkLoom` puts a file through both readings. The grammar's tree must hold no error and no missing node, and its kinds must agree with the classifier's on every line.
+
+=>
+
+const checkLoom = (file: string): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    const text = readFileSync(file, 'utf8')
+    const tree = yield* parseTree(file)
+    expect(tree).not.toMatch(/\((ERROR|MISSING)/)
+    const count = lineCount(text)
+    const classifier = Array.take(yield* classifierKinds(text), count)
+    expect(disagreements(classifier, grammarKinds(tree, count))).toEqual([])
+  })
+
+## The parser is generated, and current
+
+The test regenerates the parser from `grammar.js` into the scratch folder and compares it with the committed `src/parser.c`. A difference means someone changed the grammar and did not run `bun run generate`, and every editor would still compile the old parser.
+
+=>
+
+describe('the generated parser', () => {
+  it.effect('matches what grammar.js generates', () =>
+    Effect.gen(function* () {
+      yield* treeSitter(['generate', '--output', join(scratch, 'generated')])
+      expect(readFileSync(join(scratch, 'generated', 'parser.c'), 'utf8')).toBe(
+        readFileSync(join(grammarDir, 'src', 'parser.c'), 'utf8'),
+      )
+    }),
+    60_000,
+  )
+})
+
+## Every loom in the repository
+
+The repository's own looms are the widest sample there is: the book, the docs, and the examples, about a hundred files in every form a loom takes. `repositoryLooms` lists them, leaving out installed packages and hidden folders such as a project's `.loom` store. Each loom is a test of its own, so a failure names its file.
+
+=>
+
+const repository = resolve(grammarDir, '..', '..')
+
+const repositoryLooms: ReadonlyArray<string> = pipe(
+  ['corpus', 'docs', 'examples'],
+  Array.flatMap((folder) =>
+    Array.map(
+      readdirSync(join(repository, folder), { recursive: true, encoding: 'utf8' }),
+      (path) => join(folder, path),
+    ),
+  ),
+  Array.filter(
+    (path) =>
+      path.endsWith('.loom') &&
+      path.split(/[\\/]/).every((part) => part !== 'node_modules' && !part.startsWith('.')),
+  ),
+)
+
+describe('the grammar agrees with the classifier', () => {
+  Array.forEach(repositoryLooms, (path) =>
+    it.effect(path, () => checkLoom(join(repository, path)), 30_000),
+  )
+})
+
+## The corners the book does not reach
+
+A few forms are rare in the repository, or absent from it: an explicit block that holds `#` lines, Windows line endings, a last line with no line break, a tilde that follows a fenced block. Each case here is a small loom of its own. As in the CLI's tests, a fixture is a list of quoted lines, so no line of it is read as part of this loom, and `anchor` spells an anchor in two pieces. `fixture` writes the lines with a chosen line ending and returns the file.
+
+=>
+
+const anchor = (name: string): string => `::${'['}${name}]`
+
+const fixture = (
+  name: string,
+  rows: ReadonlyArray<string>,
+  ending: string = '\n',
+): string => {
+  const file = join(scratch, `${name}.loom`)
+  writeFileSync(file, rows.map((row) => `${row}${ending}`).join(''))
+  return file
+}
+
+~
+
+An explicit block keeps a Markdown file's headings and a script's comments as code, and only a tilde ends it. A plain block ends at the next heading.
+
+=>
+
+const explicitBlock = [
+  '---',
+  'Language: Markdown',
+  '---',
+  '',
+  '# A README [README.md]',
+  '',
+  '~>',
+  '# Title',
+  '',
+  '=> not an arrow here',
+  '## Usage',
+  '~',
+  '',
+  'Back in prose.',
+  '',
+  '=>',
+  '',
+  anchor('Usage'),
+  '# The next section',
+]
+
+~
+
+A fence in a section's preamble switches the classifier into prose mode, so a tilde after the fence is a line of prose rather than a transition. A note's body is inert, its heading-like lines included.
+
+=>
+
+const fenceAndNote = [
+  '# Quoting a loom',
+  '',
+  '```loom',
+  '# Not a heading',
+  '=>',
+  '```',
+  '~ still prose',
+  '',
+  `:${anchor('Note')} {}`,
+  '# Also not a heading',
+  ':::',
+  '',
+  '=>',
+  '',
+  'code()',
+]
+
+describe('the corners', () => {
+  it.effect('an explicit block holds headings and arrows as code', () =>
+    checkLoom(fixture('explicit', explicitBlock)),
+  )
+  it.effect('Windows line endings read as Unix ones do', () =>
+    checkLoom(fixture('crlf', explicitBlock, '\r\n')),
+  )
+  it.effect('a fence and a note keep their marks inert', () =>
+    checkLoom(fixture('fence-and-note', fenceAndNote)),
+  )
+  it.effect('a last line needs no line break', () =>
+    Effect.gen(function* () {
+      const file = join(scratch, 'unterminated.loom')
+      writeFileSync(file, fenceAndNote.join('\n'))
+      yield* checkLoom(file)
+    }),
+  )
+})
+
+## Cleaning up
+
+The scratch folder holds the generated parser, the compiled library, and the fixtures. It goes once every test has run.
+
+=>
+
+afterAll(() => rmSync(scratch, { recursive: true, force: true }))
+
+## What the test draws on
+
+Bun's test runner supplies `describe`, `it`, `expect`, `beforeAll`, and `afterAll`, and `effectify` adds the `it.effect` that runs an Effect as a test. Effect's `Array` and `pipe` shape the lists, and `Stream` collects the classifier's wefts. Node supplies the process the command runs in, the filesystem the fixtures and the scratch folder live in, and the resolver that finds the command's package. `LoomWeft` is the weft type from the AST, and `LoomSourceRanges` and `WeftClassifier` are the first two stages of Loom's parser.
+
+=>
+
+import { afterAll, beforeAll, describe, expect, it as it_ } from 'bun:test'
+import { effectify } from '@athrio/effect-test'
+import { Array, Effect, Stream, pipe } from 'effect'
+import { spawnSync } from 'node:child_process'
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import type { LoomWeft } from '@athrio/loom-ast/Weft'
+import { LoomSourceRanges } from '@athrio/loom-lang/ast/LineRanges'
+import { WeftClassifier } from '@athrio/loom-lang/ast/WeftClassifier'
+
+const it = effectify(it_)
+
+## The test module {Tangle}
+
+=>
+
+::[What the test draws on]
+
+::[Two readings of a line]
+
+::[The classifier's reading]
+
+::[The grammar's reading]
+
+::[Where the readings part]
+
+::[The parser is generated, and current]
+
+::[Every loom in the repository]
+
+::[The corners the book does not reach]
+
+::[Cleaning up]

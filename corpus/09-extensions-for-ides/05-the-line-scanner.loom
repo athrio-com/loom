@@ -1,0 +1,413 @@
+---
+Part IX, Chapter 5: The line scanner
+Package: packages/tree-sitter-loom/
+Language: C
+---
+
+# The line scanner
+
+The line scanner is the classifier of Part III, written again in C for tree-sitter. Tree-sitter calls it at the start of every line, before the grammar's own lexer, and the scanner answers with the line's kind: a heading, an arrow, a tilde, a line of code, a line of prose, and the rest. It reaches that answer the way `WeftClassifier` does. It keeps the same state, tests the same markers, and walks the same decision table in the same order, so a line that Loom reads as code is a line the editor colours as code.
+
+The scanner consumes nothing for a line's kind. Each kind is a zero-width token that marks where the line starts, and the grammar then reads the line's marks and text itself. The one token the scanner does consume is the line ending.
+
+## The tokens it emits
+
+The scanner's tokens follow the grammar's list of externals, entry for entry, because tree-sitter pairs the two lists by position. The first eleven name a line's kind. A fence line is a frontmatter `---`, and a field line sits between the fences. A verbatim line is inside a fenced block or opens one. A note line opens a note, and a note body line is any later line of it, its closing `:::` included. The newline ends a line, and the error sentinel tells the scanner when the parser is recovering from a syntax error.
+
+=>
+
+enum TokenType {
+  FENCE_LINE,
+  FIELD_LINE,
+  HEADING_LINE,
+  ARROW_LINE,
+  TILDE_LINE,
+  PROSE_LINE,
+  CODE_LINE,
+  TOC_LINE,
+  VERBATIM_LINE,
+  NOTE_LINE,
+  NOTE_BODY_LINE,
+  NEWLINE,
+  ERROR_SENTINEL,
+};
+
+## What the scanner remembers
+
+The scanner's state is the classifier's state. The classifier keeps the previous weft and reads a mode from it — preamble, code, or prose — so the scanner keeps the mode itself. The flags carry over one for one: whether a heading has been seen, and whether the line sits in the frontmatter, a table of contents, a fenced block, a note, or an explicit block. `started` stands for the classifier's empty previous weft, the one moment a `---` may open the frontmatter.
+
+One flag is the scanner's own. `at_line_start` records that the last token ended a line, so the next token names the next line's kind. It keeps the scanner from naming the same line twice, because a zero-width token leaves the parser where it was.
+
+=>
+
+enum Mode { PREAMBLE, CODE, PROSE };
+
+typedef struct {
+  bool at_line_start;
+  bool started;
+  bool seen_heading;
+  bool in_frontmatter;
+  bool in_toc;
+  bool in_fence;
+  bool in_note;
+  bool in_explicit;
+  uint8_t mode;
+} Scanner;
+
+## Reading a line ahead
+
+The scanner must see a whole line to classify it. A `---` is a fence only when nothing but spaces follows it, and a heading opens a contents section only when `{TOC}` appears somewhere along it. Tree-sitter lets a scanner read past the end of the token it returns, so the scanner marks the token's end where the line begins and then reads on to the line's end.
+
+`peek_line` gathers what the markers need into a `Line`. It keeps the line's first characters in `head`, enough for every marker at the start of a line. It records the line's length, the index of its last character that is not a space, and whether `{TOC}` appeared, in any case. A character outside ASCII is stored as a placeholder no marker matches, and `\s` in the classifier's patterns becomes `is_space`.
+
+=>
+
+#define HEAD_SIZE 48
+
+typedef struct {
+  char head[HEAD_SIZE];
+  uint32_t head_length;
+  uint32_t length;
+  int32_t last_mark;
+  bool toc;
+} Line;
+
+static bool is_space(int32_t c) {
+  return c == ' ' || c == '\t' || c == '\v' || c == '\f' || c == '\r';
+}
+
+static char lower(int32_t c) {
+  if (c >= 'A' && c <= 'Z') return (char)(c - 'A' + 'a');
+  return c < 128 ? (char)c : '\x01';
+}
+
+static void peek_line(TSLexer *lexer, Line *line) {
+  char window[5] = {0, 0, 0, 0, 0};
+  memset(line, 0, sizeof(Line));
+  line->last_mark = -1;
+  while (!lexer->eof(lexer) && lexer->lookahead != '\n' &&
+         lexer->lookahead != '\r') {
+    int32_t c = lexer->lookahead;
+    if (line->head_length < HEAD_SIZE)
+      line->head[line->head_length++] = c < 128 ? (char)c : '\x01';
+    if (!is_space(c)) line->last_mark = (int32_t)line->length;
+    memmove(window, window + 1, 4);
+    window[4] = lower(c);
+    if (memcmp(window, "{toc}", 5) == 0) line->toc = true;
+    line->length++;
+    lexer->advance(lexer, false);
+  }
+}
+
+## The markers a line can start with
+
+Each marker test is one of the token patterns of Part II, read off the line's head. `head_has` tests for text at a position, `indent_of` measures the leading spaces, and `hashes_of` counts the leading `#` marks.
+
+A heading is one to six `#` and a space, at the very start of the line. A frontmatter fence is `---` and nothing after it but spaces. An arrow is `=>` or `~>` after any indent, and the explicit arrow is the one written `~>`. A tilde stands at the start of the line, followed by a space or by the end of the line, so `~/bin` and a run of three tildes stay text.
+
+=>
+
+static bool head_has(const Line *line, uint32_t at, const char *text) {
+  uint32_t n = (uint32_t)strlen(text);
+  return at + n <= line->head_length && memcmp(line->head + at, text, n) == 0;
+}
+
+static uint32_t indent_of(const Line *line) {
+  uint32_t i = 0;
+  while (i < line->head_length && is_space(line->head[i])) i++;
+  return i;
+}
+
+static uint32_t hashes_of(const Line *line) {
+  uint32_t i = 0;
+  while (i < line->head_length && line->head[i] == '#') i++;
+  return i;
+}
+
+static bool is_heading(const Line *line) {
+  uint32_t hashes = hashes_of(line);
+  return hashes >= 1 && hashes <= 6 && head_has(line, hashes, " ");
+}
+
+static bool is_frontmatter_fence(const Line *line) {
+  return head_has(line, 0, "---") && line->last_mark == 2;
+}
+
+static bool is_arrow(const Line *line) {
+  uint32_t at = indent_of(line);
+  return head_has(line, at, "=>") || head_has(line, at, "~>");
+}
+
+static bool is_explicit_arrow(const Line *line) {
+  return head_has(line, indent_of(line), "~>");
+}
+
+static bool is_tilde(const Line *line) {
+  return head_has(line, 0, "~") &&
+         (line->length == 1 || is_space(line->head[1]));
+}
+
+~
+
+The inert regions have markers of their own. A code fence is three backticks after any indent. A note opens with `:::[Note]` and closes with a lone `:::`, spaces around it allowed. The opening is written as two adjacent C strings, which the compiler joins, because the single literal would read as an anchor in this loom's code.
+
+=>
+
+static bool is_code_fence(const Line *line) {
+  return head_has(line, indent_of(line), "```");
+}
+
+static bool is_note_open(const Line *line) {
+  return head_has(line, indent_of(line), ":::" "[Note]");
+}
+
+static bool is_note_close(const Line *line) {
+  uint32_t at = indent_of(line);
+  return head_has(line, at, ":::") && line->last_mark == (int32_t)at + 2;
+}
+
+## Classifying one line
+
+`classify_line` is the decision table of `probeWeft`, rule for rule. It returns the line's kind and leaves the state as the classifier's next state would be.
+
+The frontmatter comes first: a `---` on the first line opens it, and every line through the closing `---` is a field. A fenced block and a note come next. Every line inside them is inert until the fence or the note closes, and the mode follows what the classifier would record for such a line, prose after the first heading and preamble before it.
+
+=>
+
+static enum TokenType classify_line(Scanner *s, const Line *line) {
+  bool first = !s->started;
+  s->started = true;
+
+  if (first && is_frontmatter_fence(line)) {
+    s->in_frontmatter = true;
+    s->mode = PREAMBLE;
+    return FENCE_LINE;
+  }
+
+  if (s->in_frontmatter) {
+    s->mode = PREAMBLE;
+    if (is_frontmatter_fence(line)) {
+      s->in_frontmatter = false;
+      return FENCE_LINE;
+    }
+    return FIELD_LINE;
+  }
+
+  if (s->in_fence) {
+    s->in_fence = !is_code_fence(line);
+    s->mode = s->seen_heading ? PROSE : PREAMBLE;
+    return VERBATIM_LINE;
+  }
+
+  if (s->in_note) {
+    s->in_note = !is_note_close(line);
+    s->mode = s->seen_heading ? PROSE : PREAMBLE;
+    return NOTE_BODY_LINE;
+  }
+
+  ::[The explicit block and the headings]
+
+  ::[The three modes]
+}
+
+## The explicit block and the headings
+
+An explicit block outranks every rule after the inert regions. Inside it a tilde returns to prose, and every other line is code, a `#` line included. A heading comes next. Inside a table of contents a deeper heading is a contents line, so only a top-level `#` closes the contents. Any other heading opens a section, and opens a table of contents when it bears `{TOC}`. Every line of a contents section is a contents line, and every line before the first heading is preamble.
+
+=>
+
+if (s->in_explicit) {
+  if (is_tilde(line)) {
+    s->in_explicit = false;
+    return prose_kind(s, line, TILDE_LINE, PROSE);
+  }
+  s->mode = CODE;
+  return CODE_LINE;
+}
+
+if (is_heading(line)) {
+  s->mode = PREAMBLE;
+  if (s->in_toc && hashes_of(line) > 1) return TOC_LINE;
+  s->seen_heading = true;
+  s->in_toc = line->toc;
+  return HEADING_LINE;
+}
+
+if (s->in_toc) {
+  s->mode = PREAMBLE;
+  return TOC_LINE;
+}
+
+if (!s->seen_heading) return prose_kind(s, line, PROSE_LINE, PREAMBLE);
+
+## The three modes
+
+After the first heading the mode decides. In the preamble, an arrow opens code and a tilde opens prose. In code, a tilde returns to prose and every other line stays code. In prose, an arrow re-enters code and every other line stays prose. An arrow sets the explicit flag when it is written `~>`.
+
+=>
+
+switch (s->mode) {
+  case PREAMBLE:
+    if (is_arrow(line)) {
+      s->in_explicit = is_explicit_arrow(line);
+      s->mode = CODE;
+      return ARROW_LINE;
+    }
+    if (is_tilde(line)) return prose_kind(s, line, TILDE_LINE, PROSE);
+    return prose_kind(s, line, PROSE_LINE, PREAMBLE);
+  case CODE:
+    if (is_tilde(line)) return prose_kind(s, line, TILDE_LINE, PROSE);
+    return CODE_LINE;
+  default:
+    if (is_arrow(line)) {
+      s->in_explicit = is_explicit_arrow(line);
+      s->mode = CODE;
+      return ARROW_LINE;
+    }
+    return prose_kind(s, line, PROSE_LINE, PROSE);
+}
+
+## Where a fence or a note opens
+
+Only a line of prose opens a fenced block or a note, as in the classifier, so a fence inside code is left to the code's own language. `prose_kind` takes the kind a prose line would have and settles the regions it may open. A line that opens a fence is verbatim, since the tokeniser skips the anchors on a fence's first line as well. A line that opens a note is a note line. Any other prose line keeps its kind.
+
+=>
+
+static enum TokenType prose_kind(Scanner *s, const Line *line,
+                                 enum TokenType kind, enum Mode mode) {
+  s->mode = mode;
+  s->in_fence = is_code_fence(line);
+  s->in_note = !s->in_fence && is_note_open(line);
+  if (s->in_fence) return VERBATIM_LINE;
+  if (s->in_note) return NOTE_LINE;
+  return kind;
+}
+
+## Ending a line
+
+A line ends at a line feed, a carriage return and line feed, or a lone carriage return. The scanner consumes whichever it finds and marks the next line's start. A file's last line may have no ending at all, and the scanner then ends it with an empty token at the end of the file.
+
+=>
+
+static bool scan_newline(Scanner *s, TSLexer *lexer) {
+  if (lexer->lookahead == '\r') lexer->advance(lexer, false);
+  if (lexer->lookahead == '\n') lexer->advance(lexer, false);
+  lexer->mark_end(lexer);
+  s->at_line_start = true;
+  lexer->result_symbol = NEWLINE;
+  return true;
+}
+
+## The scan
+
+Tree-sitter calls `scan` with the list of tokens the parser can accept at that point. Inside a line, the scanner answers only at the line's end and leaves the text to the grammar. At a line's start, it reads the line, classifies it, and names the line's kind, provided the parser can accept that kind there. While the parser recovers from an error it accepts anything, and the scanner names the kind regardless, so its state keeps pace with the lines even through broken text. A file's end after its last line ending holds no line, so the scanner names none there.
+
+=>
+
+static bool scan(Scanner *s, TSLexer *lexer, const bool *valid) {
+  bool recovering = valid[ERROR_SENTINEL];
+
+  if (!s->at_line_start) {
+    if (!valid[NEWLINE] && !recovering) return false;
+    if (lexer->eof(lexer) || lexer->lookahead == '\n' ||
+        lexer->lookahead == '\r')
+      return scan_newline(s, lexer);
+    return false;
+  }
+
+  if (lexer->eof(lexer)) return false;
+
+  lexer->mark_end(lexer);
+  Line line;
+  peek_line(lexer, &line);
+  enum TokenType kind = classify_line(s, &line);
+  if (!valid[kind] && !recovering) return false;
+  s->at_line_start = false;
+  lexer->result_symbol = kind;
+  return true;
+}
+
+## Saving and restoring the state
+
+Tree-sitter reparses only the part of a file an edit touched. To start in the middle, it saves the scanner's state after every token the scanner returns and restores it before the next call. The state is nine small values, so each takes one byte. A fresh scanner, or one restored from nothing, stands at the start of a line with every flag clear.
+
+=>
+
+void *tree_sitter_loom_external_scanner_create(void) {
+  Scanner *s = ts_calloc(1, sizeof(Scanner));
+  s->at_line_start = true;
+  return s;
+}
+
+void tree_sitter_loom_external_scanner_destroy(void *payload) {
+  ts_free(payload);
+}
+
+unsigned tree_sitter_loom_external_scanner_serialize(void *payload,
+                                                     char *buffer) {
+  Scanner *s = payload;
+  buffer[0] = (char)s->at_line_start;
+  buffer[1] = (char)s->started;
+  buffer[2] = (char)s->seen_heading;
+  buffer[3] = (char)s->in_frontmatter;
+  buffer[4] = (char)s->in_toc;
+  buffer[5] = (char)s->in_fence;
+  buffer[6] = (char)s->in_note;
+  buffer[7] = (char)s->in_explicit;
+  buffer[8] = (char)s->mode;
+  return 9;
+}
+
+void tree_sitter_loom_external_scanner_deserialize(void *payload,
+                                                   const char *buffer,
+                                                   unsigned length) {
+  Scanner *s = payload;
+  memset(s, 0, sizeof(Scanner));
+  s->at_line_start = true;
+  if (length < 9) return;
+  s->at_line_start = buffer[0];
+  s->started = buffer[1];
+  s->seen_heading = buffer[2];
+  s->in_frontmatter = buffer[3];
+  s->in_toc = buffer[4];
+  s->in_fence = buffer[5];
+  s->in_note = buffer[6];
+  s->in_explicit = buffer[7];
+  s->mode = (uint8_t)buffer[8];
+}
+
+bool tree_sitter_loom_external_scanner_scan(void *payload, TSLexer *lexer,
+                                            const bool *valid_symbols) {
+  return scan(payload, lexer, valid_symbols);
+}
+
+## The scanner module {Tangle}[src/scanner.c]
+
+Tree-sitter compiles `src/scanner.c` beside the parser it generates. The scanner takes the lexer's interface from tree-sitter's parser header and the allocator a grammar should use from its allocation header.
+
+=>
+
+#include "tree_sitter/alloc.h"
+#include "tree_sitter/parser.h"
+
+#include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
+
+::[The tokens it emits]
+
+::[What the scanner remembers]
+
+::[Reading a line ahead]
+
+::[The markers a line can start with]
+
+::[Where a fence or a note opens]
+
+::[Classifying one line]
+
+::[Ending a line]
+
+::[The scan]
+
+::[Saving and restoring the state]

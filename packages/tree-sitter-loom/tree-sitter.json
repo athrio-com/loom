@@ -1,0 +1,22 @@
+{
+  "grammars": [
+    {
+      "name": "loom",
+      "camelcase": "Loom",
+      "scope": "source.loom",
+      "path": ".",
+      "file-types": ["loom"],
+      "highlights": "queries/highlights.scm",
+      "injections": "queries/injections.scm",
+      "injection-regex": "^loom$"
+    }
+  ],
+  "metadata": {
+    "version": "0.0.11",
+    "license": "MIT",
+    "description": "Loom literate programming documents",
+    "links": {
+      "repository": "https://github.com/athrio-com/loom"
+    }
+  }
+}

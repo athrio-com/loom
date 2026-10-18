@@ -97,11 +97,17 @@ The book closes where it began, with the fact that Loom is written in Loom. This
 
 ### Part IX — Extensions for IDEs
 
-An editor runs its extensions in its own host, not a process Loom starts. This part is the client that bridges an editor to Loom's language server — VS Code's for now — and the one place Loom meets Node: everywhere else it is a Bun program.
+An editor runs its extensions in its own host, not a process Loom starts. This part is what each editor needs to read a loom. VS Code gets an extension, a client that bridges the editor to Loom's language server. Every other editor gets a tree-sitter grammar for colour and a few lines of configuration that start the same server with `loom lsp`, written first for Neovim and Helix.
 
 1. The Loom VS Code extension
 2. Bundling the Loom extension
 3. Packaging the Loom extension
+4. The tree-sitter grammar
+5. The line scanner
+6. Colouring a loom
+7. Packaging the grammar
+8. Testing the grammar
+9. Loom in Neovim and Helix
 
 ### Part X — The website
 

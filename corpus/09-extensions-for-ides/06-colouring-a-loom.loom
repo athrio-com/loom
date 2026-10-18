@@ -1,0 +1,344 @@
+---
+Part IX, Chapter 6: Colouring a loom
+Package: packages/tree-sitter-loom/
+Language: scm
+---
+
+# Colouring a loom
+
+A tree is not yet colour. An editor colours a file by running queries over its tree. A query is a set of patterns written in tree-sitter's query language, a small Lisp of node names and captures. A highlights query captures nodes under names such as `@markup.heading` or `@string`, and the editor's theme gives each name a colour. An injections query captures a node whose text belongs to another language, together with the language's name, and the editor parses that text with the other language's grammar and colours it by that grammar's queries.
+
+Loom needs both kinds. The highlights query colours Loom's own marks: the frontmatter, the headings, the arrows and tildes, the anchors and warps. The injections query does the larger part of the work. It hands each code block to the parser of its section's language and each run of prose to Markdown, so a loom reads in the editor as the languages it is written in.
+
+The capture names follow the list nvim-treesitter keeps. Helix shares every name used here but one, and its own copy of the highlights closes the chapter.
+
+## The frontmatter's colours
+
+The frontmatter's fences are punctuation with a special role, and each field's value is a string. The key takes a colour of its own, in a section of its own, because the name of that colour is the one Helix spells differently.
+
+=>
+
+(frontmatter_fence) @punctuation.special
+
+(field
+  ":" @punctuation.delimiter)
+
+(field
+  value: (value) @string)
+
+## A key in Neovim
+
+Neovim names a key of a record a property.
+
+=>
+
+(field
+  key: (key) @property)
+
+## A key in Helix
+
+Helix has no property colour. Its themes colour a key of a record as a member of a variable.
+
+=>
+
+(field
+  key: (key) @variable.other.member)
+
+## Heading colours
+
+A heading takes the heading colour of its level, from `@markup.heading.1` for a single `#` to `@markup.heading.6` for six, the way a Markdown heading does. The query reads the level off the heading marker, which holds the marks and the space after them.
+
+=>
+
+((heading
+  (heading_marker) @_marker) @markup.heading.1
+  (#eq? @_marker "# "))
+
+((heading
+  (heading_marker) @_marker) @markup.heading.2
+  (#eq? @_marker "## "))
+
+((heading
+  (heading_marker) @_marker) @markup.heading.3
+  (#eq? @_marker "### "))
+
+((heading
+  (heading_marker) @_marker) @markup.heading.4
+  (#eq? @_marker "#### "))
+
+((heading
+  (heading_marker) @_marker) @markup.heading.5
+  (#eq? @_marker "##### "))
+
+((heading
+  (heading_marker) @_marker) @markup.heading.6
+  (#eq? @_marker "###### "))
+
+## Specifiers and sinks
+
+A specifier's label is a type, the language a section is written in. Two labels are not languages but instructions to Loom: `{Tangle}` writes the section to a file, and `{TOC}` makes the section a table of contents. Those two take the directive colour. A sink names a file, so its path takes the path colour. The brackets and braces around both are brackets.
+
+=>
+
+(specifier
+  [
+    "{"
+    "}"
+  ] @punctuation.bracket)
+
+(specifier
+  label: (label) @type)
+
+((specifier
+  label: (label) @keyword.directive)
+  (#any-of? @keyword.directive "Tangle" "tangle" "TOC" "toc"))
+
+(sink
+  [
+    "["
+    "]"
+  ] @punctuation.bracket)
+
+(sink
+  file: (file) @string.special.path)
+
+## Arrows and tildes
+
+An arrow turns prose into code and a tilde turns code back into prose. Both are operators on the document, and both take the operator colour.
+
+=>
+
+(arrow) @operator
+
+(tilde) @operator
+
+## Anchors
+
+An anchor's name is a label, the name of the section it draws in. Its delimiters are special punctuation, and a target, the `.loom` file the name lives in, takes the path colour like a sink.
+
+=>
+
+(anchor
+  (anchor_open) @punctuation.special
+  "]" @punctuation.special)
+
+(anchor
+  name: (name) @label)
+
+(anchor
+  target: (target) @string.special.path)
+
+## Warps
+
+A warp declares a variable, so its name takes the variable colour. Its annotation is a type and its default a string, and its braces, colon, and equals sign take the punctuation and operator colours.
+
+=>
+
+(warp
+  [
+    "{{"
+    "}}"
+  ] @punctuation.special)
+
+(warp
+  name: (identifier) @variable)
+
+(warp
+  ":" @punctuation.delimiter)
+
+(warp
+  annotation: (annotation) @type)
+
+(warp
+  "=" @operator)
+
+(warp
+  default: (default) @string)
+
+## Notes
+
+A note is a reader's annotation on the text, not part of the program, so the whole note takes the comment colour. Its `:::[Note]` marker takes the colour editors give a note inside a comment.
+
+=>
+
+(note) @comment
+
+(note_marker) @comment.note
+
+## Prose is Markdown
+
+Every run of prose is Markdown: a preamble, a prose block, and a table of contents. An editor excludes a node's children from the text it injects, and the children of a preamble or a prose block are its anchors, warps, and tilde, which Markdown should not see. A table of contents is the exception. Its part headings and chapter entries are nodes, but they are Markdown headings and list items as well, so the contents keep their children.
+
+=>
+
+((preamble) @injection.content
+  (#set! injection.language "markdown"))
+
+((prose) @injection.content
+  (#set! injection.language "markdown"))
+
+((toc) @injection.content
+  (#set! injection.language "markdown")
+  (#set! injection.include-children))
+
+## A section's language
+
+Each code block is injected with its section's language, resolved by the rules of Part IV: the section's specifier, then its sink's extension, then the chapter's language. The patterns below take the rules one at a time. Each pattern matches only where the rules before it do not apply, so a code block is injected once.
+
+A specifier names the language outright, `{Bash}` or `{json}`. Neovim reads a language's name in lower case, and Helix matches the name against each language's own pattern. Three labels are not languages: `{Tangle}` and `{TOC}` are instructions, and a `{Prose}` section is Markdown, which the next pattern injects by name. The negations use `#not-eq?`, because Helix knows no `#not-any-of?`.
+
+=>
+
+(section
+  (heading
+    specifier: (specifier
+      label: (label) @injection.language))
+  (code) @injection.content
+  (#not-eq? @injection.language "Tangle")
+  (#not-eq? @injection.language "tangle")
+  (#not-eq? @injection.language "Prose")
+  (#not-eq? @injection.language "prose"))
+
+((section
+  (heading
+    specifier: (specifier
+      label: (label) @_language))
+  (code) @injection.content)
+  (#any-of? @_language "Prose" "prose")
+  (#set! injection.language "markdown"))
+
+~
+
+A sink names the language by its file. Both Neovim and Helix take an `@injection.filename` capture and find the language the way they would for a file of that name, so `hello.ts` reads as TypeScript and `Dockerfile` as a Dockerfile. A sink sets the language when the heading has no specifier, or when the specifier is `{Tangle}`.
+
+=>
+
+(section
+  (heading
+    !specifier
+    sink: (sink
+      file: (file) @injection.filename))
+  (code) @injection.content)
+
+(section
+  (heading
+    specifier: (specifier
+      label: (label) @_tangle)
+    sink: (sink
+      file: (file) @injection.filename))
+  (code) @injection.content
+  (#any-of? @_tangle "Tangle" "tangle"))
+
+~
+
+A `{Tangle}` section without a sink writes the chapter's own file, the one its `Package` field names, so that file's name sets the language.
+
+=>
+
+(document
+  (frontmatter
+    (field
+      key: (key) @_key
+      value: (value) @injection.filename))
+  (section
+    (heading
+      specifier: (specifier
+        label: (label) @_tangle)
+      !sink)
+    (code) @injection.content)
+  (#eq? @_key "Package")
+  (#any-of? @_tangle "Tangle" "tangle"))
+
+~
+
+A section with neither a specifier nor a sink takes the chapter's `Language` field. A chapter written in Prose is Markdown, as a `{Prose}` section is. When the chapter names no language, Loom falls back to the project's configured language, which a query cannot read, and the code stays uncoloured.
+
+=>
+
+(document
+  (frontmatter
+    (field
+      key: (key) @_key
+      value: (value) @injection.language))
+  (section
+    (heading
+      !specifier
+      !sink)
+    (code) @injection.content)
+  (#eq? @_key "Language")
+  (#not-eq? @injection.language "Prose")
+  (#not-eq? @injection.language "prose"))
+
+((document
+  (frontmatter
+    (field
+      key: (key) @_key
+      value: (value) @_language))
+  (section
+    (heading
+      !specifier
+      !sink)
+    (code) @injection.content))
+  (#eq? @_key "Language")
+  (#any-of? @_language "Prose" "prose")
+  (#set! injection.language "markdown"))
+
+## The highlights query {Tangle}[queries/highlights.scm]
+
+=>
+
+::[The frontmatter's colours]
+
+::[A key in Neovim]
+
+::[Heading colours]
+
+::[Specifiers and sinks]
+
+::[Arrows and tildes]
+
+::[Anchors]
+
+::[Warps]
+
+::[Notes]
+
+## The injections query {Tangle}[queries/injections.scm]
+
+=>
+
+::[Prose is Markdown]
+
+::[A section's language]
+
+## The highlights query for Helix {Tangle}[editors/helix/queries/loom/highlights.scm]
+
+Helix reads its queries from its own runtime directory, so a Helix setup copies this file there in place of the shared highlights. It differs from them only in the colour of a key.
+
+=>
+
+::[The frontmatter's colours]
+
+::[A key in Helix]
+
+::[Heading colours]
+
+::[Specifiers and sinks]
+
+::[Arrows and tildes]
+
+::[Anchors]
+
+::[Warps]
+
+::[Notes]
+
+## The injections query for Helix {Tangle}[editors/helix/queries/loom/injections.scm]
+
+The injections need no change for Helix, and the copy beside its highlights makes the folder whole, ready to place in Helix's runtime as it stands.
+
+=>
+
+::[Prose is Markdown]
+
+::[A section's language]
