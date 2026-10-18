@@ -25,7 +25,9 @@ const editorTsdk = (options: unknown): Option.Option<string> =>
 
 const installedTsdk = (from: string): Option.Option<string> =>
   Option.map(
-    Option.liftThrowable(() => createRequire(from).resolve('typescript'))(),
+    Option.liftThrowable(() =>
+      createRequire(from).resolve('typescript/lib/typescript.js'),
+    )(),
     dirname,
   )
 
@@ -33,7 +35,7 @@ export class MissingTypeScript extends Data.TaggedError('MissingTypeScript')<{
   readonly root: string
 }> {
   get message(): string {
-    return `Loom's language server needs TypeScript, and found none in ${this.root} or beside Loom. Install it in the project with \`bun add -d typescript\`, or have the editor send its path as \`initializationOptions.typescript.tsdk\`.`
+    return `Loom's language server needs TypeScript 6 or earlier, and found none in ${this.root} or beside Loom. TypeScript 7 has no JavaScript API for it to load. Install one in the project with \`bun add -d typescript@6\`, or have the editor send its path as \`initializationOptions.typescript.tsdk\`.`
   }
 }
 
