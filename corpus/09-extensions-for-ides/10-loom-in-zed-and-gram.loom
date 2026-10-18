@@ -17,7 +17,7 @@ The manifest names the extension, the grammar, and the language server. Zed buil
 The language server is declared by name and language here, and the Rust below tells the editor how to start it.
 
 {{ version = ${version} }}
-{{ revision = "93f7682f56b79fa284e1af318e24bf1438691f7c" }}
+{{ revision = "bbadbf24e9cb8b131a2f3fa5e390e9929960bd01" }}
 
 =>
 

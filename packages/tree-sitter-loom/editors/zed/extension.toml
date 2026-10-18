@@ -8,7 +8,7 @@ repository = "https://github.com/athrio-com/loom"
 
 [grammars.loom]
 repository = "https://github.com/athrio-com/loom"
-rev = "93f7682f56b79fa284e1af318e24bf1438691f7c"
+rev = "bbadbf24e9cb8b131a2f3fa5e390e9929960bd01"
 path = "packages/tree-sitter-loom"
 
 [language_servers.loom]

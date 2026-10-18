@@ -88,7 +88,7 @@ A person sets Helix up with `loom helix`. That command writes the same language 
 
 The server entry names the command. The grammar entry tells Helix where to fetch the grammar and which subfolder to build. Helix pins a grammar to a commit and fetches it again only when the pin changes, so a branch name would hold whatever commit the first fetch found. The revision names the commit that last changed the grammar, and moves when the grammar does.
 
-{{ revision = "93f7682f56b79fa284e1af318e24bf1438691f7c" }}
+{{ revision = "bbadbf24e9cb8b131a2f3fa5e390e9929960bd01" }}
 
 =>
 
