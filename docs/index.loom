@@ -12,17 +12,21 @@ The manual is itself a Loom corpus. Every page you read here is a chapter of pro
 
 1. Quick start
 2. Loom projects
-3. Loom in your editor
 
 ### Part II — Writing looms
 
 1. Sections, prose and code
 
-### Part III — The format
+### Part III — Loom in your IDE
+
+1. Supported editors
+2. VS Code
+
+### Part IV — The format
 
 1. Syntax
 
-### Part IV — The command line
+### Part V — The command line
 
 1. loom init
 2. loom tangle

@@ -1,0 +1,17 @@
+---
+Part III: Loom in your IDE
+Chapter 2: VS Code
+Language: Prose
+---
+
+# VS Code
+
+The Loom extension brings Loom's language server to VS Code, with everything Supported editors describes. Install it from the Extensions view by searching for Loom, or from the terminal:
+
+```bash
+code --install-extension athrio.loom-vscode
+```
+
+## Editors built on VS Code
+
+Cursor, Windsurf and VSCodium install the same extension. They find it in Open VSX, the registry they use in place of Microsoft's: search for Loom in their Extensions view.

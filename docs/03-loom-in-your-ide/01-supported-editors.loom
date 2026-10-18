@@ -1,16 +1,12 @@
 ---
-Part I: Getting started
-Chapter 3: Loom in your editor
+Part III: Loom in your IDE
+Chapter 1: Supported editors
 Language: Prose
 ---
 
-# Loom in your editor
+# Supported editors
 
-Looms are best written with the Loom extension for VS Code. It reads a loom the way Loom does, so your editor understands the prose and the code in it, and how the sections fit together. Install it from the Extensions view, or from the terminal:
-
-```bash
-code --install-extension athrio.loom-vscode
-```
+Loom works in your editor through its language server, the same server in every editor. It reads a loom the way Loom does, so your editor understands the prose and the code in it, and how the sections fit together. Each editor reaches the server its own way, and the guides that follow cover each one.
 
 ## Code that knows its language
 
@@ -31,3 +27,11 @@ Rename a section from its heading, and every anchor that names it follows. The o
 ## Language servers, brought for you
 
 Loom brings the language server for every language your looms use, the first time it meets one. There is nothing to set up: write a section in a new language and the editor picks it up. The servers live in `.loom/services`, which `loom init` already keeps out of Git.
+
+## Choose your editor
+
+- [VS Code](/docs/loom-in-your-ide/vs-code), and the editors built on it: Cursor, Windsurf and VSCodium. They install the Loom extension.
+- Zed, and Gram, its fork. They install the Loom extension.
+- IntelliJ IDEA and the other JetBrains IDEs. They install the Loom plugin.
+- Neovim and Helix. Their own language client runs the server, with a few lines of settings.
+- Any other editor with a language client. Point it at `$ loom lsp`.

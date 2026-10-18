@@ -13,11 +13,6 @@
           "number": "2",
           "title": "Loom projects",
           "slug": "01-getting-started/02-loom-projects"
-        },
-        {
-          "number": "3",
-          "title": "Loom in your editor",
-          "slug": "01-getting-started/03-loom-in-your-editor"
         }
       ]
     },
@@ -34,38 +29,54 @@
     },
     {
       "number": "III",
-      "name": "The format",
+      "name": "Loom in your IDE",
       "chapters": [
         {
           "number": "1",
-          "title": "Syntax",
-          "slug": "03-the-format/01-syntax"
+          "title": "Supported editors",
+          "slug": "03-loom-in-your-ide/01-supported-editors"
+        },
+        {
+          "number": "2",
+          "title": "VS Code",
+          "slug": "03-loom-in-your-ide/02-vs-code"
         }
       ]
     },
     {
       "number": "IV",
+      "name": "The format",
+      "chapters": [
+        {
+          "number": "1",
+          "title": "Syntax",
+          "slug": "04-the-format/01-syntax"
+        }
+      ]
+    },
+    {
+      "number": "V",
       "name": "The command line",
       "chapters": [
         {
           "number": "1",
           "title": "loom init",
-          "slug": "04-cli/01-loom-init"
+          "slug": "05-cli/01-loom-init"
         },
         {
           "number": "2",
           "title": "loom tangle",
-          "slug": "04-cli/02-loom-tangle"
+          "slug": "05-cli/02-loom-tangle"
         },
         {
           "number": "3",
           "title": "loom weave",
-          "slug": "04-cli/03-loom-weave"
+          "slug": "05-cli/03-loom-weave"
         },
         {
           "number": "4",
           "title": "loom eject",
-          "slug": "04-cli/04-loom-eject"
+          "slug": "05-cli/04-loom-eject"
         }
       ]
     }
@@ -267,103 +278,6 @@
       ]
     },
     {
-      "slug": "01-getting-started/03-loom-in-your-editor",
-      "title": "Loom in your editor",
-      "part": "Getting started",
-      "blocks": [
-        {
-          "type": "heading",
-          "source": {
-            "chapter": "01-getting-started/03-loom-in-your-editor",
-            "section": "loom-in-your-editor"
-          },
-          "level": 1,
-          "title": "Loom in your editor",
-          "id": "loom-in-your-editor"
-        },
-        {
-          "type": "prose",
-          "source": {
-            "chapter": "01-getting-started/03-loom-in-your-editor",
-            "section": "loom-in-your-editor"
-          },
-          "markdown": "Looms are best written with the Loom extension for VS Code. It reads a loom the way Loom does, so your editor understands the prose and the code in it, and how the sections fit together. Install it from the Extensions view, or from the terminal:\n\n```bash\ncode --install-extension athrio.loom-vscode\n```"
-        },
-        {
-          "type": "heading",
-          "source": {
-            "chapter": "01-getting-started/03-loom-in-your-editor",
-            "section": "code-that-knows-its-language"
-          },
-          "level": 2,
-          "title": "Code that knows its language",
-          "id": "code-that-knows-its-language"
-        },
-        {
-          "type": "prose",
-          "source": {
-            "chapter": "01-getting-started/03-loom-in-your-editor",
-            "section": "code-that-knows-its-language"
-          },
-          "markdown": "Every section's code is highlighted and checked in its own language. Open `corpus/hello.loom` and misspell `greet` in the program: the error shows up under it as you type, just as it would in `hello.ts`.\n\nThe check runs on the whole file a section ends up in, not on the section alone. So `greet` is known in the program because `::[Greeting function]` brings it in, and TypeScript reads your project's `tsconfig.json` as it would for any other file. Hover and completion work the same way."
-        },
-        {
-          "type": "heading",
-          "source": {
-            "chapter": "01-getting-started/03-loom-in-your-editor",
-            "section": "loom-s-own-mistakes"
-          },
-          "level": 2,
-          "title": "Loom's own mistakes",
-          "id": "loom-s-own-mistakes"
-        },
-        {
-          "type": "prose",
-          "source": {
-            "chapter": "01-getting-started/03-loom-in-your-editor",
-            "section": "loom-s-own-mistakes"
-          },
-          "markdown": "Loom checks the parts that are its own, too. An anchor that names no section, two sections that share a name, and a section that pulls code from another language are all marked where you wrote them, before you run `loom tangle`."
-        },
-        {
-          "type": "heading",
-          "source": {
-            "chapter": "01-getting-started/03-loom-in-your-editor",
-            "section": "moving-between-sections"
-          },
-          "level": 2,
-          "title": "Moving between sections",
-          "id": "moving-between-sections"
-        },
-        {
-          "type": "prose",
-          "source": {
-            "chapter": "01-getting-started/03-loom-in-your-editor",
-            "section": "moving-between-sections"
-          },
-          "markdown": "An anchor is a link. Go to its definition and the editor jumps to the section it names. Find its references from a heading and you see every anchor that names that section.\n\nRename a section from its heading, and every anchor that names it follows. The outline lists your sections, so a long loom is one click from any part of it."
-        },
-        {
-          "type": "heading",
-          "source": {
-            "chapter": "01-getting-started/03-loom-in-your-editor",
-            "section": "language-servers-brought-for-you"
-          },
-          "level": 2,
-          "title": "Language servers, brought for you",
-          "id": "language-servers-brought-for-you"
-        },
-        {
-          "type": "prose",
-          "source": {
-            "chapter": "01-getting-started/03-loom-in-your-editor",
-            "section": "language-servers-brought-for-you"
-          },
-          "markdown": "Loom brings the language server for every language your looms use, the first time it meets one. There is nothing to set up: write a section in a new language and the editor picks it up. The servers live in `.loom/services`, which `loom init` already keeps out of Git."
-        }
-      ]
-    },
-    {
       "slug": "02-writing-looms/01-sections-prose-and-code",
       "title": "Sections, prose and code",
       "part": "Writing looms",
@@ -443,14 +357,172 @@
       ]
     },
     {
-      "slug": "03-the-format/01-syntax",
+      "slug": "03-loom-in-your-ide/01-supported-editors",
+      "title": "Supported editors",
+      "part": "Loom in your IDE",
+      "blocks": [
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "03-loom-in-your-ide/01-supported-editors",
+            "section": "supported-editors"
+          },
+          "level": 1,
+          "title": "Supported editors",
+          "id": "supported-editors"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "03-loom-in-your-ide/01-supported-editors",
+            "section": "supported-editors"
+          },
+          "markdown": "Loom works in your editor through its language server, the same server in every editor. It reads a loom the way Loom does, so your editor understands the prose and the code in it, and how the sections fit together. Each editor reaches the server its own way, and the guides that follow cover each one."
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "03-loom-in-your-ide/01-supported-editors",
+            "section": "code-that-knows-its-language"
+          },
+          "level": 2,
+          "title": "Code that knows its language",
+          "id": "code-that-knows-its-language"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "03-loom-in-your-ide/01-supported-editors",
+            "section": "code-that-knows-its-language"
+          },
+          "markdown": "Every section's code is highlighted and checked in its own language. Open `corpus/hello.loom` and misspell `greet` in the program: the error shows up under it as you type, just as it would in `hello.ts`.\n\nThe check runs on the whole file a section ends up in, not on the section alone. So `greet` is known in the program because `::[Greeting function]` brings it in, and TypeScript reads your project's `tsconfig.json` as it would for any other file. Hover and completion work the same way."
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "03-loom-in-your-ide/01-supported-editors",
+            "section": "loom-s-own-mistakes"
+          },
+          "level": 2,
+          "title": "Loom's own mistakes",
+          "id": "loom-s-own-mistakes"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "03-loom-in-your-ide/01-supported-editors",
+            "section": "loom-s-own-mistakes"
+          },
+          "markdown": "Loom checks the parts that are its own, too. An anchor that names no section, two sections that share a name, and a section that pulls code from another language are all marked where you wrote them, before you run `loom tangle`."
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "03-loom-in-your-ide/01-supported-editors",
+            "section": "moving-between-sections"
+          },
+          "level": 2,
+          "title": "Moving between sections",
+          "id": "moving-between-sections"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "03-loom-in-your-ide/01-supported-editors",
+            "section": "moving-between-sections"
+          },
+          "markdown": "An anchor is a link. Go to its definition and the editor jumps to the section it names. Find its references from a heading and you see every anchor that names that section.\n\nRename a section from its heading, and every anchor that names it follows. The outline lists your sections, so a long loom is one click from any part of it."
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "03-loom-in-your-ide/01-supported-editors",
+            "section": "language-servers-brought-for-you"
+          },
+          "level": 2,
+          "title": "Language servers, brought for you",
+          "id": "language-servers-brought-for-you"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "03-loom-in-your-ide/01-supported-editors",
+            "section": "language-servers-brought-for-you"
+          },
+          "markdown": "Loom brings the language server for every language your looms use, the first time it meets one. There is nothing to set up: write a section in a new language and the editor picks it up. The servers live in `.loom/services`, which `loom init` already keeps out of Git."
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "03-loom-in-your-ide/01-supported-editors",
+            "section": "choose-your-editor"
+          },
+          "level": 2,
+          "title": "Choose your editor",
+          "id": "choose-your-editor"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "03-loom-in-your-ide/01-supported-editors",
+            "section": "choose-your-editor"
+          },
+          "markdown": "- [VS Code](/docs/loom-in-your-ide/vs-code), and the editors built on it: Cursor, Windsurf and VSCodium. They install the Loom extension.\n- Zed, and Gram, its fork. They install the Loom extension.\n- IntelliJ IDEA and the other JetBrains IDEs. They install the Loom plugin.\n- Neovim and Helix. Their own language client runs the server, with a few lines of settings.\n- Any other editor with a language client. Point it at `$ loom lsp`."
+        }
+      ]
+    },
+    {
+      "slug": "03-loom-in-your-ide/02-vs-code",
+      "title": "VS Code",
+      "part": "Loom in your IDE",
+      "blocks": [
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "03-loom-in-your-ide/02-vs-code",
+            "section": "vs-code"
+          },
+          "level": 1,
+          "title": "VS Code",
+          "id": "vs-code"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "03-loom-in-your-ide/02-vs-code",
+            "section": "vs-code"
+          },
+          "markdown": "The Loom extension brings Loom's language server to VS Code, with everything Supported editors describes. Install it from the Extensions view by searching for Loom, or from the terminal:\n\n```bash\ncode --install-extension athrio.loom-vscode\n```"
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "03-loom-in-your-ide/02-vs-code",
+            "section": "editors-built-on-vs-code"
+          },
+          "level": 2,
+          "title": "Editors built on VS Code",
+          "id": "editors-built-on-vs-code"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "03-loom-in-your-ide/02-vs-code",
+            "section": "editors-built-on-vs-code"
+          },
+          "markdown": "Cursor, Windsurf and VSCodium install the same extension. They find it in Open VSX, the registry they use in place of Microsoft's: search for Loom in their Extensions view."
+        }
+      ]
+    },
+    {
+      "slug": "04-the-format/01-syntax",
       "title": "Syntax",
       "part": "The format",
       "blocks": [
         {
           "type": "heading",
           "source": {
-            "chapter": "03-the-format/01-syntax",
+            "chapter": "04-the-format/01-syntax",
             "section": "syntax"
           },
           "level": 1,
@@ -460,7 +532,7 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "03-the-format/01-syntax",
+            "chapter": "04-the-format/01-syntax",
             "section": "syntax"
           },
           "markdown": "A Loom document is Markdown with a few marks added. Everything Markdown already does still works — headings, emphasis, lists, tables, links — and the marks say what Loom should do with the text around them.\n\nThere are eight of them, and each does a single thing. Learn these and you can read any corpus."
@@ -468,7 +540,7 @@
         {
           "type": "heading",
           "source": {
-            "chapter": "03-the-format/01-syntax",
+            "chapter": "04-the-format/01-syntax",
             "section": "the-marks"
           },
           "level": 2,
@@ -478,7 +550,7 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "03-the-format/01-syntax",
+            "chapter": "04-the-format/01-syntax",
             "section": "the-marks"
           },
           "markdown": "| mark | what it does |\n|---|---|\n| `---` | fences the frontmatter that opens a chapter |\n| `#` | names a section, and gathers the sections beneath it when it sits higher up |\n| `[file.ts]` | names the file a section's code belongs to |\n| `{Tangle}` | labels a heading — what Loom should make of it, or what language it holds |\n| `=>` | opens a code block |\n| `~>` | opens a code block that only `~` closes |\n| `~` | closes a code block and returns to prose |\n| `::[a section]` | draws that section in, whole |\n| `{{ name }}` | binds a value into the text |\n\nTwo more constructs look like marks but are the opposite of one, because each names a stretch of text Loom refuses to read. Three backticks fence a region left entirely alone, which is how this page quotes marks without invoking them. A `:::[Note]` block holds a remark for whoever opens the corpus next, and tangling drops it."
@@ -486,7 +558,7 @@
         {
           "type": "heading",
           "source": {
-            "chapter": "03-the-format/01-syntax",
+            "chapter": "04-the-format/01-syntax",
             "section": "frontmatter"
           },
           "level": 2,
@@ -496,15 +568,15 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "03-the-format/01-syntax",
+            "chapter": "04-the-format/01-syntax",
             "section": "frontmatter"
           },
-          "markdown": "A chapter opens on a `---` fence. Inside it, a few fields say where the chapter sits and what it is made of.\n\n```loom\n---\nPart III: The format\nChapter 1: Syntax\nTarget: src/\nLanguage: TypeScript\n---\n```\n\n`Part` and `Chapter` place the chapter in the corpus, and they are what the table of contents and the navigation are built from. `Target` names the directory the chapter's files are written into. `Language` declares what the chapter's code is written in, and `Prose` is a language like any other — a chapter that declares it holds prose and nothing else, which is what these documentation pages are."
+          "markdown": "A chapter opens on a `---` fence. Inside it, a few fields say where the chapter sits and what it is made of.\n\n```loom\n---\nPart IV: The format\nChapter 1: Syntax\nTarget: src/\nLanguage: TypeScript\n---\n```\n\n`Part` and `Chapter` place the chapter in the corpus, and they are what the table of contents and the navigation are built from. `Target` names the directory the chapter's files are written into. `Language` declares what the chapter's code is written in, and `Prose` is a language like any other — a chapter that declares it holds prose and nothing else, which is what these documentation pages are."
         },
         {
           "type": "heading",
           "source": {
-            "chapter": "03-the-format/01-syntax",
+            "chapter": "04-the-format/01-syntax",
             "section": "sections"
           },
           "level": 2,
@@ -514,7 +586,7 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "03-the-format/01-syntax",
+            "chapter": "04-the-format/01-syntax",
             "section": "sections"
           },
           "markdown": "A `#` heading opens a section, and everything under it belongs to that section until the next heading.\n\nA section's title is also its name. That name is how every other part of the corpus refers to it, so titles are not decoration — renaming a section renames the thing that draws it in."
@@ -522,7 +594,7 @@
         {
           "type": "heading",
           "source": {
-            "chapter": "03-the-format/01-syntax",
+            "chapter": "04-the-format/01-syntax",
             "section": "parts"
           },
           "level": 2,
@@ -532,7 +604,7 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "03-the-format/01-syntax",
+            "chapter": "04-the-format/01-syntax",
             "section": "parts"
           },
           "markdown": "A part is the same mark one level deeper. Where a `#` heading names a section, a `##` heading beneath it gathers the sections that follow, and a chapter divides into stages a reader can follow without dividing the file those stages tangle into.\n\nDepth is the only difference, so there is no separate mark to learn — a heading is a heading, and where you put it decides whether it names a thing or groups them."
@@ -540,7 +612,7 @@
         {
           "type": "heading",
           "source": {
-            "chapter": "03-the-format/01-syntax",
+            "chapter": "04-the-format/01-syntax",
             "section": "naming-a-file"
           },
           "level": 2,
@@ -550,7 +622,7 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "03-the-format/01-syntax",
+            "chapter": "04-the-format/01-syntax",
             "section": "naming-a-file"
           },
           "markdown": "A heading may name the file its code belongs to, by putting the path in brackets:\n\n```loom\n## The parser [parser.ts]\n```\n\nEverything that section composes is written to `parser.ts`, under the chapter's `Target` directory. One chapter can fill several files, and several chapters can fill one."
@@ -558,7 +630,7 @@
         {
           "type": "heading",
           "source": {
-            "chapter": "03-the-format/01-syntax",
+            "chapter": "04-the-format/01-syntax",
             "section": "labelling-a-heading"
           },
           "level": 2,
@@ -568,7 +640,7 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "03-the-format/01-syntax",
+            "chapter": "04-the-format/01-syntax",
             "section": "labelling-a-heading"
           },
           "markdown": "A heading may also carry a label in braces, which says what Loom should make of the section rather than where its code goes.\n\n```loom\n## The module {Tangle}[parser.ts]\n\n# Table of Contents {TOC}\n\n## Installing it {Bash}\n```\n\n`{Tangle}` marks the section that composes a file, and it is the long form of the bracket on its own. `{TOC}` marks the heading whose list of parts and chapters Loom keeps up to date. A language in braces switches that one section into another language, so a chapter of TypeScript can drop into a shell command or a block of JSON without leaving the document."
@@ -576,7 +648,7 @@
         {
           "type": "heading",
           "source": {
-            "chapter": "03-the-format/01-syntax",
+            "chapter": "04-the-format/01-syntax",
             "section": "opening-and-closing-code"
           },
           "level": 2,
@@ -586,7 +658,7 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "03-the-format/01-syntax",
+            "chapter": "04-the-format/01-syntax",
             "section": "opening-and-closing-code"
           },
           "markdown": "The `=>` operator opens a code block. The `~` separator closes it and returns to prose. Between them the text is code in the chapter's language, and Loom treats it as opaque — it reads the marks, never the language.\n\n```loom\nThe parser reads one line at a time.\n\n=>\n\nexport const parse = (line: string) => line.trim()\n\n~\n\nTrimming first means the caller never has to.\n```\n\nProse and code alternate as often as the explanation needs. A block is not a unit of compilation; it is a unit of narrative.\n\nA block opened with `=>` also ends at the next heading. That suits most code, but some files are full of lines that look like headings: a Markdown page, a shell script, a configuration file with `#` comments. Open those with `~>` instead. The block then holds until `~`, and every `#` line inside it stays part of the file.\n\n```loom\n## The skill [SKILL.md]\n\n~>\n\n# Writing for the reader\n\n## Put the actor in the subject\n\n~\n```\n\nThe tilde that closes a block stands alone at the start of its line, or with a space and some prose after it. A line that merely begins with a tilde, such as `~/bin` in a script, stays code. An explicit block that never closes is an error, because it would otherwise swallow the rest of the chapter."
@@ -594,7 +666,7 @@
         {
           "type": "heading",
           "source": {
-            "chapter": "03-the-format/01-syntax",
+            "chapter": "04-the-format/01-syntax",
             "section": "anchors"
           },
           "level": 2,
@@ -604,7 +676,7 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "03-the-format/01-syntax",
+            "chapter": "04-the-format/01-syntax",
             "section": "anchors"
           },
           "markdown": "An anchor draws another section in by name, and it is how a file gets assembled out of the pieces that explain it:\n\n```loom\n## The module [parser.ts]\n\n=>\n\n::[The tokens]\n\n::[The parser]\n```\n\nOrder on the page and order in the file are separate concerns. A section may be explained early and composed late, or the reverse, because the anchor decides where its code lands.\n\nTangling checks every anchor. Name a section that does not exist and the build stops and says so, which is what keeps a document and its files from drifting apart as the document is edited.\n\nInside a code block an anchor is always an anchor. To write one as an example rather than as a reference — as this page does throughout — put it in backticks or inside a fence, and Loom leaves it as text."
@@ -612,7 +684,7 @@
         {
           "type": "heading",
           "source": {
-            "chapter": "03-the-format/01-syntax",
+            "chapter": "04-the-format/01-syntax",
             "section": "warps"
           },
           "level": 2,
@@ -622,7 +694,7 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "03-the-format/01-syntax",
+            "chapter": "04-the-format/01-syntax",
             "section": "warps"
           },
           "markdown": "A warp binds a value into the text, written `{{ name }}`. Where a section repeats a version number, a package name or a path, the warp names it once and the corpus reads it everywhere."
@@ -630,7 +702,7 @@
         {
           "type": "heading",
           "source": {
-            "chapter": "03-the-format/01-syntax",
+            "chapter": "04-the-format/01-syntax",
             "section": "tangling"
           },
           "level": 2,
@@ -640,7 +712,7 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "03-the-format/01-syntax",
+            "chapter": "04-the-format/01-syntax",
             "section": "tangling"
           },
           "markdown": "`loom tangle` walks the corpus, resolves every anchor and warp, and writes each file out. What it produces is ordinary source: no marker, no runtime, nothing of Loom left in it. A reader of the output cannot tell it came from a document.\n\n`loom weave` renders the same corpus the other way, as a document to read. These pages are the result."
@@ -648,14 +720,14 @@
       ]
     },
     {
-      "slug": "04-cli/01-loom-init",
+      "slug": "05-cli/01-loom-init",
       "title": "loom init",
       "part": "The command line",
       "blocks": [
         {
           "type": "heading",
           "source": {
-            "chapter": "04-cli/01-loom-init",
+            "chapter": "05-cli/01-loom-init",
             "section": "loom-init"
           },
           "level": 1,
@@ -665,7 +737,7 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "04-cli/01-loom-init",
+            "chapter": "05-cli/01-loom-init",
             "section": "loom-init"
           },
           "markdown": "`loom init` sets a workspace up. It is the only command that asks questions, and it asks them once.\n\n```bash\nloom init [directory]\n```\n\nThe directory defaults to the current one."
@@ -673,7 +745,7 @@
         {
           "type": "heading",
           "source": {
-            "chapter": "04-cli/01-loom-init",
+            "chapter": "05-cli/01-loom-init",
             "section": "what-it-asks"
           },
           "level": 2,
@@ -683,7 +755,7 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "04-cli/01-loom-init",
+            "chapter": "05-cli/01-loom-init",
             "section": "what-it-asks"
           },
           "markdown": "The first question is the **primary language** — the language a section is written in when its heading does not say otherwise. It defaults to `typescript`.\n\nThe second is which **languages to activate**, as space-separated identifiers. Activating a language installs its editor services, so the language server can offer completion and diagnostics inside that language's sections. It defaults to whatever you answered first."
@@ -691,7 +763,7 @@
         {
           "type": "heading",
           "source": {
-            "chapter": "04-cli/01-loom-init",
+            "chapter": "05-cli/01-loom-init",
             "section": "what-it-writes"
           },
           "level": 2,
@@ -701,7 +773,7 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "04-cli/01-loom-init",
+            "chapter": "05-cli/01-loom-init",
             "section": "what-it-writes"
           },
           "markdown": "| file | what it holds |\n|---|---|\n| `.loom/config.yaml` | the primary language, the activated languages, and `corpus`, the directory Loom reads |\n| `.loom/.gitignore` | ignores `services/`, so downloaded language services stay out of version control |\n| `.mcp.json` | lets an agent reach the workspace over the Model Context Protocol |\n\nIt does not create the corpus directory. The configuration names it; you make it."
@@ -709,7 +781,7 @@
         {
           "type": "heading",
           "source": {
-            "chapter": "04-cli/01-loom-init",
+            "chapter": "05-cli/01-loom-init",
             "section": "running-it-twice"
           },
           "level": 2,
@@ -719,7 +791,7 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "04-cli/01-loom-init",
+            "chapter": "05-cli/01-loom-init",
             "section": "running-it-twice"
           },
           "markdown": "Init is safe to run again. If `.loom/config.yaml` already exists it asks nothing, keeps the configuration as it stands, and reports which file it found. So a project that already has a workspace can be re-initialised to pick up the agent configuration without losing its language settings.\n\nTo change the languages afterwards, use `loom add` and `loom remove` rather than editing the file by hand."
@@ -727,14 +799,14 @@
       ]
     },
     {
-      "slug": "04-cli/02-loom-tangle",
+      "slug": "05-cli/02-loom-tangle",
       "title": "loom tangle",
       "part": "The command line",
       "blocks": [
         {
           "type": "heading",
           "source": {
-            "chapter": "04-cli/02-loom-tangle",
+            "chapter": "05-cli/02-loom-tangle",
             "section": "loom-tangle"
           },
           "level": 1,
@@ -744,7 +816,7 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "04-cli/02-loom-tangle",
+            "chapter": "05-cli/02-loom-tangle",
             "section": "loom-tangle"
           },
           "markdown": "`loom tangle` is the command that turns documents into files. It reads a corpus, resolves every anchor and warp, and writes each section's code to the file that section names.\n\n```bash\nloom tangle <path> [--watch]\n```"
@@ -752,7 +824,7 @@
         {
           "type": "heading",
           "source": {
-            "chapter": "04-cli/02-loom-tangle",
+            "chapter": "05-cli/02-loom-tangle",
             "section": "what-it-writes"
           },
           "level": 2,
@@ -762,7 +834,7 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "04-cli/02-loom-tangle",
+            "chapter": "05-cli/02-loom-tangle",
             "section": "what-it-writes"
           },
           "markdown": "Output is ordinary source. Tangling leaves no marker, no header and no import behind, so a file Loom wrote is indistinguishable from one a person typed. That is deliberate: a tool that stamped its output would make every consumer of that output care about the tool.\n\nA file is only rewritten when its content would change. Prose edits therefore cost nothing downstream — no timestamp churn, and no rebuild triggered in whatever is watching the output directory."
@@ -770,7 +842,7 @@
         {
           "type": "heading",
           "source": {
-            "chapter": "04-cli/02-loom-tangle",
+            "chapter": "05-cli/02-loom-tangle",
             "section": "when-it-refuses"
           },
           "level": 2,
@@ -780,7 +852,7 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "04-cli/02-loom-tangle",
+            "chapter": "05-cli/02-loom-tangle",
             "section": "when-it-refuses"
           },
           "markdown": "Tangle checks the corpus before it writes anything, and it refuses the whole run rather than write half of it. An anchor that names a section which does not exist is the common case:\n\n```\nloom: refusing to tangle — Unresolved anchor: no section named `the parser`.\n```\n\nRefusing wholesale is what keeps a corpus and its files from drifting apart. A partial write would leave the output in a state no document describes."
@@ -788,7 +860,7 @@
         {
           "type": "heading",
           "source": {
-            "chapter": "04-cli/02-loom-tangle",
+            "chapter": "05-cli/02-loom-tangle",
             "section": "watching"
           },
           "level": 2,
@@ -798,7 +870,7 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "04-cli/02-loom-tangle",
+            "chapter": "05-cli/02-loom-tangle",
             "section": "watching"
           },
           "markdown": "`--watch` re-tangles when a document changes.\n\n```bash\nloom tangle corpus --watch\n```\n\nThis is the normal way to work: leave it running beside the editor and the files follow the document as you write it."
@@ -806,7 +878,7 @@
         {
           "type": "heading",
           "source": {
-            "chapter": "04-cli/02-loom-tangle",
+            "chapter": "05-cli/02-loom-tangle",
             "section": "finding-files-nothing-describes"
           },
           "level": 2,
@@ -816,7 +888,7 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "04-cli/02-loom-tangle",
+            "chapter": "05-cli/02-loom-tangle",
             "section": "finding-files-nothing-describes"
           },
           "markdown": "Rename a section's sink and the file it used to write stays on disk, no longer described by anything. `loom orphans` lists those.\n\n```bash\nloom orphans [--prune]\n```\n\nWith `--prune` it deletes them. Without it, it only reports — which is the safer habit, since the list is also a useful signal that a rename went further than you intended."
@@ -824,14 +896,14 @@
       ]
     },
     {
-      "slug": "04-cli/03-loom-weave",
+      "slug": "05-cli/03-loom-weave",
       "title": "loom weave",
       "part": "The command line",
       "blocks": [
         {
           "type": "heading",
           "source": {
-            "chapter": "04-cli/03-loom-weave",
+            "chapter": "05-cli/03-loom-weave",
             "section": "loom-weave"
           },
           "level": 1,
@@ -841,7 +913,7 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "04-cli/03-loom-weave",
+            "chapter": "05-cli/03-loom-weave",
             "section": "loom-weave"
           },
           "markdown": "Where tangling reads a corpus for its code, weaving reads the same corpus for its document. It produces one JSON file describing the whole thing — its parts and chapters, each page's headings, its prose as Markdown, and its code.\n\n```bash\nloom weave <path> <out>\n```"
@@ -849,7 +921,7 @@
         {
           "type": "heading",
           "source": {
-            "chapter": "04-cli/03-loom-weave",
+            "chapter": "05-cli/03-loom-weave",
             "section": "what-comes-out"
           },
           "level": 2,
@@ -859,7 +931,7 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "04-cli/03-loom-weave",
+            "chapter": "05-cli/03-loom-weave",
             "section": "what-comes-out"
           },
           "markdown": "The output has three parts. `nav` is the corpus arranged as parts and the chapters beneath them, which is what a site's navigation is built from. `pages` is a page per chapter, each a list of blocks: a heading carries its level, its title and a slug to link to, and a prose block carries Markdown. `loose` holds chapters that belong to no part.\n\nBecause prose comes out as Markdown rather than as HTML, the site decides how to render it. Nothing about weaving assumes a browser."
@@ -867,7 +939,7 @@
         {
           "type": "heading",
           "source": {
-            "chapter": "04-cli/03-loom-weave",
+            "chapter": "05-cli/03-loom-weave",
             "section": "point-it-at-a-file-not-a-directory"
           },
           "level": 2,
@@ -877,7 +949,7 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "04-cli/03-loom-weave",
+            "chapter": "05-cli/03-loom-weave",
             "section": "point-it-at-a-file-not-a-directory"
           },
           "markdown": "Weave works out which corpus you mean from the path you hand it, and it takes the directory that path sits in. Give it a chapter, or a spine — a file whose only job is to hold the table of contents — and it reads that file's directory and everything beneath it:\n\n```bash\nloom weave docs/index.loom docs.woven.json\n```\n\nGive it a directory instead and, unless that directory is a workspace in its own right, it reads the directory *above* the one you named. In a repository that means it can quietly weave everything you have, test fixtures included. The rule is short: pass a file."
@@ -885,7 +957,7 @@
         {
           "type": "heading",
           "source": {
-            "chapter": "04-cli/03-loom-weave",
+            "chapter": "05-cli/03-loom-weave",
             "section": "more-than-one-corpus-in-a-project"
           },
           "level": 2,
@@ -895,7 +967,7 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "04-cli/03-loom-weave",
+            "chapter": "05-cli/03-loom-weave",
             "section": "more-than-one-corpus-in-a-project"
           },
           "markdown": "A project can hold several corpora — a book of documentation beside the source it documents, for instance. They need no configuration of their own. Each is a directory of chapters, and each is woven by pointing at a file inside it, so the same workspace settings govern them all."
@@ -903,14 +975,14 @@
       ]
     },
     {
-      "slug": "04-cli/04-loom-eject",
+      "slug": "05-cli/04-loom-eject",
       "title": "loom eject",
       "part": "The command line",
       "blocks": [
         {
           "type": "heading",
           "source": {
-            "chapter": "04-cli/04-loom-eject",
+            "chapter": "05-cli/04-loom-eject",
             "section": "loom-eject"
           },
           "level": 1,
@@ -920,7 +992,7 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "04-cli/04-loom-eject",
+            "chapter": "05-cli/04-loom-eject",
             "section": "loom-eject"
           },
           "markdown": "`loom eject` is the way out. It archives the corpus and leaves the tangled source in place, so a project that no longer wants to be literate keeps everything Loom built for it and stops depending on Loom.\n\n```bash\nloom eject\n```"
@@ -928,7 +1000,7 @@
         {
           "type": "heading",
           "source": {
-            "chapter": "04-cli/04-loom-eject",
+            "chapter": "05-cli/04-loom-eject",
             "section": "what-it-leaves-behind"
           },
           "level": 2,
@@ -938,7 +1010,7 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "04-cli/04-loom-eject",
+            "chapter": "05-cli/04-loom-eject",
             "section": "what-it-leaves-behind"
           },
           "markdown": "The source stays exactly where it was. Every file tangle wrote — `src/board.ts`, `src/rules.ts`, the SQL, the JSON — remains on disk, unchanged, and the project builds and runs as it did the moment before. Nothing has to be regenerated, because tangling already produced ordinary source and no build step ever stood between that source and the compiler.\n\nThe corpus is archived rather than deleted. It becomes `corpus.zip` beside the project, so the prose that explains the code is kept even though nothing reads it any more.\n\nThen the workspace's own files go: `.loom/`, and the configuration inside it."
@@ -946,7 +1018,7 @@
         {
           "type": "heading",
           "source": {
-            "chapter": "04-cli/04-loom-eject",
+            "chapter": "05-cli/04-loom-eject",
             "section": "why-it-exists"
           },
           "level": 2,
@@ -956,7 +1028,7 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "04-cli/04-loom-eject",
+            "chapter": "05-cli/04-loom-eject",
             "section": "why-it-exists"
           },
           "markdown": "A tool that cannot be removed is a tool you have to be sure about before you start. Eject is what makes Loom a choice rather than a commitment: the code was always plain source, so leaving costs one command and loses nothing except the explanation.\n\nThat the exit is cheap is also why the explanation tends to survive. Prose that a tool holds hostage gets abandoned. Prose you could walk away from at any moment, and keep anyway, is prose someone chose to write."

@@ -87,7 +87,7 @@ describe('the documentation shell', () => {
   })
 
   it('reads the breadcrumb out of the corpus, not out of the view', () => {
-    const html = render(at('04-cli/03-loom-weave', ''))
+    const html = render(at('05-cli/03-loom-weave', ''))
     expect(html).toContain('class="crumb" href="/docs">Docs<')
     expect(html).toContain('class="crumb" href="/docs/cli/loom-init">The command line<')
     expect(html).toContain('class="here">loom weave<')
@@ -176,7 +176,7 @@ describe('the documentation shell', () => {
   })
 
   it('quotes Loom marks as text rather than resolving them', () => {
-    const html = render(at('03-the-format/01-syntax', ''))
+    const html = render(at('04-the-format/01-syntax', ''))
     expect(html).toContain('::[a section]')
   })
 
@@ -187,7 +187,7 @@ describe('the documentation shell', () => {
     expect(first).not.toContain('>Previous<')
     const second = render(at(INIT, ''))
     expect(second).toContain('class="pager-title">Quick start<')
-    expect(second).toContain('class="pager-title">Loom in your editor<')
+    expect(second).toContain('class="pager-title">Sections, prose and code<')
   })
 
   it('carries the menu into the drawer, marked identically', () => {
