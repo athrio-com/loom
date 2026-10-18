@@ -476,9 +476,32 @@ export const npmIcon = (): Html => svgMark(logos.npm)
 export const pnpmIcon = (): Html => svgMark(logos.pnpm)
 export const nodeIcon = (): Html => svgMark(logos.node)
 
+## The emblems of the editors
+
+The documentation's guide to editors gives each editor a section, and each of those sections opens on the editor's emblem. A reader looking for their editor spots its logo before they read its name.
+
+Each emblem is the editor's official SVG, vendored in `logos.json` beside the runtime logos. VS Code's logo comes from Microsoft's repository, Zed's mark from Zed's, Gram's frog from Gram's repository on Codeberg, Helix's emblem from Helix's, and the Neovim mark from the Neovim website's. The coloured emblems keep their own colours. Zed and Gram draw their marks in black alone, so here the black is `currentColor`, and the two marks take the ink of the heading beside them.
+
+The `editorMark` function finds a section's emblem by the section's heading. A heading that is exactly an editor's name wears that editor's emblem, and any other heading wears none.
+
+=>
+
+const editorLogos: ReadonlyMap<string, string> = new Map([
+  ['VS Code', logos.vscode],
+  ['Zed', logos.zed],
+  ['Gram', logos.gram],
+  ['Helix', logos.helix],
+  ['Neovim', logos.neovim],
+])
+
+export const editorMark = (heading: string): Option.Option<Html> =>
+  Option.map(Option.fromNullishOr(editorLogos.get(heading)), (svg) =>
+    ih.span([ih.Class('editor-logo'), ih.AriaHidden(true), ih.InnerHTML(svg)], []),
+  )
+
 ## The module {Tangle}[components.ts]
 
-The module opens with the woven carpet, since the small marks a page wears are woven from it. Then the full mark, the icons, and the runtime logos.
+The module opens with the woven carpet, since the small marks a page wears are woven from it. Then come the full mark, the icons, the runtime logos and the editors' emblems.
 
 =>
 
@@ -495,3 +518,5 @@ The module opens with the woven carpet, since the small marks a page wears are w
 ::[The icons]
 
 ::[The runtime marks]
+
+::[The emblems of the editors]

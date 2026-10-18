@@ -359,3 +359,16 @@ export const bunIcon = (): Html => svgMark(logos.bun)
 export const npmIcon = (): Html => svgMark(logos.npm)
 export const pnpmIcon = (): Html => svgMark(logos.pnpm)
 export const nodeIcon = (): Html => svgMark(logos.node)
+
+const editorLogos: ReadonlyMap<string, string> = new Map([
+  ['VS Code', logos.vscode],
+  ['Zed', logos.zed],
+  ['Gram', logos.gram],
+  ['Helix', logos.helix],
+  ['Neovim', logos.neovim],
+])
+
+export const editorMark = (heading: string): Option.Option<Html> =>
+  Option.map(Option.fromNullishOr(editorLogos.get(heading)), (svg) =>
+    ih.span([ih.Class('editor-logo'), ih.AriaHidden(true), ih.InnerHTML(svg)], []),
+  )

@@ -8,7 +8,7 @@ Language: TypeScript
 
 The documentation reads nothing it was given by hand. Its own corpus of prose sits beside this one, `loom weave` renders that corpus to JSON before the site builds, and this chapter draws the result.
 
-A chapter of the docs is drawn the way the site's other pages are drawn. It opens on a head: the Loom mark beside the chapter's name, its opening paragraph, and any commands it starts with set beside that paragraph. Its first section opens on a woven flower beside its heading, as the landing's sections do. The sections after it open on their heading alone. The chapter ends on a pager that names the chapters either side of it. Beside the sections a menu card lists every chapter in the docs, with the sections of the one on show under its name.
+A chapter of the docs is drawn the way the site's other pages are drawn. It opens on a head: the Loom mark beside the chapter's name, its opening paragraph, and any commands it starts with set beside that paragraph. Its first section opens on a woven flower beside its heading, as the landing's sections do. The sections after it open on their heading alone, except that a section named for an editor opens on the editor's emblem. The chapter ends on a pager that names the chapters either side of it. Beside the sections a menu card lists every chapter in the docs, with the sections of the one on show under its name.
 
 The shell is not tied to one corpus. Every function here takes the corpus it should read, and the page that calls it decides which one that is, so a second page over a second corpus could reuse it without a line changing.
 
@@ -40,6 +40,7 @@ import {
   carpetMark,
   checkIcon,
   copyIcon,
+  editorMark,
   flowerFor,
   loomMark,
   nodeIcon,
@@ -452,7 +453,20 @@ const blockOf = (block: Block, model: Model, h: HtmlBuilder<Message>): ReadonlyA
 
 ~
 
-The first section of a chapter opens on the chapter's flower beside its heading, as a section of the landing opens on its carpet. The sections after it open on their heading alone. One mark to a chapter is enough to say where a reader is, and a mark on every section would turn the docs into a row of stickers. Everything a section holds then runs in one column beneath its heading, in the order the chapter wrote it: a paragraph, then the command it introduces, then the next paragraph.
+The first section of a chapter opens on the chapter's flower beside its heading, as a section of the landing opens on its carpet. The sections after it open on their heading alone. One mark to a chapter is enough to say where a reader is, and a mark on every section would turn the docs into a row of stickers.
+
+Editors are the exception. A reader of the guide to editors scans it for one editor, and spots that editor's logo before its name. So a section named for an editor opens on the editor's emblem, and when it is a chapter's first section, the emblem takes the flower's place. The `markOf` function picks a section's mark: the emblem `editorMark` finds for the heading, or else the flower the section was given.
+
+=>
+
+const markOf = (flower: Option.Option<Carpet>, section: Section): Option.Option<Html> =>
+  Option.orElse(editorMark(section.heading.title), () =>
+    Option.map(flower, (carpet) => carpetMark(carpet, '42px', broadSeam)),
+  )
+
+~
+
+Everything a section holds then runs in one column beneath its heading, in the order the chapter wrote it: a paragraph, then the command it introduces, then the next paragraph.
 
 =>
 
@@ -468,7 +482,7 @@ const sectionOf = (
       h.div(
         [h.Class('section-head')],
         [
-          ...Option.toArray(Option.map(flower, (carpet) => carpetMark(carpet, '42px', broadSeam))),
+          ...Option.toArray(markOf(flower, section)),
           h.div([h.Class('lines')], [h.h2([h.Id(section.heading.id)], [section.heading.title])]),
         ],
       ),
@@ -662,7 +676,7 @@ const menu = (
 
 ## The pager between chapters
 
-A chapter ends on the site's own pager, naming the chapters either side of it in reading order. A card is a flower and two lines of type, the direction and the chapter's name, and under the pointer both lines take the deep orange the source page answers to. The flower is the chapter's own, the one its first section wears, so a card shows a reader the mark they will meet on the page it leads to. Each card is a link to the chapter's address.
+A chapter ends on the site's own pager, naming the chapters either side of it in reading order. A card is a flower and two lines of type, the direction and the chapter's name, and under the pointer both lines take the deep orange the source page answers to. The flower is the chapter's own, the one its first section wears, so a card shows a reader the mark they will meet on the page it leads to. A chapter whose first section names an editor is the one exception, since there the editor's emblem stands in the flower's place. Each card is a link to the chapter's address.
 
 The first chapter has nothing before it and the last nothing after, so a pager can carry one card rather than two. A next card keeps to the right even on its own, as every next card on the site does.
 

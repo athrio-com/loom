@@ -1980,6 +1980,9 @@ h2, .subhead {
 .doc-section .section-head { align-items: center; margin-bottom: 24px; }
 .doc-section h2 { scroll-margin-top: 24px; }
 
+.editor-logo { display: block; flex: none; width: 42px; height: 42px; }
+.editor-logo svg { display: block; width: 100%; height: 100%; }
+
 .doc-stack > * { margin: 0 0 18px; }
 .doc-stack > *:last-child { margin-bottom: 0; }
 .doc-stack h3 { margin: 12px 0 14px; font-size: var(--t-sub); }
@@ -2136,7 +2139,7 @@ h2, .subhead {
 .docs-page .rt-command:hover { border-color: var(--ink-3); }
 
 .doc-stack .docs-command,
-.doc-stack .hero-install { max-width: 440px; }
+.doc-stack .hero-install { width: fit-content; min-width: min(440px, 100%); max-width: 100%; }
 
 .doc-picture { margin-top: 0; padding: 0; background: none; }
 .hero-cli:has(.doc-picture) { align-self: stretch; }

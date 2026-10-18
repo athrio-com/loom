@@ -2376,6 +2376,8 @@ Under the head the page divides into two columns: the menu card, three hundred p
 
 The sections run down one column. A section is the site's section without its own measure, since the body already holds it to one. A section opens on its mark and its heading, the mark centred on the heading's line, and leaves forty pixels before the next one.
 
+An editor's emblem takes the same forty-two-pixel square as a flower. The emblems come in many shapes, from Helix's tall helix to Gram's wide frog, so each drawing scales to fit the square whole and sits at its centre.
+
 The column of sections stretches to the height of the body, and the pager sits at its foot. So when a reader reaches the end of a chapter, the pager's lower edge lines up with the menu's.
 
 =>
@@ -2394,6 +2396,9 @@ The column of sections stretches to the height of the body, and the pager sits a
 .section.doc-section { max-width: none; margin: 0; padding: 8px 0 40px; }
 .doc-section .section-head { align-items: center; margin-bottom: 24px; }
 .doc-section h2 { scroll-margin-top: 24px; }
+
+.editor-logo { display: block; flex: none; width: 42px; height: 42px; }
+.editor-logo svg { display: block; width: 100%; height: 100%; }
 
 .doc-stack > * { margin: 0 0 18px; }
 .doc-stack > *:last-child { margin-bottom: 0; }
@@ -2549,7 +2554,7 @@ Every piece of code in a chapter sits on the menu's own card: the pale ground, t
 
 The copy button sits in the card's top corner in muted ink, with no frame until the pointer reaches it, so it never competes with the code it copies.
 
-A command is one short line, and stretched across the column it would be mostly empty card. So a command, and a picker of commands, stops at four hundred and forty pixels, about the width of the commands beside a chapter's lead. A code sheet keeps the full width, since its lines run long. A picture stands on the page itself, with no frame. A landing drawing carries a pale ground of its own for the landing's card, and here that ground is made transparent too, so only the picture shows. In a chapter's head a picture takes its size from the text beside it: its column stretches to the row, and the drawing scales to four fifths of that height, centred in it, which keeps a small drawing from looming over the title.
+A command is usually one short line, and stretched across the column it would be mostly empty card. So a command, and a picker of commands, takes four hundred and forty pixels, about the width of the commands beside a chapter's lead. A longer command widens its card to stay on one line, up to the width of the column, and only a command longer than the column wraps. A code sheet keeps the full width, since its lines run long. A picture stands on the page itself, with no frame. A landing drawing carries a pale ground of its own for the landing's card, and here that ground is made transparent too, so only the picture shows. In a chapter's head a picture takes its size from the text beside it: its column stretches to the row, and the drawing scales to four fifths of that height, centred in it, which keeps a small drawing from looming over the title.
 
 =>
 
@@ -2578,7 +2583,7 @@ A command is one short line, and stretched across the column it would be mostly 
 .docs-page .rt-command:hover { border-color: var(--ink-3); }
 
 .doc-stack .docs-command,
-.doc-stack .hero-install { max-width: 440px; }
+.doc-stack .hero-install { width: fit-content; min-width: min(440px, 100%); max-width: 100%; }
 
 .doc-picture { margin-top: 0; padding: 0; background: none; }
 .hero-cli:has(.doc-picture) { align-self: stretch; }

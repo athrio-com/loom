@@ -18,6 +18,7 @@ import {
   carpetMark,
   checkIcon,
   copyIcon,
+  editorMark,
   flowerFor,
   loomMark,
   nodeIcon,
@@ -349,6 +350,11 @@ const blockOf = (block: Block, model: Model, h: HtmlBuilder<Message>): ReadonlyA
     Match.exhaustive,
   )
 
+const markOf = (flower: Option.Option<Carpet>, section: Section): Option.Option<Html> =>
+  Option.orElse(editorMark(section.heading.title), () =>
+    Option.map(flower, (carpet) => carpetMark(carpet, '42px', broadSeam)),
+  )
+
 const sectionOf = (
   flower: Option.Option<Carpet>,
   section: Section,
@@ -361,7 +367,7 @@ const sectionOf = (
       h.div(
         [h.Class('section-head')],
         [
-          ...Option.toArray(Option.map(flower, (carpet) => carpetMark(carpet, '42px', broadSeam))),
+          ...Option.toArray(markOf(flower, section)),
           h.div([h.Class('lines')], [h.h2([h.Id(section.heading.id)], [section.heading.title])]),
         ],
       ),
