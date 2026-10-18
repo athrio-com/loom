@@ -6,15 +6,15 @@ Language: Prose
 
 # Loom projects
 
-A single loom is enough to write a file. A project wants two more things: a folder where its looms live, and a language its sections use when they don't name one. `loom init` sets both up. Run it in the folder from the quick start.
+A single loom file is enough to write a small program. For real-life scenarios, Loom supports whole projects and modules as a literate corpus: a folder of loom files that are read together as a book.
 
 ```bash
 loom init
 ```
 
-## Two questions
+## Initialise project
 
-Loom asks which language your sections are written in when they don't say, and which languages your editor should understand. Both default to TypeScript, so press Enter twice.
+To set up a project, run the `loom init` command. Loom asks which language your sections are written in when they don't say, and which languages your editor should understand. Both default to TypeScript, so press Enter twice.
 
 Your answers go into `.loom/config.yaml`, the project's settings. Commit it. Beside it, `.loom/.gitignore` keeps out the language services Loom downloads for your editor. The folder that holds `.loom` is now a Loom project.
 
