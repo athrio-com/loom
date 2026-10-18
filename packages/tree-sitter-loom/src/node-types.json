@@ -112,7 +112,18 @@
   {
     "type": "file",
     "named": true,
-    "fields": {}
+    "fields": {
+      "extension": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "extension",
+            "named": true
+          }
+        ]
+      }
+    }
   },
   {
     "type": "frontmatter",
@@ -181,11 +192,6 @@
   },
   {
     "type": "key",
-    "named": true,
-    "fields": {}
-  },
-  {
-    "type": "name",
     "named": true,
     "fields": {}
   },
@@ -444,6 +450,10 @@
     "named": true
   },
   {
+    "type": "extension",
+    "named": true
+  },
+  {
     "type": "frontmatter_fence",
     "named": true
   },
@@ -457,6 +467,10 @@
   },
   {
     "type": "label",
+    "named": true
+  },
+  {
+    "type": "name",
     "named": true
   },
   {
