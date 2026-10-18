@@ -2052,10 +2052,10 @@ h2, .subhead {
 }
 
 .docs-prose > :first-child { margin-top: 0; }
-.docs-prose p { margin: 16px 0 0; max-width: 62ch; }
+.docs-prose p { margin: 16px 0 0; }
 
 .docs-prose ul,
-.docs-prose ol { margin: 16px 0 0; padding-left: 24px; max-width: 62ch; }
+.docs-prose ol { margin: 16px 0 0; padding-left: 24px; }
 
 .docs-prose li { margin: 4px 0 0; }
 
@@ -2111,6 +2111,9 @@ h2, .subhead {
 
 .docs-page .rt-command { background: var(--pale); border-radius: var(--radius); }
 .docs-page .rt-command:hover { border-color: var(--ink-3); }
+
+.doc-stack .docs-command,
+.doc-stack .hero-install { max-width: 440px; }
 
 .canvas-copy {
   position: absolute;

@@ -2479,15 +2479,15 @@ The drawer holds the same groups, so the rules below style both.
 
 ~
 
-The chapter's own prose is Markdown the weave carried through, so the elements it produces are styled here rather than by the views: a paragraph, a list, a table, and code set inside a sentence. Running text keeps the site's measure of sixty-two characters, though the column is wider, so a line of prose stays a comfortable length beside a code sheet that uses the full width. Code inside a sentence sits on the same faint wash as a fence, in primary ink, so it reads as a word set in a different face rather than a highlight.
+The chapter's own prose is Markdown the weave carried through, so the elements it produces are styled here rather than by the views: a paragraph, a list, a table, and code set inside a sentence. Running text fills the column, as the code sheets and commands between its paragraphs do, so prose and code share one right edge rather than leaving a ragged gap beside every paragraph. Code inside a sentence sits on the same faint wash as a fence, in primary ink, so it reads as a word set in a different face rather than a highlight.
 
 =>
 
 .docs-prose > :first-child { margin-top: 0; }
-.docs-prose p { margin: 16px 0 0; max-width: 62ch; }
+.docs-prose p { margin: 16px 0 0; }
 
 .docs-prose ul,
-.docs-prose ol { margin: 16px 0 0; padding-left: 24px; max-width: 62ch; }
+.docs-prose ol { margin: 16px 0 0; padding-left: 24px; }
 
 .docs-prose li { margin: 4px 0 0; }
 
@@ -2526,6 +2526,8 @@ Every piece of code in a chapter sits on the menu's own card: the pale ground, t
 
 The copy button sits in the card's top corner in muted ink, with no frame until the pointer reaches it, so it never competes with the code it copies.
 
+A command is one short line, and stretched across the column it would be mostly empty card. So a command, and a picker of commands, stops at four hundred and forty pixels, about the width of the commands beside a chapter's lead. A code sheet keeps the full width, since its lines run long.
+
 =>
 
 .docs-canvas {
@@ -2551,6 +2553,9 @@ The copy button sits in the card's top corner in muted ink, with no frame until 
 
 .docs-page .rt-command { background: var(--pale); border-radius: var(--radius); }
 .docs-page .rt-command:hover { border-color: var(--ink-3); }
+
+.doc-stack .docs-command,
+.doc-stack .hero-install { max-width: 440px; }
 
 .canvas-copy {
   position: absolute;
