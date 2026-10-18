@@ -6,48 +6,98 @@ Language: TypeScript
 
 # The language server
 
-The Loom language server is an Effect program. `startLanguageServer` runs it on the Bun
-runtime: it builds the pipeline layers once and captures a warm runtime — Volar's hooks are
-synchronous, so the language plugin runs the projection on it. On `initialize` it loads the
-editor's TypeScript, collects the active languages' Volar plugins, and registers them
-alongside the language plugin. Two callers start it — a thin entry an editor loads, and the
-`loom lsp` command — so the server lives in the CLI, the one tool every Loom user already has.
+The Loom language server is an Effect program. `startLanguageServer` runs it: it builds the pipeline layers once and captures a warm runtime, because Volar's hooks are synchronous and the language plugin runs the projection on that runtime. On `initialize` the server finds a TypeScript compiler to check against, collects the active languages' Volar plugins, and registers them beside the language plugin.
+
+Any editor that speaks the Language Server Protocol can start the server. VS Code starts it through the Loom extension, which loads a thin entry module. Neovim, Helix, Zed, and the JetBrains IDEs start it with the `loom lsp` command and talk to it over standard input and output. So the server lives in the CLI, the one tool every Loom user already has.
 
 ## Imports
 
-The server is built from Volar's language-server toolkit — the connection, the
-project factory, and `loadTsdkByPath` — over a `ManagedRuntime`. It imports `LoomCompiler`,
-the projector and cache the runtime warms, with the `DocumentSource`, `PackageConfig`, and
-`LoomConfig` it requires, and the two halves this module registers, `loomLanguagePlugin` and
-`loomServicePlugins`.
+The server is built from Volar's language-server toolkit — the connection, the project factory, and `loadTsdkByPath` — over a `ManagedRuntime`. It imports `LoomCompiler`, the projector and cache the runtime warms, with the `DocumentSource`, `PackageConfig`, and `LoomConfig` it requires, and the two halves this module registers, `loomLanguagePlugin` and `loomServicePlugins`. Effect's `Schema` reads the editor's initialization options, `Option` carries a compiler that may not be there, and `Data` types the failure when none is. Node's `createRequire` finds an installed `typescript` package the way Node itself would. `join` builds the path a search starts from, and `dirname` trims the file it finds to the directory that holds it.
 
 =>
 
-import { Layer, ManagedRuntime } from 'effect'
+import { Data, Effect, Layer, ManagedRuntime, Option, Schema, pipe } from 'effect'
 import {
   createConnection,
   createServer,
   createTypeScriptProject,
   loadTsdkByPath,
 } from '@volar/language-server/node'
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { LoomCompiler, DocumentSource } from './LoomCompiler'
 import { PackageConfig } from './PackageConfig'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
 
+## A TypeScript to check against
+
+The server type-checks every TypeScript section against a real compiler, so it needs one before it can start. Volar's `loadTsdkByPath` loads the compiler from a TypeScript SDK directory, which Volar calls the tsdk: the `lib` directory of a `typescript` package, where `typescript.js` sits beside the standard library's declaration files. The server's first task is to find that directory.
+
+VS Code supplies it. The Loom extension sends the path of the TypeScript that VS Code ships, in the `typescript.tsdk` field of its initialization options. `EditorTsdkSchema` is the shape of that field, and `editorTsdk` decodes it from whatever the client sent, yielding nothing when the field is absent or malformed.
+
+=>
+
+const EditorTsdkSchema = Schema.Struct({
+  typescript: Schema.Struct({ tsdk: Schema.String }),
+})
+
+const editorTsdk = (options: unknown): Option.Option<string> =>
+  Option.map(
+    Schema.decodeUnknownOption(EditorTsdkSchema)(options),
+    (decoded) => decoded.typescript.tsdk,
+  )
+
+~
+
+Every other editor starts `loom lsp` with no such option, so the server looks for the compiler itself. `installedTsdk` resolves the `typescript` package the way Node's `require` would from a given file, walking up its `node_modules` directories, and returns the directory that holds the resolved `typescript.js`. It yields nothing when the walk finds no package.
+
+=>
+
+const installedTsdk = (from: string): Option.Option<string> =>
+  Option.map(
+    Option.liftThrowable(() => createRequire(from).resolve('typescript'))(),
+    dirname,
+  )
+
+~
+
+`tsdkFor` tries three places in order and takes the first that holds a compiler. The editor's own path comes first, so VS Code keeps the TypeScript it ships. The project being edited comes second, so a section is checked by the compiler the project builds with. Loom's own install comes last: the directories above the server's module, which hold `typescript` when Loom is installed beside it. Only the ES-module bundle that `loom lsp` runs knows its own location. The CommonJS bundles, the VS Code extension's `server.js` and the `loom-language-server` bin, compile `import.meta` to an empty object, so the last search finds nothing there, and VS Code never needs it.
+
+When no place holds a compiler, the server refuses to start and says why. `MissingTypeScript` names the workspace it searched and the two ways to supply a compiler. The error travels back to the editor as the answer to `initialize`, so the person reads the reason instead of watching a server die.
+
+=>
+
+export class MissingTypeScript extends Data.TaggedError('MissingTypeScript')<{
+  readonly root: string
+}> {
+  get message(): string {
+    return `Loom's language server needs TypeScript, and found none in ${this.root} or beside Loom. Install it in the project with \`bun add -d typescript\`, or have the editor send its path as \`initializationOptions.typescript.tsdk\`.`
+  }
+}
+
+const tsdkFor = (
+  options: unknown,
+  root: string,
+): Effect.Effect<string, MissingTypeScript> =>
+  pipe(
+    editorTsdk(options),
+    Option.orElse(() => installedTsdk(join(root, 'package.json'))),
+    Option.orElse(() => installedTsdk(import.meta.url)),
+    Option.match({
+      onNone: () => Effect.fail(new MissingTypeScript({ root })),
+      onSome: (tsdk) => Effect.succeed(tsdk),
+    }),
+  )
+
 ## The program
 
-A `ManagedRuntime`, built once from the pipeline layers, warms the services the server runs; the language plugin
-runs the per-keystroke projection on it, and resolves each file's activated languages from
-`LoomConfig` on it too. The `loadTsdkByPath` call loads the editor's own
-TypeScript from the path the client sends, so a product section checks against the user's
-standard library. Collecting service plugins requires reading the workspace configuration, so
-the `onInitialize` handler hands the workspace folder to `loomServicePlugins` and awaits that Effect —
-which finds the `.loom/` store and its `config.yaml` by walking up from the folder — before it registers the
-language plugin and the collected plugins. On `initialized`, the server watches every `tsconfig.json` and
-`jsconfig.json`, so editing a package's compiler options disposes its project and the next
-request rebuilds it — the consumer's options take effect without an editor reload.
+A `ManagedRuntime`, built once from the pipeline layers, warms the services the server runs. The language plugin runs the per-keystroke projection on it, and resolves each file's activated languages from `LoomConfig` on it too.
+
+The `onInitialize` handler runs one Effect on that runtime. The program reads the workspace folder the editor opened, falling back to the working directory when the editor names none. It finds the tsdk with `tsdkFor` and loads the compiler from it, so a TypeScript section checks against a real standard library. It then hands the folder and the compiler to `loomServicePlugins`, which walks up from the folder to the `.loom/` store and its `config.yaml` and collects the active languages' plugins. The handler registers the language plugin and the collected plugins with Volar. A `MissingTypeScript` failure rejects the handler, and the client receives its message as the error of `initialize`.
+
+On `initialized`, the server watches every `tsconfig.json` and `jsconfig.json`. Editing a package's compiler options disposes its project, and the next request rebuilds it, so the consumer's options take effect without an editor reload.
 
 =>
 
@@ -64,15 +114,21 @@ export const startLanguageServer = (): void => {
   const server = createServer(connection)
 
   connection.onInitialize(async (params) => {
-    const tsdk = loadTsdkByPath(
-      (params.initializationOptions as { typescript: { tsdk: string } })
-        .typescript.tsdk,
-      params.locale,
-    )
     const folder = params.workspaceFolders?.[0]?.uri
     const root = folder ? fileURLToPath(folder) : process.cwd()
-    const servicePlugins = await runtime.runPromise(
-      loomServicePlugins(runtime, tsdk.typescript, root),
+    const { tsdk, servicePlugins } = await runtime.runPromise(
+      Effect.gen(function* () {
+        const path = yield* tsdkFor(params.initializationOptions, root)
+        const tsdk = yield* Effect.sync(() =>
+          loadTsdkByPath(path, params.locale),
+        )
+        const servicePlugins = yield* loomServicePlugins(
+          runtime,
+          tsdk.typescript,
+          root,
+        )
+        return { tsdk, servicePlugins }
+      }),
     )
     return server.initialize(
       params,
@@ -94,11 +150,13 @@ export const startLanguageServer = (): void => {
 
 ## The server module {Tangle}[LoomServer.ts]
 
-The server module assembles the imports and the program and exports `startLanguageServer`. It runs nothing on import — a caller decides when to start the server, so the same module serves both an editor that spawns it and the `loom lsp` command that calls it in-process.
+The server module assembles the imports, the search for a compiler, and the program, and exports `startLanguageServer`. It runs nothing on import — a caller decides when to start the server, so the same module serves both an editor that spawns it and the `loom lsp` command that calls it in-process.
 
 =>
 
 ::[Imports]
+
+::[A TypeScript to check against]
 
 ::[The program]
 
