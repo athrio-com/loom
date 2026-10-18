@@ -3,8 +3,33 @@
 (field
   ":" @punctuation.delimiter)
 
-(field
+((field
+  key: (key) @_key
+  value: (value) @markup.heading)
+  (#match? @_key "^Part"))
+
+((field
+  key: (key) @_key
+  value: (value) @markup.heading)
+  (#match? @_key "^Chapter"))
+
+((field
+  key: (key) @_key
+  value: (value) @string.special.path)
+  (#eq? @_key "Package"))
+
+((field
+  key: (key) @_key
+  value: (value) @type)
+  (#eq? @_key "Language"))
+
+((field
+  key: (key) @_key
   value: (value) @string)
+  (#not-match? @_key "^Part")
+  (#not-match? @_key "^Chapter")
+  (#not-eq? @_key "Package")
+  (#not-eq? @_key "Language"))
 
 (field
   key: (key) @variable.other.member)
