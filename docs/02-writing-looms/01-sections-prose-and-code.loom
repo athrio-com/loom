@@ -1,0 +1,57 @@
+---
+Part II: Writing looms
+Chapter 1: Sections, prose and code
+Language: Prose
+---
+
+# Sections, prose and code
+
+A loom is a list of sections. Each section explains one piece of the program in prose, then gives its code. This chapter is about how the two take turns.
+
+## Sections
+
+A heading starts a section, at any level: `#`, `##`, `###` and so on. The level is for the reader. It shapes the loom as a document, and Loom tangles every section the same way.
+
+The heading's text is the section's name. It is how an anchor finds the section, as `::[Greeting function]` found the greeting in the quick start.
+
+A section doesn't need code. An introduction, or a note on why the design is the way it is, is a section of prose alone.
+
+## From prose to code
+
+A line with `=>` on its own ends the prose and starts the code. The code runs until the next heading.
+
+A line that starts with `#` and a space is a heading wherever it appears, even in the middle of code. Most languages never start a line that way. Where yours does, as with a comment in a shell script, Supported languages shows the way around it.
+
+## Back to prose
+
+A line with `~` on its own ends the code and returns to prose. So a section can take turns: explain a piece, show it, explain the next piece, show that.
+
+```loom
+---
+Language: TypeScript
+---
+
+# Areas [areas.ts]
+
+A circle's area needs pi.
+
+=>
+
+export const circle = (r: number): number => Math.PI * r * r
+
+~
+
+A square needs only its side.
+
+=>
+
+export const square = (side: number): number => side * side
+```
+
+Loom joins the section's code blocks in the order they appear, with a blank line between each:
+
+```typescript
+export const circle = (r: number): number => Math.PI * r * r
+
+export const square = (side: number): number => side * side
+```

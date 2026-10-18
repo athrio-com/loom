@@ -87,7 +87,7 @@ describe('the documentation shell', () => {
   })
 
   it('reads the breadcrumb out of the corpus, not out of the view', () => {
-    const html = render(at('03-cli/03-loom-weave', ''))
+    const html = render(at('04-cli/03-loom-weave', ''))
     expect(html).toContain('class="crumb" href="/docs">Docs<')
     expect(html).toContain('class="crumb" href="/docs/cli/loom-init">The command line<')
     expect(html).toContain('class="here">loom weave<')
@@ -176,7 +176,7 @@ describe('the documentation shell', () => {
   })
 
   it('quotes Loom marks as text rather than resolving them', () => {
-    const html = render(at('02-the-format/01-syntax', ''))
+    const html = render(at('03-the-format/01-syntax', ''))
     expect(html).toContain('::[a section]')
   })
 

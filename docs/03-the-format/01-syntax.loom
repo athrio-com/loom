@@ -1,5 +1,5 @@
 ---
-Part II: The format
+Part III: The format
 Chapter 1: Syntax
 Language: Prose
 ---
@@ -32,7 +32,7 @@ A chapter opens on a `---` fence. Inside it, a few fields say where the chapter 
 
 ```loom
 ---
-Part II: The format
+Part III: The format
 Chapter 1: Syntax
 Target: src/
 Language: TypeScript

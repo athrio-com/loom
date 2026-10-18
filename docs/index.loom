@@ -14,11 +14,15 @@ The manual is itself a Loom corpus. Every page you read here is a chapter of pro
 2. Loom projects
 3. Loom in your editor
 
-### Part II — The format
+### Part II — Writing looms
+
+1. Sections, prose and code
+
+### Part III — The format
 
 1. Syntax
 
-### Part III — The command line
+### Part IV — The command line
 
 1. loom init
 2. loom tangle
