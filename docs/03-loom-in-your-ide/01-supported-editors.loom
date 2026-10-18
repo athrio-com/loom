@@ -24,14 +24,15 @@ An anchor is a link. Go to its definition and the editor jumps to the section it
 
 Rename a section from its heading, and every anchor that names it follows. The outline lists your sections, so a long loom is one click from any part of it.
 
-## Language servers, brought for you
+## A language server for each language
 
-Loom brings the language server for every language your looms use, the first time it meets one. There is nothing to set up: write a section in a new language and the editor picks it up. The servers live in `.loom/services`, which `loom init` already keeps out of Git.
+Loom checks a section's code with that language's own server, which Loom installs into the project when you turn the language on. Run `$ loom add typescript`, and TypeScript sections are checked from then on. The servers live in `.loom/services`, which `loom init` already keeps out of Git. Loom's own checks, and moving between sections, need no language turned on: they work in any loom, even one that sits in no project.
 
 ## Choose your editor
 
 - [VS Code](/docs/loom-in-your-ide/vs-code), and the editors built on it: Cursor, Windsurf and VSCodium. They install the Loom extension.
 - Zed, and Gram, its fork. They install the Loom extension.
 - IntelliJ IDEA and the other JetBrains IDEs. They install the Loom plugin.
-- Neovim and Helix. Their own language client runs the server, with a few lines of settings.
+- [Helix](/docs/loom-in-your-ide/helix). `loom helix` sets it up.
+- Neovim. Its own language client runs the server, with a few lines of settings.
 - Any other editor with a language client. Point it at `$ loom lsp`.
