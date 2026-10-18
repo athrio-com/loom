@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import { builtinModules, createRequire } from 'node:module'
+import { cpSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -24,8 +25,28 @@ const umd2esm = {
   },
 }
 
+const grammarFiles = [
+  'src/parser.c',
+  'src/scanner.c',
+  'src/tree_sitter',
+  'editors/helix/queries/loom',
+]
+
+const helixGrammar = {
+  name: 'helix-grammar',
+  closeBundle() {
+    grammarFiles.forEach((file) =>
+      cpSync(
+        resolve(here, '..', 'tree-sitter-loom', file),
+        resolve(here, 'dist', 'tree-sitter-loom', file),
+        { recursive: true },
+      ),
+    )
+  },
+}
+
 export default defineConfig({
-  plugins: [umd2esm],
+  plugins: [umd2esm, helixGrammar],
   resolve: {
     conditions: ['node'],
     mainFields: ['main', 'module'],

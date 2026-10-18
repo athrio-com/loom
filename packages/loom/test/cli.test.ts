@@ -295,3 +295,39 @@ describe('loom cli — explicit blocks', () => {
     rmSync(dir, { recursive: true, force: true })
   }, SPAWN_TIMEOUT)
 })
+
+const helixHome = (
+  ...rows: ReadonlyArray<string>
+): { readonly config: string; readonly helix: string; readonly env: Record<string, string> } => {
+  const config = realpathSync(mkdtempSync(join(tmpdir(), 'loom-helix-')))
+  const helix = join(config, 'helix')
+  mkdirSync(helix, { recursive: true })
+  writeFileSync(join(helix, 'languages.toml'), lines(...rows))
+  return { config, helix, env: { XDG_CONFIG_HOME: config, APPDATA: config } }
+}
+
+describe('loom cli — helix', () => {
+  it('builds the grammar, copies the queries, and adds Loom to languages.toml once', () => {
+    const { config, helix, env } = helixHome('[[language]]', 'name = "rust"')
+    expect(loom(['helix'], { env }).status).toBe(0)
+    expect(loom(['helix'], { env }).status).toBe(0)
+    const languages = readFileSync(join(helix, 'languages.toml'), 'utf8')
+    expect(languages).toContain('name = "rust"')
+    expect(languages.match(/name = "loom"/g)?.length).toBe(1)
+    const library = process.platform === 'win32' ? 'loom.dll' : 'loom.so'
+    expect(existsSync(join(helix, 'runtime', 'grammars', library))).toBe(true)
+    expect(existsSync(join(helix, 'runtime', 'queries', 'loom', 'highlights.scm'))).toBe(true)
+    rmSync(config, { recursive: true, force: true })
+  }, SPAWN_TIMEOUT)
+
+  it('leaves a languages.toml that sets Loom up by hand as it was', () => {
+    const { config, helix, env } = helixHome('[[language]]', 'name = "loom"')
+    const { status, stderr } = loom(['helix'], { env })
+    expect(status).toBe(1)
+    expect(stderr).toContain('already sets up Loom')
+    expect(readFileSync(join(helix, 'languages.toml'), 'utf8')).toBe(
+      lines('[[language]]', 'name = "loom"'),
+    )
+    rmSync(config, { recursive: true, force: true })
+  }, SPAWN_TIMEOUT)
+})

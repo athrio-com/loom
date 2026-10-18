@@ -84,9 +84,11 @@ vim.lsp.enable('loom')
 
 Helix learns a language from a `languages.toml` file, its own built-in one or a user's in the configuration folder. A language entry gives the name, the scope, the file extension, the root markers, and the servers that serve it. The injection pattern lets Markdown hand a fence marked `loom` to this grammar.
 
-The server entry names the command. The grammar entry tells Helix where to fetch the grammar and which subfolder to build. Helix pins a grammar to a revision. Until a release commit pins it, the revision follows the main branch.
+A person sets Helix up with `loom helix`. That command writes the same language and server entries into the user's `languages.toml` and compiles the grammar the CLI ships straight into Helix's runtime folder, so the user's file needs no grammar entry. This file is the other form, the one Helix's own project collects for a language it supports, where Helix fetches and builds the grammar itself.
 
-{{ revision = "main" }}
+The server entry names the command. The grammar entry tells Helix where to fetch the grammar and which subfolder to build. Helix pins a grammar to a commit and fetches it again only when the pin changes, so a branch name would hold whatever commit the first fetch found. The revision names the commit that last changed the grammar, and moves when the grammar does.
+
+{{ revision = "96faac31fd10133857837d1053d84b0327422127" }}
 
 =>
 
@@ -108,4 +110,4 @@ source = { git = "https://github.com/athrio-com/loom", rev = "::[revision]", sub
 
 ~
 
-Helix reads a language's queries from `runtime/queries/loom` in its configuration folder, and `hx --grammar fetch` followed by `hx --grammar build` fetches and compiles the grammar. The queries for that folder are the Helix copies in `editors/helix/queries/loom`, which name a frontmatter key's colour the way Helix themes do.
+Helix reads a language's queries from `runtime/queries/loom`, and in this form `hx --grammar fetch` followed by `hx --grammar build` fetches and compiles the grammar. The queries for that folder are the Helix copies in `editors/helix/queries/loom`, which name a frontmatter key's colour the way Helix themes do, and they are the copies `loom helix` installs.
