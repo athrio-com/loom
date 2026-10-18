@@ -407,9 +407,198 @@ const design = (project: string, application: string, port: number) =>
     ),
   )
 
+## Setting up Helix
+
+`loom helix` sets up the Helix editor for looms in one step. Helix reads a language from three places in its configuration folder: the grammar it parses the language with, the queries that colour the parse, and an entry in `languages.toml` that names the file extension and the language server. The command writes all three. It compiles the grammar this CLI ships into `runtime/grammars`, copies the queries beside it, and adds Loom to `languages.toml`.
+
+The grammar travels inside the CLI, so it always matches the Loom that is installed. Running `loom helix` again after an upgrade rebuilds the grammar from the new release, and nothing needs fetching from the network.
+
+The configuration folder is the one Helix itself reads. On macOS and Linux that is `helix` under `$XDG_CONFIG_HOME`, or under `~/.config` when the variable is unset, and on Windows it is `helix` under `%AppData%`. Helix loads a grammar as a shared library, named `loom.so` everywhere but Windows, where it is `loom.dll`.
+
+=>
+
+const helixConfigDir = (): string =>
+  process.platform === 'win32'
+    ? resolvePath(process.env.APPDATA ?? homedir(), 'helix')
+    : resolvePath(process.env.XDG_CONFIG_HOME ?? resolvePath(homedir(), '.config'), 'helix')
+
+const grammarLibrary = process.platform === 'win32' ? 'loom.dll' : 'loom.so'
+
+~
+
+The grammar's sources sit in a `tree-sitter-loom` folder beside the bundle, where the CLI's build copies the generated parser, the scanner, their headers, and the Helix queries. A CLI run from its source, as the tests run it, finds no such folder, so it reads the workspace's own `tree-sitter-loom` package instead, the folder the copy is made from. A folder counts as the grammar when it holds the generated parser. When neither place holds one, the command fails with `HelixGrammarMissing`.
+
+=>
+
+class HelixGrammarMissing extends Data.TaggedError('HelixGrammarMissing')<{}> {}
+
+const grammarIn = (dir: string): Option.Option<string> =>
+  existsSync(resolvePath(dir, 'src', 'parser.c')) ? Option.some(dir) : Option.none()
+
+const shippedGrammar: Effect.Effect<string, HelixGrammarMissing> = pipe(
+  grammarIn(resolvePath(dirname(fileURLToPath(import.meta.url)), 'tree-sitter-loom')),
+  Option.orElse(() =>
+    Option.flatMap(
+      Option.liftThrowable(() =>
+        createRequire(import.meta.url).resolve('tree-sitter-loom/package.json'),
+      )(),
+      (manifest) => grammarIn(dirname(manifest)),
+    ),
+  ),
+  Option.match({
+    onNone: () => Effect.fail(new HelixGrammarMissing()),
+    onSome: (dir) => Effect.succeed(dir),
+  }),
+)
+
+~
+
+The system's C compiler builds the library, the same way Helix builds a grammar it fetches. The compiler is `cc`, or whichever one the `CC` variable names. The parser and the scanner compile together into one shared library, against the headers in the `src` folder beside them.
+
+The compiler writes to a temporary name first, and the finished library then replaces the old one in a single rename. A Helix that is already running keeps the library it loaded, rather than reading one half written. A compiler that is missing, or that stops with an error, fails the command with `HelixCompileFailed`, which names the compiler it tried.
+
+=>
+
+class HelixCompileFailed extends Data.TaggedError('HelixCompileFailed')<{
+  readonly compiler: string
+}> {}
+
+const compileGrammar = (grammar: string, library: string) =>
+  Effect.gen(function* () {
+    const compiler = process.env.CC ?? 'cc'
+    const partial = `${library}.${process.pid}`
+    const source = resolvePath(grammar, 'src')
+    const code = yield* Effect.scoped(
+      Effect.flatMap(
+        ChildProcess.make(
+          compiler,
+          [
+            '-shared',
+            '-fPIC',
+            '-O2',
+            '-I',
+            source,
+            resolvePath(source, 'parser.c'),
+            resolvePath(source, 'scanner.c'),
+            '-o',
+            partial,
+          ],
+          { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' },
+        ),
+        (running) => running.exitCode,
+      ),
+    ).pipe(Effect.catchCause(() => Effect.succeed(-1)))
+    if (code !== 0) return yield* Effect.fail(new HelixCompileFailed({ compiler }))
+    yield* Effect.sync(() => renameSync(partial, library))
+  })
+
+~
+
+Loom's entry in `languages.toml` is a block of two tables. The language table makes every `.loom` file a loom, treats the folder that holds `.loom` as its project, and lets Markdown hand a fence marked `loom` to the grammar. The server table starts `loom lsp`. Helix needs no table for the grammar, because it finds the compiled library in its runtime folder by the language's name.
+
+Two comment lines bound the block, so a later run can find the block and replace it whole, and every other line of the file stays as its owner wrote it. When the file already holds a Loom entry of the owner's own, outside the block, the command changes nothing and fails with `HelixConfigClash`, since two entries for one language would leave Helix to pick between them.
+
+=>
+
+const helixBegin = '# Loom: written by `loom helix`, which replaces this block on every run'
+const helixEnd = '# Loom: end'
+
+const helixLanguages = [
+  helixBegin,
+  '[[language]]',
+  'name = "loom"',
+  'scope = "source.loom"',
+  'file-types = ["loom"]',
+  'roots = [".loom"]',
+  'injection-regex = "^loom$"',
+  'language-servers = ["loom"]',
+  '',
+  '[language-server.loom]',
+  'command = "loom"',
+  'args = ["lsp", "--stdio"]',
+  helixEnd,
+].join('\n')
+
+class HelixConfigClash extends Data.TaggedError('HelixConfigClash')<{
+  readonly file: string
+}> {}
+
+const withLoomLanguages = (
+  file: string,
+  text: string,
+): Effect.Effect<string, HelixConfigClash> => {
+  const start = text.indexOf(helixBegin)
+  const end = text.indexOf(helixEnd)
+  if (start >= 0 && end > start)
+    return Effect.succeed(
+      text.slice(0, start) + helixLanguages + text.slice(end + helixEnd.length),
+    )
+  if (/^\s*name\s*=\s*"loom"/m.test(text))
+    return Effect.fail(new HelixConfigClash({ file }))
+  const kept = text.replace(/\s*$/, '')
+  return Effect.succeed(
+    kept === '' ? `${helixLanguages}\n` : `${kept}\n\n${helixLanguages}\n`,
+  )
+}
+
+~
+
+The command settles `languages.toml` before it touches anything, so a clash leaves the whole configuration as it was. It then builds the library, copies the queries, and writes the file, reporting each step, and ends by naming the command that checks the result. Each failure prints what went wrong and how to put it right, and exits non-zero.
+
+=>
+
+const refuse = (message: string) =>
+  Console.error(message).pipe(
+    Effect.andThen(Effect.sync(() => void (process.exitCode = 1))),
+  )
+
+const helix = Effect.gen(function* () {
+  const config = helixConfigDir()
+  const languagesFile = resolvePath(config, 'languages.toml')
+  const grammar = yield* shippedGrammar
+  const current = yield* Effect.sync(() =>
+    existsSync(languagesFile) ? readFileSync(languagesFile, 'utf8') : '',
+  )
+  const languages = yield* withLoomLanguages(languagesFile, current)
+
+  const library = resolvePath(config, 'runtime', 'grammars', grammarLibrary)
+  yield* Effect.sync(() => mkdirSync(dirname(library), { recursive: true }))
+  yield* compileGrammar(grammar, library)
+  yield* Console.log(`\n   ${teal('✓')} built the grammar into ${library}`)
+
+  const queries = resolvePath(config, 'runtime', 'queries', 'loom')
+  yield* Effect.sync(() =>
+    cpSync(resolvePath(grammar, 'editors', 'helix', 'queries', 'loom'), queries, {
+      recursive: true,
+    }),
+  )
+  yield* Console.log(`   ${teal('✓')} copied the queries into ${queries}`)
+
+  yield* Effect.sync(() => writeFileSync(languagesFile, languages))
+  yield* Console.log(
+    `   ${teal('✓')} added Loom to ${languagesFile}\n` +
+      `   ${dim('check it with `hx --health loom`')}\n`,
+  )
+}).pipe(
+  Effect.catchTags({
+    HelixGrammarMissing: () =>
+      refuse('loom: this installation of Loom carries no grammar for Helix.'),
+    HelixCompileFailed: (error) =>
+      refuse(
+        `loom: could not compile the grammar with \`${error.compiler}\`.\n` +
+          '      Install a C compiler, or name one in the CC variable, then run this again.',
+      ),
+    HelixConfigClash: (error) =>
+      refuse(
+        `loom: ${error.file} already sets up Loom.\n` +
+          '      Remove its Loom entries, then run this again to replace them with the managed block.',
+      ),
+  }),
+)
+
 ## Where the world ends
 
-The command program is nine subcommands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them, recording each in the lock; with `--watch` it stays running and re-tangles as the looms change, so a dev server watching the output reacts to a loom edit. `loom orphans` lists the files across the workspace that the lock records but no loom still produces, one path per line for a shell to pipe into `rm`, and `--prune` removes them and rewrites the lock. `loom weave <path> <out>` projects a corpus into a `WovenCorpus` and writes it as JSON to `out`. `loom toc <path>` rewrites a book's table of contents from the corpus's own frontmatter. `loom init [dir]` scaffolds a `.loom/config.yaml` and an `.mcp.json`, defaulting to the working directory. `loom add <language>` and `loom remove <language>` turn a language's service on and off. `loom status` reports what the workspace has activated and what the store holds. `loom set <name> <value>` writes a workspace variable and re-tangles the corpus, so a version bump is one command. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the weaver, the contents writer, the package config, the configuration, and the Node platform behind the prompts and the filesystem.
+The command program is eleven subcommands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them, recording each in the lock; with `--watch` it stays running and re-tangles as the looms change, so a dev server watching the output reacts to a loom edit. `loom orphans` lists the files across the workspace that the lock records but no loom still produces, one path per line for a shell to pipe into `rm`, and `--prune` removes them and rewrites the lock. `loom weave <path> <out>` projects a corpus into a `WovenCorpus` and writes it as JSON to `out`. `loom toc <path>` rewrites a book's table of contents from the corpus's own frontmatter. `loom init [dir]` scaffolds a `.loom/config.yaml` and an `.mcp.json`, defaulting to the working directory. `loom add <language>` and `loom remove <language>` turn a language's service on and off. `loom status` reports what the workspace has activated and what the store holds. `loom set <name> <value>` writes a workspace variable and re-tangles the corpus, so a version bump is one command. `loom design <name> <address>` stands Loom Design in front of a running application, and `loom helix` sets the Helix editor up for looms. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the weaver, the contents writer, the package config, the configuration, and the Node platform behind the prompts and the filesystem.
 
 One entry point sits outside the command program. `loom lsp --stdio` starts the language server for any editor. It loads Volar only when it is reached, so a plain `tangle` never pays to bundle it, and it runs on its own Bun runtime rather than nesting one inside a command. Volar is CommonJS and calls `require` at runtime for the built-in modules; this bundle is an ES module, where `require` is absent, so before loading the server the `lsp` branch exposes one through `createRequire` on `globalThis` — the shim Volar's bundled code reaches for. That cost lands only on the `lsp` path.
 
@@ -477,6 +666,8 @@ const designCommand = Command.make(
   ({ project, application, port }) => design(project, application, port),
 )
 
+const helixCommand = Command.make('helix', {}, () => helix)
+
 const loom = Command.make('loom').pipe(
   Command.withSubcommands([
     tangleCommand,
@@ -489,6 +680,7 @@ const loom = Command.make('loom').pipe(
     statusCommand,
     setCommand,
     designCommand,
+    helixCommand,
   ]),
 )
 
@@ -514,17 +706,19 @@ if (process.argv[2] === 'lsp') {
 
 ## What the program needs
 
-The program is built on Effect, a functional TypeScript library for composing and running effectful programs. Effect's CLI toolkit parses the command line and drives the interactive prompts, and the Node platform supplies the runtime, the terminal, and filesystem access. `Stream` drives `tangle --watch`, draining the tangler's watch as a sequence of passes, and `Result` carries each pass's outcome. Node's `path` resolves a workspace directory for `init`, and `node:fs` writes the configuration and the `.mcp.json` and creates the corpus folder. Effect's child-process module runs Loom Design's binary for `design`, `Data` types the failure when that binary is absent, and `node:module` supplies the resolver that finds it — the same resolver the `lsp` branch borrows to give Volar a `require`. The language server contributes five services: `LoomTangler`, which walks a `.loom` file, emits the tangled output, and watches it for changes; `LoomWeaver`, which projects a corpus and writes the woven data; `LoomContents`, which regenerates a book's table of contents; `DocumentSource`, which feeds them source text from disk; and `PackageConfig`, which resolves a `.loom`'s package settings. `TangledFile` and `TangleError` ride along from the compiler, typing the files a pass writes and the error a broken corpus raises. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back. From `@athrio/loom-lang-services` come the store operations behind activation: `addService` and `removeService` install and uninstall a language's package, `installedServices` lists what the store holds, `storeDir` locates it, `workspaceRoot` finds the workspace it sits in, and `servicePackage` names a language's package.
+The program is built on Effect, a functional TypeScript library for composing and running effectful programs. Effect's CLI toolkit parses the command line and drives the interactive prompts, and the Node platform supplies the runtime, the terminal, and filesystem access. `Stream` drives `tangle --watch`, draining the tangler's watch as a sequence of passes, and `Result` carries each pass's outcome. Node's `path` resolves a workspace directory for `init`, and `node:fs` writes the configuration and the `.mcp.json`, creates the corpus folder, and copies and renames Helix's files. Effect's child-process module runs Loom Design's binary for `design` and the C compiler for `helix`, `Data` types their failures, and `node:module` supplies the resolver that finds Design's binary and the workspace's grammar — the same resolver the `lsp` branch borrows to give Volar a `require`. `pipe` threads the grammar's search through `Option`, `node:os` supplies the home folder that Helix's configuration lives under, and `node:url` turns the bundle's own address into the folder its grammar sits in. The language server contributes five services: `LoomTangler`, which walks a `.loom` file, emits the tangled output, and watches it for changes; `LoomWeaver`, which projects a corpus and writes the woven data; `LoomContents`, which regenerates a book's table of contents; `DocumentSource`, which feeds them source text from disk; and `PackageConfig`, which resolves a `.loom`'s package settings. `TangledFile` and `TangleError` ride along from the compiler, typing the files a pass writes and the error a broken corpus raises. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back. From `@athrio/loom-lang-services` come the store operations behind activation: `addService` and `removeService` install and uninstall a language's package, `installedServices` lists what the store holds, `storeDir` locates it, `workspaceRoot` finds the workspace it sits in, and `servicePackage` names a language's package.
 
 =>
 
-import { Cause, Console, Data, Effect, Option, Result, Stream } from 'effect'
+import { Cause, Console, Data, Effect, Option, Result, Stream, pipe } from 'effect'
 import { Argument, Command, Flag, Prompt } from 'effect/cli'
 import { ChildProcess } from 'effect/process'
 import { NodeRuntime, NodeServices } from '@effect/platform-node'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { homedir } from 'node:os'
 import { dirname, resolve as resolvePath } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   DocumentSource,
   type TangledFile,
@@ -569,5 +763,7 @@ import {
 ::[Setting a workspace variable]
 
 ::[Standing Design in front of an application]
+
+::[Setting up Helix]
 
 ::[Where the world ends]

@@ -10,7 +10,7 @@ The `@athrio/loom` package ships to npm as a single self-contained file. Vite bu
 
 ## The manifest {Tangle}[package.json]
 
-The `files` field restricts the published package to the `dist` directory, and the `bin` field maps the `loom` command to the bundle. The bundle inlines every dependency, so all dependencies belong in the `devDependencies` field. Loom Design is not among them. The two products carry different licences. The Quadrivium Academy foundation licenses this package under MIT, and Athrio Media OÜ licenses Design under terms of its own, so `loom design` runs Design's binary and this package neither imports nor builds it.
+The `files` field restricts the published package to the `dist` directory, and the `bin` field maps the `loom` command to the bundle. The bundle inlines every dependency, so all dependencies belong in the `devDependencies` field. That holds for `tree-sitter-loom` as well: the build copies the grammar's sources into `dist` for `loom helix` to compile, so the package itself never ships. Loom Design is not among them. The two products carry different licences. The Quadrivium Academy foundation licenses this package under MIT, and Athrio Media OÜ licenses Design under terms of its own, so `loom design` runs Design's binary and this package neither imports nor builds it.
 
 The `typecheck` script reads the source without writing anything — `--noEmit`, because the shared configuration sets an output directory that a check has no use for, and compiled copies of the tests left there are found twice by the test runner. It is the script this package went without, and the cost showed. Vite strips types rather than checking them, so `main.ts` shipped for months with an identifier that resolved to nothing — a failure message reaching for a variable that had gone out of scope, which would have thrown a `ReferenceError` on the one path it was written for. A type checker reads the whole file whether or not a path runs.
 
@@ -57,6 +57,7 @@ The `build` script bundles the tangled source files committed to the repository.
     "@athrio/loom-lang-services": "workspace:*",
     "@effect/platform-node": "::[effect]",
     "effect": "::[effect]",
+    "tree-sitter-loom": "workspace:*",
     "vite": "^8.0.12"
   }
 }

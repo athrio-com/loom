@@ -1,10 +1,12 @@
-import { Cause, Console, Data, Effect, Option, Result, Stream } from 'effect'
+import { Cause, Console, Data, Effect, Option, Result, Stream, pipe } from 'effect'
 import { Argument, Command, Flag, Prompt } from 'effect/cli'
 import { ChildProcess } from 'effect/process'
 import { NodeRuntime, NodeServices } from '@effect/platform-node'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { homedir } from 'node:os'
 import { dirname, resolve as resolvePath } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   DocumentSource,
   type TangledFile,
@@ -332,6 +334,157 @@ const design = (project: string, application: string, port: number) =>
     ),
   )
 
+const helixConfigDir = (): string =>
+  process.platform === 'win32'
+    ? resolvePath(process.env.APPDATA ?? homedir(), 'helix')
+    : resolvePath(process.env.XDG_CONFIG_HOME ?? resolvePath(homedir(), '.config'), 'helix')
+
+const grammarLibrary = process.platform === 'win32' ? 'loom.dll' : 'loom.so'
+
+class HelixGrammarMissing extends Data.TaggedError('HelixGrammarMissing')<{}> {}
+
+const grammarIn = (dir: string): Option.Option<string> =>
+  existsSync(resolvePath(dir, 'src', 'parser.c')) ? Option.some(dir) : Option.none()
+
+const shippedGrammar: Effect.Effect<string, HelixGrammarMissing> = pipe(
+  grammarIn(resolvePath(dirname(fileURLToPath(import.meta.url)), 'tree-sitter-loom')),
+  Option.orElse(() =>
+    Option.flatMap(
+      Option.liftThrowable(() =>
+        createRequire(import.meta.url).resolve('tree-sitter-loom/package.json'),
+      )(),
+      (manifest) => grammarIn(dirname(manifest)),
+    ),
+  ),
+  Option.match({
+    onNone: () => Effect.fail(new HelixGrammarMissing()),
+    onSome: (dir) => Effect.succeed(dir),
+  }),
+)
+
+class HelixCompileFailed extends Data.TaggedError('HelixCompileFailed')<{
+  readonly compiler: string
+}> {}
+
+const compileGrammar = (grammar: string, library: string) =>
+  Effect.gen(function* () {
+    const compiler = process.env.CC ?? 'cc'
+    const partial = `${library}.${process.pid}`
+    const source = resolvePath(grammar, 'src')
+    const code = yield* Effect.scoped(
+      Effect.flatMap(
+        ChildProcess.make(
+          compiler,
+          [
+            '-shared',
+            '-fPIC',
+            '-O2',
+            '-I',
+            source,
+            resolvePath(source, 'parser.c'),
+            resolvePath(source, 'scanner.c'),
+            '-o',
+            partial,
+          ],
+          { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' },
+        ),
+        (running) => running.exitCode,
+      ),
+    ).pipe(Effect.catchCause(() => Effect.succeed(-1)))
+    if (code !== 0) return yield* Effect.fail(new HelixCompileFailed({ compiler }))
+    yield* Effect.sync(() => renameSync(partial, library))
+  })
+
+const helixBegin = '# Loom: written by `loom helix`, which replaces this block on every run'
+const helixEnd = '# Loom: end'
+
+const helixLanguages = [
+  helixBegin,
+  '[[language]]',
+  'name = "loom"',
+  'scope = "source.loom"',
+  'file-types = ["loom"]',
+  'roots = [".loom"]',
+  'injection-regex = "^loom$"',
+  'language-servers = ["loom"]',
+  '',
+  '[language-server.loom]',
+  'command = "loom"',
+  'args = ["lsp", "--stdio"]',
+  helixEnd,
+].join('\n')
+
+class HelixConfigClash extends Data.TaggedError('HelixConfigClash')<{
+  readonly file: string
+}> {}
+
+const withLoomLanguages = (
+  file: string,
+  text: string,
+): Effect.Effect<string, HelixConfigClash> => {
+  const start = text.indexOf(helixBegin)
+  const end = text.indexOf(helixEnd)
+  if (start >= 0 && end > start)
+    return Effect.succeed(
+      text.slice(0, start) + helixLanguages + text.slice(end + helixEnd.length),
+    )
+  if (/^\s*name\s*=\s*"loom"/m.test(text))
+    return Effect.fail(new HelixConfigClash({ file }))
+  const kept = text.replace(/\s*$/, '')
+  return Effect.succeed(
+    kept === '' ? `${helixLanguages}\n` : `${kept}\n\n${helixLanguages}\n`,
+  )
+}
+
+const refuse = (message: string) =>
+  Console.error(message).pipe(
+    Effect.andThen(Effect.sync(() => void (process.exitCode = 1))),
+  )
+
+const helix = Effect.gen(function* () {
+  const config = helixConfigDir()
+  const languagesFile = resolvePath(config, 'languages.toml')
+  const grammar = yield* shippedGrammar
+  const current = yield* Effect.sync(() =>
+    existsSync(languagesFile) ? readFileSync(languagesFile, 'utf8') : '',
+  )
+  const languages = yield* withLoomLanguages(languagesFile, current)
+
+  const library = resolvePath(config, 'runtime', 'grammars', grammarLibrary)
+  yield* Effect.sync(() => mkdirSync(dirname(library), { recursive: true }))
+  yield* compileGrammar(grammar, library)
+  yield* Console.log(`\n   ${teal('✓')} built the grammar into ${library}`)
+
+  const queries = resolvePath(config, 'runtime', 'queries', 'loom')
+  yield* Effect.sync(() =>
+    cpSync(resolvePath(grammar, 'editors', 'helix', 'queries', 'loom'), queries, {
+      recursive: true,
+    }),
+  )
+  yield* Console.log(`   ${teal('✓')} copied the queries into ${queries}`)
+
+  yield* Effect.sync(() => writeFileSync(languagesFile, languages))
+  yield* Console.log(
+    `   ${teal('✓')} added Loom to ${languagesFile}\n` +
+      `   ${dim('check it with `hx --health loom`')}\n`,
+  )
+}).pipe(
+  Effect.catchTags({
+    HelixGrammarMissing: () =>
+      refuse('loom: this installation of Loom carries no grammar for Helix.'),
+    HelixCompileFailed: (error) =>
+      refuse(
+        `loom: could not compile the grammar with \`${error.compiler}\`.\n` +
+          '      Install a C compiler, or name one in the CC variable, then run this again.',
+      ),
+    HelixConfigClash: (error) =>
+      refuse(
+        `loom: ${error.file} already sets up Loom.\n` +
+          '      Remove its Loom entries, then run this again to replace them with the managed block.',
+      ),
+  }),
+)
+
 const tangleCommand = Command.make(
   'tangle',
   { path: Argument.String('path'), watch: Flag.Boolean('watch').pipe(Flag.withDefault(false)) },
@@ -392,6 +545,8 @@ const designCommand = Command.make(
   ({ project, application, port }) => design(project, application, port),
 )
 
+const helixCommand = Command.make('helix', {}, () => helix)
+
 const loom = Command.make('loom').pipe(
   Command.withSubcommands([
     tangleCommand,
@@ -404,6 +559,7 @@ const loom = Command.make('loom').pipe(
     statusCommand,
     setCommand,
     designCommand,
+    helixCommand,
   ]),
 )
 

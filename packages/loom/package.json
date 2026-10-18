@@ -34,6 +34,7 @@
     "@athrio/loom-lang-services": "workspace:*",
     "@effect/platform-node": "4.0.5",
     "effect": "4.0.5",
+    "tree-sitter-loom": "workspace:*",
     "vite": "^8.0.12"
   }
 }

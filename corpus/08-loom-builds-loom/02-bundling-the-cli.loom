@@ -24,6 +24,7 @@ The language server's `exports` field points to TypeScript source files rather t
 
 import { defineConfig } from 'vite'
 import { builtinModules, createRequire } from 'node:module'
+import { cpSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -50,12 +51,38 @@ const umd2esm = {
 
 ~
 
+`loom helix` compiles Loom's tree-sitter grammar on the user's machine, so the published package carries the grammar's sources. `helixGrammar` copies them into `dist/tree-sitter-loom` once the bundle is written: the generated parser, the scanner, the headers they include, and the queries Helix colours with. Each keeps the path it has in the `tree-sitter-loom` package, so the command finds the same files whether it reads the copy or, run from source, the package itself.
+
+=>
+
+const grammarFiles = [
+  'src/parser.c',
+  'src/scanner.c',
+  'src/tree_sitter',
+  'editors/helix/queries/loom',
+]
+
+const helixGrammar = {
+  name: 'helix-grammar',
+  closeBundle() {
+    grammarFiles.forEach((file) =>
+      cpSync(
+        resolve(here, '..', 'tree-sitter-loom', file),
+        resolve(here, 'dist', 'tree-sitter-loom', file),
+        { recursive: true },
+      ),
+    )
+  },
+}
+
+~
+
 Vite's library mode builds a single entry point to `dist/main.js`. The bundle targets Node 20, so Node runs it directly and Bun, being Node-compatible, runs the same bundle unchanged. The CLI package uses the ESM format — ECMAScript modules — so Vite emits an ESM bundle with a `#!/usr/bin/env node` shebang, making it directly executable. The VS Code extension runs in the editor's CommonJS host, so its Vite config emits that format instead.
 
 =>
 
 export default defineConfig({
-  plugins: [umd2esm],
+  plugins: [umd2esm, helixGrammar],
   resolve: {
     conditions: ['node'],
     mainFields: ['main', 'module'],
