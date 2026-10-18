@@ -32,7 +32,7 @@ import { LoomWeftSchema, type LoomWeft } from '@athrio/loom-ast/Weft'
 // don't ripple through.
 // =============================================================================
 
-const fixturePath = resolve(__dirname, 'fixtures/Fun.loom')
+const fixturePath = resolve(__dirname, 'fixtures/Fun.fixture.loom')
 const sampleLoom = readFileSync(fixturePath, 'utf8')
 
 // The heading's title token source — the human-facing title, used to

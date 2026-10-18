@@ -22,8 +22,8 @@ import { serviceStore } from './store'
 // loom.json is needed.
 
 const dir = resolve(__dirname, 'fixtures/xfile')
-const importer = resolve(dir, 'importer.loom')
-const caller = resolve(dir, 'caller.loom')
+const importer = resolve(dir, 'importer.fixture.loom')
+const caller = resolve(dir, 'caller.fixture.loom')
 
 // Building a TypeScript checker and running the first check loads the standard
 // library cold; under full-suite load that runs past the 5s default, so give these

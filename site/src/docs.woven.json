@@ -201,7 +201,7 @@
             "chapter": "01-getting-started/02-loom-projects",
             "section": "initialise-project"
           },
-          "markdown": "To set up a project, run the `$ loom init` command. Loom asks which language your sections use by default. It's TypeScript unless you name another, so press Enter.\n\nYour answer goes into `.loom/config.yaml`, the project's settings:\n\n```yaml\ncorpus: corpus\nprimary: typescript\n```\n\n`primary` is the default language, and `corpus` names the folder your looms live in. Commit the file. Beside it, `.loom/.gitignore` keeps out the language servers Loom downloads. The folder that holds `.loom` is now a Loom project.\n\nRunning `loom init` again changes nothing, and it never touches the looms you already have."
+          "markdown": "To set up a project, run the `$ loom init` command. Loom asks which language your sections use by default. It's TypeScript unless you name another, so press Enter.\n\nYour answer goes into `.loom/config.yaml`, the project's settings:\n\n```yaml\ncorpus: corpus\nprimary: typescript\nignore: []\n```\n\n`primary` is the default language, and `corpus` names the folder your looms live in. Commit the file. Beside it, `.loom/.gitignore` keeps out the language servers Loom downloads. The folder that holds `.loom` is now a Loom project.\n\n`ignore` lists looms that aren't part of the project, written like lines of a `.gitignore`. It starts empty because Loom already skips whatever Git ignores, and test fixtures named `*.fixture.loom`. Add `drafts/`, say, and Loom skips that folder when it tangles the project or looks for orphans.\n\nRunning `loom init` again changes nothing, and it never touches the looms you already have."
         },
         {
           "type": "heading",
@@ -776,7 +776,7 @@
             "chapter": "05-cli/01-loom-init",
             "section": "what-it-writes"
           },
-          "markdown": "| file | what it holds |\n|---|---|\n| `.loom/config.yaml` | the primary language, the activated languages, and `corpus`, the directory Loom reads |\n| `.loom/.gitignore` | ignores `services/`, so downloaded language services stay out of version control |\n| `.mcp.json` | lets an agent reach the workspace over the Model Context Protocol |\n\nIt does not create the corpus directory. The configuration names it; you make it."
+          "markdown": "| file | what it holds |\n|---|---|\n| `.loom/config.yaml` | the primary language, the activated languages, `corpus`, the directory Loom reads, and an empty `ignore` list for looms the project leaves out |\n| `.loom/.gitignore` | ignores `services/`, so downloaded language services stay out of version control |\n| `.mcp.json` | lets an agent reach the workspace over the Model Context Protocol |\n\nIt does not create the corpus directory. The configuration names it; you make it."
         },
         {
           "type": "heading",

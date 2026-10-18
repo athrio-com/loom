@@ -10,7 +10,8 @@ import { readFileSync } from 'node:fs'
 import type * as ts from 'typescript'
 import { URI } from 'vscode-uri'
 import { ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
-import { LoomCompiler, loomsUnder, stringSnapshot } from './LoomCompiler'
+import { LoomCompiler, stringSnapshot } from './LoomCompiler'
+import { loomsIn } from './LoomProject'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
   Composition,
@@ -39,7 +40,7 @@ const editorSource = (
           : readFileSync(path, 'utf8'),
       catch: (cause) => new ReadError({ path, cause }),
     }),
-  list: Option.some((dir) => Effect.sync(() => loomsUnder(dir))),
+  list: Option.some((dir, project) => Effect.sync(() => loomsIn(dir, project))),
 })
 
 const associate = (

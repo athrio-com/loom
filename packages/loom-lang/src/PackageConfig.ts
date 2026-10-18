@@ -10,6 +10,7 @@ export interface BuildSettings {
   readonly packageRoot: string | undefined
   readonly workspaceRoot: string | undefined
   readonly corpusDir: string | undefined
+  readonly ignore?: ReadonlyArray<string>
 }
 
 const anchorDelimsOf = (
@@ -34,6 +35,7 @@ export class PackageConfig extends Context.Service<PackageConfig>()(
               packageRoot: c.packageRoot,
               workspaceRoot: c.workspaceRoot,
               corpusDir: c.corpusDir,
+              ignore: c.ignore,
             })),
           ),
       }

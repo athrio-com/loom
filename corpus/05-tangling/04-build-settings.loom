@@ -10,7 +10,7 @@ Language: TypeScript
 
 ## What the compiler reads
 
-`BuildSettings` is the answer the compiler gets for one file. It holds a full anchor delimiter pair, the file's primary language, the workspace variables a warp interpolates, the root the file's package tangles under, the workspace root a book's higher-order sink resolves its directories against, and the corpus directory the compiler enumerates to discover the file's sibling looms.
+`BuildSettings` is the answer the compiler gets for one file. It holds a full anchor delimiter pair, the file's primary language, the workspace variables a warp interpolates, the root the file's package tangles under, the workspace root a book's higher-order sink resolves its directories against, the corpus directory the compiler enumerates to discover the file's sibling looms, and the patterns of files the project ignores.
 
 The anchor delimiters are always a complete pair. A configuration may set one side, both, or neither, so `anchorDelimsOf` fills each missing side from `defaultAnchorDelims`, the built-in `::[` and `]`. A package overrides a delimiter only where the default would collide with its own product language.
 
@@ -19,6 +19,8 @@ The primary language is the language a specifier-less section inherits. It comes
 The variables are the workspace's named strings, the values a warp interpolates with `${name}`. They come from the configuration and are empty when it declares none, so a document that names no variable composes untouched.
 
 The package root is the absolute directory the file's package tangles into — the directory holding the file's `corpus/`. `@athrio/loom-config` derives it from that convention, and it is absent when the file sits in no corpus directory.
+
+The ignore patterns are the ones the configuration lists under `ignore`, absent when it lists none. Together with the workspace root they make up the file's project, which decides the looms the compiler gathers from the corpus directory.
 
 =>
 
@@ -29,6 +31,7 @@ export interface BuildSettings {
   readonly packageRoot: string | undefined
   readonly workspaceRoot: string | undefined
   readonly corpusDir: string | undefined
+  readonly ignore?: ReadonlyArray<string>
 }
 
 const anchorDelimsOf = (
@@ -59,6 +62,7 @@ export class PackageConfig extends Context.Service<PackageConfig>()(
               packageRoot: c.packageRoot,
               workspaceRoot: c.workspaceRoot,
               corpusDir: c.corpusDir,
+              ignore: c.ignore,
             })),
           ),
       }

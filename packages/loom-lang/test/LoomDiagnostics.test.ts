@@ -78,7 +78,7 @@ const checkerFor = (fixture: string) => {
 
 describe('Loom diagnostics — the editor surfaces Loom health', () => {
   it('an unresolved anchor reports on the .loom', async () => {
-    const fixture = resolve(__dirname, 'fixtures/health-anchor.loom')
+    const fixture = resolve(__dirname, 'fixtures/health-anchor.fixture.loom')
     const checker = await checkerFor(fixture)
     const diagnostics = await checker.check(fixture)
     const loom = diagnostics.filter((d) => d.source === 'loom')
@@ -91,7 +91,7 @@ describe('Loom diagnostics — the editor surfaces Loom health', () => {
   }, SLOW)
 
   it('an unclosed anchor reports on its own line, not the next', async () => {
-    const fixture = resolve(__dirname, 'fixtures/unclosed-anchor.loom')
+    const fixture = resolve(__dirname, 'fixtures/unclosed-anchor.fixture.loom')
     const checker = await checkerFor(fixture)
     const diagnostics = await checker.check(fixture)
     const loom = diagnostics.filter((d) => d.source === 'loom')
@@ -116,14 +116,14 @@ describe('Loom diagnostics — the editor surfaces Loom health', () => {
   }, SLOW)
 
   it('a clean file draws no Loom diagnostic', async () => {
-    const fixture = resolve(__dirname, 'fixtures/clean-health.loom')
+    const fixture = resolve(__dirname, 'fixtures/clean-health.fixture.loom')
     const checker = await checkerFor(fixture)
     const diagnostics = await checker.check(fixture)
     expect(diagnostics.some((d) => d.source === 'loom')).toBe(false)
   }, SLOW)
 
   it('an empty anchor reports one fault and leaves the code under it type-checked', async () => {
-    const fixture = resolve(__dirname, 'fixtures/empty-anchor.loom')
+    const fixture = resolve(__dirname, 'fixtures/empty-anchor.fixture.loom')
     const checker = await checkerFor(fixture)
     const diagnostics = await checker.check(fixture)
     const loom = diagnostics.filter((d) => d.source === 'loom')
@@ -153,7 +153,7 @@ describe('Loom diagnostics — the editor surfaces Loom health', () => {
   }, SLOW)
 
   it('an unresolved anchor reports the miss but still type-checks the code under it', async () => {
-    const fixture = resolve(__dirname, 'fixtures/unresolved-keeps-ts.loom')
+    const fixture = resolve(__dirname, 'fixtures/unresolved-keeps-ts.fixture.loom')
     const checker = await checkerFor(fixture)
     const diagnostics = await checker.check(fixture)
     console.log(
@@ -181,7 +181,7 @@ describe('Loom diagnostics — the editor surfaces Loom health', () => {
   }, SLOW)
 
   it('a value warp templates its value as text, so `::[kw]` becomes `const`', async () => {
-    const fixture = resolve(__dirname, 'fixtures/value-warp.loom')
+    const fixture = resolve(__dirname, 'fixtures/value-warp.fixture.loom')
     const checker = await checkerFor(fixture)
     const diagnostics = await checker.check(fixture)
     console.log(
@@ -208,7 +208,7 @@ describe('Loom diagnostics — the editor surfaces Loom health', () => {
   }, SLOW)
 
   it('a value warp is type-checked where it lands — a number in a string slot', async () => {
-    const fixture = resolve(__dirname, 'fixtures/value-typed.loom')
+    const fixture = resolve(__dirname, 'fixtures/value-typed.fixture.loom')
     const checker = await checkerFor(fixture)
     const diagnostics = await checker.check(fixture)
     console.log(

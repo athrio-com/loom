@@ -41,6 +41,8 @@ const VariablesSchema = Schema.Record(
 
 A project has one configuration, kept in `.loom/config.yaml`. It names the languages the project activates — one set for the whole project, because the editor runs a single language server over it — and sets the defaults every section inherits: the primary language a specifier-less section falls back to, the anchor delimiters, the per-language settings, the variables a warp interpolates, and the name of the corpus directory looms sit in. A package declares no configuration of its own; a book composes the package layout literately, in its higher-order sinks, rather than in the configuration.
 
+The configuration also lists, under `ignore`, the looms the project leaves out. Each entry is a pattern written like a line of a `.gitignore`. A loom that matches one is not part of the project, and no walk over the workspace gathers it. The patterns add to what Loom leaves out already: whatever Git ignores, and the fixtures named `*.fixture.loom`. The chapter on the looms in a project gives the whole rule.
+
 `WorkspaceManifestSchema` validates that file. Every field is optional, because a project that has activated no language yet still has a configuration, an empty one.
 
 =>
@@ -54,13 +56,14 @@ export const WorkspaceManifestSchema = Schema.Struct({
   anchor: Schema.optional(AnchorSchema),
   settings: Schema.optional(SettingsSchema),
   variables: Schema.optional(VariablesSchema),
+  ignore: Schema.optional(Schema.Array(Schema.String)),
 })
 
 export type WorkspaceManifest = typeof WorkspaceManifestSchema.Type
 
 ## What a reader receives
 
-`ResolvedConfig` is the resolved shape every reader works with: the workspace defaults that apply to one file. Its `anchor`, `primary`, `languages`, `settings`, and `variables` come straight from the manifest. Three fields complete it. The `services` map names, for each activated language, the package that serves it — the one the language declared, or the conventional `@athrio/loom-service-<id>` when it declared none. The `packageRoot` is the absolute path the resolved file's package tangles under — the directory above the corpus folder its loom sits in — or `undefined` when the file sits in no corpus folder. The `workspaceRoot` is the absolute path of the workspace itself, the directory a book's higher-order sink resolves its directories against; it is `undefined` only when the file belongs to no workspace.
+`ResolvedConfig` is the resolved shape every reader works with: the workspace defaults that apply to one file. Its `anchor`, `primary`, `languages`, `settings`, `variables`, and `ignore` come straight from the manifest. Three fields complete it. The `services` map names, for each activated language, the package that serves it — the one the language declared, or the conventional `@athrio/loom-service-<id>` when it declared none. The `packageRoot` is the absolute path the resolved file's package tangles under — the directory above the corpus folder its loom sits in — or `undefined` when the file sits in no corpus folder. The `workspaceRoot` is the absolute path of the workspace itself, the directory a book's higher-order sink resolves its directories against; it is `undefined` only when the file belongs to no workspace.
 
 A file that resolves to nothing — no workspace, no configuration — receives the empty configuration: no anchor, no primary, no languages, no services, no root.
 
@@ -72,6 +75,7 @@ export interface ResolvedConfig {
   readonly languages: ReadonlyArray<string>
   readonly settings: Record<string, Record<string, unknown>>
   readonly variables: Record<string, string>
+  readonly ignore?: ReadonlyArray<string>
   readonly services: Record<string, string>
   readonly packageRoot: string | undefined
   readonly workspaceRoot: string | undefined
@@ -153,7 +157,7 @@ const variablesOf = (
 
 ## Resolving a file's configuration
 
-Resolving a file gives it the workspace defaults and the root its sinks tangle under. The anchor, primary, and settings are the workspace's; the languages are its activated set; the services resolve from those languages.
+Resolving a file gives it the workspace defaults and the root its sinks tangle under. The anchor, primary, settings, and ignore patterns are the workspace's; the languages are its activated set; the services resolve from those languages.
 
 `containerRoot` derives the package root by convention. It walks up from the file to the nearest directory named like the corpus — `corpus` by default — and takes the directory above it, so a loom in `pkg/corpus/` tangles into `pkg/`. A file inside no corpus directory carries no root and tangles beside itself.
 
@@ -189,7 +193,7 @@ const corpusDirOf = (
 const resolveFromManifest = (
   manifest: WorkspaceManifest,
   workspace: string,
-  fromPath: string,
+  from: string,
 ): ResolvedConfig => {
   const container = manifest.corpus ?? defaultCorpus
   return {
@@ -198,34 +202,39 @@ const resolveFromManifest = (
     languages: Object.keys(manifest.languages ?? {}),
     settings: manifest.settings ?? {},
     variables: variablesOf(manifest.variables),
+    ignore: manifest.ignore,
     services: servicesOf(manifest.languages),
-    packageRoot: containerRoot(dirname(fromPath), container, workspace),
+    packageRoot: containerRoot(from, container, workspace),
     workspaceRoot: workspace,
-    corpusDir: corpusDirOf(dirname(fromPath), container, workspace),
+    corpusDir: corpusDirOf(from, container, workspace),
   }
 }
 
 ## The service
 
-`LoomConfig` is the service the rest of Loom calls. Its `resolve` takes any path inside a project — a `.loom` file, usually — and returns the configuration that applies to it: it finds the workspace, reads the compiled manifest, and resolves against it. A path with no workspace, no manifest, or no name at all resolves to the empty configuration.
+`LoomConfig` is the service the rest of Loom calls. Its `resolve` takes any path inside a project and returns the configuration that applies to it. The path is usually a `.loom` file, and then `resolve` starts from the folder the file sits in. The path can also be a folder, as when the tangler walks one, and then `resolve` starts from that folder itself. So a workspace's own root resolves to that workspace rather than to whatever lies above it. `isFolder` tells the two apart, and a path that names nothing on disk, such as an in-memory document's, counts as a file. From its starting folder `resolve` finds the workspace, reads the compiled manifest, and resolves against it. A path with no workspace, no manifest, or no name at all resolves to the empty configuration.
 
 Its `manifest` reads a workspace's whole compiled manifest, found by walking up from a directory — the read the activation commands and the editor's service loader share. Its `materialize` writes a manifest back to the workspace's `.loom/config.yaml`, creating the store directory if it is absent.
 
 =>
+
+const isFolder = (path: string): boolean =>
+  statSync(path, { throwIfNoEntry: false })?.isDirectory() ?? false
 
 export class LoomConfig extends Context.Service<LoomConfig>()('LoomConfig', {
   make: Effect.succeed({
     resolve: (fromPath: string): Effect.Effect<ResolvedConfig> =>
       Effect.sync(() => {
         if (fromPath === '') return empty
-        const workspace = findWorkspace(dirname(fromPath))
+        const from = isFolder(fromPath) ? fromPath : dirname(fromPath)
+        const workspace = findWorkspace(from)
         if (workspace === undefined) return empty
         const manifest = readManifest(
           resolvePath(workspace, storeDirName, manifestName),
         )
         return manifest === undefined
           ? empty
-          : resolveFromManifest(manifest, workspace, fromPath)
+          : resolveFromManifest(manifest, workspace, from)
       }),
 
     manifest: (fromDir: string): Effect.Effect<WorkspaceManifest | undefined> =>
@@ -249,7 +258,7 @@ export class LoomConfig extends Context.Service<LoomConfig>()('LoomConfig', {
 
 ## What the module draws on
 
-Effect supplies `Schema` for every shape, `Option` for a decode that may yield nothing, the `Effect` type its methods return, and `Context` and `Layer` for the service and its layer. The `yaml` package parses and serialises the manifest. Bun's synchronous filesystem reads, writes, and creates directories; its path module resolves paths, walks to parent directories, and names the platform separator.
+Effect supplies `Schema` for every shape, `Option` for a decode that may yield nothing, the `Effect` type its methods return, and `Context` and `Layer` for the service and its layer. The `yaml` package parses and serialises the manifest. Bun's synchronous filesystem reads, writes, and creates directories, and tells a folder from a file; its path module resolves paths, walks to parent directories, and names the platform separator.
 
 =>
 
@@ -259,6 +268,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  statSync,
   writeFileSync,
 } from 'node:fs'
 import { basename, dirname, resolve as resolvePath } from 'node:path'

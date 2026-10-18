@@ -2,7 +2,7 @@
 Language: Scala
 ---
 
-A companion document. `Fun.loom` imports `Negate` from here, across files.
+A companion document. `Fun.fixture.loom` imports `Negate` from here, across files.
 
 # Negate
 

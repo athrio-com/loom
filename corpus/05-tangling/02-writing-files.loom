@@ -10,18 +10,22 @@ Language: TypeScript
 
 ## The tangler service
 
-`LoomTangler` holds the compiler, the filesystem, and the package configuration. `writeFile` first checks whether the target already holds the tangled content, and only touches the file when it does not. A rerun that changes nothing then leaves the file's modified time alone, so a bundler's dev server watching it sees a real change only when the tangled content actually changed — not on every tangle regardless. When the content does differ, `writeFile` creates the target's directory and writes it, returning the file either way. `tangleFile` asks the compiler to resolve one file's sinks — which fails with a `TangleError` if any module in the corpus carries an error — and writes each. `loomsUnder` lists every `.loom` source file beneath a directory, skipping the generated stores — `node_modules`, `dist`, `.git`, and the `.loom` activation store — so it never reads one as source. `loomsOf` resolves a path to the looms it covers: the looms under a directory, or the single file itself.
+`LoomTangler` holds the compiler, the filesystem, and the package configuration. `writeFile` first checks whether the target already holds the tangled content, and only touches the file when it does not. A rerun that changes nothing then leaves the file's modified time alone, so a bundler's dev server watching it sees a real change only when the tangled content actually changed — not on every tangle regardless. When the content does differ, `writeFile` creates the target's directory and writes it, returning the file either way. `tangleFile` asks the compiler to resolve one file's sinks — which fails with a `TangleError` if any module in the corpus carries an error — and writes each.
+
+A path names either a folder or one loom. `projectOf` finds the project a path belongs to, through the package configuration. `loomsOf` resolves a path to the looms it covers. For a folder, those are the looms the project holds beneath it, listed by `loomsIn` under the same rule the compiler and the editor follow. For a file, it is the file itself, even a loom the project leaves out, because a person who names a loom means that loom.
 
 `tangle` tangles each loom a path covers and records the result. It writes every sink, then folds the paths it produced into the lock at the workspace root, so a file enters the lock the first time it is tangled and every file is written once.
 
+The lock records only the project's own files, and `recordsFor` decides which tangles produce them. A tangle of a folder does, since the walk lists only the looms the project holds. So does a tangle of a loom the project holds, or of a loom that belongs to no project, which no rule leaves out. A loom the project leaves out still tangles when it is named, but its files stay out of the lock, and the lock stays as it was. `orphans` then never lists those files, and a prune never deletes them.
+
 The lock lives on disk beside the configuration. `readLock` reads `loom.lock` and decodes it, answering with the empty lock when the file is absent or malformed, so a first tangle starts from nothing rather than failing. `writeLock` writes it back as formatted JSON. `workspaceOf` finds the workspace root a path belongs to — the directory whose `.loom` holds the lock — by walking up from a file's own directory, or from a directory itself.
 
-`orphans` names the files that lost their host and touches no disk. The lock covers the whole workspace, so orphan-finding does too: from a starting directory it finds the workspace root, tangles every loom beneath it, reads the lock, and returns the recorded paths the produced set no longer holds. A narrower scope would mislead — a file produced elsewhere in the workspace would look lost, and a pipe into `rm` would delete it. `prune` goes one step further: it removes each orphan and rewrites the lock to exactly what the build produces. Both resolve the produced set through the compiler, so a broken corpus fails them with its `TangleError` before either reads a lock or deletes a file — a prune never works from an incomplete build.
+`orphans` names the files that lost their host and touches no disk. The lock covers the whole workspace, so orphan-finding does too: from a starting directory it finds the workspace root, tangles every loom the project holds beneath it, reads the lock, and returns the recorded paths the produced set no longer holds. A narrower scope would mislead — a file produced elsewhere in the workspace would look lost, and a pipe into `rm` would delete it. `prune` goes one step further: it removes each orphan and rewrites the lock to exactly what the build produces. Both resolve the produced set through the compiler, so a broken corpus fails them with its `TangleError` before either reads a lock or deletes a file — a prune never works from an incomplete build.
 
 =>
 
 const isStorePath = (name: string): boolean =>
-  name.split('/').some((segment) => ignoredDirs.has(segment))
+  name.split('/').some((segment) => storeDirs.has(segment))
 
 export class LoomTangler extends Context.Service<LoomTangler>()('LoomTangler', {
   make: Effect.gen(function* () {
@@ -55,25 +59,33 @@ export class LoomTangler extends Context.Service<LoomTangler>()('LoomTangler', {
         .tangle(entry)
         .pipe(Effect.flatMap((files) => Effect.forEach(files, writeFile)))
 
-    const loomsUnder = (dir: Path): Effect.Effect<ReadonlyArray<Path>> =>
-      fs.readDirectory(dir, { recursive: true }).pipe(
-        Effect.orDie,
-        Effect.map((names) =>
-          pipe(
-            names,
-            Array.filter((name) => name.endsWith('.loom') && !isStorePath(name)),
-            Array.map((name) => resolvePath(dir, name)),
-          ),
-        ),
-      )
+    const projectOf = (path: Path): Effect.Effect<Option.Option<LoomProject>> =>
+      config.resolve(path).pipe(Effect.map(projectIn))
 
     const loomsOf = (path: Path): Effect.Effect<ReadonlyArray<Path>> =>
       fs.stat(path).pipe(
         Effect.orDie,
         Effect.flatMap((info) =>
           info.type === 'Directory'
-            ? loomsUnder(path)
+            ? projectOf(path).pipe(Effect.map((project) => loomsIn(path, project)))
             : Effect.succeed<ReadonlyArray<Path>>([path]),
+        ),
+      )
+
+    const recordsFor = (path: Path): Effect.Effect<boolean> =>
+      fs.stat(path).pipe(
+        Effect.orDie,
+        Effect.flatMap((info) =>
+          info.type === 'Directory'
+            ? Effect.succeed(true)
+            : projectOf(path).pipe(
+                Effect.map(
+                  Option.match({
+                    onNone: () => true,
+                    onSome: (project) => holds(project, path),
+                  }),
+                ),
+              ),
         ),
       )
 
@@ -114,12 +126,14 @@ export class LoomTangler extends Context.Service<LoomTangler>()('LoomTangler', {
       Effect.gen(function* () {
         const looms = yield* loomsOf(path)
         const written = (yield* Effect.forEach(looms, tangleFile)).flat()
-        const root = yield* workspaceOf(path)
-        const lock = yield* readLock(root)
-        yield* writeLock(
-          root,
-          recorded(lock, Array.map(written, (file) => relative(root, file.path))),
-        )
+        if (yield* recordsFor(path)) {
+          const root = yield* workspaceOf(path)
+          const lock = yield* readLock(root)
+          yield* writeLock(
+            root,
+            recorded(lock, Array.map(written, (file) => relative(root, file.path))),
+          )
+        }
         return written
       })
 
@@ -135,7 +149,7 @@ export class LoomTangler extends Context.Service<LoomTangler>()('LoomTangler', {
     > =>
       Effect.gen(function* () {
         const root = workspaceRoot(from)
-        const looms = yield* loomsUnder(root)
+        const looms = loomsIn(root, yield* projectOf(root))
         const files = (
           yield* Effect.forEach(looms, (loom) => compiler.tangle(loom))
         ).flat()
@@ -238,16 +252,17 @@ const watch = (
 
 ## What this module draws on
 
-It draws on `LoomCompiler` to resolve each file's sinks to content and target, gating a broken corpus with its `TangleError`, and to evict a changed file from the build cache through `compiler.invalidate`. Its `ignoredDirs` names the generated directories every corpus walk skips. Effect's `FileSystem`, with Bun's path module, lists a directory's looms, reads a target back to compare it against what tangle would write, writes each file, reads and writes the lock, and watches the corpus for changes. `PackageConfig` resolves the corpus directory a file sits in, the scope `watch` watches. `Stream` carries the watch as a sequence of tangle passes, and `Result` carries each pass's outcome — a set of written files, or a `TangleError`. `Option` carries whether a target already exists, since a first tangle finds nothing there to compare against. `Schema` decodes the lock from disk. From `LoomLock` come the lock's shape and the set algebra over it — `orphansOf`, `recorded`, and `pruned`, with `emptyLock` for a workspace that has tangled nothing. `workspaceRoot`, from the language store, finds the `.loom` directory a path belongs to, where the lock lives. Effect supplies the array and effect primitives. `TangledFile` is the resolved sink the compiler hands back, and `Path` a file path.
+It draws on `LoomCompiler` to resolve each file's sinks to content and target, gating a broken corpus with its `TangleError`, and to evict a changed file from the build cache through `compiler.invalidate`. From `LoomProject` come `projectIn`, `holds`, and `loomsIn`, the rule that decides which looms a walk tangles and whose files the lock records, and `storeDirs`, the store folders a watch ignores a change in. Effect's `FileSystem`, with Bun's path module, tells a folder from a file, reads a target back to compare it against what tangle would write, writes each file, reads and writes the lock, and watches the corpus for changes. `PackageConfig` resolves a path's settings, which carry its project, and the corpus directory a file sits in, the scope `watch` watches. `Stream` carries the watch as a sequence of tangle passes, and `Result` carries each pass's outcome — a set of written files, or a `TangleError`. `Option` carries whether a target already exists, since a first tangle finds nothing there to compare against. `Schema` decodes the lock from disk. From `LoomLock` come the lock's shape and the set algebra over it — `orphansOf`, `recorded`, and `pruned`, with `emptyLock` for a workspace that has tangled nothing. `workspaceRoot`, from the language store, finds the `.loom` directory a path belongs to, where the lock lives. Effect supplies the array and effect primitives. `TangledFile` is the resolved sink the compiler hands back, and `Path` a file path.
 
 =>
 
-import { Array, Context, Effect, FileSystem, Layer, Option, Result, Schema, Stream, pipe } from 'effect'
+import { Array, Context, Effect, FileSystem, Layer, Option, Result, Schema, Stream } from 'effect'
 import { dirname, relative, resolve as resolvePath } from 'node:path'
 import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
 import { workspaceRoot } from '@athrio/loom-lang-services/LoomStore'
-import { LoomCompiler, ignoredDirs, type TangledFile, type TangleError } from './LoomCompiler'
+import { LoomCompiler, type TangledFile, type TangleError } from './LoomCompiler'
 import { PackageConfig } from './PackageConfig'
+import { holds, loomsIn, projectIn, storeDirs, type LoomProject } from './LoomProject'
 import {
   emptyLock,
   orphansOf,

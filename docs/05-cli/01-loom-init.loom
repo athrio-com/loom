@@ -24,7 +24,7 @@ The second is which **languages to activate**, as space-separated identifiers. A
 
 | file | what it holds |
 |---|---|
-| `.loom/config.yaml` | the primary language, the activated languages, and `corpus`, the directory Loom reads |
+| `.loom/config.yaml` | the primary language, the activated languages, `corpus`, the directory Loom reads, and an empty `ignore` list for looms the project leaves out |
 | `.loom/.gitignore` | ignores `services/`, so downloaded language services stay out of version control |
 | `.mcp.json` | lets an agent reach the workspace over the Model Context Protocol |
 

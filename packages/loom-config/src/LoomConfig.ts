@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  statSync,
   writeFileSync,
 } from 'node:fs'
 import { basename, dirname, resolve as resolvePath } from 'node:path'
@@ -36,6 +37,7 @@ export const WorkspaceManifestSchema = Schema.Struct({
   anchor: Schema.optional(AnchorSchema),
   settings: Schema.optional(SettingsSchema),
   variables: Schema.optional(VariablesSchema),
+  ignore: Schema.optional(Schema.Array(Schema.String)),
 })
 
 export type WorkspaceManifest = typeof WorkspaceManifestSchema.Type
@@ -46,6 +48,7 @@ export interface ResolvedConfig {
   readonly languages: ReadonlyArray<string>
   readonly settings: Record<string, Record<string, unknown>>
   readonly variables: Record<string, string>
+  readonly ignore?: ReadonlyArray<string>
   readonly services: Record<string, string>
   readonly packageRoot: string | undefined
   readonly workspaceRoot: string | undefined
@@ -129,7 +132,7 @@ const corpusDirOf = (
 const resolveFromManifest = (
   manifest: WorkspaceManifest,
   workspace: string,
-  fromPath: string,
+  from: string,
 ): ResolvedConfig => {
   const container = manifest.corpus ?? defaultCorpus
   return {
@@ -138,26 +141,31 @@ const resolveFromManifest = (
     languages: Object.keys(manifest.languages ?? {}),
     settings: manifest.settings ?? {},
     variables: variablesOf(manifest.variables),
+    ignore: manifest.ignore,
     services: servicesOf(manifest.languages),
-    packageRoot: containerRoot(dirname(fromPath), container, workspace),
+    packageRoot: containerRoot(from, container, workspace),
     workspaceRoot: workspace,
-    corpusDir: corpusDirOf(dirname(fromPath), container, workspace),
+    corpusDir: corpusDirOf(from, container, workspace),
   }
 }
+
+const isFolder = (path: string): boolean =>
+  statSync(path, { throwIfNoEntry: false })?.isDirectory() ?? false
 
 export class LoomConfig extends Context.Service<LoomConfig>()('LoomConfig', {
   make: Effect.succeed({
     resolve: (fromPath: string): Effect.Effect<ResolvedConfig> =>
       Effect.sync(() => {
         if (fromPath === '') return empty
-        const workspace = findWorkspace(dirname(fromPath))
+        const from = isFolder(fromPath) ? fromPath : dirname(fromPath)
+        const workspace = findWorkspace(from)
         if (workspace === undefined) return empty
         const manifest = readManifest(
           resolvePath(workspace, storeDirName, manifestName),
         )
         return manifest === undefined
           ? empty
-          : resolveFromManifest(manifest, workspace, fromPath)
+          : resolveFromManifest(manifest, workspace, from)
       }),
 
     manifest: (fromDir: string): Effect.Effect<WorkspaceManifest | undefined> =>

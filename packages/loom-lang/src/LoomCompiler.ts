@@ -1,6 +1,6 @@
 import type { CodeMapping, VirtualCode } from '@volar/language-core'
 import { Array, Context, Data, Effect, Layer, Match, Option, pipe } from 'effect'
-import { readFileSync, readdirSync, type Dirent } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { dirname, resolve as resolvePath } from 'node:path'
 import type * as ts from 'typescript'
 import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
@@ -38,6 +38,7 @@ import { type LoomVirtualCode, type Mapping } from '@athrio/loom-ast/LoomVirtual
 import { profileOf, symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 import { LoomMemo } from './LoomMemo'
 import { PackageConfig } from './PackageConfig'
+import { holds, loomsIn, projectIn, type LoomProject } from './LoomProject'
 import { WeaveBuilder } from './weave/WeaveBuilder'
 import { type WovenCorpus } from './weave/WovenCorpus'
 import { TableOfContentsBuilder, rewriteBook } from './weave/TableOfContentsBuilder'
@@ -222,30 +223,6 @@ export const toVolar = (vc: LoomVirtualCode): VirtualCode => ({
   embeddedCodes: Array.map(vc.embeddedCodes, toVolar),
 })
 
-export const ignoredDirs = new Set(['node_modules', '.loom', 'dist', '.git'])
-
-const entriesIn = (dir: Path): ReadonlyArray<Dirent> => {
-  try {
-    return readdirSync(dir, { withFileTypes: true })
-  } catch {
-    return []
-  }
-}
-
-export const loomsUnder = (dir: Path): ReadonlyArray<Path> =>
-  Array.flatMap(entriesIn(dir), (entry) => {
-    const full = resolvePath(dir, entry.name)
-    return Match.value(entry).pipe(
-      Match.when(
-        (e) => ignoredDirs.has(e.name),
-        (): ReadonlyArray<Path> => [],
-      ),
-      Match.when((e) => e.isDirectory(), () => loomsUnder(full)),
-      Match.when((e) => e.name.endsWith('.loom'), () => [full]),
-      Match.orElse((): ReadonlyArray<Path> => []),
-    )
-  })
-
 export class DocumentSource extends Context.Service<DocumentSource>()(
   'DocumentSource',
   {
@@ -256,8 +233,11 @@ export class DocumentSource extends Context.Service<DocumentSource>()(
           catch: (cause) => new ReadError({ path, cause }),
         }),
       list: Option.some(
-        (dir: Path): Effect.Effect<ReadonlyArray<Path>> =>
-          Effect.sync(() => loomsUnder(dir)),
+        (
+          dir: Path,
+          project: Option.Option<LoomProject>,
+        ): Effect.Effect<ReadonlyArray<Path>> =>
+          Effect.sync(() => loomsIn(dir, project)),
       ),
     }),
   },
@@ -284,17 +264,29 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()(
         )
 
       const listFrom = (
-        list: (dir: Path) => Effect.Effect<ReadonlyArray<Path>>,
+        list: (
+          dir: Path,
+          project: Option.Option<LoomProject>,
+        ) => Effect.Effect<ReadonlyArray<Path>>,
         entry: Path,
       ): Effect.Effect<ReadonlyArray<Path>> =>
         config.resolve(entry).pipe(
-          Effect.map((settings) =>
-            Option.getOrElse(
-              Option.fromNullishOr(settings.corpusDir),
-              () => dirname(entry),
+          Effect.flatMap((settings) =>
+            Option.match(
+              Option.filter(projectIn(settings), (project) => holds(project, entry)),
+              {
+                onNone: () => list(dirname(entry), Option.none()),
+                onSome: (project) =>
+                  list(
+                    Option.getOrElse(
+                      Option.fromNullishOr(settings.corpusDir),
+                      () => dirname(entry),
+                    ),
+                    Option.some(project),
+                  ),
+              },
             ),
           ),
-          Effect.flatMap(list),
           Effect.map((found) => Array.dedupe([entry, ...found])),
         )
 

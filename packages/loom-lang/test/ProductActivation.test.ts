@@ -21,7 +21,7 @@ import { serviceStore } from './store'
 // silent. The config is a fake, so the proof needs no on-disk loom.json — the
 // runtime carries LoomConfig and the collect pass reads activation from it.
 
-const fixture = resolve(__dirname, 'fixtures/typed.loom')
+const fixture = resolve(__dirname, 'fixtures/typed.fixture.loom')
 const typeMismatch = /not assignable to type 'number'/
 
 // Building a TypeScript checker and running the first check loads the standard

@@ -163,6 +163,7 @@ const init = (dir: Option.Option<string>) =>
         corpus: 'corpus',
         languages: Object.fromEntries(ids.map((id) => [id, {}])),
         primary: language,
+        ignore: [],
       })
       yield* Effect.sync(() =>
         writeFileSync(resolvePath(root, '.loom', '.gitignore'), 'services/\n'),

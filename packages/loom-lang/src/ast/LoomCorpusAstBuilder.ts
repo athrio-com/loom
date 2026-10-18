@@ -12,10 +12,13 @@ import { LoomAstBuilder, emptyDocument, emptyDocumentFor } from '#ast/LoomAstBui
 import type { LoomDocument } from '@athrio/loom-ast/LoomAst'
 import { ProductBuilder } from '#ast/ProductBuilder'
 import type { LoomModule, Path } from '@athrio/loom-ast/LoomCorpusAst'
+import type { LoomProject } from '../LoomProject'
 
 export interface Source {
   readonly read: (path: Path) => Effect.Effect<string, ReadError>
-  readonly list: Option.Option<(dir: Path) => Effect.Effect<ReadonlyArray<Path>>>
+  readonly list: Option.Option<
+    (dir: Path, project: Option.Option<LoomProject>) => Effect.Effect<ReadonlyArray<Path>>
+  >
 }
 
 export class ReadError extends Data.TaggedError('ReadError')<{

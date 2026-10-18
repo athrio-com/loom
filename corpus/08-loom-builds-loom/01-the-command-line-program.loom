@@ -84,7 +84,7 @@ const tangle = (file: string, watch: boolean) =>
 
 ## Listing orphans
 
-The `orphans` command lists the files that lost their host, one path per line and nothing else, so a shell can act on them — `loom orphans | xargs rm` removes every one. It takes no path: the lock covers the whole workspace, so the command does too, found from the working directory. It reads the lock, tangles the workspace to see what is still produced, and prints the recorded paths the build no longer yields. With `--prune` it removes them itself and rewrites the lock, instead of leaving removal to a pipe. Either way a broken corpus prints its error to standard error, exits non-zero, and lists no path, so a pipe into `rm` deletes nothing when the build is not whole.
+The `orphans` command lists the files that lost their host, one path per line and nothing else, so a shell can act on them — `loom orphans | xargs rm` removes every one. It takes no path: the lock covers the whole workspace, so the command does too, found from the working directory. It reads the lock, tangles every loom the project holds to see what is still produced, and prints the recorded paths the build no longer yields. With `--prune` it removes them itself and rewrites the lock, instead of leaving removal to a pipe. Either way a broken corpus prints its error to standard error, exits non-zero, and lists no path, so a pipe into `rm` deletes nothing when the build is not whole.
 
 =>
 
@@ -141,6 +141,8 @@ const toc = (file: string) =>
 
 `loom init` sets a workspace up for review, and it is safe to run again — a second run only fills in what a first left undone, and never undoes it. The first run writes `.loom/config.yaml`, the compiled configuration the editor and the tangler read, and a `.gitignore` beside it that keeps the generated service store out of version control. It asks for the primary language a specifier-less section inherits, and for the languages the editor activates services for. A later run finds that configuration and leaves it untouched; `loom add` and `loom remove` change the activated languages afterwards.
 
+The configuration the first run writes carries an empty `ignore` list. A new project needs no pattern there, because Loom already leaves out whatever Git ignores and every loom named `*.fixture.loom`. The empty key shows where a pattern goes when a folder of drafts or a copied example should stay out of the project.
+
 Every run makes sure the corpus folder exists. The configuration names it, `corpus` unless a project chose another, and `init` creates it when it is missing, so a fresh project has a place for its first loom straight away. A folder that is already there is left exactly as it is, looms and all, so running `init` again is as safe for the corpus as it is for the configuration.
 
 The primary language defaults to TypeScript, and the activation answer defaults to that same language, so a TypeScript workspace is two key-presses away. The activation answer is a space-separated list, since one workspace may run several languages. A prompt the author quits — with `Ctrl-C` — fails with `QuitError`, which `init` catches to leave with a word rather than a stack trace.
@@ -194,6 +196,7 @@ const init = (dir: Option.Option<string>) =>
         corpus: 'corpus',
         languages: Object.fromEntries(ids.map((id) => [id, {}])),
         primary: language,
+        ignore: [],
       })
       yield* Effect.sync(() =>
         writeFileSync(resolvePath(root, '.loom', '.gitignore'), 'services/\n'),

@@ -26,7 +26,7 @@ const { StreamMessageReader, StreamMessageWriter, createMessageConnection } =
 const server = resolve(repo, 'packages/loom-vscode/dist/server.js')
 const tsdk = resolve(repo, 'node_modules/typescript/lib')
 const fixturesDir = resolve(here, '../test/fixtures')
-const checker = resolve(fixturesDir, 'checker.loom')
+const checker = resolve(fixturesDir, 'checker.fixture.loom')
 const checkerText = readFileSync(checker, 'utf8')
 
 const cleanText = `{{lang: TypeScript}}

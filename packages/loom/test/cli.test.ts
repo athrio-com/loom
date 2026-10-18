@@ -295,3 +295,194 @@ describe('loom cli — explicit blocks', () => {
     rmSync(dir, { recursive: true, force: true })
   }, SPAWN_TIMEOUT)
 })
+
+const projectConfig = 'corpus: corpus\nprimary: typescript\n'
+
+const projectWith = (
+  looms: Record<string, string>,
+  config: string = projectConfig,
+): string => {
+  const dir = workspace(config)
+  Object.entries(looms).forEach(([path, text]) => {
+    mkdirSync(dirname(join(dir, path)), { recursive: true })
+    writeFileSync(join(dir, path), text)
+  })
+  return dir
+}
+
+const fileLoom = (file: string): string =>
+  lines(`# Writing ${file} {Tangle}[${file}]`, '', '=>', '', `export const file = '${file}'`)
+
+const brokenLoom = lines('# A broken file {Tangle}[broken.ts]', '', '=>', '', anchor('Nowhere'))
+
+const lockOf = (dir: string): ReadonlyArray<string> =>
+  JSON.parse(readFileSync(join(dir, '.loom', 'loom.lock'), 'utf8')).tangled
+
+const orphanedProject = (): string => {
+  const dir = projectWith({
+    'corpus/one.loom': fileLoom('one.ts'),
+    'corpus/two.loom': fileLoom('two.ts'),
+    'test/broken.fixture.loom': brokenLoom,
+  })
+  const { status, stderr } = loom(['tangle', '.'], { cwd: dir })
+  expect(stderr).not.toContain('refusing')
+  expect(status).toBe(0)
+  expect(lockOf(dir)).toEqual(['one.ts', 'two.ts'])
+  rmSync(join(dir, 'corpus', 'two.loom'))
+  return dir
+}
+
+describe('loom cli — orphans', () => {
+  it('lists the file whose loom is gone, past a broken fixture', () => {
+    const dir = orphanedProject()
+    const { status, stdout, stderr } = loom(['orphans'], { cwd: dir })
+    expect(stderr).not.toContain('refusing')
+    expect(status).toBe(0)
+    expect(stdout).toBe(`${join(dir, 'two.ts')}\n`)
+    rmSync(dir, { recursive: true, force: true })
+  }, SPAWN_TIMEOUT)
+
+  it('prunes that file and rewrites the lock to what the project produces', () => {
+    const dir = orphanedProject()
+    const { status } = loom(['orphans', '--prune'], { cwd: dir })
+    expect(status).toBe(0)
+    expect(existsSync(join(dir, 'two.ts'))).toBe(false)
+    expect(existsSync(join(dir, 'one.ts'))).toBe(true)
+    expect(lockOf(dir)).toEqual(['one.ts'])
+    rmSync(dir, { recursive: true, force: true })
+  }, SPAWN_TIMEOUT)
+
+  it('refuses, and lists nothing, when a loom the project holds is broken', () => {
+    const dir = orphanedProject()
+    writeFileSync(join(dir, 'corpus', 'broken.loom'), brokenLoom)
+    const { status, stdout, stderr } = loom(['orphans'], { cwd: dir })
+    expect(status).not.toBe(0)
+    expect(stdout).toBe('')
+    expect(stderr).toContain('refusing')
+    rmSync(dir, { recursive: true, force: true })
+  }, SPAWN_TIMEOUT)
+})
+
+const cleanOrphans = (dir: string): void => {
+  const { status, stderr } = loom(['orphans'], { cwd: dir })
+  expect(stderr).not.toContain('refusing')
+  expect(status).toBe(0)
+}
+
+const git = (dir: string, ...args: ReadonlyArray<string>) =>
+  spawnSync(
+    'git',
+    [
+      '-c', 'user.name=Loom',
+      '-c', 'user.email=loom@example.com',
+      '-c', 'commit.gpgsign=false',
+      '-c', 'core.hooksPath=/dev/null',
+      ...args,
+    ],
+    { cwd: dir, encoding: 'utf8' },
+  )
+
+describe('loom cli — the looms a project leaves out', () => {
+  it('leaves out what Git ignores, through .gitignore and info/exclude', () => {
+    const dir = projectWith({
+      'corpus/one.loom': fileLoom('one.ts'),
+      'scratch/broken.loom': brokenLoom,
+      'checkouts/copy/broken.loom': brokenLoom,
+    })
+    git(dir, 'init', '-q')
+    writeFileSync(join(dir, '.gitignore'), 'scratch/\n')
+    mkdirSync(join(dir, '.git', 'info'), { recursive: true })
+    writeFileSync(join(dir, '.git', 'info', 'exclude'), 'checkouts/\n')
+    cleanOrphans(dir)
+    rmSync(dir, { recursive: true, force: true })
+  }, SPAWN_TIMEOUT)
+
+  it('reads the info/exclude a worktree shares with its main checkout', () => {
+    const repo = realpathSync(mkdtempSync(join(tmpdir(), 'loom-repo-')))
+    git(repo, 'init', '-q')
+    git(repo, 'commit', '-q', '--allow-empty', '-m', 'start')
+    mkdirSync(join(repo, '.git', 'info'), { recursive: true })
+    writeFileSync(join(repo, '.git', 'info', 'exclude'), 'scratch/\n')
+    const checkout = `${repo}-checkout`
+    git(repo, 'worktree', 'add', '-q', '--detach', checkout)
+    mkdirSync(join(checkout, '.loom'), { recursive: true })
+    writeFileSync(join(checkout, '.loom', 'config.yaml'), projectConfig)
+    mkdirSync(join(checkout, 'corpus'), { recursive: true })
+    writeFileSync(join(checkout, 'corpus', 'one.loom'), fileLoom('one.ts'))
+    mkdirSync(join(checkout, 'scratch'), { recursive: true })
+    writeFileSync(join(checkout, 'scratch', 'broken.loom'), brokenLoom)
+    cleanOrphans(checkout)
+    rmSync(checkout, { recursive: true, force: true })
+    rmSync(repo, { recursive: true, force: true })
+  }, SPAWN_TIMEOUT)
+
+  it('leaves out a folder the configuration lists under ignore', () => {
+    const dir = projectWith(
+      {
+        'corpus/one.loom': fileLoom('one.ts'),
+        'drafts/broken.loom': brokenLoom,
+      },
+      `${projectConfig}ignore:\n  - drafts/\n`,
+    )
+    cleanOrphans(dir)
+    rmSync(dir, { recursive: true, force: true })
+  }, SPAWN_TIMEOUT)
+
+  it('brings fixtures back with a ! pattern, and then refuses a broken one', () => {
+    const dir = projectWith(
+      {
+        'corpus/one.loom': fileLoom('one.ts'),
+        'test/broken.fixture.loom': brokenLoom,
+      },
+      `${projectConfig}ignore:\n  - '!*.fixture.loom'\n`,
+    )
+    const { status, stderr } = loom(['orphans'], { cwd: dir })
+    expect(status).not.toBe(0)
+    expect(stderr).toContain('broken.fixture.loom')
+    rmSync(dir, { recursive: true, force: true })
+  }, SPAWN_TIMEOUT)
+
+  it('leaves a nested project to itself', () => {
+    const dir = projectWith({
+      'corpus/one.loom': fileLoom('one.ts'),
+      'inner/.loom/config.yaml': projectConfig,
+      'inner/broken.loom': brokenLoom,
+    })
+    cleanOrphans(dir)
+    rmSync(dir, { recursive: true, force: true })
+  }, SPAWN_TIMEOUT)
+
+  it('weaves a book without the chapters the project leaves out', () => {
+    const dir = projectWith({
+      'corpus/book.loom': lines('---', 'Part I: Probe', '---', '', '# Probe'),
+      'corpus/01-kept.loom': lines(
+        '---', 'Part I, Chapter 1: A kept chapter', 'Language: Prose', '---', '', '# A kept chapter', '', 'Kept.',
+      ),
+      'corpus/02-draft.fixture.loom': lines(
+        '---', 'Part I, Chapter 2: A left-out chapter', 'Language: Prose', '---', '', '# A left-out chapter', '', 'Left out.',
+      ),
+    })
+    const { status } = loom(['weave', 'corpus/book.loom', 'woven.json'], { cwd: dir })
+    expect(status).toBe(0)
+    const woven = readFileSync(join(dir, 'woven.json'), 'utf8')
+    expect(woven).toContain('A kept chapter')
+    expect(woven).not.toContain('A left-out chapter')
+    rmSync(dir, { recursive: true, force: true })
+  }, SPAWN_TIMEOUT)
+})
+
+describe('loom cli — an ignored loom named directly', () => {
+  it('tangles it, and keeps its files out of the lock', () => {
+    const dir = projectWith({
+      'corpus/one.loom': fileLoom('one.ts'),
+      'test/sample.fixture.loom': fileLoom('sample.ts'),
+    })
+    loom(['tangle', 'corpus'], { cwd: dir })
+    const { status } = loom(['tangle', 'test/sample.fixture.loom'], { cwd: dir })
+    expect(status).toBe(0)
+    expect(readFileSync(join(dir, 'test', 'sample.ts'), 'utf8')).toContain("'sample.ts'")
+    expect(lockOf(dir)).toEqual(['one.ts'])
+    expect(loom(['orphans'], { cwd: dir }).stdout).toBe('')
+    rmSync(dir, { recursive: true, force: true })
+  }, SPAWN_TIMEOUT)
+})

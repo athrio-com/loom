@@ -16,7 +16,7 @@ The builder owns no files. It reads through a `Source` the caller hands it, so t
 
 `Source` is what the builder reads through — a small interface the caller provides, never the filesystem directly. Its `read` method returns a file's text by its path, and fails with a `ReadError` when the file cannot be read. `LoomCompiler` supplies the real implementation, `DocumentSource`, so the builder reads through the caller rather than the filesystem.
 
-`list` is the other half: it returns every `.loom` path under a directory, the looms `LoomCompiler` discovers as a file's corpus. It is an `Option`: a caller that hands in a single document in memory carries `Option.none`, and the compiler then sees a corpus of one. The disk source the CLI and the editor use carries `Option.some` of the real listing.
+`list` is the other half: it returns the `.loom` paths under a directory, the looms `LoomCompiler` discovers as a file's corpus. The compiler hands it the directory and that directory's project, or `Option.none` for a folder no project holds. The listing keeps only the looms the project holds. `list` is itself an `Option`: a caller that hands in a single document in memory carries `Option.none`, and the compiler then sees a corpus of one. The disk source the CLI and the editor use carries `Option.some` of the real listing.
 
 `ReadError` names a file the source cannot read — one that is missing, or one the operating system refuses to open — and carries the path and the underlying cause. Its message reads `Cannot read <path>: <cause>`. The build catches it and recovers, so a file that cannot be read becomes a diagnostic on that file rather than a crash.
 
@@ -24,7 +24,9 @@ The builder owns no files. It reads through a `Source` the caller hands it, so t
 
 export interface Source {
   readonly read: (path: Path) => Effect.Effect<string, ReadError>
-  readonly list: Option.Option<(dir: Path) => Effect.Effect<ReadonlyArray<Path>>>
+  readonly list: Option.Option<
+    (dir: Path, project: Option.Option<LoomProject>) => Effect.Effect<ReadonlyArray<Path>>
+  >
 }
 
 export class ReadError extends Data.TaggedError('ReadError')<{
@@ -124,7 +126,7 @@ export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>(
 
 ## What the builder draws on
 
-The builder draws the four parse passes — `LoomSourceRanges`, `WeftClassifier`, `WeftTokeniser`, and `LoomAstBuilder`, with `emptyDocument` and `emptyDocumentFor` for its recoveries — then `ProductBuilder` for the product pass beyond parsing. From the token layer it takes `checkAnchorDelims` and the `InvalidAnchorDelims` errors it raises, which guard the configured delimiters before the parse, alongside `AnchorDelims` and `defaultAnchorDelims`. The `LoomDocument`, `LoomModule`, and `Path` types name what `parsed` returns, what a build returns, and how a file is addressed. Effect supplies the composition primitives, `Data` for the tagged `ReadError` among them.
+The builder draws the four parse passes — `LoomSourceRanges`, `WeftClassifier`, `WeftTokeniser`, and `LoomAstBuilder`, with `emptyDocument` and `emptyDocumentFor` for its recoveries — then `ProductBuilder` for the product pass beyond parsing. From the token layer it takes `checkAnchorDelims` and the `InvalidAnchorDelims` errors it raises, which guard the configured delimiters before the parse, alongside `AnchorDelims` and `defaultAnchorDelims`. The `LoomDocument`, `LoomModule`, and `Path` types name what `parsed` returns, what a build returns, and how a file is addressed, and `LoomProject` names the project a source lists a folder for. Effect supplies the composition primitives, `Data` for the tagged `ReadError` among them.
 
 =>
 
@@ -142,6 +144,7 @@ import { LoomAstBuilder, emptyDocument, emptyDocumentFor } from '#ast/LoomAstBui
 import type { LoomDocument } from '@athrio/loom-ast/LoomAst'
 import { ProductBuilder } from '#ast/ProductBuilder'
 import type { LoomModule, Path } from '@athrio/loom-ast/LoomCorpusAst'
+import type { LoomProject } from '../LoomProject'
 
 ## The module {Tangle}
 
