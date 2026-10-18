@@ -17,6 +17,8 @@ fileGroups:
     - "/packages/loom-service-typescript/package.json"
     - "/packages/loom-lang/src/**/*"
     - "/packages/loom-lang/package.json"
+    - "/packages/tree-sitter-loom/src/**/*"
+    - "/packages/tree-sitter-loom/editors/**/*"
     - "/packages/effect-test/**/*"
     - "/tsconfig.base.json"
     - "/package.json"

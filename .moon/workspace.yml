@@ -10,4 +10,5 @@ projects:
   - "packages/loom-lang"
   - "packages/loom"
   - "packages/loom-vscode"
+  - "packages/tree-sitter-loom"
   - "site"

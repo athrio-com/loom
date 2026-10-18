@@ -9,7 +9,7 @@ Language: YAML
 
 Every push and every pull request runs the same gate: the code type-checks, the tests pass, the committed source matches the corpus it tangles from, and the command-line tool carries none of Loom Design. The release workflow waits on this one. It runs only after the gate passes on the default branch, so nothing publishes on a red build.
 
-A push runs only the checks its change can affect. The repository holds a book, seven packages and a website, and a change to one rarely touches the rest. So the checks run under moon, a task runner made for repositories that hold several projects. Each check names the files it reads, and moon runs a check only when one of those files changed. A fix to the website's stylesheet type-checks and tests the website and leaves the language server's four hundred tests alone. A change to the AST, which every package builds on, runs nearly everything.
+A push runs only the checks its change can affect. The repository holds a book, eight packages and a website, and a change to one rarely touches the rest. So the checks run under moon, a task runner made for repositories that hold several projects. Each check names the files it reads, and moon runs a check only when one of those files changed. A fix to the website's stylesheet type-checks and tests the website and leaves the language server's four hundred tests alone. A change to the AST, which every package builds on, runs nearly everything.
 
 The tangle check is what a literate framework owes its readers. Loom commits its tangled output so a checkout builds without re-tangling, and that output is only trustworthy if it never drifts from the looms that produce it. The check re-tangles the corpus and fails on any difference, so a loom edited without a re-tangle cannot reach the default branch.
 
@@ -27,7 +27,7 @@ bun = "1.2.20"
 
 ## The projects {Tangle}[.moon/workspace.yml]
 
-A moon project is a directory whose `moon.yml` names its tasks. The workspace file lists the projects: the book in `corpus`, the seven packages, and the website. Moon measures a change against the default branch, `main`, unless it is told which two commits to compare, as the workflow below tells it.
+A moon project is a directory whose `moon.yml` names its tasks. The workspace file lists the projects: the book in `corpus`, the eight packages, and the website. Moon measures a change against the default branch, `main`, unless it is told which two commits to compare, as the workflow below tells it.
 
 =>
 
@@ -43,6 +43,7 @@ projects:
   - "packages/loom-lang"
   - "packages/loom"
   - "packages/loom-vscode"
+  - "packages/tree-sitter-loom"
   - "site"
 
 ## The book {Tangle}[corpus/moon.yml]
@@ -319,7 +320,7 @@ tasks:
 
 ## The CLI's tasks {Tangle}[packages/loom/moon.yml]
 
-The CLI builds on the language and so on everything the language builds on. Besides its type check and its tests it carries the Design check. That check builds the tool and packs it the way npm would, then reads what came out. A file named for Design in the tarball fails the task, and so does a source map that lists one of Design's files among its sources, the path by which Design's TypeScript reached the registry the first time. Design's name inside a string is allowed, since the `design` command has to say which package to install. The tarball is removed once it has been read, so the check leaves no file behind on a developer's machine.
+The CLI builds on the language and so on everything the language builds on. It also reads the grammar of `tree-sitter-loom`: its build copies the grammar's sources into the bundle, and its tests run `loom helix`, which compiles them. Besides its type check and its tests it carries the Design check. That check builds the tool and packs it the way npm would, then reads what came out. A file named for Design in the tarball fails the task, and so does a source map that lists one of Design's files among its sources, the path by which Design's TypeScript reached the registry the first time. Design's name inside a string is allowed, since the `design` command has to say which package to install. The tarball is removed once it has been read, so the check leaves no file behind on a developer's machine.
 
 =>
 
@@ -342,6 +343,8 @@ fileGroups:
     - "/packages/loom-service-typescript/package.json"
     - "/packages/loom-lang/src/**/*"
     - "/packages/loom-lang/package.json"
+    - "/packages/tree-sitter-loom/src/**/*"
+    - "/packages/tree-sitter-loom/editors/**/*"
     - "/packages/effect-test/**/*"
     - "/tsconfig.base.json"
     - "/package.json"
@@ -422,6 +425,63 @@ tasks:
 
   typecheck:
     command: "bunx tsc --noEmit -p tsconfig.json"
+    deps: ["install"]
+    inputs:
+      - "@group(sources)"
+      - "moon.yml"
+      - "/mise.toml"
+
+## The grammar's tasks {Tangle}[packages/tree-sitter-loom/moon.yml]
+
+The tree-sitter grammar's test reads every loom in the repository with both the grammar and Loom's own classifier, and compares the two, line by line. So its sources are wider than a package's usual. They are the grammar itself, its scanner, its queries and its generated parser, the language and the AST that supply the classifier, and every `.loom` file in the book, the docs and the examples. A loom edited anywhere runs the test again, since the edit may reach a corner of the grammar no test has met.
+
+The test needs two tools beyond Bun. The `tree-sitter` command arrives as a package, and a C compiler builds the parser, which every runner and every machine that builds Loom already has.
+
+=>
+
+$schema: "https://moonrepo.dev/schemas/project.json"
+
+fileGroups:
+  sources:
+    - "grammar.js"
+    - "src/**/*"
+    - "queries/**/*"
+    - "editors/**/*"
+    - "test/**/*"
+    - "package.json"
+    - "tree-sitter.json"
+    - "tsconfig.json"
+    - "/packages/loom-ast/src/**/*"
+    - "/packages/loom-ast/package.json"
+    - "/packages/loom-lang/src/**/*"
+    - "/packages/loom-lang/package.json"
+    - "/packages/effect-test/**/*"
+    - "/corpus/**/*.loom"
+    - "/docs/**/*.loom"
+    - "/examples/**/*.loom"
+    - "/tsconfig.base.json"
+    - "/package.json"
+    - "/bun.lock"
+    - "/bunfig.toml"
+
+tasks:
+  install:
+    command: "bun install --frozen-lockfile"
+    options:
+      cache: false
+      internal: true
+      runFromWorkspaceRoot: true
+
+  typecheck:
+    command: "bunx tsc --noEmit -p tsconfig.json"
+    deps: ["install"]
+    inputs:
+      - "@group(sources)"
+      - "moon.yml"
+      - "/mise.toml"
+
+  test:
+    command: "bun test"
     deps: ["install"]
     inputs:
       - "@group(sources)"
