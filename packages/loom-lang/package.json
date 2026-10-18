@@ -16,7 +16,9 @@
     "./LoomServer": "./src/LoomServer.ts",
     "./weave/WovenCorpus": "./src/weave/WovenCorpus.ts",
     "./weave/LoomWeaver": "./src/weave/LoomWeaver.ts",
-    "./weave/LoomContents": "./src/weave/LoomContents.ts"
+    "./weave/LoomContents": "./src/weave/LoomContents.ts",
+    "./ast/LineRanges": "./src/ast/LineRanges.ts",
+    "./ast/WeftClassifier": "./src/ast/WeftClassifier.ts"
   },
   "scripts": {
     "build": "vite build",

@@ -1,0 +1,24 @@
+{
+  "name": "tree-sitter-loom",
+  "version": "0.0.11",
+  "description": "Loom grammar for tree-sitter",
+  "license": "MIT",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/athrio-com/loom.git",
+    "directory": "packages/tree-sitter-loom"
+  },
+  "scripts": {
+    "generate": "tree-sitter generate",
+    "parse": "tree-sitter parse",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@athrio/effect-test": "workspace:*",
+    "@athrio/loom-ast": "workspace:*",
+    "@athrio/loom-lang": "workspace:*",
+    "effect": "4.0.5",
+    "tree-sitter-cli": "0.26.8"
+  }
+}

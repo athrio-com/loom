@@ -1,0 +1,111 @@
+---
+Part IX, Chapter 9: Loom in Neovim and Helix
+Package: packages/tree-sitter-loom/editors/
+Language: Lua
+---
+
+# Loom in Neovim and Helix
+
+Neovim and Helix need no extension of the kind VS Code does. Each has a language-server client and a tree-sitter host built in, and each learns a new language from configuration. Three facts make a loom alive in either: the `.loom` extension names the `loom` language, the `loom lsp --stdio` command starts its language server, and the grammar of this part colours it. This chapter writes that configuration down, in the form each editor's own project collects for the languages it supports.
+
+The language server starts the same way in both. `loom lsp` speaks the Language Server Protocol over standard input and output once it is given `--stdio`, and it treats the nearest folder that holds a `.loom` directory as the project, the folder `loom init` sets up. It needs a TypeScript compiler. VS Code sends its own, and every other editor relies on the server's search: the project's `typescript` package first, then the one installed beside Loom.
+
+## Neovim's server configuration {Tangle}[neovim/lsp/loom.lua]
+
+Neovim 0.11 configures a language server with a table its `vim.lsp.config` function takes, and it reads such tables from an `lsp/` folder on its runtime path. The nvim-lspconfig project collects one file per server in that folder, so this file is written in its form: a short description for its generated documentation, then the table. The table names the command, the file type it serves, and the markers of a project's root, `.loom` before `.git`.
+
+=>
+
+---@brief
+---
+--- https://github.com/athrio-com/loom
+---
+--- The Loom language server, which the `loom` command line ships:
+---
+--- ```sh
+--- npm install -g @athrio/loom
+--- ```
+---
+--- `loom lsp` finds TypeScript in the project, or beside Loom, to check
+--- TypeScript sections against.
+
+---@type vim.lsp.Config
+return {
+  cmd = { 'loom', 'lsp', '--stdio' },
+  filetypes = { 'loom' },
+  root_markers = { '.loom', '.git' },
+}
+
+## Neovim's plugin {Tangle}[neovim/plugin/loom.lua]
+
+The rest of Neovim's setup is a plugin file, which Neovim runs at startup from any `plugin/` folder on its runtime path. Adding `packages/tree-sitter-loom/editors/neovim` to the runtime path therefore sets up everything this chapter describes, and the server configuration beside it comes along.
+
+Neovim does not yet know the `.loom` extension, so the plugin adds it as the `loom` file type.
+
+=>
+
+vim.filetype.add({ extension = { loom = 'loom' } })
+
+~
+
+nvim-treesitter installs a parser from a repository by name. Its own list does not hold Loom yet, so the plugin adds Loom to the list each time nvim-treesitter refreshes it, which it signals with a `TSUpdate` event. The grammar lives in a subfolder of Loom's repository, and so do its queries. `:TSInstall loom` then fetches the repository, compiles the committed parser and scanner, and installs the queries.
+
+=>
+
+vim.api.nvim_create_autocmd('User', {
+  pattern = 'TSUpdate',
+  callback = function()
+    require('nvim-treesitter.parsers').loom = {
+      install_info = {
+        url = 'https://github.com/athrio-com/loom',
+        location = 'packages/tree-sitter-loom',
+        queries = 'packages/tree-sitter-loom/queries',
+      },
+    }
+  end,
+})
+
+~
+
+Neovim colours a buffer with tree-sitter only when asked. The plugin asks for every loom as it opens, and turns on the language server it configured.
+
+=>
+
+vim.api.nvim_create_autocmd('FileType', {
+  pattern = 'loom',
+  callback = function()
+    vim.treesitter.start()
+  end,
+})
+
+vim.lsp.enable('loom')
+
+## Helix's languages {Tangle}[helix/languages.toml]
+
+Helix learns a language from a `languages.toml` file, its own built-in one or a user's in the configuration folder. A language entry gives the name, the scope, the file extension, the root markers, and the servers that serve it. The injection pattern lets Markdown hand a fence marked `loom` to this grammar.
+
+The server entry names the command. The grammar entry tells Helix where to fetch the grammar and which subfolder to build. Helix pins a grammar to a revision. Until a release commit pins it, the revision follows the main branch.
+
+{{ revision = "main" }}
+
+=>
+
+[[language]]
+name = "loom"
+scope = "source.loom"
+file-types = ["loom"]
+roots = [".loom"]
+injection-regex = "^loom$"
+language-servers = ["loom"]
+
+[language-server.loom]
+command = "loom"
+args = ["lsp", "--stdio"]
+
+[[grammar]]
+name = "loom"
+source = { git = "https://github.com/athrio-com/loom", rev = "::[revision]", subpath = "packages/tree-sitter-loom" }
+
+~
+
+Helix reads a language's queries from `runtime/queries/loom` in its configuration folder, and `hx --grammar fetch` followed by `hx --grammar build` fetches and compiles the grammar. The queries for that folder are the Helix copies in `editors/helix/queries/loom`, which name a frontmatter key's colour the way Helix themes do.

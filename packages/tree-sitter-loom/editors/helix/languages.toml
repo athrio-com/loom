@@ -1,0 +1,15 @@
+[[language]]
+name = "loom"
+scope = "source.loom"
+file-types = ["loom"]
+roots = [".loom"]
+injection-regex = "^loom$"
+language-servers = ["loom"]
+
+[language-server.loom]
+command = "loom"
+args = ["lsp", "--stdio"]
+
+[[grammar]]
+name = "loom"
+source = { git = "https://github.com/athrio-com/loom", rev = "main", subpath = "packages/tree-sitter-loom" }
