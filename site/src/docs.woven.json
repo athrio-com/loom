@@ -100,7 +100,7 @@
             "chapter": "01-getting-started/01-quick-start",
             "section": "write-your-first-loom"
           },
-          "markdown": "Install the `loom` command once, with the package manager you already use. Make a new folder anywhere you like, and create a file in it called `hello.loom` with this inside:\n\n```loom\n# Saying hello {TypeScript}\n\nA greeting needs one thing: the name of whoever is being greeted.\n\n=>\n\nconst greet = (name: string): string => `Hello, ${name}!`\n\n# The program [hello.ts]\n\nThe program greets the world once.\n\n=>\n\n::[Saying hello]\n\nconsole.log(greet('world'))\n```"
+          "markdown": "Install the `loom` command once, with the package manager you already use. Make a new folder anywhere you like, and create a file in it called `hello.loom`:\n\n```loom\n---\nLanguage: TypeScript\n---\n\n# Hello world [hello.ts]\n\nLet's write a program which greets the world.\n\n=>\n\n::[Greeting function]\n\nconsole.log(greet('world'))\n\n# Greeting function\n\nWe have assumed the `greet` function takes a name and returns a greeting for it. Let's actually write it.\n\n=>\n\nconst greet = (name: string): string => `Hello, ${name}!`\n\n~\n\nThat's it. Now we have a function that is transcluded and invoked by the code in the `Hello world` section. We can tangle and run it.\n```"
         },
         {
           "type": "heading",
@@ -118,7 +118,7 @@
             "chapter": "01-getting-started/01-quick-start",
             "section": "turn-it-into-code"
           },
-          "markdown": "Run `loom tangle` on your loom:\n\n```bash\nloom tangle hello.loom\n```\n\nLoom writes `hello.ts` next to `hello.loom`. Open it and you will find plain TypeScript, with the greeting first and the line that uses it after:\n\n```typescript\nconst greet = (name: string): string => `Hello, ${name}!`\n\nconsole.log(greet('world'))\n```"
+          "markdown": "Run `$ loom tangle hello.loom`. Loom writes `hello.ts` next to `hello.loom`. Open it and you will find plain TypeScript, with the greeting first and the line that uses it after:\n\n```typescript\nconst greet = (name: string): string => `Hello, ${name}!`\n\nconsole.log(greet('world'))\n```"
         },
         {
           "type": "heading",
@@ -161,7 +161,7 @@
             "chapter": "01-getting-started/02-loom-projects",
             "section": "loom-projects"
           },
-          "markdown": "A single loom file is enough to write a small program. For real-life scenarios, Loom supports whole projects and modules as a literate corpus: a folder of loom files that are read together as a book.\n\n```bash\nloom init\n```"
+          "markdown": "A single loom file is enough to write a small program. For real-life scenarios, Loom supports whole projects and modules as a literate corpus: a folder of loom files that are read together as a book.\n\n```picture\nproject\n```"
         },
         {
           "type": "heading",
@@ -179,7 +179,7 @@
             "chapter": "01-getting-started/02-loom-projects",
             "section": "initialise-project"
           },
-          "markdown": "To set up a project, run the `loom init` command. Loom asks which language your sections use by default. It's TypeScript unless you name another, so press Enter.\n\nYour answer goes into `.loom/config.yaml`, the project's settings. Commit it. Beside it, `.loom/.gitignore` keeps out the language servers Loom downloads. The folder that holds `.loom` is now a Loom project.\n\nRunning `loom init` again changes nothing, and it never touches the looms you already have."
+          "markdown": "To set up a project, run the `$ loom init` command. Loom asks which language your sections use by default. It's TypeScript unless you name another, so press Enter.\n\nYour answer goes into `.loom/config.yaml`, the project's settings:\n\n```yaml\ncorpus: corpus\nprimary: typescript\n```\n\n`primary` is the default language, and `corpus` names the folder your looms live in. Commit the file. Beside it, `.loom/.gitignore` keeps out the language servers Loom downloads. The folder that holds `.loom` is now a Loom project.\n\nRunning `loom init` again changes nothing, and it never touches the looms you already have."
         },
         {
           "type": "heading",
@@ -197,25 +197,7 @@
             "chapter": "01-getting-started/02-loom-projects",
             "section": "a-home-for-your-looms"
           },
-          "markdown": "Looms live in a folder called `corpus`, and `loom init` creates it for you. Move your loom in:\n\n```bash\nmv hello.loom corpus/\n```\n\nA loom in `corpus` writes its files to the project folder, the one that holds `corpus`. So `hello.ts` still lands where it did."
-        },
-        {
-          "type": "heading",
-          "source": {
-            "chapter": "01-getting-started/02-loom-projects",
-            "section": "one-label-fewer"
-          },
-          "level": 2,
-          "title": "One label fewer",
-          "id": "one-label-fewer"
-        },
-        {
-          "type": "prose",
-          "source": {
-            "chapter": "01-getting-started/02-loom-projects",
-            "section": "one-label-fewer"
-          },
-          "markdown": "The project now has a primary language, TypeScript, and every section that names no language uses it. Open `corpus/hello.loom` and take `{TypeScript}` off the first heading, so it reads `# Saying hello`."
+          "markdown": "Looms live in a folder called `corpus`, and `loom init` creates it for you. Move your loom in with `$ mv hello.loom corpus/`.\n\nA loom in `corpus` writes its files to the project root folder, the one that holds `corpus`. So `hello.ts` still lands where it did.\n\nIn a real project you'll want to choose where the files go. For that, Loom supports a `Package` setting in a loom's frontmatter:\n\n```loom\n---\nPackage: src/\n---\n\n# Hello world [hello.ts]\n\nLet's write a program which greets the world.\n\n=>\n\n::[Greeting function]\n\nconsole.log(greet('world'))\n\n# Greeting function\n\nWe have assumed the `greet` function takes a name and returns a greeting for it. Let's actually write it.\n\n=>\n\nconst greet = (name: string): string => `Hello, ${name}!`\n\n~\n\nThat's it. Now we have a function that is transcluded and invoked by the code in the `Hello world` section. We can tangle and run it.\n```\n\nWith that frontmatter, Loom writes `src/hello.ts`.\n\nThis loom has no `Language` line, because the project's primary language is TypeScript. The quick start's loom needed one because it wasn't part of a project."
         },
         {
           "type": "heading",
@@ -233,7 +215,43 @@
             "chapter": "01-getting-started/02-loom-projects",
             "section": "tangle-the-project"
           },
-          "markdown": "Point `loom tangle` at the folder rather than at one file:\n\n```bash\nloom tangle corpus\n```\n\nLoom reads every loom in `corpus` and writes `hello.ts`, the same file as before. It also records what it wrote in `.loom/loom.lock`, so it can tell its own files from yours. Commit that too."
+          "markdown": "Point `loom tangle` at the folder rather than at one file: `$ loom tangle corpus`. Loom reads every loom in `corpus` and writes `hello.ts`, the same file as before."
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "01-getting-started/02-loom-projects",
+            "section": "the-lock-file"
+          },
+          "level": 2,
+          "title": "The lock file",
+          "id": "the-lock-file"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "01-getting-started/02-loom-projects",
+            "section": "the-lock-file"
+          },
+          "markdown": "Every time it tangles, Loom records the files it wrote in `.loom/loom.lock`. Commit it with the rest of the project.\n\nThe lock is how Loom tells its files from yours. A file that isn't in the lock was never tangled, so Loom never touches it: a README, a test, anything you wrote by hand.\n\nWhen you delete a section that wrote a file, the file stays on disk, but the lock still lists it. `$ loom orphans` shows such files, and `$ loom orphans --prune` deletes them."
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "01-getting-started/02-loom-projects",
+            "section": "ejecting-loom"
+          },
+          "level": 2,
+          "title": "Ejecting Loom",
+          "id": "ejecting-loom"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "01-getting-started/02-loom-projects",
+            "section": "ejecting-loom"
+          },
+          "markdown": "Loom doesn't lock you in. What it tangles is ordinary source code, the same files you would write by hand. Nothing in them depends on Loom.\n\nSo you can stop using Loom whenever you like. `$ loom eject` is the opposite of `loom init`: it replaces `corpus` with `corpus.zip`, so your looms are kept, and removes `.loom`. Every tangled file stays where it is, and the project builds and runs as it did before."
         }
       ]
     },
@@ -276,7 +294,7 @@
             "chapter": "01-getting-started/03-loom-in-your-editor",
             "section": "code-that-knows-its-language"
           },
-          "markdown": "Every section's code is highlighted and checked in its own language. Open `corpus/hello.loom` and misspell `greet` in the program: the error shows up under it as you type, just as it would in `hello.ts`.\n\nThe check runs on the whole file a section ends up in, not on the section alone. So `greet` is known in the program because `::[Saying hello]` brings it in, and TypeScript reads your project's `tsconfig.json` as it would for any other file. Hover and completion work the same way."
+          "markdown": "Every section's code is highlighted and checked in its own language. Open `corpus/hello.loom` and misspell `greet` in the program: the error shows up under it as you type, just as it would in `hello.ts`.\n\nThe check runs on the whole file a section ends up in, not on the section alone. So `greet` is known in the program because `::[Greeting function]` brings it in, and TypeScript reads your project's `tsconfig.json` as it would for any other file. Hover and completion work the same way."
         },
         {
           "type": "heading",

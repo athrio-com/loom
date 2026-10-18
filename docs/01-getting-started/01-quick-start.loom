@@ -17,37 +17,39 @@ loom --version
 
 ## Write your first loom
 
-Install the `loom` command once, with the package manager you already use. Make a new folder anywhere you like, and create a file in it called `hello.loom` with this inside:
+Install the `loom` command once, with the package manager you already use. Make a new folder anywhere you like, and create a file in it called `hello.loom`:
 
 ```loom
-# Saying hello {TypeScript}
+---
+Language: TypeScript
+---
 
-A greeting needs one thing: the name of whoever is being greeted.
+# Hello world [hello.ts]
+
+Let's write a program which greets the world.
+
+=>
+
+::[Greeting function]
+
+console.log(greet('world'))
+
+# Greeting function
+
+We have assumed the `greet` function takes a name and returns a greeting for it. Let's actually write it.
 
 =>
 
 const greet = (name: string): string => `Hello, ${name}!`
 
-# The program [hello.ts]
+~
 
-The program greets the world once.
-
-=>
-
-::[Saying hello]
-
-console.log(greet('world'))
+That's it. Now we have a function that is transcluded and invoked by the code in the `Hello world` section. We can tangle and run it.
 ```
 
 ## Turn it into code
 
-Run `loom tangle` on your loom:
-
-```bash
-loom tangle hello.loom
-```
-
-Loom writes `hello.ts` next to `hello.loom`. Open it and you will find plain TypeScript, with the greeting first and the line that uses it after:
+Run `$ loom tangle hello.loom`. Loom writes `hello.ts` next to `hello.loom`. Open it and you will find plain TypeScript, with the greeting first and the line that uses it after:
 
 ```typescript
 const greet = (name: string): string => `Hello, ${name}!`

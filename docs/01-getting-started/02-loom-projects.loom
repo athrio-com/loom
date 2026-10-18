@@ -8,38 +8,79 @@ Language: Prose
 
 A single loom file is enough to write a small program. For real-life scenarios, Loom supports whole projects and modules as a literate corpus: a folder of loom files that are read together as a book.
 
-```bash
-loom init
+```picture
+project
 ```
 
 ## Initialise project
 
-To set up a project, run the `loom init` command. Loom asks which language your sections use by default. It's TypeScript unless you name another, so press Enter.
+To set up a project, run the `$ loom init` command. Loom asks which language your sections use by default. It's TypeScript unless you name another, so press Enter.
 
-Your answer goes into `.loom/config.yaml`, the project's settings. Commit it. Beside it, `.loom/.gitignore` keeps out the language servers Loom downloads. The folder that holds `.loom` is now a Loom project.
+Your answer goes into `.loom/config.yaml`, the project's settings:
+
+```yaml
+corpus: corpus
+primary: typescript
+```
+
+`primary` is the default language, and `corpus` names the folder your looms live in. Commit the file. Beside it, `.loom/.gitignore` keeps out the language servers Loom downloads. The folder that holds `.loom` is now a Loom project.
 
 Running `loom init` again changes nothing, and it never touches the looms you already have.
 
 ## A home for your looms
 
-Looms live in a folder called `corpus`, and `loom init` creates it for you. Move your loom in:
+Looms live in a folder called `corpus`, and `loom init` creates it for you. Move your loom in with `$ mv hello.loom corpus/`.
 
-```bash
-mv hello.loom corpus/
+A loom in `corpus` writes its files to the project root folder, the one that holds `corpus`. So `hello.ts` still lands where it did.
+
+In a real project you'll want to choose where the files go. For that, Loom supports a `Package` setting in a loom's frontmatter:
+
+```loom
+---
+Package: src/
+---
+
+# Hello world [hello.ts]
+
+Let's write a program which greets the world.
+
+=>
+
+::[Greeting function]
+
+console.log(greet('world'))
+
+# Greeting function
+
+We have assumed the `greet` function takes a name and returns a greeting for it. Let's actually write it.
+
+=>
+
+const greet = (name: string): string => `Hello, ${name}!`
+
+~
+
+That's it. Now we have a function that is transcluded and invoked by the code in the `Hello world` section. We can tangle and run it.
 ```
 
-A loom in `corpus` writes its files to the project folder, the one that holds `corpus`. So `hello.ts` still lands where it did.
+With that frontmatter, Loom writes `src/hello.ts`.
 
-## One label fewer
-
-The project now has a primary language, TypeScript, and every section that names no language uses it. Open `corpus/hello.loom` and take `{TypeScript}` off the first heading, so it reads `# Saying hello`.
+This loom has no `Language` line, because the project's primary language is TypeScript. The quick start's loom needed one because it wasn't part of a project.
 
 ## Tangle the project
 
-Point `loom tangle` at the folder rather than at one file:
+Point `loom tangle` at the folder rather than at one file: `$ loom tangle corpus`. Loom reads every loom in `corpus` and writes `hello.ts`, the same file as before.
 
-```bash
-loom tangle corpus
-```
+## The lock file
 
-Loom reads every loom in `corpus` and writes `hello.ts`, the same file as before. It also records what it wrote in `.loom/loom.lock`, so it can tell its own files from yours. Commit that too.
+Every time it tangles, Loom records the files it wrote in `.loom/loom.lock`. Commit it with the rest of the project.
+
+The lock is how Loom tells its files from yours. A file that isn't in the lock was never tangled, so Loom never touches it: a README, a test, anything you wrote by hand.
+
+When you delete a section that wrote a file, the file stays on disk, but the lock still lists it. `$ loom orphans` shows such files, and `$ loom orphans --prune` deletes them.
+
+## Ejecting Loom
+
+Loom doesn't lock you in. What it tangles is ordinary source code, the same files you would write by hand. Nothing in them depends on Loom.
+
+So you can stop using Loom whenever you like. `$ loom eject` is the opposite of `loom init`: it replaces `corpus` with `corpus.zip`, so your looms are kept, and removes `.loom`. Every tangled file stays where it is, and the project builds and runs as it did before.

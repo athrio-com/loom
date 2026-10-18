@@ -16,7 +16,7 @@ code --install-extension athrio.loom-vscode
 
 Every section's code is highlighted and checked in its own language. Open `corpus/hello.loom` and misspell `greet` in the program: the error shows up under it as you type, just as it would in `hello.ts`.
 
-The check runs on the whole file a section ends up in, not on the section alone. So `greet` is known in the program because `::[Saying hello]` brings it in, and TypeScript reads your project's `tsconfig.json` as it would for any other file. Hover and completion work the same way.
+The check runs on the whole file a section ends up in, not on the section alone. So `greet` is known in the program because `::[Greeting function]` brings it in, and TypeScript reads your project's `tsconfig.json` as it would for any other file. Hover and completion work the same way.
 
 ## Loom's own mistakes
 
