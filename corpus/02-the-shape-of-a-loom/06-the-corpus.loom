@@ -41,9 +41,9 @@ type Modules = ReadonlyMap<Path, LoomModule>
 
 Names resolve here — the lexical lookups that turn an `::[Name]` anchor into the section it points at. A `SectionRef` locates that section: the module it lives in, and the section itself.
 
-An anchor names a section by its raw title, and resolves that title in one file. A bare `::[Name]` resolves in the anchor's own file. A `::[Name](path.loom)` resolves in the file the path names, taken relative to the anchor's own. So a name is lexical, not a corpus-wide symbol, and two files reuse a title freely.
+An anchor names a section by its raw title, and resolves that title in one file. A bare `::[Name]` resolves in the anchor's own file. A `::[Name](path.loom)` resolves in the file the path names, taken relative to the anchor's own. The rule holds wherever the anchor stands, in a section's code as in its prose. So a name is lexical, not a corpus-wide symbol, and two files reuse a title freely.
 
-`titlesIn` indexes one file's titled sections by their raw title, the first of any in-file duplicate winning — the duplicate itself a fault the diagnostics raise. `titleIndexes` builds that index for every file, once. `resolveAnchor` is the lookup: it picks the target file — the anchor's own, or the one its path names — and finds the title there. `resolveRelative` resolves that path against the anchor's own directory, the anchor's path minus its last segment, folding `.` and `..` as it goes.
+`titlesIn` indexes one file's titled sections by their raw title. The first of any in-file duplicate wins, and the duplicate itself is a fault the diagnostics raise. `titleIndexes` builds that index for every file, once. `anchorModule` picks the file an anchor resolves in: the anchor's own file for a bare anchor, or the file its path names. `resolveRelative` resolves that path against the directory of the anchor's own file, dropping the file's last segment and folding `.` and `..` as it goes. `resolveAnchor` is the lookup itself: it finds the anchor's title in the file `anchorModule` picks. The product pass picks the file through `anchorModule` too, so the tangle and the editor agree on where a name lives.
 
 =>
 
@@ -79,15 +79,16 @@ export type TitleIndexes = ReadonlyMap<Path, ReadonlyMap<string, SectionRef>>
 export const titleIndexes = (modules: Modules): TitleIndexes =>
   new Map(Array.fromIterable(modules.values()).map((m) => [m.path, titlesIn(m)] as const))
 
+export const anchorModule = (from: Path, anchor: WarpAnchorToken): Path =>
+  anchor.target === undefined ? from : resolveRelative(from, anchor.target.value)
+
 export const resolveAnchor = (
   indexes: TitleIndexes,
   from: Path,
   anchor: WarpAnchorToken,
 ): Option.Option<SectionRef> =>
   pipe(
-    Option.fromNullishOr(
-      indexes.get(anchor.target === undefined ? from : resolveRelative(from, anchor.target.value)),
-    ),
+    Option.fromNullishOr(indexes.get(anchorModule(from, anchor))),
     Option.flatMap((index) => Option.fromNullishOr(index.get(anchor.name.value))),
   )
 
@@ -786,9 +787,11 @@ export const renameRangeAt = (
 
 Every node carries a health, and a health holds diagnostics. `diagnosticsIn` is the walk that reads them out. It descends any node, gathers the diagnostics it carries, and skips the `health` field itself, so a node's diagnostics are collected once rather than again at every child. It keeps every severity — error, warning, and informational note alike — because the editor surfaces them all.
 
-`moduleDiagnostics` is the per-file view: one module's diagnostics from both tiers, the grammatical health on its parsed document and the semantic health on its product. An anchor that resolves to nothing or crosses a language carries its fault on the `NameRef` the product pass built, so the walk reads the `product.code` alone; a tangle sink's `File` repeats that same `Code`, and reading it too would count every sink's diagnostics twice. This is what the editor reads for an open `.loom`.
+`moduleDiagnostics` is the per-file view: one module's diagnostics from both tiers, the grammatical health on its parsed document and the semantic health on its product. The product pass lands each anchor fault on the part it builds for that anchor. An unresolved or ambiguous anchor leaves an empty `Fragment` carrying the fault, and a cross-language anchor leaves a `NameRef` carrying it. So the walk reads the `product.code` alone. A tangle sink's `File` repeats that same `Code`, and reading it too would count every sink's diagnostics twice.
 
-`corpusErrors` is the whole-corpus view the tangler takes, narrowed to errors. It keeps each module's error-severity diagnostics and returns every failing module with them, so the tangler refuses a broken build with one report rather than failing at the first bad file. A warning never blocks a tangle; only an error does.
+An anchor into another file is the one anchor no single module can judge. Its edge names a section the product pass never saw, so the compiler judges it against the whole corpus. The compiler adds what it finds to the module's own diagnostics, both for the open `.loom` in the editor and for the tangle.
+
+`corpusErrors` is the whole-corpus view the tangler takes, narrowed to errors. It reads each module's diagnostics through `diagnosticsOf`, keeps the error-severity ones, and returns every failing module with them. So the tangler refuses a broken build with one report rather than failing at the first bad file. `diagnosticsOf` defaults to `moduleDiagnostics`, and the compiler passes a reader that adds the cross-file judgement. A warning never blocks a tangle; only an error does.
 
 =>
 
@@ -812,6 +815,7 @@ export const moduleDiagnostics = (module: LoomModule): ReadonlyArray<Diagnostic>
 
 export const corpusErrors = (
   corpus: LoomCorpusAst,
+  diagnosticsOf: (module: LoomModule) => ReadonlyArray<Diagnostic> = moduleDiagnostics,
 ): ReadonlyArray<{
   readonly path: Path
   readonly diagnostics: ReadonlyArray<Diagnostic>
@@ -819,7 +823,7 @@ export const corpusErrors = (
   pipe(
     Array.fromIterable(corpus.modules.values()),
     Array.map((m) => {
-      const diagnostics = Array.filter(moduleDiagnostics(m), (d) => d.severity === 'error')
+      const diagnostics = Array.filter(diagnosticsOf(m), (d) => d.severity === 'error')
       return diagnostics.length === 0 ? Option.none() : Option.some({ path: m.path, diagnostics })
     }),
     Array.getSomes,

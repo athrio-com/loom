@@ -21,6 +21,7 @@ import {
   type Path,
 } from '@athrio/loom-ast/LoomCorpusAst'
 import { faulty, UnresolvedTocEntry } from '#ast/LoomFault'
+import { crossFileFaults } from '#ast/ProductBuilder'
 import {
   type ComposedFile,
   type FrameLocation,
@@ -58,6 +59,13 @@ const entryOf = (
     Effect.orDie,
     Effect.map((entry) => ({ modules, entry })),
   )
+
+const corpusDiagnostics =
+  (modules: Modules) =>
+  (module: LoomModule): ReadonlyArray<Diagnostic> => [
+    ...moduleDiagnostics(module),
+    ...crossFileFaults(modules, module),
+  ]
 
 export interface TangledFile {
   readonly section: string
@@ -301,7 +309,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         buildCorpus(documents, path).pipe(
           Effect.flatMap((modules) => {
             const scoped = scopedTo(modules, reachable(modules, path))
-            const failures = corpusErrors({ modules: scoped })
+            const failures = corpusErrors({ modules: scoped }, corpusDiagnostics(scoped))
             return failures.length > 0
               ? Effect.fail(new TangleError({ entry: path, failures }))
               : config
@@ -356,7 +364,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
               Option.match({
                 onNone: () => [],
                 onSome: (module) => [
-                  ...moduleDiagnostics(module),
+                  ...corpusDiagnostics(modules)(module),
                   ...Array.flatMap(
                     unresolvedTocEntriesIn({ modules }, module),
                     (title) =>

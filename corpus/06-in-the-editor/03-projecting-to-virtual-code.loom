@@ -52,7 +52,11 @@ const concat = (a: LoomVirtualCode, b: LoomVirtualCode): LoomVirtualCode => ({
 
 ## Inlining the product
 
-The de re walk inlines a section's fragments. `inlineComposed` folds them left to right, carrying both the text emitted so far and each fragment's successor, so it can tell whether an anchor stands alone on its line; a `Ref` that does is re-indented to that line's indent (the next section), and every other fragment — an anchor with code beside it among them — is appended as it stands. The fold also carries a flag: after an anchor that owned its line, the fragment that follows opens with the spaces the author left past the anchor, so the fold trims them. `inlinePart` handles each one: a `Fragment` becomes a `product` leaf mapped to its origin; a reference is followed and inlined, contributing nothing when its target is unresolved, missing, or cyclic. Every reference is a same-document `NameRef` sharing the consuming scope, so a transcluded block maps to the named section's own source. `absorbTrailingNewline`, with `clipMappings`, sheds a transcluded block's trailing newline so the sink's layout becomes the output's.
+The de re walk inlines a section's fragments. `inlineComposed` folds them left to right, carrying both the text emitted so far and each fragment's successor, so it can tell whether an anchor stands alone on its line. A `Ref` that does is re-indented to that line's indent (the next section), and every other fragment — an anchor with code beside it among them — is appended as it stands. The fold also carries a flag. After an anchor that owned its line, the fragment that follows opens with the spaces the author left past the anchor, so the fold trims them.
+
+`inlinePart` handles each fragment. A `Fragment` becomes a `product` leaf, and a reference is followed and inlined, contributing nothing when its target is unresolved, missing, or cyclic. `absorbTrailingNewline`, with `clipMappings`, sheds a transcluded block's trailing newline so the sink's layout becomes the output's.
+
+A leaf maps to its origin only when its section lives in the file being projected, the `home` file the walk carries down from its root. A mapping is a span in that one file's source, while a `Fragment`'s origin is a span in the file its own section came from. So a block that a cross-file anchor pulls in still lands in the code, and the product type-checks whole, but the block maps nowhere in the home file. Its own file projects it again, with mappings of its own, and an edit to that block belongs there.
 
 =>
 
@@ -75,17 +79,21 @@ const absorbTrailingNewline = (vc: LoomVirtualCode): LoomVirtualCode => {
 }
 
 const inlinePart =
-  (modules: ReadonlyMap<Path, LoomModule>, seen: ReadonlySet<string>) =>
+  (
+    modules: ReadonlyMap<Path, LoomModule>,
+    seen: ReadonlySet<string>,
+    home: Path,
+    mapped: boolean,
+  ) =>
   (part: Fragment | Ref): LoomVirtualCode => {
     if (part.type === 'Fragment') {
-      return leaf('', '', part.text, [
-        {
-          genStart: 0,
-          genLength: part.text.length,
-          source: part.origin,
-          kind: 'product',
-        },
-      ])
+      const origin: Mapping = {
+        genStart: 0,
+        genLength: part.text.length,
+        source: part.origin,
+        kind: 'product',
+      }
+      return leaf('', '', part.text, mapped ? [origin] : [])
     }
     return pipe(
       part.target,
@@ -94,15 +102,15 @@ const inlinePart =
       Option.match({
         onNone: () => emptyLeaf,
         onSome: ([t, node]) =>
-          absorbTrailingNewline(inlineComposed(modules, new Set([...seen, keyOf(t)]))(node)),
+          absorbTrailingNewline(inlineComposed(modules, new Set([...seen, keyOf(t)]), home)(node)),
       }),
     )
   }
 
 const inlineComposed =
-  (modules: ReadonlyMap<Path, LoomModule>, seen: ReadonlySet<string>) =>
+  (modules: ReadonlyMap<Path, LoomModule>, seen: ReadonlySet<string>, home: Path) =>
   (node: Code): LoomVirtualCode => {
-    const build = inlinePart(modules, seen)
+    const build = inlinePart(modules, seen, home, node.origin.path === home)
     const seed: { vc: LoomVirtualCode; trim: boolean } = {
       vc: emptyLeaf,
       trim: false,
@@ -262,7 +270,7 @@ export const symbolMappings = (doc: LoomDocument): ReadonlyArray<Mapping> =>
 
 `fromProduct` is the de re pass — a section's product in its own language. Its virtual-code id is the section name lowercased, since Volar requires every embedded-code id to be lowercase. A section absent from the corpus yields an empty document. `fromProse` is the prose pass — the file as a Markdown document, its `languageId` `prose`, every code chunk blanked to spaces so only the prose shows while its offsets stay put. `proseMappings` maps each prose token to its own source span — the document and section preambles, every heading, and the prose between code blocks — so a mapping is precise per token, never a whole line or the whole file. `rootVirtualCode` assembles a file's tree: the source itself as the `loom` root, the prose and product documents its children. The root carries a whole-file identity span of the `source` kind, so Loom's own diagnostics reach the editor on the file the author opened, and the section-symbol spans beside it, so navigation and rename reach each heading and anchor there.
 
-`rootNamesAt` names a file's composition roots — the sections no reference folds in. It reads the file's `product.code` from the corpus, the sections the run produced. Every reference is a same-file `NameRef`, a name anchor naming a section in this file, and it demotes its target: the target becomes a fragment of the referring section's root, sharing that scope, not a unit of its own. The sections left over, named by no reference, are the roots. The editor type-checks them and lets each fold in the fragments it names. The names come back lowercased, to match the de re ids `fromProduct` assigns.
+`rootNamesAt` names a file's composition roots — the sections no reference in the file folds in. It reads the file's `product.code` from the corpus, the sections the run produced. A reference to a section in the same file demotes its target: the target becomes a fragment of the referring section's root, sharing that scope, not a unit of its own. A reference into another file demotes nothing here, because its target belongs to that other file, which names its own roots. The sections left over, named by no same-file reference, are the roots. The editor type-checks them and lets each fold in the fragments it names. The names come back lowercased, to match the de re ids `fromProduct` assigns.
 
 =>
 
@@ -275,7 +283,7 @@ export const fromProduct = (
     Option.match({
       onNone: () => leaf(root.name.toLowerCase(), '', '', []),
       onSome: (node) => ({
-        ...inlineComposed(modules, new Set([keyOf(root)]))(node),
+        ...inlineComposed(modules, new Set([keyOf(root)]), root.path)(node),
         id: root.name.toLowerCase(),
         languageId: node.languageId,
       }),

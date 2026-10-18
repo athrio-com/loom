@@ -61,15 +61,16 @@ export type TitleIndexes = ReadonlyMap<Path, ReadonlyMap<string, SectionRef>>
 export const titleIndexes = (modules: Modules): TitleIndexes =>
   new Map(Array.fromIterable(modules.values()).map((m) => [m.path, titlesIn(m)] as const))
 
+export const anchorModule = (from: Path, anchor: WarpAnchorToken): Path =>
+  anchor.target === undefined ? from : resolveRelative(from, anchor.target.value)
+
 export const resolveAnchor = (
   indexes: TitleIndexes,
   from: Path,
   anchor: WarpAnchorToken,
 ): Option.Option<SectionRef> =>
   pipe(
-    Option.fromNullishOr(
-      indexes.get(anchor.target === undefined ? from : resolveRelative(from, anchor.target.value)),
-    ),
+    Option.fromNullishOr(indexes.get(anchorModule(from, anchor))),
     Option.flatMap((index) => Option.fromNullishOr(index.get(anchor.name.value))),
   )
 
@@ -716,6 +717,7 @@ export const moduleDiagnostics = (module: LoomModule): ReadonlyArray<Diagnostic>
 
 export const corpusErrors = (
   corpus: LoomCorpusAst,
+  diagnosticsOf: (module: LoomModule) => ReadonlyArray<Diagnostic> = moduleDiagnostics,
 ): ReadonlyArray<{
   readonly path: Path
   readonly diagnostics: ReadonlyArray<Diagnostic>
@@ -723,7 +725,7 @@ export const corpusErrors = (
   pipe(
     Array.fromIterable(corpus.modules.values()),
     Array.map((m) => {
-      const diagnostics = Array.filter(moduleDiagnostics(m), (d) => d.severity === 'error')
+      const diagnostics = Array.filter(diagnosticsOf(m), (d) => d.severity === 'error')
       return diagnostics.length === 0 ? Option.none() : Option.some({ path: m.path, diagnostics })
     }),
     Array.getSomes,

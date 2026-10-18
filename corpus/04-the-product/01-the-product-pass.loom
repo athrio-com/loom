@@ -11,17 +11,26 @@ Loom's pipeline is a chain of small passes between explicit models. This module 
 
 The pass is a build, the same shape as the parser before it. The parser folds a stream of wefts into the Loom AST; this folds that AST's sections into the product. It is total by construction. Every section becomes one `Code`, and a section that names a file to write — with a `[file]` sink, or a `{Tangle}` specifier — becomes a `File` as well. An anchor that resolves to nothing becomes an empty `Fragment` carrying error health on its own node — a fault the editor reports, never a thrown exception. Grammatical health, a malformed anchor say, is already on the parse; semantic health, an anchor that resolves to nothing or crosses a language, is attached here, where the pass has the names to judge it.
 
-What an anchor edge carries is an identity, not a copy. A `NameRef` records the `SectionId` its anchor resolves to and nothing more; `fromProduct` follows that edge across the corpus and inlines the target later, at projection. So this pass stays within one document: it resolves each anchor against that document's own sections and leaves the cross-file inlining to the projection that reads the whole corpus.
+What an anchor edge carries is an identity, not a copy. A `NameRef` records the `SectionId` its anchor resolves to and nothing more. `fromProduct` follows that edge across the corpus and inlines the target later, at projection.
+
+So this pass stays within one document. A bare anchor resolves against the document's own sections, and the pass judges it in full. An anchor with a path, `::[Saying hello](greeting.loom)`, names a section in another file, which this pass never sees. Its edge records the file the path names and the name the section must carry there. `crossFileFaults` judges that edge later, once the compiler holds the whole corpus.
 
 ## What this module draws on
 
-The pass reads the Loom AST and writes the product AST, so it draws from both. From `effect` come the array and option combinators, `Match` for dispatching on a weft, `Order` for sorting a run's anchors by position, and `pipe` for the spine. From the Loom side come the document and section types, the warp and anchor tokens a section carries, and the section-body weft a code run is made of. The fault catalog gives `faulty` and the three anchor faults this pass raises, and the tokeniser's `normaliseTitle` folds a heading into the name that identifies its section. From the product side come the schema constructors for every node the pass builds — the `Code` of a section, its `Fragment` and `NameRef` leaves, and the `File` a `{Tangle}` section emits — together with the `SectionId` that stamps each one.
+The pass reads the Loom AST and writes the product AST, so it draws from both. From `effect` come the array and option combinators, `Match` for dispatching on a weft, `Order` for sorting a run's anchors by position, and `pipe` for the spine. From the Loom side come the document and section types, the warp and anchor tokens a section carries, and the section-body weft a code run is made of. The fault catalog gives `faulty` and the three anchor faults this pass raises, and the tokeniser's `normaliseTitle` folds a heading into the name that identifies its section. From the product side come the schema constructors for every node the pass builds — the `Code` of a section, its `Fragment` and `NameRef` leaves, and the `File` a `{Tangle}` section emits — together with the `SectionId` that stamps each one. From the corpus model come `anchorModule`, which picks the file an anchor resolves in, and the `LoomModule` the cross-file judgement reads, with the `Diagnostic` it returns.
 
 =>
 
 import { Array, Context, Effect, Layer, Match, Option, Order, pipe } from 'effect'
 import type { LoomDocument, LoomFrontmatter, LoomSection } from '@athrio/loom-ast/LoomAst'
-import { okHealth, type Health, type Point, type Position } from '@athrio/loom-ast/LoomNode'
+import {
+  okHealth,
+  type Diagnostic,
+  type Health,
+  type Point,
+  type Position,
+} from '@athrio/loom-ast/LoomNode'
+import { anchorModule, type LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
 import type { SinkToken, WarpAnchorToken, WarpToken } from '@athrio/loom-ast/LoomTokens'
 import type { SectionBodyWeft } from '@athrio/loom-ast/Weft'
 import {
@@ -31,6 +40,7 @@ import {
   FileSchema,
   type Fragment,
   FragmentSchema,
+  type NameRef,
   NameRefSchema,
   type Part,
   type Product,
@@ -466,7 +476,9 @@ const byStart: Order.Order<WarpAnchorToken> = Order.mapInput(
 
 `bindAnchor` turns one anchor into one part. A value warp composes its literal, a named section composes an edge to that section, and an anchor that resolves to nothing composes an empty fragment in its place. So a broken or unresolvable anchor never leaves a dangling reference: the section always composes, and the product code around the anchor keeps its language service.
 
-A resolved anchor takes one of two paths. When the name is a value warp, the anchor composes that warp's text as a `Fragment` where the anchor stood, carrying the warp's health so an undeclared `${name}` raises its fault at the warp. No edge, since a literal reaches no section. Otherwise the name is looked up among the section titles. One match resolves to a `NameRef`, the edge that carries the target section's identity; the projection follows it and inlines the section there. A match in another language is a cross-language transclusion: the edge stands, since the section is real, but the pass marks the anchor, because a JSON section composed into a TypeScript one shares no file.
+An anchor with a path is bound first, because it names a file before it names a section. `anchorModule` resolves the path against this document's own path, and when it lands on another file, `crossFileRef` composes a `NameRef` to that file at once. The edge carries the name `normaliseTitle` folds from the anchor, which is the name the target section's own `Code` carries. This pass sees no other file, so it cannot tell whether that section exists, and the edge leaves here healthy. `crossFileFaults`, in the next section, judges it against the corpus. A path that lands back on this document binds like a bare anchor.
+
+An anchor that stays in this document takes one of two paths. When the name is a value warp, the anchor composes that warp's text as a `Fragment` where the anchor stood, carrying the warp's health so an undeclared `${name}` raises its fault at the warp. No edge, since a literal reaches no section. Otherwise the name is looked up among the section titles. One match resolves to a `NameRef`, the edge that carries the target section's identity; the projection follows it and inlines the section there. A match in another language is a cross-language transclusion: the edge stands, since the section is real, but the pass marks the anchor, because a JSON section composed into a TypeScript one shares no file.
 
 An anchor that cannot resolve leaves an empty fragment instead, and what rides on that fragment depends on why it failed. A grammatically broken anchor — an empty `::[]` or an unclosed `::[n` — already carries the parser's fault on its own span, so the fragment adds none. A well-formed name that matches no section is unresolved; one that matches more than one is ambiguous. The fragment carries that diagnostic and lands it on the anchor.
 
@@ -478,6 +490,8 @@ const bindAnchor =
     const name = anchor.name.value
     const at = anchor.name.position
     if (anchor.health.status !== 'ok') return blankFragment(anchor.position)
+    const file = anchorModule(modulePath, anchor)
+    if (file !== modulePath) return crossFileRef(file, name, at)
     const value = values.get(name)
     if (value !== undefined) {
       return FragmentSchema.make({ text: value.text, origin: at, health: value.health })
@@ -499,6 +513,12 @@ const bindAnchor =
     })
   }
 
+const crossFileRef = (path: string, title: string, at: Position): NameRef =>
+  NameRefSchema.make({
+    target: Option.some<SectionId>({ path, name: normaliseTitle(title) }),
+    anchor: at,
+  })
+
 const blankFragment = (at: Position, health: Health = okHealth): Fragment =>
   FragmentSchema.make({ text: '', origin: at, health })
 
@@ -509,6 +529,84 @@ const ambiguous = (name: string, at: Position, count: number): Health =>
 
 const crossLanguage = (name: string, at: Position, host: string, found: string): Health =>
   faulty(CrossLanguageAnchor({ name, host, found }), at)
+
+## Judging an edge across files
+
+An edge into another file leaves the product pass unjudged. `crossFileFaults` judges it once the compiler holds the whole corpus. It reads one module's product with every other module beside it, and returns a diagnostic for each edge into another file that cannot compose. The compiler adds these to the module's own diagnostics. So the editor marks a broken cross-file anchor where the author wrote it, and the tangle refuses to write a file that would silently drop one.
+
+The judgement asks the three questions the pass asks of a local anchor, this time of the file the path names. A name that titles no section there is unresolved, and so is a name whose path names no loom in the corpus. A name that titles more than one section is ambiguous. A section in another language is a cross-language transclusion, measured against the language of the section that holds the anchor. An edge that passes all three composes, and `fromProduct` inlines it.
+
+A `NameRef` keeps only the folded name, so the judgement reads the anchor's raw name from the module's source, under the edge's `anchor` span. `crossFileEdge` picks the parts worth judging: an edge whose target lies in another file. `codesTitled` finds the sections in the target file whose raw title matches the name, and returns the `Code` each one composed, so `edgeHealth` reads a candidate's language off its product. `languageHealth` is the last question alone: the found language against the host's.
+
+=>
+
+export const crossFileFaults = (
+  modules: ReadonlyMap<string, LoomModule>,
+  module: LoomModule,
+): ReadonlyArray<Diagnostic> =>
+  pipe(
+    module.product.code,
+    Array.flatMap((host) =>
+      Array.flatMap(host.fragments, (part) =>
+        pipe(
+          crossFileEdge(module, part),
+          Option.map(
+            ({ ref, target }) => edgeHealth(modules, module, host, ref, target).diagnostics,
+          ),
+          Option.getOrElse((): ReadonlyArray<Diagnostic> => []),
+        ),
+      ),
+    ),
+  )
+
+const crossFileEdge = (
+  module: LoomModule,
+  part: Part,
+): Option.Option<{ readonly ref: NameRef; readonly target: SectionId }> =>
+  part.type === 'NameRef'
+    ? pipe(
+        part.target,
+        Option.filter((target) => target.path !== module.path),
+        Option.map((target) => ({ ref: part, target })),
+      )
+    : Option.none()
+
+const codesTitled = (module: LoomModule, title: string): ReadonlyArray<Code> =>
+  pipe(
+    module.doc.sections,
+    Array.filter((section) => section.heading.title?.source === title),
+    Array.flatMap((section) =>
+      Option.toArray(
+        Array.findFirst(module.product.code, (code) => code.origin.name === sectionNameOf(section)),
+      ),
+    ),
+  )
+
+const edgeHealth = (
+  modules: ReadonlyMap<string, LoomModule>,
+  module: LoomModule,
+  host: Code,
+  ref: NameRef,
+  target: SectionId,
+): Health => {
+  const at = ref.anchor
+  const name = module.text.slice(at.start.offset, at.end.offset)
+  const found = pipe(
+    Option.fromNullishOr(modules.get(target.path)),
+    Option.map((there) => codesTitled(there, name)),
+    Option.getOrElse((): ReadonlyArray<Code> => []),
+  )
+  return Array.matchLeft(found, {
+    onEmpty: () => unresolved(name, at),
+    onNonEmpty: (code, rest) =>
+      rest.length > 0
+        ? ambiguous(name, at, rest.length + 1)
+        : languageHealth(name, at, host.languageId, code.languageId),
+  })
+}
+
+const languageHealth = (name: string, at: Position, host: string, found: string): Health =>
+  found === host ? okHealth : crossLanguage(name, at, host, found)
 
 ## A section's name and its spans
 
@@ -550,5 +648,7 @@ The tangle composes the sections in the source's own order — the spine first, 
 ::[Composing a section's code]
 
 ::[Binding an anchor]
+
+::[Judging an edge across files]
 
 ::[A section's name and its spans]

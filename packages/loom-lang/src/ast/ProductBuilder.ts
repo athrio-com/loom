@@ -1,6 +1,13 @@
 import { Array, Context, Effect, Layer, Match, Option, Order, pipe } from 'effect'
 import type { LoomDocument, LoomFrontmatter, LoomSection } from '@athrio/loom-ast/LoomAst'
-import { okHealth, type Health, type Point, type Position } from '@athrio/loom-ast/LoomNode'
+import {
+  okHealth,
+  type Diagnostic,
+  type Health,
+  type Point,
+  type Position,
+} from '@athrio/loom-ast/LoomNode'
+import { anchorModule, type LoomModule } from '@athrio/loom-ast/LoomCorpusAst'
 import type { SinkToken, WarpAnchorToken, WarpToken } from '@athrio/loom-ast/LoomTokens'
 import type { SectionBodyWeft } from '@athrio/loom-ast/Weft'
 import {
@@ -10,6 +17,7 @@ import {
   FileSchema,
   type Fragment,
   FragmentSchema,
+  type NameRef,
   NameRefSchema,
   type Part,
   type Product,
@@ -387,6 +395,8 @@ const bindAnchor =
     const name = anchor.name.value
     const at = anchor.name.position
     if (anchor.health.status !== 'ok') return blankFragment(anchor.position)
+    const file = anchorModule(modulePath, anchor)
+    if (file !== modulePath) return crossFileRef(file, name, at)
     const value = values.get(name)
     if (value !== undefined) {
       return FragmentSchema.make({ text: value.text, origin: at, health: value.health })
@@ -408,6 +418,12 @@ const bindAnchor =
     })
   }
 
+const crossFileRef = (path: string, title: string, at: Position): NameRef =>
+  NameRefSchema.make({
+    target: Option.some<SectionId>({ path, name: normaliseTitle(title) }),
+    anchor: at,
+  })
+
 const blankFragment = (at: Position, health: Health = okHealth): Fragment =>
   FragmentSchema.make({ text: '', origin: at, health })
 
@@ -418,6 +434,74 @@ const ambiguous = (name: string, at: Position, count: number): Health =>
 
 const crossLanguage = (name: string, at: Position, host: string, found: string): Health =>
   faulty(CrossLanguageAnchor({ name, host, found }), at)
+
+export const crossFileFaults = (
+  modules: ReadonlyMap<string, LoomModule>,
+  module: LoomModule,
+): ReadonlyArray<Diagnostic> =>
+  pipe(
+    module.product.code,
+    Array.flatMap((host) =>
+      Array.flatMap(host.fragments, (part) =>
+        pipe(
+          crossFileEdge(module, part),
+          Option.map(
+            ({ ref, target }) => edgeHealth(modules, module, host, ref, target).diagnostics,
+          ),
+          Option.getOrElse((): ReadonlyArray<Diagnostic> => []),
+        ),
+      ),
+    ),
+  )
+
+const crossFileEdge = (
+  module: LoomModule,
+  part: Part,
+): Option.Option<{ readonly ref: NameRef; readonly target: SectionId }> =>
+  part.type === 'NameRef'
+    ? pipe(
+        part.target,
+        Option.filter((target) => target.path !== module.path),
+        Option.map((target) => ({ ref: part, target })),
+      )
+    : Option.none()
+
+const codesTitled = (module: LoomModule, title: string): ReadonlyArray<Code> =>
+  pipe(
+    module.doc.sections,
+    Array.filter((section) => section.heading.title?.source === title),
+    Array.flatMap((section) =>
+      Option.toArray(
+        Array.findFirst(module.product.code, (code) => code.origin.name === sectionNameOf(section)),
+      ),
+    ),
+  )
+
+const edgeHealth = (
+  modules: ReadonlyMap<string, LoomModule>,
+  module: LoomModule,
+  host: Code,
+  ref: NameRef,
+  target: SectionId,
+): Health => {
+  const at = ref.anchor
+  const name = module.text.slice(at.start.offset, at.end.offset)
+  const found = pipe(
+    Option.fromNullishOr(modules.get(target.path)),
+    Option.map((there) => codesTitled(there, name)),
+    Option.getOrElse((): ReadonlyArray<Code> => []),
+  )
+  return Array.matchLeft(found, {
+    onEmpty: () => unresolved(name, at),
+    onNonEmpty: (code, rest) =>
+      rest.length > 0
+        ? ambiguous(name, at, rest.length + 1)
+        : languageHealth(name, at, host.languageId, code.languageId),
+  })
+}
+
+const languageHealth = (name: string, at: Position, host: string, found: string): Health =>
+  found === host ? okHealth : crossLanguage(name, at, host, found)
 
 export const sectionNameOf = (section: LoomSection): string =>
   normaliseTitle(section.heading.title?.source ?? '')

@@ -115,6 +115,48 @@ const h = 1
   })
 })
 
+// An anchor with a path names a section in another loom, one this pass never sees.
+// So the edge is recorded unjudged: it targets the file the path names, relative to
+// this document, and the name the section's own Code carries there. The compiler
+// judges it against the corpus (see CrossFileAnchor.test.ts).
+describe('ProductBuilder — an anchor with a path becomes a cross-file NameRef', () => {
+  it('targets the folded name in the file the path names', () => {
+    const product = productOf(
+      `# The program [hello.ts]
+
+=>
+::[Saying hello](../lib/greeting.loom)
+console.log(greet('world'))
+`,
+      '/corpus/app/hello.loom',
+      'typescript',
+    )
+    const program = Option.getOrThrow(codeNamed(product, 'TheProgram'))
+    const ref = refs(program.fragments)
+    expect(ref).toHaveLength(1)
+    expect(ref[0]!.health.status).toBe('ok')
+    expect(Option.getOrNull(ref[0]!.target)).toEqual({
+      path: '/corpus/lib/greeting.loom',
+      name: 'SayingHello',
+    })
+  })
+
+  it('binds a path back to its own document like a bare anchor', () => {
+    const product = productOf(
+      `# Caller
+
+=>
+::[Ghost](m.loom)
+`,
+      '/m.loom',
+      'typescript',
+    )
+    const caller = Option.getOrThrow(codeNamed(product, 'Caller'))
+    expect(refs(caller.fragments)).toHaveLength(0)
+    expect(fragments(caller.fragments)[0]!.health.status).toBe('error')
+  })
+})
+
 describe('ProductBuilder — an unresolved anchor becomes an empty faulted Fragment', () => {
   it('leaves an empty Fragment carrying UnresolvedAnchor health', () => {
     const product = productOf(`---

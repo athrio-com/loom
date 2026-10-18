@@ -65,17 +65,21 @@ const absorbTrailingNewline = (vc: LoomVirtualCode): LoomVirtualCode => {
 }
 
 const inlinePart =
-  (modules: ReadonlyMap<Path, LoomModule>, seen: ReadonlySet<string>) =>
+  (
+    modules: ReadonlyMap<Path, LoomModule>,
+    seen: ReadonlySet<string>,
+    home: Path,
+    mapped: boolean,
+  ) =>
   (part: Fragment | Ref): LoomVirtualCode => {
     if (part.type === 'Fragment') {
-      return leaf('', '', part.text, [
-        {
-          genStart: 0,
-          genLength: part.text.length,
-          source: part.origin,
-          kind: 'product',
-        },
-      ])
+      const origin: Mapping = {
+        genStart: 0,
+        genLength: part.text.length,
+        source: part.origin,
+        kind: 'product',
+      }
+      return leaf('', '', part.text, mapped ? [origin] : [])
     }
     return pipe(
       part.target,
@@ -84,15 +88,15 @@ const inlinePart =
       Option.match({
         onNone: () => emptyLeaf,
         onSome: ([t, node]) =>
-          absorbTrailingNewline(inlineComposed(modules, new Set([...seen, keyOf(t)]))(node)),
+          absorbTrailingNewline(inlineComposed(modules, new Set([...seen, keyOf(t)]), home)(node)),
       }),
     )
   }
 
 const inlineComposed =
-  (modules: ReadonlyMap<Path, LoomModule>, seen: ReadonlySet<string>) =>
+  (modules: ReadonlyMap<Path, LoomModule>, seen: ReadonlySet<string>, home: Path) =>
   (node: Code): LoomVirtualCode => {
-    const build = inlinePart(modules, seen)
+    const build = inlinePart(modules, seen, home, node.origin.path === home)
     const seed: { vc: LoomVirtualCode; trim: boolean } = {
       vc: emptyLeaf,
       trim: false,
@@ -233,7 +237,7 @@ export const fromProduct = (
     Option.match({
       onNone: () => leaf(root.name.toLowerCase(), '', '', []),
       onSome: (node) => ({
-        ...inlineComposed(modules, new Set([keyOf(root)]))(node),
+        ...inlineComposed(modules, new Set([keyOf(root)]), root.path)(node),
         id: root.name.toLowerCase(),
         languageId: node.languageId,
       }),

@@ -117,7 +117,7 @@ export const describe = (fault: LoomFault): Note =>
     ),
     Match.tag('AmbiguousAnchor', ({ name, count }) =>
       error(
-        `Ambiguous anchor: ${count} sections are named \`${name}\`. A name anchor resolves one local section; rename to disambiguate.`,
+        `Ambiguous anchor: ${count} sections are named \`${name}\`. A name anchor resolves to exactly one section; rename to disambiguate.`,
       ),
     ),
     Match.tag('CrossLanguageAnchor', ({ name, host, found }) =>
