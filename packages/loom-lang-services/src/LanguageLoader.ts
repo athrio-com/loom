@@ -1,6 +1,6 @@
 import { Array, Effect, Option, pipe } from 'effect'
 import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { servicePackage, storeDir } from './LoomStore'
 import { isLanguageService, type LanguageService } from './LanguageService'
@@ -12,7 +12,7 @@ const loadService = (
   root: string,
 ): Effect.Effect<Option.Option<LanguageService>> =>
   Effect.tryPromise(async () => {
-    const from = join(storeDir(dirname(root)), 'index.js')
+    const from = join(storeDir(root), 'index.js')
     const entry = createRequire(from).resolve(servicePackage(id))
     const loaded = (await import(pathToFileURL(entry).href)) as {
       readonly default?: unknown
