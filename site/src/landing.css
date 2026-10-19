@@ -1411,7 +1411,6 @@ h2, .subhead {
     position: sticky;
     top: 0;
     z-index: 40;
-    height: 52px;
     background: var(--paper);
   }
 
@@ -2174,8 +2173,7 @@ h2, .subhead {
   .docs-body { grid-template-columns: minmax(0, 1fr); }
   .menu-card { display: none; }
   .doc-crumbs { display: none; }
-  .section-hero.doc-hero { padding-top: 36px; }
-  .doc-section h2 { scroll-margin-top: 76px; }
+  .doc-section h2 { scroll-margin-top: 80px; }
 }
 
 @media (max-width: 779px) {

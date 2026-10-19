@@ -586,7 +586,7 @@ The nav's side padding steps down with the window, from eighty pixels to twenty-
 
 ~
 
-On the documentation, below a thousand pixels, the nav is the one thing that stays on screen. It pins to the top of the window as a compact bar fifty-two pixels tall on the paper ground. Under its lower edge a gradient twenty-eight pixels deep fades from paper to clear, so the page scrolling up beneath it fades out rather than meeting a hard line.
+On the documentation, below a thousand pixels, the nav is the one thing that stays on screen. It pins to the top of the window on the paper ground. It is as tall as the nav on the other pages, so a chapter's head starts as far down the window as any other page's head. Under its lower edge a gradient twenty-eight pixels deep fades from paper to clear, so the page scrolling up beneath it fades out rather than meeting a hard line.
 
 The burger that opens the drawer sits at the bar's left end, its lines starting on the same line as the content below, which is why it stands nine pixels left of the side air. On the narrowest windows, where the wordmark has moved to the left edge, the wordmark steps forty pixels right to make room for it. Wherever the menu fits beside the sections, the burger is hidden.
 
@@ -599,7 +599,6 @@ The burger that opens the drawer sits at the bar's left end, its lines starting 
     position: sticky;
     top: 0;
     z-index: 40;
-    height: 52px;
     background: var(--paper);
   }
 
@@ -2614,7 +2613,7 @@ A command is usually one short line, and stretched across the column it would be
 
 ~
 
-The page gives way as the window narrows. Below twelve hundred pixels the gap in the head narrows to fifty-six. Below a thousand the menu leaves the page for the drawer, the sections take the full width, and the line above the chapter's name goes with it, since the nav pinned to the top of the window now carries the way through the docs. The head then starts closer to the nav, and a heading scrolled to clears the pinned nav by seventy-six pixels instead of twenty-four. Below seven hundred and eighty the head stacks, the commands falling under the lead.
+The page gives way as the window narrows. Below twelve hundred pixels the gap in the head narrows to fifty-six. Below a thousand the menu leaves the page for the drawer, the sections take the full width, and the line above the chapter's name goes with it, since the nav pinned to the top of the window now carries the way through the docs. The head keeps the same air above it as every other page's head. A heading scrolled to stops eighty pixels from the top of the window instead of twenty-four, which leaves it twenty-four pixels under the pinned nav. Below seven hundred and eighty the head stacks, the commands falling under the lead.
 
 =>
 
@@ -2624,8 +2623,7 @@ The page gives way as the window narrows. Below twelve hundred pixels the gap in
   .docs-body { grid-template-columns: minmax(0, 1fr); }
   .menu-card { display: none; }
   .doc-crumbs { display: none; }
-  .section-hero.doc-hero { padding-top: 36px; }
-  .doc-section h2 { scroll-margin-top: 76px; }
+  .doc-section h2 { scroll-margin-top: 80px; }
 }
 
 @media (max-width: 779px) {
