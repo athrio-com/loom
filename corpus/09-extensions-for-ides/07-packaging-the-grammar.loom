@@ -14,7 +14,9 @@ Building the package is two steps. Tangling writes `grammar.js`, `src/scanner.c`
 
 The `generate` script runs the generator, and the `parse` script parses a file with the grammar to show its tree. The `typecheck` script checks the test's TypeScript, as every package's does. The `tree-sitter-cli` package provides the `tree-sitter` command at a pinned version, so every checkout generates the same parser. The test compares the grammar with Loom's own classifier, so `@athrio/loom-lang` and the AST types of `@athrio/loom-ast` are development dependencies, with Effect and the workspace's test helper.
 
-{{ version = ${version} }}
+The package's version is the grammar's own. It comes from the `grammar` variable of the workspace configuration, not from the `version` that every other Loom package shares. tree-sitter copies the grammar's version into the parser it generates, so a version shared with Loom's releases would make every release regenerate a parser whose grammar had not changed. Neovim, Helix, and Zed fetch the grammar by commit, so none of them reads its version. The grammar's version rises only when the grammar changes, and the parser is regenerated with it.
+
+{{ version = ${grammar} }}
 {{ effect = ${effect} }}
 
 =>
@@ -46,9 +48,9 @@ The `generate` script runs the generator, and the `parse` script parses a file w
 
 ## The grammar's description {Tangle}[tree-sitter.json]
 
-The tree-sitter command reads `tree-sitter.json` to learn what the grammar is. It names the language `loom`, the scope `source.loom`, and the `.loom` extension, and points at the two queries. The injection pattern lets another grammar hand text to this one: a Markdown fence written `loom` is parsed as a loom, so a loom quoted in the docs is coloured as one.
+The tree-sitter command reads `tree-sitter.json` to learn what the grammar is. It names the language `loom`, the scope `source.loom`, and the `.loom` extension, and points at the two queries. The injection pattern lets another grammar hand text to this one: a Markdown fence written `loom` is parsed as a loom, so a loom quoted in the docs is coloured as one. Its `version` is the grammar's own, the one the package carries, and the one tree-sitter writes into the parser.
 
-{{ version = ${version} }}
+{{ version = ${grammar} }}
 
 =>
 
