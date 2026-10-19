@@ -14,6 +14,18 @@ A language that fails to load costs only itself. Its sections stay at syntax hig
 
 The loader resolves a package from a workspace's store, imports it, and reads the package's default export. The loader takes `root`, the workspace whose looms the service serves, and `storeDir` finds that workspace's store. Every workspace keeps a store of its own, so two workspaces may hold one language at two versions, and each workspace loads its own. The import is dynamic, by name and at runtime, because a package is a unit the consumer installs after the editor ships, never one a build could fold in.
 
+A running host keeps every module it imports, under the address it imported the module from. A service that `loom add` replaces sits at the same path as the one it replaced, so an import by path alone would hand back the old module. `serviceAddress` adds the version the store holds to the entry's `file:` address, which makes each version of a service a module of its own. A language server that reloads a workspace's services after `loom add` then meets the version the store now holds. Node keys its modules by the whole address. Bun keys them by the path alone, so a server running on Bun keeps the version it imported first until it restarts.
+
+=>
+
+const serviceAddress = (entry: string, version: Option.Option<string>): string =>
+  Option.match(version, {
+    onNone: () => pathToFileURL(entry).href,
+    onSome: (installed) => `${pathToFileURL(entry).href}?version=${installed}`,
+  })
+
+~
+
 A service the store holds at another version than this Loom's was installed by another release, and it may not work inside this host: a service built against an older Effect fails on its first request. The loader still loads it, since an old service may work, but first logs a warning that names both versions and the `loom add` that brings the service in step. The warning lands before the import, so it is there even when the old service then fails.
 
 What the import returns is unknown until checked. `isLanguageService` confirms the default export has the shape the contract requires, and the loader confirms the service's declared `id` is the one activated. A package that answers to another id, or exports something that is not a service at all, is not the language the project asked for. When the package is missing or fails either check, the loader logs the reason and yields nothing.
@@ -36,7 +48,7 @@ const importService = (id: string, root: string): Effect.Effect<Option.Option<La
   Effect.tryPromise(async () => {
     const from = join(storeDir(root), 'index.js')
     const entry = createRequire(from).resolve(servicePackage(id))
-    const loaded = (await import(pathToFileURL(entry).href)) as {
+    const loaded = (await import(serviceAddress(entry, installedVersion(id, root)))) as {
       readonly default?: unknown
     }
     return loaded.default
@@ -78,7 +90,7 @@ export const loadActive = (
 
 ## What this module draws on
 
-The loader works in Effect: `Effect` runs the load, `Option` carries a language that may not load, and `Array` with `pipe` build the set. Bun loads the package — `createRequire` resolves it within the store, `pathToFileURL` forms the specifier the dynamic import takes, and `join` points the resolver into the store's directory. From `./LoomStore` come `servicePackage`, which names a language's package, `storeDir`, which locates the project's store, and `installedVersion` and `serviceVersion`, which tell a stale service from a current one. From the contract module come the `LanguageService` type and the `isLanguageService` guard; `LoomLanguage` and `ProseLanguage` are the built-in services that always lead the set.
+The loader works in Effect: `Effect` runs the load, `Option` carries a language that may not load or a version the store may not hold, and `Array` with `pipe` build the set. Bun loads the package — `createRequire` resolves it within the store, `pathToFileURL` forms the address the dynamic import takes, and `join` points the resolver into the store's directory. From `./LoomStore` come `servicePackage`, which names a language's package, `storeDir`, which locates the workspace's store, `installedVersion`, which reads the version the store holds, and `serviceVersion`, the version this Loom expects. From the contract module come the `LanguageService` type and the `isLanguageService` guard; `LoomLanguage` and `ProseLanguage` are the built-in services that always lead the set.
 
 =>
 

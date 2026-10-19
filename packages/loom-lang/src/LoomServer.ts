@@ -3,6 +3,7 @@ import {
   createConnection,
   createServer,
   createTypeScriptProject,
+  type FileEvent,
   type LanguageServer,
   type LanguageServerProject,
   type LanguageServicePlugin,
@@ -73,9 +74,10 @@ const projectOver = (
 
 const workspaceProject = (
   home: string,
+  services: Cache.Cache<string, ReadonlyArray<LanguageServicePlugin>>,
   projects: Cache.Cache<string, LanguageServerProject>,
 ): LanguageServerProject => ({
-  setup: () => undefined,
+  setup: (server) => watchConfigs(server, services, projects),
   getLanguageService: (uri) =>
     runtime.runPromise(
       Cache.get(projects, workspaceFor(home, uri)).pipe(
@@ -103,6 +105,53 @@ const workspaceProject = (
     ),
 })
 
+const reconfiguredWorkspaces = (changes: ReadonlyArray<FileEvent>): ReadonlyArray<string> =>
+  pipe(
+    changes,
+    Array.filter((change) => change.uri.endsWith('/.loom/config.yaml')),
+    Array.map((change) => dirname(dirname(fileURLToPath(change.uri)))),
+    Array.dedupe,
+  )
+
+const forgetWorkspace = (
+  services: Cache.Cache<string, ReadonlyArray<LanguageServicePlugin>>,
+  projects: Cache.Cache<string, LanguageServerProject>,
+  workspace: string,
+): Effect.Effect<void> =>
+  Cache.getSuccess(projects, workspace).pipe(
+    Effect.flatMap(
+      Option.match({
+        onNone: () => Effect.void,
+        onSome: (project) => Effect.sync(() => project.reload()),
+      }),
+    ),
+    Effect.andThen(Cache.invalidate(projects, workspace)),
+    Effect.andThen(Cache.invalidate(services, workspace)),
+  )
+
+const reconfigure = (
+  server: LanguageServer,
+  services: Cache.Cache<string, ReadonlyArray<LanguageServicePlugin>>,
+  projects: Cache.Cache<string, LanguageServerProject>,
+  workspaces: ReadonlyArray<string>,
+): Effect.Effect<void> =>
+  workspaces.length === 0
+    ? Effect.void
+    : Effect.forEach(workspaces, (workspace) => forgetWorkspace(services, projects, workspace), {
+        discard: true,
+      }).pipe(Effect.andThen(Effect.sync(() => void server.languageFeatures.requestRefresh(true))))
+
+const watchConfigs = (
+  server: LanguageServer,
+  services: Cache.Cache<string, ReadonlyArray<LanguageServicePlugin>>,
+  projects: Cache.Cache<string, LanguageServerProject>,
+): void => {
+  void server.fileWatcher.watchFiles(['**/.loom/config.yaml'])
+  server.fileWatcher.onDidChangeWatchedFiles(({ changes }) =>
+    runtime.runSync(reconfigure(server, services, projects, reconfiguredWorkspaces(changes))),
+  )
+}
+
 const runtime = ManagedRuntime.make(
   Layer.mergeAll(LoomCompiler.layer, LoomFormatter.layer, LoomConfig.layer).pipe(
     Layer.provide(DocumentSource.layer),
@@ -119,7 +168,7 @@ export const startLanguageServer = (): void => {
     const folder = params.workspaceFolders?.[0]?.uri
     const root = folder ? fileURLToPath(folder) : process.cwd()
     const home = workspaceRoot(root)
-    const { projects, plugins } = await runtime.runPromise(
+    const { services, projects, plugins } = await runtime.runPromise(
       Effect.gen(function* () {
         const path = yield* tsdkFor(params.initializationOptions, root)
         const tsdk = yield* Effect.sync(() => loadTsdkByPath(path, params.locale))
@@ -135,10 +184,10 @@ export const startLanguageServer = (): void => {
             ),
         })
         const plugins = yield* Cache.get(services, home)
-        return { projects, plugins }
+        return { services, projects, plugins }
       }),
     )
-    return server.initialize(params, workspaceProject(home, projects), [...plugins])
+    return server.initialize(params, workspaceProject(home, services, projects), [...plugins])
   })
   connection.onInitialized(() => {
     server.initialized()

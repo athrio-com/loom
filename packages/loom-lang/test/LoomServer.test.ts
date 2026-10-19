@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import {
   createMessageConnection,
+  FileChangeType,
   StreamMessageReader,
   StreamMessageWriter,
   type TextEdit,
@@ -34,11 +35,13 @@ const standIn = (formats: boolean): string =>
     '}',
   )
 
-const workspaceAt = (root: string, service: string): string => {
+const activated = lines('languages:', '  typescript: {}')
+
+const inactive = lines('languages: {}')
+
+const install = (root: string, service: string): void => {
   const store = join(root, '.loom', 'services', 'node_modules', servicePackage('typescript'))
   mkdirSync(store, { recursive: true })
-  mkdirSync(join(root, 'corpus'))
-  writeFileSync(join(root, '.loom', 'config.yaml'), lines('languages:', '  typescript: {}'))
   writeFileSync(
     join(store, 'package.json'),
     JSON.stringify({
@@ -49,9 +52,24 @@ const workspaceAt = (root: string, service: string): string => {
     }),
   )
   writeFileSync(join(store, 'index.js'), service)
+}
+
+const configure = (root: string, config: string): void => {
+  mkdirSync(join(root, '.loom'), { recursive: true })
+  writeFileSync(join(root, '.loom', 'config.yaml'), config)
+}
+
+const loomAt = (root: string): string => {
+  mkdirSync(join(root, 'corpus'), { recursive: true })
   const loom = join(root, 'corpus', 'answer.loom')
   writeFileSync(loom, loomOf('const  answer  =  42'))
   return loom
+}
+
+const workspaceAt = (root: string, service: string): string => {
+  install(root, service)
+  configure(root, activated)
+  return loomAt(root)
 }
 
 const serverEntry = fileURLToPath(new URL('../src/index.ts', import.meta.url))
@@ -74,28 +92,37 @@ const editorAt = async (folder: string) => {
     processId: process.pid,
     rootUri: pathToFileURL(folder).href,
     workspaceFolders: [{ uri: pathToFileURL(folder).href, name: 'outer' }],
-    capabilities: {},
+    capabilities: { workspace: { didChangeWatchedFiles: { dynamicRegistration: true } } },
     initializationOptions: { typescript: { tsdk } },
   })
   await connection.sendNotification('initialized', {})
-  const format = async (path: string): Promise<ReadonlyArray<TextEdit>> => {
-    const uri = pathToFileURL(path).href
-    const text = readFileSync(path, 'utf8')
-    await connection.sendNotification('textDocument/didOpen', {
-      textDocument: { uri, languageId: 'loom', version: 1, text },
+  const open = (path: string): Promise<void> =>
+    connection.sendNotification('textDocument/didOpen', {
+      textDocument: {
+        uri: pathToFileURL(path).href,
+        languageId: 'loom',
+        version: 1,
+        text: readFileSync(path, 'utf8'),
+      },
     })
-    const edits = await connection.sendRequest<TextEdit[] | null>('textDocument/formatting', {
-      textDocument: { uri },
+  const format = async (path: string): Promise<ReadonlyArray<TextEdit>> =>
+    (await connection.sendRequest<TextEdit[] | null>('textDocument/formatting', {
+      textDocument: { uri: pathToFileURL(path).href },
       options: { tabSize: 2, insertSpaces: true },
+    })) ?? []
+  const changed = (path: string): Promise<void> =>
+    connection.sendNotification('workspace/didChangeWatchedFiles', {
+      changes: [{ uri: pathToFileURL(path).href, type: FileChangeType.Changed }],
     })
-    return edits ?? []
-  }
   const close = (): void => {
     connection.dispose()
     child.kill()
   }
-  return { format, close }
+  return { open, format, changed, close }
 }
+
+const texts = (edits: ReadonlyArray<TextEdit>): ReadonlyArray<string> =>
+  Array.map(edits, (edit) => edit.newText)
 
 describe('LoomServer — a loom in a nested workspace', () => {
   it('is formatted by the services of its own workspace', async () => {
@@ -104,10 +131,29 @@ describe('LoomServer — a loom in a nested workspace', () => {
     const nestedLoom = workspaceAt(join(outer, 'nested'), standIn(true))
     const editor = await editorAt(outer)
     try {
+      await editor.open(outerLoom)
+      await editor.open(nestedLoom)
       expect(await editor.format(outerLoom)).toEqual([])
-      expect(Array.map(await editor.format(nestedLoom), (edit) => edit.newText)).toEqual([
-        loomOf('const answer = 42'),
-      ])
+      expect(texts(await editor.format(nestedLoom))).toEqual([loomOf('const answer = 42')])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+
+  it('is served by a language its workspace activates while the server runs', async () => {
+    const outer = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    workspaceAt(outer, standIn(false))
+    const nested = join(outer, 'nested')
+    configure(nested, inactive)
+    const nestedLoom = loomAt(nested)
+    const editor = await editorAt(outer)
+    try {
+      await editor.open(nestedLoom)
+      expect(await editor.format(nestedLoom)).toEqual([])
+      install(nested, standIn(true))
+      configure(nested, activated)
+      await editor.changed(join(nested, '.loom', 'config.yaml'))
+      expect(texts(await editor.format(nestedLoom))).toEqual([loomOf('const answer = 42')])
     } finally {
       editor.close()
     }

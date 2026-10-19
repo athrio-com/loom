@@ -7,6 +7,12 @@ import { isLanguageService, type LanguageService } from './LanguageService'
 import { LoomLanguage } from './LoomLanguage'
 import { ProseLanguage } from './ProseLanguage'
 
+const serviceAddress = (entry: string, version: Option.Option<string>): string =>
+  Option.match(version, {
+    onNone: () => pathToFileURL(entry).href,
+    onSome: (installed) => `${pathToFileURL(entry).href}?version=${installed}`,
+  })
+
 const warnIfStale = (id: string, root: string): Effect.Effect<void> =>
   Option.match(
     Option.filter(installedVersion(id, root), (version) => version !== serviceVersion),
@@ -23,7 +29,7 @@ const importService = (id: string, root: string): Effect.Effect<Option.Option<La
   Effect.tryPromise(async () => {
     const from = join(storeDir(root), 'index.js')
     const entry = createRequire(from).resolve(servicePackage(id))
-    const loaded = (await import(pathToFileURL(entry).href)) as {
+    const loaded = (await import(serviceAddress(entry, installedVersion(id, root)))) as {
       readonly default?: unknown
     }
     return loaded.default
