@@ -689,7 +689,7 @@ const crossLanguage = (
 A section's name is its heading title normalised to an identifier, through the
 tokeniser's `normaliseTitle` — `Multiplier Function` becomes `MultiplierFunction`.
 Every heading has a title, so the function is total, and the name pairs with the
-module path to make the section's corpus-wide identity.
+module path to make the section's corpus-wide identity. The formatter reads the same name, to pair a section with the `Code` the pass builds for it.
 
 The span helpers read a run's source and bounds. `sourceOf` joins a piece list's
 source, `spanOf` takes the span from its first and last positions, and `between`
@@ -697,7 +697,7 @@ pairs two points into a span.
 
 =>
 
-const sectionNameOf = (section: LoomSection): string =>
+export const sectionNameOf = (section: LoomSection): string =>
   normaliseTitle(section.heading.title?.source ?? '')
 
 const sourceOf = (nodes: ReadonlyArray<{ readonly source: string }>): string =>

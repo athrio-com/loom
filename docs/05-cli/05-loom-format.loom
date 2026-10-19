@@ -16,7 +16,9 @@ loom format <path> [--check]
 
 Prose keeps its words and loses only the line breaks inside a paragraph. Lists, code fences, tables, headings and a line that ends in two spaces keep their lines.
 
-Code goes through its language's formatter: Prettier for TypeScript, with your project's own Prettier settings. Lines keep to the project's `width`, a hundred columns unless `.loom/config.yaml` sets another or your Prettier settings name their own. Each change lands in the section that wrote that code. If a change can't be placed in one section, Loom leaves that file's code as you wrote it, so formatting never breaks it.
+Code goes through its language's formatter: Prettier for TypeScript, with your project's own Prettier settings. Each section's code is formatted on its own, from its own first column, so lines keep to the project's `width`, a hundred columns unless `.loom/config.yaml` sets another or your Prettier settings name their own. An anchor is one of those lines, so it takes the indentation the code it brings in needs, and the section it names keeps one shape however many anchors use it.
+
+A section that can't be read by itself, such as the members of an object, is formatted where its one anchor places it. If several anchors use it, it stays as you wrote it. Formatting never breaks code: a tangled file that no longer reads after formatting gets its sections back as they were.
 
 ## Checking
 

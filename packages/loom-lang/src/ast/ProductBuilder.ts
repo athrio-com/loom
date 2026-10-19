@@ -465,7 +465,7 @@ const crossLanguage = (
   found: string,
 ): Health => faulty(CrossLanguageAnchor({ name, host, found }), at)
 
-const sectionNameOf = (section: LoomSection): string =>
+export const sectionNameOf = (section: LoomSection): string =>
   normaliseTitle(section.heading.title?.source ?? '')
 
 const sourceOf = (nodes: ReadonlyArray<{ readonly source: string }>): string =>
