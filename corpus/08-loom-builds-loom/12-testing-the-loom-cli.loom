@@ -331,6 +331,53 @@ describe('loom cli — languages', () => {
   )
 })
 
+## Changing one value of the configuration
+
+`loom set` and `loom add` each change one value of the configuration, and the rest of the file must come through as it was. The configuration in these cases opens with a comment and holds a key no Loom knows, `future`, both of which a decoded and rewritten file would lose. After `set` the file is the original with the one version changed and nothing else. After `add` the comment and the unknown key are still there beside the new language.
+
+=>
+
+const handWritten = lines(
+  '# written by hand',
+  'corpus: corpus',
+  'future: kept',
+  'primary: typescript',
+  'variables:',
+  '  version: 0.0.1',
+)
+
+describe('loom cli — changing one value', () => {
+  it(
+    'set changes the one variable and keeps the rest of the file as written',
+    () => {
+      const dir = workspace(handWritten)
+      mkdirSync(join(dir, 'corpus'))
+      const { status } = loom(['set', 'version', '0.0.2'], { cwd: dir })
+      expect(status).toBe(0)
+      expect(configText(dir)).toBe(handWritten.replace('0.0.1', '0.0.2'))
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    'add records the language and keeps a key it does not know',
+    () => {
+      const home = userStore()
+      const dir = workspace(handWritten)
+      installFake(home, 'typescript')
+      loom(['add', 'typescript'], { cwd: dir, env: { LOOM_HOME: home } })
+      const text = configText(dir)
+      expect(text).toContain('# written by hand')
+      expect(text).toContain('future: kept')
+      expect(text).toContain('typescript: {}')
+      rmSync(home, { recursive: true, force: true })
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+})
+
 ## Keeping a service current
 
 `loom add` brings a service to this Loom's version, so a case must see what the package manager is asked to do without the registry behind it. `fakeNpm` makes a folder holding a script named `npm`, and a case puts that folder first on `PATH`. The script records each call it receives in `calls.log`, then writes the package it was asked for at the version it was asked for, where a real install would put it.
@@ -1026,7 +1073,11 @@ describe('loom cli — nvim', () => {
 
 ::[A project's corpus folder]
 
+::[The width an editor wraps a loom at]
+
 ::[Languages and their store]
+
+::[Changing one value of the configuration]
 
 ::[Keeping a service current]
 

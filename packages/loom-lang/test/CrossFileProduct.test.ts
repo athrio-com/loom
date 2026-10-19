@@ -56,6 +56,7 @@ const checkerFor = async (entry: string) => {
       }),
     manifest: () => Effect.succeed({ languages: { typescript: {} } }),
     materialize: () => Effect.void,
+    edit: () => Effect.void,
   })
   const runtime = ManagedRuntime.make(
     Layer.mergeAll(LoomCompiler.layer, LoomFormatter.layer, configMock).pipe(

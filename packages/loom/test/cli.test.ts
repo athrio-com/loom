@@ -146,6 +146,57 @@ describe('loom cli — init', () => {
   )
 })
 
+describe('loom cli — init, the width of a loom', () => {
+  const configured = 'languages:\n  typescript: {}\nprimary: typescript\n'
+  const editorconfigText = (dir: string): string => readFileSync(join(dir, '.editorconfig'), 'utf8')
+
+  it(
+    'adds a [*.loom] section at the default width, once, beside the lines already there',
+    () => {
+      const dir = workspace(configured)
+      writeFileSync(join(dir, '.editorconfig'), lines('root = true', '', '[*]', 'indent_size = 2'))
+      loom(['init'], { cwd: dir })
+      loom(['init'], { cwd: dir })
+      const text = editorconfigText(dir)
+      expect(text).toStartWith(lines('root = true', '', '[*]', 'indent_size = 2'))
+      expect(text.match(/\[\*\.loom\]/g)?.length).toBe(1)
+      expect(text).toContain('max_line_length = 100')
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    "follows the configuration's width from run to run",
+    () => {
+      const dir = workspace(`${configured}width: 80\n`)
+      loom(['init'], { cwd: dir })
+      expect(editorconfigText(dir)).toContain('max_line_length = 80')
+      writeFileSync(join(dir, '.loom', 'config.yaml'), `${configured}width: 120\n`)
+      loom(['init'], { cwd: dir })
+      const text = editorconfigText(dir)
+      expect(text).toContain('max_line_length = 120')
+      expect(text).not.toContain('max_line_length = 80')
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    "keeps a [*.loom] section of the owner's own as it was",
+    () => {
+      const dir = workspace(configured)
+      writeFileSync(join(dir, '.editorconfig'), lines('[*.loom]', 'max_line_length = 72'))
+      const { status, stdout } = loom(['init'], { cwd: dir })
+      expect(status).toBe(0)
+      expect(stdout).toContain('kept the [*.loom] section')
+      expect(editorconfigText(dir)).toBe(lines('[*.loom]', 'max_line_length = 72'))
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+})
+
 describe('loom cli — languages', () => {
   it(
     'status reports the store, the primary language, and what is activated',
@@ -212,6 +263,47 @@ describe('loom cli — languages', () => {
       )
       const { stdout } = loom(['status'], { cwd: dir })
       expect(stdout).toContain(join(dir, '.loom', 'services'))
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+})
+
+const handWritten = lines(
+  '# written by hand',
+  'corpus: corpus',
+  'future: kept',
+  'primary: typescript',
+  'variables:',
+  '  version: 0.0.1',
+)
+
+describe('loom cli — changing one value', () => {
+  it(
+    'set changes the one variable and keeps the rest of the file as written',
+    () => {
+      const dir = workspace(handWritten)
+      mkdirSync(join(dir, 'corpus'))
+      const { status } = loom(['set', 'version', '0.0.2'], { cwd: dir })
+      expect(status).toBe(0)
+      expect(configText(dir)).toBe(handWritten.replace('0.0.1', '0.0.2'))
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    'add records the language and keeps a key it does not know',
+    () => {
+      const home = userStore()
+      const dir = workspace(handWritten)
+      installFake(home, 'typescript')
+      loom(['add', 'typescript'], { cwd: dir, env: { LOOM_HOME: home } })
+      const text = configText(dir)
+      expect(text).toContain('# written by hand')
+      expect(text).toContain('future: kept')
+      expect(text).toContain('typescript: {}')
+      rmSync(home, { recursive: true, force: true })
       rmSync(dir, { recursive: true, force: true })
     },
     SPAWN_TIMEOUT,

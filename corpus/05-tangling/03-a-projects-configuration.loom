@@ -207,7 +207,9 @@ const resolveFromManifest = (
 
 `LoomConfig` is the service the rest of Loom calls. Its `resolve` takes any path inside a project and returns the configuration that applies to it. The path is usually a `.loom` file, and then `resolve` starts from the folder the file sits in. The path can also be a folder, as when the tangler walks one, and then `resolve` starts from that folder itself. So a workspace's own root resolves to that workspace rather than to whatever lies above it. `isFolder` tells the two apart, and a path that names nothing on disk, such as an in-memory document's, counts as a file. From its starting folder `resolve` finds the workspace, reads the compiled manifest, and resolves against it. A path with no workspace, no manifest, or no name at all resolves to the empty configuration.
 
-Its `manifest` reads a workspace's whole compiled manifest, found by walking up from a directory — the read the activation commands and the editor's service loader share. Its `materialize` writes a manifest back to the workspace's `.loom/config.yaml`, creating the store directory if it is absent.
+Its `manifest` method reads a workspace's whole manifest, found by walking up from a directory. The activation commands and the editor's service loader share that read. Its `materialize` method writes a whole manifest to the workspace's `.loom/config.yaml`, creating the store directory if it is absent. `loom init` uses it, since it writes the file from nothing.
+
+Its `edit` method changes one value in the file and leaves the rest of the file as it was written. It takes the path to the value, such as `variables` and then `version`, and the value to put there. It edits the parsed YAML document, not the decoded manifest, because decoding keeps only the keys this Loom knows. So a key that a newer Loom added survives the edit, and so do the order of the keys and the comments between them. This matters at every release. The published Loom that writes the next version into the file is always a release older than the file it edits.
 
 =>
 
@@ -240,6 +242,16 @@ export class LoomConfig extends Context.Service<LoomConfig>()('LoomConfig', {
         mkdirSync(store, { recursive: true })
         writeFileSync(resolvePath(store, manifestName), stringifyYaml(manifest))
       }),
+
+    edit: (workspace: string, path: ReadonlyArray<string>, value: unknown): Effect.Effect<void> =>
+      Effect.sync(() => {
+        const store = resolvePath(workspace, storeDirName)
+        const file = resolvePath(store, manifestName)
+        mkdirSync(store, { recursive: true })
+        const document = parseDocument(existsSync(file) ? readFileSync(file, 'utf8') : '')
+        document.setIn(path, value)
+        writeFileSync(file, document.toString())
+      }),
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make)
@@ -247,12 +259,12 @@ export class LoomConfig extends Context.Service<LoomConfig>()('LoomConfig', {
 
 ## What the module draws on
 
-Effect supplies `Schema` for every shape, `Option` for a decode that may yield nothing, the `Effect` type its methods return, and `Context` and `Layer` for the service and its layer. The `yaml` package parses and serialises the manifest. Bun's synchronous filesystem reads, writes, and creates directories, and tells a folder from a file; its path module resolves paths, walks to parent directories, and names the platform separator.
+Effect supplies `Schema` for every shape, `Option` for a decode that may yield nothing, the `Effect` type its methods return, and `Context` and `Layer` for the service and its layer. The `yaml` package parses and serialises the manifest, and parses the file as a document that `edit` can change in place. Bun's synchronous filesystem reads, writes, and creates directories, and tells a folder from a file; its path module resolves paths, walks to parent directories, and names the platform separator.
 
 =>
 
 import { Context, Effect, Layer, Option, Schema } from 'effect'
-import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
+import { parse as parseYaml, parseDocument, stringify as stringifyYaml } from 'yaml'
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, resolve as resolvePath } from 'node:path'
 

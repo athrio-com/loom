@@ -301,7 +301,7 @@ const updateLanguages = (
     const current = yield* config.manifest(workspace)
     const ids = change(Object.keys(current?.languages ?? {}))
     const languages = Object.fromEntries(ids.map((id) => [id, current?.languages?.[id] ?? {}]))
-    yield* config.materialize(workspace, { ...(current ?? {}), languages })
+    yield* config.edit(workspace, ['languages'], languages)
   })
 
 const add = (language: string) =>
@@ -380,10 +380,7 @@ const set = (name: string, value: string) =>
       return
     }
     const current = yield* config.manifest(workspace)
-    yield* config.materialize(workspace, {
-      ...(current ?? {}),
-      variables: { ...(current?.variables ?? {}), [name]: value },
-    })
+    yield* config.edit(workspace, ['variables', name], value)
     const corpus = resolvePath(workspace, current?.corpus ?? 'corpus')
     const written = yield* tangler.tangle(corpus)
     yield* Console.log(`loom: set ${name} = ${value} (re-tangled ${written.length} files)`)

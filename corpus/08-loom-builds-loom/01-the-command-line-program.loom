@@ -356,7 +356,7 @@ const init = (dir: Option.Option<string>) =>
 
 The store keeps each service at the version of this Loom. `loom add` installs a service the store lacks and replaces one the store holds at another version, the way a service installed by an older release is replaced after an upgrade. Re-adding a current language just records it, with no package manager and no network. The command says which of the three happened, naming the old version of a service it replaced. An install that fails leaves with the reason and a non-zero exit, the config untouched, because a language whose service never arrived must not read as activated.
 
-Both commands record the change the same way. `updateLanguages` reads the workspace's current manifest, rewrites its activated languages, and writes it back. It keeps the corpus directory, the primary, the anchor, the per-language settings, and any package overrides the manifest already holds, so turning a language on or off changes only the set of languages. An activated language keeps its existing entry — a service override among it — while a new one starts empty.
+Both commands record the change the same way. `updateLanguages` reads the workspace's activated languages, applies the change, and writes the new set back as the configuration's `languages` through its `edit` method. Every other line of `.loom/config.yaml` stays as it was written, so turning a language on or off changes only the set of languages. An activated language keeps its existing entry, with any service override in it, while a new one starts empty.
 
 =>
 
@@ -370,7 +370,7 @@ const updateLanguages = (
     const current = yield* config.manifest(workspace)
     const ids = change(Object.keys(current?.languages ?? {}))
     const languages = Object.fromEntries(ids.map((id) => [id, current?.languages?.[id] ?? {}]))
-    yield* config.materialize(workspace, { ...(current ?? {}), languages })
+    yield* config.edit(workspace, ['languages'], languages)
   })
 
 const add = (language: string) =>
@@ -440,7 +440,7 @@ const status = Effect.gen(function* () {
 
 `loom set <name> <value>` writes a workspace variable and re-tangles the corpus. Every variable lives under the configuration's `variables`, so the name alone identifies it and the command needs no `variables.` prefix. A variable feeds the value warps that interpolate it, so writing one without re-tangling would leave the composed output — a version in every manifest, say — behind the configuration. This command changes the one value and reconciles the whole corpus to it in a single step.
 
-The name and the value are two arguments with a space between them — `loom set version 0.0.4`, no `=`. A name that is not a plain word of letters, digits, and underscores, or a value written with a leading `=`, is rejected with the usage rather than bound, so a stray `=` never becomes the value. Given good input, the command reads the workspace manifest, sets the one variable under `variables`, writes the manifest back, and tangles the corpus directory the configuration names.
+The name and the value are two arguments with a space between them — `loom set version 0.0.4`, no `=`. A name that is not a plain word of letters, digits, and underscores, or a value written with a leading `=`, is rejected with the usage rather than bound, so a stray `=` never becomes the value. Given good input, the command changes the one variable in `.loom/config.yaml` through the configuration's `edit` method, which leaves every other line of the file as it was written. Then it tangles the corpus directory the configuration names.
 
 =>
 
@@ -463,10 +463,7 @@ const set = (name: string, value: string) =>
       return
     }
     const current = yield* config.manifest(workspace)
-    yield* config.materialize(workspace, {
-      ...(current ?? {}),
-      variables: { ...(current?.variables ?? {}), [name]: value },
-    })
+    yield* config.edit(workspace, ['variables', name], value)
     const corpus = resolvePath(workspace, current?.corpus ?? 'corpus')
     const written = yield* tangler.tangle(corpus)
     yield* Console.log(`loom: set ${name} = ${value} (re-tangled ${written.length} files)`)

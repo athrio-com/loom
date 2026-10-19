@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, Option, Schema } from 'effect'
-import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
+import { parse as parseYaml, parseDocument, stringify as stringifyYaml } from 'yaml'
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, resolve as resolvePath } from 'node:path'
 
@@ -162,6 +162,16 @@ export class LoomConfig extends Context.Service<LoomConfig>()('LoomConfig', {
         const store = resolvePath(workspace, storeDirName)
         mkdirSync(store, { recursive: true })
         writeFileSync(resolvePath(store, manifestName), stringifyYaml(manifest))
+      }),
+
+    edit: (workspace: string, path: ReadonlyArray<string>, value: unknown): Effect.Effect<void> =>
+      Effect.sync(() => {
+        const store = resolvePath(workspace, storeDirName)
+        const file = resolvePath(store, manifestName)
+        mkdirSync(store, { recursive: true })
+        const document = parseDocument(existsSync(file) ? readFileSync(file, 'utf8') : '')
+        document.setIn(path, value)
+        writeFileSync(file, document.toString())
       }),
   }),
 }) {
