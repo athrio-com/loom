@@ -26,7 +26,7 @@ Nothing beside the executable holds TypeScript either, which the language server
 
 ## Compiling the executable [compile.ts]
 
-The package's `compile` script runs this program, which builds the executable for the machine it runs on. The release runs it once on each platform's own machine. It works in three steps, and each writes into `build`, a folder Git ignores.
+The package's `compile` script runs this program, which builds the executable for the machine it runs on. The release runs it once on each platform's own machine. It works in three steps, and a fourth on macOS, and each writes into `build`, a folder Git ignores.
 
 First it compiles the grammar into a library, under the name `loom helix` writes it by, `loom.so` or `loom.dll` on Windows. The compiler call is the one `loom helix` makes, and `CC` names another compiler, as it does there.
 
@@ -139,11 +139,23 @@ const compiledExecutable = run([
   join(build, 'loom'),
 ])
 
+~
+
+On macOS a fourth step signs the executable again. Bun builds it from its own runtime, which comes signed, and then writes Loom's program into the file after that signature was made. The signature no longer matches the file, so `codesign --verify` rejects it. macOS still runs the file, since it checks only the pages of code it loads, but a stricter check by a security tool or a managed Mac would refuse it. `signedExecutable` signs the finished file ad hoc, with no certificate, as `codesign --sign -` does, and names it `loom`. Signing with a Developer ID, which lets Gatekeeper open a file downloaded through a browser, would replace that `-` with the identity.
+
+=>
+
+const signedExecutable =
+  process.platform === 'darwin'
+    ? run(['codesign', '--force', '--sign', '-', '--identifier', 'loom', join(build, 'loom')])
+    : Effect.void
+
 const compile = Effect.gen(function* () {
   yield* Effect.sync(() => mkdirSync(build, { recursive: true }))
   yield* compiledGrammar
   yield* packedTypeScript
   yield* compiledExecutable
+  yield* signedExecutable
   yield* Console.log(`compile: wrote ${join(build, 'loom')} with ${grammarLibrary} and TypeScript`)
 })
 
@@ -286,6 +298,21 @@ describe('the executable — tangling', () => {
     },
     SMOKE_TIMEOUT,
   )
+})
+
+## A signature macOS accepts
+
+On macOS the compile signs the executable again, so that its signature covers the whole file. The case asks `codesign` to verify that signature strictly, the check a security tool or a managed Mac would make. Windows and Linux carry no such signature, so the case runs on macOS alone.
+
+=>
+
+describe.skipIf(process.platform !== 'darwin')('the executable — signature', () => {
+  it('carries a signature that codesign accepts', () => {
+    const check = Bun.spawnSync(['codesign', '--verify', '--strict', binary], { stderr: 'pipe' })
+    expect({ status: check.exitCode, stderr: check.stderr.toString() }).toMatchObject({
+      status: 0,
+    })
+  })
 })
 
 ## A language service from the store
@@ -762,6 +789,8 @@ import { runtimeKey } from '@athrio/loom-lang-services/Runtime'
 ::[A workspace to run it in]
 
 ::[Tangling with nothing installed]
+
+::[A signature macOS accepts]
 
 ::[A language service from the store]
 
