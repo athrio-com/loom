@@ -397,7 +397,7 @@ h2, .subhead {
 
 .rt-command:hover { border-color: var(--ink); }
 .rt-command .prompt { color: var(--ink-3); }
-.rt-command .line { flex: 1; min-width: 0; }
+.rt-command .line { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 
 .rt-command .took {
   font-size: var(--t-micro);

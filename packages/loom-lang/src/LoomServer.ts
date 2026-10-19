@@ -17,7 +17,15 @@ import { LoomCompiler, DocumentSource } from './LoomCompiler'
 import { LoomFormatter } from './LoomFormatter'
 import { PackageConfig } from './PackageConfig'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
-import { workspaceOf, workspaceRoot } from '@athrio/loom-lang-services/LoomStore'
+import {
+  installTypeScript,
+  standalone,
+  storeDir,
+  storeTypeScript,
+  typeScriptRange,
+  workspaceOf,
+  workspaceRoot,
+} from '@athrio/loom-lang-services/LoomStore'
 import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
 
 const EditorTsdkSchema = Schema.Struct({
@@ -36,24 +44,50 @@ const installedTsdk = (from: string): Option.Option<string> =>
     dirname,
   )
 
-export class MissingTypeScript extends Data.TaggedError('MissingTypeScript')<{
-  readonly root: string
-}> {
-  get message(): string {
-    return `Loom's language server needs TypeScript 6 or earlier, and found none in ${this.root} or beside Loom. TypeScript 7 has no JavaScript API for it to load. Install one in the project with \`bun add -d typescript@6\`, or have the editor send its path as \`initializationOptions.typescript.tsdk\`.`
-  }
-}
+const besideLoom = (): Option.Option<string> =>
+  standalone ? Option.none() : installedTsdk(import.meta.url)
 
-const tsdkFor = (options: unknown, root: string): Effect.Effect<string, MissingTypeScript> =>
+const foundTsdk = (options: unknown, root: string): Option.Option<string> =>
   pipe(
     editorTsdk(options),
     Option.orElse(() => installedTsdk(join(root, 'package.json'))),
-    Option.orElse(() => installedTsdk(import.meta.url)),
-    Option.match({
-      onNone: () => Effect.fail(new MissingTypeScript({ root })),
-      onSome: (tsdk) => Effect.succeed(tsdk),
-    }),
+    Option.orElse(besideLoom),
+    Option.orElse(() => Option.map(storeTypeScript(root), dirname)),
   )
+
+export class MissingTypeScript extends Data.TaggedError('MissingTypeScript')<{
+  readonly root: string
+  readonly failedInstall: Option.Option<string>
+}> {
+  get message(): string {
+    const why = Option.match(this.failedInstall, {
+      onNone: () =>
+        `${this.root} lies in no Loom workspace, so there is no store to install one into; run \`loom init\` there`,
+      onSome: (cause) => `installing one into the workspace's store failed: ${cause}`,
+    })
+    return `Loom's language server needs TypeScript 6 or earlier, and found none in ${this.root} or beside Loom. TypeScript 7 has no JavaScript API for it to load. ${why}. You can also install one in the project with \`bun add -d typescript@6\`, or have the editor send its path as \`initializationOptions.typescript.tsdk\`.`
+  }
+}
+
+const fetchedTsdk = (root: string): Effect.Effect<string, MissingTypeScript> =>
+  Option.match(workspaceOf(root), {
+    onNone: () => Effect.fail(new MissingTypeScript({ root, failedInstall: Option.none() })),
+    onSome: (workspace) =>
+      Effect.logInfo(`installing TypeScript ${typeScriptRange} into ${storeDir(workspace)}`).pipe(
+        Effect.andThen(installTypeScript(workspace)),
+        Effect.map(dirname),
+        Effect.mapError(
+          (error) =>
+            new MissingTypeScript({ root, failedInstall: Option.some(String(error.cause)) }),
+        ),
+      ),
+  })
+
+const tsdkFor = (options: unknown, root: string): Effect.Effect<string, MissingTypeScript> =>
+  Option.match(foundTsdk(options, root), {
+    onNone: () => fetchedTsdk(root),
+    onSome: Effect.succeed,
+  })
 
 const workspaceFor = (home: string, uri: URI): string =>
   uri.scheme === 'file' ? Option.getOrElse(workspaceOf(dirname(uri.fsPath)), () => home) : home

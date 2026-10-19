@@ -1,7 +1,7 @@
 import { Array, Option, pipe } from 'effect'
 import type { Html, HtmlBuilder } from 'foldkit/html'
 import { Copied, PickedRuntime, WentTo, type Message, type Model, type Runtime } from './model'
-import { bunIcon, loomMark, npmIcon, pnpmIcon } from './components'
+import { bunIcon, loomMark, npmIcon, pnpmIcon, terminalIcon } from './components'
 
 const wordmark = (h: HtmlBuilder<Message>): Html =>
   h.div([h.Class('hero-mark')], [loomMark('paper', 1.2), h.div([h.Class('hero-word')], ['Loom'])])
@@ -33,6 +33,12 @@ const installs: ReadonlyArray<Install> = [
   { runtime: 'bun', label: 'bun', command: 'bun add -g @athrio/loom', logo: bunIcon() },
   { runtime: 'npm', label: 'npm', command: 'npm install -g @athrio/loom', logo: npmIcon() },
   { runtime: 'pnpm', label: 'pnpm', command: 'pnpm add -g @athrio/loom', logo: pnpmIcon() },
+  {
+    runtime: 'curl',
+    label: 'curl',
+    command: 'curl -fsSL https://github.com/athrio-com/loom/releases/latest/download/install.sh | sh',
+    logo: terminalIcon(),
+  },
 ]
 
 const commandFor = (runtime: Runtime): string =>

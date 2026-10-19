@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite'
 import { builtinModules, createRequire } from 'node:module'
-import { cpSync } from 'node:fs'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -22,6 +22,8 @@ const umd2esm = {
   },
 }
 
+const grammarRoot = resolve(here, '..', 'tree-sitter-loom')
+
 const grammarFiles = [
   'src/parser.c',
   'src/scanner.c',
@@ -30,17 +32,26 @@ const grammarFiles = [
   'editors/helix/queries/loom',
 ]
 
+const filesUnder = (path: string): ReadonlyArray<string> =>
+  statSync(resolve(grammarRoot, path)).isDirectory()
+    ? readdirSync(resolve(grammarRoot, path)).flatMap((name) => filesUnder(`${path}/${name}`))
+    : [path]
+
+const grammarModule = 'virtual:tree-sitter-loom'
+
 const editorGrammar = {
   name: 'editor-grammar',
-  closeBundle() {
-    grammarFiles.forEach((file) =>
-      cpSync(
-        resolve(here, '..', 'tree-sitter-loom', file),
-        resolve(here, 'dist', 'tree-sitter-loom', file),
-        { recursive: true },
-      ),
-    )
-  },
+  resolveId: (source: string) => (source === grammarModule ? `\0${grammarModule}` : null),
+  load: (id: string) =>
+    id === `\0${grammarModule}`
+      ? `export default ${JSON.stringify(
+          Object.fromEntries(
+            grammarFiles
+              .flatMap(filesUnder)
+              .map((file) => [file, readFileSync(resolve(grammarRoot, file), 'utf8')]),
+          ),
+        )}`
+      : null,
 }
 
 export default defineConfig({

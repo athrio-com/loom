@@ -384,7 +384,7 @@ describe('loom cli — changing one value', () => {
 
 Turning a language on installs its service. A service an older release left in the store is replaced, and `loom add` names both versions. A current service is left alone, and the package manager is never called. A service the store lacks is installed.
 
-A language that is on already is a different case. `loom add` changes nothing for it and names `loom update`, even when the store holds its service at an older version. `loom update` with the language's name replaces that service, and `loom update --all` brings every active language's service up to date, installing the ones the store lacks. `loom update` refuses a language that is not on, pointing to `loom add`, and refuses to run with neither languages nor `--all`. `loom status` marks a stale service with the version the store holds and the `loom update` that replaces it.
+A language that is on already is a different case. `loom add` changes nothing for it and names `loom update`, even when the store holds its service at an older version. `loom update` with the language's name replaces that service, and `loom update --all` brings every active language's service up to date, installing the ones the store lacks. `loom update` refuses a language that is not on, pointing to `loom add`, and refuses to run with neither languages nor `--all`, pointing to `loom upgrade` for a reader who meant Loom itself. `loom status` marks a stale service with the version the store holds and the `loom update` that replaces it.
 
 =>
 
@@ -580,6 +580,7 @@ describe('loom cli — keeping a service current', () => {
       const { status, stderr } = loom(['update'], { cwd: dir })
       expect(status).toBe(1)
       expect(stderr).toContain('usage: loom update')
+      expect(stderr).toContain('loom upgrade')
       rmSync(dir, { recursive: true, force: true })
     },
     SPAWN_TIMEOUT,
@@ -596,6 +597,26 @@ describe('loom cli — keeping a service current', () => {
       expect(stdout).toContain('loom update typescript')
       rmSync(home, { recursive: true, force: true })
       rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+})
+
+## Upgrading Loom from a package manager
+
+The tests run the CLI from its source, the way the npm package runs it, and a package manager owns the files of an npm install. So `loom upgrade` here must leave every file alone and name the package manager's command instead, without a request to GitHub. The source sits in no `.bun` or `pnpm` folder, so the command it names is npm's. The case points `LOOM_RELEASES` at an address where nothing answers, so a request to it would fail the command and the case with it. The standalone executable replaces itself, and the smoke test of the executable covers that path.
+
+=>
+
+describe('loom cli — upgrade', () => {
+  it(
+    'names the package manager\'s command when Loom came from npm',
+    () => {
+      const { status, stdout } = loom(['upgrade'], {
+        env: { LOOM_RELEASES: 'http://127.0.0.1:9/unreachable' },
+      })
+      expect(status).toBe(0)
+      expect(stdout).toContain('npm install -g @athrio/loom@latest')
     },
     SPAWN_TIMEOUT,
   )
@@ -1187,6 +1208,8 @@ describe('loom cli — nvim', () => {
 ::[Changing one value of the configuration]
 
 ::[Keeping a service current]
+
+::[Upgrading Loom from a package manager]
 
 ::[Explicit blocks]
 

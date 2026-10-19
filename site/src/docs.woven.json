@@ -82,6 +82,11 @@
           "number": "6",
           "title": "loom update",
           "slug": "05-cli/06-loom-update"
+        },
+        {
+          "number": "7",
+          "title": "loom upgrade",
+          "slug": "05-cli/07-loom-upgrade"
         }
       ]
     }
@@ -109,7 +114,7 @@
             "chapter": "01-getting-started/01-quick-start",
             "section": "quick-start"
           },
-          "markdown": "In about five minutes you will write a small program as a Loom document and turn it into a file you can run.\n\n```install\n```\n\n```bash\nloom --version\n```"
+          "markdown": "In about five minutes you will write a small program as a Loom document and turn it into a file you can run.\n\n```install\n```\n\n```bash\nloom --version\n```\n\nThe `curl` line is for a machine without Node or Bun. It installs Loom as a single file in `~/.local/bin`, on macOS or Linux. On Windows, download `loom-windows-x64.exe.gz` from the [releases page](https://github.com/athrio-com/loom/releases) instead, and unpack it with a tool such as 7-Zip.\n\nApple hasn't signed or notarised the macOS file yet. Installed with `curl`, it runs straight away. Downloaded through a browser, it won't open until you allow it in System Settings."
         },
         {
           "type": "heading",
@@ -127,7 +132,7 @@
             "chapter": "01-getting-started/01-quick-start",
             "section": "write-your-first-loom"
           },
-          "markdown": "Install the `loom` command once, with the package manager you already use. Make a new folder anywhere you like, and create a file in it called `hello.loom`:\n\n```loom\n---\nLanguage: TypeScript\n---\n\n# Hello world [hello.ts]\n\nLet's write a program which greets the world.\n\n=>\n\n::[Greeting function]\n\nconsole.log(greet('world'))\n\n# Greeting function\n\nWe have assumed the `greet` function takes a name and returns a greeting for it. Let's actually write it.\n\n=>\n\nconst greet = (name: string): string => `Hello, ${name}!`\n\n~\n\nThat's it. Now we have a function that is transcluded and invoked by the code in the `Hello world` section. We can tangle and run it.\n```"
+          "markdown": "Install the `loom` command once, with the package manager you already use, or with `curl` if you use none. Make a new folder anywhere you like, and create a file in it called `hello.loom`:\n\n```loom\n---\nLanguage: TypeScript\n---\n\n# Hello world [hello.ts]\n\nLet's write a program which greets the world.\n\n=>\n\n::[Greeting function]\n\nconsole.log(greet('world'))\n\n# Greeting function\n\nWe have assumed the `greet` function takes a name and returns a greeting for it. Let's actually write it.\n\n=>\n\nconst greet = (name: string): string => `Hello, ${name}!`\n\n~\n\nThat's it. Now we have a function that is transcluded and invoked by the code in the `Hello world` section. We can tangle and run it.\n```"
         },
         {
           "type": "heading",
@@ -1133,7 +1138,7 @@
             "chapter": "05-cli/06-loom-update",
             "section": "loom-update"
           },
-          "markdown": "`loom update` brings a project's language servers up to the Loom you're running. Run it after you upgrade Loom, and in a fresh clone of a project.\n\n```bash\nloom update <language>...\nloom update --all\n```"
+          "markdown": "`loom update` brings a project's language servers up to the Loom you're running. Run it after you upgrade Loom, and in a fresh clone of a project. To upgrade Loom itself, run `loom upgrade`.\n\n```bash\nloom update <language>...\nloom update --all\n```"
         },
         {
           "type": "heading",
@@ -1170,6 +1175,85 @@
             "section": "updating"
           },
           "markdown": "Name the languages to update, or update all of them with `$ loom update --all`. For each language, Loom installs its server if it's missing, replaces it if it's at another version, and leaves it alone if it's current. Git ignores `.loom/services`, so a fresh clone has no servers yet, and the same command installs them.\n\n`loom update` works only on languages that are already on. Turn a language on with `loom add`, and see which servers are out of date with `loom status`. Restart your editor's language server afterwards, so it loads the new ones."
+        }
+      ]
+    },
+    {
+      "slug": "05-cli/07-loom-upgrade",
+      "title": "loom upgrade",
+      "part": "The command line",
+      "blocks": [
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "05-cli/07-loom-upgrade",
+            "section": "loom-upgrade"
+          },
+          "level": 1,
+          "title": "loom upgrade",
+          "id": "loom-upgrade"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "05-cli/07-loom-upgrade",
+            "section": "loom-upgrade"
+          },
+          "markdown": "`loom upgrade` replaces the Loom you're running with the latest release.\n\n```bash\nloom upgrade\n```"
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "05-cli/07-loom-upgrade",
+            "section": "installed-with-curl"
+          },
+          "level": 2,
+          "title": "Installed with curl",
+          "id": "installed-with-curl"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "05-cli/07-loom-upgrade",
+            "section": "installed-with-curl"
+          },
+          "markdown": "If you installed Loom with the `curl` line, `loom upgrade` downloads the latest release for your machine from GitHub. It checks the download against the release's list of checksums, then swaps it in for the file you ran. A download that doesn't match is thrown away, and your Loom stays as it was. If Loom sits in a folder you can't write to, run the install line again instead."
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "05-cli/07-loom-upgrade",
+            "section": "installed-with-a-package-manager"
+          },
+          "level": 2,
+          "title": "Installed with a package manager",
+          "id": "installed-with-a-package-manager"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "05-cli/07-loom-upgrade",
+            "section": "installed-with-a-package-manager"
+          },
+          "markdown": "A package manager that installed Loom owns its files, so `loom upgrade` leaves them alone. It prints the command that upgrades Loom with that package manager instead, such as `npm install -g @athrio/loom@latest`."
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "05-cli/07-loom-upgrade",
+            "section": "after-upgrading"
+          },
+          "level": 2,
+          "title": "After upgrading",
+          "id": "after-upgrading"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "05-cli/07-loom-upgrade",
+            "section": "after-upgrading"
+          },
+          "markdown": "A new Loom expects each project's language servers to match it. Run `$ loom update --all` in each project to bring them along."
         }
       ]
     }

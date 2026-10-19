@@ -1,0 +1,25 @@
+---
+Part V: The command line
+Chapter 7: loom upgrade
+Language: Prose
+---
+
+# loom upgrade
+
+`loom upgrade` replaces the Loom you're running with the latest release.
+
+```bash
+loom upgrade
+```
+
+## Installed with curl
+
+If you installed Loom with the `curl` line, `loom upgrade` downloads the latest release for your machine from GitHub. It checks the download against the release's list of checksums, then swaps it in for the file you ran. A download that doesn't match is thrown away, and your Loom stays as it was. If Loom sits in a folder you can't write to, run the install line again instead.
+
+## Installed with a package manager
+
+A package manager that installed Loom owns its files, so `loom upgrade` leaves them alone. It prints the command that upgrades Loom with that package manager instead, such as `npm install -g @athrio/loom@latest`.
+
+## After upgrading
+
+A new Loom expects each project's language servers to match it. Run `$ loom update --all` in each project to bring them along.

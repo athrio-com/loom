@@ -40,7 +40,7 @@ jobs:
         with:
           install_args: bun npm:@moonrepo/cli
       - name: The book's checks, asked of the change
-        run: moon ci --concurrency 1 :typecheck :test :tangle :nodesign
+        run: moon ci --concurrency 1 :typecheck :test :tangle :nodesign :smoke
         env:
           MOON_BASE: ${{ steps.base.outputs.sha }}
           MOON_HEAD: ${{ github.sha }}

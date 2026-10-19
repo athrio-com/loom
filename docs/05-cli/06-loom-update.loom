@@ -6,7 +6,7 @@ Language: Prose
 
 # loom update
 
-`loom update` brings a project's language servers up to the Loom you're running. Run it after you upgrade Loom, and in a fresh clone of a project.
+`loom update` brings a project's language servers up to the Loom you're running. Run it after you upgrade Loom, and in a fresh clone of a project. To upgrade Loom itself, run `loom upgrade`.
 
 ```bash
 loom update <language>...

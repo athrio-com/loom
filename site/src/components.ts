@@ -276,6 +276,9 @@ export const arrowIcon = (): Html =>
 
 export const checkIcon = (): Html => strokeIcon('13', [strokePath('M20 6 9 17l-5-5')])
 
+export const terminalIcon = (): Html =>
+  strokeIcon('14', [strokePath('m4 17 6-6-6-6'), strokePath('M12 19h8')])
+
 export const burgerIcon = (): Html =>
   strokeIcon('16', [
     ih.line([ih.X1('3'), ih.Y1('6'), ih.X2('21'), ih.Y2('6')], []),

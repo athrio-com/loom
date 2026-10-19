@@ -1,12 +1,37 @@
-import { Cause, Console, Data, Effect, Option, Result, Stream, pipe } from 'effect'
+import {
+  Array,
+  Cause,
+  Console,
+  Data,
+  Effect,
+  Match,
+  Option,
+  Order,
+  Result,
+  Schema,
+  type Scope,
+  Stream,
+  pipe,
+} from 'effect'
 import { Argument, Command, Flag, Prompt } from 'effect/cli'
 import { ChildProcess } from 'effect/process'
 import { NodeRuntime, NodeServices } from '@effect/platform-node'
-import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { createRequire } from 'node:module'
-import { homedir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, resolve as resolvePath } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { gunzipSync } from 'node:zlib'
 import { DocumentSource, type TangledFile, type TangleError } from '@athrio/loom-lang/LoomCompiler'
 import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
 import { LoomWeaver } from '@athrio/loom-lang/weave/LoomWeaver'
@@ -17,12 +42,16 @@ import { defaultWidth, LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
   installedVersion,
   installService,
+  installTypeScript,
   removeService,
   ServiceInstall,
   type StoreError,
   servicePackage,
   serviceVersion,
+  standalone,
   storeDir,
+  storeTypeScript,
+  typeScriptRange,
   workspaceRoot,
 } from '@athrio/loom-lang-services/LoomStore'
 import type { LanguageService } from '@athrio/loom-lang-services/LanguageService'
@@ -138,21 +167,31 @@ const format = (path: string, check: boolean) =>
 const typeScriptFrom = (from: string): Option.Option<string> =>
   Option.liftThrowable(() => createRequire(from).resolve('typescript/lib/typescript.js'))()
 
+const foundTypeScript = (root: string): Option.Option<string> =>
+  pipe(
+    typeScriptFrom(resolvePath(root, 'package.json')),
+    Option.orElse(() => (standalone ? Option.none() : typeScriptFrom(import.meta.url))),
+    Option.orElse(() => storeTypeScript(root)),
+  )
+
+const storedTypeScript = (root: string): Effect.Effect<string, StoreError> =>
+  Console.error(`loom: installing TypeScript ${typeScriptRange} into ${storeDir(root)}`).pipe(
+    Effect.andThen(installTypeScript(root)),
+    Effect.tapError((error) =>
+      Console.error(`loom: could not install TypeScript — ${String(error.cause)}`),
+    ),
+  )
+
 const projectTypeScript = (
   root: string,
 ): Effect.Effect<Option.Option<typeof import('typescript')>> =>
-  Option.match(
-    Option.orElse(typeScriptFrom(resolvePath(root, 'package.json')), () =>
-      typeScriptFrom(import.meta.url),
-    ),
-    {
-      onNone: () => Effect.succeed(Option.none()),
-      onSome: (file) =>
-        Effect.tryPromise(() => import(pathToFileURL(file).href)).pipe(
-          Effect.map((module) => Option.some(module.default ?? module)),
-          Effect.orElseSucceed(() => Option.none()),
-        ),
-    },
+  Option.match(foundTypeScript(root), {
+    onNone: () => storedTypeScript(root),
+    onSome: Effect.succeed,
+  }).pipe(
+    Effect.flatMap((file) => Effect.tryPromise(() => import(pathToFileURL(file).href))),
+    Effect.map((module) => Option.some(module.default ?? module)),
+    Effect.orElseSucceed(() => Option.none()),
   )
 
 const formatLanguages = (target: string) =>
@@ -321,7 +360,7 @@ const installNote = (language: string, change: ServiceInstall): string =>
   })
 
 const failedInstall = (error: StoreError) =>
-  refuse(`loom: could not install ${servicePackage(error.id)} — ${String(error.cause)}`)
+  refuse(`loom: could not install ${error.packageName} — ${String(error.cause)}`)
 
 const alreadyActive = (language: string, dir: string) =>
   Console.log(
@@ -365,7 +404,10 @@ const updateUsage = 'usage: loom update <language>… | loom update --all'
 const update = (languages: ReadonlyArray<string>, all: boolean) =>
   Effect.gen(function* () {
     if (languages.length === 0 && !all)
-      return yield* refuse(`loom: name the languages to update, or use --all — ${updateUsage}`)
+      return yield* refuse(
+        `loom: name the languages to update, or use --all — ${updateUsage}\n` +
+          '      To upgrade Loom itself, run `loom upgrade`.',
+      )
     if (languages.length > 0 && all)
       return yield* refuse(`loom: name languages or use --all, not both — ${updateUsage}`)
     const config = yield* LoomConfig
@@ -388,6 +430,193 @@ const update = (languages: ReadonlyArray<string>, all: boolean) =>
     )
     yield* Console.log(`   ${dim(`store: ${storeDir(dir)}`)}\n`)
   }).pipe(Effect.catchTag('StoreError', failedInstall))
+
+const packageManagerUpgrade = (bundle: string): string =>
+  Match.value(bundle).pipe(
+    Match.when((path: string) => /[\\/]\.bun[\\/]/.test(path), () => 'bun add -g @athrio/loom@latest'),
+    Match.when((path: string) => /[\\/]pnpm[\\/]/.test(path), () => 'pnpm add -g @athrio/loom@latest'),
+    Match.orElse(() => 'npm install -g @athrio/loom@latest'),
+  )
+
+const loomVersion = '0.0.12'
+
+const releases = process.env.LOOM_RELEASES ?? 'https://api.github.com/repos/athrio-com/loom/releases'
+
+const ReleaseSchema = Schema.Struct({
+  tag_name: Schema.String,
+  assets: Schema.Array(Schema.Struct({ name: Schema.String, browser_download_url: Schema.String })),
+})
+
+type Release = typeof ReleaseSchema.Type
+
+const versionOrder: Order.Order<string> = Order.mapInput(
+  Order.Array(Order.Number),
+  (version: string) => version.split('.').map(Number),
+)
+
+class ReleaseUnreachable extends Data.TaggedError('ReleaseUnreachable')<{
+  readonly url: string
+  readonly cause: unknown
+}> {}
+
+const fetched = (url: string): Effect.Effect<Response, ReleaseUnreachable> =>
+  Effect.tryPromise({
+    try: () => fetch(url, { headers: { 'user-agent': 'loom' } }),
+    catch: (cause) => new ReleaseUnreachable({ url, cause }),
+  }).pipe(
+    Effect.filterOrFail(
+      (response) => response.ok,
+      (response) =>
+        new ReleaseUnreachable({ url, cause: `${response.status} ${response.statusText}` }),
+    ),
+  )
+
+const latestRelease: Effect.Effect<Release, ReleaseUnreachable> = Effect.gen(function* () {
+  const url = `${releases}/latest`
+  const response = yield* fetched(url)
+  const body = yield* Effect.tryPromise({
+    try: () => response.json(),
+    catch: (cause) => new ReleaseUnreachable({ url, cause }),
+  })
+  return yield* Schema.decodeUnknownEffect(ReleaseSchema)(body).pipe(
+    Effect.mapError((cause) => new ReleaseUnreachable({ url, cause })),
+  )
+})
+
+const bytesAt = (url: string): Effect.Effect<Uint8Array, ReleaseUnreachable> =>
+  fetched(url).pipe(
+    Effect.flatMap((response) =>
+      Effect.tryPromise({
+        try: async () => new Uint8Array(await response.arrayBuffer()),
+        catch: (cause) => new ReleaseUnreachable({ url, cause }),
+      }),
+    ),
+  )
+
+const executableName =
+  process.platform === 'win32'
+    ? `loom-windows-${process.arch}.exe`
+    : `loom-${process.platform}-${process.arch}`
+
+const assetName = `${executableName}.gz`
+
+class ReleaseLacksAsset extends Data.TaggedError('ReleaseLacksAsset')<{
+  readonly version: string
+  readonly asset: string
+}> {}
+
+class ChecksumMismatch extends Data.TaggedError('ChecksumMismatch')<{
+  readonly asset: string
+}> {}
+
+const assetUrl = (release: Release, asset: string): Effect.Effect<string, ReleaseLacksAsset> =>
+  Option.match(
+    Array.findFirst(release.assets, (candidate) => candidate.name === asset),
+    {
+      onNone: () => Effect.fail(new ReleaseLacksAsset({ version: release.tag_name, asset })),
+      onSome: (found) => Effect.succeed(found.browser_download_url),
+    },
+  )
+
+const listedChecksum = (sums: string, asset: string): Option.Option<string> =>
+  pipe(
+    sums.split('\n'),
+    Array.map((line) => line.trim().split(/\s+/)),
+    Array.findFirst((fields) => fields[1] === asset || fields[1] === `*${asset}`),
+    Option.flatMap((fields) => Option.fromNullishOr(fields[0])),
+  )
+
+const verified = (
+  bytes: Uint8Array,
+  sums: string,
+  asset: string,
+): Effect.Effect<Uint8Array, ChecksumMismatch> =>
+  Option.contains(listedChecksum(sums, asset), createHash('sha256').update(bytes).digest('hex'))
+    ? Effect.succeed(bytes)
+    : Effect.fail(new ChecksumMismatch({ asset }))
+
+class UnpackFailed extends Data.TaggedError('UnpackFailed')<{
+  readonly asset: string
+  readonly cause: unknown
+}> {}
+
+const unpacked = (archive: Uint8Array): Effect.Effect<Uint8Array, UnpackFailed> =>
+  Effect.try({
+    try: () => new Uint8Array(gunzipSync(archive)),
+    catch: (cause) => new UnpackFailed({ asset: assetName, cause }),
+  })
+
+class ReplaceFailed extends Data.TaggedError('ReplaceFailed')<{
+  readonly path: string
+  readonly cause: unknown
+}> {}
+
+const moveAside = (target: string): void => {
+  if (process.platform !== 'win32') return
+  rmSync(`${target}.old`, { force: true })
+  renameSync(target, `${target}.old`)
+}
+
+const replaceExecutable = (bytes: Uint8Array): Effect.Effect<void, ReplaceFailed> => {
+  const target = process.execPath
+  const partial = `${target}.${process.pid}`
+  return Effect.try({
+    try: () => {
+      writeFileSync(partial, bytes, { mode: 0o755 })
+      moveAside(target)
+      renameSync(partial, target)
+    },
+    catch: (cause) => new ReplaceFailed({ path: target, cause }),
+  }).pipe(Effect.tapError(() => Effect.sync(() => rmSync(partial, { force: true }))))
+}
+
+const upgradeStandalone = Effect.gen(function* () {
+  const release = yield* latestRelease
+  const latest = release.tag_name.replace(/^v/, '')
+  if (!Order.isGreaterThan(versionOrder)(latest, loomVersion))
+    return yield* Console.log(
+      `\n   ${teal('✓')} Loom ${loomVersion} is up to date; the latest release is ${latest}\n`,
+    )
+  const archive = yield* assetUrl(release, assetName).pipe(Effect.flatMap(bytesAt))
+  const sums = yield* assetUrl(release, 'SHA256SUMS').pipe(
+    Effect.flatMap(bytesAt),
+    Effect.map((bytes) => new TextDecoder().decode(bytes)),
+  )
+  yield* verified(archive, sums, assetName).pipe(
+    Effect.flatMap(unpacked),
+    Effect.flatMap(replaceExecutable),
+  )
+  yield* Console.log(
+    `\n   ${teal('✓')} upgraded Loom from ${loomVersion} to ${latest}\n` +
+      `   ${dim('run `loom update --all` in each workspace to bring its services along')}\n`,
+  )
+})
+
+const upgrade = Effect.gen(function* () {
+  if (standalone) return yield* upgradeStandalone
+  yield* Console.log(
+    `\n   Loom was installed by a package manager, which upgrades it:\n\n` +
+      `   ${packageManagerUpgrade(fileURLToPath(import.meta.url))}\n`,
+  )
+}).pipe(
+  Effect.catchTags({
+    ReleaseUnreachable: (error) =>
+      refuse(`loom: could not reach the latest release at ${error.url} — ${String(error.cause)}`),
+    ReleaseLacksAsset: (error) =>
+      refuse(`loom: release ${error.version} carries no ${error.asset}`),
+    ChecksumMismatch: (error) =>
+      refuse(
+        `loom: the checksum of the downloaded ${error.asset} does not match the release's list, so Loom was left as it was`,
+      ),
+    UnpackFailed: (error) =>
+      refuse(`loom: could not unpack ${error.asset} — ${String(error.cause)}`),
+    ReplaceFailed: (error) =>
+      refuse(
+        `loom: could not replace ${error.path} — ${String(error.cause)}\n` +
+          '      Run the install script again, or move Loom somewhere you can write to.',
+      ),
+  }),
+)
 
 const status = Effect.gen(function* () {
   const config = yield* LoomConfig
@@ -484,25 +713,56 @@ const design = (project: string, application: string, port: number) =>
     ),
   )
 
+const embeddedGrammar: Effect.Effect<Option.Option<Readonly<Record<string, string>>>> =
+  Effect.tryPromise(() => import('virtual:tree-sitter-loom')).pipe(
+    Effect.map((module) => Option.some(module.default)),
+    Effect.orElseSucceed(() => Option.none()),
+  )
+
+const unpackedGrammar = (
+  files: Readonly<Record<string, string>>,
+): Effect.Effect<string, never, Scope.Scope> =>
+  Effect.acquireRelease(
+    Effect.sync(() => mkdtempSync(resolvePath(tmpdir(), 'loom-grammar-'))),
+    (dir) => Effect.sync(() => rmSync(dir, { recursive: true, force: true })),
+  ).pipe(
+    Effect.tap((dir) =>
+      Effect.forEach(
+        Object.entries(files),
+        ([path, text]) =>
+          Effect.sync(() => {
+            mkdirSync(dirname(resolvePath(dir, path)), { recursive: true })
+            writeFileSync(resolvePath(dir, path), text)
+          }),
+        { discard: true },
+      ),
+    ),
+  )
+
 class GrammarMissing extends Data.TaggedError('GrammarMissing')<{}> {}
 
 const grammarIn = (dir: string): Option.Option<string> =>
   existsSync(resolvePath(dir, 'src', 'parser.c')) ? Option.some(dir) : Option.none()
 
-const shippedGrammar: Effect.Effect<string, GrammarMissing> = pipe(
-  grammarIn(resolvePath(dirname(fileURLToPath(import.meta.url)), 'tree-sitter-loom')),
-  Option.orElse(() =>
-    Option.flatMap(
-      Option.liftThrowable(() =>
-        createRequire(import.meta.url).resolve('tree-sitter-loom/package.json'),
-      )(),
-      (manifest) => grammarIn(dirname(manifest)),
-    ),
+const workspaceGrammar = (): Option.Option<string> =>
+  Option.flatMap(
+    Option.liftThrowable(() =>
+      createRequire(import.meta.url).resolve('tree-sitter-loom/package.json'),
+    )(),
+    (manifest) => grammarIn(dirname(manifest)),
+  )
+
+const shippedGrammar: Effect.Effect<string, GrammarMissing, Scope.Scope> = embeddedGrammar.pipe(
+  Effect.flatMap(
+    Option.match({
+      onSome: unpackedGrammar,
+      onNone: () =>
+        Option.match(workspaceGrammar(), {
+          onNone: () => Effect.fail(new GrammarMissing()),
+          onSome: (dir) => Effect.succeed(dir),
+        }),
+    }),
   ),
-  Option.match({
-    onNone: () => Effect.fail(new GrammarMissing()),
-    onSome: (dir) => Effect.succeed(dir),
-  }),
 )
 
 class GrammarCompileFailed extends Data.TaggedError('GrammarCompileFailed')<{
@@ -613,6 +873,7 @@ const helix = Effect.gen(function* () {
       `   ${dim('check it with `hx --health loom`')}\n`,
   )
 }).pipe(
+  Effect.scoped,
   Effect.catchTags({
     GrammarMissing: () => refuse('loom: this installation of Loom carries no grammar for Helix.'),
     GrammarCompileFailed: cannotCompile,
@@ -690,6 +951,7 @@ const nvim = Effect.gen(function* () {
       `   ${dim('check it with `:checkhealth vim.treesitter` in Neovim')}\n`,
   )
 }).pipe(
+  Effect.scoped,
   Effect.catchTags({
     GrammarMissing: () => refuse('loom: this installation of Loom carries no grammar for Neovim.'),
     GrammarCompileFailed: cannotCompile,
@@ -752,6 +1014,8 @@ const updateCommand = Command.make(
   ({ languages, all }) => update(languages, all),
 )
 
+const upgradeCommand = Command.make('upgrade', {}, () => upgrade)
+
 const statusCommand = Command.make('status', {}, () => status)
 
 const setCommand = Command.make(
@@ -785,6 +1049,7 @@ const loom = Command.make('loom').pipe(
     addCommand,
     removeCommand,
     updateCommand,
+    upgradeCommand,
     statusCommand,
     setCommand,
     designCommand,
@@ -793,9 +1058,7 @@ const loom = Command.make('loom').pipe(
   ]),
 )
 
-const program = Command.run(loom, {
-  version: '0.0.12',
-}).pipe(
+const program = Command.run(loom, { version: loomVersion }).pipe(
   Effect.provide(LoomTangler.layer),
   Effect.provide(LoomWeaver.layer),
   Effect.provide(LoomContents.layer),

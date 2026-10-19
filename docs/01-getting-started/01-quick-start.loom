@@ -15,9 +15,13 @@ In about five minutes you will write a small program as a Loom document and turn
 loom --version
 ```
 
+The `curl` line is for a machine without Node or Bun. It installs Loom as a single file in `~/.local/bin`, on macOS or Linux. On Windows, download `loom-windows-x64.exe.gz` from the [releases page](https://github.com/athrio-com/loom/releases) instead, and unpack it with a tool such as 7-Zip.
+
+Apple hasn't signed or notarised the macOS file yet. Installed with `curl`, it runs straight away. Downloaded through a browser, it won't open until you allow it in System Settings.
+
 ## Write your first loom
 
-Install the `loom` command once, with the package manager you already use. Make a new folder anywhere you like, and create a file in it called `hello.loom`:
+Install the `loom` command once, with the package manager you already use, or with `curl` if you use none. Make a new folder anywhere you like, and create a file in it called `hello.loom`:
 
 ```loom
 ---
