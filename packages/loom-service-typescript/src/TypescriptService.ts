@@ -20,7 +20,7 @@ import {
   ServiceError,
   TypescriptSdk,
 } from '@athrio/loom-lang-services/LanguageService'
-import { createProductProgram, type ProductProgram } from './ProductProgram'
+import { createProductProgram, type ProductFile, type ProductProgram } from './ProductProgram'
 
 type TypeScript = typeof import('typescript')
 
@@ -28,6 +28,7 @@ const loomOverrides = (options: CompilerOptions): CompilerOptions => ({
   ...options,
   noEmit: true,
   allowImportingTsExtensions: true,
+  composite: false,
 })
 
 const baselineOptions = (ts: TypeScript): CompilerOptions =>
@@ -39,12 +40,46 @@ const baselineOptions = (ts: TypeScript): CompilerOptions =>
     skipLibCheck: true,
   })
 
-const consumerOptions = (ts: TypeScript, loomPath: string): CompilerOptions => {
-  const found = ts.findConfigFile(dirname(loomPath), ts.sys.fileExists, 'tsconfig.json')
-  if (found === undefined) return baselineOptions(ts)
-  const read = ts.readConfigFile(found, ts.sys.readFile)
-  const parsed = ts.parseJsonConfigFileContent(read.config ?? {}, ts.sys, dirname(found))
-  return loomOverrides(parsed.options)
+export const consumerOptions = (ts: TypeScript, config: Option.Option<string>): CompilerOptions =>
+  Option.match(config, {
+    onNone: () => baselineOptions(ts),
+    onSome: (found) =>
+      loomOverrides(
+        ts.parseJsonConfigFileContent(
+          ts.readConfigFile(found, ts.sys.readFile).config ?? {},
+          ts.sys,
+          dirname(found),
+        ).options,
+      ),
+  })
+
+export const configNear = (ts: TypeScript): ((path: string) => Option.Option<string>) => {
+  const found = new Map<string, Option.Option<string>>()
+  return (path) => {
+    const folder = dirname(path)
+    return Option.getOrElse(Option.fromNullishOr(found.get(folder)), () => {
+      const config = Option.fromNullishOr(
+        ts.findConfigFile(folder, ts.sys.fileExists, 'tsconfig.json'),
+      )
+      found.set(folder, config)
+      return config
+    })
+  }
+}
+
+export type Reach = 'project' | 'corpus'
+
+export interface ProductProject {
+  readonly key: string
+  readonly config: Option.Option<string>
+}
+
+const projectOf = (
+  configOf: (path: string) => Option.Option<string>,
+  file: ComposedFile,
+): ProductProject => {
+  const config = configOf(file.path)
+  return { key: Option.getOrElse(config, () => file.loomPath), config }
 }
 
 export interface ProductTarget {
@@ -64,8 +99,10 @@ export const productTarget = (
   decoded: readonly [URI, string] | undefined,
   languageId: string,
   text: string,
-  programFor: (loomPath: string) => ProductProgram,
+  programFor: (project: ProductProject) => ProductProgram,
   rootsFor: (loomPath: string) => ReadonlyArray<ComposedFile>,
+  configOf: (path: string) => Option.Option<string>,
+  reach: Reach,
 ): ProductTarget | undefined => {
   const extension = tsExtension.get(languageId)
   if (decoded === undefined || extension === undefined) return undefined
@@ -90,12 +127,22 @@ export const productTarget = (
     onNone: () => Array.append(composed, edited),
     onSome: () => composed,
   })
-  const program = programFor(loomPath)
+  const project = projectOf(configOf, edited)
+  const listed = (file: ComposedFile): boolean =>
+    reach === 'corpus' || projectOf(configOf, file).key === project.key
+  const program = programFor(
+    reach === 'corpus' ? { ...project, key: `corpus of ${project.key}` } : project,
+  )
+  const asFile = (file: ComposedFile): ProductFile => ({
+    path: file.path,
+    text: file === edited ? text : file.content,
+  })
   program.sync(
-    Array.map(roots, (file) => ({
-      path: file.path,
-      text: file === edited ? text : file.content,
-    })),
+    Array.map(Array.filter(roots, listed), asFile),
+    Array.map(
+      Array.filter(roots, (file) => !listed(file)),
+      asFile,
+    ),
   )
   return { program, fileName: edited.path, roots }
 }
@@ -114,21 +161,29 @@ const productPlugin = (ts: TypeScript, composition: CompositionApi): LanguageSer
     },
   },
   create: (context) => {
+    const configOf = configNear(ts)
     const programs = new Map<string, ProductProgram>()
-    const programFor = (loomPath: string): ProductProgram => {
-      const existing = programs.get(loomPath)
+    const programFor = (project: ProductProject): ProductProgram => {
+      const existing = programs.get(project.key)
       if (existing !== undefined) return existing
-      const program = createProductProgram(ts, consumerOptions(ts, loomPath))
-      programs.set(loomPath, program)
+      const program = createProductProgram(ts, consumerOptions(ts, project.config))
+      programs.set(project.key, program)
       return program
     }
-    const targetOf = (uri: string, languageId: string, text: string): ProductTarget | undefined =>
+    const targetOf = (
+      uri: string,
+      languageId: string,
+      text: string,
+      reach: Reach,
+    ): ProductTarget | undefined =>
       productTarget(
         context.decodeEmbeddedDocumentUri(URI.parse(uri)),
         languageId,
         text,
         programFor,
         composition.rootsFor,
+        configOf,
+        reach,
       )
 
     const embeddedUriOf = (roots: ReadonlyArray<ComposedFile>, uri: string): string =>
@@ -194,21 +249,21 @@ const productPlugin = (ts: TypeScript, composition: CompositionApi): LanguageSer
 
     return {
       provideDiagnostics: (document) => {
-        const target = targetOf(document.uri, document.languageId, document.getText())
+        const target = targetOf(document.uri, document.languageId, document.getText(), 'project')
         return target === undefined ? undefined : target.program.diagnostics(target.fileName)
       },
       provideHover: (document, position) => {
-        const target = targetOf(document.uri, document.languageId, document.getText())
+        const target = targetOf(document.uri, document.languageId, document.getText(), 'project')
         return target === undefined ? undefined : target.program.hover(target.fileName, position)
       },
       provideCompletionItems: (document, position) => {
-        const target = targetOf(document.uri, document.languageId, document.getText())
+        const target = targetOf(document.uri, document.languageId, document.getText(), 'project')
         return target === undefined
           ? undefined
           : target.program.completions(target.fileName, position)
       },
       provideDefinition: (document, position) => {
-        const target = targetOf(document.uri, document.languageId, document.getText())
+        const target = targetOf(document.uri, document.languageId, document.getText(), 'project')
         return target === undefined
           ? undefined
           : target.program
@@ -216,7 +271,7 @@ const productPlugin = (ts: TypeScript, composition: CompositionApi): LanguageSer
               .then((links) => links?.map((link) => remapDefinition(target.roots, link)))
       },
       provideReferences: (document, position) => {
-        const target = targetOf(document.uri, document.languageId, document.getText())
+        const target = targetOf(document.uri, document.languageId, document.getText(), 'corpus')
         return target === undefined
           ? undefined
           : target.program.references(target.fileName, position).then((locations) =>
@@ -227,7 +282,7 @@ const productPlugin = (ts: TypeScript, composition: CompositionApi): LanguageSer
             )
       },
       provideRenameEdits: (document, position, newName) => {
-        const target = targetOf(document.uri, document.languageId, document.getText())
+        const target = targetOf(document.uri, document.languageId, document.getText(), 'corpus')
         return target === undefined
           ? undefined
           : target.program
@@ -235,7 +290,7 @@ const productPlugin = (ts: TypeScript, composition: CompositionApi): LanguageSer
               .then((edit) => (edit === undefined ? edit : remapEdit(target.roots, edit)))
       },
       provideCodeActions: (document, range, context) => {
-        const target = targetOf(document.uri, document.languageId, document.getText())
+        const target = targetOf(document.uri, document.languageId, document.getText(), 'project')
         return target === undefined
           ? undefined
           : target.program

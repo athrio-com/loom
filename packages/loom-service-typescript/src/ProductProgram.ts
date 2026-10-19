@@ -25,8 +25,16 @@ import type { CompilerOptions, IScriptSnapshot } from 'typescript'
 
 type TypeScript = typeof import('typescript')
 
+export interface ProductFile {
+  readonly path: string
+  readonly text: string
+}
+
 export interface ProductProgram {
-  readonly sync: (files: ReadonlyArray<{ readonly path: string; readonly text: string }>) => void
+  readonly sync: (
+    listed: ReadonlyArray<ProductFile>,
+    others?: ReadonlyArray<ProductFile>,
+  ) => void
   readonly diagnostics: (fileName: string) => Promise<Diagnostic[]>
   readonly hover: (fileName: string, position: Position) => Promise<Hover | undefined>
   readonly completions: (fileName: string, position: Position) => Promise<CompletionList>
@@ -108,6 +116,7 @@ export const createProductProgram = (
   compilerOptions: CompilerOptions,
 ): ProductProgram => {
   const roots = new Map<string, IScriptSnapshot>()
+  let fileNames: ReadonlySet<string> = new Set()
   let projectVersion = 0
   const language = productLanguage(ts, roots)
   const asUri = (fileName: string): URI => URI.file(fileName)
@@ -116,7 +125,7 @@ export const createProductProgram = (
     getCurrentDirectory: () => process.cwd(),
     getCompilationSettings: () => compilerOptions,
     getProjectVersion: () => projectVersion.toString(),
-    getScriptFileNames: () => [...roots.keys()],
+    getScriptFileNames: () => [...fileNames],
   }
 
   const env: LanguageServiceEnvironment = {
@@ -141,11 +150,19 @@ export const createProductProgram = (
       }),
     )
 
-  const sync = (files: ReadonlyArray<{ readonly path: string; readonly text: string }>): void => {
+  const sync = (
+    listed: ReadonlyArray<ProductFile>,
+    others: ReadonlyArray<ProductFile> = [],
+  ): void => {
+    const files = [...listed, ...others]
     const present = new Set(Array.map(files, (file) => file.path))
     const stale = Array.filter(Array.fromIterable(roots.keys()), (path) => !present.has(path))
     const fresh = Array.filter(files, (file) => !unchanged(file.path, file.text))
-    if (stale.length === 0 && fresh.length === 0) return
+    const listing = new Set(Array.map(listed, (file) => file.path))
+    const relisted =
+      listing.size !== fileNames.size ||
+      Array.some(Array.fromIterable(listing), (path) => !fileNames.has(path))
+    if (stale.length === 0 && fresh.length === 0 && !relisted) return
     stale.forEach((path) => {
       roots.delete(path)
       language.scripts.delete(asUri(path))
@@ -155,6 +172,7 @@ export const createProductProgram = (
       roots.set(file.path, snapshot)
       language.scripts.set(asUri(file.path), snapshot)
     })
+    fileNames = listing
     projectVersion++
   }
 

@@ -68,6 +68,7 @@
     "packages/loom-service-typescript/src/ProductProgram.ts",
     "packages/loom-service-typescript/src/TypescriptService.ts",
     "packages/loom-service-typescript/test/ProductLanguage.test.ts",
+    "packages/loom-service-typescript/test/TypescriptService.test.ts",
     "packages/loom-service-typescript/tsconfig.json",
     "packages/loom-service-typescript/vite.config.ts",
     "packages/loom-vscode/.vscodeignore",
