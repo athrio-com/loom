@@ -17,7 +17,7 @@ import { LoomWeaver } from '@athrio/loom-lang/weave/LoomWeaver'
 import { LoomContents } from '@athrio/loom-lang/weave/LoomContents'
 import { LoomFormatter } from '@athrio/loom-lang/LoomFormatter'
 import { PackageConfig } from '@athrio/loom-lang/PackageConfig'
-import { LoomConfig } from '@athrio/loom-config/LoomConfig'
+import { defaultWidth, LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
   addService,
   installedVersion,
@@ -505,6 +505,8 @@ const helixLanguages = [
   'roots = [".loom"]',
   'injection-regex = "^loom$"',
   'language-servers = ["loom"]',
+  'soft-wrap = { enable = true, wrap-at-text-width = true }',
+  `text-width = ${defaultWidth}`,
   '',
   '[language-server.loom]',
   'command = "loom"',

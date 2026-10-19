@@ -634,6 +634,8 @@ describe('loom cli — helix', () => {
     const languages = readFileSync(join(helix, 'languages.toml'), 'utf8')
     expect(languages).toContain('name = "rust"')
     expect(languages.match(/name = "loom"/g)?.length).toBe(1)
+    expect(languages).toContain('soft-wrap = { enable = true, wrap-at-text-width = true }')
+    expect(languages).toContain('text-width = 100')
     const library = process.platform === 'win32' ? 'loom.dll' : 'loom.so'
     expect(existsSync(join(helix, 'runtime', 'grammars', library))).toBe(true)
     expect(existsSync(join(helix, 'runtime', 'queries', 'loom', 'highlights.scm'))).toBe(true)

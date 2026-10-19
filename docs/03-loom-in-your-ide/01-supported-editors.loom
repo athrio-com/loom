@@ -42,6 +42,8 @@ loom helix
 
 The build takes a C compiler, which is the Xcode Command Line Tools on macOS and your distribution's build tools on Linux. Run `loom helix` again after you upgrade Loom, and check the result with `$ hx --health loom`.
 
+Helix wraps a loom's prose on screen at 100 columns, the width Loom formats code to, and `:format` formats the loom.
+
 ## Neovim
 
 Neovim needs no plugin manager. One command builds Loom's grammar into Neovim's data folder and turns on the language server:

@@ -724,7 +724,7 @@ describe('loom cli — format', () => {
 
 `loom helix` writes into Helix's configuration folder, which it finds through `XDG_CONFIG_HOME`, or `APPDATA` on Windows. A case points both at a temporary folder, so the command writes there and never into the configuration of the person running the tests. `helixHome` makes that folder with a `languages.toml` already in it, holding the lines the case starts from.
 
-The first case runs the command twice over a file that already configures another language. The other language survives, Loom appears exactly once, and the compiled grammar and the queries sit in the runtime folder. The compile needs a C compiler, which every machine that builds Loom already has. The second case starts from a file that sets Loom up by hand: the command refuses, says why, and leaves the file as it was.
+The first case runs the command twice over a file that already configures another language. The other language survives, Loom appears exactly once, Loom's entry soft-wraps at the width Loom formats to, and the compiled grammar and the queries sit in the runtime folder. The compile needs a C compiler, which every machine that builds Loom already has. The second case starts from a file that sets Loom up by hand: the command refuses, says why, and leaves the file as it was.
 
 =>
 
@@ -746,6 +746,8 @@ describe('loom cli — helix', () => {
     const languages = readFileSync(join(helix, 'languages.toml'), 'utf8')
     expect(languages).toContain('name = "rust"')
     expect(languages.match(/name = "loom"/g)?.length).toBe(1)
+    expect(languages).toContain('soft-wrap = { enable = true, wrap-at-text-width = true }')
+    expect(languages).toContain('text-width = 100')
     const library = process.platform === 'win32' ? 'loom.dll' : 'loom.so'
     expect(existsSync(join(helix, 'runtime', 'grammars', library))).toBe(true)
     expect(existsSync(join(helix, 'runtime', 'queries', 'loom', 'highlights.scm'))).toBe(true)
