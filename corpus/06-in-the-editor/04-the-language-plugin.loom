@@ -1,6 +1,6 @@
 ---
 Part VI, Chapter 4: The Loom language plugin
-Package: packages/loom-lang/src/LoomLanguagePlugin.ts
+Package: packages/loom-lang/
 Language: TypeScript
 ---
 
@@ -20,7 +20,9 @@ The file's text comes through a passive `Source`. `editorSource` reads the open 
 
 After projecting, the plugin tells Volar what the file depends on, and Volar re-projects the file when any dependency changes. `associate` reads the corpus the projection reached and calls `ctx.getAssociatedScript` for every module the file transitively imports. The registration runs on the warm corpus, after the build, so the projection it triggers is a cache hit rather than a re-entrant build. It registers the whole transitive reach, not the direct imports alone, because Volar marks a dependent dirty one hop at a time on a snapshot change — so a change deep in a chain reaches every file that transcludes it only when each has declared the whole chain.
 
-Volar's hooks are synchronous, so the projection runs through `Runtime.runSync` on the warm runtime built at startup. When a file's own text changes, `updateVirtualCode` evicts its build through `change`, then reprojects and re-registers. A reprojection Volar triggered because a dependency changed leaves the build cache alone — the file's own text is unchanged — and the changed dependency, evicted by its own update, rebuilds when the composition runs over it.
+Volar's hooks are synchronous, so the projection runs through `Runtime.runSync` on the warm runtime built at startup. When a file's own text changes, `updateVirtualCode` sees the change through `changed`, evicts the file's build with the compiler's `invalidate`, then reprojects and re-registers. A reprojection Volar triggered because a dependency changed leaves the build cache alone — the file's own text is unchanged — and the changed dependency, evicted by its own update, rebuilds when the composition runs over it.
+
+A file's build lasts only as long as Volar's script for it. When Volar deletes a script, `disposeVirtualCode` evicts the file's build too, so the next script at that path builds from the text it is created with. Formatting depends on this. Volar formats a loom through a temporary copy of it, which it deletes once the format is done, and creates again for the next format. A build that outlived the copy would hand the next format the text the copy held last, already formatted, and every format after the first would change nothing.
 
 =>
 
@@ -84,6 +86,12 @@ export const loomLanguagePlugin = (
             : Effect.void
           ).pipe(Effect.andThen(projectIsolated(compiler, uri, snapshot, ctx))),
         ),
+      ),
+    ),
+  disposeVirtualCode: (uri) =>
+    runtime.runSync(
+      LoomCompiler.pipe(
+        Effect.flatMap((compiler) => Effect.asVoid(compiler.invalidate(uri.fsPath))),
       ),
     ),
 })
@@ -232,7 +240,7 @@ import { ActiveLanguages, LanguageRegistry } from '@athrio/loom-lang-services/La
 import { loadActive } from '@athrio/loom-lang-services/LanguageLoader'
 import { installHostRuntime } from '@athrio/loom-lang-services/Runtime'
 
-## The module {Tangle}
+## The module {Tangle}[src/LoomLanguagePlugin.ts]
 
 =>
 
@@ -243,3 +251,59 @@ import { installHostRuntime } from '@athrio/loom-lang-services/Runtime'
 ::[Isolating the roots]
 
 ::[Collecting the service plugins]
+
+## Testing the plugin
+
+Volar formats a loom through a temporary copy of it, a script at the loom's path with `.tmp` appended. It creates the copy with the loom's text, updates it with each pass's formatted text, and deletes it once the format is done. The next format creates the copy again, from the text the editor holds then.
+
+The case replays that order through Volar's own `createLanguage`, over a runtime built the way the server builds its own. It creates the copy with a loom as written, updates it to the formatted loom, deletes it, and creates it again with the loom as written. The new script's root must hold the text it was created with, not the formatted text the deleted copy held last. The copy sits in a folder of its own, so its build reads no other loom.
+
+=>
+
+import { describe, expect, it } from 'bun:test'
+import { createLanguage, type VirtualCode } from '@volar/language-core'
+import { Layer, ManagedRuntime } from 'effect'
+import { mkdtempSync, realpathSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { URI } from 'vscode-uri'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
+import { DocumentSource, LoomCompiler, stringSnapshot } from '../src/LoomCompiler'
+import { loomLanguagePlugin } from '../src/LoomLanguagePlugin'
+import { PackageConfig } from '../src/PackageConfig'
+
+const runtime = ManagedRuntime.make(
+  Layer.mergeAll(LoomCompiler.layer, LoomConfig.layer).pipe(
+    Layer.provide(DocumentSource.layer),
+    Layer.provide(PackageConfig.layer),
+    Layer.provide(LoomConfig.layer),
+  ),
+)
+
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
+
+const loomOf = (code: string): string =>
+  lines('---', 'Language: TypeScript', '---', '', '# Answer', '', '=>', '', code)
+
+const textOf = (code: VirtualCode | undefined): string =>
+  code === undefined ? '' : code.snapshot.getText(0, code.snapshot.getLength())
+
+describe('LoomLanguagePlugin — a script Volar deletes', () => {
+  it('builds a new script at the same path from the text it is given', () => {
+    const language = createLanguage<URI>([loomLanguagePlugin(runtime)], new Map(), () => {})
+    const folder = realpathSync(mkdtempSync(join(tmpdir(), 'loom-plugin-')))
+    const copy = URI.file(join(folder, 'answer.loom.tmp'))
+    const written = loomOf('const  answer  =  42')
+    language.scripts.set(copy, stringSnapshot(written), 'loom')
+    language.scripts.set(copy, stringSnapshot(loomOf('const answer = 42')), 'loom')
+    language.scripts.delete(copy)
+    const again = language.scripts.set(copy, stringSnapshot(written), 'loom')
+    expect(textOf(again?.generated?.root)).toBe(written)
+  })
+})
+
+## The test file {Tangle}[test/LoomLanguagePlugin.test.ts]
+
+=>
+
+::[Testing the plugin]

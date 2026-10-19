@@ -84,6 +84,12 @@ export const loomLanguagePlugin = (
         ),
       ),
     ),
+  disposeVirtualCode: (uri) =>
+    runtime.runSync(
+      LoomCompiler.pipe(
+        Effect.flatMap((compiler) => Effect.asVoid(compiler.invalidate(uri.fsPath))),
+      ),
+    ),
 })
 
 const tsLanguages: ReadonlySet<string> = new Set(['typescript', 'tsx', 'javascript', 'jsx'])
