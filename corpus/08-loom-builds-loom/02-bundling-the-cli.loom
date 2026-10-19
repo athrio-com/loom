@@ -51,7 +51,7 @@ const umd2esm = {
 
 ~
 
-`loom helix` compiles Loom's tree-sitter grammar on the user's machine, so the published package carries the grammar's sources. `helixGrammar` copies them into `dist/tree-sitter-loom` once the bundle is written: the generated parser, the scanner, the headers they include, and the queries Helix colours with. Each keeps the path it has in the `tree-sitter-loom` package, so the command finds the same files whether it reads the copy or, run from source, the package itself.
+`loom helix` and `loom nvim` compile Loom's tree-sitter grammar on the user's machine, so the published package carries the grammar's sources. `editorGrammar` copies them into `dist/tree-sitter-loom` once the bundle is written: the generated parser, the scanner, the headers they include, and the queries Neovim and Helix colour with. Each keeps the path it has in the `tree-sitter-loom` package, so a command finds the same files whether it reads the copy or, run from source, the package itself.
 
 =>
 
@@ -59,11 +59,12 @@ const grammarFiles = [
   'src/parser.c',
   'src/scanner.c',
   'src/tree_sitter',
+  'queries',
   'editors/helix/queries/loom',
 ]
 
-const helixGrammar = {
-  name: 'helix-grammar',
+const editorGrammar = {
+  name: 'editor-grammar',
   closeBundle() {
     grammarFiles.forEach((file) =>
       cpSync(
@@ -82,7 +83,7 @@ Vite's library mode builds a single entry point to `dist/main.js`. The bundle ta
 =>
 
 export default defineConfig({
-  plugins: [umd2esm, helixGrammar],
+  plugins: [umd2esm, editorGrammar],
   resolve: {
     conditions: ['node'],
     mainFields: ['main', 'module'],

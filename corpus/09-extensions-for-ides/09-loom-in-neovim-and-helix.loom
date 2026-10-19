@@ -40,6 +40,8 @@ return {
 
 The rest of Neovim's setup is a plugin file, which Neovim runs at startup from any `plugin/` folder on its runtime path. Adding `packages/tree-sitter-loom/editors/neovim` to the runtime path therefore sets up everything this chapter describes, and the server configuration beside it comes along.
 
+A person sets Neovim up with `loom nvim`. That command compiles the grammar the CLI ships straight into Neovim's data folder, copies the queries beside it, and writes a plugin of its own with the same settings, so it needs neither this folder nor nvim-treesitter. The two files here are the other form, the one Neovim's own projects collect: nvim-lspconfig takes the server's configuration, and nvim-treesitter takes the address it fetches the grammar from.
+
 Neovim does not yet know the `.loom` extension, so the plugin adds it as the `loom` file type.
 
 =>

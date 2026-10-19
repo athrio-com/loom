@@ -622,3 +622,39 @@ describe('loom cli — helix', () => {
     rmSync(config, { recursive: true, force: true })
   }, SPAWN_TIMEOUT)
 })
+
+const nvimHome = (): {
+  readonly data: string
+  readonly site: string
+  readonly env: Record<string, string>
+} => {
+  const data = realpathSync(mkdtempSync(join(tmpdir(), 'loom-nvim-')))
+  const site = join(data, process.platform === 'win32' ? 'nvim-data' : 'nvim', 'site')
+  return { data, site, env: { XDG_DATA_HOME: data, LOCALAPPDATA: data, NVIM_APPNAME: 'nvim' } }
+}
+
+describe('loom cli — nvim', () => {
+  it('builds the parser, copies the queries, and writes the plugin, run after run', () => {
+    const { data, site, env } = nvimHome()
+    expect(loom(['nvim'], { env }).status).toBe(0)
+    expect(loom(['nvim'], { env }).status).toBe(0)
+    expect(existsSync(join(site, 'parser', 'loom.so'))).toBe(true)
+    expect(existsSync(join(site, 'queries', 'loom', 'highlights.scm'))).toBe(true)
+    const plugin = readFileSync(join(site, 'plugin', 'loom.lua'), 'utf8')
+    expect(plugin).toStartWith('-- Loom: written by `loom nvim`')
+    expect(plugin).toContain("vim.lsp.enable('loom')")
+    rmSync(data, { recursive: true, force: true })
+  }, SPAWN_TIMEOUT)
+
+  it("leaves a plugin/loom.lua of the person's own as it was", () => {
+    const { data, site, env } = nvimHome()
+    mkdirSync(join(site, 'plugin'), { recursive: true })
+    writeFileSync(join(site, 'plugin', 'loom.lua'), lines("print('mine')"))
+    const { status, stderr } = loom(['nvim'], { env })
+    expect(status).toBe(1)
+    expect(stderr).toContain('was not written by `loom nvim`')
+    expect(readFileSync(join(site, 'plugin', 'loom.lua'), 'utf8')).toBe(lines("print('mine')"))
+    expect(existsSync(join(site, 'parser', 'loom.so'))).toBe(false)
+    rmSync(data, { recursive: true, force: true })
+  }, SPAWN_TIMEOUT)
+})

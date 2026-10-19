@@ -44,17 +44,13 @@ The build takes a C compiler, which is the Xcode Command Line Tools on macOS and
 
 ## Neovim
 
-Neovim 0.12 colours a loom with the grammar nvim-treesitter installs. Clone Loom's repository, add its Neovim folder to the runtime path in your `init.lua`, and install the grammar with `:TSInstall loom`.
+Neovim needs no plugin manager. One command builds Loom's grammar into Neovim's data folder and turns on the language server:
 
 ```bash
-git clone --depth 1 https://github.com/athrio-com/loom ~/loom
+loom nvim
 ```
 
-```lua
-vim.opt.runtimepath:append(vim.fn.expand('~/loom/packages/tree-sitter-loom/editors/neovim'))
-```
-
-The folder also turns on the language server, through Neovim's own language client.
+It takes Neovim 0.11 or newer, and a C compiler for the build. Run `loom nvim` again after you upgrade Loom, and check the result with `:checkhealth vim.treesitter`.
 
 ## Any other editor
 

@@ -346,19 +346,12 @@ const design = (project: string, application: string, port: number) =>
     ),
   )
 
-const helixConfigDir = (): string =>
-  process.platform === 'win32'
-    ? resolvePath(process.env.APPDATA ?? homedir(), 'helix')
-    : resolvePath(process.env.XDG_CONFIG_HOME ?? resolvePath(homedir(), '.config'), 'helix')
-
-const grammarLibrary = process.platform === 'win32' ? 'loom.dll' : 'loom.so'
-
-class HelixGrammarMissing extends Data.TaggedError('HelixGrammarMissing')<{}> {}
+class GrammarMissing extends Data.TaggedError('GrammarMissing')<{}> {}
 
 const grammarIn = (dir: string): Option.Option<string> =>
   existsSync(resolvePath(dir, 'src', 'parser.c')) ? Option.some(dir) : Option.none()
 
-const shippedGrammar: Effect.Effect<string, HelixGrammarMissing> = pipe(
+const shippedGrammar: Effect.Effect<string, GrammarMissing> = pipe(
   grammarIn(resolvePath(dirname(fileURLToPath(import.meta.url)), 'tree-sitter-loom')),
   Option.orElse(() =>
     Option.flatMap(
@@ -369,12 +362,12 @@ const shippedGrammar: Effect.Effect<string, HelixGrammarMissing> = pipe(
     ),
   ),
   Option.match({
-    onNone: () => Effect.fail(new HelixGrammarMissing()),
+    onNone: () => Effect.fail(new GrammarMissing()),
     onSome: (dir) => Effect.succeed(dir),
   }),
 )
 
-class HelixCompileFailed extends Data.TaggedError('HelixCompileFailed')<{
+class GrammarCompileFailed extends Data.TaggedError('GrammarCompileFailed')<{
   readonly compiler: string
 }> {}
 
@@ -403,9 +396,27 @@ const compileGrammar = (grammar: string, library: string) =>
         (running) => running.exitCode,
       ),
     ).pipe(Effect.catchCause(() => Effect.succeed(-1)))
-    if (code !== 0) return yield* Effect.fail(new HelixCompileFailed({ compiler }))
+    if (code !== 0) return yield* Effect.fail(new GrammarCompileFailed({ compiler }))
     yield* Effect.sync(() => renameSync(partial, library))
   })
+
+const refuse = (message: string) =>
+  Console.error(message).pipe(
+    Effect.andThen(Effect.sync(() => void (process.exitCode = 1))),
+  )
+
+const cannotCompile = (error: GrammarCompileFailed) =>
+  refuse(
+    `loom: could not compile the grammar with \`${error.compiler}\`.\n` +
+      '      Install a C compiler, or name one in the CC variable, then run this again.',
+  )
+
+const helixConfigDir = (): string =>
+  process.platform === 'win32'
+    ? resolvePath(process.env.APPDATA ?? homedir(), 'helix')
+    : resolvePath(process.env.XDG_CONFIG_HOME ?? resolvePath(homedir(), '.config'), 'helix')
+
+const grammarLibrary = process.platform === 'win32' ? 'loom.dll' : 'loom.so'
 
 const helixBegin = '# Loom: written by `loom helix`, which replaces this block on every run'
 const helixEnd = '# Loom: end'
@@ -448,11 +459,6 @@ const withLoomLanguages = (
   )
 }
 
-const refuse = (message: string) =>
-  Console.error(message).pipe(
-    Effect.andThen(Effect.sync(() => void (process.exitCode = 1))),
-  )
-
 const helix = Effect.gen(function* () {
   const config = helixConfigDir()
   const languagesFile = resolvePath(config, 'languages.toml')
@@ -482,17 +488,90 @@ const helix = Effect.gen(function* () {
   )
 }).pipe(
   Effect.catchTags({
-    HelixGrammarMissing: () =>
+    GrammarMissing: () =>
       refuse('loom: this installation of Loom carries no grammar for Helix.'),
-    HelixCompileFailed: (error) =>
-      refuse(
-        `loom: could not compile the grammar with \`${error.compiler}\`.\n` +
-          '      Install a C compiler, or name one in the CC variable, then run this again.',
-      ),
+    GrammarCompileFailed: cannotCompile,
     HelixConfigClash: (error) =>
       refuse(
         `loom: ${error.file} already sets up Loom.\n` +
           '      Remove its Loom entries, then run this again to replace them with the managed block.',
+      ),
+  }),
+)
+
+const nvimSiteDir = (): string => {
+  const name = process.env.NVIM_APPNAME ?? 'nvim'
+  return process.platform === 'win32'
+    ? resolvePath(process.env.LOCALAPPDATA ?? homedir(), `${name}-data`, 'site')
+    : resolvePath(
+        process.env.XDG_DATA_HOME ?? resolvePath(homedir(), '.local', 'share'),
+        name,
+        'site',
+      )
+}
+
+const nvimHeader = '-- Loom: written by `loom nvim`, which replaces this file on every run'
+
+const nvimPlugin = [
+  nvimHeader,
+  "vim.filetype.add({ extension = { loom = 'loom' } })",
+  '',
+  "vim.lsp.config('loom', {",
+  "  cmd = { 'loom', 'lsp', '--stdio' },",
+  "  filetypes = { 'loom' },",
+  "  root_markers = { '.loom', '.git' },",
+  '})',
+  "vim.lsp.enable('loom')",
+  '',
+  "vim.api.nvim_create_autocmd('FileType', {",
+  "  pattern = 'loom',",
+  '  callback = function()',
+  '    vim.treesitter.start()',
+  '  end,',
+  '})',
+  '',
+].join('\n')
+
+class NvimConfigClash extends Data.TaggedError('NvimConfigClash')<{
+  readonly file: string
+}> {}
+
+const nvim = Effect.gen(function* () {
+  const site = nvimSiteDir()
+  const pluginFile = resolvePath(site, 'plugin', 'loom.lua')
+  const grammar = yield* shippedGrammar
+  const current = yield* Effect.sync(() =>
+    existsSync(pluginFile) ? Option.some(readFileSync(pluginFile, 'utf8')) : Option.none<string>(),
+  )
+  if (Option.exists(current, (text) => !text.startsWith(nvimHeader)))
+    return yield* Effect.fail(new NvimConfigClash({ file: pluginFile }))
+
+  const parser = resolvePath(site, 'parser', 'loom.so')
+  yield* Effect.sync(() => mkdirSync(dirname(parser), { recursive: true }))
+  yield* compileGrammar(grammar, parser)
+  yield* Console.log(`\n   ${teal('✓')} built the grammar into ${parser}`)
+
+  const queries = resolvePath(site, 'queries', 'loom')
+  yield* Effect.sync(() => cpSync(resolvePath(grammar, 'queries'), queries, { recursive: true }))
+  yield* Console.log(`   ${teal('✓')} copied the queries into ${queries}`)
+
+  yield* Effect.sync(() => {
+    mkdirSync(dirname(pluginFile), { recursive: true })
+    writeFileSync(pluginFile, nvimPlugin)
+  })
+  yield* Console.log(
+    `   ${teal('✓')} added Loom to ${pluginFile}\n` +
+      `   ${dim('check it with `:checkhealth vim.treesitter` in Neovim')}\n`,
+  )
+}).pipe(
+  Effect.catchTags({
+    GrammarMissing: () =>
+      refuse('loom: this installation of Loom carries no grammar for Neovim.'),
+    GrammarCompileFailed: cannotCompile,
+    NvimConfigClash: (error) =>
+      refuse(
+        `loom: ${error.file} was not written by \`loom nvim\`.\n` +
+          '      Move it aside, then run this again.',
       ),
   }),
 )
@@ -559,6 +638,8 @@ const designCommand = Command.make(
 
 const helixCommand = Command.make('helix', {}, () => helix)
 
+const nvimCommand = Command.make('nvim', {}, () => nvim)
+
 const loom = Command.make('loom').pipe(
   Command.withSubcommands([
     tangleCommand,
@@ -572,6 +653,7 @@ const loom = Command.make('loom').pipe(
     setCommand,
     designCommand,
     helixCommand,
+    nvimCommand,
   ]),
 )
 

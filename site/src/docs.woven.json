@@ -462,7 +462,7 @@
             "chapter": "03-loom-in-your-ide/01-supported-editors",
             "section": "neovim"
           },
-          "markdown": "Neovim 0.12 colours a loom with the grammar nvim-treesitter installs. Clone Loom's repository, add its Neovim folder to the runtime path in your `init.lua`, and install the grammar with `:TSInstall loom`.\n\n```bash\ngit clone --depth 1 https://github.com/athrio-com/loom ~/loom\n```\n\n```lua\nvim.opt.runtimepath:append(vim.fn.expand('~/loom/packages/tree-sitter-loom/editors/neovim'))\n```\n\nThe folder also turns on the language server, through Neovim's own language client."
+          "markdown": "Neovim needs no plugin manager. One command builds Loom's grammar into Neovim's data folder and turns on the language server:\n\n```bash\nloom nvim\n```\n\nIt takes Neovim 0.11 or newer, and a C compiler for the build. Run `loom nvim` again after you upgrade Loom, and check the result with `:checkhealth vim.treesitter`."
         },
         {
           "type": "heading",

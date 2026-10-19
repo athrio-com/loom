@@ -417,35 +417,20 @@ const design = (project: string, application: string, port: number) =>
     ),
   )
 
-## Setting up Helix
+## The grammar the CLI carries
 
-`loom helix` sets up the Helix editor for looms in one step. Helix reads a language from three places in its configuration folder: the grammar it parses the language with, the queries that colour the parse, and an entry in `languages.toml` that names the file extension and the language server. The command writes all three. It compiles the grammar this CLI ships into `runtime/grammars`, copies the queries beside it, and adds Loom to `languages.toml`.
+Two commands set an editor up for looms, `loom helix` and `loom nvim`, and both build the grammar this CLI carries. The grammar travels inside the CLI, so it always matches the Loom that is installed. Running either command again after an upgrade rebuilds the grammar from the new release, and nothing needs fetching from the network.
 
-The grammar travels inside the CLI, so it always matches the Loom that is installed. Running `loom helix` again after an upgrade rebuilds the grammar from the new release, and nothing needs fetching from the network.
-
-The configuration folder is the one Helix itself reads. On macOS and Linux that is `helix` under `$XDG_CONFIG_HOME`, or under `~/.config` when the variable is unset, and on Windows it is `helix` under `%AppData%`. Helix loads a grammar as a shared library, named `loom.so` everywhere but Windows, where it is `loom.dll`.
+The grammar's sources sit in a `tree-sitter-loom` folder beside the bundle, where the CLI's build copies the generated parser, the scanner, their headers, and the queries each editor colours with. A CLI run from its source, as the tests run it, finds no such folder, so it reads the workspace's own `tree-sitter-loom` package instead, the folder the copy is made from. A folder counts as the grammar when it holds the generated parser. When neither place holds one, the command fails with `GrammarMissing`.
 
 =>
 
-const helixConfigDir = (): string =>
-  process.platform === 'win32'
-    ? resolvePath(process.env.APPDATA ?? homedir(), 'helix')
-    : resolvePath(process.env.XDG_CONFIG_HOME ?? resolvePath(homedir(), '.config'), 'helix')
-
-const grammarLibrary = process.platform === 'win32' ? 'loom.dll' : 'loom.so'
-
-~
-
-The grammar's sources sit in a `tree-sitter-loom` folder beside the bundle, where the CLI's build copies the generated parser, the scanner, their headers, and the Helix queries. A CLI run from its source, as the tests run it, finds no such folder, so it reads the workspace's own `tree-sitter-loom` package instead, the folder the copy is made from. A folder counts as the grammar when it holds the generated parser. When neither place holds one, the command fails with `HelixGrammarMissing`.
-
-=>
-
-class HelixGrammarMissing extends Data.TaggedError('HelixGrammarMissing')<{}> {}
+class GrammarMissing extends Data.TaggedError('GrammarMissing')<{}> {}
 
 const grammarIn = (dir: string): Option.Option<string> =>
   existsSync(resolvePath(dir, 'src', 'parser.c')) ? Option.some(dir) : Option.none()
 
-const shippedGrammar: Effect.Effect<string, HelixGrammarMissing> = pipe(
+const shippedGrammar: Effect.Effect<string, GrammarMissing> = pipe(
   grammarIn(resolvePath(dirname(fileURLToPath(import.meta.url)), 'tree-sitter-loom')),
   Option.orElse(() =>
     Option.flatMap(
@@ -456,20 +441,20 @@ const shippedGrammar: Effect.Effect<string, HelixGrammarMissing> = pipe(
     ),
   ),
   Option.match({
-    onNone: () => Effect.fail(new HelixGrammarMissing()),
+    onNone: () => Effect.fail(new GrammarMissing()),
     onSome: (dir) => Effect.succeed(dir),
   }),
 )
 
 ~
 
-The system's C compiler builds the library, the same way Helix builds a grammar it fetches. The compiler is `cc`, or whichever one the `CC` variable names. The parser and the scanner compile together into one shared library, against the headers in the `src` folder beside them.
+The system's C compiler builds the grammar into a shared library, the same way Helix and nvim-treesitter build a grammar they fetch. The compiler is `cc`, or whichever one the `CC` variable names. The parser and the scanner compile together into one library, against the headers in the `src` folder beside them.
 
-The compiler writes to a temporary name first, and the finished library then replaces the old one in a single rename. A Helix that is already running keeps the library it loaded, rather than reading one half written. A compiler that is missing, or that stops with an error, fails the command with `HelixCompileFailed`, which names the compiler it tried.
+The compiler writes to a temporary name first, and the finished library then replaces the old one in a single rename. An editor that is already running keeps the library it loaded, rather than reading one half written. A compiler that is missing, or that stops with an error, fails the command with `GrammarCompileFailed`, which names the compiler it tried.
 
 =>
 
-class HelixCompileFailed extends Data.TaggedError('HelixCompileFailed')<{
+class GrammarCompileFailed extends Data.TaggedError('GrammarCompileFailed')<{
   readonly compiler: string
 }> {}
 
@@ -498,9 +483,41 @@ const compileGrammar = (grammar: string, library: string) =>
         (running) => running.exitCode,
       ),
     ).pipe(Effect.catchCause(() => Effect.succeed(-1)))
-    if (code !== 0) return yield* Effect.fail(new HelixCompileFailed({ compiler }))
+    if (code !== 0) return yield* Effect.fail(new GrammarCompileFailed({ compiler }))
     yield* Effect.sync(() => renameSync(partial, library))
   })
+
+~
+
+Each command checks the editor's configuration before it touches anything, so a clash leaves the configuration as it was. It then builds the library, copies the queries, and writes the configuration, reporting each step, and ends by naming the check that confirms the result. A failure prints what went wrong and how to put it right, and exits non-zero. Both commands answer a failed compile with the same advice.
+
+=>
+
+const refuse = (message: string) =>
+  Console.error(message).pipe(
+    Effect.andThen(Effect.sync(() => void (process.exitCode = 1))),
+  )
+
+const cannotCompile = (error: GrammarCompileFailed) =>
+  refuse(
+    `loom: could not compile the grammar with \`${error.compiler}\`.\n` +
+      '      Install a C compiler, or name one in the CC variable, then run this again.',
+  )
+
+## Setting up Helix
+
+`loom helix` sets up the Helix editor for looms in one step. Helix reads a language from three places in its configuration folder: the grammar it parses the language with, the queries that colour the parse, and an entry in `languages.toml` that names the file extension and the language server. The command writes all three. It compiles the grammar into `runtime/grammars`, copies the Helix queries beside it, and adds Loom to `languages.toml`.
+
+The configuration folder is the one Helix itself reads. On macOS and Linux that is `helix` under `$XDG_CONFIG_HOME`, or under `~/.config` when the variable is unset, and on Windows it is `helix` under `%AppData%`. Helix loads a grammar as a shared library, named `loom.so` everywhere but Windows, where it is `loom.dll`.
+
+=>
+
+const helixConfigDir = (): string =>
+  process.platform === 'win32'
+    ? resolvePath(process.env.APPDATA ?? homedir(), 'helix')
+    : resolvePath(process.env.XDG_CONFIG_HOME ?? resolvePath(homedir(), '.config'), 'helix')
+
+const grammarLibrary = process.platform === 'win32' ? 'loom.dll' : 'loom.so'
 
 ~
 
@@ -553,14 +570,9 @@ const withLoomLanguages = (
 
 ~
 
-The command settles `languages.toml` before it touches anything, so a clash leaves the whole configuration as it was. It then builds the library, copies the queries, and writes the file, reporting each step, and ends by naming the command that checks the result. Each failure prints what went wrong and how to put it right, and exits non-zero.
+The command settles `languages.toml` first, then builds the library and copies the queries, and writes the file last. Helix's health check confirms the result.
 
 =>
-
-const refuse = (message: string) =>
-  Console.error(message).pipe(
-    Effect.andThen(Effect.sync(() => void (process.exitCode = 1))),
-  )
 
 const helix = Effect.gen(function* () {
   const config = helixConfigDir()
@@ -591,13 +603,9 @@ const helix = Effect.gen(function* () {
   )
 }).pipe(
   Effect.catchTags({
-    HelixGrammarMissing: () =>
+    GrammarMissing: () =>
       refuse('loom: this installation of Loom carries no grammar for Helix.'),
-    HelixCompileFailed: (error) =>
-      refuse(
-        `loom: could not compile the grammar with \`${error.compiler}\`.\n` +
-          '      Install a C compiler, or name one in the CC variable, then run this again.',
-      ),
+    GrammarCompileFailed: cannotCompile,
     HelixConfigClash: (error) =>
       refuse(
         `loom: ${error.file} already sets up Loom.\n` +
@@ -606,9 +614,110 @@ const helix = Effect.gen(function* () {
   }),
 )
 
+## Setting up Neovim
+
+`loom nvim` sets up Neovim for looms in one step, with no plugin manager and no nvim-treesitter. Neovim 0.11 already holds what a loom needs: a tree-sitter host that loads a parser by its language's name, and a language-server client configured in Lua. What it lacks are three files. The command compiles Loom's parser, copies the queries that colour the parse, and writes a plugin that names the file type and starts the server.
+
+All three go into the `site` folder of Neovim's data folder. The data folder is the one Neovim's `stdpath('data')` names: `nvim` under `$XDG_DATA_HOME`, or under `~/.local/share` when the variable is unset, and on Windows `nvim-data` under `%LocalAppData%`. The `NVIM_APPNAME` variable renames the `nvim` part, for a person who keeps several configurations side by side. Neovim puts `site` on its runtime path from the start, so it finds what the command writes there without a line of the person's own configuration. It is also where nvim-treesitter installs the parsers it builds, so Loom's parser sits beside theirs.
+
+Neovim finds a parser by the language's name under `parser`, whatever the file's extension, and the command names it `loom.so` on every platform, as nvim-treesitter does.
+
+=>
+
+const nvimSiteDir = (): string => {
+  const name = process.env.NVIM_APPNAME ?? 'nvim'
+  return process.platform === 'win32'
+    ? resolvePath(process.env.LOCALAPPDATA ?? homedir(), `${name}-data`, 'site')
+    : resolvePath(
+        process.env.XDG_DATA_HOME ?? resolvePath(homedir(), '.local', 'share'),
+        name,
+        'site',
+      )
+}
+
+~
+
+Neovim runs each Lua file in a `plugin` folder on its runtime path as it starts, so the command writes `plugin/loom.lua`. The plugin does three things. It makes every `.loom` file the `loom` file type. It configures the language server with the table nvim-lspconfig collects for Loom, the command, the file type and the root markers, and enables it. And it starts tree-sitter for each loom as it opens, because Neovim colours a buffer with tree-sitter only when asked.
+
+The plugin's first line says `loom nvim` wrote it, and a later run replaces only a file that opens on that line. A `plugin/loom.lua` without it is the person's own, so the command changes nothing and fails with `NvimConfigClash`.
+
+=>
+
+const nvimHeader = '-- Loom: written by `loom nvim`, which replaces this file on every run'
+
+const nvimPlugin = [
+  nvimHeader,
+  "vim.filetype.add({ extension = { loom = 'loom' } })",
+  '',
+  "vim.lsp.config('loom', {",
+  "  cmd = { 'loom', 'lsp', '--stdio' },",
+  "  filetypes = { 'loom' },",
+  "  root_markers = { '.loom', '.git' },",
+  '})',
+  "vim.lsp.enable('loom')",
+  '',
+  "vim.api.nvim_create_autocmd('FileType', {",
+  "  pattern = 'loom',",
+  '  callback = function()',
+  '    vim.treesitter.start()',
+  '  end,',
+  '})',
+  '',
+].join('\n')
+
+class NvimConfigClash extends Data.TaggedError('NvimConfigClash')<{
+  readonly file: string
+}> {}
+
+~
+
+The command reads the plugin it would replace first, then builds the parser, copies the queries, and writes the plugin last. Neovim's tree-sitter health check lists the parser it loads.
+
+=>
+
+const nvim = Effect.gen(function* () {
+  const site = nvimSiteDir()
+  const pluginFile = resolvePath(site, 'plugin', 'loom.lua')
+  const grammar = yield* shippedGrammar
+  const current = yield* Effect.sync(() =>
+    existsSync(pluginFile) ? Option.some(readFileSync(pluginFile, 'utf8')) : Option.none<string>(),
+  )
+  if (Option.exists(current, (text) => !text.startsWith(nvimHeader)))
+    return yield* Effect.fail(new NvimConfigClash({ file: pluginFile }))
+
+  const parser = resolvePath(site, 'parser', 'loom.so')
+  yield* Effect.sync(() => mkdirSync(dirname(parser), { recursive: true }))
+  yield* compileGrammar(grammar, parser)
+  yield* Console.log(`\n   ${teal('✓')} built the grammar into ${parser}`)
+
+  const queries = resolvePath(site, 'queries', 'loom')
+  yield* Effect.sync(() => cpSync(resolvePath(grammar, 'queries'), queries, { recursive: true }))
+  yield* Console.log(`   ${teal('✓')} copied the queries into ${queries}`)
+
+  yield* Effect.sync(() => {
+    mkdirSync(dirname(pluginFile), { recursive: true })
+    writeFileSync(pluginFile, nvimPlugin)
+  })
+  yield* Console.log(
+    `   ${teal('✓')} added Loom to ${pluginFile}\n` +
+      `   ${dim('check it with `:checkhealth vim.treesitter` in Neovim')}\n`,
+  )
+}).pipe(
+  Effect.catchTags({
+    GrammarMissing: () =>
+      refuse('loom: this installation of Loom carries no grammar for Neovim.'),
+    GrammarCompileFailed: cannotCompile,
+    NvimConfigClash: (error) =>
+      refuse(
+        `loom: ${error.file} was not written by \`loom nvim\`.\n` +
+          '      Move it aside, then run this again.',
+      ),
+  }),
+)
+
 ## Where the world ends
 
-The command program is eleven subcommands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them, recording each in the lock; with `--watch` it stays running and re-tangles as the looms change, so a dev server watching the output reacts to a loom edit. `loom orphans` lists the files across the workspace that the lock records but no loom still produces, one path per line for a shell to pipe into `rm`, and `--prune` removes them and rewrites the lock. `loom weave <path> <out>` projects a corpus into a `WovenCorpus` and writes it as JSON to `out`. `loom toc <path>` rewrites a book's table of contents from the corpus's own frontmatter. `loom init [dir]` scaffolds a `.loom/config.yaml` and an `.mcp.json`, defaulting to the working directory. `loom add <language>` and `loom remove <language>` turn a language's service on and off. `loom status` reports what the workspace has activated and what the store holds. `loom set <name> <value>` writes a workspace variable and re-tangles the corpus, so a version bump is one command. `loom design <name> <address>` stands Loom Design in front of a running application, and `loom helix` sets the Helix editor up for looms. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the weaver, the contents writer, the package config, the configuration, and the Node platform behind the prompts and the filesystem.
+The command program is twelve subcommands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them, recording each in the lock; with `--watch` it stays running and re-tangles as the looms change, so a dev server watching the output reacts to a loom edit. `loom orphans` lists the files across the workspace that the lock records but no loom still produces, one path per line for a shell to pipe into `rm`, and `--prune` removes them and rewrites the lock. `loom weave <path> <out>` projects a corpus into a `WovenCorpus` and writes it as JSON to `out`. `loom toc <path>` rewrites a book's table of contents from the corpus's own frontmatter. `loom init [dir]` scaffolds a `.loom/config.yaml` and an `.mcp.json`, defaulting to the working directory. `loom add <language>` and `loom remove <language>` turn a language's service on and off. `loom status` reports what the workspace has activated and what the store holds. `loom set <name> <value>` writes a workspace variable and re-tangles the corpus, so a version bump is one command. `loom design <name> <address>` stands Loom Design in front of a running application. `loom helix` sets the Helix editor up for looms, and `loom nvim` sets up Neovim. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the weaver, the contents writer, the package config, the configuration, and the Node platform behind the prompts and the filesystem.
 
 One entry point sits outside the command program. `loom lsp --stdio` starts the language server for any editor. It loads Volar only when it is reached, so a plain `tangle` never pays to bundle it, and it runs on its own Bun runtime rather than nesting one inside a command. Volar is CommonJS and calls `require` at runtime for the built-in modules; this bundle is an ES module, where `require` is absent, so before loading the server the `lsp` branch exposes one through `createRequire` on `globalThis` — the shim Volar's bundled code reaches for. That cost lands only on the `lsp` path.
 
@@ -678,6 +787,8 @@ const designCommand = Command.make(
 
 const helixCommand = Command.make('helix', {}, () => helix)
 
+const nvimCommand = Command.make('nvim', {}, () => nvim)
+
 const loom = Command.make('loom').pipe(
   Command.withSubcommands([
     tangleCommand,
@@ -691,6 +802,7 @@ const loom = Command.make('loom').pipe(
     setCommand,
     designCommand,
     helixCommand,
+    nvimCommand,
   ]),
 )
 
@@ -716,7 +828,7 @@ if (process.argv[2] === 'lsp') {
 
 ## What the program needs
 
-The program is built on Effect, a functional TypeScript library for composing and running effectful programs. Effect's CLI toolkit parses the command line and drives the interactive prompts, and the Node platform supplies the runtime, the terminal, and filesystem access. `Stream` drives `tangle --watch`, draining the tangler's watch as a sequence of passes, and `Result` carries each pass's outcome. Node's `path` resolves a workspace directory for `init`, and `node:fs` writes the configuration and the `.mcp.json`, creates the corpus folder, and copies and renames Helix's files. Effect's child-process module runs Loom Design's binary for `design` and the C compiler for `helix`, `Data` types their failures, and `node:module` supplies the resolver that finds Design's binary and the workspace's grammar — the same resolver the `lsp` branch borrows to give Volar a `require`. `pipe` threads the grammar's search through `Option`, `node:os` supplies the home folder that Helix's configuration lives under, and `node:url` turns the bundle's own address into the folder its grammar sits in. The language server contributes five services: `LoomTangler`, which walks a `.loom` file, emits the tangled output, and watches it for changes; `LoomWeaver`, which projects a corpus and writes the woven data; `LoomContents`, which regenerates a book's table of contents; `DocumentSource`, which feeds them source text from disk; and `PackageConfig`, which resolves a `.loom`'s package settings. `TangledFile` and `TangleError` ride along from the compiler, typing the files a pass writes and the error a broken corpus raises. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back. From `@athrio/loom-lang-services` come the store operations behind activation: `addService` and `removeService` install and uninstall a language's package, with `ServiceInstall` saying what an install did, `installedVersion` reads the version of a service the store holds, and `serviceVersion` is the version this Loom expects. `storeDir` locates the store, `workspaceRoot` finds the workspace it sits in, and `servicePackage` names a language's package.
+The program is built on Effect, a functional TypeScript library for composing and running effectful programs. Effect's CLI toolkit parses the command line and drives the interactive prompts, and the Node platform supplies the runtime, the terminal, and filesystem access. `Stream` drives `tangle --watch`, draining the tangler's watch as a sequence of passes, and `Result` carries each pass's outcome. Node's `path` resolves a workspace directory for `init`, and `node:fs` writes the configuration and the `.mcp.json`, creates the corpus folder, and copies and renames the files Helix and Neovim read. Effect's child-process module runs Loom Design's binary for `design` and the C compiler for `helix` and `nvim`, `Data` types their failures, and `node:module` supplies the resolver that finds Design's binary and the workspace's grammar — the same resolver the `lsp` branch borrows to give Volar a `require`. `pipe` threads the grammar's search through `Option`, `node:os` supplies the home folder that Helix's configuration and Neovim's data live under, and `node:url` turns the bundle's own address into the folder its grammar sits in. The language server contributes five services: `LoomTangler`, which walks a `.loom` file, emits the tangled output, and watches it for changes; `LoomWeaver`, which projects a corpus and writes the woven data; `LoomContents`, which regenerates a book's table of contents; `DocumentSource`, which feeds them source text from disk; and `PackageConfig`, which resolves a `.loom`'s package settings. `TangledFile` and `TangleError` ride along from the compiler, typing the files a pass writes and the error a broken corpus raises. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back. From `@athrio/loom-lang-services` come the store operations behind activation: `addService` and `removeService` install and uninstall a language's package, with `ServiceInstall` saying what an install did, `installedVersion` reads the version of a service the store holds, and `serviceVersion` is the version this Loom expects. `storeDir` locates the store, `workspaceRoot` finds the workspace it sits in, and `servicePackage` names a language's package.
 
 =>
 
@@ -776,6 +888,10 @@ import {
 
 ::[Standing Design in front of an application]
 
+::[The grammar the CLI carries]
+
 ::[Setting up Helix]
+
+::[Setting up Neovim]
 
 ::[Where the world ends]

@@ -29,11 +29,12 @@ const grammarFiles = [
   'src/parser.c',
   'src/scanner.c',
   'src/tree_sitter',
+  'queries',
   'editors/helix/queries/loom',
 ]
 
-const helixGrammar = {
-  name: 'helix-grammar',
+const editorGrammar = {
+  name: 'editor-grammar',
   closeBundle() {
     grammarFiles.forEach((file) =>
       cpSync(
@@ -46,7 +47,7 @@ const helixGrammar = {
 }
 
 export default defineConfig({
-  plugins: [umd2esm, helixGrammar],
+  plugins: [umd2esm, editorGrammar],
   resolve: {
     conditions: ['node'],
     mainFields: ['main', 'module'],
