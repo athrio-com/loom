@@ -14,6 +14,7 @@ const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes)
 
 const releaseServer = (sums: string | undefined) =>
   Bun.serve({
+    hostname: '127.0.0.1',
     port: 0,
     fetch: (request) => {
       const path = new URL(request.url).pathname
@@ -46,8 +47,8 @@ const install = async (sums: string | undefined) => {
 
 describe.skipIf(process.platform === 'win32')('the install script', () => {
   it('installs an executable whose checksum matches the list', async () => {
-    const { status, stdout, dir } = await install(`${sha256(standIn)}  ${assetName}\n`)
-    expect(status).toBe(0)
+    const { status, stdout, stderr, dir } = await install(`${sha256(standIn)}  ${assetName}\n`)
+    expect({ status, stderr }).toMatchObject({ status: 0 })
     expect(stdout).toContain('Installed loom v9.9.9')
     expect(statSync(join(dir, 'loom')).mode & 0o111).not.toBe(0)
     expect(readdirSync(dir)).toEqual(['loom'])
@@ -58,7 +59,7 @@ describe.skipIf(process.platform === 'win32')('the install script', () => {
     const { status, stderr, dir } = await install(
       `${sha256(new Uint8Array())}  ${assetName}\n`,
     )
-    expect(status).toBe(1)
+    expect({ status, stderr }).toMatchObject({ status: 1 })
     expect(stderr).toContain('does not match')
     expect(existsSync(join(dir, 'loom'))).toBe(false)
     rmSync(dir, { recursive: true, force: true })
@@ -66,7 +67,7 @@ describe.skipIf(process.platform === 'win32')('the install script', () => {
 
   it('refuses a release that carries no list of checksums', async () => {
     const { status, stderr, dir } = await install(undefined)
-    expect(status).toBe(1)
+    expect({ status, stderr }).toMatchObject({ status: 1 })
     expect(stderr).toContain('SHA256SUMS')
     expect(existsSync(join(dir, 'loom'))).toBe(false)
     rmSync(dir, { recursive: true, force: true })

@@ -106,8 +106,8 @@ describe('the executable — tangling', () => {
   it(
     'reports its version',
     async () => {
-      const { status, stdout } = await run(['--version'], { cwd: scratch('version'), env: bareEnv() })
-      expect(status).toBe(0)
+      const { status, stdout, stderr } = await run(['--version'], { cwd: scratch('version'), env: bareEnv() })
+      expect({ status, stderr }).toMatchObject({ status: 0 })
       expect(stdout).toContain(`loom v${serviceVersion}`)
     },
     SMOKE_TIMEOUT,
@@ -118,8 +118,8 @@ describe('the executable — tangling', () => {
     async () => {
       const dir = workspace('corpus: .', 'primary: typescript')
       writeFileSync(join(dir, 'hello.loom'), helloLoom)
-      const { status } = await run(['tangle', 'hello.loom'], { cwd: dir, env: bareEnv() })
-      expect(status).toBe(0)
+      const { status, stderr } = await run(['tangle', 'hello.loom'], { cwd: dir, env: bareEnv() })
+      expect({ status, stderr }).toMatchObject({ status: 0 })
       const tangled = readFileSync(join(dir, 'hello.ts'), 'utf8')
       expect(tangled).toContain("const greet = (name: string): string => 'Hello, ' + name")
       expect(tangled).toContain("console.log(greet('world'))")
@@ -168,6 +168,7 @@ const standInTarball = (): Uint8Array => {
 
 const registryServer = (tarball: Uint8Array) =>
   Bun.serve({
+    hostname: '127.0.0.1',
     port: 0,
     fetch: (request) => {
       const name = servicePackage('typescript')
@@ -199,8 +200,8 @@ describe('the executable — languages', () => {
     async () => {
       const dir = workspace('corpus: .', 'languages:', '  typescript: {}', 'primary: typescript')
       installStandIn(dir)
-      const { status, stdout } = await run(['update', 'typescript'], { cwd: dir, env: bareEnv() })
-      expect(status).toBe(0)
+      const { status, stdout, stderr } = await run(['update', 'typescript'], { cwd: dir, env: bareEnv() })
+      expect({ status, stderr }).toMatchObject({ status: 0 })
       expect(stdout).toContain('is already in the store')
       rmSync(dir, { recursive: true, force: true })
     },
@@ -212,12 +213,12 @@ describe('the executable — languages', () => {
     async () => {
       const dir = workspace('corpus: .', 'languages:', '  typescript: {}', 'primary: typescript')
       const registry = registryServer(standInTarball())
-      const { status, stdout } = await run(['update', 'typescript'], {
+      const { status, stdout, stderr } = await run(['update', 'typescript'], {
         cwd: dir,
         env: bareEnv({ NPM_CONFIG_REGISTRY: registry.url.href }),
       })
       registry.stop()
-      expect(status).toBe(0)
+      expect({ status, stderr }).toMatchObject({ status: 0 })
       expect(stdout).toContain(`installed ${servicePackage('typescript')} ${serviceVersion}`)
       const manifest = join(
         dir,
@@ -306,11 +307,11 @@ describe('the executable — editors', () => {
     'gives Helix the grammar it carries, with no compiler',
     async () => {
       const config = scratch('helix')
-      const { status } = await run(['helix'], {
+      const { status, stderr } = await run(['helix'], {
         cwd: config,
         env: bareEnv({ XDG_CONFIG_HOME: config, APPDATA: config }),
       })
-      expect(status).toBe(0)
+      expect({ status, stderr }).toMatchObject({ status: 0 })
       const library = process.platform === 'win32' ? 'loom.dll' : 'loom.so'
       expect(existsSync(join(config, 'helix', 'runtime', 'grammars', library))).toBe(true)
       expect(existsSync(join(config, 'helix', 'runtime', 'queries', 'loom', 'highlights.scm'))).toBe(
@@ -325,11 +326,11 @@ describe('the executable — editors', () => {
     'gives Neovim the grammar it carries, with no compiler',
     async () => {
       const data = scratch('nvim')
-      const { status } = await run(['nvim'], {
+      const { status, stderr } = await run(['nvim'], {
         cwd: data,
         env: bareEnv({ XDG_DATA_HOME: data, LOCALAPPDATA: data, NVIM_APPNAME: 'nvim' }),
       })
-      expect(status).toBe(0)
+      expect({ status, stderr }).toMatchObject({ status: 0 })
       const site = join(data, process.platform === 'win32' ? 'nvim-data' : 'nvim', 'site')
       expect(existsSync(join(site, 'parser', 'loom.so'))).toBe(true)
       expect(existsSync(join(site, 'queries', 'loom', 'highlights.scm'))).toBe(true)
@@ -352,6 +353,7 @@ const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes)
 
 const releaseServer = (tag: string, listed: string) =>
   Bun.serve({
+    hostname: '127.0.0.1',
     port: 0,
     fetch: (request) => {
       const base = new URL('/', request.url).href
@@ -389,9 +391,9 @@ describe('the executable — upgrade', () => {
   it(
     'replaces itself with a newer release whose checksum matches',
     async () => {
-      const { status, dir, copy } = await upgradeCopy('v99.0.0', sha256(archive))
-      expect(status).toBe(0)
-      expect(new Uint8Array(readFileSync(copy))).toEqual(replacement)
+      const { status, stderr, dir, copy } = await upgradeCopy('v99.0.0', sha256(archive))
+      expect({ status, stderr }).toMatchObject({ status: 0 })
+      expect(sha256(new Uint8Array(readFileSync(copy)))).toBe(sha256(replacement))
       if (process.platform === 'win32') expect(existsSync(`${copy}.old`)).toBe(true)
       else expect((await run([], { cwd: dir, env: bareEnv(), executable: copy })).stdout).toContain('upgraded')
       rmSync(dir, { recursive: true, force: true })
@@ -403,7 +405,7 @@ describe('the executable — upgrade', () => {
     'refuses a download whose checksum does not match the list',
     async () => {
       const { status, stderr, dir, copy } = await upgradeCopy('v99.0.0', sha256(new Uint8Array()))
-      expect(status).toBe(1)
+      expect({ status, stderr }).toMatchObject({ status: 1 })
       expect(stderr).toContain('does not match')
       const after = await run(['--version'], { cwd: dir, env: bareEnv(), executable: copy })
       expect(after.stdout).toContain(`loom v${serviceVersion}`)
@@ -415,8 +417,8 @@ describe('the executable — upgrade', () => {
   it(
     'leaves itself alone when the latest release is no newer',
     async () => {
-      const { status, stdout, dir, copy } = await upgradeCopy('v0.0.1', sha256(archive))
-      expect(status).toBe(0)
+      const { status, stdout, stderr, dir, copy } = await upgradeCopy('v0.0.1', sha256(archive))
+      expect({ status, stderr }).toMatchObject({ status: 0 })
       expect(stdout).toContain('is up to date')
       const after = await run(['--version'], { cwd: dir, env: bareEnv(), executable: copy })
       expect(after.stdout).toContain(`loom v${serviceVersion}`)
