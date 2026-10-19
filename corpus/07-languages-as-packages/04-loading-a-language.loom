@@ -12,7 +12,7 @@ A language that fails to load costs only itself. Its sections stay at syntax hig
 
 ## Importing one language's package
 
-The loader resolves a package from the project's store, imports it, and reads the package's default export. `storeDir` finds the store by walking up from `root`, the workspace folder the editor opened, to the first directory that holds a `.loom` folder. The import is dynamic — by name, at runtime — because a package is a unit the consumer installs after the editor ships, never one a build could fold in.
+The loader resolves a package from a workspace's store, imports it, and reads the package's default export. The loader takes `root`, the workspace whose looms the service serves, and `storeDir` finds that workspace's store. Every workspace keeps a store of its own, so two workspaces may hold one language at two versions, and each workspace loads its own. The import is dynamic, by name and at runtime, because a package is a unit the consumer installs after the editor ships, never one a build could fold in.
 
 A service the store holds at another version than this Loom's was installed by another release, and it may not work inside this host: a service built against an older Effect fails on its first request. The loader still loads it, since an old service may work, but first logs a warning that names both versions and the `loom add` that brings the service in step. The warning lands before the import, so it is there even when the old service then fails.
 

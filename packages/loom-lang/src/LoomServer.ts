@@ -1,17 +1,22 @@
-import { Data, Effect, Layer, ManagedRuntime, Option, Schema, pipe } from 'effect'
+import { Array, Cache, Data, Effect, Layer, ManagedRuntime, Option, Schema, pipe } from 'effect'
 import {
   createConnection,
   createServer,
   createTypeScriptProject,
+  type LanguageServer,
+  type LanguageServerProject,
+  type LanguageServicePlugin,
   loadTsdkByPath,
 } from '@volar/language-server/node'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import type { URI } from 'vscode-uri'
 import { LoomCompiler, DocumentSource } from './LoomCompiler'
 import { LoomFormatter } from './LoomFormatter'
 import { PackageConfig } from './PackageConfig'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
+import { workspaceOf, workspaceRoot } from '@athrio/loom-lang-services/LoomStore'
 import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
 
 const EditorTsdkSchema = Schema.Struct({
@@ -49,6 +54,55 @@ const tsdkFor = (options: unknown, root: string): Effect.Effect<string, MissingT
     }),
   )
 
+const workspaceFor = (home: string, uri: URI): string =>
+  uri.scheme === 'file' ? Option.getOrElse(workspaceOf(dirname(uri.fsPath)), () => home) : home
+
+type Tsdk = ReturnType<typeof loadTsdkByPath>
+
+const projectOver = (
+  server: LanguageServer,
+  tsdk: Tsdk,
+  plugins: ReadonlyArray<LanguageServicePlugin>,
+): LanguageServerProject => {
+  const project = createTypeScriptProject(tsdk.typescript, tsdk.diagnosticMessages, () => ({
+    languagePlugins: [loomLanguagePlugin(runtime)],
+  }))
+  project.setup({ ...server, languageServicePlugins: [...plugins] })
+  return project
+}
+
+const workspaceProject = (
+  home: string,
+  projects: Cache.Cache<string, LanguageServerProject>,
+): LanguageServerProject => ({
+  setup: () => undefined,
+  getLanguageService: (uri) =>
+    runtime.runPromise(
+      Cache.get(projects, workspaceFor(home, uri)).pipe(
+        Effect.flatMap((project) => Effect.promise(async () => project.getLanguageService(uri))),
+      ),
+    ),
+  getExistingLanguageServices: () =>
+    runtime.runPromise(
+      Cache.values(projects).pipe(
+        Effect.flatMap((all) =>
+          Effect.forEach(all, (project) =>
+            Effect.promise(async () => (await project.getExistingLanguageServices()) ?? []),
+          ),
+        ),
+        Effect.map(Array.flatten),
+      ),
+    ),
+  reload: () =>
+    runtime.runSync(
+      Cache.values(projects).pipe(
+        Effect.flatMap((all) =>
+          Effect.forEach(all, (project) => Effect.sync(() => project.reload()), { discard: true }),
+        ),
+      ),
+    ),
+})
+
 const runtime = ManagedRuntime.make(
   Layer.mergeAll(LoomCompiler.layer, LoomFormatter.layer, LoomConfig.layer).pipe(
     Layer.provide(DocumentSource.layer),
@@ -64,21 +118,27 @@ export const startLanguageServer = (): void => {
   connection.onInitialize(async (params) => {
     const folder = params.workspaceFolders?.[0]?.uri
     const root = folder ? fileURLToPath(folder) : process.cwd()
-    const { tsdk, servicePlugins } = await runtime.runPromise(
+    const home = workspaceRoot(root)
+    const { projects, plugins } = await runtime.runPromise(
       Effect.gen(function* () {
         const path = yield* tsdkFor(params.initializationOptions, root)
         const tsdk = yield* Effect.sync(() => loadTsdkByPath(path, params.locale))
-        const servicePlugins = yield* loomServicePlugins(runtime, tsdk.typescript, root)
-        return { tsdk, servicePlugins }
+        const services = yield* Cache.make({
+          capacity: Infinity,
+          lookup: (workspace: string) => loomServicePlugins(runtime, tsdk.typescript, workspace),
+        })
+        const projects = yield* Cache.make({
+          capacity: Infinity,
+          lookup: (workspace: string) =>
+            Cache.get(services, workspace).pipe(
+              Effect.flatMap((plugins) => Effect.sync(() => projectOver(server, tsdk, plugins))),
+            ),
+        })
+        const plugins = yield* Cache.get(services, home)
+        return { projects, plugins }
       }),
     )
-    return server.initialize(
-      params,
-      createTypeScriptProject(tsdk.typescript, tsdk.diagnosticMessages, () => ({
-        languagePlugins: [loomLanguagePlugin(runtime)],
-      })),
-      [...servicePlugins],
-    )
+    return server.initialize(params, workspaceProject(home, projects), [...plugins])
   })
   connection.onInitialized(() => {
     server.initialized()

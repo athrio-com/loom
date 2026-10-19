@@ -174,15 +174,15 @@ const compositionOver = (
 export const loomServicePlugins = (
   runtime: ManagedRuntime.ManagedRuntime<LoomCompiler | LoomFormatter, never>,
   tsdk: typeof import('typescript'),
-  root: string,
+  workspace: string,
 ): Effect.Effect<ReadonlyArray<LanguageServicePlugin>, never, LoomConfig> =>
   Effect.gen(function* () {
     const config = yield* LoomConfig
-    const manifest = yield* config.manifest(root)
+    const manifest = yield* config.manifest(workspace)
     const languages = Object.keys(manifest?.languages ?? {})
     const settings = manifest?.settings ?? {}
     yield* Effect.sync(() => installHostRuntime(tsdk))
-    const active = yield* loadActive(languages, root)
+    const active = yield* loadActive(languages, workspace)
     return yield* collect(
       active,
       tsdk,

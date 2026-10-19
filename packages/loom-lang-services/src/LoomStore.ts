@@ -8,14 +8,13 @@ const run = promisify(execFile)
 
 export const servicePackage = (id: string): string => `@athrio/loom-service-${id}`
 
-export const workspaceRoot = (dir: string): string => {
-  const seek = (at: string): string | undefined => {
-    if (existsSync(join(at, '.loom'))) return at
-    const parent = dirname(at)
-    return parent === at ? undefined : seek(parent)
-  }
-  return seek(dir) ?? dir
+export const workspaceOf = (dir: string): Option.Option<string> => {
+  if (existsSync(join(dir, '.loom'))) return Option.some(dir)
+  const parent = dirname(dir)
+  return parent === dir ? Option.none() : workspaceOf(parent)
 }
+
+export const workspaceRoot = (dir: string): string => Option.getOrElse(workspaceOf(dir), () => dir)
 
 export const storeDir = (dir: string): string =>
   process.env.LOOM_HOME === undefined

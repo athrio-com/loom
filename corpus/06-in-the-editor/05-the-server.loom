@@ -1,35 +1,42 @@
 ---
 Part VI, Chapter 5: The language server
-Package: packages/loom-lang/src/
+Package: packages/loom-lang/
 Language: TypeScript
 ---
 
 # The language server
 
-The Loom language server is an Effect program. `startLanguageServer` runs it: it builds the pipeline layers once and captures a warm runtime, because Volar's hooks are synchronous and the language plugin runs the projection on that runtime. On `initialize` the server finds a TypeScript compiler to check against, collects the active languages' Volar plugins, and registers them beside the language plugin.
+The Loom language server is an Effect program. `startLanguageServer` runs it: it builds the pipeline layers once and captures a warm runtime, because Volar's hooks are synchronous and the language plugin runs the projection on that runtime. On `initialize` the server finds a TypeScript compiler to check against and collects the plugins of the workspace the editor opened. From then on it serves every loom with the plugins of the loom's own workspace, which it collects the first time it meets a loom there.
 
 Any editor that speaks the Language Server Protocol can start the server. VS Code starts it through the Loom extension, which loads a thin entry module. Neovim, Helix, Zed, and the JetBrains IDEs start it with the `loom lsp` command and talk to it over standard input and output. So the server lives in the CLI, the one tool every Loom user already has.
 
 ## Imports
 
-The server is built from Volar's language-server toolkit — the connection, the project factory, and `loadTsdkByPath` — over a `ManagedRuntime`. It imports `LoomCompiler`, the projector and cache the runtime warms, and `LoomFormatter`, which formats a file on it, with the `DocumentSource`, `PackageConfig`, and `LoomConfig` they require, and the two halves this module registers, `loomLanguagePlugin` and `loomServicePlugins`. Effect's `Schema` reads the editor's initialization options, `Option` carries a compiler that may not be there, and `Data` types the failure when none is. Node's `createRequire` finds an installed `typescript` package the way Node itself would. `join` builds the path a search starts from, and `dirname` trims the file it finds to the directory that holds it.
+The server is built from Volar's language-server toolkit over a `ManagedRuntime`. From the toolkit it takes the connection, the TypeScript project factory, `loadTsdkByPath`, and the types of a server, a project, and a service plugin. It imports `LoomCompiler`, the projector and cache the runtime warms, and `LoomFormatter`, which formats a file on it, with the `DocumentSource`, `PackageConfig`, and `LoomConfig` they require, and the two halves this module registers, `loomLanguagePlugin` and `loomServicePlugins`. From the language store come `workspaceOf` and `workspaceRoot`, which find the workspace a path belongs to.
+
+Effect's `Schema` reads the editor's initialization options, `Option` carries a compiler or a workspace that may not be there, and `Data` types the failure when no compiler is. `Cache` holds what the server builds for each workspace, and `Array` gathers across them. Node's `createRequire` finds an installed `typescript` package the way Node itself would. `join` builds the path a search starts from, and `dirname` trims a file's path to the directory that holds it. `URI` types the address Volar names a document by.
 
 =>
 
-import { Data, Effect, Layer, ManagedRuntime, Option, Schema, pipe } from 'effect'
+import { Array, Cache, Data, Effect, Layer, ManagedRuntime, Option, Schema, pipe } from 'effect'
 import {
   createConnection,
   createServer,
   createTypeScriptProject,
+  type LanguageServer,
+  type LanguageServerProject,
+  type LanguageServicePlugin,
   loadTsdkByPath,
 } from '@volar/language-server/node'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import type { URI } from 'vscode-uri'
 import { LoomCompiler, DocumentSource } from './LoomCompiler'
 import { LoomFormatter } from './LoomFormatter'
 import { PackageConfig } from './PackageConfig'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
+import { workspaceOf, workspaceRoot } from '@athrio/loom-lang-services/LoomStore'
 import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
 
 ## A TypeScript to check against
@@ -91,11 +98,90 @@ const tsdkFor = (options: unknown, root: string): Effect.Effect<string, MissingT
     }),
   )
 
+## Every loom answers to its own workspace
+
+A workspace decides which languages its looms use and where their services come from. Its `config.yaml` names the active languages, and its store under `.loom/services/` holds the packages that serve them. Workspaces can nest. A Git worktree checked out inside a repository carries a `.loom/` of its own. An editor opens one folder, but the looms it shows may belong to several workspaces.
+
+So the server serves each loom with the services of the workspace the loom belongs to, not those of the folder the editor opened. A loom in a nested workspace is checked and formatted with that workspace's languages, at the versions its own store holds. `loom format` loads the same services for the same loom. Whether the editor opened the outer folder or the nested one makes no difference to the loom.
+
+`workspaceFor` names the workspace a document belongs to. For a file on disk it is the nearest directory above the file that holds a `.loom/` folder, the one `workspaceOf` finds. A document outside every workspace, or one that is not a file on disk, belongs to `home`. That is the workspace of the folder the editor opened, or the folder itself when it lies in no workspace.
+
+=>
+
+const workspaceFor = (home: string, uri: URI): string =>
+  uri.scheme === 'file' ? Option.getOrElse(workspaceOf(dirname(uri.fsPath)), () => home) : home
+
+~
+
+Volar already has a seam for this. For every request, Volar asks a project which language service answers the document. Every language service carries its own list of service plugins, and Volar's TypeScript project builds its language services from the plugins of the server it is set up with. So `projectOver` builds a TypeScript project for one workspace and sets it up with a copy of the server whose `languageServicePlugins` are that workspace's. Every language service the project builds then carries the workspace's plugins. The project's looms still project through the Loom language plugin, on the one warm runtime every workspace shares.
+
+=>
+
+type Tsdk = ReturnType<typeof loadTsdkByPath>
+
+const projectOver = (
+  server: LanguageServer,
+  tsdk: Tsdk,
+  plugins: ReadonlyArray<LanguageServicePlugin>,
+): LanguageServerProject => {
+  const project = createTypeScriptProject(tsdk.typescript, tsdk.diagnosticMessages, () => ({
+    languagePlugins: [loomLanguagePlugin(runtime)],
+  }))
+  project.setup({ ...server, languageServicePlugins: [...plugins] })
+  return project
+}
+
+~
+
+`workspaceProject` is the project the server hands to Volar. Its `projects` cache holds one TypeScript project per workspace. `getLanguageService` answers a document from the project of the document's workspace. `getExistingLanguageServices` and `reload` reach every project the cache holds. Volar sets the project up with the server, and the cache builds every workspace's project with that same server, so `setup` has nothing left to do.
+
+=>
+
+const workspaceProject = (
+  home: string,
+  projects: Cache.Cache<string, LanguageServerProject>,
+): LanguageServerProject => ({
+  setup: () => undefined,
+  getLanguageService: (uri) =>
+    runtime.runPromise(
+      Cache.get(projects, workspaceFor(home, uri)).pipe(
+        Effect.flatMap((project) => Effect.promise(async () => project.getLanguageService(uri))),
+      ),
+    ),
+  getExistingLanguageServices: () =>
+    runtime.runPromise(
+      Cache.values(projects).pipe(
+        Effect.flatMap((all) =>
+          Effect.forEach(all, (project) =>
+            Effect.promise(async () => (await project.getExistingLanguageServices()) ?? []),
+          ),
+        ),
+        Effect.map(Array.flatten),
+      ),
+    ),
+  reload: () =>
+    runtime.runSync(
+      Cache.values(projects).pipe(
+        Effect.flatMap((all) =>
+          Effect.forEach(all, (project) => Effect.sync(() => project.reload()), { discard: true }),
+        ),
+      ),
+    ),
+})
+
+~
+
+Two limits remain. The first concerns capabilities. The editor learns the server's capabilities once, from the answer to `initialize`, and Volar derives that answer from the plugins of `home`. A nested workspace's plugins receive only the requests those capabilities let the editor send. The Loom language is active in every workspace, and its TypeScript plugins already claim the common features: diagnostics, hover, completion, navigation, rename, and formatting. So the first limit reaches only a feature that no plugin of `home` claims.
+
+The second limit concerns change. The server collects a workspace's plugins once and keeps them while it runs, so a language activated in a workspace takes effect when the server restarts.
+
 ## The program
 
 A `ManagedRuntime`, built once from the pipeline layers, warms the services the server runs. The language plugin runs the per-keystroke projection on it, and resolves each file's activated languages from `LoomConfig` on it too. A format request runs `LoomFormatter` on it.
 
-The `onInitialize` handler runs one Effect on that runtime. The program reads the workspace folder the editor opened, falling back to the working directory when the editor names none. It finds the tsdk with `tsdkFor` and loads the compiler from it, so a TypeScript section checks against a real standard library. It then hands the folder and the compiler to `loomServicePlugins`, which walks up from the folder to the `.loom/` store and its `config.yaml` and collects the active languages' plugins. The handler registers the language plugin and the collected plugins with Volar. A `MissingTypeScript` failure rejects the handler, and the client receives its message as the error of `initialize`.
+The `onInitialize` handler runs one Effect on that runtime. The program reads the workspace folder the editor opened, falling back to the working directory when the editor names none. It takes `home` to be the workspace that folder belongs to. It finds the tsdk with `tsdkFor` and loads the compiler from it, so a TypeScript section checks against a real standard library.
+
+The program then makes two caches, each keyed by a workspace's root. `services` holds the plugins `loomServicePlugins` collects for a workspace. `projects` holds the TypeScript project `projectOver` builds over those plugins. A cache fills a workspace's entry the first time a request needs it, and fills it once, however many requests ask at the same moment. The program collects the plugins of `home` right away, because Volar announces the server's capabilities from them. The handler registers `workspaceProject` and those plugins with Volar. A `MissingTypeScript` failure rejects the handler, and the client receives its message as the error of `initialize`.
 
 On `initialized`, the server watches every `tsconfig.json` and `jsconfig.json`. Editing a package's compiler options disposes its project, and the next request rebuilds it, so the consumer's options take effect without an editor reload.
 
@@ -116,21 +202,27 @@ export const startLanguageServer = (): void => {
   connection.onInitialize(async (params) => {
     const folder = params.workspaceFolders?.[0]?.uri
     const root = folder ? fileURLToPath(folder) : process.cwd()
-    const { tsdk, servicePlugins } = await runtime.runPromise(
+    const home = workspaceRoot(root)
+    const { projects, plugins } = await runtime.runPromise(
       Effect.gen(function* () {
         const path = yield* tsdkFor(params.initializationOptions, root)
         const tsdk = yield* Effect.sync(() => loadTsdkByPath(path, params.locale))
-        const servicePlugins = yield* loomServicePlugins(runtime, tsdk.typescript, root)
-        return { tsdk, servicePlugins }
+        const services = yield* Cache.make({
+          capacity: Infinity,
+          lookup: (workspace: string) => loomServicePlugins(runtime, tsdk.typescript, workspace),
+        })
+        const projects = yield* Cache.make({
+          capacity: Infinity,
+          lookup: (workspace: string) =>
+            Cache.get(services, workspace).pipe(
+              Effect.flatMap((plugins) => Effect.sync(() => projectOver(server, tsdk, plugins))),
+            ),
+        })
+        const plugins = yield* Cache.get(services, home)
+        return { projects, plugins }
       }),
     )
-    return server.initialize(
-      params,
-      createTypeScriptProject(tsdk.typescript, tsdk.diagnosticMessages, () => ({
-        languagePlugins: [loomLanguagePlugin(runtime)],
-      })),
-      [...servicePlugins],
-    )
+    return server.initialize(params, workspaceProject(home, projects), [...plugins])
   })
   connection.onInitialized(() => {
     server.initialized()
@@ -140,9 +232,9 @@ export const startLanguageServer = (): void => {
   connection.listen()
 }
 
-## The server module {Tangle}[LoomServer.ts]
+## The server module {Tangle}[src/LoomServer.ts]
 
-The server module assembles the imports, the search for a compiler, and the program, and exports `startLanguageServer`. It runs nothing on import — a caller decides when to start the server, so the same module serves both an editor that spawns it and the `loom lsp` command that calls it in-process.
+The server module assembles the imports, the search for a compiler, the projects kept per workspace, and the program, and exports `startLanguageServer`. It runs nothing on import — a caller decides when to start the server, so the same module serves both an editor that spawns it and the `loom lsp` command that calls it in-process.
 
 =>
 
@@ -150,9 +242,11 @@ The server module assembles the imports, the search for a compiler, and the prog
 
 ::[A TypeScript to check against]
 
+::[Every loom answers to its own workspace]
+
 ::[The program]
 
-## The run-on-import entry {Tangle}[index.ts]
+## The run-on-import entry {Tangle}[src/index.ts]
 
 This thin entry starts the server the moment it loads. The VS Code extension bundles it as `server.js`, and the `loom-language-server` bin runs it — both expect loading the module to start the server.
 
@@ -161,3 +255,153 @@ This thin entry starts the server the moment it loads. The VS Code extension bun
 import { startLanguageServer } from './LoomServer'
 
 startLanguageServer()
+
+## Testing a nested workspace
+
+The case builds two workspaces, one nested in the other, the way a Git worktree sits inside the repository it was checked out from. Each workspace activates TypeScript. Its store holds a stand-in for the TypeScript service rather than the real one, so the case needs no build and no network. The outer stand-in offers no `format`. The nested one formats by squeezing every double space to one. Both workspaces hold the same loom, whose code is spaced wide.
+
+A stand-in reads Effect from the runtime the host lends, under `runtimeKey`, as a published service does. It declares the version `serviceVersion`, so the loader loads it without a warning.
+
+=>
+
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
+
+const loomOf = (code: string): string =>
+  lines('---', 'Language: TypeScript', '---', '', '# Answer', '', '=>', '', code)
+
+const standIn = (formats: boolean): string =>
+  lines(
+    `const { Effect } = globalThis.${runtimeKey}.modules.effect`,
+    'export default {',
+    "  id: 'typescript',",
+    "  displayName: 'TypeScript',",
+    "  extensions: ['.ts'],",
+    '  plugins: () => Effect.succeed([]),',
+    ...(formats
+      ? ["  format: (request) => Effect.succeed(request.code.replaceAll('  ', ' ')),"]
+      : []),
+    '}',
+  )
+
+const workspaceAt = (root: string, service: string): string => {
+  const store = join(root, '.loom', 'services', 'node_modules', servicePackage('typescript'))
+  mkdirSync(store, { recursive: true })
+  mkdirSync(join(root, 'corpus'))
+  writeFileSync(join(root, '.loom', 'config.yaml'), lines('languages:', '  typescript: {}'))
+  writeFileSync(
+    join(store, 'package.json'),
+    JSON.stringify({
+      name: servicePackage('typescript'),
+      version: serviceVersion,
+      type: 'module',
+      main: 'index.js',
+    }),
+  )
+  writeFileSync(join(store, 'index.js'), service)
+  const loom = join(root, 'corpus', 'answer.loom')
+  writeFileSync(loom, loomOf('const  answer  =  42'))
+  return loom
+}
+
+~
+
+The case starts the server from source the way an editor does. The server runs as a process of its own and speaks the Language Server Protocol over its standard input and output. The case hands it the TypeScript this repository installs, as VS Code hands over its own. It leaves `LOOM_HOME` out of the server's environment, since that variable would point every workspace at one store. The client answers every request the server makes of it, such as one for the editor's settings, with nothing.
+
+=>
+
+const serverEntry = fileURLToPath(new URL('../src/index.ts', import.meta.url))
+
+const tsdk = dirname(createRequire(import.meta.url).resolve('typescript/lib/typescript.js'))
+
+const editorAt = async (folder: string) => {
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== 'LOOM_HOME'))
+  const child = spawn(process.execPath, [serverEntry, '--stdio'], {
+    env,
+    stdio: ['pipe', 'pipe', 'ignore'],
+  })
+  const connection = createMessageConnection(
+    new StreamMessageReader(child.stdout),
+    new StreamMessageWriter(child.stdin),
+  )
+  connection.onRequest(() => null)
+  connection.listen()
+  await connection.sendRequest('initialize', {
+    processId: process.pid,
+    rootUri: pathToFileURL(folder).href,
+    workspaceFolders: [{ uri: pathToFileURL(folder).href, name: 'outer' }],
+    capabilities: {},
+    initializationOptions: { typescript: { tsdk } },
+  })
+  await connection.sendNotification('initialized', {})
+  const format = async (path: string): Promise<ReadonlyArray<TextEdit>> => {
+    const uri = pathToFileURL(path).href
+    const text = readFileSync(path, 'utf8')
+    await connection.sendNotification('textDocument/didOpen', {
+      textDocument: { uri, languageId: 'loom', version: 1, text },
+    })
+    const edits = await connection.sendRequest<TextEdit[] | null>('textDocument/formatting', {
+      textDocument: { uri },
+      options: { tabSize: 2, insertSpaces: true },
+    })
+    return edits ?? []
+  }
+  const close = (): void => {
+    connection.dispose()
+    child.kill()
+  }
+  return { format, close }
+}
+
+~
+
+The editor opens the outer folder, as it opens a repository, and asks the server to format each loom. The outer loom must come back unchanged, since its workspace offers no formatter for TypeScript. The nested loom must come back with its code squeezed, which only the nested workspace's service can do.
+
+=>
+
+describe('LoomServer — a loom in a nested workspace', () => {
+  it('is formatted by the services of its own workspace', async () => {
+    const outer = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    const outerLoom = workspaceAt(outer, standIn(false))
+    const nestedLoom = workspaceAt(join(outer, 'nested'), standIn(true))
+    const editor = await editorAt(outer)
+    try {
+      expect(await editor.format(outerLoom)).toEqual([])
+      expect(Array.map(await editor.format(nestedLoom), (edit) => edit.newText)).toEqual([
+        loomOf('const answer = 42'),
+      ])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+})
+
+## What the case draws on
+
+The case draws on Bun's test runner, and on Node to make the workspaces, start the server, and turn paths into the `file:` addresses the protocol names documents by. Volar's language-server package carries the client half of the protocol too: `createMessageConnection` and the stream reader and writer it speaks through, and the `TextEdit` a format answers with. The language store gives `servicePackage` and `serviceVersion`, which name and version the stand-in. The host runtime gives `runtimeKey`, where the stand-in finds Effect. Effect's `Array` reads the text out of the edits a format returns.
+
+=>
+
+import { describe, expect, it } from 'bun:test'
+import {
+  createMessageConnection,
+  StreamMessageReader,
+  StreamMessageWriter,
+  type TextEdit,
+} from '@volar/language-server/node'
+import { Array } from 'effect'
+import { spawn } from 'node:child_process'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { servicePackage, serviceVersion } from '@athrio/loom-lang-services/LoomStore'
+import { runtimeKey } from '@athrio/loom-lang-services/Runtime'
+
+## The test file {Tangle}[test/LoomServer.test.ts]
+
+=>
+
+::[What the case draws on]
+
+::[Testing a nested workspace]
