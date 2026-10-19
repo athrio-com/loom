@@ -14,7 +14,7 @@ The `files` field restricts the published package to the `dist` directory, and t
 
 The `typecheck` script reads the source without writing anything — `--noEmit`, because the shared configuration sets an output directory that a check has no use for, and compiled copies of the tests left there are found twice by the test runner. It is the script this package went without, and the cost showed. Vite strips types rather than checking them, so `main.ts` shipped for months with an identifier that resolved to nothing — a failure message reaching for a variable that had gone out of scope, which would have thrown a `ReferenceError` on the one path it was written for. A type checker reads the whole file whether or not a path runs.
 
-The `compile` script turns the bundle into the standalone executable, `build/loom`, for the machine it runs on. It writes outside `dist`, so the executable never lands in the npm package. The release compiles one executable for each platform from the same bundle.
+The `compile` script runs `compile.ts`, which turns the bundle into the standalone executable, `build/loom`, for the machine it runs on, with the grammar library and TypeScript inside it. It writes outside `dist`, so the executable never lands in the npm package. TypeScript is a development dependency for that reason: the compile packs the workspace's TypeScript 6 into the executable. The release compiles one executable on each platform from the same bundle.
 
 The `build` script bundles the tangled source files committed to the repository. Tangling the corpus is a separate step, performed with the published `loom` CLI rather than the in-progress source — using an unverified tangler to tangle the corpus that produces it would be circular. The `prepack` script re-bundles automatically before each publish. The `bun publish` command rewrites the `workspace:*` specifier for `@athrio/loom-lang` — Bun's protocol for local package references — into the real published version number.
 
@@ -49,7 +49,7 @@ The `build` script bundles the tangled source files committed to the repository.
   },
   "scripts": {
     "build": "vite build",
-    "compile": "bun build dist/main.js --compile --outfile build/loom",
+    "compile": "bun compile.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "bun test",
     "prepack": "bun run build"
@@ -61,6 +61,7 @@ The `build` script bundles the tangled source files committed to the repository.
     "@effect/platform-node": "::[effect]",
     "effect": "::[effect]",
     "tree-sitter-loom": "workspace:*",
+    "typescript": "^6.0.3",
     "vite": "^8.0.12"
   }
 }

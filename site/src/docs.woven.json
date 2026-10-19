@@ -459,7 +459,7 @@
             "chapter": "03-loom-in-your-ide/01-supported-editors",
             "section": "helix"
           },
-          "markdown": "Helix needs no extension. One command builds Loom's grammar into Helix's configuration folder and adds Loom to Helix's `languages.toml`:\n\n```bash\nloom helix\n```\n\nThe build takes a C compiler, which is the Xcode Command Line Tools on macOS and your distribution's build tools on Linux. Run `loom helix` again after you upgrade Loom, and check the result with `$ hx --health loom`.\n\nIn Helix, `:format` formats a loom."
+          "markdown": "Helix needs no extension. One command builds Loom's grammar into Helix's configuration folder and adds Loom to Helix's `languages.toml`:\n\n```bash\nloom helix\n```\n\nLoom installed with `curl` carries the grammar already built, so that's all it takes. Loom installed from npm builds the grammar on your machine, which takes a C compiler: the Xcode Command Line Tools on macOS, or your distribution's build tools on Linux. Run `loom helix` again after you upgrade Loom, and check the result with `$ hx --health loom`.\n\nIn Helix, `:format` formats a loom."
         },
         {
           "type": "heading",
@@ -477,7 +477,7 @@
             "chapter": "03-loom-in-your-ide/01-supported-editors",
             "section": "neovim"
           },
-          "markdown": "Neovim needs no plugin manager. One command builds Loom's grammar into Neovim's data folder and turns on the language server:\n\n```bash\nloom nvim\n```\n\nIt takes Neovim 0.11 or newer, and a C compiler for the build. Run `loom nvim` again after you upgrade Loom, and check the result with `:checkhealth vim.treesitter`."
+          "markdown": "Neovim needs no plugin manager. One command builds Loom's grammar into Neovim's data folder and turns on the language server:\n\n```bash\nloom nvim\n```\n\nIt takes Neovim 0.11 or newer. Loom installed from npm also needs a C compiler to build the grammar, while Loom installed with `curl` carries it already built. Run `loom nvim` again after you upgrade Loom, and check the result with `:checkhealth vim.treesitter`."
         },
         {
           "type": "heading",

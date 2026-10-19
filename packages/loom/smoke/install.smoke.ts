@@ -44,7 +44,7 @@ const install = async (sums: string | undefined) => {
   return { status, stdout, stderr, dir }
 }
 
-describe('the install script', () => {
+describe.skipIf(process.platform === 'win32')('the install script', () => {
   it('installs an executable whose checksum matches the list', async () => {
     const { status, stdout, dir } = await install(`${sha256(standIn)}  ${assetName}\n`)
     expect(status).toBe(0)

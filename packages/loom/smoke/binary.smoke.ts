@@ -33,9 +33,17 @@ const scratch = (name: string): string =>
 
 const emptyPath = scratch('path')
 
+const nowhere = 'http://127.0.0.1:9/'
+
 const bareEnv = (extra: Record<string, string> = {}): Record<string, string> => ({
-  HOME: process.env.HOME ?? tmpdir(),
+  ...Object.fromEntries(
+    Object.entries(process.env).filter(
+      (entry): entry is [string, string] =>
+        entry[1] !== undefined && entry[0].toUpperCase() !== 'PATH',
+    ),
+  ),
   PATH: emptyPath,
+  NPM_CONFIG_REGISTRY: nowhere,
   ...extra,
 })
 
@@ -132,11 +140,10 @@ const standIn = lines(
   '}',
 )
 
-const installStandIn = (root: string): void => {
-  const service = join(root, '.loom', 'services', 'node_modules', servicePackage('typescript'))
-  mkdirSync(join(service, 'dist'), { recursive: true })
+const writeStandIn = (folder: string): void => {
+  mkdirSync(join(folder, 'dist'), { recursive: true })
   writeFileSync(
-    join(service, 'package.json'),
+    join(folder, 'package.json'),
     JSON.stringify({
       name: servicePackage('typescript'),
       version: serviceVersion,
@@ -144,8 +151,47 @@ const installStandIn = (root: string): void => {
       exports: { '.': './dist/index.js' },
     }),
   )
-  writeFileSync(join(service, 'dist', 'index.js'), standIn)
+  writeFileSync(join(folder, 'dist', 'index.js'), standIn)
 }
+
+const installStandIn = (root: string): void =>
+  writeStandIn(join(root, '.loom', 'services', 'node_modules', servicePackage('typescript')))
+
+const standInTarball = (): Uint8Array => {
+  const dir = scratch('tarball')
+  writeStandIn(join(dir, 'package'))
+  Bun.spawnSync(['tar', '-czf', 'service.tgz', 'package'], { cwd: dir })
+  const packed = new Uint8Array(readFileSync(join(dir, 'service.tgz')))
+  rmSync(dir, { recursive: true, force: true })
+  return packed
+}
+
+const registryServer = (tarball: Uint8Array) =>
+  Bun.serve({
+    port: 0,
+    fetch: (request) => {
+      const name = servicePackage('typescript')
+      const path = decodeURIComponent(new URL(request.url).pathname)
+      if (path === `/${name}`)
+        return Response.json({
+          name,
+          'dist-tags': { latest: serviceVersion },
+          versions: {
+            [serviceVersion]: {
+              name,
+              version: serviceVersion,
+              dist: {
+                tarball: new URL('/service.tgz', request.url).href,
+                integrity: `sha512-${createHash('sha512').update(tarball).digest('base64')}`,
+              },
+            },
+          },
+        })
+      if (path === '/service.tgz') return new Response(tarball)
+      return new Response('not found', { status: 404 })
+    },
+  })
+
 
 describe('the executable — languages', () => {
   it(
@@ -156,6 +202,32 @@ describe('the executable — languages', () => {
       const { status, stdout } = await run(['update', 'typescript'], { cwd: dir, env: bareEnv() })
       expect(status).toBe(0)
       expect(stdout).toContain('is already in the store')
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SMOKE_TIMEOUT,
+  )
+
+  it(
+    'installs a service the store lacks, acting as its own package manager',
+    async () => {
+      const dir = workspace('corpus: .', 'languages:', '  typescript: {}', 'primary: typescript')
+      const registry = registryServer(standInTarball())
+      const { status, stdout } = await run(['update', 'typescript'], {
+        cwd: dir,
+        env: bareEnv({ NPM_CONFIG_REGISTRY: registry.url.href }),
+      })
+      registry.stop()
+      expect(status).toBe(0)
+      expect(stdout).toContain(`installed ${servicePackage('typescript')} ${serviceVersion}`)
+      const manifest = join(
+        dir,
+        '.loom',
+        'services',
+        'node_modules',
+        servicePackage('typescript'),
+        'package.json',
+      )
+      expect(JSON.parse(readFileSync(manifest, 'utf8')).version).toBe(serviceVersion)
       rmSync(dir, { recursive: true, force: true })
     },
     SMOKE_TIMEOUT,
@@ -186,7 +258,7 @@ const editorAt = async (folder: string) => {
 
 describe('the executable — language server', () => {
   it(
-    'installs TypeScript into the store and formats with a service from the store',
+    'unpacks the TypeScript it carries and formats with a service from the store',
     async () => {
       const dir = workspace('corpus: .', 'languages:', '  typescript: {}', 'primary: typescript')
       installStandIn(dir)
@@ -202,7 +274,9 @@ describe('the executable — language server', () => {
         })
         await connection.sendNotification('initialized', {})
         expect(
-          existsSync(join(dir, '.loom', 'services', 'node_modules', 'typescript', 'lib')),
+          existsSync(
+            join(dir, '.loom', 'services', 'node_modules', 'typescript', 'lib', 'lib.es5.d.ts'),
+          ),
         ).toBe(true)
         await connection.sendNotification('textDocument/didOpen', {
           textDocument: {
@@ -229,12 +303,12 @@ describe('the executable — language server', () => {
 
 describe('the executable — editors', () => {
   it(
-    'builds the grammar it carries for Helix',
+    'gives Helix the grammar it carries, with no compiler',
     async () => {
       const config = scratch('helix')
       const { status } = await run(['helix'], {
         cwd: config,
-        env: { ...bareEnv({ XDG_CONFIG_HOME: config }), PATH: process.env.PATH ?? '' },
+        env: bareEnv({ XDG_CONFIG_HOME: config, APPDATA: config }),
       })
       expect(status).toBe(0)
       const library = process.platform === 'win32' ? 'loom.dll' : 'loom.so'
@@ -243,6 +317,23 @@ describe('the executable — editors', () => {
         true,
       )
       rmSync(config, { recursive: true, force: true })
+    },
+    SMOKE_TIMEOUT,
+  )
+
+  it(
+    'gives Neovim the grammar it carries, with no compiler',
+    async () => {
+      const data = scratch('nvim')
+      const { status } = await run(['nvim'], {
+        cwd: data,
+        env: bareEnv({ XDG_DATA_HOME: data, LOCALAPPDATA: data, NVIM_APPNAME: 'nvim' }),
+      })
+      expect(status).toBe(0)
+      const site = join(data, process.platform === 'win32' ? 'nvim-data' : 'nvim', 'site')
+      expect(existsSync(join(site, 'parser', 'loom.so'))).toBe(true)
+      expect(existsSync(join(site, 'queries', 'loom', 'highlights.scm'))).toBe(true)
+      rmSync(data, { recursive: true, force: true })
     },
     SMOKE_TIMEOUT,
   )
@@ -301,8 +392,8 @@ describe('the executable — upgrade', () => {
       const { status, dir, copy } = await upgradeCopy('v99.0.0', sha256(archive))
       expect(status).toBe(0)
       expect(new Uint8Array(readFileSync(copy))).toEqual(replacement)
-      const after = await run([], { cwd: dir, env: bareEnv(), executable: copy })
-      expect(after.stdout).toContain('upgraded')
+      if (process.platform === 'win32') expect(existsSync(`${copy}.old`)).toBe(true)
+      else expect((await run([], { cwd: dir, env: bareEnv(), executable: copy })).stdout).toContain('upgraded')
       rmSync(dir, { recursive: true, force: true })
     },
     SMOKE_TIMEOUT,

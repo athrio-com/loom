@@ -78,6 +78,7 @@ tasks:
     inputs:
       - "@group(sources)"
       - "smoke/**/*"
+      - "compile.ts"
       - "/scripts/install.sh"
       - "moon.yml"
       - "/mise.toml"

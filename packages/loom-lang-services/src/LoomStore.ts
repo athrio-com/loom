@@ -1,8 +1,17 @@
-import { Data, Effect, Option, Schema, pipe } from 'effect'
+import { Array, Data, Effect, Option, Schema, pipe } from 'effect'
 import { execFile } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
+import { gunzipSync } from 'node:zlib'
 
 const run = promisify(execFile)
 
@@ -56,6 +65,19 @@ export const installedVersion = (id: string, dir: string): Option.Option<string>
   Option.flatMap(serviceManifest(id, dir), (manifest) => Option.fromNullishOr(manifest.version))
 
 export const standalone: boolean = /[\\/](\$bunfs|~BUN)[\\/]/.test(import.meta.url)
+
+interface EmbeddedFile extends Blob {
+  readonly name?: string
+}
+
+export const embeddedFile = (name: string): Option.Option<EmbeddedFile> =>
+  pipe(
+    Option.fromNullishOr(
+      (globalThis as { readonly Bun?: { readonly embeddedFiles?: ReadonlyArray<EmbeddedFile> } })
+        .Bun?.embeddedFiles,
+    ),
+    Option.flatMap(Array.findFirst((file) => file.name === name)),
+  )
 
 export class StoreError extends Data.TaggedError('StoreError')<{
   readonly packageName: string
@@ -131,17 +153,61 @@ export const storeTypeScript = (dir: string): Option.Option<string> => {
   return existsSync(file) ? Option.some(file) : Option.none()
 }
 
+const typeScriptAsset = 'typescript.json.gz'
+
+const PackedTypeScriptSchema = Schema.Struct({
+  files: Schema.Record(Schema.String, Schema.String),
+})
+
+const typeScriptError = (cause: unknown): StoreError =>
+  new StoreError({ packageName: 'typescript', cause })
+
+const unpackTypeScript = (dir: string, packed: Blob): Effect.Effect<void, StoreError> =>
+  Effect.gen(function* () {
+    const archive = yield* Effect.tryPromise({
+      try: async () => new Uint8Array(await packed.arrayBuffer()),
+      catch: typeScriptError,
+    })
+    const json = yield* Effect.try({
+      try: (): unknown => JSON.parse(gunzipSync(archive).toString('utf8')),
+      catch: typeScriptError,
+    })
+    const { files } = yield* Schema.decodeUnknownEffect(PackedTypeScriptSchema)(json).pipe(
+      Effect.mapError(typeScriptError),
+    )
+    const store = storeDir(dir)
+    const modules = join(store, 'node_modules')
+    const partial = join(modules, `.typescript-${process.pid}`)
+    yield* Effect.sync(() => prepareStore(store))
+    yield* Effect.forEach(
+      Object.entries(files),
+      ([path, text]) =>
+        Effect.try({
+          try: () => {
+            mkdirSync(dirname(join(partial, path)), { recursive: true })
+            writeFileSync(join(partial, path), text)
+          },
+          catch: typeScriptError,
+        }),
+      { discard: true },
+    )
+    yield* Effect.try({
+      try: () => {
+        rmSync(join(modules, 'typescript'), { recursive: true, force: true })
+        renameSync(partial, join(modules, 'typescript'))
+      },
+      catch: typeScriptError,
+    })
+  })
+
 export const installTypeScript = (dir: string): Effect.Effect<string, StoreError> =>
-  installPackage(dir, 'typescript', typeScriptRange).pipe(
+  Option.match(embeddedFile(typeScriptAsset), {
+    onSome: (packed) => unpackTypeScript(dir, packed),
+    onNone: () => installPackage(dir, 'typescript', typeScriptRange),
+  }).pipe(
     Effect.flatMap(() =>
       Option.match(storeTypeScript(dir), {
-        onNone: () =>
-          Effect.fail(
-            new StoreError({
-              packageName: 'typescript',
-              cause: 'the install left no lib/typescript.js in the store',
-            }),
-          ),
+        onNone: () => Effect.fail(typeScriptError('the store holds no lib/typescript.js')),
         onSome: Effect.succeed,
       }),
     ),
