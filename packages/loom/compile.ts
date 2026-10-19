@@ -81,11 +81,17 @@ const compiledExecutable = run([
   join(build, 'loom'),
 ])
 
+const signedExecutable =
+  process.platform === 'darwin'
+    ? run(['codesign', '--force', '--sign', '-', '--identifier', 'loom', join(build, 'loom')])
+    : Effect.void
+
 const compile = Effect.gen(function* () {
   yield* Effect.sync(() => mkdirSync(build, { recursive: true }))
   yield* compiledGrammar
   yield* packedTypeScript
   yield* compiledExecutable
+  yield* signedExecutable
   yield* Console.log(`compile: wrote ${join(build, 'loom')} with ${grammarLibrary} and TypeScript`)
 })
 

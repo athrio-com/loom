@@ -149,7 +149,7 @@ The last job runs once every platform has passed and npm has published, and it i
 
 The release is created at the commit the gate validated, which also creates its tag, unless an earlier run already created it. It is a full release, never a prerelease, because GitHub's address for the latest release and Zed's search for it both pass over prereleases. The executables, the libraries and the install script go up first and the list of checksums last. `--clobber` replaces a file an earlier run left half-uploaded.
 
-The macOS executables carry Bun's ad-hoc signature, which lets Apple silicon run them, but no signature from Apple's Developer ID, and they have not been notarised. A file `curl` downloads carries no quarantine flag, so macOS runs it, and that is how the install script and `loom upgrade` fetch it. A file downloaded through a browser carries the flag, and macOS refuses to open it until its owner allows it. Signing and notarising them is work for a later release.
+The macOS executables carry an ad-hoc signature, which the compile makes over the finished file. It lets Apple silicon run them and passes a strict `codesign` check, but it is not a signature from Apple's Developer ID, and the executables have not been notarised. A file `curl` downloads carries no quarantine flag, so macOS runs it, and that is how the install script and `loom upgrade` fetch it. A file downloaded through a browser carries the flag, and macOS refuses to open it until its owner allows it. Signing and notarising them is work for a later release.
 
 =>
 

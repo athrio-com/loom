@@ -129,6 +129,15 @@ describe('the executable — tangling', () => {
   )
 })
 
+describe.skipIf(process.platform !== 'darwin')('the executable — signature', () => {
+  it('carries a signature that codesign accepts', () => {
+    const check = Bun.spawnSync(['codesign', '--verify', '--strict', binary], { stderr: 'pipe' })
+    expect({ status: check.exitCode, stderr: check.stderr.toString() }).toMatchObject({
+      status: 0,
+    })
+  })
+})
+
 const standIn = lines(
   `const { Effect } = globalThis.${runtimeKey}.modules.effect`,
   'export default {',
