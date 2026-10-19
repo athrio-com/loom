@@ -1,4 +1,4 @@
-import { Array, Option, pipe } from 'effect'
+import { Array, Equivalence, Option, pipe } from 'effect'
 import {
   createLanguage,
   createLanguageService,
@@ -46,10 +46,11 @@ export interface ProductProgram {
   readonly dispose: () => void
 }
 
-const productLanguage = (
+export const productLanguage = (
   ts: TypeScript,
   roots: ReadonlyMap<string, IScriptSnapshot>,
 ): Language<URI> => {
+  const fromDisk = diskSnapshots(ts)
   const language = createLanguage<URI>(
     [{ getLanguageId: (uri: URI) => resolveFileLanguageId(uri.path) }],
     createUriMap(ts.sys.useCaseSensitiveFileNames),
@@ -61,15 +62,45 @@ const productLanguage = (
         return
       }
       if (!includeFsFiles) return
-      const text = ts.sys.fileExists(fileName) ? ts.sys.readFile(fileName) : undefined
-      if (text !== undefined) {
-        language.scripts.set(uri, ts.ScriptSnapshot.fromString(text))
-      } else {
-        language.scripts.delete(uri)
-      }
+      Option.match(fromDisk(fileName), {
+        onSome: (snapshot) => language.scripts.set(uri, snapshot),
+        onNone: () => language.scripts.delete(uri),
+      })
     },
   )
   return language
+}
+
+interface DiskFile {
+  readonly modified: Option.Option<number>
+  readonly snapshot: Option.Option<IScriptSnapshot>
+}
+
+const sameTime = Option.makeEquivalence(Equivalence.Number)
+
+const diskSnapshots = (ts: TypeScript): ((fileName: string) => Option.Option<IScriptSnapshot>) => {
+  const disk = new Map<string, DiskFile>()
+  const read = (fileName: string, modified: Option.Option<number>): Option.Option<IScriptSnapshot> => {
+    const snapshot = Option.map(
+      Option.fromNullishOr(ts.sys.fileExists(fileName) ? ts.sys.readFile(fileName) : undefined),
+      (text) => ts.ScriptSnapshot.fromString(text),
+    )
+    disk.set(fileName, { modified, snapshot })
+    return snapshot
+  }
+  return (fileName) => {
+    const modified = Option.map(Option.fromNullishOr(ts.sys.getModifiedTime?.(fileName)), (time) =>
+      time.valueOf(),
+    )
+    return pipe(
+      Option.fromNullishOr(disk.get(fileName)),
+      Option.filter((file) => sameTime(file.modified, modified)),
+      Option.match({
+        onSome: (file) => file.snapshot,
+        onNone: () => read(fileName, modified),
+      }),
+    )
+  }
 }
 
 export const createProductProgram = (

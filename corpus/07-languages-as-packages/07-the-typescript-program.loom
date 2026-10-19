@@ -1,6 +1,6 @@
 ---
 Part VII, Chapter 7: The product's own TypeScript program
-Package: packages/loom-service-typescript/src/ProductProgram.ts
+Package: packages/loom-service-typescript/
 Language: TypeScript
 ---
 
@@ -39,14 +39,15 @@ export interface ProductProgram {
 
 ## The files served from memory
 
-Volar reads files through a language, a registry of snapshots it keeps in sync. `productLanguage` builds one that serves the product roots from memory and every other file from disk. It answers a root by file name, from the `roots` map the program owns. Every other file Volar asks for — the TypeScript standard library, a package under `node_modules` — it reads through `ts.sys`, the TypeScript system interface. A file that is neither a root nor present on disk leaves the registry.
+Volar reads files through a language: a registry that holds a snapshot of each file, the file's text as Volar last read it. `productLanguage` builds one that serves the product roots from memory and every other file from disk. It answers a root by file name, from the `roots` map the program owns. It reads every other file Volar asks for, such as the TypeScript standard library or a package under `node_modules`, from disk. A file that is neither a root nor present on disk leaves the registry.
 
 =>
 
-const productLanguage = (
+export const productLanguage = (
   ts: TypeScript,
   roots: ReadonlyMap<string, IScriptSnapshot>,
 ): Language<URI> => {
+  const fromDisk = diskSnapshots(ts)
   const language = createLanguage<URI>(
     [{ getLanguageId: (uri: URI) => resolveFileLanguageId(uri.path) }],
     createUriMap(ts.sys.useCaseSensitiveFileNames),
@@ -58,15 +59,53 @@ const productLanguage = (
         return
       }
       if (!includeFsFiles) return
-      const text = ts.sys.fileExists(fileName) ? ts.sys.readFile(fileName) : undefined
-      if (text !== undefined) {
-        language.scripts.set(uri, ts.ScriptSnapshot.fromString(text))
-      } else {
-        language.scripts.delete(uri)
-      }
+      Option.match(fromDisk(fileName), {
+        onSome: (snapshot) => language.scripts.set(uri, snapshot),
+        onNone: () => language.scripts.delete(uri),
+      })
     },
   )
   return language
+}
+
+~
+
+A file read from disk keeps its snapshot until the file changes on disk. Volar versions a file by its snapshot, so every new snapshot is a new version, even one that holds the same text. TypeScript parses a file again whenever its version moves. Volar looks a file up each time TypeScript asks for the file's version, so a file read afresh on every lookup would never keep a version. Each edit to a root would then rebuild the program from nothing. TypeScript would parse the standard library and every declaration file under `node_modules` again. That takes seconds, and every other request from the editor waits behind it, a format among them.
+
+`diskSnapshots` builds the reader that `productLanguage` calls `fromDisk`. The reader reads each file through `ts.sys`, the TypeScript system interface, and keeps it in a `DiskFile`, which records the file's snapshot and the time the file was last modified. `fromDisk` reads a file again only when that time moves. A file it found missing is kept too, so the next lookup asks the disk only for the time. Volar's own language server keeps the files it reads the same way.
+
+=>
+
+interface DiskFile {
+  readonly modified: Option.Option<number>
+  readonly snapshot: Option.Option<IScriptSnapshot>
+}
+
+const sameTime = Option.makeEquivalence(Equivalence.Number)
+
+const diskSnapshots = (ts: TypeScript): ((fileName: string) => Option.Option<IScriptSnapshot>) => {
+  const disk = new Map<string, DiskFile>()
+  const read = (fileName: string, modified: Option.Option<number>): Option.Option<IScriptSnapshot> => {
+    const snapshot = Option.map(
+      Option.fromNullishOr(ts.sys.fileExists(fileName) ? ts.sys.readFile(fileName) : undefined),
+      (text) => ts.ScriptSnapshot.fromString(text),
+    )
+    disk.set(fileName, { modified, snapshot })
+    return snapshot
+  }
+  return (fileName) => {
+    const modified = Option.map(Option.fromNullishOr(ts.sys.getModifiedTime?.(fileName)), (time) =>
+      time.valueOf(),
+    )
+    return pipe(
+      Option.fromNullishOr(disk.get(fileName)),
+      Option.filter((file) => sameTime(file.modified, modified)),
+      Option.match({
+        onSome: (file) => file.snapshot,
+        onNone: () => read(fileName, modified),
+      }),
+    )
+  }
 }
 
 ## Assembling the program
@@ -149,7 +188,7 @@ export const createProductProgram = (
   }
 }
 
-## The module {Tangle}
+## The module {Tangle}[src/ProductProgram.ts]
 
 =>
 
@@ -163,11 +202,11 @@ export const createProductProgram = (
 
 ## What the program draws on
 
-The product program is a Volar language service assembled by hand. `createLanguage` registers the files, `createLanguageServiceHost` turns them into a TypeScript program, and `createLanguageService` runs the feature plugins over it. `resolveFileLanguageId` reads a file's language from its extension, so a `.ts` file held in memory counts as TypeScript. The `URI` type names every file, and `volar-service-typescript` brings the editor features. From Effect come `Array`, `Option`, and `pipe`, which `sync` uses to reconcile the roots.
+The product program is a Volar language service assembled by hand. `createLanguage` registers the files, `createLanguageServiceHost` turns them into a TypeScript program, and `createLanguageService` runs the feature plugins over it. `resolveFileLanguageId` reads a file's language from its extension, so a `.ts` file held in memory counts as TypeScript. The `URI` type names every file, and `volar-service-typescript` brings the editor features. From Effect come `Array`, `Option`, and `pipe`, which `sync` uses to reconcile the roots and `diskSnapshots` to keep the files it reads. `Equivalence` gives `sameTime` its comparison of two modified times.
 
 =>
 
-import { Array, Option, pipe } from 'effect'
+import { Array, Equivalence, Option, pipe } from 'effect'
 import {
   createLanguage,
   createLanguageService,
@@ -193,3 +232,48 @@ import { URI } from 'vscode-uri'
 import type { CompilerOptions, IScriptSnapshot } from 'typescript'
 
 type TypeScript = typeof import('typescript')
+
+## Testing the files the program reads
+
+A file read from disk must keep one snapshot until the file changes. The case writes a declaration file into a folder of its own and looks it up twice through `productLanguage`, and both lookups return the same snapshot. It then rewrites the file and moves the file's modified time ten seconds on, since a rewrite within the same millisecond would leave the time where it was. The next lookup returns a new snapshot that holds the new text. Once the folder is deleted, the registry holds nothing for the file.
+
+=>
+
+import * as ts from 'typescript'
+import { describe, expect, it } from 'bun:test'
+import { mkdtempSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { URI } from 'vscode-uri'
+import { productLanguage } from '../src/ProductProgram'
+
+const textOf = (snapshot: ts.IScriptSnapshot | undefined): string =>
+  snapshot === undefined ? '' : snapshot.getText(0, snapshot.getLength())
+
+describe('productLanguage — a file read from disk', () => {
+  it('keeps its snapshot until the file changes', () => {
+    const folder = realpathSync(mkdtempSync(join(tmpdir(), 'loom-product-')))
+    const file = join(folder, 'library.d.ts')
+    const uri = URI.file(file)
+    writeFileSync(file, 'export declare const answer: number\n')
+    const language = productLanguage(ts, new Map())
+    const first = language.scripts.get(uri)?.snapshot
+    const again = language.scripts.get(uri)?.snapshot
+    const later = new Date(Date.now() + 10_000)
+    writeFileSync(file, 'export declare const answer: string\n')
+    utimesSync(file, later, later)
+    const changed = language.scripts.get(uri)?.snapshot
+    rmSync(folder, { recursive: true })
+    const gone = language.scripts.get(uri)
+    expect(again).toBe(first)
+    expect(changed).not.toBe(first)
+    expect(textOf(changed)).toBe('export declare const answer: string\n')
+    expect(gone).toBeUndefined()
+  })
+})
+
+## The test file {Tangle}[test/ProductLanguage.test.ts]
+
+=>
+
+::[Testing the files the program reads]
