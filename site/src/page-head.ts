@@ -5,10 +5,7 @@ import { type Carpet, carpetStyle, fineSeam, loomMark } from './components'
 const NAVY = '#14204A'
 
 export const pixels = (carpet: Carpet, className: string): Html =>
-  ih.span(
-    [ih.AriaHidden(true), ih.Class(className), ih.Style(carpetStyle(carpet, fineSeam))],
-    [],
-  )
+  ih.span([ih.AriaHidden(true), ih.Class(className), ih.Style(carpetStyle(carpet, fineSeam))], [])
 
 type Place = {
   readonly name: string

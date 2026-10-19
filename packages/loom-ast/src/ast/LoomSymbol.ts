@@ -7,12 +7,26 @@ import {
   type LoomSection,
 } from '#ast/LoomAst'
 import { type SectionBodyWeft, type TocWeft } from '#ast/Weft'
-import {
-  type WarpAnchorToken,
-  type WarpToken,
-} from '#ast/LoomTokens'
+import { type WarpAnchorToken, type WarpToken } from '#ast/LoomTokens'
 
-export const SymbolKindSchema = Schema.Literals(['headingTitle', 'sectionAnchor', 'warpAnchor', 'warpDef', 'specifier', 'sink', 'arrow', 'tilde', 'prose', 'frontmatterMembership', 'frontmatterValue', 'frontmatterTitle', 'frontmatterPart', 'frontmatterPartName', 'tocPart', 'tocEntry'])
+export const SymbolKindSchema = Schema.Literals([
+  'headingTitle',
+  'sectionAnchor',
+  'warpAnchor',
+  'warpDef',
+  'specifier',
+  'sink',
+  'arrow',
+  'tilde',
+  'prose',
+  'frontmatterMembership',
+  'frontmatterValue',
+  'frontmatterTitle',
+  'frontmatterPart',
+  'frontmatterPartName',
+  'tocPart',
+  'tocEntry',
+])
 export type SymbolKind = typeof SymbolKindSchema.Type
 
 export interface SpanFeatures {
@@ -23,7 +37,13 @@ export interface SpanFeatures {
   readonly completion?: boolean
 }
 
-export const SemanticTokenSchema = Schema.Literals(['namespace', 'variable', 'keyword', 'string', 'operator'])
+export const SemanticTokenSchema = Schema.Literals([
+  'namespace',
+  'variable',
+  'keyword',
+  'string',
+  'operator',
+])
 export type SemanticToken = typeof SemanticTokenSchema.Type
 
 export interface SymbolProfile {
@@ -51,24 +71,16 @@ export const profileOf = (kind: SymbolKind): SymbolProfile =>
     Match.when('warpAnchor', () =>
       profile(Option.some('variable'), { navigation: true, verification: true }),
     ),
-    Match.when('warpDef', () =>
-      profile(Option.some('variable'), { navigation: true }),
-    ),
-    Match.when('specifier', () =>
-      profile(Option.some('keyword'), { verification: true }),
-    ),
-    Match.when('sink', () =>
-      profile(Option.some('string'), { verification: true }),
-    ),
+    Match.when('warpDef', () => profile(Option.some('variable'), { navigation: true })),
+    Match.when('specifier', () => profile(Option.some('keyword'), { verification: true })),
+    Match.when('sink', () => profile(Option.some('string'), { verification: true })),
     Match.when('arrow', () => profile(Option.some('operator'), {})),
     Match.when('tilde', () => profile(Option.some('operator'), {})),
     Match.when('prose', () => profile(Option.none(), { structure: true })),
     Match.when('frontmatterMembership', () =>
       profile(Option.some('namespace'), { structure: true }),
     ),
-    Match.when('frontmatterValue', () =>
-      profile(Option.some('string'), { structure: true }),
-    ),
+    Match.when('frontmatterValue', () => profile(Option.some('string'), { structure: true })),
     Match.when('frontmatterTitle', () =>
       profile(Option.some('namespace'), { navigation: true, structure: true }),
     ),
@@ -96,10 +108,7 @@ export interface Symbol {
   readonly position: Position
 }
 
-const anchorKind = (
-  warpsInScope: ReadonlySet<string>,
-  anchor: WarpAnchorToken,
-): SymbolKind =>
+const anchorKind = (warpsInScope: ReadonlySet<string>, anchor: WarpAnchorToken): SymbolKind =>
   warpsInScope.has(anchor.name.value) ? 'warpAnchor' : 'sectionAnchor'
 
 const namesOf = (warps: ReadonlyArray<WarpToken>): ReadonlyArray<string> =>
@@ -111,9 +120,7 @@ const optSymbol = (
   kind: SymbolKind,
   token: { readonly position: Position } | undefined,
 ): ReadonlyArray<Symbol> =>
-  Option.toArray(
-    Option.map(Option.fromNullishOr(token), (t) => at(kind, t.position)),
-  )
+  Option.toArray(Option.map(Option.fromNullishOr(token), (t) => at(kind, t.position)))
 
 const frontmatterSymbols = (fm: LoomFrontmatter): ReadonlyArray<Symbol> => [
   ...optSymbol('frontmatterPart', fm.part),
@@ -131,18 +138,12 @@ const tocSymbols = (weft: TocWeft): ReadonlyArray<Symbol> => [
 
 const headingSymbols = (heading: LoomHeading): ReadonlyArray<Symbol> => [
   ...Option.toArray(
-    Option.map(Option.fromNullishOr(heading.title), (t) =>
-      at('headingTitle', t.position),
-    ),
+    Option.map(Option.fromNullishOr(heading.title), (t) => at('headingTitle', t.position)),
   ),
   ...Option.toArray(
-    Option.map(Option.fromNullishOr(heading.specifier), (s) =>
-      at('specifier', s.label.position),
-    ),
+    Option.map(Option.fromNullishOr(heading.specifier), (s) => at('specifier', s.label.position)),
   ),
-  ...Option.toArray(
-    Option.map(Option.fromNullishOr(heading.sink), (s) => at('sink', s.position)),
-  ),
+  ...Option.toArray(Option.map(Option.fromNullishOr(heading.sink), (s) => at('sink', s.position))),
 ]
 
 const delimiterOf = (weft: SectionBodyWeft): ReadonlyArray<Symbol> =>
@@ -165,9 +166,7 @@ const sectionSymbols = (
   return [
     ...headingSymbols(section.heading),
     ...Array.map(warps, (warp) => at('warpDef', warp.name.position)),
-    ...Array.map(anchors, (anchor) =>
-      at(anchorKind(scope, anchor), anchor.name.position),
-    ),
+    ...Array.map(anchors, (anchor) => at(anchorKind(scope, anchor), anchor.name.position)),
     ...Array.flatMap(section.code, delimiterOf),
     ...Array.flatMap(section.entries ?? [], tocSymbols),
   ]
@@ -177,28 +176,18 @@ export const symbolsOf = (doc: LoomDocument): ReadonlyArray<Symbol> => {
   const warps = Array.flatMap(doc.preamble, (weft) => weft.warps)
   const scope = new Set(namesOf(warps))
   return [
-    ...Array.flatMap(
-      Option.toArray(Option.fromNullishOr(doc.frontmatter)),
-      frontmatterSymbols,
-    ),
+    ...Array.flatMap(Option.toArray(Option.fromNullishOr(doc.frontmatter)), frontmatterSymbols),
     ...Array.map(warps, (warp) => at('warpDef', warp.name.position)),
     ...Array.map(
       Array.flatMap(doc.preamble, (weft) => weft.anchors),
       (anchor) => at(anchorKind(scope, anchor), anchor.name.position),
     ),
-    ...Array.flatMap(doc.sections, (section) =>
-      sectionSymbols(section, namesOf(warps)),
-    ),
+    ...Array.flatMap(doc.sections, (section) => sectionSymbols(section, namesOf(warps))),
   ]
 }
 
-export const symbolAt = (
-  doc: LoomDocument,
-  offset: number,
-): Option.Option<Symbol> =>
+export const symbolAt = (doc: LoomDocument, offset: number): Option.Option<Symbol> =>
   Array.findFirst(
     symbolsOf(doc),
-    (symbol) =>
-      symbol.position.start.offset <= offset &&
-      offset <= symbol.position.end.offset,
+    (symbol) => symbol.position.start.offset <= offset && offset <= symbol.position.end.offset,
   )

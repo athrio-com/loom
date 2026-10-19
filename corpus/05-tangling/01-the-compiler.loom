@@ -23,253 +23,215 @@ Every verb builds the corpus the same way and differs only in what it reads. `co
 
 =>
 
-export class LoomCompiler extends Context.Service<LoomCompiler>()(
-  'LoomCompiler',
-  {
-    make: Effect.gen(function* () {
-      const documents = yield* DocumentSource
-      const builder = yield* LoomCorpusAstBuilder
-      const memo = yield* LoomMemo
-      const config = yield* PackageConfig
-      const weaver = yield* WeaveBuilder
-      const tocBuilder = yield* TableOfContentsBuilder
+export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler', {
+  make: Effect.gen(function* () {
+    const documents = yield* DocumentSource
+    const builder = yield* LoomCorpusAstBuilder
+    const memo = yield* LoomMemo
+    const config = yield* PackageConfig
+    const weaver = yield* WeaveBuilder
+    const tocBuilder = yield* TableOfContentsBuilder
 
-      const loadOne = (source: Source, path: Path): Effect.Effect<LoomModule> =>
-        config.resolve(path).pipe(
+    const loadOne = (source: Source, path: Path): Effect.Effect<LoomModule> =>
+      config
+        .resolve(path)
+        .pipe(
           Effect.flatMap(({ delims, primaryLanguage, variables }) =>
             memo.get(path, builder.build(source, path, delims, primaryLanguage, variables)),
           ),
         )
 
-      const listFrom = (
-        list: (
-          dir: Path,
-          project: Option.Option<LoomProject>,
-        ) => Effect.Effect<ReadonlyArray<Path>>,
-        entry: Path,
-      ): Effect.Effect<ReadonlyArray<Path>> =>
-        config.resolve(entry).pipe(
-          Effect.flatMap((settings) =>
-            Option.match(
-              Option.filter(projectIn(settings), (project) => holds(project, entry)),
-              {
-                onNone: () => list(dirname(entry), Option.none()),
-                onSome: (project) =>
-                  list(
-                    Option.getOrElse(
-                      Option.fromNullishOr(settings.corpusDir),
-                      () => dirname(entry),
-                    ),
-                    Option.some(project),
-                  ),
-              },
-            ),
+    const listFrom = (
+      list: (dir: Path, project: Option.Option<LoomProject>) => Effect.Effect<ReadonlyArray<Path>>,
+      entry: Path,
+    ): Effect.Effect<ReadonlyArray<Path>> =>
+      config.resolve(entry).pipe(
+        Effect.flatMap((settings) =>
+          Option.match(
+            Option.filter(projectIn(settings), (project) => holds(project, entry)),
+            {
+              onNone: () => list(dirname(entry), Option.none()),
+              onSome: (project) =>
+                list(
+                  Option.getOrElse(Option.fromNullishOr(settings.corpusDir), () => dirname(entry)),
+                  Option.some(project),
+                ),
+            },
           ),
-          Effect.map((found) => Array.dedupe([entry, ...found])),
-        )
+        ),
+        Effect.map((found) => Array.dedupe([entry, ...found])),
+      )
 
-      const corpusPaths = (
-        source: Source,
-        entry: Path,
-      ): Effect.Effect<ReadonlyArray<Path>> =>
-        Option.match(source.list, {
-          onNone: () => Effect.succeed<ReadonlyArray<Path>>([entry]),
-          onSome: (list) => listFrom(list, entry),
-        })
+    const corpusPaths = (source: Source, entry: Path): Effect.Effect<ReadonlyArray<Path>> =>
+      Option.match(source.list, {
+        onNone: () => Effect.succeed<ReadonlyArray<Path>>([entry]),
+        onSome: (list) => listFrom(list, entry),
+      })
 
-      const buildCorpus = (source: Source, entry: Path): Effect.Effect<Modules> =>
-        corpusPaths(source, entry).pipe(
-          Effect.flatMap((paths) =>
-            Effect.forEach(paths, (path) =>
-              loadOne(source, path).pipe(Effect.map((m) => [path, m] as const)),
-            ),
+    const buildCorpus = (source: Source, entry: Path): Effect.Effect<Modules> =>
+      corpusPaths(source, entry).pipe(
+        Effect.flatMap((paths) =>
+          Effect.forEach(paths, (path) =>
+            loadOne(source, path).pipe(Effect.map((m) => [path, m] as const)),
           ),
-          Effect.map((pairs) => new Map(pairs)),
-        )
+        ),
+        Effect.map((pairs) => new Map(pairs)),
+      )
 
-      return {
-        compile: (source: Source, path: Path): Effect.Effect<VirtualCode> =>
-          buildCorpus(source, path).pipe(
-            Effect.flatMap((modules) => entryOf(modules, path)),
-            Effect.map(({ modules, entry }) =>
-              toVolar(projectTree(modules, entry)),
-            ),
-            Effect.catchCause((cause) =>
-              Effect.logError(
-                'loom: projection failed; serving bare document',
-                cause,
-              ).pipe(
-                Effect.andThen(
-                  source.read(path).pipe(
-                    Effect.orElseSucceed(() => ''),
-                    Effect.map((text) => toVolar(rootVirtualCode(text, []))),
-                  ),
+    return {
+      compile: (source: Source, path: Path): Effect.Effect<VirtualCode> =>
+        buildCorpus(source, path).pipe(
+          Effect.flatMap((modules) => entryOf(modules, path)),
+          Effect.map(({ modules, entry }) => toVolar(projectTree(modules, entry))),
+          Effect.catchCause((cause) =>
+            Effect.logError('loom: projection failed; serving bare document', cause).pipe(
+              Effect.andThen(
+                source.read(path).pipe(
+                  Effect.orElseSucceed(() => ''),
+                  Effect.map((text) => toVolar(rootVirtualCode(text, []))),
                 ),
               ),
             ),
           ),
+        ),
 
-        tangle: (
-          path: Path,
-        ): Effect.Effect<ReadonlyArray<TangledFile>, TangleError> =>
-          buildCorpus(documents, path).pipe(
-            Effect.flatMap((modules) => {
-              const scoped = scopedTo(modules, reachable(modules, path))
-              const failures = corpusErrors({ modules: scoped })
-              return failures.length > 0
-                ? Effect.fail(new TangleError({ entry: path, failures }))
-                : config.resolve(path).pipe(
+      tangle: (path: Path): Effect.Effect<ReadonlyArray<TangledFile>, TangleError> =>
+        buildCorpus(documents, path).pipe(
+          Effect.flatMap((modules) => {
+            const scoped = scopedTo(modules, reachable(modules, path))
+            const failures = corpusErrors({ modules: scoped })
+            return failures.length > 0
+              ? Effect.fail(new TangleError({ entry: path, failures }))
+              : config
+                  .resolve(path)
+                  .pipe(
                     Effect.map(({ packageRoot }) =>
                       resolveSinks(scoped, path, Option.fromNullishOr(packageRoot)),
                     ),
                   )
-            }),
-          ),
+          }),
+        ),
 
-        composition: (path: Path): Effect.Effect<ReadonlyArray<ComposedFile>> =>
-          buildCorpus(documents, path).pipe(
-            Effect.flatMap((modules) =>
-              Effect.forEach(
-                Array.fromIterable(modules.values()),
-                (module) =>
-                  config.resolve(module.path).pipe(
-                    Effect.map(({ packageRoot }) =>
-                      Array.map(
-                        module.product.files,
-                        (file): ComposedFile => ({
-                          path: outputPath(
-                            Option.fromNullishOr(packageRoot),
-                            module.path,
-                            file.path,
-                          ),
-                          content: fromProduct(modules, file.code.origin).code,
-                          loomPath: module.path,
-                          rootId: file.code.origin.name.toLowerCase(),
-                          heading: headingLocationOf(modules, module, file.code.origin.name),
-                        }),
-                      ),
-                    ),
+      composition: (path: Path): Effect.Effect<ReadonlyArray<ComposedFile>> =>
+        buildCorpus(documents, path).pipe(
+          Effect.flatMap((modules) =>
+            Effect.forEach(
+              Array.fromIterable(modules.values()),
+              (module) =>
+                config.resolve(module.path).pipe(
+                  Effect.map(({ packageRoot }) =>
+                    Array.map(module.product.files, (file): ComposedFile => ({
+                      path: outputPath(Option.fromNullishOr(packageRoot), module.path, file.path),
+                      content: fromProduct(modules, file.code.origin).code,
+                      loomPath: module.path,
+                      rootId: file.code.origin.name.toLowerCase(),
+                      heading: headingLocationOf(modules, module, file.code.origin.name),
+                    })),
                   ),
-                { concurrency: 'unbounded' },
-              ).pipe(Effect.map(Array.flatten))
-            ),
-          ),
-
-        weave: (path: Path): Effect.Effect<WovenCorpus> =>
-          buildCorpus(documents, path).pipe(
-            Effect.flatMap((modules) => weaver.build({ modules })),
-          ),
-
-        contents: (path: Path): Effect.Effect<string> =>
-          buildCorpus(documents, path).pipe(
-            Effect.flatMap((modules) =>
-              tocBuilder.build({ modules }).pipe(
-                Effect.map((toc) => rewriteBook({ modules }, path, toc)),
-              ),
-            ),
-          ),
-
-        diagnose: (path: Path): Effect.Effect<ReadonlyArray<Diagnostic>> =>
-          buildCorpus(documents, path).pipe(
-            Effect.map((modules) =>
-              pipe(
-                Option.fromNullishOr(modules.get(path)),
-                Option.match({
-                  onNone: () => [],
-                  onSome: (module) => [
-                    ...moduleDiagnostics(module),
-                    ...Array.flatMap(
-                      unresolvedTocEntriesIn({ modules }, module),
-                      (title) =>
-                        faulty(
-                          UnresolvedTocEntry({ title: title.value }),
-                          title.position,
-                        ).diagnostics,
-                    ),
-                  ],
-                }),
-              ),
-            ),
-          ),
-
-        definition: (
-          path: Path,
-          offset: number,
-        ): Effect.Effect<FrameLocation | undefined> =>
-          buildCorpus(documents, path).pipe(
-            Effect.map((modules) =>
-              Option.getOrUndefined(
-                Option.flatMap(definitionAt({ modules }, path, offset), (loc) =>
-                  frameLocationOf(modules, loc),
                 ),
-              ),
+              { concurrency: 'unbounded' },
+            ).pipe(Effect.map(Array.flatten)),
+          ),
+        ),
+
+      weave: (path: Path): Effect.Effect<WovenCorpus> =>
+        buildCorpus(documents, path).pipe(Effect.flatMap((modules) => weaver.build({ modules }))),
+
+      contents: (path: Path): Effect.Effect<string> =>
+        buildCorpus(documents, path).pipe(
+          Effect.flatMap((modules) =>
+            tocBuilder
+              .build({ modules })
+              .pipe(Effect.map((toc) => rewriteBook({ modules }, path, toc))),
+          ),
+        ),
+
+      diagnose: (path: Path): Effect.Effect<ReadonlyArray<Diagnostic>> =>
+        buildCorpus(documents, path).pipe(
+          Effect.map((modules) =>
+            pipe(
+              Option.fromNullishOr(modules.get(path)),
+              Option.match({
+                onNone: () => [],
+                onSome: (module) => [
+                  ...moduleDiagnostics(module),
+                  ...Array.flatMap(
+                    unresolvedTocEntriesIn({ modules }, module),
+                    (title) =>
+                      faulty(UnresolvedTocEntry({ title: title.value }), title.position)
+                        .diagnostics,
+                  ),
+                ],
+              }),
             ),
           ),
+        ),
 
-        references: (
-          path: Path,
-          offset: number,
-        ): Effect.Effect<ReadonlyArray<FrameLocation>> =>
-          buildCorpus(documents, path).pipe(
-            Effect.map((modules) =>
-              Array.getSomes(Array.map(referencesAt({ modules }, path, offset), (loc) =>
+      definition: (path: Path, offset: number): Effect.Effect<FrameLocation | undefined> =>
+        buildCorpus(documents, path).pipe(
+          Effect.map((modules) =>
+            Option.getOrUndefined(
+              Option.flatMap(definitionAt({ modules }, path, offset), (loc) =>
                 frameLocationOf(modules, loc),
-              )),
+              ),
             ),
           ),
+        ),
 
-        rename: (
-          path: Path,
-          offset: number,
-        ): Effect.Effect<ReadonlyArray<FrameLocation>> =>
-          buildCorpus(documents, path).pipe(
-            Effect.map((modules) =>
-              Array.getSomes(Array.map(renameAt({ modules }, path, offset), (loc) =>
+      references: (path: Path, offset: number): Effect.Effect<ReadonlyArray<FrameLocation>> =>
+        buildCorpus(documents, path).pipe(
+          Effect.map((modules) =>
+            Array.getSomes(
+              Array.map(referencesAt({ modules }, path, offset), (loc) =>
                 frameLocationOf(modules, loc),
-              )),
-            ),
-          ),
-
-        renameRange: (
-          path: Path,
-          offset: number,
-        ): Effect.Effect<FrameLocation | undefined> =>
-          buildCorpus(documents, path).pipe(
-            Effect.map((modules) =>
-              Option.getOrUndefined(
-                Option.flatMap(renameRangeAt({ modules }, path, offset), (loc) =>
-                  frameLocationOf(modules, loc),
-                ),
               ),
             ),
           ),
+        ),
 
-        navigationRange: (
-          path: Path,
-          offset: number,
-        ): Effect.Effect<FrameLocation | undefined> =>
-          buildCorpus(documents, path).pipe(
-            Effect.map((modules) =>
-              Option.getOrUndefined(
-                Option.flatMap(
-                  navigationRangeAt({ modules }, path, offset),
-                  (loc) => frameLocationOf(modules, loc),
-                ),
+      rename: (path: Path, offset: number): Effect.Effect<ReadonlyArray<FrameLocation>> =>
+        buildCorpus(documents, path).pipe(
+          Effect.map((modules) =>
+            Array.getSomes(
+              Array.map(renameAt({ modules }, path, offset), (loc) =>
+                frameLocationOf(modules, loc),
               ),
             ),
           ),
+        ),
 
-        semanticTokens: (
-          path: Path,
-        ): Effect.Effect<ReadonlyArray<FrameToken>> =>
-          buildCorpus(documents, path).pipe(
-            Effect.map((modules) =>
-              pipe(
-                Option.fromNullishOr(modules.get(path)),
-                Option.match({
-                  onNone: () => [],
-                  onSome: (module) =>
-                    Array.getSomes(Array.map(symbolsOf(module.doc), (symbol) =>
+      renameRange: (path: Path, offset: number): Effect.Effect<FrameLocation | undefined> =>
+        buildCorpus(documents, path).pipe(
+          Effect.map((modules) =>
+            Option.getOrUndefined(
+              Option.flatMap(renameRangeAt({ modules }, path, offset), (loc) =>
+                frameLocationOf(modules, loc),
+              ),
+            ),
+          ),
+        ),
+
+      navigationRange: (path: Path, offset: number): Effect.Effect<FrameLocation | undefined> =>
+        buildCorpus(documents, path).pipe(
+          Effect.map((modules) =>
+            Option.getOrUndefined(
+              Option.flatMap(navigationRangeAt({ modules }, path, offset), (loc) =>
+                frameLocationOf(modules, loc),
+              ),
+            ),
+          ),
+        ),
+
+      semanticTokens: (path: Path): Effect.Effect<ReadonlyArray<FrameToken>> =>
+        buildCorpus(documents, path).pipe(
+          Effect.map((modules) =>
+            pipe(
+              Option.fromNullishOr(modules.get(path)),
+              Option.match({
+                onNone: () => [],
+                onSome: (module) =>
+                  Array.getSomes(
+                    Array.map(symbolsOf(module.doc), (symbol) =>
                       Option.flatMap(profileOf(symbol.kind).semantic, (token) =>
                         Option.map(
                           frameLocationOf(modules, {
@@ -282,30 +244,28 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()(
                           }),
                         ),
                       ),
-                    )),
-                }),
-              ),
+                    ),
+                  ),
+              }),
             ),
           ),
+        ),
 
-        reach: (path: Path): Effect.Effect<ReadonlyArray<Path>> =>
-          buildCorpus(documents, path).pipe(
-            Effect.map((modules) =>
-              Array.filter(reachable(modules, path), (p) => p !== path),
-            ),
-          ),
+      reach: (path: Path): Effect.Effect<ReadonlyArray<Path>> =>
+        buildCorpus(documents, path).pipe(
+          Effect.map((modules) => Array.filter(reachable(modules, path), (p) => p !== path)),
+        ),
 
-        invalidate: (path: Path): Effect.Effect<ReadonlyArray<Path>> =>
-          Effect.gen(function* () {
-            const modules = yield* memo.entries
-            const dependents = transitiveDependents(modules, path)
-            yield* memo.evict([path])
-            return [path, ...dependents]
-          }),
-      }
-    }),
-  },
-) {
+      invalidate: (path: Path): Effect.Effect<ReadonlyArray<Path>> =>
+        Effect.gen(function* () {
+          const modules = yield* memo.entries
+          const dependents = transitiveDependents(modules, path)
+          yield* memo.evict([path])
+          return [path, ...dependents]
+        }),
+    }
+  }),
+}) {
   static readonly layer = Layer.effect(this, this.make).pipe(
     Layer.provide(
       Layer.mergeAll(
@@ -372,11 +332,7 @@ export interface TangledFile {
   readonly content: string
 }
 
-export const outputPath = (
-  packageRoot: Option.Option<string>,
-  entry: Path,
-  sink: string,
-): Path =>
+export const outputPath = (packageRoot: Option.Option<string>, entry: Path, sink: string): Path =>
   Option.match(packageRoot, {
     onNone: () => resolvePath(dirname(entry), sink),
     onSome: (root) => resolvePath(root, sink),
@@ -410,9 +366,7 @@ export class TangleError extends Data.TaggedError('TangleError')<{
   get message(): string {
     const count = this.failures.reduce((n, f) => n + f.diagnostics.length, 0)
     const lines = this.failures.flatMap((f) =>
-      f.diagnostics.map(
-        (d) => `  ${f.path}:${d.position.start.line}: ${d.message}`,
-      ),
+      f.diagnostics.map((d) => `  ${f.path}:${d.position.start.line}: ${d.message}`),
     )
     return `loom: refusing to tangle ${this.entry} — ${count} error(s) across the corpus:\n${lines.join('\n')}`
   }
@@ -447,11 +401,7 @@ const frameLocationOf = (
     },
   }))
 
-const headingLocationOf = (
-  modules: Modules,
-  module: LoomModule,
-  name: string,
-): FrameLocation =>
+const headingLocationOf = (modules: Modules, module: LoomModule, name: string): FrameLocation =>
   pipe(
     Array.findFirst(
       module.doc.sections,
@@ -461,12 +411,10 @@ const headingLocationOf = (
     Option.flatMap((title) =>
       frameLocationOf(modules, { path: module.path, position: title.position }),
     ),
-    Option.getOrElse(
-      (): FrameLocation => ({
-        path: module.path,
-        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
-      }),
-    ),
+    Option.getOrElse((): FrameLocation => ({
+      path: module.path,
+      range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+    })),
   )
 
 ## Projecting a file's tree
@@ -486,9 +434,7 @@ const namesAt = (modules: Modules, path: Path): ReadonlyArray<string> =>
 
 const rootsAt = (modules: Modules, path: Path): ReadonlyArray<string> => {
   const roots = rootNamesAt(modules, path)
-  return Array.filter(namesAt(modules, path), (name) =>
-    roots.has(name.toLowerCase()),
-  )
+  return Array.filter(namesAt(modules, path), (name) => roots.has(name.toLowerCase()))
 }
 
 const projectTree = (modules: Modules, entry: LoomModule): LoomVirtualCode =>
@@ -558,25 +504,19 @@ It also lists a directory's looms. `list` walks the directory through `loomsIn` 
 
 =>
 
-export class DocumentSource extends Context.Service<DocumentSource>()(
-  'DocumentSource',
-  {
-    make: Effect.succeed({
-      read: (path: Path): Effect.Effect<string, ReadError> =>
-        Effect.try({
-          try: () => readFileSync(path, 'utf8'),
-          catch: (cause) => new ReadError({ path, cause }),
-        }),
-      list: Option.some(
-        (
-          dir: Path,
-          project: Option.Option<LoomProject>,
-        ): Effect.Effect<ReadonlyArray<Path>> =>
-          Effect.sync(() => loomsIn(dir, project)),
-      ),
-    }),
-  },
-) {
+export class DocumentSource extends Context.Service<DocumentSource>()('DocumentSource', {
+  make: Effect.succeed({
+    read: (path: Path): Effect.Effect<string, ReadError> =>
+      Effect.try({
+        try: () => readFileSync(path, 'utf8'),
+        catch: (cause) => new ReadError({ path, cause }),
+      }),
+    list: Option.some(
+      (dir: Path, project: Option.Option<LoomProject>): Effect.Effect<ReadonlyArray<Path>> =>
+        Effect.sync(() => loomsIn(dir, project)),
+    ),
+  }),
+}) {
   static readonly layer = Layer.effect(this, this.make)
 }
 

@@ -10,17 +10,9 @@ Language: JSON
 
 ## The manifest {Tangle}[package.json]
 
-The `exports` field is the package's surface: the `LanguageService` contract, the
-`LanguageRegistry`, the `LanguageLoader` that resolves a project's active services
-from the Loom store, the `LoomStore` that installs and holds them, the
-`Runtime` the host lends a loaded service, and the two built-in services,
-`LoomLanguage` for the Frame and `ProseLanguage` for the prose.
+The `exports` field is the package's surface: the `LanguageService` contract, the `LanguageRegistry`, the `LanguageLoader` that resolves a project's active services from the Loom store, the `LoomStore` that installs and holds them, the `Runtime` the host lends a loaded service, and the two built-in services, `LoomLanguage` for the Frame and `ProseLanguage` for the prose.
 
-`LoomLanguage` wraps `volar-service-typescript` and `ProseLanguage` wraps
-`volar-service-markdown` — the two real dependencies. The other
-peers — `@athrio/loom-ast` for Loom's shared types, `effect`,
-`@volar/language-service`, `typescript`, and `vscode-uri` for decoding an embedded
-document's uri — are supplied by the host bundle.
+`LoomLanguage` wraps `volar-service-typescript` and `ProseLanguage` wraps `volar-service-markdown` — the two real dependencies. The other peers — `@athrio/loom-ast` for Loom's shared types, `effect`, `@volar/language-service`, `typescript`, and `vscode-uri` for decoding an embedded document's uri — are supplied by the host bundle.
 
 {{ version = ${version} }}
 {{ effect = ${effect} }}
@@ -64,8 +56,7 @@ document's uri — are supplied by the host bundle.
 
 ## The TypeScript config {Tangle}[tsconfig.json]
 
-The TypeScript config extends the workspace base — strict mode, the Node and Bun types — and checks
-`src`. Like the package, it never ships.
+The TypeScript config extends the workspace base — strict mode, the Node and Bun types — and checks `src`. Like the package, it never ships.
 
 =>
 

@@ -1,9 +1,5 @@
 import { Context, Effect, FileSystem, Layer, Option, pipe, Schema as S } from 'effect'
-import {
-  HttpServer,
-  HttpServerRequest,
-  HttpServerResponse,
-} from 'effect/http'
+import { HttpServer, HttpServerRequest, HttpServerResponse } from 'effect/http'
 import { BunHttpServer, BunRuntime, BunServices } from '@effect/platform-bun'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -160,17 +156,14 @@ export class Site extends Context.Service<Site>()('Site', {
     } as const
   }),
 }) {
-  static readonly layer = Layer.effect(this, this.make).pipe(
-    Layer.provide(BunServices.layer),
-  )
+  static readonly layer = Layer.effect(this, this.make).pipe(Layer.provide(BunServices.layer))
 }
 
 const handle = (site: Site['Service'], url: URL) =>
   Effect.flatMap(
     site.pageAt(url),
     Option.match({
-      onSome: (page) =>
-        Effect.succeed(HttpServerResponse.text(page, { contentType: 'text/html' })),
+      onSome: (page) => Effect.succeed(HttpServerResponse.text(page, { contentType: 'text/html' })),
       onNone: () => site.assetAt(url),
     }),
   )

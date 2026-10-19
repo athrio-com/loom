@@ -61,9 +61,7 @@ export class LoomCorpusAstBuilder extends Context.Service<LoomCorpusAstBuilder>(
                   astBuilder.build,
                 ),
               ),
-              Effect.catchTag('MixedEOL', (err) =>
-                Effect.succeed(emptyDocumentFor(text, err)),
-              ),
+              Effect.catchTag('MixedEOL', (err) => Effect.succeed(emptyDocumentFor(text, err))),
               Effect.catchTags({
                 EmptyAnchorDelims: onBadDelims,
                 IdenticalAnchorDelims: onBadDelims,

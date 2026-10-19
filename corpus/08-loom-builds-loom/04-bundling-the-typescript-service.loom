@@ -24,8 +24,7 @@ const loomRuntimeBridge = (): Plugin => ({
   name: 'loom-runtime-bridge',
   enforce: 'pre',
   apply: 'build',
-  resolveId: (source) =>
-    runtimeSpecifiers.includes(source) ? runtimePrefix + source : null,
+  resolveId: (source) => (runtimeSpecifiers.includes(source) ? runtimePrefix + source : null),
   load: async (id) => {
     if (!id.startsWith(runtimePrefix)) return null
     const specifier = id.slice(runtimePrefix.length)
@@ -90,17 +89,10 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
-const nodeBuiltins = [
-  ...builtinModules,
-  ...builtinModules.map((name) => `node:${name}`),
-]
+const nodeBuiltins = [...builtinModules, ...builtinModules.map((name) => `node:${name}`)]
 
 const runtimeKey = '__loomRuntime'
-const runtimeSpecifiers = [
-  'effect',
-  '@athrio/loom-lang-services/LanguageService',
-  'typescript',
-]
+const runtimeSpecifiers = ['effect', '@athrio/loom-lang-services/LanguageService', 'typescript']
 
 ## The module {Tangle}
 

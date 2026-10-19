@@ -154,10 +154,7 @@ const pagerCard = (
   const mark = carpetMark(page.carpet, '42px', broadSeam)
   const words = h.div(
     [h.Class('pager-words')],
-    [
-      h.span([h.Class('eyebrow')], [direction]),
-      h.span([h.Class('pager-title')], [page.label]),
-    ],
+    [h.span([h.Class('eyebrow')], [direction]), h.span([h.Class('pager-title')], [page.label])],
   )
   return h.a(
     [
@@ -386,8 +383,7 @@ export const groupsFor = (query: string): ReadonlyArray<Group> => {
             passages,
             Array.filter(
               (passage) =>
-                passage.route === page.route &&
-                holds(needle, `${passage.title} ${passage.text}`),
+                passage.route === page.route && holds(needle, `${passage.title} ${passage.text}`),
             ),
             Array.take(3),
           ),
@@ -444,10 +440,7 @@ const caretMirror = (model: Model, h: HtmlBuilder<Message>): Html => {
   const at = Math.min(model.caret, model.query.length)
   return h.span(
     [h.Class('palette-mirror'), h.AriaHidden(true)],
-    [
-      model.query.slice(0, at),
-      h.span([h.Class('palette-caret')], [model.query.charAt(at)]),
-    ],
+    [model.query.slice(0, at), h.span([h.Class('palette-caret')], [model.query.charAt(at)])],
   )
 }
 
@@ -521,10 +514,7 @@ const passageRow = (
       h.OnClick(WentTo({ route: page.route })),
     ],
     [
-      h.span(
-        [h.Class('sigil'), h.Style({ color: focused ? page.ink : '#4E5D8C' })],
-        ['>'],
-      ),
+      h.span([h.Class('sigil'), h.Style({ color: focused ? page.ink : '#4E5D8C' })], ['>']),
       h.span(
         [h.Class('fragment')],
         [
@@ -602,13 +592,16 @@ const searching = (page: SearchPage, h: HtmlBuilder<Message>): Html =>
   h.div(
     [h.Style({ display: 'flex', flexDirection: 'column', flex: 'none' })],
     [
-      h.span([
-        h.Class('palette-stitch'),
-        h.AriaHidden(true),
-        h.Style({
-          background: `repeating-linear-gradient(90deg, ${page.ink} 0 6px, transparent 6px 12px)`,
-        }),
-      ], []),
+      h.span(
+        [
+          h.Class('palette-stitch'),
+          h.AriaHidden(true),
+          h.Style({
+            background: `repeating-linear-gradient(90deg, ${page.ink} 0 6px, transparent 6px 12px)`,
+          }),
+        ],
+        [],
+      ),
       h.span([h.Class('palette-loading')], ['searching']),
     ],
   )
@@ -703,10 +696,7 @@ export const footer = (h: HtmlBuilder<Message>): Html =>
                 [
                   h.div(
                     [h.Class('footer-mark')],
-                    [
-                      loomMark('dark', 0.78),
-                      h.div([h.Class('footer-word')], ['Loom']),
-                    ],
+                    [loomMark('dark', 0.78), h.div([h.Class('footer-word')], ['Loom'])],
                   ),
                   h.div(
                     [h.Class('footer-blurb')],
@@ -722,7 +712,9 @@ export const footer = (h: HtmlBuilder<Message>): Html =>
                       h.Class('footer-chip'),
                       h.Href(link.href),
                       h.Style({ '--chip-ink': link.ink }),
-                      ...(leavesSite(link) ? [h.Target('_blank'), h.Rel('noopener noreferrer')] : []),
+                      ...(leavesSite(link)
+                        ? [h.Target('_blank'), h.Rel('noopener noreferrer')]
+                        : []),
                     ],
                     [link.label, ...(leavesSite(link) ? [externalIcon()] : [])],
                   ),
@@ -730,12 +722,7 @@ export const footer = (h: HtmlBuilder<Message>): Html =>
               ),
             ],
           ),
-          h.div(
-            [h.Class('footer-bottom')],
-            [
-              h.span([], ['© Quadrivium Academy Sihtasutus 2026']),
-            ],
-          ),
+          h.div([h.Class('footer-bottom')], [h.span([], ['© Quadrivium Academy Sihtasutus 2026'])]),
         ],
       ),
     ],

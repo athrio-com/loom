@@ -1,28 +1,10 @@
 import { Array, Option, pipe } from 'effect'
 import type { Html, HtmlBuilder } from 'foldkit/html'
-import {
-  Copied,
-  PickedRuntime,
-  WentTo,
-  type Message,
-  type Model,
-  type Runtime,
-} from './model'
-import {
-  bunIcon,
-  loomMark,
-  npmIcon,
-  pnpmIcon,
-} from './components'
+import { Copied, PickedRuntime, WentTo, type Message, type Model, type Runtime } from './model'
+import { bunIcon, loomMark, npmIcon, pnpmIcon } from './components'
 
 const wordmark = (h: HtmlBuilder<Message>): Html =>
-  h.div(
-    [h.Class('hero-mark')],
-    [
-      loomMark('paper', 1.2),
-      h.div([h.Class('hero-word')], ['Loom']),
-    ],
-  )
+  h.div([h.Class('hero-mark')], [loomMark('paper', 1.2), h.div([h.Class('hero-word')], ['Loom'])])
 
 const claim = (h: HtmlBuilder<Message>): Html =>
   h.div(
@@ -98,9 +80,7 @@ export const installLine = (model: Model, h: HtmlBuilder<Message>): Html =>
     [
       h.div(
         [h.Class('rt-tabs')],
-        Array.map(installs, (install) =>
-          runtimeTab(install, install.runtime === model.runtime, h),
-        ),
+        Array.map(installs, (install) => runtimeTab(install, install.runtime === model.runtime, h)),
       ),
       commandButton('install', commandFor(model.runtime), model.copied, h),
     ],
@@ -138,10 +118,7 @@ export const hero = (model: Model, h: HtmlBuilder<Message>): Html =>
       wordmark(h),
       h.div(
         [h.Class('hero-columns')],
-        [
-          claim(h),
-          h.div([h.Class('hero-right')], [installLine(model, h), onward(h)]),
-        ],
+        [claim(h), h.div([h.Class('hero-right')], [installLine(model, h), onward(h)])],
       ),
     ],
   )

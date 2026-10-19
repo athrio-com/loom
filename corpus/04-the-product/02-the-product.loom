@@ -24,9 +24,7 @@ const productNode = <Tag extends string, Fields extends Schema.Struct.Fields>(
 ) =>
   Schema.Struct({
     type: Schema.tag(tag),
-    health: HealthSchema.pipe(
-      Schema.withConstructorDefault(Effect.succeed(okHealth)),
-    ),
+    health: HealthSchema.pipe(Schema.withConstructorDefault(Effect.succeed(okHealth))),
     ...fields,
   })
 

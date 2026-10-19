@@ -32,12 +32,7 @@ const marketingPage = (
 const documentation = (model: Model, h: HtmlBuilder<Message>): Html =>
   h.div(
     [],
-    [
-      nav(model, h),
-      h.main([], [documentationPage(model, h)]),
-      footer(h),
-      ...overlay(model, h),
-    ],
+    [nav(model, h), h.main([], [documentationPage(model, h)]), footer(h), ...overlay(model, h)],
   )
 
 const beingWritten = (title: string, line: string, h: HtmlBuilder<Message>): Html =>
@@ -49,10 +44,7 @@ const beingWritten = (title: string, line: string, h: HtmlBuilder<Message>): Htm
         [
           h.div(
             [h.Class('lines')],
-            [
-              h.span([h.Class('eyebrow')], ['Being written']),
-              h.h2([], [title]),
-            ],
+            [h.span([h.Class('eyebrow')], ['Being written']), h.h2([], [title])],
           ),
         ],
       ),
@@ -74,13 +66,17 @@ const pageFor = (model: Model, h: HtmlBuilder<Message>): Html =>
     Match.when('community', () => marketingPage(model, community(), h)),
     Match.when('license', () => marketingPage(model, license(), h)),
     Match.when('source', () =>
-      marketingPage(model, [
-        beingWritten(
-          'Source',
-          'Loom’s own book, read the way Loom renders one. It weaves to more than a megabyte, so this page fetches a chapter at a time rather than shipping the whole corpus to the browser.',
-          h,
-        ),
-      ], h),
+      marketingPage(
+        model,
+        [
+          beingWritten(
+            'Source',
+            'Loom’s own book, read the way Loom renders one. It weaves to more than a megabyte, so this page fetches a chapter at a time rather than shipping the whole corpus to the browser.',
+            h,
+          ),
+        ],
+        h,
+      ),
     ),
     Match.exhaustive,
   )

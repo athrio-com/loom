@@ -44,16 +44,13 @@ export interface LoomVirtualCode {
   readonly embeddedCodes: ReadonlyArray<LoomVirtualCode>
 }
 
-export const LoomVirtualCodeSchema: Schema.Schema<LoomVirtualCode> =
-  Schema.Struct({
-    id: Schema.String,
-    languageId: Schema.String,
-    code: Schema.String,
-    mappings: Schema.Array(MappingSchema),
-    embeddedCodes: Schema.Array(
-      Schema.suspend(() => LoomVirtualCodeSchema),
-    ),
-  })
+export const LoomVirtualCodeSchema: Schema.Schema<LoomVirtualCode> = Schema.Struct({
+  id: Schema.String,
+  languageId: Schema.String,
+  code: Schema.String,
+  mappings: Schema.Array(MappingSchema),
+  embeddedCodes: Schema.Array(Schema.suspend(() => LoomVirtualCodeSchema)),
+})
 
 ## What this module draws on
 

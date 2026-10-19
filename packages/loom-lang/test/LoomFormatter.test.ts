@@ -37,7 +37,8 @@ const formatterOf = (format: (code: string) => Option.Option<string>): LanguageS
     plugins: () => Effect.succeed([]),
     format: (request) =>
       Option.match(format(request.code), {
-        onNone: () => Effect.fail(new ServiceError({ service: 'typescript', reason: 'unreadable' })),
+        onNone: () =>
+          Effect.fail(new ServiceError({ service: 'typescript', reason: 'unreadable' })),
         onSome: (code) => Effect.succeed(code),
       }),
   })
@@ -71,7 +72,15 @@ const frontmatter = ['---', 'Language: TypeScript', '---', '']
 describe('LoomFormatter — prose', () => {
   it.effect('joins the lines of a paragraph into one', () =>
     Effect.gen(function* () {
-      const text = lines(...frontmatter, '# Notes', '', 'One paragraph', 'written over', '   three lines.', '')
+      const text = lines(
+        ...frontmatter,
+        '# Notes',
+        '',
+        'One paragraph',
+        'written over',
+        '   three lines.',
+        '',
+      )
       expect(yield* formatted(text)).toBe(
         lines(...frontmatter, '# Notes', '', 'One paragraph written over three lines.', ''),
       )
@@ -298,10 +307,18 @@ describe('LoomFormatter — sections that need their place', () => {
     Effect.gen(function* () {
       expect(
         yield* formatted(
-          options(['const options = {', anchor('Fields'), '}'], ['retries:  3,', 'verbose:  true,']),
+          options(
+            ['const options = {', anchor('Fields'), '}'],
+            ['retries:  3,', 'verbose:  true,'],
+          ),
           [tidy],
         ),
-      ).toBe(options(['const options = {', `  ${anchor('Fields')}`, '}'], ['retries: 3,', 'verbose: true,']))
+      ).toBe(
+        options(
+          ['const options = {', `  ${anchor('Fields')}`, '}'],
+          ['retries: 3,', 'verbose: true,'],
+        ),
+      )
     }),
   )
 

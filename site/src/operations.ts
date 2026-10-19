@@ -71,10 +71,7 @@ export const operations: ReadonlyArray<Operation> = [
   },
 ]
 
-const jsonLine = (
-  line: ReadonlyArray<readonly [string, string]>,
-  h: HtmlBuilder<Message>,
-): Html =>
+const jsonLine = (line: ReadonlyArray<readonly [string, string]>, h: HtmlBuilder<Message>): Html =>
   h.div(
     [h.Class('json-line')],
     Array.map(line, ([text, kind]) => h.span([h.Class(`tok-${kind}`)], [text])),
@@ -84,7 +81,10 @@ const jsonBlock = (
   lines: ReadonlyArray<ReadonlyArray<readonly [string, string]>>,
   h: HtmlBuilder<Message>,
 ): Html =>
-  h.div([h.Class('px-json')], Array.map(lines, (line) => jsonLine(line, h)))
+  h.div(
+    [h.Class('px-json')],
+    Array.map(lines, (line) => jsonLine(line, h)),
+  )
 
 const illustration = (operation: Operation, h: HtmlBuilder<Message>): Html =>
   h.div(
@@ -140,10 +140,7 @@ export const fromInitToEject = (model: Model, h: HtmlBuilder<Message>): Html =>
           carpetMark(operationsCarpet, '42px', broadSeam),
           h.div(
             [h.Class('lines')],
-            [
-              h.span([h.Class('eyebrow')], ['Loom CLI']),
-              h.h2([], ['From init to eject']),
-            ],
+            [h.span([h.Class('eyebrow')], ['Loom CLI']), h.h2([], ['From init to eject'])],
           ),
         ],
       ),

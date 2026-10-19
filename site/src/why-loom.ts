@@ -41,7 +41,8 @@ const pairs: ReadonlyArray<Pair> = [
       'A Loom project can grow into a book. Parts and chapters read top to bottom, under a table of contents generated from the chapters themselves.',
   },
   {
-    problem: 'Adopting a new format usually means converting a whole codebase before any of it pays off.',
+    problem:
+      'Adopting a new format usually means converting a whole codebase before any of it pays off.',
     answer:
       'Loom can host one file at a time. The rest of the codebase stays as it is until you choose to move it.',
   },
@@ -96,10 +97,7 @@ const hueAt = (at: number): Hue =>
 const pairCard = (pair: Pair, at: number): Html => {
   const hue = hueAt(at)
   return ih.div(
-    [
-      ih.Class('why-pair'),
-      ih.Style({ '--pair-ink': hue.ink, '--pair-tint': hue.tint }),
-    ],
+    [ih.Class('why-pair'), ih.Style({ '--pair-ink': hue.ink, '--pair-tint': hue.tint })],
     [
       pairLine(pixels(problemMark, 'why-q'), pair.problem),
       pairLine(pixels(answerMark, 'why-a'), pair.answer),

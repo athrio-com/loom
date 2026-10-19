@@ -137,23 +137,16 @@ const lineRanges = (text: string, eol: Eol): Stream.Stream<LineRange> =>
 
 =>
 
-export class LoomSourceRanges extends Context.Service<LoomSourceRanges>()(
-  'LoomSourceRanges',
-  {
-    make: Effect.succeed({
-      stream: (
-        text: string,
-      ): Effect.Effect<Stream.Stream<LineRange>, MixedEOL> =>
-        Option.match(detectEol(text), {
-          onNone: () => Effect.succeed(Stream.make([0, text.length] as const)),
-          onSome: (eol) =>
-            checkMixed(text, eol).pipe(
-              Effect.map((validEol) => lineRanges(text, validEol)),
-            ),
-        }),
-    }),
-  },
-) {
+export class LoomSourceRanges extends Context.Service<LoomSourceRanges>()('LoomSourceRanges', {
+  make: Effect.succeed({
+    stream: (text: string): Effect.Effect<Stream.Stream<LineRange>, MixedEOL> =>
+      Option.match(detectEol(text), {
+        onNone: () => Effect.succeed(Stream.make([0, text.length] as const)),
+        onSome: (eol) =>
+          checkMixed(text, eol).pipe(Effect.map((validEol) => lineRanges(text, validEol))),
+      }),
+  }),
+}) {
   static readonly layer = Layer.effect(this, this.make)
 }
 

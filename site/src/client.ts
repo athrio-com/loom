@@ -140,8 +140,7 @@ const GlideToCard = define('GlideToCard', {
   ).pipe(Effect.as(GrewCard())),
 })
 
-const clamp = (value: number, max: number): number =>
-  Math.max(0, Math.min(max, value))
+const clamp = (value: number, max: number): number => Math.max(0, Math.min(max, value))
 
 const CHARS_PER_SECOND = 26
 
@@ -163,7 +162,10 @@ const stepped = (model: Model, delta: number): Step => {
   const beat = model.player.beat + (Math.min(delta, 32) / 1000) * CHARS_PER_SECOND
   if (beat >= RUN) {
     return {
-      model: { ...model, player: { ...model.player, struck: CHARACTERS, beat: RUN, playing: false } },
+      model: {
+        ...model,
+        player: { ...model.player, struck: CHARACTERS, beat: RUN, playing: false },
+      },
       commands: [MoveStage({ to: 'foot' })],
     }
   }
@@ -181,7 +183,10 @@ const update = (model: Model, message: Message): Step =>
       ToggledPlay: () => ({ model: { ...model, player: toggled(model.player) } }),
       Ticked: ({ delta }) => stepped(model, delta),
       SkippedToEnd: () => ({
-        model: { ...model, player: { ...model.player, struck: CHARACTERS, beat: RUN, playing: false } },
+        model: {
+          ...model,
+          player: { ...model.player, struck: CHARACTERS, beat: RUN, playing: false },
+        },
         commands: [MoveStage({ to: 'foot' })],
       }),
       ReplayedDocument: () => ({

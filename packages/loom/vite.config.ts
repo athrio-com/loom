@@ -7,10 +7,7 @@ import { fileURLToPath } from 'node:url'
 const here = dirname(fileURLToPath(import.meta.url))
 const requireFromHere = createRequire(import.meta.url)
 
-const nodeBuiltins = [
-  ...builtinModules,
-  ...builtinModules.map((m) => `node:${m}`),
-]
+const nodeBuiltins = [...builtinModules, ...builtinModules.map((m) => `node:${m}`)]
 
 const umd2esm = {
   name: 'umd2esm',
@@ -52,10 +49,7 @@ export default defineConfig({
     conditions: ['node'],
     mainFields: ['main', 'module'],
     alias: {
-      yaml: resolve(
-        dirname(requireFromHere.resolve('yaml/package.json')),
-        'browser/index.js',
-      ),
+      yaml: resolve(dirname(requireFromHere.resolve('yaml/package.json')), 'browser/index.js'),
       'vscode-uri': requireFromHere
         .resolve('vscode-uri')
         .replace(/esm[\\/]index\.mjs$/, 'umd/index.js'),

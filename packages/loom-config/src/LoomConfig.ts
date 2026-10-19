@@ -1,12 +1,6 @@
 import { Context, Effect, Layer, Option, Schema } from 'effect'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, resolve as resolvePath } from 'node:path'
 
 const AnchorSchema = Schema.Struct({
@@ -18,10 +12,7 @@ const LanguageSchema = Schema.Struct({
   service: Schema.optional(Schema.String),
 })
 
-const SettingsSchema = Schema.Record(
-  Schema.String,
-  Schema.Record(Schema.String, Schema.Unknown),
-)
+const SettingsSchema = Schema.Record(Schema.String, Schema.Record(Schema.String, Schema.Unknown))
 
 const VariablesSchema = Schema.Record(
   Schema.String,
@@ -29,9 +20,7 @@ const VariablesSchema = Schema.Record(
 )
 
 export const WorkspaceManifestSchema = Schema.Struct({
-  languages: Schema.optional(
-    Schema.Record(Schema.String, LanguageSchema),
-  ),
+  languages: Schema.optional(Schema.Record(Schema.String, LanguageSchema)),
   corpus: Schema.optional(Schema.String),
   primary: Schema.optional(Schema.String),
   anchor: Schema.optional(AnchorSchema),
@@ -105,15 +94,9 @@ const servicesOf = (
 const variablesOf = (
   variables: Record<string, string | number | boolean> | undefined,
 ): Record<string, string> =>
-  Object.fromEntries(
-    Object.entries(variables ?? {}).map(([name, value]) => [name, String(value)]),
-  )
+  Object.fromEntries(Object.entries(variables ?? {}).map(([name, value]) => [name, String(value)]))
 
-const containerRoot = (
-  dir: string,
-  container: string,
-  workspace: string,
-): string | undefined => {
+const containerRoot = (dir: string, container: string, workspace: string): string | undefined => {
   if (basename(dir) === container) return dirname(dir)
   const parent = dirname(dir)
   return dir === workspace || parent === dir
@@ -121,11 +104,7 @@ const containerRoot = (
     : containerRoot(parent, container, workspace)
 }
 
-const corpusDirOf = (
-  start: string,
-  container: string,
-  workspace: string,
-): string => {
+const corpusDirOf = (start: string, container: string, workspace: string): string => {
   const climb = (dir: string): string => {
     if (basename(dir) === container) return dir
     const parent = dirname(dir)
@@ -166,12 +145,8 @@ export class LoomConfig extends Context.Service<LoomConfig>()('LoomConfig', {
         const from = isFolder(fromPath) ? fromPath : dirname(fromPath)
         const workspace = findWorkspace(from)
         if (workspace === undefined) return empty
-        const manifest = readManifest(
-          resolvePath(workspace, storeDirName, manifestName),
-        )
-        return manifest === undefined
-          ? empty
-          : resolveFromManifest(manifest, workspace, from)
+        const manifest = readManifest(resolvePath(workspace, storeDirName, manifestName))
+        return manifest === undefined ? empty : resolveFromManifest(manifest, workspace, from)
       }),
 
     manifest: (fromDir: string): Effect.Effect<WorkspaceManifest | undefined> =>

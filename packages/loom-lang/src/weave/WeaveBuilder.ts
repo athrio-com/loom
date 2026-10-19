@@ -1,9 +1,6 @@
 import { Array, Context, Effect, Layer, Match, Option, Order, pipe } from 'effect'
 import type { LoomSection } from '@athrio/loom-ast/LoomAst'
-import type {
-  PreambleWeft,
-  SectionBodyWeft,
-} from '@athrio/loom-ast/Weft'
+import type { PreambleWeft, SectionBodyWeft } from '@athrio/loom-ast/Weft'
 import type { WarpAnchorToken } from '@athrio/loom-ast/LoomTokens'
 import {
   type LoomCorpusAst,
@@ -31,21 +28,14 @@ import {
   type WovenPart,
   WovenPartSchema,
 } from './WovenCorpus'
-import {
-  buildContents,
-  type TocChapter,
-  type TocPart,
-} from './TableOfContentsBuilder'
+import { buildContents, type TocChapter, type TocPart } from './TableOfContentsBuilder'
 
-export class WeaveBuilder extends Context.Service<WeaveBuilder>()(
-  'WeaveBuilder',
-  {
-    make: Effect.succeed({
-      build: (corpus: LoomCorpusAst): Effect.Effect<WovenCorpus> =>
-        Effect.sync(() => buildCorpus(corpus)),
-    }),
-  },
-) {
+export class WeaveBuilder extends Context.Service<WeaveBuilder>()('WeaveBuilder', {
+  make: Effect.succeed({
+    build: (corpus: LoomCorpusAst): Effect.Effect<WovenCorpus> =>
+      Effect.sync(() => buildCorpus(corpus)),
+  }),
+}) {
   static readonly layer = Layer.effect(this, this.make)
 }
 
@@ -57,9 +47,7 @@ export const buildCorpus = (corpus: LoomCorpusAst): WovenCorpus => {
   const loose = Array.map(toc.loose, wovenEntry)
   const partOfSlug = partIndex(nav)
   const pages = pipe(
-    Array.getSomes(
-      Array.map(modules, (module) => buildPage(module, indexes, partOfSlug)),
-    ),
+    Array.getSomes(Array.map(modules, (module) => buildPage(module, indexes, partOfSlug))),
     Array.sort(inReadingOrder(navOrder(nav))),
   )
   return WovenCorpusSchema.make({ nav, loose, pages })
@@ -97,36 +85,25 @@ const wovenPart = (part: TocPart): WovenPart =>
     chapters: Array.map(part.chapters, wovenEntry),
   })
 
-const partIndex = (
-  nav: ReadonlyArray<WovenPart>,
-): ReadonlyMap<string, string> =>
+const partIndex = (nav: ReadonlyArray<WovenPart>): ReadonlyMap<string, string> =>
   new Map(
     Array.flatMap(nav, (part) =>
       Array.map(part.chapters, (chapter) => [chapter.slug, part.name] as const),
     ),
   )
 
-const navOrder = (
-  nav: ReadonlyArray<WovenPart>,
-): ReadonlyMap<string, number> =>
+const navOrder = (nav: ReadonlyArray<WovenPart>): ReadonlyMap<string, number> =>
   new Map(
     Array.map(
-      Array.flatMap(nav, (part) =>
-        Array.map(part.chapters, (chapter) => chapter.slug),
-      ),
+      Array.flatMap(nav, (part) => Array.map(part.chapters, (chapter) => chapter.slug)),
       (slug, at) => [slug, at] as const,
     ),
   )
 
-const inReadingOrder = (
-  order: ReadonlyMap<string, number>,
-): Order.Order<WovenPage> =>
+const inReadingOrder = (order: ReadonlyMap<string, number>): Order.Order<WovenPage> =>
   Order.combineAll([
     Order.mapInput(Order.Number, (page: WovenPage) =>
-      Option.getOrElse(
-        Option.fromNullishOr(order.get(page.slug)),
-        () => order.size,
-      ),
+      Option.getOrElse(Option.fromNullishOr(order.get(page.slug)), () => order.size),
     ),
     Order.mapInput(Order.String, (page: WovenPage) => page.slug),
   ])
@@ -136,20 +113,14 @@ const isBookRoot = (module: LoomModule): boolean =>
 
 const firstHeadingTitle = (module: LoomModule): Option.Option<string> =>
   pipe(
-    Array.findFirst(
-      module.doc.sections,
-      (section) => section.heading.title !== undefined,
-    ),
+    Array.findFirst(module.doc.sections, (section) => section.heading.title !== undefined),
     Option.flatMap((section) => Option.fromNullishOr(section.heading.title)),
     Option.map((title) => title.source),
   )
 
 const chapterTitleOf = (module: LoomModule): Option.Option<string> =>
   Option.orElse(
-    Option.map(
-      Option.fromNullishOr(module.doc.frontmatter?.title),
-      (title) => title.value,
-    ),
+    Option.map(Option.fromNullishOr(module.doc.frontmatter?.title), (title) => title.value),
     () => firstHeadingTitle(module),
   )
 
@@ -170,16 +141,10 @@ const buildPage = (
         })
       })
 
-const buildBlocks = (
-  module: LoomModule,
-  indexes: TitleIndexes,
-): ReadonlyArray<WovenBlock> =>
+const buildBlocks = (module: LoomModule, indexes: TitleIndexes): ReadonlyArray<WovenBlock> =>
   Array.flatMap(module.doc.sections, sectionBlocks(module, indexes))
 
-const sectionSource = (
-  module: LoomModule,
-  section: LoomSection,
-): SourceAnchor =>
+const sectionSource = (module: LoomModule, section: LoomSection): SourceAnchor =>
   SourceAnchorSchema.make({
     chapter: slugFor(module.path),
     section: slugify(titleSource(section)),
@@ -198,18 +163,14 @@ const sectionBlocks =
     ]
   }
 
-const titleSource = (section: LoomSection): string =>
-  section.heading.title?.source ?? ''
+const titleSource = (section: LoomSection): string => section.heading.title?.source ?? ''
 
 const headingLevel = (section: LoomSection): number => {
   const marks = section.heading.headingStart.source.replace(/[^#]/g, '').length
   return marks === 0 ? 1 : marks
 }
 
-const headingBlock = (
-  section: LoomSection,
-  source: SourceAnchor,
-): WovenBlock =>
+const headingBlock = (section: LoomSection, source: SourceAnchor): WovenBlock =>
   HeadingBlockSchema.make({
     source,
     level: headingLevel(section),
@@ -230,18 +191,12 @@ const sectionBody = (section: LoomSection): ReadonlyArray<BodyWeft> => [
   ...section.code,
 ]
 
-const splitRuns = (
-  body: ReadonlyArray<BodyWeft>,
-): ReadonlyArray<ReadonlyArray<BodyWeft>> =>
+const splitRuns = (body: ReadonlyArray<BodyWeft>): ReadonlyArray<ReadonlyArray<BodyWeft>> =>
   Array.isReadonlyArrayNonEmpty(body)
-    ? Array.groupWith(
-        body,
-        (a, _b) => a.type !== 'ArrowWeft' && a.type !== 'TildeWeft',
-      )
+    ? Array.groupWith(body, (a, _b) => a.type !== 'ArrowWeft' && a.type !== 'TildeWeft')
     : []
 
-const isMarker = (weft: BodyWeft): boolean =>
-  weft.type === 'ArrowWeft' || weft.type === 'TildeWeft'
+const isMarker = (weft: BodyWeft): boolean => weft.type === 'ArrowWeft' || weft.type === 'TildeWeft'
 
 const markerInline = (marker: BodyWeft): Option.Option<Piece> =>
   Match.value(marker).pipe(
@@ -270,9 +225,7 @@ const pieceOfWeft = (weft: BodyWeft): Piece => ({
 
 const runSpan = (run: ReadonlyArray<BodyWeft>): Option.Option<Span> => {
   const pieces = Array.flatMap(run, (weft, index) =>
-    index === 0 && isMarker(weft)
-      ? Option.toArray(markerInline(weft))
-      : [pieceOfWeft(weft)],
+    index === 0 && isMarker(weft) ? Option.toArray(markerInline(weft)) : [pieceOfWeft(weft)],
   )
   const kept = Array.filter(pieces, (piece) => !piece.blank)
   return Array.isReadonlyArrayNonEmpty(kept)
@@ -291,29 +244,19 @@ const sectionLanguage = (module: LoomModule, section: LoomSection): string =>
     Option.map((s) => s.label.value.toLowerCase()),
     Option.filter((id) => !reservedSpecifiers.has(id)),
     Option.orElse(() =>
-      Option.map(
-        Option.fromNullishOr(module.doc.frontmatter?.language),
-        (l) => l.value.trim().toLowerCase(),
+      Option.map(Option.fromNullishOr(module.doc.frontmatter?.language), (l) =>
+        l.value.trim().toLowerCase(),
       ),
     ),
     Option.getOrElse(() => 'plaintext'),
   )
 
-const notePattern =
-  /^[ \t]*:::\[Note\][^\n]*\n([\s\S]*?)\n[ \t]*:::(?:[ \t])*$/gm
+const notePattern = /^[ \t]*:::\[Note\][^\n]*\n([\s\S]*?)\n[ \t]*:::(?:[ \t])*$/gm
 
-const proseBlockOf = (
-  markdown: string,
-  source: SourceAnchor,
-): ReadonlyArray<WovenBlock> =>
-  markdown.trim().length === 0
-    ? []
-    : [ProseBlockSchema.make({ source, markdown: markdown.trim() })]
+const proseBlockOf = (markdown: string, source: SourceAnchor): ReadonlyArray<WovenBlock> =>
+  markdown.trim().length === 0 ? [] : [ProseBlockSchema.make({ source, markdown: markdown.trim() })]
 
-const proseBlocks = (
-  markdown: string,
-  source: SourceAnchor,
-): ReadonlyArray<WovenBlock> => {
+const proseBlocks = (markdown: string, source: SourceAnchor): ReadonlyArray<WovenBlock> => {
   const walked = Array.reduce(
     Array.fromIterable(markdown.matchAll(notePattern)),
     { blocks: [] as ReadonlyArray<WovenBlock>, cursor: 0 },
@@ -348,22 +291,15 @@ const codeBlock = (
       Array.flatMap(run, (weft) => weft.anchors),
       Array.filter(
         (anchor) =>
-          anchor.position.start.offset >= span.start &&
-          anchor.position.end.offset <= span.end,
+          anchor.position.start.offset >= span.start && anchor.position.end.offset <= span.end,
       ),
-      Array.map((anchor) =>
-        resolveLink(module, indexes, span.start, anchor),
-      ), Array.getSomes,
+      Array.map((anchor) => resolveLink(module, indexes, span.start, anchor)),
+      Array.getSomes,
     ),
   })
 
 const runBlocks =
-  (
-    module: LoomModule,
-    indexes: TitleIndexes,
-    section: LoomSection,
-    source: SourceAnchor,
-  ) =>
+  (module: LoomModule, indexes: TitleIndexes, section: LoomSection, source: SourceAnchor) =>
   (run: ReadonlyArray<BodyWeft>): ReadonlyArray<WovenBlock> =>
     Array.matchLeft(run, {
       onEmpty: (): ReadonlyArray<WovenBlock> => [],
@@ -376,9 +312,7 @@ const runBlocks =
               Match.when({ type: 'ArrowWeft' }, () => [
                 codeBlock(module, indexes, section, source, run, span),
               ]),
-              Match.orElse(() =>
-                proseBlocks(sliceContent(module.text, span), source),
-              ),
+              Match.orElse(() => proseBlocks(sliceContent(module.text, span), source)),
             ),
         }),
     })
@@ -392,16 +326,14 @@ const resolveLink = (
   pipe(
     resolveAnchor(indexes, module.path, anchor),
     Option.flatMap((ref) =>
-      Option.map(
-        Option.fromNullishOr(ref.section.heading.title),
-        (title): AnchorLink =>
-          AnchorLinkSchema.make({
-            name: anchor.name.value,
-            targetSlug: slugFor(ref.module),
-            targetId: slugify(title.source),
-            offset: anchor.position.start.offset - blockStart,
-            length: anchor.position.end.offset - anchor.position.start.offset,
-          }),
+      Option.map(Option.fromNullishOr(ref.section.heading.title), (title): AnchorLink =>
+        AnchorLinkSchema.make({
+          name: anchor.name.value,
+          targetSlug: slugFor(ref.module),
+          targetId: slugify(title.source),
+          offset: anchor.position.start.offset - blockStart,
+          length: anchor.position.end.offset - anchor.position.start.offset,
+        }),
       ),
     ),
   )

@@ -26,9 +26,7 @@ const editorTsdk = (options: unknown): Option.Option<string> =>
 
 const installedTsdk = (from: string): Option.Option<string> =>
   Option.map(
-    Option.liftThrowable(() =>
-      createRequire(from).resolve('typescript/lib/typescript.js'),
-    )(),
+    Option.liftThrowable(() => createRequire(from).resolve('typescript/lib/typescript.js'))(),
     dirname,
   )
 
@@ -40,10 +38,7 @@ export class MissingTypeScript extends Data.TaggedError('MissingTypeScript')<{
   }
 }
 
-const tsdkFor = (
-  options: unknown,
-  root: string,
-): Effect.Effect<string, MissingTypeScript> =>
+const tsdkFor = (options: unknown, root: string): Effect.Effect<string, MissingTypeScript> =>
   pipe(
     editorTsdk(options),
     Option.orElse(() => installedTsdk(join(root, 'package.json'))),
@@ -72,24 +67,16 @@ export const startLanguageServer = (): void => {
     const { tsdk, servicePlugins } = await runtime.runPromise(
       Effect.gen(function* () {
         const path = yield* tsdkFor(params.initializationOptions, root)
-        const tsdk = yield* Effect.sync(() =>
-          loadTsdkByPath(path, params.locale),
-        )
-        const servicePlugins = yield* loomServicePlugins(
-          runtime,
-          tsdk.typescript,
-          root,
-        )
+        const tsdk = yield* Effect.sync(() => loadTsdkByPath(path, params.locale))
+        const servicePlugins = yield* loomServicePlugins(runtime, tsdk.typescript, root)
         return { tsdk, servicePlugins }
       }),
     )
     return server.initialize(
       params,
-      createTypeScriptProject(
-        tsdk.typescript,
-        tsdk.diagnosticMessages,
-        () => ({ languagePlugins: [loomLanguagePlugin(runtime)] }),
-      ),
+      createTypeScriptProject(tsdk.typescript, tsdk.diagnosticMessages, () => ({
+        languagePlugins: [loomLanguagePlugin(runtime)],
+      })),
       [...servicePlugins],
     )
   })

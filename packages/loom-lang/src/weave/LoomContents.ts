@@ -8,16 +8,16 @@ export class LoomContents extends Context.Service<LoomContents>()('LoomContents'
     const fs = yield* FileSystem.FileSystem
 
     const write = (entry: Path): Effect.Effect<Path> =>
-      compiler.contents(entry).pipe(
-        Effect.flatMap((text) =>
-          fs.writeFileString(entry, text).pipe(Effect.orDie, Effect.as(entry)),
-        ),
-      )
+      compiler
+        .contents(entry)
+        .pipe(
+          Effect.flatMap((text) =>
+            fs.writeFileString(entry, text).pipe(Effect.orDie, Effect.as(entry)),
+          ),
+        )
 
     return { write }
   }),
 }) {
-  static readonly layer = Layer.effect(this, this.make).pipe(
-    Layer.provide(LoomCompiler.layer),
-  )
+  static readonly layer = Layer.effect(this, this.make).pipe(Layer.provide(LoomCompiler.layer))
 }

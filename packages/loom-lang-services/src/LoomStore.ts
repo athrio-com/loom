@@ -1,20 +1,12 @@
 import { Data, Effect, Option, pipe } from 'effect'
 import { execFile } from 'node:child_process'
-import {
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 
 const run = promisify(execFile)
 
-export const servicePackage = (id: string): string =>
-  `@athrio/loom-service-${id}`
+export const servicePackage = (id: string): string => `@athrio/loom-service-${id}`
 
 export const workspaceRoot = (dir: string): string => {
   const seek = (at: string): string | undefined => {
@@ -32,9 +24,7 @@ export const storeDir = (dir: string): string =>
 
 const servicePrefix = 'loom-service-'
 
-export const installedServices = (
-  dir: string,
-): Effect.Effect<ReadonlyArray<string>> =>
+export const installedServices = (dir: string): Effect.Effect<ReadonlyArray<string>> =>
   Effect.sync(() => {
     const scope = join(storeDir(dir), 'node_modules', '@athrio')
     if (!existsSync(scope)) return []
@@ -45,26 +35,16 @@ export const installedServices = (
 
 export const serviceVersion = '0.0.11'
 
-export const installedVersion = (
-  id: string,
-  dir: string,
-): Option.Option<string> =>
+export const installedVersion = (id: string, dir: string): Option.Option<string> =>
   pipe(
     Option.liftThrowable(() =>
-      readFileSync(
-        join(storeDir(dir), 'node_modules', servicePackage(id), 'package.json'),
-        'utf8',
-      ),
+      readFileSync(join(storeDir(dir), 'node_modules', servicePackage(id), 'package.json'), 'utf8'),
     )(),
     Option.flatMap(
-      Option.liftThrowable(
-        (text: string) => JSON.parse(text) as { readonly version?: unknown },
-      ),
+      Option.liftThrowable((text: string) => JSON.parse(text) as { readonly version?: unknown }),
     ),
     Option.flatMap((manifest) =>
-      typeof manifest.version === 'string'
-        ? Option.some(manifest.version)
-        : Option.none(),
+      typeof manifest.version === 'string' ? Option.some(manifest.version) : Option.none(),
     ),
   )
 
@@ -90,10 +70,7 @@ export type ServiceInstall = Data.TaggedEnum<{
 }>
 export const ServiceInstall = Data.taggedEnum<ServiceInstall>()
 
-export const addService = (
-  id: string,
-  dir: string,
-): Effect.Effect<ServiceInstall, StoreError> =>
+export const addService = (id: string, dir: string): Effect.Effect<ServiceInstall, StoreError> =>
   Effect.gen(function* () {
     const store = storeDir(dir)
     const installed = installedVersion(id, dir)

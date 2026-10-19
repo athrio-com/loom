@@ -6,10 +6,7 @@ import { fileURLToPath } from 'node:url'
 const here = dirname(fileURLToPath(import.meta.url))
 const requireFromHere = createRequire(import.meta.url)
 
-const nodeBuiltins = [
-  ...builtinModules,
-  ...builtinModules.map((m) => `node:${m}`),
-]
+const nodeBuiltins = [...builtinModules, ...builtinModules.map((m) => `node:${m}`)]
 
 const umd2esm = {
   name: 'umd2esm',

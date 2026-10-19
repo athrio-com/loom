@@ -49,8 +49,8 @@ class ReleaseError extends Data.TaggedError('ReleaseError')<{
 }> {}
 
 const run = (command: ReadonlyArray<string>, cwd: string): Effect.Effect<void, ReleaseError> =>
-  Effect.promise(() =>
-    Bun.spawn([...command], { cwd, stdout: 'inherit', stderr: 'inherit' }).exited,
+  Effect.promise(
+    () => Bun.spawn([...command], { cwd, stdout: 'inherit', stderr: 'inherit' }).exited,
   ).pipe(
     Effect.flatMap((code) =>
       code === 0 ? Effect.void : Effect.fail(new ReleaseError({ command: command.join(' ') })),
@@ -107,9 +107,11 @@ BunRuntime.runMain(
   release.pipe(
     Effect.catchTag('ReleaseError', (error) =>
       Console.error(`release: command failed — ${error.command}`).pipe(
-        Effect.andThen(Effect.sync(() => {
-          process.exitCode = 1
-        })),
+        Effect.andThen(
+          Effect.sync(() => {
+            process.exitCode = 1
+          }),
+        ),
       ),
     ),
   ),

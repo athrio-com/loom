@@ -24,9 +24,7 @@ import { createProductProgram, type ProductProgram } from './ProductProgram'
 
 type TypeScript = typeof import('typescript')
 
-const loomOverrides = (
-  options: CompilerOptions,
-): CompilerOptions => ({
+const loomOverrides = (options: CompilerOptions): CompilerOptions => ({
   ...options,
   noEmit: true,
   allowImportingTsExtensions: true,
@@ -102,10 +100,7 @@ export const productTarget = (
   return { program, fileName: edited.path, roots }
 }
 
-const productPlugin = (
-  ts: TypeScript,
-  composition: CompositionApi,
-): LanguageServicePlugin => ({
+const productPlugin = (ts: TypeScript, composition: CompositionApi): LanguageServicePlugin => ({
   name: 'loom-typescript-product',
   capabilities: {
     diagnosticProvider: { interFileDependencies: false, workspaceDiagnostics: false },
@@ -127,11 +122,7 @@ const productPlugin = (
       programs.set(loomPath, program)
       return program
     }
-    const targetOf = (
-      uri: string,
-      languageId: string,
-      text: string,
-    ): ProductTarget | undefined =>
+    const targetOf = (uri: string, languageId: string, text: string): ProductTarget | undefined =>
       productTarget(
         context.decodeEmbeddedDocumentUri(URI.parse(uri)),
         languageId,
@@ -140,25 +131,17 @@ const productPlugin = (
         composition.rootsFor,
       )
 
-    const embeddedUriOf = (
-      roots: ReadonlyArray<ComposedFile>,
-      uri: string,
-    ): string =>
+    const embeddedUriOf = (roots: ReadonlyArray<ComposedFile>, uri: string): string =>
       Option.match(
         Array.findFirst(roots, (file) => file.path === URI.parse(uri).fsPath),
         {
           onNone: () => uri,
           onSome: (file) =>
-            context
-              .encodeEmbeddedDocumentUri(URI.file(file.loomPath), file.rootId)
-              .toString(),
+            context.encodeEmbeddedDocumentUri(URI.file(file.loomPath), file.rootId).toString(),
         },
       )
 
-    const remapEdit = (
-      roots: ReadonlyArray<ComposedFile>,
-      edit: WorkspaceEdit,
-    ): WorkspaceEdit => ({
+    const remapEdit = (roots: ReadonlyArray<ComposedFile>, edit: WorkspaceEdit): WorkspaceEdit => ({
       ...edit,
       changes:
         edit.changes === undefined
@@ -182,13 +165,8 @@ const productPlugin = (
       ),
     })
 
-    const remapAction = (
-      roots: ReadonlyArray<ComposedFile>,
-      action: CodeAction,
-    ): CodeAction =>
-      action.edit === undefined
-        ? action
-        : { ...action, edit: remapEdit(roots, action.edit) }
+    const remapAction = (roots: ReadonlyArray<ComposedFile>, action: CodeAction): CodeAction =>
+      action.edit === undefined ? action : { ...action, edit: remapEdit(roots, action.edit) }
 
     const atFileStart = (range: Range): boolean =>
       range.start.line === 0 &&
@@ -217,15 +195,11 @@ const productPlugin = (
     return {
       provideDiagnostics: (document) => {
         const target = targetOf(document.uri, document.languageId, document.getText())
-        return target === undefined
-          ? undefined
-          : target.program.diagnostics(target.fileName)
+        return target === undefined ? undefined : target.program.diagnostics(target.fileName)
       },
       provideHover: (document, position) => {
         const target = targetOf(document.uri, document.languageId, document.getText())
-        return target === undefined
-          ? undefined
-          : target.program.hover(target.fileName, position)
+        return target === undefined ? undefined : target.program.hover(target.fileName, position)
       },
       provideCompletionItems: (document, position) => {
         const target = targetOf(document.uri, document.languageId, document.getText())
@@ -239,22 +213,18 @@ const productPlugin = (
           ? undefined
           : target.program
               .definition(target.fileName, position)
-              .then((links) =>
-                links?.map((link) => remapDefinition(target.roots, link)),
-              )
+              .then((links) => links?.map((link) => remapDefinition(target.roots, link)))
       },
       provideReferences: (document, position) => {
         const target = targetOf(document.uri, document.languageId, document.getText())
         return target === undefined
           ? undefined
-          : target.program
-              .references(target.fileName, position)
-              .then((locations) =>
-                locations?.map((location) => ({
-                  ...location,
-                  uri: embeddedUriOf(target.roots, location.uri),
-                })),
-              )
+          : target.program.references(target.fileName, position).then((locations) =>
+              locations?.map((location) => ({
+                ...location,
+                uri: embeddedUriOf(target.roots, location.uri),
+              })),
+            )
       },
       provideRenameEdits: (document, position, newName) => {
         const target = targetOf(document.uri, document.languageId, document.getText())
@@ -262,9 +232,7 @@ const productPlugin = (
           ? undefined
           : target.program
               .rename(target.fileName, position, newName)
-              .then((edit) =>
-                edit === undefined ? edit : remapEdit(target.roots, edit),
-              )
+              .then((edit) => (edit === undefined ? edit : remapEdit(target.roots, edit)))
       },
       provideCodeActions: (document, range, context) => {
         const target = targetOf(document.uri, document.languageId, document.getText())
@@ -308,7 +276,10 @@ const loadPrettier = (path: string): Effect.Effect<Prettier, ServiceError> =>
       return loaded.default ?? loaded
     },
     catch: (cause) =>
-      new ServiceError({ service: 'typescript', reason: `Prettier did not load: ${String(cause)}` }),
+      new ServiceError({
+        service: 'typescript',
+        reason: `Prettier did not load: ${String(cause)}`,
+      }),
   })
 
 const formatProduct = (request: FormatRequest): Effect.Effect<string, ServiceError> =>

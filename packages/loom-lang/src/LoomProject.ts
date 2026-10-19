@@ -129,10 +129,7 @@ const looseScope: Scope = {
 }
 
 const scopeAt = (project: LoomProject, dir: Path): Scope =>
-  projectScope(
-    layerOf(project.root, [...defaultIgnore, ...project.ignore]),
-    gitRulesAt(dir),
-  )
+  projectScope(layerOf(project.root, [...defaultIgnore, ...project.ignore]), gitRulesAt(dir))
 
 const entriesIn = (dir: Path): ReadonlyArray<Dirent> => {
   try {
@@ -158,10 +155,7 @@ const walk = (dir: Path, scope: Scope): ReadonlyArray<Path> =>
     )
   })
 
-export const loomsIn = (
-  dir: Path,
-  project: Option.Option<LoomProject>,
-): ReadonlyArray<Path> =>
+export const loomsIn = (dir: Path, project: Option.Option<LoomProject>): ReadonlyArray<Path> =>
   walk(
     dir,
     Option.match(project, {
@@ -171,9 +165,7 @@ export const loomsIn = (
   )
 
 const foldersBetween = (root: Path, dir: Path): ReadonlyArray<Path> =>
-  dir === root || dirname(dir) === dir
-    ? []
-    : [...foldersBetween(root, dirname(dir)), dir]
+  dir === root || dirname(dir) === dir ? [] : [...foldersBetween(root, dirname(dir)), dir]
 
 export const holds = (project: LoomProject, loom: Path): boolean =>
   Option.isSome(relativeIn(project.root, loom)) &&

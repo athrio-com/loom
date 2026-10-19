@@ -1,13 +1,4 @@
-import {
-  Array,
-  Context,
-  Effect,
-  Layer,
-  Match,
-  Option,
-  Stream,
-  pipe,
-} from 'effect'
+import { Array, Context, Effect, Layer, Match, Option, Stream, pipe } from 'effect'
 import {
   LoomDocumentSchema,
   LoomFrontmatterSchema,
@@ -32,34 +23,29 @@ import type {
   TocWeft,
 } from '@athrio/loom-ast/Weft'
 
-export class LoomAstBuilder extends Context.Service<LoomAstBuilder>()(
-  'LoomAstBuilder',
-  {
-    make: Effect.succeed({
-      build: (source: Stream.Stream<LoomWeft>): Effect.Effect<LoomDocument> =>
-        Stream.runCollect(source).pipe(
-          Effect.map((wefts) =>
-            makeDocument(
-              Array.reduce(
-                groupNodes(warnHeadingAgainstCode(faultUnclosedExplicit(wefts))),
-                initialDocument,
-                appendToDocument,
-              ),
+export class LoomAstBuilder extends Context.Service<LoomAstBuilder>()('LoomAstBuilder', {
+  make: Effect.succeed({
+    build: (source: Stream.Stream<LoomWeft>): Effect.Effect<LoomDocument> =>
+      Stream.runCollect(source).pipe(
+        Effect.map((wefts) =>
+          makeDocument(
+            Array.reduce(
+              groupNodes(warnHeadingAgainstCode(faultUnclosedExplicit(wefts))),
+              initialDocument,
+              appendToDocument,
             ),
           ),
         ),
-    }),
-  },
-) {
+      ),
+  }),
+}) {
   static readonly layer = Layer.effect(this, this.make)
 }
 
 const isExplicitArrow = (weft: LoomWeft): weft is ArrowWeft =>
   weft.type === 'ArrowWeft' && weft.arrow.source === '~>'
 
-const unclosedExplicit = (
-  wefts: ReadonlyArray<LoomWeft>,
-): Option.Option<number> =>
+const unclosedExplicit = (wefts: ReadonlyArray<LoomWeft>): Option.Option<number> =>
   pipe(
     Array.findLastIndex(wefts, isExplicitArrow),
     Option.filter(
@@ -75,9 +61,7 @@ const faultedArrow = (weft: ArrowWeft): ArrowWeft => ({
   },
 })
 
-const faultUnclosedExplicit = (
-  wefts: ReadonlyArray<LoomWeft>,
-): ReadonlyArray<LoomWeft> =>
+const faultUnclosedExplicit = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<LoomWeft> =>
   Option.match(unclosedExplicit(wefts), {
     onNone: () => wefts,
     onSome: (open) =>
@@ -97,12 +81,9 @@ const warnedHeading = (weft: HeadingWeft): HeadingWeft => ({
   },
 })
 
-const warnHeadingAgainstCode = (
-  wefts: ReadonlyArray<LoomWeft>,
-): ReadonlyArray<LoomWeft> =>
+const warnHeadingAgainstCode = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<LoomWeft> =>
   Array.map(wefts, (weft, at) =>
-    isHeading(weft) &&
-    Option.exists(Array.get(wefts, at - 1), isFlushCode)
+    isHeading(weft) && Option.exists(Array.get(wefts, at - 1), isFlushCode)
       ? warnedHeading(weft)
       : weft,
   )
@@ -129,17 +110,10 @@ const sectionChunk = (
 ): readonly [Option.Option<LoomSection>, ReadonlyArray<LoomWeft>] => {
   const [body, rest] = Array.span(Array.drop(group, 1), (w) => !isHeading(w))
   const heading = group[0]
-  return [
-    isHeading(heading)
-      ? Option.some(buildSection(heading, body))
-      : Option.none(),
-    rest,
-  ]
+  return [isHeading(heading) ? Option.some(buildSection(heading, body)) : Option.none(), rest]
 }
 
-const groupNodes = (
-  wefts: ReadonlyArray<LoomWeft>,
-): ReadonlyArray<TopLevelNode> => {
+const groupNodes = (wefts: ReadonlyArray<LoomWeft>): ReadonlyArray<TopLevelNode> => {
   const [preamble, sections] = Array.span(wefts, (w) => !isHeading(w))
   return [
     ...Array.filter(preamble, isTopLevelWeft),
@@ -159,10 +133,7 @@ const initialDocument: DocumentBuilder = {
   sections: [],
 }
 
-const appendToDocument = (
-  doc: DocumentBuilder,
-  node: TopLevelNode,
-): DocumentBuilder =>
+const appendToDocument = (doc: DocumentBuilder, node: TopLevelNode): DocumentBuilder =>
   pipe(
     Match.value(node),
     Match.when({ type: 'LoomSection' }, (section) => ({
@@ -180,10 +151,7 @@ const appendToDocument = (
     Match.exhaustive,
   )
 
-const buildSection = (
-  heading: HeadingWeft,
-  body: ReadonlyArray<LoomWeft>,
-): LoomSection => {
+const buildSection = (heading: HeadingWeft, body: ReadonlyArray<LoomWeft>): LoomSection => {
   const h = headingOf(heading)
   const preamble = body.filter(isPreamble)
   const code = body.filter(isSectionBody)
@@ -212,9 +180,7 @@ const headingOf = (weft: HeadingWeft): LoomHeading =>
   })
 
 const sourceOf = (
-  ...groups: ReadonlyArray<
-    { readonly source: string } | ReadonlyArray<{ readonly source: string }>
-  >
+  ...groups: ReadonlyArray<{ readonly source: string } | ReadonlyArray<{ readonly source: string }>>
 ): string =>
   pipe(
     groups,
@@ -230,28 +196,21 @@ const spanFrom = (
   const flat = groups.flat()
   return {
     start: headingPos.start,
-    end:
-      flat.length === 0 ? headingPos.end : flat[flat.length - 1].position.end,
+    end: flat.length === 0 ? headingPos.end : flat[flat.length - 1].position.end,
   }
 }
 
-const makeFrontmatter = (
-  wefts: ReadonlyArray<FrontmatterWeft>,
-): Option.Option<LoomFrontmatter> => {
+const makeFrontmatter = (wefts: ReadonlyArray<FrontmatterWeft>): Option.Option<LoomFrontmatter> => {
   if (wefts.length === 0) return Option.none()
   const partFields = Option.match(
-    Option.fromNullishOr(
-      wefts.find((w) => w.part !== undefined || w.partName !== undefined),
-    ),
+    Option.fromNullishOr(wefts.find((w) => w.part !== undefined || w.partName !== undefined)),
     {
       onNone: () => ({}),
       onSome: (w) => ({ part: w.part, partName: w.partName }),
     },
   )
   const chapterFields = Option.match(
-    Option.fromNullishOr(
-      wefts.find((w) => w.chapter !== undefined || w.title !== undefined),
-    ),
+    Option.fromNullishOr(wefts.find((w) => w.chapter !== undefined || w.title !== undefined)),
     {
       onNone: () => ({}),
       onSome: (w) => ({ chapter: w.chapter, title: w.title }),
@@ -268,9 +227,7 @@ const makeFrontmatter = (
       ...partFields,
       ...chapterFields,
       package: Option.getOrUndefined(
-        Option.orElse(frontmatterField(wefts, 'Target'), () =>
-          frontmatterField(wefts, 'Package'),
-        ),
+        Option.orElse(frontmatterField(wefts, 'Target'), () => frontmatterField(wefts, 'Package')),
       ),
       language: Option.getOrUndefined(frontmatterField(wefts, 'Language')),
       status: Option.getOrUndefined(frontmatterField(wefts, 'Status')),
@@ -284,9 +241,7 @@ const frontmatterField = (
   key: string,
 ): Option.Option<FrontmatterValueToken> =>
   pipe(
-    Option.fromNullishOr(
-      wefts.find((w) => w.key !== undefined && w.key.value === key),
-    ),
+    Option.fromNullishOr(wefts.find((w) => w.key !== undefined && w.key.value === key)),
     Option.flatMapNullishOr((w) => w.value),
   )
 

@@ -14,11 +14,7 @@ export interface LanguageService {
   readonly extensions: ReadonlyArray<string>
   readonly plugins: (
     context: LanguageServiceContext,
-  ) => Effect.Effect<
-    ReadonlyArray<LanguageServicePlugin>,
-    ServiceError,
-    HostCapabilities
-  >
+  ) => Effect.Effect<ReadonlyArray<LanguageServicePlugin>, ServiceError, HostCapabilities>
   readonly format?: (request: FormatRequest) => Effect.Effect<string, ServiceError>
 }
 
@@ -29,9 +25,9 @@ export interface FormatRequest {
 }
 
 export class TypescriptSdk extends Context.Service<TypescriptSdk>()('TypescriptSdk', {
-  make: Effect.die(
-    'TypescriptSdk must be provided by the host',
-  ) as Effect.Effect<typeof import('typescript')>,
+  make: Effect.die('TypescriptSdk must be provided by the host') as Effect.Effect<
+    typeof import('typescript')
+  >,
 }) {
   static readonly layer = Layer.effect(this, this.make)
 }
@@ -55,18 +51,13 @@ export interface FrameQueryApi {
   readonly references: (path: string, offset: number) => ReadonlyArray<FrameLocation>
   readonly rename: (path: string, offset: number) => ReadonlyArray<FrameLocation>
   readonly renameRange: (path: string, offset: number) => FrameLocation | undefined
-  readonly navigationRange: (
-    path: string,
-    offset: number,
-  ) => FrameLocation | undefined
+  readonly navigationRange: (path: string, offset: number) => FrameLocation | undefined
   readonly semanticTokens: (path: string) => ReadonlyArray<FrameToken>
   readonly format: (path: string, text: string) => Promise<string>
 }
 
 export class FrameQuery extends Context.Service<FrameQuery>()('FrameQuery', {
-  make: Effect.die(
-    'FrameQuery must be provided by the host',
-  ) as Effect.Effect<FrameQueryApi>,
+  make: Effect.die('FrameQuery must be provided by the host') as Effect.Effect<FrameQueryApi>,
 }) {
   static readonly layer = Layer.effect(this, this.make)
 }
@@ -84,9 +75,7 @@ export interface CompositionApi {
 }
 
 export class Composition extends Context.Service<Composition>()('Composition', {
-  make: Effect.die(
-    'Composition must be provided by the host',
-  ) as Effect.Effect<CompositionApi>,
+  make: Effect.die('Composition must be provided by the host') as Effect.Effect<CompositionApi>,
 }) {
   static readonly layer = Layer.effect(this, this.make)
 }

@@ -205,10 +205,7 @@ const COMMAND_INKS: ReadonlyArray<readonly [string, string]> = [
 
 const inkOf = (command: string): string =>
   pipe(
-    Array.findFirst(
-      COMMAND_INKS,
-      ([name]) => command === name || command.startsWith(`${name} `),
-    ),
+    Array.findFirst(COMMAND_INKS, ([name]) => command === name || command.startsWith(`${name} `)),
     Option.map(([, ink]) => ink),
     Option.getOrElse(() => 'var(--prompt-paper)'),
   )
@@ -220,12 +217,7 @@ const inlineCommands = (html: string, copied: string): string =>
     return `<button type="button" class="${done ? 'inline-copy done' : 'inline-copy'}" style="--cmd-ink: ${inkOf(command)}" data-copy="${escaped}" title="Copy the command"><code>${escaped}</code>${done ? TICK_GLYPH : COPY_GLYPH}</button>`
   })
 
-const fenceOf = (
-  kind: string,
-  body: string,
-  model: Model,
-  h: HtmlBuilder<Message>,
-): Html =>
+const fenceOf = (kind: string, body: string, model: Model, h: HtmlBuilder<Message>): Html =>
   Match.value(kind).pipe(
     Match.when('install', () => installLine(model, h)),
     Match.when('picture', () => pictureOf(body.trim(), h)),
@@ -247,7 +239,10 @@ const commandsOf = (body: string, model: Model, h: HtmlBuilder<Message>): Html =
     Option.match({
       onNone: () => codeSheet(body, model.copied, h),
       onSome: (command) =>
-        h.div([h.Class('docs-command')], [commandButton(`command:${command}`, command, model.copied, h)]),
+        h.div(
+          [h.Class('docs-command')],
+          [commandButton(`command:${command}`, command, model.copied, h)],
+        ),
     }),
   )
 }
@@ -519,7 +514,9 @@ const menuGroups = (
       [h.Class('menu-part')],
       [
         h.span([h.Class('eyebrow')], [part.name]),
-        ...Array.flatMap(part.chapters, (chapter) => chapterRows(chapter, page, cut, active, base, h)),
+        ...Array.flatMap(part.chapters, (chapter) =>
+          chapterRows(chapter, page, cut, active, base, h),
+        ),
       ],
     ),
   )
@@ -555,10 +552,7 @@ const chapterCard = (
   const mark = carpetMark(chapterFlower(corpus, chapter.slug), '42px', broadSeam)
   const words = h.div(
     [h.Class('pager-words')],
-    [
-      h.span([h.Class('eyebrow')], [direction]),
-      h.span([h.Class('pager-title')], [chapter.title]),
-    ],
+    [h.span([h.Class('eyebrow')], [direction]), h.span([h.Class('pager-title')], [chapter.title])],
   )
   return h.a(
     [
@@ -579,8 +573,12 @@ const chapterPager = (corpus: Corpus, base: string, page: Page, h: HtmlBuilder<M
   return h.div(
     [h.Class('pager-row doc-pager')],
     [
-      ...Option.toArray(Option.map(step(-1), (chapter) => chapterCard(corpus, base, chapter, 'Previous', h))),
-      ...Option.toArray(Option.map(step(1), (chapter) => chapterCard(corpus, base, chapter, 'Next', h))),
+      ...Option.toArray(
+        Option.map(step(-1), (chapter) => chapterCard(corpus, base, chapter, 'Previous', h)),
+      ),
+      ...Option.toArray(
+        Option.map(step(1), (chapter) => chapterCard(corpus, base, chapter, 'Next', h)),
+      ),
     ],
   )
 }

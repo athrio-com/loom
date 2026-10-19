@@ -1,20 +1,7 @@
 import { Array, Context, Effect, Layer, Match, Option, Order, pipe } from 'effect'
-import type {
-  LoomDocument,
-  LoomFrontmatter,
-  LoomSection,
-} from '@athrio/loom-ast/LoomAst'
-import {
-  okHealth,
-  type Health,
-  type Point,
-  type Position,
-} from '@athrio/loom-ast/LoomNode'
-import type {
-  SinkToken,
-  WarpAnchorToken,
-  WarpToken,
-} from '@athrio/loom-ast/LoomTokens'
+import type { LoomDocument, LoomFrontmatter, LoomSection } from '@athrio/loom-ast/LoomAst'
+import { okHealth, type Health, type Point, type Position } from '@athrio/loom-ast/LoomNode'
+import type { SinkToken, WarpAnchorToken, WarpToken } from '@athrio/loom-ast/LoomTokens'
 import type { SectionBodyWeft } from '@athrio/loom-ast/Weft'
 import {
   type Code,
@@ -38,20 +25,17 @@ import {
 } from '#ast/LoomFault'
 import { normaliseTitle } from '#ast/WeftTokeniser'
 
-export class ProductBuilder extends Context.Service<ProductBuilder>()(
-  'ProductBuilder',
-  {
-    make: Effect.succeed({
-      build: (
-        doc: LoomDocument,
-        path: string,
-        packageLanguage?: string,
-        variables: Record<string, string> = {},
-      ): Effect.Effect<Product> =>
-        Effect.sync(() => buildProduct(doc, path, packageLanguage, variables)),
-    }),
-  },
-) {
+export class ProductBuilder extends Context.Service<ProductBuilder>()('ProductBuilder', {
+  make: Effect.succeed({
+    build: (
+      doc: LoomDocument,
+      path: string,
+      packageLanguage?: string,
+      variables: Record<string, string> = {},
+    ): Effect.Effect<Product> =>
+      Effect.sync(() => buildProduct(doc, path, packageLanguage, variables)),
+  }),
+}) {
   static readonly layer = Layer.effect(this, this.make)
 }
 
@@ -118,12 +102,7 @@ const sectionLanguage = (
 ): string => {
   const { specifier, sink } = section.heading
   if (specifier !== undefined)
-    return specifierLanguage(
-      specifier.label.value,
-      Option.fromNullishOr(sink),
-      defaultLang,
-      pkg,
-    )
+    return specifierLanguage(specifier.label.value, Option.fromNullishOr(sink), defaultLang, pkg)
   if (sink === undefined) return defaultLang
   return extensionLanguage(sink.file.value)
 }
@@ -136,27 +115,26 @@ const nameIndex = (
   pipe(
     sections,
     Array.map((s) =>
-      Option.map(Option.fromNullishOr(s.heading.title), (title) =>
-        [
-          title.source,
-          {
-            name: sectionNameOf(s),
-            pos: title.position,
-            language: sectionLanguage(s, defaultLang, pkg),
-          },
-        ] as const,
+      Option.map(
+        Option.fromNullishOr(s.heading.title),
+        (title) =>
+          [
+            title.source,
+            {
+              name: sectionNameOf(s),
+              pos: title.position,
+              language: sectionLanguage(s, defaultLang, pkg),
+            },
+          ] as const,
       ),
-    ), Array.getSomes,
-    Array.reduce(
-      new Map<string, ReadonlyArray<NameEntry>>(),
-      (index, [title, entry]) =>
-        new Map(index).set(title, [...(index.get(title) ?? []), entry]),
+    ),
+    Array.getSomes,
+    Array.reduce(new Map<string, ReadonlyArray<NameEntry>>(), (index, [title, entry]) =>
+      new Map(index).set(title, [...(index.get(title) ?? []), entry]),
     ),
   )
 
-const frontmatterLanguage = (
-  frontmatter: Option.Option<LoomFrontmatter>,
-): Option.Option<string> =>
+const frontmatterLanguage = (frontmatter: Option.Option<LoomFrontmatter>): Option.Option<string> =>
   pipe(
     frontmatter,
     Option.flatMapNullishOr((f) => f.language),
@@ -192,8 +170,7 @@ interface ValueWarp {
 
 const decodeLiteral = (text: string): string => {
   const s = text.trim()
-  const quoted =
-    /^"(?:\\.|[^"\\])*"$/.test(s) || /^'(?:\\.|[^'\\])*'$/.test(s)
+  const quoted = /^"(?:\\.|[^"\\])*"$/.test(s) || /^'(?:\\.|[^'\\])*'$/.test(s)
   return quoted ? s.slice(1, -1).replace(/\\(.)/g, (_, c) => c) : text
 }
 
@@ -219,22 +196,24 @@ const valueWarps = (
   variables: Record<string, string>,
 ): ReadonlyMap<string, ValueWarp> =>
   new Map(
-    Array.getSomes(Array.map(warps, (w) =>
-      Option.map(Option.fromNullishOr(w.default), (def) => {
-        const { text, missing } = interpolate(decodeLiteral(def.value), variables)
-        return [
-          w.name.value,
-          {
-            text,
-            pos: def.position,
-            health: Option.match(missing, {
-              onNone: () => okHealth,
-              onSome: (name) => faulty(UnknownVariable({ name }), def.position),
-            }),
-          },
-        ] as const
-      }),
-    )),
+    Array.getSomes(
+      Array.map(warps, (w) =>
+        Option.map(Option.fromNullishOr(w.default), (def) => {
+          const { text, missing } = interpolate(decodeLiteral(def.value), variables)
+          return [
+            w.name.value,
+            {
+              text,
+              pos: def.position,
+              health: Option.match(missing, {
+                onNone: () => okHealth,
+                onSome: (name) => faulty(UnknownVariable({ name }), def.position),
+              }),
+            },
+          ] as const
+        }),
+      ),
+    ),
   )
 
 interface Built {
@@ -251,7 +230,10 @@ const buildSection =
     variables: Record<string, string>,
   ) =>
   (section: LoomSection): Built => {
-    const values = valueWarps(section.preamble.flatMap((w) => w.warps), variables)
+    const values = valueWarps(
+      section.preamble.flatMap((w) => w.warps),
+      variables,
+    )
     const origin: SectionId = { path: modulePath, name: sectionNameOf(section) }
     const languageId = sectionLanguage(section, defaultLang, pkg)
     const code = buildCode(section, values, index, origin, languageId)
@@ -259,12 +241,13 @@ const buildSection =
     return { code, file }
   }
 
-const tangleFilePath = (
-  pkg: string,
-  sink: Option.Option<SinkToken>,
-): string =>
+const tangleFilePath = (pkg: string, sink: Option.Option<SinkToken>): string =>
   pkg.endsWith('/')
-    ? pkg + Option.getOrElse(Option.map(sink, (s) => s.file.value), () => '')
+    ? pkg +
+      Option.getOrElse(
+        Option.map(sink, (s) => s.file.value),
+        () => '',
+      )
     : pkg
 
 const filePath = (
@@ -319,9 +302,7 @@ const pieceOf = (w: SectionBodyWeft): Option.Option<CodePiece> =>
     ),
     Match.when({ type: 'ArrowWeft' }, (a) =>
       Option.map(Option.fromNullishOr(a.code), (code) => ({
-        source: a.source.slice(
-          code.position.start.offset - a.position.start.offset,
-        ),
+        source: a.source.slice(code.position.start.offset - a.position.start.offset),
         position: between(code.position.start, a.position.end),
         anchors: a.anchors,
       })),
@@ -331,22 +312,16 @@ const pieceOf = (w: SectionBodyWeft): Option.Option<CodePiece> =>
 
 const isBlank = (p: CodePiece): boolean => p.source.trim().length === 0
 
-const dropLeadingBlank = (
-  run: ReadonlyArray<CodePiece>,
-): ReadonlyArray<CodePiece> => Array.dropWhile(run, isBlank)
+const dropLeadingBlank = (run: ReadonlyArray<CodePiece>): ReadonlyArray<CodePiece> =>
+  Array.dropWhile(run, isBlank)
 
-const dropTrailingBlank = (
-  run: ReadonlyArray<CodePiece>,
-): ReadonlyArray<CodePiece> =>
+const dropTrailingBlank = (run: ReadonlyArray<CodePiece>): ReadonlyArray<CodePiece> =>
   pipe(run, Array.reverse, Array.dropWhile(isBlank), Array.reverse)
 
-const trimBlank = (
-  run: ReadonlyArray<CodePiece>,
-): ReadonlyArray<CodePiece> => dropTrailingBlank(dropLeadingBlank(run))
+const trimBlank = (run: ReadonlyArray<CodePiece>): ReadonlyArray<CodePiece> =>
+  dropTrailingBlank(dropLeadingBlank(run))
 
-const seamTrailing = (
-  run: ReadonlyArray<CodePiece>,
-): ReadonlyArray<CodePiece> => {
+const seamTrailing = (run: ReadonlyArray<CodePiece>): ReadonlyArray<CodePiece> => {
   const lead = dropLeadingBlank(run)
   const body = dropTrailingBlank(lead)
   return Option.match(Array.get(lead, body.length), {
@@ -358,13 +333,9 @@ const seamTrailing = (
 const sealRuns = (
   runs: ReadonlyArray<ReadonlyArray<CodePiece>>,
 ): ReadonlyArray<ReadonlyArray<CodePiece>> =>
-  Array.map(runs, (run, i) =>
-    i === runs.length - 1 ? trimBlank(run) : seamTrailing(run),
-  )
+  Array.map(runs, (run, i) => (i === runs.length - 1 ? trimBlank(run) : seamTrailing(run)))
 
-const codeRuns = (
-  code: ReadonlyArray<SectionBodyWeft>,
-): ReadonlyArray<ReadonlyArray<CodePiece>> =>
+const codeRuns = (code: ReadonlyArray<SectionBodyWeft>): ReadonlyArray<ReadonlyArray<CodePiece>> =>
   Array.isReadonlyArrayNonEmpty(code)
     ? pipe(
         code,
@@ -384,9 +355,7 @@ const walkRun =
       text.slice(from.offset - start.offset, to.offset - start.offset)
     const fragment = (from: Point, to: Point): ReadonlyArray<Fragment> => {
       const lit = slice(from, to)
-      return lit.length === 0
-        ? []
-        : [FragmentSchema.make({ text: lit, origin: between(from, to) })]
+      return lit.length === 0 ? [] : [FragmentSchema.make({ text: lit, origin: between(from, to) })]
     }
     const anchors = pipe(
       pieces,
@@ -413,12 +382,7 @@ const byStart: Order.Order<WarpAnchorToken> = Order.mapInput(
 )
 
 const bindAnchor =
-  (
-    index: NameIndex,
-    values: ReadonlyMap<string, ValueWarp>,
-    host: string,
-    modulePath: string,
-  ) =>
+  (index: NameIndex, values: ReadonlyMap<string, ValueWarp>, host: string, modulePath: string) =>
   (anchor: WarpAnchorToken): Part => {
     const name = anchor.name.value
     const at = anchor.name.position
@@ -438,32 +402,22 @@ const bindAnchor =
               }),
               anchor: at,
               health:
-                entry.language === host
-                  ? okHealth
-                  : crossLanguage(name, at, host, entry.language),
+                entry.language === host ? okHealth : crossLanguage(name, at, host, entry.language),
             })
-          : blankFragment(
-              anchor.position,
-              ambiguous(name, at, rest.length + 1),
-            ),
+          : blankFragment(anchor.position, ambiguous(name, at, rest.length + 1)),
     })
   }
 
 const blankFragment = (at: Position, health: Health = okHealth): Fragment =>
   FragmentSchema.make({ text: '', origin: at, health })
 
-const unresolved = (name: string, at: Position): Health =>
-  faulty(UnresolvedAnchor({ name }), at)
+const unresolved = (name: string, at: Position): Health => faulty(UnresolvedAnchor({ name }), at)
 
 const ambiguous = (name: string, at: Position, count: number): Health =>
   faulty(AmbiguousAnchor({ name, count }), at)
 
-const crossLanguage = (
-  name: string,
-  at: Position,
-  host: string,
-  found: string,
-): Health => faulty(CrossLanguageAnchor({ name, host, found }), at)
+const crossLanguage = (name: string, at: Position, host: string, found: string): Health =>
+  faulty(CrossLanguageAnchor({ name, host, found }), at)
 
 export const sectionNameOf = (section: LoomSection): string =>
   normaliseTitle(section.heading.title?.source ?? '')
@@ -471,9 +425,7 @@ export const sectionNameOf = (section: LoomSection): string =>
 const sourceOf = (nodes: ReadonlyArray<{ readonly source: string }>): string =>
   nodes.map((n) => n.source).join('')
 
-const spanOf = (
-  nodes: ReadonlyArray<{ readonly position: Position }>,
-): Position => ({
+const spanOf = (nodes: ReadonlyArray<{ readonly position: Position }>): Position => ({
   start: nodes[0]!.position.start,
   end: nodes[nodes.length - 1]!.position.end,
 })

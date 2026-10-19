@@ -41,23 +41,23 @@ export class LoomMemo extends Context.Service<LoomMemo>()('LoomMemo', {
     const state = yield* SynchronizedRef.make<MemoState>(empty)
 
     return {
-      get: (
-        path: Path,
-        build: Effect.Effect<LoomModule>,
-      ): Effect.Effect<LoomModule> =>
+      get: (path: Path, build: Effect.Effect<LoomModule>): Effect.Effect<LoomModule> =>
         SynchronizedRef.modifyEffect(state, (s) =>
           Option.match(Option.fromNullishOr(s.modules.get(path)), {
-            onSome: (module) =>
-              Effect.succeed([module, { ...s, hits: s.hits + 1 }] as const),
+            onSome: (module) => Effect.succeed([module, { ...s, hits: s.hits + 1 }] as const),
             onNone: () =>
-              Effect.map(build, (module) => [
-                module,
-                {
-                  ...s,
-                  misses: s.misses + 1,
-                  modules: new Map(s.modules).set(path, module),
-                },
-              ] as const),
+              Effect.map(
+                build,
+                (module) =>
+                  [
+                    module,
+                    {
+                      ...s,
+                      misses: s.misses + 1,
+                      modules: new Map(s.modules).set(path, module),
+                    },
+                  ] as const,
+              ),
           }),
         ),
 
@@ -88,13 +88,11 @@ export class LoomMemo extends Context.Service<LoomMemo>()('LoomMemo', {
       },
 
       stats: SynchronizedRef.get(state).pipe(
-        Effect.map(
-          (s): MemoStats => ({
-            hits: s.hits,
-            misses: s.misses,
-            size: s.modules.size,
-          }),
-        ),
+        Effect.map((s): MemoStats => ({
+          hits: s.hits,
+          misses: s.misses,
+          size: s.modules.size,
+        })),
       ),
     }
   }),

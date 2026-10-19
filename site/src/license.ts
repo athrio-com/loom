@@ -15,7 +15,11 @@ const licenseParts = (text: string): LicenseParts => {
   const paragraphs = pipe(
     text.split(/\n\s*\n/),
     Array.map((paragraph) =>
-      pipe(paragraph.split('\n'), Array.map((line) => line.trim()), Array.join(' ')).trim(),
+      pipe(
+        paragraph.split('\n'),
+        Array.map((line) => line.trim()),
+        Array.join(' '),
+      ).trim(),
     ),
     Array.filter((paragraph) => paragraph !== ''),
   )

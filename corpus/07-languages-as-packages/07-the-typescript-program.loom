@@ -17,26 +17,12 @@ A `ProductProgram` holds the product's roots and answers the editor's questions 
 =>
 
 export interface ProductProgram {
-  readonly sync: (
-    files: ReadonlyArray<{ readonly path: string; readonly text: string }>,
-  ) => void
+  readonly sync: (files: ReadonlyArray<{ readonly path: string; readonly text: string }>) => void
   readonly diagnostics: (fileName: string) => Promise<Diagnostic[]>
-  readonly hover: (
-    fileName: string,
-    position: Position,
-  ) => Promise<Hover | undefined>
-  readonly completions: (
-    fileName: string,
-    position: Position,
-  ) => Promise<CompletionList>
-  readonly definition: (
-    fileName: string,
-    position: Position,
-  ) => Promise<LocationLink[] | undefined>
-  readonly references: (
-    fileName: string,
-    position: Position,
-  ) => Promise<Location[] | undefined>
+  readonly hover: (fileName: string, position: Position) => Promise<Hover | undefined>
+  readonly completions: (fileName: string, position: Position) => Promise<CompletionList>
+  readonly definition: (fileName: string, position: Position) => Promise<LocationLink[] | undefined>
+  readonly references: (fileName: string, position: Position) => Promise<Location[] | undefined>
   readonly rename: (
     fileName: string,
     position: Position,
@@ -72,9 +58,7 @@ const productLanguage = (
         return
       }
       if (!includeFsFiles) return
-      const text = ts.sys.fileExists(fileName)
-        ? ts.sys.readFile(fileName)
-        : undefined
+      const text = ts.sys.fileExists(fileName) ? ts.sys.readFile(fileName) : undefined
       if (text !== undefined) {
         language.scripts.set(uri, ts.ScriptSnapshot.fromString(text))
       } else {
@@ -111,19 +95,14 @@ export const createProductProgram = (
     workspaceFolders: [URI.file(process.cwd())],
   }
 
-  const service = createLanguageService(
-    language,
-    createTypescriptServices(ts),
-    env,
-    {
-      typescript: {
-        configFileName: undefined,
-        sys: ts.sys,
-        uriConverter: { asFileName: (uri: URI) => uri.fsPath, asUri },
-        ...createLanguageServiceHost(ts, ts.sys, language, asUri, projectHost),
-      },
+  const service = createLanguageService(language, createTypescriptServices(ts), env, {
+    typescript: {
+      configFileName: undefined,
+      sys: ts.sys,
+      uriConverter: { asFileName: (uri: URI) => uri.fsPath, asUri },
+      ...createLanguageServiceHost(ts, ts.sys, language, asUri, projectHost),
     },
-  )
+  })
 
   const unchanged = (path: string, text: string): boolean =>
     pipe(
@@ -134,14 +113,9 @@ export const createProductProgram = (
       }),
     )
 
-  const sync = (
-    files: ReadonlyArray<{ readonly path: string; readonly text: string }>,
-  ): void => {
+  const sync = (files: ReadonlyArray<{ readonly path: string; readonly text: string }>): void => {
     const present = new Set(Array.map(files, (file) => file.path))
-    const stale = Array.filter(
-      Array.fromIterable(roots.keys()),
-      (path) => !present.has(path),
-    )
+    const stale = Array.filter(Array.fromIterable(roots.keys()), (path) => !present.has(path))
     const fresh = Array.filter(files, (file) => !unchanged(file.path, file.text))
     if (stale.length === 0 && fresh.length === 0) return
     stale.forEach((path) => {
@@ -160,10 +134,8 @@ export const createProductProgram = (
     sync,
     diagnostics: (fileName) => service.getDiagnostics(asUri(fileName)),
     hover: (fileName, position) => service.getHover(asUri(fileName), position),
-    completions: (fileName, position) =>
-      service.getCompletionItems(asUri(fileName), position),
-    definition: (fileName, position) =>
-      service.getDefinition(asUri(fileName), position),
+    completions: (fileName, position) => service.getCompletionItems(asUri(fileName), position),
+    definition: (fileName, position) => service.getDefinition(asUri(fileName), position),
     references: (fileName, position) =>
       service.getReferences(asUri(fileName), position, {
         includeDeclaration: true,
@@ -215,10 +187,7 @@ import type {
   WorkspaceEdit,
 } from '@volar/language-service'
 import type { Language } from '@volar/language-core'
-import {
-  createLanguageServiceHost,
-  resolveFileLanguageId,
-} from '@volar/typescript'
+import { createLanguageServiceHost, resolveFileLanguageId } from '@volar/typescript'
 import { create as createTypescriptServices } from 'volar-service-typescript'
 import { URI } from 'vscode-uri'
 import type { CompilerOptions, IScriptSnapshot } from 'typescript'

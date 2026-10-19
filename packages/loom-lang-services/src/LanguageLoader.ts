@@ -19,10 +19,7 @@ const warnIfStale = (id: string, root: string): Effect.Effect<void> =>
     },
   )
 
-const importService = (
-  id: string,
-  root: string,
-): Effect.Effect<Option.Option<LanguageService>> =>
+const importService = (id: string, root: string): Effect.Effect<Option.Option<LanguageService>> =>
   Effect.tryPromise(async () => {
     const from = join(storeDir(root), 'index.js')
     const entry = createRequire(from).resolve(servicePackage(id))
@@ -45,10 +42,7 @@ const importService = (
     ),
   )
 
-const loadService = (
-  id: string,
-  root: string,
-): Effect.Effect<Option.Option<LanguageService>> =>
+const loadService = (id: string, root: string): Effect.Effect<Option.Option<LanguageService>> =>
   Effect.andThen(warnIfStale(id, root), importService(id, root))
 
 export const loadActive = (
@@ -60,9 +54,5 @@ export const loadActive = (
     Array.filter((id) => id !== LoomLanguage.id && id !== ProseLanguage.id),
     Array.dedupe,
     (rest) => Effect.forEach(rest, (id) => loadService(id, root)),
-    Effect.map((loaded) => [
-      LoomLanguage,
-      ProseLanguage,
-      ...Array.getSomes(loaded),
-    ]),
+    Effect.map((loaded) => [LoomLanguage, ProseLanguage, ...Array.getSomes(loaded)]),
   )

@@ -18,9 +18,7 @@ import {
   TypescriptSdk,
 } from './LanguageService'
 
-const lspSeverity = (
-  severity: Diagnostic['severity'],
-): LspDiagnostic['severity'] =>
+const lspSeverity = (severity: Diagnostic['severity']): LspDiagnostic['severity'] =>
   severity === 'error' ? 1 : severity === 'warning' ? 2 : 3
 
 const toLspDiagnostic = (
@@ -78,12 +76,7 @@ const loomDefinition = (frame: FrameQueryApi): LanguageServicePlugin => ({
       const target = frame.definition(decoded[0].fsPath, offset)
       return target === undefined
         ? undefined
-        : [
-            toLocationLink(
-              target,
-              frame.navigationRange(decoded[0].fsPath, offset),
-            ),
-          ]
+        : [toLocationLink(target, frame.navigationRange(decoded[0].fsPath, offset))]
     },
   }),
 })
@@ -111,12 +104,9 @@ const groupEdits = (
   newName: string,
 ): Record<string, TextEdit[]> =>
   Object.fromEntries(
-    Object.entries(
-      Array.groupBy(locations, (location) => URI.file(location.path).toString()),
-    ).map(([uri, locs]) => [
-      uri,
-      locs.map((location) => ({ range: location.range, newText: newName })),
-    ]),
+    Object.entries(Array.groupBy(locations, (location) => URI.file(location.path).toString())).map(
+      ([uri, locs]) => [uri, locs.map((location) => ({ range: location.range, newText: newName }))],
+    ),
   )
 
 const loomRename = (frame: FrameQueryApi): LanguageServicePlugin => ({
@@ -150,16 +140,13 @@ const loomSemanticTokens = (frame: FrameQueryApi): LanguageServicePlugin => ({
     provideDocumentSemanticTokens: (document) => {
       const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
       if (!decoded || decoded[1] !== 'root') return undefined
-      return Array.map(
-        frame.semanticTokens(decoded[0].fsPath),
-        (span): SemanticToken => [
-          span.range.start.line,
-          span.range.start.character,
-          span.range.end.character - span.range.start.character,
-          semanticLegend.tokenTypes.indexOf(span.type),
-          0,
-        ],
-      )
+      return Array.map(frame.semanticTokens(decoded[0].fsPath), (span): SemanticToken => [
+        span.range.start.line,
+        span.range.start.character,
+        span.range.end.character - span.range.start.character,
+        semanticLegend.tokenTypes.indexOf(span.type),
+        0,
+      ])
     },
   }),
 })
@@ -185,9 +172,7 @@ const loomFormatting = (frame: FrameQueryApi): LanguageServicePlugin => ({
   }),
 })
 
-const withoutHighlights = (
-  plugin: LanguageServicePlugin,
-): LanguageServicePlugin => ({
+const withoutHighlights = (plugin: LanguageServicePlugin): LanguageServicePlugin => ({
   ...plugin,
   create: (context) => ({
     ...plugin.create(context),

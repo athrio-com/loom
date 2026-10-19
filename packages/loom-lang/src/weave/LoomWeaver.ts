@@ -14,18 +14,12 @@ export class LoomWeaver extends Context.Service<LoomWeaver>()('LoomWeaver', {
         Effect.flatMap((json) =>
           fs
             .makeDirectory(dirname(out), { recursive: true })
-            .pipe(
-              Effect.andThen(fs.writeFileString(out, json)),
-              Effect.orDie,
-              Effect.as(out),
-            ),
+            .pipe(Effect.andThen(fs.writeFileString(out, json)), Effect.orDie, Effect.as(out)),
         ),
       )
 
     return { weave }
   }),
 }) {
-  static readonly layer = Layer.effect(this, this.make).pipe(
-    Layer.provide(LoomCompiler.layer),
-  )
+  static readonly layer = Layer.effect(this, this.make).pipe(Layer.provide(LoomCompiler.layer))
 }

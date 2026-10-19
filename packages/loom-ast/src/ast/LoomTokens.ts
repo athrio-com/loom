@@ -6,11 +6,9 @@ export const Probe = 'loom/Probe'
 export const getProbe = (schema: Schema.Top): Option.Option<RegExp> =>
   Option.fromNullishOr(schema.ast.annotations?.[Probe] as RegExp | undefined)
 
-export const HeadingStartTokenSchema = loomNode('HeadingStart', {}).annotate(
-  {
-    [Probe]: /^#{1,6} /,
-  },
-)
+export const HeadingStartTokenSchema = loomNode('HeadingStart', {}).annotate({
+  [Probe]: /^#{1,6} /,
+})
 export type HeadingStartToken = typeof HeadingStartTokenSchema.Type
 
 export const SpecifierOpenTokenSchema = loomNode('SpecifierOpen', {
@@ -102,8 +100,7 @@ export type FrontmatterPartToken = typeof FrontmatterPartTokenSchema.Type
 export const FrontmatterPartNameTokenSchema = loomNode('FrontmatterPartName', {
   value: Schema.String,
 })
-export type FrontmatterPartNameToken =
-  typeof FrontmatterPartNameTokenSchema.Type
+export type FrontmatterPartNameToken = typeof FrontmatterPartNameTokenSchema.Type
 
 export const FrontmatterChapterTokenSchema = loomNode('FrontmatterChapter', {
   value: Schema.String,
@@ -246,9 +243,7 @@ export const WarpAnchorTokenSchema = loomNode('WarpAnchor', {
   name: WarpAnchorNameTokenSchema,
   close: AnchorCloseTokenSchema,
   target: Schema.optional(WarpAnchorTargetTokenSchema),
-  specifier: Schema.optional(
-    Schema.Union([SpecifierTokenSchema, SinkTokenSchema]),
-  ),
+  specifier: Schema.optional(Schema.Union([SpecifierTokenSchema, SinkTokenSchema])),
 }).annotate({
   [Probe]: /::\[[^\]]*\](?:\([^)]*\))?/g,
 })
@@ -304,24 +299,17 @@ export class ReservedAnchorDelims extends Data.TaggedError('ReservedAnchorDelims
 }
 
 export type InvalidAnchorDelims =
-  | EmptyAnchorDelims
-  | IdenticalAnchorDelims
-  | WhitespaceAnchorDelims
-  | ReservedAnchorDelims
+  EmptyAnchorDelims | IdenticalAnchorDelims | WhitespaceAnchorDelims | ReservedAnchorDelims
 
 export const checkAnchorDelims = (
   delims: AnchorDelims,
 ): Effect.Effect<AnchorDelims, InvalidAnchorDelims> => {
   if (delims.open === '' || delims.close === '')
-    return Effect.fail(
-      new EmptyAnchorDelims({ open: delims.open, close: delims.close }),
-    )
+    return Effect.fail(new EmptyAnchorDelims({ open: delims.open, close: delims.close }))
   if (delims.open === delims.close)
     return Effect.fail(new IdenticalAnchorDelims({ delim: delims.open }))
   if (/\s/.test(delims.open) || /\s/.test(delims.close))
-    return Effect.fail(
-      new WhitespaceAnchorDelims({ open: delims.open, close: delims.close }),
-    )
+    return Effect.fail(new WhitespaceAnchorDelims({ open: delims.open, close: delims.close }))
   if (reservedOpen.includes(delims.open))
     return Effect.fail(new ReservedAnchorDelims({ marker: delims.open }))
   return Effect.succeed(delims)

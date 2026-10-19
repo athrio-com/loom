@@ -187,10 +187,25 @@ const clover = ['.gg.gg.', '.gg.gg.', '...b...', '..ggg..', '..gg...', '...g...'
 const tuft = ['.....a.', '..a..g.', '..g..g.', 'g.g.g..', '.gg.g.g', '..ggg.g', '...g...']
 
 const flowerShapes: ReadonlyArray<ReadonlyArray<string>> = [
-  sunflower, tulip, bells, berries, sprout, fern, bouquet, clover, tuft,
+  sunflower,
+  tulip,
+  bells,
+  berries,
+  sprout,
+  fern,
+  bouquet,
+  clover,
+  tuft,
 ]
 
-const flowerThreads: ReadonlyArray<string> = ['#FF6A3D', '#8B5CF6', '#E8318A', '#2E6FF2', '#FFC53D', PAPER]
+const flowerThreads: ReadonlyArray<string> = [
+  '#FF6A3D',
+  '#8B5CF6',
+  '#E8318A',
+  '#2E6FF2',
+  '#FFC53D',
+  PAPER,
+]
 
 ~
 
@@ -353,8 +368,7 @@ export const arrowIcon = (): Html =>
     ],
   )
 
-export const checkIcon = (): Html =>
-  strokeIcon('13', [strokePath('M20 6 9 17l-5-5')])
+export const checkIcon = (): Html => strokeIcon('13', [strokePath('M20 6 9 17l-5-5')])
 
 export const burgerIcon = (): Html =>
   strokeIcon('16', [
@@ -373,25 +387,40 @@ Back and skip are the same triangle with a bar beside it, mirrored: the bar stan
 
 const solidIcon = (width: string, height: string, box: string, parts: ReadonlyArray<Html>): Html =>
   ih.svg(
-    [ih.Width(width), ih.Height(height), ih.ViewBox(box), ih.Fill('currentColor'), ih.AriaHidden(true)],
+    [
+      ih.Width(width),
+      ih.Height(height),
+      ih.ViewBox(box),
+      ih.Fill('currentColor'),
+      ih.AriaHidden(true),
+    ],
     parts,
   )
 
 export const backIcon = (): Html =>
   solidIcon('14', '12', '0 0 14 12', [
-    ih.path([ih.D('M13 1.1v9.8a.6.6 0 0 1-.93.5l-7.2-4.9a.6.6 0 0 1 0-1L12.07.6a.6.6 0 0 1 .93.5z')], []),
+    ih.path(
+      [ih.D('M13 1.1v9.8a.6.6 0 0 1-.93.5l-7.2-4.9a.6.6 0 0 1 0-1L12.07.6a.6.6 0 0 1 .93.5z')],
+      [],
+    ),
     ih.rect([ih.X('0.8'), ih.Y('0.6'), ih.Width('2.2'), ih.Height('10.8'), ih.Rx('1.1')], []),
   ])
 
 export const skipIcon = (): Html =>
   solidIcon('14', '12', '0 0 14 12', [
-    ih.path([ih.D('M1 1.1v9.8a.6.6 0 0 0 .93.5l7.2-4.9a.6.6 0 0 0 0-1L1.93.6A.6.6 0 0 0 1 1.1z')], []),
+    ih.path(
+      [ih.D('M1 1.1v9.8a.6.6 0 0 0 .93.5l7.2-4.9a.6.6 0 0 0 0-1L1.93.6A.6.6 0 0 0 1 1.1z')],
+      [],
+    ),
     ih.rect([ih.X('11'), ih.Y('0.6'), ih.Width('2.2'), ih.Height('10.8'), ih.Rx('1.1')], []),
   ])
 
 export const playTriangle = (): Html =>
   solidIcon('13', '15', '0 0 13 15', [
-    ih.path([ih.D('M1 1.1v12.8a.7.7 0 0 0 1.08.59l9.6-6.4a.7.7 0 0 0 0-1.17L2.08.52A.7.7 0 0 0 1 1.1z')], []),
+    ih.path(
+      [ih.D('M1 1.1v12.8a.7.7 0 0 0 1.08.59l9.6-6.4a.7.7 0 0 0 0-1.17L2.08.52A.7.7 0 0 0 1 1.1z')],
+      [],
+    ),
   ])
 
 export const pauseIcon = (): Html =>
@@ -447,7 +476,13 @@ export const collapseIcon = (): Html =>
 
 export const octocatIcon = (size: string): Html =>
   ih.svg(
-    [ih.Width(size), ih.Height(size), ih.ViewBox('0 0 16 16'), ih.Fill('currentColor'), ih.AriaHidden(true)],
+    [
+      ih.Width(size),
+      ih.Height(size),
+      ih.ViewBox('0 0 16 16'),
+      ih.Fill('currentColor'),
+      ih.AriaHidden(true),
+    ],
     [
       ih.path(
         [
@@ -468,8 +503,7 @@ The documentation's run picker needs a fourth mark, for Node.js. That one is a p
 
 =>
 
-const svgMark = (svg: string): Html =>
-  ih.span([ih.Class('rt-logo'), ih.InnerHTML(svg)], [])
+const svgMark = (svg: string): Html => ih.span([ih.Class('rt-logo'), ih.InnerHTML(svg)], [])
 
 export const bunIcon = (): Html => svgMark(logos.bun)
 export const npmIcon = (): Html => svgMark(logos.npm)

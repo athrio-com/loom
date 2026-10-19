@@ -1,16 +1,9 @@
 import { Data, Match } from 'effect'
 import type { Health, Position, Severity } from '@athrio/loom-ast/LoomNode'
 
-export type MalformedConstruct =
-  | 'specifier'
-  | 'path'
-  | 'warpName'
-  | 'anchorName'
+export type MalformedConstruct = 'specifier' | 'path' | 'warpName' | 'anchorName'
 
-export type EmptyConstruct =
-  | MalformedConstruct
-  | 'warpAnnotation'
-  | 'warpDefault'
+export type EmptyConstruct = MalformedConstruct | 'warpAnnotation' | 'warpDefault'
 
 export type LoomFault = Data.TaggedEnum<{
   UnclosedDelimiter: { readonly expected: string }
@@ -55,8 +48,7 @@ const error = (message: string): Note => ({ severity: 'error', message })
 
 const warning = (message: string): Note => ({ severity: 'warning', message })
 
-const cap = (text: string): string =>
-  text.charAt(0).toUpperCase() + text.slice(1)
+const cap = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1)
 
 const noun: Record<EmptyConstruct, string> = {
   specifier: 'specifier label',
@@ -76,12 +68,8 @@ const rule: Record<MalformedConstruct, string> = {
 
 export const describe = (fault: LoomFault): Note =>
   Match.value(fault).pipe(
-    Match.tag('UnclosedDelimiter', ({ expected }) =>
-      error(`expected closing \`${expected}\``),
-    ),
-    Match.tag('EmptyLabel', ({ construct }) =>
-      error(`${cap(noun[construct])} cannot be empty.`),
-    ),
+    Match.tag('UnclosedDelimiter', ({ expected }) => error(`expected closing \`${expected}\``)),
+    Match.tag('EmptyLabel', ({ construct }) => error(`${cap(noun[construct])} cannot be empty.`)),
     Match.tag('MalformedLabel', ({ construct, value }) =>
       error(`${cap(noun[construct])} ${rule[construct]}; got \`${value}\`.`),
     ),
@@ -127,8 +115,7 @@ export const describe = (fault: LoomFault): Note =>
     Match.exhaustive,
   )
 
-const statusOf = (severity: Severity): Health['status'] =>
-  severity === 'info' ? 'ok' : severity
+const statusOf = (severity: Severity): Health['status'] => (severity === 'info' ? 'ok' : severity)
 
 export const faulty = (fault: LoomFault, position: Position): Health => {
   const note = describe(fault)

@@ -7,9 +7,7 @@ export const ProseLanguage = defineLanguageService({
   extensions: [],
   plugins: () =>
     Effect.tryPromise(() => import('volar-service-markdown')).pipe(
-      Effect.map((markdown) => [
-        markdown.create({ documentSelector: ['prose'] }),
-      ]),
+      Effect.map((markdown) => [markdown.create({ documentSelector: ['prose'] })]),
       Effect.orElseSucceed(() => []),
     ),
 })

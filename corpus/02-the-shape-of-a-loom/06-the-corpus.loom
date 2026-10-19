@@ -69,21 +69,15 @@ const titlesIn = (module: LoomModule): ReadonlyMap<string, SectionRef> =>
       ),
     ),
     Array.getSomes,
-    Array.reduce(
-      new Map<string, SectionRef>(),
-      (index, [title, ref]) =>
-        index.has(title) ? index : new Map(index).set(title, ref),
+    Array.reduce(new Map<string, SectionRef>(), (index, [title, ref]) =>
+      index.has(title) ? index : new Map(index).set(title, ref),
     ),
   )
 
 export type TitleIndexes = ReadonlyMap<Path, ReadonlyMap<string, SectionRef>>
 
 export const titleIndexes = (modules: Modules): TitleIndexes =>
-  new Map(
-    Array.fromIterable(modules.values()).map(
-      (m) => [m.path, titlesIn(m)] as const,
-    ),
-  )
+  new Map(Array.fromIterable(modules.values()).map((m) => [m.path, titlesIn(m)] as const))
 
 export const resolveAnchor = (
   indexes: TitleIndexes,
@@ -92,15 +86,9 @@ export const resolveAnchor = (
 ): Option.Option<SectionRef> =>
   pipe(
     Option.fromNullishOr(
-      indexes.get(
-        anchor.target === undefined
-          ? from
-          : resolveRelative(from, anchor.target.value),
-      ),
+      indexes.get(anchor.target === undefined ? from : resolveRelative(from, anchor.target.value)),
     ),
-    Option.flatMap((index) =>
-      Option.fromNullishOr(index.get(anchor.name.value)),
-    ),
+    Option.flatMap((index) => Option.fromNullishOr(index.get(anchor.name.value))),
   )
 
 ~
@@ -127,10 +115,7 @@ const reach = (
   seeds: ReadonlyArray<Path>,
   step: (module: Path) => ReadonlyArray<Path>,
 ): ReadonlySet<Path> => {
-  const grow = (
-    acc: ReadonlySet<Path>,
-    frontier: ReadonlyArray<Path>,
-  ): ReadonlySet<Path> => {
+  const grow = (acc: ReadonlySet<Path>, frontier: ReadonlyArray<Path>): ReadonlySet<Path> => {
     const next = pipe(
       frontier,
       Array.flatMap(step),
@@ -161,10 +146,7 @@ const anchorEdges = (
   )
 }
 
-export const reachable = (
-  modules: Modules,
-  entry: Path,
-): ReadonlyArray<Path> => {
+export const reachable = (modules: Modules, entry: Path): ReadonlyArray<Path> => {
   const edges = anchorEdges(modules)
   return Array.fromIterable(
     reach([entry], (module) =>
@@ -177,10 +159,7 @@ export const reachable = (
   )
 }
 
-export const transitiveDependents = (
-  modules: Modules,
-  entry: Path,
-): ReadonlyArray<Path> => {
+export const transitiveDependents = (modules: Modules, entry: Path): ReadonlyArray<Path> => {
   const edges = anchorEdges(modules)
   return pipe(
     Array.fromIterable(
@@ -210,19 +189,13 @@ Each step starts from the node under a cursor. `anchorAt` finds the anchor whose
 
 =>
 
-const anchorAt = (
-  modules: Modules,
-  path: Path,
-  offset: number,
-): Option.Option<WarpAnchorToken> =>
+const anchorAt = (modules: Modules, path: Path, offset: number): Option.Option<WarpAnchorToken> =>
   pipe(
     Option.fromNullishOr(modules.get(path)),
     Option.flatMap((m) =>
       Array.findFirst(
         Array.flatMap(m.doc.sections, anchorsOf),
-        (anchor) =>
-          anchor.position.start.offset <= offset &&
-          offset <= anchor.position.end.offset,
+        (anchor) => anchor.position.start.offset <= offset && offset <= anchor.position.end.offset,
       ),
     ),
   )
@@ -246,11 +219,7 @@ const titledSectionAt = (
     ),
   )
 
-const sectionRefAt = (
-  modules: Modules,
-  path: Path,
-  offset: number,
-): Option.Option<SectionRef> =>
+const sectionRefAt = (modules: Modules, path: Path, offset: number): Option.Option<SectionRef> =>
   Option.map(titledSectionAt(modules, path, offset), (section) => ({
     module: path,
     section,
@@ -263,10 +232,10 @@ A resolved section then locates its heading and the anchors that reach it. `titl
 =>
 
 const titleLocation = (ref: SectionRef): Option.Option<CorpusLocation> =>
-  Option.map(
-    Option.fromNullishOr(ref.section.heading.title),
-    (title): CorpusLocation => ({ path: ref.module, position: title.position }),
-  )
+  Option.map(Option.fromNullishOr(ref.section.heading.title), (title): CorpusLocation => ({
+    path: ref.module,
+    position: title.position,
+  }))
 
 const targetAt = (
   indexes: TitleIndexes,
@@ -293,13 +262,8 @@ const anchorsResolvingTo = (
         Array.map(Array.flatMap(m.doc.sections, anchorsOf), (anchor) =>
           pipe(
             resolveAnchor(indexes, m.path, anchor),
-            Option.filter(
-              (ref) =>
-                ref.module === target.module && ref.section === target.section,
-            ),
-            Option.map(
-              (): CorpusLocation => ({ path: m.path, position: spanOf(anchor) }),
-            ),
+            Option.filter((ref) => ref.module === target.module && ref.section === target.section),
+            Option.map((): CorpusLocation => ({ path: m.path, position: spanOf(anchor) })),
           ),
         ),
       ),
@@ -368,13 +332,8 @@ const allAnchorsOf = (doc: LoomDocument): ReadonlyArray<WarpAnchorToken> => [
   ...Array.flatMap(doc.sections, anchorsOf),
 ]
 
-const sectionCovering = (
-  module: LoomModule,
-  offset: number,
-): Option.Option<LoomSection> =>
-  Array.findFirst(module.doc.sections, (section) =>
-    covers(section.position, offset),
-  )
+const sectionCovering = (module: LoomModule, offset: number): Option.Option<LoomSection> =>
+  Array.findFirst(module.doc.sections, (section) => covers(section.position, offset))
 
 const warpDefFor = (
   module: LoomModule,
@@ -383,30 +342,21 @@ const warpDefFor = (
 ): Option.Option<WarpToken> =>
   pipe(
     section,
-    Option.flatMap((s) =>
-      Array.findFirst(valueWarpsIn(s.preamble), (w) => w.name.value === name),
-    ),
+    Option.flatMap((s) => Array.findFirst(valueWarpsIn(s.preamble), (w) => w.name.value === name)),
     Option.orElse(() =>
-      Array.findFirst(
-        valueWarpsIn(module.doc.preamble),
-        (w) => w.name.value === name,
-      ),
+      Array.findFirst(valueWarpsIn(module.doc.preamble), (w) => w.name.value === name),
     ),
   )
 
 const warpNameAt = (module: LoomModule, offset: number): Option.Option<string> =>
   Option.orElse(
     Option.map(
-      Array.findFirst(allValueWarpsOf(module.doc), (w) =>
-        covers(w.name.position, offset),
-      ),
+      Array.findFirst(allValueWarpsOf(module.doc), (w) => covers(w.name.position, offset)),
       (w) => w.name.value,
     ),
     () =>
       Option.map(
-        Array.findFirst(allAnchorsOf(module.doc), (a) =>
-          covers(a.name.position, offset),
-        ),
+        Array.findFirst(allAnchorsOf(module.doc), (a) => covers(a.name.position, offset)),
         (a) => a.name.value,
       ),
   )
@@ -421,24 +371,17 @@ const warpBindingAt = (
   pipe(
     warpNameAt(module, offset),
     Option.flatMap((name) =>
-      Option.map(
-        warpDefFor(module, sectionCovering(module, offset), name),
-        (def) => ({
-          def,
-          anchors: Array.filter(
-            allAnchorsOf(module.doc),
-            (anchor) =>
-              anchor.name.value === name &&
-              Option.getOrUndefined(
-                warpDefFor(
-                  module,
-                  sectionCovering(module, anchor.position.start.offset),
-                  name,
-                ),
-              ) === def,
-          ),
-        }),
-      ),
+      Option.map(warpDefFor(module, sectionCovering(module, offset), name), (def) => ({
+        def,
+        anchors: Array.filter(
+          allAnchorsOf(module.doc),
+          (anchor) =>
+            anchor.name.value === name &&
+            Option.getOrUndefined(
+              warpDefFor(module, sectionCovering(module, anchor.position.start.offset), name),
+            ) === def,
+        ),
+      })),
     ),
   )
 
@@ -447,10 +390,10 @@ const warpDefLocation = (
   path: Path,
   offset: number,
 ): Option.Option<CorpusLocation> =>
-  Option.map(
-    warpBindingAt(module, offset),
-    (binding): CorpusLocation => ({ path, position: binding.def.name.position }),
-  )
+  Option.map(warpBindingAt(module, offset), (binding): CorpusLocation => ({
+    path,
+    position: binding.def.name.position,
+  }))
 
 const warpReferences = (
   module: LoomModule,
@@ -462,10 +405,10 @@ const warpReferences = (
     onNone: () => [],
     onSome: (binding) => [
       { path, position: binding.def.name.position },
-      ...Array.map(
-        binding.anchors,
-        (anchor): CorpusLocation => ({ path, position: spanOf(anchor) }),
-      ),
+      ...Array.map(binding.anchors, (anchor): CorpusLocation => ({
+        path,
+        position: spanOf(anchor),
+      })),
     ],
   })
 
@@ -475,14 +418,9 @@ A table-of-contents entry resolves differently from an anchor: it names a chapte
 
 =>
 
-const firstHeadingTitleOf = (
-  module: LoomModule,
-): Option.Option<HeadingTitleToken> =>
+const firstHeadingTitleOf = (module: LoomModule): Option.Option<HeadingTitleToken> =>
   Option.flatMap(
-    Array.findFirst(
-      module.doc.sections,
-      (section) => section.heading.title !== undefined,
-    ),
+    Array.findFirst(module.doc.sections, (section) => section.heading.title !== undefined),
     (section) => Option.fromNullishOr(section.heading.title),
   )
 
@@ -499,61 +437,40 @@ const chapterIndex = (modules: Modules): ReadonlyMap<string, CorpusLocation> =>
     Array.map((module) =>
       Option.map(
         chapterTitleToken(module),
-        (title) =>
-          [
-            title.source,
-            { path: module.path, position: title.position },
-          ] as const,
+        (title) => [title.source, { path: module.path, position: title.position }] as const,
       ),
     ),
     Array.getSomes,
-    Array.reduce(
-      new Map<string, CorpusLocation>(),
-      (index, [title, location]) =>
-        index.has(title) ? index : new Map(index).set(title, location),
+    Array.reduce(new Map<string, CorpusLocation>(), (index, [title, location]) =>
+      index.has(title) ? index : new Map(index).set(title, location),
     ),
   )
 
 const tocEntriesOf = (module: LoomModule): ReadonlyArray<TocWeft> =>
   Array.flatMap(module.doc.sections, (section) => section.entries ?? [])
 
-const tocEntryTitleAt = (
-  modules: Modules,
-  path: Path,
-  offset: number,
-): Option.Option<string> =>
+const tocEntryTitleAt = (modules: Modules, path: Path, offset: number): Option.Option<string> =>
   pipe(
     Option.fromNullishOr(modules.get(path)),
     Option.flatMap((module) =>
       Array.findFirst(
         tocEntriesOf(module),
-        (entry) =>
-          entry.title !== undefined && covers(entry.title.position, offset),
+        (entry) => entry.title !== undefined && covers(entry.title.position, offset),
       ),
     ),
     Option.flatMap((entry) => Option.fromNullishOr(entry.title)),
     Option.map((title) => title.value),
   )
 
-const frontmatterTitleAt = (
-  modules: Modules,
-  path: Path,
-  offset: number,
-): Option.Option<string> =>
+const frontmatterTitleAt = (modules: Modules, path: Path, offset: number): Option.Option<string> =>
   pipe(
     Option.fromNullishOr(modules.get(path)),
-    Option.flatMap((module) =>
-      Option.fromNullishOr(module.doc.frontmatter?.title),
-    ),
+    Option.flatMap((module) => Option.fromNullishOr(module.doc.frontmatter?.title)),
     Option.filter((title) => covers(title.position, offset)),
     Option.map((title) => title.value),
   )
 
-const chapterNameAt = (
-  modules: Modules,
-  path: Path,
-  offset: number,
-): Option.Option<string> =>
+const chapterNameAt = (modules: Modules, path: Path, offset: number): Option.Option<string> =>
   Option.orElse(tocEntryTitleAt(modules, path, offset), () =>
     frontmatterTitleAt(modules, path, offset),
   )
@@ -573,9 +490,7 @@ const isChapterTitled = (module: LoomModule, title: string): boolean =>
     () => false,
   )
 
-const titleDeclarationsOf = (
-  module: LoomModule,
-): ReadonlyArray<CorpusLocation> =>
+const titleDeclarationsOf = (module: LoomModule): ReadonlyArray<CorpusLocation> =>
   Option.toArray(
     Option.map(chapterTitleToken(module), (token) => ({
       path: module.path,
@@ -583,10 +498,7 @@ const titleDeclarationsOf = (
     })),
   )
 
-const tocMentionsOf = (
-  module: LoomModule,
-  title: string,
-): ReadonlyArray<CorpusLocation> =>
+const tocMentionsOf = (module: LoomModule, title: string): ReadonlyArray<CorpusLocation> =>
   Array.getSomes(
     Array.map(tocEntriesOf(module), (entry) =>
       pipe(
@@ -597,10 +509,7 @@ const tocMentionsOf = (
     ),
   )
 
-const tocNameGroup = (
-  modules: Modules,
-  title: string,
-): ReadonlyArray<CorpusLocation> =>
+const tocNameGroup = (modules: Modules, title: string): ReadonlyArray<CorpusLocation> =>
   Array.flatMap(Array.fromIterable(modules.values()), (module) => [
     ...(isChapterTitled(module, title) ? titleDeclarationsOf(module) : []),
     ...tocMentionsOf(module, title),
@@ -631,9 +540,7 @@ export const unresolvedTocEntriesIn = (
   )
 }
 
-const partOpenerIndex = (
-  modules: Modules,
-): ReadonlyMap<string, CorpusLocation> =>
+const partOpenerIndex = (modules: Modules): ReadonlyMap<string, CorpusLocation> =>
   pipe(
     Array.fromIterable(modules.values()),
     Array.map((module) =>
@@ -647,72 +554,46 @@ const partOpenerIndex = (
         ),
         Option.map(
           ({ part, partName }) =>
-            [
-              part.value,
-              { path: module.path, position: partName.position },
-            ] as const,
+            [part.value, { path: module.path, position: partName.position }] as const,
         ),
       ),
     ),
     Array.getSomes,
-    Array.reduce(
-      new Map<string, CorpusLocation>(),
-      (index, [num, location]) =>
-        index.has(num) ? index : new Map(index).set(num, location),
+    Array.reduce(new Map<string, CorpusLocation>(), (index, [num, location]) =>
+      index.has(num) ? index : new Map(index).set(num, location),
     ),
   )
 
-const onToken = (
-  token: { readonly position: Position } | undefined,
-  offset: number,
-): boolean =>
+const onToken = (token: { readonly position: Position } | undefined, offset: number): boolean =>
   Option.match(Option.fromNullishOr(token), {
     onNone: () => false,
     onSome: (t) => covers(t.position, offset),
   })
 
-const frontmatterPartNumberAt = (
-  module: LoomModule,
-  offset: number,
-): Option.Option<string> =>
+const frontmatterPartNumberAt = (module: LoomModule, offset: number): Option.Option<string> =>
   pipe(
     Option.fromNullishOr(module.doc.frontmatter),
-    Option.filter(
-      (fm) => onToken(fm.part, offset) || onToken(fm.partName, offset),
-    ),
+    Option.filter((fm) => onToken(fm.part, offset) || onToken(fm.partName, offset)),
     Option.flatMap((fm) => Option.fromNullishOr(fm.part)),
     Option.map((part) => part.value),
   )
 
 const tocPartsOf = (module: LoomModule): ReadonlyArray<TocPartToken> =>
-  Array.getSomes(
-    Array.map(tocEntriesOf(module), (entry) => Option.fromNullishOr(entry.part)),
-  )
+  Array.getSomes(Array.map(tocEntriesOf(module), (entry) => Option.fromNullishOr(entry.part)))
 
 const partNumberMarker = /^Part\s+(\S+)/
 
-const tocPartNumberAt = (
-  module: LoomModule,
-  offset: number,
-): Option.Option<string> =>
+const tocPartNumberAt = (module: LoomModule, offset: number): Option.Option<string> =>
   pipe(
     Array.findFirst(tocPartsOf(module), (part) => covers(part.position, offset)),
-    Option.flatMap((part) =>
-      Option.fromNullishOr(partNumberMarker.exec(part.value)?.[1]),
-    ),
+    Option.flatMap((part) => Option.fromNullishOr(partNumberMarker.exec(part.value)?.[1])),
   )
 
-const partNumberAt = (
-  modules: Modules,
-  path: Path,
-  offset: number,
-): Option.Option<string> =>
+const partNumberAt = (modules: Modules, path: Path, offset: number): Option.Option<string> =>
   pipe(
     Option.fromNullishOr(modules.get(path)),
     Option.flatMap((module) =>
-      Option.orElse(frontmatterPartNumberAt(module, offset), () =>
-        tocPartNumberAt(module, offset),
-      ),
+      Option.orElse(frontmatterPartNumberAt(module, offset), () => tocPartNumberAt(module, offset)),
     ),
   )
 
@@ -725,10 +606,7 @@ const partDefinitionAt = (
     Option.fromNullishOr(partOpenerIndex(corpus.modules).get(num)),
   )
 
-const frontmatterPartLocations = (
-  module: LoomModule,
-  num: string,
-): ReadonlyArray<CorpusLocation> =>
+const frontmatterPartLocations = (module: LoomModule, num: string): ReadonlyArray<CorpusLocation> =>
   pipe(
     Option.fromNullishOr(module.doc.frontmatter?.part),
     Option.filter((part) => part.value === num),
@@ -736,10 +614,7 @@ const frontmatterPartLocations = (
     Option.toArray,
   )
 
-const tocPartLocations = (
-  module: LoomModule,
-  num: string,
-): ReadonlyArray<CorpusLocation> =>
+const tocPartLocations = (module: LoomModule, num: string): ReadonlyArray<CorpusLocation> =>
   Array.getSomes(
     Array.map(tocPartsOf(module), (part) =>
       pipe(
@@ -750,10 +625,7 @@ const tocPartLocations = (
     ),
   )
 
-const partGroup = (
-  modules: Modules,
-  num: string,
-): ReadonlyArray<CorpusLocation> => [
+const partGroup = (modules: Modules, num: string): ReadonlyArray<CorpusLocation> => [
   ...Option.toArray(Option.fromNullishOr(partOpenerIndex(modules).get(num))),
   ...Array.flatMap(Array.fromIterable(modules.values()), (module) => [
     ...frontmatterPartLocations(module, num),
@@ -788,17 +660,12 @@ export const definitionAt = (
       Option.flatMap(symbolAt(module.doc, offset), (symbol) =>
         Match.value(symbol.kind).pipe(
           Match.when('warpAnchor', () => warpDefLocation(module, path, offset)),
-          Match.when('sectionAnchor', () =>
-            sectionDefinitionAt(corpus, path, offset),
-          ),
+          Match.when('sectionAnchor', () => sectionDefinitionAt(corpus, path, offset)),
           Match.whenOr('tocEntry', 'frontmatterTitle', () =>
             chapterDefinitionAt(corpus, path, offset),
           ),
-          Match.whenOr(
-            'tocPart',
-            'frontmatterPart',
-            'frontmatterPartName',
-            () => partDefinitionAt(corpus, path, offset),
+          Match.whenOr('tocPart', 'frontmatterPart', 'frontmatterPartName', () =>
+            partDefinitionAt(corpus, path, offset),
           ),
           Match.orElse(() => Option.none<CorpusLocation>()),
         ),
@@ -828,14 +695,9 @@ export const referencesAt = (
           Match.whenOr('headingTitle', 'sectionAnchor', () =>
             sectionReferencesAt(corpus, path, offset),
           ),
-          Match.whenOr('tocEntry', 'frontmatterTitle', () =>
-            chapterGroupAt(corpus, path, offset),
-          ),
-          Match.whenOr(
-            'tocPart',
-            'frontmatterPart',
-            'frontmatterPartName',
-            () => partGroupAt(corpus, path, offset),
+          Match.whenOr('tocEntry', 'frontmatterTitle', () => chapterGroupAt(corpus, path, offset)),
+          Match.whenOr('tocPart', 'frontmatterPart', 'frontmatterPartName', () =>
+            partGroupAt(corpus, path, offset),
           ),
           Match.orElse((): ReadonlyArray<CorpusLocation> => []),
         ),
@@ -859,12 +721,7 @@ const sectionRenameAt = (
     onNone: () => [],
     onSome: (ref) => [
       ...Option.toArray(titleLocation(ref)),
-      ...anchorsResolvingTo(
-        indexes,
-        modules,
-        ref,
-        (anchor) => anchor.name.position,
-      ),
+      ...anchorsResolvingTo(indexes, modules, ref, (anchor) => anchor.name.position),
     ],
   })
 }
@@ -886,19 +743,12 @@ export const renameAt = (
       onSome: ({ module, symbol }) =>
         Match.value(symbol.kind).pipe(
           Match.whenOr('warpAnchor', 'warpDef', () =>
-            warpReferences(
-              module,
-              path,
-              offset,
-              (anchor) => anchor.name.position,
-            ),
+            warpReferences(module, path, offset, (anchor) => anchor.name.position),
           ),
           Match.whenOr('headingTitle', 'sectionAnchor', () =>
             sectionRenameAt(corpus, path, offset),
           ),
-          Match.whenOr('tocEntry', 'frontmatterTitle', () =>
-            chapterGroupAt(corpus, path, offset),
-          ),
+          Match.whenOr('tocEntry', 'frontmatterTitle', () => chapterGroupAt(corpus, path, offset)),
           Match.orElse((): ReadonlyArray<CorpusLocation> => []),
         ),
     },
@@ -918,9 +768,7 @@ export const navigationRangeAt = (
   pipe(
     Option.fromNullishOr(corpus.modules.get(path)),
     Option.flatMap((module) => symbolAt(module.doc, offset)),
-    Option.filter(
-      (symbol) => profileOf(symbol.kind).features.navigation === true,
-    ),
+    Option.filter((symbol) => profileOf(symbol.kind).features.navigation === true),
     Option.map((symbol): CorpusLocation => ({ path, position: symbol.position })),
   )
 
@@ -949,8 +797,7 @@ const diagnosticsIn = (node: unknown): ReadonlyArray<Diagnostic> => {
   if (node === null || typeof node !== 'object') return []
   const self =
     'health' in node
-      ? (node as { health: { diagnostics: ReadonlyArray<Diagnostic> } }).health
-          .diagnostics
+      ? (node as { health: { diagnostics: ReadonlyArray<Diagnostic> } }).health.diagnostics
       : []
   const nested = Object.entries(node).flatMap(([key, value]) =>
     key === 'health' ? [] : diagnosticsIn(value),
@@ -958,9 +805,7 @@ const diagnosticsIn = (node: unknown): ReadonlyArray<Diagnostic> => {
   return [...self, ...nested]
 }
 
-export const moduleDiagnostics = (
-  module: LoomModule,
-): ReadonlyArray<Diagnostic> => [
+export const moduleDiagnostics = (module: LoomModule): ReadonlyArray<Diagnostic> => [
   ...diagnosticsIn(module.doc),
   ...diagnosticsIn(module.product.code),
 ]
@@ -974,13 +819,8 @@ export const corpusErrors = (
   pipe(
     Array.fromIterable(corpus.modules.values()),
     Array.map((m) => {
-      const diagnostics = Array.filter(
-        moduleDiagnostics(m),
-        (d) => d.severity === 'error',
-      )
-      return diagnostics.length === 0
-        ? Option.none()
-        : Option.some({ path: m.path, diagnostics })
+      const diagnostics = Array.filter(moduleDiagnostics(m), (d) => d.severity === 'error')
+      return diagnostics.length === 0 ? Option.none() : Option.some({ path: m.path, diagnostics })
     }),
     Array.getSomes,
   )
@@ -1002,11 +842,7 @@ import {
 } from '#ast/LoomTokens'
 import { type TocWeft } from '#ast/Weft'
 import { ProductSchema } from '#ast/ProductAst'
-import {
-  LoomDocumentSchema,
-  type LoomDocument,
-  type LoomSection,
-} from '#ast/LoomAst'
+import { LoomDocumentSchema, type LoomDocument, type LoomSection } from '#ast/LoomAst'
 import { profileOf, symbolAt } from '#ast/LoomSymbol'
 
 ## The module {Tangle}
@@ -1022,8 +858,6 @@ import { profileOf, symbolAt } from '#ast/LoomSymbol'
 ::[Resolving names]
 
 ::[Reaching through the corpus]
-
-
 
 ::[Navigation over the corpus]
 

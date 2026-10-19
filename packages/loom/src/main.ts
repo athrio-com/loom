@@ -7,11 +7,7 @@ import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { dirname, resolve as resolvePath } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import {
-  DocumentSource,
-  type TangledFile,
-  type TangleError,
-} from '@athrio/loom-lang/LoomCompiler'
+import { DocumentSource, type TangledFile, type TangleError } from '@athrio/loom-lang/LoomCompiler'
 import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
 import { LoomWeaver } from '@athrio/loom-lang/weave/LoomWeaver'
 import { LoomContents } from '@athrio/loom-lang/weave/LoomContents'
@@ -43,20 +39,14 @@ const wordmark = [
   '   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝     ╚═╝',
 ].join('\n')
 
-const banner = Console.log(
-  `\n${teal(wordmark)}\n   ${dim('a literate framework')}\n`,
-)
+const banner = Console.log(`\n${teal(wordmark)}\n   ${dim('a literate framework')}\n`)
 
-const reportWritten = (
-  written: ReadonlyArray<TangledFile>,
-): Effect.Effect<void> =>
+const reportWritten = (written: ReadonlyArray<TangledFile>): Effect.Effect<void> =>
   written.length === 0
     ? Console.log('loom: no {path} sinks to tangle')
-    : Effect.forEach(
-        written,
-        (f) => Console.log(`loom: tangled ${f.section} → ${f.path}`),
-        { discard: true },
-      )
+    : Effect.forEach(written, (f) => Console.log(`loom: tangled ${f.section} → ${f.path}`), {
+        discard: true,
+      })
 
 const tangleOnce = (file: string) =>
   Effect.gen(function* () {
@@ -65,9 +55,7 @@ const tangleOnce = (file: string) =>
     yield* reportWritten(written)
   }).pipe(
     Effect.catchTag('TangleError', (e) =>
-      Console.error(e.message).pipe(
-        Effect.andThen(Effect.sync(() => void (process.exitCode = 1))),
-      ),
+      Console.error(e.message).pipe(Effect.andThen(Effect.sync(() => void (process.exitCode = 1)))),
     ),
   )
 
@@ -84,8 +72,7 @@ const tangleWatch = (file: string) =>
     )
   })
 
-const tangle = (file: string, watch: boolean) =>
-  watch ? tangleWatch(file) : tangleOnce(file)
+const tangle = (file: string, watch: boolean) => (watch ? tangleWatch(file) : tangleOnce(file))
 
 const orphans = (prune: boolean) =>
   Effect.gen(function* () {
@@ -101,9 +88,7 @@ const orphans = (prune: boolean) =>
     }
   }).pipe(
     Effect.catchTag('TangleError', (e) =>
-      Console.error(e.message).pipe(
-        Effect.andThen(Effect.sync(() => void (process.exitCode = 1))),
-      ),
+      Console.error(e.message).pipe(Effect.andThen(Effect.sync(() => void (process.exitCode = 1)))),
     ),
   )
 
@@ -152,7 +137,9 @@ const format = (path: string, check: boolean) =>
 const typeScriptFrom = (from: string): Option.Option<string> =>
   Option.liftThrowable(() => createRequire(from).resolve('typescript/lib/typescript.js'))()
 
-const projectTypeScript = (root: string): Effect.Effect<Option.Option<typeof import('typescript')>> =>
+const projectTypeScript = (
+  root: string,
+): Effect.Effect<Option.Option<typeof import('typescript')>> =>
   Option.match(
     Option.orElse(typeScriptFrom(resolvePath(root, 'package.json')), () =>
       typeScriptFrom(import.meta.url),
@@ -215,7 +202,10 @@ const mergeMcpConfig = (root: string): void => {
 
 const init = (dir: Option.Option<string>) =>
   Effect.gen(function* () {
-    const root = resolvePath(process.cwd(), Option.getOrElse(dir, () => '.'))
+    const root = resolvePath(
+      process.cwd(),
+      Option.getOrElse(dir, () => '.'),
+    )
     const config = yield* LoomConfig
     yield* banner
 
@@ -262,9 +252,7 @@ const init = (dir: Option.Option<string>) =>
 
     yield* Effect.sync(() => mergeMcpConfig(root))
     yield* Console.log(`   ${teal('✓')} wrote ${resolvePath(root, '.mcp.json')}\n`)
-  }).pipe(
-    Effect.catchTag('QuitError', () => Console.log(dim('\n   Cancelled.\n'))),
-  )
+  }).pipe(Effect.catchTag('QuitError', () => Console.log(dim('\n   Cancelled.\n'))))
 
 const updateLanguages = (
   config: LoomConfig['Service'],
@@ -275,9 +263,7 @@ const updateLanguages = (
     const workspace = workspaceRoot(dir)
     const current = yield* config.manifest(workspace)
     const ids = change(Object.keys(current?.languages ?? {}))
-    const languages = Object.fromEntries(
-      ids.map((id) => [id, current?.languages?.[id] ?? {}]),
-    )
+    const languages = Object.fromEntries(ids.map((id) => [id, current?.languages?.[id] ?? {}]))
     yield* config.materialize(workspace, { ...(current ?? {}), languages })
   })
 
@@ -286,14 +272,13 @@ const add = (language: string) =>
     const config = yield* LoomConfig
     const dir = process.cwd()
     const change = yield* addService(language, dir)
-    yield* updateLanguages(config, dir, (ids) => [
-      ...new Set([...ids, language]),
-    ])
+    yield* updateLanguages(config, dir, (ids) => [...new Set([...ids, language])])
     const service = `${servicePackage(language)} ${serviceVersion}`
     const done = ServiceInstall.$match(change, {
       Current: () => `${service} is already in the store`,
       Installed: () => `installed ${service}`,
-      Updated: ({ from }) => `updated ${servicePackage(language)} from ${from} to ${serviceVersion}`,
+      Updated: ({ from }) =>
+        `updated ${servicePackage(language)} from ${from} to ${serviceVersion}`,
     })
     yield* Console.log(
       `\n   ${teal('✓')} activated ${language}\n` +
@@ -313,9 +298,7 @@ const remove = (language: string) =>
     const config = yield* LoomConfig
     const dir = process.cwd()
     yield* removeService(language, dir)
-    yield* updateLanguages(config, dir, (ids) =>
-      ids.filter((id) => id !== language),
-    )
+    yield* updateLanguages(config, dir, (ids) => ids.filter((id) => id !== language))
     yield* Console.log(`\n   ${teal('✓')} removed ${language}\n`)
   })
 
@@ -336,9 +319,7 @@ const status = Effect.gen(function* () {
   yield* Console.log(
     `\n   ${dim('store')}      ${storeDir(dir)}\n` +
       `   ${dim('primary')}    ${primary ?? dim('(none)')}\n` +
-      `   ${dim('activated')}  ${
-        languages.length === 0 ? dim('(none)') : languages.join(', ')
-      }\n`,
+      `   ${dim('activated')}  ${languages.length === 0 ? dim('(none)') : languages.join(', ')}\n`,
   )
   if (languages.length > 0) yield* Console.log(`${languages.map(mark).join('\n')}\n`)
 })
@@ -355,7 +336,9 @@ const set = (name: string, value: string) =>
       return
     }
     if (value.startsWith('=')) {
-      yield* Console.error(`loom: a value cannot begin with \`=\`; give the name and value with a space, no \`=\` — ${usage}`)
+      yield* Console.error(
+        `loom: a value cannot begin with \`=\`; give the name and value with a space, no \`=\` — ${usage}`,
+      )
       yield* Effect.sync(() => void (process.exitCode = 1))
       return
     }
@@ -369,9 +352,7 @@ const set = (name: string, value: string) =>
     yield* Console.log(`loom: set ${name} = ${value} (re-tangled ${written.length} files)`)
   }).pipe(
     Effect.catchTag('TangleError', (e) =>
-      Console.error(e.message).pipe(
-        Effect.andThen(Effect.sync(() => void (process.exitCode = 1))),
-      ),
+      Console.error(e.message).pipe(Effect.andThen(Effect.sync(() => void (process.exitCode = 1)))),
     ),
   )
 
@@ -380,9 +361,7 @@ class DesignMissing extends Data.TaggedError('DesignMissing')<{
 }> {}
 
 const manifestOf = (base: string) =>
-  Effect.try(() =>
-    createRequire(base).resolve('@athrio/loom-design/package.json'),
-  )
+  Effect.try(() => createRequire(base).resolve('@athrio/loom-design/package.json'))
 
 const designBinary = Effect.gen(function* () {
   const directory = process.cwd()
@@ -398,11 +377,11 @@ const design = (project: string, application: string, port: number) =>
     const binary = yield* designBinary
     const code = yield* Effect.scoped(
       Effect.flatMap(
-        ChildProcess.make(
-          binary,
-          [project, application, '--port', String(port)],
-          { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' },
-        ),
+        ChildProcess.make(binary, [project, application, '--port', String(port)], {
+          stdin: 'inherit',
+          stdout: 'inherit',
+          stderr: 'inherit',
+        }),
         (running) => running.exitCode,
       ),
     )
@@ -415,9 +394,9 @@ const design = (project: string, application: string, port: number) =>
       ).pipe(Effect.andThen(Effect.sync(() => void (process.exitCode = 1)))),
     ),
     Effect.catchCause((cause) =>
-      Console.error(
-        `loom: Loom Design could not start\n${Cause.pretty(cause)}`,
-      ).pipe(Effect.andThen(Effect.sync(() => void (process.exitCode = 1)))),
+      Console.error(`loom: Loom Design could not start\n${Cause.pretty(cause)}`).pipe(
+        Effect.andThen(Effect.sync(() => void (process.exitCode = 1))),
+      ),
     ),
   )
 
@@ -476,9 +455,7 @@ const compileGrammar = (grammar: string, library: string) =>
   })
 
 const refuse = (message: string) =>
-  Console.error(message).pipe(
-    Effect.andThen(Effect.sync(() => void (process.exitCode = 1))),
-  )
+  Console.error(message).pipe(Effect.andThen(Effect.sync(() => void (process.exitCode = 1))))
 
 const cannotCompile = (error: GrammarCompileFailed) =>
   refuse(
@@ -518,22 +495,14 @@ class HelixConfigClash extends Data.TaggedError('HelixConfigClash')<{
   readonly file: string
 }> {}
 
-const withLoomLanguages = (
-  file: string,
-  text: string,
-): Effect.Effect<string, HelixConfigClash> => {
+const withLoomLanguages = (file: string, text: string): Effect.Effect<string, HelixConfigClash> => {
   const start = text.indexOf(helixBegin)
   const end = text.indexOf(helixEnd)
   if (start >= 0 && end > start)
-    return Effect.succeed(
-      text.slice(0, start) + helixLanguages + text.slice(end + helixEnd.length),
-    )
-  if (/^\s*name\s*=\s*"loom"/m.test(text))
-    return Effect.fail(new HelixConfigClash({ file }))
+    return Effect.succeed(text.slice(0, start) + helixLanguages + text.slice(end + helixEnd.length))
+  if (/^\s*name\s*=\s*"loom"/m.test(text)) return Effect.fail(new HelixConfigClash({ file }))
   const kept = text.replace(/\s*$/, '')
-  return Effect.succeed(
-    kept === '' ? `${helixLanguages}\n` : `${kept}\n\n${helixLanguages}\n`,
-  )
+  return Effect.succeed(kept === '' ? `${helixLanguages}\n` : `${kept}\n\n${helixLanguages}\n`)
 }
 
 const helix = Effect.gen(function* () {
@@ -565,8 +534,7 @@ const helix = Effect.gen(function* () {
   )
 }).pipe(
   Effect.catchTags({
-    GrammarMissing: () =>
-      refuse('loom: this installation of Loom carries no grammar for Helix.'),
+    GrammarMissing: () => refuse('loom: this installation of Loom carries no grammar for Helix.'),
     GrammarCompileFailed: cannotCompile,
     HelixConfigClash: (error) =>
       refuse(
@@ -642,8 +610,7 @@ const nvim = Effect.gen(function* () {
   )
 }).pipe(
   Effect.catchTags({
-    GrammarMissing: () =>
-      refuse('loom: this installation of Loom carries no grammar for Neovim.'),
+    GrammarMissing: () => refuse('loom: this installation of Loom carries no grammar for Neovim.'),
     GrammarCompileFailed: cannotCompile,
     NvimConfigClash: (error) =>
       refuse(
@@ -677,11 +644,7 @@ const formatCommand = Command.make(
   ({ path, check }) => format(path, check),
 )
 
-const tocCommand = Command.make(
-  'toc',
-  { path: Argument.String('path') },
-  ({ path }) => toc(path),
-)
+const tocCommand = Command.make('toc', { path: Argument.String('path') }, ({ path }) => toc(path))
 
 const initCommand = Command.make(
   'init',
@@ -689,10 +652,8 @@ const initCommand = Command.make(
   ({ dir }) => init(dir),
 )
 
-const addCommand = Command.make(
-  'add',
-  { language: Argument.String('language') },
-  ({ language }) => add(language),
+const addCommand = Command.make('add', { language: Argument.String('language') }, ({ language }) =>
+  add(language),
 )
 
 const removeCommand = Command.make(

@@ -77,10 +77,7 @@ const glyphChip = (mark: Mark): Html =>
 
 const markCard = (mark: Mark): Html =>
   ih.div(
-    [
-      ih.Class('mark-card'),
-      ih.Style({ '--mark-ink': mark.colour, '--mark-tint': mark.tint }),
-    ],
+    [ih.Class('mark-card'), ih.Style({ '--mark-ink': mark.colour, '--mark-tint': mark.tint })],
     [
       ih.span(
         [ih.Class('mark-card-head')],
@@ -100,10 +97,7 @@ export const vocabulary = (): Html =>
           carpetMark(vocabularyCarpet, '42px', broadSeam),
           ih.div(
             [ih.Class('lines')],
-            [
-              ih.span([ih.Class('eyebrow')], ['Loom syntax']),
-              ih.h2([], ['The whole vocabulary']),
-            ],
+            [ih.span([ih.Class('eyebrow')], ['Loom syntax']), ih.h2([], ['The whole vocabulary'])],
           ),
         ],
       ),

@@ -100,7 +100,10 @@ const anchor = (name: string, rest: number): Line =>
 const DOCUMENT: ReadonlyArray<Line> = [
   heading('Loom, explained in Loom', 2 * BEAT),
   gap,
-  prose('Prose first. You are writing for a person — the code lives inside the explanation.', 2 * BEAT),
+  prose(
+    'Prose first. You are writing for a person — the code lives inside the explanation.',
+    2 * BEAT,
+  ),
   gap,
   part('Greeting', BEAT),
   gap,
@@ -128,7 +131,11 @@ const DOCUMENT: ReadonlyArray<Line> = [
   prose('Like so.', 2 * BEAT),
   gap,
   says(
-    [chip('##', BLUE, WASH.blue), plain(' Assembling ', BLUE, true), chip('[hello.ts]', GREY, WASH.grey, false)],
+    [
+      chip('##', BLUE, WASH.blue),
+      plain(' Assembling ', BLUE, true),
+      chip('[hello.ts]', GREY, WASH.grey, false),
+    ],
     2 * BEAT,
   ),
   gap,
@@ -407,7 +414,10 @@ const tokenSpan = (token: Token, h: HtmlBuilder<Message>): Html =>
 
 const shownLine = (shown: Shown, h: HtmlBuilder<Message>): Html =>
   h.div(
-    [h.Class(shown.kept ? 'pl-line kept' : 'pl-line'), h.Style({ minHeight: shown.tall ? '1.4em' : '0.8em' })],
+    [
+      h.Class(shown.kept ? 'pl-line kept' : 'pl-line'),
+      h.Style({ minHeight: shown.tall ? '1.4em' : '0.8em' }),
+    ],
     [
       ...(shown.lit ? [h.span([h.AriaHidden(true), h.Class('pl-cur')], [])] : []),
       ...Array.map(shown.tokens, (token) => tokenSpan(token, h)),
@@ -505,7 +515,11 @@ const headingOf = (text: string): Option.Option<readonly [string, string]> =>
   )
 
 const readLine = (reading: Reading, text: string, at: number): Reading => {
-  const add = (tokens: ReadonlyArray<Token>, kept: boolean, next: Partial<Reading> = {}): Reading => ({
+  const add = (
+    tokens: ReadonlyArray<Token>,
+    kept: boolean,
+    next: Partial<Reading> = {},
+  ): Reading => ({
     ...reading,
     ...next,
     lines: [...reading.lines, { tokens, kept }],
@@ -522,13 +536,18 @@ const readLine = (reading: Reading, text: string, at: number): Reading => {
         add([chip('~', ORANGE, WASH.orange)], false, { inCode: false, explicit: false }),
       ),
     ),
-    Option.orElse(() => (reading.explicit ? Option.none() : headingOf(text)).pipe(
-      Option.map(([marks, title]) => add(headingTokens(marks, title), false, { inCode: false })),
-    )),
+    Option.orElse(() =>
+      (reading.explicit ? Option.none() : headingOf(text)).pipe(
+        Option.map(([marks, title]) => add(headingTokens(marks, title), false, { inCode: false })),
+      ),
+    ),
     Option.orElse(() =>
       when(!reading.inCode && /^\s*[=~]>/.test(text), () => {
         const arrow = text.trim().slice(0, 2)
-        return add([chip(arrow, GREEN, WASH.green)], false, { inCode: true, explicit: arrow === '~>' })
+        return add([chip(arrow, GREEN, WASH.green)], false, {
+          inCode: true,
+          explicit: arrow === '~>',
+        })
       }),
     ),
     Option.getOrElse(() => add(withAnchors(text), reading.inCode)),
@@ -571,8 +590,7 @@ export const loomCanvas = (source: string, copied: string, h: HtmlBuilder<Messag
     ],
   )
 
-const fullTitle = (player: Player): string =>
-  player.full ? 'Leave full height' : 'Full height'
+const fullTitle = (player: Player): string => (player.full ? 'Leave full height' : 'Full height')
 
 const fullButton = (player: Player, h: HtmlBuilder<Message>): Html =>
   h.button(
@@ -591,11 +609,23 @@ const transport = (player: Player, h: HtmlBuilder<Message>): Html =>
     [h.Class('pl-bar')],
     [
       h.button(
-        [h.Class('pl-back'), h.Type('button'), h.Title('Back to the start'), h.AriaLabel('Back to the start'), h.OnClick(ReplayedDocument())],
+        [
+          h.Class('pl-back'),
+          h.Type('button'),
+          h.Title('Back to the start'),
+          h.AriaLabel('Back to the start'),
+          h.OnClick(ReplayedDocument()),
+        ],
         [backIcon()],
       ),
       h.button(
-        [h.Class('pl-play'), h.Type('button'), h.Title(playTitle(player)), h.AriaLabel(playTitle(player)), h.OnClick(ToggledPlay())],
+        [
+          h.Class('pl-play'),
+          h.Type('button'),
+          h.Title(playTitle(player)),
+          h.AriaLabel(playTitle(player)),
+          h.OnClick(ToggledPlay()),
+        ],
         [playGlyph(player)],
       ),
       h.button(
@@ -615,14 +645,20 @@ const finished = (player: Player): boolean => player.struck >= CHARACTERS
 
 const playTitle = (player: Player): string =>
   Match.value(player).pipe(
-    Match.when((state) => state.playing, () => 'Pause'),
+    Match.when(
+      (state) => state.playing,
+      () => 'Pause',
+    ),
     Match.when(finished, () => 'Play it again'),
     Match.orElse(() => 'Play'),
   )
 
 const playGlyph = (player: Player): Html =>
   Match.value(player).pipe(
-    Match.when((state) => state.playing, () => pauseIcon()),
+    Match.when(
+      (state) => state.playing,
+      () => pauseIcon(),
+    ),
     Match.when(finished, () => replayIcon()),
     Match.orElse(() => playTriangle()),
   )
@@ -636,7 +672,9 @@ const cardClass = (player: Player, done: boolean): string => {
 export const example = (model: Model, h: HtmlBuilder<Message>): Html => {
   const player = model.player
   const shown =
-    player.struck === 0 && !player.playing ? wholeDocument() : frameAt(player.struck, player.playing)
+    player.struck === 0 && !player.playing
+      ? wholeDocument()
+      : frameAt(player.struck, player.playing)
   const done = finished(player)
   const progress = done ? 1 : Math.min(1, player.beat / RUN)
   const offering = done || (player.full && !player.playing)
@@ -678,7 +716,10 @@ export const example = (model: Model, h: HtmlBuilder<Message>): Html => {
                         ? [
                             h.div(
                               [h.Class('pl-outs')],
-                              [commandButton('tangle', player, h), commandButton('weave', player, h)],
+                              [
+                                commandButton('tangle', player, h),
+                                commandButton('weave', player, h),
+                              ],
                             ),
                           ]
                         : []),

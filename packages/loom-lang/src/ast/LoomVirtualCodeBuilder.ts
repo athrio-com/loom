@@ -16,16 +16,11 @@ import {
   type MappingKind,
 } from '@athrio/loom-ast/LoomVirtualCode'
 
-const lookup = (
-  modules: ReadonlyMap<Path, LoomModule>,
-  id: SectionId,
-): Option.Option<Code> =>
+const lookup = (modules: ReadonlyMap<Path, LoomModule>, id: SectionId): Option.Option<Code> =>
   pipe(
     Option.fromNullishOr(modules.get(id.path)),
     Option.flatMapNullishOr((m) => m.product),
-    Option.flatMap((product) =>
-      Array.findFirst(product.code, (c) => c.origin.name === id.name),
-    ),
+    Option.flatMap((product) => Array.findFirst(product.code, (c) => c.origin.name === id.name)),
   )
 
 const leaf = (
@@ -51,19 +46,16 @@ const concat = (a: LoomVirtualCode, b: LoomVirtualCode): LoomVirtualCode => ({
   embeddedCodes: a.embeddedCodes,
 })
 
-const clipMappings = (
-  mappings: ReadonlyArray<Mapping>,
-  genLen: number,
-): ReadonlyArray<Mapping> =>
-  Array.getSomes(Array.map(mappings, (m) =>
-    m.genStart >= genLen
-      ? Option.none()
-      : Option.some(
-          m.genStart + m.genLength <= genLen
-            ? m
-            : { ...m, genLength: genLen - m.genStart },
-        ),
-  ))
+const clipMappings = (mappings: ReadonlyArray<Mapping>, genLen: number): ReadonlyArray<Mapping> =>
+  Array.getSomes(
+    Array.map(mappings, (m) =>
+      m.genStart >= genLen
+        ? Option.none()
+        : Option.some(
+            m.genStart + m.genLength <= genLen ? m : { ...m, genLength: genLen - m.genStart },
+          ),
+    ),
+  )
 
 const absorbTrailingNewline = (vc: LoomVirtualCode): LoomVirtualCode => {
   const code = vc.code.replace(/\n+$/, '')
@@ -88,15 +80,11 @@ const inlinePart =
     return pipe(
       part.target,
       Option.filter((t) => !seen.has(keyOf(t))),
-      Option.flatMap((t) =>
-        Option.map(lookup(modules, t), (node) => [t, node] as const),
-      ),
+      Option.flatMap((t) => Option.map(lookup(modules, t), (node) => [t, node] as const)),
       Option.match({
         onNone: () => emptyLeaf,
         onSome: ([t, node]) =>
-          absorbTrailingNewline(
-            inlineComposed(modules, new Set([...seen, keyOf(t)]))(node),
-          ),
+          absorbTrailingNewline(inlineComposed(modules, new Set([...seen, keyOf(t)]))(node)),
       }),
     )
   }
@@ -122,9 +110,7 @@ const inlineComposed =
         return {
           vc: concat(
             acc.vc,
-            owns
-              ? indentBlock(build(part), lineIndentOf(acc.vc.code))
-              : build(part),
+            owns ? indentBlock(build(part), lineIndentOf(acc.vc.code)) : build(part),
           ),
           trim: owns,
         }
@@ -137,11 +123,9 @@ const aloneBefore = (code: string): boolean =>
   /^[\t ]*$/.test(code.slice(code.lastIndexOf('\n') + 1))
 
 const aloneAfter = (next: Fragment | Ref | undefined): boolean =>
-  next === undefined ||
-  (next.type === 'Fragment' && /^[\t ]*(?:\n|$)/.test(next.text))
+  next === undefined || (next.type === 'Fragment' && /^[\t ]*(?:\n|$)/.test(next.text))
 
-const lineIndentOf = (code: string): string =>
-  code.slice(code.lastIndexOf('\n') + 1)
+const lineIndentOf = (code: string): string => code.slice(code.lastIndexOf('\n') + 1)
 
 const advance = (base: Position['start'], text: string): Position['start'] => {
   const newlines = text.split('\n').length - 1
@@ -173,10 +157,7 @@ const trimLeadingBlank = (fragment: Fragment): Fragment => {
 }
 
 const lineStartsOf = (lines: ReadonlyArray<string>): ReadonlyArray<number> =>
-  Array.mapAccum(lines, 0, (start, line) => [
-    start + line.length + 1,
-    start,
-  ])[1]
+  Array.mapAccum(lines, 0, (start, line) => [start + line.length + 1, start])[1]
 
 const newStartsOf = (
   lines: ReadonlyArray<string>,
@@ -188,10 +169,7 @@ const newStartsOf = (
     return [next, start + width * next]
   })[1]
 
-const lineIndexOf = (
-  starts: ReadonlyArray<number>,
-  offset: number,
-): number =>
+const lineIndexOf = (starts: ReadonlyArray<number>, offset: number): number =>
   pipe(
     Array.findLastIndex(starts, (s) => s <= offset),
     Option.getOrElse(() => 0),
@@ -204,11 +182,7 @@ const reindentMapping = (
   newStarts: ReadonlyArray<number>,
 ): ReadonlyArray<Mapping> => {
   const end = m.genStart + m.genLength
-  const cuts = [
-    m.genStart,
-    ...Array.filter(oldStarts, (s) => s > m.genStart && s < end),
-    end,
-  ]
+  const cuts = [m.genStart, ...Array.filter(oldStarts, (s) => s > m.genStart && s < end), end]
   return Array.map(Array.zip(cuts, Array.drop(cuts, 1)), ([a, b]) => {
     const line = lineIndexOf(oldStarts, a)
     return {
@@ -223,10 +197,7 @@ const reindentMapping = (
   })
 }
 
-const indentBlock = (
-  vc: LoomVirtualCode,
-  indent: string,
-): LoomVirtualCode => {
+const indentBlock = (vc: LoomVirtualCode, indent: string): LoomVirtualCode => {
   if (indent.length === 0) return vc
   const lines = vc.code.split('\n')
   if (lines.length <= 1) return vc
@@ -239,9 +210,7 @@ const indentBlock = (
       Array.map((line, i) => (i === 0 || line === '' ? line : indent + line)),
       Array.join('\n'),
     ),
-    mappings: Array.flatMap(vc.mappings, (m) =>
-      reindentMapping(m, vc.code, oldStarts, newStarts),
-    ),
+    mappings: Array.flatMap(vc.mappings, (m) => reindentMapping(m, vc.code, oldStarts, newStarts)),
   }
 }
 
@@ -287,10 +256,7 @@ const proseMappings = (doc: LoomDocument): ReadonlyArray<Mapping> =>
     Array.map((token) => spanOf(token.position, 'prose')),
   )
 
-export const fromProse = (
-  modules: ReadonlyMap<Path, LoomModule>,
-  path: Path,
-): LoomVirtualCode =>
+export const fromProse = (modules: ReadonlyMap<Path, LoomModule>, path: Path): LoomVirtualCode =>
   Option.match(Option.fromNullishOr(modules.get(path)), {
     onNone: () => leaf('prose', 'prose', '', []),
     onSome: (module) => {
@@ -301,11 +267,7 @@ export const fromProse = (
         Array.reduce(module.text, (acc, weft) => {
           const start = weft.position.start.offset
           const end = weft.position.end.offset
-          return (
-            acc.slice(0, start) +
-            acc.slice(start, end).replace(/[^\n]/g, ' ') +
-            acc.slice(end)
-          )
+          return acc.slice(0, start) + acc.slice(start, end).replace(/[^\n]/g, ' ') + acc.slice(end)
         }),
       )
       return {
@@ -357,7 +319,8 @@ export const rootNamesAt = (
               Option.filter((t) => t.path === path),
               Option.map((t) => t.name.toLowerCase()),
             ),
-      ), Array.getSomes,
+      ),
+      Array.getSomes,
     ),
   )
   return new Set(
@@ -376,8 +339,7 @@ export class LoomVirtualCodeBuilder extends Context.Service<LoomVirtualCodeBuild
       fromProduct: (
         modules: ReadonlyMap<Path, LoomModule>,
         root: SectionId,
-      ): Effect.Effect<LoomVirtualCode> =>
-        Effect.sync(() => fromProduct(modules, root)),
+      ): Effect.Effect<LoomVirtualCode> => Effect.sync(() => fromProduct(modules, root)),
     }),
   },
 ) {

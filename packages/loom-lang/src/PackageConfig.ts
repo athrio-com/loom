@@ -21,30 +21,25 @@ const anchorDelimsOf = (
   close: anchor?.close ?? defaultAnchorDelims.close,
 })
 
-export class PackageConfig extends Context.Service<PackageConfig>()(
-  'PackageConfig',
-  {
-    make: Effect.gen(function* () {
-      const config = yield* LoomConfig
-      return {
-        resolve: (path: Path): Effect.Effect<BuildSettings> =>
-          config.resolve(path).pipe(
-            Effect.map((c) => ({
-              delims: anchorDelimsOf(c.anchor),
-              primaryLanguage: c.primary,
-              variables: c.variables,
-              width: c.width,
-              packageRoot: c.packageRoot,
-              workspaceRoot: c.workspaceRoot,
-              corpusDir: c.corpusDir,
-              ignore: c.ignore,
-            })),
-          ),
-      }
-    }),
-  },
-) {
-  static readonly layer = Layer.effect(this, this.make).pipe(
-    Layer.provide(LoomConfig.layer),
-  )
+export class PackageConfig extends Context.Service<PackageConfig>()('PackageConfig', {
+  make: Effect.gen(function* () {
+    const config = yield* LoomConfig
+    return {
+      resolve: (path: Path): Effect.Effect<BuildSettings> =>
+        config.resolve(path).pipe(
+          Effect.map((c) => ({
+            delims: anchorDelimsOf(c.anchor),
+            primaryLanguage: c.primary,
+            variables: c.variables,
+            width: c.width,
+            packageRoot: c.packageRoot,
+            workspaceRoot: c.workspaceRoot,
+            corpusDir: c.corpusDir,
+            ignore: c.ignore,
+          })),
+        ),
+    }
+  }),
+}) {
+  static readonly layer = Layer.effect(this, this.make).pipe(Layer.provide(LoomConfig.layer))
 }

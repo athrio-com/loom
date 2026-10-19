@@ -13,15 +13,7 @@ import { WeftClassifier } from '@athrio/loom-lang/ast/WeftClassifier'
 
 const it = effectify(it_)
 
-type LineKind =
-  | 'frontmatter'
-  | 'heading'
-  | 'toc'
-  | 'arrow'
-  | 'code'
-  | 'tilde'
-  | 'text'
-  | 'none'
+type LineKind = 'frontmatter' | 'heading' | 'toc' | 'arrow' | 'code' | 'tilde' | 'text' | 'none'
 
 const kindOfWeft: Record<LoomWeft['type'], LineKind> = {
   FrontmatterWeft: 'frontmatter',
@@ -50,9 +42,7 @@ const classifierKinds = (text: string): Effect.Effect<ReadonlyArray<LineKind>> =
 const lineBreak = /\r\n|\r|\n/
 
 const lineCount = (text: string): number =>
-  text.length === 0
-    ? 0
-    : text.split(lineBreak).length - (/(\r\n|\r|\n)$/.test(text) ? 1 : 0)
+  text.length === 0 ? 0 : text.split(lineBreak).length - (/(\r\n|\r|\n)$/.test(text) ? 1 : 0)
 
 const grammarDir = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -93,22 +83,19 @@ const blockKind: Record<Block, (offset: number) => LineKind> = {
 const blockPattern =
   /\((frontmatter|heading|toc|preamble|code|prose) \[(\d+), \d+\] - \[(\d+), (\d+)\]/g
 
-const rowsOf = (
-  match: RegExpMatchArray,
-): ReadonlyArray<readonly [number, LineKind]> => {
+const rowsOf = (match: RegExpMatchArray): ReadonlyArray<readonly [number, LineKind]> => {
   const [, block, startRow, endRow, endColumn] = match
   const start = Number(startRow)
   const end = Number(endColumn) === 0 ? Number(endRow) - 1 : Number(endRow)
-  return Array.map(Array.range(start, end), (row) =>
-    [row, blockKind[block as Block](row - start)] as const,
+  return Array.map(
+    Array.range(start, end),
+    (row) => [row, blockKind[block as Block](row - start)] as const,
   )
 }
 
 const grammarKinds = (tree: string, count: number): ReadonlyArray<LineKind> => {
   const rows = new Map(Array.flatMap(Array.fromIterable(tree.matchAll(blockPattern)), rowsOf))
-  return count === 0
-    ? []
-    : Array.map(Array.range(0, count - 1), (row) => rows.get(row) ?? 'none')
+  return count === 0 ? [] : Array.map(Array.range(0, count - 1), (row) => rows.get(row) ?? 'none')
 }
 
 type Disagreement = {
@@ -138,13 +125,15 @@ const checkLoom = (file: string): Effect.Effect<void> =>
   })
 
 describe('the generated parser', () => {
-  it.effect('matches what grammar.js generates', () =>
-    Effect.gen(function* () {
-      yield* treeSitter(['generate', '--output', join(scratch, 'generated')])
-      expect(readFileSync(join(scratch, 'generated', 'parser.c'), 'utf8')).toBe(
-        readFileSync(join(grammarDir, 'src', 'parser.c'), 'utf8'),
-      )
-    }),
+  it.effect(
+    'matches what grammar.js generates',
+    () =>
+      Effect.gen(function* () {
+        yield* treeSitter(['generate', '--output', join(scratch, 'generated')])
+        expect(readFileSync(join(scratch, 'generated', 'parser.c'), 'utf8')).toBe(
+          readFileSync(join(grammarDir, 'src', 'parser.c'), 'utf8'),
+        )
+      }),
     60_000,
   )
 })
@@ -174,11 +163,7 @@ describe('the grammar agrees with the classifier', () => {
 
 const anchor = (name: string): string => `::${'['}${name}]`
 
-const fixture = (
-  name: string,
-  rows: ReadonlyArray<string>,
-  ending: string = '\n',
-): string => {
+const fixture = (name: string, rows: ReadonlyArray<string>, ending: string = '\n'): string => {
   const file = join(scratch, `${name}.loom`)
   writeFileSync(file, rows.map((row) => `${row}${ending}`).join(''))
   return file

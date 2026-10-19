@@ -17,10 +17,7 @@ Each service gives one embedded language its editor support — diagnostics, hov
 
 The `@athrio/loom-lang` language server reads the active ids from `loom.config.json`, and `LanguageLoader` resolves each one to its service — Loom from this module, the rest from their packages. The server indexes the resolved set in the `LanguageRegistry`, keyed by `id` for a section's declared language and by extension for a tangle path, so finding a language is a lookup, never a branch.
 
-Editor features take a different route. The host runs each service's `plugins` Effect
-to collect its Volar plugins and registers them; Volar then dispatches every request
-to the right language by its `languageId`. Loom declares the languages; Volar routes
-them.
+Editor features take a different route. The host runs each service's `plugins` Effect to collect its Volar plugins and registers them; Volar then dispatches every request to the right language by its `languageId`. Loom declares the languages; Volar routes them.
 
 ```
   loom activate ──►  loom.config.json   { languages: [typescript, css, go] }
@@ -54,19 +51,11 @@ them.
   completion → mapped back to its span in the .loom.
 ```
 
-The host hands a service its `settings` and runs `plugins`, providing the
-capabilities the Effect requires — today, the TypeScript SDK. An in-process service
-builds its plugins in memory; an external one spawns its binary and bridges it —
-both inside the Effect, so the collect-and-register pass is the same for every
-language.
+The host hands a service its `settings` and runs `plugins`, providing the capabilities the Effect requires — today, the TypeScript SDK. An in-process service builds its plugins in memory; an external one spawns its binary and bridges it — both inside the Effect, so the collect-and-register pass is the same for every language.
 
 ## Imports
 
-The contract names Volar's `LanguageServicePlugin`, the unit of editor behavior; from
-Effect, `Data` for the tagged error and `Effect` itself, since a service builds its
-plugins in an Effect and a capability is an Effect service; and from
-`@athrio/loom-ast`, the `Diagnostic` the frame query returns and the `SemanticToken`
-colour it tags each of a file's tokens with.
+The contract names Volar's `LanguageServicePlugin`, the unit of editor behavior; from Effect, `Data` for the tagged error and `Effect` itself, since a service builds its plugins in an Effect and a capability is an Effect service; and from `@athrio/loom-ast`, the `Diagnostic` the frame query returns and the `SemanticToken` colour it tags each of a file's tokens with.
 
 =>
 
@@ -77,14 +66,7 @@ import type { SemanticToken } from '@athrio/loom-ast/LoomSymbol'
 
 ## A service
 
-A `LanguageService` is one language's entry: the section `id` it serves, a
-`displayName` for the `loom activate` menu, its file `extensions`, and `plugins` —
-the Effect that builds its Volar plugins. That Effect may fail with a `ServiceError`
-— an external binary that will not start — which the host reports without
-bringing the other languages down. A service may draw on the host's capabilities
-(`HostCapabilities`): the Loom and TypeScript services take the TypeScript SDK, a
-CSS service takes nothing. A tangle path's extension names its language — a section that tangles to
-`main.ts` turns on the TypeScript service.
+A `LanguageService` is one language's entry: the section `id` it serves, a `displayName` for the `loom activate` menu, its file `extensions`, and `plugins` — the Effect that builds its Volar plugins. That Effect may fail with a `ServiceError` — an external binary that will not start — which the host reports without bringing the other languages down. A service may draw on the host's capabilities (`HostCapabilities`): the Loom and TypeScript services take the TypeScript SDK, a CSS service takes nothing. A tangle path's extension names its language — a section that tangles to `main.ts` turns on the TypeScript service.
 
 =>
 
@@ -99,11 +81,7 @@ export interface LanguageService {
   readonly extensions: ReadonlyArray<string>
   readonly plugins: (
     context: LanguageServiceContext,
-  ) => Effect.Effect<
-    ReadonlyArray<LanguageServicePlugin>,
-    ServiceError,
-    HostCapabilities
-  >
+  ) => Effect.Effect<ReadonlyArray<LanguageServicePlugin>, ServiceError, HostCapabilities>
   readonly format?: (request: FormatRequest) => Effect.Effect<string, ServiceError>
 }
 
@@ -138,9 +116,9 @@ A product service still asks nothing about its own file's sections: the editor h
 =>
 
 export class TypescriptSdk extends Context.Service<TypescriptSdk>()('TypescriptSdk', {
-  make: Effect.die(
-    'TypescriptSdk must be provided by the host',
-  ) as Effect.Effect<typeof import('typescript')>,
+  make: Effect.die('TypescriptSdk must be provided by the host') as Effect.Effect<
+    typeof import('typescript')
+  >,
 }) {
   static readonly layer = Layer.effect(this, this.make)
 }
@@ -164,18 +142,13 @@ export interface FrameQueryApi {
   readonly references: (path: string, offset: number) => ReadonlyArray<FrameLocation>
   readonly rename: (path: string, offset: number) => ReadonlyArray<FrameLocation>
   readonly renameRange: (path: string, offset: number) => FrameLocation | undefined
-  readonly navigationRange: (
-    path: string,
-    offset: number,
-  ) => FrameLocation | undefined
+  readonly navigationRange: (path: string, offset: number) => FrameLocation | undefined
   readonly semanticTokens: (path: string) => ReadonlyArray<FrameToken>
   readonly format: (path: string, text: string) => Promise<string>
 }
 
 export class FrameQuery extends Context.Service<FrameQuery>()('FrameQuery', {
-  make: Effect.die(
-    'FrameQuery must be provided by the host',
-  ) as Effect.Effect<FrameQueryApi>,
+  make: Effect.die('FrameQuery must be provided by the host') as Effect.Effect<FrameQueryApi>,
 }) {
   static readonly layer = Layer.effect(this, this.make)
 }
@@ -193,9 +166,7 @@ export interface CompositionApi {
 }
 
 export class Composition extends Context.Service<Composition>()('Composition', {
-  make: Effect.die(
-    'Composition must be provided by the host',
-  ) as Effect.Effect<CompositionApi>,
+  make: Effect.die('Composition must be provided by the host') as Effect.Effect<CompositionApi>,
 }) {
   static readonly layer = Layer.effect(this, this.make)
 }
@@ -204,11 +175,7 @@ export type HostCapabilities = TypescriptSdk | FrameQuery | Composition
 
 ## The service settings
 
-The `LanguageServiceContext` is the one input the host hands every service: `settings`, this
-language's own entry in `loom.config.json`. The service decodes it — format options
-for an in-process service, the binary command for an external one. Capabilities like
-the TypeScript SDK do not come through the context; they come through the environment, so the
-context keeps the same shape for every language.
+The `LanguageServiceContext` is the one input the host hands every service: `settings`, this language's own entry in `loom.config.json`. The service decodes it — format options for an in-process service, the binary command for an external one. Capabilities like the TypeScript SDK do not come through the context; they come through the environment, so the context keeps the same shape for every language.
 
 =>
 

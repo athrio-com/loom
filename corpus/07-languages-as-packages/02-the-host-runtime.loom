@@ -42,9 +42,7 @@ interface HostRuntime {
   readonly modules: Record<string, unknown>
 }
 
-export const installHostRuntime = (
-  tsdk: typeof import('typescript'),
-): void => {
+export const installHostRuntime = (tsdk: typeof import('typescript')): void => {
   ;(globalThis as Record<string, unknown>)[runtimeKey] = {
     version: runtimeVersion,
     modules: {

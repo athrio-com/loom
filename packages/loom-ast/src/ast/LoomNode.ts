@@ -51,10 +51,7 @@ export const UnexpectedTokenSchema = Schema.Struct({
 })
 export type UnexpectedToken = typeof UnexpectedTokenSchema.Type
 
-export const loomNode = <
-  Tag extends string,
-  Fields extends Schema.Struct.Fields,
->(
+export const loomNode = <Tag extends string, Fields extends Schema.Struct.Fields>(
   tag: Tag,
   fields: Fields,
 ) =>

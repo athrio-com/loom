@@ -13,11 +13,7 @@ import {
 let client: BaseLanguageClient
 
 export async function activate(context: vscode.ExtensionContext) {
-  const serverModule = vscode.Uri.joinPath(
-    context.extensionUri,
-    'dist',
-    'server.js',
-  )
+  const serverModule = vscode.Uri.joinPath(context.extensionUri, 'dist', 'server.js')
   const serverOptions: ServerOptions = {
     run: {
       module: serverModule.fsPath,
@@ -31,13 +27,7 @@ export async function activate(context: vscode.ExtensionContext) {
     },
   }
 
-  const tsdk = path.join(
-    vscode.env.appRoot,
-    'extensions',
-    'node_modules',
-    'typescript',
-    'lib',
-  )
+  const tsdk = path.join(vscode.env.appRoot, 'extensions', 'node_modules', 'typescript', 'lib')
 
   const clientOptions: LanguageClientOptions = {
     documentSelector: [{ language: 'loom' }],
