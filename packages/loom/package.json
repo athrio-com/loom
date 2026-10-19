@@ -1,6 +1,6 @@
 {
   "name": "@athrio/loom",
-  "version": "0.0.11",
+  "version": "0.0.12",
   "description": "Tangle Loom literate sources into real source files.",
   "license": "MIT",
   "type": "module",

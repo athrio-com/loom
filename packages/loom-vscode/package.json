@@ -3,7 +3,7 @@
   "publisher": "athrio",
   "displayName": "Loom",
   "description": "A VS Code extension for Loom",
-  "version": "0.0.11",
+  "version": "0.0.12",
   "license": "MIT",
   "repository": {
     "type": "git",

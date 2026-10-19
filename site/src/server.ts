@@ -20,7 +20,7 @@ const seed: Model = {
   searching: false,
   activeSection: '',
   player: { struck: 0, beat: 0, playing: false, output: Option.none(), full: false },
-  version: '0.0.11',
+  version: '0.0.12',
   query: '',
   focus: 0,
   copied: '',

@@ -32,7 +32,7 @@ export const installedServices = (dir: string): Effect.Effect<ReadonlyArray<stri
       .map((name) => name.slice(servicePrefix.length))
   })
 
-export const serviceVersion = '0.0.11'
+export const serviceVersion = '0.0.12'
 
 export const installedVersion = (id: string, dir: string): Option.Option<string> =>
   pipe(

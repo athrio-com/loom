@@ -1,6 +1,6 @@
 {
   "name": "tree-sitter-loom",
-  "version": "0.0.11",
+  "version": "0.0.12",
   "description": "Loom grammar for tree-sitter",
   "license": "MIT",
   "private": true,
