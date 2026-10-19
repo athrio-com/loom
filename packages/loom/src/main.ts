@@ -42,6 +42,7 @@ import { defaultWidth, LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
   installedVersion,
   installService,
+  embeddedFile,
   installTypeScript,
   removeService,
   ServiceInstall,
@@ -798,6 +799,25 @@ const compileGrammar = (grammar: string, library: string) =>
     yield* Effect.sync(() => renameSync(partial, library))
   })
 
+const grammarLibrary = process.platform === 'win32' ? 'loom.dll' : 'loom.so'
+
+const writeLibrary = (prebuilt: Blob, library: string): Effect.Effect<void> =>
+  Effect.promise(() => prebuilt.arrayBuffer()).pipe(
+    Effect.flatMap((bytes) =>
+      Effect.sync(() => {
+        const partial = `${library}.${process.pid}`
+        writeFileSync(partial, new Uint8Array(bytes), { mode: 0o755 })
+        renameSync(partial, library)
+      }),
+    ),
+  )
+
+const buildGrammar = (grammar: string, library: string) =>
+  Option.match(embeddedFile(grammarLibrary), {
+    onSome: (prebuilt) => writeLibrary(prebuilt, library),
+    onNone: () => compileGrammar(grammar, library),
+  })
+
 const refuse = (message: string) =>
   Console.error(message).pipe(Effect.andThen(Effect.sync(() => void (process.exitCode = 1))))
 
@@ -811,8 +831,6 @@ const helixConfigDir = (): string =>
   process.platform === 'win32'
     ? resolvePath(process.env.APPDATA ?? homedir(), 'helix')
     : resolvePath(process.env.XDG_CONFIG_HOME ?? resolvePath(homedir(), '.config'), 'helix')
-
-const grammarLibrary = process.platform === 'win32' ? 'loom.dll' : 'loom.so'
 
 const helixBlock: ManagedBlock = {
   begin: '# Loom: written by `loom helix`, which replaces this block on every run',
@@ -856,7 +874,7 @@ const helix = Effect.gen(function* () {
 
   const library = resolvePath(config, 'runtime', 'grammars', grammarLibrary)
   yield* Effect.sync(() => mkdirSync(dirname(library), { recursive: true }))
-  yield* compileGrammar(grammar, library)
+  yield* buildGrammar(grammar, library)
   yield* Console.log(`\n   ${teal('✓')} built the grammar into ${library}`)
 
   const queries = resolvePath(config, 'runtime', 'queries', 'loom')
@@ -935,7 +953,7 @@ const nvim = Effect.gen(function* () {
 
   const parser = resolvePath(site, 'parser', 'loom.so')
   yield* Effect.sync(() => mkdirSync(dirname(parser), { recursive: true }))
-  yield* compileGrammar(grammar, parser)
+  yield* buildGrammar(grammar, parser)
   yield* Console.log(`\n   ${teal('✓')} built the grammar into ${parser}`)
 
   const queries = resolvePath(site, 'queries', 'loom')

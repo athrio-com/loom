@@ -103,7 +103,7 @@ const foundTsdk = (options: unknown, root: string): Option.Option<string> =>
 
 ~
 
-A project written in another language holds no TypeScript, and nothing sits beside the standalone executable, so outside VS Code all four places can be empty. The server then installs TypeScript 6 into the workspace's store itself, through the store's `installTypeScript`, and loads it from there. The install happens once per workspace and needs the network that once. Every later start finds the copy in the store.
+A project written in another language holds no TypeScript, and nothing sits beside the standalone executable, so outside VS Code all four places can be empty. The server then puts TypeScript 6 into the workspace's store itself, through the store's `installTypeScript`, and loads it from there. The standalone executable unpacks the copy it carries, with no network at all. The npm package downloads one, which needs the network that once. Either way it happens once per workspace, and every later start finds the copy in the store.
 
 The install needs a workspace to hold the store. A folder that lies in no workspace has no store, and installing one would turn the folder into a workspace behind the person's back, so the server installs nothing there.
 

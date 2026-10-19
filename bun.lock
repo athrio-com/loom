@@ -31,7 +31,7 @@
     },
     "packages/loom": {
       "name": "@athrio/loom",
-      "version": "0.0.11",
+      "version": "0.0.13",
       "bin": {
         "loom": "dist/main.js",
       },
@@ -42,12 +42,13 @@
         "@effect/platform-node": "4.0.5",
         "effect": "4.0.5",
         "tree-sitter-loom": "workspace:*",
+        "typescript": "^6.0.3",
         "vite": "^8.0.12",
       },
     },
     "packages/loom-ast": {
       "name": "@athrio/loom-ast",
-      "version": "0.0.11",
+      "version": "0.0.13",
       "devDependencies": {
         "effect": "4.0.5",
       },
@@ -57,7 +58,7 @@
     },
     "packages/loom-config": {
       "name": "@athrio/loom-config",
-      "version": "0.0.11",
+      "version": "0.0.13",
       "dependencies": {
         "yaml": "^2.9.0",
       },
@@ -70,7 +71,7 @@
     },
     "packages/loom-lang": {
       "name": "@athrio/loom-lang",
-      "version": "0.0.11",
+      "version": "0.0.13",
       "bin": {
         "loom-language-server": "./bin/loom-language-server.js",
       },
@@ -96,7 +97,7 @@
     },
     "packages/loom-lang-services": {
       "name": "@athrio/loom-lang-services",
-      "version": "0.0.11",
+      "version": "0.0.13",
       "dependencies": {
         "volar-service-markdown": "^0.0.71",
         "volar-service-typescript": "^0.0.71",
@@ -118,7 +119,7 @@
     },
     "packages/loom-service-typescript": {
       "name": "@athrio/loom-service-typescript",
-      "version": "0.0.11",
+      "version": "0.0.13",
       "dependencies": {
         "prettier": "^3.8.4",
       },
@@ -135,7 +136,7 @@
     },
     "packages/loom-vscode": {
       "name": "loom-vscode",
-      "version": "0.0.11",
+      "version": "0.0.13",
       "devDependencies": {
         "@types/vscode": "^1.120.0",
         "@volar/language-server": "^2.4.28",
@@ -145,7 +146,7 @@
     },
     "packages/tree-sitter-loom": {
       "name": "tree-sitter-loom",
-      "version": "0.0.11",
+      "version": "0.0.12",
       "devDependencies": {
         "@athrio/effect-test": "workspace:*",
         "@athrio/loom-ast": "workspace:*",

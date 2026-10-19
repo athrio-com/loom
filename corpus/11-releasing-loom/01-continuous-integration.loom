@@ -401,7 +401,7 @@ tasks:
 
 ~
 
-The smoke check runs the standalone executable. It builds the bundle, compiles it into `build/loom` for the runner's own platform, and runs the smoke test from the chapter on the standalone executable against that file. The executable differs from the source the tests run, in ways those tests cannot see. It finds a service in the store by another route, and it installs packages without npm. Only a check of the compiled file catches a change that breaks either. The check also runs the install script against a release it serves itself. It reaches the network once, to install TypeScript into a store the way the language server does for a user. Its inputs are the package's sources, the smoke test, and the install script.
+The smoke check runs the standalone executable. It builds the bundle, compiles it into `build/loom` for the runner's own platform with the grammar library and TypeScript inside, and runs the smoke test from the chapter on the standalone executable against that file. The release runs the same test on every platform before it ships an executable; this check runs it on Linux for every change. The executable differs from the source the tests run, in ways those tests cannot see. It finds a service in the store by another route, and it installs packages without npm. Only a check of the compiled file catches a change that breaks either. The check also runs the install script against a release it serves itself. It reaches the network once, to install TypeScript into a store the way the language server does for a user. Its inputs are the package's sources, the program that compiles the executable, the smoke test, and the install script.
 
 =>
 
@@ -411,6 +411,7 @@ The smoke check runs the standalone executable. It builds the bundle, compiles i
     inputs:
       - "@group(sources)"
       - "smoke/**/*"
+      - "compile.ts"
       - "/scripts/install.sh"
       - "moon.yml"
       - "/mise.toml"

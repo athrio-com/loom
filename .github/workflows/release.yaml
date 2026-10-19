@@ -25,18 +25,16 @@ jobs:
       - name: Publish
         run: bun scripts/release.ts
 
-  binaries:
+  release:
     needs: npm
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      done: ${{ steps.release.outputs.done }}
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.2.20
       - name: The release this version needs
         id: release
         env:
@@ -48,31 +46,77 @@ jobs:
             echo "done=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: An executable for each platform
-        if: steps.release.outputs.done != 'true'
+  executable:
+    needs: release
+    if: needs.release.outputs.done != 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: darwin-arm64, runner: macos-15 }
+          - { platform: darwin-x64, runner: macos-15-intel }
+          - { platform: linux-x64, runner: ubuntu-latest }
+          - { platform: linux-arm64, runner: ubuntu-24.04-arm }
+          - { platform: windows-x64, runner: windows-2025, cc: gcc }
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.20
+      - name: Build the executable and run its smoke test
+        env:
+          CC: ${{ matrix.cc || 'cc' }}
         run: |
           bun install --frozen-lockfile
-          bun run --filter @athrio/loom build
-          mkdir release
-          for target in darwin-arm64 darwin-x64 linux-x64 linux-arm64 windows-x64; do
-            bun build packages/loom/dist/main.js --compile --target "bun-$target" --outfile "release/loom-$target"
-          done
-          gzip -9 release/loom-*
-          cp scripts/install.sh release/install.sh
-          (cd release && sha256sum loom-*.gz install.sh > SHA256SUMS)
+          cd packages/loom
+          bun run build
+          bun run compile
+          bun test ./smoke/binary.smoke.ts ./smoke/install.smoke.ts
 
+      - name: Name the files for the release
+        run: |
+          mkdir release
+          if [ -f packages/loom/build/loom.exe ]; then exe=.exe; library=dll; else exe=; library=so; fi
+          cp "packages/loom/build/loom$exe" "release/loom-${{ matrix.platform }}$exe"
+          gzip -9 "release/loom-${{ matrix.platform }}$exe"
+          cp "packages/loom/build/loom.$library" "release/tree-sitter-loom-${{ matrix.platform }}.$library"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: loom-${{ matrix.platform }}
+          path: release/*
+
+  publish:
+    needs: [release, executable]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
       - name: Attach them to the release
-        if: steps.release.outputs.done != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
+          TAG: ${{ needs.release.outputs.tag }}
           COMMIT: ${{ github.event.workflow_run.head_sha }}
         run: |
+          cp scripts/install.sh release/install.sh
+          (cd release && sha256sum loom-*.gz tree-sitter-loom-* install.sh > SHA256SUMS)
           if ! gh release view "$TAG" > /dev/null 2>&1; then
             gh release create "$TAG" --target "$COMMIT" --title "Loom ${TAG#v}" \
-              --notes "Install the standalone executable with \`curl -fsSL https://github.com/athrio-com/loom/releases/latest/download/install.sh | sh\`, or with npm as \`@athrio/loom\`. The macOS executables are not signed or notarised yet."
+              --notes "Install the standalone executable with \`curl -fsSL https://github.com/athrio-com/loom/releases/latest/download/install.sh | sh\`, or with npm as \`@athrio/loom\`. The macOS executables are not signed with a Developer ID or notarised yet."
           fi
-          gh release upload "$TAG" release/loom-*.gz release/install.sh --clobber
+          gh release upload "$TAG" release/loom-*.gz release/tree-sitter-loom-* release/install.sh --clobber
           gh release upload "$TAG" release/SHA256SUMS --clobber
 
   zed:

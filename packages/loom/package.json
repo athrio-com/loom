@@ -24,7 +24,7 @@
   },
   "scripts": {
     "build": "vite build",
-    "compile": "bun build dist/main.js --compile --outfile build/loom",
+    "compile": "bun compile.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "bun test",
     "prepack": "bun run build"
@@ -36,6 +36,7 @@
     "@effect/platform-node": "4.0.5",
     "effect": "4.0.5",
     "tree-sitter-loom": "workspace:*",
+    "typescript": "^6.0.3",
     "vite": "^8.0.12"
   }
 }

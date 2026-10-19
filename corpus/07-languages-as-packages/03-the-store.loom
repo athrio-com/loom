@@ -113,6 +113,25 @@ The two forms differ in what they can find around them, and a few steps of Loom 
 
 export const standalone: boolean = /[\\/](\$bunfs|~BUN)[\\/]/.test(import.meta.url)
 
+~
+
+The executable also carries files that are not code, which its build adds beside the bundle: the TypeScript compiler, and the grammar library an editor loads. Bun lists such files in `Bun.embeddedFiles`, each a `Blob` that knows its own name. `embeddedFile` finds one by its name. It yields nothing in the npm package, where Bun may not be the runtime at all and nothing is embedded.
+
+=>
+
+interface EmbeddedFile extends Blob {
+  readonly name?: string
+}
+
+export const embeddedFile = (name: string): Option.Option<EmbeddedFile> =>
+  pipe(
+    Option.fromNullishOr(
+      (globalThis as { readonly Bun?: { readonly embeddedFiles?: ReadonlyArray<EmbeddedFile> } })
+        .Bun?.embeddedFiles,
+    ),
+    Option.flatMap(Array.findFirst((file) => file.name === name)),
+  )
+
 ## Installing a package into the store
 
 The store is a package root, a folder with a private `package.json` for a package manager to install into. `prepareStore` makes that folder and that file the first time anything is installed.
@@ -202,7 +221,7 @@ export const installService = (id: string, dir: string): Effect.Effect<ServiceIn
 
 Two hosts load services, the language server and `loom format`, and each lends the services it loads the TypeScript compiler. The language server also checks every TypeScript section against that compiler. Both hosts look for one in the project and then beside their own install, and the language server first takes the one an editor sends. The store is the last place either looks, and the one place Loom can fill itself, so a project with no TypeScript of its own still gets one.
 
-The host loads TypeScript through its JavaScript API, the `lib/typescript.js` file that TypeScript 6 and every earlier release ship. TypeScript 7 is a native program with no such file, so the store installs the newest release of TypeScript 6, the range `typeScriptRange` names. `storeTypeScript` finds that file in the store, and yields nothing when the store holds no TypeScript or holds a release without it. `installTypeScript` installs TypeScript into the store and returns the file. An install that leaves no such file behind fails with a `StoreError`, just as a failed install does.
+The host loads TypeScript through its JavaScript API, the `lib/typescript.js` file that TypeScript 6 and every earlier release ship. TypeScript 7 is a native program with no such file, so the store holds a release of TypeScript 6, the range `typeScriptRange` names. `storeTypeScript` finds that file in the store, and yields nothing when the store holds no TypeScript or holds a release without it.
 
 =>
 
@@ -213,17 +232,75 @@ export const storeTypeScript = (dir: string): Option.Option<string> => {
   return existsSync(file) ? Option.some(file) : Option.none()
 }
 
+~
+
+The standalone executable carries TypeScript itself, so it never downloads it. Its build packs the compiler and the declaration files of the standard library, `lib.*.d.ts`, into one gzipped file, `typescript.json.gz`, which holds the package's own `package.json` and a map from each file's path in the package to its text. `PackedTypeScriptSchema` is that map. `unpackTypeScript` writes those files into the store, where `storeTypeScript` finds them, as though a package manager had installed them.
+
+It writes them into a folder of its own beside the store's packages first, and then renames that folder to `typescript` in one step. A host that starts while the unpack runs finds either no TypeScript or a whole one, never a compiler without its standard library. The package manager leaves the folder alone when it later installs a service, since it touches only the packages it was asked for.
+
+=>
+
+const typeScriptAsset = 'typescript.json.gz'
+
+const PackedTypeScriptSchema = Schema.Struct({
+  files: Schema.Record(Schema.String, Schema.String),
+})
+
+const typeScriptError = (cause: unknown): StoreError =>
+  new StoreError({ packageName: 'typescript', cause })
+
+const unpackTypeScript = (dir: string, packed: Blob): Effect.Effect<void, StoreError> =>
+  Effect.gen(function* () {
+    const archive = yield* Effect.tryPromise({
+      try: async () => new Uint8Array(await packed.arrayBuffer()),
+      catch: typeScriptError,
+    })
+    const json = yield* Effect.try({
+      try: (): unknown => JSON.parse(gunzipSync(archive).toString('utf8')),
+      catch: typeScriptError,
+    })
+    const { files } = yield* Schema.decodeUnknownEffect(PackedTypeScriptSchema)(json).pipe(
+      Effect.mapError(typeScriptError),
+    )
+    const store = storeDir(dir)
+    const modules = join(store, 'node_modules')
+    const partial = join(modules, `.typescript-${process.pid}`)
+    yield* Effect.sync(() => prepareStore(store))
+    yield* Effect.forEach(
+      Object.entries(files),
+      ([path, text]) =>
+        Effect.try({
+          try: () => {
+            mkdirSync(dirname(join(partial, path)), { recursive: true })
+            writeFileSync(join(partial, path), text)
+          },
+          catch: typeScriptError,
+        }),
+      { discard: true },
+    )
+    yield* Effect.try({
+      try: () => {
+        rmSync(join(modules, 'typescript'), { recursive: true, force: true })
+        renameSync(partial, join(modules, 'typescript'))
+      },
+      catch: typeScriptError,
+    })
+  })
+
+~
+
+`installTypeScript` brings TypeScript into the store and returns the path of its `typescript.js`. The executable unpacks the copy it carries. The npm package has none to unpack, so it installs TypeScript from the registry with its package manager, which needs the network once per workspace. Either way, a store that still holds no `lib/typescript.js` afterwards fails with a `StoreError`, just as a failed install does.
+
+=>
+
 export const installTypeScript = (dir: string): Effect.Effect<string, StoreError> =>
-  installPackage(dir, 'typescript', typeScriptRange).pipe(
+  Option.match(embeddedFile(typeScriptAsset), {
+    onSome: (packed) => unpackTypeScript(dir, packed),
+    onNone: () => installPackage(dir, 'typescript', typeScriptRange),
+  }).pipe(
     Effect.flatMap(() =>
       Option.match(storeTypeScript(dir), {
-        onNone: () =>
-          Effect.fail(
-            new StoreError({
-              packageName: 'typescript',
-              cause: 'the install left no lib/typescript.js in the store',
-            }),
-          ),
+        onNone: () => Effect.fail(typeScriptError('the store holds no lib/typescript.js')),
         onSome: Effect.succeed,
       }),
     ),
@@ -240,15 +317,24 @@ export const removeService = (id: string, dir: string): Effect.Effect<void> =>
 
 ## What this module draws on
 
-The store works in Effect: `Effect` runs each read and write, `Data` gives `StoreError` and `ServiceInstall` their tags, `Schema` decodes a service's manifest, and `Option` with `pipe` carries a value that may be missing, such as the workspace above a directory or the version of a service the store lacks. Node's modules supply the rest, and Bun provides them too. `child_process` runs the package manager, which `promisify` turns into a promise `Effect.tryPromise` can await. `fs` reads the store's contents and a package's manifest, and adds and removes packages. `join` and `dirname` form and walk the store path up to the workspace root.
+The store works in Effect: `Effect` runs each read and write, `Data` gives `StoreError` and `ServiceInstall` their tags, `Schema` decodes a service's manifest and the TypeScript the executable carries, `Array` finds a file the executable embeds, and `Option` with `pipe` carries a value that may be missing, such as the workspace above a directory or the version of a service the store lacks. Node's modules supply the rest, and Bun provides them too. `child_process` runs the package manager, which `promisify` turns into a promise `Effect.tryPromise` can await. `fs` reads the store's contents and a package's manifest, and adds, removes and renames packages. `zlib` unpacks the TypeScript the executable carries. `join` and `dirname` form and walk the store path up to the workspace root.
 
 =>
 
-import { Data, Effect, Option, Schema, pipe } from 'effect'
+import { Array, Data, Effect, Option, Schema, pipe } from 'effect'
 import { execFile } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
+import { gunzipSync } from 'node:zlib'
 
 const run = promisify(execFile)
 

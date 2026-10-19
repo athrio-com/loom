@@ -78,6 +78,7 @@
     "packages/loom-vscode/tsconfig.json",
     "packages/loom-vscode/vite.config.ts",
     "packages/loom/LICENSE",
+    "packages/loom/compile.ts",
     "packages/loom/moon.yml",
     "packages/loom/package.json",
     "packages/loom/smoke/binary.smoke.ts",

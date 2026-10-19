@@ -967,6 +967,31 @@ const compileGrammar = (grammar: string, library: string) =>
 
 ~
 
+A person who chose the standalone executable may well have no C compiler. So the release compiles the grammar on each platform's own machine and adds the library to that platform's executable, under the name an editor loads it by. `grammarLibrary` is that name: `loom.so` on macOS and Linux, and `loom.dll` on Windows. `buildGrammar` writes the library the executable carries when there is one, and compiles the grammar otherwise, as the npm package always does. `writeLibrary` writes it the way the compiler does, under a temporary name first and then renamed into place.
+
+=>
+
+const grammarLibrary = process.platform === 'win32' ? 'loom.dll' : 'loom.so'
+
+const writeLibrary = (prebuilt: Blob, library: string): Effect.Effect<void> =>
+  Effect.promise(() => prebuilt.arrayBuffer()).pipe(
+    Effect.flatMap((bytes) =>
+      Effect.sync(() => {
+        const partial = `${library}.${process.pid}`
+        writeFileSync(partial, new Uint8Array(bytes), { mode: 0o755 })
+        renameSync(partial, library)
+      }),
+    ),
+  )
+
+const buildGrammar = (grammar: string, library: string) =>
+  Option.match(embeddedFile(grammarLibrary), {
+    onSome: (prebuilt) => writeLibrary(prebuilt, library),
+    onNone: () => compileGrammar(grammar, library),
+  })
+
+~
+
 Each command checks the editor's configuration before it touches anything, so a clash leaves the configuration as it was. It then builds the library, copies the queries, and writes the configuration, reporting each step, and ends by naming the check that confirms the result. A failure prints what went wrong and how to put it right, and exits non-zero. Both commands answer a failed compile with the same advice.
 
 =>
@@ -982,9 +1007,9 @@ const cannotCompile = (error: GrammarCompileFailed) =>
 
 ## Setting up Helix
 
-`loom helix` sets up the Helix editor for looms in one step. Helix reads a language from three places in its configuration folder: the grammar it parses the language with, the queries that colour the parse, and an entry in `languages.toml` that names the file extension and the language server. The command writes all three. It compiles the grammar into `runtime/grammars`, copies the Helix queries beside it, and adds Loom to `languages.toml`.
+`loom helix` sets up the Helix editor for looms in one step. Helix reads a language from three places in its configuration folder: the grammar it parses the language with, the queries that colour the parse, and an entry in `languages.toml` that names the file extension and the language server. The command writes all three. It builds the grammar into `runtime/grammars`, copies the Helix queries beside it, and adds Loom to `languages.toml`.
 
-The configuration folder is the one Helix itself reads. On macOS and Linux that is `helix` under `$XDG_CONFIG_HOME`, or under `~/.config` when the variable is unset, and on Windows it is `helix` under `%AppData%`. Helix loads a grammar as a shared library, named `loom.so` everywhere but Windows, where it is `loom.dll`.
+The configuration folder is the one Helix itself reads. On macOS and Linux that is `helix` under `$XDG_CONFIG_HOME`, or under `~/.config` when the variable is unset, and on Windows it is `helix` under `%AppData%`. Helix loads a grammar as a shared library, by the name `grammarLibrary` gives it.
 
 =>
 
@@ -992,8 +1017,6 @@ const helixConfigDir = (): string =>
   process.platform === 'win32'
     ? resolvePath(process.env.APPDATA ?? homedir(), 'helix')
     : resolvePath(process.env.XDG_CONFIG_HOME ?? resolvePath(homedir(), '.config'), 'helix')
-
-const grammarLibrary = process.platform === 'win32' ? 'loom.dll' : 'loom.so'
 
 ~
 
@@ -1051,7 +1074,7 @@ const helix = Effect.gen(function* () {
 
   const library = resolvePath(config, 'runtime', 'grammars', grammarLibrary)
   yield* Effect.sync(() => mkdirSync(dirname(library), { recursive: true }))
-  yield* compileGrammar(grammar, library)
+  yield* buildGrammar(grammar, library)
   yield* Console.log(`\n   ${teal('✓')} built the grammar into ${library}`)
 
   const queries = resolvePath(config, 'runtime', 'queries', 'loom')
@@ -1082,7 +1105,7 @@ const helix = Effect.gen(function* () {
 
 ## Setting up Neovim
 
-`loom nvim` sets up Neovim for looms in one step, with no plugin manager and no nvim-treesitter. Neovim 0.11 already holds what a loom needs: a tree-sitter host that loads a parser by its language's name, and a language-server client configured in Lua. What it lacks are three files. The command compiles Loom's parser, copies the queries that colour the parse, and writes a plugin that names the file type and starts the server.
+`loom nvim` sets up Neovim for looms in one step, with no plugin manager and no nvim-treesitter. Neovim 0.11 already holds what a loom needs: a tree-sitter host that loads a parser by its language's name, and a language-server client configured in Lua. What it lacks are three files. The command builds Loom's parser, copies the queries that colour the parse, and writes a plugin that names the file type and starts the server.
 
 All three go into the `site` folder of Neovim's data folder. The data folder is the one Neovim's `stdpath('data')` names: `nvim` under `$XDG_DATA_HOME`, or under `~/.local/share` when the variable is unset, and on Windows `nvim-data` under `%LocalAppData%`. The `NVIM_APPNAME` variable renames the `nvim` part, for a person who keeps several configurations side by side. Neovim puts `site` on its runtime path from the start, so it finds what the command writes there without a line of the person's own configuration. It is also where nvim-treesitter installs the parsers it builds, so Loom's parser sits beside theirs.
 
@@ -1156,7 +1179,7 @@ const nvim = Effect.gen(function* () {
 
   const parser = resolvePath(site, 'parser', 'loom.so')
   yield* Effect.sync(() => mkdirSync(dirname(parser), { recursive: true }))
-  yield* compileGrammar(grammar, parser)
+  yield* buildGrammar(grammar, parser)
   yield* Console.log(`\n   ${teal('✓')} built the grammar into ${parser}`)
 
   const queries = resolvePath(site, 'queries', 'loom')
@@ -1316,7 +1339,7 @@ For `loom upgrade`, `Schema` decodes the release GitHub describes, `Array` finds
 
 The language server contributes six services: `LoomTangler`, which walks a `.loom` file, emits the tangled output, and watches it for changes; `LoomWeaver`, which projects a corpus and writes the woven data; `LoomContents`, which regenerates a book's table of contents; `LoomFormatter`, which formats a loom and names the looms a folder holds; `DocumentSource`, which feeds them source text from disk; and `PackageConfig`, which resolves a `.loom`'s package settings. `TangledFile` and `TangleError` ride along from the compiler, typing the files a pass writes and the error a broken corpus raises. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back, and `defaultWidth`, the width a loom's lines keep to when its project names none.
 
-From `@athrio/loom-lang-services` come the store operations behind activation: `installService` and `removeService` install and uninstall a language's package, with `ServiceInstall` saying what an install did and `StoreError` the reason one failed, `installedVersion` reads the version of a service the store holds, and `serviceVersion` is the version this Loom expects. `storeDir` locates the store, `workspaceRoot` finds the workspace it sits in, and `servicePackage` names a language's package. `storeTypeScript` and `installTypeScript` find and install the TypeScript the store keeps, at the range `typeScriptRange` names, and `standalone` says whether Loom runs as the standalone executable. For `format`, `loadActive` loads the project's language services from the store and `installHostRuntime` lends them the host's Effect and TypeScript, both imported only when `format` reaches them; `LanguageService` types what the loader returns, and `pathToFileURL` turns the TypeScript it finds into the address `import` takes.
+From `@athrio/loom-lang-services` come the store operations behind activation: `installService` and `removeService` install and uninstall a language's package, with `ServiceInstall` saying what an install did and `StoreError` the reason one failed, `installedVersion` reads the version of a service the store holds, and `serviceVersion` is the version this Loom expects. `storeDir` locates the store, `workspaceRoot` finds the workspace it sits in, and `servicePackage` names a language's package. `storeTypeScript` and `installTypeScript` find and install the TypeScript the store keeps, at the range `typeScriptRange` names, `standalone` says whether Loom runs as the standalone executable, and `embeddedFile` finds the grammar library an executable carries. For `format`, `loadActive` loads the project's language services from the store and `installHostRuntime` lends them the host's Effect and TypeScript, both imported only when `format` reaches them; `LanguageService` types what the loader returns, and `pathToFileURL` turns the TypeScript it finds into the address `import` takes.
 
 =>
 
@@ -1364,6 +1387,7 @@ import { defaultWidth, LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
   installedVersion,
   installService,
+  embeddedFile,
   installTypeScript,
   removeService,
   ServiceInstall,

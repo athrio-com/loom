@@ -10,25 +10,164 @@ Loom composes any language, but the npm package asks for a JavaScript runtime be
 
 Bun builds that file. `bun build --compile` takes a JavaScript program and writes an executable that holds both the program and Bun's own runtime. Loom compiles the bundle Vite writes to `dist/main.js`, the very bundle the npm package ships, rather than the CLI's TypeScript source. Compiling from the source fails, because a library under the Markdown service, `vscode-markdown-languageservice`, imports a default export from the ES-module build of `vscode-uri`, and that build has none. Vite's bundle has already settled that import, as the chapter on bundling the CLI explains.
 
-The executable is large, between seventy and a hundred and twenty megabytes depending on the platform, since it carries a whole runtime. The release builds one for each platform Loom supports: macOS on Apple silicon and on Intel, Linux on x64 and on ARM, and Windows on x64. Bun compiles all five from one machine.
+The executable is large, between seventy and a hundred and twenty megabytes depending on the platform, since it carries a whole runtime. The release builds one for each platform Loom supports: macOS on Apple silicon and on Intel, Linux on x64 and on ARM, and Windows on x64. Each is built and tested on a machine of its own platform, so every executable the release ships has run its smoke test where it will run.
 
 ## What changes inside an executable
 
-The executable runs the same program as the npm package, but four things that program expects are missing from around it, and each has its answer elsewhere in the book.
+The executable runs the same program as the npm package, but four things that program expects are missing from around it. A person who downloads the executable should need nothing else, no compiler and no further download, so each gap is closed inside the executable itself.
 
 Node's resolver cannot find a package by its bare name inside an executable, though it finds a file at a known path. So the loader reads a language service's own manifest to find the file it imports, rather than asking the resolver.
 
 There is no npm to install a language service with. The executable carries Bun, and Bun answers as itself when the `BUN_BE_BUN` variable is set, so the store runs the executable a second time as Bun to install a package.
 
-Nothing sits beside the executable, so there is no folder beside it for the grammar `loom helix` and `loom nvim` compile. The bundle carries the grammar's files as a module of text instead, and the commands write them into a temporary folder to compile.
+`loom helix` and `loom nvim` give an editor Loom's grammar as a compiled library, which the npm package builds with the system's C compiler. The executable carries that library already built for its platform, so the commands write it out and need no compiler.
 
-Nothing beside it holds TypeScript either, which the language server and `loom format` both need. So both install TypeScript 6 into the workspace's store the first time they find none.
+Nothing beside the executable holds TypeScript either, which the language server and `loom format` both need. The executable carries TypeScript 6, packed into one gzipped file, and unpacks it into the workspace's store the first time either finds none there.
+
+## Compiling the executable [compile.ts]
+
+The package's `compile` script runs this program, which builds the executable for the machine it runs on. The release runs it once on each platform's own machine. It works in three steps, and each writes into `build`, a folder Git ignores.
+
+First it compiles the grammar into a library, under the name `loom helix` writes it by, `loom.so` or `loom.dll` on Windows. The compiler call is the one `loom helix` makes, and `CC` names another compiler, as it does there.
+
+Second it packs TypeScript into `typescript.json.gz`, the shape the store unpacks: the package's `package.json`, the compiler in `lib/typescript.js`, and the declaration files of the standard library, `lib.*.d.ts`. That is about thirteen megabytes of text, and gzip brings it to about two. The TypeScript it packs is the workspace's own, the release of TypeScript 6 the package's `devDependencies` name.
+
+Third it compiles `dist/main.js` into `build/loom`, with the library and the packed TypeScript as two more files beside the program. Bun embeds a file it cannot run as code under its name, and `--asset-naming` keeps that name exactly, so the executable finds each by the name it was given.
+
+`run` spawns each command and fails with `CompileError`, naming the command, when one exits non-zero or cannot start. The program reports the error and exits non-zero, so a release never ships an executable built from a step that failed.
+
+=>
+
+import { Array, Console, Data, Effect, pipe } from 'effect'
+import { NodeRuntime } from '@effect/platform-node'
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { gzipSync } from 'node:zlib'
+
+const here = dirname(fileURLToPath(import.meta.url))
+const build = join(here, 'build')
+
+class CompileError extends Data.TaggedError('CompileError')<{
+  readonly command: string
+}> {}
+
+const run = (command: ReadonlyArray<string>): Effect.Effect<void, CompileError> =>
+  Effect.tryPromise({
+    try: () => Bun.spawn([...command], { cwd: here, stdout: 'inherit', stderr: 'inherit' }).exited,
+    catch: () => new CompileError({ command: command.join(' ') }),
+  }).pipe(
+    Effect.flatMap((code) =>
+      code === 0 ? Effect.void : Effect.fail(new CompileError({ command: command.join(' ') })),
+    ),
+  )
+
+~
+
+The grammar's sources sit in the `tree-sitter-loom` package beside this one.
+
+=>
+
+const grammarLibrary = process.platform === 'win32' ? 'loom.dll' : 'loom.so'
+
+const grammarSource = join(here, '..', 'tree-sitter-loom', 'src')
+
+const compiledGrammar = run([
+  process.env.CC ?? 'cc',
+  '-shared',
+  '-fPIC',
+  '-O2',
+  '-I',
+  grammarSource,
+  join(grammarSource, 'parser.c'),
+  join(grammarSource, 'scanner.c'),
+  '-o',
+  join(build, grammarLibrary),
+])
+
+~
+
+`typeScriptFiles` names the files to pack, each by its path in the package.
+
+=>
+
+const typeScriptDir = dirname(createRequire(import.meta.url).resolve('typescript/package.json'))
+
+const typeScriptFiles = (): ReadonlyArray<string> => [
+  'package.json',
+  'lib/typescript.js',
+  ...pipe(
+    readdirSync(join(typeScriptDir, 'lib')),
+    Array.filter((name) => name.startsWith('lib.') && name.endsWith('.d.ts')),
+    Array.map((name) => `lib/${name}`),
+  ),
+]
+
+const packedTypeScript = Effect.sync(() =>
+  writeFileSync(
+    join(build, 'typescript.json.gz'),
+    gzipSync(
+      JSON.stringify({
+        files: Object.fromEntries(
+          Array.map(typeScriptFiles(), (file) => [
+            file,
+            readFileSync(join(typeScriptDir, file), 'utf8'),
+          ]),
+        ),
+      }),
+      { level: 9 },
+    ),
+  ),
+)
+
+~
+
+The compile runs on the Bun that runs this program, so it needs no `bun` on `PATH`.
+
+=>
+
+const compiledExecutable = run([
+  process.execPath,
+  'build',
+  join(here, 'dist', 'main.js'),
+  join(build, grammarLibrary),
+  join(build, 'typescript.json.gz'),
+  '--compile',
+  '--asset-naming=[name].[ext]',
+  '--outfile',
+  join(build, 'loom'),
+])
+
+const compile = Effect.gen(function* () {
+  yield* Effect.sync(() => mkdirSync(build, { recursive: true }))
+  yield* compiledGrammar
+  yield* packedTypeScript
+  yield* compiledExecutable
+  yield* Console.log(`compile: wrote ${join(build, 'loom')} with ${grammarLibrary} and TypeScript`)
+})
+
+NodeRuntime.runMain(
+  compile.pipe(
+    Effect.catchTag('CompileError', (error) =>
+      Console.error(`compile: command failed — ${error.command}`).pipe(
+        Effect.andThen(
+          Effect.sync(() => {
+            process.exitCode = 1
+          }),
+        ),
+      ),
+    ),
+  ),
+)
 
 ## A smoke test for the executable
 
 The tests of the CLI run its source under Bun, and none of these four differences shows there. So the executable has a test of its own, a smoke test, which runs the compiled file the way a person runs it and checks that each of its commands still answers.
 
-The test runs `build/loom`, which the package's `compile` script writes. It never reaches for the npm package's own tools. Each case runs the executable in a folder of its own, with `PATH` set to an empty folder, so the executable can find no `npm`, no `bun`, and no `node` to lean on. `run` spawns it and collects its exit status and both its output streams. It spawns without blocking, because a case may serve the executable a release of its own from inside the test process, and a blocked process answers no request.
+The test runs `build/loom`, which the package's `compile` script writes. Each case runs the executable in a folder of its own, in an environment `bareEnv` strips of two things. Its `PATH` is an empty folder, so the executable finds no `npm`, `bun`, `node` or C compiler to lean on. Its package registry, which `NPM_CONFIG_REGISTRY` names, is an address where nothing answers, so a download it did not mean to make fails the case. A case that serves a registry or a release of its own names that address instead. Every other variable passes through, since Windows cannot open a network connection without the ones that name its system folders.
+
+`run` spawns the executable and collects its exit status and both its output streams. It spawns without blocking, because a case may serve the executable a registry or a release from inside the test process, and a blocked process answers no request.
 
 =>
 
@@ -41,9 +180,17 @@ const scratch = (name: string): string =>
 
 const emptyPath = scratch('path')
 
+const nowhere = 'http://127.0.0.1:9/'
+
 const bareEnv = (extra: Record<string, string> = {}): Record<string, string> => ({
-  HOME: process.env.HOME ?? tmpdir(),
+  ...Object.fromEntries(
+    Object.entries(process.env).filter(
+      (entry): entry is [string, string] =>
+        entry[1] !== undefined && entry[0].toUpperCase() !== 'PATH',
+    ),
+  ),
   PATH: emptyPath,
+  NPM_CONFIG_REGISTRY: nowhere,
   ...extra,
 })
 
@@ -145,7 +292,7 @@ describe('the executable — tangling', () => {
 
 A case that needs a language service stands one in the store by hand, so it needs no release of the real service. The stand-in answers for TypeScript and formats by squeezing every double space to one. It reads Effect from the runtime the host lends, as a published service does, and declares this Loom's version, so nothing warns that it is stale.
 
-`installStandIn` writes it where the store keeps the TypeScript service. Its manifest names the entry only in `exports`, under the key `"."`, the way the published service names it, so the case proves the loader finds an entry from a manifest.
+`writeStandIn` writes the stand-in's files into a folder, and `installStandIn` writes them where the store keeps the TypeScript service. The manifest names the entry only in `exports`, under the key `"."`, the way the published service names it, so the case proves the loader finds an entry from a manifest.
 
 =>
 
@@ -160,11 +307,10 @@ const standIn = lines(
   '}',
 )
 
-const installStandIn = (root: string): void => {
-  const service = join(root, '.loom', 'services', 'node_modules', servicePackage('typescript'))
-  mkdirSync(join(service, 'dist'), { recursive: true })
+const writeStandIn = (folder: string): void => {
+  mkdirSync(join(folder, 'dist'), { recursive: true })
   writeFileSync(
-    join(service, 'package.json'),
+    join(folder, 'package.json'),
     JSON.stringify({
       name: servicePackage('typescript'),
       version: serviceVersion,
@@ -172,14 +318,55 @@ const installStandIn = (root: string): void => {
       exports: { '.': './dist/index.js' },
     }),
   )
-  writeFileSync(join(service, 'dist', 'index.js'), standIn)
+  writeFileSync(join(folder, 'dist', 'index.js'), standIn)
 }
+
+const installStandIn = (root: string): void =>
+  writeStandIn(join(root, '.loom', 'services', 'node_modules', servicePackage('typescript')))
 
 ~
 
 `loom update` on a service the store already holds at this Loom's version leaves it alone and says so, and it never runs a package manager to find that out.
 
+A service the store lacks must arrive through the executable acting as Bun, with no package manager on `PATH`. `registryServer` stands in for npm's registry. It describes one package, the stand-in at this Loom's version, and serves it as the tarball a registry serves, with the checksum Bun checks the download against. `standInTarball` packs that tarball with `tar`, the stand-in's files under a `package` folder as npm packs them. It names both by relative paths from inside the folder, since GNU `tar` reads a Windows path such as `C:\…` as the name of a remote host.
+
 =>
+
+const standInTarball = (): Uint8Array => {
+  const dir = scratch('tarball')
+  writeStandIn(join(dir, 'package'))
+  Bun.spawnSync(['tar', '-czf', 'service.tgz', 'package'], { cwd: dir })
+  const packed = new Uint8Array(readFileSync(join(dir, 'service.tgz')))
+  rmSync(dir, { recursive: true, force: true })
+  return packed
+}
+
+const registryServer = (tarball: Uint8Array) =>
+  Bun.serve({
+    port: 0,
+    fetch: (request) => {
+      const name = servicePackage('typescript')
+      const path = decodeURIComponent(new URL(request.url).pathname)
+      if (path === `/${name}`)
+        return Response.json({
+          name,
+          'dist-tags': { latest: serviceVersion },
+          versions: {
+            [serviceVersion]: {
+              name,
+              version: serviceVersion,
+              dist: {
+                tarball: new URL('/service.tgz', request.url).href,
+                integrity: `sha512-${createHash('sha512').update(tarball).digest('base64')}`,
+              },
+            },
+          },
+        })
+      if (path === '/service.tgz') return new Response(tarball)
+      return new Response('not found', { status: 404 })
+    },
+  })
+
 
 describe('the executable — languages', () => {
   it(
@@ -194,11 +381,37 @@ describe('the executable — languages', () => {
     },
     SMOKE_TIMEOUT,
   )
+
+  it(
+    'installs a service the store lacks, acting as its own package manager',
+    async () => {
+      const dir = workspace('corpus: .', 'languages:', '  typescript: {}', 'primary: typescript')
+      const registry = registryServer(standInTarball())
+      const { status, stdout } = await run(['update', 'typescript'], {
+        cwd: dir,
+        env: bareEnv({ NPM_CONFIG_REGISTRY: registry.url.href }),
+      })
+      registry.stop()
+      expect(status).toBe(0)
+      expect(stdout).toContain(`installed ${servicePackage('typescript')} ${serviceVersion}`)
+      const manifest = join(
+        dir,
+        '.loom',
+        'services',
+        'node_modules',
+        servicePackage('typescript'),
+        'package.json',
+      )
+      expect(JSON.parse(readFileSync(manifest, 'utf8')).version).toBe(serviceVersion)
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SMOKE_TIMEOUT,
+  )
 })
 
 ## A language server with no TypeScript
 
-This case drives `loom lsp` the way an editor does, over standard input and output. The workspace activates TypeScript and holds the stand-in, but no TypeScript compiler lies anywhere the server looks: not in the project, not beside the executable, not in the store. The server must install TypeScript 6 into the store before it answers `initialize`. It does that through the executable acting as Bun, with nothing on `PATH`, and this install reaches the real registry.
+This case drives `loom lsp` the way an editor does, over standard input and output. The workspace activates TypeScript and holds the stand-in, but no TypeScript compiler lies anywhere the server looks: not in the project, not beside the executable, not in the store. The server must unpack the TypeScript the executable carries into the store before it answers `initialize`. The registry points nowhere, so the case fails if the server tries to download TypeScript instead.
 
 The case then opens a loom and asks the server to format it. The answer can come only from the stand-in, so a squeezed loom proves the executable loaded a service from the store.
 
@@ -228,7 +441,7 @@ const editorAt = async (folder: string) => {
 
 describe('the executable — language server', () => {
   it(
-    'installs TypeScript into the store and formats with a service from the store',
+    'unpacks the TypeScript it carries and formats with a service from the store',
     async () => {
       const dir = workspace('corpus: .', 'languages:', '  typescript: {}', 'primary: typescript')
       installStandIn(dir)
@@ -244,7 +457,9 @@ describe('the executable — language server', () => {
         })
         await connection.sendNotification('initialized', {})
         expect(
-          existsSync(join(dir, '.loom', 'services', 'node_modules', 'typescript', 'lib')),
+          existsSync(
+            join(dir, '.loom', 'services', 'node_modules', 'typescript', 'lib', 'lib.es5.d.ts'),
+          ),
         ).toBe(true)
         await connection.sendNotification('textDocument/didOpen', {
           textDocument: {
@@ -269,20 +484,20 @@ describe('the executable — language server', () => {
   )
 })
 
-## Setting up Helix
+## Setting up Helix and Neovim
 
-`loom helix` must find the grammar inside the executable, unpack it, and compile it. The case points Helix's configuration folder at a temporary one and keeps the ordinary `PATH`, since compiling needs the system's C compiler. It checks that the compiled grammar and the queries arrived.
+`loom helix` and `loom nvim` must write the grammar library the executable carries, with no C compiler to build one. The cases run them with the empty `PATH`, so a command that tried to compile would find no compiler and fail. Each points the editor's folders at a temporary one, as the tests of the CLI do, and checks that the library and the queries arrived.
 
 =>
 
 describe('the executable — editors', () => {
   it(
-    'builds the grammar it carries for Helix',
+    'gives Helix the grammar it carries, with no compiler',
     async () => {
       const config = scratch('helix')
       const { status } = await run(['helix'], {
         cwd: config,
-        env: { ...bareEnv({ XDG_CONFIG_HOME: config }), PATH: process.env.PATH ?? '' },
+        env: bareEnv({ XDG_CONFIG_HOME: config, APPDATA: config }),
       })
       expect(status).toBe(0)
       const library = process.platform === 'win32' ? 'loom.dll' : 'loom.so'
@@ -291,6 +506,23 @@ describe('the executable — editors', () => {
         true,
       )
       rmSync(config, { recursive: true, force: true })
+    },
+    SMOKE_TIMEOUT,
+  )
+
+  it(
+    'gives Neovim the grammar it carries, with no compiler',
+    async () => {
+      const data = scratch('nvim')
+      const { status } = await run(['nvim'], {
+        cwd: data,
+        env: bareEnv({ XDG_DATA_HOME: data, LOCALAPPDATA: data, NVIM_APPNAME: 'nvim' }),
+      })
+      expect(status).toBe(0)
+      const site = join(data, process.platform === 'win32' ? 'nvim-data' : 'nvim', 'site')
+      expect(existsSync(join(site, 'parser', 'loom.so'))).toBe(true)
+      expect(existsSync(join(site, 'queries', 'loom', 'highlights.scm'))).toBe(true)
+      rmSync(data, { recursive: true, force: true })
     },
     SMOKE_TIMEOUT,
   )
@@ -350,7 +582,7 @@ const upgradeCopy = async (tag: string, listed: string) => {
 
 ~
 
-A newer release whose checksum matches replaces the copy, and the copy then runs as the replacement. A release whose listed checksum differs from the file's leaves the copy as it was, still Loom, and the command exits non-zero. A release no newer than this Loom changes nothing.
+A newer release whose checksum matches replaces the copy. On macOS and Linux the copy then runs as the replacement. Windows cannot run a shell script, so there the case checks that the running copy moved aside to a name ending in `.old`, the step that lets Windows replace it. A release whose listed checksum differs from the file's leaves the copy as it was, still Loom, and the command exits non-zero. A release no newer than this Loom changes nothing.
 
 =>
 
@@ -361,8 +593,8 @@ describe('the executable — upgrade', () => {
       const { status, dir, copy } = await upgradeCopy('v99.0.0', sha256(archive))
       expect(status).toBe(0)
       expect(new Uint8Array(readFileSync(copy))).toEqual(replacement)
-      const after = await run([], { cwd: dir, env: bareEnv(), executable: copy })
-      expect(after.stdout).toContain('upgraded')
+      if (process.platform === 'win32') expect(existsSync(`${copy}.old`)).toBe(true)
+      else expect((await run([], { cwd: dir, env: bareEnv(), executable: copy })).stdout).toContain('upgraded')
       rmSync(dir, { recursive: true, force: true })
     },
     SMOKE_TIMEOUT,
@@ -451,11 +683,11 @@ const install = async (sums: string | undefined) => {
 
 ~
 
-A file that matches the list lands in the folder as `loom`, executable, with no temporary file left beside it, and it runs. A file whose checksum differs from the one listed stops the install, and so does a release that carries no list. Either way the folder stays empty.
+A file that matches the list lands in the folder as `loom`, executable, with no temporary file left beside it, and it runs. A file whose checksum differs from the one listed stops the install, and so does a release that carries no list. Either way the folder stays empty. Windows has no `sh`, and the script does not serve Windows, so the cases skip it there.
 
 =>
 
-describe('the install script', () => {
+describe.skipIf(process.platform === 'win32')('the install script', () => {
   it('installs an executable whose checksum matches the list', async () => {
     const { status, stdout, dir } = await install(`${sha256(standIn)}  ${assetName}\n`)
     expect(status).toBe(0)
@@ -486,7 +718,7 @@ describe('the install script', () => {
 
 ## What the smoke test draws on
 
-The cases run on Bun's test runner, and Bun spawns the executable, gzips the stand-in executables, and serves the stand-in release. Node's modules make the folders and files a case needs, copy the executable to upgrade, compute a checksum, and turn paths into the `file:` addresses the language server names documents by. Volar's language-server package carries the client half of the protocol: `createMessageConnection`, the stream reader and writer it speaks through, and the `TextEdit` a format answers with. The language store names the TypeScript service's package and this Loom's version, and the host runtime names the key under which the stand-in finds Effect.
+The cases run on Bun's test runner, and Bun spawns the executable and `tar`, gzips the stand-in executables, and serves the stand-in registry and release. Node's modules make the folders and files a case needs, copy the executable to upgrade, compute a checksum, and turn paths into the `file:` addresses the language server names documents by. Volar's language-server package carries the client half of the protocol: `createMessageConnection`, the stream reader and writer it speaks through, and the `TextEdit` a format answers with. The language store names the TypeScript service's package and this Loom's version, and the host runtime names the key under which the stand-in finds Effect.
 
 =>
 
@@ -532,6 +764,6 @@ import { runtimeKey } from '@athrio/loom-lang-services/Runtime'
 
 ::[A language server with no TypeScript]
 
-::[Setting up Helix]
+::[Setting up Helix and Neovim]
 
 ::[Upgrading in place]

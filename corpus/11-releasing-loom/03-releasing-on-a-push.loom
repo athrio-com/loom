@@ -51,24 +51,22 @@ jobs:
 
 ## Attaching the executables to a release
 
-The standalone executable ships as a file on a GitHub release, one release for each version, tagged with that version and a `v` in front. This job builds the files and attaches them. It runs after the npm job, because an executable installs its language services from npm at its own version, and those must be published before anyone can download the executable.
+The standalone executable ships as a file on a GitHub release, one release for each version, tagged with that version and a `v` in front. Three jobs build the files and attach them. They run after the npm job, because an executable installs its language services from npm at its own version, and those must be published before anyone can download the executable.
 
-The job is idempotent like the others. It reads the version from the CLI's manifest and asks GitHub whether that version's release already carries `SHA256SUMS`, the list of checksums. The job attaches the list last, so a release that has it has every file, and the job then stops there. A release that a failed run left half-filled lacks the list, so the next run fills it in.
+The first job decides whether there is anything to do, and it is what keeps the three idempotent like the others. It reads the version from the CLI's manifest and asks GitHub whether that version's release already carries `SHA256SUMS`, the list of checksums. The last job attaches the list last, so a release that has it has every file, and the other two jobs then never start. A release that a failed run left half-filled lacks the list, so the next run fills it in.
 
 =>
 
-  binaries:
+  release:
     needs: npm
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      done: ${{ steps.release.outputs.done }}
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.2.20
       - name: The release this version needs
         id: release
         env:
@@ -82,45 +80,101 @@ The job is idempotent like the others. It reads the version from the CLI's manif
 
 ~
 
-Bun compiles all five executables on one Linux runner. Each `--target` names a platform, and Bun fetches that platform's runtime to build into the file. The job builds the bundle once, compiles it five times, and names each file for its platform alone, with no version in the name, so whoever downloads one builds its name from the platform: `loom-darwin-arm64`, and `loom-windows-x64.exe`, since Bun gives the Windows file its `.exe`.
+The second job builds each executable on a machine of its own platform, one GitHub runner apiece: macOS on Apple silicon and on Intel, Linux on x64 and on ARM, and Windows on x64. GitHub lends these runners free to a public repository. Building on the platform itself means a macOS executable is signed by the Bun that compiled it on a Mac, and the grammar library inside each one comes from that platform's own C compiler. Windows has no `cc`, so its runner names MinGW's `gcc` in `CC`. A run that fails on one platform goes on with the others, so a first run shows every platform that needs work.
 
-An executable carries a whole runtime, and gzip shrinks it to about a third, so the release ships each one gzipped: `loom-darwin-arm64.gz`, `loom-windows-x64.exe.gz`. Each holds the one file, and the install script, `loom upgrade` and Zed's extension all unpack it after download. The job copies the install script beside them, uncompressed, since `sh` reads it straight from the download. `sha256sum` then writes the checksum of every file the release carries into `SHA256SUMS`, so each file is checked as it is downloaded.
+Each runner then runs the smoke test against the executable it just built, so no executable reaches a release without having run where it will run. The steps run in Bash on every platform, which Windows runners carry with Git.
 
 =>
 
-      - name: An executable for each platform
-        if: steps.release.outputs.done != 'true'
+  executable:
+    needs: release
+    if: needs.release.outputs.done != 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: darwin-arm64, runner: macos-15 }
+          - { platform: darwin-x64, runner: macos-15-intel }
+          - { platform: linux-x64, runner: ubuntu-latest }
+          - { platform: linux-arm64, runner: ubuntu-24.04-arm }
+          - { platform: windows-x64, runner: windows-2025, cc: gcc }
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.20
+      - name: Build the executable and run its smoke test
+        env:
+          CC: ${{ matrix.cc || 'cc' }}
         run: |
           bun install --frozen-lockfile
-          bun run --filter @athrio/loom build
-          mkdir release
-          for target in darwin-arm64 darwin-x64 linux-x64 linux-arm64 windows-x64; do
-            bun build packages/loom/dist/main.js --compile --target "bun-$target" --outfile "release/loom-$target"
-          done
-          gzip -9 release/loom-*
-          cp scripts/install.sh release/install.sh
-          (cd release && sha256sum loom-*.gz install.sh > SHA256SUMS)
+          cd packages/loom
+          bun run build
+          bun run compile
+          bun test ./smoke/binary.smoke.ts ./smoke/install.smoke.ts
 
 ~
 
-The release is created at the commit the gate validated, which also creates its tag, unless an earlier run already created it. It is a full release, never a prerelease, because GitHub's address for the latest release and Zed's search for it both pass over prereleases. The executables and the install script go up first and the list of checksums last. `--clobber` replaces a file an earlier run left half-uploaded.
+The executable that passed is named for its platform alone, with no version in the name, so whoever downloads one builds its name from the platform: `loom-darwin-arm64`, and `loom-windows-x64.exe`. An executable carries a whole runtime, and gzip shrinks it to about a third, so the release ships each one gzipped, `loom-darwin-arm64.gz` and `loom-windows-x64.exe.gz`. Each holds the one file, and the install script, `loom upgrade` and Zed's extension all unpack it after download.
 
-The macOS executables carry no signature from Apple and have not been notarised. A file `curl` downloads carries no quarantine flag, so macOS runs it, and that is how the install script and `loom upgrade` fetch it. A file downloaded through a browser carries the flag, and macOS refuses to open it until its owner allows it. Signing and notarising them is work for a later release.
+The grammar library ships beside it, ungzipped, since it is small: `tree-sitter-loom-darwin-arm64.so`, and `tree-sitter-loom-windows-x64.dll`. An editor's own tooling can fetch it, and so could an npm install of Loom that finds no C compiler. The runner hands both files to the last job as an artifact of the run.
 
 =>
 
+      - name: Name the files for the release
+        run: |
+          mkdir release
+          if [ -f packages/loom/build/loom.exe ]; then exe=.exe; library=dll; else exe=; library=so; fi
+          cp "packages/loom/build/loom$exe" "release/loom-${{ matrix.platform }}$exe"
+          gzip -9 "release/loom-${{ matrix.platform }}$exe"
+          cp "packages/loom/build/loom.$library" "release/tree-sitter-loom-${{ matrix.platform }}.$library"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: loom-${{ matrix.platform }}
+          path: release/*
+
+~
+
+The last job runs once every platform has passed, and it is the one job that writes to the repository. It gathers the five artifacts into one folder and copies the install script beside them, uncompressed, since `sh` reads it straight from the download. `sha256sum` writes the checksum of every file the release carries into `SHA256SUMS`, so each file is checked as it is downloaded.
+
+The release is created at the commit the gate validated, which also creates its tag, unless an earlier run already created it. It is a full release, never a prerelease, because GitHub's address for the latest release and Zed's search for it both pass over prereleases. The executables, the libraries and the install script go up first and the list of checksums last. `--clobber` replaces a file an earlier run left half-uploaded.
+
+The macOS executables carry Bun's ad-hoc signature, which lets Apple silicon run them, but no signature from Apple's Developer ID, and they have not been notarised. A file `curl` downloads carries no quarantine flag, so macOS runs it, and that is how the install script and `loom upgrade` fetch it. A file downloaded through a browser carries the flag, and macOS refuses to open it until its owner allows it. Signing and notarising them is work for a later release.
+
+=>
+
+  publish:
+    needs: [release, executable]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
       - name: Attach them to the release
-        if: steps.release.outputs.done != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
+          TAG: ${{ needs.release.outputs.tag }}
           COMMIT: ${{ github.event.workflow_run.head_sha }}
         run: |
+          cp scripts/install.sh release/install.sh
+          (cd release && sha256sum loom-*.gz tree-sitter-loom-* install.sh > SHA256SUMS)
           if ! gh release view "$TAG" > /dev/null 2>&1; then
             gh release create "$TAG" --target "$COMMIT" --title "Loom ${TAG#v}" \
-              --notes "Install the standalone executable with \`curl -fsSL https://github.com/athrio-com/loom/releases/latest/download/install.sh | sh\`, or with npm as \`@athrio/loom\`. The macOS executables are not signed or notarised yet."
+              --notes "Install the standalone executable with \`curl -fsSL https://github.com/athrio-com/loom/releases/latest/download/install.sh | sh\`, or with npm as \`@athrio/loom\`. The macOS executables are not signed with a Developer ID or notarised yet."
           fi
-          gh release upload "$TAG" release/loom-*.gz release/install.sh --clobber
+          gh release upload "$TAG" release/loom-*.gz release/tree-sitter-loom-* release/install.sh --clobber
           gh release upload "$TAG" release/SHA256SUMS --clobber
 
 ## Mirroring the Zed extension
