@@ -16,7 +16,9 @@ The manifest names the extension, the grammar, and the language server. Zed buil
 
 The language server is declared by name and language here, and the Rust below tells the editor how to start it.
 
-{{ version = ${version} }}
+The extension is a product of its own, with a version of its own: the `zed` variable of the workspace configuration, not the `version` that Loom's packages share. Zed's registry takes each new version of an extension through a pull request that a person reviews, so the version rises only when the extension changes. A change to its queries, its Rust, or the grammar revision it pins is such a change. A release of Loom that leaves the extension alone has nothing to send to Zed. The two versions need not match, because the extension starts whichever `loom` the system has.
+
+{{ version = ${zed} }}
 {{ revision = "bbadbf24e9cb8b131a2f3fa5e390e9929960bd01" }}
 
 =>
@@ -79,7 +81,7 @@ zed::register_extension!(LoomExtension);
 
 Zed compiles the library to WebAssembly, so the crate is a `cdylib`, a library with a C interface that the compiler can emit as a WebAssembly module. It depends on `zed_extension_api`, the crate that defines the trait and the types the editor passes in. The extension targets version 0.6.0, the newest interface Gram 3.3 carries, and Zed still loads it.
 
-{{ version = ${version} }}
+{{ version = ${zed} }}
 
 =>
 
