@@ -57,9 +57,9 @@ tasks:
       npm pack --ignore-scripts --silent > /dev/null
       contents=$(tar tzf athrio-loom-*.tgz)
       rm -f athrio-loom-*.tgz
-      if echo "$contents" | grep -Eiq 'design|overlay|shell|ui\.'; then
+      if echo "$contents" | grep -Eiq 'design|overlay|shell|(^|/)ui\.'; then
         echo "the tarball carries Loom Design:" >&2
-        echo "$contents" | grep -Ei 'design|overlay|shell|ui\.' >&2
+        echo "$contents" | grep -Ei 'design|overlay|shell|(^|/)ui\.' >&2
         exit 1
       fi
       if grep -oh '"sources":\[[^]]*\]' dist/*.js.map | grep -q 'loom-design'; then

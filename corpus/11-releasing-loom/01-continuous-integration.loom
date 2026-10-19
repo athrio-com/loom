@@ -321,7 +321,7 @@ tasks:
 
 ## The CLI's tasks {Tangle}[packages/loom/moon.yml]
 
-The CLI builds on the language and so on everything the language builds on. It also reads the grammar of `tree-sitter-loom`: its build copies the grammar's sources into the bundle, and its tests run `loom helix` and `loom nvim`, which compile them. Besides its type check and its tests it carries the Design check. That check builds the tool and packs it the way npm would, then reads what came out. A file named for Design in the tarball fails the task, and so does a source map that lists one of Design's files among its sources, the path by which Design's TypeScript reached the registry the first time. Design's name inside a string is allowed, since the `design` command has to say which package to install. The tarball is removed once it has been read, so the check leaves no file behind on a developer's machine.
+The CLI builds on the language and so on everything the language builds on. It also reads the grammar of `tree-sitter-loom`: its build copies the grammar's sources into the bundle, and its tests run `loom helix` and `loom nvim`, which compile them. Besides its type check and its tests it carries the Design check. That check builds the tool and packs it the way npm would, then reads what came out. A file named for Design in the tarball fails the task: one with `design`, `overlay` or `shell` in its name, or one named `ui`. The `ui` must start the file's name, because a bundled chunk's name ends in a hash, and a hash can spell `ui` by chance. A source map fails the task as well when it lists one of Design's files among its sources, the path by which Design's TypeScript reached the registry the first time. Design's name inside a string is allowed, since the `design` command has to say which package to install. The tarball is removed once it has been read, so the check leaves no file behind on a developer's machine.
 
 =>
 
@@ -384,9 +384,9 @@ tasks:
       npm pack --ignore-scripts --silent > /dev/null
       contents=$(tar tzf athrio-loom-*.tgz)
       rm -f athrio-loom-*.tgz
-      if echo "$contents" | grep -Eiq 'design|overlay|shell|ui\.'; then
+      if echo "$contents" | grep -Eiq 'design|overlay|shell|(^|/)ui\.'; then
         echo "the tarball carries Loom Design:" >&2
-        echo "$contents" | grep -Ei 'design|overlay|shell|ui\.' >&2
+        echo "$contents" | grep -Ei 'design|overlay|shell|(^|/)ui\.' >&2
         exit 1
       fi
       if grep -oh '"sources":\[[^]]*\]' dist/*.js.map | grep -q 'loom-design'; then
