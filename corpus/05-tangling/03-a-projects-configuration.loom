@@ -39,9 +39,11 @@ const VariablesSchema = Schema.Record(
 
 ## What a configuration declares
 
-A project has one configuration, kept in `.loom/config.yaml`. It names the languages the project activates — one set for the whole project, because the editor runs a single language server over it — and sets the defaults every section inherits: the primary language a specifier-less section falls back to, the anchor delimiters, the per-language settings, the variables a warp interpolates, and the name of the corpus directory looms sit in. A package declares no configuration of its own; a book composes the package layout literately, in its higher-order sinks, rather than in the configuration.
+A project has one configuration, kept in `.loom/config.yaml`. It names the languages the project activates — one set for the whole project, because the editor runs a single language server over it — and sets the defaults every section inherits: the primary language a specifier-less section falls back to, the anchor delimiters, the per-language settings, the variables a warp interpolates, the width a loom's lines keep to, and the name of the corpus directory looms sit in. A package declares no configuration of its own; a book composes the package layout literately, in its higher-order sinks, rather than in the configuration.
 
 The configuration also lists, under `ignore`, the looms the project leaves out. Each entry is a pattern written like a line of a `.gitignore`. A loom that matches one is not part of the project, and no walk over the workspace gathers it. The patterns add to what Loom leaves out already: whatever Git ignores, and the fixtures named `*.fixture.loom`. The chapter on the looms in a project gives the whole rule.
+
+The `width` is the column a loom's lines keep to, a hundred when the configuration names none. The formatter breaks a code section's lines to fit it, and an editor soft-wraps the prose at it, so the prose and the code of a loom share one right edge. It is a whole number of columns, at least one.
 
 `WorkspaceManifestSchema` validates that file. Every field is optional, because a project that has activated no language yet still has a configuration, an empty one.
 
@@ -57,15 +59,16 @@ export const WorkspaceManifestSchema = Schema.Struct({
   settings: Schema.optional(SettingsSchema),
   variables: Schema.optional(VariablesSchema),
   ignore: Schema.optional(Schema.Array(Schema.String)),
+  width: Schema.optional(Schema.Int.check(Schema.isGreaterThan(0))),
 })
 
 export type WorkspaceManifest = typeof WorkspaceManifestSchema.Type
 
 ## What a reader receives
 
-`ResolvedConfig` is the resolved shape every reader works with: the workspace defaults that apply to one file. Its `anchor`, `primary`, `languages`, `settings`, `variables`, and `ignore` come straight from the manifest. Three fields complete it. The `services` map names, for each activated language, the package that serves it — the one the language declared, or the conventional `@athrio/loom-service-<id>` when it declared none. The `packageRoot` is the absolute path the resolved file's package tangles under — the directory above the corpus folder its loom sits in — or `undefined` when the file sits in no corpus folder. The `workspaceRoot` is the absolute path of the workspace itself, the directory a book's higher-order sink resolves its directories against; it is `undefined` only when the file belongs to no workspace.
+`ResolvedConfig` is the resolved shape every reader works with: the workspace defaults that apply to one file. Its `anchor`, `primary`, `languages`, `settings`, `variables`, and `ignore` come straight from the manifest, and so does its `width`, which falls back to `defaultWidth`, a hundred columns, when the manifest names none. Three fields complete it. The `services` map names, for each activated language, the package that serves it — the one the language declared, or the conventional `@athrio/loom-service-<id>` when it declared none. The `packageRoot` is the absolute path the resolved file's package tangles under — the directory above the corpus folder its loom sits in — or `undefined` when the file sits in no corpus folder. The `workspaceRoot` is the absolute path of the workspace itself, the directory a book's higher-order sink resolves its directories against; it is `undefined` only when the file belongs to no workspace.
 
-A file that resolves to nothing — no workspace, no configuration — receives the empty configuration: no anchor, no primary, no languages, no services, no root.
+A file that resolves to nothing — no workspace, no configuration — receives the empty configuration: no anchor, no primary, no languages, no services, no root, and the default width.
 
 =>
 
@@ -76,11 +79,14 @@ export interface ResolvedConfig {
   readonly settings: Record<string, Record<string, unknown>>
   readonly variables: Record<string, string>
   readonly ignore?: ReadonlyArray<string>
+  readonly width: number
   readonly services: Record<string, string>
   readonly packageRoot: string | undefined
   readonly workspaceRoot: string | undefined
   readonly corpusDir: string | undefined
 }
+
+export const defaultWidth = 100
 
 const empty: ResolvedConfig = {
   anchor: undefined,
@@ -88,6 +94,7 @@ const empty: ResolvedConfig = {
   languages: [],
   settings: {},
   variables: {},
+  width: defaultWidth,
   services: {},
   packageRoot: undefined,
   workspaceRoot: undefined,
@@ -157,7 +164,7 @@ const variablesOf = (
 
 ## Resolving a file's configuration
 
-Resolving a file gives it the workspace defaults and the root its sinks tangle under. The anchor, primary, settings, and ignore patterns are the workspace's; the languages are its activated set; the services resolve from those languages.
+Resolving a file gives it the workspace defaults and the root its sinks tangle under. The anchor, primary, settings, width, and ignore patterns are the workspace's; the languages are its activated set; the services resolve from those languages.
 
 `containerRoot` derives the package root by convention. It walks up from the file to the nearest directory named like the corpus — `corpus` by default — and takes the directory above it, so a loom in `pkg/corpus/` tangles into `pkg/`. A file inside no corpus directory carries no root and tangles beside itself.
 
@@ -203,6 +210,7 @@ const resolveFromManifest = (
     settings: manifest.settings ?? {},
     variables: variablesOf(manifest.variables),
     ignore: manifest.ignore,
+    width: manifest.width ?? defaultWidth,
     services: servicesOf(manifest.languages),
     packageRoot: containerRoot(from, container, workspace),
     workspaceRoot: workspace,

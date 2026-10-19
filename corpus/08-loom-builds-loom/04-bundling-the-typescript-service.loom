@@ -52,7 +52,7 @@ const loomRuntimeBridge = (): Plugin => ({
 
 ## The build
 
-The runtime's built-in modules stay external — every runtime carries them. Everything else is bundled, except the three specifiers the bridge intercepts — so `volar-service-typescript` and the rest of Volar are inlined, their CommonJS internals transformed in place, rather than left to resolve from a store that does not carry them. The one entry builds to `dist/index.js`, the ES module the loader's dynamic `import` reads.
+The runtime's built-in modules stay external — every runtime carries them. Prettier stays external too: the service formats with the project's own Prettier when the project has one, so it must import Prettier at run time rather than carry a copy, and the store installs the package's own Prettier beside it for a project that has none. Everything else is bundled, except the three specifiers the bridge intercepts — so `volar-service-typescript` and the rest of Volar are inlined, their CommonJS internals transformed in place, rather than left to resolve from a store that does not carry them. The one entry builds to `dist/index.js`, the ES module the loader's dynamic `import` reads.
 
 =>
 
@@ -71,7 +71,7 @@ export default defineConfig({
       fileName: () => 'index.js',
     },
     rollupOptions: {
-      external: nodeBuiltins,
+      external: [...nodeBuiltins, 'prettier'],
     },
   },
 })

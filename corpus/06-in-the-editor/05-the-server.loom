@@ -12,7 +12,7 @@ Any editor that speaks the Language Server Protocol can start the server. VS Cod
 
 ## Imports
 
-The server is built from Volar's language-server toolkit — the connection, the project factory, and `loadTsdkByPath` — over a `ManagedRuntime`. It imports `LoomCompiler`, the projector and cache the runtime warms, with the `DocumentSource`, `PackageConfig`, and `LoomConfig` it requires, and the two halves this module registers, `loomLanguagePlugin` and `loomServicePlugins`. Effect's `Schema` reads the editor's initialization options, `Option` carries a compiler that may not be there, and `Data` types the failure when none is. Node's `createRequire` finds an installed `typescript` package the way Node itself would. `join` builds the path a search starts from, and `dirname` trims the file it finds to the directory that holds it.
+The server is built from Volar's language-server toolkit — the connection, the project factory, and `loadTsdkByPath` — over a `ManagedRuntime`. It imports `LoomCompiler`, the projector and cache the runtime warms, and `LoomFormatter`, which formats a file on it, with the `DocumentSource`, `PackageConfig`, and `LoomConfig` they require, and the two halves this module registers, `loomLanguagePlugin` and `loomServicePlugins`. Effect's `Schema` reads the editor's initialization options, `Option` carries a compiler that may not be there, and `Data` types the failure when none is. Node's `createRequire` finds an installed `typescript` package the way Node itself would. `join` builds the path a search starts from, and `dirname` trims the file it finds to the directory that holds it.
 
 =>
 
@@ -27,6 +27,7 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { LoomCompiler, DocumentSource } from './LoomCompiler'
+import { LoomFormatter } from './LoomFormatter'
 import { PackageConfig } from './PackageConfig'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
@@ -97,7 +98,7 @@ const tsdkFor = (
 
 ## The program
 
-A `ManagedRuntime`, built once from the pipeline layers, warms the services the server runs. The language plugin runs the per-keystroke projection on it, and resolves each file's activated languages from `LoomConfig` on it too.
+A `ManagedRuntime`, built once from the pipeline layers, warms the services the server runs. The language plugin runs the per-keystroke projection on it, and resolves each file's activated languages from `LoomConfig` on it too. A format request runs `LoomFormatter` on it.
 
 The `onInitialize` handler runs one Effect on that runtime. The program reads the workspace folder the editor opened, falling back to the working directory when the editor names none. It finds the tsdk with `tsdkFor` and loads the compiler from it, so a TypeScript section checks against a real standard library. It then hands the folder and the compiler to `loomServicePlugins`, which walks up from the folder to the `.loom/` store and its `config.yaml` and collects the active languages' plugins. The handler registers the language plugin and the collected plugins with Volar. A `MissingTypeScript` failure rejects the handler, and the client receives its message as the error of `initialize`.
 
@@ -106,7 +107,7 @@ On `initialized`, the server watches every `tsconfig.json` and `jsconfig.json`. 
 =>
 
 const runtime = ManagedRuntime.make(
-  Layer.mergeAll(LoomCompiler.layer, LoomConfig.layer).pipe(
+  Layer.mergeAll(LoomCompiler.layer, LoomFormatter.layer, LoomConfig.layer).pipe(
     Layer.provide(DocumentSource.layer),
     Layer.provide(PackageConfig.layer),
     Layer.provide(LoomConfig.layer),

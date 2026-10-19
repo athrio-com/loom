@@ -45,6 +45,7 @@ describe('LoomConfig.resolve — workspace manifest', () => {
       languages: ['typescript', 'python'],
       settings: {},
       variables: {},
+      width: 100,
       services: {
         typescript: '@athrio/loom-service-typescript',
         python: 'custom-py',
@@ -63,6 +64,7 @@ describe('LoomConfig.resolve — workspace manifest', () => {
       languages: ['typescript', 'python'],
       settings: {},
       variables: {},
+      width: 100,
       services: {
         typescript: '@athrio/loom-service-typescript',
         python: 'custom-py',
@@ -88,6 +90,7 @@ describe('LoomConfig.resolve — workspace manifest', () => {
       languages: [],
       settings: {},
       variables: {},
+      width: 100,
       services: {},
       packageRoot: undefined,
       workspaceRoot: undefined,
@@ -106,6 +109,7 @@ describe('LoomConfig.resolve — workspace manifest', () => {
       languages: ['typescript'],
       settings: {},
       variables: {},
+      width: 100,
       services: { typescript: '@athrio/loom-service-typescript' },
       packageRoot: join(dir, 'packages', 'loom-ast'),
       workspaceRoot: dir,

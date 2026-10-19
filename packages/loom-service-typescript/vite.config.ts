@@ -63,7 +63,7 @@ export default defineConfig({
       fileName: () => 'index.js',
     },
     rollupOptions: {
-      external: nodeBuiltins,
+      external: [...nodeBuiltins, 'prettier'],
     },
   },
 })

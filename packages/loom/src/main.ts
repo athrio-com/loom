@@ -6,7 +6,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync 
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { dirname, resolve as resolvePath } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
   DocumentSource,
   type TangledFile,
@@ -15,6 +15,7 @@ import {
 import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
 import { LoomWeaver } from '@athrio/loom-lang/weave/LoomWeaver'
 import { LoomContents } from '@athrio/loom-lang/weave/LoomContents'
+import { LoomFormatter } from '@athrio/loom-lang/LoomFormatter'
 import { PackageConfig } from '@athrio/loom-lang/PackageConfig'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
@@ -27,6 +28,7 @@ import {
   storeDir,
   workspaceRoot,
 } from '@athrio/loom-lang-services/LoomStore'
+import type { LanguageService } from '@athrio/loom-lang-services/LanguageService'
 
 const reset = '\x1b[0m'
 const teal = (s: string): string => `\x1b[38;5;44m${s}${reset}`
@@ -120,6 +122,79 @@ const toc = (file: string) =>
     const contents = yield* LoomContents
     const written = yield* contents.write(resolvePath(process.cwd(), file))
     yield* Console.log(`loom: wrote the table of contents into ${written}`)
+  })
+
+const format = (path: string, check: boolean) =>
+  Effect.gen(function* () {
+    const formatter = yield* LoomFormatter
+    const target = resolvePath(process.cwd(), path)
+    const languages = yield* formatLanguages(target)
+    const looms = yield* formatter.looms(target)
+    const changed = yield* Effect.filter(looms, (loom) =>
+      Effect.gen(function* () {
+        const text = yield* Effect.sync(() => readFileSync(loom, 'utf8'))
+        const formatted = yield* formatter.format(loom, text, languages)
+        if (formatted === text) return false
+        if (!check) yield* Effect.sync(() => writeFileSync(loom, formatted))
+        return true
+      }),
+    )
+    yield* changed.length === 0
+      ? Console.log('loom: every loom is formatted')
+      : Effect.forEach(
+          changed,
+          (loom) => Console.log(`loom: ${check ? 'would format' : 'formatted'} ${loom}`),
+          { discard: true },
+        )
+    if (check && changed.length > 0) yield* Effect.sync(() => void (process.exitCode = 1))
+  })
+
+const typeScriptFrom = (from: string): Option.Option<string> =>
+  Option.liftThrowable(() => createRequire(from).resolve('typescript/lib/typescript.js'))()
+
+const projectTypeScript = (root: string): Effect.Effect<Option.Option<typeof import('typescript')>> =>
+  Option.match(
+    Option.orElse(typeScriptFrom(resolvePath(root, 'package.json')), () =>
+      typeScriptFrom(import.meta.url),
+    ),
+    {
+      onNone: () => Effect.succeed(Option.none()),
+      onSome: (file) =>
+        Effect.tryPromise(() => import(pathToFileURL(file).href)).pipe(
+          Effect.map((module) => Option.some(module.default ?? module)),
+          Effect.orElseSucceed(() => Option.none()),
+        ),
+    },
+  )
+
+const formatLanguages = (target: string) =>
+  Effect.gen(function* () {
+    const config = yield* LoomConfig
+    const root = workspaceRoot(dirname(target))
+    const manifest = yield* config.manifest(root)
+    const ids = Object.keys(manifest?.languages ?? {})
+    if (ids.length === 0) return [] as ReadonlyArray<LanguageService>
+    const typescript = yield* projectTypeScript(root)
+    return yield* Option.match(typescript, {
+      onNone: () =>
+        Console.error(
+          'loom: found no TypeScript to load the language services with, so code sections stay as written',
+        ).pipe(Effect.as([] as ReadonlyArray<LanguageService>)),
+      onSome: (ts) =>
+        Effect.gen(function* () {
+          yield* Effect.sync(() => {
+            ;(globalThis as { require?: unknown }).require ??= createRequire(import.meta.url)
+          })
+          const { installHostRuntime } = yield* Effect.promise(
+            () => import('@athrio/loom-lang-services/Runtime'),
+          )
+          const { loadActive } = yield* Effect.promise(
+            () => import('@athrio/loom-lang-services/LanguageLoader'),
+          )
+          yield* Effect.sync(() => installHostRuntime(ts))
+          return yield* loadActive(ids, root)
+        }),
+    })
   })
 
 const mergeMcpConfig = (root: string): void => {
@@ -594,6 +669,12 @@ const weaveCommand = Command.make(
   ({ path, out }) => weave(path, out),
 )
 
+const formatCommand = Command.make(
+  'format',
+  { path: Argument.String('path'), check: Flag.Boolean('check').pipe(Flag.withDefault(false)) },
+  ({ path, check }) => format(path, check),
+)
+
 const tocCommand = Command.make(
   'toc',
   { path: Argument.String('path') },
@@ -646,6 +727,7 @@ const loom = Command.make('loom').pipe(
     orphansCommand,
     weaveCommand,
     tocCommand,
+    formatCommand,
     initCommand,
     addCommand,
     removeCommand,
@@ -663,6 +745,7 @@ const program = Command.run(loom, {
   Effect.provide(LoomTangler.layer),
   Effect.provide(LoomWeaver.layer),
   Effect.provide(LoomContents.layer),
+  Effect.provide(LoomFormatter.layer),
   Effect.provide(DocumentSource.layer),
   Effect.provide(PackageConfig.layer),
   Effect.provide(LoomConfig.layer),

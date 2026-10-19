@@ -56,6 +56,10 @@ It takes Neovim 0.11 or newer, and a C compiler for the build. Run `loom nvim` a
 
 An editor with a language client starts the server with `$ loom lsp --stdio`, and the server treats the nearest folder holding a `.loom` directory as the project. An editor that colours with tree-sitter can build the grammar from [packages/tree-sitter-loom](https://github.com/athrio-com/loom/tree/main/packages/tree-sitter-loom).
 
+## Formatting
+
+Your editor's format command formats a loom through the language server: each prose paragraph goes onto one line, for the editor to wrap, and each code section is laid out by its language's formatter. From the terminal, `$ loom format corpus` does the same.
+
 ## Checking TypeScript
 
 Loom checks each section's code with that language's own server. Turn TypeScript on in a project with `$ loom add typescript`, and run it again after you upgrade Loom.

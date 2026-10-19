@@ -19,6 +19,13 @@ export interface LanguageService {
     ServiceError,
     HostCapabilities
   >
+  readonly format?: (request: FormatRequest) => Effect.Effect<string, ServiceError>
+}
+
+export interface FormatRequest {
+  readonly code: string
+  readonly path: string
+  readonly width: number
 }
 
 export class TypescriptSdk extends Context.Service<TypescriptSdk>()('TypescriptSdk', {
@@ -53,6 +60,7 @@ export interface FrameQueryApi {
     offset: number,
   ) => FrameLocation | undefined
   readonly semanticTokens: (path: string) => ReadonlyArray<FrameToken>
+  readonly format: (path: string, text: string) => Promise<string>
 }
 
 export class FrameQuery extends Context.Service<FrameQuery>()('FrameQuery', {

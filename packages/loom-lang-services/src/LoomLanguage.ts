@@ -164,6 +164,27 @@ const loomSemanticTokens = (frame: FrameQueryApi): LanguageServicePlugin => ({
   }),
 })
 
+const loomFormatting = (frame: FrameQueryApi): LanguageServicePlugin => ({
+  name: 'loom-formatting',
+  capabilities: { documentFormattingProvider: true },
+  create: (context) => ({
+    provideDocumentFormattingEdits: async (document) => {
+      const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
+      if (!decoded || decoded[1] !== 'root') return undefined
+      const text = document.getText()
+      const formatted = await frame.format(decoded[0].fsPath, text)
+      return formatted === text
+        ? []
+        : [
+            {
+              range: { start: document.positionAt(0), end: document.positionAt(text.length) },
+              newText: formatted,
+            },
+          ]
+    },
+  }),
+})
+
 const withoutHighlights = (
   plugin: LanguageServicePlugin,
 ): LanguageServicePlugin => ({
@@ -189,6 +210,7 @@ export const LoomLanguage = defineLanguageService({
         loomReferences(frame),
         loomRename(frame),
         loomSemanticTokens(frame),
+        loomFormatting(frame),
       ]
     }),
 })

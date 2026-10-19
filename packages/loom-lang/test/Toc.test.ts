@@ -124,6 +124,7 @@ const makeCompilerLayer = (files: Record<string, string>) =>
               delims: defaultAnchorDelims,
               primaryLanguage: undefined,
               variables: {},
+              width: 100,
               packageRoot: undefined,
               workspaceRoot: undefined,
               corpusDir: undefined,

@@ -7,6 +7,7 @@ import { effectify } from '@athrio/effect-test'
 const it = effectify(it_)
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { PackageConfig } from '../src/PackageConfig'
+import { LoomFormatter } from '../src/LoomFormatter'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { loomLanguagePlugin, loomServicePlugins } from '../src/LoomLanguagePlugin'
 import { serviceStore } from './store'
@@ -49,6 +50,7 @@ const checkerFor = (fixture: string) => {
         languages: ['typescript'],
         settings: {},
         variables: {},
+        width: 100,
         services: {},
         packageRoot: undefined,
         workspaceRoot: undefined,
@@ -58,7 +60,7 @@ const checkerFor = (fixture: string) => {
     materialize: () => Effect.void,
   })
   const runtime = ManagedRuntime.make(
-    Layer.mergeAll(LoomCompiler.layer, configMock).pipe(
+    Layer.mergeAll(LoomCompiler.layer, LoomFormatter.layer, configMock).pipe(
       Layer.provide(DocumentSource.layer),
       Layer.provide(PackageConfig.layer),
       Layer.provide(configMock),

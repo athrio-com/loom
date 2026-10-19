@@ -7,13 +7,17 @@ import type {
   WorkspaceEdit,
 } from '@volar/language-service'
 import { URI } from 'vscode-uri'
+import { createRequire } from 'node:module'
 import { dirname } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import type { CompilerOptions } from 'typescript'
 import {
   Composition,
   type ComposedFile,
   type CompositionApi,
   defineLanguageService,
+  type FormatRequest,
+  ServiceError,
   TypescriptSdk,
 } from '@athrio/loom-lang-services/LanguageService'
 import { createProductProgram, type ProductProgram } from './ProductProgram'
@@ -286,6 +290,48 @@ const productPlugin = (
   },
 })
 
+type Prettier = typeof import('prettier')
+
+const projectPrettier = (path: string): Option.Option<string> =>
+  Option.liftThrowable(() => createRequire(path).resolve('prettier'))()
+
+const loadPrettier = (path: string): Effect.Effect<Prettier, ServiceError> =>
+  Effect.tryPromise({
+    try: async (): Promise<Prettier> => {
+      const loaded: Prettier & { readonly default?: Prettier } = await Option.match(
+        projectPrettier(path),
+        {
+          onNone: () => import('prettier'),
+          onSome: (resolved) => import(pathToFileURL(resolved).href),
+        },
+      )
+      return loaded.default ?? loaded
+    },
+    catch: (cause) =>
+      new ServiceError({ service: 'typescript', reason: `Prettier did not load: ${String(cause)}` }),
+  })
+
+const formatProduct = (request: FormatRequest): Effect.Effect<string, ServiceError> =>
+  Effect.gen(function* () {
+    const prettier = yield* loadPrettier(request.path)
+    const failed = (cause: unknown) =>
+      new ServiceError({ service: 'typescript', reason: String(cause) })
+    const options = yield* Effect.tryPromise({
+      try: () => prettier.resolveConfig(request.path),
+      catch: failed,
+    })
+    return yield* Effect.tryPromise({
+      try: () =>
+        prettier.format(request.code, {
+          ...options,
+          parser: 'typescript',
+          filepath: request.path,
+          printWidth: options?.printWidth ?? request.width,
+        }),
+      catch: failed,
+    })
+  })
+
 export const TypescriptService = defineLanguageService({
   id: 'typescript',
   displayName: 'TypeScript',
@@ -296,6 +342,7 @@ export const TypescriptService = defineLanguageService({
       const composition = yield* Composition
       return [productPlugin(ts, composition)]
     }),
+  format: formatProduct,
 })
 
 export default TypescriptService

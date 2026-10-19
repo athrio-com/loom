@@ -1,0 +1,766 @@
+---
+Part VI, Chapter 8: Formatting a loom
+Package: packages/loom-lang/
+Language: TypeScript
+---
+
+# Formatting a loom
+
+A loom holds two kinds of text, and they want different layouts. Prose is written one paragraph to a line, and the editor soft-wraps it to the window, so a paragraph reads the same at any width and changes as one line in a diff. Code is the other way round: its line breaks are the author's, and a formatter breaks a long line to fit the project's width. `LoomFormatter` gives each its layout in one pass. It joins the lines of every prose paragraph into one, and it hands each section's code to that language's own formatter.
+
+The pass works from the text it is given, never from the copy on disk or the corpus the editor last built. An editor formats the buffer it holds, which may be ahead of both, so the pass parses that text itself and returns the same text formatted. The editor's Loom language and the `loom format` command call the same pass.
+
+## An edit
+
+Both halves of the pass describe their work as edits to the loom. An `Edit` replaces the text between two offsets in the loom with new text: a join replaces a line break with a space, and a formatter's change replaces a few characters of a section's code.
+
+`applyEdits` applies a set of edits to a text. It works from the last edit to the first, so an edit never moves the offsets of the ones still to apply.
+
+=>
+
+export interface Edit {
+  readonly start: number
+  readonly end: number
+  readonly text: string
+}
+
+const byStart: Order.Order<Edit> = Order.combine(
+  Order.mapInput(Order.Number, (edit: Edit) => edit.start),
+  Order.mapInput(Order.Number, (edit: Edit) => edit.end),
+)
+
+export const applyEdits = (text: string, edits: ReadonlyArray<Edit>): string =>
+  pipe(
+    edits,
+    Array.sort(Order.flip(byStart)),
+    Array.reduce(text, (done, edit) => done.slice(0, edit.start) + edit.text + done.slice(edit.end)),
+  )
+
+~
+
+Two edits may claim the same text. A section that two anchors compose appears twice in its root, so a formatter's change to it arrives twice. `settle` keeps one of a pair that agree, and the first of a pair that disagree, so the edits it returns never overlap and never start at the same place.
+
+=>
+
+const clashes = (kept: Edit, next: Edit): boolean =>
+  next.start < kept.end || next.start === kept.start
+
+const settle = (edits: ReadonlyArray<Edit>): ReadonlyArray<Edit> =>
+  pipe(
+    edits,
+    Array.sort(byStart),
+    Array.reduce([] as ReadonlyArray<Edit>, (kept, next) =>
+      Option.match(Array.last(kept), {
+        onNone: () => [next],
+        onSome: (last) => (clashes(last, next) ? kept : [...kept, next]),
+      }),
+    ),
+  )
+
+## One paragraph to a line
+
+A loom's prose is every line the parser reads as prose: the lines before a section's first code block and the lines after each `~`. `proseLinesOf` collects them in order, each with its line number, its offset in the loom, and its text.
+
+=>
+
+interface ProseLine {
+  readonly line: number
+  readonly start: number
+  readonly text: string
+}
+
+const isProseWeft = (weft: SectionBodyWeft): boolean => weft.type === 'ProseWeft'
+
+const proseLinesOf = (doc: LoomDocument, text: string): ReadonlyArray<ProseLine> =>
+  pipe(
+    [
+      ...doc.preamble,
+      ...Array.flatMap(doc.sections, (section) => [
+        ...section.preamble,
+        ...Array.filter(section.code, isProseWeft),
+      ]),
+    ],
+    Array.map((weft) => ({
+      line: weft.position.start.line,
+      start: weft.position.start.offset,
+      text: text.slice(weft.position.start.offset, weft.position.end.offset).replace(/\r?\n$/, ''),
+    })),
+    Array.sort(Order.mapInput(Order.Number, (line: ProseLine) => line.start)),
+  )
+
+~
+
+Not every line of prose belongs to a paragraph. A Markdown line sorts into one of four kinds, and its kind decides whether it joins the line above it.
+
+- A **blank** line ends a paragraph.
+- A **fixed** line keeps its line break on both sides. That is any line of a fenced block, the fence lines included, a note's opening and closing lines, a heading, a block quote, a table row, a line of HTML, a link definition, a thematic break, a line that only declares a warp, and a line that holds nothing but an anchor, which composes a whole block of prose in its place.
+- An **item** line opens a list item. It never joins the line above, since each item starts on a line of its own, but the lines that continue it join it.
+- Any other line is **text**, and it joins the text or item line above it.
+
+A fence turns every line inside it fixed, so `kindsOf` folds over the lines and carries whether the fold is inside one. A fence opens and closes on the same kind of line, three backticks, so each fence line flips the state. The anchor's delimiters are the project's own, so the line that holds only an anchor is recognised by them.
+
+=>
+
+type LineKind = 'blank' | 'fixed' | 'item' | 'text'
+
+interface KindedLine extends ProseLine {
+  readonly kind: LineKind
+}
+
+const fenceLine = /^\s*```/
+const noteLine = /^\s*:::(?:\[Note\].*|\s*)$/
+const blockLine = /^ {0,3}(?:#{1,6}(?:\s|$)|>|\||<|\{\{|\[[^\]]+\]:\s)/
+const thematicBreak = /^ {0,3}([-*_])(?:\s*\1){2,}\s*$/
+const itemLine = /^\s*(?:[-*+]|\d{1,9}[.)])\s/
+
+const onlyAnchor = (line: string, delims: AnchorDelims): boolean => {
+  const trimmed = line.trim()
+  return (
+    trimmed.startsWith(delims.open) &&
+    trimmed.endsWith(delims.close) &&
+    trimmed.indexOf(delims.open, delims.open.length) === -1
+  )
+}
+
+const kindOf = (line: string, delims: AnchorDelims): LineKind =>
+  Match.value(line).pipe(
+    Match.when((text) => text.trim() === '', () => 'blank' as const),
+    Match.when(
+      (text) =>
+        noteLine.test(text) ||
+        blockLine.test(text) ||
+        thematicBreak.test(text) ||
+        onlyAnchor(text, delims),
+      () => 'fixed' as const,
+    ),
+    Match.when((text) => itemLine.test(text), () => 'item' as const),
+    Match.orElse(() => 'text' as const),
+  )
+
+const kindsOf = (
+  lines: ReadonlyArray<ProseLine>,
+  delims: AnchorDelims,
+): ReadonlyArray<KindedLine> =>
+  Array.mapAccum(lines, false, (inFence, line) => {
+    const fence = fenceLine.test(line.text)
+    const kind = inFence || fence ? 'fixed' : kindOf(line.text, delims)
+    return [inFence !== fence, { ...line, kind }]
+  })[1]
+
+~
+
+A line that ends in two spaces or a backslash asks Markdown for a line break, so the line after it never joins it. Every other pair of neighbouring lines joins when the lower one is text and the upper one is text or an item. `proseEdits` replaces the break between them with one space: the upper line's trailing spaces, the line break, and the lower line's indentation all go. The two lines must be neighbours in the loom too, since a code block or a heading between two prose lines keeps them apart.
+
+=>
+
+const hardBreak = /(?: {2,}|\\)$/
+
+const joins = (upper: KindedLine, lower: KindedLine): boolean =>
+  lower.line === upper.line + 1 &&
+  lower.kind === 'text' &&
+  (upper.kind === 'text' || upper.kind === 'item') &&
+  !hardBreak.test(upper.text)
+
+const proseEdits = (
+  doc: LoomDocument,
+  text: string,
+  delims: AnchorDelims,
+): ReadonlyArray<Edit> => {
+  const lines = kindsOf(proseLinesOf(doc, text), delims)
+  return pipe(
+    Array.zip(lines, Array.drop(lines, 1)),
+    Array.filter(([upper, lower]) => joins(upper, lower)),
+    Array.map(([upper, lower]) => ({
+      start: upper.start + upper.text.trimEnd().length,
+      end: lower.start + lower.text.length - lower.text.trimStart().length,
+      text: ' ',
+    })),
+  )
+}
+
+## The difference between two texts
+
+A language's formatter returns its code whole, laid out afresh. To carry that layout back into the loom, the pass needs the changes themselves, as small as they can be, so each one falls inside a single section's code. `diffOf` finds them with Eugene Myers's algorithm for the shortest edit script, the one `diff` itself uses.
+
+`hunksOf` is that algorithm over two sequences. It searches outward one edit at a time. After `d` edits, each diagonal `k` of the edit graph holds the furthest point the search has reached on it, and a point slides along matching items for free, the snake Myers names. The search ends when a diagonal reaches the end of both sequences. Walking the recorded frontiers back from there recovers each edit, and neighbouring edits gather into hunks. A hunk replaces the items from `from` up to `to` in the first sequence with `items` from the second.
+
+The search costs time in proportion to the number of edits, not to the square of the length, which suits a formatter's output: most of a formatted file is the file as it was.
+
+=>
+
+interface Hunk<A> {
+  readonly from: number
+  readonly to: number
+  readonly items: ReadonlyArray<A>
+}
+
+type Frontier = ReadonlyMap<number, number>
+
+const slide = <A>(a: ReadonlyArray<A>, b: ReadonlyArray<A>, x: number, y: number): number => {
+  const room = Math.min(a.length - x, b.length - y)
+  return room <= 0
+    ? x
+    : x +
+        pipe(
+          Array.findFirstIndex(Array.range(0, room - 1), (i) => a[x + i] !== b[y + i]),
+          Option.getOrElse(() => room),
+        )
+}
+
+const diagonals = (d: number): ReadonlyArray<number> =>
+  Array.map(Array.range(0, d), (i) => 2 * i - d)
+
+const movesDown = (k: number, d: number, previous: Frontier): boolean =>
+  k === -d || (k !== d && (previous.get(k - 1) ?? -1) < (previous.get(k + 1) ?? -1))
+
+const frontiersOf = <A>(a: ReadonlyArray<A>, b: ReadonlyArray<A>): ReadonlyArray<Frontier> => {
+  const search = (d: number, trace: ReadonlyArray<Frontier>): ReadonlyArray<Frontier> => {
+    const previous = trace[trace.length - 1] ?? new Map([[1, 0]])
+    const frontier: Frontier = new Map(
+      Array.map(diagonals(d), (k) => {
+        const start = movesDown(k, d, previous)
+          ? (previous.get(k + 1) ?? 0)
+          : (previous.get(k - 1) ?? 0) + 1
+        return [k, slide(a, b, start, start - k)] as const
+      }),
+    )
+    const reached = Array.some(
+      diagonals(d),
+      (k) => (frontier.get(k) ?? 0) >= a.length && (frontier.get(k) ?? 0) - k >= b.length,
+    )
+    return reached ? [...trace, frontier] : search(d + 1, [...trace, frontier])
+  }
+  return search(0, [])
+}
+
+type Step<A> = { readonly drop: true; readonly at: number } | { readonly drop: false; readonly at: number; readonly item: A }
+
+const stepsOf = <A>(a: ReadonlyArray<A>, b: ReadonlyArray<A>): ReadonlyArray<Step<A>> => {
+  const frontiers = frontiersOf(a, b)
+  return frontiers.length < 2 ? [] : pipe(
+    Array.range(1, frontiers.length - 1),
+    Array.reverse,
+    Array.mapAccum({ x: a.length, y: b.length }, (point, d): [{ x: number; y: number }, Step<A>] => {
+      const previous = frontiers[d - 1] ?? new Map()
+      const k = point.x - point.y
+      const down = movesDown(k, d, previous)
+      const fromK = down ? k + 1 : k - 1
+      const fromX = previous.get(fromK) ?? 0
+      const fromY = fromX - fromK
+      return [
+        { x: fromX, y: fromY },
+        down ? { drop: false, at: fromX, item: b[fromY] as A } : { drop: true, at: fromX },
+      ]
+    }),
+    ([, steps]) => Array.reverse(steps),
+  )
+}
+
+const hunksOf = <A>(a: ReadonlyArray<A>, b: ReadonlyArray<A>): ReadonlyArray<Hunk<A>> =>
+  Array.reduce(stepsOf(a, b), [] as ReadonlyArray<Hunk<A>>, (hunks, step) => {
+    const open = Option.filter(Array.last(hunks), (hunk) => hunk.to === step.at)
+    const grown = (hunk: Hunk<A>): Hunk<A> =>
+      step.drop ? { ...hunk, to: hunk.to + 1 } : { ...hunk, items: [...hunk.items, step.item] }
+    return Option.match(open, {
+      onNone: () => [...hunks, grown({ from: step.at, to: step.at, items: [] })],
+      onSome: (hunk) => [...Array.dropRight(hunks, 1), grown(hunk)],
+    })
+  })
+
+~
+
+`diffOf` runs the algorithm twice. It compares the two texts line by line first, which is quick because a formatter leaves most lines as they were. It then compares each changed run of lines character by character, so a change shrinks to the characters that differ. A changed run whose old and new text together pass `refineLimit` characters stays a single change, since a comparison that long costs more than the smaller change is worth.
+
+=>
+
+const refineLimit = 4000
+
+const linesOf = (text: string): ReadonlyArray<string> =>
+  text === '' ? [] : text.split(/(?<=\n)/)
+
+const diffOf = (before: string, after: string): ReadonlyArray<Edit> => {
+  const lines = linesOf(before)
+  const offsets = Array.mapAccum(lines, 0, (at, line) => [at + line.length, at])[1]
+  const offsetOf = (index: number): number => offsets[index] ?? before.length
+  return Array.flatMap(hunksOf(lines, linesOf(after)), (hunk) => {
+    const start = offsetOf(hunk.from)
+    const end = offsetOf(hunk.to)
+    const old = before.slice(start, end)
+    const replacement = hunk.items.join('')
+    return old.length + replacement.length > refineLimit
+      ? [{ start, end, text: replacement }]
+      : Array.map(hunksOf(old.split(''), replacement.split('')), (piece) => ({
+          start: start + piece.from,
+          end: start + piece.to,
+          text: piece.items.join(''),
+        }))
+  })
+}
+
+## Placing a change in the loom
+
+A formatter's change is a change to the composed root, the code the root tangles to. The projection already maps that code back to the loom: every stretch a section contributes carries a mapping to where the author wrote it. `placed` follows those mappings to carry a change across.
+
+Only a mapping that copies the loom verbatim can carry a change. A mapping whose composed text differs from its source, as a warp's value differs from the `${name}` written in the loom, would land a change on the wrong characters, so `verbatim` keeps only the mappings whose two sides read the same. It reads the source from where the mapping starts, for as many characters as the mapping composes. The composition sheds a transcluded block's last line break and shortens the mapping to match, but leaves the mapping's source end where the break was, so the end is no guide.
+
+A change that removes or replaces text must fall inside one mapping. A change that only inserts text lands at one point, and that point is ambiguous at the edge of a mapping. The point where one section's code ends and the next begins is two places in the loom, and the point just after an anchor's synthetic indentation belongs to the indentation, which no section wrote. So an insertion is placed only strictly inside a mapping, or where two mappings meet and agree on the point.
+
+One kind of insertion is placed at a seam all the same. What a formatter inserts where a section's code ends is nearly always something that closes: the semicolon that ends a statement, the comma after an item, a closing bracket. Each belongs to the code before the seam, so an insertion that opens with one of them lands at the end of the mapping that ends there, the last character the section before it wrote.
+
+=>
+
+const verbatim = (text: string, code: string) => (mapping: Mapping): boolean =>
+  mapping.kind === 'product' &&
+  text.slice(mapping.source.start.offset, mapping.source.start.offset + mapping.genLength) ===
+    code.slice(mapping.genStart, mapping.genStart + mapping.genLength)
+
+const closing = /^[;,)\]}]/
+
+const closedBefore = (
+  holders: ReadonlyArray<Mapping>,
+  change: Edit,
+): Option.Option<Edit> =>
+  change.start === change.end && closing.test(change.text)
+    ? Option.map(
+        Array.findFirst(holders, (mapping) => mapping.genStart + mapping.genLength === change.start),
+        (mapping) => {
+          const point = mapping.source.start.offset + mapping.genLength
+          return { start: point, end: point, text: change.text }
+        },
+      )
+    : Option.none()
+
+const placed = (mappings: ReadonlyArray<Mapping>) => (change: Edit): Option.Option<Edit> => {
+  const holders = Array.filter(
+    mappings,
+    (mapping) =>
+      mapping.genStart <= change.start && change.end <= mapping.genStart + mapping.genLength,
+  )
+  const points = Array.dedupe(
+    Array.map(holders, (mapping) => mapping.source.start.offset + change.start - mapping.genStart),
+  )
+  const settled =
+    change.start < change.end ||
+    holders.length > 1 ||
+    Array.some(
+      holders,
+      (mapping) =>
+        mapping.genStart < change.start && change.start < mapping.genStart + mapping.genLength,
+    )
+  return points.length === 1 && settled
+    ? Option.some({ start: points[0], end: points[0] + change.end - change.start, text: change.text })
+    : closedBefore(holders, change)
+}
+
+## Formatting a root
+
+A formatter lays out a whole composed root, the file one `{Tangle}` writes. `rootEdits` turns its answer into edits to the loom.
+
+The root's first and last whitespace belong to the sections around it, not to the code, so the pass keeps them as they were. A formatter ends every file with a line break, and that break would otherwise land inside the last code block as a blank line in the tangled output.
+
+A change the pass cannot place is dropped when it only moves whitespace, since no language Loom formats reads that whitespace as meaning. Any other change it cannot place leaves the whole root as it was. Dropping half a pair of parentheses would break the code, so the root takes all of a formatter's non-blank changes or none of them.
+
+=>
+
+const keepEdges = (before: string, after: string): string =>
+  before.trim() === ''
+    ? before
+    : `${/^\s*/.exec(before)?.[0] ?? ''}${after.trim()}${before.slice(before.trimEnd().length)}`
+
+const blankChange = (code: string, change: Edit): boolean =>
+  code.slice(change.start, change.end).trim() === '' && change.text.trim() === ''
+
+const rootEdits = (text: string, root: LoomVirtualCode, formatted: string): ReadonlyArray<Edit> => {
+  const place = placed(Array.filter(root.mappings, verbatim(text, root.code)))
+  const placements = Array.map(diffOf(root.code, keepEdges(root.code, formatted)), (change) => ({
+    change,
+    edit: place(change),
+  }))
+  const stray = Array.some(
+    placements,
+    ({ change, edit }) => Option.isNone(edit) && !blankChange(root.code, change),
+  )
+  return stray ? [] : Array.getSomes(Array.map(placements, ({ edit }) => edit))
+}
+
+## The roots a file formats
+
+A file's code is formatted root by root. `rootNamesAt` names the roots, the sections no anchor composes into another, and each one formats in the language its section declares. A language whose service offers no `format` keeps its code as the author wrote it, and so does a root whose formatter fails or breaks.
+
+A root is formatted under the name of the file it tangles to, the same path the tangler writes, so the language's formatter reads the project's settings for that file. A root that tangles nowhere is formatted under the loom's own name.
+
+The pass reads one file, so it formats a file's code only when that file composes whole by itself. An anchor that names a section in another loom, or a part that failed to compose, leaves a gap in the code the formatter would read, and a formatter laying out code with a gap in it can move what surrounds the gap. Such a file keeps its code as written, and its prose is still joined.
+
+=>
+
+const composesWhole = (module: LoomModule): boolean =>
+  Array.every(module.product?.code ?? [], (code) =>
+    Array.every(code.fragments, (part) =>
+      part.type === 'Fragment'
+        ? part.health.status === 'ok'
+        : Option.exists(part.target, (target) => target.path === module.path),
+    ),
+  )
+
+const formatterFor = (
+  languages: ReadonlyArray<LanguageService>,
+  languageId: string,
+): Option.Option<NonNullable<LanguageService['format']>> =>
+  pipe(
+    Array.findFirst(languages, (language) => language.id === languageId),
+    Option.flatMapNullishOr((language) => language.format),
+  )
+
+const targetOf = (module: LoomModule, root: Code, settings: BuildSettings): string =>
+  pipe(
+    Array.findFirst(module.product?.files ?? [], (file) => file.code.origin.name === root.origin.name),
+    Option.map((file) =>
+      outputPath(Option.fromNullishOr(settings.packageRoot), module.path, file.path),
+    ),
+    Option.getOrElse(() => module.path),
+  )
+
+const codeEdits = (
+  module: LoomModule,
+  settings: BuildSettings,
+  languages: ReadonlyArray<LanguageService>,
+): Effect.Effect<ReadonlyArray<Edit>> => {
+  const modules = new Map([[module.path, module]])
+  const roots = rootNamesAt(modules, module.path)
+  return composesWhole(module)
+    ? Effect.map(
+        Effect.forEach(
+          Array.filter(module.product?.code ?? [], (code) => roots.has(code.origin.name.toLowerCase())),
+          (root) =>
+            Option.match(formatterFor(languages, root.languageId), {
+              onNone: () => Effect.succeed([] as ReadonlyArray<Edit>),
+              onSome: (format) => {
+                const composed = fromProduct(modules, root.origin)
+                return format({
+                  code: composed.code,
+                  path: targetOf(module, root, settings),
+                  width: settings.width,
+                }).pipe(
+                  Effect.map((formatted) => rootEdits(module.text, composed, formatted)),
+                  Effect.catchCause(() => Effect.succeed([] as ReadonlyArray<Edit>)),
+                )
+              },
+            }),
+        ),
+        Array.flatten,
+      )
+    : Effect.succeed([])
+}
+
+## The service
+
+`LoomFormatter` runs the pass. Its `format` takes a loom's path, the text to format, and the languages the project serves, and answers with the text formatted. It reads the file's build settings for the anchor delimiters, the primary language and the width, builds the module from the text it was given rather than from disk, and settles the prose joins and the code changes into one set of edits.
+
+The file's module is built through a `Source` that knows only this one text, so the build never reads another file and never sees an older copy of this one.
+
+Its `looms` names the looms a path covers, for a caller that formats more than one. A file is itself. A folder is every loom under it that the project holds, by the same walk `tangle` takes, so `format` and `tangle` agree on what a folder contains.
+
+=>
+
+const textSource = (path: Path, text: string): Source => ({
+  read: (at) =>
+    at === path
+      ? Effect.succeed(text)
+      : Effect.fail(new ReadError({ path: at, cause: 'the formatter reads only the file it formats' })),
+  list: Option.none(),
+})
+
+export class LoomFormatter extends Context.Service<LoomFormatter>()('LoomFormatter', {
+  make: Effect.gen(function* () {
+    const config = yield* PackageConfig
+    const corpus = yield* LoomCorpusAstBuilder
+    return {
+      format: (
+        path: Path,
+        text: string,
+        languages: ReadonlyArray<LanguageService>,
+      ): Effect.Effect<string> =>
+        Effect.gen(function* () {
+          const settings = yield* config.resolve(path)
+          const module = yield* corpus.build(
+            textSource(path, text),
+            path,
+            settings.delims,
+            settings.primaryLanguage,
+            settings.variables,
+          )
+          const code = yield* codeEdits(module, settings, languages)
+          return applyEdits(text, settle([...proseEdits(module.doc, text, settings.delims), ...code]))
+        }),
+      looms: (path: Path): Effect.Effect<ReadonlyArray<Path>> =>
+        statSync(path, { throwIfNoEntry: false })?.isDirectory() === true
+          ? Effect.map(config.resolve(path), (settings) => loomsIn(path, projectIn(settings)))
+          : Effect.succeed([path]),
+    }
+  }),
+}) {
+  static readonly layer = Layer.effect(this, this.make).pipe(
+    Layer.provide(LoomCorpusAstBuilder.layer),
+  )
+}
+
+## What this module draws on
+
+Effect supplies the service, the `Option` and `Order` the pass leans on, `Match` for a line's kind, and `Array` for every fold. The projection gives `fromProduct`, which composes a root with its mappings, and `rootNamesAt`, which names a file's roots. The corpus builder parses the text into a module through a `Source`, the compiler gives `outputPath`, the tangler's rule for where a sink writes, and `PackageConfig` gives a file's build settings. `loomsIn` and `projectIn` walk a folder for the looms its project holds, and Node's `statSync` tells a folder from a file. The AST supplies the shapes the pass reads: the document, its prose wefts, the module, the product's `Code`, a `Mapping`, the composed `LoomVirtualCode`, and the project's anchor delimiters. The `LanguageService` contract names a language's formatter.
+
+=>
+
+import { Array, Context, Effect, Layer, Match, Option, Order, pipe } from 'effect'
+import { fromProduct, rootNamesAt } from '#ast/LoomVirtualCodeBuilder'
+import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
+import { outputPath } from './LoomCompiler'
+import { type BuildSettings, PackageConfig } from './PackageConfig'
+import { loomsIn, projectIn } from './LoomProject'
+import { statSync } from 'node:fs'
+import type { LoomDocument } from '@athrio/loom-ast/LoomAst'
+import type { SectionBodyWeft } from '@athrio/loom-ast/Weft'
+import type { LoomModule, Path } from '@athrio/loom-ast/LoomCorpusAst'
+import type { Code } from '@athrio/loom-ast/ProductAst'
+import type { LoomVirtualCode, Mapping } from '@athrio/loom-ast/LoomVirtualCode'
+import type { AnchorDelims } from '@athrio/loom-ast/LoomTokens'
+import type { LanguageService } from '@athrio/loom-lang-services/LanguageService'
+
+## The module {Tangle}[src/LoomFormatter.ts]
+
+=>
+
+::[What this module draws on]
+
+::[An edit]
+
+::[One paragraph to a line]
+
+::[The difference between two texts]
+
+::[Placing a change in the loom]
+
+::[Formatting a root]
+
+::[The roots a file formats]
+
+::[The service]
+
+## Testing the formatter
+
+Each case formats a small loom and reads back the text. A loom written inside this loom's code would be read as part of it, so a fixture is a list of its lines, each one quoted and indented, and `lines` joins them into the text a file holds. `anchor` spells an anchor in two pieces for the same reason.
+
+The fixtures live at a path no workspace holds, so they format under the defaults: Loom's own anchor delimiters and a width of a hundred. Each declares TypeScript in its frontmatter. A case that needs a TypeScript formatter supplies `squeezeAt`, a stand-in service whose `format` turns every run of spaces inside a line into one space. It squeezes only when it is asked for the width it was made with, so a case that expects the change also checks that the width arrived.
+
+=>
+
+import { describe, expect, it as it_ } from 'bun:test'
+import { effectify } from '@athrio/effect-test'
+import { Effect, Layer } from 'effect'
+import { LoomFormatter } from '../src/LoomFormatter'
+import { PackageConfig } from '../src/PackageConfig'
+import { defineLanguageService, type LanguageService } from '@athrio/loom-lang-services/LanguageService'
+
+const it = effectify(it_)
+
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
+
+const anchor = (name: string): string => `::${'['}${name}]`
+
+const path = '/nowhere/formatted.loom'
+
+const squeezeAt = (width: number): LanguageService =>
+  defineLanguageService({
+    id: 'typescript',
+    displayName: 'Squeeze',
+    extensions: ['.ts'],
+    plugins: () => Effect.succeed([]),
+    format: (request) =>
+      Effect.succeed(
+        request.width === width
+          ? request.code.replace(/(\S) {2,}(?=\S)/g, '$1 ')
+          : request.code,
+      ),
+  })
+
+const formatted = (text: string, languages: ReadonlyArray<LanguageService> = []) =>
+  LoomFormatter.pipe(
+    Effect.flatMap((formatter) => formatter.format(path, text, languages)),
+    Effect.provide(LoomFormatter.layer.pipe(Layer.provide(PackageConfig.layer))),
+  )
+
+const frontmatter = ['---', 'Language: TypeScript', '---', '']
+
+## Joining prose
+
+A paragraph written over three lines comes back on one, its words joined by single spaces. The other blocks of Markdown keep their lines: a list item takes in the line that continues it but not the item after it, a fence keeps every line inside it, a heading and a table keep theirs, and a line that ends in two spaces keeps its break.
+
+=>
+
+describe('LoomFormatter — prose', () => {
+  it.effect('joins the lines of a paragraph into one', () =>
+    Effect.gen(function* () {
+      const text = lines(...frontmatter, '# Notes', '', 'One paragraph', 'written over', '   three lines.', '')
+      expect(yield* formatted(text)).toBe(
+        lines(...frontmatter, '# Notes', '', 'One paragraph written over three lines.', ''),
+      )
+    }),
+  )
+
+  it.effect('keeps the lines of lists, fences, tables and hard breaks', () =>
+    Effect.gen(function* () {
+      const text = lines(
+        ...frontmatter,
+        '# Notes',
+        '',
+        '- an item',
+        '  that continues',
+        '- the next item',
+        '',
+        '```',
+        'kept',
+        'as is',
+        '```',
+        '',
+        '| a | b |',
+        '| c | d |',
+        '',
+        'a break  ',
+        'stays',
+        '',
+      )
+      expect(yield* formatted(text)).toBe(
+        lines(
+          ...frontmatter,
+          '# Notes',
+          '',
+          '- an item that continues',
+          '- the next item',
+          '',
+          '```',
+          'kept',
+          'as is',
+          '```',
+          '',
+          '| a | b |',
+          '| c | d |',
+          '',
+          'a break  ',
+          'stays',
+          '',
+        ),
+      )
+    }),
+  )
+
+  it.effect('changes nothing twice', () =>
+    Effect.gen(function* () {
+      const once = yield* formatted(lines(...frontmatter, '# Notes', '', 'Two', 'lines.', ''))
+      expect(yield* formatted(once)).toBe(once)
+    }),
+  )
+})
+
+## Formatting code
+
+Without a formatter for its language, a code section keeps its spacing. With a formatter made for the default width of a hundred, the doubled spaces in a section's code close up, the code's own line breaks stay, and the prose around the code is untouched. A change inside a section that an anchor composes lands in that section, where the author wrote the code. A formatter made for another width changes nothing, which shows the width the formatter receives is the project's.
+
+A formatter's semicolon lands where a section's code ends. `semicolons` ends every line of code with one, and the line `Greeting` contributes ends where the root goes on past the anchor, a point that is two places in the loom. The semicolon closes the statement before that point, so it lands at the end of `Greeting`'s own line.
+
+A root takes all of a formatter's real changes or none. `voided` starts the line `Greeting` contributes with `void`, at the same point, but what it inserts opens the next statement rather than closing the last. It has nowhere to land, so the whole root stays as the author wrote it, the spacing changes that would have landed included.
+
+=>
+
+describe('LoomFormatter — code', () => {
+  const program = lines(
+    ...frontmatter,
+    '# Program [program.ts]',
+    '',
+    'Some prose.',
+    '',
+    '=>',
+    '',
+    'const  answer  =  42',
+    anchor('Greeting'),
+    '',
+    '# Greeting',
+    '',
+    '=>',
+    '',
+    "console.log('hi',  answer)",
+  )
+
+  it.effect('leaves code alone without a formatter for its language', () =>
+    Effect.gen(function* () {
+      expect(yield* formatted(program)).toBe(program)
+    }),
+  )
+
+  it.effect('formats each section through its language, in place', () =>
+    Effect.gen(function* () {
+      expect(yield* formatted(program, [squeezeAt(100)])).toBe(
+        lines(
+          ...frontmatter,
+          '# Program [program.ts]',
+          '',
+          'Some prose.',
+          '',
+          '=>',
+          '',
+          'const answer = 42',
+          anchor('Greeting'),
+          '',
+          '# Greeting',
+          '',
+          '=>',
+          '',
+          "console.log('hi', answer)",
+        ),
+      )
+    }),
+  )
+
+  const formatterOf = (format: (code: string) => string): LanguageService =>
+    defineLanguageService({
+      id: 'typescript',
+      displayName: 'Stand-in',
+      extensions: ['.ts'],
+      plugins: () => Effect.succeed([]),
+      format: (request) => Effect.succeed(format(request.code)),
+    })
+
+  it.effect('lands a closing semicolon at the end of the section before it', () =>
+    Effect.gen(function* () {
+      const semicolons = formatterOf((code) => code.replace(/(\S)\n/g, '$1;\n'))
+      expect(yield* formatted(program, [semicolons])).toBe(
+        program
+          .replace('const  answer  =  42\n', 'const  answer  =  42;\n')
+          .replace("console.log('hi',  answer)\n", "console.log('hi',  answer);\n"),
+      )
+    }),
+  )
+
+  it.effect('leaves a root whose change has nowhere to land', () =>
+    Effect.gen(function* () {
+      const voided = formatterOf((code) =>
+        code.replace(/(\S) {2,}(?=\S)/g, '$1 ').replace(/^console/m, 'void console'),
+      )
+      expect(yield* formatted(program, [voided])).toBe(program)
+    }),
+  )
+
+  it.effect('hands the formatter the project width', () =>
+    Effect.gen(function* () {
+      expect(yield* formatted(program, [squeezeAt(80)])).toBe(program)
+    }),
+  )
+})
+
+## The test file {Tangle}[test/LoomFormatter.test.ts]
+
+=>
+
+::[Testing the formatter]
+
+::[Joining prose]
+
+::[Formatting code]

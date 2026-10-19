@@ -11,6 +11,7 @@ import type * as ts from 'typescript'
 import { URI } from 'vscode-uri'
 import { ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import { LoomCompiler, stringSnapshot } from './LoomCompiler'
+import { LoomFormatter } from './LoomFormatter'
 import { loomsIn } from './LoomProject'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
@@ -154,7 +155,8 @@ const collect = (
   )
 
 const frameQueryOver = (
-  runtime: ManagedRuntime.ManagedRuntime<LoomCompiler, never>,
+  runtime: ManagedRuntime.ManagedRuntime<LoomCompiler | LoomFormatter, never>,
+  languages: ReadonlyArray<LanguageService>,
 ): FrameQueryApi => ({
   diagnostics: (path) =>
     runtime.runSync(
@@ -196,6 +198,12 @@ const frameQueryOver = (
         Effect.flatMap((compiler) => compiler.semanticTokens(path)),
       ),
     ),
+  format: (path, text) =>
+    runtime.runPromise(
+      LoomFormatter.pipe(
+        Effect.flatMap((formatter) => formatter.format(path, text, languages)),
+      ),
+    ),
 })
 
 const compositionOver = (
@@ -210,7 +218,7 @@ const compositionOver = (
 })
 
 export const loomServicePlugins = (
-  runtime: ManagedRuntime.ManagedRuntime<LoomCompiler, never>,
+  runtime: ManagedRuntime.ManagedRuntime<LoomCompiler | LoomFormatter, never>,
   tsdk: typeof import('typescript'),
   root: string,
 ): Effect.Effect<ReadonlyArray<LanguageServicePlugin>, never, LoomConfig> =>
@@ -225,7 +233,7 @@ export const loomServicePlugins = (
       active,
       tsdk,
       settings,
-      frameQueryOver(runtime),
+      frameQueryOver(runtime, active),
       compositionOver(runtime),
     )
   })

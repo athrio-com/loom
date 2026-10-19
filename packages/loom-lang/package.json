@@ -12,6 +12,7 @@
   "exports": {
     "./LoomCompiler": "./src/LoomCompiler.ts",
     "./LoomTangler": "./src/LoomTangler.ts",
+    "./LoomFormatter": "./src/LoomFormatter.ts",
     "./PackageConfig": "./src/PackageConfig.ts",
     "./LoomServer": "./src/LoomServer.ts",
     "./weave/WovenCorpus": "./src/weave/WovenCorpus.ts",

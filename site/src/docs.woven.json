@@ -72,6 +72,11 @@
           "number": "4",
           "title": "loom eject",
           "slug": "05-cli/04-loom-eject"
+        },
+        {
+          "number": "5",
+          "title": "loom format",
+          "slug": "05-cli/05-loom-format"
         }
       ]
     }
@@ -481,6 +486,24 @@
             "section": "any-other-editor"
           },
           "markdown": "An editor with a language client starts the server with `$ loom lsp --stdio`, and the server treats the nearest folder holding a `.loom` directory as the project. An editor that colours with tree-sitter can build the grammar from [packages/tree-sitter-loom](https://github.com/athrio-com/loom/tree/main/packages/tree-sitter-loom)."
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "03-loom-in-your-ide/01-supported-editors",
+            "section": "formatting"
+          },
+          "level": 2,
+          "title": "Formatting",
+          "id": "formatting"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "03-loom-in-your-ide/01-supported-editors",
+            "section": "formatting"
+          },
+          "markdown": "Your editor's format command formats a loom through the language server: each prose paragraph goes onto one line, for the editor to wrap, and each code section is laid out by its language's formatter. From the terminal, `$ loom format corpus` does the same."
         },
         {
           "type": "heading",
@@ -1020,6 +1043,67 @@
             "section": "why-it-exists"
           },
           "markdown": "A tool that cannot be removed is a tool you have to be sure about before you start. Eject is what makes Loom a choice rather than a commitment: the code was always plain source, so leaving costs one command and loses nothing except the explanation.\n\nThat the exit is cheap is also why the explanation tends to survive. Prose that a tool holds hostage gets abandoned. Prose you could walk away from at any moment, and keep anyway, is prose someone chose to write."
+        }
+      ]
+    },
+    {
+      "slug": "05-cli/05-loom-format",
+      "title": "loom format",
+      "part": "The command line",
+      "blocks": [
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "05-cli/05-loom-format",
+            "section": "loom-format"
+          },
+          "level": 1,
+          "title": "loom format",
+          "id": "loom-format"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "05-cli/05-loom-format",
+            "section": "loom-format"
+          },
+          "markdown": "`loom format` formats looms the way your editor's format command does. It puts each prose paragraph on one line, so your editor can wrap it at any width, and it lays out each code section with that language's formatter.\n\n```bash\nloom format <path> [--check]\n```"
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "05-cli/05-loom-format",
+            "section": "what-it-changes"
+          },
+          "level": 2,
+          "title": "What it changes",
+          "id": "what-it-changes"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "05-cli/05-loom-format",
+            "section": "what-it-changes"
+          },
+          "markdown": "Prose keeps its words and loses only the line breaks inside a paragraph. Lists, code fences, tables, headings and a line that ends in two spaces keep their lines.\n\nCode goes through its language's formatter: Prettier for TypeScript, with your project's own Prettier settings. Lines keep to the project's `width`, a hundred columns unless `.loom/config.yaml` sets another or your Prettier settings name their own. Each change lands in the section that wrote that code. If a change can't be placed in one section, Loom leaves that file's code as you wrote it, so formatting never breaks it."
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "05-cli/05-loom-format",
+            "section": "checking"
+          },
+          "level": 2,
+          "title": "Checking",
+          "id": "checking"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "05-cli/05-loom-format",
+            "section": "checking"
+          },
+          "markdown": "`--check` changes nothing. It lists the looms that would change, and fails when any would, so CI can keep a project formatted.\n\n```bash\nloom format corpus --check\n```"
         }
       ]
     }

@@ -587,6 +587,35 @@ describe('loom cli — an ignored loom named directly', () => {
   }, SPAWN_TIMEOUT)
 })
 
+describe('loom cli — format', () => {
+  const wrapped = lines('# Notes', '', 'A paragraph that', 'runs over two lines.')
+
+  it('names a loom that would change, and leaves it as it was', () => {
+    const dir = workspace('corpus: corpus\n')
+    mkdirSync(join(dir, 'corpus'), { recursive: true })
+    writeFileSync(join(dir, 'corpus', 'notes.loom'), wrapped)
+    const { status, stdout } = loom(['format', '--check', 'corpus'], { cwd: dir })
+    expect(status).toBe(1)
+    expect(stdout).toContain('would format')
+    expect(readFileSync(join(dir, 'corpus', 'notes.loom'), 'utf8')).toBe(wrapped)
+    rmSync(dir, { recursive: true, force: true })
+  }, SPAWN_TIMEOUT)
+
+  it('joins the paragraph, and finds nothing to do the second time', () => {
+    const dir = workspace('corpus: corpus\n')
+    mkdirSync(join(dir, 'corpus'), { recursive: true })
+    writeFileSync(join(dir, 'corpus', 'notes.loom'), wrapped)
+    const first = loom(['format', 'corpus'], { cwd: dir })
+    expect(first.status).toBe(0)
+    expect(first.stdout).toContain('formatted')
+    expect(readFileSync(join(dir, 'corpus', 'notes.loom'), 'utf8')).toBe(
+      lines('# Notes', '', 'A paragraph that runs over two lines.'),
+    )
+    expect(loom(['format', 'corpus'], { cwd: dir }).stdout).toContain('every loom is formatted')
+    rmSync(dir, { recursive: true, force: true })
+  }, SPAWN_TIMEOUT)
+})
+
 const helixHome = (
   ...rows: ReadonlyArray<string>
 ): { readonly config: string; readonly helix: string; readonly env: Record<string, string> } => {

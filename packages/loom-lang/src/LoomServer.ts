@@ -9,6 +9,7 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { LoomCompiler, DocumentSource } from './LoomCompiler'
+import { LoomFormatter } from './LoomFormatter'
 import { PackageConfig } from './PackageConfig'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
@@ -54,7 +55,7 @@ const tsdkFor = (
   )
 
 const runtime = ManagedRuntime.make(
-  Layer.mergeAll(LoomCompiler.layer, LoomConfig.layer).pipe(
+  Layer.mergeAll(LoomCompiler.layer, LoomFormatter.layer, LoomConfig.layer).pipe(
     Layer.provide(DocumentSource.layer),
     Layer.provide(PackageConfig.layer),
     Layer.provide(LoomConfig.layer),

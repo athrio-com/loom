@@ -66,6 +66,7 @@ A loom is several languages at once — the Loom syntax, the prose, and the code
 5. The language server
 6. The Loom language
 7. The Prose language
+8. Formatting a loom
 
 ### Part VII — Languages as packages
 

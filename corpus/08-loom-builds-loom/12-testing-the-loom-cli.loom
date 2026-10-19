@@ -685,6 +685,41 @@ describe('loom cli — an ignored loom named directly', () => {
   }, SPAWN_TIMEOUT)
 })
 
+## Formatting looms
+
+`loom format` works on a workspace that activates no language, so the cases need no store and format the prose alone. A loom whose paragraph runs over two lines is the fixture. With `--check` the command names that loom, exits non-zero, and leaves the file as it was. Without it the command joins the paragraph onto one line and reports the loom it rewrote, and a second run finds nothing left to do.
+
+=>
+
+describe('loom cli — format', () => {
+  const wrapped = lines('# Notes', '', 'A paragraph that', 'runs over two lines.')
+
+  it('names a loom that would change, and leaves it as it was', () => {
+    const dir = workspace('corpus: corpus\n')
+    mkdirSync(join(dir, 'corpus'), { recursive: true })
+    writeFileSync(join(dir, 'corpus', 'notes.loom'), wrapped)
+    const { status, stdout } = loom(['format', '--check', 'corpus'], { cwd: dir })
+    expect(status).toBe(1)
+    expect(stdout).toContain('would format')
+    expect(readFileSync(join(dir, 'corpus', 'notes.loom'), 'utf8')).toBe(wrapped)
+    rmSync(dir, { recursive: true, force: true })
+  }, SPAWN_TIMEOUT)
+
+  it('joins the paragraph, and finds nothing to do the second time', () => {
+    const dir = workspace('corpus: corpus\n')
+    mkdirSync(join(dir, 'corpus'), { recursive: true })
+    writeFileSync(join(dir, 'corpus', 'notes.loom'), wrapped)
+    const first = loom(['format', 'corpus'], { cwd: dir })
+    expect(first.status).toBe(0)
+    expect(first.stdout).toContain('formatted')
+    expect(readFileSync(join(dir, 'corpus', 'notes.loom'), 'utf8')).toBe(
+      lines('# Notes', '', 'A paragraph that runs over two lines.'),
+    )
+    expect(loom(['format', 'corpus'], { cwd: dir }).stdout).toContain('every loom is formatted')
+    rmSync(dir, { recursive: true, force: true })
+  }, SPAWN_TIMEOUT)
+})
+
 ## Setting up Helix
 
 `loom helix` writes into Helix's configuration folder, which it finds through `XDG_CONFIG_HOME`, or `APPDATA` on Windows. A case points both at a temporary folder, so the command writes there and never into the configuration of the person running the tests. `helixHome` makes that folder with a `languages.toml` already in it, holding the lines the case starts from.
@@ -798,6 +833,8 @@ describe('loom cli — nvim', () => {
 ::[Every rule that leaves a loom out]
 
 ::[A loom named directly]
+
+::[Formatting looms]
 
 ::[Setting up Helix]
 

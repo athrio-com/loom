@@ -7,6 +7,7 @@ export interface BuildSettings {
   readonly delims: AnchorDelims
   readonly primaryLanguage: string | undefined
   readonly variables: Record<string, string>
+  readonly width: number
   readonly packageRoot: string | undefined
   readonly workspaceRoot: string | undefined
   readonly corpusDir: string | undefined
@@ -32,6 +33,7 @@ export class PackageConfig extends Context.Service<PackageConfig>()(
               delims: anchorDelimsOf(c.anchor),
               primaryLanguage: c.primary,
               variables: c.variables,
+              width: c.width,
               packageRoot: c.packageRoot,
               workspaceRoot: c.workspaceRoot,
               corpusDir: c.corpusDir,

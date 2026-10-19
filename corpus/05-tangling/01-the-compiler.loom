@@ -360,7 +360,7 @@ const entryOf = (
 
 `composition` is that same resolution turned to the editor: every root in the corpus, the code it composes and the path it composes to, ungated and unscoped. It is the live product as a filesystem — what a product language service builds its analyzer's program over, so a cross-file import resolves against a section's live composition rather than its output on disk.
 
-`resolveSinks` gathers the files this tangle emits: the entry module's own tangle sinks — one per `[dir, file]` section — and every sink a book in the corpus routes into place. For each it flattens the composed code across the corpus with `fromProduct`, then resolves where the file lands. A module's file emits only when the entry produced it or a book routes it, so importing a module to transclude its code never re-emits that module's own files. `outputPath` places a sink under a root, so a sink names its file relative to that root rather than climbing out of the corpus. `fileRoot` chooses that root for each sink: the chapter prefix a book places the sink under, resolved against the workspace, or the package root the configuration gives when no chapter places it. A file the workspace assigns to no package falls back to the module's own directory. `resolveSinks` returns a `TangledFile` per sink: the section that produced it, where it lands, and its content. `LoomTangler` performs the writes; `tangle` itself touches no disk.
+`resolveSinks` gathers the files this tangle emits: the entry module's own tangle sinks — one per `[dir, file]` section — and every sink a book in the corpus routes into place. For each it flattens the composed code across the corpus with `fromProduct`, then resolves where the file lands. A module's file emits only when the entry produced it or a book routes it, so importing a module to transclude its code never re-emits that module's own files. `outputPath` places a sink under a root, so a sink names its file relative to that root rather than climbing out of the corpus. The formatter reads the same rule, to name the file a root tangles to. `fileRoot` chooses that root for each sink: the chapter prefix a book places the sink under, resolved against the workspace, or the package root the configuration gives when no chapter places it. A file the workspace assigns to no package falls back to the module's own directory. `resolveSinks` returns a `TangledFile` per sink: the section that produced it, where it lands, and its content. `LoomTangler` performs the writes; `tangle` itself touches no disk.
 
 A tangle must never emit an anchor it could not resolve, nor build on a file it could not read. So `tangle` runs `corpusErrors` over the whole corpus first — every module's document and product — and fails with a `TangleError` the moment any module carries an error. A missing import, a malformed parse, an unresolved `::[…]` reference each stops the build rather than leaving a file with a silently dropped reference. The failure is loud, and names every file and line.
 
@@ -372,7 +372,7 @@ export interface TangledFile {
   readonly content: string
 }
 
-const outputPath = (
+export const outputPath = (
   packageRoot: Option.Option<string>,
   entry: Path,
   sink: string,
@@ -508,7 +508,7 @@ const projectTree = (modules: Modules, entry: LoomModule): LoomVirtualCode =>
 
 Every model up to here is plain data, which keeps the pipeline serialisable and easy to test. Volar is not plain data: it wants a function-based `IScriptSnapshot` for a document's text and its own `CodeMapping` for each source span. `toVolar` is the one adapter that crosses from a `LoomVirtualCode` tree to Volar's `VirtualCode`, and the only place in Loom that touches Volar's runtime types. It recurses down the embedded tree, converting every node.
 
-Three small functions do the work. `stringSnapshot` presents a string as the minimal snapshot Volar reads. `featuresOf` chooses which editor features Volar forwards at a mapped span, and for every author-facing token it defers to `LoomSymbol`: it reads the span's symbol kind through `profileOf` and forwards exactly the features that kind allows — a heading navigates, an anchor navigates and verifies, prose only folds and outlines. The table is the one place those features live, so `featuresOf` repeats none of them. It answers only for the two kinds that carry the projection's structure rather than a token a cursor rests on. A `source` span — the whole-file identity mapping the root carries — takes verification alone, so Loom's own diagnostics surface on the file while no other feature fires there. A `product` span carries the full set, verification and completion and semantics among them, so the author edits the resolved composition as if it were the source. `toCodeMapping` rewrites one of our `Mapping`s — a `.loom` source span paired with the generated span it projects to — as Volar's `CodeMapping`, choosing its features with `featuresOf`.
+Three small functions do the work. `stringSnapshot` presents a string as the minimal snapshot Volar reads. `featuresOf` chooses which editor features Volar forwards at a mapped span, and for every author-facing token it defers to `LoomSymbol`: it reads the span's symbol kind through `profileOf` and forwards exactly the features that kind allows — a heading navigates, an anchor navigates and verifies, prose only folds and outlines. The table is the one place those features live, so `featuresOf` repeats none of them. It answers only for the two kinds that carry the projection's structure rather than a token a cursor rests on. A `source` span — the whole-file identity mapping the root carries — takes verification and formatting alone, so Loom's own diagnostics surface on the file, and the Loom language formats the whole file through it, while no other feature fires there. A `product` span carries the full set, verification and completion and semantics among them, so the author edits the resolved composition as if it were the source. `toCodeMapping` rewrites one of our `Mapping`s — a `.loom` source span paired with the generated span it projects to — as Volar's `CodeMapping`, choosing its features with `featuresOf`.
 
 =>
 
@@ -528,7 +528,7 @@ const productFeatures: CodeMapping['data'] = {
 
 const featuresOf = (kind: Mapping['kind']): CodeMapping['data'] =>
   Match.value(kind).pipe(
-    Match.when('source', () => ({ verification: true })),
+    Match.when('source', () => ({ verification: true, format: true })),
     Match.when('product', () => productFeatures),
     Match.when(Match.defined, (symbol) => profileOf(symbol).features),
     Match.orElse(() => productFeatures),

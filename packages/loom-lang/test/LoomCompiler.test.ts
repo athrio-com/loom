@@ -55,6 +55,7 @@ const TestConfig = Layer.succeed(
         delims: defaultAnchorDelims,
         primaryLanguage: undefined,
         variables: {},
+        width: 100,
         packageRoot: undefined,
         workspaceRoot: undefined,
         corpusDir: undefined,

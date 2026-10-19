@@ -231,6 +231,35 @@ const loomSemanticTokens = (frame: FrameQueryApi): LanguageServicePlugin => ({
   }),
 })
 
+## Formatting the file
+
+`loomFormatting` answers an editor's request to format a loom. Volar formats a file's documents level by level, and the root comes first, so the Loom language formats the whole file at the root and leaves nothing for the levels below. It answers for the root alone, the document whose map to the source is the identity, so its edit lands on the file the author opened exactly as written.
+
+It hands the root's text to `FrameQuery`'s `format`, which joins the prose and formats the code, and answers with one edit that replaces the whole text. A text that formats to itself answers with no edit, so the editor marks nothing changed.
+
+=>
+
+const loomFormatting = (frame: FrameQueryApi): LanguageServicePlugin => ({
+  name: 'loom-formatting',
+  capabilities: { documentFormattingProvider: true },
+  create: (context) => ({
+    provideDocumentFormattingEdits: async (document) => {
+      const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
+      if (!decoded || decoded[1] !== 'root') return undefined
+      const text = document.getText()
+      const formatted = await frame.format(decoded[0].fsPath, text)
+      return formatted === text
+        ? []
+        : [
+            {
+              range: { start: document.positionAt(0), end: document.positionAt(text.length) },
+              newText: formatted,
+            },
+          ]
+    },
+  }),
+})
+
 ## Composing the services
 
 `withoutHighlights` wraps each `volar-service-typescript` plugin to drop one feature:
@@ -244,8 +273,8 @@ than the wrong one.
 `LoomLanguage` composes its plugin sources: the wrapped `volar-service-typescript`
 plugins that check the Frame, and over the `FrameQuery` the host provides,
 `loomDiagnostics` for Loom's own health, `loomDefinition` and `loomReferences` for its
-navigation, `loomRename` for renaming a section, and `loomSemanticTokens` for colouring
-its tokens. Volar registers them all under the `loom` id.
+navigation, `loomRename` for renaming a section, `loomSemanticTokens` for colouring
+its tokens, and `loomFormatting` for formatting the file. Volar registers them all under the `loom` id.
 
 =>
 
@@ -274,6 +303,7 @@ export const LoomLanguage = defineLanguageService({
         loomReferences(frame),
         loomRename(frame),
         loomSemanticTokens(frame),
+        loomFormatting(frame),
       ]
     }),
 })
@@ -324,5 +354,7 @@ import {
 ::[Renaming a section]
 
 ::[Colouring the source]
+
+::[Formatting the file]
 
 ::[Composing the services]

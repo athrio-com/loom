@@ -10,6 +10,8 @@ Language: TypeScript
 
 For each request the editor sends, the service finds the Product the document belongs to — a composition root with its members folded in — hands that Product's resolved TypeScript to the program, and forwards the request there. The program answers in the Product's own coordinates, and Volar maps the answer back to the `.loom`.
 
+The service also formats TypeScript. It lays a composed root out with Prettier, and Loom's formatter maps the result back to the sections the root was composed from.
+
 ## Finding the consumer's options
 
 The product program checks against the consumer's own compiler options, so the service finds them the way `tsc` does: it walks up from the `.loom` file for the nearest `tsconfig.json` and parses it. A package with no `tsconfig.json` falls back to a baseline — modern modules, `strict` on — so a section still checks.
@@ -304,9 +306,63 @@ const productPlugin = (
   },
 })
 
+## Formatting the product
+
+TypeScript is formatted with Prettier, the formatter most TypeScript projects already use. The service formats with the project's own Prettier when the project has one, so a loom's code comes out exactly as the project's other files do. `projectPrettier` looks for it the way Node would, from the file the root tangles to, and the service falls back to the Prettier it ships with when the search finds none. A Prettier that is CommonJS arrives under `default` when an ES module imports it, so `loadPrettier` takes the module from there when it has one.
+
+=>
+
+type Prettier = typeof import('prettier')
+
+const projectPrettier = (path: string): Option.Option<string> =>
+  Option.liftThrowable(() => createRequire(path).resolve('prettier'))()
+
+const loadPrettier = (path: string): Effect.Effect<Prettier, ServiceError> =>
+  Effect.tryPromise({
+    try: async (): Promise<Prettier> => {
+      const loaded: Prettier & { readonly default?: Prettier } = await Option.match(
+        projectPrettier(path),
+        {
+          onNone: () => import('prettier'),
+          onSome: (resolved) => import(pathToFileURL(resolved).href),
+        },
+      )
+      return loaded.default ?? loaded
+    },
+    catch: (cause) =>
+      new ServiceError({ service: 'typescript', reason: `Prettier did not load: ${String(cause)}` }),
+  })
+
+~
+
+`formatProduct` reads the project's Prettier settings for the file the root tangles to, the `.prettierrc` that file would format under, and formats the composed code with them. The settings decide the style, and the loom's `width` fills in the line width only when the settings name none, so a project that sets `printWidth` keeps it. Code that does not parse fails with a `ServiceError`, and that root stays as the author wrote it.
+
+=>
+
+const formatProduct = (request: FormatRequest): Effect.Effect<string, ServiceError> =>
+  Effect.gen(function* () {
+    const prettier = yield* loadPrettier(request.path)
+    const failed = (cause: unknown) =>
+      new ServiceError({ service: 'typescript', reason: String(cause) })
+    const options = yield* Effect.tryPromise({
+      try: () => prettier.resolveConfig(request.path),
+      catch: failed,
+    })
+    return yield* Effect.tryPromise({
+      try: () =>
+        prettier.format(request.code, {
+          ...options,
+          parser: 'typescript',
+          filepath: request.path,
+          printWidth: options?.printWidth ?? request.width,
+        }),
+      catch: failed,
+    })
+  })
+
 ## The service
 
-`TypescriptService` is the `LanguageService` the host activates for `typescript`. Its `plugins` Effect takes the editor's TypeScript compiler from `TypescriptSdk` and the composed corpus from `Composition`, then builds the one plugin. Where the frame rides Volar's shared TypeScript program, this service owns a program of its own.
+`TypescriptService` is the `LanguageService` the host activates for `typescript`. Its `plugins` Effect takes the editor's TypeScript compiler from `TypescriptSdk` and the composed corpus from `Composition`, then builds the one plugin. Where the frame rides Volar's shared TypeScript program, this service owns a program of its own. Its `format` is `formatProduct`.
 
 The package exports the service as its default. That default is the entry the dynamic loader reads: `LanguageLoader` imports the built package and takes `default`, expecting a value that satisfies the `LanguageService` contract under the id `typescript`.
 
@@ -322,13 +378,14 @@ export const TypescriptService = defineLanguageService({
       const composition = yield* Composition
       return [productPlugin(ts, composition)]
     }),
+  format: formatProduct,
 })
 
 export default TypescriptService
 
 ## What the service draws on
 
-The service builds on `@athrio/loom-lang-services` for the `LanguageService` contract, the `TypescriptSdk` and `Composition` capabilities, and the `ComposedFile` shape each composition root takes; and on its own `ProductProgram`. From Effect it takes `Effect` for the `plugins` body, and `Array`, `Option`, and `pipe` to search the composition; from Volar, the `LanguageServicePlugin` type, with `CodeAction`, `WorkspaceEdit`, `LocationLink`, and `Range` for the results and edits the plugin moves back to the `.loom`; the `URI` type to decode an embedded document back to its `.loom`; and Bun's `dirname` to walk for a `tsconfig.json`.
+The service builds on `@athrio/loom-lang-services` for the `LanguageService` contract, the `TypescriptSdk` and `Composition` capabilities, the `ComposedFile` shape each composition root takes, and the `FormatRequest` a formatter answers with the `ServiceError` it fails with; and on its own `ProductProgram`. From Effect it takes `Effect` for the `plugins` body, and `Array`, `Option`, and `pipe` to search the composition; from Volar, the `LanguageServicePlugin` type, with `CodeAction`, `WorkspaceEdit`, `LocationLink`, and `Range` for the results and edits the plugin moves back to the `.loom`; the `URI` type to decode an embedded document back to its `.loom`; and Bun's `dirname` to walk for a `tsconfig.json`. Node's `createRequire` finds a project's own Prettier, and `pathToFileURL` turns the file it finds into the address `import` takes.
 
 =>
 
@@ -341,13 +398,17 @@ import type {
   WorkspaceEdit,
 } from '@volar/language-service'
 import { URI } from 'vscode-uri'
+import { createRequire } from 'node:module'
 import { dirname } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import type { CompilerOptions } from 'typescript'
 import {
   Composition,
   type ComposedFile,
   type CompositionApi,
   defineLanguageService,
+  type FormatRequest,
+  ServiceError,
   TypescriptSdk,
 } from '@athrio/loom-lang-services/LanguageService'
 import { createProductProgram, type ProductProgram } from './ProductProgram'
@@ -365,5 +426,7 @@ type TypeScript = typeof import('typescript')
 ::[Choosing a program for a section]
 
 ::[The editor plugin]
+
+::[Formatting the product]
 
 ::[The service]

@@ -1,0 +1,27 @@
+---
+Part V: The command line
+Chapter 5: loom format
+Language: Prose
+---
+
+# loom format
+
+`loom format` formats looms the way your editor's format command does. It puts each prose paragraph on one line, so your editor can wrap it at any width, and it lays out each code section with that language's formatter.
+
+```bash
+loom format <path> [--check]
+```
+
+## What it changes
+
+Prose keeps its words and loses only the line breaks inside a paragraph. Lists, code fences, tables, headings and a line that ends in two spaces keep their lines.
+
+Code goes through its language's formatter: Prettier for TypeScript, with your project's own Prettier settings. Lines keep to the project's `width`, a hundred columns unless `.loom/config.yaml` sets another or your Prettier settings name their own. Each change lands in the section that wrote that code. If a change can't be placed in one section, Loom leaves that file's code as you wrote it, so formatting never breaks it.
+
+## Checking
+
+`--check` changes nothing. It lists the looms that would change, and fails when any would, so CI can keep a project formatted.
+
+```bash
+loom format corpus --check
+```

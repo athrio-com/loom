@@ -119,6 +119,9 @@
     "packages/loom-service-typescript": {
       "name": "@athrio/loom-service-typescript",
       "version": "0.0.11",
+      "dependencies": {
+        "prettier": "^3.8.4",
+      },
       "devDependencies": {
         "@athrio/loom-lang-services": "workspace:*",
         "@volar/language-core": "^2.4.28",

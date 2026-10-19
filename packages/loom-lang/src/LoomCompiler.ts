@@ -65,7 +65,7 @@ export interface TangledFile {
   readonly content: string
 }
 
-const outputPath = (
+export const outputPath = (
   packageRoot: Option.Option<string>,
   entry: Path,
   sink: string,
@@ -201,7 +201,7 @@ const productFeatures: CodeMapping['data'] = {
 
 const featuresOf = (kind: Mapping['kind']): CodeMapping['data'] =>
   Match.value(kind).pipe(
-    Match.when('source', () => ({ verification: true })),
+    Match.when('source', () => ({ verification: true, format: true })),
     Match.when('product', () => productFeatures),
     Match.when(Match.defined, (symbol) => profileOf(symbol).features),
     Match.orElse(() => productFeatures),

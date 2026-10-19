@@ -137,6 +137,93 @@ const toc = (file: string) =>
     yield* Console.log(`loom: wrote the table of contents into ${written}`)
   })
 
+## Formatting looms
+
+The `format` command formats looms the way an editor formats the one it has open: every prose paragraph on one line, and every code section laid out by its language's formatter. It takes a file or a folder, resolves it against the working directory, and lets `LoomFormatter` name the looms the path covers. Each loom it changes is rewritten in place and reported. With `--check` it rewrites nothing. It names each loom that would change, and exits non-zero when any would, so a CI step can hold a project to its format.
+
+=>
+
+const format = (path: string, check: boolean) =>
+  Effect.gen(function* () {
+    const formatter = yield* LoomFormatter
+    const target = resolvePath(process.cwd(), path)
+    const languages = yield* formatLanguages(target)
+    const looms = yield* formatter.looms(target)
+    const changed = yield* Effect.filter(looms, (loom) =>
+      Effect.gen(function* () {
+        const text = yield* Effect.sync(() => readFileSync(loom, 'utf8'))
+        const formatted = yield* formatter.format(loom, text, languages)
+        if (formatted === text) return false
+        if (!check) yield* Effect.sync(() => writeFileSync(loom, formatted))
+        return true
+      }),
+    )
+    yield* changed.length === 0
+      ? Console.log('loom: every loom is formatted')
+      : Effect.forEach(
+          changed,
+          (loom) => Console.log(`loom: ${check ? 'would format' : 'formatted'} ${loom}`),
+          { discard: true },
+        )
+    if (check && changed.length > 0) yield* Effect.sync(() => void (process.exitCode = 1))
+  })
+
+~
+
+The command formats code through the project's language services, the same packages the editor loads from the store. A loaded service reads Effect, the service contract and TypeScript from the host that loads it, so `formatLanguages` first installs that host runtime. It needs a TypeScript to lend, and it looks where the language server looks: in the project, then beside Loom. Without one it loads no service, says so once, and formats the prose alone, leaving every code section as written.
+
+The loader brings the Loom language with it, and the Loom language brings Volar, which is CommonJS and calls `require` as it loads. So `formatLanguages` imports the loader and the host runtime only when it reaches them, after exposing a `require` the way the `lsp` branch does, and a plain `tangle` never pays to load Volar.
+
+=>
+
+const typeScriptFrom = (from: string): Option.Option<string> =>
+  Option.liftThrowable(() => createRequire(from).resolve('typescript/lib/typescript.js'))()
+
+const projectTypeScript = (root: string): Effect.Effect<Option.Option<typeof import('typescript')>> =>
+  Option.match(
+    Option.orElse(typeScriptFrom(resolvePath(root, 'package.json')), () =>
+      typeScriptFrom(import.meta.url),
+    ),
+    {
+      onNone: () => Effect.succeed(Option.none()),
+      onSome: (file) =>
+        Effect.tryPromise(() => import(pathToFileURL(file).href)).pipe(
+          Effect.map((module) => Option.some(module.default ?? module)),
+          Effect.orElseSucceed(() => Option.none()),
+        ),
+    },
+  )
+
+const formatLanguages = (target: string) =>
+  Effect.gen(function* () {
+    const config = yield* LoomConfig
+    const root = workspaceRoot(dirname(target))
+    const manifest = yield* config.manifest(root)
+    const ids = Object.keys(manifest?.languages ?? {})
+    if (ids.length === 0) return [] as ReadonlyArray<LanguageService>
+    const typescript = yield* projectTypeScript(root)
+    return yield* Option.match(typescript, {
+      onNone: () =>
+        Console.error(
+          'loom: found no TypeScript to load the language services with, so code sections stay as written',
+        ).pipe(Effect.as([] as ReadonlyArray<LanguageService>)),
+      onSome: (ts) =>
+        Effect.gen(function* () {
+          yield* Effect.sync(() => {
+            ;(globalThis as { require?: unknown }).require ??= createRequire(import.meta.url)
+          })
+          const { installHostRuntime } = yield* Effect.promise(
+            () => import('@athrio/loom-lang-services/Runtime'),
+          )
+          const { loadActive } = yield* Effect.promise(
+            () => import('@athrio/loom-lang-services/LanguageLoader'),
+          )
+          yield* Effect.sync(() => installHostRuntime(ts))
+          return yield* loadActive(ids, root)
+        }),
+    })
+  })
+
 ## Scaffolding a workspace
 
 `loom init` sets a workspace up for review, and it is safe to run again — a second run only fills in what a first left undone, and never undoes it. The first run writes `.loom/config.yaml`, the compiled configuration the editor and the tangler read, and a `.gitignore` beside it that keeps the generated service store out of version control. It asks for the primary language a specifier-less section inherits, and for the languages the editor activates services for. A later run finds that configuration and leaves it untouched; `loom add` and `loom remove` change the activated languages afterwards.
@@ -717,7 +804,7 @@ const nvim = Effect.gen(function* () {
 
 ## Where the world ends
 
-The command program is twelve subcommands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them, recording each in the lock; with `--watch` it stays running and re-tangles as the looms change, so a dev server watching the output reacts to a loom edit. `loom orphans` lists the files across the workspace that the lock records but no loom still produces, one path per line for a shell to pipe into `rm`, and `--prune` removes them and rewrites the lock. `loom weave <path> <out>` projects a corpus into a `WovenCorpus` and writes it as JSON to `out`. `loom toc <path>` rewrites a book's table of contents from the corpus's own frontmatter. `loom init [dir]` scaffolds a `.loom/config.yaml` and an `.mcp.json`, defaulting to the working directory. `loom add <language>` and `loom remove <language>` turn a language's service on and off. `loom status` reports what the workspace has activated and what the store holds. `loom set <name> <value>` writes a workspace variable and re-tangles the corpus, so a version bump is one command. `loom design <name> <address>` stands Loom Design in front of a running application. `loom helix` sets the Helix editor up for looms, and `loom nvim` sets up Neovim. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the weaver, the contents writer, the package config, the configuration, and the Node platform behind the prompts and the filesystem.
+The command program is thirteen subcommands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them, recording each in the lock; with `--watch` it stays running and re-tangles as the looms change, so a dev server watching the output reacts to a loom edit. `loom orphans` lists the files across the workspace that the lock records but no loom still produces, one path per line for a shell to pipe into `rm`, and `--prune` removes them and rewrites the lock. `loom weave <path> <out>` projects a corpus into a `WovenCorpus` and writes it as JSON to `out`. `loom toc <path>` rewrites a book's table of contents from the corpus's own frontmatter. `loom format <path>` formats the looms a file or a folder holds, and with `--check` names the ones that would change instead. `loom init [dir]` scaffolds a `.loom/config.yaml` and an `.mcp.json`, defaulting to the working directory. `loom add <language>` and `loom remove <language>` turn a language's service on and off. `loom status` reports what the workspace has activated and what the store holds. `loom set <name> <value>` writes a workspace variable and re-tangles the corpus, so a version bump is one command. `loom design <name> <address>` stands Loom Design in front of a running application. `loom helix` sets the Helix editor up for looms, and `loom nvim` sets up Neovim. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the weaver, the contents writer, the formatter, the package config, the configuration, and the Node platform behind the prompts and the filesystem.
 
 One entry point sits outside the command program. `loom lsp --stdio` starts the language server for any editor. It loads Volar only when it is reached, so a plain `tangle` never pays to bundle it, and it runs on its own Bun runtime rather than nesting one inside a command. Volar is CommonJS and calls `require` at runtime for the built-in modules; this bundle is an ES module, where `require` is absent, so before loading the server the `lsp` branch exposes one through `createRequire` on `globalThis` — the shim Volar's bundled code reaches for. That cost lands only on the `lsp` path.
 
@@ -741,6 +828,12 @@ const weaveCommand = Command.make(
   'weave',
   { path: Argument.String('path'), out: Argument.String('out') },
   ({ path, out }) => weave(path, out),
+)
+
+const formatCommand = Command.make(
+  'format',
+  { path: Argument.String('path'), check: Flag.Boolean('check').pipe(Flag.withDefault(false)) },
+  ({ path, check }) => format(path, check),
 )
 
 const tocCommand = Command.make(
@@ -795,6 +888,7 @@ const loom = Command.make('loom').pipe(
     orphansCommand,
     weaveCommand,
     tocCommand,
+    formatCommand,
     initCommand,
     addCommand,
     removeCommand,
@@ -812,6 +906,7 @@ const program = Command.run(loom, {
   Effect.provide(LoomTangler.layer),
   Effect.provide(LoomWeaver.layer),
   Effect.provide(LoomContents.layer),
+  Effect.provide(LoomFormatter.layer),
   Effect.provide(DocumentSource.layer),
   Effect.provide(PackageConfig.layer),
   Effect.provide(LoomConfig.layer),
@@ -828,7 +923,7 @@ if (process.argv[2] === 'lsp') {
 
 ## What the program needs
 
-The program is built on Effect, a functional TypeScript library for composing and running effectful programs. Effect's CLI toolkit parses the command line and drives the interactive prompts, and the Node platform supplies the runtime, the terminal, and filesystem access. `Stream` drives `tangle --watch`, draining the tangler's watch as a sequence of passes, and `Result` carries each pass's outcome. Node's `path` resolves a workspace directory for `init`, and `node:fs` writes the configuration and the `.mcp.json`, creates the corpus folder, and copies and renames the files Helix and Neovim read. Effect's child-process module runs Loom Design's binary for `design` and the C compiler for `helix` and `nvim`, `Data` types their failures, and `node:module` supplies the resolver that finds Design's binary and the workspace's grammar — the same resolver the `lsp` branch borrows to give Volar a `require`. `pipe` threads the grammar's search through `Option`, `node:os` supplies the home folder that Helix's configuration and Neovim's data live under, and `node:url` turns the bundle's own address into the folder its grammar sits in. The language server contributes five services: `LoomTangler`, which walks a `.loom` file, emits the tangled output, and watches it for changes; `LoomWeaver`, which projects a corpus and writes the woven data; `LoomContents`, which regenerates a book's table of contents; `DocumentSource`, which feeds them source text from disk; and `PackageConfig`, which resolves a `.loom`'s package settings. `TangledFile` and `TangleError` ride along from the compiler, typing the files a pass writes and the error a broken corpus raises. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back. From `@athrio/loom-lang-services` come the store operations behind activation: `addService` and `removeService` install and uninstall a language's package, with `ServiceInstall` saying what an install did, `installedVersion` reads the version of a service the store holds, and `serviceVersion` is the version this Loom expects. `storeDir` locates the store, `workspaceRoot` finds the workspace it sits in, and `servicePackage` names a language's package.
+The program is built on Effect, a functional TypeScript library for composing and running effectful programs. Effect's CLI toolkit parses the command line and drives the interactive prompts, and the Node platform supplies the runtime, the terminal, and filesystem access. `Stream` drives `tangle --watch`, draining the tangler's watch as a sequence of passes, and `Result` carries each pass's outcome. Node's `path` resolves a workspace directory for `init`, and `node:fs` writes the configuration and the `.mcp.json`, creates the corpus folder, and copies and renames the files Helix and Neovim read. Effect's child-process module runs Loom Design's binary for `design` and the C compiler for `helix` and `nvim`, `Data` types their failures, and `node:module` supplies the resolver that finds Design's binary and the workspace's grammar — the same resolver the `lsp` branch borrows to give Volar a `require`. `pipe` threads the grammar's search through `Option`, `node:os` supplies the home folder that Helix's configuration and Neovim's data live under, and `node:url` turns the bundle's own address into the folder its grammar sits in. The language server contributes six services: `LoomTangler`, which walks a `.loom` file, emits the tangled output, and watches it for changes; `LoomWeaver`, which projects a corpus and writes the woven data; `LoomContents`, which regenerates a book's table of contents; `LoomFormatter`, which formats a loom and names the looms a folder holds; `DocumentSource`, which feeds them source text from disk; and `PackageConfig`, which resolves a `.loom`'s package settings. `TangledFile` and `TangleError` ride along from the compiler, typing the files a pass writes and the error a broken corpus raises. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back. From `@athrio/loom-lang-services` come the store operations behind activation: `addService` and `removeService` install and uninstall a language's package, with `ServiceInstall` saying what an install did, `installedVersion` reads the version of a service the store holds, and `serviceVersion` is the version this Loom expects. `storeDir` locates the store, `workspaceRoot` finds the workspace it sits in, and `servicePackage` names a language's package. For `format`, `loadActive` loads the project's language services from the store and `installHostRuntime` lends them the host's Effect and TypeScript, both imported only when `format` reaches them; `LanguageService` types what the loader returns, and `pathToFileURL` turns the TypeScript it finds into the address `import` takes.
 
 =>
 
@@ -840,7 +935,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync 
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { dirname, resolve as resolvePath } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
   DocumentSource,
   type TangledFile,
@@ -849,6 +944,7 @@ import {
 import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
 import { LoomWeaver } from '@athrio/loom-lang/weave/LoomWeaver'
 import { LoomContents } from '@athrio/loom-lang/weave/LoomContents'
+import { LoomFormatter } from '@athrio/loom-lang/LoomFormatter'
 import { PackageConfig } from '@athrio/loom-lang/PackageConfig'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
@@ -861,6 +957,7 @@ import {
   storeDir,
   workspaceRoot,
 } from '@athrio/loom-lang-services/LoomStore'
+import type { LanguageService } from '@athrio/loom-lang-services/LanguageService'
 
 ## The program {Tangle}
 
@@ -877,6 +974,8 @@ import {
 ::[Weaving a corpus]
 
 ::[Writing the table of contents]
+
+::[Formatting looms]
 
 ::[Scaffolding a workspace]
 

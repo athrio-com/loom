@@ -38,6 +38,7 @@ export const WorkspaceManifestSchema = Schema.Struct({
   settings: Schema.optional(SettingsSchema),
   variables: Schema.optional(VariablesSchema),
   ignore: Schema.optional(Schema.Array(Schema.String)),
+  width: Schema.optional(Schema.Int.check(Schema.isGreaterThan(0))),
 })
 
 export type WorkspaceManifest = typeof WorkspaceManifestSchema.Type
@@ -49,11 +50,14 @@ export interface ResolvedConfig {
   readonly settings: Record<string, Record<string, unknown>>
   readonly variables: Record<string, string>
   readonly ignore?: ReadonlyArray<string>
+  readonly width: number
   readonly services: Record<string, string>
   readonly packageRoot: string | undefined
   readonly workspaceRoot: string | undefined
   readonly corpusDir: string | undefined
 }
+
+export const defaultWidth = 100
 
 const empty: ResolvedConfig = {
   anchor: undefined,
@@ -61,6 +65,7 @@ const empty: ResolvedConfig = {
   languages: [],
   settings: {},
   variables: {},
+  width: defaultWidth,
   services: {},
   packageRoot: undefined,
   workspaceRoot: undefined,
@@ -142,6 +147,7 @@ const resolveFromManifest = (
     settings: manifest.settings ?? {},
     variables: variablesOf(manifest.variables),
     ignore: manifest.ignore,
+    width: manifest.width ?? defaultWidth,
     services: servicesOf(manifest.languages),
     packageRoot: containerRoot(from, container, workspace),
     workspaceRoot: workspace,
