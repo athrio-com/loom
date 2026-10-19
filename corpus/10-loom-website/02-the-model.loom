@@ -14,7 +14,7 @@ The state is one flat struct, and it opens on where the reader is. The route nam
 
 Within the documentation the route is not enough, because every chapter answers on the same page. So the chapter field names the woven chapter on show, and the rail, the article and the outline are all drawn from it. One more field says whether the drawer that replaces the rail on a narrow window is open. The active section is the heading the outline is following.
 
-The runtime is which package manager the hero's install line is written for, since a reader wants the one command that works on their machine rather than three to choose between.
+The runtime is the way the hero's install line installs Loom: one of three package managers, or `curl`, which fetches the install script for the standalone executable. A reader wants the one command that works on their machine rather than four to choose between.
 
 Five fields carry the search palette, which opens over whatever page is showing: whether it is open, where the caret sits inside the query, whether the search is still settling, and — further down, beside the older fields — the query itself and the focused result. The palette draws its own block caret rather than the browser's, so the caret's position has to be state instead of something the input keeps to itself.
 
@@ -28,7 +28,7 @@ import { defineMessageUnion } from 'foldkit/message'
 export const Route = S.Literals(['home', 'why-loom', 'docs', 'community', 'source', 'license'])
 export type Route = typeof Route.Type
 
-export const Runtime = S.Literals(['bun', 'npm', 'pnpm'])
+export const Runtime = S.Literals(['bun', 'npm', 'pnpm', 'curl'])
 export type Runtime = typeof Runtime.Type
 
 export const Model = S.Struct({

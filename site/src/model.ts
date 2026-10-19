@@ -16,7 +16,7 @@ import { defineMessageUnion } from 'foldkit/message'
 export const Route = S.Literals(['home', 'why-loom', 'docs', 'community', 'source', 'license'])
 export type Route = typeof Route.Type
 
-export const Runtime = S.Literals(['bun', 'npm', 'pnpm'])
+export const Runtime = S.Literals(['bun', 'npm', 'pnpm', 'curl'])
 export type Runtime = typeof Runtime.Type
 
 export const Model = S.Struct({

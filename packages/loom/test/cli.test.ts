@@ -502,6 +502,7 @@ describe('loom cli — keeping a service current', () => {
       const { status, stderr } = loom(['update'], { cwd: dir })
       expect(status).toBe(1)
       expect(stderr).toContain('usage: loom update')
+      expect(stderr).toContain('loom upgrade')
       rmSync(dir, { recursive: true, force: true })
     },
     SPAWN_TIMEOUT,
@@ -518,6 +519,20 @@ describe('loom cli — keeping a service current', () => {
       expect(stdout).toContain('loom update typescript')
       rmSync(home, { recursive: true, force: true })
       rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+})
+
+describe('loom cli — upgrade', () => {
+  it(
+    'names the package manager\'s command when Loom came from npm',
+    () => {
+      const { status, stdout } = loom(['upgrade'], {
+        env: { LOOM_RELEASES: 'http://127.0.0.1:9/unreachable' },
+      })
+      expect(status).toBe(0)
+      expect(stdout).toContain('npm install -g @athrio/loom@latest')
     },
     SPAWN_TIMEOUT,
   )

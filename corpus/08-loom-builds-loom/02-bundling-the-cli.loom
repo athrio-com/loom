@@ -1,6 +1,6 @@
 ---
 Part VIII, Chapter 2: Bundling the Loom CLI
-Package: packages/loom/vite.config.ts
+Package: packages/loom/
 Language: TypeScript
 ---
 
@@ -10,7 +10,7 @@ Vite bundles the CLI program, the language server's TypeScript source, and Effec
 
 Loom Design is in neither this bundle nor any other file this build writes. Athrio Media OÜ licenses Design commercially, while the Quadrivium Academy foundation licenses this package under MIT, so a copy of Design inside `dist/main.js` would publish the paid product under the free product's terms — which is what version 0.0.10 did, and a permissive grant once made cannot be taken back. `loom design` runs Design's own binary and imports nothing from it, which leaves the bundler no import to follow.
 
-## Vite build {Tangle}
+## Vite build {Tangle}[vite.config.ts]
 
 The `node:` built-in modules stay external, since the runtime supplies them and the bundle need not carry them. Everything else — the language server's TypeScript source and Effect — is inlined into `dist/main.js`.
 
@@ -24,7 +24,7 @@ The language server's `exports` field points to TypeScript source files rather t
 
 import { defineConfig } from 'vite'
 import { builtinModules, createRequire } from 'node:module'
-import { cpSync } from 'node:fs'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -48,9 +48,13 @@ const umd2esm = {
 
 ~
 
-`loom helix` and `loom nvim` compile Loom's tree-sitter grammar on the user's machine, so the published package carries the grammar's sources. `editorGrammar` copies them into `dist/tree-sitter-loom` once the bundle is written: the generated parser, the scanner, the headers they include, and the queries Neovim and Helix colour with. Each keeps the path it has in the `tree-sitter-loom` package, so a command finds the same files whether it reads the copy or, run from source, the package itself.
+`loom helix` and `loom nvim` compile Loom's tree-sitter grammar on the user's machine, so the bundle carries the grammar's sources: the generated parser, the scanner, the headers they include, and the queries Neovim and Helix colour with. `grammarFiles` lists them, a folder standing for every file inside it. `filesUnder` turns that list into single files, each named by its path in the `tree-sitter-loom` package.
+
+`editorGrammar` is a Vite plugin that serves them as a module of their own, `virtual:tree-sitter-loom`. No file on disk holds that module. The plugin answers for its name and builds its text when the CLI imports it: a default export mapping each file's path to its contents. The CLI imports the module only from the two commands that need the grammar, so Vite puts it in a chunk of its own, which a plain `tangle` never loads. Both the npm package and the standalone executable carry that chunk, since Bun compiles the executable from this very bundle.
 
 =>
+
+const grammarRoot = resolve(here, '..', 'tree-sitter-loom')
 
 const grammarFiles = [
   'src/parser.c',
@@ -60,17 +64,26 @@ const grammarFiles = [
   'editors/helix/queries/loom',
 ]
 
+const filesUnder = (path: string): ReadonlyArray<string> =>
+  statSync(resolve(grammarRoot, path)).isDirectory()
+    ? readdirSync(resolve(grammarRoot, path)).flatMap((name) => filesUnder(`${path}/${name}`))
+    : [path]
+
+const grammarModule = 'virtual:tree-sitter-loom'
+
 const editorGrammar = {
   name: 'editor-grammar',
-  closeBundle() {
-    grammarFiles.forEach((file) =>
-      cpSync(
-        resolve(here, '..', 'tree-sitter-loom', file),
-        resolve(here, 'dist', 'tree-sitter-loom', file),
-        { recursive: true },
-      ),
-    )
-  },
+  resolveId: (source: string) => (source === grammarModule ? `\0${grammarModule}` : null),
+  load: (id: string) =>
+    id === `\0${grammarModule}`
+      ? `export default ${JSON.stringify(
+          Object.fromEntries(
+            grammarFiles
+              .flatMap(filesUnder)
+              .map((file) => [file, readFileSync(resolve(grammarRoot, file), 'utf8')]),
+          ),
+        )}`
+      : null,
 }
 
 ~
@@ -108,3 +121,14 @@ export default defineConfig({
     },
   },
 })
+
+## The grammar's module, declared {Tangle}[src/tree-sitter-loom.d.ts]
+
+TypeScript checks the CLI's source before Vite bundles it, and it cannot see a module that only a Vite plugin serves. This declaration tells it the module's shape: a default export that maps each file's path to its text.
+
+=>
+
+declare module 'virtual:tree-sitter-loom' {
+  const files: Readonly<Record<string, string>>
+  export default files
+}

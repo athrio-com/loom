@@ -269,7 +269,7 @@ export const loomMark = (ground: MarkGround, scale: number): Html =>
 
 ## The icons
 
-The icons are the small marks the chrome and its buttons wear — a copy glyph, an open book, an external arrow, a forward arrow, a check, a burger that opens the documentation's drawer, and the GitHub octocat. Each is an inline SVG drawn in the current text colour, so it takes the colour of whatever sits around it.
+The icons are the small marks the chrome and its buttons wear — a copy glyph, an open book, an external arrow, a forward arrow, a check, a terminal prompt, a burger that opens the documentation's drawer, and the GitHub octocat. The terminal prompt marks the install tab for the standalone executable, which no package manager's logo can. Each is an inline SVG drawn in the current text colour, so it takes the colour of whatever sits around it.
 
 The two chevrons point opposite ways for the same reason. A bar that collapses points down, towards where it is going, and the handle it leaves behind points up, towards where it came from.
 
@@ -369,6 +369,9 @@ export const arrowIcon = (): Html =>
   )
 
 export const checkIcon = (): Html => strokeIcon('13', [strokePath('M20 6 9 17l-5-5')])
+
+export const terminalIcon = (): Html =>
+  strokeIcon('14', [strokePath('m4 17 6-6-6-6'), strokePath('M12 19h8')])
 
 export const burgerIcon = (): Html =>
   strokeIcon('16', [

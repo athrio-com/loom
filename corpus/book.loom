@@ -96,6 +96,7 @@ The book closes where it began, with the fact that Loom is written in Loom. This
 10. Packaging the Loom CLI
 11. Generating the table of contents
 12. Testing the Loom CLI
+13. The standalone executable
 
 ### Part IX — Extensions for IDEs
 
@@ -329,11 +330,12 @@ The site renders on the server first, for a reader and a crawler, then hydrates 
 
 ### Part XI — Releasing Loom
 
-Loom releases itself on every push. A gate runs first — the tests, and a check that the committed source still matches the corpus it tangles from — and a green push to the default branch releases. It publishes the npm packages through Trusted Publishing, so no token lives in the repository, and ships the website's Docker image when the website changed. This part is that pipeline: the gate that guards every change, the tool that publishes each package npm is missing, and the workflow that runs it and pushes the image on a push.
+Loom releases itself on every push. A gate runs first — the tests, a check that the committed source still matches the corpus it tangles from, and a run of the standalone executable — and a green push to the default branch releases. It publishes the npm packages through Trusted Publishing, so no token lives in the repository, attaches an executable for each platform to a GitHub release, and ships the website's Docker image when the website changed. This part is that pipeline: the gate that guards every change, the tool that publishes each package npm is missing, the workflow that runs it and attaches the executables on a push, and the script that installs an executable.
 
 1. Continuous integration
 2. The release tool
 3. Releasing on a push
+4. Installing the executable
 
 ### Work in progress
 

@@ -1144,7 +1144,7 @@ The claim's paragraph stops at forty-six characters rather than the site's usual
 
 The install line is a row of tabs over one command. A tab draws a rule beneath itself only when it is the chosen one, but every tab reserves that rule in transparent, so the row's baseline never shifts as the choice moves along it.
 
-The command itself is a button on the one pure-white ground the page uses. White here says "this is not prose, it is a thing you take", and the border darkens to ink under the cursor to confirm it.
+The command itself is a button on the one pure-white ground the page uses. White here says "this is not prose, it is a thing you take", and the border darkens to ink under the cursor to confirm it. The `curl` command carries a long address with no space in it, so the line may break anywhere rather than push the button past a phone's edge.
 
 =>
 
@@ -1194,7 +1194,7 @@ The command itself is a button on the one pure-white ground the page uses. White
 
 .rt-command:hover { border-color: var(--ink); }
 .rt-command .prompt { color: var(--ink-3); }
-.rt-command .line { flex: 1; min-width: 0; }
+.rt-command .line { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 
 .rt-command .took {
   font-size: var(--t-micro);

@@ -8,6 +8,8 @@ Language: TypeScript
 
 A language service is editor tooling, not a dependency of the code a project ships, so Loom keeps the services it installs in a store of its own and never writes to the consumer's `package.json`. This module owns that store: where it sits, which services it holds, and the two commands that fill and empty it.
 
+The store holds one package that is not a service. Every service runs on the TypeScript its host lends it, and a project written in Python or Go has no TypeScript to lend. So the store also keeps a copy of TypeScript for the host to use when no other copy is at hand.
+
 `LanguageLoader` reads the store to load a project's active services. This module is the other half, the half that writes it. The two resolve the store's location through one shared function, so the loader always reads what `loom add` wrote.
 
 ## The package a language ships in
@@ -58,13 +60,39 @@ export const installedServices = (dir: string): Effect.Effect<ReadonlyArray<stri
       .map((name) => name.slice(servicePrefix.length))
   })
 
+## What a service's manifest says
+
+Every package in the store carries a manifest, the `package.json` its author published. Loom reads three of its fields. The `version` field says which release of the service the store holds. The `exports` and `main` fields say which file a host imports to load the service.
+
+`ServiceManifestSchema` is that much of a manifest, every field optional, since a field the author left out is no error. The `exports` field may take several shapes, so the schema admits any value there and leaves its reading to the loader. `serviceDir` names the folder where the store keeps a service, and `serviceManifest` reads the manifest in that folder and decodes it. It yields nothing when the store does not hold the service, or when the file is not a manifest at all.
+
+=>
+
+export const ServiceManifestSchema = Schema.Struct({
+  version: Schema.optional(Schema.String),
+  main: Schema.optional(Schema.String),
+  exports: Schema.optional(Schema.Unknown),
+})
+
+export type ServiceManifest = typeof ServiceManifestSchema.Type
+
+export const serviceDir = (id: string, dir: string): string =>
+  join(storeDir(dir), 'node_modules', servicePackage(id))
+
+export const serviceManifest = (id: string, dir: string): Option.Option<ServiceManifest> =>
+  pipe(
+    Option.liftThrowable(() => readFileSync(join(serviceDir(id, dir), 'package.json'), 'utf8'))(),
+    Option.flatMap(Option.liftThrowable((text: string): unknown => JSON.parse(text))),
+    Option.flatMap(Schema.decodeUnknownOption(ServiceManifestSchema)),
+  )
+
 ## The version a service must have
 
 Loom releases every package at one version, the command line and each language service alike, so a service works with the Loom that shares its version. `serviceVersion` is that version, the workspace's own, which the release sets for every package at once. A store can therefore check its services by a plain comparison: a service at `serviceVersion` belongs to this Loom, and a service at any other version was installed by another.
 
 The comparison matters because a store outlives the Loom that filled it. A service installed by an older release stays in the store when Loom is upgraded, and a service built against an older Effect fails inside the newer host, so a stale store breaks a language's checks in every editor.
 
-`installedVersion` reads the version of a service the store holds, from the package's own `package.json`. It yields nothing when the store does not hold the service.
+`installedVersion` reads the version of a service the store holds, from the service's manifest. It yields nothing when the store does not hold the service.
 
 {{ version = ${version} }}
 
@@ -73,30 +101,32 @@ The comparison matters because a store outlives the Loom that filled it. A servi
 export const serviceVersion = '::[version]'
 
 export const installedVersion = (id: string, dir: string): Option.Option<string> =>
-  pipe(
-    Option.liftThrowable(() =>
-      readFileSync(join(storeDir(dir), 'node_modules', servicePackage(id), 'package.json'), 'utf8'),
-    )(),
-    Option.flatMap(
-      Option.liftThrowable((text: string) => JSON.parse(text) as { readonly version?: unknown }),
-    ),
-    Option.flatMap((manifest) =>
-      typeof manifest.version === 'string' ? Option.some(manifest.version) : Option.none(),
-    ),
-  )
+  Option.flatMap(serviceManifest(id, dir), (manifest) => Option.fromNullishOr(manifest.version))
 
-## Installing a service
+## Two ways to run Loom
 
-`installService` brings a language's package in the store to `serviceVersion`. A store that already holds the service at that version is left alone, so the call is quick and needs no network. A store that lacks the service gets it installed, and a store that holds it at another version gets it replaced. `ServiceInstall` records which of the three happened, with the replaced version when there was one, so the command that called the function can say what it did. Turning a language on and bringing an active language up to date both come down to this one call.
+Loom ships in two forms. The npm package is a JavaScript bundle that Node or Bun runs, so whoever installs it already has a JavaScript runtime and a package manager. The standalone executable is that same bundle compiled by Bun into one file, with Bun's runtime inside it, for a person who has no JavaScript tooling at all.
 
-When it must install, it prepares the store as a package root — a directory with a private `package.json` for the package manager to install into — and runs `npm install` for the package at `serviceVersion`, with peers omitted. Loom's runtime is the reason for that flag: Effect, Volar's contracts, and the service interface itself are the service's peer dependencies, supplied by the host that loads it, so the install leaves them out and the store stays small.
+The two forms differ in what they can find around them, and a few steps of Loom must know which form is running. `standalone` answers that. Bun gives every module of a compiled executable an address in a file system of its own, under `/$bunfs/` on macOS and Linux and under `~BUN` on Windows, so a module whose own address lies there is running inside an executable.
 
-An install that fails — `npm` absent, the registry unreachable, the package not published — fails with a `StoreError` carrying the cause, so the command that called it can report the reason rather than a stack trace.
+=>
+
+export const standalone: boolean = /[\\/](\$bunfs|~BUN)[\\/]/.test(import.meta.url)
+
+## Installing a package into the store
+
+The store is a package root, a folder with a private `package.json` for a package manager to install into. `prepareStore` makes that folder and that file the first time anything is installed.
+
+`installPackage` installs one package into the store at a range of versions, and the form Loom runs in picks the package manager. The npm package runs `npm install`. The standalone executable has no npm to run, but it carries Bun, and Bun answers as itself when the `BUN_BE_BUN` variable is set. So the executable starts a second copy of itself as Bun and runs `bun add`.
+
+Both leave out peer dependencies. Effect, Volar's contracts, and the service interface are a service's peers, and the host that loads the service supplies all three, so the store need not hold them.
+
+An install that fails, whether the registry is unreachable, the package is not published, or `npm` is absent, fails with a `StoreError` that names the package and carries the cause. The command that called it can then report the reason rather than a stack trace.
 
 =>
 
 export class StoreError extends Data.TaggedError('StoreError')<{
-  readonly id: string
+  readonly packageName: string
   readonly cause: unknown
 }> {}
 
@@ -110,6 +140,46 @@ const prepareStore = (store: string): void => {
     )
 }
 
+interface PackageManager {
+  readonly command: string
+  readonly args: ReadonlyArray<string>
+  readonly env: NodeJS.ProcessEnv
+}
+
+const packageManager = (store: string, spec: string): PackageManager =>
+  standalone
+    ? {
+        command: process.execPath,
+        args: ['add', spec, '--cwd', store, '--omit', 'peer'],
+        env: { ...process.env, BUN_BE_BUN: '1' },
+      }
+    : {
+        command: 'npm',
+        args: ['install', spec, '--prefix', store, '--omit=peer', '--no-audit', '--no-fund'],
+        env: process.env,
+      }
+
+const installPackage = (
+  dir: string,
+  packageName: string,
+  range: string,
+): Effect.Effect<void, StoreError> =>
+  Effect.gen(function* () {
+    const store = storeDir(dir)
+    yield* Effect.sync(() => prepareStore(store))
+    const manager = packageManager(store, `${packageName}@${range}`)
+    yield* Effect.tryPromise({
+      try: () => run(manager.command, [...manager.args], { env: manager.env }),
+      catch: (cause) => new StoreError({ packageName, cause }),
+    })
+  })
+
+## Installing a service
+
+`installService` brings a language's package in the store to `serviceVersion`. A store that already holds the service at that version is left alone, so the call is quick and needs no network. A store that lacks the service gets it installed, and a store that holds it at another version gets it replaced. `ServiceInstall` records which of the three happened, with the replaced version when there was one, so the command that called the function can say what it did. Turning a language on and bringing an active language up to date both come down to this one call.
+
+=>
+
 export type ServiceInstall = Data.TaggedEnum<{
   Current: {}
   Installed: {}
@@ -119,28 +189,45 @@ export const ServiceInstall = Data.taggedEnum<ServiceInstall>()
 
 export const installService = (id: string, dir: string): Effect.Effect<ServiceInstall, StoreError> =>
   Effect.gen(function* () {
-    const store = storeDir(dir)
     const installed = installedVersion(id, dir)
     if (Option.contains(installed, serviceVersion)) return ServiceInstall.Current()
-    yield* Effect.sync(() => prepareStore(store))
-    yield* Effect.tryPromise({
-      try: () =>
-        run('npm', [
-          'install',
-          `${servicePackage(id)}@${serviceVersion}`,
-          '--prefix',
-          store,
-          '--omit=peer',
-          '--no-audit',
-          '--no-fund',
-        ]),
-      catch: (cause) => new StoreError({ id, cause }),
-    })
+    yield* installPackage(dir, servicePackage(id), serviceVersion)
     return Option.match(installed, {
       onNone: () => ServiceInstall.Installed(),
       onSome: (from) => ServiceInstall.Updated({ from }),
     })
   })
+
+## A TypeScript for the host
+
+Two hosts load services, the language server and `loom format`, and each lends the services it loads the TypeScript compiler. The language server also checks every TypeScript section against that compiler. Both hosts look for one in the project and then beside their own install, and the language server first takes the one an editor sends. The store is the last place either looks, and the one place Loom can fill itself, so a project with no TypeScript of its own still gets one.
+
+The host loads TypeScript through its JavaScript API, the `lib/typescript.js` file that TypeScript 6 and every earlier release ship. TypeScript 7 is a native program with no such file, so the store installs the newest release of TypeScript 6, the range `typeScriptRange` names. `storeTypeScript` finds that file in the store, and yields nothing when the store holds no TypeScript or holds a release without it. `installTypeScript` installs TypeScript into the store and returns the file. An install that leaves no such file behind fails with a `StoreError`, just as a failed install does.
+
+=>
+
+export const typeScriptRange = '^6'
+
+export const storeTypeScript = (dir: string): Option.Option<string> => {
+  const file = join(storeDir(dir), 'node_modules', 'typescript', 'lib', 'typescript.js')
+  return existsSync(file) ? Option.some(file) : Option.none()
+}
+
+export const installTypeScript = (dir: string): Effect.Effect<string, StoreError> =>
+  installPackage(dir, 'typescript', typeScriptRange).pipe(
+    Effect.flatMap(() =>
+      Option.match(storeTypeScript(dir), {
+        onNone: () =>
+          Effect.fail(
+            new StoreError({
+              packageName: 'typescript',
+              cause: 'the install left no lib/typescript.js in the store',
+            }),
+          ),
+        onSome: Effect.succeed,
+      }),
+    ),
+  )
 
 ## Removing a service
 
@@ -149,20 +236,15 @@ export const installService = (id: string, dir: string): Effect.Effect<ServiceIn
 =>
 
 export const removeService = (id: string, dir: string): Effect.Effect<void> =>
-  Effect.sync(() =>
-    rmSync(join(storeDir(dir), 'node_modules', servicePackage(id)), {
-      recursive: true,
-      force: true,
-    }),
-  )
+  Effect.sync(() => rmSync(serviceDir(id, dir), { recursive: true, force: true }))
 
 ## What this module draws on
 
-The store works in Effect: `Effect` runs each read and write, `Data` gives `StoreError` and `ServiceInstall` their tags, and `Option` with `pipe` carries a value that may be missing, such as the workspace above a directory or the version of a service the store lacks. Bun supplies the rest — `child_process` runs the package manager, which `promisify` turns into a promise `Effect.tryPromise` can await; `fs` reads the store's contents and a package's manifest, and adds and removes packages; `join` and `dirname` form and walk the store path up to the workspace root.
+The store works in Effect: `Effect` runs each read and write, `Data` gives `StoreError` and `ServiceInstall` their tags, `Schema` decodes a service's manifest, and `Option` with `pipe` carries a value that may be missing, such as the workspace above a directory or the version of a service the store lacks. Node's modules supply the rest, and Bun provides them too. `child_process` runs the package manager, which `promisify` turns into a promise `Effect.tryPromise` can await. `fs` reads the store's contents and a package's manifest, and adds and removes packages. `join` and `dirname` form and walk the store path up to the workspace root.
 
 =>
 
-import { Data, Effect, Option, pipe } from 'effect'
+import { Data, Effect, Option, Schema, pipe } from 'effect'
 import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -182,8 +264,16 @@ const run = promisify(execFile)
 
 ::[What the store holds]
 
+::[What a service's manifest says]
+
 ::[The version a service must have]
 
+::[Two ways to run Loom]
+
+::[Installing a package into the store]
+
 ::[Installing a service]
+
+::[A TypeScript for the host]
 
 ::[Removing a service]

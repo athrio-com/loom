@@ -12,7 +12,7 @@ Any editor that speaks the Language Server Protocol can start the server. VS Cod
 
 ## Imports
 
-The server is built from Volar's language-server toolkit over a `ManagedRuntime`. From the toolkit it takes the connection, the TypeScript project factory, `loadTsdkByPath`, and the types of a server, a project, a service plugin, and a file the editor reports changed. It imports `LoomCompiler`, the projector and cache the runtime warms, and `LoomFormatter`, which formats a file on it, with the `DocumentSource`, `PackageConfig`, and `LoomConfig` they require, and the two halves this module registers, `loomLanguagePlugin` and `loomServicePlugins`. From the language store come `workspaceOf` and `workspaceRoot`, which find the workspace a path belongs to.
+The server is built from Volar's language-server toolkit over a `ManagedRuntime`. From the toolkit it takes the connection, the TypeScript project factory, `loadTsdkByPath`, and the types of a server, a project, a service plugin, and a file the editor reports changed. It imports `LoomCompiler`, the projector and cache the runtime warms, and `LoomFormatter`, which formats a file on it, with the `DocumentSource`, `PackageConfig`, and `LoomConfig` they require, and the two halves this module registers, `loomLanguagePlugin` and `loomServicePlugins`. From the language store come `workspaceOf` and `workspaceRoot`, which find the workspace a path belongs to, and what the server needs to keep a TypeScript in a workspace's store: `storeDir`, which locates the store, `storeTypeScript`, which finds a TypeScript there, `installTypeScript` and its `typeScriptRange`, which put one there, and `standalone`, which says whether Loom runs as the standalone executable.
 
 Effect's `Schema` reads the editor's initialization options, `Option` carries a compiler or a workspace that may not be there, and `Data` types the failure when no compiler is. `Cache` holds what the server builds for each workspace, and `Array` gathers across them. Node's `createRequire` finds an installed `typescript` package the way Node itself would. `join` builds the path a search starts from, and `dirname` trims a file's path to the directory that holds it. `URI` types the address Volar names a document by.
 
@@ -37,7 +37,15 @@ import { LoomCompiler, DocumentSource } from './LoomCompiler'
 import { LoomFormatter } from './LoomFormatter'
 import { PackageConfig } from './PackageConfig'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
-import { workspaceOf, workspaceRoot } from '@athrio/loom-lang-services/LoomStore'
+import {
+  installTypeScript,
+  standalone,
+  storeDir,
+  storeTypeScript,
+  typeScriptRange,
+  workspaceOf,
+  workspaceRoot,
+} from '@athrio/loom-lang-services/LoomStore'
 import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
 
 ## A TypeScript to check against
@@ -74,30 +82,68 @@ const installedTsdk = (from: string): Option.Option<string> =>
 
 ~
 
-`tsdkFor` tries three places in order and takes the first that holds a compiler. The editor's own path comes first, so VS Code keeps the TypeScript it ships. The project being edited comes second, so a section is checked by the project's own TypeScript whenever it is one the server can load. Loom's own install comes last: the directories above the server's module, which hold `typescript` when Loom is installed beside it. Only the ES-module bundle that `loom lsp` runs knows its own location. The CommonJS bundles, the VS Code extension's `server.js` and the `loom-language-server` bin, compile `import.meta` to an empty object, so the last search finds nothing there, and VS Code never needs it.
+`foundTsdk` tries four places in order and takes the first that holds a compiler. The editor's own path comes first, so VS Code keeps the TypeScript it ships. The project being edited comes second, so a section is checked by the project's own TypeScript whenever it is one the server can load.
 
-When no place holds a compiler, the server refuses to start and says why. `MissingTypeScript` names the workspace it searched, says which TypeScript it can load, and gives the two ways to supply one. The error travels back to the editor as the answer to `initialize`, so the person reads the reason instead of watching a server die.
+Loom's own install comes third: the directories above the server's module, which hold `typescript` when Loom is installed beside it. Only the ES-module bundle that `loom lsp` runs knows its own location. The CommonJS bundles, the VS Code extension's `server.js` and the `loom-language-server` bin, compile `import.meta` to an empty object, so the search finds nothing there, and VS Code never needs it. The standalone executable skips this place, since nothing is installed beside it. Its modules live inside the executable, and a search that starts there would walk up from the working directory instead.
+
+The workspace's store comes last. It holds a TypeScript when Loom has already installed one there, for this server or for `loom format`.
+
+=>
+
+const besideLoom = (): Option.Option<string> =>
+  standalone ? Option.none() : installedTsdk(import.meta.url)
+
+const foundTsdk = (options: unknown, root: string): Option.Option<string> =>
+  pipe(
+    editorTsdk(options),
+    Option.orElse(() => installedTsdk(join(root, 'package.json'))),
+    Option.orElse(besideLoom),
+    Option.orElse(() => Option.map(storeTypeScript(root), dirname)),
+  )
+
+~
+
+A project written in another language holds no TypeScript, and nothing sits beside the standalone executable, so outside VS Code all four places can be empty. The server then installs TypeScript 6 into the workspace's store itself, through the store's `installTypeScript`, and loads it from there. The install happens once per workspace and needs the network that once. Every later start finds the copy in the store.
+
+The install needs a workspace to hold the store. A folder that lies in no workspace has no store, and installing one would turn the folder into a workspace behind the person's back, so the server installs nothing there.
+
+When the server finds no compiler and can install none, it refuses to start and says why. `MissingTypeScript` names the folder it searched and says which TypeScript it can load. It says why no install happened, either because the folder lies in no workspace or because the install failed, and then it gives the ways to supply a compiler. The error travels back to the editor as the answer to `initialize`, so the person reads the reason instead of watching a server die.
 
 =>
 
 export class MissingTypeScript extends Data.TaggedError('MissingTypeScript')<{
   readonly root: string
+  readonly failedInstall: Option.Option<string>
 }> {
   get message(): string {
-    return `Loom's language server needs TypeScript 6 or earlier, and found none in ${this.root} or beside Loom. TypeScript 7 has no JavaScript API for it to load. Install one in the project with \`bun add -d typescript@6\`, or have the editor send its path as \`initializationOptions.typescript.tsdk\`.`
+    const why = Option.match(this.failedInstall, {
+      onNone: () =>
+        `${this.root} lies in no Loom workspace, so there is no store to install one into; run \`loom init\` there`,
+      onSome: (cause) => `installing one into the workspace's store failed: ${cause}`,
+    })
+    return `Loom's language server needs TypeScript 6 or earlier, and found none in ${this.root} or beside Loom. TypeScript 7 has no JavaScript API for it to load. ${why}. You can also install one in the project with \`bun add -d typescript@6\`, or have the editor send its path as \`initializationOptions.typescript.tsdk\`.`
   }
 }
 
+const fetchedTsdk = (root: string): Effect.Effect<string, MissingTypeScript> =>
+  Option.match(workspaceOf(root), {
+    onNone: () => Effect.fail(new MissingTypeScript({ root, failedInstall: Option.none() })),
+    onSome: (workspace) =>
+      Effect.logInfo(`installing TypeScript ${typeScriptRange} into ${storeDir(workspace)}`).pipe(
+        Effect.andThen(installTypeScript(workspace)),
+        Effect.map(dirname),
+        Effect.mapError(
+          (error) =>
+            new MissingTypeScript({ root, failedInstall: Option.some(String(error.cause)) }),
+        ),
+      ),
+  })
+
 const tsdkFor = (options: unknown, root: string): Effect.Effect<string, MissingTypeScript> =>
-  pipe(
-    editorTsdk(options),
-    Option.orElse(() => installedTsdk(join(root, 'package.json'))),
-    Option.orElse(() => installedTsdk(import.meta.url)),
-    Option.match({
-      onNone: () => Effect.fail(new MissingTypeScript({ root })),
-      onSome: (tsdk) => Effect.succeed(tsdk),
-    }),
-  )
+  Option.match(foundTsdk(options, root), {
+    onNone: () => fetchedTsdk(root),
+    onSome: Effect.succeed,
+  })
 
 ## Every loom answers to its own workspace
 

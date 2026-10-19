@@ -12,7 +12,41 @@ A language that fails to load costs only itself. Its sections stay at syntax hig
 
 ## Importing one language's package
 
-The loader resolves a package from a workspace's store, imports it, and reads the package's default export. The loader takes `root`, the workspace whose looms the service serves, and `storeDir` finds that workspace's store. Every workspace keeps a store of its own, so two workspaces may hold one language at two versions, and each workspace loads its own. The import is dynamic, by name and at runtime, because a package is a unit the consumer installs after the editor ships, never one a build could fold in.
+The loader finds a package in a workspace's store, imports it, and reads the package's default export. The loader takes `root`, the workspace whose looms the service serves, and `storeDir` finds that workspace's store. Every workspace keeps a store of its own, so two workspaces may hold one language at two versions, and each workspace loads its own. The import is dynamic, by name and at runtime, because a package is a unit the consumer installs after the editor ships, never one a build could fold in.
+
+The file to import is the package's entry, and the package's manifest names it. The loader reads the manifest itself rather than asking Node's resolver, because the resolver inside Loom's standalone executable cannot find a package by its bare name, though it finds a file at a known path. A manifest's `exports` field names the entry in one of three shapes: as a plain path, as the path under the key `"."`, or as a set of conditions under that key, where the loader takes the `import` path, else the `default` one. `ExportsSchema` admits those three shapes. A manifest with no usable `exports` names its entry in `main`, and a manifest with neither leaves the entry at `index.js`, as Node does. `serviceEntry` reads the entry in that order.
+
+=>
+
+const ConditionsSchema = Schema.Struct({
+  import: Schema.optional(Schema.String),
+  default: Schema.optional(Schema.String),
+})
+
+const RootExportSchema = Schema.Union([Schema.String, ConditionsSchema])
+
+const ExportsSchema = Schema.Union([Schema.String, Schema.Struct({ '.': RootExportSchema })])
+
+const rootEntry = (root: typeof RootExportSchema.Type): Option.Option<string> =>
+  typeof root === 'string'
+    ? Option.some(root)
+    : Option.fromNullishOr(root.import ?? root.default)
+
+const exportedEntry = (exported: unknown): Option.Option<string> =>
+  pipe(
+    Schema.decodeUnknownOption(ExportsSchema)(exported),
+    Option.map((decoded) => (typeof decoded === 'string' ? decoded : decoded['.'])),
+    Option.flatMap(rootEntry),
+  )
+
+const serviceEntry = (manifest: ServiceManifest): string =>
+  pipe(
+    exportedEntry(manifest.exports),
+    Option.orElse(() => Option.fromNullishOr(manifest.main)),
+    Option.getOrElse(() => 'index.js'),
+  )
+
+~
 
 A running host keeps every module it imports, under the address it imported the module from. A service that `loom add` replaces sits at the same path as the one it replaced, so an import by path alone would hand back the old module. `serviceAddress` adds the version the store holds to the entry's `file:` address, which makes each version of a service a module of its own. A language server that reloads a workspace's services after `loom add` then meets the version the store now holds. Node keys its modules by the whole address. Bun keys them by the path alone, so a server running on Bun keeps the version it imported first until it restarts.
 
@@ -26,9 +60,11 @@ const serviceAddress = (entry: string, version: Option.Option<string>): string =
 
 ~
 
-A service the store holds at another version than this Loom's was installed by another release, and it may not work inside this host: a service built against an older Effect fails on its first request. The loader still loads it, since an old service may work, but first logs a warning that names both versions and the `loom add` that brings the service in step. The warning lands before the import, so it is there even when the old service then fails.
+A service the store holds at another version than this Loom's was installed by another release, and it may not work inside this host: a service built against an older Effect fails on its first request. The loader still loads it, since an old service may work, but first logs a warning that names both versions and the `loom update` that brings the service in step. The warning lands before the import, so it is there even when the old service then fails.
 
-What the import returns is unknown until checked. `isLanguageService` confirms the default export has the shape the contract requires, and the loader confirms the service's declared `id` is the one activated. A package that answers to another id, or exports something that is not a service at all, is not the language the project asked for. When the package is missing or fails either check, the loader logs the reason and yields nothing.
+What the import returns is unknown until checked. `isLanguageService` confirms the default export has the shape the contract requires, and the loader confirms the service's declared `id` is the one activated. A package that answers to another id, or exports something that is not a service at all, is not the language the project asked for.
+
+A language can fail to load in three ways, and the loader logs a warning for each and yields nothing. The store may lack the package, and the warning names the `loom update` that installs it. The package may export no service for the language. Or the import itself may fail, when the entry is missing or the module throws as it loads, and the warning then carries the cause.
 
 =>
 
@@ -39,33 +75,43 @@ const warnIfStale = (id: string, root: string): Effect.Effect<void> =>
       onNone: () => Effect.void,
       onSome: (version) =>
         Effect.logWarning(
-          `${servicePackage(id)} ${version} is installed, but this Loom is ${serviceVersion} — run \`loom add ${id}\` to update it`,
+          `${servicePackage(id)} ${version} is installed, but this Loom is ${serviceVersion} — run \`loom update ${id}\` to update it`,
         ),
     },
   )
 
+const exportedService = (
+  id: string,
+  exported: unknown,
+): Effect.Effect<Option.Option<LanguageService>> =>
+  isLanguageService(exported) && exported.id === id
+    ? Effect.succeed(Option.some(exported))
+    : Effect.logWarning(`${servicePackage(id)} does not export a language service for "${id}"`).pipe(
+        Effect.as(Option.none<LanguageService>()),
+      )
+
 const importService = (id: string, root: string): Effect.Effect<Option.Option<LanguageService>> =>
-  Effect.tryPromise(async () => {
-    const from = join(storeDir(root), 'index.js')
-    const entry = createRequire(from).resolve(servicePackage(id))
-    const loaded = (await import(serviceAddress(entry, installedVersion(id, root)))) as {
-      readonly default?: unknown
-    }
-    return loaded.default
-  }).pipe(
-    Effect.flatMap((exported) =>
-      isLanguageService(exported) && exported.id === id
-        ? Effect.succeed(Option.some(exported))
-        : Effect.logWarning(
-            `${servicePackage(id)} does not export a language service for "${id}"`,
-          ).pipe(Effect.as(Option.none<LanguageService>())),
-    ),
-    Effect.catchCause(() =>
+  Option.match(serviceManifest(id, root), {
+    onNone: () =>
       Effect.logWarning(
-        `language "${id}" is activated but ${servicePackage(id)} is not installed — run \`loom add ${id}\``,
+        `language "${id}" is activated but ${servicePackage(id)} is not installed — run \`loom update ${id}\``,
       ).pipe(Effect.as(Option.none<LanguageService>())),
-    ),
-  )
+    onSome: (manifest) =>
+      Effect.tryPromise(async () => {
+        const entry = join(serviceDir(id, root), serviceEntry(manifest))
+        const imported = (await import(
+          serviceAddress(entry, Option.fromNullishOr(manifest.version))
+        )) as { readonly default?: unknown }
+        return imported.default
+      }).pipe(
+        Effect.flatMap((exported) => exportedService(id, exported)),
+        Effect.catchCause((cause) =>
+          Effect.logWarning(
+            `${servicePackage(id)} could not be loaded — ${Cause.pretty(cause)}`,
+          ).pipe(Effect.as(Option.none<LanguageService>())),
+        ),
+      ),
+  })
 
 const loadService = (id: string, root: string): Effect.Effect<Option.Option<LanguageService>> =>
   Effect.andThen(warnIfStale(id, root), importService(id, root))
@@ -90,15 +136,21 @@ export const loadActive = (
 
 ## What this module draws on
 
-The loader works in Effect: `Effect` runs the load, `Option` carries a language that may not load or a version the store may not hold, and `Array` with `pipe` build the set. Bun loads the package — `createRequire` resolves it within the store, `pathToFileURL` forms the address the dynamic import takes, and `join` points the resolver into the store's directory. From `./LoomStore` come `servicePackage`, which names a language's package, `storeDir`, which locates the workspace's store, `installedVersion`, which reads the version the store holds, and `serviceVersion`, the version this Loom expects. From the contract module come the `LanguageService` type and the `isLanguageService` guard; `LoomLanguage` and `ProseLanguage` are the built-in services that always lead the set.
+The loader works in Effect: `Effect` runs the load, `Option` carries a language that may not load or a version the store may not hold, `Schema` reads the shapes of a manifest's `exports`, `Cause` prints why an import failed, and `Array` with `pipe` build the set. Node's `join` forms the path of a package's entry, and `pathToFileURL` turns that path into the address the dynamic import takes. From `./LoomStore` come `servicePackage`, which names a language's package, `serviceDir`, the folder the store keeps it in, `serviceManifest`, which reads the package's manifest, `installedVersion`, which reads the version the store holds, and `serviceVersion`, the version this Loom expects. From the contract module come the `LanguageService` type and the `isLanguageService` guard; `LoomLanguage` and `ProseLanguage` are the built-in services that always lead the set.
 
 =>
 
-import { Array, Effect, Option, pipe } from 'effect'
-import { createRequire } from 'node:module'
+import { Array, Cause, Effect, Option, Schema, pipe } from 'effect'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { installedVersion, servicePackage, serviceVersion, storeDir } from './LoomStore'
+import {
+  installedVersion,
+  serviceDir,
+  type ServiceManifest,
+  serviceManifest,
+  servicePackage,
+  serviceVersion,
+} from './LoomStore'
 import { isLanguageService, type LanguageService } from './LanguageService'
 import { LoomLanguage } from './LoomLanguage'
 import { ProseLanguage } from './ProseLanguage'

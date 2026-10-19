@@ -71,3 +71,13 @@ tasks:
       - "@group(sources)"
       - "moon.yml"
       - "/mise.toml"
+
+  smoke:
+    script: "bun run build && bun run compile && bun test ./smoke/binary.smoke.ts ./smoke/install.smoke.ts"
+    deps: ["install"]
+    inputs:
+      - "@group(sources)"
+      - "smoke/**/*"
+      - "/scripts/install.sh"
+      - "moon.yml"
+      - "/mise.toml"
