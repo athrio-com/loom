@@ -812,6 +812,7 @@ describe('loom cli — nvim', () => {
       const plugin = readFileSync(join(site, 'plugin', 'loom.lua'), 'utf8')
       expect(plugin).toStartWith('-- Loom: written by `loom nvim`')
       expect(plugin).toContain("vim.lsp.enable('loom')")
+      expect(plugin).toContain("vim.opt_local.formatoptions:remove({ 't', 'c' })")
       rmSync(data, { recursive: true, force: true })
     },
     SPAWN_TIMEOUT,

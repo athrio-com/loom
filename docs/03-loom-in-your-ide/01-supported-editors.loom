@@ -42,7 +42,7 @@ loom helix
 
 The build takes a C compiler, which is the Xcode Command Line Tools on macOS and your distribution's build tools on Linux. Run `loom helix` again after you upgrade Loom, and check the result with `$ hx --health loom`.
 
-Helix wraps a loom's prose on screen at 100 columns, the width Loom formats code to, and `:format` formats the loom.
+In Helix, `:format` formats a loom.
 
 ## Neovim
 
@@ -58,9 +58,11 @@ It takes Neovim 0.11 or newer, and a C compiler for the build. Run `loom nvim` a
 
 An editor with a language client starts the server with `$ loom lsp --stdio`, and the server treats the nearest folder holding a `.loom` directory as the project. An editor that colours with tree-sitter can build the grammar from [packages/tree-sitter-loom](https://github.com/athrio-com/loom/tree/main/packages/tree-sitter-loom).
 
-## Formatting
+## Formatting and wrapping
 
-Your editor's format command formats a loom through the language server: each prose paragraph goes onto one line, for the editor to wrap, and each code section is laid out by its language's formatter. From the terminal, `$ loom format corpus` does the same.
+Your editor's format command formats a loom through the language server: each prose paragraph goes onto one line, and each code section is laid out by its language's formatter. From the terminal, `$ loom format corpus` does the same.
+
+A paragraph on one line is for your editor to wrap. Zed, Gram and Helix wrap a loom's prose at the width Loom formats code to, so prose and code end at the same column. They read that width from the `.editorconfig` that `loom init` writes. It is a hundred columns unless `.loom/config.yaml` sets another `width`. After you change it, run `loom init` again to bring `.editorconfig` up to date.
 
 ## Checking TypeScript
 

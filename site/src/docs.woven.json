@@ -449,7 +449,7 @@
             "chapter": "03-loom-in-your-ide/01-supported-editors",
             "section": "helix"
           },
-          "markdown": "Helix needs no extension. One command builds Loom's grammar into Helix's configuration folder and adds Loom to Helix's `languages.toml`:\n\n```bash\nloom helix\n```\n\nThe build takes a C compiler, which is the Xcode Command Line Tools on macOS and your distribution's build tools on Linux. Run `loom helix` again after you upgrade Loom, and check the result with `$ hx --health loom`.\n\nHelix wraps a loom's prose on screen at 100 columns, the width Loom formats code to, and `:format` formats the loom."
+          "markdown": "Helix needs no extension. One command builds Loom's grammar into Helix's configuration folder and adds Loom to Helix's `languages.toml`:\n\n```bash\nloom helix\n```\n\nThe build takes a C compiler, which is the Xcode Command Line Tools on macOS and your distribution's build tools on Linux. Run `loom helix` again after you upgrade Loom, and check the result with `$ hx --health loom`.\n\nIn Helix, `:format` formats a loom."
         },
         {
           "type": "heading",
@@ -491,19 +491,19 @@
           "type": "heading",
           "source": {
             "chapter": "03-loom-in-your-ide/01-supported-editors",
-            "section": "formatting"
+            "section": "formatting-and-wrapping"
           },
           "level": 2,
-          "title": "Formatting",
-          "id": "formatting"
+          "title": "Formatting and wrapping",
+          "id": "formatting-and-wrapping"
         },
         {
           "type": "prose",
           "source": {
             "chapter": "03-loom-in-your-ide/01-supported-editors",
-            "section": "formatting"
+            "section": "formatting-and-wrapping"
           },
-          "markdown": "Your editor's format command formats a loom through the language server: each prose paragraph goes onto one line, for the editor to wrap, and each code section is laid out by its language's formatter. From the terminal, `$ loom format corpus` does the same."
+          "markdown": "Your editor's format command formats a loom through the language server: each prose paragraph goes onto one line, and each code section is laid out by its language's formatter. From the terminal, `$ loom format corpus` does the same.\n\nA paragraph on one line is for your editor to wrap. Zed, Gram and Helix wrap a loom's prose at the width Loom formats code to, so prose and code end at the same column. They read that width from the `.editorconfig` that `loom init` writes. It is a hundred columns unless `.loom/config.yaml` sets another `width`. After you change it, run `loom init` again to bring `.editorconfig` up to date."
         },
         {
           "type": "heading",
@@ -787,7 +787,7 @@
             "chapter": "05-cli/01-loom-init",
             "section": "what-it-writes"
           },
-          "markdown": "| file | what it holds |\n|---|---|\n| `.loom/config.yaml` | the primary language, the activated languages, `corpus`, the directory Loom reads, and an empty `ignore` list for looms the project leaves out |\n| `.loom/.gitignore` | ignores `services/`, so downloaded language services stay out of version control |\n| `.mcp.json` | lets an agent reach the workspace over the Model Context Protocol |\n\nIt does not create the corpus directory. The configuration names it; you make it."
+          "markdown": "| file | what it holds |\n|---|---|\n| `.loom/config.yaml` | the primary language, the activated languages, `corpus`, the directory Loom reads, and an empty `ignore` list for looms the project leaves out |\n| `.loom/.gitignore` | ignores `services/`, so downloaded language services stay out of version control |\n| `.mcp.json` | lets an agent reach the workspace over the Model Context Protocol |\n| `.editorconfig` | a `[*.loom]` section whose `max_line_length` is the project's width, so your editor wraps a loom's prose where its code ends |\n\nIt also creates the corpus directory the configuration names, if it isn't there yet.\n\n`.mcp.json` and `.editorconfig` may hold settings of your own, and `init` keeps them. It adds its own entry to `.mcp.json`, and writes its `.editorconfig` section between two comment lines that mark it as Loom's. If your `.editorconfig` already has a `[*.loom]` section of yours, `init` leaves the file alone."
         },
         {
           "type": "heading",
@@ -805,7 +805,7 @@
             "chapter": "05-cli/01-loom-init",
             "section": "running-it-twice"
           },
-          "markdown": "Init is safe to run again. If `.loom/config.yaml` already exists it asks nothing, keeps the configuration as it stands, and reports which file it found. So a project that already has a workspace can be re-initialised to pick up the agent configuration without losing its language settings.\n\nTo change the languages afterwards, use `loom add` and `loom remove` rather than editing the file by hand."
+          "markdown": "Init is safe to run again. If `.loom/config.yaml` already exists it asks nothing, keeps the configuration as it stands, and reports which file it found. So a project that already has a workspace can be re-initialised to pick up the agent and editor configuration without losing its language settings. Run it again after you change `width` in `.loom/config.yaml`, and it rewrites its `.editorconfig` section to match.\n\nTo change the languages afterwards, use `loom add` and `loom remove` rather than editing the file by hand."
         }
       ]
     },

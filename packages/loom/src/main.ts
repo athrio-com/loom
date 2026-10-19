@@ -200,6 +200,31 @@ const mergeMcpConfig = (root: string): void => {
   writeFileSync(path, JSON.stringify(merged, null, 2) + '\n')
 }
 
+interface ManagedBlock {
+  readonly begin: string
+  readonly end: string
+  readonly lines: ReadonlyArray<string>
+  readonly owned: RegExp
+}
+
+const withManagedBlock = (text: string, managed: ManagedBlock): Option.Option<string> => {
+  const block = [managed.begin, ...managed.lines, managed.end].join('\n')
+  const start = text.indexOf(managed.begin)
+  const end = text.indexOf(managed.end, start)
+  if (start >= 0 && end > start)
+    return Option.some(text.slice(0, start) + block + text.slice(end + managed.end.length))
+  if (managed.owned.test(text)) return Option.none()
+  const kept = text.replace(/\s*$/, '')
+  return Option.some(kept === '' ? `${block}\n` : `${kept}\n\n${block}\n`)
+}
+
+const editorconfigBlock = (width: number): ManagedBlock => ({
+  begin: '# Loom: written by `loom init`, which replaces this block on every run',
+  end: '# Loom: end',
+  lines: ['[*.loom]', `max_line_length = ${width}`],
+  owned: /^\s*\[\*\.loom\]\s*$/m,
+})
+
 const init = (dir: Option.Option<string>) =>
   Effect.gen(function* () {
     const root = resolvePath(
@@ -244,14 +269,26 @@ const init = (dir: Option.Option<string>) =>
       )
     }
 
-    const corpusDir = yield* config
-      .manifest(root)
-      .pipe(Effect.map((manifest) => resolvePath(root, manifest?.corpus ?? 'corpus')))
+    const manifest = yield* config.manifest(root)
+    const corpusDir = resolvePath(root, manifest?.corpus ?? 'corpus')
     yield* Effect.sync(() => mkdirSync(corpusDir, { recursive: true }))
     yield* Console.log(`   ${teal('✓')} corpus at ${corpusDir}\n`)
 
     yield* Effect.sync(() => mergeMcpConfig(root))
     yield* Console.log(`   ${teal('✓')} wrote ${resolvePath(root, '.mcp.json')}\n`)
+
+    const editorconfig = resolvePath(root, '.editorconfig')
+    const current = yield* Effect.sync(() =>
+      existsSync(editorconfig) ? readFileSync(editorconfig, 'utf8') : '',
+    )
+    const block = editorconfigBlock(manifest?.width ?? defaultWidth)
+    yield* Option.match(withManagedBlock(current, block), {
+      onNone: () => Console.log(`   ${dim(`✓ kept the [*.loom] section in ${editorconfig}`)}\n`),
+      onSome: (text) =>
+        Effect.sync(() => writeFileSync(editorconfig, text)).pipe(
+          Effect.andThen(Console.log(`   ${teal('✓')} wrote ${editorconfig}\n`)),
+        ),
+    })
   }).pipe(Effect.catchTag('QuitError', () => Console.log(dim('\n   Cancelled.\n'))))
 
 const updateLanguages = (
@@ -470,40 +507,36 @@ const helixConfigDir = (): string =>
 
 const grammarLibrary = process.platform === 'win32' ? 'loom.dll' : 'loom.so'
 
-const helixBegin = '# Loom: written by `loom helix`, which replaces this block on every run'
-const helixEnd = '# Loom: end'
-
-const helixLanguages = [
-  helixBegin,
-  '[[language]]',
-  'name = "loom"',
-  'scope = "source.loom"',
-  'file-types = ["loom"]',
-  'roots = [".loom"]',
-  'injection-regex = "^loom$"',
-  'language-servers = ["loom"]',
-  'soft-wrap = { enable = true, wrap-at-text-width = true }',
-  `text-width = ${defaultWidth}`,
-  '',
-  '[language-server.loom]',
-  'command = "loom"',
-  'args = ["lsp", "--stdio"]',
-  helixEnd,
-].join('\n')
+const helixBlock: ManagedBlock = {
+  begin: '# Loom: written by `loom helix`, which replaces this block on every run',
+  end: '# Loom: end',
+  lines: [
+    '[[language]]',
+    'name = "loom"',
+    'scope = "source.loom"',
+    'file-types = ["loom"]',
+    'roots = [".loom"]',
+    'injection-regex = "^loom$"',
+    'language-servers = ["loom"]',
+    'soft-wrap = { enable = true, wrap-at-text-width = true }',
+    `text-width = ${defaultWidth}`,
+    '',
+    '[language-server.loom]',
+    'command = "loom"',
+    'args = ["lsp", "--stdio"]',
+  ],
+  owned: /^\s*name\s*=\s*"loom"/m,
+}
 
 class HelixConfigClash extends Data.TaggedError('HelixConfigClash')<{
   readonly file: string
 }> {}
 
-const withLoomLanguages = (file: string, text: string): Effect.Effect<string, HelixConfigClash> => {
-  const start = text.indexOf(helixBegin)
-  const end = text.indexOf(helixEnd)
-  if (start >= 0 && end > start)
-    return Effect.succeed(text.slice(0, start) + helixLanguages + text.slice(end + helixEnd.length))
-  if (/^\s*name\s*=\s*"loom"/m.test(text)) return Effect.fail(new HelixConfigClash({ file }))
-  const kept = text.replace(/\s*$/, '')
-  return Effect.succeed(kept === '' ? `${helixLanguages}\n` : `${kept}\n\n${helixLanguages}\n`)
-}
+const withLoomLanguages = (file: string, text: string): Effect.Effect<string, HelixConfigClash> =>
+  Option.match(withManagedBlock(text, helixBlock), {
+    onNone: () => Effect.fail(new HelixConfigClash({ file })),
+    onSome: Effect.succeed,
+  })
 
 const helix = Effect.gen(function* () {
   const config = helixConfigDir()
@@ -572,6 +605,7 @@ const nvimPlugin = [
   "  pattern = 'loom',",
   '  callback = function()',
   '    vim.treesitter.start()',
+  "    vim.opt_local.formatoptions:remove({ 't', 'c' })",
   '  end,',
   '})',
   '',

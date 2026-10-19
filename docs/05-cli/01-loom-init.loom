@@ -27,11 +27,14 @@ The second is which **languages to activate**, as space-separated identifiers. A
 | `.loom/config.yaml` | the primary language, the activated languages, `corpus`, the directory Loom reads, and an empty `ignore` list for looms the project leaves out |
 | `.loom/.gitignore` | ignores `services/`, so downloaded language services stay out of version control |
 | `.mcp.json` | lets an agent reach the workspace over the Model Context Protocol |
+| `.editorconfig` | a `[*.loom]` section whose `max_line_length` is the project's width, so your editor wraps a loom's prose where its code ends |
 
-It does not create the corpus directory. The configuration names it; you make it.
+It also creates the corpus directory the configuration names, if it isn't there yet.
+
+`.mcp.json` and `.editorconfig` may hold settings of your own, and `init` keeps them. It adds its own entry to `.mcp.json`, and writes its `.editorconfig` section between two comment lines that mark it as Loom's. If your `.editorconfig` already has a `[*.loom]` section of yours, `init` leaves the file alone.
 
 ## Running it twice
 
-Init is safe to run again. If `.loom/config.yaml` already exists it asks nothing, keeps the configuration as it stands, and reports which file it found. So a project that already has a workspace can be re-initialised to pick up the agent configuration without losing its language settings.
+Init is safe to run again. If `.loom/config.yaml` already exists it asks nothing, keeps the configuration as it stands, and reports which file it found. So a project that already has a workspace can be re-initialised to pick up the agent and editor configuration without losing its language settings. Run it again after you change `width` in `.loom/config.yaml`, and it rewrites its `.editorconfig` section to match.
 
 To change the languages afterwards, use `loom add` and `loom remove` rather than editing the file by hand.

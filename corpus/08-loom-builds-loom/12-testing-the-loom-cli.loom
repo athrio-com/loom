@@ -194,6 +194,63 @@ describe('loom cli — init', () => {
   )
 })
 
+## The width an editor wraps a loom at
+
+`init` also writes the project's width into `.editorconfig`, as the `max_line_length` of a `[*.loom]` section. The first case starts from an `.editorconfig` with lines of the owner's own and runs `init` twice. The owner's lines survive, and the section appears once, at the default width of a hundred. The second case changes the configuration's `width` between two runs, and the section follows it. The third starts from a `[*.loom]` section of the owner's own, which `init` keeps exactly as it was.
+
+=>
+
+describe('loom cli — init, the width of a loom', () => {
+  const configured = 'languages:\n  typescript: {}\nprimary: typescript\n'
+  const editorconfigText = (dir: string): string => readFileSync(join(dir, '.editorconfig'), 'utf8')
+
+  it(
+    'adds a [*.loom] section at the default width, once, beside the lines already there',
+    () => {
+      const dir = workspace(configured)
+      writeFileSync(join(dir, '.editorconfig'), lines('root = true', '', '[*]', 'indent_size = 2'))
+      loom(['init'], { cwd: dir })
+      loom(['init'], { cwd: dir })
+      const text = editorconfigText(dir)
+      expect(text).toStartWith(lines('root = true', '', '[*]', 'indent_size = 2'))
+      expect(text.match(/\[\*\.loom\]/g)?.length).toBe(1)
+      expect(text).toContain('max_line_length = 100')
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    "follows the configuration's width from run to run",
+    () => {
+      const dir = workspace(`${configured}width: 80\n`)
+      loom(['init'], { cwd: dir })
+      expect(editorconfigText(dir)).toContain('max_line_length = 80')
+      writeFileSync(join(dir, '.loom', 'config.yaml'), `${configured}width: 120\n`)
+      loom(['init'], { cwd: dir })
+      const text = editorconfigText(dir)
+      expect(text).toContain('max_line_length = 120')
+      expect(text).not.toContain('max_line_length = 80')
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    "keeps a [*.loom] section of the owner's own as it was",
+    () => {
+      const dir = workspace(configured)
+      writeFileSync(join(dir, '.editorconfig'), lines('[*.loom]', 'max_line_length = 72'))
+      const { status, stdout } = loom(['init'], { cwd: dir })
+      expect(status).toBe(0)
+      expect(stdout).toContain('kept the [*.loom] section')
+      expect(editorconfigText(dir)).toBe(lines('[*.loom]', 'max_line_length = 72'))
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+})
+
 ## Languages and their store
 
 `loom status` reports where the store is, the primary language, and which languages are activated. `loom add` records a language in the configuration, and with the fake service already in the store it does so without installing anything. `loom remove` takes the language out of the configuration and its package out of the store, leaving the other languages as they were.
@@ -906,7 +963,7 @@ describe('loom cli — helix', () => {
 
 `loom nvim` writes into the `site` folder of Neovim's data folder, which it finds through `XDG_DATA_HOME`, or `LOCALAPPDATA` on Windows, and names after `NVIM_APPNAME`. A case points both folders at a temporary one and fixes the name, so the command writes there and never into the setup of the person running the tests. `nvimHome` makes that folder and says where its `site` folder is.
 
-The first case runs the command twice. The parser and the queries sit in the site folder, and the plugin is the one `loom nvim` writes, turning the language server on. The second case starts from a `plugin/loom.lua` of the person's own: the command refuses, says why, and leaves the file as it was.
+The first case runs the command twice. The parser and the queries sit in the site folder, and the plugin is the one `loom nvim` writes, turning the language server on and the two auto-wrap options off. The second case starts from a `plugin/loom.lua` of the person's own: the command refuses, says why, and leaves the file as it was.
 
 =>
 
@@ -932,6 +989,7 @@ describe('loom cli — nvim', () => {
       const plugin = readFileSync(join(site, 'plugin', 'loom.lua'), 'utf8')
       expect(plugin).toStartWith('-- Loom: written by `loom nvim`')
       expect(plugin).toContain("vim.lsp.enable('loom')")
+      expect(plugin).toContain("vim.opt_local.formatoptions:remove({ 't', 'c' })")
       rmSync(data, { recursive: true, force: true })
     },
     SPAWN_TIMEOUT,

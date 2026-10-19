@@ -1,0 +1,4 @@
+# Loom: written by `loom init`, which replaces this block on every run
+[*.loom]
+max_line_length = 100
+# Loom: end

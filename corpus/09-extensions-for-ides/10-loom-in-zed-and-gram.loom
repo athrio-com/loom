@@ -101,12 +101,15 @@ zed_extension_api = "0.6.0"
 
 The language's configuration gives the name the editor shows, the grammar that parses it, and the extension that marks its files. A loom's code is indented two spaces throughout this book, so a tab is two spaces wide.
 
+A loom's prose keeps each paragraph on one line, so the editor wraps it on screen. The `bounded` soft wrap breaks a line at the window's edge or at the preferred line length, whichever comes first. A language's configuration has no field for the preferred line length, but Zed and Gram both read it from the `max_line_length` in a project's `.editorconfig`, where `loom init` writes the width Loom formats code to. So a loom's prose wraps where its code ends, at a hundred columns unless the project names another width.
+
 =>
 
 name = "Loom"
 grammar = "loom"
 path_suffixes = ["loom"]
 tab_size = 2
+soft_wrap = "bounded"
 
 ## Colours in Zed's names {Tangle}[languages/loom/highlights.scm]
 

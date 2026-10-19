@@ -245,6 +245,45 @@ const mergeMcpConfig = (root: string): void => {
   writeFileSync(path, JSON.stringify(merged, null, 2) + '\n')
 }
 
+~
+
+Every run also tells the editor how wide a loom's lines run. A loom's prose keeps each paragraph on one line, which the editor wraps on screen, and its code keeps to the project's `width`, a hundred columns unless the configuration names another. An `.editorconfig` file holds settings many editors share, such as indentation, and Zed, Gram and Helix take a line's width from its `max_line_length` setting. So `init` writes a `[*.loom]` section into the project's `.editorconfig` that sets `max_line_length` to the project's width, and those editors wrap a loom's prose where its code ends.
+
+The section sits in a managed block, a run of lines Loom owns inside a file the project's owner also edits. Two comment lines bound the block, so a later run finds the block and replaces it whole, and every other line of the file stays as its owner wrote it. A file without the block gets it at its end. When the owner sets the same thing outside the block, Loom leaves the file alone, since two settings for one thing would leave the editor to pick between them. `withManagedBlock` returns the file's text with the block in place, or nothing when the owner's own setting stands. In `.editorconfig` the owner's setting is a `[*.loom]` section of their own, and `init` reports that it kept that section.
+
+=>
+
+interface ManagedBlock {
+  readonly begin: string
+  readonly end: string
+  readonly lines: ReadonlyArray<string>
+  readonly owned: RegExp
+}
+
+const withManagedBlock = (text: string, managed: ManagedBlock): Option.Option<string> => {
+  const block = [managed.begin, ...managed.lines, managed.end].join('\n')
+  const start = text.indexOf(managed.begin)
+  const end = text.indexOf(managed.end, start)
+  if (start >= 0 && end > start)
+    return Option.some(text.slice(0, start) + block + text.slice(end + managed.end.length))
+  if (managed.owned.test(text)) return Option.none()
+  const kept = text.replace(/\s*$/, '')
+  return Option.some(kept === '' ? `${block}\n` : `${kept}\n\n${block}\n`)
+}
+
+const editorconfigBlock = (width: number): ManagedBlock => ({
+  begin: '# Loom: written by `loom init`, which replaces this block on every run',
+  end: '# Loom: end',
+  lines: ['[*.loom]', `max_line_length = ${width}`],
+  owned: /^\s*\[\*\.loom\]\s*$/m,
+})
+
+~
+
+`init` asks its questions only when no configuration exists yet. Every run then reads the configuration it found or wrote, and settles the corpus folder, the agent's `.mcp.json` and the editor's `.editorconfig` from it.
+
+=>
+
 const init = (dir: Option.Option<string>) =>
   Effect.gen(function* () {
     const root = resolvePath(
@@ -289,14 +328,26 @@ const init = (dir: Option.Option<string>) =>
       )
     }
 
-    const corpusDir = yield* config
-      .manifest(root)
-      .pipe(Effect.map((manifest) => resolvePath(root, manifest?.corpus ?? 'corpus')))
+    const manifest = yield* config.manifest(root)
+    const corpusDir = resolvePath(root, manifest?.corpus ?? 'corpus')
     yield* Effect.sync(() => mkdirSync(corpusDir, { recursive: true }))
     yield* Console.log(`   ${teal('✓')} corpus at ${corpusDir}\n`)
 
     yield* Effect.sync(() => mergeMcpConfig(root))
     yield* Console.log(`   ${teal('✓')} wrote ${resolvePath(root, '.mcp.json')}\n`)
+
+    const editorconfig = resolvePath(root, '.editorconfig')
+    const current = yield* Effect.sync(() =>
+      existsSync(editorconfig) ? readFileSync(editorconfig, 'utf8') : '',
+    )
+    const block = editorconfigBlock(manifest?.width ?? defaultWidth)
+    yield* Option.match(withManagedBlock(current, block), {
+      onNone: () => Console.log(`   ${dim(`✓ kept the [*.loom] section in ${editorconfig}`)}\n`),
+      onSome: (text) =>
+        Effect.sync(() => writeFileSync(editorconfig, text)).pipe(
+          Effect.andThen(Console.log(`   ${teal('✓')} wrote ${editorconfig}\n`)),
+        ),
+    })
   }).pipe(Effect.catchTag('QuitError', () => Console.log(dim('\n   Cancelled.\n'))))
 
 ## Activating a language
@@ -589,46 +640,42 @@ const grammarLibrary = process.platform === 'win32' ? 'loom.dll' : 'loom.so'
 
 ~
 
-Loom's entry in `languages.toml` is a block of two tables. The language table makes every `.loom` file a loom, treats the folder that holds `.loom` as its project, and lets Markdown hand a fence marked `loom` to the grammar. It also turns on soft wrap at a text width of `defaultWidth`, a hundred columns, the width Loom formats code to. A loom's prose keeps each paragraph on one line, so Helix wraps it on screen at that width, and the prose and the code share one right edge without a line break written into the file. The server table starts `loom lsp`. Helix needs no table for the grammar, because it finds the compiled library in its runtime folder by the language's name.
+Loom's entry in `languages.toml` is two tables. The language table makes every `.loom` file a loom, treats the folder that holds `.loom` as its project, and lets Markdown hand a fence marked `loom` to the grammar. It also turns on soft wrap at a text width of `defaultWidth`, a hundred columns, the width Loom formats code to. A loom's prose keeps each paragraph on one line, so Helix wraps it on screen at that width, and the prose and the code share one right edge without a line break written into the file. In a project that `loom init` has set up, Helix takes the width from the project's `.editorconfig` instead, so a project with a width of its own wraps at that. The server table starts `loom lsp`. Helix needs no table for the grammar, because it finds the compiled library in its runtime folder by the language's name.
 
-Two comment lines bound the block, so a later run can find the block and replace it whole, and every other line of the file stays as its owner wrote it. When the file already holds a Loom entry of the owner's own, outside the block, the command changes nothing and fails with `HelixConfigClash`, since two entries for one language would leave Helix to pick between them.
+The entry is a managed block, like the section `loom init` writes into `.editorconfig`, so a later run replaces it whole and leaves the rest of `languages.toml` as its owner wrote it. Here the owner's own setting is a Loom entry outside the block. The command then changes nothing and fails with `HelixConfigClash`, since two entries for one language would leave Helix to pick between them.
 
 =>
 
-const helixBegin = '# Loom: written by `loom helix`, which replaces this block on every run'
-const helixEnd = '# Loom: end'
-
-const helixLanguages = [
-  helixBegin,
-  '[[language]]',
-  'name = "loom"',
-  'scope = "source.loom"',
-  'file-types = ["loom"]',
-  'roots = [".loom"]',
-  'injection-regex = "^loom$"',
-  'language-servers = ["loom"]',
-  'soft-wrap = { enable = true, wrap-at-text-width = true }',
-  `text-width = ${defaultWidth}`,
-  '',
-  '[language-server.loom]',
-  'command = "loom"',
-  'args = ["lsp", "--stdio"]',
-  helixEnd,
-].join('\n')
+const helixBlock: ManagedBlock = {
+  begin: '# Loom: written by `loom helix`, which replaces this block on every run',
+  end: '# Loom: end',
+  lines: [
+    '[[language]]',
+    'name = "loom"',
+    'scope = "source.loom"',
+    'file-types = ["loom"]',
+    'roots = [".loom"]',
+    'injection-regex = "^loom$"',
+    'language-servers = ["loom"]',
+    'soft-wrap = { enable = true, wrap-at-text-width = true }',
+    `text-width = ${defaultWidth}`,
+    '',
+    '[language-server.loom]',
+    'command = "loom"',
+    'args = ["lsp", "--stdio"]',
+  ],
+  owned: /^\s*name\s*=\s*"loom"/m,
+}
 
 class HelixConfigClash extends Data.TaggedError('HelixConfigClash')<{
   readonly file: string
 }> {}
 
-const withLoomLanguages = (file: string, text: string): Effect.Effect<string, HelixConfigClash> => {
-  const start = text.indexOf(helixBegin)
-  const end = text.indexOf(helixEnd)
-  if (start >= 0 && end > start)
-    return Effect.succeed(text.slice(0, start) + helixLanguages + text.slice(end + helixEnd.length))
-  if (/^\s*name\s*=\s*"loom"/m.test(text)) return Effect.fail(new HelixConfigClash({ file }))
-  const kept = text.replace(/\s*$/, '')
-  return Effect.succeed(kept === '' ? `${helixLanguages}\n` : `${kept}\n\n${helixLanguages}\n`)
-}
+const withLoomLanguages = (file: string, text: string): Effect.Effect<string, HelixConfigClash> =>
+  Option.match(withManagedBlock(text, helixBlock), {
+    onNone: () => Effect.fail(new HelixConfigClash({ file })),
+    onSome: Effect.succeed,
+  })
 
 ~
 
@@ -698,7 +745,9 @@ const nvimSiteDir = (): string => {
 
 ~
 
-Neovim runs each Lua file in a `plugin` folder on its runtime path as it starts, so the command writes `plugin/loom.lua`. The plugin does three things. It makes every `.loom` file the `loom` file type. It configures the language server with the table nvim-lspconfig collects for Loom, the command, the file type and the root markers, and enables it. And it starts tree-sitter for each loom as it opens, because Neovim colours a buffer with tree-sitter only when asked.
+Neovim runs each Lua file in a `plugin` folder on its runtime path as it starts, so the command writes `plugin/loom.lua`. The plugin makes every `.loom` file the `loom` file type. It configures the language server with the table nvim-lspconfig collects for Loom, the command, the file type and the root markers, and enables it. It starts tree-sitter for each loom as it opens, because Neovim colours a buffer with tree-sitter only when asked.
+
+The plugin also keeps Neovim from breaking a loom's lines while the person types. Neovim reads a project's `.editorconfig` and sets its text width from the `max_line_length` that `loom init` writes there. At that width, Neovim's `t` format option breaks a line of text as soon as typing runs past it, and its `c` option does the same to a line Neovim takes for a comment, such as a list item or a heading. A loom keeps each paragraph on one line, so the plugin removes both options in every loom.
 
 The plugin's first line says `loom nvim` wrote it, and a later run replaces only a file that opens on that line. A `plugin/loom.lua` without it is the person's own, so the command changes nothing and fails with `NvimConfigClash`.
 
@@ -721,6 +770,7 @@ const nvimPlugin = [
   "  pattern = 'loom',",
   '  callback = function()',
   '    vim.treesitter.start()',
+  "    vim.opt_local.formatoptions:remove({ 't', 'c' })",
   '  end,',
   '})',
   '',
@@ -777,7 +827,7 @@ const nvim = Effect.gen(function* () {
 
 ## Where the world ends
 
-The command program is thirteen subcommands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them, recording each in the lock; with `--watch` it stays running and re-tangles as the looms change, so a dev server watching the output reacts to a loom edit. `loom orphans` lists the files across the workspace that the lock records but no loom still produces, one path per line for a shell to pipe into `rm`, and `--prune` removes them and rewrites the lock. `loom weave <path> <out>` projects a corpus into a `WovenCorpus` and writes it as JSON to `out`. `loom toc <path>` rewrites a book's table of contents from the corpus's own frontmatter. `loom format <path>` formats the looms a file or a folder holds, and with `--check` names the ones that would change instead. `loom init [dir]` scaffolds a `.loom/config.yaml` and an `.mcp.json`, defaulting to the working directory. `loom add <language>` and `loom remove <language>` turn a language's service on and off. `loom status` reports what the workspace has activated and what the store holds. `loom set <name> <value>` writes a workspace variable and re-tangles the corpus, so a version bump is one command. `loom design <name> <address>` stands Loom Design in front of a running application. `loom helix` sets the Helix editor up for looms, and `loom nvim` sets up Neovim. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the weaver, the contents writer, the formatter, the package config, the configuration, and the Node platform behind the prompts and the filesystem.
+The command program is thirteen subcommands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them, recording each in the lock; with `--watch` it stays running and re-tangles as the looms change, so a dev server watching the output reacts to a loom edit. `loom orphans` lists the files across the workspace that the lock records but no loom still produces, one path per line for a shell to pipe into `rm`, and `--prune` removes them and rewrites the lock. `loom weave <path> <out>` projects a corpus into a `WovenCorpus` and writes it as JSON to `out`. `loom toc <path>` rewrites a book's table of contents from the corpus's own frontmatter. `loom format <path>` formats the looms a file or a folder holds, and with `--check` names the ones that would change instead. `loom init [dir]` scaffolds a `.loom/config.yaml`, an `.mcp.json` and an `.editorconfig`, defaulting to the working directory. `loom add <language>` and `loom remove <language>` turn a language's service on and off. `loom status` reports what the workspace has activated and what the store holds. `loom set <name> <value>` writes a workspace variable and re-tangles the corpus, so a version bump is one command. `loom design <name> <address>` stands Loom Design in front of a running application. `loom helix` sets the Helix editor up for looms, and `loom nvim` sets up Neovim. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the weaver, the contents writer, the formatter, the package config, the configuration, and the Node platform behind the prompts and the filesystem.
 
 One entry point sits outside the command program. `loom lsp --stdio` starts the language server for any editor. It loads Volar only when it is reached, so a plain `tangle` never pays to bundle it, and it runs on its own Bun runtime rather than nesting one inside a command. Volar is CommonJS and calls `require` at runtime for the built-in modules; this bundle is an ES module, where `require` is absent, so before loading the server the `lsp` branch exposes one through `createRequire` on `globalThis` — the shim Volar's bundled code reaches for. That cost lands only on the `lsp` path.
 
@@ -890,7 +940,7 @@ if (process.argv[2] === 'lsp') {
 
 ## What the program needs
 
-The program is built on Effect, a functional TypeScript library for composing and running effectful programs. Effect's CLI toolkit parses the command line and drives the interactive prompts, and the Node platform supplies the runtime, the terminal, and filesystem access. `Stream` drives `tangle --watch`, draining the tangler's watch as a sequence of passes, and `Result` carries each pass's outcome. Node's `path` resolves a workspace directory for `init`, and `node:fs` writes the configuration and the `.mcp.json`, creates the corpus folder, and copies and renames the files Helix and Neovim read. Effect's child-process module runs Loom Design's binary for `design` and the C compiler for `helix` and `nvim`, `Data` types their failures, and `node:module` supplies the resolver that finds Design's binary and the workspace's grammar — the same resolver the `lsp` branch borrows to give Volar a `require`. `pipe` threads the grammar's search through `Option`, `node:os` supplies the home folder that Helix's configuration and Neovim's data live under, and `node:url` turns the bundle's own address into the folder its grammar sits in. The language server contributes six services: `LoomTangler`, which walks a `.loom` file, emits the tangled output, and watches it for changes; `LoomWeaver`, which projects a corpus and writes the woven data; `LoomContents`, which regenerates a book's table of contents; `LoomFormatter`, which formats a loom and names the looms a folder holds; `DocumentSource`, which feeds them source text from disk; and `PackageConfig`, which resolves a `.loom`'s package settings. `TangledFile` and `TangleError` ride along from the compiler, typing the files a pass writes and the error a broken corpus raises. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back, and `defaultWidth`, the width Helix wraps a loom at. From `@athrio/loom-lang-services` come the store operations behind activation: `addService` and `removeService` install and uninstall a language's package, with `ServiceInstall` saying what an install did, `installedVersion` reads the version of a service the store holds, and `serviceVersion` is the version this Loom expects. `storeDir` locates the store, `workspaceRoot` finds the workspace it sits in, and `servicePackage` names a language's package. For `format`, `loadActive` loads the project's language services from the store and `installHostRuntime` lends them the host's Effect and TypeScript, both imported only when `format` reaches them; `LanguageService` types what the loader returns, and `pathToFileURL` turns the TypeScript it finds into the address `import` takes.
+The program is built on Effect, a functional TypeScript library for composing and running effectful programs. Effect's CLI toolkit parses the command line and drives the interactive prompts, and the Node platform supplies the runtime, the terminal, and filesystem access. `Stream` drives `tangle --watch`, draining the tangler's watch as a sequence of passes, and `Result` carries each pass's outcome. Node's `path` resolves a workspace directory for `init`, and `node:fs` writes the configuration, the `.mcp.json` and the `.editorconfig`, creates the corpus folder, and copies and renames the files Helix and Neovim read. Effect's child-process module runs Loom Design's binary for `design` and the C compiler for `helix` and `nvim`, `Data` types their failures, and `node:module` supplies the resolver that finds Design's binary and the workspace's grammar — the same resolver the `lsp` branch borrows to give Volar a `require`. `pipe` threads the grammar's search through `Option`, `node:os` supplies the home folder that Helix's configuration and Neovim's data live under, and `node:url` turns the bundle's own address into the folder its grammar sits in. The language server contributes six services: `LoomTangler`, which walks a `.loom` file, emits the tangled output, and watches it for changes; `LoomWeaver`, which projects a corpus and writes the woven data; `LoomContents`, which regenerates a book's table of contents; `LoomFormatter`, which formats a loom and names the looms a folder holds; `DocumentSource`, which feeds them source text from disk; and `PackageConfig`, which resolves a `.loom`'s package settings. `TangledFile` and `TangleError` ride along from the compiler, typing the files a pass writes and the error a broken corpus raises. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back, and `defaultWidth`, the width a loom's lines keep to when its project names none. From `@athrio/loom-lang-services` come the store operations behind activation: `addService` and `removeService` install and uninstall a language's package, with `ServiceInstall` saying what an install did, `installedVersion` reads the version of a service the store holds, and `serviceVersion` is the version this Loom expects. `storeDir` locates the store, `workspaceRoot` finds the workspace it sits in, and `servicePackage` names a language's package. For `format`, `loadActive` loads the project's language services from the store and `installHostRuntime` lends them the host's Effect and TypeScript, both imported only when `format` reaches them; `LanguageService` types what the loader returns, and `pathToFileURL` turns the TypeScript it finds into the address `import` takes.
 
 =>
 
