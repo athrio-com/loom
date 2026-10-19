@@ -77,6 +77,11 @@
           "number": "5",
           "title": "loom format",
           "slug": "05-cli/05-loom-format"
+        },
+        {
+          "number": "6",
+          "title": "loom update",
+          "slug": "05-cli/06-loom-update"
         }
       ]
     }
@@ -521,7 +526,7 @@
             "chapter": "03-loom-in-your-ide/01-supported-editors",
             "section": "checking-typescript"
           },
-          "markdown": "Loom checks each section's code with that language's own server. Turn TypeScript on in a project with `$ loom add typescript`, and run it again after you upgrade Loom.\n\nOutside VS Code, the server checks with the project's own TypeScript, version 6 or earlier. Add one with `$ npm install -D typescript@6`. TypeScript 7 has no JavaScript API for the server to load."
+          "markdown": "Loom checks each section's code with that language's own server. Turn TypeScript on in a project with `$ loom add typescript`. After you upgrade Loom, bring the servers up to date with `$ loom update --all`.\n\nOutside VS Code, the server checks with the project's own TypeScript, version 6 or earlier. Add one with `$ npm install -D typescript@6`. TypeScript 7 has no JavaScript API for the server to load."
         }
       ]
     },
@@ -1104,6 +1109,67 @@
             "section": "checking"
           },
           "markdown": "`--check` changes nothing. It lists the looms that would change, and fails when any would, so CI can keep a project formatted.\n\n```bash\nloom format corpus --check\n```"
+        }
+      ]
+    },
+    {
+      "slug": "05-cli/06-loom-update",
+      "title": "loom update",
+      "part": "The command line",
+      "blocks": [
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "05-cli/06-loom-update",
+            "section": "loom-update"
+          },
+          "level": 1,
+          "title": "loom update",
+          "id": "loom-update"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "05-cli/06-loom-update",
+            "section": "loom-update"
+          },
+          "markdown": "`loom update` brings a project's language servers up to the Loom you're running. Run it after you upgrade Loom, and in a fresh clone of a project.\n\n```bash\nloom update <language>...\nloom update --all\n```"
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "05-cli/06-loom-update",
+            "section": "why-servers-fall-behind"
+          },
+          "level": 2,
+          "title": "Why servers fall behind",
+          "id": "why-servers-fall-behind"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "05-cli/06-loom-update",
+            "section": "why-servers-fall-behind"
+          },
+          "markdown": "Each language a project turns on with `loom add` has a language server, the package that checks that language's sections in your editor. Loom keeps the servers in `.loom/services`, and each one must match the version of Loom that runs it. Upgrading Loom doesn't touch them, so they stay at the old version until you update them."
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "05-cli/06-loom-update",
+            "section": "updating"
+          },
+          "level": 2,
+          "title": "Updating",
+          "id": "updating"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "05-cli/06-loom-update",
+            "section": "updating"
+          },
+          "markdown": "Name the languages to update, or update all of them with `$ loom update --all`. For each language, Loom installs its server if it's missing, replaces it if it's at another version, and leaves it alone if it's current. Git ignores `.loom/services`, so a fresh clone has no servers yet, and the same command installs them.\n\n`loom update` works only on languages that are already on. Turn a language on with `loom add`, and see which servers are out of date with `loom status`. Restart your editor's language server afterwards, so it loads the new ones."
         }
       ]
     }

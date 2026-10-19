@@ -85,9 +85,9 @@ export const installedVersion = (id: string, dir: string): Option.Option<string>
     ),
   )
 
-## Adding a service
+## Installing a service
 
-`addService` brings a language's package in the store to `serviceVersion`. A store that already holds the service at that version is left alone, so adding a current language is a quick step that needs no network. A store that lacks the service gets it installed, and a store that holds it at another version gets it replaced. `ServiceInstall` records which of the three happened, the version replaced among it, so the command that called the function can say what it did.
+`installService` brings a language's package in the store to `serviceVersion`. A store that already holds the service at that version is left alone, so the call is quick and needs no network. A store that lacks the service gets it installed, and a store that holds it at another version gets it replaced. `ServiceInstall` records which of the three happened, with the replaced version when there was one, so the command that called the function can say what it did. Turning a language on and bringing an active language up to date both come down to this one call.
 
 When it must install, it prepares the store as a package root — a directory with a private `package.json` for the package manager to install into — and runs `npm install` for the package at `serviceVersion`, with peers omitted. Loom's runtime is the reason for that flag: Effect, Volar's contracts, and the service interface itself are the service's peer dependencies, supplied by the host that loads it, so the install leaves them out and the store stays small.
 
@@ -117,7 +117,7 @@ export type ServiceInstall = Data.TaggedEnum<{
 }>
 export const ServiceInstall = Data.taggedEnum<ServiceInstall>()
 
-export const addService = (id: string, dir: string): Effect.Effect<ServiceInstall, StoreError> =>
+export const installService = (id: string, dir: string): Effect.Effect<ServiceInstall, StoreError> =>
   Effect.gen(function* () {
     const store = storeDir(dir)
     const installed = installedVersion(id, dir)
@@ -184,6 +184,6 @@ const run = promisify(execFile)
 
 ::[The version a service must have]
 
-::[Adding a service]
+::[Installing a service]
 
 ::[Removing a service]

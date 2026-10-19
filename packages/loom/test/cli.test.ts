@@ -336,7 +336,7 @@ const fakeNpm = (): { readonly bin: string; readonly calls: string; readonly pat
 
 describe('loom cli — keeping a service current', () => {
   it(
-    'add replaces a service an older release installed',
+    'add turns a language on and replaces a service an older release left in the store',
     () => {
       const home = userStore()
       const npm = fakeNpm()
@@ -403,6 +403,111 @@ describe('loom cli — keeping a service current', () => {
   )
 
   it(
+    'add changes nothing for a language that is on, and names update for its stale service',
+    () => {
+      const home = userStore()
+      const npm = fakeNpm()
+      const dir = workspace('corpus: corpus\nlanguages:\n  typescript: {}\nprimary: typescript\n')
+      installFake(home, 'typescript', '0.0.1')
+      const { status, stdout } = loom(['add', 'typescript'], {
+        cwd: dir,
+        env: { LOOM_HOME: home, PATH: npm.path },
+      })
+      expect(status).toBe(0)
+      expect(stdout).toContain('typescript is already activated')
+      expect(stdout).toContain('loom update typescript')
+      expect(existsSync(npm.calls)).toBe(false)
+      expect(storedVersion(home, 'typescript')).toBe('0.0.1')
+      rmSync(home, { recursive: true, force: true })
+      rmSync(npm.bin, { recursive: true, force: true })
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    'update replaces the stale service of a language that is on',
+    () => {
+      const home = userStore()
+      const npm = fakeNpm()
+      const dir = workspace('corpus: corpus\nlanguages:\n  typescript: {}\nprimary: typescript\n')
+      installFake(home, 'typescript', '0.0.1')
+      const { status, stdout } = loom(['update', 'typescript'], {
+        cwd: dir,
+        env: { LOOM_HOME: home, PATH: npm.path },
+      })
+      expect(status).toBe(0)
+      expect(stdout).toContain(
+        `updated @athrio/loom-service-typescript from 0.0.1 to ${loomVersion}`,
+      )
+      expect(storedVersion(home, 'typescript')).toBe(loomVersion)
+      rmSync(home, { recursive: true, force: true })
+      rmSync(npm.bin, { recursive: true, force: true })
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    'update --all replaces a stale service and installs a missing one',
+    () => {
+      const home = userStore()
+      const npm = fakeNpm()
+      const dir = workspace(
+        'corpus: corpus\nlanguages:\n  typescript: {}\n  python: {}\nprimary: typescript\n',
+      )
+      installFake(home, 'typescript', '0.0.1')
+      const { status, stdout } = loom(['update', '--all'], {
+        cwd: dir,
+        env: { LOOM_HOME: home, PATH: npm.path },
+      })
+      expect(status).toBe(0)
+      expect(stdout).toContain(
+        `updated @athrio/loom-service-typescript from 0.0.1 to ${loomVersion}`,
+      )
+      expect(stdout).toContain(`installed @athrio/loom-service-python ${loomVersion}`)
+      expect(storedVersion(home, 'typescript')).toBe(loomVersion)
+      expect(storedVersion(home, 'python')).toBe(loomVersion)
+      rmSync(home, { recursive: true, force: true })
+      rmSync(npm.bin, { recursive: true, force: true })
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    'update refuses a language that is not on and points to add',
+    () => {
+      const home = userStore()
+      const npm = fakeNpm()
+      const dir = workspace('corpus: corpus\nlanguages: {}\nprimary: typescript\n')
+      const { status, stderr } = loom(['update', 'typescript'], {
+        cwd: dir,
+        env: { LOOM_HOME: home, PATH: npm.path },
+      })
+      expect(status).toBe(1)
+      expect(stderr).toContain('loom add typescript')
+      expect(existsSync(npm.calls)).toBe(false)
+      rmSync(home, { recursive: true, force: true })
+      rmSync(npm.bin, { recursive: true, force: true })
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    'update with neither languages nor --all prints its usage',
+    () => {
+      const dir = workspace('corpus: corpus\nlanguages:\n  typescript: {}\nprimary: typescript\n')
+      const { status, stderr } = loom(['update'], { cwd: dir })
+      expect(status).toBe(1)
+      expect(stderr).toContain('usage: loom update')
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
     'status marks a service an older release installed',
     () => {
       const home = userStore()
@@ -410,7 +515,7 @@ describe('loom cli — keeping a service current', () => {
       installFake(home, 'typescript', '0.0.1')
       const { stdout } = loom(['status'], { cwd: dir, env: { LOOM_HOME: home } })
       expect(stdout).toContain('0.0.1 is installed')
-      expect(stdout).toContain('loom add typescript')
+      expect(stdout).toContain('loom update typescript')
       rmSync(home, { recursive: true, force: true })
       rmSync(dir, { recursive: true, force: true })
     },

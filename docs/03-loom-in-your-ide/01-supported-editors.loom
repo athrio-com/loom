@@ -66,6 +66,6 @@ A paragraph on one line is for your editor to wrap. Zed, Gram and Helix wrap a l
 
 ## Checking TypeScript
 
-Loom checks each section's code with that language's own server. Turn TypeScript on in a project with `$ loom add typescript`, and run it again after you upgrade Loom.
+Loom checks each section's code with that language's own server. Turn TypeScript on in a project with `$ loom add typescript`. After you upgrade Loom, bring the servers up to date with `$ loom update --all`.
 
 Outside VS Code, the server checks with the project's own TypeScript, version 6 or earlier. Add one with `$ npm install -D typescript@6`. TypeScript 7 has no JavaScript API for the server to load.

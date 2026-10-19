@@ -69,7 +69,7 @@ export type ServiceInstall = Data.TaggedEnum<{
 }>
 export const ServiceInstall = Data.taggedEnum<ServiceInstall>()
 
-export const addService = (id: string, dir: string): Effect.Effect<ServiceInstall, StoreError> =>
+export const installService = (id: string, dir: string): Effect.Effect<ServiceInstall, StoreError> =>
   Effect.gen(function* () {
     const store = storeDir(dir)
     const installed = installedVersion(id, dir)

@@ -1,0 +1,24 @@
+---
+Part V: The command line
+Chapter 6: loom update
+Language: Prose
+---
+
+# loom update
+
+`loom update` brings a project's language servers up to the Loom you're running. Run it after you upgrade Loom, and in a fresh clone of a project.
+
+```bash
+loom update <language>...
+loom update --all
+```
+
+## Why servers fall behind
+
+Each language a project turns on with `loom add` has a language server, the package that checks that language's sections in your editor. Loom keeps the servers in `.loom/services`, and each one must match the version of Loom that runs it. Upgrading Loom doesn't touch them, so they stay at the old version until you update them.
+
+## Updating
+
+Name the languages to update, or update all of them with `$ loom update --all`. For each language, Loom installs its server if it's missing, replaces it if it's at another version, and leaves it alone if it's current. Git ignores `.loom/services`, so a fresh clone has no servers yet, and the same command installs them.
+
+`loom update` works only on languages that are already on. Turn a language on with `loom add`, and see which servers are out of date with `loom status`. Restart your editor's language server afterwards, so it loads the new ones.
