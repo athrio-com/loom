@@ -438,7 +438,7 @@ const packageManagerUpgrade = (bundle: string): string =>
     Match.orElse(() => 'npm install -g @athrio/loom@latest'),
   )
 
-const loomVersion = '0.0.12'
+const loomVersion = '0.0.13'
 
 const releases = process.env.LOOM_RELEASES ?? 'https://api.github.com/repos/athrio-com/loom/releases'
 

@@ -4,7 +4,7 @@ corpus: corpus
 primary: typescript
 ignore: []
 variables:
-  version: 0.0.12
+  version: 0.0.13
   effect: 4.0.5
   grammar: 0.0.12
   zed: 0.0.12
