@@ -11,7 +11,8 @@ permissions:
 
 jobs:
   npm:
-    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
+    needs: executable
+    if: ${{ !cancelled() && (needs.executable.result == 'success' || needs.executable.result == 'skipped') && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -26,7 +27,7 @@ jobs:
         run: bun scripts/release.ts
 
   release:
-    needs: npm
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.release.outputs.tag }}
@@ -59,6 +60,7 @@ jobs:
           - { platform: linux-arm64, runner: ubuntu-24.04-arm }
           - { platform: windows-x64, runner: windows-2025, cc: gcc }
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
     defaults:
       run:
         shell: bash
@@ -92,7 +94,7 @@ jobs:
           path: release/*
 
   publish:
-    needs: [release, executable]
+    needs: [release, executable, npm]
     runs-on: ubuntu-latest
     permissions:
       contents: write

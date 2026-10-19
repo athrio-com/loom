@@ -64,20 +64,19 @@ export const serviceVersion = '0.0.13'
 export const installedVersion = (id: string, dir: string): Option.Option<string> =>
   Option.flatMap(serviceManifest(id, dir), (manifest) => Option.fromNullishOr(manifest.version))
 
-export const standalone: boolean = /[\\/](\$bunfs|~BUN)[\\/]/.test(import.meta.url)
-
 interface EmbeddedFile extends Blob {
   readonly name?: string
 }
 
+const embeddedFiles: ReadonlyArray<EmbeddedFile> =
+  (globalThis as { readonly Bun?: { readonly embeddedFiles?: ReadonlyArray<EmbeddedFile> } }).Bun
+    ?.embeddedFiles ?? []
+
 export const embeddedFile = (name: string): Option.Option<EmbeddedFile> =>
-  pipe(
-    Option.fromNullishOr(
-      (globalThis as { readonly Bun?: { readonly embeddedFiles?: ReadonlyArray<EmbeddedFile> } })
-        .Bun?.embeddedFiles,
-    ),
-    Option.flatMap(Array.findFirst((file) => file.name === name)),
-  )
+  Array.findFirst(embeddedFiles, (file) => file.name === name)
+
+export const standalone: boolean =
+  embeddedFiles.length > 0 || /(\$|%24)bunfs|(~|%7E)BUN/i.test(String(import.meta.url))
 
 export class StoreError extends Data.TaggedError('StoreError')<{
   readonly packageName: string

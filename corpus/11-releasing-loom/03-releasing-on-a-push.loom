@@ -6,7 +6,7 @@ Language: YAML
 
 # Releasing on a push
 
-When the gate passes on the default branch, this workflow publishes the npm packages, attaches the standalone executables to a GitHub release, and brings the Zed and Gram extension's mirror up to date. It does all three on every push, so npm, the releases and the mirror always follow the default branch. Running on every push is only safe because each job is idempotent: the release tool publishes only versions npm is missing, the executables go only to a release that lacks them, and the mirror receives only commits it lacks. The website's image ships from the gate's own workflow instead, and only when the website changed.
+When the gate passes on the default branch, this workflow publishes the npm packages, attaches the standalone executables to a GitHub release, and brings the Zed and Gram extension's mirror up to date. It does all three on every push, so npm, the releases and the mirror always follow the default branch. Running on every push is only safe because each job is idempotent: the release tool publishes only versions npm is missing, the executables go only to a release that lacks them, and the mirror receives only commits it lacks. A version goes out whole or not at all. The workflow builds and tests every executable first, and publishes nothing to npm or to GitHub until all five pass. The website's image ships from the gate's own workflow instead, and only when the website changed.
 
 The workflow triggers on the gate's completion rather than on the push directly, so it runs only after the checks have passed. Its job checks that the gate succeeded, on the default branch, before it does anything, and checks out the exact commit the gate validated rather than whatever the default branch points at now.
 
@@ -31,11 +31,14 @@ permissions:
 
 The npm job publishes through Trusted Publishing, so it stores no token. GitHub mints a short-lived identity for the job — this is what `id-token: write` grants — and npm exchanges it for publish rights, having been told on its side to trust this repository's `release.yaml` workflow. The job upgrades npm to a version that speaks the exchange, then runs the release tool, which publishes each package npm is missing and skips the rest, so a push that changes no version publishes nothing.
 
+The job waits for the executables, which the next section builds, and publishes only when every one of them passed. A platform that fails therefore holds back npm as well as the GitHub release. The executables are skipped when their release already carries every file, and npm must still run then, since a run can fail after the release is attached and before npm has published. So the job's condition names both outcomes, success and skipped. A job normally starts only when everything it needs succeeded, and `!cancelled()` lets it weigh its own condition instead.
+
 =>
 
 jobs:
   npm:
-    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
+    needs: executable
+    if: ${{ !cancelled() && (needs.executable.result == 'success' || needs.executable.result == 'skipped') && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -51,14 +54,14 @@ jobs:
 
 ## Attaching the executables to a release
 
-The standalone executable ships as a file on a GitHub release, one release for each version, tagged with that version and a `v` in front. Three jobs build the files and attach them. They run after the npm job, because an executable installs its language services from npm at its own version, and those must be published before anyone can download the executable.
+The standalone executable ships as a file on a GitHub release, one release for each version, tagged with that version and a `v` in front. Three jobs build the files and attach them. The first two run before the npm job, so a broken executable stops the whole release. The last runs after it, because an executable installs its language services from npm at its own version, and those must be published before anyone can download the executable.
 
-The first job decides whether there is anything to do, and it is what keeps the three idempotent like the others. It reads the version from the CLI's manifest and asks GitHub whether that version's release already carries `SHA256SUMS`, the list of checksums. The last job attaches the list last, so a release that has it has every file, and the other two jobs then never start. A release that a failed run left half-filled lacks the list, so the next run fills it in.
+The first job decides whether there is anything to do, and it is what keeps the three idempotent like the others. Like the npm job, it runs only when the gate passed on the default branch. It reads the version from the CLI's manifest and asks GitHub whether that version's release already carries `SHA256SUMS`, the list of checksums. The last job attaches the list last, so a release that has it has every file, and the other two jobs then never start. A release that a failed run left half-filled lacks the list, so the next run fills it in.
 
 =>
 
   release:
-    needs: npm
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.release.outputs.tag }}
@@ -82,7 +85,7 @@ The first job decides whether there is anything to do, and it is what keeps the 
 
 The second job builds each executable on a machine of its own platform, one GitHub runner apiece: macOS on Apple silicon and on Intel, Linux on x64 and on ARM, and Windows on x64. GitHub lends these runners free to a public repository. Building on the platform itself means a macOS executable is signed by the Bun that compiled it on a Mac, and the grammar library inside each one comes from that platform's own C compiler. Windows has no `cc`, so its runner names MinGW's `gcc` in `CC`. A run that fails on one platform goes on with the others, so a first run shows every platform that needs work.
 
-Each runner then runs the smoke test against the executable it just built, so no executable reaches a release without having run where it will run. The steps run in Bash on every platform, which Windows runners carry with Git.
+Each runner then runs the smoke test against the executable it just built, so no executable reaches a release without having run where it will run. The steps run in Bash on every platform, which Windows runners carry with Git. A platform job that runs past twenty minutes is stopped, since the slowest takes a few, and a job that hangs would otherwise hold its runner for GitHub's limit of six hours.
 
 =>
 
@@ -99,6 +102,7 @@ Each runner then runs the smoke test against the executable it just built, so no
           - { platform: linux-arm64, runner: ubuntu-24.04-arm }
           - { platform: windows-x64, runner: windows-2025, cc: gcc }
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
     defaults:
       run:
         shell: bash
@@ -141,7 +145,7 @@ The grammar library ships beside it, ungzipped, since it is small: `tree-sitter-
 
 ~
 
-The last job runs once every platform has passed, and it is the one job that writes to the repository. It gathers the five artifacts into one folder and copies the install script beside them, uncompressed, since `sh` reads it straight from the download. `sha256sum` writes the checksum of every file the release carries into `SHA256SUMS`, so each file is checked as it is downloaded.
+The last job runs once every platform has passed and npm has published, and it is the one job that writes to the repository. It gathers the five artifacts into one folder and copies the install script beside them, uncompressed, since `sh` reads it straight from the download. `sha256sum` writes the checksum of every file the release carries into `SHA256SUMS`, so each file is checked as it is downloaded.
 
 The release is created at the commit the gate validated, which also creates its tag, unless an earlier run already created it. It is a full release, never a prerelease, because GitHub's address for the latest release and Zed's search for it both pass over prereleases. The executables, the libraries and the install script go up first and the list of checksums last. `--clobber` replaces a file an earlier run left half-uploaded.
 
@@ -150,7 +154,7 @@ The macOS executables carry Bun's ad-hoc signature, which lets Apple silicon run
 =>
 
   publish:
-    needs: [release, executable]
+    needs: [release, executable, npm]
     runs-on: ubuntu-latest
     permissions:
       contents: write
