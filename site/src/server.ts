@@ -5,8 +5,8 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Server } from 'foldkit/experimental'
 import { view } from './view'
-import { Corpus, Model, routeOf, SearchGroup, type Route } from './model'
-import { chapterAt, docsChapterAt, sliceOf } from './docs-page'
+import { Corpus, Model, Route, routeOf, SearchGroup } from './model'
+import { chapterAt, docsChapterAt, docsCorpus, sliceOf } from './docs-page'
 import { indexOf, searchIn } from './search'
 import { colouredCorpus, makeHighlighter } from './colour'
 
@@ -149,6 +149,8 @@ const NOT_BUILT = standalone(
 
 type Place = { readonly route: Route; readonly chapter: string }
 
+type PageKey = { readonly place: Place; readonly shell: string }
+
 const placeOf = (book: Option.Option<Corpus>, pathname: string): Option.Option<Place> =>
   pipe(
     routeOf(pathname),
@@ -171,13 +173,17 @@ export class Site extends Context.Service<Site>()('Site', {
   make: Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
     const book = yield* readBook(fs)
+    const bookChapters = Option.match(book, {
+      onNone: () => 0,
+      onSome: (corpus) => corpus.pages.length,
+    })
     const latest = yield* Effect.forkScoped(latestVersion(seed.version))
     const highlighter = yield* Effect.forkScoped(makeHighlighter)
     const index = yield* Effect.cached(
       Effect.flatMap(Fiber.join(latest), (version) => indexOf(book, bodyOf(version))),
     )
     const slices = yield* Cache.make({
-      capacity: Option.match(book, { onNone: () => 1, onSome: (corpus) => corpus.pages.length + 1 }),
+      capacity: bookChapters + 1,
       lookup: (chapter: string) =>
         Effect.map(Fiber.join(highlighter), (shiki) =>
           Option.map(book, (corpus) => colouredCorpus(shiki, sliceOf(corpus, chapter))),
@@ -185,6 +191,15 @@ export class Site extends Context.Service<Site>()('Site', {
     })
     const bookFor = (place: Place): Effect.Effect<Option.Option<Corpus>> =>
       place.route === 'source' ? Cache.get(slices, place.chapter) : Effect.succeed(Option.none())
+    const pages = yield* Cache.make({
+      capacity: Route.literals.length + docsCorpus.pages.length + bookChapters,
+      lookup: (key: PageKey) =>
+        Effect.gen(function* () {
+          const version = yield* Fiber.join(latest)
+          const slice = yield* bookFor(key.place)
+          return yield* pageOf(key.shell, { ...seed, ...key.place, version, book: slice })
+        }),
+    })
     const shell = fs.readFileString(join(distDir, 'index.html'))
     return {
       pageAt: (url: URL): Effect.Effect<Option.Option<string>> =>
@@ -194,12 +209,7 @@ export class Site extends Context.Service<Site>()('Site', {
             shell.pipe(
               Effect.matchEffect({
                 onFailure: () => Effect.succeed(NOT_BUILT),
-                onSuccess: (held) =>
-                  Effect.gen(function* () {
-                    const version = yield* Fiber.join(latest)
-                    const slice = yield* bookFor(place)
-                    return yield* pageOf(held, { ...seed, ...place, version, book: slice })
-                  }),
+                onSuccess: (held) => Cache.get(pages, { place, shell: held }),
               }),
               Effect.map(Option.some),
             ),
