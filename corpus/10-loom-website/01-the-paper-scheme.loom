@@ -2066,7 +2066,7 @@ A place card is a pale panel with a pixel emblem over two lines of type. It stay
 
 The motivation stands in two columns, the question on the left and the answer on the right. Each is a stack of paragraphs, justified and hyphenated, and the gap between the columns is the one running text takes elsewhere on the site. Below six hundred and forty pixels the answer drops under the question.
 
-Under the prose, a legend names the two glyphs before any card uses them, in the deeper orange and green that pass contrast on paper. The cards pack into three columns of uneven height, two below twelve hundred pixels and one below six hundred and forty. A card keeps the paper's pale panel until the pointer reaches it, and then takes the tint and the edge of its own hue, which the card carries as two custom properties.
+Under the prose, the cards stand apart from it by twice the gap between a section's blocks, under a section head of their own. They come in groups. Each group opens on its title, set as a card's sub-heading, and lays its cards in a row of three columns of even height, two below twelve hundred pixels and one below six hundred and forty. The groups stand one block's gap apart. A card keeps the paper's pale panel until the pointer reaches it, and then takes the tint and the edge of its own hue, which the card carries as two custom properties.
 
 =>
 
@@ -2087,38 +2087,31 @@ Under the prose, a legend names the two glyphs before any card uses them, in the
 
 .why-column > p:last-child { margin-bottom: 0; }
 
-.why-legend {
-  display: flex;
-  align-items: center;
-  gap: 32px;
-  margin: 36px 0 20px;
-}
-
-.why-key {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: var(--t-eyebrow);
-  font-weight: 600;
-  line-height: normal;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
-.why-key.problem { color: var(--prompt-paper); }
-.why-key.answer  { color: var(--loom-paper); }
-
-.why-q { display: block; flex: none; width: 10px; height: 12px; }
+.why-bug { display: block; flex: none; width: 14px; height: 14px; }
 .why-a { display: block; flex: none; width: 10px; height: 10px; }
 
-.why-pair-set { column-count: 3; column-gap: 24px; }
+.why-cases { margin-top: calc(var(--rhythm) * 2); }
+
+.why-group + .why-group { margin-top: var(--rhythm); }
+
+.why-group-title {
+  margin: 0 0 16px;
+  font-size: var(--t-sub);
+  font-weight: 500;
+  line-height: var(--lead-head);
+  letter-spacing: -0.02em;
+}
+
+.why-pair-set {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+}
 
 .why-pair {
-  break-inside: avoid;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin: 0 0 24px;
   padding: 20px 20px 22px;
   background: var(--pale);
   border: 1px solid var(--rule);
@@ -2130,7 +2123,7 @@ Under the prose, a legend names the two glyphs before any card uses them, in the
 
 .why-line {
   display: grid;
-  grid-template-columns: 10px 1fr;
+  grid-template-columns: 14px 1fr;
   column-gap: 12px;
   align-items: start;
   font-size: var(--t-code);
@@ -2138,13 +2131,13 @@ Under the prose, a legend names the two glyphs before any card uses them, in the
   text-wrap: pretty;
 }
 
-.why-line .why-q { margin-top: 7px; }
-.why-line .why-a { margin-top: 8px; }
+.why-line .why-bug { margin-top: 6px; }
+.why-line .why-a { margin-top: 8px; margin-left: 2px; }
 
-@media (max-width: 1179px) { .why-pair-set { column-count: 2; } }
+@media (max-width: 1179px) { .why-pair-set { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 639px) {
   .why-prose { grid-template-columns: minmax(0, 1fr); }
-  .why-pair-set { column-count: 1; }
+  .why-pair-set { grid-template-columns: minmax(0, 1fr); }
 }
 
 ## The channels

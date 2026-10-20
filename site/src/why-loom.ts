@@ -19,48 +19,72 @@ const motivation: Motivation = {
 
 type Pair = { readonly problem: string; readonly answer: string }
 
-const pairs: ReadonlyArray<Pair> = [
+type PairGroup = { readonly title: string; readonly pairs: ReadonlyArray<Pair> }
+
+const pairsEmblem: Carpet = {
+  rows: ['.......', '.a...b.', '..a.b..', '...p...', '..b.a..', '.b...a.', '.......'],
+  threads: { '.': '#14204A', p: '#F2EFE6', a: '#FF6A3D', b: '#2E6FF2' },
+}
+
+const pairGroups: ReadonlyArray<PairGroup> = [
   {
-    problem: 'Specs and code drift. Sync machinery becomes a system within a system.',
-    answer: 'Prose and code stay in sync because they live together and change together.',
+    title: 'Prose and code that agree',
+    pairs: [
+      {
+        problem: 'Specs and code drift. Sync machinery becomes a system within a system.',
+        answer: 'Prose and code stay in sync because they live together and change together.',
+      },
+      {
+        problem:
+          'Generating code from a spec is never deterministic. Give an agent the same spec twice and it writes two different programs.',
+        answer:
+          'In Loom the code is written down, not regenerated. Prose and code are both source, so every change is an edit we can review, never a fresh roll of the dice.',
+      },
+      {
+        problem:
+          'In large codebases, prose can no longer be traced to its code, and the same ground gets covered again in new chapters.',
+        answer:
+          'Every passage sits beside the code it describes, and the table of contents is generated from the chapters themselves.',
+      },
+    ],
   },
   {
-    problem:
-      'AI code generation is approximate, never deterministic. The same prose interpreted twice gives two different programs.',
-    answer:
-      'We edit the source directly, with its prose beside it. Every change is an ordinary change to the source, never a re-roll of the generator.',
+    title: 'A program we can read',
+    pairs: [
+      {
+        problem: 'Natural language does not follow the order a compiler demands.',
+        answer:
+          'With Loom we write a program in the order we reason about it, and tangling puts each piece where the compiler wants it.',
+      },
+      {
+        problem:
+          'A program is a graph of files and modules pointing at one another, with no shape of the whole and no clear place to start reading.',
+        answer:
+          'A Loom project can grow into a book. Its parts and chapters read top to bottom, so every piece has a place and every reader a place to start.',
+      },
+    ],
   },
   {
-    problem:
-      'In large codebases, prose can no longer be traced to its code, and the same ground gets covered again in new chapters.',
-    answer:
-      'Every passage sits beside the code it describes, and the table of contents is generated from the chapters themselves.',
-  },
-  {
-    problem: 'Natural language does not follow the order a compiler demands.',
-    answer:
-      'With Loom we write a program in the order we reason about it, and tangling puts each piece where the compiler wants it.',
-  },
-  {
-    problem:
-      'A program is a graph of files and modules pointing at one another, with no clear place to start reading.',
-    answer:
-      'A Loom project can grow into a book. Parts and chapters read top to bottom, under a table of contents generated from the chapters themselves.',
-  },
-  {
-    problem:
-      'Adopting a new format usually means converting a whole codebase before any of it pays off.',
-    answer:
-      'Loom can host one file at a time. The rest of the codebase stays as it is until we choose to move it.',
-  },
-  {
-    problem: 'Specs end up scattered across the codebase, with no shape of the whole.',
-    answer: 'Loom gives the corpus a shape of parts and chapters, so every chapter has a place.',
-  },
-  {
-    problem:
-      'Literate programming tools understand no language, so the document gets no completion, no diagnostics, no go-to-definition.',
-    answer: 'Loom gives every supported language a real language server.',
+    title: 'Tooling we can adopt today',
+    pairs: [
+      {
+        problem:
+          'Adopting a new format usually means converting a whole codebase before any of it pays off.',
+        answer:
+          'Loom can host one file at a time. The rest of the codebase stays as it is until we choose to move it.',
+      },
+      {
+        problem:
+          'Literate programming tools were each built for one language, as WEB was for Pascal and CWEB for C, or they treat every language as plain text.',
+        answer:
+          'Loom composes any language, and one chapter can mix several. Literate programming reaches every language a project is written in.',
+      },
+      {
+        problem:
+          'In the editor, a literate document gets no completion, no diagnostics and no go-to-definition, because its tools understand none of the code.',
+        answer: 'Loom gives every supported language a real language server.',
+      },
+    ],
   },
 ]
 
@@ -77,23 +101,14 @@ const hues: Array.NonEmptyReadonlyArray<Hue> = [
 ]
 
 const problemMark: Carpet = {
-  rows: ['.ooo.', 'o...o', '...o.', '..o..', '.....', '..o..'],
-  threads: { '.': 'transparent', o: '#FF6A3D' },
+  rows: ['.o...o.', '..ooo..', '.ooooo.', 'o.o.o.o', '.ooooo.', 'o.o.o.o', '..ooo..'],
+  threads: { '.': 'transparent', o: '#CE3F5C' },
 }
 
 const answerMark: Carpet = {
   rows: ['....g', '...g.', 'g.g..', '.g...', '.....'],
   threads: { '.': 'transparent', g: '#00714F' },
 }
-
-const legend = (): Html =>
-  ih.div(
-    [ih.Class('why-legend')],
-    [
-      ih.span([ih.Class('why-key problem')], [pixels(problemMark, 'why-q'), 'Problem']),
-      ih.span([ih.Class('why-key answer')], [pixels(answerMark, 'why-a'), 'Solution']),
-    ],
-  )
 
 const pairLine = (mark: Html, text: string): Html =>
   ih.div([ih.Class('why-line')], [mark, ih.span([], [text])])
@@ -106,11 +121,45 @@ const pairCard = (pair: Pair, at: number): Html => {
   return ih.div(
     [ih.Class('why-pair'), ih.Style({ '--pair-ink': hue.ink, '--pair-tint': hue.tint })],
     [
-      pairLine(pixels(problemMark, 'why-q'), pair.problem),
+      pairLine(pixels(problemMark, 'why-bug'), pair.problem),
       pairLine(pixels(answerMark, 'why-a'), pair.answer),
     ],
   )
 }
+
+const pairGroup = (group: PairGroup, from: number): Html =>
+  ih.div(
+    [ih.Class('why-group')],
+    [
+      ih.h3([ih.Class('why-group-title')], [group.title]),
+      ih.div(
+        [ih.Class('why-pair-set')],
+        Array.map(group.pairs, (pair, at) => pairCard(pair, from + at)),
+      ),
+    ],
+  )
+
+const pairSet = (): Html =>
+  ih.div(
+    [ih.Class('why-cases')],
+    [
+      ih.div(
+        [ih.Class('section-head')],
+        [
+          carpetMark(pairsEmblem, '42px', broadSeam),
+          ih.div(
+            [ih.Class('lines')],
+            [ih.span([ih.Class('eyebrow')], ['Problem and solution']), ih.h2([], ['What Loom solves'])],
+          ),
+        ],
+      ),
+      ...Array.zipWith(
+        pairGroups,
+        Array.scan(pairGroups, 0, (from, group) => from + group.pairs.length),
+        pairGroup,
+      ),
+    ],
+  )
 
 const whyHead = (): Html =>
   pageHead(
@@ -143,8 +192,7 @@ const whyMotivation = (): Html =>
         [ih.Class('why-prose')],
         [motivationColumn(motivation.question), motivationColumn(motivation.answer)],
       ),
-      legend(),
-      ih.div([ih.Class('why-pair-set')], Array.map(pairs, pairCard)),
+      pairSet(),
     ],
   )
 

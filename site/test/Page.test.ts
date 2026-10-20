@@ -129,13 +129,16 @@ describe('the page', () => {
     ROUTES.forEach((route) => expect(render(at(route))).not.toContain('Being written'))
   })
 
-  it('makes the case on the argument page: head, motivation, eight pairs', () => {
+  it('makes the case on the argument page: head, motivation, eight pairs in three groups', () => {
     const html = render(at('why-loom'))
     expect(html).toContain('Why Loom?</h1>')
     expect(html).toContain('href="https://github.com/athrio-com/loom"')
     expect(html).toContain('href="https://t.me/athrio"')
     expect(html).toContain('The missing why')
     expect(html.split('class="why-pair"').length - 1).toBe(8)
+    expect(html.split('class="why-group"').length - 1).toBe(3)
+    expect(html).toContain('What Loom solves')
+    expect(html).not.toContain('why-legend')
     expect(html).toContain('--pair-ink')
     expect(html).toContain('class="pager"')
   })
