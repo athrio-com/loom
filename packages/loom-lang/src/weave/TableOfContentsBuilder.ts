@@ -8,6 +8,7 @@ export const TocChapterSchema = Schema.Struct({
   title: Schema.String,
   status: Schema.optional(Schema.String),
   priority: Schema.optional(Schema.String),
+  language: Schema.optional(Schema.String),
   path: Schema.String,
 })
 export type TocChapter = typeof TocChapterSchema.Type
@@ -72,6 +73,7 @@ type Chapter = {
   readonly title: string
   readonly status: string | undefined
   readonly priority: string | undefined
+  readonly language: string | undefined
   readonly path: string
 }
 
@@ -96,6 +98,7 @@ const chapterDeclOf = (module: LoomModule): Option.Option<Chapter> =>
         title: title.value,
         status: frontmatter.status?.value,
         priority: frontmatter.priority?.value,
+        language: frontmatter.language?.value,
         path: module.path,
       })),
     ),
@@ -107,6 +110,7 @@ const toTocChapter = (chapter: Chapter): TocChapter =>
     title: chapter.title,
     status: chapter.status,
     priority: chapter.priority,
+    language: chapter.language,
     path: chapter.path,
   })
 

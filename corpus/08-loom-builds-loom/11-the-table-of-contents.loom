@@ -14,7 +14,7 @@ Not every chapter has a number. A part declared with a bare `Part: Work in progr
 
 ## The shape of a table of contents
 
-A `TableOfContents` is the corpus's own structure: an ordered list of parts, and the loose chapters that belong to no part. A `TocPart` carries its `number` — empty when the part is numberless — its `name`, the author's `description`, and its `chapters` in order. A `TocChapter` carries its own `number` (again empty when numberless), its `title`, the optional `status` and `priority` a board reads, and the `path` of the loom it came from, so a presentation resolves it to a page. The description is prose to preserve, never to derive; everything else is read from frontmatter.
+A `TableOfContents` is the corpus's own structure: an ordered list of parts, and the loose chapters that belong to no part. A `TocPart` carries its `number` — empty when the part is numberless — its `name`, the author's `description`, and its `chapters` in order. A `TocChapter` carries its own `number` (again empty when numberless), its `title`, the optional `status` and `priority` a board reads, the optional `language` its frontmatter names, which a menu can mark the chapter by, and the `path` of the loom it came from, so a presentation resolves it to a page. The description is prose to preserve, never to derive; everything else is read from frontmatter.
 
 =>
 
@@ -23,6 +23,7 @@ export const TocChapterSchema = Schema.Struct({
   title: Schema.String,
   status: Schema.optional(Schema.String),
   priority: Schema.optional(Schema.String),
+  language: Schema.optional(Schema.String),
   path: Schema.String,
 })
 export type TocChapter = typeof TocChapterSchema.Type
@@ -101,6 +102,7 @@ type Chapter = {
   readonly title: string
   readonly status: string | undefined
   readonly priority: string | undefined
+  readonly language: string | undefined
   readonly path: string
 }
 
@@ -125,6 +127,7 @@ const chapterDeclOf = (module: LoomModule): Option.Option<Chapter> =>
         title: title.value,
         status: frontmatter.status?.value,
         priority: frontmatter.priority?.value,
+        language: frontmatter.language?.value,
         path: module.path,
       })),
     ),
@@ -136,6 +139,7 @@ const toTocChapter = (chapter: Chapter): TocChapter =>
     title: chapter.title,
     status: chapter.status,
     priority: chapter.priority,
+    language: chapter.language,
     path: chapter.path,
   })
 

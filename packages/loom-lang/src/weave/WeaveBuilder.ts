@@ -29,6 +29,7 @@ import {
   WovenPartSchema,
 } from './WovenCorpus'
 import { buildContents, type TocChapter, type TocPart } from './TableOfContentsBuilder'
+import { sectionLanguage } from '../ast/ProductBuilder'
 
 export class WeaveBuilder extends Context.Service<WeaveBuilder>()('WeaveBuilder', {
   make: Effect.succeed({
@@ -76,6 +77,7 @@ const wovenEntry = (chapter: TocChapter): WovenNavEntry =>
     slug: slugFor(chapter.path),
     status: chapter.status,
     priority: chapter.priority,
+    language: chapter.language,
   })
 
 const wovenPart = (part: TocPart): WovenPart =>
@@ -137,6 +139,7 @@ const buildPage = (
           slug,
           title,
           part: partOfSlug.get(slug),
+          frontmatter: module.doc.frontmatter?.source,
           blocks: buildBlocks(module, indexes),
         })
       })
@@ -236,20 +239,23 @@ const runSpan = (run: ReadonlyArray<BodyWeft>): Option.Option<Span> => {
     : Option.none()
 }
 
-const reservedSpecifiers: ReadonlySet<string> = new Set(['tangle', 'toc'])
-
-const sectionLanguage = (module: LoomModule, section: LoomSection): string =>
-  pipe(
-    Option.fromNullishOr(section.heading.specifier),
-    Option.map((s) => s.label.value.toLowerCase()),
-    Option.filter((id) => !reservedSpecifiers.has(id)),
-    Option.orElse(() =>
-      Option.map(Option.fromNullishOr(module.doc.frontmatter?.language), (l) =>
-        l.value.trim().toLowerCase(),
-      ),
+const codeLanguage = (module: LoomModule, section: LoomSection): string => {
+  const frontmatter = Option.fromNullishOr(module.doc.frontmatter)
+  return sectionLanguage(
+    section,
+    pipe(
+      frontmatter,
+      Option.flatMapNullishOr((f) => f.language),
+      Option.map((language) => language.value.trim().toLowerCase()),
+      Option.getOrElse(() => 'plaintext'),
     ),
-    Option.getOrElse(() => 'plaintext'),
+    pipe(
+      frontmatter,
+      Option.flatMapNullishOr((f) => f.package),
+      Option.map((pkg) => pkg.value),
+    ),
   )
+}
 
 const notePattern = /^[ \t]*:::\[Note\][^\n]*\n([\s\S]*?)\n[ \t]*:::(?:[ \t])*$/gm
 
@@ -285,7 +291,7 @@ const codeBlock = (
 ): WovenBlock =>
   CodeBlockSchema.make({
     source,
-    language: sectionLanguage(module, section),
+    language: codeLanguage(module, section),
     code: sliceContent(module.text, span),
     links: pipe(
       Array.flatMap(run, (weft) => weft.anchors),

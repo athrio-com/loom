@@ -48,6 +48,7 @@ import {
   WovenPartSchema,
 } from './WovenCorpus'
 import { buildContents, type TocChapter, type TocPart } from './TableOfContentsBuilder'
+import { sectionLanguage } from '../ast/ProductBuilder'
 
 ## The builder and its spine
 
@@ -108,7 +109,7 @@ const sliceContent = (text: string, span: Span): string =>
 
 ## The navigation tree
 
-The navigation is the table of contents, projected into the woven model. `buildContents` has already read the corpus's frontmatter into ordered parts and their chapters, so the weave only turns each into its woven node. `wovenPart` maps a part — its number, empty for a numberless one, its name, and its chapters. `wovenEntry` maps a chapter to a `WovenNavEntry`: its number, its title, the slug its path opens, and the status and priority a board reads. `partIndex` inverts the finished tree into a slug-to-part-name lookup, the breadcrumb each page shows, and `navOrder` inverts it again into the position each slug holds. `inReadingOrder` sorts pages by that position and falls back to the slug, so a chapter the navigation does not list still lands somewhere fixed.
+The navigation is the table of contents, projected into the woven model. `buildContents` has already read the corpus's frontmatter into ordered parts and their chapters, so the weave only turns each into its woven node. `wovenPart` maps a part — its number, empty for a numberless one, its name, and its chapters. `wovenEntry` maps a chapter to a `WovenNavEntry`: its number, its title, the slug its path opens, the status and priority a board reads, and its language. `partIndex` inverts the finished tree into a slug-to-part-name lookup, the breadcrumb each page shows, and `navOrder` inverts it again into the position each slug holds. `inReadingOrder` sorts pages by that position and falls back to the slug, so a chapter the navigation does not list still lands somewhere fixed.
 
 =>
 
@@ -119,6 +120,7 @@ const wovenEntry = (chapter: TocChapter): WovenNavEntry =>
     slug: slugFor(chapter.path),
     status: chapter.status,
     priority: chapter.priority,
+    language: chapter.language,
   })
 
 const wovenPart = (part: TocPart): WovenPart =>
@@ -175,7 +177,7 @@ const chapterTitleOf = (module: LoomModule): Option.Option<string> =>
 
 ## A page and its blocks
 
-`buildPage` builds a chapter's page. Every module is a chapter except the book root, so a loom with no frontmatter title still yields a page, its title read from the first heading instead. The page takes its slug from its path, its title from `chapterTitleOf`, its part from the navigation tree — absent for a loose chapter — and its blocks from its sections.
+`buildPage` builds a chapter's page. Every module is a chapter except the book root, so a loom with no frontmatter title still yields a page, its title read from the first heading instead. The page takes its slug from its path, its title from `chapterTitleOf`, its part from the navigation tree — absent for a loose chapter — its frontmatter from the source text the frontmatter node covers, and its blocks from its sections.
 
 `buildBlocks` walks a chapter's sections in order, and `sectionBlocks` turns one section into its blocks: its heading, then a block for each run of its body. Every block a section yields shares one `source` anchor, which `sectionSource` builds from the chapter's slug and the section's heading id — the pin back to the loom. `headingBlock` reads the heading's level from the count of its `#` marks, and its title straight from the source. Cutting the body into runs is the next section's work.
 
@@ -194,6 +196,7 @@ const buildPage = (
           slug,
           title,
           part: partOfSlug.get(slug),
+          frontmatter: module.doc.frontmatter?.source,
           blocks: buildBlocks(module, indexes),
         })
       })
@@ -239,7 +242,7 @@ const headingBlock = (section: LoomSection, source: SourceAnchor): WovenBlock =>
 
 A section's body is its preamble and its code together. `sectionBody` joins the two, so a fenced block that opens in the leading prose and runs on stays one prose block, not two split at the seam. `splitRuns` cuts that body at each `=>` and `~`: a run is one unbroken stretch of one mode, and a run that opens with no marker is prose — the leading paragraphs, or a fence the classifier left verbatim.
 
-`runBlocks` turns a run into its blocks, and stamps each with the section's `source` anchor. A run that `=>` opened is one code block, holding its verbatim text as `code`; a prose run is its prose, with any `:::[Note] … :::` region split out into a note block by `proseBlocks`, so a reader's annotation stands apart from the text around it. `runSpan` bounds the content from the first non-blank line to the last, keeping a marker's own inline text but dropping the `=>` or `~` itself, so a block reads without the frame around it. `markerInline` reads the code or prose written on an arrow or tilde line; `pieceOfWeft` reads a plain line. `sectionLanguage` names a code block's language for the highlighter: the section's specifier, else the chapter's language, and never a Loom mark like `{Tangle}`.
+`runBlocks` turns a run into its blocks, and stamps each with the section's `source` anchor. A run that `=>` opened is one code block, holding its verbatim text as `code`; a prose run is its prose, with any `:::[Note] … :::` region split out into a note block by `proseBlocks`, so a reader's annotation stands apart from the text around it. `runSpan` bounds the content from the first non-blank line to the last, keeping a marker's own inline text but dropping the `=>` or `~` itself, so a block reads without the frame around it. `markerInline` reads the code or prose written on an arrow or tilde line; `pieceOfWeft` reads a plain line. `codeLanguage` names a code block's language for the highlighter by the product pass's own rule, `sectionLanguage`: the section's specifier, else the extension of the file its sink names, else the chapter's language. A `{Tangle}` section takes the extension of the file it writes, never the mark itself. So a section that writes `extension.toml` in a chapter of Rust is labelled TOML, as the tangler composes it.
 
 =>
 
@@ -301,20 +304,23 @@ const runSpan = (run: ReadonlyArray<BodyWeft>): Option.Option<Span> => {
     : Option.none()
 }
 
-const reservedSpecifiers: ReadonlySet<string> = new Set(['tangle', 'toc'])
-
-const sectionLanguage = (module: LoomModule, section: LoomSection): string =>
-  pipe(
-    Option.fromNullishOr(section.heading.specifier),
-    Option.map((s) => s.label.value.toLowerCase()),
-    Option.filter((id) => !reservedSpecifiers.has(id)),
-    Option.orElse(() =>
-      Option.map(Option.fromNullishOr(module.doc.frontmatter?.language), (l) =>
-        l.value.trim().toLowerCase(),
-      ),
+const codeLanguage = (module: LoomModule, section: LoomSection): string => {
+  const frontmatter = Option.fromNullishOr(module.doc.frontmatter)
+  return sectionLanguage(
+    section,
+    pipe(
+      frontmatter,
+      Option.flatMapNullishOr((f) => f.language),
+      Option.map((language) => language.value.trim().toLowerCase()),
+      Option.getOrElse(() => 'plaintext'),
     ),
-    Option.getOrElse(() => 'plaintext'),
+    pipe(
+      frontmatter,
+      Option.flatMapNullishOr((f) => f.package),
+      Option.map((pkg) => pkg.value),
+    ),
   )
+}
 
 const notePattern = /^[ \t]*:::\[Note\][^\n]*\n([\s\S]*?)\n[ \t]*:::(?:[ \t])*$/gm
 
@@ -350,7 +356,7 @@ const codeBlock = (
 ): WovenBlock =>
   CodeBlockSchema.make({
     source,
-    language: sectionLanguage(module, section),
+    language: codeLanguage(module, section),
     code: sliceContent(module.text, span),
     links: pipe(
       Array.flatMap(run, (weft) => weft.anchors),

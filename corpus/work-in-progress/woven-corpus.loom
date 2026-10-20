@@ -105,7 +105,7 @@ export type WovenBlock = typeof WovenBlockSchema.Type
 
 ## A page for each chapter
 
-Each chapter becomes one `WovenPage`: a `slug` for its URL, the chapter `title`, and its `blocks`. When the chapter belongs to a part, the page names that part, so the reader sees it above the title.
+Each chapter becomes one `WovenPage`: a `slug` for its URL, the chapter `title`, and its `blocks`. When the chapter belongs to a part, the page names that part, so the reader sees it above the title. When the chapter opens on frontmatter, the page also carries that block verbatim, its `---` fences included, so a reader can be shown the chapter's place in the book and the package and language it writes, the way its loom writes them.
 
 =>
 
@@ -113,13 +113,14 @@ export const WovenPageSchema = Schema.Struct({
   slug: Schema.String,
   title: Schema.String,
   part: Schema.optional(Schema.String),
+  frontmatter: Schema.optional(Schema.String),
   blocks: Schema.Array(WovenBlockSchema),
 })
 export type WovenPage = typeof WovenPageSchema.Type
 
 ## The navigation tree
 
-The navigation tree is the corpus's own structure — its parts, and the chapters grouped under them, in the order the table of contents sets. A consumer renders it into whatever navigation it wants, a sidebar or a drop-down or nothing at all; the model only carries the shape. A `WovenNavEntry` is one chapter in that tree: its `number` — empty when the chapter is numberless — its `title`, the `slug` that opens it, and the optional `status` and `priority` a roadmap reads. A `WovenPart` groups the entries that share a part, under the part's `number` — empty for a numberless part — and its `name`. A chapter that belongs to no part is a loose entry, the same `WovenNavEntry`, which the corpus keeps apart from the parts, unordered, for a consumer to place as it sees fit.
+The navigation tree is the corpus's own structure — its parts, and the chapters grouped under them, in the order the table of contents sets. A consumer renders it into whatever navigation it wants, a sidebar or a drop-down or nothing at all; the model only carries the shape. A `WovenNavEntry` is one chapter in that tree: its `number` — empty when the chapter is numberless — its `title`, the `slug` that opens it, the optional `status` and `priority` a roadmap reads, and the optional `language` its frontmatter names, which a menu can mark the chapter by. A `WovenPart` groups the entries that share a part, under the part's `number` — empty for a numberless part — and its `name`. A chapter that belongs to no part is a loose entry, the same `WovenNavEntry`, which the corpus keeps apart from the parts, unordered, for a consumer to place as it sees fit.
 
 =>
 
@@ -129,6 +130,7 @@ export const WovenNavEntrySchema = Schema.Struct({
   slug: Schema.String,
   status: Schema.optional(Schema.String),
   priority: Schema.optional(Schema.String),
+  language: Schema.optional(Schema.String),
 })
 export type WovenNavEntry = typeof WovenNavEntrySchema.Type
 

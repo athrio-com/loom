@@ -89,7 +89,7 @@ describe('the weave projection', () => {
         number: 'I',
         name: 'Using Loom',
         chapters: [
-          { number: '1', title: 'A greeting', slug: 'using/greeting' },
+          { number: '1', title: 'A greeting', slug: 'using/greeting', language: 'TypeScript' },
         ],
       },
     ])

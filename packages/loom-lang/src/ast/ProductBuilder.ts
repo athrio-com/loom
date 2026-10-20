@@ -103,7 +103,7 @@ const specifierLanguage = (
   return id
 }
 
-const sectionLanguage = (
+export const sectionLanguage = (
   section: LoomSection,
   defaultLang: string,
   pkg: Option.Option<string>,

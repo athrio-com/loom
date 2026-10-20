@@ -123,7 +123,7 @@ A tangle sink resolves its language a fourth way: it carries no specifier, only 
 
 A file with no extension takes its whole name as its language, read from the last path segment only. A `Dockerfile` composes `dockerfile`, a `LICENSE` composes `license`, and a `.gitignore`, whose one dot only marks it hidden, composes `gitignore`. A chapter that declares the same language can then anchor into it.
 
-`sectionLanguage` resolves any section's language by these rules: its specifier, a sink's extension, or the document default. `nameIndex` records the language beside each title, so when an anchor binds, the pass compares the composing section's language to the section it reaches and marks a cross-language transclusion when they differ.
+`sectionLanguage` resolves any section's language by these rules: its specifier, a sink's extension, or the document default. The weave labels each code block by the same rule, so a page names a section's language exactly as the tangler composes it. `nameIndex` records the language beside each title, so when an anchor binds, the pass compares the composing section's language to the section it reaches and marks a cross-language transclusion when they differ.
 
 =>
 
@@ -150,7 +150,7 @@ const specifierLanguage = (
   return id
 }
 
-const sectionLanguage = (
+export const sectionLanguage = (
   section: LoomSection,
   defaultLang: string,
   pkg: Option.Option<string>,
