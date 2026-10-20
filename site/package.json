@@ -18,7 +18,8 @@
     "@effect/platform-browser": "4.0.5",
     "effect": "4.0.5",
     "foldkit": "0.168.0",
-    "marked": "^18.0.5"
+    "marked": "^18.0.5",
+    "shiki": "^4.3.1"
   },
   "devDependencies": {
     "vite": "^8.1.3"

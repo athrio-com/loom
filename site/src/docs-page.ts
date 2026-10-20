@@ -18,6 +18,7 @@ import {
   type Page,
   type Part,
   type Runtime,
+  type TokenKind,
 } from './model'
 import {
   broadSeam,
@@ -311,31 +312,77 @@ const runLine = (file: string, model: Model, h: HtmlBuilder<Message>): Html => {
   )
 }
 
-type Run = { readonly text: string; readonly link: Option.Option<CodeLink> }
+type Run =
+  | { readonly type: 'plain'; readonly text: string }
+  | { readonly type: 'anchor'; readonly text: string; readonly link: CodeLink }
+  | { readonly type: 'mark'; readonly text: string; readonly kind: TokenKind }
 
-const byOffset = Order.mapInput(Order.Number, (link: CodeLink) => link.offset)
+type Span = {
+  readonly offset: number
+  readonly length: number
+  readonly runOf: (text: string) => Run
+}
+
+const byOffset = Order.mapInput(Order.Number, (span: Span) => span.offset)
+
+const spansOf = (block: CodeBlock): ReadonlyArray<Span> =>
+  Array.sort(
+    [
+      ...Array.map(block.links, (link): Span => ({
+        offset: link.offset,
+        length: link.length,
+        runOf: (text) => ({ type: 'anchor', text, link }),
+      })),
+      ...Array.map(block.marks, (mark): Span => ({
+        offset: mark.offset,
+        length: mark.length,
+        runOf: (text) => ({ type: 'mark', text, kind: mark.kind }),
+      })),
+    ],
+    byOffset,
+  )
+
+const plain = (text: string): Run => ({ type: 'plain', text })
 
 const runsOf = (block: CodeBlock): ReadonlyArray<Run> => {
-  const [runs, end] = Array.reduce(
-    Array.sort(block.links, byOffset),
-    [[], 0] as readonly [ReadonlyArray<Run>, number],
-    ([runs, at], link): readonly [ReadonlyArray<Run>, number] => [
-      [
-        ...runs,
-        { text: block.code.slice(at, link.offset), link: Option.none() },
-        {
-          text: block.code.slice(link.offset, link.offset + link.length),
-          link: Option.some(link),
-        },
-      ],
-      link.offset + link.length,
-    ],
-  )
+  const spans = spansOf(block)
+  const ends = Array.map(spans, (span) => span.offset + span.length)
   return Array.filter(
-    [...runs, { text: block.code.slice(end), link: Option.none() }],
+    [
+      ...Array.flatMap(Array.zip([0, ...ends], spans), ([from, span]) => [
+        plain(block.code.slice(from, span.offset)),
+        span.runOf(block.code.slice(span.offset, span.offset + span.length)),
+      ]),
+      plain(block.code.slice(Option.getOrElse(Array.last(ends), () => 0))),
+    ],
     (run) => run.text !== '',
   )
 }
+
+const ESCAPES: ReadonlyArray<readonly [RegExp, string]> = [
+  [/&/g, '&amp;'],
+  [/</g, '&lt;'],
+  [/>/g, '&gt;'],
+  [/"/g, '&quot;'],
+]
+
+const escaped = (text: string): string =>
+  Array.reduce(ESCAPES, text, (out, [pattern, entity]) => out.replace(pattern, entity))
+
+const runHtml = (run: Run, base: string, page: Page): string =>
+  Match.value(run).pipe(
+    Match.when({ type: 'plain' }, (plain) => escaped(plain.text)),
+    Match.when(
+      { type: 'anchor' },
+      (anchor) =>
+        `<a class="code-anchor" href="${escaped(anchorHref(base, page.slug, anchor.link))}">${escaped(anchor.text)}</a>`,
+    ),
+    Match.when(
+      { type: 'mark' },
+      (mark) => `<span class="tok-${mark.kind}">${escaped(mark.text)}</span>`,
+    ),
+    Match.exhaustive,
+  )
 
 const anchorHref = (base: string, here: string, link: CodeLink): string =>
   link.targetSlug === here
@@ -364,17 +411,15 @@ const codeOf = (
         [h.Class('sheet-code')],
         [
           h.code(
+            [
+              h.InnerHTML(
+                Array.join(
+                  Array.map(runsOf(block), (run) => runHtml(run, base, page)),
+                  '',
+                ),
+              ),
+            ],
             [],
-            Array.map(runsOf(block), (run) =>
-              Option.match(run.link, {
-                onNone: () => run.text,
-                onSome: (link) =>
-                  h.a(
-                    [h.Class('code-anchor'), h.Href(anchorHref(base, page.slug, link))],
-                    [run.text],
-                  ),
-              }),
-            ),
           ),
         ],
       ),
@@ -463,6 +508,29 @@ const breadcrumb = (
     ],
   )
 
+const openingPieces = (cut: Cut): ReadonlyArray<Piece> =>
+  Array.flatMap(cut.opening, (block) => (block.type === 'prose' ? piecesOf(block.markdown) : []))
+
+const textsOf = (pieces: ReadonlyArray<Piece>): ReadonlyArray<string> =>
+  Array.flatMap(pieces, (piece) => (piece.type === 'text' ? [piece.markdown] : []))
+
+const PARAGRAPH_BREAK = /\n[ \t]*\n/
+
+const gistAndRest = (
+  texts: ReadonlyArray<string>,
+): readonly [Option.Option<string>, ReadonlyArray<string>] =>
+  Array.match(texts, {
+    onEmpty: () => [Option.none(), []] as const,
+    onNonEmpty: ([first, ...others]) => {
+      const at = first.search(PARAGRAPH_BREAK)
+      const [gist, more] = at < 0 ? [first, ''] : [first.slice(0, at), first.slice(at)]
+      return [
+        Option.some(gist),
+        Array.filter([more, ...others], (text) => text.trim() !== ''),
+      ] as const
+    },
+  })
+
 const chapterHeading = (page: Page, cut: Cut): HeadingBlock =>
   Option.getOrElse(cut.title, (): HeadingBlock => ({
     type: 'heading',
@@ -480,9 +548,8 @@ const docHead = (
   model: Model,
   h: HtmlBuilder<Message>,
 ): Html => {
-  const pieces = Array.flatMap(cut.opening, (block) =>
-    block.type === 'prose' ? piecesOf(block.markdown) : [],
-  )
+  const pieces = openingPieces(cut)
+  const [gist] = gistAndRest(textsOf(pieces))
   const heading = chapterHeading(page, cut)
   return h.div(
     [h.Class('section section-hero page-hero doc-hero')],
@@ -498,10 +565,8 @@ const docHead = (
                 [h.Class('page-title')],
                 [loomMark('paper', 0.8), h.h1([h.Id(heading.id)], [heading.title])],
               ),
-              ...Array.flatMap(pieces, (piece) =>
-                piece.type === 'text'
-                  ? [textOf(piece.markdown, 'docs-prose page-lead', model.copied, h)]
-                  : [],
+              ...Option.toArray(
+                Option.map(gist, (markdown) => textOf(markdown, 'docs-prose page-lead', model.copied, h)),
               ),
             ],
           ),
@@ -934,23 +999,23 @@ type OpeningOf = (
 ) => Opening
 
 export const docsOpening: OpeningOf = (corpus, root, base, page, cut, model, h) => {
-  const openingCode = Array.filter(
-    cut.opening,
-    (block) => block.type === 'code' || block.type === 'note',
-  )
+  const [, rest] = gistAndRest(textsOf(openingPieces(cut)))
+  const leading = [
+    ...Array.map(rest, (markdown) => textOf(markdown, 'docs-prose', model.copied, h)),
+    ...pipe(
+      cut.opening,
+      Array.filter((block) => block.type === 'code' || block.type === 'note'),
+      Array.flatMap((block) => blockOf(block, base, page, model, h)),
+    ),
+  ]
   return {
     cardMark: (chapter) => carpetMark(chapterFlower(corpus, chapter.slug), '42px', broadSeam),
     markOf: (section, place) =>
       markOf(place === 0 ? Option.some(chapterFlower(corpus, page.slug)) : Option.none(), section),
     menuMark: () => Option.none(),
     above: [docHead(corpus, root, base, page, cut, model, h)],
-    lead: Array.isReadonlyArrayNonEmpty(openingCode)
-      ? [
-          h.div(
-            [h.Class('doc-stack doc-opening')],
-            Array.flatMap(openingCode, (block) => blockOf(block, base, page, model, h)),
-          ),
-        ]
+    lead: Array.isReadonlyArrayNonEmpty(leading)
+      ? [h.div([h.Class('doc-stack doc-opening')], leading)]
       : [],
   }
 }

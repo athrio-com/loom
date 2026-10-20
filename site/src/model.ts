@@ -17,11 +17,26 @@ const CodeLink = S.Struct({
 })
 export type CodeLink = typeof CodeLink.Type
 
+export const TokenKind = S.Literals(['keyword', 'string', 'constant', 'comment', 'function', 'type'])
+export type TokenKind = typeof TokenKind.Type
+
+const CodeMark = S.Tuple([S.Number, S.Number, TokenKind]).pipe(
+  S.decodeTo(
+    S.Struct({ offset: S.Number, length: S.Number, kind: TokenKind }),
+    SchemaTransformation.transform({
+      decode: ([offset, length, kind]) => ({ offset, length, kind }),
+      encode: ({ offset, length, kind }) => [offset, length, kind] as const,
+    }),
+  ),
+)
+export type CodeMark = typeof CodeMark.Type
+
 const CodeBlock = S.Struct({
   type: S.Literal('code'),
   language: S.String,
   code: S.String,
   links: S.Array(CodeLink),
+  marks: S.Array(CodeMark).pipe(S.withDecodingDefaultKey(Effect.succeed([]))),
 })
 export type CodeBlock = typeof CodeBlock.Type
 
@@ -64,7 +79,7 @@ export const Player = S.Struct({
 })
 export type Player = typeof Player.Type
 
-import { Array, Match, Option, Schema as S } from 'effect'
+import { Array, Effect, Match, Option, Schema as S, SchemaTransformation } from 'effect'
 import { defineMessageUnion } from 'foldkit/message'
 
 export const Route = S.Literals(['home', 'why-loom', 'docs', 'community', 'source', 'license'])

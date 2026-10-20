@@ -38,6 +38,7 @@ import {
   type Page,
   type Part,
   type Runtime,
+  type TokenKind,
 } from './model'
 import {
   broadSeam,
@@ -410,7 +411,7 @@ const runLine = (file: string, model: Model, h: HtmlBuilder<Message>): Html => {
   )
 }
 
-## Code, with its anchors as links
+## Code in colour, with its anchors as links
 
 A source page shows the code each section writes, so the shell draws a run of code as well. It draws as the code sheet the docs use for a fence, with the same copy button in its corner.
 
@@ -418,35 +419,95 @@ Every sheet names its language in a small tag on its top edge, set into the bord
 
 A loom composes its code by anchor. A `::[…]` anchor in one section's code stands for the section it names, so each anchor in the code is a link to that section. A section in the same chapter is reached by its id alone, and a section in another chapter by that chapter's address and the id.
 
-The weave hands over each anchor as a name, its place in the code, and the section it reaches. `runsOf` cuts the code at those places into runs, in order: the plain code between anchors, and each anchor with its link. A run with no text, such as the gap between two anchors that touch, is dropped.
+The code also arrives in colour. The server colours each chapter before the page draws it, and hands each run of code over with its marks: stretches of the code, each with the kind of token it covers, such as a keyword or a string. Code between the marks draws in the page's ink.
+
+The weave hands over each anchor as a name, its place in the code, and the section it reaches. So a run of code carries two lists of places, its anchors and its marks. `spansOf` gathers both into one list, in the order they sit in the code. No two spans overlap, because the server drops any mark that falls on an anchor.
+
+`runsOf` then cuts the code at the spans into runs, in order. A run is one of three things: plain code between two spans, an anchor with its link, or a mark with its kind. A run with no text, such as the gap between two anchors that touch, is dropped.
 
 =>
 
-type Run = { readonly text: string; readonly link: Option.Option<CodeLink> }
+type Run =
+  | { readonly type: 'plain'; readonly text: string }
+  | { readonly type: 'anchor'; readonly text: string; readonly link: CodeLink }
+  | { readonly type: 'mark'; readonly text: string; readonly kind: TokenKind }
 
-const byOffset = Order.mapInput(Order.Number, (link: CodeLink) => link.offset)
+type Span = {
+  readonly offset: number
+  readonly length: number
+  readonly runOf: (text: string) => Run
+}
+
+const byOffset = Order.mapInput(Order.Number, (span: Span) => span.offset)
+
+const spansOf = (block: CodeBlock): ReadonlyArray<Span> =>
+  Array.sort(
+    [
+      ...Array.map(block.links, (link): Span => ({
+        offset: link.offset,
+        length: link.length,
+        runOf: (text) => ({ type: 'anchor', text, link }),
+      })),
+      ...Array.map(block.marks, (mark): Span => ({
+        offset: mark.offset,
+        length: mark.length,
+        runOf: (text) => ({ type: 'mark', text, kind: mark.kind }),
+      })),
+    ],
+    byOffset,
+  )
+
+const plain = (text: string): Run => ({ type: 'plain', text })
 
 const runsOf = (block: CodeBlock): ReadonlyArray<Run> => {
-  const [runs, end] = Array.reduce(
-    Array.sort(block.links, byOffset),
-    [[], 0] as readonly [ReadonlyArray<Run>, number],
-    ([runs, at], link): readonly [ReadonlyArray<Run>, number] => [
-      [
-        ...runs,
-        { text: block.code.slice(at, link.offset), link: Option.none() },
-        {
-          text: block.code.slice(link.offset, link.offset + link.length),
-          link: Option.some(link),
-        },
-      ],
-      link.offset + link.length,
-    ],
-  )
+  const spans = spansOf(block)
+  const ends = Array.map(spans, (span) => span.offset + span.length)
   return Array.filter(
-    [...runs, { text: block.code.slice(end), link: Option.none() }],
+    [
+      ...Array.flatMap(Array.zip([0, ...ends], spans), ([from, span]) => [
+        plain(block.code.slice(from, span.offset)),
+        span.runOf(block.code.slice(span.offset, span.offset + span.length)),
+      ]),
+      plain(block.code.slice(Option.getOrElse(Array.last(ends), () => 0))),
+    ],
     (run) => run.text !== '',
   )
 }
+
+~
+
+A plain run draws as text, an anchor as a link to the section it names, and a mark as a span the paper scheme colours by its kind.
+
+A chapter in colour holds thousands of marks. The view runs again every time the model changes, as it does each time the outline follows the reader's scroll, and a node for each mark would have the browser build and compare thousands of nodes on every run. So a sheet's code draws as one string of HTML, the way a run of prose draws from its Markdown, and the view holds a single node for it. The string changes only when the code does, so a redraw compares one string and leaves the sheet alone.
+
+The `runHtml` function writes a run as HTML. The `escaped` function makes the code's own text safe to write there, so a `<` in the code stays a character rather than opening a tag.
+
+=>
+
+const ESCAPES: ReadonlyArray<readonly [RegExp, string]> = [
+  [/&/g, '&amp;'],
+  [/</g, '&lt;'],
+  [/>/g, '&gt;'],
+  [/"/g, '&quot;'],
+]
+
+const escaped = (text: string): string =>
+  Array.reduce(ESCAPES, text, (out, [pattern, entity]) => out.replace(pattern, entity))
+
+const runHtml = (run: Run, base: string, page: Page): string =>
+  Match.value(run).pipe(
+    Match.when({ type: 'plain' }, (plain) => escaped(plain.text)),
+    Match.when(
+      { type: 'anchor' },
+      (anchor) =>
+        `<a class="code-anchor" href="${escaped(anchorHref(base, page.slug, anchor.link))}">${escaped(anchor.text)}</a>`,
+    ),
+    Match.when(
+      { type: 'mark' },
+      (mark) => `<span class="tok-${mark.kind}">${escaped(mark.text)}</span>`,
+    ),
+    Match.exhaustive,
+  )
 
 const anchorHref = (base: string, here: string, link: CodeLink): string =>
   link.targetSlug === here
@@ -475,17 +536,15 @@ const codeOf = (
         [h.Class('sheet-code')],
         [
           h.code(
+            [
+              h.InnerHTML(
+                Array.join(
+                  Array.map(runsOf(block), (run) => runHtml(run, base, page)),
+                  '',
+                ),
+              ),
+            ],
             [],
-            Array.map(runsOf(block), (run) =>
-              Option.match(run.link, {
-                onNone: () => run.text,
-                onSome: (link) =>
-                  h.a(
-                    [h.Class('code-anchor'), h.Href(anchorHref(base, page.slug, link))],
-                    [run.text],
-                  ),
-              }),
-            ),
           ),
         ],
       ),
@@ -602,7 +661,40 @@ const breadcrumb = (
 
 ~
 
-The chapter's opening fills the rest of the head. Its text becomes the lead under the name. Its fences, when it has any, stand in a column of their own beside the lead, level with the line above the name. The quick start opens this way with the two commands a reader runs first, so they are on screen before the first section starts.
+The chapter's opening fills the rest of the head, but only its gist does. The head is what a reader sees on arriving, so it says what the page is for and stops, rather than pushing the first section off the screen. The gist is the first paragraph of the opening's text, and it becomes the lead under the name. The rest of the opening's text leads the article instead, beside the menu and before the first section.
+
+The opening's fences, when it has any, stand in a column of their own beside the lead, level with the line above the name. The quick start opens this way with the two commands a reader runs first, so they are on screen before the first section starts.
+
+The `openingPieces` function cuts the opening's prose into its text and its fences. The `gistAndRest` function splits the text at its first blank line. The gist is what comes before that line, and the rest is what comes after it. A piece of the rest that holds only blank lines draws nothing, so the article never opens on an empty paragraph.
+
+=>
+
+const openingPieces = (cut: Cut): ReadonlyArray<Piece> =>
+  Array.flatMap(cut.opening, (block) => (block.type === 'prose' ? piecesOf(block.markdown) : []))
+
+const textsOf = (pieces: ReadonlyArray<Piece>): ReadonlyArray<string> =>
+  Array.flatMap(pieces, (piece) => (piece.type === 'text' ? [piece.markdown] : []))
+
+const PARAGRAPH_BREAK = /\n[ \t]*\n/
+
+const gistAndRest = (
+  texts: ReadonlyArray<string>,
+): readonly [Option.Option<string>, ReadonlyArray<string>] =>
+  Array.match(texts, {
+    onEmpty: () => [Option.none(), []] as const,
+    onNonEmpty: ([first, ...others]) => {
+      const at = first.search(PARAGRAPH_BREAK)
+      const [gist, more] = at < 0 ? [first, ''] : [first.slice(0, at), first.slice(at)]
+      return [
+        Option.some(gist),
+        Array.filter([more, ...others], (text) => text.trim() !== ''),
+      ] as const
+    },
+  })
+
+~
+
+The head draws the name, the gist under it, and the column of fences.
 
 =>
 
@@ -623,9 +715,8 @@ const docHead = (
   model: Model,
   h: HtmlBuilder<Message>,
 ): Html => {
-  const pieces = Array.flatMap(cut.opening, (block) =>
-    block.type === 'prose' ? piecesOf(block.markdown) : [],
-  )
+  const pieces = openingPieces(cut)
+  const [gist] = gistAndRest(textsOf(pieces))
   const heading = chapterHeading(page, cut)
   return h.div(
     [h.Class('section section-hero page-hero doc-hero')],
@@ -641,10 +732,8 @@ const docHead = (
                 [h.Class('page-title')],
                 [loomMark('paper', 0.8), h.h1([h.Id(heading.id)], [heading.title])],
               ),
-              ...Array.flatMap(pieces, (piece) =>
-                piece.type === 'text'
-                  ? [textOf(piece.markdown, 'docs-prose page-lead', model.copied, h)]
-                  : [],
+              ...Option.toArray(
+                Option.map(gist, (markdown) => textOf(markdown, 'docs-prose page-lead', model.copied, h)),
               ),
             ],
           ),
@@ -1118,7 +1207,7 @@ The shell stacks the head over a body of two columns, the menu on the left and t
 
 A slug naming no chapter falls back to the first, so the documentation always has something to show.
 
-The page decides how its chapters open, so the shell asks it for an opening. An opening is two lists: what stands above the menu and the article, across the page, and what leads the article, beside the menu. Both the docs and the book open on their head above. The docs' head draws the opening's prose, so only the code or notes there lead the article. The book's head draws the frontmatter, so its whole opening leads the article. Either way no block of a chapter goes undrawn.
+The page decides how its chapters open, so the shell asks it for an opening. An opening is two lists: what stands above the menu and the article, across the page, and what leads the article, beside the menu. Both the docs and the book open on their head above. The docs' head draws only the opening's gist and its fences, so the rest of the opening's text, then any code or notes, lead the article. The book's head draws the frontmatter, so its whole opening leads the article. Either way no block of a chapter goes undrawn.
 
 The flowers belong to the docs. A docs chapter's first section and the pager's cards wear the chapter's flower. A chapter of the book marks its sections by language instead, and each card of its pager wears the icon of the chapter it leads to. So an opening also says which mark each section wears, which mark each card of the pager wears, and which mark each chapter wears in the menu.
 
@@ -1143,23 +1232,23 @@ type OpeningOf = (
 ) => Opening
 
 export const docsOpening: OpeningOf = (corpus, root, base, page, cut, model, h) => {
-  const openingCode = Array.filter(
-    cut.opening,
-    (block) => block.type === 'code' || block.type === 'note',
-  )
+  const [, rest] = gistAndRest(textsOf(openingPieces(cut)))
+  const leading = [
+    ...Array.map(rest, (markdown) => textOf(markdown, 'docs-prose', model.copied, h)),
+    ...pipe(
+      cut.opening,
+      Array.filter((block) => block.type === 'code' || block.type === 'note'),
+      Array.flatMap((block) => blockOf(block, base, page, model, h)),
+    ),
+  ]
   return {
     cardMark: (chapter) => carpetMark(chapterFlower(corpus, chapter.slug), '42px', broadSeam),
     markOf: (section, place) =>
       markOf(place === 0 ? Option.some(chapterFlower(corpus, page.slug)) : Option.none(), section),
     menuMark: () => Option.none(),
     above: [docHead(corpus, root, base, page, cut, model, h)],
-    lead: Array.isReadonlyArrayNonEmpty(openingCode)
-      ? [
-          h.div(
-            [h.Class('doc-stack doc-opening')],
-            Array.flatMap(openingCode, (block) => blockOf(block, base, page, model, h)),
-          ),
-        ]
+    lead: Array.isReadonlyArrayNonEmpty(leading)
+      ? [h.div([h.Class('doc-stack doc-opening')], leading)]
       : [],
   }
 }
@@ -1279,7 +1368,7 @@ export const sourcePage = (model: Model, h: HtmlBuilder<Message>): Html =>
 
 ::[Drawing a fence]
 
-::[Code, with its anchors as links]
+::[Code in colour, with its anchors as links]
 
 ::[A section, under its heading]
 

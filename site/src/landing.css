@@ -2289,6 +2289,12 @@ h2, .subhead {
 
 .code-anchor:hover { text-decoration-style: solid; }
 
+.tok-keyword  { color: var(--weave); }
+.tok-function { color: var(--tangle); }
+.tok-constant { color: var(--hooks-paper); }
+.tok-type     { color: var(--spec-paper); }
+.tok-comment  { color: var(--ink-3); }
+
 .doc-stack > .source-code { margin-top: 30px; }
 
 .source-code { overflow: visible; }

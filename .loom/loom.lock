@@ -121,6 +121,7 @@
     "site/package.json",
     "site/src/chrome.ts",
     "site/src/client.ts",
+    "site/src/colour.ts",
     "site/src/community.ts",
     "site/src/components.ts",
     "site/src/dev.ts",

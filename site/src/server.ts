@@ -1,4 +1,4 @@
-import { Context, Effect, FileSystem, Layer, Option, pipe, Schema as S } from 'effect'
+import { Cache, Context, Effect, Fiber, FileSystem, Layer, Option, pipe, Schema as S } from 'effect'
 import { HttpServer, HttpServerRequest, HttpServerResponse } from 'effect/http'
 import { BunHttpServer, BunRuntime, BunServices } from '@effect/platform-bun'
 import { dirname, join } from 'node:path'
@@ -8,6 +8,7 @@ import { view } from './view'
 import { Corpus, Model, routeOf, SearchGroup, type Route } from './model'
 import { chapterAt, docsChapterAt, sliceOf } from './docs-page'
 import { indexOf, searchIn } from './search'
+import { colouredCorpus, makeHighlighter } from './colour'
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist')
 
@@ -34,11 +35,14 @@ const NPM_LATEST = 'https://registry.npmjs.org/@athrio/loom/latest'
 const Release = S.Struct({ version: S.String })
 
 const latestVersion = (fallback: string): Effect.Effect<string> =>
-  Effect.tryPromise(() =>
-    fetch(NPM_LATEST)
+  Effect.tryPromise((signal) =>
+    fetch(NPM_LATEST, { signal })
       .then((response) => response.json())
       .then((body) => S.decodeUnknownSync(Release)(body).version),
-  ).pipe(Effect.catchCause(() => Effect.succeed(fallback)))
+  ).pipe(
+    Effect.timeout('2 seconds'),
+    Effect.catchCause(() => Effect.succeed(fallback)),
+  )
 
 const bookFile = join(dirname(fileURLToPath(import.meta.url)), 'source.woven.json')
 
@@ -163,17 +167,24 @@ const placeOf = (book: Option.Option<Corpus>, pathname: string): Option.Option<P
     ),
   )
 
-const bookFor = (book: Option.Option<Corpus>, place: Place): Option.Option<Corpus> =>
-  place.route === 'source'
-    ? Option.map(book, (corpus) => sliceOf(corpus, place.chapter))
-    : Option.none()
-
 export class Site extends Context.Service<Site>()('Site', {
   make: Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
-    const version = yield* latestVersion(seed.version)
     const book = yield* readBook(fs)
-    const index = yield* indexOf(book, bodyOf(version))
+    const latest = yield* Effect.forkScoped(latestVersion(seed.version))
+    const highlighter = yield* Effect.forkScoped(makeHighlighter)
+    const index = yield* Effect.cached(
+      Effect.flatMap(Fiber.join(latest), (version) => indexOf(book, bodyOf(version))),
+    )
+    const slices = yield* Cache.make({
+      capacity: Option.match(book, { onNone: () => 1, onSome: (corpus) => corpus.pages.length + 1 }),
+      lookup: (chapter: string) =>
+        Effect.map(Fiber.join(highlighter), (shiki) =>
+          Option.map(book, (corpus) => colouredCorpus(shiki, sliceOf(corpus, chapter))),
+        ),
+    })
+    const bookFor = (place: Place): Effect.Effect<Option.Option<Corpus>> =>
+      place.route === 'source' ? Cache.get(slices, place.chapter) : Effect.succeed(Option.none())
     const shell = fs.readFileString(join(distDir, 'index.html'))
     return {
       pageAt: (url: URL): Effect.Effect<Option.Option<string>> =>
@@ -184,7 +195,11 @@ export class Site extends Context.Service<Site>()('Site', {
               Effect.matchEffect({
                 onFailure: () => Effect.succeed(NOT_BUILT),
                 onSuccess: (held) =>
-                  pageOf(held, { ...seed, ...place, version, book: bookFor(book, place) }),
+                  Effect.gen(function* () {
+                    const version = yield* Fiber.join(latest)
+                    const slice = yield* bookFor(place)
+                    return yield* pageOf(held, { ...seed, ...place, version, book: slice })
+                  }),
               }),
               Effect.map(Option.some),
             ),
@@ -194,8 +209,10 @@ export class Site extends Context.Service<Site>()('Site', {
           Effect.catchCause(() => notFound),
         ),
       searchAt: (url: URL): Effect.Effect<HttpServerResponse.HttpServerResponse> =>
-        HttpServerResponse.schemaJson(S.Array(SearchGroup))(
-          searchIn(index, url.searchParams.get('q') ?? ''),
+        Effect.flatMap(index, (entries) =>
+          HttpServerResponse.schemaJson(S.Array(SearchGroup))(
+            searchIn(entries, url.searchParams.get('q') ?? ''),
+          ),
         ).pipe(Effect.orDie),
     } as const
   }),
@@ -226,8 +243,8 @@ const port = Number(process.env.PORT ?? 5199)
 
 const server = HttpServer.serve(app).pipe(
   HttpServer.withLogAddress,
-  Layer.provide(Site.layer),
   Layer.provide(BunHttpServer.layer({ port })),
+  Layer.provide(Site.layer),
 )
 
 BunRuntime.runMain(Layer.launch(server))

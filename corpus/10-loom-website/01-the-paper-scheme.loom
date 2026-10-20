@@ -2757,6 +2757,8 @@ A command is usually one short line, and stretched across the column it would be
 
 On the source page an anchor inside the code is a link, and it looks like one. It takes the accent's orange and a dotted underline, which turns solid under the pointer.
 
+The rest of the code takes its colours from the marks the server sends, one class for each kind of token, drawn from the scheme's own inks. Keywords take the violet of `weave`, and the names of functions the blue of `tangle`. Strings keep the green the landing's JSON already gives them. Constants take the hooks' magenta and the names of types the spec's amber, both in the deeper shades the scheme keeps for text on paper. Comments recede into the muted ink, so the code a comment explains stays in front of it. No kind takes the accent's orange, which belongs to the anchors.
+
 Every sheet of code on the source page wears a tag on its top edge, with the language's icon and its name in small muted capitals. The tag sits on a scrap of the page's paper that straddles the border, so it reads as cut into the frame rather than laid on the code. Half the tag stands above the sheet, so the sheet sits 30px below the block before it, where the stack's other blocks sit 18px apart. The tag then keeps about the stack's usual gap from the prose. The sheet's top margin carries the whole gap, because two margins that meet collapse into the larger of the two rather than adding up.
 
 A sheet that scrolls clips whatever stands outside it. So on the source page the code inside the sheet scrolls sideways rather than the sheet itself, and the tag stays whole.
@@ -2772,6 +2774,12 @@ A note is a reader's annotation rather than part of the chapter, so it reads qui
 }
 
 .code-anchor:hover { text-decoration-style: solid; }
+
+.tok-keyword  { color: var(--weave); }
+.tok-function { color: var(--tangle); }
+.tok-constant { color: var(--hooks-paper); }
+.tok-type     { color: var(--spec-paper); }
+.tok-comment  { color: var(--ink-3); }
 
 .doc-stack > .source-code { margin-top: 30px; }
 

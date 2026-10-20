@@ -11,8 +11,13 @@
         },
         {
           "number": "2",
+          "title": "Installing Loom",
+          "slug": "01-getting-started/02-installing-loom"
+        },
+        {
+          "number": "3",
           "title": "Loom projects",
-          "slug": "01-getting-started/02-loom-projects"
+          "slug": "01-getting-started/03-loom-projects"
         }
       ]
     },
@@ -119,7 +124,7 @@
             "chapter": "01-getting-started/01-quick-start",
             "section": "quick-start"
           },
-          "markdown": "In about five minutes you will write a small program as a Loom document and turn it into a file you can run.\n\n```install\n```\n\n```bash\nloom --version\n```\n\nThe `curl` line is for a machine without Node or Bun. On macOS or Linux, it installs Loom as a single file in `~/.loom/bin` and adds that folder to your `PATH` in your shell's profile, such as `~/.zshrc`, and it tells you which file it changed. Open a new terminal afterwards, so the shell reads the change. If you'd rather edit `PATH` yourself, end the line with `sh -s -- --no-modify-path` instead of `sh`. On Windows, download `loom-windows-x64.exe.gz` from the [releases page](https://github.com/athrio-com/loom/releases) instead, and unpack it with a tool such as 7-Zip.\n\nIf `loom --version` prints an older version than the one you installed, a `loom` from an earlier install, with npm or Bun, may come first on your `PATH`. The install script names any it finds. `$ loom doctor` checks again at any time: it shows which `loom` your terminal runs, lists every other one with the command that removes it, and checks the project you run it in.\n\nApple hasn't signed or notarised the macOS file yet. Installed with `curl`, it runs straight away. Downloaded through a browser, it won't open until you allow it in System Settings."
+          "markdown": "In about five minutes you will write a small program as a Loom document and turn it into a file you can run.\n\n```install\n```\n\n```bash\nloom --version\n```"
         },
         {
           "type": "heading",
@@ -137,7 +142,7 @@
             "chapter": "01-getting-started/01-quick-start",
             "section": "write-your-first-loom"
           },
-          "markdown": "Install the `loom` command once, with the package manager you already use, or with `curl` if you use none. Make a new folder anywhere you like, and create a file in it called `hello.loom`:\n\n```loom\n---\nLanguage: TypeScript\n---\n\n# Hello world [hello.ts]\n\nLet's write a program which greets the world.\n\n=>\n\n::[Greeting function]\n\nconsole.log(greet('world'))\n\n# Greeting function\n\nWe have assumed the `greet` function takes a name and returns a greeting for it. Let's actually write it.\n\n=>\n\nconst greet = (name: string): string => `Hello, ${name}!`\n\n~\n\nThat's it. Now we have a function that is transcluded and invoked by the code in the `Hello world` section. We can tangle and run it.\n```"
+          "markdown": "Install the `loom` command once, with the package manager you already use, or with `curl` if you use none. [Installing Loom](/docs/getting-started/installing-loom) covers the details. Make a new folder anywhere you like, and create a file in it called `hello.loom`:\n\n```loom\n---\nLanguage: TypeScript\n---\n\n# Hello world [hello.ts]\n\nLet's write a program which greets the world.\n\n=>\n\n::[Greeting function]\n\nconsole.log(greet('world'))\n\n# Greeting function\n\nWe have assumed the `greet` function takes a name and returns a greeting for it. Let's actually write it.\n\n=>\n\nconst greet = (name: string): string => `Hello, ${name}!`\n\n~\n\nThat's it. Now we have a function that is transcluded and invoked by the code in the `Hello world` section. We can tangle and run it.\n```"
         },
         {
           "type": "heading",
@@ -178,14 +183,111 @@
       ]
     },
     {
-      "slug": "01-getting-started/02-loom-projects",
+      "slug": "01-getting-started/02-installing-loom",
+      "title": "Installing Loom",
+      "part": "Getting started",
+      "blocks": [
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "01-getting-started/02-installing-loom",
+            "section": "installing-loom"
+          },
+          "level": 1,
+          "title": "Installing Loom",
+          "id": "installing-loom"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "01-getting-started/02-installing-loom",
+            "section": "installing-loom"
+          },
+          "markdown": "The `loom` command is how you use Loom. It tangles your looms into source files and weaves them into documentation. Install it with the package manager you already use, or with `curl` if you use none.\n\n```install\n```\n\n```bash\nloom --version\n```"
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "01-getting-started/02-installing-loom",
+            "section": "without-node-or-bun"
+          },
+          "level": 2,
+          "title": "Without Node or Bun",
+          "id": "without-node-or-bun"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "01-getting-started/02-installing-loom",
+            "section": "without-node-or-bun"
+          },
+          "markdown": "The `curl` line installs Loom on a machine that has neither Node nor Bun. On macOS or Linux, it puts Loom in `~/.loom/bin` as a single file. It then adds that folder to your `PATH`, the list of folders your terminal searches for commands. It makes the change in your shell's profile, such as `~/.zshrc`, and tells you which file it changed. Open a new terminal afterwards, so the shell reads the change.\n\nIf you'd rather edit your `PATH` yourself, end the line with `sh -s -- --no-modify-path` instead of `sh`."
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "01-getting-started/02-installing-loom",
+            "section": "on-windows"
+          },
+          "level": 2,
+          "title": "On Windows",
+          "id": "on-windows"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "01-getting-started/02-installing-loom",
+            "section": "on-windows"
+          },
+          "markdown": "Download `loom-windows-x64.exe.gz` from the [releases page](https://github.com/athrio-com/loom/releases), and unpack it with a tool such as 7-Zip."
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "01-getting-started/02-installing-loom",
+            "section": "on-macos"
+          },
+          "level": 2,
+          "title": "On macOS",
+          "id": "on-macos"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "01-getting-started/02-installing-loom",
+            "section": "on-macos"
+          },
+          "markdown": "Apple hasn't signed or notarised the macOS file yet. Installed with `curl`, it runs straight away. Downloaded through a browser, it won't open until you allow it in System Settings."
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "01-getting-started/02-installing-loom",
+            "section": "when-an-older-loom-answers"
+          },
+          "level": 2,
+          "title": "When an older loom answers",
+          "id": "when-an-older-loom-answers"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "01-getting-started/02-installing-loom",
+            "section": "when-an-older-loom-answers"
+          },
+          "markdown": "If `loom --version` prints an older version than the one you installed, a `loom` from an earlier install, with npm or Bun, may come first on your `PATH`. The install script names any it finds.\n\n`$ loom doctor` checks again at any time. It shows which `loom` your terminal runs, lists every other one with the command that removes it, and checks the project you run it in."
+        }
+      ]
+    },
+    {
+      "slug": "01-getting-started/03-loom-projects",
       "title": "Loom projects",
       "part": "Getting started",
       "blocks": [
         {
           "type": "heading",
           "source": {
-            "chapter": "01-getting-started/02-loom-projects",
+            "chapter": "01-getting-started/03-loom-projects",
             "section": "loom-projects"
           },
           "level": 1,
@@ -195,7 +297,7 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "01-getting-started/02-loom-projects",
+            "chapter": "01-getting-started/03-loom-projects",
             "section": "loom-projects"
           },
           "markdown": "A single loom file is enough to write a small program. For real-life scenarios, Loom supports whole projects and modules as a literate corpus: a folder of loom files that are read together as a book.\n\n```picture\nproject\n```"
@@ -203,7 +305,7 @@
         {
           "type": "heading",
           "source": {
-            "chapter": "01-getting-started/02-loom-projects",
+            "chapter": "01-getting-started/03-loom-projects",
             "section": "initialise-project"
           },
           "level": 2,
@@ -213,7 +315,7 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "01-getting-started/02-loom-projects",
+            "chapter": "01-getting-started/03-loom-projects",
             "section": "initialise-project"
           },
           "markdown": "To set up a project, run the `$ loom init` command. Loom asks which language your sections use by default. It's TypeScript unless you name another, so press Enter.\n\nYour answer goes into `.loom/config.yaml`, the project's settings:\n\n```yaml\ncorpus: corpus\nprimary: typescript\nignore: []\n```\n\n`primary` is the default language, and `corpus` names the folder your looms live in. Commit the file. Beside it, `.loom/.gitignore` keeps out the language servers Loom downloads. The folder that holds `.loom/config.yaml` is now a Loom project.\n\n`ignore` lists looms that aren't part of the project, written like lines of a `.gitignore`. It starts empty because Loom already skips whatever Git ignores, and test fixtures named `*.fixture.loom`. Add `drafts/`, say, and Loom skips that folder when it tangles the project or looks for orphans.\n\nRunning `loom init` again changes nothing, and it never touches the looms you already have."
@@ -221,7 +323,7 @@
         {
           "type": "heading",
           "source": {
-            "chapter": "01-getting-started/02-loom-projects",
+            "chapter": "01-getting-started/03-loom-projects",
             "section": "a-home-for-your-looms"
           },
           "level": 2,
@@ -231,7 +333,7 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "01-getting-started/02-loom-projects",
+            "chapter": "01-getting-started/03-loom-projects",
             "section": "a-home-for-your-looms"
           },
           "markdown": "Looms live in a folder called `corpus`, and `loom init` creates it for you. Move your loom in with `$ mv hello.loom corpus/`.\n\nA loom in `corpus` writes its files to the project root folder, the one that holds `corpus`. So `hello.ts` still lands where it did.\n\nIn a real project you'll want to choose where the files go. For that, Loom supports a `Package` setting in a loom's frontmatter:\n\n```loom\n---\nPackage: src/\n---\n\n# Hello world [hello.ts]\n\nLet's write a program which greets the world.\n\n=>\n\n::[Greeting function]\n\nconsole.log(greet('world'))\n\n# Greeting function\n\nWe have assumed the `greet` function takes a name and returns a greeting for it. Let's actually write it.\n\n=>\n\nconst greet = (name: string): string => `Hello, ${name}!`\n\n~\n\nThat's it. Now we have a function that is transcluded and invoked by the code in the `Hello world` section. We can tangle and run it.\n```\n\nWith that frontmatter, Loom writes `src/hello.ts`.\n\nThis loom has no `Language` line, because the project's primary language is TypeScript. The quick start's loom needed one because it wasn't part of a project."
@@ -239,7 +341,7 @@
         {
           "type": "heading",
           "source": {
-            "chapter": "01-getting-started/02-loom-projects",
+            "chapter": "01-getting-started/03-loom-projects",
             "section": "tangle-the-project"
           },
           "level": 2,
@@ -249,7 +351,7 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "01-getting-started/02-loom-projects",
+            "chapter": "01-getting-started/03-loom-projects",
             "section": "tangle-the-project"
           },
           "markdown": "Point `loom tangle` at the folder rather than at one file: `$ loom tangle corpus`. Loom reads every loom in `corpus` and writes `hello.ts`, the same file as before."
@@ -257,7 +359,7 @@
         {
           "type": "heading",
           "source": {
-            "chapter": "01-getting-started/02-loom-projects",
+            "chapter": "01-getting-started/03-loom-projects",
             "section": "the-lock-file"
           },
           "level": 2,
@@ -267,7 +369,7 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "01-getting-started/02-loom-projects",
+            "chapter": "01-getting-started/03-loom-projects",
             "section": "the-lock-file"
           },
           "markdown": "Every time it tangles, Loom records the files it wrote in `.loom/loom.lock`. Commit it with the rest of the project.\n\nThe lock is how Loom tells its files from yours. A file that isn't in the lock was never tangled, so Loom never touches it: a README, a test, anything you wrote by hand.\n\nWhen you delete a section that wrote a file, the file stays on disk, but the lock still lists it. `$ loom orphans` shows such files, and `$ loom orphans --prune` deletes them."
@@ -275,7 +377,7 @@
         {
           "type": "heading",
           "source": {
-            "chapter": "01-getting-started/02-loom-projects",
+            "chapter": "01-getting-started/03-loom-projects",
             "section": "ejecting-loom"
           },
           "level": 2,
@@ -285,7 +387,7 @@
         {
           "type": "prose",
           "source": {
-            "chapter": "01-getting-started/02-loom-projects",
+            "chapter": "01-getting-started/03-loom-projects",
             "section": "ejecting-loom"
           },
           "markdown": "Loom doesn't lock you in. What it tangles is ordinary source code, the same files you would write by hand. Nothing in them depends on Loom.\n\nSo you can stop using Loom whenever you like. `$ loom eject` is the opposite of `loom init`: it replaces `corpus` with `corpus.zip`, so your looms are kept, and removes `.loom`. Every tangled file stays where it is, and the project builds and runs as it did before."

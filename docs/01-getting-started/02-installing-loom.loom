@@ -1,0 +1,36 @@
+---
+Part I: Getting started
+Chapter 2: Installing Loom
+Language: Prose
+---
+
+# Installing Loom
+
+The `loom` command is how you use Loom. It tangles your looms into source files and weaves them into documentation. Install it with the package manager you already use, or with `curl` if you use none.
+
+```install
+```
+
+```bash
+loom --version
+```
+
+## Without Node or Bun
+
+The `curl` line installs Loom on a machine that has neither Node nor Bun. On macOS or Linux, it puts Loom in `~/.loom/bin` as a single file. It then adds that folder to your `PATH`, the list of folders your terminal searches for commands. It makes the change in your shell's profile, such as `~/.zshrc`, and tells you which file it changed. Open a new terminal afterwards, so the shell reads the change.
+
+If you'd rather edit your `PATH` yourself, end the line with `sh -s -- --no-modify-path` instead of `sh`.
+
+## On Windows
+
+Download `loom-windows-x64.exe.gz` from the [releases page](https://github.com/athrio-com/loom/releases), and unpack it with a tool such as 7-Zip.
+
+## On macOS
+
+Apple hasn't signed or notarised the macOS file yet. Installed with `curl`, it runs straight away. Downloaded through a browser, it won't open until you allow it in System Settings.
+
+## When an older loom answers
+
+If `loom --version` prints an older version than the one you installed, a `loom` from an earlier install, with npm or Bun, may come first on your `PATH`. The install script names any it finds.
+
+`$ loom doctor` checks again at any time. It shows which `loom` your terminal runs, lists every other one with the command that removes it, and checks the project you run it in.

@@ -109,9 +109,19 @@ describe('the page', () => {
                   targetId: 'greeting',
                 },
               ],
+              marks: [{ offset: 25, length: 5, kind: 'function' }],
             },
             { type: 'heading', level: 2, title: 'Greeting', id: 'greeting' },
-            { type: 'code', language: 'typescript', code: 'const greet = () => 1', links: [] },
+            {
+              type: 'code',
+              language: 'typescript',
+              code: 'const greet = () => 1',
+              links: [],
+              marks: [
+                { offset: 0, length: 5, kind: 'keyword' },
+                { offset: 20, length: 1, kind: 'constant' },
+              ],
+            },
           ],
         },
       ],
@@ -120,7 +130,8 @@ describe('the page', () => {
     expect(html).toContain('class="menu-card thin-scroll"')
     expect(html).toContain('<p class="page-place">Part I, Chapter 1</p>')
     expect(html).toContain('<h1 class="chapter-title" id="a-first-loom">A first loom</h1>')
-    expect(html).toContain('<a class="code-anchor" href="#greeting">::[Greeting]</a>')
+    expect(html).toContain('<a class="code-anchor" href="#greeting">::[Greeting]</a>\nconsole.log(<span class="tok-function">greet</span>()')
+    expect(html).toContain('<span class="tok-keyword">const</span> greet = () =&gt; <span class="tok-constant">1</span>')
     expect(html).toContain('href="/source/using-loom/a-workspace"')
     ROUTES.forEach((route) => expect(render(at(route))).not.toContain('Being written'))
   })

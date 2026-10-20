@@ -18,7 +18,7 @@ The runtime is the way the hero's install line installs Loom: one of three packa
 
 =>
 
-import { Array, Match, Option, Schema as S } from 'effect'
+import { Array, Effect, Match, Option, Schema as S, SchemaTransformation } from 'effect'
 import { defineMessageUnion } from 'foldkit/message'
 
 export const Route = S.Literals(['home', 'why-loom', 'docs', 'community', 'source', 'license'])
@@ -79,7 +79,7 @@ export type Model = typeof Model.Type
 
 The docs and the source page both draw a woven corpus: the shape `loom weave` gives a book. Its table of contents is a list of parts, each with a number, a name, and its chapters. Each chapter has a number, a title, a slug, the path of its loom without the extension, and the language its frontmatter names, when it names one. Each chapter's page holds its slug, its title, its frontmatter as the loom writes it, when it has one, and its blocks, in the order the loom wrote them.
 
-A block is one of four things. A heading carries its level, its title, and the id a link reaches it by. A run of prose is Markdown. A run of code carries its language, the code itself, and its links: each `::[…]` anchor in the code, as the name, where it sits in the code, and the chapter and section it reaches. A note is a reader's annotation, in Markdown. The docs hold headings and prose only, and the book holds all four.
+A block is one of four things. A heading carries its level, its title, and the id a link reaches it by. A run of prose is Markdown. A run of code carries its language, the code itself, its links and its colours. Its links are its `::[…]` anchors, each as the name, where it sits in the code, and the chapter and section it reaches. A note is a reader's annotation, in Markdown. The docs hold headings and prose only, and the book holds all four.
 
 The documentation is small enough to ship to the browser whole, so its corpus is part of the client. Loom's own book is not. Woven, it is two megabytes, and a reader reads one chapter of it at a time. So the server holds the book and hands each source page a slice of it, through the model: the whole table of contents, which the menu and the pager need, and the one page on show.
 
@@ -104,11 +104,36 @@ const CodeLink = S.Struct({
 })
 export type CodeLink = typeof CodeLink.Type
 
+~
+
+A run of code's colours are its marks. A mark is one stretch of the code drawn in one colour: where it starts, how long it is, and the kind of token it covers. There are six kinds, the ones a reader tells apart at a glance: keywords, strings, constants such as numbers, comments, the names of functions and the names of types. Code between the marks draws in the page's ink.
+
+The weave hands over no marks, because colouring code is the site's concern rather than Loom's. A block read from the woven book starts with none, and the server colours each chapter before a source page draws it.
+
+A chapter in colour carries thousands of marks, and every one travels to the browser inside the page's model. So a mark travels as a bare triple, `[offset, length, kind]`, rather than as an object that spells out its three field names each time. The triple makes the largest chapter's model more than a third smaller. The model still reads a mark by its names, and the schema converts between the two forms on the way in and on the way out.
+
+=>
+
+export const TokenKind = S.Literals(['keyword', 'string', 'constant', 'comment', 'function', 'type'])
+export type TokenKind = typeof TokenKind.Type
+
+const CodeMark = S.Tuple([S.Number, S.Number, TokenKind]).pipe(
+  S.decodeTo(
+    S.Struct({ offset: S.Number, length: S.Number, kind: TokenKind }),
+    SchemaTransformation.transform({
+      decode: ([offset, length, kind]) => ({ offset, length, kind }),
+      encode: ({ offset, length, kind }) => [offset, length, kind] as const,
+    }),
+  ),
+)
+export type CodeMark = typeof CodeMark.Type
+
 const CodeBlock = S.Struct({
   type: S.Literal('code'),
   language: S.String,
   code: S.String,
   links: S.Array(CodeLink),
+  marks: S.Array(CodeMark).pipe(S.withDecodingDefaultKey(Effect.succeed([]))),
 })
 export type CodeBlock = typeof CodeBlock.Type
 

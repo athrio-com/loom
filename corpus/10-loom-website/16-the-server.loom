@@ -18,13 +18,13 @@ The server stays clear of the client runtime. It renders through Foldkit's serve
 
 ## What the server draws on
 
-From `effect` come `Effect`, the `FileSystem` that reads the built shell, the `Option` that fills the model's empty fields and carries a path naming no page, the `pipe` that reads a path as a route or a chapter, the `Schema` that parses what the npm registry returns, and the `Context` and `Layer` that define the server and wire it. From `effect/http` come the request and the responses. `@effect/platform-bun` supplies the Bun HTTP server, its file services, and the runtime edge. Foldkit lends `Server`, from its experimental server module, which renders a view to HTML and writes it into the shell.
+From `effect` come `Effect`, the `Cache` that keeps each chapter once it is coloured, the `Fiber` that carries the work the server starts without waiting for it, the `FileSystem` that reads the built shell, the `Option` that fills the model's empty fields and carries a path naming no page, the `pipe` that reads a path as a route or a chapter, the `Schema` that parses what the npm registry returns, and the `Context` and `Layer` that define the server and wire it. From `effect/http` come the request and the responses. `@effect/platform-bun` supplies the Bun HTTP server, its file services, and the runtime edge. Foldkit lends `Server`, from its experimental server module, which renders a view to HTML and writes it into the shell.
 
-The site's own modules supply the view and the model, whose schema doubles as the shape of the flags the page carries to the client. The model also lends the `routeOf` function, which turns the path a request names into the route to render. The documentation shell lends `docsChapterAt`, which turns the address of a chapter into the chapter to open, `chapterAt`, which does the same for any corpus, and `sliceOf`, which cuts the part of a corpus one page shows. The model lends the `Corpus` schema, which the woven book is read against, and the `SearchGroup` schema a search answers in. The client never reads an address itself: it boots from the model the server rendered, so the two always agree on which page and which chapter are on show. The search module lends `indexOf`, which builds the index the palette searches, and `searchIn`, which answers a query from it.
+The site's own modules supply the view and the model, whose schema doubles as the shape of the flags the page carries to the client. The model also lends the `routeOf` function, which turns the path a request names into the route to render. The documentation shell lends `docsChapterAt`, which turns the address of a chapter into the chapter to open, `chapterAt`, which does the same for any corpus, and `sliceOf`, which cuts the part of a corpus one page shows. The model lends the `Corpus` schema, which the woven book is read against, and the `SearchGroup` schema a search answers in. The client never reads an address itself: it boots from the model the server rendered, so the two always agree on which page and which chapter are on show. The search module lends `indexOf`, which builds the index the palette searches, and `searchIn`, which answers a query from it. The colouring module lends `makeHighlighter`, which loads Shiki, and `colouredCorpus`, which colours the code in a slice of the book.
 
 =>
 
-import { Context, Effect, FileSystem, Layer, Option, pipe, Schema as S } from 'effect'
+import { Cache, Context, Effect, Fiber, FileSystem, Layer, Option, pipe, Schema as S } from 'effect'
 import { HttpServer, HttpServerRequest, HttpServerResponse } from 'effect/http'
 import { BunHttpServer, BunRuntime, BunServices } from '@effect/platform-bun'
 import { dirname, join } from 'node:path'
@@ -34,6 +34,7 @@ import { view } from './view'
 import { Corpus, Model, routeOf, SearchGroup, type Route } from './model'
 import { chapterAt, docsChapterAt, sliceOf } from './docs-page'
 import { indexOf, searchIn } from './search'
+import { colouredCorpus, makeHighlighter } from './colour'
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist')
 
@@ -41,7 +42,7 @@ const distDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist')
 
 The page starts from the built shell and gains three things: the rendered body in place of the empty `#root`, the route's own title in place of the shell's, and, beside the body, the model it was rendered from, which the client reads back to hydrate.
 
-The seed is the site at rest, and every page starts from it — no chapter opened, no section jumped to, the example standing at its first frame, no slice of the book, and the version at the workspace's own until the render fetches the latest. It names the landing's route because a model must name one; each page then overrides that single field with its own.
+The seed is the site at rest, and every page starts from it — no chapter opened, no section jumped to, the example standing at its first frame, no slice of the book, and the version at the workspace's own until the registry names the latest. It names the landing's route because a model must name one; each page then overrides that single field with its own.
 
 {{ version = ${version} }}
 
@@ -67,7 +68,9 @@ const seed: Model = {
 
 ## The latest release
 
-The pill and the title bar both name the version, and that version is whatever npm serves as the latest `@athrio/loom` release. The server reads it once, when it renders, so a new release reaches the page with the next deploy and no change to the code. The registry answers with the release's metadata, and the `Release` schema keeps the one field the page needs — the version. A registry the server cannot reach leaves the fallback in place, so the render never fails for want of the network.
+The pill and the title bar both name the version, and that version is whatever npm serves as the latest `@athrio/loom` release. The server asks the registry once, when it starts, so a new release reaches the page with the next deploy and no change to the code. The registry answers with the release's metadata, and the `Release` schema keeps the one field the page needs, the version.
+
+The registry may answer late, or not at all. If the server cannot reach it, or it has not answered within two seconds, the `latestVersion` function returns the fallback instead. The timeout also cancels the request. The `Effect.tryPromise` function hands the fetch a signal, which aborts when the timeout interrupts the effect. So the version never fails for want of the network, and never takes more than two seconds to settle.
 
 =>
 
@@ -76,11 +79,14 @@ const NPM_LATEST = 'https://registry.npmjs.org/@athrio/loom/latest'
 const Release = S.Struct({ version: S.String })
 
 const latestVersion = (fallback: string): Effect.Effect<string> =>
-  Effect.tryPromise(() =>
-    fetch(NPM_LATEST)
+  Effect.tryPromise((signal) =>
+    fetch(NPM_LATEST, { signal })
       .then((response) => response.json())
       .then((body) => S.decodeUnknownSync(Release)(body).version),
-  ).pipe(Effect.catchCause(() => Effect.succeed(fallback)))
+  ).pipe(
+    Effect.timeout('2 seconds'),
+    Effect.catchCause(() => Effect.succeed(fallback)),
+  )
 
 ## Loom's own book
 
@@ -237,11 +243,17 @@ const NOT_BUILT = standalone(
 
 The site reads its shell for each page rather than holding one from startup, because `dist` is rewritten underneath a running server every time a build finishes. A shell held from startup would go on naming the bundle the first build wrote. The page would then arrive running code a developer has since changed, or pointing at files a later build has removed. Reading it per request costs one small file and keeps the server honest about whatever `dist` holds at that moment.
 
-Rendering per request follows, and costs about as little: a render is one pass of the view and one write into the shell. The latest release, the book and the search index are the three things made once at startup. A registry is slow to ask and a version changes on a release rather than on a request, and the book, and the index built from it, change only with a build.
+Rendering per request follows, and costs about as little: a render is one pass of the view and one write into the shell. Four things are made once rather than per request: the latest release, the book, the search index and the highlighter. A version changes on a release rather than on a request. The book, and the index built from it, change only with a build. The highlighter loads its grammars once rather than for every page.
+
+Of those four, the server waits only for the book before it is ready to answer. Every request needs the book, since the book decides which `/source` addresses name a page, and reading it takes a few tens of milliseconds. The other three take far longer. The registry can take a second to answer, and the index most of a second to build. A development server restarts on every tangle, and a developer waits out each restart before the page will load.
+
+So the server sets the registry and the highlighter going and does not wait for them. It starts each in a fiber, a piece of work that runs beside the rest of the program. The `Fiber.join` function waits for a fiber's result, or hands it straight back once the fiber has finished. Each page joins the `latest` fiber for its version, and a source page joins the `highlighter` fiber before its chapter is coloured. Only a request in the first two seconds after a start can find either fiber still running, and that request waits for it rather than answering without it.
+
+The server leaves the search index for last. It builds the index when the first search asks for it, and the `Effect.cached` combinator keeps the index for every search after. Building the index occupies the server for most of a second, and no other request is answered in that time. Built at startup, the index would stall the very pages a developer reloads after a change.
 
 Two answers are the whole of what the site owes the handler. The `pageAt` function asks `placeOf` whether the path names a page at all, then renders that page through the shell it has just read. A path names a page in one of three ways. It is a route's own path, such as `/why-loom` or `/docs`, which opens the route as it stands. Or it is a chapter's address under `/docs`, which opens the documentation on that chapter. Or it is a chapter's address under `/source`, which opens the book on that chapter, when the server has a book. `/source` itself opens the book's first chapter, so it too names a page only when the server has a book. Without one it would render the page's frame around nothing: the nav, an empty column and the footer. Any other path names no page, so the server looks for an asset, and answers with the missing page when there is none. A `dist` it cannot read yields the unbuilt page. A render that fails is a fault in the site rather than in the build, so it surfaces as one instead of hiding behind the unbuilt page. The `assetAt` function reads a file from `dist` — the client bundle, the stylesheet, the marks — and falls back to the missing page when there is no such file. Both take the request's whole URL, since a path alone is what the handler happens to match on rather than all it holds.
 
-A source page also carries its slice of the book in its model. `bookFor` cuts it, the book's table of contents and the one chapter the place names, and every other page carries none.
+A source page also carries its slice of the book in its model: the book's table of contents and the one chapter the place names, with its code in colour. Colouring the whole book at startup would hold the server up for seconds, for chapters a reader may never open before the next build. So `slices` colours a chapter the first time a page asks for it, and keeps the coloured slice for every request after. The cache holds one slice for each chapter, and one more for the book's base address, which opens on its first chapter. `bookFor` asks the cache for a source page's slice, and every other page carries none.
 
 The site answers one more thing, a search. `searchAt` reads the query from the request's `q` parameter and answers with the groups `searchIn` finds, encoded through the `SearchGroup` schema, so the client reads back exactly the shape the server meant.
 
@@ -267,17 +279,24 @@ const placeOf = (book: Option.Option<Corpus>, pathname: string): Option.Option<P
     ),
   )
 
-const bookFor = (book: Option.Option<Corpus>, place: Place): Option.Option<Corpus> =>
-  place.route === 'source'
-    ? Option.map(book, (corpus) => sliceOf(corpus, place.chapter))
-    : Option.none()
-
 export class Site extends Context.Service<Site>()('Site', {
   make: Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
-    const version = yield* latestVersion(seed.version)
     const book = yield* readBook(fs)
-    const index = yield* indexOf(book, bodyOf(version))
+    const latest = yield* Effect.forkScoped(latestVersion(seed.version))
+    const highlighter = yield* Effect.forkScoped(makeHighlighter)
+    const index = yield* Effect.cached(
+      Effect.flatMap(Fiber.join(latest), (version) => indexOf(book, bodyOf(version))),
+    )
+    const slices = yield* Cache.make({
+      capacity: Option.match(book, { onNone: () => 1, onSome: (corpus) => corpus.pages.length + 1 }),
+      lookup: (chapter: string) =>
+        Effect.map(Fiber.join(highlighter), (shiki) =>
+          Option.map(book, (corpus) => colouredCorpus(shiki, sliceOf(corpus, chapter))),
+        ),
+    })
+    const bookFor = (place: Place): Effect.Effect<Option.Option<Corpus>> =>
+      place.route === 'source' ? Cache.get(slices, place.chapter) : Effect.succeed(Option.none())
     const shell = fs.readFileString(join(distDir, 'index.html'))
     return {
       pageAt: (url: URL): Effect.Effect<Option.Option<string>> =>
@@ -288,7 +307,11 @@ export class Site extends Context.Service<Site>()('Site', {
               Effect.matchEffect({
                 onFailure: () => Effect.succeed(NOT_BUILT),
                 onSuccess: (held) =>
-                  pageOf(held, { ...seed, ...place, version, book: bookFor(book, place) }),
+                  Effect.gen(function* () {
+                    const version = yield* Fiber.join(latest)
+                    const slice = yield* bookFor(place)
+                    return yield* pageOf(held, { ...seed, ...place, version, book: slice })
+                  }),
               }),
               Effect.map(Option.some),
             ),
@@ -298,8 +321,10 @@ export class Site extends Context.Service<Site>()('Site', {
           Effect.catchCause(() => notFound),
         ),
       searchAt: (url: URL): Effect.Effect<HttpServerResponse.HttpServerResponse> =>
-        HttpServerResponse.schemaJson(S.Array(SearchGroup))(
-          searchIn(index, url.searchParams.get('q') ?? ''),
+        Effect.flatMap(index, (entries) =>
+          HttpServerResponse.schemaJson(S.Array(SearchGroup))(
+            searchIn(entries, url.searchParams.get('q') ?? ''),
+          ),
         ).pipe(Effect.orDie),
     } as const
   }),
@@ -330,6 +355,8 @@ const handle = (site: Site['Service'], url: URL) =>
 
 The handler reads the request and answers it. The server serves that handler over a Bun HTTP layer and launches from the Bun runtime edge. There is nothing here to switch on, which is the point: this file is what a developer runs and what the image runs, and neither reads an environment variable to find out which it is.
 
+The order of the site's layer and the Bun HTTP layer decides when the port opens. The `Layer.provide` function builds the layer it is given before the layer it feeds, so the site, provided last, is built first. The Bun HTTP layer opens the port only after that, once the site can answer. Until the handler is installed, the Bun HTTP layer answers every request itself, with a bare `404` whose body reads `not found`. In the other order that placeholder would answer every request for as long as the site took to start, and a reload during a development restart would show an all but empty page.
+
 =>
 
 ::[What the server draws on]
@@ -358,8 +385,8 @@ const port = Number(process.env.PORT ?? 5199)
 
 const server = HttpServer.serve(app).pipe(
   HttpServer.withLogAddress,
-  Layer.provide(Site.layer),
   Layer.provide(BunHttpServer.layer({ port })),
+  Layer.provide(Site.layer),
 )
 
 BunRuntime.runMain(Layer.launch(server))

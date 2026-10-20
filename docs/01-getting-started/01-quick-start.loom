@@ -15,15 +15,9 @@ In about five minutes you will write a small program as a Loom document and turn
 loom --version
 ```
 
-The `curl` line is for a machine without Node or Bun. On macOS or Linux, it installs Loom as a single file in `~/.loom/bin` and adds that folder to your `PATH` in your shell's profile, such as `~/.zshrc`, and it tells you which file it changed. Open a new terminal afterwards, so the shell reads the change. If you'd rather edit `PATH` yourself, end the line with `sh -s -- --no-modify-path` instead of `sh`. On Windows, download `loom-windows-x64.exe.gz` from the [releases page](https://github.com/athrio-com/loom/releases) instead, and unpack it with a tool such as 7-Zip.
-
-If `loom --version` prints an older version than the one you installed, a `loom` from an earlier install, with npm or Bun, may come first on your `PATH`. The install script names any it finds. `$ loom doctor` checks again at any time: it shows which `loom` your terminal runs, lists every other one with the command that removes it, and checks the project you run it in.
-
-Apple hasn't signed or notarised the macOS file yet. Installed with `curl`, it runs straight away. Downloaded through a browser, it won't open until you allow it in System Settings.
-
 ## Write your first loom
 
-Install the `loom` command once, with the package manager you already use, or with `curl` if you use none. Make a new folder anywhere you like, and create a file in it called `hello.loom`:
+Install the `loom` command once, with the package manager you already use, or with `curl` if you use none. [Installing Loom](/docs/getting-started/installing-loom) covers the details. Make a new folder anywhere you like, and create a file in it called `hello.loom`:
 
 ```loom
 ---

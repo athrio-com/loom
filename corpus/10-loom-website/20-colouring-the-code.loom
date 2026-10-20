@@ -1,0 +1,198 @@
+---
+Part X, Chapter 20: Colouring the book's code
+Package: site/src/
+Language: TypeScript
+---
+
+# Colouring the book's code
+
+A source page shows the code each section of Loom's own book writes, and code reads more easily in colour. A reader who sees the keywords, the strings and the comments apart finds the shape of a function before reading a word of it.
+
+The server colours the code, and the browser never does. The colours come from Shiki, a highlighter that reads code with the same TextMate grammars VS Code uses. Its grammars and the engine that runs them weigh a few megabytes, far more than a reader should download to see colour. So the server runs Shiki and sends each chapter with its colours already worked out, as marks in the model. The browser draws the marks the way it draws the links, and never loads Shiki at all.
+
+## Which grammar reads which language
+
+The weave names the language of each run of code as the loom wrote it, in a chapter's frontmatter or a section's specifier: `typescript`, `sh` or `rs`. Shiki names its grammars its own way, so `GRAMMARS` maps each language the book writes in to the grammar that reads it. A language with no grammar here, such as a `.gitignore` file's, draws in plain ink.
+
+=>
+
+const GRAMMARS: ReadonlyMap<string, BundledLanguage> = new Map([
+  ['typescript', 'typescript'],
+  ['javascript', 'javascript'],
+  ['json', 'json'],
+  ['css', 'css'],
+  ['html', 'html'],
+  ['markdown', 'markdown'],
+  ['yaml', 'yaml'],
+  ['toml', 'toml'],
+  ['dockerfile', 'dockerfile'],
+  ['sh', 'shellscript'],
+  ['c', 'c'],
+  ['lua', 'lua'],
+  ['rs', 'rust'],
+  ['scm', 'scheme'],
+])
+
+const grammarOf = (language: string): Option.Option<BundledLanguage> =>
+  Option.fromNullishOr(GRAMMARS.get(language))
+
+## A theme that names kinds
+
+A grammar gives each token a scope, a dotted name such as `keyword.control.import` or `string.quoted.single`. A Shiki theme maps scopes to colours. A rule in it matches a scope and every scope that extends it, so a rule for `string` matches `string.quoted.single` too. Where two rules match one token, the more specific rule wins.
+
+The site's theme maps scopes to the six kinds of token rather than to colours. So where Shiki would answer with a colour it answers with a kind, and the colours stay in the stylesheet beside the rest of the paper scheme. A token that no rule names, such as a variable, stays plain.
+
+A few rules hand a scope back to plain, because a broader rule would colour it wrongly. An operator such as `+` sits under `keyword.operator`, which would make it a keyword, while the words `typeof` and `new` that sit under the same scope are keywords. The code inside a template string's `${…}` sits under `string`, but reads as code.
+
+=>
+
+const PLAIN = 'plain'
+
+const SCOPES: ReadonlyArray<readonly [TokenKind | typeof PLAIN, ReadonlyArray<string>]> = [
+  ['comment', ['comment', 'punctuation.definition.comment']],
+  ['string', ['string', 'punctuation.definition.string']],
+  ['constant', ['constant', 'support.constant', 'keyword.other.unit']],
+  [
+    'keyword',
+    [
+      'keyword',
+      'storage',
+      'keyword.operator.expression',
+      'keyword.operator.new',
+      'keyword.operator.word',
+      'punctuation.definition.template-expression',
+    ],
+  ],
+  ['function', ['entity.name.function', 'support.function', 'entity.other.attribute-name']],
+  [
+    'type',
+    [
+      'entity.name.type',
+      'entity.name.class',
+      'entity.name.tag',
+      'entity.other.inherited-class',
+      'support.type',
+      'support.class',
+      'storage.type.primitive',
+    ],
+  ],
+  [PLAIN, ['keyword.operator', 'punctuation', 'meta.template.expression', 'meta.embedded']],
+]
+
+const THEME: ThemeRegistration = {
+  name: 'loom-kinds',
+  type: 'light',
+  fg: PLAIN,
+  bg: PLAIN,
+  settings: [
+    { settings: { foreground: PLAIN } },
+    ...Array.map(SCOPES, ([kind, scope]) => ({ scope: [...scope], settings: { foreground: kind } })),
+  ],
+}
+
+## Loading the highlighter
+
+`makeHighlighter` loads Shiki once, with the theme and the grammars the book needs. It runs the grammars on Oniguruma, the regular-expression engine TextMate grammars are written for, compiled to WebAssembly. Shiki also offers an engine written in JavaScript, which needs no WebAssembly, but on the book it runs five times slower.
+
+=>
+
+export const makeHighlighter: Effect.Effect<HighlighterCore> = Effect.promise(() =>
+  createHighlighterCore({
+    themes: [THEME],
+    langs: Array.map(Array.dedupe(GRAMMARS.values()), (grammar) => bundledLanguages[grammar]),
+    engine: createOnigurumaEngine(import('shiki/wasm')),
+  }),
+)
+
+## Anchors stay out of the grammar
+
+A `::[…]` anchor belongs to Loom, not to the language around it, so a grammar reads one as broken code. A grammar that has lost its place can colour the rest of the run wrongly. So `blanked` writes underscores over each anchor before Shiki reads the code. Nearly every language reads a run of underscores as a name. The code also keeps its length, so every mark lands where it belongs in the code as the loom wrote it.
+
+=>
+
+const blanked = (block: CodeBlock): string =>
+  Array.reduce(
+    block.links,
+    block.code,
+    (code, link) =>
+      code.slice(0, link.offset) + '_'.repeat(link.length) + code.slice(link.offset + link.length),
+  )
+
+## Tokens become marks
+
+`marksOf` reads a run of code into its marks. Shiki cuts each line into tokens, and each token carries its text, where it starts in the code, and what the theme gives it, which here is a kind or plain. A plain token draws in ink, so it needs no mark. A mark that falls on an anchor's underscores is dropped too, because the anchor draws as a link.
+
+=>
+
+const kindOf = S.decodeUnknownOption(TokenKind)
+
+const overlaps = (mark: CodeMark, link: CodeLink): boolean =>
+  mark.offset < link.offset + link.length && link.offset < mark.offset + mark.length
+
+const marksOf = (highlighter: HighlighterCore, block: CodeBlock): ReadonlyArray<CodeMark> =>
+  Option.match(grammarOf(block.language), {
+    onNone: () => [],
+    onSome: (lang) =>
+      pipe(
+        highlighter.codeToTokensBase(blanked(block), { lang, theme: THEME.name }),
+        Array.flatten,
+        Array.map((token) =>
+          Option.map(
+            kindOf(token.color),
+            (kind): CodeMark => ({ offset: token.offset, length: token.content.length, kind }),
+          ),
+        ),
+        Array.getSomes,
+        Array.filter((mark) => !Array.some(block.links, (link) => overlaps(mark, link))),
+      ),
+  })
+
+## A chapter in colour
+
+`colouredCorpus` colours every run of code in a corpus and leaves its other blocks as they are. The server hands it the slice one source page shows, so it colours one chapter at a time.
+
+=>
+
+const colouredBlock =
+  (highlighter: HighlighterCore) =>
+  (block: Block): Block =>
+    block.type === 'code' ? { ...block, marks: marksOf(highlighter, block) } : block
+
+export const colouredCorpus = (highlighter: HighlighterCore, corpus: Corpus): Corpus => ({
+  ...corpus,
+  pages: Array.map(corpus.pages, (page) => ({
+    ...page,
+    blocks: Array.map(page.blocks, colouredBlock(highlighter)),
+  })),
+})
+
+## The module {Tangle}[colour.ts]
+
+The module draws on `effect` for its combinators and the schema that reads a kind, on Shiki's core, its WebAssembly engine and its grammars, and on the model for the shapes it reads and writes.
+
+=>
+
+import { Array, Effect, Option, pipe, Schema as S } from 'effect'
+import { createHighlighterCore, type HighlighterCore, type ThemeRegistration } from 'shiki/core'
+import { createOnigurumaEngine } from 'shiki/engine/oniguruma'
+import { bundledLanguages, type BundledLanguage } from 'shiki/langs'
+import {
+  TokenKind,
+  type Block,
+  type CodeBlock,
+  type CodeLink,
+  type CodeMark,
+  type Corpus,
+} from './model'
+
+::[Which grammar reads which language]
+
+::[A theme that names kinds]
+
+::[Loading the highlighter]
+
+::[Anchors stay out of the grammar]
+
+::[Tokens become marks]
+
+::[A chapter in colour]

@@ -31,7 +31,8 @@ const at = (chapter: string, activeSection: string): Model =>
 const render = (model: Model): string => renderHtml((h) => documentationPage(model, h))
 
 const QUICK = '01-getting-started/01-quick-start'
-const INIT = '01-getting-started/02-loom-projects'
+const INSTALL = '01-getting-started/02-installing-loom'
+const INIT = '01-getting-started/03-loom-projects'
 
 describe('the documentation shell', () => {
   it('gives every chapter an address without its ordering numbers, and reads it back', () => {
@@ -183,12 +184,12 @@ describe('the documentation shell', () => {
 
   it('ends a chapter on the site\'s pager, naming the chapters either side of it', () => {
     const first = render(at(QUICK, ''))
-    expect(first).toContain('class="pager-row doc-pager"><a class="pager-card next" href="/docs/getting-started/loom-projects"')
-    expect(first).toContain('class="pager-title">Loom projects<')
+    expect(first).toContain('class="pager-row doc-pager"><a class="pager-card next" href="/docs/getting-started/installing-loom"')
+    expect(first).toContain('class="pager-title">Installing Loom<')
     expect(first).not.toContain('>Previous<')
-    const second = render(at(INIT, ''))
+    const second = render(at(INSTALL, ''))
     expect(second).toContain('class="pager-title">Quick start<')
-    expect(second).toContain('class="pager-title">Sections, prose and code<')
+    expect(second).toContain('class="pager-title">Loom projects<')
   })
 
   it('carries the menu into the drawer, marked identically', () => {
