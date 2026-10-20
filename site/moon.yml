@@ -45,11 +45,13 @@ tasks:
       --tag ghcr.io/athrio-com/loom-website:latest
       --tag ghcr.io/athrio-com/loom-website:sha-${GITHUB_SHA::7}
       --tag ghcr.io/athrio-com/loom-website:v$(node -p "require('./packages/loom/package.json').version")
+      --tag ghcr.io/athrio-com/loom-website:main-$(date -u +%Y%m%d%H%M%S)-${GITHUB_SHA::7}
       && docker push --all-tags ghcr.io/athrio-com/loom-website
     inputs:
       - "@group(sources)"
       - "Dockerfile"
       - "moon.yml"
+      - "/corpus/**/*"
     options:
       cache: false
       runInCI: "only"

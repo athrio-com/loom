@@ -511,7 +511,7 @@ tasks:
 
 The website builds on no package of the workspace. Its sources are its own code, its assets, the two pages and configs that build it, and the licence it shows on a page of its own. It type-checks twice, once as the client the browser runs and once as the server Bun runs, since the two compile under different configs.
 
-The website also ships, as a container image, and the image task builds it. It builds `site/Dockerfile` with the whole repository as its context and tags the image three ways: `latest`, `sha-` with the commit's short hash, and `v` with the version the CLI's manifest carries. It then pushes every tag to the registry. A change that touches none of the image's inputs builds no image, so a fix to a package's tests leaves the website that is already running alone. The task runs in CI alone, so no developer's moon pushes an image, and moon never caches it, because what it makes lives in the registry rather than in any file.
+The website also ships, as a container image, and the image task builds it. It builds `site/Dockerfile` with the whole repository as its context and tags the image four ways: `latest`, `sha-` with the commit's short hash, `v` with the version the CLI's manifest carries, and `main-` with the build's time and the short hash. It then pushes every tag to the registry. The `main-` tag is the one the cluster follows. Flux watches the registry, picks the newest build by the time in that tag, and rolls the website forward to it. The other tags cannot order builds: a hash says nothing about time, and several builds share one version. The image's inputs are the site's own sources and Loom's book, since the source page draws the book and the build weaves it into the image. A change that touches none of them builds no image, so a fix to a package's tests leaves the website that is already running alone. The task runs in CI alone, so no developer's moon pushes an image, and moon never caches it, because what it makes lives in the registry rather than in any file.
 
 =>
 
@@ -562,11 +562,13 @@ tasks:
       --tag ghcr.io/athrio-com/loom-website:latest
       --tag ghcr.io/athrio-com/loom-website:sha-${GITHUB_SHA::7}
       --tag ghcr.io/athrio-com/loom-website:v$(node -p "require('./packages/loom/package.json').version")
+      --tag ghcr.io/athrio-com/loom-website:main-$(date -u +%Y%m%d%H%M%S)-${GITHUB_SHA::7}
       && docker push --all-tags ghcr.io/athrio-com/loom-website
     inputs:
       - "@group(sources)"
       - "Dockerfile"
       - "moon.yml"
+      - "/corpus/**/*"
     options:
       cache: false
       runInCI: "only"
