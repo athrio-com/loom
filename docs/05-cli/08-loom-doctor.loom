@@ -1,0 +1,31 @@
+---
+Part V: The command line
+Chapter 8: loom doctor
+Language: Prose
+---
+
+# loom doctor
+
+`loom doctor` checks what can go wrong around Loom, from your `PATH` to your project's language servers. For each problem it finds, it prints the command that fixes it.
+
+```bash
+loom doctor
+```
+
+## Your machine
+
+Wherever you run it, `loom doctor` names the Loom you ran: its version, where it sits, and how you installed it, whether with `curl`, a package manager, or into a project. It then reads your `PATH`, the folders your terminal searches for commands. It checks that the first `loom` there is the one you ran, since that's the one every terminal runs.
+
+Every other `loom` on your `PATH` is a problem, such as one an earlier npm or Bun install left behind. It may be the one your terminal runs, or it may wait behind yours. `loom doctor` names each one, says how it was installed, and prints the command that removes it, such as `npm uninstall -g @athrio/loom`. It never removes anything itself.
+
+## Your project
+
+Run inside a project, `loom doctor` also checks each language you turned on with `loom add`. Its language server must be in `.loom/services`, at the version of the Loom you ran. A missing or older one is a problem that `$ loom update` fixes.
+
+Last, it checks that the language server can find TypeScript, which it checks your code against. It looks in your project first, then beside Loom, then in `.loom/services`. When it finds none, the language server installs one there the first time it starts, so that's not a problem. It's one only for Loom installed with a package manager on a system with no `npm` to install TypeScript with.
+
+## Reading the report
+
+Each line starts with a ✓ when all is well, or a ✗ for a problem, with the command that fixes it on the line below. Run the commands, then run `loom doctor` again. When it finds a problem, it exits with a non-zero status, so a script can use it as a check.
+
+If your terminal can't find `loom` at all, run Loom by its full path, such as `~/.loom/bin/loom doctor`.

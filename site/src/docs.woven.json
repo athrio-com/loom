@@ -87,6 +87,11 @@
           "number": "7",
           "title": "loom upgrade",
           "slug": "05-cli/07-loom-upgrade"
+        },
+        {
+          "number": "8",
+          "title": "loom doctor",
+          "slug": "05-cli/08-loom-doctor"
         }
       ]
     }
@@ -114,7 +119,7 @@
             "chapter": "01-getting-started/01-quick-start",
             "section": "quick-start"
           },
-          "markdown": "In about five minutes you will write a small program as a Loom document and turn it into a file you can run.\n\n```install\n```\n\n```bash\nloom --version\n```\n\nThe `curl` line is for a machine without Node or Bun. It installs Loom as a single file in `~/.local/bin`, on macOS or Linux. On Windows, download `loom-windows-x64.exe.gz` from the [releases page](https://github.com/athrio-com/loom/releases) instead, and unpack it with a tool such as 7-Zip.\n\nApple hasn't signed or notarised the macOS file yet. Installed with `curl`, it runs straight away. Downloaded through a browser, it won't open until you allow it in System Settings."
+          "markdown": "In about five minutes you will write a small program as a Loom document and turn it into a file you can run.\n\n```install\n```\n\n```bash\nloom --version\n```\n\nThe `curl` line is for a machine without Node or Bun. On macOS or Linux, it installs Loom as a single file in `~/.loom/bin` and adds that folder to your `PATH` in your shell's profile, such as `~/.zshrc`, and it tells you which file it changed. Open a new terminal afterwards, so the shell reads the change. If you'd rather edit `PATH` yourself, end the line with `sh -s -- --no-modify-path` instead of `sh`. On Windows, download `loom-windows-x64.exe.gz` from the [releases page](https://github.com/athrio-com/loom/releases) instead, and unpack it with a tool such as 7-Zip.\n\nIf `loom --version` prints an older version than the one you installed, a `loom` from an earlier install, with npm or Bun, may come first on your `PATH`. The install script names any it finds. `$ loom doctor` checks again at any time: it shows which `loom` your terminal runs, lists every other one with the command that removes it, and checks the project you run it in.\n\nApple hasn't signed or notarised the macOS file yet. Installed with `curl`, it runs straight away. Downloaded through a browser, it won't open until you allow it in System Settings."
         },
         {
           "type": "heading",
@@ -211,7 +216,7 @@
             "chapter": "01-getting-started/02-loom-projects",
             "section": "initialise-project"
           },
-          "markdown": "To set up a project, run the `$ loom init` command. Loom asks which language your sections use by default. It's TypeScript unless you name another, so press Enter.\n\nYour answer goes into `.loom/config.yaml`, the project's settings:\n\n```yaml\ncorpus: corpus\nprimary: typescript\nignore: []\n```\n\n`primary` is the default language, and `corpus` names the folder your looms live in. Commit the file. Beside it, `.loom/.gitignore` keeps out the language servers Loom downloads. The folder that holds `.loom` is now a Loom project.\n\n`ignore` lists looms that aren't part of the project, written like lines of a `.gitignore`. It starts empty because Loom already skips whatever Git ignores, and test fixtures named `*.fixture.loom`. Add `drafts/`, say, and Loom skips that folder when it tangles the project or looks for orphans.\n\nRunning `loom init` again changes nothing, and it never touches the looms you already have."
+          "markdown": "To set up a project, run the `$ loom init` command. Loom asks which language your sections use by default. It's TypeScript unless you name another, so press Enter.\n\nYour answer goes into `.loom/config.yaml`, the project's settings:\n\n```yaml\ncorpus: corpus\nprimary: typescript\nignore: []\n```\n\n`primary` is the default language, and `corpus` names the folder your looms live in. Commit the file. Beside it, `.loom/.gitignore` keeps out the language servers Loom downloads. The folder that holds `.loom/config.yaml` is now a Loom project.\n\n`ignore` lists looms that aren't part of the project, written like lines of a `.gitignore`. It starts empty because Loom already skips whatever Git ignores, and test fixtures named `*.fixture.loom`. Add `drafts/`, say, and Loom skips that folder when it tangles the project or looks for orphans.\n\nRunning `loom init` again changes nothing, and it never touches the looms you already have."
         },
         {
           "type": "heading",
@@ -495,7 +500,7 @@
             "chapter": "03-loom-in-your-ide/01-supported-editors",
             "section": "any-other-editor"
           },
-          "markdown": "An editor with a language client starts the server with `$ loom lsp --stdio`, and the server treats the nearest folder holding a `.loom` directory as the project. An editor that colours with tree-sitter can build the grammar from [packages/tree-sitter-loom](https://github.com/athrio-com/loom/tree/main/packages/tree-sitter-loom)."
+          "markdown": "An editor with a language client starts the server with `$ loom lsp --stdio`, and the server treats the nearest folder holding `.loom/config.yaml` as the project. An editor that colours with tree-sitter can build the grammar from [packages/tree-sitter-loom](https://github.com/athrio-com/loom/tree/main/packages/tree-sitter-loom)."
         },
         {
           "type": "heading",
@@ -1235,7 +1240,7 @@
             "chapter": "05-cli/07-loom-upgrade",
             "section": "installed-with-a-package-manager"
           },
-          "markdown": "A package manager that installed Loom owns its files, so `loom upgrade` leaves them alone. It prints the command that upgrades Loom with that package manager instead, such as `npm install -g @athrio/loom@latest`."
+          "markdown": "A package manager that installed Loom owns its files, so `loom upgrade` leaves them alone. It prints the command that upgrades Loom with that package manager instead, such as `npm install -g @athrio/loom@latest`. If you installed Loom into a project, the command it prints runs in that project's folder, with the package manager the project uses."
         },
         {
           "type": "heading",
@@ -1253,7 +1258,86 @@
             "chapter": "05-cli/07-loom-upgrade",
             "section": "after-upgrading"
           },
-          "markdown": "A new Loom expects each project's language servers to match it. Run `$ loom update --all` in each project to bring them along."
+          "markdown": "A new Loom expects each project's language servers to match it. Run `$ loom update --all` in each project to bring them along.\n\nIf `loom --version` still shows the old version, another `loom` comes first on your `PATH`. Run `$ loom doctor` to find it, and the command that removes it."
+        }
+      ]
+    },
+    {
+      "slug": "05-cli/08-loom-doctor",
+      "title": "loom doctor",
+      "part": "The command line",
+      "blocks": [
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "05-cli/08-loom-doctor",
+            "section": "loom-doctor"
+          },
+          "level": 1,
+          "title": "loom doctor",
+          "id": "loom-doctor"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "05-cli/08-loom-doctor",
+            "section": "loom-doctor"
+          },
+          "markdown": "`loom doctor` checks what can go wrong around Loom, from your `PATH` to your project's language servers. For each problem it finds, it prints the command that fixes it.\n\n```bash\nloom doctor\n```"
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "05-cli/08-loom-doctor",
+            "section": "your-machine"
+          },
+          "level": 2,
+          "title": "Your machine",
+          "id": "your-machine"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "05-cli/08-loom-doctor",
+            "section": "your-machine"
+          },
+          "markdown": "Wherever you run it, `loom doctor` names the Loom you ran: its version, where it sits, and how you installed it, whether with `curl`, a package manager, or into a project. It then reads your `PATH`, the folders your terminal searches for commands. It checks that the first `loom` there is the one you ran, since that's the one every terminal runs.\n\nEvery other `loom` on your `PATH` is a problem, such as one an earlier npm or Bun install left behind. It may be the one your terminal runs, or it may wait behind yours. `loom doctor` names each one, says how it was installed, and prints the command that removes it, such as `npm uninstall -g @athrio/loom`. It never removes anything itself."
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "05-cli/08-loom-doctor",
+            "section": "your-project"
+          },
+          "level": 2,
+          "title": "Your project",
+          "id": "your-project"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "05-cli/08-loom-doctor",
+            "section": "your-project"
+          },
+          "markdown": "Run inside a project, `loom doctor` also checks each language you turned on with `loom add`. Its language server must be in `.loom/services`, at the version of the Loom you ran. A missing or older one is a problem that `$ loom update` fixes.\n\nLast, it checks that the language server can find TypeScript, which it checks your code against. It looks in your project first, then beside Loom, then in `.loom/services`. When it finds none, the language server installs one there the first time it starts, so that's not a problem. It's one only for Loom installed with a package manager on a system with no `npm` to install TypeScript with."
+        },
+        {
+          "type": "heading",
+          "source": {
+            "chapter": "05-cli/08-loom-doctor",
+            "section": "reading-the-report"
+          },
+          "level": 2,
+          "title": "Reading the report",
+          "id": "reading-the-report"
+        },
+        {
+          "type": "prose",
+          "source": {
+            "chapter": "05-cli/08-loom-doctor",
+            "section": "reading-the-report"
+          },
+          "markdown": "Each line starts with a ✓ when all is well, or a ✗ for a problem, with the command that fixes it on the line below. Run the commands, then run `loom doctor` again. When it finds a problem, it exits with a non-zero status, so a script can use it as a check.\n\nIf your terminal can't find `loom` at all, run Loom by its full path, such as `~/.loom/bin/loom doctor`."
         }
       ]
     }

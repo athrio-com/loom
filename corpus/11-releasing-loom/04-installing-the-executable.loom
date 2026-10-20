@@ -1,7 +1,7 @@
 ---
 Part XI, Chapter 4: Installing the executable
 Package: ./
-Language: Bash
+Language: sh
 ---
 
 # Installing the executable
@@ -12,18 +12,20 @@ A person without Node or Bun installs Loom with one line in a terminal:
 curl -fsSL https://github.com/athrio-com/loom/releases/latest/download/install.sh | sh
 ```
 
-`curl` downloads the install script, and `sh` runs it. The script picks the executable this machine needs from the latest release, checks it against the release's list of checksums, and puts it in a folder on the person's `PATH`. Every release carries the script beside the executables, so the line above always runs the script of the latest release. When Loom's website is live, `loomframework.com/install.sh` can redirect to the same address.
+`curl` downloads the install script, and `sh` runs it. The script picks the executable this machine needs from the latest release and checks it against the release's list of checksums. It puts the executable in a folder Loom owns, `~/.loom/bin`, and adds that folder to `PATH`, the list of folders a terminal searches for a command. Every release carries the script beside the executables, so the line above always runs the script of the latest release. When Loom's website is live, `loomframework.com/install.sh` can redirect to the same address.
+
+A person who installs Loom should not have to fix `PATH` by hand afterwards. So the script edits the shell's profile, the file a shell reads as it starts, the way the installers of Bun, Deno and Rust do. It also looks for any other `loom` already on `PATH`, such as one an npm install left behind, and names the command that removes it.
 
 The script covers macOS and Linux. Windows has no `sh` to run it with, so a Windows user downloads `loom-windows-x64.exe.gz` from the release page and unpacks it instead.
 
-## The script [scripts/install.sh]
+## Stopping at the first failure
 
-The script stops at the first command that fails, and at the first variable it reads that was never set, so a broken step never leaves a half-installed Loom behind. `fail` prints why it stopped and exits non-zero.
+The script is written for `sh`, the shell every Unix system carries. It uses nothing that Bash adds to `sh`, since `sh` on Debian and Ubuntu is Dash, a smaller shell without those additions. It stops at the first command that fails, and at the first variable it reads that was never set, so a broken step never leaves a half-installed Loom behind. `fail` prints why it stopped and exits non-zero.
 
 ~>
 
 #!/bin/sh
-# Installs Loom's standalone executable.
+# Installs Loom's standalone executable and puts it on PATH.
 #
 #   curl -fsSL https://github.com/athrio-com/loom/releases/latest/download/install.sh | sh
 #
@@ -31,7 +33,9 @@ The script stops at the first command that fails, and at the first variable it r
 #
 #   curl -fsSL …/install.sh | sh -s -- 0.0.13
 #
-# LOOM_INSTALL_DIR chooses the folder, ~/.local/bin unless set.
+# The executable goes into ~/.loom/bin, or the folder LOOM_INSTALL_DIR names, and the
+# script adds that folder to PATH in your shell's profile. Pass --no-modify-path, or set
+# LOOM_NO_MODIFY_PATH=1, to leave every profile alone.
 
 set -eu
 
@@ -41,6 +45,30 @@ fail() {
 }
 
 ~
+
+## What the person asks for
+
+The script takes two kinds of argument. A version picks the release to install, with or without its leading `v`. The `--no-modify-path` option leaves every profile alone, for a person who manages `PATH` themselves. `LOOM_NO_MODIFY_PATH` does the same from the environment, when it holds any value, for a setup script that cannot pass an argument through a pipe. Anything else that starts with a dash is a mistake, and the script stops on it rather than guess.
+
+~>
+
+version=
+modify_path=yes
+if [ -n "${LOOM_NO_MODIFY_PATH:-}" ]; then
+  modify_path=no
+fi
+
+for argument in "$@"; do
+  case $argument in
+    --no-modify-path) modify_path=no ;;
+    -*) fail "unknown option $argument" ;;
+    *) version=${argument#v} ;;
+  esac
+done
+
+~
+
+## The executable this machine needs
 
 The script names the file it needs the way the release names them, `loom-<system>-<architecture>.gz`, an executable gzipped to a third of its size. `uname` reports the system and the architecture. Linux on ARM reports `aarch64` and macOS on Apple silicon reports `arm64`, and both get the `arm64` executable.
 
@@ -69,18 +97,41 @@ asset="loom-$system-$architecture.gz"
 
 ~
 
-A release's files sit at one address on GitHub, and the latest release has an address of its own that always points at the newest. A version given to the script picks that release's address instead, with or without its leading `v`. `LOOM_DOWNLOAD` overrides the address outright, which is how the smoke test serves a release of its own.
+## Where the release lives
+
+A release's files sit at one address on GitHub, and the latest release has an address of its own that always points at the newest. A version given to the script picks that release's address instead. `LOOM_DOWNLOAD` overrides the address outright, which is how the smoke test serves a release of its own.
 
 ~>
 
-if [ $# -gt 0 ]; then
-  release="https://github.com/athrio-com/loom/releases/download/v${1#v}"
+if [ -n "$version" ]; then
+  release="https://github.com/athrio-com/loom/releases/download/v$version"
 else
   release="https://github.com/athrio-com/loom/releases/latest/download"
 fi
 release="${LOOM_DOWNLOAD:-$release}"
 
 ~
+
+## A folder of Loom's own
+
+The executable goes into `~/.loom/bin`, a folder Loom owns, as Bun keeps its own in `~/.bun/bin` and Deno in `~/.deno/bin`. A folder of its own means the install never writes into a folder another program manages, and removing Loom means removing one folder. `LOOM_INSTALL_DIR` names another folder instead. A `.loom` folder in the home folder makes no workspace of it, since a workspace is a folder that holds `.loom/config.yaml`.
+
+The folder may already hold a `loom`. One that an earlier run of this script put there is Loom's executable, and the install replaces it. Anything else there is not the script's to replace, such as a script a person wrote to switch between versions of Loom. So the script looks before it downloads anything. A link is not Loom's executable. Neither is a script, a file whose first line opens with `#!` to name the program that runs it, which a compiled executable never does. Neither is a program that does not answer `--version` the way Loom does. In each case the script names the file, leaves it as it was, and stops.
+
+~>
+
+dir="${LOOM_INSTALL_DIR:-$HOME/.loom/bin}"
+
+if [ -e "$dir/loom" ] || [ -L "$dir/loom" ]; then
+  if [ -L "$dir/loom" ] || [ "$(head -c 2 "$dir/loom")" = '#!' ] ||
+    ! "$dir/loom" --version 2>/dev/null | grep -q '^loom v'; then
+    fail "$dir/loom is not a Loom executable, so the install leaves it alone; move it out of $dir, then run this again"
+  fi
+fi
+
+~
+
+## A download that checks out
 
 The script downloads the gzipped executable and the list of checksums into a temporary folder, which it removes however it exits. It then computes the download's SHA-256 checksum, with `sha256sum` on Linux and `shasum` on macOS, and compares it with the one the list gives. A file that does not match stops the install before anything reaches the person's `PATH`. The check catches a download that was cut short or corrupted. It cannot prove who built the file, since the list comes from the same place. Once the checksum matches, `gunzip` unpacks the executable beside the download.
 
@@ -107,35 +158,206 @@ gunzip -c "$work/$asset" > "$work/loom" || fail "could not unpack $asset"
 
 ~
 
-The executable goes into `~/.local/bin`, a folder for a person's own programs that many Linux systems already put on `PATH`, unless `LOOM_INSTALL_DIR` names another. It arrives in two moves. The first carries it into the folder under a temporary name, which may copy it across file systems. The second renames it to `loom` within the folder, in one step, so a `loom` that is already running keeps its file and a new run finds the new one.
+## Into place
+
+The executable arrives in two moves. The first carries it into the folder under a temporary name, which may copy it across file systems. The second renames it to `loom` within the folder, in one step, so a `loom` that is already running keeps its file and a new run finds the new one.
 
 ~>
 
-dir="${LOOM_INSTALL_DIR:-$HOME/.local/bin}"
 mkdir -p "$dir"
 chmod 755 "$work/loom"
 mv "$work/loom" "$dir/loom.partial.$$"
 mv "$dir/loom.partial.$$" "$dir/loom"
 
+printf 'Installed %s at %s\n' "$("$dir/loom" --version)" "$dir/loom"
+
 ~
 
-The script ends by saying what it installed and where. A folder that is not on `PATH` gets the line that puts it there. When another `loom` comes earlier on `PATH`, such as one an npm install left, the script names it, since that is the one a terminal runs.
+## Putting the folder on PATH
+
+No system puts `~/.loom/bin` on `PATH` by itself, so the script adds the folder to the profile of the person's shell. `SHELL` names that shell, and each shell reads a different profile.
+
+Zsh, the shell macOS starts by default, reads `.zshrc` in the folder `ZDOTDIR` names, or in the home folder. Fish reads `config.fish` in the `fish` folder of the configuration folder, `~/.config` unless `XDG_CONFIG_HOME` names another. Fish's own `fish_add_path` adds a folder to `PATH` once, however often the profile runs. Bash on Linux reads `.bashrc` in every terminal it opens. Bash on macOS starts as a login shell, which reads the first of `.bash_profile`, `.bash_login` and `.profile` that exists, so the script writes to that one, and creates `.bash_profile` when none exists. Any other shell gets no profile, and the person adds the line themselves.
+
+The line a profile receives names the folder through `$HOME` when the folder is inside the home folder, so the profile still works if the home folder moves.
 
 ~>
 
-printf 'Installed %s at %s\n' "$("$dir/loom" --version)" "$dir/loom"
+case $dir in
+  "$HOME"/*) spelled="\$HOME/${dir#"$HOME"/}" ;;
+  *) spelled=$dir ;;
+esac
 
-case ":$PATH:" in
-  *":$dir:"*)
-    found=$(command -v loom || true)
-    if [ -n "$found" ] && [ "$found" != "$dir/loom" ]; then
-      printf 'Another loom comes first on your PATH, at %s\n' "$found"
+profile=
+line="export PATH=\"$spelled:\$PATH\""
+case $(basename "${SHELL:-sh}") in
+  zsh) profile="${ZDOTDIR:-$HOME}/.zshrc" ;;
+  bash)
+    if [ "$system" = darwin ]; then
+      for candidate in .bash_profile .bash_login .profile; do
+        if [ -z "$profile" ] && [ -f "$HOME/$candidate" ]; then
+          profile="$HOME/$candidate"
+        fi
+      done
+      profile="${profile:-$HOME/.bash_profile}"
+    else
+      profile="$HOME/.bashrc"
     fi
     ;;
-  *)
-    printf '%s is not on your PATH. Add it with:\n' "$dir"
-    printf '  export PATH="%s:$PATH"\n' "$dir"
+  fish)
+    profile="${XDG_CONFIG_HOME:-$HOME/.config}/fish/config.fish"
+    line="fish_add_path \"$spelled\""
     ;;
 esac
 
 ~
+
+A folder already on `PATH` needs nothing. Otherwise the script appends the line, under a comment that names Loom, and says which profile it changed. A shell reads its profile only as it starts, so the change reaches the next terminal, and the script says to open one.
+
+The script adds the line only once. A profile that already names the folder, by its full path or through `$HOME`, is left as it is, so running the script again never repeats the line. That covers a person who added the folder by hand, and a terminal opened before the first install that still runs on the old `PATH`. With `--no-modify-path`, or for a shell with no profile the script knows, the script prints the line for the person to add.
+
+~>
+
+case ":$PATH:" in
+  *":$dir:"*) ;;
+  *)
+    if [ "$modify_path" = no ] || [ -z "$profile" ]; then
+      printf "%s is not on your PATH. Add this line to your shell's profile:\n  %s\n" "$dir" "$line"
+    elif [ -f "$profile" ] && grep -qF -e "$dir" -e "$spelled" "$profile"; then
+      printf '%s already adds %s to PATH. Open a new terminal to use loom.\n' "$profile" "$dir"
+    else
+      mkdir -p "$(dirname "$profile")"
+      printf '\n# Loom\n%s\n' "$line" >> "$profile"
+      printf 'Added %s to PATH in %s. Open a new terminal to use loom.\n' "$dir" "$profile"
+    fi
+    ;;
+esac
+
+~
+
+## Another loom on PATH
+
+A person may have installed Loom before, with npm or Bun, or with an older script. That `loom` stays where it was, and while it sits on `PATH` it may be the one a terminal runs. The script never removes it, since the person may still want it. It names it, says who installed it, and gives the command that removes it.
+
+Each installer leaves a mark in the path of the files it writes. A `loom` on `PATH` is usually a link to the installed package, so `resolved` follows the link, and each link after it, to the file it leads to.
+
+~>
+
+resolved() {
+  target=$1
+  hops=0
+  while [ -L "$target" ] && [ "$hops" -lt 40 ]; do
+    link=$(readlink "$target")
+    case $link in
+      /*) target=$link ;;
+      *) target="$(dirname "$target")/$link" ;;
+    esac
+    hops=$((hops + 1))
+  done
+  printf '%s\n' "$target"
+}
+
+~
+
+`recognise` reads the marks in the path that `resolved` gives, as `loom doctor` does. It sets `described`, which says who installed the `loom`, and `removal`, the command that removes it. Homebrew keeps its packages under a `Cellar` folder. Bun keeps the packages it installs for the whole machine in a `.bun` folder, and pnpm in a `pnpm` folder.
+
+npm keeps both a project's packages and its own in a `node_modules` folder. A project's sits beside the project's `package.json`, and npm's own sits in a folder with none. So a path through `node_modules` belongs to a project when the folder above the first `node_modules` holds a `package.json`. The project's lockfile then names its package manager, and the removal runs in the project's folder. A path with none of these marks belongs to no installer the script knows. It may be an older standalone executable, and its removal deletes the file.
+
+~>
+
+project_manager() {
+  if [ -f "$1/bun.lock" ] || [ -f "$1/bun.lockb" ]; then
+    echo bun
+  elif [ -f "$1/pnpm-lock.yaml" ]; then
+    echo pnpm
+  elif [ -f "$1/yarn.lock" ]; then
+    echo yarn
+  else
+    echo npm
+  fi
+}
+
+recognise() {
+  target=$(resolved "$1")
+  case $target in
+    */Cellar/*)
+      described="installed by Homebrew"
+      removal="brew uninstall loom"
+      ;;
+    */.bun/*)
+      described="installed by Bun"
+      removal="bun remove -g @athrio/loom"
+      ;;
+    */pnpm/*)
+      described="installed by pnpm"
+      removal="pnpm remove -g @athrio/loom"
+      ;;
+    */node_modules/*)
+      root=${target%%/node_modules/*}
+      if [ -f "$root/package.json" ]; then
+        manager=$(project_manager "$root")
+        described="installed by $manager in the project at $root"
+        if [ "$manager" = npm ]; then
+          removal="cd \"$root\" && npm uninstall @athrio/loom"
+        else
+          removal="cd \"$root\" && $manager remove @athrio/loom"
+        fi
+      else
+        described="installed by npm"
+        removal="npm uninstall -g @athrio/loom"
+      fi
+      ;;
+    *)
+      described="a file no installer owns"
+      removal="rm \"$1\""
+      ;;
+  esac
+}
+
+~
+
+The script then walks `PATH` folder by folder and reports every `loom` it finds there that is not the one it just installed. A folder may appear on `PATH` twice, and two folders may link to one file, so the walk reports each file once. It skips any `loom` that leads to the new one.
+
+~>
+
+seen=
+printf '%s\n' "$PATH" | tr ':' '\n' | while IFS= read -r folder; do
+  if [ -z "$folder" ] || [ ! -f "$folder/loom" ] || [ ! -x "$folder/loom" ]; then
+    continue
+  fi
+  target=$(resolved "$folder/loom")
+  case ":$seen:" in
+    *":$target:"*) continue ;;
+  esac
+  seen="$seen:$target"
+  if [ "$target" = "$dir/loom" ]; then
+    continue
+  fi
+  recognise "$folder/loom"
+  printf '\nAnother loom is on your PATH, at %s, %s. Remove it with:\n  %s\n' \
+    "$folder/loom" "$described" "$removal"
+done
+
+~
+
+## The script assembled [scripts/install.sh]
+
+=>
+
+::[Stopping at the first failure]
+
+::[What the person asks for]
+
+::[The executable this machine needs]
+
+::[Where the release lives]
+
+::[A folder of Loom's own]
+
+::[A download that checks out]
+
+::[Into place]
+
+::[Putting the folder on PATH]
+
+::[Another loom on PATH]

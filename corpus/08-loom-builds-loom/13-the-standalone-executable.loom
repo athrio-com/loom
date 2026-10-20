@@ -613,6 +613,8 @@ const upgradeCopy = async (tag: string, listed: string) => {
 
 A newer release whose checksum matches replaces the copy, and the case compares the copy's checksum with the replacement's rather than their bytes, so a failure reports two short lines instead of an executable's worth of numbers. On macOS and Linux the copy then runs as the replacement. Windows cannot run a shell script, so there the case checks that the running copy moved aside to a name ending in `.old`, the step that lets Windows replace it. A release whose listed checksum differs from the file's leaves the copy as it was, still Loom, and the command exits non-zero. A release no newer than this Loom changes nothing.
 
+An executable that Homebrew installed is Homebrew's to replace, so `loom upgrade` names `brew upgrade loom` and leaves the file alone. The last case copies the executable under a `Cellar` folder, where Homebrew keeps its packages, and points the command at an address where nothing answers. The command must succeed without a request to that address, and the copy must keep its checksum.
+
 =>
 
 describe('the executable — upgrade', () => {
@@ -654,29 +656,73 @@ describe('the executable — upgrade', () => {
     },
     SMOKE_TIMEOUT,
   )
+
+  it(
+    'leaves an executable Homebrew installed to Homebrew',
+    async () => {
+      const dir = scratch('homebrew')
+      const copy = join(dir, 'Cellar', 'loom', '9.9.9', 'bin', basename(binary))
+      mkdirSync(dirname(copy), { recursive: true })
+      copyFileSync(binary, copy)
+      chmodSync(copy, 0o755)
+      const { status, stdout, stderr } = await run(['upgrade'], {
+        cwd: dir,
+        env: bareEnv({ LOOM_RELEASES: nowhere }),
+        executable: copy,
+      })
+      expect({ status, stderr }).toMatchObject({ status: 0 })
+      expect(stdout).toContain('brew upgrade loom')
+      expect(sha256(new Uint8Array(readFileSync(copy)))).toBe(
+        sha256(new Uint8Array(readFileSync(binary))),
+      )
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SMOKE_TIMEOUT,
+  )
 })
 
-## Installing it with the script [smoke/install.smoke.ts]
+## A check-up for the executable
 
-Most people get the executable through the install script that the chapter on installing it sets out, so the smoke test runs that script too. It runs the script the way the one-line install does, with `sh`, against a release of its own. `releaseServer` stands in for GitHub's downloads. It serves one gzipped file for this platform and the list of checksums, and the script reads both from the address `LOOM_DOWNLOAD` names. The file inside is a short shell script that prints a version, so the case can run whatever the install put in place. `LOOM_INSTALL_DIR` points the install at a temporary folder.
+`loom doctor` must know the executable for what it is. The case puts the folder that holds the executable on `PATH`, and nothing else, and runs the doctor in a folder no workspace holds. The doctor reports a standalone executable, finds that a terminal runs this very file, and exits zero with no problem to report.
+
+=>
+
+describe('the executable — doctor', () => {
+  it(
+    'knows itself as the standalone executable a terminal runs',
+    async () => {
+      const dir = scratch('doctor')
+      const { status, stdout, stderr } = await run(['doctor'], {
+        cwd: dir,
+        env: bareEnv({ PATH: dirname(binary) }),
+      })
+      expect({ status, stderr }).toMatchObject({ status: 0 })
+      expect(stdout).toContain(`runs from ${binary}, a standalone executable`)
+      expect(stdout).toContain('a terminal runs this loom')
+      expect(stdout).toContain('no problems found')
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SMOKE_TIMEOUT,
+  )
+})
+
+## Installing it with the script
+
+Most people get the executable through the install script that the chapter on installing it sets out, so the smoke test runs that script too. It runs the script the way the one-line install does, with `sh`, against a release of its own. `releaseServer` stands in for GitHub's downloads. It serves one gzipped file for this platform and the list of checksums, and the script reads both from the address `LOOM_DOWNLOAD` names. The file inside is one line of shell that prints a version, so the script can run whatever the install put in place. It opens with no `#!` line, which a script would, so the install script takes it for a compiled executable that a later run may replace. A shell still runs it as a script. `listed` is a list of checksums that gives that file's true checksum.
 
 The script names the file it needs from `uname`, which reports the same system and architecture that Node's `process` reports on every machine the release builds for, so `assetName` here names the same file.
 
 =>
 
-import { describe, expect, it } from 'bun:test'
-import { createHash } from 'node:crypto'
-import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
-
 const script = resolve(import.meta.dir, '..', '..', '..', 'scripts', 'install.sh')
 
 const assetName = `loom-${process.platform}-${process.arch}.gz`
 
-const standIn = Bun.gzipSync(new TextEncoder().encode('#!/bin/sh\necho "loom v9.9.9"\n'))
+const standIn = Bun.gzipSync(new TextEncoder().encode('echo "loom v9.9.9"\n'))
 
 const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex')
+
+const listed = `${sha256(standIn)}  ${assetName}\n`
 
 const releaseServer = (sums: string | undefined) =>
   Bun.serve({
@@ -690,14 +736,33 @@ const releaseServer = (sums: string | undefined) =>
     },
   })
 
-const install = async (sums: string | undefined) => {
+~
+
+The script writes into the home folder, to `~/.loom/bin` and to the shell's profile, so no case may run it against the real home folder. Each case makes a home of its own with `freshHome`, and `install` runs the script with an environment built from nothing. `HOME` names the case's home. `PATH` lists only the system's own folders, unless the case adds folders of its own, so no `loom` installed on the machine running the test shows up. `SHELL` says Zsh, unless the case names another shell. Nothing from the test's own environment passes through, so a `ZDOTDIR` or an `XDG_CONFIG_HOME` that would point the script at a real profile never reaches it.
+
+`installed` names the folder the script installs into within a home.
+
+=>
+
+const systemPath = '/usr/bin:/bin:/usr/sbin:/sbin'
+
+const freshHome = (): string => realpathSync(mkdtempSync(join(tmpdir(), 'loom-home-')))
+
+const installed = (home: string): string => join(home, '.loom', 'bin')
+
+const install = async (
+  home: string,
+  sums: string | undefined,
+  options: { readonly args?: ReadonlyArray<string>; readonly env?: Record<string, string> } = {},
+) => {
   const server = releaseServer(sums)
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'loom-install-')))
-  const child = Bun.spawn(['sh', script], {
+  const child = Bun.spawn(['/bin/sh', script, ...(options.args ?? [])], {
     env: {
-      ...process.env,
+      HOME: home,
+      PATH: systemPath,
+      SHELL: '/bin/zsh',
       LOOM_DOWNLOAD: new URL('/download', server.url).href,
-      LOOM_INSTALL_DIR: dir,
+      ...options.env,
     },
     stdout: 'pipe',
     stderr: 'pipe',
@@ -708,43 +773,221 @@ const install = async (sums: string | undefined) => {
     child.exited,
   ])
   server.stop()
-  return { status, stdout, stderr, dir }
+  return { status, stdout, stderr }
 }
 
-~
+## A checksum that matches
 
-A file that matches the list lands in the folder as `loom`, executable, with no temporary file left beside it, and it runs. A file whose checksum differs from the one listed stops the install, and so does a release that carries no list. Either way the folder stays empty. Windows has no `sh`, and the script does not serve Windows, so the cases skip it there.
+A file that matches the list lands in the folder as `loom`, executable, with no temporary file left beside it, and it runs. A file whose checksum differs from the one listed stops the install, and so does a release that carries no list. Either way no `loom` reaches the folder. Windows has no `sh`, and the script does not serve Windows, so every case of the script skips it there.
 
 =>
 
 describe.skipIf(process.platform === 'win32')('the install script', () => {
   it('installs an executable whose checksum matches the list', async () => {
-    const { status, stdout, stderr, dir } = await install(`${sha256(standIn)}  ${assetName}\n`)
+    const home = freshHome()
+    const { status, stdout, stderr } = await install(home, listed)
     expect({ status, stderr }).toMatchObject({ status: 0 })
     expect(stdout).toContain('Installed loom v9.9.9')
-    expect(statSync(join(dir, 'loom')).mode & 0o111).not.toBe(0)
-    expect(readdirSync(dir)).toEqual(['loom'])
-    rmSync(dir, { recursive: true, force: true })
+    expect(statSync(join(installed(home), 'loom')).mode & 0o111).not.toBe(0)
+    expect(readdirSync(installed(home))).toEqual(['loom'])
+    rmSync(home, { recursive: true, force: true })
   })
 
   it('refuses an executable whose checksum does not match', async () => {
-    const { status, stderr, dir } = await install(
-      `${sha256(new Uint8Array())}  ${assetName}\n`,
-    )
+    const home = freshHome()
+    const { status, stderr } = await install(home, `${sha256(new Uint8Array())}  ${assetName}\n`)
     expect({ status, stderr }).toMatchObject({ status: 1 })
     expect(stderr).toContain('does not match')
-    expect(existsSync(join(dir, 'loom'))).toBe(false)
-    rmSync(dir, { recursive: true, force: true })
+    expect(existsSync(join(installed(home), 'loom'))).toBe(false)
+    rmSync(home, { recursive: true, force: true })
   })
 
   it('refuses a release that carries no list of checksums', async () => {
-    const { status, stderr, dir } = await install(undefined)
+    const home = freshHome()
+    const { status, stderr } = await install(home, undefined)
     expect({ status, stderr }).toMatchObject({ status: 1 })
     expect(stderr).toContain('SHA256SUMS')
-    expect(existsSync(join(dir, 'loom'))).toBe(false)
-    rmSync(dir, { recursive: true, force: true })
+    expect(existsSync(join(installed(home), 'loom'))).toBe(false)
+    rmSync(home, { recursive: true, force: true })
   })
 })
+
+## A folder on PATH
+
+The script puts its folder on `PATH` through the shell's profile, and these cases read the profile it leaves behind. Zsh's profile, `.zshrc`, starts with a line of the person's own. The script runs twice. The first run adds the line that puts the folder on `PATH` and names the profile. The second finds the folder already named there and adds nothing. So the line appears once, after the person's own line, which stays as it was.
+
+A home whose folder is already on `PATH` gets no profile at all. Bash gets the line in the profile Bash reads on this system, `.bash_profile` on macOS and `.bashrc` on Linux. Fish gets a `fish_add_path` line in its own `config.fish`. With `--no-modify-path`, or with `LOOM_NO_MODIFY_PATH` set, the script writes no profile and prints the line for the person to add.
+
+=>
+
+const pathLine = 'export PATH="$HOME/.loom/bin:$PATH"'
+
+const occurrences = (text: string, line: string): number => text.split(line).length - 1
+
+describe.skipIf(process.platform === 'win32')('the install script — PATH', () => {
+  it('adds the folder to PATH in the profile once, however often it runs', async () => {
+    const home = freshHome()
+    const zshrc = join(home, '.zshrc')
+    writeFileSync(zshrc, "alias ll='ls -l'\n")
+    const first = await install(home, listed)
+    const second = await install(home, listed)
+    expect({ status: first.status, stderr: first.stderr }).toMatchObject({ status: 0 })
+    expect({ status: second.status, stderr: second.stderr }).toMatchObject({ status: 0 })
+    expect(first.stdout).toContain(`Added ${installed(home)} to PATH in ${zshrc}`)
+    expect(second.stdout).toContain(`${zshrc} already adds ${installed(home)} to PATH`)
+    const profile = readFileSync(zshrc, 'utf8')
+    expect(profile).toStartWith("alias ll='ls -l'\n")
+    expect(occurrences(profile, pathLine)).toBe(1)
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  it('changes no profile when the folder is already on PATH', async () => {
+    const home = freshHome()
+    const { status, stderr } = await install(home, listed, {
+      env: { PATH: `${installed(home)}:${systemPath}` },
+    })
+    expect({ status, stderr }).toMatchObject({ status: 0 })
+    expect(existsSync(join(home, '.zshrc'))).toBe(false)
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  it('writes to the profile Bash reads on this system', async () => {
+    const home = freshHome()
+    const { status, stderr } = await install(home, listed, { env: { SHELL: '/bin/bash' } })
+    expect({ status, stderr }).toMatchObject({ status: 0 })
+    const profile = process.platform === 'darwin' ? '.bash_profile' : '.bashrc'
+    expect(occurrences(readFileSync(join(home, profile), 'utf8'), pathLine)).toBe(1)
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  it('gives Fish a fish_add_path line in its own profile', async () => {
+    const home = freshHome()
+    const { status, stderr } = await install(home, listed, { env: { SHELL: '/usr/bin/fish' } })
+    expect({ status, stderr }).toMatchObject({ status: 0 })
+    expect(readFileSync(join(home, '.config', 'fish', 'config.fish'), 'utf8')).toContain(
+      'fish_add_path "$HOME/.loom/bin"',
+    )
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  it('leaves every profile alone with --no-modify-path or LOOM_NO_MODIFY_PATH', async () => {
+    const flagged = freshHome()
+    const unset = freshHome()
+    const runs = [
+      await install(flagged, listed, { args: ['--no-modify-path'] }),
+      await install(unset, listed, { env: { LOOM_NO_MODIFY_PATH: '1' } }),
+    ]
+    runs.forEach(({ status, stdout, stderr }) => {
+      expect({ status, stderr }).toMatchObject({ status: 0 })
+      expect(stdout).toContain(pathLine)
+    })
+    expect(existsSync(join(flagged, '.zshrc'))).toBe(false)
+    expect(existsSync(join(unset, '.zshrc'))).toBe(false)
+    rmSync(flagged, { recursive: true, force: true })
+    rmSync(unset, { recursive: true, force: true })
+  })
+})
+
+## Another loom already there
+
+A person who installed Loom with npm or Bun before still has that `loom`, and the script must name it. The case lays out two such installs inside its home, the way each package manager lays them out, and puts both on `PATH`. npm's `loom` is a link, written relative to its folder, to the package under npm's `lib/node_modules`. Bun's is a link to the package in its `.bun` folder. The script names each `loom`, says who installed it, and gives the command that removes it. It removes neither.
+
+=>
+
+const packageCopy = (copy: string): void => {
+  mkdirSync(dirname(copy), { recursive: true })
+  writeFileSync(copy, '#!/bin/sh\n', { mode: 0o755 })
+}
+
+describe.skipIf(process.platform === 'win32')('the install script — another loom', () => {
+  it('names each older loom on PATH and the command that removes it', async () => {
+    const home = freshHome()
+    const npm = join(home, 'npm')
+    const npmCopy = join(npm, 'lib/node_modules/@athrio/loom/dist/main.js')
+    packageCopy(npmCopy)
+    mkdirSync(join(npm, 'bin'))
+    symlinkSync('../lib/node_modules/@athrio/loom/dist/main.js', join(npm, 'bin', 'loom'))
+    const bun = join(home, '.bun')
+    const bunCopy = join(bun, 'install/global/node_modules/@athrio/loom/dist/main.js')
+    packageCopy(bunCopy)
+    mkdirSync(join(bun, 'bin'))
+    symlinkSync(bunCopy, join(bun, 'bin', 'loom'))
+    const { status, stdout, stderr } = await install(home, listed, {
+      env: { PATH: `${join(npm, 'bin')}:${join(bun, 'bin')}:${systemPath}` },
+    })
+    expect({ status, stderr }).toMatchObject({ status: 0 })
+    expect(stdout).toContain(
+      `Another loom is on your PATH, at ${join(npm, 'bin', 'loom')}, installed by npm. Remove it with:\n  npm uninstall -g @athrio/loom`,
+    )
+    expect(stdout).toContain(
+      `Another loom is on your PATH, at ${join(bun, 'bin', 'loom')}, installed by Bun. Remove it with:\n  bun remove -g @athrio/loom`,
+    )
+    expect(existsSync(npmCopy)).toBe(true)
+    expect(existsSync(bunCopy)).toBe(true)
+    rmSync(home, { recursive: true, force: true })
+  })
+})
+
+## A loom that is not Loom's
+
+A person may keep a `loom` of their own in the install folder, such as a script that switches between versions of Loom. The case puts one there, a script that even answers `--version` the way Loom does, and runs the install. The script refuses and names the file. The file keeps its text, and nothing else lands beside it.
+
+=>
+
+describe.skipIf(process.platform === 'win32')('the install script — a loom kept by hand', () => {
+  it('refuses to replace a loom that is not a Loom executable', async () => {
+    const home = freshHome()
+    const own = join(installed(home), 'loom')
+    const text = '#!/bin/sh\necho "loom v0.0.10"\n'
+    mkdirSync(installed(home), { recursive: true })
+    writeFileSync(own, text, { mode: 0o755 })
+    const { status, stderr } = await install(home, listed)
+    expect({ status, stderr }).toMatchObject({ status: 1 })
+    expect(stderr).toContain(`${own} is not a Loom executable`)
+    expect(readFileSync(own, 'utf8')).toBe(text)
+    expect(readdirSync(installed(home))).toEqual(['loom'])
+    rmSync(home, { recursive: true, force: true })
+  })
+})
+
+## What the install test draws on
+
+The install test runs on Bun's test runner, and Bun spawns the script, gzips the stand-in executable and serves the stand-in release. Node's modules make the homes, the profiles and the fake installs, read back what the script left, and compute a checksum.
+
+=>
+
+import { describe, expect, it } from 'bun:test'
+import { createHash } from 'node:crypto'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
+
+## The install test {Tangle}[smoke/install.smoke.ts]
+
+=>
+
+::[What the install test draws on]
+
+::[Installing it with the script]
+
+::[A checksum that matches]
+
+::[A folder on PATH]
+
+::[Another loom already there]
+
+::[A loom that is not Loom's]
 
 ## What the smoke test draws on
 
@@ -773,7 +1016,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { servicePackage, serviceVersion } from '@athrio/loom-lang-services/LoomStore'
 import { runtimeKey } from '@athrio/loom-lang-services/Runtime'
@@ -799,3 +1042,5 @@ import { runtimeKey } from '@athrio/loom-lang-services/Runtime'
 ::[Setting up Helix and Neovim]
 
 ::[Upgrading in place]
+
+::[A check-up for the executable]

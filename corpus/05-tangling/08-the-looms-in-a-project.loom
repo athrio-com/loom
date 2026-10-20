@@ -10,11 +10,11 @@ Every command that walks a folder answers one question before it does anything e
 
 The answers must agree. Suppose `tangle` wrote a loom's files and `orphans` passed that loom by. Then `orphans` would list files the build still produces, and `orphans --prune` would delete them. This module gives the one answer every walk shares.
 
-A `.loom` file under the workspace belongs to the project unless one of four rules leaves it out. The first leaves out a loom in a folder that holds no one's looms, such as `node_modules`. The second leaves out a loom in a nested project, a folder with a `.loom` store of its own. The third leaves out whatever Git ignores. The fourth leaves out what the project itself ignores, through the `*.fixture.loom` default or a pattern listed under `ignore:` in `.loom/config.yaml`.
+A `.loom` file under the workspace belongs to the project unless one of four rules leaves it out. The first leaves out a loom in a folder that holds no one's looms, such as `node_modules`. The second leaves out a loom in a nested project, a folder that holds a configuration of its own, `.loom/config.yaml`. The third leaves out whatever Git ignores. The fourth leaves out what the project itself ignores, through the `*.fixture.loom` default or a pattern listed under `ignore:` in `.loom/config.yaml`.
 
 ## What a project is
 
-A project is a workspace together with the patterns it ignores. `LoomProject` holds the two. Its `root` is the workspace, the directory that holds `.loom/`. Its `ignore` holds the patterns `.loom/config.yaml` lists under `ignore:`.
+A project is a workspace together with the patterns it ignores. `LoomProject` holds the two. Its `root` is the workspace, the directory that holds `.loom/config.yaml`. Its `ignore` holds the patterns `.loom/config.yaml` lists under `ignore:`.
 
 Each pattern is written like a line of a `.gitignore` file and matched against paths relative to the root. So `drafts/` leaves out every folder named `drafts`, wherever it sits, while `/notes.loom` leaves out only the `notes.loom` at the root.
 
@@ -162,7 +162,7 @@ A walk descends a folder one level at a time and decides at each entry. It never
 
 `storeDirs` names the four folders that hold no one's looms: `node_modules` holds installed packages, `dist` holds built output, `.git` holds Git's history, and `.loom` holds Loom's own store. Every walk skips them, and the tangler's watch skips a change inside them.
 
-A walk inside a project carries `projectScope`. It opens a folder unless the folder is one of the store folders, holds a `.loom` of its own, or is ignored. A folder with its own `.loom` is a separate workspace, and its looms belong to that project and its lock. The scope keeps a loom unless the loom is ignored. Entering a folder brings that folder's Git rules into the scope. `scopeAt` builds the scope a walk starts with in a given folder, from the project's own layer and the Git rules in force in that folder.
+A walk inside a project carries `projectScope`. It opens a folder unless the folder is one of the store folders, is a workspace of its own, or is ignored. A folder that holds its own configuration is a separate workspace, and its looms belong to that project and its lock. `isWorkspace` makes that call by the rule the language store uses to find a workspace, so a `.loom` folder with no configuration in it, such as one that only keeps a loose loom's lock, closes nothing off. The scope keeps a loom unless the loom is ignored. Entering a folder brings that folder's Git rules into the scope. `scopeAt` builds the scope a walk starts with in a given folder, from the project's own layer and the Git rules in force in that folder.
 
 A walk outside any project carries `looseScope`, which skips only the store folders. Loom walks this way through the folder of a loom no project holds.
 
@@ -178,9 +178,7 @@ interface Scope {
 
 const projectScope = (own: Layer, git: GitRules): Scope => ({
   opens: (dir) =>
-    !storeDirs.has(basename(dir)) &&
-    !existsSync(join(dir, '.loom')) &&
-    !ignores(own, git, dir, true),
+    !storeDirs.has(basename(dir)) && !isWorkspace(dir) && !ignores(own, git, dir, true),
   keeps: (loom) => !ignores(own, git, loom, false),
   into: (dir) => projectScope(own, entering(dir, git)),
 })
@@ -261,7 +259,7 @@ export const holds = (project: LoomProject, loom: Path): boolean =>
 
 ## What the module draws on
 
-The `ignore` package compiles a pattern list the way Git matches it, and answers for a path with `test`. Node's `fs` reads folders, ignore files, and Git's pointer files synchronously, because the editor discovers a corpus inside Volar's synchronous hook, which cannot wait. Node's `path` module places one path relative to another. Effect supplies `Option` for an answer that may be absent, the `Array` combinators, `Match`, and `pipe`. `BuildSettings` carries a file's workspace and its configured patterns, and `Path` types a file path.
+The `ignore` package compiles a pattern list the way Git matches it, and answers for a path with `test`. Node's `fs` reads folders, ignore files, and Git's pointer files synchronously, because the editor discovers a corpus inside Volar's synchronous hook, which cannot wait. Node's `path` module places one path relative to another. Effect supplies `Option` for an answer that may be absent, the `Array` combinators, `Match`, and `pipe`. `BuildSettings` carries a file's workspace and its configured patterns, and `Path` types a file path. The language store supplies `isWorkspace`, which tells a nested workspace by its configuration.
 
 =>
 
@@ -279,6 +277,7 @@ import {
 } from 'node:path'
 import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
 import { type BuildSettings } from './PackageConfig'
+import { isWorkspace } from '@athrio/loom-lang-services/LoomStore'
 
 ## The module {Tangle}
 

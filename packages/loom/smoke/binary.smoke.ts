@@ -19,7 +19,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { servicePackage, serviceVersion } from '@athrio/loom-lang-services/LoomStore'
 import { runtimeKey } from '@athrio/loom-lang-services/Runtime'
@@ -431,6 +431,48 @@ describe('the executable — upgrade', () => {
       expect(stdout).toContain('is up to date')
       const after = await run(['--version'], { cwd: dir, env: bareEnv(), executable: copy })
       expect(after.stdout).toContain(`loom v${serviceVersion}`)
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SMOKE_TIMEOUT,
+  )
+
+  it(
+    'leaves an executable Homebrew installed to Homebrew',
+    async () => {
+      const dir = scratch('homebrew')
+      const copy = join(dir, 'Cellar', 'loom', '9.9.9', 'bin', basename(binary))
+      mkdirSync(dirname(copy), { recursive: true })
+      copyFileSync(binary, copy)
+      chmodSync(copy, 0o755)
+      const { status, stdout, stderr } = await run(['upgrade'], {
+        cwd: dir,
+        env: bareEnv({ LOOM_RELEASES: nowhere }),
+        executable: copy,
+      })
+      expect({ status, stderr }).toMatchObject({ status: 0 })
+      expect(stdout).toContain('brew upgrade loom')
+      expect(sha256(new Uint8Array(readFileSync(copy)))).toBe(
+        sha256(new Uint8Array(readFileSync(binary))),
+      )
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SMOKE_TIMEOUT,
+  )
+})
+
+describe('the executable — doctor', () => {
+  it(
+    'knows itself as the standalone executable a terminal runs',
+    async () => {
+      const dir = scratch('doctor')
+      const { status, stdout, stderr } = await run(['doctor'], {
+        cwd: dir,
+        env: bareEnv({ PATH: dirname(binary) }),
+      })
+      expect({ status, stderr }).toMatchObject({ status: 0 })
+      expect(stdout).toContain(`runs from ${binary}, a standalone executable`)
+      expect(stdout).toContain('a terminal runs this loom')
+      expect(stdout).toContain('no problems found')
       rmSync(dir, { recursive: true, force: true })
     },
     SMOKE_TIMEOUT,

@@ -98,7 +98,9 @@ const empty: ResolvedConfig = {
 
 ## Finding the workspace
 
-A workspace is the directory that holds the generated `.loom/` store. `findWorkspace` walks up from a starting directory to the first ancestor that has one, the same ancestor search a package manager runs for a project's lockfile. It stops at the filesystem root and returns nothing when no ancestor holds a store, so a path outside any Loom project resolves to the empty configuration.
+A workspace is the directory that holds a configuration, the `.loom/config.yaml` file. `findWorkspace` walks up from a starting directory to the first ancestor that holds one, the same ancestor search a package manager runs for a project's lockfile. It stops at the filesystem root and returns nothing when no ancestor holds a configuration, so a path outside any Loom project resolves to the empty configuration.
+
+A `.loom` folder without a configuration makes no workspace. The install script puts the standalone executable in `~/.loom/bin`, and that folder must not turn the home folder into a project that every loose loom below it joins. The language store finds a workspace by the same rule, so the configuration and the store always agree on which workspace a path belongs to.
 
 =>
 
@@ -107,7 +109,7 @@ const manifestName = 'config.yaml'
 const defaultCorpus = 'corpus'
 
 const findWorkspace = (dir: string): string | undefined => {
-  if (existsSync(resolvePath(dir, storeDirName))) return dir
+  if (existsSync(resolvePath(dir, storeDirName, manifestName))) return dir
   const parent = dirname(dir)
   return parent === dir ? undefined : findWorkspace(parent)
 }

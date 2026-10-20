@@ -66,7 +66,7 @@ const manifestName = 'config.yaml'
 const defaultCorpus = 'corpus'
 
 const findWorkspace = (dir: string): string | undefined => {
-  if (existsSync(resolvePath(dir, storeDirName))) return dir
+  if (existsSync(resolvePath(dir, storeDirName, manifestName))) return dir
   const parent = dirname(dir)
   return parent === dir ? undefined : findWorkspace(parent)
 }

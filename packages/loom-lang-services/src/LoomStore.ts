@@ -17,8 +17,10 @@ const run = promisify(execFile)
 
 export const servicePackage = (id: string): string => `@athrio/loom-service-${id}`
 
+export const isWorkspace = (dir: string): boolean => existsSync(join(dir, '.loom', 'config.yaml'))
+
 export const workspaceOf = (dir: string): Option.Option<string> => {
-  if (existsSync(join(dir, '.loom'))) return Option.some(dir)
+  if (isWorkspace(dir)) return Option.some(dir)
   const parent = dirname(dir)
   return parent === dir ? Option.none() : workspaceOf(parent)
 }

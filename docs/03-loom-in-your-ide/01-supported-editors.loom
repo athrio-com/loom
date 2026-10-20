@@ -56,7 +56,7 @@ It takes Neovim 0.11 or newer. Loom installed from npm also needs a C compiler t
 
 ## Any other editor
 
-An editor with a language client starts the server with `$ loom lsp --stdio`, and the server treats the nearest folder holding a `.loom` directory as the project. An editor that colours with tree-sitter can build the grammar from [packages/tree-sitter-loom](https://github.com/athrio-com/loom/tree/main/packages/tree-sitter-loom).
+An editor with a language client starts the server with `$ loom lsp --stdio`, and the server treats the nearest folder holding `.loom/config.yaml` as the project. An editor that colours with tree-sitter can build the grammar from [packages/tree-sitter-loom](https://github.com/athrio-com/loom/tree/main/packages/tree-sitter-loom).
 
 ## Formatting and wrapping
 

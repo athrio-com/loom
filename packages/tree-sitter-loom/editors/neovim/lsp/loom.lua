@@ -15,5 +15,11 @@
 return {
   cmd = { 'loom', 'lsp', '--stdio' },
   filetypes = { 'loom' },
-  root_markers = { '.loom', '.git' },
+  root_dir = function(bufnr, on_dir)
+    local workspace = function(name, path)
+      local config = vim.fs.joinpath(path, name, 'config.yaml')
+      return name == '.loom' and vim.uv.fs_stat(config) ~= nil
+    end
+    on_dir(vim.fs.root(bufnr, workspace) or vim.fs.root(bufnr, '.git'))
+  end,
 }

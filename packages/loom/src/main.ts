@@ -4,6 +4,7 @@ import {
   Console,
   Data,
   Effect,
+  Equal,
   Match,
   Option,
   Order,
@@ -23,13 +24,15 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir, tmpdir } from 'node:os'
-import { dirname, resolve as resolvePath } from 'node:path'
+import { delimiter, dirname, resolve as resolvePath } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 import { DocumentSource, type TangledFile, type TangleError } from '@athrio/loom-lang/LoomCompiler'
@@ -53,6 +56,7 @@ import {
   storeDir,
   storeTypeScript,
   typeScriptRange,
+  workspaceOf,
   workspaceRoot,
 } from '@athrio/loom-lang-services/LoomStore'
 import type { LanguageService } from '@athrio/loom-lang-services/LanguageService'
@@ -432,12 +436,95 @@ const update = (languages: ReadonlyArray<string>, all: boolean) =>
     yield* Console.log(`   ${dim(`store: ${storeDir(dir)}`)}\n`)
   }).pipe(Effect.catchTag('StoreError', failedInstall))
 
-const packageManagerUpgrade = (bundle: string): string =>
-  Match.value(bundle).pipe(
-    Match.when((path: string) => /[\\/]\.bun[\\/]/.test(path), () => 'bun add -g @athrio/loom@latest'),
-    Match.when((path: string) => /[\\/]pnpm[\\/]/.test(path), () => 'pnpm add -g @athrio/loom@latest'),
-    Match.orElse(() => 'npm install -g @athrio/loom@latest'),
+type ProjectManager = 'npm' | 'bun' | 'pnpm' | 'yarn'
+
+type Installation = Data.TaggedEnum<{
+  Executable: {}
+  Unowned: {}
+  Homebrew: {}
+  Npm: {}
+  Bun: {}
+  Pnpm: {}
+  Project: { readonly root: string; readonly manager: ProjectManager }
+}>
+const Installation = Data.taggedEnum<Installation>()
+
+const lockfiles: ReadonlyArray<readonly [string, ProjectManager]> = [
+  ['bun.lock', 'bun'],
+  ['bun.lockb', 'bun'],
+  ['pnpm-lock.yaml', 'pnpm'],
+  ['yarn.lock', 'yarn'],
+]
+
+const projectManager = (root: string): ProjectManager =>
+  pipe(
+    Array.findFirst(lockfiles, ([lockfile]) => existsSync(resolvePath(root, lockfile))),
+    Option.match({ onNone: (): ProjectManager => 'npm', onSome: ([, manager]) => manager }),
   )
+
+const projectAt = (path: string): Option.Option<string> =>
+  pipe(
+    Option.fromNullishOr(/^(.*?)[\\/]node_modules[\\/]/.exec(path)),
+    Option.flatMap((found) => Option.fromNullishOr(found[1])),
+    Option.filter((root) => existsSync(resolvePath(root, 'package.json'))),
+  )
+
+const marked = (mark: RegExp) => (path: string) => mark.test(path)
+
+const installationAt = (path: string, otherwise: Installation): Installation =>
+  Match.value(path).pipe(
+    Match.when(marked(/[\\/]Cellar[\\/]/), () => Installation.Homebrew()),
+    Match.when(marked(/[\\/]\.bun[\\/]/), () => Installation.Bun()),
+    Match.when(marked(/[\\/]pnpm[\\/]/), () => Installation.Pnpm()),
+    Match.when(marked(/[\\/]node_modules[\\/]/), (p) =>
+      Option.match(projectAt(p), {
+        onNone: () => Installation.Npm(),
+        onSome: (root) => Installation.Project({ root, manager: projectManager(root) }),
+      }),
+    ),
+    Match.when(marked(/[\\/]npm[\\/][^\\/]+$/), () => Installation.Npm()),
+    Match.orElse(() => otherwise),
+  )
+
+const realOf = (path: string): string =>
+  Option.getOrElse(Option.liftThrowable(() => realpathSync(path))(), () => path)
+
+const thisFile = standalone ? process.execPath : fileURLToPath(import.meta.url)
+
+const thisInstallation: Installation = installationAt(
+  realOf(thisFile),
+  standalone ? Installation.Executable() : Installation.Npm(),
+)
+
+const describedInstallation = Installation.$match({
+  Executable: () => 'a standalone executable',
+  Unowned: () => 'a file no installer owns',
+  Homebrew: () => 'installed by Homebrew',
+  Npm: () => 'installed by npm',
+  Bun: () => 'installed by Bun',
+  Pnpm: () => 'installed by pnpm',
+  Project: ({ root, manager }) => `installed by ${manager} in the project at ${root}`,
+})
+
+const quoted = (path: string): string => `"${path}"`
+
+const projectCommands: Record<ProjectManager, { readonly add: string; readonly remove: string }> = {
+  npm: { add: 'npm install', remove: 'npm uninstall' },
+  bun: { add: 'bun add', remove: 'bun remove' },
+  pnpm: { add: 'pnpm add', remove: 'pnpm remove' },
+  yarn: { add: 'yarn add', remove: 'yarn remove' },
+}
+
+const installerUpgrade = Installation.$match({
+  Executable: () => Option.none<string>(),
+  Unowned: () => Option.none<string>(),
+  Homebrew: () => Option.some('brew upgrade loom'),
+  Npm: () => Option.some('npm install -g @athrio/loom@latest'),
+  Bun: () => Option.some('bun add -g @athrio/loom@latest'),
+  Pnpm: () => Option.some('pnpm add -g @athrio/loom@latest'),
+  Project: ({ root, manager }) =>
+    Option.some(`cd ${quoted(root)} && ${projectCommands[manager].add} @athrio/loom@latest`),
+})
 
 const loomVersion = '0.0.13'
 
@@ -594,10 +681,12 @@ const upgradeStandalone = Effect.gen(function* () {
 })
 
 const upgrade = Effect.gen(function* () {
-  if (standalone) return yield* upgradeStandalone
+  const command = installerUpgrade(thisInstallation)
+  if (Option.isNone(command)) return yield* upgradeStandalone
   yield* Console.log(
-    `\n   Loom was installed by a package manager, which upgrades it:\n\n` +
-      `   ${packageManagerUpgrade(fileURLToPath(import.meta.url))}\n`,
+    `\n   Loom was ${describedInstallation(thisInstallation)}. Upgrade it with:\n\n` +
+      `   ${command.value}\n\n` +
+      `   ${dim('then run `loom update --all` in each workspace to bring its services along')}\n`,
   )
 }).pipe(
   Effect.catchTags({
@@ -639,6 +728,179 @@ const status = Effect.gen(function* () {
       `   ${dim('activated')}  ${languages.length === 0 ? dim('(none)') : languages.join(', ')}\n`,
   )
   if (languages.length > 0) yield* Console.log(`${languages.map(mark).join('\n')}\n`)
+})
+
+type Finding = Data.TaggedEnum<{
+  Fine: { readonly note: string }
+  Problem: { readonly note: string; readonly fix: string }
+}>
+const Finding = Data.taggedEnum<Finding>()
+
+const commandNames = (command: string): ReadonlyArray<string> =>
+  process.platform === 'win32' ? [`${command}.exe`, `${command}.cmd`] : [command]
+
+const isProgram = (file: string): boolean =>
+  pipe(
+    Option.liftThrowable(() => statSync(file))(),
+    Option.exists(
+      (stats) => stats.isFile() && (process.platform === 'win32' || (stats.mode & 0o111) !== 0),
+    ),
+  )
+
+const programsOnPath = (command: string): ReadonlyArray<string> =>
+  pipe(
+    (process.env.PATH ?? '').split(delimiter),
+    Array.filter((folder) => folder !== ''),
+    Array.flatMap((folder) =>
+      Array.map(commandNames(command), (name) => resolvePath(folder, name)),
+    ),
+    Array.filter(isProgram),
+    Array.dedupeWith((one, other) => realOf(one) === realOf(other)),
+  )
+
+const loomsOnPath = (): ReadonlyArray<string> => programsOnPath('loom')
+
+const installationOf = (file: string): Installation =>
+  installationAt(realOf(file), Installation.Unowned())
+
+const isThisLoom = (file: string): boolean =>
+  realOf(file) === realOf(thisFile) || Equal.equals(installationOf(file), thisInstallation)
+
+const installLine =
+  'curl -fsSL https://github.com/athrio-com/loom/releases/latest/download/install.sh | sh'
+
+const installerRemoval = (installation: Installation, file: string): string =>
+  Installation.$match(installation, {
+    Executable: () => `rm ${quoted(file)}`,
+    Unowned: () => `rm ${quoted(file)}`,
+    Homebrew: () => 'brew uninstall loom',
+    Npm: () => 'npm uninstall -g @athrio/loom',
+    Bun: () => 'bun remove -g @athrio/loom',
+    Pnpm: () => 'pnpm remove -g @athrio/loom',
+    Project: ({ root, manager }) =>
+      `cd ${quoted(root)} && ${projectCommands[manager].remove} @athrio/loom`,
+  })
+
+const otherLoom = (file: string, note: string): Finding =>
+  Finding.Problem({
+    note: `${note}, ${describedInstallation(installationOf(file))}`,
+    fix: installerRemoval(installationOf(file), file),
+  })
+
+const thisLoomFinding = Finding.Fine({
+  note: `loom v${loomVersion} runs from ${thisFile}, ${describedInstallation(thisInstallation)}`,
+})
+
+const pathFindings = (looms: ReadonlyArray<string>): ReadonlyArray<Finding> =>
+  Array.match(looms, {
+    onEmpty: () => [
+      Finding.Problem({
+        note: 'no loom is on PATH, so a terminal finds none to run',
+        fix: installLine,
+      }),
+    ],
+    onNonEmpty: ([first, ...rest]) => [
+      isThisLoom(first)
+        ? Finding.Fine({ note: `a terminal runs this loom, at ${first}` })
+        : otherLoom(first, `a terminal runs ${first} instead`),
+      ...pipe(
+        rest,
+        Array.filter((file) => !isThisLoom(file)),
+        Array.map((file) => otherLoom(file, `${file} is on PATH too`)),
+      ),
+    ],
+  })
+
+const serviceFinding = (id: string, root: string): Finding =>
+  Option.match(installedVersion(id, root), {
+    onNone: () =>
+      Finding.Problem({ note: `the store holds no service for ${id}`, fix: `loom update ${id}` }),
+    onSome: (version) =>
+      version === serviceVersion
+        ? Finding.Fine({ note: `the store holds ${id}'s service at this Loom's ${serviceVersion}` })
+        : Finding.Problem({
+            note: `the store holds ${id}'s service at ${version}, and this Loom needs ${serviceVersion}`,
+            fix: `loom update ${id}`,
+          }),
+  })
+
+const serviceFindings = (languages: ReadonlyArray<string>, root: string): ReadonlyArray<Finding> =>
+  Array.match(languages, {
+    onEmpty: () => [
+      Finding.Fine({ note: 'no language is activated, so the store needs no service' }),
+    ],
+    onNonEmpty: (ids) => Array.map(ids, (id) => serviceFinding(id, root)),
+  })
+
+const missingTypeScript = (root: string): Finding =>
+  Match.value({ standalone, npm: programsOnPath('npm').length > 0 }).pipe(
+    Match.when({ standalone: true }, () =>
+      Finding.Fine({
+        note: `the language server unpacks the TypeScript Loom carries into ${storeDir(root)} when it first starts`,
+      }),
+    ),
+    Match.when({ npm: true }, () =>
+      Finding.Fine({
+        note: `the language server installs TypeScript ${typeScriptRange} into ${storeDir(root)} with npm when it first starts`,
+      }),
+    ),
+    Match.orElse(() =>
+      Finding.Problem({
+        note: 'the language server finds no TypeScript, and has no npm to install one with',
+        fix: installLine,
+      }),
+    ),
+  )
+
+const typeScriptFinding = (root: string): Finding =>
+  Option.match(foundTypeScript(root), {
+    onNone: () => missingTypeScript(root),
+    onSome: (file) =>
+      Finding.Fine({ note: `the language server finds TypeScript in ${dirname(dirname(file))}` }),
+  })
+
+const workspaceFindings = (
+  root: string,
+): Effect.Effect<ReadonlyArray<Finding>, never, LoomConfig> =>
+  Effect.gen(function* () {
+    const config = yield* LoomConfig
+    const manifest = yield* config.manifest(root)
+    return [
+      ...serviceFindings(Object.keys(manifest?.languages ?? {}), root),
+      typeScriptFinding(root),
+    ]
+  })
+
+const amber = (s: string): string => `\x1b[38;5;214m${s}${reset}`
+
+const findingLines = (findings: ReadonlyArray<Finding>): string =>
+  Array.map(
+    findings,
+    Finding.$match({
+      Fine: ({ note }) => `   ${teal('✓')} ${note}`,
+      Problem: ({ note, fix }) => `   ${amber('✗')} ${note}\n       ${fix}`,
+    }),
+  ).join('\n')
+
+const doctor = Effect.gen(function* () {
+  const dir = process.cwd()
+  const machine = [thisLoomFinding, ...pathFindings(loomsOnPath())]
+  const workspace = workspaceOf(dir)
+  const inWorkspace = yield* Option.match(workspace, {
+    onNone: () => Effect.succeed([] as ReadonlyArray<Finding>),
+    onSome: workspaceFindings,
+  })
+  const problems = Array.filter([...machine, ...inWorkspace], Finding.$is('Problem')).length
+  yield* Console.log(
+    `\n   ${dim('this machine')}\n${findingLines(machine)}\n\n` +
+      Option.match(workspace, {
+        onNone: () => `   ${dim(`no workspace holds ${dir}, so no services to check`)}\n`,
+        onSome: (root) => `   ${dim(`the workspace at ${root}`)}\n${findingLines(inWorkspace)}\n`,
+      }),
+  )
+  if (problems === 0) return yield* Console.log(`   ${teal('✓')} no problems found\n`)
+  yield* Console.log(`   ${problems === 1 ? '1 problem' : `${problems} problems`} found\n`)
+  yield* Effect.sync(() => void (process.exitCode = 1))
 })
 
 const set = (name: string, value: string) =>
@@ -840,7 +1102,7 @@ const helixBlock: ManagedBlock = {
     'name = "loom"',
     'scope = "source.loom"',
     'file-types = ["loom"]',
-    'roots = [".loom"]',
+    'roots = [".loom/config.yaml"]',
     'injection-regex = "^loom$"',
     'language-servers = ["loom"]',
     'soft-wrap = { enable = true, wrap-at-text-width = true }',
@@ -923,7 +1185,13 @@ const nvimPlugin = [
   "vim.lsp.config('loom', {",
   "  cmd = { 'loom', 'lsp', '--stdio' },",
   "  filetypes = { 'loom' },",
-  "  root_markers = { '.loom', '.git' },",
+  '  root_dir = function(bufnr, on_dir)',
+  '    local workspace = function(name, path)',
+  "      local config = vim.fs.joinpath(path, name, 'config.yaml')",
+  "      return name == '.loom' and vim.uv.fs_stat(config) ~= nil",
+  '    end',
+  "    on_dir(vim.fs.root(bufnr, workspace) or vim.fs.root(bufnr, '.git'))",
+  '  end,',
   '})',
   "vim.lsp.enable('loom')",
   '',
@@ -1036,6 +1304,8 @@ const upgradeCommand = Command.make('upgrade', {}, () => upgrade)
 
 const statusCommand = Command.make('status', {}, () => status)
 
+const doctorCommand = Command.make('doctor', {}, () => doctor)
+
 const setCommand = Command.make(
   'set',
   { name: Argument.String('name'), value: Argument.String('value') },
@@ -1069,6 +1339,7 @@ const loom = Command.make('loom').pipe(
     updateCommand,
     upgradeCommand,
     statusCommand,
+    doctorCommand,
     setCommand,
     designCommand,
     helixCommand,
