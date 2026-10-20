@@ -8,11 +8,11 @@ Language: Lua
 
 Neovim and Helix need no extension of the kind VS Code does. Each has a language-server client and a tree-sitter host built in, and each learns a new language from configuration. Three facts make a loom alive in either: the `.loom` extension names the `loom` language, the `loom lsp --stdio` command starts its language server, and the grammar of this part colours it. This chapter writes that configuration down, in the form each editor's own project collects for the languages it supports.
 
-The language server starts the same way in both. `loom lsp` speaks the Language Server Protocol over standard input and output once it is given `--stdio`, and it treats the nearest folder that holds a `.loom` directory as the project, the folder `loom init` sets up. It needs a TypeScript compiler. VS Code sends its own, and every other editor relies on the server's search: the project's `typescript` package first, then the one installed beside Loom.
+The language server starts the same way in both. `loom lsp` speaks the Language Server Protocol over standard input and output once it is given `--stdio`, and it treats the nearest folder that holds `.loom/config.yaml` as the project, the folder `loom init` sets up. A `.loom` folder alone makes no project. The standalone executable lives in `~/.loom/bin`, and the home folder above it is not a project, so each editor looks for the configuration file rather than the folder. It needs a TypeScript compiler. VS Code sends its own, and every other editor relies on the server's search: the project's `typescript` package first, then the one installed beside Loom.
 
 ## Neovim's server configuration {Tangle}[neovim/lsp/loom.lua]
 
-Neovim 0.11 configures a language server with a table its `vim.lsp.config` function takes, and it reads such tables from an `lsp/` folder on its runtime path. The nvim-lspconfig project collects one file per server in that folder, so this file is written in its form: a short description for its generated documentation, then the table. The table names the command, the file type it serves, and the markers of a project's root, `.loom` before `.git`.
+Neovim 0.11 configures a language server with a table its `vim.lsp.config` function takes, and it reads such tables from an `lsp/` folder on its runtime path. The nvim-lspconfig project collects one file per server in that folder, so this file is written in its form: a short description for its generated documentation, then the table. The table names the command, the file type it serves, and how to find a project's root. Neovim matches a root marker against the names in each folder, and a name cannot reach inside `.loom`, so the table gives a `root_dir` function instead. It takes the nearest folder whose `.loom` holds a `config.yaml`, then the nearest Git repository, and otherwise starts the server with no root, as Neovim does for a loose file.
 
 =>
 
@@ -33,7 +33,13 @@ Neovim 0.11 configures a language server with a table its `vim.lsp.config` funct
 return {
   cmd = { 'loom', 'lsp', '--stdio' },
   filetypes = { 'loom' },
-  root_markers = { '.loom', '.git' },
+  root_dir = function(bufnr, on_dir)
+    local workspace = function(name, path)
+      local config = vim.fs.joinpath(path, name, 'config.yaml')
+      return name == '.loom' and vim.uv.fs_stat(config) ~= nil
+    end
+    on_dir(vim.fs.root(bufnr, workspace) or vim.fs.root(bufnr, '.git'))
+  end,
 }
 
 ## Neovim's plugin {Tangle}[neovim/plugin/loom.lua]
@@ -84,7 +90,7 @@ vim.lsp.enable('loom')
 
 ## Helix's languages {Tangle}[helix/languages.toml]
 
-Helix learns a language from a `languages.toml` file, its own built-in one or a user's in the configuration folder. A language entry gives the name, the scope, the file extension, the root markers, and the servers that serve it. The injection pattern lets Markdown hand a fence marked `loom` to this grammar.
+Helix learns a language from a `languages.toml` file, its own built-in one or a user's in the configuration folder. A language entry gives the name, the scope, the file extension, the root markers, and the servers that serve it. Helix 25.07 tests a root marker by joining it to each folder above the file, so the marker can name the configuration file itself, `.loom/config.yaml`. The injection pattern lets Markdown hand a fence marked `loom` to this grammar.
 
 A person sets Helix up with `loom helix`. That command writes the same language and server entries into the user's `languages.toml` and compiles the grammar the CLI ships straight into Helix's runtime folder, so the user's file needs no grammar entry. This file is the other form, the one Helix's own project collects for a language it supports, where Helix fetches and builds the grammar itself.
 
@@ -98,7 +104,7 @@ The server entry names the command. The grammar entry tells Helix where to fetch
 name = "loom"
 scope = "source.loom"
 file-types = ["loom"]
-roots = [".loom"]
+roots = [".loom/config.yaml"]
 injection-regex = "^loom$"
 language-servers = ["loom"]
 

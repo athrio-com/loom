@@ -24,7 +24,7 @@ primary: typescript
 ignore: []
 ```
 
-`primary` is the default language, and `corpus` names the folder your looms live in. Commit the file. Beside it, `.loom/.gitignore` keeps out the language servers Loom downloads. The folder that holds `.loom` is now a Loom project.
+`primary` is the default language, and `corpus` names the folder your looms live in. Commit the file. Beside it, `.loom/.gitignore` keeps out the language servers Loom downloads. The folder that holds `.loom/config.yaml` is now a Loom project.
 
 `ignore` lists looms that aren't part of the project, written like lines of a `.gitignore`. It starts empty because Loom already skips whatever Git ignores, and test fixtures named `*.fixture.loom`. Add `drafts/`, say, and Loom skips that folder when it tangles the project or looks for orphans.
 

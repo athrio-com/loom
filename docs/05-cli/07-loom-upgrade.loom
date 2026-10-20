@@ -18,8 +18,10 @@ If you installed Loom with the `curl` line, `loom upgrade` downloads the latest 
 
 ## Installed with a package manager
 
-A package manager that installed Loom owns its files, so `loom upgrade` leaves them alone. It prints the command that upgrades Loom with that package manager instead, such as `npm install -g @athrio/loom@latest`.
+A package manager that installed Loom owns its files, so `loom upgrade` leaves them alone. It prints the command that upgrades Loom with that package manager instead, such as `npm install -g @athrio/loom@latest`. If you installed Loom into a project, the command it prints runs in that project's folder, with the package manager the project uses.
 
 ## After upgrading
 
 A new Loom expects each project's language servers to match it. Run `$ loom update --all` in each project to bring them along.
+
+If `loom --version` still shows the old version, another `loom` comes first on your `PATH`. Run `$ loom doctor` to find it, and the command that removes it.

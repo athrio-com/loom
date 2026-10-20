@@ -12,6 +12,7 @@ import {
 } from 'node:path'
 import { type Path } from '@athrio/loom-ast/LoomCorpusAst'
 import { type BuildSettings } from './PackageConfig'
+import { isWorkspace } from '@athrio/loom-lang-services/LoomStore'
 
 export interface LoomProject {
   readonly root: Path
@@ -115,9 +116,7 @@ interface Scope {
 
 const projectScope = (own: Layer, git: GitRules): Scope => ({
   opens: (dir) =>
-    !storeDirs.has(basename(dir)) &&
-    !existsSync(join(dir, '.loom')) &&
-    !ignores(own, git, dir, true),
+    !storeDirs.has(basename(dir)) && !isWorkspace(dir) && !ignores(own, git, dir, true),
   keeps: (loom) => !ignores(own, git, loom, false),
   into: (dir) => projectScope(own, entering(dir, git)),
 })

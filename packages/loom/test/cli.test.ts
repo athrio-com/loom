@@ -8,6 +8,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -23,7 +24,7 @@ const loom = (
   args: ReadonlyArray<string>,
   opts: { readonly cwd?: string; readonly env?: Record<string, string> } = {},
 ) =>
-  spawnSync('bun', [main, ...args], {
+  spawnSync(process.execPath, [main, ...args], {
     cwd: opts.cwd ?? cli,
     env: opts.env ? { ...process.env, ...opts.env } : process.env,
     encoding: 'utf8',
@@ -113,6 +114,28 @@ describe('loom cli', () => {
       expect(stdout).toContain('init')
       expect(stdout).toContain('add')
       expect(stdout).toContain('status')
+      expect(stdout).toContain('doctor')
+    },
+    SPAWN_TIMEOUT,
+  )
+})
+
+describe('loom cli — what makes a workspace', () => {
+  it(
+    'takes no workspace from a .loom folder that holds no configuration',
+    () => {
+      const home = realpathSync(mkdtempSync(join(tmpdir(), 'loom-home-')))
+      mkdirSync(join(home, '.loom', 'bin'), { recursive: true })
+      const scratch = join(home, 'scratch')
+      mkdirSync(scratch)
+      writeFileSync(join(scratch, 'hello.loom'), fixture)
+      const { status, stderr } = loom(['tangle', 'hello.loom'], { cwd: scratch })
+      expect({ status, stderr }).toMatchObject({ status: 0 })
+      expect(readFileSync(join(scratch, 'out.ts'), 'utf8')).toContain('export const hi = "hello"')
+      expect(existsSync(join(scratch, '.loom', 'loom.lock'))).toBe(true)
+      expect(existsSync(join(home, '.loom', 'loom.lock'))).toBe(false)
+      expect(loom(['doctor'], { cwd: scratch }).stdout).toContain(`no workspace holds ${scratch}`)
+      rmSync(home, { recursive: true, force: true })
     },
     SPAWN_TIMEOUT,
   )
@@ -533,6 +556,100 @@ describe('loom cli — upgrade', () => {
       })
       expect(status).toBe(0)
       expect(stdout).toContain('npm install -g @athrio/loom@latest')
+    },
+    SPAWN_TIMEOUT,
+  )
+})
+
+const machine = (): string => realpathSync(mkdtempSync(join(tmpdir(), 'loom-machine-')))
+
+const program = (file: string): void => {
+  mkdirSync(dirname(file), { recursive: true })
+  writeFileSync(file, lines('#!/bin/sh'), { mode: 0o755 })
+}
+
+const linkedLoom = (root: string, folder: string, copy: string): string => {
+  program(join(root, copy))
+  mkdirSync(join(root, folder), { recursive: true })
+  symlinkSync(join(root, copy), join(root, folder, 'loom'))
+  return join(root, folder)
+}
+
+describe('loom cli — doctor', () => {
+  it(
+    'names each other loom on PATH with the command that removes it',
+    () => {
+      const root = machine()
+      const homebrew = linkedLoom(root, 'homebrew/bin', 'homebrew/Cellar/loom/0.0.1/bin/loom')
+      const bun = linkedLoom(
+        root,
+        '.bun/bin',
+        '.bun/install/global/node_modules/@athrio/loom/dist/main.js',
+      )
+      const project = join(root, 'project')
+      const projectBin = linkedLoom(
+        root,
+        'project/node_modules/.bin',
+        'project/node_modules/@athrio/loom/dist/main.js',
+      )
+      writeFileSync(join(project, 'package.json'), '{}\n')
+      writeFileSync(join(project, 'bun.lock'), '')
+      const lone = join(root, 'local', 'bin')
+      program(join(lone, 'loom'))
+      const { status, stdout } = loom(['doctor'], {
+        cwd: root,
+        env: { PATH: [homebrew, bun, projectBin, lone].join(':') },
+      })
+      expect(status).toBe(1)
+      expect(stdout).toContain(
+        `a terminal runs ${join(homebrew, 'loom')} instead, installed by Homebrew`,
+      )
+      expect(stdout).toContain('brew uninstall loom')
+      expect(stdout).toContain('bun remove -g @athrio/loom')
+      expect(stdout).toContain(`cd "${project}" && bun remove @athrio/loom`)
+      expect(stdout).toContain(`rm "${join(lone, 'loom')}"`)
+      rmSync(root, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    'reads a loom npm installed as this one, and passes a workspace in order',
+    () => {
+      const root = machine()
+      const npm = linkedLoom(root, 'npm/bin', 'npm/lib/node_modules/@athrio/loom/dist/main.js')
+      const home = userStore()
+      const dir = workspace('corpus: corpus\nlanguages:\n  typescript: {}\nprimary: typescript\n')
+      installFake(home, 'typescript')
+      const { status, stdout } = loom(['doctor'], { cwd: dir, env: { PATH: npm, LOOM_HOME: home } })
+      expect(status).toBe(0)
+      expect(stdout).toContain('a terminal runs this loom')
+      expect(stdout).toContain('no problems found')
+      rmSync(root, { recursive: true, force: true })
+      rmSync(home, { recursive: true, force: true })
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    'reports a stale service with the update that fixes it',
+    () => {
+      const root = machine()
+      const npm = linkedLoom(root, 'npm/bin', 'npm/lib/node_modules/@athrio/loom/dist/main.js')
+      const home = userStore()
+      const dir = workspace('corpus: corpus\nlanguages:\n  typescript: {}\nprimary: typescript\n')
+      installFake(home, 'typescript', '0.0.1')
+      const { status, stdout } = loom(['doctor'], { cwd: dir, env: { PATH: npm, LOOM_HOME: home } })
+      expect(status).toBe(1)
+      expect(stdout).toContain(
+        `the store holds typescript's service at 0.0.1, and this Loom needs ${loomVersion}`,
+      )
+      expect(stdout).toContain('loom update typescript')
+      expect(stdout).toContain('1 problem found')
+      rmSync(root, { recursive: true, force: true })
+      rmSync(home, { recursive: true, force: true })
+      rmSync(dir, { recursive: true, force: true })
     },
     SPAWN_TIMEOUT,
   )

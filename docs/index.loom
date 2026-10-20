@@ -34,3 +34,4 @@ The manual is itself a Loom corpus. Every page you read here is a chapter of pro
 5. loom format
 6. loom update
 7. loom upgrade
+8. loom doctor

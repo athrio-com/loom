@@ -10,7 +10,7 @@ The CLI is an Effect program over the tangler, the configuration and the store o
 
 ## Running the CLI as a process
 
-Bun runs the CLI's TypeScript source directly, so a case spawns `bun src/main.ts` with the arguments it wants, from whichever directory it needs, and gets back the exit status and both output streams. A case can add environment variables, which is how the language commands are pointed at a store of their own.
+Bun runs the CLI's TypeScript source directly. So a case runs `src/main.ts` on the Bun that runs the tests, with the arguments it wants and from whichever directory it needs, and gets back the exit status and both output streams. A case can add environment variables, which is how the language commands are pointed at a store of their own. It names Bun by its path, so a case may replace `PATH` whole and still start the CLI.
 
 A cold spawn loads the whole tangler before it does anything, and that takes a moment. Under the load of the full suite the default five seconds is not always enough, so every case allows thirty.
 
@@ -26,6 +26,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -41,7 +42,7 @@ const loom = (
   args: ReadonlyArray<string>,
   opts: { readonly cwd?: string; readonly env?: Record<string, string> } = {},
 ) =>
-  spawnSync('bun', [main, ...args], {
+  spawnSync(process.execPath, [main, ...args], {
     cwd: opts.cwd ?? cli,
     env: opts.env ? { ...process.env, ...opts.env } : process.env,
     encoding: 'utf8',
@@ -153,6 +154,34 @@ describe('loom cli', () => {
       expect(stdout).toContain('init')
       expect(stdout).toContain('add')
       expect(stdout).toContain('status')
+      expect(stdout).toContain('doctor')
+    },
+    SPAWN_TIMEOUT,
+  )
+})
+
+## A home folder is no workspace
+
+A workspace is a folder that holds `.loom/config.yaml`, and a `.loom` folder alone makes none. The standalone executable lives in `~/.loom/bin`, so the home folder of everyone who installs it holds a `.loom` folder with no configuration. The case builds such a home and tangles a loose loom in a folder under it. The loom's file lands beside the loom, and so does the lock of the tangle, in a `.loom` folder of the loom's own. The home folder gets no lock, because it is no workspace, and `loom doctor` reports that no workspace holds the loom's folder.
+
+=>
+
+describe('loom cli — what makes a workspace', () => {
+  it(
+    'takes no workspace from a .loom folder that holds no configuration',
+    () => {
+      const home = realpathSync(mkdtempSync(join(tmpdir(), 'loom-home-')))
+      mkdirSync(join(home, '.loom', 'bin'), { recursive: true })
+      const scratch = join(home, 'scratch')
+      mkdirSync(scratch)
+      writeFileSync(join(scratch, 'hello.loom'), fixture)
+      const { status, stderr } = loom(['tangle', 'hello.loom'], { cwd: scratch })
+      expect({ status, stderr }).toMatchObject({ status: 0 })
+      expect(readFileSync(join(scratch, 'out.ts'), 'utf8')).toContain('export const hi = "hello"')
+      expect(existsSync(join(scratch, '.loom', 'loom.lock'))).toBe(true)
+      expect(existsSync(join(home, '.loom', 'loom.lock'))).toBe(false)
+      expect(loom(['doctor'], { cwd: scratch }).stdout).toContain(`no workspace holds ${scratch}`)
+      rmSync(home, { recursive: true, force: true })
     },
     SPAWN_TIMEOUT,
   )
@@ -617,6 +646,114 @@ describe('loom cli — upgrade', () => {
       })
       expect(status).toBe(0)
       expect(stdout).toContain('npm install -g @athrio/loom@latest')
+    },
+    SPAWN_TIMEOUT,
+  )
+})
+
+## A check-up from the command line
+
+`loom doctor` reads `PATH`, so each case hands it a `PATH` of its own, built from folders laid out the way each installer lays them out. `machine` makes a temporary folder to hold such installs. `program` writes a file a shell may run. `linkedLoom` installs a fake `loom` the way an installer does. It writes the program where the installer keeps its copy, links a `loom` to it from a folder of commands, and returns that folder for the case to put on `PATH`.
+
+=>
+
+const machine = (): string => realpathSync(mkdtempSync(join(tmpdir(), 'loom-machine-')))
+
+const program = (file: string): void => {
+  mkdirSync(dirname(file), { recursive: true })
+  writeFileSync(file, lines('#!/bin/sh'), { mode: 0o755 })
+}
+
+const linkedLoom = (root: string, folder: string, copy: string): string => {
+  program(join(root, copy))
+  mkdirSync(join(root, folder), { recursive: true })
+  symlinkSync(join(root, copy), join(root, folder, 'loom'))
+  return join(root, folder)
+}
+
+~
+
+The first case puts four other looms on `PATH`, none of them this one. Homebrew's copy sits under its `Cellar`. Bun's sits in a `.bun` folder. A project's sits in the project's `node_modules`, beside a `package.json` and Bun's lockfile. The last is a lone file that no installer owns. The doctor reports that a terminal runs Homebrew's copy instead of this Loom, and names the command that removes each copy. Homebrew and Bun each get their own uninstall, the project gets Bun's removal run in its folder, and the lone file gets `rm`.
+
+The tests run the CLI from its source, which Loom takes for an npm install, as `loom upgrade` does. So in the second case a `loom` that npm installed reads as this one. That `loom` is the only one on `PATH`, and the workspace's store holds its service at this Loom's version, so the doctor finds no problem and exits zero. The third case changes one thing, a service an older release left in the store. The doctor names the version it found and `loom update`, counts one problem, and exits non-zero.
+
+=>
+
+describe('loom cli — doctor', () => {
+  it(
+    'names each other loom on PATH with the command that removes it',
+    () => {
+      const root = machine()
+      const homebrew = linkedLoom(root, 'homebrew/bin', 'homebrew/Cellar/loom/0.0.1/bin/loom')
+      const bun = linkedLoom(
+        root,
+        '.bun/bin',
+        '.bun/install/global/node_modules/@athrio/loom/dist/main.js',
+      )
+      const project = join(root, 'project')
+      const projectBin = linkedLoom(
+        root,
+        'project/node_modules/.bin',
+        'project/node_modules/@athrio/loom/dist/main.js',
+      )
+      writeFileSync(join(project, 'package.json'), '{}\n')
+      writeFileSync(join(project, 'bun.lock'), '')
+      const lone = join(root, 'local', 'bin')
+      program(join(lone, 'loom'))
+      const { status, stdout } = loom(['doctor'], {
+        cwd: root,
+        env: { PATH: [homebrew, bun, projectBin, lone].join(':') },
+      })
+      expect(status).toBe(1)
+      expect(stdout).toContain(
+        `a terminal runs ${join(homebrew, 'loom')} instead, installed by Homebrew`,
+      )
+      expect(stdout).toContain('brew uninstall loom')
+      expect(stdout).toContain('bun remove -g @athrio/loom')
+      expect(stdout).toContain(`cd "${project}" && bun remove @athrio/loom`)
+      expect(stdout).toContain(`rm "${join(lone, 'loom')}"`)
+      rmSync(root, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    'reads a loom npm installed as this one, and passes a workspace in order',
+    () => {
+      const root = machine()
+      const npm = linkedLoom(root, 'npm/bin', 'npm/lib/node_modules/@athrio/loom/dist/main.js')
+      const home = userStore()
+      const dir = workspace('corpus: corpus\nlanguages:\n  typescript: {}\nprimary: typescript\n')
+      installFake(home, 'typescript')
+      const { status, stdout } = loom(['doctor'], { cwd: dir, env: { PATH: npm, LOOM_HOME: home } })
+      expect(status).toBe(0)
+      expect(stdout).toContain('a terminal runs this loom')
+      expect(stdout).toContain('no problems found')
+      rmSync(root, { recursive: true, force: true })
+      rmSync(home, { recursive: true, force: true })
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    'reports a stale service with the update that fixes it',
+    () => {
+      const root = machine()
+      const npm = linkedLoom(root, 'npm/bin', 'npm/lib/node_modules/@athrio/loom/dist/main.js')
+      const home = userStore()
+      const dir = workspace('corpus: corpus\nlanguages:\n  typescript: {}\nprimary: typescript\n')
+      installFake(home, 'typescript', '0.0.1')
+      const { status, stdout } = loom(['doctor'], { cwd: dir, env: { PATH: npm, LOOM_HOME: home } })
+      expect(status).toBe(1)
+      expect(stdout).toContain(
+        `the store holds typescript's service at 0.0.1, and this Loom needs ${loomVersion}`,
+      )
+      expect(stdout).toContain('loom update typescript')
+      expect(stdout).toContain('1 problem found')
+      rmSync(root, { recursive: true, force: true })
+      rmSync(home, { recursive: true, force: true })
+      rmSync(dir, { recursive: true, force: true })
     },
     SPAWN_TIMEOUT,
   )
@@ -1199,6 +1336,8 @@ describe('loom cli — nvim', () => {
 
 ::[Tangling, and asking for help]
 
+::[A home folder is no workspace]
+
 ::[A project's corpus folder]
 
 ::[The width an editor wraps a loom at]
@@ -1210,6 +1349,8 @@ describe('loom cli — nvim', () => {
 ::[Keeping a service current]
 
 ::[Upgrading Loom from a package manager]
+
+::[A check-up from the command line]
 
 ::[Explicit blocks]
 

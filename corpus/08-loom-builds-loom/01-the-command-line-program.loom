@@ -490,26 +490,141 @@ const update = (languages: ReadonlyArray<string>, all: boolean) =>
     yield* Console.log(`   ${dim(`store: ${storeDir(dir)}`)}\n`)
   }).pipe(Effect.catchTag('StoreError', failedInstall))
 
+## Who installed Loom
+
+Loom reaches a machine in several ways. The install script puts the standalone executable in a folder of its own. npm, Bun and pnpm install the npm package for the whole machine, and a project may install it among its own dependencies. Homebrew may install either form. Whoever installed a copy of Loom owns its files, so the command that upgrades the copy, or removes it, depends on who that was.
+
+`Installation` names the possibilities. A file that carries no installer's mark is `Unowned`, since nothing says who put it there. The one exception is this Loom's own standalone executable, which is an `Executable`. A project's installation carries the project's folder and the package manager the project uses, since a command that changes the project must run there, with that package manager.
+
+=>
+
+type ProjectManager = 'npm' | 'bun' | 'pnpm' | 'yarn'
+
+type Installation = Data.TaggedEnum<{
+  Executable: {}
+  Unowned: {}
+  Homebrew: {}
+  Npm: {}
+  Bun: {}
+  Pnpm: {}
+  Project: { readonly root: string; readonly manager: ProjectManager }
+}>
+const Installation = Data.taggedEnum<Installation>()
+
+~
+
+Each installer leaves a mark in the path of the files it writes. Homebrew keeps every package it installs under a folder named `Cellar`. Bun keeps the packages it installs for the whole machine in a `.bun` folder, and pnpm in a `pnpm` folder.
+
+npm puts both kinds of package in a `node_modules` folder, so that folder alone does not tell them apart. A project's `node_modules` sits beside the project's `package.json`. npm's own sits in a folder npm made for itself, `lib` on macOS and Linux and `npm` on Windows, which holds no `package.json`. So a path through `node_modules` belongs to a project when the folder above its first `node_modules` holds a `package.json`, and to npm otherwise. On Windows npm also writes a launcher straight into its `npm` folder, `loom.cmd`, which runs the package from beside it.
+
+`installationAt` reads those marks in that order, and the first that matches decides. `marked` turns a mark into a test of a path. A path with no mark falls to the installation the caller names. `projectAt` finds a project's folder in a path. `projectManager` names the package manager a project uses from the lockfile it keeps: `bun.lock` or the older `bun.lockb` for Bun, `pnpm-lock.yaml` for pnpm, `yarn.lock` for Yarn, and npm when it keeps none of them.
+
+=>
+
+const lockfiles: ReadonlyArray<readonly [string, ProjectManager]> = [
+  ['bun.lock', 'bun'],
+  ['bun.lockb', 'bun'],
+  ['pnpm-lock.yaml', 'pnpm'],
+  ['yarn.lock', 'yarn'],
+]
+
+const projectManager = (root: string): ProjectManager =>
+  pipe(
+    Array.findFirst(lockfiles, ([lockfile]) => existsSync(resolvePath(root, lockfile))),
+    Option.match({ onNone: (): ProjectManager => 'npm', onSome: ([, manager]) => manager }),
+  )
+
+const projectAt = (path: string): Option.Option<string> =>
+  pipe(
+    Option.fromNullishOr(/^(.*?)[\\/]node_modules[\\/]/.exec(path)),
+    Option.flatMap((found) => Option.fromNullishOr(found[1])),
+    Option.filter((root) => existsSync(resolvePath(root, 'package.json'))),
+  )
+
+const marked = (mark: RegExp) => (path: string) => mark.test(path)
+
+const installationAt = (path: string, otherwise: Installation): Installation =>
+  Match.value(path).pipe(
+    Match.when(marked(/[\\/]Cellar[\\/]/), () => Installation.Homebrew()),
+    Match.when(marked(/[\\/]\.bun[\\/]/), () => Installation.Bun()),
+    Match.when(marked(/[\\/]pnpm[\\/]/), () => Installation.Pnpm()),
+    Match.when(marked(/[\\/]node_modules[\\/]/), (p) =>
+      Option.match(projectAt(p), {
+        onNone: () => Installation.Npm(),
+        onSome: (root) => Installation.Project({ root, manager: projectManager(root) }),
+      }),
+    ),
+    Match.when(marked(/[\\/]npm[\\/][^\\/]+$/), () => Installation.Npm()),
+    Match.orElse(() => otherwise),
+  )
+
+~
+
+This Loom reads its own installation from the file it runs from. For the standalone executable that file is the executable itself, and for the npm package it is the bundle. A link may lead to either, so `realOf` follows every link to the file's real path, and keeps the path as it is when the file cannot be read.
+
+A standalone executable that carries no installer's mark came from the install script or from a person's own download, and it upgrades itself. An npm package whose path carries no mark is taken for npm's, since npm installs wherever its prefix points. The tests run the CLI from its source, which carries no mark either, so in the tests Loom takes itself for an npm install.
+
+=>
+
+const realOf = (path: string): string =>
+  Option.getOrElse(Option.liftThrowable(() => realpathSync(path))(), () => path)
+
+const thisFile = standalone ? process.execPath : fileURLToPath(import.meta.url)
+
+const thisInstallation: Installation = installationAt(
+  realOf(thisFile),
+  standalone ? Installation.Executable() : Installation.Npm(),
+)
+
+~
+
+`describedInstallation` names an installation in a phrase a report can use, such as "installed by npm". A command that names a folder puts the folder in quotes, so a folder whose name holds a space stays one word.
+
+=>
+
+const describedInstallation = Installation.$match({
+  Executable: () => 'a standalone executable',
+  Unowned: () => 'a file no installer owns',
+  Homebrew: () => 'installed by Homebrew',
+  Npm: () => 'installed by npm',
+  Bun: () => 'installed by Bun',
+  Pnpm: () => 'installed by pnpm',
+  Project: ({ root, manager }) => `installed by ${manager} in the project at ${root}`,
+})
+
+const quoted = (path: string): string => `"${path}"`
+
 ## Upgrading Loom itself
 
-`loom upgrade` replaces the installed Loom with its latest release. What that takes depends on the form Loom runs in.
+`loom upgrade` replaces the installed Loom with its latest release. Who installed this Loom decides how.
 
-A package manager installed the npm package, and that package manager owns its files, so the command leaves them alone. It names the command that upgrades Loom through the package manager that installed it. `packageManagerUpgrade` tells which package manager that was from the path the bundle runs from. Bun keeps its global packages in a `.bun` folder and pnpm in a `pnpm` folder, and npm owns every other path.
+An installer that owns Loom's files upgrades them too, so the command leaves those files alone and names the installer's own command instead. `installerUpgrade` is that command for each installation. Homebrew upgrades its own package. npm, Bun and pnpm install the latest release for the whole machine, over the one they installed. A project's package manager installs the latest release into the project, from the project's folder. Neither the standalone executable nor a file no installer owns has an installer behind it, so neither has such a command.
 
 {{ version = ${version} }}
 
 =>
 
-const packageManagerUpgrade = (bundle: string): string =>
-  Match.value(bundle).pipe(
-    Match.when((path: string) => /[\\/]\.bun[\\/]/.test(path), () => 'bun add -g @athrio/loom@latest'),
-    Match.when((path: string) => /[\\/]pnpm[\\/]/.test(path), () => 'pnpm add -g @athrio/loom@latest'),
-    Match.orElse(() => 'npm install -g @athrio/loom@latest'),
-  )
+const projectCommands: Record<ProjectManager, { readonly add: string; readonly remove: string }> = {
+  npm: { add: 'npm install', remove: 'npm uninstall' },
+  bun: { add: 'bun add', remove: 'bun remove' },
+  pnpm: { add: 'pnpm add', remove: 'pnpm remove' },
+  yarn: { add: 'yarn add', remove: 'yarn remove' },
+}
+
+const installerUpgrade = Installation.$match({
+  Executable: () => Option.none<string>(),
+  Unowned: () => Option.none<string>(),
+  Homebrew: () => Option.some('brew upgrade loom'),
+  Npm: () => Option.some('npm install -g @athrio/loom@latest'),
+  Bun: () => Option.some('bun add -g @athrio/loom@latest'),
+  Pnpm: () => Option.some('pnpm add -g @athrio/loom@latest'),
+  Project: ({ root, manager }) =>
+    Option.some(`cd ${quoted(root)} && ${projectCommands[manager].add} @athrio/loom@latest`),
+})
 
 ~
 
-The standalone executable has no package manager behind it, so it replaces itself. Every release of Loom on GitHub carries a gzipped executable for each platform Loom builds for, named `loom-<system>-<architecture>.gz`. Beside them sits `SHA256SUMS`, a list of the SHA-256 checksum of each file. The command asks GitHub's API for the latest release and reads the part of its answer that `ReleaseSchema` describes: the release's tag, and the name and address of each file it carries. `LOOM_RELEASES` overrides the address the command asks, which is how a test serves a release of its own.
+The standalone executable replaces itself instead. Every release of Loom on GitHub carries a gzipped executable for each platform Loom builds for, named `loom-<system>-<architecture>.gz`. Beside them sits `SHA256SUMS`, a list of the SHA-256 checksum of each file. The command asks GitHub's API for the latest release and reads the part of its answer that `ReleaseSchema` describes: the release's tag, and the name and address of each file it carries. `LOOM_RELEASES` overrides the address the command asks, which is how a test serves a release of its own.
 
 The tag is the version with a `v` in front. `versionOrder` compares two versions number by number, so `0.0.10` comes after `0.0.9`. A release no newer than this Loom leaves the executable as it is, and the command says so.
 
@@ -703,11 +818,19 @@ const upgradeStandalone = Effect.gen(function* () {
   )
 })
 
+~
+
+`upgrade` lets the installation choose. When `installerUpgrade` names a command, the command prints it, says who installed Loom, and names `loom update --all` as well, since an upgrade through an installer leaves the store just as behind. When it names none, the standalone executable replaces itself.
+
+=>
+
 const upgrade = Effect.gen(function* () {
-  if (standalone) return yield* upgradeStandalone
+  const command = installerUpgrade(thisInstallation)
+  if (Option.isNone(command)) return yield* upgradeStandalone
   yield* Console.log(
-    `\n   Loom was installed by a package manager, which upgrades it:\n\n` +
-      `   ${packageManagerUpgrade(fileURLToPath(import.meta.url))}\n`,
+    `\n   Loom was ${describedInstallation(thisInstallation)}. Upgrade it with:\n\n` +
+      `   ${command.value}\n\n` +
+      `   ${dim('then run `loom update --all` in each workspace to bring its services along')}\n`,
   )
 }).pipe(
   Effect.catchTags({
@@ -755,6 +878,231 @@ const status = Effect.gen(function* () {
       `   ${dim('activated')}  ${languages.length === 0 ? dim('(none)') : languages.join(', ')}\n`,
   )
   if (languages.length > 0) yield* Console.log(`${languages.map(mark).join('\n')}\n`)
+})
+
+## A check-up for Loom
+
+`loom doctor` looks for what goes wrong around Loom rather than inside it, and pairs each problem it finds with the command that fixes it. It asks four questions. Which `loom` does a terminal run, and who installed it? Does any other `loom` wait on `PATH`? Does the store hold each activated language's service at this Loom's version? Can the language server find a TypeScript? The first two concern the machine, so the doctor always asks them. The last two concern a workspace, so the doctor asks them only inside one.
+
+Each answer is a `Finding`. A fine finding notes that something is in order. A problem carries its fix, the command a person runs to put it right, and the type admits no problem without one.
+
+=>
+
+type Finding = Data.TaggedEnum<{
+  Fine: { readonly note: string }
+  Problem: { readonly note: string; readonly fix: string }
+}>
+const Finding = Data.taggedEnum<Finding>()
+
+~
+
+A terminal looks for a command in the folders `PATH` lists, in order, and runs the first file of that name it meets. `programsOnPath` makes the same search and keeps every match, not only the first. A match is a file the person may run, by its plain name on macOS and Linux, and on Windows by the name with `.exe`, or with `.cmd` for the launchers npm writes. Two folders may lead to one file through a link, so the search keeps each real file once. `loomsOnPath` is that search for `loom`.
+
+=>
+
+const commandNames = (command: string): ReadonlyArray<string> =>
+  process.platform === 'win32' ? [`${command}.exe`, `${command}.cmd`] : [command]
+
+const isProgram = (file: string): boolean =>
+  pipe(
+    Option.liftThrowable(() => statSync(file))(),
+    Option.exists(
+      (stats) => stats.isFile() && (process.platform === 'win32' || (stats.mode & 0o111) !== 0),
+    ),
+  )
+
+const programsOnPath = (command: string): ReadonlyArray<string> =>
+  pipe(
+    (process.env.PATH ?? '').split(delimiter),
+    Array.filter((folder) => folder !== ''),
+    Array.flatMap((folder) =>
+      Array.map(commandNames(command), (name) => resolvePath(folder, name)),
+    ),
+    Array.filter(isProgram),
+    Array.dedupeWith((one, other) => realOf(one) === realOf(other)),
+  )
+
+const loomsOnPath = (): ReadonlyArray<string> => programsOnPath('loom')
+
+~
+
+`installationOf` reads the installation of a `loom` on `PATH`, where a file with no installer's mark is `Unowned`. It may be an older standalone executable, or a script a person wrote, and the path cannot tell which.
+
+A `loom` on `PATH` is this Loom when its real path is the file this Loom runs from. pnpm, and npm on Windows, put a launcher on `PATH` rather than a link, and a launcher's real path is its own. A machine holds at most one install by each of those installers, so a `loom` with this Loom's installation counts as this Loom too. A file on `PATH` with no installer's mark reads as `Unowned`, never as this Loom's `Executable`, so for the standalone executable only the file decides.
+
+=>
+
+const installationOf = (file: string): Installation =>
+  installationAt(realOf(file), Installation.Unowned())
+
+const isThisLoom = (file: string): boolean =>
+  realOf(file) === realOf(thisFile) || Equal.equals(installationOf(file), thisInstallation)
+
+~
+
+The doctor's first finding names this Loom, its version, its file, and who installed it. The findings after it read `PATH`.
+
+When the first `loom` on `PATH` is this one, all is well. When it is another, a terminal runs that one instead, and its fix removes it. Every later `loom` that is not this one is a problem too. It is a stale copy, and a change to `PATH` could put it first again. Its fix removes it the same way. `installerRemoval` names the command that removes a copy, and it runs the installer's own uninstall, so the installer forgets the copy as well. A file no installer owns has no uninstall, so its removal deletes the file.
+
+A `PATH` with no `loom` at all leaves a terminal with nothing to run. The install script fixes that, since it puts Loom in a folder of its own and adds the folder to `PATH`.
+
+=>
+
+const installLine =
+  'curl -fsSL https://github.com/athrio-com/loom/releases/latest/download/install.sh | sh'
+
+const installerRemoval = (installation: Installation, file: string): string =>
+  Installation.$match(installation, {
+    Executable: () => `rm ${quoted(file)}`,
+    Unowned: () => `rm ${quoted(file)}`,
+    Homebrew: () => 'brew uninstall loom',
+    Npm: () => 'npm uninstall -g @athrio/loom',
+    Bun: () => 'bun remove -g @athrio/loom',
+    Pnpm: () => 'pnpm remove -g @athrio/loom',
+    Project: ({ root, manager }) =>
+      `cd ${quoted(root)} && ${projectCommands[manager].remove} @athrio/loom`,
+  })
+
+const otherLoom = (file: string, note: string): Finding =>
+  Finding.Problem({
+    note: `${note}, ${describedInstallation(installationOf(file))}`,
+    fix: installerRemoval(installationOf(file), file),
+  })
+
+const thisLoomFinding = Finding.Fine({
+  note: `loom v${loomVersion} runs from ${thisFile}, ${describedInstallation(thisInstallation)}`,
+})
+
+const pathFindings = (looms: ReadonlyArray<string>): ReadonlyArray<Finding> =>
+  Array.match(looms, {
+    onEmpty: () => [
+      Finding.Problem({
+        note: 'no loom is on PATH, so a terminal finds none to run',
+        fix: installLine,
+      }),
+    ],
+    onNonEmpty: ([first, ...rest]) => [
+      isThisLoom(first)
+        ? Finding.Fine({ note: `a terminal runs this loom, at ${first}` })
+        : otherLoom(first, `a terminal runs ${first} instead`),
+      ...pipe(
+        rest,
+        Array.filter((file) => !isThisLoom(file)),
+        Array.map((file) => otherLoom(file, `${file} is on PATH too`)),
+      ),
+    ],
+  })
+
+~
+
+Inside a workspace the doctor checks each activated language's service, as `loom status` marks it. A service at this Loom's version is fine. A missing service, or one at another version, is a problem, and `loom update` with the language's id fixes it. A workspace that activates no language needs no service at all.
+
+=>
+
+const serviceFinding = (id: string, root: string): Finding =>
+  Option.match(installedVersion(id, root), {
+    onNone: () =>
+      Finding.Problem({ note: `the store holds no service for ${id}`, fix: `loom update ${id}` }),
+    onSome: (version) =>
+      version === serviceVersion
+        ? Finding.Fine({ note: `the store holds ${id}'s service at this Loom's ${serviceVersion}` })
+        : Finding.Problem({
+            note: `the store holds ${id}'s service at ${version}, and this Loom needs ${serviceVersion}`,
+            fix: `loom update ${id}`,
+          }),
+  })
+
+const serviceFindings = (languages: ReadonlyArray<string>, root: string): ReadonlyArray<Finding> =>
+  Array.match(languages, {
+    onEmpty: () => [
+      Finding.Fine({ note: 'no language is activated, so the store needs no service' }),
+    ],
+    onNonEmpty: (ids) => Array.map(ids, (id) => serviceFinding(id, root)),
+  })
+
+~
+
+The last question is the TypeScript the language server checks code against. VS Code sends the server one of its own, but every other editor leaves the server to search, and the doctor searches where the server does. It looks in the project, then beside Loom, then in the store, the search `foundTypeScript` already makes for `loom format`.
+
+When the search finds nothing, the server puts TypeScript 6 into the store the first time it starts. The standalone executable unpacks the copy it carries, which always works. The npm package installs TypeScript with npm, which fails when npm is not on `PATH`, as on a Linux system whose Node came without it. That failure is the one problem here. The install script fixes it, because the standalone executable needs no npm.
+
+=>
+
+const missingTypeScript = (root: string): Finding =>
+  Match.value({ standalone, npm: programsOnPath('npm').length > 0 }).pipe(
+    Match.when({ standalone: true }, () =>
+      Finding.Fine({
+        note: `the language server unpacks the TypeScript Loom carries into ${storeDir(root)} when it first starts`,
+      }),
+    ),
+    Match.when({ npm: true }, () =>
+      Finding.Fine({
+        note: `the language server installs TypeScript ${typeScriptRange} into ${storeDir(root)} with npm when it first starts`,
+      }),
+    ),
+    Match.orElse(() =>
+      Finding.Problem({
+        note: 'the language server finds no TypeScript, and has no npm to install one with',
+        fix: installLine,
+      }),
+    ),
+  )
+
+const typeScriptFinding = (root: string): Finding =>
+  Option.match(foundTypeScript(root), {
+    onNone: () => missingTypeScript(root),
+    onSome: (file) =>
+      Finding.Fine({ note: `the language server finds TypeScript in ${dirname(dirname(file))}` }),
+  })
+
+const workspaceFindings = (
+  root: string,
+): Effect.Effect<ReadonlyArray<Finding>, never, LoomConfig> =>
+  Effect.gen(function* () {
+    const config = yield* LoomConfig
+    const manifest = yield* config.manifest(root)
+    return [
+      ...serviceFindings(Object.keys(manifest?.languages ?? {}), root),
+      typeScriptFinding(root),
+    ]
+  })
+
+~
+
+The doctor prints its findings in two groups, the machine's and then the workspace's. Each finding is one line with a mark, teal for fine and amber for a problem. A problem's fix sits on the line below it, ready to copy. Outside a workspace the second group is one line that says so. The report ends by counting the problems, and the command exits non-zero when it found any, so a script can run it as a check.
+
+=>
+
+const amber = (s: string): string => `\x1b[38;5;214m${s}${reset}`
+
+const findingLines = (findings: ReadonlyArray<Finding>): string =>
+  Array.map(
+    findings,
+    Finding.$match({
+      Fine: ({ note }) => `   ${teal('✓')} ${note}`,
+      Problem: ({ note, fix }) => `   ${amber('✗')} ${note}\n       ${fix}`,
+    }),
+  ).join('\n')
+
+const doctor = Effect.gen(function* () {
+  const dir = process.cwd()
+  const machine = [thisLoomFinding, ...pathFindings(loomsOnPath())]
+  const workspace = workspaceOf(dir)
+  const inWorkspace = yield* Option.match(workspace, {
+    onNone: () => Effect.succeed([] as ReadonlyArray<Finding>),
+    onSome: workspaceFindings,
+  })
+  const problems = Array.filter([...machine, ...inWorkspace], Finding.$is('Problem')).length
+  yield* Console.log(
+    `\n   ${dim('this machine')}\n${findingLines(machine)}\n\n` +
+      Option.match(workspace, {
+        onNone: () => `   ${dim(`no workspace holds ${dir}, so no services to check`)}\n`,
+        onSome: (root) => `   ${dim(`the workspace at ${root}`)}\n${findingLines(inWorkspace)}\n`,
+      }),
+  )
+  if (problems === 0) return yield* Console.log(`   ${teal('✓')} no problems found\n`)
+  yield* Console.log(`   ${problems === 1 ? '1 problem' : `${problems} problems`} found\n`)
+  yield* Effect.sync(() => void (process.exitCode = 1))
 })
 
 ## Setting a workspace variable
@@ -1020,7 +1368,9 @@ const helixConfigDir = (): string =>
 
 ~
 
-Loom's entry in `languages.toml` is two tables. The language table makes every `.loom` file a loom, treats the folder that holds `.loom` as its project, and lets Markdown hand a fence marked `loom` to the grammar. It also turns on soft wrap at a text width of `defaultWidth`, a hundred columns, the width Loom formats code to. A loom's prose keeps each paragraph on one line, so Helix wraps it on screen at that width, and the prose and the code share one right edge without a line break written into the file. In a project that `loom init` has set up, Helix takes the width from the project's `.editorconfig` instead, so a project with a width of its own wraps at that. The server table starts `loom lsp`. Helix needs no table for the grammar, because it finds the compiled library in its runtime folder by the language's name.
+Loom's entry in `languages.toml` is two tables. The language table makes every `.loom` file a loom, treats the folder that holds `.loom/config.yaml` as its project, and lets Markdown hand a fence marked `loom` to the grammar. It also turns on soft wrap at a text width of `defaultWidth`, a hundred columns, the width Loom formats code to. A loom's prose keeps each paragraph on one line, so Helix wraps it on screen at that width, and the prose and the code share one right edge without a line break written into the file. In a project that `loom init` has set up, Helix takes the width from the project's `.editorconfig` instead, so a project with a width of its own wraps at that. The server table starts `loom lsp`. Helix needs no table for the grammar, because it finds the compiled library in its runtime folder by the language's name.
+
+Helix 25.07 finds a project by joining each root marker to every folder above the file and asking whether that path exists, so a marker may name a file inside a folder. A bare `.loom` would also match the `~/.loom` folder that holds the standalone executable, which is no project. A later Helix may match a marker against names alone, and then this marker matches nothing, so Helix falls back to the folder it was started in, or the repository around it, and never to a wrong project.
 
 The entry is a managed block, like the section `loom init` writes into `.editorconfig`, so a later run replaces it whole and leaves the rest of `languages.toml` as its owner wrote it. Here the owner's own setting is a Loom entry outside the block. The command then changes nothing and fails with `HelixConfigClash`, since two entries for one language would leave Helix to pick between them.
 
@@ -1034,7 +1384,7 @@ const helixBlock: ManagedBlock = {
     'name = "loom"',
     'scope = "source.loom"',
     'file-types = ["loom"]',
-    'roots = [".loom"]',
+    'roots = [".loom/config.yaml"]',
     'injection-regex = "^loom$"',
     'language-servers = ["loom"]',
     'soft-wrap = { enable = true, wrap-at-text-width = true }',
@@ -1126,7 +1476,9 @@ const nvimSiteDir = (): string => {
 
 ~
 
-Neovim runs each Lua file in a `plugin` folder on its runtime path as it starts, so the command writes `plugin/loom.lua`. The plugin makes every `.loom` file the `loom` file type. It configures the language server with the table nvim-lspconfig collects for Loom, the command, the file type and the root markers, and enables it. It starts tree-sitter for each loom as it opens, because Neovim colours a buffer with tree-sitter only when asked.
+Neovim runs each Lua file in a `plugin` folder on its runtime path as it starts, so the command writes `plugin/loom.lua`. The plugin makes every `.loom` file the `loom` file type. It configures the language server with the table nvim-lspconfig collects for Loom, the command, the file type and the way to find a loom's root, and enables it. It starts tree-sitter for each loom as it opens, because Neovim colours a buffer with tree-sitter only when asked.
+
+Neovim matches a root marker against the names in each folder above a file, and a name cannot reach inside a folder to `.loom/config.yaml`. A bare `.loom` would also match the `~/.loom` folder that holds the standalone executable, which is no project. So the plugin gives Neovim a `root_dir` function instead. It takes the nearest folder whose `.loom` holds a `config.yaml`, then the nearest Git repository, and otherwise starts the server with no root at all, as Neovim does for a loose file.
 
 The plugin also keeps Neovim from breaking a loom's lines while the person types. Neovim reads a project's `.editorconfig` and sets its text width from the `max_line_length` that `loom init` writes there. At that width, Neovim's `t` format option breaks a line of text as soon as typing runs past it, and its `c` option does the same to a line Neovim takes for a comment, such as a list item or a heading. A loom keeps each paragraph on one line, so the plugin removes both options in every loom.
 
@@ -1143,7 +1495,13 @@ const nvimPlugin = [
   "vim.lsp.config('loom', {",
   "  cmd = { 'loom', 'lsp', '--stdio' },",
   "  filetypes = { 'loom' },",
-  "  root_markers = { '.loom', '.git' },",
+  '  root_dir = function(bufnr, on_dir)',
+  '    local workspace = function(name, path)',
+  "      local config = vim.fs.joinpath(path, name, 'config.yaml')",
+  "      return name == '.loom' and vim.uv.fs_stat(config) ~= nil",
+  '    end',
+  "    on_dir(vim.fs.root(bufnr, workspace) or vim.fs.root(bufnr, '.git'))",
+  '  end,',
   '})',
   "vim.lsp.enable('loom')",
   '',
@@ -1209,7 +1567,7 @@ const nvim = Effect.gen(function* () {
 
 ## Where the world ends
 
-The command program is fifteen subcommands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them, recording each in the lock; with `--watch` it stays running and re-tangles as the looms change, so a dev server watching the output reacts to a loom edit. `loom orphans` lists the files across the workspace that the lock records but no loom still produces, one path per line for a shell to pipe into `rm`, and `--prune` removes them and rewrites the lock. `loom weave <path> <out>` projects a corpus into a `WovenCorpus` and writes it as JSON to `out`. `loom toc <path>` rewrites a book's table of contents from the corpus's own frontmatter. `loom format <path>` formats the looms a file or a folder holds, and with `--check` names the ones that would change instead. `loom init [dir]` scaffolds a `.loom/config.yaml`, an `.mcp.json` and an `.editorconfig`, defaulting to the working directory. `loom add <language>` and `loom remove <language>` turn a language on and off, and `loom update <language>…` or `loom update --all` brings the services of active languages to this Loom's version. `loom upgrade` replaces Loom with its latest release, or names the package manager's command that does. `loom status` reports what the workspace has activated and what the store holds. `loom set <name> <value>` writes a workspace variable and re-tangles the corpus, so a version bump is one command. `loom design <name> <address>` stands Loom Design in front of a running application. `loom helix` sets the Helix editor up for looms, and `loom nvim` sets up Neovim. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the weaver, the contents writer, the formatter, the package config, the configuration, and the Node platform behind the prompts and the filesystem.
+The command program is sixteen subcommands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them, recording each in the lock; with `--watch` it stays running and re-tangles as the looms change, so a dev server watching the output reacts to a loom edit. `loom orphans` lists the files across the workspace that the lock records but no loom still produces, one path per line for a shell to pipe into `rm`, and `--prune` removes them and rewrites the lock. `loom weave <path> <out>` projects a corpus into a `WovenCorpus` and writes it as JSON to `out`. `loom toc <path>` rewrites a book's table of contents from the corpus's own frontmatter. `loom format <path>` formats the looms a file or a folder holds, and with `--check` names the ones that would change instead. `loom init [dir]` scaffolds a `.loom/config.yaml`, an `.mcp.json` and an `.editorconfig`, defaulting to the working directory. `loom add <language>` and `loom remove <language>` turn a language on and off, and `loom update <language>…` or `loom update --all` brings the services of active languages to this Loom's version. `loom upgrade` replaces Loom with its latest release, or names the installer's command that does. `loom status` reports what the workspace has activated and what the store holds, and `loom doctor` checks the install, `PATH` and the workspace's services, naming the command that fixes each problem it finds. `loom set <name> <value>` writes a workspace variable and re-tangles the corpus, so a version bump is one command. `loom design <name> <address>` stands Loom Design in front of a running application. `loom helix` sets the Helix editor up for looms, and `loom nvim` sets up Neovim. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the weaver, the contents writer, the formatter, the package config, the configuration, and the Node platform behind the prompts and the filesystem.
 
 One entry point sits outside the command program. `loom lsp --stdio` starts the language server for any editor. It loads Volar only when it is reached, so a plain `tangle` never pays to bundle it, and it runs on its own Bun runtime rather than nesting one inside a command. Volar is CommonJS and calls `require` at runtime for the built-in modules; this bundle is an ES module, where `require` is absent, so before loading the server the `lsp` branch exposes one through `createRequire` on `globalThis` — the shim Volar's bundled code reaches for. That cost lands only on the `lsp` path.
 
@@ -1270,6 +1628,8 @@ const upgradeCommand = Command.make('upgrade', {}, () => upgrade)
 
 const statusCommand = Command.make('status', {}, () => status)
 
+const doctorCommand = Command.make('doctor', {}, () => doctor)
+
 const setCommand = Command.make(
   'set',
   { name: Argument.String('name'), value: Argument.String('value') },
@@ -1303,6 +1663,7 @@ const loom = Command.make('loom').pipe(
     updateCommand,
     upgradeCommand,
     statusCommand,
+    doctorCommand,
     setCommand,
     designCommand,
     helixCommand,
@@ -1335,11 +1696,11 @@ The program is built on Effect, a functional TypeScript library for composing an
 
 Node's `path` resolves a workspace directory for `init`. `node:fs` writes the configuration, the `.mcp.json` and the `.editorconfig`, creates the corpus folder, unpacks the grammar into a temporary folder and removes it again, copies and renames the files Helix and Neovim read, and writes the executable `loom upgrade` downloads. Effect's child-process module runs Loom Design's binary for `design` and the C compiler for `helix` and `nvim`, `Data` types their failures, and `Scope` keeps the unpacked grammar until the command that unpacked it is done. `node:module` supplies the resolver that finds Design's binary, the workspace's grammar and a TypeScript — the same resolver the `lsp` branch borrows to give Volar a `require`. `pipe` threads each search through `Option`, `node:os` supplies the home folder that Helix's configuration and Neovim's data live under and the temporary folder the grammar unpacks into, and `node:url` turns the bundle's own address into a path.
 
-For `loom upgrade`, `Schema` decodes the release GitHub describes, `Array` finds a file in it, `Order` compares two versions, `Match` picks the package manager's command, `node:crypto` computes the checksum of a download, and `node:zlib` unpacks it.
+For `loom upgrade`, `Schema` decodes the release GitHub describes, `Array` finds a file in it, `Order` compares two versions, `node:crypto` computes the checksum of a download, and `node:zlib` unpacks it. `Match` reads an installer's marks in a path, and `realpathSync` follows the links that lead to a file. For `loom doctor`, `delimiter` splits `PATH` into its folders, `statSync` tells whether a file in one of them is a program, and `Equal` compares two installations by what they hold.
 
 The language server contributes six services: `LoomTangler`, which walks a `.loom` file, emits the tangled output, and watches it for changes; `LoomWeaver`, which projects a corpus and writes the woven data; `LoomContents`, which regenerates a book's table of contents; `LoomFormatter`, which formats a loom and names the looms a folder holds; `DocumentSource`, which feeds them source text from disk; and `PackageConfig`, which resolves a `.loom`'s package settings. `TangledFile` and `TangleError` ride along from the compiler, typing the files a pass writes and the error a broken corpus raises. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back, and `defaultWidth`, the width a loom's lines keep to when its project names none.
 
-From `@athrio/loom-lang-services` come the store operations behind activation: `installService` and `removeService` install and uninstall a language's package, with `ServiceInstall` saying what an install did and `StoreError` the reason one failed, `installedVersion` reads the version of a service the store holds, and `serviceVersion` is the version this Loom expects. `storeDir` locates the store, `workspaceRoot` finds the workspace it sits in, and `servicePackage` names a language's package. `storeTypeScript` and `installTypeScript` find and install the TypeScript the store keeps, at the range `typeScriptRange` names, `standalone` says whether Loom runs as the standalone executable, and `embeddedFile` finds the grammar library an executable carries. For `format`, `loadActive` loads the project's language services from the store and `installHostRuntime` lends them the host's Effect and TypeScript, both imported only when `format` reaches them; `LanguageService` types what the loader returns, and `pathToFileURL` turns the TypeScript it finds into the address `import` takes.
+From `@athrio/loom-lang-services` come the store operations behind activation: `installService` and `removeService` install and uninstall a language's package, with `ServiceInstall` saying what an install did and `StoreError` the reason one failed, `installedVersion` reads the version of a service the store holds, and `serviceVersion` is the version this Loom expects. `storeDir` locates the store, `workspaceRoot` finds the workspace it sits in, `workspaceOf` says whether any workspace holds a folder, and `servicePackage` names a language's package. `storeTypeScript` and `installTypeScript` find and install the TypeScript the store keeps, at the range `typeScriptRange` names, `standalone` says whether Loom runs as the standalone executable, and `embeddedFile` finds the grammar library an executable carries. For `format`, `loadActive` loads the project's language services from the store and `installHostRuntime` lends them the host's Effect and TypeScript, both imported only when `format` reaches them; `LanguageService` types what the loader returns, and `pathToFileURL` turns the TypeScript it finds into the address `import` takes.
 
 =>
 
@@ -1349,6 +1710,7 @@ import {
   Console,
   Data,
   Effect,
+  Equal,
   Match,
   Option,
   Order,
@@ -1368,13 +1730,15 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir, tmpdir } from 'node:os'
-import { dirname, resolve as resolvePath } from 'node:path'
+import { delimiter, dirname, resolve as resolvePath } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 import { DocumentSource, type TangledFile, type TangleError } from '@athrio/loom-lang/LoomCompiler'
@@ -1398,6 +1762,7 @@ import {
   storeDir,
   storeTypeScript,
   typeScriptRange,
+  workspaceOf,
   workspaceRoot,
 } from '@athrio/loom-lang-services/LoomStore'
 import type { LanguageService } from '@athrio/loom-lang-services/LanguageService'
@@ -1426,9 +1791,13 @@ import type { LanguageService } from '@athrio/loom-lang-services/LanguageService
 
 ::[Bringing a language up to date]
 
+::[Who installed Loom]
+
 ::[Upgrading Loom itself]
 
 ::[Reporting the workspace]
+
+::[A check-up for Loom]
 
 ::[Setting a workspace variable]
 

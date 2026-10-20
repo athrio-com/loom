@@ -24,14 +24,18 @@ export const servicePackage = (id: string): string => `@athrio/loom-service-${id
 
 The store lives in the workspace, under `.loom/services/` — the directory `loom add` fills, beside the committed `config.yaml`. Git ignores the store, since Loom rebuilds it on demand, while the configuration is committed. Loom installs each language's service there once, to serve the whole workspace, and never under the user's home directory: a project's tools belong to the project, not to the machine.
 
-A path belongs to the nearest workspace above it. That workspace is the first directory, walking up from the path, that holds a `.loom/` folder. `workspaceOf` runs the walk from a directory and yields nothing when it reaches the filesystem's root without finding one. Workspaces can nest. A Git worktree checked out inside a repository carries a `.loom/` of its own. The walk stops at the first `.loom/` it meets, so a loom in the worktree belongs to the worktree, not to the repository around it.
+A path belongs to the nearest workspace above it. A workspace is a folder that holds a configuration, the `.loom/config.yaml` file that `loom init` writes, and `isWorkspace` asks that of a folder. A `.loom` folder alone does not make one. The install script keeps the standalone executable in `~/.loom/bin`, and a loose loom keeps the lock of its last tangle in a `.loom` folder beside it. Neither folder holds a configuration, so neither turns the folder above it into a workspace. The rule keeps the home folder, which holds `~/.loom/bin` once Loom is installed, from becoming a workspace that every loose loom under it falls into.
+
+`workspaceOf` walks up from a directory to the first workspace, and yields nothing when it reaches the filesystem's root without finding one. Workspaces can nest. A Git worktree checked out inside a repository carries a configuration of its own. The walk stops at the first configuration it meets, so a loom in the worktree belongs to the worktree, not to the repository around it.
 
 `workspaceRoot` names a workspace for any directory. It returns the workspace that holds the directory, or the directory itself when no workspace does. `storeDir` names the store, the `services` folder within that workspace. The language server and `loom format` pass the workspace of the loom they serve, and the commands that add and remove a language pass the working directory. Either way the walk reaches the workspace the path belongs to, so a service the loader looks for is the service `loom add` placed there. `LOOM_HOME` overrides the search with an explicit store, the hook a test or a shared setup uses to point every resolver at one directory.
 
 =>
 
+export const isWorkspace = (dir: string): boolean => existsSync(join(dir, '.loom', 'config.yaml'))
+
 export const workspaceOf = (dir: string): Option.Option<string> => {
-  if (existsSync(join(dir, '.loom'))) return Option.some(dir)
+  if (isWorkspace(dir)) return Option.some(dir)
   const parent = dirname(dir)
   return parent === dir ? Option.none() : workspaceOf(parent)
 }
@@ -318,7 +322,7 @@ export const removeService = (id: string, dir: string): Effect.Effect<void> =>
 
 ## What this module draws on
 
-The store works in Effect: `Effect` runs each read and write, `Data` gives `StoreError` and `ServiceInstall` their tags, `Schema` decodes a service's manifest and the TypeScript the executable carries, `Array` finds a file the executable embeds, and `Option` with `pipe` carries a value that may be missing, such as the workspace above a directory or the version of a service the store lacks. Node's modules supply the rest, and Bun provides them too. `child_process` runs the package manager, which `promisify` turns into a promise `Effect.tryPromise` can await. `fs` reads the store's contents and a package's manifest, and adds, removes and renames packages. `zlib` unpacks the TypeScript the executable carries. `join` and `dirname` form and walk the store path up to the workspace root.
+The store works in Effect: `Effect` runs each read and write, `Data` gives `StoreError` and `ServiceInstall` their tags, `Schema` decodes a service's manifest and the TypeScript the executable carries, `Array` finds a file the executable embeds, and `Option` with `pipe` carries a value that may be missing, such as the workspace above a directory or the version of a service the store lacks. Node's modules supply the rest, and Bun provides them too. `child_process` runs the package manager, which `promisify` turns into a promise `Effect.tryPromise` can await. `fs` reads the store's contents and a package's manifest, and adds, removes and renames packages. `zlib` unpacks the TypeScript the executable carries. `join` and `dirname` form and walk the store path up to the workspace root, and `existsSync` tells whether a folder holds a configuration.
 
 =>
 
