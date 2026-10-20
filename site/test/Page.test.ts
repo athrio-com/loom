@@ -5,20 +5,9 @@ import { Option } from 'effect'
 import { view } from '../src/view'
 import { pager } from '../src/chrome'
 import { type Corpus, type Model, pathOf, type Route, routeOf } from '../src/model'
-import { renderDocument, renderHtml } from './render'
+import { anchor, modelAt, renderDocument, renderHtml } from './render'
 
-// The router is the one place a broken link becomes a compile error rather than a 404, so
-// these cases render every route through the real SSR path — the same path the server uses.
-const at = (route: Route, over: Partial<Model> = {}): Model =>
-  ({
-    route, chapter: '', drawerOpen: false, runtime: 'bun',
-    searchOpen: false, caret: 0, searching: false,
-    found: [],
-    activeSection: '',
-    player: { struck: 0, beat: 0, playing: false, output: Option.none(), full: false }, version: '0.0.9',
-    query: '', focus: 0, copied: '', book: Option.none(),
-    ...over,
-  }) as Model
+const at = (route: Route, over: Partial<Model> = {}): Model => modelAt({ route, ...over })
 
 const render = (model: Model): string => renderHtml((h) => view(model, h).body)
 
@@ -99,7 +88,7 @@ describe('the page', () => {
             {
               type: 'code',
               language: 'typescript',
-              code: '::[Greeting]\nconsole.log(greet())',
+              code: `${anchor('Greeting')}\nconsole.log(greet())`,
               links: [
                 {
                   name: 'Greeting',
@@ -130,8 +119,12 @@ describe('the page', () => {
     expect(html).toContain('class="menu-card thin-scroll"')
     expect(html).toContain('<p class="page-place">Part I, Chapter 1</p>')
     expect(html).toContain('<h1 class="chapter-title" id="a-first-loom">A first loom</h1>')
-    expect(html).toContain('<a class="code-anchor" href="#greeting">::[Greeting]</a>\nconsole.log(<span class="tok-function">greet</span>()')
-    expect(html).toContain('<span class="tok-keyword">const</span> greet = () =&gt; <span class="tok-constant">1</span>')
+    expect(html).toContain(
+      `<a class="code-anchor" href="#greeting">${anchor('Greeting')}</a>\nconsole.log(<span class="tok-function">greet</span>()`,
+    )
+    expect(html).toContain(
+      '<span class="tok-keyword">const</span> greet = () =&gt; <span class="tok-constant">1</span>',
+    )
     expect(html).toContain('href="/source/using-loom/a-workspace"')
     ROUTES.forEach((route) => expect(render(at(route))).not.toContain('Being written'))
   })
@@ -165,7 +158,9 @@ describe('the page', () => {
     expect(html).toContain('License</h1>')
     expect(html).toContain('MIT License</h2>')
     expect(html).toContain('Copyright (c) 2026 Quadrivium Academy Sihtasutus and Loom contributors')
-    expect(html).toContain('Permission is hereby granted, free of charge, to any person obtaining a copy of this software')
+    expect(html).toContain(
+      'Permission is hereby granted, free of charge, to any person obtaining a copy of this software',
+    )
     expect(html).toContain('THE SOFTWARE IS PROVIDED')
     expect(render(at('home'))).toContain('href="/license"')
   })
@@ -173,10 +168,10 @@ describe('the page', () => {
   it('opens the footer chips that leave the site in a new tab, and only those', () => {
     const html = render(at('home'))
     const chips = html.match(/<a class="footer-chip"[^>]*>/g) ?? []
-    chips.forEach((chip) =>
-      expect(chip.includes('target="_blank"')).toBe(/href="https?:/.test(chip)),
+    chips.forEach((chip) => expect(chip.includes('target="_blank"')).toBe(/href="https?:/.test(chip)))
+    const nonprofit = html.match(
+      /<a class="footer-chip" href="https:\/\/qda\.ee"[^>]*>About Nonprofit<svg/,
     )
-    const nonprofit = html.match(/<a class="footer-chip" href="https:\/\/qda\.ee"[^>]*>About Nonprofit<svg/)
     expect(nonprofit?.[0]).toContain('target="_blank"')
     expect(nonprofit?.[0]).toContain('rel="noopener noreferrer"')
     expect(html).toMatch(/href="\/license"[^>]*>License<\/a>/)
@@ -194,7 +189,6 @@ describe('the page', () => {
     const html = render(at('home'))
     expect(html).toContain('The whole vocabulary')
     expect(html).toContain('Loom syntax')
-    // one card per mark, one layout — the table and the deck are gone
     const glyphs = html.split('class="mark-glyph"').length - 1
     expect(glyphs).toBe(8)
     ;['Frontmatter', 'Section', 'Warp', 'Sink', 'Specifier', 'Arrow', 'Tilde', 'Anchor'].forEach(
@@ -202,7 +196,7 @@ describe('the page', () => {
     )
   })
 
-  it('derives each glyph chip wash from the mark\'s own colour', () => {
+  it("derives each glyph chip wash from the mark's own colour", () => {
     const html = render(at('home'))
     expect(html).toContain('color: #8B5CF6; background: #8B5CF61F')
     expect(html).toContain('color: #00996B; background: #00996B1F')
@@ -212,7 +206,6 @@ describe('the page', () => {
     const home = render(at('home'))
     expect(home).toContain('calc(100% / 7 + 0.8px)')
     expect(home).toContain('background-origin: content-box')
-    // the palette's 17px glyphs take the fine seam, with no inset to spill into
     const palette = render(at('home', { searchOpen: true }))
     expect(palette).toContain('calc(100% / 7 + 0.5px)')
   })
@@ -235,7 +228,6 @@ describe('the page', () => {
     const html = render(at('home'))
     expect(html).toContain('class="px-json"')
     expect(html).toContain('class="tok-key"')
-    // init, tangle and eject are self-contained SVGs; only weave is built from elements
     expect(html.split('class="ops-svg"').length - 1).toBe(3)
     expect(html).not.toContain('class="tree"')
   })
@@ -247,12 +239,11 @@ describe('the page', () => {
     expect(html.split('ops-took shown').length - 1).toBe(1)
   })
 
-  it('corrects the mock\'s caption: init writes .loom, not loom', () => {
+  it("corrects the mock's caption: init writes .loom, not loom", () => {
     expect(render(at('home'))).toContain('.loom directory')
   })
 
   it('names both neighbours in the site reading order', () => {
-    // docs → community → home → why-loom → source
     const home = render(at('home'))
     expect(home).toContain('>Previous<')
     expect(home).toContain('class="pager-title">Community<')
@@ -264,7 +255,6 @@ describe('the page', () => {
   })
 
   it('carries one card at each end of the order, not two', () => {
-    // tested on the pager itself: the docs route wears variant B, which is not built yet
     const first = renderHtml((h) => pager('docs', h))
     expect(first).not.toContain('>Previous<')
     expect(first).toContain('class="pager-title">Community<')
@@ -274,7 +264,6 @@ describe('the page', () => {
   })
 
   it('hands each card the ink its destination is written in', () => {
-    // one colour per card now, deep enough to hold on paper — the card draws no box at all
     const home = render(at('home'))
     expect(home).toContain('--pg-ink: #6D3BD4')
     expect(home).toContain('--pg-ink: #C08A00')
@@ -285,18 +274,15 @@ describe('the page', () => {
   })
 })
 
-// The palette's pills carry two states the live design keeps apart: the one the arrow keys
-// are on, and the one the mouse is over. Collapsing them into a single rule is the mistake
-// this guards — a hovered pill must not look like the focused one, or the row stops saying
-// which pill Enter would open. The values come from Site Nav.dc.html.
-describe("the palette's pills", () => {
-  const css = readFileSync(resolve(__dirname, '../src/landing.css'), 'utf8')
-  const ruleFor = (selector: string): string => {
-    const at = css.indexOf(`${selector} {`)
-    expect(at).toBeGreaterThan(-1)
-    return css.slice(at, css.indexOf('}', at))
-  }
+const css = readFileSync(resolve(__dirname, '../src/landing.css'), 'utf8')
 
+const ruleFor = (selector: string): string => {
+  const start = css.indexOf(`${selector} {`)
+  expect(start).toBeGreaterThan(-1)
+  return css.slice(start, css.indexOf('}', start))
+}
+
+describe("the palette's pills", () => {
   it('lifts the focused pill further than the hovered one, and only it recolours', () => {
     const focused = ruleFor('.pill-link.here')
     expect(focused).toContain('rgba(242, 239, 230, 0.14)')
@@ -306,7 +292,6 @@ describe("the palette's pills", () => {
     const hovered = ruleFor('.pill-link:hover')
     expect(hovered).toContain('rgba(242, 239, 230, 0.10)')
     expect(hovered).toContain('#8FA0D6')
-    // hover leaves the label alone, so the focused pill stays the brightest one
     expect(/(?:^|;|\s)color:/.test(hovered)).toBe(false)
   })
 
@@ -318,18 +303,7 @@ describe("the palette's pills", () => {
   })
 })
 
-// The stylesheet resets everything to border-box; the live design does not, and declares
-// border-box per element instead. Anything sized in live without that declaration has to
-// opt back out here, or its border eats into the size and it comes out short. These two
-// are the whole set — the sweep that found them is in the chapter's prose.
 describe('the box model, where it differs from the reset', () => {
-  const css = readFileSync(resolve(__dirname, '../src/landing.css'), 'utf8')
-  const ruleFor = (selector: string): string => {
-    const at = css.indexOf(`${selector} {`)
-    expect(at).toBeGreaterThan(-1)
-    return css.slice(at, css.indexOf('}', at))
-  }
-
   it('measures the pill and the key box the way live does', () => {
     ;['.pill-link', '.nav-key'].forEach((selector) =>
       expect(ruleFor(selector)).toContain('box-sizing: content-box'),
@@ -337,7 +311,6 @@ describe('the box model, where it differs from the reset', () => {
   })
 
   it('leaves the vocabulary card and the example card on the reset', () => {
-    // the example card carries no border of its own any more, so the reset costs it nothing
     ;['.mark-card', '.pl-card'].forEach((selector) =>
       expect(ruleFor(selector)).not.toContain('content-box'),
     )
@@ -345,16 +318,14 @@ describe('the box model, where it differs from the reset', () => {
 })
 
 describe('the address of every page', () => {
-  const routes: ReadonlyArray<Route> = ['home', 'docs', 'why-loom', 'community', 'source', 'license']
-
   it('gives every route a path of its own', () => {
-    const paths = routes.map(pathOf)
+    const paths = ROUTES.map(pathOf)
     expect(paths).toEqual(['/', '/docs', '/why-loom', '/community', '/source', '/license'])
-    expect(new Set(paths).size).toBe(routes.length)
+    expect(new Set(paths).size).toBe(ROUTES.length)
   })
 
   it('reads each path back to the route it came from, and no route from an unknown one', () => {
-    routes.forEach((route) => expect(routeOf(pathOf(route))).toEqual(Option.some(route)))
+    ROUTES.forEach((route) => expect(routeOf(pathOf(route))).toEqual(Option.some(route)))
     expect(Option.isNone(routeOf('/nowhere'))).toBe(true)
   })
 })

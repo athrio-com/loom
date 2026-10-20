@@ -1,0 +1,1062 @@
+---
+Part X, Chapter 22: Testing the website
+Package: site/test/
+Language: TypeScript
+---
+
+# Testing the website
+
+The website's tests draw its pages and read the markup that comes out. They render through Foldkit's server renderer, the same path the server takes when it answers a request. So a case sees the page a visitor would get, down to its classes and its inline styles.
+
+The cases fall into three files. The page tests cover every route and the pieces the landing is made of. The documentation tests cover the shell that draws the woven docs. The example tests cover the Loom document the landing types out. A small module of helpers serves all three.
+
+## Drawing a piece of the page
+
+Foldkit hands an `HtmlBuilder` only to a view, and a test has no view of its own. So `renderDocument` wraps whatever the case wants to draw in a one-off application, whose model is `null` and whose view is the drawing itself. It renders that application to a string, without the markers a browser would need to hydrate it.
+
+Most cases draw a fragment rather than a document. `renderHtml` gives the fragment an empty title and returns its markup alone.
+
+=>
+
+export const renderDocument = (
+  draw: (h: HtmlBuilder<Message>) => Document,
+): Server.RenderedApplication =>
+  Effect.runSync(
+    Server.renderToString(
+      { init: () => ({ model: null }), view: (_: null, h: HtmlBuilder<Message>) => draw(h) },
+      { isHydratable: false },
+    ),
+  )
+
+export const renderHtml = (draw: (h: HtmlBuilder<Message>) => Html): string =>
+  renderDocument((h) => ({ title: '', body: draw(h) })).html
+
+## A model to draw from
+
+Every view reads the site's `Model`, so every case needs one. `modelAt` gives the model a visitor has before they touch anything: on the landing, with Bun as the runtime, the palette shut, and the example at rest. A case passes only the fields it cares about, and they override the rest.
+
+=>
+
+export const modelAt = (over: Partial<Model> = {}): Model => ({
+  route: 'home',
+  chapter: '',
+  drawerOpen: false,
+  runtime: 'bun',
+  searchOpen: false,
+  caret: 0,
+  searching: false,
+  found: [],
+  activeSection: '',
+  player: { struck: 0, beat: 0, playing: false, output: Option.none(), full: false },
+  version: '0.0.9',
+  query: '',
+  focus: 0,
+  copied: '',
+  book: Option.none(),
+  ...over,
+})
+
+## Anchors written in two pieces
+
+Some cases look for an anchor in the markup, because the site draws a loom's anchors as links. An anchor written out in this chapter's code would be read as an anchor of this chapter, and the tangle would fail on a section that does not exist. So `anchor` spells it in two pieces, which the page receives whole.
+
+=>
+
+export const anchor = (name: string): string => `::${'['}${name}]`
+
+## The helpers module {Tangle}[render.ts]
+
+Effect runs the renderer and supplies `Option`. Foldkit supplies the server renderer and the builder's types. The site's own model supplies the shape every view reads.
+
+=>
+
+import { Effect, Option } from 'effect'
+import { Server } from 'foldkit/experimental'
+import type { Document, Html, HtmlBuilder } from 'foldkit/html'
+import type { Message, Model } from '../src/model'
+
+::[Drawing a piece of the page]
+
+::[A model to draw from]
+
+::[Anchors written in two pieces]
+
+## A page for every route
+
+The router is the one place where a broken link becomes a compile error rather than a missing page. So the page tests render every route through the real view. `at` builds the model for a route, and `render` draws the page's body under it. `ROUTES` lists the six routes the site serves.
+
+=>
+
+const at = (route: Route, over: Partial<Model> = {}): Model => modelAt({ route, ...over })
+
+const render = (model: Model): string => renderHtml((h) => view(model, h).body)
+
+const ROUTES: ReadonlyArray<Route> = ['home', 'docs', 'why-loom', 'community', 'source', 'license']
+
+## Every route, drawn whole
+
+Each route must render without throwing and end on the footer. Each must also carry a title of its own, so a tab tells one page from another. And every page wears the same centred nav, the docs included.
+
+=>
+
+it('renders every route without throwing, and ends each on the footer', () => {
+  ROUTES.forEach((route) => {
+    const html = render(at(route))
+    expect(html.length).toBeGreaterThan(500)
+    expect(html).toContain('class="footer"')
+  })
+})
+
+it('titles each route for itself rather than repeating the site name', () => {
+  const titles = ROUTES.map((route) => renderDocument((h) => view(at(route), h)).title)
+  expect(new Set(titles).size).toBe(ROUTES.length)
+  expect(renderDocument((h) => view(at('home'), h)).title).toContain('literate programming')
+})
+
+it('gives every page, the docs included, the same centred nav', () => {
+  ROUTES.forEach((route) => expect(render(at(route))).toMatch(/class="nav( docs-nav)?"/))
+  expect(render(at('docs'))).not.toContain('docs-bar')
+})
+
+## The hero and its install line
+
+The landing opens on the slogan and a line that installs Loom. The install line follows the runtime a reader picks, so choosing npm rewrites the command and marks the npm tab. Its copy button says it copied only once the reader presses it.
+
+=>
+
+it('puts the hero and its install line on the landing', () => {
+  const html = render(at('home'))
+  expect(html).toContain('Literate programming framework for AI-assisted engineering')
+  expect(html).toContain('bun add -g @athrio/loom')
+  expect(html).toContain('class="hero-word">Loom<')
+})
+
+it('rewrites the install line for the runtime a reader picks', () => {
+  expect(render(at('home'))).toContain('bun add -g @athrio/loom')
+  const npm = render(at('home', { runtime: 'npm' }))
+  expect(npm).toContain('npm install -g @athrio/loom')
+  expect(npm).not.toContain('bun add -g @athrio/loom')
+  expect(npm).toContain('class="rt-tab here"')
+})
+
+it('flashes the copy label only on the button that was pressed', () => {
+  expect(render(at('home'))).toContain('class="took">copy<')
+  expect(render(at('home', { copied: 'install' }))).toContain('class="took done">copied<')
+})
+
+## The palette over any page
+
+The search palette rises over whichever page is showing, the docs as well as the landing. It is drawn only while it is open.
+
+=>
+
+it('raises the palette over whatever page is showing, and only when open', () => {
+  expect(render(at('home'))).not.toContain('palette-shell')
+  expect(render(at('home', { searchOpen: true }))).toContain('palette-shell')
+  expect(render(at('docs', { searchOpen: true }))).toContain('palette-shell')
+})
+
+## The woven pages
+
+Two routes draw a woven corpus rather than a page of their own. The docs route draws the committed weave of the documentation. The source route draws the book, and a case hands it a small book of one chapter. That chapter quotes an anchor, so the case can check that the anchor becomes a link to its section and that the code keeps its colours. No route may still show the "Being written" placeholder.
+
+=>
+
+it('draws the woven documentation on the docs route', () => {
+  const html = render(at('docs'))
+  expect(html).toContain('class="menu-card thin-scroll"')
+  expect(html).toContain('<h1 id="quick-start">Quick start</h1>')
+})
+
+it('draws the source page through the docs shell, its anchors as links', () => {
+  const book: Corpus = {
+    nav: [
+      {
+        number: 'I',
+        name: 'Using Loom',
+        chapters: [
+          { number: '1', title: 'A first loom', slug: '01-using-loom/01-a-first-loom' },
+          { number: '2', title: 'A workspace', slug: '01-using-loom/02-a-workspace' },
+        ],
+      },
+    ],
+    pages: [
+      {
+        slug: '01-using-loom/01-a-first-loom',
+        title: 'A first loom',
+        blocks: [
+          { type: 'heading', level: 1, title: 'A first loom', id: 'a-first-loom' },
+          { type: 'prose', markdown: 'Opening words.' },
+          { type: 'heading', level: 2, title: 'The program', id: 'the-program' },
+          {
+            type: 'code',
+            language: 'typescript',
+            code: `${anchor('Greeting')}\nconsole.log(greet())`,
+            links: [
+              {
+                name: 'Greeting',
+                offset: 0,
+                length: 12,
+                targetSlug: '01-using-loom/01-a-first-loom',
+                targetId: 'greeting',
+              },
+            ],
+            marks: [{ offset: 25, length: 5, kind: 'function' }],
+          },
+          { type: 'heading', level: 2, title: 'Greeting', id: 'greeting' },
+          {
+            type: 'code',
+            language: 'typescript',
+            code: 'const greet = () => 1',
+            links: [],
+            marks: [
+              { offset: 0, length: 5, kind: 'keyword' },
+              { offset: 20, length: 1, kind: 'constant' },
+            ],
+          },
+        ],
+      },
+    ],
+  }
+  const html = render(at('source', { book: Option.some(book) }))
+  expect(html).toContain('class="menu-card thin-scroll"')
+  expect(html).toContain('<p class="page-place">Part I, Chapter 1</p>')
+  expect(html).toContain('<h1 class="chapter-title" id="a-first-loom">A first loom</h1>')
+  expect(html).toContain(
+    `<a class="code-anchor" href="#greeting">${anchor('Greeting')}</a>\nconsole.log(<span class="tok-function">greet</span>()`,
+  )
+  expect(html).toContain(
+    '<span class="tok-keyword">const</span> greet = () =&gt; <span class="tok-constant">1</span>',
+  )
+  expect(html).toContain('href="/source/using-loom/a-workspace"')
+  ROUTES.forEach((route) => expect(render(at(route))).not.toContain('Being written'))
+})
+
+## The argument, the community and the licence
+
+Three pages past the landing make their own cases. Why Loom opens on its head, links to the repository and the community group, and makes the case in eight pairs. Community lists four places where the work happens, each card a link. The licence page sets the MIT licence out in full, read from the repository's own file, and every page links to it from the footer.
+
+=>
+
+it('makes the case on the argument page: head, motivation, eight pairs', () => {
+  const html = render(at('why-loom'))
+  expect(html).toContain('Why Loom?</h1>')
+  expect(html).toContain('href="https://github.com/athrio-com/loom"')
+  expect(html).toContain('href="https://t.me/athrio"')
+  expect(html).toContain('The modern problem')
+  expect(html.split('class="why-pair"').length - 1).toBe(8)
+  expect(html).toContain('--pair-ink')
+  expect(html).toContain('class="pager"')
+})
+
+it('lists where the work happens on the community page, each card a link', () => {
+  const html = render(at('community'))
+  expect(html).toContain('Community</h1>')
+  expect(html).toContain('Contribute in your way')
+  expect(html.split('class="channel-card"').length - 1).toBe(4)
+  ;[
+    'https://t.me/athrio',
+    'https://github.com/athrio-com/loom/issues',
+    'https://github.com/athrio-com/loom/pulls',
+    'https://github.com/athrio-com/loom/discussions',
+  ].forEach((href) => expect(html).toContain(`href="${href}"`))
+})
+
+it('sets the licence out in full on its own page, read from the repository file', () => {
+  const html = render(at('license'))
+  expect(html).toContain('License</h1>')
+  expect(html).toContain('MIT License</h2>')
+  expect(html).toContain('Copyright (c) 2026 Quadrivium Academy Sihtasutus and Loom contributors')
+  expect(html).toContain(
+    'Permission is hereby granted, free of charge, to any person obtaining a copy of this software',
+  )
+  expect(html).toContain('THE SOFTWARE IS PROVIDED')
+  expect(render(at('home'))).toContain('href="/license"')
+})
+
+## The footer's links
+
+The footer's chips mix links within the site and links that leave it. Only the ones that leave open a new tab, and the link to the nonprofit also withholds the opener and the referrer. Every community link on every page points at Telegram, and none at the Discord invite the site once carried.
+
+=>
+
+it('opens the footer chips that leave the site in a new tab, and only those', () => {
+  const html = render(at('home'))
+  const chips = html.match(/<a class="footer-chip"[^>]*>/g) ?? []
+  chips.forEach((chip) => expect(chip.includes('target="_blank"')).toBe(/href="https?:/.test(chip)))
+  const nonprofit = html.match(
+    /<a class="footer-chip" href="https:\/\/qda\.ee"[^>]*>About Nonprofit<svg/,
+  )
+  expect(nonprofit?.[0]).toContain('target="_blank"')
+  expect(nonprofit?.[0]).toContain('rel="noopener noreferrer"')
+  expect(html).toMatch(/href="\/license"[^>]*>License<\/a>/)
+})
+
+it('points every community link at Telegram, never the dead Discord invite', () => {
+  ;(['home', 'docs', 'why-loom', 'community', 'source'] as ReadonlyArray<Route>).forEach((route) => {
+    const html = render(at(route, { searchOpen: true }))
+    expect(html).not.toContain('discord')
+    expect(html).toContain('https://t.me/athrio')
+  })
+})
+
+## The whole vocabulary
+
+The landing shows Loom's eight marks, one card each. Each glyph sits on a wash derived from the mark's own colour. A section mark drawn at 42 pixels takes the broad seam between its cells and a one-pixel inset. The palette's 17-pixel glyphs take the fine seam and no inset, since they have no room to spill into.
+
+=>
+
+it('shows the whole vocabulary on the landing, all eight marks', () => {
+  const html = render(at('home'))
+  expect(html).toContain('The whole vocabulary')
+  expect(html).toContain('Loom syntax')
+  const glyphs = html.split('class="mark-glyph"').length - 1
+  expect(glyphs).toBe(8)
+  ;['Frontmatter', 'Section', 'Warp', 'Sink', 'Specifier', 'Arrow', 'Tilde', 'Anchor'].forEach(
+    (name) => expect(html).toContain(`class="mark-name">${name}<`),
+  )
+})
+
+it("derives each glyph chip wash from the mark's own colour", () => {
+  const html = render(at('home'))
+  expect(html).toContain('color: #8B5CF6; background: #8B5CF61F')
+  expect(html).toContain('color: #00996B; background: #00996B1F')
+})
+
+it('gives a 42px section mark the broad seam and its 1px inset, and the 17px glyphs neither', () => {
+  const home = render(at('home'))
+  expect(home).toContain('calc(100% / 7 + 0.8px)')
+  expect(home).toContain('background-origin: content-box')
+  const palette = render(at('home', { searchOpen: true }))
+  expect(palette).toContain('calc(100% / 7 + 0.5px)')
+})
+
+## From init to eject
+
+The landing draws Loom's four commands, each pill in its own colour. Weave's picture is built from elements as a block of JSON. Init, tangle and eject are drawn as self-contained SVGs. Pressing a command flashes "copied" on that command alone. The caption under init names the `.loom` directory that `loom init` writes.
+
+=>
+
+it('draws all four commands, each pill in its own colour', () => {
+  const html = render(at('home'))
+  expect(html).toContain('From init to eject')
+  ;[
+    ['loom init', '#00996B'],
+    ['loom tangle', '#2E6FF2'],
+    ['loom weave', '#8B5CF6'],
+    ['loom eject', '#CE3F5C'],
+  ].forEach(([command, colour]) => {
+    expect(html).toContain(`>${command}<`)
+    expect(html).toContain(`color: ${colour}`)
+  })
+})
+
+it('gives weave a JSON picture and the other three their vendored drawings', () => {
+  const html = render(at('home'))
+  expect(html).toContain('class="px-json"')
+  expect(html).toContain('class="tok-key"')
+  expect(html.split('class="ops-svg"').length - 1).toBe(3)
+  expect(html).not.toContain('class="tree"')
+})
+
+it('flashes copied only on the command that was pressed', () => {
+  expect(render(at('home'))).not.toContain('ops-took shown')
+  const html = render(at('home', { copied: 'loom weave' }))
+  expect(html).toContain('class="ops-took shown"')
+  expect(html.split('ops-took shown').length - 1).toBe(1)
+})
+
+it("corrects the mock's caption: init writes .loom, not loom", () => {
+  expect(render(at('home'))).toContain('.loom directory')
+})
+
+## The pager
+
+The pages that stand on their own end on a pager that names their neighbours. The site reads in one order: docs, community, home, Why Loom, source. So the landing points back to Community and on to Why Loom.
+
+The docs and source routes draw a pager of their own between chapters. So the case that checks the two ends of the order draws the site's pager directly, for the first page and for the last. Each card carries the ink of the page it leads to, deep enough to read on paper, and the next card is mirrored so the pair reads outward.
+
+=>
+
+it('names both neighbours in the site reading order', () => {
+  const home = render(at('home'))
+  expect(home).toContain('>Previous<')
+  expect(home).toContain('class="pager-title">Community<')
+  expect(home).toContain('>Next<')
+  expect(home).toContain('class="pager-title">Why Loom<')
+  const why = render(at('why-loom'))
+  expect(why).toContain('class="pager-title">Loom<')
+  expect(why).toContain('class="pager-title">Source<')
+})
+
+it('carries one card at each end of the order, not two', () => {
+  const first = renderHtml((h) => pager('docs', h))
+  expect(first).not.toContain('>Previous<')
+  expect(first).toContain('class="pager-title">Community<')
+  const last = renderHtml((h) => pager('source', h))
+  expect(last).toContain('class="pager-title">Why Loom<')
+  expect(last).not.toContain('>Next<')
+})
+
+it('hands each card the ink its destination is written in', () => {
+  const home = render(at('home'))
+  expect(home).toContain('--pg-ink: #6D3BD4')
+  expect(home).toContain('--pg-ink: #C08A00')
+})
+
+it('mirrors the next card so the pair reads outward', () => {
+  expect(render(at('home'))).toContain('class="pager-card next"')
+})
+
+## Rules read from the stylesheet
+
+A few cases check the stylesheet itself, because the property they guard never reaches the markup. `ruleFor` finds a selector's rule in `landing.css` and returns its body. It fails the case when the selector is missing, so a renamed class cannot pass by accident.
+
+=>
+
+const css = readFileSync(resolve(__dirname, '../src/landing.css'), 'utf8')
+
+const ruleFor = (selector: string): string => {
+  const start = css.indexOf(`${selector} {`)
+  expect(start).toBeGreaterThan(-1)
+  return css.slice(start, css.indexOf('}', start))
+}
+
+## The palette's pills
+
+A pill in the palette has two states that must look different. One is the pill the arrow keys are on, which Enter would open. The other is the pill under the mouse. If the two looked alike, the row would stop saying which pill Enter opens. So the focused pill lifts further and brightens its label. The hovered pill lifts less and leaves its label alone. The menu links in the nav wear the small chip the design gives them, not a pill.
+
+=>
+
+it('lifts the focused pill further than the hovered one, and only it recolours', () => {
+  const focused = ruleFor('.pill-link.here')
+  expect(focused).toContain('rgba(242, 239, 230, 0.14)')
+  expect(focused).toContain('#B9C4E8')
+  expect(focused).toContain('color:')
+
+  const hovered = ruleFor('.pill-link:hover')
+  expect(hovered).toContain('rgba(242, 239, 230, 0.10)')
+  expect(hovered).toContain('#8FA0D6')
+  expect(/(?:^|;|\s)color:/.test(hovered)).toBe(false)
+})
+
+it('gives the menu links the chip the live nav wears, not a pill', () => {
+  const link = ruleFor('.nav-link')
+  expect(link).toContain('padding: 5px 8px')
+  expect(link).toContain('transition: background-color .14s ease, color .14s ease')
+  expect(ruleFor('.nav-link:hover,\n.nav-link.here')).toContain('var(--rule-faint)')
+})
+
+## The box model, where it differs from the reset
+
+The stylesheet resets every element to `border-box`. The design does not, and sizes a few elements with their border outside the size. Each of those must opt back out to `content-box`, or its border eats into its size and it comes out short. The pill and the key box are the two that do. The vocabulary card and the example card stay on the reset, since neither draws a border of its own.
+
+=>
+
+it('measures the pill and the key box the way live does', () => {
+  ;['.pill-link', '.nav-key'].forEach((selector) =>
+    expect(ruleFor(selector)).toContain('box-sizing: content-box'),
+  )
+})
+
+it('leaves the vocabulary card and the example card on the reset', () => {
+  ;['.mark-card', '.pl-card'].forEach((selector) =>
+    expect(ruleFor(selector)).not.toContain('content-box'),
+  )
+})
+
+## The address of every page
+
+Every route has a path of its own, and the path reads back to the route it came from. A path the site does not know reads back to no route at all.
+
+=>
+
+it('gives every route a path of its own', () => {
+  const paths = ROUTES.map(pathOf)
+  expect(paths).toEqual(['/', '/docs', '/why-loom', '/community', '/source', '/license'])
+  expect(new Set(paths).size).toBe(ROUTES.length)
+})
+
+it('reads each path back to the route it came from, and no route from an unknown one', () => {
+  ROUTES.forEach((route) => expect(routeOf(pathOf(route))).toEqual(Option.some(route)))
+  expect(Option.isNone(routeOf('/nowhere'))).toBe(true)
+})
+
+## The page tests {Tangle}[Page.test.ts]
+
+The page tests draw on the site's view, its pager and its routes, and on the stylesheet read from disk.
+
+=>
+
+import { describe, expect, it } from 'bun:test'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { Option } from 'effect'
+import { view } from '../src/view'
+import { pager } from '../src/chrome'
+import { type Corpus, type Model, pathOf, type Route, routeOf } from '../src/model'
+import { anchor, modelAt, renderDocument, renderHtml } from './render'
+
+::[A page for every route]
+
+describe('the page', () => {
+  ::[Every route, drawn whole]
+
+  ::[The hero and its install line]
+
+  ::[The palette over any page]
+
+  ::[The woven pages]
+
+  ::[The argument, the community and the licence]
+
+  ::[The footer's links]
+
+  ::[The whole vocabulary]
+
+  ::[From init to eject]
+
+  ::[The pager]
+})
+
+::[Rules read from the stylesheet]
+
+describe("the palette's pills", () => {
+  ::[The palette's pills]
+})
+
+describe('the box model, where it differs from the reset', () => {
+  ::[The box model, where it differs from the reset]
+})
+
+describe('the address of every page', () => {
+  ::[The address of every page]
+})
+
+## A chapter of the docs to draw
+
+The documentation shell draws whatever `loom weave` produced from the docs corpus. So these cases read the committed weave rather than a fixture. When a chapter of the docs is renamed, retitled or loses a heading, the weave changes and a case here fails. The quick start carries the most cases, because it is the one chapter that opens with commands, quotes a loom, and runs a file.
+
+`at` builds the model for a chapter of the docs, with the section the reader has scrolled to, and `render` draws the documentation page alone. `QUICK`, `INSTALL` and `INIT` name the first three chapters by their slugs.
+
+=>
+
+const at = (chapter: string, activeSection = '', over: Partial<Model> = {}): Model =>
+  modelAt({ route: 'docs', chapter, activeSection, ...over })
+
+const render = (model: Model): string => renderHtml((h) => documentationPage(model, h))
+
+const QUICK = '01-getting-started/01-quick-start'
+const INSTALL = '01-getting-started/02-installing-loom'
+const INIT = '01-getting-started/03-loom-projects'
+
+## Addresses and the menu
+
+A chapter's address drops the numbers that order its folder and its file, and the address reads back to the chapter. An address with no chapter behind it reads back to none. The menu lists every chapter under its part and links each to its address. With no chapter named, the shell opens on the first one and marks it in the menu. The open chapter's sections hang under it, and the first is marked until the reader scrolls to another.
+
+=>
+
+it('gives every chapter an address without its ordering numbers, and reads it back', () => {
+  expect(chapterPath('/docs', QUICK)).toBe('/docs/getting-started/quick-start')
+  docsCorpus.pages.forEach((page) => {
+    expect(docsChapterAt(chapterPath('/docs', page.slug))).toEqual(Option.some(page.slug))
+  })
+  expect(Option.isNone(docsChapterAt('/docs/getting-started/nowhere'))).toBe(true)
+  expect(Option.isNone(docsChapterAt('/docs'))).toBe(true)
+})
+
+it('links every chapter in the menu to its address', () => {
+  const html = render(at(QUICK))
+  expect(html).toContain(
+    'class="menu-item" href="/docs/getting-started/loom-projects">Loom projects<',
+  )
+})
+
+it('lists every chapter of the woven corpus in the menu, grouped under its part', () => {
+  const html = render(at(''))
+  expect(html).toContain('class="menu-card thin-scroll"')
+  docsCorpus.nav.forEach((part) => {
+    expect(html).toContain(`class="eyebrow">${part.name}<`)
+    part.chapters.forEach((chapter) => expect(html).toContain(`>${chapter.title}<`))
+  })
+})
+
+it('opens on the first chapter when none is named, and marks it in the menu', () => {
+  const html = render(at(''))
+  expect(firstSlugOf(docsCorpus)).toBe(docsCorpus.pages[0]!.slug)
+  expect(html).toContain(
+    'class="menu-item here" href="/docs/getting-started/quick-start">Quick start<',
+  )
+})
+
+it("hangs the open chapter's sections under it, the first one reached until the reader scrolls", () => {
+  const fresh = render(at(QUICK))
+  expect(fresh).toContain('class="menu-sub here" type="button">Write your first loom<')
+  expect(fresh).toContain('class="menu-sub" type="button">Run it<')
+  const scrolled = render(at(QUICK, 'run-it'))
+  expect(scrolled).toContain('class="menu-sub here" type="button">Run it<')
+  expect(scrolled).toContain('class="menu-sub" type="button">Write your first loom<')
+})
+
+## The head of a chapter
+
+A chapter opens the way the site's other pages do, on the Loom mark, the chapter's name and its lead. The commands a chapter opens with stand beside the lead, not under it. The breadcrumb above the head comes from the corpus, so a chapter's part names itself.
+
+=>
+
+it("heads the chapter like the site's other pages: mark, name and lead", () => {
+  const html = render(at(QUICK))
+  expect(html).toContain('class="section section-hero page-hero doc-hero"')
+  expect(html).toMatch(
+    /class="page-title"><img[^>]*class="loom-mark"[^>]*><h1 id="quick-start">Quick start<\/h1>/,
+  )
+  expect(html).toContain('class="docs-prose page-lead"><p>In about five minutes')
+})
+
+it('sets the commands a chapter opens with beside its lead, not under it', () => {
+  const html = render(at(QUICK))
+  const cli = html.slice(html.indexOf('class="hero-cli"'), html.indexOf('class="docs-body"'))
+  expect(cli).toContain('class="hero-install"')
+  expect(cli).toContain('bun add -g @athrio/loom')
+  expect(cli).toContain('<span class="line">loom --version</span>')
+})
+
+it('reads the breadcrumb out of the corpus, not out of the view', () => {
+  const html = render(at('05-cli/03-loom-weave'))
+  expect(html).toContain('class="crumb" href="/docs">Docs<')
+  expect(html).toContain('class="crumb" href="/docs/cli/loom-init">The command line<')
+  expect(html).toContain('class="here">loom weave<')
+})
+
+## Sections and their flowers
+
+The quick start has three sections. Only the first opens on the chapter's flower, a carpet mark beside its heading, and the rest open on their heading alone. Each chapter has a flower of its own. The quick start's is the orange sunflower, and the next chapter's differs from it.
+
+=>
+
+it("opens the first section on the chapter's flower, and the rest on their heading alone", () => {
+  const html = render(at(QUICK))
+  expect(html.split('class="section doc-section"').length - 1).toBe(3)
+  const marks = html.match(/class="section-head"><span aria-hidden="true"/g) ?? []
+  expect(marks.length).toBe(1)
+  expect(html).toMatch(
+    /class="section-head"><span aria-hidden="true" style="[^"]*linear-gradient[^"]*"><\/span><div class="lines"><h2 id="write-your-first-loom">Write your first loom<\/h2>/,
+  )
+  expect(html).toContain('class="section-head"><div class="lines"><h2 id="turn-it-into-code">')
+})
+
+it('gives the quick start the orange sunflower, and its neighbour a different flower', () => {
+  const flowerOf = (html: string): string =>
+    html.match(/class="section-head"><span aria-hidden="true" style="([^"]*)"/)?.[1] ?? ''
+  const head = flowerOf(render(at(QUICK)))
+  expect(head).toContain('#FF6A3D')
+  expect(head).toContain('#E8318A')
+  expect(flowerOf(render(at(INIT)))).not.toBe(head)
+})
+
+## Fences, and what each becomes
+
+A chapter's prose is Markdown, and the shell draws each kind of fence in it differently. A one-line Bash fence becomes a command with a copy button. A fence that quotes a loom becomes a highlighted card, its marks in their own colours. A picture fence becomes the docs' own drawing, set beside the lead. Every other fence becomes a code sheet with its own copy button. None of them leaves a bare `language-` class behind.
+
+=>
+
+it("renders a chapter's prose as HTML, a one-line bash fence as a copy button", () => {
+  const html = render(at(QUICK))
+  expect(html).toContain('<h1 id="quick-start">Quick start</h1>')
+  expect(html).toContain('class="docs-command"')
+  expect(html).not.toContain('language-bash')
+})
+
+it('draws a quoted loom as a highlighted card, its marks in their colours', () => {
+  const html = render(at(QUICK))
+  expect(html).toContain('class="docs-canvas"')
+  expect(html).not.toContain('language-loom')
+  expect(html).toMatch(/class="pl-tok chip"[^>]*>=&gt;</)
+  expect(html).toMatch(/class="pl-tok chip"[^>]*>\[hello\.ts\]</)
+  expect(html).not.toContain('{Tangle}')
+  expect(html).toMatch(/class="pl-tok chip"[^>]*>::\[Greeting function\]</)
+})
+
+it('draws any other fence as a code sheet with its own copy button', () => {
+  const html = render(at(QUICK))
+  expect(html).toContain('class="sheet-code"')
+  expect(html).toContain('aria-label="Copy the code"')
+  expect(html).not.toContain('language-typescript')
+})
+
+it("draws a picture fence as the docs' own picture, beside the lead", () => {
+  const html = render(at(INIT))
+  const cli = html.slice(html.indexOf('class="hero-cli"'), html.indexOf('class="docs-body"'))
+  expect(cli).toContain('class="ops-frame doc-picture"')
+  expect(cli).toContain('<svg')
+  expect(cli).toContain('>hello.loom</text>')
+  expect(cli).toContain('>hello.ts</text>')
+  expect(cli).not.toContain('loom init</span>')
+  expect(html).toContain('data-copy="loom init"')
+})
+
+## Commands inside a sentence
+
+A command quoted inside a sentence becomes an inline copy button, inked in the colour of its command. A path quoted the same way stays plain code. Pressing an inline button marks that button alone as copied. A file the chapter runs is run with the runtime the reader chose on the install line, so `bun hello.ts` becomes `node hello.ts` under npm or pnpm.
+
+=>
+
+it('draws a command inside a sentence as an inline copy button', () => {
+  const html = render(at(INIT))
+  expect(html).toContain(
+    '<button type="button" class="inline-copy" style="--cmd-ink: var(--init)" data-copy="loom init" title="Copy the command"><code>loom init</code><svg',
+  )
+  expect(html).not.toContain('<code>$ loom init</code>')
+  expect(html).toContain('<code>.loom/config.yaml</code>')
+  expect(html).toContain('style="--cmd-ink: var(--tangle)" data-copy="loom tangle corpus"')
+  expect(html).toContain(
+    'style="--cmd-ink: var(--prompt-paper)" data-copy="mv hello.loom corpus/"',
+  )
+})
+
+it('marks the inline button it copied, and only that one', () => {
+  const html = render(at(INIT, '', { copied: 'inline:loom init' }))
+  expect(html).toContain(
+    'class="inline-copy done" style="--cmd-ink: var(--init)" data-copy="loom init"',
+  )
+  const other = render(at(INIT, '', { copied: 'inline:something else' }))
+  expect(other).not.toContain('inline-copy done')
+})
+
+it('runs a file with the runtime the install line chose', () => {
+  const bun = render(at(QUICK))
+  expect(bun).toContain('<span class="line">bun hello.ts</span>')
+  expect(bun).toMatch(
+    /class="rt-tab here" type="button">.*?bun<\/button><button class="rt-tab" type="button">.*?node</,
+  )
+  const npm = render(at(QUICK, '', { runtime: 'npm' }))
+  expect(npm).toContain('<span class="line">node hello.ts</span>')
+  const pnpm = render(at(QUICK, '', { runtime: 'pnpm' }))
+  expect(pnpm).toContain('<span class="line">node hello.ts</span>')
+})
+
+it('quotes Loom marks as text rather than resolving them', () => {
+  const html = render(at('04-the-format/01-syntax'))
+  expect(html).toContain(anchor('a section'))
+})
+
+## The pager, the drawer and an empty chapter
+
+A chapter ends on the site's pager, which names the chapters either side of it. The first chapter has no previous card. On a narrow window the menu moves into a drawer, marked the same way, and the drawer and its scrim open by a class so both can animate. A chapter with no sections still draws its head, over an empty column. The case builds that chapter as a corpus of its own and draws it through `wovenPage`.
+
+=>
+
+it("ends a chapter on the site's pager, naming the chapters either side of it", () => {
+  const first = render(at(QUICK))
+  expect(first).toContain(
+    'class="pager-row doc-pager"><a class="pager-card next" href="/docs/getting-started/installing-loom"',
+  )
+  expect(first).toContain('class="pager-title">Installing Loom<')
+  expect(first).not.toContain('>Previous<')
+  const second = render(at(INSTALL))
+  expect(second).toContain('class="pager-title">Quick start<')
+  expect(second).toContain('class="pager-title">Loom projects<')
+})
+
+it('carries the menu into the drawer, marked identically', () => {
+  const html = render(at(QUICK))
+  const marked =
+    html.split('class="menu-item here" href="/docs/getting-started/quick-start">Quick start<')
+      .length - 1
+  expect(marked).toBe(2)
+  expect(html).toContain('class="docs-drawer"')
+  expect(html).toContain('class="docs-scrim"')
+})
+
+it('opens the drawer and its scrim by class, so both can animate', () => {
+  const shut = render(at(''))
+  expect(shut).toContain('class="docs-drawer"')
+  expect(shut).not.toContain('docs-drawer open')
+  const open = render(at('', '', { drawerOpen: true }))
+  expect(open).toContain('class="docs-drawer open"')
+  expect(open).toContain('class="docs-scrim open"')
+})
+
+it('draws a chapter with no sections as a head and an empty column', () => {
+  const single: Corpus = {
+    nav: [{ name: 'Getting started', chapters: [{ number: '1', title: 'Only', slug: 'only' }] }],
+    pages: [
+      {
+        slug: 'only',
+        title: 'Only',
+        blocks: [
+          { type: 'heading', level: 1, title: 'Only', id: 'only' },
+          { type: 'prose', markdown: 'A page with nothing under it.' },
+        ],
+      },
+    ],
+  } as unknown as Corpus
+  const bare = renderHtml((h) => wovenPage(single, 'Docs', '/docs', docsOpening, at('only'), h))
+  expect(bare).toContain('<h1 id="only">Only</h1>')
+  expect(bare).not.toContain('doc-section')
+  expect(bare).toContain('class="menu-subs"></div>')
+})
+
+## The chrome around the docs
+
+The docs wear the site's nav, with a class of their own that pins it on a narrow window. A burger at the nav's left end opens the drawer, and only the docs carry it. Every nav puts the Loom mark beside the wordmark.
+
+=>
+
+it('wears the site nav, pinned on a narrow window by a class of its own', () => {
+  const html = renderDocument((h) => view(at(''), h)).html
+  expect(html).toContain('class="nav docs-nav"')
+  expect(html).toContain('class="nav-link here" href="/docs"')
+  expect(html).not.toContain('docs-bar')
+})
+
+it("opens the drawer from a burger at the nav's left end, on the docs only", () => {
+  const docs = renderDocument((h) => view(at(''), h)).html
+  expect(docs).toMatch(
+    /<nav[^>]*class="nav docs-nav"[^>]*><button aria-label="Chapters" class="nav-burger"/,
+  )
+  const home = renderDocument((h) => view(modelAt(), h)).html
+  expect(home).not.toContain('nav-burger')
+})
+
+it('puts the Loom mark beside the wordmark in every nav', () => {
+  const html = renderDocument((h) => view(modelAt({ route: 'why-loom' }), h)).html
+  expect(html).toMatch(/class="nav-word"[^>]*><span class="nav-mark"><img[^>]*class="loom-mark"/)
+})
+
+## The documentation tests {Tangle}[DocumentationShell.test.ts]
+
+The documentation tests draw on the shell's own functions, the committed docs corpus, and the site's view for the chrome around it.
+
+=>
+
+import { describe, expect, it } from 'bun:test'
+import { Option } from 'effect'
+import {
+  chapterPath,
+  docsChapterAt,
+  documentationPage,
+  docsCorpus,
+  firstSlugOf,
+  docsOpening,
+  wovenPage,
+} from '../src/docs-page'
+import { type Corpus, type Model } from '../src/model'
+import { view } from '../src/view'
+import { anchor, modelAt, renderDocument, renderHtml } from './render'
+
+::[A chapter of the docs to draw]
+
+describe('the documentation shell', () => {
+  ::[Addresses and the menu]
+
+  ::[The head of a chapter]
+
+  ::[Sections and their flowers]
+
+  ::[Fences, and what each becomes]
+
+  ::[Commands inside a sentence]
+
+  ::[The pager, the drawer and an empty chapter]
+})
+
+describe('the documentation chrome', () => {
+  ::[The chrome around the docs]
+})
+
+## The example at a point in its run
+
+The landing types a Loom document out, as a replay on a clock. So the cases that matter are about the clock more than the markup. The run must only go forward, the whole document must stand on the card before the first press, and the transport must be there from the first frame. The typing is deterministic, so a count of characters is a fair thing to assert.
+
+`at` builds a model whose player is at a given point in the run, and `render` draws the example alone. `textOf` strips the tags from the markup and decodes its entities, so a case can read the document as a visitor sees it.
+
+=>
+
+const at = (over: Partial<Player> = {}): Model =>
+  modelAt({ player: { ...modelAt().player, ...over } })
+
+const render = (model: Model): string => renderHtml((h) => example(model, h))
+
+const textOf = (html: string): string =>
+  html
+    .replace(/<[^>]+>/g, '')
+    .replace(/&gt;/g, '>')
+    .replace(/&lt;/g, '<')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+
+## The card and its clock
+
+The example leads with its own head, on a stage the client scrolls by its id as the caret runs down it. The run is long enough to be a document, and the clock that drives it never goes back. Before anyone presses play, the whole document stands on the card, its last line included. The transport bar is there from the first frame, with no poster over it, and the caret rides the document only while it plays. A bar along the foot of the card runs in step with the clock, and it eases between frames only while the run drives it.
+
+=>
+
+it('leads with its own head, on a stage the client can scroll', () => {
+  const html = render(at())
+  expect(html).toContain('id="loom-example"')
+  expect(html).toContain('Literate programming')
+  expect(html).toContain('A Loom document, written out')
+  expect(html).toContain('id="loom-stage"')
+})
+
+it('has a run long enough to be a document and a clock that only goes forward', () => {
+  expect(CHARACTERS).toBeGreaterThan(600)
+  expect(RUN).toBeGreaterThan(0)
+  expect(struckBy(0)).toBe(0)
+  expect(struckBy(RUN)).toBe(CHARACTERS)
+  const walked = [0, 0.1, 0.25, 0.5, 0.75, 1].map((part) => struckBy(part * RUN))
+  Array.zip(walked, walked.slice(1)).forEach(([before, after]) =>
+    expect(after).toBeGreaterThanOrEqual(before),
+  )
+})
+
+it('stands the whole document on the card before anyone presses play', () => {
+  const text = textOf(render(at()))
+  expect(text).toContain('# Loom, explained in Loom')
+  expect(text).toContain('Prose first.')
+  expect(text).toContain("That's it.")
+  expect(wholeDocument().length).toBe(frameAt(CHARACTERS, false).length)
+})
+
+it('carries the transport from the first frame, with no poster over it', () => {
+  const resting = render(at())
+  expect(resting).toContain('class="pl-bar"')
+  expect(resting).not.toContain('pl-poster')
+  expect(resting).not.toContain('class="pl-caret')
+  expect(render(at({ playing: true, struck: 200, beat: 200 }))).toContain('class="pl-bar"')
+})
+
+it('carries the caret while it plays and drops it when it stops', () => {
+  expect(render(at({ playing: true, struck: 200, beat: 200 }))).toContain('class="pl-caret')
+  expect(render(at({ struck: 200, beat: 200 }))).not.toContain('class="pl-caret')
+})
+
+it('runs the bar along the foot of the card in step with the clock', () => {
+  expect(render(at())).toContain('--pl-run: 0%')
+  expect(render(at())).toContain('class="pl-run"')
+  expect(render(at({ struck: CHARACTERS, beat: RUN }))).toContain('--pl-run: 100%')
+  expect(render(at({ playing: true, struck: 200, beat: 200 }))).toContain('pl-card running')
+})
+
+## Full height, and the two commands
+
+A reader can grow the card to its full height, and the same button gives the page back. Grown and stopped, the stage takes its own scroll back from the run. The two commands, tangle and weave, appear once the document is finished, or once a reader has grown the card and stopped partway. They stay hidden while it types, since the document is not yet there to study. Pressing a command drops the file it writes, and only that file. The weave's JSON carries the greeting too, escaped inside a string.
+
+=>
+
+it('grows the card to full height and offers the button that gives the page back', () => {
+  const resting = render(at())
+  expect(resting).toContain('class="pl-hold"')
+  expect(resting).toContain('title="Full height"')
+  const grown = render(at({ full: true }))
+  expect(grown).toContain('class="pl-hold full"')
+  expect(grown).toContain('title="Leave full height"')
+  expect(grown).toContain('class="pl-card open"')
+})
+
+it('offers the two commands to a reader who grew the card and stopped partway', () => {
+  expect(render(at({ struck: 200, beat: 200, full: true }))).toContain('class="pl-outs"')
+  expect(render(at({ struck: 200, beat: 200, full: true, playing: true }))).not.toContain(
+    'class="pl-outs"',
+  )
+})
+
+it('offers the two commands only once the document is finished', () => {
+  expect(render(at({ struck: 200, beat: 200 }))).not.toContain('class="pl-outs"')
+  const done = render(at({ struck: CHARACTERS, beat: RUN }))
+  expect(done).toContain('$ loom tangle')
+  expect(done).toContain('writes hello.ts')
+  expect(done).toContain('$ loom weave')
+  expect(done).toContain('writes hello.woven.json')
+  expect(done).toContain('class="pl-skip gone"')
+})
+
+it('drops the file a pressed command writes, and only that one', () => {
+  const tangled = render(at({ struck: CHARACTERS, beat: RUN, output: Option.some('tangle') }))
+  expect(tangled).toContain('class="pl-result tangle"')
+  expect(textOf(tangled)).toContain('export function greet(who: string) {')
+  expect(textOf(tangled)).not.toContain('"blocks"')
+  const woven = render(at({ struck: CHARACTERS, beat: RUN, output: Option.some('weave') }))
+  expect(woven).toContain('class="pl-result weave"')
+  expect(textOf(woven)).toContain('"blocks"')
+  expect(textOf(woven)).toContain('\\n  return `Hello, ${who}`')
+  expect(woven).not.toContain('class="pl-result tangle"')
+})
+
+## The document, typed out
+
+By the end of the run the whole document is typed out, its marks and its two anchors included. The anchors are written the way a loom writes them. Along the way the document appears a line at a time, so a frame late in the run holds more than an early one.
+
+=>
+
+it('types the whole document out by the end, marks and all', () => {
+  const text = textOf(render(at({ struck: CHARACTERS, beat: RUN })))
+  ;['# Loom, explained in Loom', '## Greeting', '=>', '~', '[hello.ts]', "That's it."].forEach(
+    (mark) => expect(text).toContain(mark),
+  )
+  expect(text).toContain(anchor('Greeting'))
+  expect(text).toContain(anchor('Run it'))
+})
+
+it('reveals the document a line at a time rather than all at once', () => {
+  const early = frameAt(struckBy(RUN * 0.2), true).length
+  const late = frameAt(struckBy(RUN * 0.8), true).length
+  expect(early).toBeGreaterThan(0)
+  expect(late).toBeGreaterThan(early)
+})
+
+## The command illustrations
+
+Below the example, each of the four commands has an illustration in the same frame. Init, tangle and eject are vendored SVGs that drive themselves. Weave is built from elements as a block of JSON. Tangle and eject loop on the same period of 6.2 seconds, and init stands still. Nothing here waits on a clock in the model. Each drawing names its filters with a prefix of its own, so one drawing's filter never resolves against another's.
+
+=>
+
+it('gives all four commands the same frame', () => {
+  expect(html.split('class="ops-frame"').length - 1).toBe(4)
+})
+
+it('draws three of them as self-driving SVGs and weave as JSON', () => {
+  expect(html.split('class="ops-svg"').length - 1).toBe(3)
+  expect(html).toContain('class="px-json"')
+})
+
+it('loops tangling and ejecting on the same period, and leaves init still', () => {
+  expect(html.split('repeatCount="indefinite"').length - 1).toBeGreaterThan(1)
+  expect(html).toContain('dur="6.2s"')
+  expect(html).toContain('ARCHIVED')
+})
+
+it('namespaces each drawing so their filters never resolve against each other', () => {
+  ;['in-drop', 'tg-drop', 'ej-drop', 'ej-lid'].forEach((id) => expect(html).toContain(`id="${id}"`))
+})
+
+## The example tests {Tangle}[Example.test.ts]
+
+The example tests draw on the example's clock and its drawing, and on the illustrations of the four commands.
+
+=>
+
+import { describe, expect, it } from 'bun:test'
+import { Array, Option } from 'effect'
+import { CHARACTERS, RUN, example, frameAt, struckBy, wholeDocument } from '../src/example'
+import { fromInitToEject } from '../src/operations'
+import { type Model, type Player } from '../src/model'
+import { anchor, modelAt, renderHtml } from './render'
+
+::[The example at a point in its run]
+
+describe('the document being typed', () => {
+  ::[The card and its clock]
+
+  ::[Full height, and the two commands]
+
+  ::[The document, typed out]
+})
+
+describe('the command illustrations', () => {
+  const html = renderHtml((h) => fromInitToEject(at(), h))
+
+  ::[The command illustrations]
+})

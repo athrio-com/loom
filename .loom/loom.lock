@@ -142,6 +142,10 @@
     "site/src/vite-env.d.ts",
     "site/src/vocabulary.ts",
     "site/src/why-loom.ts",
+    "site/test/DocumentationShell.test.ts",
+    "site/test/Example.test.ts",
+    "site/test/Page.test.ts",
+    "site/test/render.ts",
     "site/tsconfig.json",
     "site/tsconfig.server.json",
     "site/vite.config.ts"

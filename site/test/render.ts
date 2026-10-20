@@ -1,10 +1,8 @@
-import { Effect } from 'effect'
+import { Effect, Option } from 'effect'
 import { Server } from 'foldkit/experimental'
 import type { Document, Html, HtmlBuilder } from 'foldkit/html'
-import type { Message } from '../src/model'
+import type { Message, Model } from '../src/model'
 
-// Foldkit hands a builder only to a view, so a test draws a piece of the page by
-// wrapping it in a one-off application and rendering that as static markup.
 export const renderDocument = (
   draw: (h: HtmlBuilder<Message>) => Document,
 ): Server.RenderedApplication =>
@@ -17,3 +15,24 @@ export const renderDocument = (
 
 export const renderHtml = (draw: (h: HtmlBuilder<Message>) => Html): string =>
   renderDocument((h) => ({ title: '', body: draw(h) })).html
+
+export const modelAt = (over: Partial<Model> = {}): Model => ({
+  route: 'home',
+  chapter: '',
+  drawerOpen: false,
+  runtime: 'bun',
+  searchOpen: false,
+  caret: 0,
+  searching: false,
+  found: [],
+  activeSection: '',
+  player: { struck: 0, beat: 0, playing: false, output: Option.none(), full: false },
+  version: '0.0.9',
+  query: '',
+  focus: 0,
+  copied: '',
+  book: Option.none(),
+  ...over,
+})
+
+export const anchor = (name: string): string => `::${'['}${name}]`
