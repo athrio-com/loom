@@ -5,8 +5,8 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Server } from 'foldkit/experimental'
 import { view } from './view'
-import { Model, routeOf, type Route } from './model'
-import { docsChapterAt } from './docs-page'
+import { Corpus, Model, routeOf, type Route } from './model'
+import { chapterAt, docsChapterAt, sliceOf } from './docs-page'
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist')
 
@@ -24,6 +24,7 @@ const seed: Model = {
   query: '',
   focus: 0,
   copied: '',
+  book: Option.none(),
 }
 
 const NPM_LATEST = 'https://registry.npmjs.org/@athrio/loom/latest'
@@ -36,6 +37,18 @@ const latestVersion = (fallback: string): Effect.Effect<string> =>
       .then((response) => response.json())
       .then((body) => S.decodeUnknownSync(Release)(body).version),
   ).pipe(Effect.catchCause(() => Effect.succeed(fallback)))
+
+const bookFile = join(dirname(fileURLToPath(import.meta.url)), 'source.woven.json')
+
+const decodeBook = S.decodeUnknownOption(Corpus)
+
+const readBook = (fs: FileSystem.FileSystem): Effect.Effect<Option.Option<Corpus>> =>
+  fs.readFileString(bookFile).pipe(
+    Effect.map((text) =>
+      Option.flatMap(Option.liftThrowable((json: string): unknown => JSON.parse(json))(text), decodeBook),
+    ),
+    Effect.catchCause(() => Effect.succeed(Option.none())),
+  )
 
 const application = {
   Flags: Model,
@@ -122,29 +135,45 @@ const NOT_BUILT = standalone(
 
 type Place = { readonly route: Route; readonly chapter: string }
 
-const placeOf = (pathname: string): Option.Option<Place> =>
+const placeOf = (book: Option.Option<Corpus>, pathname: string): Option.Option<Place> =>
   pipe(
     routeOf(pathname),
+    Option.filter((route) => route !== 'source' || Option.isSome(book)),
     Option.map((route): Place => ({ route, chapter: '' })),
     Option.orElse(() =>
       Option.map(docsChapterAt(pathname), (chapter): Place => ({ route: 'docs', chapter })),
     ),
+    Option.orElse(() =>
+      Option.flatMap(book, (corpus) =>
+        Option.map(
+          chapterAt(corpus, '/source', pathname),
+          (chapter): Place => ({ route: 'source', chapter }),
+        ),
+      ),
+    ),
   )
+
+const bookFor = (book: Option.Option<Corpus>, place: Place): Option.Option<Corpus> =>
+  place.route === 'source'
+    ? Option.map(book, (corpus) => sliceOf(corpus, place.chapter))
+    : Option.none()
 
 export class Site extends Context.Service<Site>()('Site', {
   make: Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
     const version = yield* latestVersion(seed.version)
+    const book = yield* readBook(fs)
     const shell = fs.readFileString(join(distDir, 'index.html'))
     return {
       pageAt: (url: URL): Effect.Effect<Option.Option<string>> =>
-        Option.match(placeOf(url.pathname), {
+        Option.match(placeOf(book, url.pathname), {
           onNone: () => Effect.succeed(Option.none()),
           onSome: (place) =>
             shell.pipe(
               Effect.matchEffect({
                 onFailure: () => Effect.succeed(NOT_BUILT),
-                onSuccess: (held) => pageOf(held, { ...seed, ...place, version }),
+                onSuccess: (held) =>
+                  pageOf(held, { ...seed, ...place, version, book: bookFor(book, place) }),
               }),
               Effect.map(Option.some),
             ),

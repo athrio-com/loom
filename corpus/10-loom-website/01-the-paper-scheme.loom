@@ -458,7 +458,7 @@ The two icons are pixel drawings, and a drawing keeps its own fills: the folder 
 
 The nav is a single row fifty-six pixels tall, and it centres its links around the wordmark rather than pushing them to one side. It sets its own leading back to the browser's default, because the base sets a leading of two for running prose and a nav is not prose — a link with no height of its own would otherwise stand twenty-two pixels tall for eleven pixels of text, and the row of them would read as a stack of blocks rather than a line of words. Its type is the site's smallest: eleven pixels, tracked wide, in capitals and muted ink. A link warms to the faint rule and darkens to primary ink when a reader hovers it, and the page a reader is already on wears that same treatment permanently, so the nav always says where they are.
 
-The wordmark is the one thing here in Space Grotesk, and it does not change colour on hover — a logo is not a link that needs to prove it is one.
+The wordmark is the one thing here in Space Grotesk, and it does not change colour on hover — a logo is not a link that needs to prove it is one. The beta tag hangs off its top-right corner, positioned against the wordmark rather than laid out in the row, so the row stays centred on the word. It is drawn back over the corner by three tenths of its own width, so it reads as part of the mark rather than a word beside it. It is set small in mono capitals, in violet.
 
 Search sits apart from the row. It pins to the right edge rather than joining the flow, so the links stay centred whatever it says. The key badge beside it shows the slash that opens the palette.
 
@@ -499,6 +499,7 @@ The nav's side padding steps down with the window, from eighty pixels to twenty-
 .nav-link.here { background-color: var(--rule-faint); color: var(--ink); }
 
 .nav-word {
+  position: relative;
   flex: none;
   margin: 0 6px;
   font-family: var(--display);
@@ -510,6 +511,21 @@ The nav's side padding steps down with the window, from eighty pixels to twenty-
 }
 
 .nav-word:hover { background-color: transparent; color: var(--ink); }
+
+.nav-beta {
+  position: absolute;
+  left: 100%;
+  top: -2px;
+  margin-left: 2px;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--violet);
+  transform: translateX(-30%);
+}
 
 .nav-find .narrow { display: none; }
 
@@ -2314,7 +2330,7 @@ The scrim also stops taking clicks when it is invisible. An invisible layer that
   display: flex;
   flex-direction: column;
   gap: 28px;
-  padding: 20px 24px 96px;
+  padding: 0 24px 96px;
 }
 
 @media (max-width: 999px) {
@@ -2377,7 +2393,9 @@ The sections run down one column. A section is the site's section without its ow
 
 An editor's emblem takes the same forty-two-pixel square as a flower. The emblems come in many shapes, from Helix's tall helix to Gram's wide frog, so each drawing scales to fit the square whole and sits at its centre.
 
-The column of sections stretches to the height of the body, and the pager sits at its foot. So when a reader reaches the end of a chapter, the pager's lower edge lines up with the menu's.
+The column of sections stretches to the height of the body, and the pager sits at its foot. At the end of a chapter the pager's lower edge lines up with the menu's, and both stop a section's padding above the footer, the gap every other page leaves before it. The body pads its foot by that padding, so the page ends as the site's other pages do rather than running hard into the footer.
+
+The pager also keeps more room above it than a section leaves between blocks, so the last words of a chapter do not crowd the cards that lead away from it.
 
 =>
 
@@ -2392,6 +2410,80 @@ The column of sections stretches to the height of the body, and the pager sits a
 
 .docs-article { display: flex; flex-direction: column; min-width: 0; }
 
+.doc-pager.pager-row { margin-top: auto; padding-top: calc(var(--section-pad) - 24px); }
+
+~
+
+A chapter of the book wears the docs' head, so it keeps its spacing: the crumb line, then the mark and the name twenty-four pixels below, then the frontmatter. The head's own gap between its rows is set aside for that, since the head stacks its rows directly. The large line beside the mark is set exactly as a page's title is, though it is a label rather than a heading.
+
+The frontmatter reads as text rather than as a card, so the head holds one box, not two. The fields take the page's body type, one to a line, at a heavier weight. Each key wears the violet the loom gives the frontmatter, and each value wears the mark's mint. The mint is deepened by a quarter of its paper shade, since the full mint is meant for bars and marks and reads faint as type on paper. A long field breaks wherever it must, since a package path has no spaces to break at.
+
+Those rows take the head's left column, and the GitHub card takes its right, with its top level with the crumb line. The right column is exactly as wide as one of the cards in the other pages' heads, a quarter of the head less its gaps, so the card keeps the size it has everywhere else. Below a thousand pixels the columns stack, and the card drops under the frontmatter at half the width, as the other pages' cards drop under their lead.
+
+Under the fields sits the `Raw source` link, set small in muted ink beside GitHub's mark, which takes the accent under the pointer like the site's other quiet links.
+
+The chapter's name heads the article in the display face, at twenty-six pixels, with the chapter's emblem beside it as a section's mark sits beside its heading. That sits between the head's thirty-two-pixel line and the twenty-one-pixel section headings, so the name ranks above the sections without competing with the head. The opening under it ends forty pixels above the first section.
+
+=>
+
+.section-hero.source-hero { gap: 0; }
+
+.frontmatter { display: flex; flex-direction: column; min-width: 0; }
+.front-field {
+  margin: 0;
+  line-height: 1.8;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--loom), var(--loom-paper) 25%);
+  overflow-wrap: anywhere;
+}
+
+.front-key { color: var(--violet); }
+
+.source-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) calc((100% - 44px) / 4 - 8px);
+  gap: 44px;
+  align-items: start;
+}
+
+.source-head-main { min-width: 0; }
+.source-head .page-places { display: block; }
+
+@media (max-width: 999px) {
+  .source-head { grid-template-columns: minmax(0, 1fr); gap: 36px; }
+  .source-head .page-places { display: grid; }
+}
+
+.raw-source {
+  display: flex;
+  width: fit-content;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink-3);
+  text-decoration: none;
+  transition: color 140ms ease;
+}
+
+.raw-source:hover { color: var(--accent); }
+
+.page-place {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 500;
+  font-size: var(--t-hero);
+  line-height: var(--lead-head);
+  letter-spacing: -0.02em;
+}
+
+@media (max-width: 639px) { .page-place { font-size: 26px; } }
+
+.chapter-title { font-size: 26px; }
+.doc-opening .chapter-head { align-items: center; margin-bottom: 24px; }
+.doc-opening { margin-bottom: 40px; }
+
 .section.doc-section { max-width: none; margin: 0; padding: 8px 0 40px; }
 .doc-section .section-head { align-items: center; margin-bottom: 24px; }
 .doc-section h2 { scroll-margin-top: 24px; }
@@ -2403,8 +2495,6 @@ The column of sections stretches to the height of the body, and the pager sits a
 .doc-stack > *:last-child { margin-bottom: 0; }
 .doc-stack h3 { margin: 12px 0 14px; font-size: var(--t-sub); }
 
-.doc-pager.pager-row { margin-top: auto; padding-top: 0; }
-
 
 ~
 
@@ -2413,6 +2503,8 @@ The menu holds three levels of type, and each is set apart from the next. A part
 Only one thing in the menu is ever orange: the section the reader has reached. A small orange square stands in front of it, a pixel of the woven marks. A row the pointer is over only darkens, so hovering never puts a second orange row beside the reader's place.
 
 The drawer holds the same groups, so the rules below style both.
+
+A menu that scrolls within itself scrolls its top padding too, so the padding would show a sliver of whatever row has passed up under it. A chapter scrolled to the top would then never look like the menu's first line. So the top padding is a strip of the menu's own ground, pinned to the top while the rows scroll beneath it. The strip fades from the solid ground at the card's edge to clear at its foot. At rest it is simply the padding. Scrolled, the rows fade out as they pass under it, rather than ending at a cut line. The strip runs the full width of the menu, over the side padding, and a negative margin takes back the gap the list sets after it, so at rest every row stands where it would without the strip. The card's strip is its pale ground, twenty-two pixels tall, and the drawer's is the paper of the drawer, twenty pixels.
 
 =>
 
@@ -2425,10 +2517,31 @@ The drawer holds the same groups, so the rules below style both.
   gap: 28px;
   max-height: calc(100vh - 48px);
   overflow-y: auto;
-  padding: 22px 22px 24px;
+  padding: 0 22px 24px;
   background: var(--pale);
   border: 1px solid var(--rule);
   border-radius: var(--radius);
+}
+
+.menu-card::before,
+.drawer-body::before {
+  content: '';
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  flex: none;
+}
+
+.menu-card::before {
+  height: 22px;
+  margin: 0 -22px -28px;
+  background: linear-gradient(var(--pale) 25%, transparent);
+}
+
+.drawer-body::before {
+  height: 20px;
+  margin: 0 -24px -28px;
+  background: linear-gradient(var(--paper) 25%, transparent);
 }
 
 .thin-scroll { scrollbar-width: thin; scrollbar-color: transparent transparent; }
@@ -2453,9 +2566,23 @@ The drawer holds the same groups, so the rules below style both.
   transition: color .12s ease;
 }
 
-.menu-item { font-size: 14px; line-height: 2.1; color: var(--ink-2); }
+.menu-item { padding: 4px 0; font-size: 14px; line-height: 1.5; color: var(--ink-2); }
 .menu-item:hover { color: var(--ink); }
 .menu-item.here { color: var(--ink); font-weight: 500; cursor: default; }
+
+~
+
+On the source page each chapter in the menu wears its language's emblem, sixteen pixels square and nine pixels before its name, the way an editor's sidebar marks a file. A marked chapter lays its emblem and name out in a row, the emblem centred on the name's first line, so a name long enough to wrap keeps its emblem beside its start. A chapter's name is set at one and a half times its size, with four pixels above and below, so a name that wraps keeps its two lines together while the rows stay apart. The sections under the chapter on show step in by the emblem's width as well, so they still hang under the name rather than under the emblem.
+
+A language's emblem is an image, and it never stretches: it keeps its own size wherever a row or a heading would squeeze it.
+
+=>
+
+.lang-icon { display: block; flex: none; }
+
+.menu-item.marked { display: flex; align-items: flex-start; gap: 9px; }
+.menu-item.marked > :first-child { margin-top: 2.5px; }
+.menu-item.marked + .menu-subs { padding-left: 25px; }
 
 .menu-subs { display: flex; flex-direction: column; padding-bottom: 6px; }
 
@@ -2483,7 +2610,7 @@ The drawer holds the same groups, so the rules below style both.
 
 ~
 
-The chapter's own prose is Markdown the weave carried through, so the elements it produces are styled here rather than by the views: a paragraph, a list, a table, and code set inside a sentence. Running text fills the column, as the code sheets and commands between its paragraphs do, so prose and code share one right edge rather than leaving a ragged gap beside every paragraph. Code inside a sentence sits on the same faint wash as a fence, in primary ink, so it reads as a word set in a different face rather than a highlight. A command inside a sentence is a button in the command's own colour: its text in that colour, on a faint wash of it inside a thin edge of it, and a small copy glyph after the command. The colour arrives as a custom property, since it belongs to the command rather than to the stylesheet. Under the pointer the edge takes the full colour and the wash deepens, and once the command is copied the glyph turns to a tick in the green the command blocks use for `copied`.
+The chapter's own prose is Markdown the weave carried through, so the elements it produces are styled here rather than by the views: a paragraph, a list, a table, and code set inside a sentence. Running text fills the column, as the code sheets and commands between its paragraphs do, so prose and code share one right edge rather than leaving a ragged gap beside every paragraph. Code inside a sentence sits on the same faint wash as a fence, in primary ink, so it reads as a word set in a different face rather than a highlight. A command inside a sentence is a button in the command's own colour: its text in that colour, on a faint wash of it inside a thin edge of it, and a small copy glyph after the command. The colour arrives as a custom property, since it belongs to the command rather than to the stylesheet. Under the pointer the edge takes the full colour and the wash deepens, and once the command is copied the glyph turns to a tick in the green the command blocks use for `copied`. A list's markers hang in its indent, inside the column. A numbered list's indent is four characters wide, so a two-digit number fits in it rather than crossing the column's left edge.
 
 =>
 
@@ -2492,6 +2619,8 @@ The chapter's own prose is Markdown the weave carried through, so the elements i
 
 .docs-prose ul,
 .docs-prose ol { margin: 16px 0 0; padding-left: 24px; }
+
+.docs-prose ol { padding-left: 4ch; }
 
 .docs-prose li { margin: 4px 0 0; }
 
@@ -2610,6 +2739,60 @@ A command is usually one short line, and stretched across the column it would be
 
 .canvas-copy:hover { color: var(--ink); border-color: var(--rule); }
 .canvas-copy.done { color: var(--init); }
+
+~
+
+On the source page an anchor inside the code is a link, and it looks like one. It takes the accent's orange and a dotted underline, which turns solid under the pointer.
+
+Every sheet of code on the source page wears a tag on its top edge, with the language's icon and its name in small muted capitals. The tag sits on a scrap of the page's paper that straddles the border, so it reads as cut into the frame rather than laid on the code. Half the tag stands above the sheet, so the sheet sits 30px below the block before it, where the stack's other blocks sit 18px apart. The tag then keeps about the stack's usual gap from the prose. The sheet's top margin carries the whole gap, because two margins that meet collapse into the larger of the two rather than adding up.
+
+A sheet that scrolls clips whatever stands outside it. So on the source page the code inside the sheet scrolls sideways rather than the sheet itself, and the tag stays whole.
+
+A note is a reader's annotation rather than part of the chapter, so it reads quieter than the prose around it. It sits on the pale card ground in muted ink, with a rule in the accent down its left edge.
+
+=>
+
+.code-anchor {
+  color: var(--accent);
+  text-decoration: underline dotted;
+  text-underline-offset: 4px;
+}
+
+.code-anchor:hover { text-decoration-style: solid; }
+
+.doc-stack > .source-code { margin-top: 30px; }
+
+.source-code { overflow: visible; }
+.source-code .sheet-code { overflow-x: auto; }
+
+.code-tag {
+  position: absolute;
+  top: -11px;
+  left: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.4;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.doc-note {
+  padding: 14px 20px;
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--pale);
+  color: var(--ink-3);
+}
+
+.doc-note blockquote { margin: 0 0 10px; padding: 0; border: 0; }
 
 ~
 

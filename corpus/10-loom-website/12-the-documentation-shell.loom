@@ -10,17 +10,15 @@ The documentation reads nothing it was given by hand. Its own corpus of prose si
 
 A chapter of the docs is drawn the way the site's other pages are drawn. It opens on a head: the Loom mark beside the chapter's name, its opening paragraph, and any commands it starts with set beside that paragraph. Its first section opens on a woven flower beside its heading, as the landing's sections do. The sections after it open on their heading alone, except that a section named for an editor opens on the editor's emblem. The chapter ends on a pager that names the chapters either side of it. Beside the sections a menu card lists every chapter in the docs, with the sections of the one on show under its name.
 
-The shell is not tied to one corpus. Every function here takes the corpus it should read, and the page that calls it decides which one that is, so a second page over a second corpus could reuse it without a line changing.
+The shell is not tied to one corpus. Every function here takes the corpus it should read, and the page that calls it decides which one that is. The documentation passes its own corpus. The source page passes the slice of Loom's book that the server cut for it, and the same head, menu, sections and pager draw the book.
 
 ## The woven corpus, read
 
-A weave is data, so the shell begins by saying what shape that data has. A page is a list of blocks, and a block is either a heading, carrying its depth, its title and the slug to link at, or a run of prose carrying Markdown.
-
-The types are declared here rather than imported because the weave is a build artifact. The JSON arrives typed as whatever it literally contains, which is too narrow to hold a second chapter and too wide to be worth reading.
+A weave is data, and the model says what shape that data has: a table of contents of parts and chapters, and a page of blocks for each chapter. The documentation's corpus is part of the client. Its JSON is imported whole and read as a `Corpus`, since the site's own build wrote it and nothing else reads it.
 
 =>
 
-import { Array, Match, Option, pipe } from 'effect'
+import { Array, Match, Option, Order, pipe } from 'effect'
 import { marked } from 'marked'
 import type { Html, HtmlBuilder } from 'foldkit/html'
 import {
@@ -29,8 +27,16 @@ import {
   OpenedChapter,
   PickedRuntime,
   SelectedSection,
+  type Block,
+  type Chapter,
+  type CodeBlock,
+  type CodeLink,
+  type Corpus,
+  type HeadingBlock,
   type Message,
   type Model,
+  type Page,
+  type Part,
   type Runtime,
 } from './model'
 import {
@@ -44,49 +50,14 @@ import {
   flowerFor,
   loomMark,
   nodeIcon,
+  octocatIcon,
 } from './components'
 import { commandButton, installLine } from './hero'
 import { loomCanvas } from './example'
+import { starCard } from './page-head'
 import { operations } from './operations'
 import projectDrawing from './project.svg?raw'
 import wovenDocs from './docs.woven.json'
-
-type HeadingBlock = {
-  readonly type: 'heading'
-  readonly level: number
-  readonly title: string
-  readonly id: string
-}
-
-type ProseBlock = {
-  readonly type: 'prose'
-  readonly markdown: string
-}
-
-type Block = HeadingBlock | ProseBlock
-
-type Chapter = {
-  readonly number: string
-  readonly title: string
-  readonly slug: string
-}
-
-type Part = {
-  readonly number: string
-  readonly name: string
-  readonly chapters: ReadonlyArray<Chapter>
-}
-
-type Page = {
-  readonly slug: string
-  readonly title: string
-  readonly blocks: ReadonlyArray<Block>
-}
-
-export type Corpus = {
-  readonly nav: ReadonlyArray<Part>
-  readonly pages: ReadonlyArray<Page>
-}
 
 export const docsCorpus = wovenDocs as unknown as Corpus
 
@@ -141,6 +112,17 @@ export const chapterAt = (corpus: Corpus, base: string, pathname: string): Optio
 
 export const docsChapterAt = (pathname: string): Option.Option<string> =>
   chapterAt(docsCorpus, '/docs', pathname)
+
+~
+
+A corpus too large to send whole reaches its page as a slice. `sliceOf` keeps the corpus's whole table of contents and drops every page but the one a slug names. An empty slug names the corpus's first page, the one the shell opens at the corpus's base address. The server cuts the source page's slice with it, so the slice holds exactly what the shell draws.
+
+=>
+
+export const sliceOf = (corpus: Corpus, slug: string): Corpus => {
+  const shown = slug === '' ? firstSlugOf(corpus) : slug
+  return { nav: corpus.nav, pages: Array.filter(corpus.pages, (page) => page.slug === shown) }
+}
 
 ## A chapter, cut into its parts
 
@@ -330,25 +312,26 @@ The code sheet copies exactly the code it shows, without the newline the fence l
 
 =>
 
-const codeSheet = (body: string, copied: string, h: HtmlBuilder<Message>): Html => {
-  const code = body.replace(/\n$/, '')
+const copyButton = (code: string, copied: string, h: HtmlBuilder<Message>): Html => {
   const id = `code:${code}`
   const taken = copied === id
+  return h.button(
+    [
+      h.Class(taken ? 'canvas-copy done' : 'canvas-copy'),
+      h.Type('button'),
+      h.Title(taken ? 'Copied' : 'Copy the code'),
+      h.AriaLabel('Copy the code'),
+      h.OnClick(Copied({ id, text: code })),
+    ],
+    [taken ? checkIcon() : copyIcon()],
+  )
+}
+
+const codeSheet = (body: string, copied: string, h: HtmlBuilder<Message>): Html => {
+  const code = body.replace(/\n$/, '')
   return h.div(
     [h.Class('docs-canvas')],
-    [
-      h.button(
-        [
-          h.Class(taken ? 'canvas-copy done' : 'canvas-copy'),
-          h.Type('button'),
-          h.Title(taken ? 'Copied' : 'Copy the code'),
-          h.AriaLabel('Copy the code'),
-          h.OnClick(Copied({ id, text: code })),
-        ],
-        [taken ? checkIcon() : copyIcon()],
-      ),
-      h.pre([h.Class('sheet-code')], [h.code([], [code])]),
-    ],
+    [copyButton(code, copied, h), h.pre([h.Class('sheet-code')], [h.code([], [code])])],
   )
 }
 
@@ -427,13 +410,101 @@ const runLine = (file: string, model: Model, h: HtmlBuilder<Message>): Html => {
   )
 }
 
-## A section, under its heading
+## Code, with its anchors as links
 
-A block draws as one of two things and never a third, so the match closes. A heading inside a section draws as a third-level heading carrying its slug, and a run of prose draws as its pieces: each stretch of text as Markdown, each fence as `fenceOf` decides.
+A source page shows the code each section writes, so the shell draws a run of code as well. It draws as the code sheet the docs use for a fence, with the same copy button in its corner.
+
+Every sheet names its language in a small tag on its top edge, set into the border like a legend, with the language's icon and name. A chapter can change language from one section to the next, and some languages look alike at a glance: TOML and YAML, or TypeScript and JavaScript. So the tag never leaves the reader to guess, even on code in the chapter's own language.
+
+A loom composes its code by anchor. A `::[…]` anchor in one section's code stands for the section it names, so each anchor in the code is a link to that section. A section in the same chapter is reached by its id alone, and a section in another chapter by that chapter's address and the id.
+
+The weave hands over each anchor as a name, its place in the code, and the section it reaches. `runsOf` cuts the code at those places into runs, in order: the plain code between anchors, and each anchor with its link. A run with no text, such as the gap between two anchors that touch, is dropped.
 
 =>
 
-const blockOf = (block: Block, model: Model, h: HtmlBuilder<Message>): ReadonlyArray<Html> =>
+type Run = { readonly text: string; readonly link: Option.Option<CodeLink> }
+
+const byOffset = Order.mapInput(Order.Number, (link: CodeLink) => link.offset)
+
+const runsOf = (block: CodeBlock): ReadonlyArray<Run> => {
+  const [runs, end] = Array.reduce(
+    Array.sort(block.links, byOffset),
+    [[], 0] as readonly [ReadonlyArray<Run>, number],
+    ([runs, at], link): readonly [ReadonlyArray<Run>, number] => [
+      [
+        ...runs,
+        { text: block.code.slice(at, link.offset), link: Option.none() },
+        {
+          text: block.code.slice(link.offset, link.offset + link.length),
+          link: Option.some(link),
+        },
+      ],
+      link.offset + link.length,
+    ],
+  )
+  return Array.filter(
+    [...runs, { text: block.code.slice(end), link: Option.none() }],
+    (run) => run.text !== '',
+  )
+}
+
+const anchorHref = (base: string, here: string, link: CodeLink): string =>
+  link.targetSlug === here
+    ? `#${link.targetId}`
+    : `${chapterPath(base, link.targetSlug)}#${link.targetId}`
+
+const codeTag = (block: CodeBlock, h: HtmlBuilder<Message>): Html =>
+  h.span(
+    [h.Class('code-tag')],
+    [...Option.toArray(emblemOf(block.language, 14, h)), nameOf(block.language)],
+  )
+
+const codeOf = (
+  block: CodeBlock,
+  base: string,
+  page: Page,
+  copied: string,
+  h: HtmlBuilder<Message>,
+): Html =>
+  h.div(
+    [h.Class('docs-canvas source-code')],
+    [
+      codeTag(block, h),
+      copyButton(block.code, copied, h),
+      h.pre(
+        [h.Class('sheet-code')],
+        [
+          h.code(
+            [],
+            Array.map(runsOf(block), (run) =>
+              Option.match(run.link, {
+                onNone: () => run.text,
+                onSome: (link) =>
+                  h.a(
+                    [h.Class('code-anchor'), h.Href(anchorHref(base, page.slug, link))],
+                    [run.text],
+                  ),
+              }),
+            ),
+          ),
+        ],
+      ),
+    ],
+  )
+
+## A section, under its heading
+
+A block draws as one of four things, so the match closes on four cases. A heading inside a section draws as a third-level heading carrying its slug. A run of prose draws as its pieces: each stretch of text as Markdown, each fence as `fenceOf` decides. A run of code draws as `codeOf` draws it. A note is a reader's annotation kept in the loom, so it draws as prose on a quieter card, and an empty note draws nothing.
+
+=>
+
+const blockOf = (
+  block: Block,
+  base: string,
+  page: Page,
+  model: Model,
+  h: HtmlBuilder<Message>,
+): ReadonlyArray<Html> =>
   Match.value(block).pipe(
     Match.when({ type: 'heading' }, (heading) => [h.h3([h.Id(heading.id)], [heading.title])]),
     Match.when({ type: 'prose' }, (prose) =>
@@ -442,6 +513,10 @@ const blockOf = (block: Block, model: Model, h: HtmlBuilder<Message>): ReadonlyA
           ? textOf(piece.markdown, 'docs-prose', model.copied, h)
           : fenceOf(piece.kind, piece.body, model, h),
       ),
+    ),
+    Match.when({ type: 'code' }, (code) => [codeOf(code, base, page, model.copied, h)]),
+    Match.when({ type: 'note' }, (note) =>
+      note.markdown.trim() === '' ? [] : [textOf(note.markdown, 'docs-prose doc-note', model.copied, h)],
     ),
     Match.exhaustive,
   )
@@ -466,8 +541,10 @@ Everything a section holds then runs in one column beneath its heading, in the o
 =>
 
 const sectionOf = (
-  flower: Option.Option<Carpet>,
+  mark: Option.Option<Html>,
   section: Section,
+  base: string,
+  page: Page,
   model: Model,
   h: HtmlBuilder<Message>,
 ): Html =>
@@ -477,13 +554,13 @@ const sectionOf = (
       h.div(
         [h.Class('section-head')],
         [
-          ...Option.toArray(markOf(flower, section)),
+          ...Option.toArray(mark),
           h.div([h.Class('lines')], [h.h2([h.Id(section.heading.id)], [section.heading.title])]),
         ],
       ),
       h.div(
         [h.Class('doc-stack')],
-        Array.flatMap(section.blocks, (block) => blockOf(block, model, h)),
+        Array.flatMap(section.blocks, (block) => blockOf(block, base, page, model, h)),
       ),
     ],
   )
@@ -529,6 +606,14 @@ The chapter's opening fills the rest of the head. Its text becomes the lead unde
 
 =>
 
+const chapterHeading = (page: Page, cut: Cut): HeadingBlock =>
+  Option.getOrElse(cut.title, (): HeadingBlock => ({
+    type: 'heading',
+    level: 1,
+    title: page.title,
+    id: page.slug,
+  }))
+
 const docHead = (
   corpus: Corpus,
   root: string,
@@ -541,12 +626,7 @@ const docHead = (
   const pieces = Array.flatMap(cut.opening, (block) =>
     block.type === 'prose' ? piecesOf(block.markdown) : [],
   )
-  const heading = Option.getOrElse(cut.title, (): HeadingBlock => ({
-    type: 'heading',
-    level: 1,
-    title: page.title,
-    id: page.slug,
-  }))
+  const heading = chapterHeading(page, cut)
   return h.div(
     [h.Class('section section-hero page-hero doc-hero')],
     [
@@ -579,6 +659,221 @@ const docHead = (
     ],
   )
 }
+
+## The opening of a chapter of the book
+
+A chapter of the book opens on a head like a docs chapter's: the line that says where it sits, and the Loom mark beside a large line. In the docs that line is the chapter's name. In the book it is the chapter's place, `Part X, Chapter 12`, read from the table of contents, since a book is read by its parts and chapters. A chapter outside the parts, such as a work in progress, has no place, and shows its name there instead.
+
+Under that line, where a docs chapter sets its lead and its commands, a chapter of the book sets its frontmatter as plain text, in the page's own type rather than on a card. Each field takes a line, its key in the violet the loom gives the frontmatter, and the `---` fences that frame the fields in the loom are left out. A chapter with no frontmatter shows none.
+
+The GitHub card that Why Loom and Community carry stands at the head's right, beside the crumb line, the place and the frontmatter, its top level with the crumb line. A reader of Loom's source is the reader most likely to star it, so the card waits there on every chapter. So the head is two columns: the chapter's own lines on the left, and the card on the right.
+
+Under the fields a link, `Raw source`, opens the chapter's loom on GitHub, where the file sits as the author wrote it. The weave names a page by the last two parts of its file's path, and every chapter of the book sits two folders deep in `corpus/`. So `rawSource` finds the file from the page's slug alone.
+
+The chapter's name heads the article instead, where its loom writes it: above the prose and code the chapter writes before its first section. A docs chapter opens on a sentence or two, while a chapter of the book can open on several paragraphs and its first code, too much for a head. So the name and that opening lead the article, beside the menu, in the order the loom wrote them. The name is the page's main heading, and the place in the head is only its label.
+
+=>
+
+const placeOf = (corpus: Corpus, page: Page): string =>
+  pipe(
+    partOf(corpus, page.slug),
+    Option.filter((part) => part.number !== ''),
+    Option.flatMap((part) =>
+      Option.map(
+        Array.findFirst(part.chapters, (chapter) => chapter.slug === page.slug),
+        (chapter) => `Part ${part.number}, Chapter ${chapter.number}`,
+      ),
+    ),
+    Option.getOrElse(() => page.title),
+  )
+
+const REPOSITORY = 'https://github.com/athrio-com/loom/blob/main'
+
+const rawSource = (page: Page): string => `${REPOSITORY}/corpus/${page.slug}.loom`
+
+const FIELD = /^([^:]+:)(.*)$/
+
+const frontmatterField = (line: string, h: HtmlBuilder<Message>): Html =>
+  Option.match(Option.fromNullishOr(FIELD.exec(line)), {
+    onNone: () => h.p([h.Class('front-field')], [line]),
+    onSome: ([, key, value]) =>
+      h.p([h.Class('front-field')], [h.span([h.Class('front-key')], [key ?? '']), value ?? '']),
+  })
+
+const frontmatterText = (page: Page, text: string, h: HtmlBuilder<Message>): Html =>
+  h.div(
+    [h.Class('frontmatter')],
+    [
+      ...pipe(
+        text.split('\n'),
+        Array.filter((line) => line.trim() !== '' && line.trim() !== '---'),
+        Array.map((line) => frontmatterField(line, h)),
+      ),
+      h.a(
+        [
+          h.Class('raw-source'),
+          h.Href(rawSource(page)),
+          h.Target('_blank'),
+          h.Rel('noopener noreferrer'),
+        ],
+        [octocatIcon('14'), 'Raw source'],
+      ),
+    ],
+  )
+
+const sourceHead = (
+  corpus: Corpus,
+  root: string,
+  base: string,
+  page: Page,
+  cut: Cut,
+  model: Model,
+  h: HtmlBuilder<Message>,
+): Html => {
+  return h.div(
+    [h.Class('section section-hero page-hero doc-hero source-hero')],
+    [
+      h.div(
+        [h.Class('source-head')],
+        [
+          h.div(
+            [h.Class('source-head-main')],
+            [
+              breadcrumb(corpus, root, base, page, h),
+              h.div(
+                [h.Class('page-title')],
+                [loomMark('paper', 0.8), h.p([h.Class('page-place')], [placeOf(corpus, page)])],
+              ),
+              ...Option.toArray(
+                Option.map(Option.fromNullishOr(page.frontmatter), (text) =>
+                  frontmatterText(page, text, h),
+                ),
+              ),
+            ],
+          ),
+          h.div([h.Class('page-places')], [starCard()]),
+        ],
+      ),
+    ],
+  )
+}
+
+~
+
+A chapter of the book marks its sections by language rather than by flower. The chapter's own opening, its name and the prose under it, wears the emblem of the chapter's language, the `Language` its frontmatter names, beside the name. A section after it wears an emblem only when its code is written in another language, a `{Bash}` or `{json}` section in a chapter of TypeScript, so a change of language is what stands out. A section with no code takes its language from the chapter, and so wears nothing.
+
+Each language's emblem is its icon from Devicon, a free collection of language logos under the MIT licence, kept beside the site as files named for the icon: `typescript.svg`, `json.svg`, and so on. Devicon has no icon for two of the book's languages. The tree-sitter queries are written in the query language's S-expressions, so they wear Racket's, a Scheme dialect whose λ marks the same family. TOML wears its logo from Simple Icons, a public-domain collection of the same kind.
+
+Prose is Loom's own language, so it wears Loom's own icon, `loom.svg`, kept beside the others. The icon is a square cut from the carpets the logo weaves: two rows of the logo's flowers, crossed so each orange flower sits over a blue one, either side of its yellow stitch.
+
+A section's language comes from the weave, which names it the way the tangler does: by the section's specifier, else by the extension of the file it writes, else by the chapter's language. An extension the tangler does not know stands as itself, so `.rs` reads `rs` and `.sh` reads `sh`. `iconOf` maps each of these names to its icon, and `nameOf` to the name a tag shows, a tree-sitter query reading `Query`; so `rs` and `rust` share Rust's, `sh` and `bash` share Bash's, a `.h` header shares C's, and `.gitignore` and `.gitattributes` share Git's. A section is compared with its chapter through the same map, so a Rust chapter's `.rs` file is not mistaken for another language. A name with no icon, such as a `LICENSE`, wears nothing.
+
+The same emblem marks each chapter in the menu, at sixteen pixels beside its name, the way an editor marks each file in its sidebar by type. So a reader scanning the book's ninety chapters sees at once which are TypeScript, which are packaging in JSON, and which are the grammar's C.
+
+=>
+
+const LANGUAGE_LINE = /^Language:[ \t]*(.+)$/m
+
+const chapterLanguage = (page: Page): Option.Option<string> =>
+  pipe(
+    Option.fromNullishOr(page.frontmatter),
+    Option.flatMap((text) => Option.fromNullishOr(LANGUAGE_LINE.exec(text)?.[1])),
+    Option.map((language) => language.trim().toLowerCase()),
+  )
+
+const isCode = (block: Block): block is CodeBlock => block.type === 'code'
+
+const sectionLanguage = (section: Section): Option.Option<string> =>
+  Option.map(Array.findFirst(section.blocks, isCode), (code) => code.language.toLowerCase())
+
+const ICONS: ReadonlyMap<string, string> = new Map([
+  ['typescript', 'typescript'],
+  ['javascript', 'javascript'],
+  ['css', 'css'],
+  ['html', 'html'],
+  ['json', 'json'],
+  ['yaml', 'yaml'],
+  ['toml', 'toml'],
+  ['markdown', 'markdown'],
+  ['scm', 'scm'],
+  ['c', 'c'],
+  ['h', 'c'],
+  ['rust', 'rust'],
+  ['rs', 'rust'],
+  ['bash', 'bash'],
+  ['sh', 'bash'],
+  ['lua', 'lua'],
+  ['dockerfile', 'dockerfile'],
+  ['gitignore', 'git'],
+  ['gitattributes', 'git'],
+  ['vscodeignore', 'vscode'],
+  ['prose', 'loom'],
+])
+
+const NAMES: ReadonlyMap<string, string> = new Map([
+  ['typescript', 'TypeScript'],
+  ['javascript', 'JavaScript'],
+  ['css', 'CSS'],
+  ['html', 'HTML'],
+  ['json', 'JSON'],
+  ['yaml', 'YAML'],
+  ['toml', 'TOML'],
+  ['markdown', 'Markdown'],
+  ['scm', 'Query'],
+  ['c', 'C'],
+  ['h', 'C'],
+  ['rust', 'Rust'],
+  ['rs', 'Rust'],
+  ['bash', 'Bash'],
+  ['sh', 'Bash'],
+  ['lua', 'Lua'],
+  ['dockerfile', 'Dockerfile'],
+  ['prose', 'Prose'],
+])
+
+const nameOf = (language: string): string => NAMES.get(language) ?? language
+
+const iconOf = (language: string): Option.Option<string> =>
+  Option.fromNullishOr(ICONS.get(language))
+
+const sameLanguage = (one: string, other: string): boolean =>
+  one === other || Option.exists(iconOf(one), (icon) => Option.contains(iconOf(other), icon))
+
+const iconMark = (icon: string, size: number, h: HtmlBuilder<Message>): Html =>
+  h.img([
+    h.Class('lang-icon'),
+    h.Src(`/languages/${icon}.svg`),
+    h.Alt(''),
+    h.Width(String(size)),
+    h.Height(String(size)),
+  ])
+
+const emblemOf = (language: string, size: number, h: HtmlBuilder<Message>): Option.Option<Html> =>
+  Option.map(iconOf(language), (icon) => iconMark(icon, size, h))
+
+const chapterEmblem = (page: Page, h: HtmlBuilder<Message>): Option.Option<Html> =>
+  Option.flatMap(chapterLanguage(page), (language) => emblemOf(language, 42, h))
+
+const languageMark =
+  (page: Page, h: HtmlBuilder<Message>) =>
+  (section: Section): Option.Option<Html> =>
+    pipe(
+      sectionLanguage(section),
+      Option.filter(
+        (language) => !Option.exists(chapterLanguage(page), (chapter) => sameLanguage(chapter, language)),
+      ),
+      Option.flatMap((language) => emblemOf(language, 42, h)),
+    )
+
+const chapterIcon = (chapter: Chapter, size: number, h: HtmlBuilder<Message>): Option.Option<Html> =>
+  Option.flatMap(Option.fromNullishOr(chapter.language), (language) =>
+    emblemOf(language.toLowerCase(), size, h),
+  )
+
+const menuEmblem =
+  (h: HtmlBuilder<Message>) =>
+  (chapter: Chapter): Option.Option<Html> =>
+    chapterIcon(chapter, 16, h)
 
 ## The menu of every chapter
 
@@ -615,11 +910,17 @@ const chapterRows = (
   cut: Cut,
   active: string,
   base: string,
+  markFor: (chapter: Chapter) => Option.Option<Html>,
   h: HtmlBuilder<Message>,
-): ReadonlyArray<Html> =>
-  chapter.slug === page.slug
+): ReadonlyArray<Html> => {
+  const mark = Option.toArray(markFor(chapter))
+  const marked = Array.isReadonlyArrayNonEmpty(mark) ? ' marked' : ''
+  return chapter.slug === page.slug
     ? [
-        h.a([h.Class('menu-item here'), h.Href(chapterPath(base, chapter.slug))], [chapter.title]),
+        h.a(
+          [h.Class(`menu-item here${marked}`), h.Href(chapterPath(base, chapter.slug))],
+          [...mark, chapter.title],
+        ),
         h.div(
           [h.Class('menu-subs')],
           Array.map(cut.sections, (section) =>
@@ -630,13 +931,14 @@ const chapterRows = (
     : [
         h.a(
           [
-            h.Class('menu-item'),
+            h.Class(`menu-item${marked}`),
             h.Href(chapterPath(base, chapter.slug)),
             h.OnClick(OpenedChapter({ slug: chapter.slug })),
           ],
-          [chapter.title],
+          [...mark, chapter.title],
         ),
       ]
+}
 
 const menuGroups = (
   corpus: Corpus,
@@ -644,6 +946,7 @@ const menuGroups = (
   cut: Cut,
   active: string,
   base: string,
+  markFor: (chapter: Chapter) => Option.Option<Html>,
   h: HtmlBuilder<Message>,
 ): ReadonlyArray<Html> =>
   Array.map(corpus.nav, (part) =>
@@ -652,7 +955,7 @@ const menuGroups = (
       [
         h.span([h.Class('eyebrow')], [part.name]),
         ...Array.flatMap(part.chapters, (chapter) =>
-          chapterRows(chapter, page, cut, active, base, h),
+          chapterRows(chapter, page, cut, active, base, markFor, h),
         ),
       ],
     ),
@@ -664,18 +967,19 @@ const menu = (
   cut: Cut,
   active: string,
   base: string,
+  markFor: (chapter: Chapter) => Option.Option<Html>,
   h: HtmlBuilder<Message>,
 ): Html =>
   h.nav(
     [h.Class('menu-card thin-scroll'), h.AriaLabel('Chapters')],
-    menuGroups(corpus, page, cut, active, base, h),
+    menuGroups(corpus, page, cut, active, base, markFor, h),
   )
 
 ## The pager between chapters
 
 A chapter ends on the site's own pager, naming the chapters either side of it in reading order. A card is a flower and two lines of type, the direction and the chapter's name, and under the pointer both lines take the deep orange the source page answers to. The flower is the chapter's own, the one its first section wears, so a card shows a reader the mark they will meet on the page it leads to. A chapter whose first section names an editor is the one exception, since there the editor's emblem stands in the flower's place. Each card is a link to the chapter's address.
 
-The first chapter has nothing before it and the last nothing after, so a pager can carry one card rather than two. A next card keeps to the right even on its own, as every next card on the site does.
+The book's cards wear the icon of the chapter each one leads to, the same icon the menu sets beside that chapter's name. So a card for a chapter of TypeScript wears TypeScript's icon, and a card for a chapter of prose wears Loom's. A chapter whose language has no icon wears Loom's too. The page hands the pager each card's mark ready drawn, a flower or an icon, rather than a carpet to draw. The first chapter has nothing before it and the last nothing after, so a pager can carry one card rather than two. A next card keeps to the right even on its own, as every next card on the site does.
 
 =>
 
@@ -692,9 +996,10 @@ const chapterCard = (
   base: string,
   chapter: Chapter,
   direction: 'Previous' | 'Next',
+  cardMark: (chapter: Chapter) => Html,
   h: HtmlBuilder<Message>,
 ): Html => {
-  const mark = carpetMark(chapterFlower(corpus, chapter.slug), '42px', broadSeam)
+  const mark = cardMark(chapter)
   const words = h.div(
     [h.Class('pager-words')],
     [h.span([h.Class('eyebrow')], [direction]), h.span([h.Class('pager-title')], [chapter.title])],
@@ -710,7 +1015,13 @@ const chapterCard = (
   )
 }
 
-const chapterPager = (corpus: Corpus, base: string, page: Page, h: HtmlBuilder<Message>): Html => {
+const chapterPager = (
+  corpus: Corpus,
+  base: string,
+  page: Page,
+  cardMark: (chapter: Chapter) => Html,
+  h: HtmlBuilder<Message>,
+): Html => {
   const order = readingOrder(corpus)
   const at = Array.findFirstIndex(order, (chapter) => chapter.slug === page.slug)
   const step = (by: number): Option.Option<Chapter> =>
@@ -719,10 +1030,12 @@ const chapterPager = (corpus: Corpus, base: string, page: Page, h: HtmlBuilder<M
     [h.Class('pager-row doc-pager')],
     [
       ...Option.toArray(
-        Option.map(step(-1), (chapter) => chapterCard(corpus, base, chapter, 'Previous', h)),
+        Option.map(step(-1), (chapter) =>
+          chapterCard(corpus, base, chapter, 'Previous', cardMark, h),
+        ),
       ),
       ...Option.toArray(
-        Option.map(step(1), (chapter) => chapterCard(corpus, base, chapter, 'Next', h)),
+        Option.map(step(1), (chapter) => chapterCard(corpus, base, chapter, 'Next', cardMark, h)),
       ),
     ],
   )
@@ -760,6 +1073,7 @@ const drawer = (
   page: Page,
   cut: Cut,
   model: Model,
+  markFor: (chapter: Chapter) => Option.Option<Html>,
   h: HtmlBuilder<Message>,
 ): Html =>
   h.div(
@@ -783,7 +1097,7 @@ const drawer = (
       ),
       h.div(
         [h.Class('drawer-body thin-scroll')],
-        menuGroups(corpus, page, cut, model.activeSection, base, h),
+        menuGroups(corpus, page, cut, model.activeSection, base, markFor, h),
       ),
     ],
   )
@@ -804,12 +1118,84 @@ The shell stacks the head over a body of two columns, the menu on the left and t
 
 A slug naming no chapter falls back to the first, so the documentation always has something to show.
 
+The page decides how its chapters open, so the shell asks it for an opening. An opening is two lists: what stands above the menu and the article, across the page, and what leads the article, beside the menu. Both the docs and the book open on their head above. The docs' head draws the opening's prose, so only the code or notes there lead the article. The book's head draws the frontmatter, so its whole opening leads the article. Either way no block of a chapter goes undrawn.
+
+The flowers belong to the docs. A docs chapter's first section and the pager's cards wear the chapter's flower. A chapter of the book marks its sections by language instead, and each card of its pager wears the icon of the chapter it leads to. So an opening also says which mark each section wears, which mark each card of the pager wears, and which mark each chapter wears in the menu.
+
 =>
+
+type Opening = {
+  readonly above: ReadonlyArray<Html>
+  readonly lead: ReadonlyArray<Html>
+  readonly markOf: (section: Section, place: number) => Option.Option<Html>
+  readonly cardMark: (chapter: Chapter) => Html
+  readonly menuMark: (chapter: Chapter) => Option.Option<Html>
+}
+
+type OpeningOf = (
+  corpus: Corpus,
+  root: string,
+  base: string,
+  page: Page,
+  cut: Cut,
+  model: Model,
+  h: HtmlBuilder<Message>,
+) => Opening
+
+export const docsOpening: OpeningOf = (corpus, root, base, page, cut, model, h) => {
+  const openingCode = Array.filter(
+    cut.opening,
+    (block) => block.type === 'code' || block.type === 'note',
+  )
+  return {
+    cardMark: (chapter) => carpetMark(chapterFlower(corpus, chapter.slug), '42px', broadSeam),
+    markOf: (section, place) =>
+      markOf(place === 0 ? Option.some(chapterFlower(corpus, page.slug)) : Option.none(), section),
+    menuMark: () => Option.none(),
+    above: [docHead(corpus, root, base, page, cut, model, h)],
+    lead: Array.isReadonlyArrayNonEmpty(openingCode)
+      ? [
+          h.div(
+            [h.Class('doc-stack doc-opening')],
+            Array.flatMap(openingCode, (block) => blockOf(block, base, page, model, h)),
+          ),
+        ]
+      : [],
+  }
+}
+
+const sourceOpening: OpeningOf = (corpus, root, base, page, cut, model, h) => {
+  const heading = chapterHeading(page, cut)
+  return {
+    cardMark: (chapter) => Option.getOrElse(chapterIcon(chapter, 42, h), () => iconMark('loom', 42, h)),
+    markOf: languageMark(page, h),
+    menuMark: menuEmblem(h),
+    above: [sourceHead(corpus, root, base, page, cut, model, h)],
+    lead: [
+      h.div(
+        [h.Class('doc-stack doc-opening')],
+        [
+          h.div(
+            [h.Class('section-head chapter-head')],
+            [
+              ...Option.toArray(
+                chapterEmblem(page, h),
+              ),
+              h.h1([h.Id(heading.id), h.Class('chapter-title')], [heading.title]),
+            ],
+          ),
+          ...Array.flatMap(cut.opening, (block) => blockOf(block, base, page, model, h)),
+        ],
+      ),
+    ],
+  }
+}
 
 export const wovenPage = (
   corpus: Corpus,
   root: string,
   base: string,
+  openingOf: OpeningOf,
   model: Model,
   h: HtmlBuilder<Message>,
 ): Html => {
@@ -821,32 +1207,36 @@ export const wovenPage = (
       onNone: () => h.div([h.Class('docs-page')], []),
       onSome: (page) => {
         const cut = cutOf(page)
+        const opening = openingOf(corpus, root, base, page, cut, model, h)
         return h.div(
           [h.Class('docs-page')],
           [
-            docHead(corpus, root, base, page, cut, model, h),
+            ...opening.above,
             h.div(
               [h.Class('docs-body')],
               [
-                menu(corpus, page, cut, model.activeSection, base, h),
+                menu(corpus, page, cut, model.activeSection, base, opening.menuMark, h),
                 h.article(
                   [h.Class('docs-article')],
                   [
+                    ...opening.lead,
                     ...Array.map(cut.sections, (section, place) =>
                       sectionOf(
-                        place === 0 ? Option.some(chapterFlower(corpus, page.slug)) : Option.none(),
+                        opening.markOf(section, place),
                         section,
+                        base,
+                        page,
                         model,
                         h,
                       ),
                     ),
-                    chapterPager(corpus, base, page, h),
+                    chapterPager(corpus, base, page, opening.cardMark, h),
                   ],
                 ),
               ],
             ),
             scrim(model.drawerOpen, h),
-            drawer(corpus, base, page, cut, model, h),
+            drawer(corpus, base, page, cut, model, opening.menuMark, h),
           ],
         )
       },
@@ -855,7 +1245,25 @@ export const wovenPage = (
 }
 
 export const documentationPage = (model: Model, h: HtmlBuilder<Message>): Html =>
-  wovenPage(docsCorpus, 'Docs', '/docs', model, h)
+  wovenPage(docsCorpus, 'Docs', '/docs', docsOpening, model, h)
+
+~
+
+The source page is the same shell over the slice of the book its model carries. A page whose server had no woven book to cut from carries no slice, and draws over an empty corpus, which the shell answers with an empty page.
+
+=>
+
+const emptyCorpus: Corpus = { nav: [], pages: [] }
+
+export const sourcePage = (model: Model, h: HtmlBuilder<Message>): Html =>
+  wovenPage(
+    Option.getOrElse(model.book, () => emptyCorpus),
+    'Source',
+    '/source',
+    sourceOpening,
+    model,
+    h,
+  )
 
 ## The module {Tangle}[docs-page.ts]
 
@@ -871,9 +1279,13 @@ export const documentationPage = (model: Model, h: HtmlBuilder<Message>): Html =
 
 ::[Drawing a fence]
 
+::[Code, with its anchors as links]
+
 ::[A section, under its heading]
 
 ::[The head of a chapter]
+
+::[The opening of a chapter of the book]
 
 ::[The menu of every chapter]
 

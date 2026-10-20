@@ -110,7 +110,6 @@ const onward = (h: HtmlBuilder<Message>): Html =>
           h.Class('hero-link'),
           h.Href('/source'),
           h.Style({ '--hero-ink': '#C2410C' }),
-          h.OnClick(WentTo({ route: 'source' })),
         ],
         ['Browse the source'],
       ),

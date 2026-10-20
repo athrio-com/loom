@@ -1,7 +1,8 @@
 import { Array, Match, Option, pipe } from 'effect'
-import type { Html, HtmlBuilder } from 'foldkit/html'
+import type { Attribute, Html, HtmlBuilder } from 'foldkit/html'
 import {
   ClosedSearch,
+  drawsInPlace,
   MovedFocus,
   OpenedDrawer,
   OpenedSearch,
@@ -39,18 +40,23 @@ export const navPages: ReadonlyArray<NavPage> = [
   { route: 'source', label: 'source', href: '/source', carpet: sourceCarpet },
 ]
 
+const switchesTo = (route: Route, h: HtmlBuilder<Message>): ReadonlyArray<Attribute<Message>> =>
+  drawsInPlace(route) ? [h.OnClick(WentTo({ route }))] : []
+
 const navLink = (page: NavPage, here: boolean, h: HtmlBuilder<Message>): Html =>
   h.a(
     [
       h.Class(here ? 'nav-link here' : 'nav-link'),
       h.Href(page.href),
-      h.OnClick(WentTo({ route: page.route })),
+      ...switchesTo(page.route, h),
     ],
     [page.label],
   )
 
+const hasChapters = (route: Route): boolean => route === 'docs' || route === 'source'
+
 const burger = (route: Route, h: HtmlBuilder<Message>): ReadonlyArray<Html> =>
-  route === 'docs'
+  hasChapters(route)
     ? [
         h.button(
           [
@@ -66,7 +72,7 @@ const burger = (route: Route, h: HtmlBuilder<Message>): ReadonlyArray<Html> =>
 
 export const nav = (model: Model, h: HtmlBuilder<Message>): Html =>
   h.nav(
-    [h.Class(model.route === 'docs' ? 'nav docs-nav' : 'nav'), h.Role('navigation')],
+    [h.Class(hasChapters(model.route) ? 'nav docs-nav' : 'nav'), h.Role('navigation')],
     [
       ...burger(model.route, h),
       ...Array.map(Array.take(navPages, 2), (page) => navLink(page, page.route === model.route, h)),
@@ -74,10 +80,14 @@ export const nav = (model: Model, h: HtmlBuilder<Message>): Html =>
         [
           h.Class('nav-word'),
           h.Href('/'),
-          h.AriaLabel('Loom'),
+          h.AriaLabel('Loom, in beta'),
           h.OnClick(WentTo({ route: 'home' })),
         ],
-        [h.span([h.Class('nav-mark')], [loomMark('paper', 0.46)]), 'Loom'],
+        [
+          h.span([h.Class('nav-mark')], [loomMark('paper', 0.46)]),
+          'Loom',
+          h.span([h.Class('nav-beta'), h.AriaHidden(true)], ['beta']),
+        ],
       ),
       ...Array.map(Array.drop(navPages, 2), (page) => navLink(page, page.route === model.route, h)),
       findButton('nav-find', 'Search Loom — press /', h),
@@ -161,7 +171,7 @@ const pagerCard = (
       h.Class(direction === 'Next' ? 'pager-card next' : 'pager-card'),
       h.Href(page.href),
       h.Style({ '--pg-ink': page.ink }),
-      h.OnClick(WentTo({ route: page.route })),
+      ...switchesTo(page.route, h),
     ],
     direction === 'Next' ? [words, mark] : [mark, words],
   )

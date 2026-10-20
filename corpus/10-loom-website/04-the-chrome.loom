@@ -21,9 +21,10 @@ The nav's own labels are lower case, because the whole row is set in capitals by
 =>
 
 import { Array, Match, Option, pipe } from 'effect'
-import type { Html, HtmlBuilder } from 'foldkit/html'
+import type { Attribute, Html, HtmlBuilder } from 'foldkit/html'
 import {
   ClosedSearch,
+  drawsInPlace,
   MovedFocus,
   OpenedDrawer,
   OpenedSearch,
@@ -65,26 +66,35 @@ export const navPages: ReadonlyArray<NavPage> = [
 
 The nav is a row of links with the wordmark set into the middle of it, so the site's name reads as part of the navigation rather than as a badge pinned beside it. The two pages before the wordmark and the two after it come from the same list, split in half.
 
+Loom is in beta, and the nav says so on every page: a small tag in the accent hangs off the wordmark's top corner. It hangs outside the row rather than taking a place in it, so the wordmark stays in the middle of the nav.
+
 Search closes the row. It says `search` on a wide window and `navs` on a narrow one, where it has taken over from the links entirely, and the key badge beside it shows the slash that opens it.
 
 On a narrow window, where the links have gone and the wordmark has moved to the left edge, the Loom mark stands beside the wordmark. It is the same mark a page's head shows beside its name, and on a narrow window the head drops it, so the mark moves up into the nav rather than appearing twice.
 
-On the documentation the nav carries one more control. Below a thousand pixels the chapter menu no longer fits beside the sections, so a burger button at the nav's left end opens it in a drawer. The burger is drawn on every docs page and hidden by the stylesheet wherever the menu fits. The documentation's nav also gets a class of its own, `docs-nav`, which the stylesheet uses to pin it to the top of the window on a narrow screen.
+On the documentation and the source page, the two pages with a menu of chapters, the nav carries one more control. Below a thousand pixels the chapter menu no longer fits beside the sections, so a burger button at the nav's left end opens it in a drawer. The burger is drawn on every page of either and hidden by the stylesheet wherever the menu fits. Their nav also gets a class of its own, `docs-nav`, which the stylesheet uses to pin it to the top of the window on a narrow screen.
+
+A link switches the page on the spot only when the page it opens draws in place. A link to the source page leaves the move to the browser, which keeps the current page up until the source page arrives from the server, already drawn. `switchesTo` gives a link the click that switches the page, or no click at all.
 
 =>
+
+const switchesTo = (route: Route, h: HtmlBuilder<Message>): ReadonlyArray<Attribute<Message>> =>
+  drawsInPlace(route) ? [h.OnClick(WentTo({ route }))] : []
 
 const navLink = (page: NavPage, here: boolean, h: HtmlBuilder<Message>): Html =>
   h.a(
     [
       h.Class(here ? 'nav-link here' : 'nav-link'),
       h.Href(page.href),
-      h.OnClick(WentTo({ route: page.route })),
+      ...switchesTo(page.route, h),
     ],
     [page.label],
   )
 
+const hasChapters = (route: Route): boolean => route === 'docs' || route === 'source'
+
 const burger = (route: Route, h: HtmlBuilder<Message>): ReadonlyArray<Html> =>
-  route === 'docs'
+  hasChapters(route)
     ? [
         h.button(
           [
@@ -100,7 +110,7 @@ const burger = (route: Route, h: HtmlBuilder<Message>): ReadonlyArray<Html> =>
 
 export const nav = (model: Model, h: HtmlBuilder<Message>): Html =>
   h.nav(
-    [h.Class(model.route === 'docs' ? 'nav docs-nav' : 'nav'), h.Role('navigation')],
+    [h.Class(hasChapters(model.route) ? 'nav docs-nav' : 'nav'), h.Role('navigation')],
     [
       ...burger(model.route, h),
       ...Array.map(Array.take(navPages, 2), (page) => navLink(page, page.route === model.route, h)),
@@ -108,10 +118,14 @@ export const nav = (model: Model, h: HtmlBuilder<Message>): Html =>
         [
           h.Class('nav-word'),
           h.Href('/'),
-          h.AriaLabel('Loom'),
+          h.AriaLabel('Loom, in beta'),
           h.OnClick(WentTo({ route: 'home' })),
         ],
-        [h.span([h.Class('nav-mark')], [loomMark('paper', 0.46)]), 'Loom'],
+        [
+          h.span([h.Class('nav-mark')], [loomMark('paper', 0.46)]),
+          'Loom',
+          h.span([h.Class('nav-beta'), h.AriaHidden(true)], ['beta']),
+        ],
       ),
       ...Array.map(Array.drop(navPages, 2), (page) => navLink(page, page.route === model.route, h)),
       findButton('nav-find', 'Search Loom — press /', h),
@@ -219,7 +233,7 @@ const pagerCard = (
       h.Class(direction === 'Next' ? 'pager-card next' : 'pager-card'),
       h.Href(page.href),
       h.Style({ '--pg-ink': page.ink }),
-      h.OnClick(WentTo({ route: page.route })),
+      ...switchesTo(page.route, h),
     ],
     direction === 'Next' ? [words, mark] : [mark, words],
   )

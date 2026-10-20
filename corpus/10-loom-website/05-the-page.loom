@@ -12,7 +12,7 @@ The decision is a single match on the route, closed so that adding a page to the
 
 ## Two kinds of page
 
-The site divides in two. The marketing pages — the landing, the argument, the community — wear the centred nav and range their sections down one column. The documentation wears the same nav, and lays a floating rail of chapters beside its article, with the article's outline on the other side.
+The site divides in two. The marketing pages — the landing, the argument, the community — wear the centred nav and range their sections down one column. The documentation and the source page wear the same nav, and lay a menu of chapters beside the article.
 
 Both end on the same pager and the same footer, and both can raise the same palette. So each kind is a small wrapper, and the pages themselves only supply what goes in the middle.
 
@@ -24,7 +24,7 @@ import { Match } from 'effect'
 import type { Document, Html, HtmlBuilder } from 'foldkit/html'
 import { footer, nav, pager, palette } from './chrome'
 import { example } from './example'
-import { documentationPage } from './docs-page'
+import { documentationPage, sourcePage } from './docs-page'
 import { hero } from './hero'
 import { fromInitToEject } from './operations'
 import { vocabulary } from './vocabulary'
@@ -51,36 +51,14 @@ const marketingPage = (
     ],
   )
 
-const documentation = (model: Model, h: HtmlBuilder<Message>): Html =>
-  h.div(
-    [],
-    [nav(model, h), h.main([], [documentationPage(model, h)]), footer(h), ...overlay(model, h)],
-  )
+const woven = (model: Model, page: Html, h: HtmlBuilder<Message>): Html =>
+  h.div([], [nav(model, h), h.main([], [page]), footer(h), ...overlay(model, h)])
 
 ## The page a route names
 
-Five routes are built. The landing runs the hero, the example, the vocabulary and the commands down one column; the argument page, the community page and the licence each run their head and one section the same way; the documentation draws its own corpus.
-
-The remaining one, the source, is scaffolded rather than faked. It says plainly that it is being written, because a page that quietly showed something else would send a reader somewhere they did not ask to go — and because the match is closed, it is a single branch to replace when its chapter lands.
+Every route is built. The landing runs the hero, the example, the vocabulary and the commands down one column. The argument page, the community page and the licence each run their head and one section the same way. The documentation draws its own corpus, and the source page draws Loom's own book, through the same shell.
 
 =>
-
-const beingWritten = (title: string, line: string, h: HtmlBuilder<Message>): Html =>
-  h.div(
-    [h.Class('section')],
-    [
-      h.div(
-        [h.Class('section-head')],
-        [
-          h.div(
-            [h.Class('lines')],
-            [h.span([h.Class('eyebrow')], ['Being written']), h.h2([], [title])],
-          ),
-        ],
-      ),
-      h.p([h.Class('prose')], [line]),
-    ],
-  )
 
 const pageFor = (model: Model, h: HtmlBuilder<Message>): Html =>
   Match.value(model.route).pipe(
@@ -91,23 +69,11 @@ const pageFor = (model: Model, h: HtmlBuilder<Message>): Html =>
         h,
       ),
     ),
-    Match.when('docs', () => documentation(model, h)),
+    Match.when('docs', () => woven(model, documentationPage(model, h), h)),
     Match.when('why-loom', () => marketingPage(model, whyLoom(), h)),
     Match.when('community', () => marketingPage(model, community(), h)),
     Match.when('license', () => marketingPage(model, license(), h)),
-    Match.when('source', () =>
-      marketingPage(
-        model,
-        [
-          beingWritten(
-            'Source',
-            'Loom’s own book, read the way Loom renders one. It weaves to more than a megabyte, so this page fetches a chapter at a time rather than shipping the whole corpus to the browser.',
-            h,
-          ),
-        ],
-        h,
-      ),
-    ),
+    Match.when('source', () => woven(model, sourcePage(model, h), h)),
     Match.exhaustive,
   )
 

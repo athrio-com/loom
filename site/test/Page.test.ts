@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 import { Option } from 'effect'
 import { view } from '../src/view'
 import { pager } from '../src/chrome'
-import { type Model, pathOf, type Route, routeOf } from '../src/model'
+import { type Corpus, type Model, pathOf, type Route, routeOf } from '../src/model'
 import { renderDocument, renderHtml } from './render'
 
 // The router is the one place a broken link becomes a compile error rather than a 404, so
@@ -15,7 +15,7 @@ const at = (route: Route, over: Partial<Model> = {}): Model =>
     searchOpen: false, caret: 0, searching: false,
     activeSection: '',
     player: { struck: 0, beat: 0, playing: false, output: Option.none(), full: false }, version: '0.0.9',
-    query: '', focus: 0, copied: '',
+    query: '', focus: 0, copied: '', book: Option.none(),
     ...over,
   }) as Model
 
@@ -75,11 +75,53 @@ describe('the page', () => {
     expect(html).toContain('<h1 id="quick-start">Quick start</h1>')
   })
 
-  it('says plainly which pages are still being written', () => {
-    expect(render(at('source'))).toContain('Being written')
-    ;(['why-loom', 'community'] as ReadonlyArray<Route>).forEach((route) => {
-      expect(render(at(route))).not.toContain('Being written')
-    })
+  it('draws the source page through the docs shell, its anchors as links', () => {
+    const book: Corpus = {
+      nav: [
+        {
+          number: 'I',
+          name: 'Using Loom',
+          chapters: [
+            { number: '1', title: 'A first loom', slug: '01-using-loom/01-a-first-loom' },
+            { number: '2', title: 'A workspace', slug: '01-using-loom/02-a-workspace' },
+          ],
+        },
+      ],
+      pages: [
+        {
+          slug: '01-using-loom/01-a-first-loom',
+          title: 'A first loom',
+          blocks: [
+            { type: 'heading', level: 1, title: 'A first loom', id: 'a-first-loom' },
+            { type: 'prose', markdown: 'Opening words.' },
+            { type: 'heading', level: 2, title: 'The program', id: 'the-program' },
+            {
+              type: 'code',
+              language: 'typescript',
+              code: '::[Greeting]\nconsole.log(greet())',
+              links: [
+                {
+                  name: 'Greeting',
+                  offset: 0,
+                  length: 12,
+                  targetSlug: '01-using-loom/01-a-first-loom',
+                  targetId: 'greeting',
+                },
+              ],
+            },
+            { type: 'heading', level: 2, title: 'Greeting', id: 'greeting' },
+            { type: 'code', language: 'typescript', code: 'const greet = () => 1', links: [] },
+          ],
+        },
+      ],
+    }
+    const html = render(at('source', { book: Option.some(book) }))
+    expect(html).toContain('class="menu-card thin-scroll"')
+    expect(html).toContain('<p class="page-place">Part I, Chapter 1</p>')
+    expect(html).toContain('<h1 class="chapter-title" id="a-first-loom">A first loom</h1>')
+    expect(html).toContain('<a class="code-anchor" href="#greeting">::[Greeting]</a>')
+    expect(html).toContain('href="/source/using-loom/a-workspace"')
+    ROUTES.forEach((route) => expect(render(at(route))).not.toContain('Being written'))
   })
 
   it('makes the case on the argument page: head, motivation, eight pairs', () => {

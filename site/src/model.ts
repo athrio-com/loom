@@ -1,3 +1,57 @@
+const HeadingBlock = S.Struct({
+  type: S.Literal('heading'),
+  level: S.Number,
+  title: S.String,
+  id: S.String,
+})
+export type HeadingBlock = typeof HeadingBlock.Type
+
+const ProseBlock = S.Struct({ type: S.Literal('prose'), markdown: S.String })
+
+const CodeLink = S.Struct({
+  name: S.String,
+  offset: S.Number,
+  length: S.Number,
+  targetSlug: S.String,
+  targetId: S.String,
+})
+export type CodeLink = typeof CodeLink.Type
+
+const CodeBlock = S.Struct({
+  type: S.Literal('code'),
+  language: S.String,
+  code: S.String,
+  links: S.Array(CodeLink),
+})
+export type CodeBlock = typeof CodeBlock.Type
+
+const NoteBlock = S.Struct({ type: S.Literal('note'), markdown: S.String })
+
+export const Block = S.Union([HeadingBlock, ProseBlock, CodeBlock, NoteBlock])
+export type Block = typeof Block.Type
+
+const Chapter = S.Struct({
+  number: S.String,
+  title: S.String,
+  slug: S.String,
+  language: S.optional(S.String),
+})
+export type Chapter = typeof Chapter.Type
+
+const Part = S.Struct({ number: S.String, name: S.String, chapters: S.Array(Chapter) })
+export type Part = typeof Part.Type
+
+const Page = S.Struct({
+  slug: S.String,
+  title: S.String,
+  frontmatter: S.optional(S.String),
+  blocks: S.Array(Block),
+})
+export type Page = typeof Page.Type
+
+export const Corpus = S.Struct({ nav: S.Array(Part), pages: S.Array(Page) })
+export type Corpus = typeof Corpus.Type
+
 export const PlayerOutput = S.Literals(['tangle', 'weave'])
 export type PlayerOutput = typeof PlayerOutput.Type
 
@@ -33,6 +87,7 @@ export const Model = S.Struct({
   query: S.String,
   focus: S.Number,
   copied: S.String,
+  book: S.OptionFromNullOr(Corpus),
 })
 export type Model = typeof Model.Type
 
@@ -49,6 +104,8 @@ export const pathOf = (route: Route): string =>
 
 export const routeOf = (pathname: string): Option.Option<Route> =>
   Array.findFirst(Route.literals, (route) => pathOf(route) === pathname)
+
+export const drawsInPlace = (route: Route): boolean => route !== 'source'
 
 export const Message = defineMessageUnion({
   WentTo: { route: Route },

@@ -20,6 +20,8 @@ Five fields carry the search palette, which opens over whatever page is showing:
 
 The player is the example's own state, held apart because it changes on every frame while the document is being typed. The version is the latest release, which the server reads from npm so the hero never falls behind. The copied field names the copy button flashing its confirmation, or the empty string when none is.
 
+The book is the slice of Loom's own book that the source page shows: the book's whole table of contents and the one chapter on show. Every other page carries none.
+
 =>
 
 import { Array, Match, Option, Schema as S } from 'effect'
@@ -45,8 +47,73 @@ export const Model = S.Struct({
   query: S.String,
   focus: S.Number,
   copied: S.String,
+  book: S.OptionFromNullOr(Corpus),
 })
 export type Model = typeof Model.Type
+
+## A woven book
+
+The docs and the source page both draw a woven corpus: the shape `loom weave` gives a book. Its table of contents is a list of parts, each with a number, a name, and its chapters. Each chapter has a number, a title, a slug, the path of its loom without the extension, and the language its frontmatter names, when it names one. Each chapter's page holds its slug, its title, its frontmatter as the loom writes it, when it has one, and its blocks, in the order the loom wrote them.
+
+A block is one of four things. A heading carries its level, its title, and the id a link reaches it by. A run of prose is Markdown. A run of code carries its language, the code itself, and its links: each `::[…]` anchor in the code, as the name, where it sits in the code, and the chapter and section it reaches. A note is a reader's annotation, in Markdown. The docs hold headings and prose only, and the book holds all four.
+
+The documentation is small enough to ship to the browser whole, so its corpus is part of the client. Loom's own book is not. Woven, it is two megabytes, and a reader reads one chapter of it at a time. So the server holds the book and hands each source page a slice of it, through the model: the whole table of contents, which the menu and the pager need, and the one page on show.
+
+=>
+
+const HeadingBlock = S.Struct({
+  type: S.Literal('heading'),
+  level: S.Number,
+  title: S.String,
+  id: S.String,
+})
+export type HeadingBlock = typeof HeadingBlock.Type
+
+const ProseBlock = S.Struct({ type: S.Literal('prose'), markdown: S.String })
+
+const CodeLink = S.Struct({
+  name: S.String,
+  offset: S.Number,
+  length: S.Number,
+  targetSlug: S.String,
+  targetId: S.String,
+})
+export type CodeLink = typeof CodeLink.Type
+
+const CodeBlock = S.Struct({
+  type: S.Literal('code'),
+  language: S.String,
+  code: S.String,
+  links: S.Array(CodeLink),
+})
+export type CodeBlock = typeof CodeBlock.Type
+
+const NoteBlock = S.Struct({ type: S.Literal('note'), markdown: S.String })
+
+export const Block = S.Union([HeadingBlock, ProseBlock, CodeBlock, NoteBlock])
+export type Block = typeof Block.Type
+
+const Chapter = S.Struct({
+  number: S.String,
+  title: S.String,
+  slug: S.String,
+  language: S.optional(S.String),
+})
+export type Chapter = typeof Chapter.Type
+
+const Part = S.Struct({ number: S.String, name: S.String, chapters: S.Array(Chapter) })
+export type Part = typeof Part.Type
+
+const Page = S.Struct({
+  slug: S.String,
+  title: S.String,
+  frontmatter: S.optional(S.String),
+  blocks: S.Array(Block),
+})
+export type Page = typeof Page.Type
+
+export const Corpus = S.Struct({ nav: S.Array(Part), pages: S.Array(Page) })
+export type Corpus = typeof Corpus.Type
 
 ## What the player remembers
 
@@ -93,6 +160,14 @@ The server reads the same mapping the other way. A request arrives as an address
 
 export const routeOf = (pathname: string): Option.Option<Route> =>
   Array.findFirst(Route.literals, (route) => pathOf(route) === pathname)
+
+~
+
+A link to another page switches the page on the spot, while the browser fetches the next one, because the client already holds what every page draws. The source page is the exception. It draws Loom's own book, and the book reaches the client only inside a source page the server rendered. Switched to on the spot, the source page would draw its frame around nothing. `drawsInPlace` names the routes the client can draw on the spot, which is every route but the source page.
+
+=>
+
+export const drawsInPlace = (route: Route): boolean => route !== 'source'
 
 ## The messages
 
@@ -168,6 +243,8 @@ export const {
 The module puts the player first, because the state is written in terms of it and a module evaluates from the top down. The chapter tells it the other way round. It introduces the state before the player, since that is the easier order to learn them in.
 
 =>
+
+::[A woven book]
 
 ::[What the player remembers]
 

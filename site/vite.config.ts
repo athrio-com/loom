@@ -8,6 +8,7 @@ export default defineConfig({
     outDir: 'dist',
     rollupOptions: {
       input: { index: fileURLToPath(new URL('index.html', import.meta.url)) },
+      watch: { buildDelay: 300 },
     },
   },
 })

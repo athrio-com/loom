@@ -123,6 +123,7 @@
     "site/src/client.ts",
     "site/src/community.ts",
     "site/src/components.ts",
+    "site/src/dev.ts",
     "site/src/docs-page.ts",
     "site/src/example.ts",
     "site/src/hero.ts",

@@ -24,7 +24,7 @@ const at = (over: Partial<Player> = {}): Model =>
     searchOpen: false, caret: 0, searching: false,
     activeSection: '',
     player: player(over), version: '0.0.9',
-    query: '', focus: 0, copied: '',
+    query: '', focus: 0, copied: '', book: Option.none(),
   }) as Model
 
 const render = (model: Model): string => renderHtml((h) => example(model, h))

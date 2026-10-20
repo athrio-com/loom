@@ -5,6 +5,7 @@ COPY . .
 RUN bun install --frozen-lockfile
 
 WORKDIR /loom/site
+RUN bun run weave:source
 RUN bunx --bun vite build
 
 ENV PORT=4321

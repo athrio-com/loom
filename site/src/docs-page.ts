@@ -1,4 +1,4 @@
-import { Array, Match, Option, pipe } from 'effect'
+import { Array, Match, Option, Order, pipe } from 'effect'
 import { marked } from 'marked'
 import type { Html, HtmlBuilder } from 'foldkit/html'
 import {
@@ -7,8 +7,16 @@ import {
   OpenedChapter,
   PickedRuntime,
   SelectedSection,
+  type Block,
+  type Chapter,
+  type CodeBlock,
+  type CodeLink,
+  type Corpus,
+  type HeadingBlock,
   type Message,
   type Model,
+  type Page,
+  type Part,
   type Runtime,
 } from './model'
 import {
@@ -22,49 +30,14 @@ import {
   flowerFor,
   loomMark,
   nodeIcon,
+  octocatIcon,
 } from './components'
 import { commandButton, installLine } from './hero'
 import { loomCanvas } from './example'
+import { starCard } from './page-head'
 import { operations } from './operations'
 import projectDrawing from './project.svg?raw'
 import wovenDocs from './docs.woven.json'
-
-type HeadingBlock = {
-  readonly type: 'heading'
-  readonly level: number
-  readonly title: string
-  readonly id: string
-}
-
-type ProseBlock = {
-  readonly type: 'prose'
-  readonly markdown: string
-}
-
-type Block = HeadingBlock | ProseBlock
-
-type Chapter = {
-  readonly number: string
-  readonly title: string
-  readonly slug: string
-}
-
-type Part = {
-  readonly number: string
-  readonly name: string
-  readonly chapters: ReadonlyArray<Chapter>
-}
-
-type Page = {
-  readonly slug: string
-  readonly title: string
-  readonly blocks: ReadonlyArray<Block>
-}
-
-export type Corpus = {
-  readonly nav: ReadonlyArray<Part>
-  readonly pages: ReadonlyArray<Page>
-}
 
 export const docsCorpus = wovenDocs as unknown as Corpus
 
@@ -103,6 +76,11 @@ export const chapterAt = (corpus: Corpus, base: string, pathname: string): Optio
 
 export const docsChapterAt = (pathname: string): Option.Option<string> =>
   chapterAt(docsCorpus, '/docs', pathname)
+
+export const sliceOf = (corpus: Corpus, slug: string): Corpus => {
+  const shown = slug === '' ? firstSlugOf(corpus) : slug
+  return { nav: corpus.nav, pages: Array.filter(corpus.pages, (page) => page.slug === shown) }
+}
 
 type Section = {
   readonly heading: HeadingBlock
@@ -247,25 +225,26 @@ const commandsOf = (body: string, model: Model, h: HtmlBuilder<Message>): Html =
   )
 }
 
-const codeSheet = (body: string, copied: string, h: HtmlBuilder<Message>): Html => {
-  const code = body.replace(/\n$/, '')
+const copyButton = (code: string, copied: string, h: HtmlBuilder<Message>): Html => {
   const id = `code:${code}`
   const taken = copied === id
+  return h.button(
+    [
+      h.Class(taken ? 'canvas-copy done' : 'canvas-copy'),
+      h.Type('button'),
+      h.Title(taken ? 'Copied' : 'Copy the code'),
+      h.AriaLabel('Copy the code'),
+      h.OnClick(Copied({ id, text: code })),
+    ],
+    [taken ? checkIcon() : copyIcon()],
+  )
+}
+
+const codeSheet = (body: string, copied: string, h: HtmlBuilder<Message>): Html => {
+  const code = body.replace(/\n$/, '')
   return h.div(
     [h.Class('docs-canvas')],
-    [
-      h.button(
-        [
-          h.Class(taken ? 'canvas-copy done' : 'canvas-copy'),
-          h.Type('button'),
-          h.Title(taken ? 'Copied' : 'Copy the code'),
-          h.AriaLabel('Copy the code'),
-          h.OnClick(Copied({ id, text: code })),
-        ],
-        [taken ? checkIcon() : copyIcon()],
-      ),
-      h.pre([h.Class('sheet-code')], [h.code([], [code])]),
-    ],
+    [copyButton(code, copied, h), h.pre([h.Class('sheet-code')], [h.code([], [code])])],
   )
 }
 
@@ -332,7 +311,83 @@ const runLine = (file: string, model: Model, h: HtmlBuilder<Message>): Html => {
   )
 }
 
-const blockOf = (block: Block, model: Model, h: HtmlBuilder<Message>): ReadonlyArray<Html> =>
+type Run = { readonly text: string; readonly link: Option.Option<CodeLink> }
+
+const byOffset = Order.mapInput(Order.Number, (link: CodeLink) => link.offset)
+
+const runsOf = (block: CodeBlock): ReadonlyArray<Run> => {
+  const [runs, end] = Array.reduce(
+    Array.sort(block.links, byOffset),
+    [[], 0] as readonly [ReadonlyArray<Run>, number],
+    ([runs, at], link): readonly [ReadonlyArray<Run>, number] => [
+      [
+        ...runs,
+        { text: block.code.slice(at, link.offset), link: Option.none() },
+        {
+          text: block.code.slice(link.offset, link.offset + link.length),
+          link: Option.some(link),
+        },
+      ],
+      link.offset + link.length,
+    ],
+  )
+  return Array.filter(
+    [...runs, { text: block.code.slice(end), link: Option.none() }],
+    (run) => run.text !== '',
+  )
+}
+
+const anchorHref = (base: string, here: string, link: CodeLink): string =>
+  link.targetSlug === here
+    ? `#${link.targetId}`
+    : `${chapterPath(base, link.targetSlug)}#${link.targetId}`
+
+const codeTag = (block: CodeBlock, h: HtmlBuilder<Message>): Html =>
+  h.span(
+    [h.Class('code-tag')],
+    [...Option.toArray(emblemOf(block.language, 14, h)), nameOf(block.language)],
+  )
+
+const codeOf = (
+  block: CodeBlock,
+  base: string,
+  page: Page,
+  copied: string,
+  h: HtmlBuilder<Message>,
+): Html =>
+  h.div(
+    [h.Class('docs-canvas source-code')],
+    [
+      codeTag(block, h),
+      copyButton(block.code, copied, h),
+      h.pre(
+        [h.Class('sheet-code')],
+        [
+          h.code(
+            [],
+            Array.map(runsOf(block), (run) =>
+              Option.match(run.link, {
+                onNone: () => run.text,
+                onSome: (link) =>
+                  h.a(
+                    [h.Class('code-anchor'), h.Href(anchorHref(base, page.slug, link))],
+                    [run.text],
+                  ),
+              }),
+            ),
+          ),
+        ],
+      ),
+    ],
+  )
+
+const blockOf = (
+  block: Block,
+  base: string,
+  page: Page,
+  model: Model,
+  h: HtmlBuilder<Message>,
+): ReadonlyArray<Html> =>
   Match.value(block).pipe(
     Match.when({ type: 'heading' }, (heading) => [h.h3([h.Id(heading.id)], [heading.title])]),
     Match.when({ type: 'prose' }, (prose) =>
@@ -341,6 +396,10 @@ const blockOf = (block: Block, model: Model, h: HtmlBuilder<Message>): ReadonlyA
           ? textOf(piece.markdown, 'docs-prose', model.copied, h)
           : fenceOf(piece.kind, piece.body, model, h),
       ),
+    ),
+    Match.when({ type: 'code' }, (code) => [codeOf(code, base, page, model.copied, h)]),
+    Match.when({ type: 'note' }, (note) =>
+      note.markdown.trim() === '' ? [] : [textOf(note.markdown, 'docs-prose doc-note', model.copied, h)],
     ),
     Match.exhaustive,
   )
@@ -351,8 +410,10 @@ const markOf = (flower: Option.Option<Carpet>, section: Section): Option.Option<
   )
 
 const sectionOf = (
-  flower: Option.Option<Carpet>,
+  mark: Option.Option<Html>,
   section: Section,
+  base: string,
+  page: Page,
   model: Model,
   h: HtmlBuilder<Message>,
 ): Html =>
@@ -362,13 +423,13 @@ const sectionOf = (
       h.div(
         [h.Class('section-head')],
         [
-          ...Option.toArray(markOf(flower, section)),
+          ...Option.toArray(mark),
           h.div([h.Class('lines')], [h.h2([h.Id(section.heading.id)], [section.heading.title])]),
         ],
       ),
       h.div(
         [h.Class('doc-stack')],
-        Array.flatMap(section.blocks, (block) => blockOf(block, model, h)),
+        Array.flatMap(section.blocks, (block) => blockOf(block, base, page, model, h)),
       ),
     ],
   )
@@ -402,6 +463,14 @@ const breadcrumb = (
     ],
   )
 
+const chapterHeading = (page: Page, cut: Cut): HeadingBlock =>
+  Option.getOrElse(cut.title, (): HeadingBlock => ({
+    type: 'heading',
+    level: 1,
+    title: page.title,
+    id: page.slug,
+  }))
+
 const docHead = (
   corpus: Corpus,
   root: string,
@@ -414,12 +483,7 @@ const docHead = (
   const pieces = Array.flatMap(cut.opening, (block) =>
     block.type === 'prose' ? piecesOf(block.markdown) : [],
   )
-  const heading = Option.getOrElse(cut.title, (): HeadingBlock => ({
-    type: 'heading',
-    level: 1,
-    title: page.title,
-    id: page.slug,
-  }))
+  const heading = chapterHeading(page, cut)
   return h.div(
     [h.Class('section section-hero page-hero doc-hero')],
     [
@@ -453,6 +517,193 @@ const docHead = (
   )
 }
 
+const placeOf = (corpus: Corpus, page: Page): string =>
+  pipe(
+    partOf(corpus, page.slug),
+    Option.filter((part) => part.number !== ''),
+    Option.flatMap((part) =>
+      Option.map(
+        Array.findFirst(part.chapters, (chapter) => chapter.slug === page.slug),
+        (chapter) => `Part ${part.number}, Chapter ${chapter.number}`,
+      ),
+    ),
+    Option.getOrElse(() => page.title),
+  )
+
+const REPOSITORY = 'https://github.com/athrio-com/loom/blob/main'
+
+const rawSource = (page: Page): string => `${REPOSITORY}/corpus/${page.slug}.loom`
+
+const FIELD = /^([^:]+:)(.*)$/
+
+const frontmatterField = (line: string, h: HtmlBuilder<Message>): Html =>
+  Option.match(Option.fromNullishOr(FIELD.exec(line)), {
+    onNone: () => h.p([h.Class('front-field')], [line]),
+    onSome: ([, key, value]) =>
+      h.p([h.Class('front-field')], [h.span([h.Class('front-key')], [key ?? '']), value ?? '']),
+  })
+
+const frontmatterText = (page: Page, text: string, h: HtmlBuilder<Message>): Html =>
+  h.div(
+    [h.Class('frontmatter')],
+    [
+      ...pipe(
+        text.split('\n'),
+        Array.filter((line) => line.trim() !== '' && line.trim() !== '---'),
+        Array.map((line) => frontmatterField(line, h)),
+      ),
+      h.a(
+        [
+          h.Class('raw-source'),
+          h.Href(rawSource(page)),
+          h.Target('_blank'),
+          h.Rel('noopener noreferrer'),
+        ],
+        [octocatIcon('14'), 'Raw source'],
+      ),
+    ],
+  )
+
+const sourceHead = (
+  corpus: Corpus,
+  root: string,
+  base: string,
+  page: Page,
+  cut: Cut,
+  model: Model,
+  h: HtmlBuilder<Message>,
+): Html => {
+  return h.div(
+    [h.Class('section section-hero page-hero doc-hero source-hero')],
+    [
+      h.div(
+        [h.Class('source-head')],
+        [
+          h.div(
+            [h.Class('source-head-main')],
+            [
+              breadcrumb(corpus, root, base, page, h),
+              h.div(
+                [h.Class('page-title')],
+                [loomMark('paper', 0.8), h.p([h.Class('page-place')], [placeOf(corpus, page)])],
+              ),
+              ...Option.toArray(
+                Option.map(Option.fromNullishOr(page.frontmatter), (text) =>
+                  frontmatterText(page, text, h),
+                ),
+              ),
+            ],
+          ),
+          h.div([h.Class('page-places')], [starCard()]),
+        ],
+      ),
+    ],
+  )
+}
+
+const LANGUAGE_LINE = /^Language:[ \t]*(.+)$/m
+
+const chapterLanguage = (page: Page): Option.Option<string> =>
+  pipe(
+    Option.fromNullishOr(page.frontmatter),
+    Option.flatMap((text) => Option.fromNullishOr(LANGUAGE_LINE.exec(text)?.[1])),
+    Option.map((language) => language.trim().toLowerCase()),
+  )
+
+const isCode = (block: Block): block is CodeBlock => block.type === 'code'
+
+const sectionLanguage = (section: Section): Option.Option<string> =>
+  Option.map(Array.findFirst(section.blocks, isCode), (code) => code.language.toLowerCase())
+
+const ICONS: ReadonlyMap<string, string> = new Map([
+  ['typescript', 'typescript'],
+  ['javascript', 'javascript'],
+  ['css', 'css'],
+  ['html', 'html'],
+  ['json', 'json'],
+  ['yaml', 'yaml'],
+  ['toml', 'toml'],
+  ['markdown', 'markdown'],
+  ['scm', 'scm'],
+  ['c', 'c'],
+  ['h', 'c'],
+  ['rust', 'rust'],
+  ['rs', 'rust'],
+  ['bash', 'bash'],
+  ['sh', 'bash'],
+  ['lua', 'lua'],
+  ['dockerfile', 'dockerfile'],
+  ['gitignore', 'git'],
+  ['gitattributes', 'git'],
+  ['vscodeignore', 'vscode'],
+  ['prose', 'loom'],
+])
+
+const NAMES: ReadonlyMap<string, string> = new Map([
+  ['typescript', 'TypeScript'],
+  ['javascript', 'JavaScript'],
+  ['css', 'CSS'],
+  ['html', 'HTML'],
+  ['json', 'JSON'],
+  ['yaml', 'YAML'],
+  ['toml', 'TOML'],
+  ['markdown', 'Markdown'],
+  ['scm', 'Query'],
+  ['c', 'C'],
+  ['h', 'C'],
+  ['rust', 'Rust'],
+  ['rs', 'Rust'],
+  ['bash', 'Bash'],
+  ['sh', 'Bash'],
+  ['lua', 'Lua'],
+  ['dockerfile', 'Dockerfile'],
+  ['prose', 'Prose'],
+])
+
+const nameOf = (language: string): string => NAMES.get(language) ?? language
+
+const iconOf = (language: string): Option.Option<string> =>
+  Option.fromNullishOr(ICONS.get(language))
+
+const sameLanguage = (one: string, other: string): boolean =>
+  one === other || Option.exists(iconOf(one), (icon) => Option.contains(iconOf(other), icon))
+
+const iconMark = (icon: string, size: number, h: HtmlBuilder<Message>): Html =>
+  h.img([
+    h.Class('lang-icon'),
+    h.Src(`/languages/${icon}.svg`),
+    h.Alt(''),
+    h.Width(String(size)),
+    h.Height(String(size)),
+  ])
+
+const emblemOf = (language: string, size: number, h: HtmlBuilder<Message>): Option.Option<Html> =>
+  Option.map(iconOf(language), (icon) => iconMark(icon, size, h))
+
+const chapterEmblem = (page: Page, h: HtmlBuilder<Message>): Option.Option<Html> =>
+  Option.flatMap(chapterLanguage(page), (language) => emblemOf(language, 42, h))
+
+const languageMark =
+  (page: Page, h: HtmlBuilder<Message>) =>
+  (section: Section): Option.Option<Html> =>
+    pipe(
+      sectionLanguage(section),
+      Option.filter(
+        (language) => !Option.exists(chapterLanguage(page), (chapter) => sameLanguage(chapter, language)),
+      ),
+      Option.flatMap((language) => emblemOf(language, 42, h)),
+    )
+
+const chapterIcon = (chapter: Chapter, size: number, h: HtmlBuilder<Message>): Option.Option<Html> =>
+  Option.flatMap(Option.fromNullishOr(chapter.language), (language) =>
+    emblemOf(language.toLowerCase(), size, h),
+  )
+
+const menuEmblem =
+  (h: HtmlBuilder<Message>) =>
+  (chapter: Chapter): Option.Option<Html> =>
+    chapterIcon(chapter, 16, h)
+
 const sectionButton = (section: Section, here: boolean, h: HtmlBuilder<Message>): Html =>
   h.button(
     [
@@ -478,11 +729,17 @@ const chapterRows = (
   cut: Cut,
   active: string,
   base: string,
+  markFor: (chapter: Chapter) => Option.Option<Html>,
   h: HtmlBuilder<Message>,
-): ReadonlyArray<Html> =>
-  chapter.slug === page.slug
+): ReadonlyArray<Html> => {
+  const mark = Option.toArray(markFor(chapter))
+  const marked = Array.isReadonlyArrayNonEmpty(mark) ? ' marked' : ''
+  return chapter.slug === page.slug
     ? [
-        h.a([h.Class('menu-item here'), h.Href(chapterPath(base, chapter.slug))], [chapter.title]),
+        h.a(
+          [h.Class(`menu-item here${marked}`), h.Href(chapterPath(base, chapter.slug))],
+          [...mark, chapter.title],
+        ),
         h.div(
           [h.Class('menu-subs')],
           Array.map(cut.sections, (section) =>
@@ -493,13 +750,14 @@ const chapterRows = (
     : [
         h.a(
           [
-            h.Class('menu-item'),
+            h.Class(`menu-item${marked}`),
             h.Href(chapterPath(base, chapter.slug)),
             h.OnClick(OpenedChapter({ slug: chapter.slug })),
           ],
-          [chapter.title],
+          [...mark, chapter.title],
         ),
       ]
+}
 
 const menuGroups = (
   corpus: Corpus,
@@ -507,6 +765,7 @@ const menuGroups = (
   cut: Cut,
   active: string,
   base: string,
+  markFor: (chapter: Chapter) => Option.Option<Html>,
   h: HtmlBuilder<Message>,
 ): ReadonlyArray<Html> =>
   Array.map(corpus.nav, (part) =>
@@ -515,7 +774,7 @@ const menuGroups = (
       [
         h.span([h.Class('eyebrow')], [part.name]),
         ...Array.flatMap(part.chapters, (chapter) =>
-          chapterRows(chapter, page, cut, active, base, h),
+          chapterRows(chapter, page, cut, active, base, markFor, h),
         ),
       ],
     ),
@@ -527,11 +786,12 @@ const menu = (
   cut: Cut,
   active: string,
   base: string,
+  markFor: (chapter: Chapter) => Option.Option<Html>,
   h: HtmlBuilder<Message>,
 ): Html =>
   h.nav(
     [h.Class('menu-card thin-scroll'), h.AriaLabel('Chapters')],
-    menuGroups(corpus, page, cut, active, base, h),
+    menuGroups(corpus, page, cut, active, base, markFor, h),
   )
 
 const chapterFlower = (corpus: Corpus, slug: string): Carpet =>
@@ -547,9 +807,10 @@ const chapterCard = (
   base: string,
   chapter: Chapter,
   direction: 'Previous' | 'Next',
+  cardMark: (chapter: Chapter) => Html,
   h: HtmlBuilder<Message>,
 ): Html => {
-  const mark = carpetMark(chapterFlower(corpus, chapter.slug), '42px', broadSeam)
+  const mark = cardMark(chapter)
   const words = h.div(
     [h.Class('pager-words')],
     [h.span([h.Class('eyebrow')], [direction]), h.span([h.Class('pager-title')], [chapter.title])],
@@ -565,7 +826,13 @@ const chapterCard = (
   )
 }
 
-const chapterPager = (corpus: Corpus, base: string, page: Page, h: HtmlBuilder<Message>): Html => {
+const chapterPager = (
+  corpus: Corpus,
+  base: string,
+  page: Page,
+  cardMark: (chapter: Chapter) => Html,
+  h: HtmlBuilder<Message>,
+): Html => {
   const order = readingOrder(corpus)
   const at = Array.findFirstIndex(order, (chapter) => chapter.slug === page.slug)
   const step = (by: number): Option.Option<Chapter> =>
@@ -574,10 +841,12 @@ const chapterPager = (corpus: Corpus, base: string, page: Page, h: HtmlBuilder<M
     [h.Class('pager-row doc-pager')],
     [
       ...Option.toArray(
-        Option.map(step(-1), (chapter) => chapterCard(corpus, base, chapter, 'Previous', h)),
+        Option.map(step(-1), (chapter) =>
+          chapterCard(corpus, base, chapter, 'Previous', cardMark, h),
+        ),
       ),
       ...Option.toArray(
-        Option.map(step(1), (chapter) => chapterCard(corpus, base, chapter, 'Next', h)),
+        Option.map(step(1), (chapter) => chapterCard(corpus, base, chapter, 'Next', cardMark, h)),
       ),
     ],
   )
@@ -607,6 +876,7 @@ const drawer = (
   page: Page,
   cut: Cut,
   model: Model,
+  markFor: (chapter: Chapter) => Option.Option<Html>,
   h: HtmlBuilder<Message>,
 ): Html =>
   h.div(
@@ -630,7 +900,7 @@ const drawer = (
       ),
       h.div(
         [h.Class('drawer-body thin-scroll')],
-        menuGroups(corpus, page, cut, model.activeSection, base, h),
+        menuGroups(corpus, page, cut, model.activeSection, base, markFor, h),
       ),
     ],
   )
@@ -645,10 +915,78 @@ const scrim = (open: boolean, h: HtmlBuilder<Message>): Html =>
     [],
   )
 
+type Opening = {
+  readonly above: ReadonlyArray<Html>
+  readonly lead: ReadonlyArray<Html>
+  readonly markOf: (section: Section, place: number) => Option.Option<Html>
+  readonly cardMark: (chapter: Chapter) => Html
+  readonly menuMark: (chapter: Chapter) => Option.Option<Html>
+}
+
+type OpeningOf = (
+  corpus: Corpus,
+  root: string,
+  base: string,
+  page: Page,
+  cut: Cut,
+  model: Model,
+  h: HtmlBuilder<Message>,
+) => Opening
+
+export const docsOpening: OpeningOf = (corpus, root, base, page, cut, model, h) => {
+  const openingCode = Array.filter(
+    cut.opening,
+    (block) => block.type === 'code' || block.type === 'note',
+  )
+  return {
+    cardMark: (chapter) => carpetMark(chapterFlower(corpus, chapter.slug), '42px', broadSeam),
+    markOf: (section, place) =>
+      markOf(place === 0 ? Option.some(chapterFlower(corpus, page.slug)) : Option.none(), section),
+    menuMark: () => Option.none(),
+    above: [docHead(corpus, root, base, page, cut, model, h)],
+    lead: Array.isReadonlyArrayNonEmpty(openingCode)
+      ? [
+          h.div(
+            [h.Class('doc-stack doc-opening')],
+            Array.flatMap(openingCode, (block) => blockOf(block, base, page, model, h)),
+          ),
+        ]
+      : [],
+  }
+}
+
+const sourceOpening: OpeningOf = (corpus, root, base, page, cut, model, h) => {
+  const heading = chapterHeading(page, cut)
+  return {
+    cardMark: (chapter) => Option.getOrElse(chapterIcon(chapter, 42, h), () => iconMark('loom', 42, h)),
+    markOf: languageMark(page, h),
+    menuMark: menuEmblem(h),
+    above: [sourceHead(corpus, root, base, page, cut, model, h)],
+    lead: [
+      h.div(
+        [h.Class('doc-stack doc-opening')],
+        [
+          h.div(
+            [h.Class('section-head chapter-head')],
+            [
+              ...Option.toArray(
+                chapterEmblem(page, h),
+              ),
+              h.h1([h.Id(heading.id), h.Class('chapter-title')], [heading.title]),
+            ],
+          ),
+          ...Array.flatMap(cut.opening, (block) => blockOf(block, base, page, model, h)),
+        ],
+      ),
+    ],
+  }
+}
+
 export const wovenPage = (
   corpus: Corpus,
   root: string,
   base: string,
+  openingOf: OpeningOf,
   model: Model,
   h: HtmlBuilder<Message>,
 ): Html => {
@@ -660,32 +998,36 @@ export const wovenPage = (
       onNone: () => h.div([h.Class('docs-page')], []),
       onSome: (page) => {
         const cut = cutOf(page)
+        const opening = openingOf(corpus, root, base, page, cut, model, h)
         return h.div(
           [h.Class('docs-page')],
           [
-            docHead(corpus, root, base, page, cut, model, h),
+            ...opening.above,
             h.div(
               [h.Class('docs-body')],
               [
-                menu(corpus, page, cut, model.activeSection, base, h),
+                menu(corpus, page, cut, model.activeSection, base, opening.menuMark, h),
                 h.article(
                   [h.Class('docs-article')],
                   [
+                    ...opening.lead,
                     ...Array.map(cut.sections, (section, place) =>
                       sectionOf(
-                        place === 0 ? Option.some(chapterFlower(corpus, page.slug)) : Option.none(),
+                        opening.markOf(section, place),
                         section,
+                        base,
+                        page,
                         model,
                         h,
                       ),
                     ),
-                    chapterPager(corpus, base, page, h),
+                    chapterPager(corpus, base, page, opening.cardMark, h),
                   ],
                 ),
               ],
             ),
             scrim(model.drawerOpen, h),
-            drawer(corpus, base, page, cut, model, h),
+            drawer(corpus, base, page, cut, model, opening.menuMark, h),
           ],
         )
       },
@@ -694,4 +1036,16 @@ export const wovenPage = (
 }
 
 export const documentationPage = (model: Model, h: HtmlBuilder<Message>): Html =>
-  wovenPage(docsCorpus, 'Docs', '/docs', model, h)
+  wovenPage(docsCorpus, 'Docs', '/docs', docsOpening, model, h)
+
+const emptyCorpus: Corpus = { nav: [], pages: [] }
+
+export const sourcePage = (model: Model, h: HtmlBuilder<Message>): Html =>
+  wovenPage(
+    Option.getOrElse(model.book, () => emptyCorpus),
+    'Source',
+    '/source',
+    sourceOpening,
+    model,
+    h,
+  )

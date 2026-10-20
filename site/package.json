@@ -5,9 +5,10 @@
   "version": "0.0.0",
   "scripts": {
     "weave:docs": "bunx @athrio/loom weave ../docs/index.loom src/docs.woven.json",
-    "content": "bun run weave:docs",
+    "weave:source": "bun ../packages/loom/src/main.ts weave ../corpus/book.loom src/source.woven.json",
+    "content": "bun run weave:docs && bun run weave:source",
     "predev": "bun run content",
-    "dev": "bunx --bun vite build --watch & build=$!; trap 'kill $build' EXIT; bun --watch src/server.ts",
+    "dev": "bun src/dev.ts",
     "prebuild": "bun run content",
     "build": "bunx --bun vite build",
     "serve": "bun src/server.ts",

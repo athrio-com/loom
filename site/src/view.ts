@@ -2,7 +2,7 @@ import { Match } from 'effect'
 import type { Document, Html, HtmlBuilder } from 'foldkit/html'
 import { footer, nav, pager, palette } from './chrome'
 import { example } from './example'
-import { documentationPage } from './docs-page'
+import { documentationPage, sourcePage } from './docs-page'
 import { hero } from './hero'
 import { fromInitToEject } from './operations'
 import { vocabulary } from './vocabulary'
@@ -29,28 +29,8 @@ const marketingPage = (
     ],
   )
 
-const documentation = (model: Model, h: HtmlBuilder<Message>): Html =>
-  h.div(
-    [],
-    [nav(model, h), h.main([], [documentationPage(model, h)]), footer(h), ...overlay(model, h)],
-  )
-
-const beingWritten = (title: string, line: string, h: HtmlBuilder<Message>): Html =>
-  h.div(
-    [h.Class('section')],
-    [
-      h.div(
-        [h.Class('section-head')],
-        [
-          h.div(
-            [h.Class('lines')],
-            [h.span([h.Class('eyebrow')], ['Being written']), h.h2([], [title])],
-          ),
-        ],
-      ),
-      h.p([h.Class('prose')], [line]),
-    ],
-  )
+const woven = (model: Model, page: Html, h: HtmlBuilder<Message>): Html =>
+  h.div([], [nav(model, h), h.main([], [page]), footer(h), ...overlay(model, h)])
 
 const pageFor = (model: Model, h: HtmlBuilder<Message>): Html =>
   Match.value(model.route).pipe(
@@ -61,23 +41,11 @@ const pageFor = (model: Model, h: HtmlBuilder<Message>): Html =>
         h,
       ),
     ),
-    Match.when('docs', () => documentation(model, h)),
+    Match.when('docs', () => woven(model, documentationPage(model, h), h)),
     Match.when('why-loom', () => marketingPage(model, whyLoom(), h)),
     Match.when('community', () => marketingPage(model, community(), h)),
     Match.when('license', () => marketingPage(model, license(), h)),
-    Match.when('source', () =>
-      marketingPage(
-        model,
-        [
-          beingWritten(
-            'Source',
-            'Loom’s own book, read the way Loom renders one. It weaves to more than a megabyte, so this page fetches a chapter at a time rather than shipping the whole corpus to the browser.',
-            h,
-          ),
-        ],
-        h,
-      ),
-    ),
+    Match.when('source', () => woven(model, sourcePage(model, h), h)),
     Match.exhaustive,
   )
 

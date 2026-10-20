@@ -142,7 +142,7 @@ export const installLine = (model: Model, h: HtmlBuilder<Message>): Html =>
 
 ## The way onward
 
-Two links close the hero: one into the documentation, one into the source. Each carries a rule beneath it rather than an underline, which keeps the descenders clear of the line.
+Two links close the hero: one into the documentation, one into the source. Each carries a rule beneath it rather than an underline, which keeps the descenders clear of the line. The documentation link switches the page on the spot, as the nav's links do. The source link leaves the move to the browser, since the client holds no book to draw the source page with.
 
 =>
 
@@ -164,7 +164,6 @@ const onward = (h: HtmlBuilder<Message>): Html =>
           h.Class('hero-link'),
           h.Href('/source'),
           h.Style({ '--hero-ink': '#C2410C' }),
-          h.OnClick(WentTo({ route: 'source' })),
         ],
         ['Browse the source'],
       ),

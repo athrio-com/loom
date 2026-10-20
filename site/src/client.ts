@@ -6,8 +6,10 @@ import { animationFrameEntry } from 'foldkit/subscription'
 import type { Return } from 'foldkit/update'
 import { view } from './view'
 import {
+  ClosedSearch,
   Copied,
   CopyReset,
+  drawsInPlace,
   FocusedPalette,
   GrewCard,
   type Message,
@@ -21,6 +23,7 @@ import {
   ToggledFullHeight,
   MovedCaret,
   OpenedSearch,
+  pathOf,
 } from './model'
 import { CHARACTERS, RUN, struckBy } from './example'
 
@@ -65,6 +68,62 @@ const ScrollToSection = define('ScrollToSection', {
 const ScrollToTop = define('ScrollToTop', {
   messages: [SectionScrolled],
   execute: Effect.sync(() => window.scrollTo(0, 0)).pipe(Effect.as(SectionScrolled())),
+})
+
+const MENUS = '.menu-card, .drawer-body'
+
+const chapterOffset = (menu: HTMLElement): Option.Option<number> =>
+  Option.all([
+    Option.fromNullishOr(menu.firstElementChild),
+    Option.fromNullishOr(menu.querySelector('.menu-item')),
+    Option.fromNullishOr(menu.querySelector('.menu-item.here')),
+  ]).pipe(
+    Option.map(([first, opening, chapter]) =>
+      chapter === opening
+        ? 0
+        : chapter.getBoundingClientRect().top - first.getBoundingClientRect().top,
+    ),
+  )
+
+const revealChapter = (menu: HTMLElement): void =>
+  Option.match(chapterOffset(menu), {
+    onNone: () => undefined,
+    onSome: (offset) => menu.scrollTo({ top: offset }),
+  })
+
+const revealChapters = Effect.sync(() =>
+  Array.fromIterable(document.querySelectorAll<HTMLElement>(MENUS)),
+).pipe(
+  Effect.flatMap((menus) =>
+    Effect.forEach(menus, (menu) => Effect.sync(() => revealChapter(menu)), { discard: true }),
+  ),
+)
+
+const pageLoaded = Effect.promise(
+  () =>
+    new Promise<void>((resolve) =>
+      document.readyState === 'complete'
+        ? resolve()
+        : window.addEventListener('load', () => resolve(), { once: true }),
+    ),
+)
+
+const RevealChapter = define('RevealChapter', {
+  messages: [SectionScrolled],
+  execute: afterCommit.pipe(
+    Effect.andThen(revealChapters),
+    Effect.andThen(pageLoaded),
+    Effect.andThen(Effect.promise(() => document.fonts.ready)),
+    Effect.andThen(revealChapters),
+    Effect.as(SectionScrolled()),
+  ),
+})
+
+const LoadPage = define('LoadPage', {
+  args: { href: S.String },
+  messages: [ClosedSearch],
+  execute: ({ href }) =>
+    Effect.sync(() => window.location.assign(href)).pipe(Effect.as(ClosedSearch())),
 })
 
 const LINE = 28
@@ -220,7 +279,10 @@ const update = (model: Model, message: Message): Step =>
       SectionScrolled: () => ({ model }),
       SpottedSection: ({ id }) =>
         id === model.activeSection ? { model } : { model: { ...model, activeSection: id } },
-      WentTo: ({ route }) => ({ model: { ...model, route, searchOpen: false } }),
+      WentTo: ({ route }) =>
+        drawsInPlace(route) || Option.isSome(model.book)
+          ? { model: { ...model, route, searchOpen: false } }
+          : { model, commands: [LoadPage({ href: pathOf(route) })] },
       OpenedChapter: ({ slug }) => ({
         model: { ...model, chapter: slug, activeSection: '', drawerOpen: false },
         commands: [ScrollToTop()],
@@ -314,7 +376,7 @@ const subscriptions = Subscription.make<Model, Message>()((entry) => ({
     { spying: S.Boolean },
     {
       modelToDependencies: (model) => ({
-        spying: model.route === 'docs',
+        spying: model.route === 'docs' || model.route === 'source',
       }),
       dependenciesToStream: ({ spying }) =>
         spying
@@ -329,7 +391,9 @@ const subscriptions = Subscription.make<Model, Message>()((entry) => ({
   inlineCopies: entry(
     { reading: S.Boolean },
     {
-      modelToDependencies: (model) => ({ reading: model.route === 'docs' }),
+      modelToDependencies: (model) => ({
+        reading: model.route === 'docs' || model.route === 'source',
+      }),
       dependenciesToStream: ({ reading }) =>
         reading ? windowEvents<MouseEvent>('click', inlineCopy) : Stream.empty,
     },
@@ -378,7 +442,7 @@ import './landing.css'
 const application = Runtime.makeApplication({
   Model,
   Flags: Model,
-  init: (seed: Model): Step => ({ model: seed }),
+  init: (seed: Model): Step => ({ model: seed, commands: [RevealChapter()] }),
   update,
   view,
   subscriptions,

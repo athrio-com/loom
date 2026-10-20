@@ -10,5 +10,5 @@
     "types": ["bun"],
     "skipLibCheck": true
   },
-  "include": ["src/server.ts", "src/raw.d.ts", "vite.config.ts"]
+  "include": ["src/server.ts", "src/dev.ts", "src/raw.d.ts", "vite.config.ts"]
 }

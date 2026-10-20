@@ -6,13 +6,13 @@ Language: Dockerfile
 
 # The image
 
-The website ships as a Docker image. It carries the bundled client, the Bun server that renders each page before sending it, and the woven documentation those pages read. Docker gives the site a named, managed lifecycle — a host runs one artifact, and rolls back to the one before it when a release goes wrong. The release workflow builds the image and pushes it to the registry on every green push to the default branch.
+The website ships as a Docker image. It carries the bundled client, the Bun server that renders each page before sending it, and the woven documentation and book those pages read. Docker gives the site a named, managed lifecycle — a host runs one artifact, and rolls back to the one before it when a release goes wrong. The release workflow builds the image and pushes it to the registry on every green push to the default branch.
 
 ## The Dockerfile {Tangle}[Dockerfile]
 
 The build starts from Bun's Alpine image and copies the whole workspace, because the site is one member of it and installs against the workspace's single committed lockfile. Then it bundles the client with Vite.
 
-The build weaves nothing. The documentation travels in the workspace as the committed `docs.woven.json` file, so the image needs neither the published `loom` command nor a network to reach it. Development weaves that file afresh through the `content` script; the image trusts what the repository already holds.
+The build weaves one thing. The documentation travels in the workspace as the committed `docs.woven.json` file, so the image trusts what the repository already holds for it. Loom's own book is never committed, so the build weaves it with the `weave:source` script before bundling. That script runs the workspace's own `loom` from source, so the image still needs neither the published command nor a network.
 
 The runtime runs the server from the package directory. The server reads the port it listens on from the environment, and the image sets it to 4321.
 
@@ -25,6 +25,7 @@ COPY . .
 RUN bun install --frozen-lockfile
 
 WORKDIR /loom/site
+RUN bun run weave:source
 RUN bunx --bun vite build
 
 ENV PORT=4321

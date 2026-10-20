@@ -15,28 +15,29 @@ type Place = {
   readonly key: 'github' | 'telegram'
 }
 
-const places: ReadonlyArray<Place> = [
-  {
-    name: 'GitHub',
-    action: 'Star the repo',
-    href: 'https://github.com/athrio-com/loom',
-    key: 'github',
-    emblem: {
-      rows: ['...a...', '..aaa..', 'aaaaaaa', '.aaaaa.', '..aaa..', '.aa.aa.', '.a...a.'],
-      threads: { '.': NAVY, a: '#FFC53D' },
-    },
+const github: Place = {
+  name: 'GitHub',
+  action: 'Star the repo',
+  href: 'https://github.com/athrio-com/loom',
+  key: 'github',
+  emblem: {
+    rows: ['...a...', '..aaa..', 'aaaaaaa', '.aaaaa.', '..aaa..', '.aa.aa.', '.a...a.'],
+    threads: { '.': NAVY, a: '#FFC53D' },
   },
-  {
-    name: 'Telegram',
-    action: 'Join community',
-    href: 'https://t.me/athrio',
-    key: 'telegram',
-    emblem: {
-      rows: ['.bbbbb.', 'bbbbbbb', 'bpbpbpb', 'bbbbbbb', '.bbbbb.', '.bb....', '.b.....'],
-      threads: { '.': NAVY, b: '#2E6FF2', p: '#F2EFE6' },
-    },
+}
+
+const telegram: Place = {
+  name: 'Telegram',
+  action: 'Join community',
+  href: 'https://t.me/athrio',
+  key: 'telegram',
+  emblem: {
+    rows: ['.bbbbb.', 'bbbbbbb', 'bpbpbpb', 'bbbbbbb', '.bbbbb.', '.bb....', '.b.....'],
+    threads: { '.': NAVY, b: '#2E6FF2', p: '#F2EFE6' },
   },
-]
+}
+
+const places: ReadonlyArray<Place> = [github, telegram]
 
 const placeCard = (place: Place): Html =>
   ih.a(
@@ -52,6 +53,8 @@ const placeCard = (place: Place): Html =>
       ),
     ],
   )
+
+export const starCard = (): Html => placeCard(github)
 
 export const pageHead = (id: string, title: string, lead: string): Html =>
   ih.div(

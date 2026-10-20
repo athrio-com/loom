@@ -65,3 +65,6 @@ zed-extension/target/
 **/.loom/*.sqlite-shm
 
 age.key
+
+# The woven book the source page reads, rebuilt by the site's content step
+site/src/source.woven.json

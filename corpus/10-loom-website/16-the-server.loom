@@ -20,7 +20,7 @@ The server stays clear of the client runtime. It renders through Foldkit's serve
 
 From `effect` come `Effect`, the `FileSystem` that reads the built shell, the `Option` that fills the model's empty fields and carries a path naming no page, the `pipe` that reads a path as a route or a chapter, the `Schema` that parses what the npm registry returns, and the `Context` and `Layer` that define the server and wire it. From `effect/http` come the request and the responses. `@effect/platform-bun` supplies the Bun HTTP server, its file services, and the runtime edge. Foldkit lends `Server`, from its experimental server module, which renders a view to HTML and writes it into the shell.
 
-The site's own modules supply the view and the model, whose schema doubles as the shape of the flags the page carries to the client. The model also lends the `routeOf` function, which turns the path a request names into the route to render. The documentation shell lends `docsChapterAt`, which turns the address of a chapter into the chapter to open. The client never reads an address itself: it boots from the model the server rendered, so the two always agree on which page and which chapter are on show.
+The site's own modules supply the view and the model, whose schema doubles as the shape of the flags the page carries to the client. The model also lends the `routeOf` function, which turns the path a request names into the route to render. The documentation shell lends `docsChapterAt`, which turns the address of a chapter into the chapter to open, `chapterAt`, which does the same for any corpus, and `sliceOf`, which cuts the part of a corpus one page shows. The model lends the `Corpus` schema, which the woven book is read against. The client never reads an address itself: it boots from the model the server rendered, so the two always agree on which page and which chapter are on show.
 
 =>
 
@@ -31,8 +31,8 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Server } from 'foldkit/experimental'
 import { view } from './view'
-import { Model, routeOf, type Route } from './model'
-import { docsChapterAt } from './docs-page'
+import { Corpus, Model, routeOf, type Route } from './model'
+import { chapterAt, docsChapterAt, sliceOf } from './docs-page'
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist')
 
@@ -40,7 +40,7 @@ const distDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist')
 
 The page starts from the built shell and gains three things: the rendered body in place of the empty `#root`, the route's own title in place of the shell's, and, beside the body, the model it was rendered from, which the client reads back to hydrate.
 
-The seed is the site at rest, and every page starts from it — no chapter opened, no section jumped to, the example standing at its first frame, and the version at the workspace's own until the render fetches the latest. It names the landing's route because a model must name one; each page then overrides that single field with its own.
+The seed is the site at rest, and every page starts from it — no chapter opened, no section jumped to, the example standing at its first frame, no slice of the book, and the version at the workspace's own until the render fetches the latest. It names the landing's route because a model must name one; each page then overrides that single field with its own.
 
 {{ version = ${version} }}
 
@@ -60,6 +60,7 @@ const seed: Model = {
   query: '',
   focus: 0,
   copied: '',
+  book: Option.none(),
 }
 
 ## The latest release
@@ -78,6 +79,26 @@ const latestVersion = (fallback: string): Effect.Effect<string> =>
       .then((response) => response.json())
       .then((body) => S.decodeUnknownSync(Release)(body).version),
   ).pipe(Effect.catchCause(() => Effect.succeed(fallback)))
+
+## Loom's own book
+
+The source page draws Loom's own book, and the server is where the book lives. The site's build weaves `corpus/book.loom` to `source.woven.json` beside this file, and the server reads it once, when it starts. The book changes only when the site is built again, so there is nothing to gain from reading it per request, and two megabytes of JSON are worth parsing only once.
+
+The server parses the file and decodes it against the model's `Corpus` schema, which also drops what the shell never draws, such as where each block came from in its loom. A file that is missing or does not decode leaves the server without a book. It still serves every other page, and the source page's addresses then name no page.
+
+=>
+
+const bookFile = join(dirname(fileURLToPath(import.meta.url)), 'source.woven.json')
+
+const decodeBook = S.decodeUnknownOption(Corpus)
+
+const readBook = (fs: FileSystem.FileSystem): Effect.Effect<Option.Option<Corpus>> =>
+  fs.readFileString(bookFile).pipe(
+    Effect.map((text) =>
+      Option.flatMap(Option.liftThrowable((json: string): unknown => JSON.parse(json))(text), decodeBook),
+    ),
+    Effect.catchCause(() => Effect.succeed(Option.none())),
+  )
 
 ## Rendering one page
 
@@ -198,39 +219,57 @@ const NOT_BUILT = standalone(
 
 ## Read fresh for every page
 
-The site reads its shell for each page rather than holding one from startup, because `dist` is rewritten underneath a running server every time a build finishes. A shell held from startup would go on naming asset files a later build has already replaced, and the page would arrive pointing at bundles that are no longer there. Reading it per request costs one small file and keeps the server honest about whatever `dist` holds at that moment.
+The site reads its shell for each page rather than holding one from startup, because `dist` is rewritten underneath a running server every time a build finishes. A shell held from startup would go on naming the bundle the first build wrote. The page would then arrive running code a developer has since changed, or pointing at files a later build has removed. Reading it per request costs one small file and keeps the server honest about whatever `dist` holds at that moment.
 
-Rendering per request follows, and costs about as little: a render is one pass of the view and one write into the shell. The latest release is the one thing read once at startup, since a registry is slow to ask and a version changes on a release rather than on a request.
+Rendering per request follows, and costs about as little: a render is one pass of the view and one write into the shell. The latest release and the book are the two things read once at startup. A registry is slow to ask and a version changes on a release rather than on a request, and the book changes only with a build.
 
-Two answers are the whole of what the site owes the handler. The `pageAt` function asks `placeOf` whether the path names a page at all, then renders that page through the shell it has just read. A path names a page in one of two ways. It is a route's own path, such as `/why-loom` or `/docs`, which opens the route as it stands. Or it is a chapter's address under `/docs`, which opens the documentation on that chapter. Any other path names no page, so the server looks for an asset, and answers with the missing page when there is none. A `dist` it cannot read yields the unbuilt page. A render that fails is a fault in the site rather than in the build, so it surfaces as one instead of hiding behind the unbuilt page. The `assetAt` function reads a file from `dist` — the client bundle, the stylesheet, the marks — and falls back to the missing page when there is no such file. Both take the request's whole URL, since a path alone is what the handler happens to match on rather than all it holds.
+Two answers are the whole of what the site owes the handler. The `pageAt` function asks `placeOf` whether the path names a page at all, then renders that page through the shell it has just read. A path names a page in one of three ways. It is a route's own path, such as `/why-loom` or `/docs`, which opens the route as it stands. Or it is a chapter's address under `/docs`, which opens the documentation on that chapter. Or it is a chapter's address under `/source`, which opens the book on that chapter, when the server has a book. `/source` itself opens the book's first chapter, so it too names a page only when the server has a book. Without one it would render the page's frame around nothing: the nav, an empty column and the footer. Any other path names no page, so the server looks for an asset, and answers with the missing page when there is none. A `dist` it cannot read yields the unbuilt page. A render that fails is a fault in the site rather than in the build, so it surfaces as one instead of hiding behind the unbuilt page. The `assetAt` function reads a file from `dist` — the client bundle, the stylesheet, the marks — and falls back to the missing page when there is no such file. Both take the request's whole URL, since a path alone is what the handler happens to match on rather than all it holds.
+
+A source page also carries its slice of the book in its model. `bookFor` cuts it, the book's table of contents and the one chapter the place names, and every other page carries none.
 
 =>
 
 type Place = { readonly route: Route; readonly chapter: string }
 
-const placeOf = (pathname: string): Option.Option<Place> =>
+const placeOf = (book: Option.Option<Corpus>, pathname: string): Option.Option<Place> =>
   pipe(
     routeOf(pathname),
+    Option.filter((route) => route !== 'source' || Option.isSome(book)),
     Option.map((route): Place => ({ route, chapter: '' })),
     Option.orElse(() =>
       Option.map(docsChapterAt(pathname), (chapter): Place => ({ route: 'docs', chapter })),
     ),
+    Option.orElse(() =>
+      Option.flatMap(book, (corpus) =>
+        Option.map(
+          chapterAt(corpus, '/source', pathname),
+          (chapter): Place => ({ route: 'source', chapter }),
+        ),
+      ),
+    ),
   )
+
+const bookFor = (book: Option.Option<Corpus>, place: Place): Option.Option<Corpus> =>
+  place.route === 'source'
+    ? Option.map(book, (corpus) => sliceOf(corpus, place.chapter))
+    : Option.none()
 
 export class Site extends Context.Service<Site>()('Site', {
   make: Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
     const version = yield* latestVersion(seed.version)
+    const book = yield* readBook(fs)
     const shell = fs.readFileString(join(distDir, 'index.html'))
     return {
       pageAt: (url: URL): Effect.Effect<Option.Option<string>> =>
-        Option.match(placeOf(url.pathname), {
+        Option.match(placeOf(book, url.pathname), {
           onNone: () => Effect.succeed(Option.none()),
           onSome: (place) =>
             shell.pipe(
               Effect.matchEffect({
                 onFailure: () => Effect.succeed(NOT_BUILT),
-                onSuccess: (held) => pageOf(held, { ...seed, ...place, version }),
+                onSuccess: (held) =>
+                  pageOf(held, { ...seed, ...place, version, book: bookFor(book, place) }),
               }),
               Effect.map(Option.some),
             ),
@@ -271,6 +310,8 @@ The handler reads the request and answers it. The server serves that handler ove
 ::[The page]
 
 ::[The latest release]
+
+::[Loom's own book]
 
 ::[Rendering one page]
 

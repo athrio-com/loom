@@ -22,8 +22,10 @@ import { animationFrameEntry } from 'foldkit/subscription'
 import type { Return } from 'foldkit/update'
 import { view } from './view'
 import {
+  ClosedSearch,
   Copied,
   CopyReset,
+  drawsInPlace,
   FocusedPalette,
   GrewCard,
   type Message,
@@ -37,6 +39,7 @@ import {
   ToggledFullHeight,
   MovedCaret,
   OpenedSearch,
+  pathOf,
 } from './model'
 import { CHARACTERS, RUN, struckBy } from './example'
 
@@ -102,6 +105,88 @@ const ScrollToSection = define('ScrollToSection', {
 const ScrollToTop = define('ScrollToTop', {
   messages: [SectionScrolled],
   execute: Effect.sync(() => window.scrollTo(0, 0)).pipe(Effect.as(SectionScrolled())),
+})
+
+## Finding your place in the menu
+
+The menu lists every chapter of the book, so it runs taller than the window and scrolls inside its own card. Each chapter is a page of its own, and the browser opens every page with the menu scrolled to its top. Left at that, a reader who opens a chapter far down the list lands with that chapter out of sight, along with the sections listed beneath it.
+
+So once the page is up, the client scrolls each menu until the open chapter is its first line. Two menus can hold the open chapter: the card beside the article, and the drawer that stands in for the card on a narrow screen.
+
+`chapterOffset` measures how far the open chapter's row sits below the menu's first line, the label of the first part. Scrolling the menu to exactly that distance lifts the chapter's row into the label's place, with the chapter's sections listed under it. Every chapter follows the same rule, so the menu opens the same way on every page. A chapter near the end of the book cannot rise that far, and there the menu stops at its foot.
+
+The book's first chapter is the one exception. Its row is already the first under its part's label, so the menu leaves it there, at offset nought, with the label in view. Opening the first chapter from the menu then looks the same as opening the source page from the nav.
+
+=>
+
+const MENUS = '.menu-card, .drawer-body'
+
+const chapterOffset = (menu: HTMLElement): Option.Option<number> =>
+  Option.all([
+    Option.fromNullishOr(menu.firstElementChild),
+    Option.fromNullishOr(menu.querySelector('.menu-item')),
+    Option.fromNullishOr(menu.querySelector('.menu-item.here')),
+  ]).pipe(
+    Option.map(([first, opening, chapter]) =>
+      chapter === opening
+        ? 0
+        : chapter.getBoundingClientRect().top - first.getBoundingClientRect().top,
+    ),
+  )
+
+const revealChapter = (menu: HTMLElement): void =>
+  Option.match(chapterOffset(menu), {
+    onNone: () => undefined,
+    onSome: (offset) => menu.scrollTo({ top: offset }),
+  })
+
+~
+
+The stylesheet hides one of the two menus at every width: the drawer on a wide screen, the card on a narrow one. A hidden menu measures zero, so it stays at its top. A page with no menu has no open chapter to find, and the command does nothing there.
+
+`RevealChapter` scrolls the menus twice. The first time is as soon as the hydrated page has painted, so the reader never watches the menu sit at its top and then jump. The page may still be drawing in a fallback font at that moment. When the web fonts arrive they can rewrap a long chapter title and move every row below it, so the chapter's row lands a little off. So the command waits for the page to finish loading, with its fonts, and scrolls the menus once more. It answers with the same quiet `SectionScrolled` the other scrolls answer with.
+
+=>
+
+const revealChapters = Effect.sync(() =>
+  Array.fromIterable(document.querySelectorAll<HTMLElement>(MENUS)),
+).pipe(
+  Effect.flatMap((menus) =>
+    Effect.forEach(menus, (menu) => Effect.sync(() => revealChapter(menu)), { discard: true }),
+  ),
+)
+
+const pageLoaded = Effect.promise(
+  () =>
+    new Promise<void>((resolve) =>
+      document.readyState === 'complete'
+        ? resolve()
+        : window.addEventListener('load', () => resolve(), { once: true }),
+    ),
+)
+
+const RevealChapter = define('RevealChapter', {
+  messages: [SectionScrolled],
+  execute: afterCommit.pipe(
+    Effect.andThen(revealChapters),
+    Effect.andThen(pageLoaded),
+    Effect.andThen(Effect.promise(() => document.fonts.ready)),
+    Effect.andThen(revealChapters),
+    Effect.as(SectionScrolled()),
+  ),
+})
+
+## Leaving for the source page
+
+The search palette moves between pages without a link, by the message alone, so it can ask for the source page from a page that holds no book. Switching there on the spot would draw the source page's frame around nothing. So the update keeps the current page and runs `LoadPage`, which hands the address to the browser. The browser fetches the source page, already drawn by the server, and keeps the current page up until it arrives. `LoadPage` answers with `ClosedSearch`, so the palette is shut by the time the page goes.
+
+=>
+
+const LoadPage = define('LoadPage', {
+  args: { href: S.String },
+  messages: [ClosedSearch],
+  execute: ({ href }) =>
+    Effect.sync(() => window.location.assign(href)).pipe(Effect.as(ClosedSearch())),
 })
 
 ## Moving the stage under the reader
@@ -211,7 +296,7 @@ const GlideToCard = define('GlideToCard', {
 
 ## The update
 
-Most messages set one field: the query, the focus clamped to the results, the loom tab's view. Following a link records the page it led to and closes the palette behind it. Opening a documentation chapter records its slug, clears the section the menu was following, since the previous chapter's headings are no longer on the page, shuts the drawer behind the reader, and scrolls back to the top. Opening the palette puts the focus on its first result and the keyboard in its field; closing it clears the query, the focus and the caret together, so the palette opens empty the next time. Moving the caret records where it now sits, and the search settles a moment after the last keystroke. The example's messages move a position rather than set a flag: playing from the end starts again from the first character, a frame advances the clock and asks the stage to follow the caret, and skipping jumps both the clock and the stage to the foot. Going back to the start puts the clock, the height and the stage all back where they began — the document at its first character, the card down from full height, and the stage at the head of the document rather than wherever the reader stopped reading.
+Most messages set one field: the query, the focus clamped to the results, the loom tab's view. Following a link records the page it led to and closes the palette behind it, unless the page is the source page and the client holds no book to draw it with. Then the current page stays, and `LoadPage` sends the browser for the source page instead. Opening a documentation chapter records its slug, clears the section the menu was following, since the previous chapter's headings are no longer on the page, shuts the drawer behind the reader, and scrolls back to the top. Opening the palette puts the focus on its first result and the keyboard in its field; closing it clears the query, the focus and the caret together, so the palette opens empty the next time. Moving the caret records where it now sits, and the search settles a moment after the last keystroke. The example's messages move a position rather than set a flag: playing from the end starts again from the first character, a frame advances the clock and asks the stage to follow the caret, and skipping jumps both the clock and the stage to the foot. Going back to the start puts the clock, the height and the stage all back where they began — the document at its first character, the card down from full height, and the stage at the head of the document rather than wherever the reader stopped reading.
 
 Asking for full height is the one press that changes nothing at once. It runs the glide and waits: the page arrives at the card, `GrewCard` comes back, and only then does the height open. Giving the height back is immediate, since nothing has to travel first. Asking for a command's file toggles it, so pressing the same button twice closes what it opened. Selecting a section sets the active one, shuts the drawer if the section was picked from it, and asks the window to scroll to the section's heading. A section spotted while the reader scrolls sets the active one too, but runs nothing, so the outline follows the scroll rather than fighting it. Copying flashes the pressed button and runs its reset.
 
@@ -297,7 +382,10 @@ const update = (model: Model, message: Message): Step =>
       SectionScrolled: () => ({ model }),
       SpottedSection: ({ id }) =>
         id === model.activeSection ? { model } : { model: { ...model, activeSection: id } },
-      WentTo: ({ route }) => ({ model: { ...model, route, searchOpen: false } }),
+      WentTo: ({ route }) =>
+        drawsInPlace(route) || Option.isSome(model.book)
+          ? { model: { ...model, route, searchOpen: false } }
+          : { model, commands: [LoadPage({ href: pathOf(route) })] },
       OpenedChapter: ({ slug }) => ({
         model: { ...model, chapter: slug, activeSection: '', drawerOpen: false },
         commands: [ScrollToTop()],
@@ -348,13 +436,13 @@ const activeSectionId = (): Option.Option<string> => {
 
 ## Listening only when there is something to hear
 
-Every listener here is conditional. Each one asks the model whether its work is happening at all, and listens only while it is. The section spy runs only while the documentation is on show. The other two belong to the example: the frame loop advances the clock while the document plays, and the escape key gives the page back while the card stands at full height.
+Every listener here is conditional. Each one asks the model whether its work is happening at all, and listens only while it is. The section spy runs only while the documentation or the source page is on show. The other two belong to the example: the frame loop advances the clock while the document plays, and the escape key gives the page back while the card stands at full height.
 
 The spy and the escape key both listen on the window. The `windowEvents` function turns a window event into a stream and keeps only the events that name a message, so a key other than escape passes by without a sound.
 
 Two more belong to the search palette. While it is closed, a slash opens it, unless the reader is typing into a field of their own, where a slash is just a slash. The slash that opens the palette is kept from also landing in its field, so the opening key never becomes the first character of the query.
 
-One more belongs to the documentation's prose. A command written inside a sentence draws as a small copy button, but the prose is HTML that Markdown produced, so the button carries no handler of its own. While the documentation is on show, a listener on the window catches any click inside an element marked `data-copy`, and copies the command it carries, reporting it under the id the button checks for.
+One more belongs to the prose of the documentation and the source page. A command written inside a sentence draws as a small copy button, but the prose is HTML that Markdown produced, so the button carries no handler of its own. While either is on show, a listener on the window catches any click inside an element marked `data-copy`, and copies the command it carries, reporting it under the id the button checks for.
 
 While the palette is open, its caret follows the field's own. The palette draws a block caret of its own rather than the browser's, so it needs the field's caret position as state. A reader moves that position by typing, by the arrow keys, by clicking, or by selecting, and no single event covers all four. So the listener takes the selection changes the document reports, and the key, pointer and input events besides, and after each one reads where the field's caret now stands. It reads nothing while the field has lost focus.
 
@@ -411,7 +499,7 @@ const subscriptions = Subscription.make<Model, Message>()((entry) => ({
     { spying: S.Boolean },
     {
       modelToDependencies: (model) => ({
-        spying: model.route === 'docs',
+        spying: model.route === 'docs' || model.route === 'source',
       }),
       dependenciesToStream: ({ spying }) =>
         spying
@@ -426,7 +514,9 @@ const subscriptions = Subscription.make<Model, Message>()((entry) => ({
   inlineCopies: entry(
     { reading: S.Boolean },
     {
-      modelToDependencies: (model) => ({ reading: model.route === 'docs' }),
+      modelToDependencies: (model) => ({
+        reading: model.route === 'docs' || model.route === 'source',
+      }),
       dependenciesToStream: ({ reading }) =>
         reading ? windowEvents<MouseEvent>('click', inlineCopy) : Stream.empty,
     },
@@ -472,7 +562,9 @@ const subscriptions = Subscription.make<Model, Message>()((entry) => ({
 
 ## Booting
 
-The server has already rendered the page, and it wrote the model it rendered from into the page beside it. So the client has nothing left to decide. `Runtime.hydrate` reads that model back, runs the same `init` over it, and adopts the server's markup in place rather than drawing the page a second time. The `init` function returns the model unchanged and runs nothing, because the server already chose the route, the version and everything else a first render needs. Importing the stylesheet here, in the browser entry, keeps it out of the server's path.
+The server has already rendered the page, and it wrote the model it rendered from into the page beside it. `Runtime.hydrate` reads that model back, runs the same `init` over it, and adopts the server's markup in place rather than drawing the page a second time. The `init` function returns the model unchanged, because the server already chose the route, the version and everything else a first render needs.
+
+The server cannot choose how far the menu scrolls, because only the browser knows how tall the window is. So `init` runs one command, `RevealChapter`, which brings the open chapter into the menu's view. Importing the stylesheet here, in the browser entry, keeps it out of the server's path.
 
 =>
 
@@ -481,7 +573,7 @@ import './landing.css'
 const application = Runtime.makeApplication({
   Model,
   Flags: Model,
-  init: (seed: Model): Step => ({ model: seed }),
+  init: (seed: Model): Step => ({ model: seed, commands: [RevealChapter()] }),
   update,
   view,
   subscriptions,
@@ -507,6 +599,10 @@ Runtime.hydrate(application, { buildId: new URL(import.meta.url).pathname })
 ::[Focus where the reader will type]
 
 ::[Jumping to a section]
+
+::[Finding your place in the menu]
+
+::[Leaving for the source page]
 
 ::[Moving the stage under the reader]
 
