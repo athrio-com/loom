@@ -11,5 +11,12 @@
     "skipLibCheck": true
   },
   "include": ["src"],
-  "exclude": ["src/server.ts", "src/search.ts", "src/colour.ts", "src/dev.ts"]
+  "exclude": [
+    "src/server.ts",
+    "src/pages.ts",
+    "src/search.ts",
+    "src/colour.ts",
+    "src/render-ahead.ts",
+    "src/dev.ts"
+  ]
 }

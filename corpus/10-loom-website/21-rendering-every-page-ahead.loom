@@ -1,0 +1,82 @@
+---
+Part X, Chapter 21: Rendering every page ahead
+Package: site/src/
+Language: TypeScript
+---
+
+# Rendering every page ahead
+
+Every page the site shows depends only on the build: its address, the shell Vite writes, the documentation and the book. Nothing one reader does changes the page the next reader gets. So the site renders its pages when it is built, the way a static site generator does, and the server only reads them back.
+
+Rendering ahead takes the work out of the server, and the memory with it. Foldkit checks every page it renders by parsing the HTML back, about ten times over, and each render leaves a heap of short-lived memory behind. A server that rendered every page as readers asked for them settled near 340 megabytes, and climbed past 420 while it worked. Most of that was room the engine had taken for garbage and kept. A server that only reads pages back has none of that work to do. A reader also never waits for a page's first render, which takes about a second for the largest chapter of the book.
+
+The pages still hydrate. Each page carries the model it was rendered from, and the client boots from it as it does from a page the server renders on demand.
+
+## The pages to render
+
+The build renders a page for every address the site answers. `everyAddress` lists the addresses, and `placeOf` reads each one as the place it names. An address that names no place, such as `/source` when there is no book, has no page to render, so `pagesOf` leaves it out.
+
+=>
+
+type Page = { readonly address: string; readonly place: Place }
+
+const pagesOf = (book: Option.Option<Corpus>): ReadonlyArray<Page> =>
+  Array.getSomes(
+    Array.map(everyAddress(book), (address) =>
+      Option.map(placeOf(book, address), (place): Page => ({ address, place })),
+    ),
+  )
+
+## Every page, written out
+
+The program reads the shell that Vite has just written to `dist`, and names the build after the entry script the shell loads. It reads the book the way the server does. Then it renders each page through the same `modelAt` and `pageOf` the server uses, and writes it to the file `pageFileOf` names for that build and that address.
+
+Pages from earlier builds are removed first, since no shell will name their builds again. The pages render one at a time. Rendered all at once they would hold every page's short-lived memory together, and the build has no reader waiting on it.
+
+=>
+
+const renderAhead = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
+  const shell = yield* fs.readFileString(join(distDir, 'index.html'))
+  const buildId = yield* entryOf(shell)
+  const book = yield* readBook(fs)
+  yield* fs.remove(PAGES_DIR, { recursive: true, force: true })
+  const written = yield* Effect.forEach(pagesOf(book), ({ address, place }) =>
+    Effect.gen(function* () {
+      const file = pageFileOf(buildId, address)
+      const page = yield* pageOf(shell, modelAt(book, place))
+      yield* fs.makeDirectory(dirname(file), { recursive: true })
+      yield* fs.writeFileString(file, page)
+    }),
+  )
+  yield* Effect.log(`rendered ${written.length} pages ahead for ${buildId}`)
+})
+
+renderAhead.pipe(Effect.provide(BunServices.layer), BunRuntime.runMain)
+
+## The program {Tangle}[render-ahead.ts]
+
+The program draws on `effect` for its combinators and the file system, on Bun's platform for its file services and the runtime edge it starts from, and on the pages module for everything that renders a page and names its file. The model lends the `Corpus` type the book is read as.
+
+=>
+
+import { Array, Effect, FileSystem, Option } from 'effect'
+import { BunRuntime, BunServices } from '@effect/platform-bun'
+import { dirname, join } from 'node:path'
+import type { Corpus } from './model'
+import {
+  distDir,
+  entryOf,
+  everyAddress,
+  modelAt,
+  PAGES_DIR,
+  pageFileOf,
+  pageOf,
+  placeOf,
+  readBook,
+  type Place,
+} from './pages'
+
+::[The pages to render]
+
+::[Every page, written out]

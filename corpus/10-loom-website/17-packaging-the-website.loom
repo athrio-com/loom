@@ -59,7 +59,7 @@ The server rewrites three spots: the `#root` it fills with the rendered body, th
 
 ## The manifest {Tangle}[package.json]
 
-The manifest names the package, its commands, and its dependencies. The site holds its own components, so it leans on only a few packages: `foldkit`, which renders a page on the server and hydrates it in the browser, `effect` and `@effect/platform-browser` beneath it, `marked` to turn the documentation's woven prose into HTML, and `shiki` to colour the book's code on the server.
+The manifest names the package, its commands, and its dependencies. The site holds its own components, so it leans on only a few packages: `foldkit`, which renders a page on the server and hydrates it in the browser, `effect` and `@effect/platform-browser` beneath it, `marked` to turn the documentation's woven prose into HTML, and `shiki` to colour the book's code while the site is built.
 
 Foldkit's server rendering still ships as experimental, and a release may change it. So the manifest pins Foldkit to one exact version rather than a range, and the site moves to a new one on purpose rather than by accident. The type comes from the page's own head rather than from a package.
 
@@ -67,13 +67,15 @@ Before the site runs or builds, one step prepares the content it reads. It weave
 
 The same step weaves Loom's own book, `corpus/book.loom`, for the source page. The documentation is woven by the published `loom` command and committed, as a small file that changes when the docs do. The book is two megabytes and changes with almost every commit, so it is never committed. It is woven wherever the site is built instead, by the workspace's own command run from source, which needs no network and is always the Loom of the commit being built.
 
-Because the book is never committed, a fresh checkout has none until the step runs. The step runs before every `dev`, not only when the woven book is missing. Weaving the book takes about two seconds, and in return every session starts from the corpus as it stands rather than from a book an earlier session left behind.
+Once the book is woven, the step colours its code. The `colour:source` script runs the program in `src/colour.ts`, which writes the book in colour to `source.coloured.json`, the file the server reads. The coloured book is never committed either, for the same reason as the woven one.
+
+Because the book is never committed, a fresh checkout has none until the step runs. The step runs before every `dev`, not only when the woven book is missing. Weaving the book and colouring it take about six seconds, and in return every session starts from the corpus as it stands rather than from a book an earlier session left behind.
 
 Each weave is pointed at a *file* rather than at a directory, because weaving takes the corpus around the path it is given and a directory resolves to the one above it.
 
 Development runs the server production runs — the same file, over the same `dist` — so a developer reads the page a reader is sent rather than an approximation of it. What `dev` adds is only the two watchers that keep `dist` and the server current: Vite rebuilding the client on a change, and Bun restarting the server when a module it renders from changes. Neither stands in a request's way. A small program of their own, `src/dev.ts`, starts the pair and stops them as one.
 
-The rest follow from that. The `build` command writes the bundle to `dist`, `serve` runs the server over what it wrote — the pair the image runs — and `preview` is the two in order, for looking at the built site before shipping it. Vite's own preview server is not among them, and deliberately so: it hands out `dist` as files with nothing in front, so it renders no page, and what it shows is not what a reader would be sent.
+The rest follow from that. The `build` command writes the bundle to `dist`, then runs `src/render-ahead.ts` to render every page into it. `serve` runs the server over what the build wrote — the pair the image runs — and `preview` is the two in order, for looking at the built site before shipping it. Vite's own preview server is not among them, and deliberately so: it hands out `dist` as files with nothing in front, so it renders no page, and what it shows is not what a reader would be sent.
 
 {{ effect = ${effect} }}
 
@@ -87,11 +89,12 @@ The rest follow from that. The `build` command writes the bundle to `dist`, `ser
   "scripts": {
     "weave:docs": "bunx @athrio/loom weave ../docs/index.loom src/docs.woven.json",
     "weave:source": "bun ../packages/loom/src/main.ts weave ../corpus/book.loom src/source.woven.json",
-    "content": "bun run weave:docs && bun run weave:source",
+    "colour:source": "bun src/colour.ts",
+    "content": "bun run weave:docs && bun run weave:source && bun run colour:source",
     "predev": "bun run content",
     "dev": "bun src/dev.ts",
     "prebuild": "bun run content",
-    "build": "bunx --bun vite build",
+    "build": "bunx --bun vite build && bun src/render-ahead.ts",
     "serve": "bun src/server.ts",
     "preview": "bun run build && bun run serve"
   },
@@ -109,7 +112,7 @@ The rest follow from that. The `build` command writes the bundle to `dist`, `ser
 
 ## The browser TypeScript config {Tangle}[tsconfig.json]
 
-The client runs in the browser and the server on Bun, and their type environments cannot share one program. Foldkit's runtime reads Vite's `import.meta.hot`, and Bun's platform types declare a different `import.meta.hot`; in one program the two collide, and the client's reads stop type-checking. So the configuration splits. This one checks the browser half — the client, the view, and everything they reach — reading Vite's types through the ambient declaration beside it, and leaves the server, the search index and the colouring the server does, and the development program to the server config.
+The client runs in the browser and the server on Bun, and their type environments cannot share one program. Foldkit's runtime reads Vite's `import.meta.hot`, and Bun's platform types declare a different `import.meta.hot`; in one program the two collide, and the client's reads stop type-checking. So the configuration splits. This one checks the browser half — the client, the view, and everything they reach — reading Vite's types through the ambient declaration beside it, and leaves the rest to the server config: the server, the pages module it shares with the build, the search index, the two build programs that colour the book and render the pages ahead, and the development program.
 
 =>
 
@@ -126,7 +129,14 @@ The client runs in the browser and the server on Bun, and their type environment
     "skipLibCheck": true
   },
   "include": ["src"],
-  "exclude": ["src/server.ts", "src/search.ts", "src/colour.ts", "src/dev.ts"]
+  "exclude": [
+    "src/server.ts",
+    "src/pages.ts",
+    "src/search.ts",
+    "src/colour.ts",
+    "src/render-ahead.ts",
+    "src/dev.ts"
+  ]
 }
 
 ## The server TypeScript config {Tangle}[tsconfig.server.json]
@@ -149,8 +159,10 @@ This checks the server half under Bun. Because the server never imports the clie
   },
   "include": [
     "src/server.ts",
+    "src/pages.ts",
     "src/search.ts",
     "src/colour.ts",
+    "src/render-ahead.ts",
     "src/dev.ts",
     "src/raw.d.ts",
     "vite.config.ts"

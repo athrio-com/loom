@@ -6,11 +6,12 @@
   "scripts": {
     "weave:docs": "bunx @athrio/loom weave ../docs/index.loom src/docs.woven.json",
     "weave:source": "bun ../packages/loom/src/main.ts weave ../corpus/book.loom src/source.woven.json",
-    "content": "bun run weave:docs && bun run weave:source",
+    "colour:source": "bun src/colour.ts",
+    "content": "bun run weave:docs && bun run weave:source && bun run colour:source",
     "predev": "bun run content",
     "dev": "bun src/dev.ts",
     "prebuild": "bun run content",
-    "build": "bunx --bun vite build",
+    "build": "bunx --bun vite build && bun src/render-ahead.ts",
     "serve": "bun src/server.ts",
     "preview": "bun run build && bun run serve"
   },

@@ -12,8 +12,10 @@
   },
   "include": [
     "src/server.ts",
+    "src/pages.ts",
     "src/search.ts",
     "src/colour.ts",
+    "src/render-ahead.ts",
     "src/dev.ts",
     "src/raw.d.ts",
     "vite.config.ts"

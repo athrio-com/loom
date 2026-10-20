@@ -66,5 +66,6 @@ zed-extension/target/
 
 age.key
 
-# The woven book the source page reads, rebuilt by the site's content step
+# The woven book, and the same book in colour that the source page reads, both rebuilt by the site's content step
 site/src/source.woven.json
+site/src/source.coloured.json

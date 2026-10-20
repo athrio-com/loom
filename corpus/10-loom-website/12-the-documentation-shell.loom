@@ -419,9 +419,9 @@ Every sheet names its language in a small tag on its top edge, set into the bord
 
 A loom composes its code by anchor. A `::[…]` anchor in one section's code stands for the section it names, so each anchor in the code is a link to that section. A section in the same chapter is reached by its id alone, and a section in another chapter by that chapter's address and the id.
 
-The code also arrives in colour. The server colours each chapter before the page draws it, and hands each run of code over with its marks: stretches of the code, each with the kind of token it covers, such as a keyword or a string. Code between the marks draws in the page's ink.
+The code also arrives in colour. The site's build colours the book's code, and each run of code arrives with its marks: stretches of the code, each with the kind of token it covers, such as a keyword or a string. Code between the marks draws in the page's ink.
 
-The weave hands over each anchor as a name, its place in the code, and the section it reaches. So a run of code carries two lists of places, its anchors and its marks. `spansOf` gathers both into one list, in the order they sit in the code. No two spans overlap, because the server drops any mark that falls on an anchor.
+The weave hands over each anchor as a name, its place in the code, and the section it reaches. So a run of code carries two lists of places, its anchors and its marks. `spansOf` gathers both into one list, in the order they sit in the code. No two spans overlap, because the colouring drops any mark that falls on an anchor.
 
 `runsOf` then cuts the code at the spans into runs, in order. A run is one of three things: plain code between two spans, an anchor with its link, or a mark with its kind. A run with no text, such as the gap between two anchors that touch, is dropped.
 

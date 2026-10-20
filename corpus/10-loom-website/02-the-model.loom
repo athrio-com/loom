@@ -50,7 +50,7 @@ export type SearchGroup = typeof SearchGroup.Type
 
 ~
 
-The player is the example's own state, held apart because it changes on every frame while the document is being typed. The version is the latest release, which the server reads from npm so the hero never falls behind. The copied field names the copy button flashing its confirmation, or the empty string when none is.
+The player is the example's own state, held apart because it changes on every frame while the document is being typed. The version is the latest release, the version of Loom the site was built with. The copied field names the copy button flashing its confirmation, or the empty string when none is.
 
 The book is the slice of Loom's own book that the source page shows: the book's whole table of contents and the one chapter on show. Every other page carries none.
 
@@ -108,7 +108,7 @@ export type CodeLink = typeof CodeLink.Type
 
 A run of code's colours are its marks. A mark is one stretch of the code drawn in one colour: where it starts, how long it is, and the kind of token it covers. There are six kinds, the ones a reader tells apart at a glance: keywords, strings, constants such as numbers, comments, the names of functions and the names of types. Code between the marks draws in the page's ink.
 
-The weave hands over no marks, because colouring code is the site's concern rather than Loom's. A block read from the woven book starts with none, and the server colours each chapter before a source page draws it.
+The weave hands over no marks, because colouring code is the site's concern rather than Loom's. A block read from the woven book starts with none, and the site's build colours the whole book before the server reads it.
 
 A chapter in colour carries thousands of marks, and every one travels to the browser inside the page's model. So a mark travels as a bare triple, `[offset, length, kind]`, rather than as an object that spells out its three field names each time. The triple makes the largest chapter's model more than a third smaller. The model still reads a mark by its names, and the schema converts between the two forms on the way in and on the way out.
 

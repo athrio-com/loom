@@ -8,7 +8,9 @@ Language: TypeScript
 
 A source page shows the code each section of Loom's own book writes, and code reads more easily in colour. A reader who sees the keywords, the strings and the comments apart finds the shape of a function before reading a word of it.
 
-The server colours the code, and the browser never does. The colours come from Shiki, a highlighter that reads code with the same TextMate grammars VS Code uses. Its grammars and the engine that runs them weigh a few megabytes, far more than a reader should download to see colour. So the server runs Shiki and sends each chapter with its colours already worked out, as marks in the model. The browser draws the marks the way it draws the links, and never loads Shiki at all.
+The site's build colours the code, and neither the server nor the browser ever runs a highlighter. The colours come from Shiki, a highlighter that reads code with the same TextMate grammars VS Code uses. Its grammars and the engine that runs them weigh a few megabytes, far more than a reader should download to see colour. So the build runs Shiki over the whole book once, right after it weaves the book, and writes each run of code out with its colours already worked out, as marks. The server reads the book in colour and hands each source page its chapter, marks and all, inside the model. The browser draws the marks the way it draws the links.
+
+Colouring belongs to the build rather than to the server because of what Shiki costs while it works. Colouring the whole book takes about four seconds and churns through hundreds of megabytes of short-lived memory. The engine's own memory grows past a hundred megabytes as it goes, and never shrinks. A server that coloured each chapter on its first visit grew to about 800 megabytes once a reader had opened every chapter. A server that reads the book already coloured stays near 320.
 
 ## Which grammar reads which language
 
@@ -96,7 +98,7 @@ const THEME: ThemeRegistration = {
 
 =>
 
-export const makeHighlighter: Effect.Effect<HighlighterCore> = Effect.promise(() =>
+const makeHighlighter: Effect.Effect<HighlighterCore> = Effect.promise(() =>
   createHighlighterCore({
     themes: [THEME],
     langs: Array.map(Array.dedupe(GRAMMARS.values()), (grammar) => bundledLanguages[grammar]),
@@ -147,9 +149,9 @@ const marksOf = (highlighter: HighlighterCore, block: CodeBlock): ReadonlyArray<
       ),
   })
 
-## A chapter in colour
+## The whole book in colour
 
-`colouredCorpus` colours every run of code in a corpus and leaves its other blocks as they are. The server hands it the slice one source page shows, so it colours one chapter at a time.
+`colouredCorpus` colours every run of code in a corpus and leaves its other blocks as they are. The build hands it the whole book.
 
 =>
 
@@ -158,7 +160,7 @@ const colouredBlock =
   (block: Block): Block =>
     block.type === 'code' ? { ...block, marks: marksOf(highlighter, block) } : block
 
-export const colouredCorpus = (highlighter: HighlighterCore, corpus: Corpus): Corpus => ({
+const colouredCorpus = (highlighter: HighlighterCore, corpus: Corpus): Corpus => ({
   ...corpus,
   pages: Array.map(corpus.pages, (page) => ({
     ...page,
@@ -166,23 +168,50 @@ export const colouredCorpus = (highlighter: HighlighterCore, corpus: Corpus): Co
   })),
 })
 
-## The module {Tangle}[colour.ts]
+## Once, as the site is built
 
-The module draws on `effect` for its combinators and the schema that reads a kind, on Shiki's core, its WebAssembly engine and its grammars, and on the model for the shapes it reads and writes.
+The colouring runs as a program of its own, which the site's build runs right after it weaves the book. The program reads the woven book from `source.woven.json`, colours it, and writes the result to `source.coloured.json`, the file the server reads.
+
+The model's `Corpus` schema reads and writes both files, through `S.fromJsonString`, which joins parsing JSON to the schema. Decoding the woven book drops what the site never draws, such as where each block came from in its loom. Encoding the coloured book writes each mark as the triple the model sends to the browser. A woven book that is missing or does not decode means the build is broken, so the program fails, and the build stops with it.
 
 =>
 
-import { Array, Effect, Option, pipe, Schema as S } from 'effect'
+const here = dirname(fileURLToPath(import.meta.url))
+
+const BookFile = S.fromJsonString(Corpus)
+
+const colourBook = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
+  const book = yield* fs
+    .readFileString(join(here, 'source.woven.json'))
+    .pipe(Effect.flatMap(S.decodeUnknownEffect(BookFile)))
+  const highlighter = yield* makeHighlighter
+  const coloured = yield* S.encodeEffect(BookFile)(colouredCorpus(highlighter, book))
+  yield* fs.writeFileString(join(here, 'source.coloured.json'), coloured)
+})
+
+colourBook.pipe(Effect.provide(BunServices.layer), BunRuntime.runMain)
+
+## The program {Tangle}[colour.ts]
+
+The program draws on `effect` for its combinators, the file system and the schemas, on Bun's platform for its file services and the runtime edge it starts from, on Shiki's core, its WebAssembly engine and its grammars, and on the model for the shapes it reads and writes.
+
+=>
+
+import { Array, Effect, FileSystem, Option, pipe, Schema as S } from 'effect'
+import { BunRuntime, BunServices } from '@effect/platform-bun'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { createHighlighterCore, type HighlighterCore, type ThemeRegistration } from 'shiki/core'
 import { createOnigurumaEngine } from 'shiki/engine/oniguruma'
 import { bundledLanguages, type BundledLanguage } from 'shiki/langs'
 import {
+  Corpus,
   TokenKind,
   type Block,
   type CodeBlock,
   type CodeLink,
   type CodeMark,
-  type Corpus,
 } from './model'
 
 ::[Which grammar reads which language]
@@ -195,4 +224,6 @@ import {
 
 ::[Tokens become marks]
 
-::[A chapter in colour]
+::[The whole book in colour]
+
+::[Once, as the site is built]

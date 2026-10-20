@@ -1,14 +1,17 @@
-import { Array, Effect, Option, pipe, Schema as S } from 'effect'
+import { Array, Effect, FileSystem, Option, pipe, Schema as S } from 'effect'
+import { BunRuntime, BunServices } from '@effect/platform-bun'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { createHighlighterCore, type HighlighterCore, type ThemeRegistration } from 'shiki/core'
 import { createOnigurumaEngine } from 'shiki/engine/oniguruma'
 import { bundledLanguages, type BundledLanguage } from 'shiki/langs'
 import {
+  Corpus,
   TokenKind,
   type Block,
   type CodeBlock,
   type CodeLink,
   type CodeMark,
-  type Corpus,
 } from './model'
 
 const GRAMMARS: ReadonlyMap<string, BundledLanguage> = new Map([
@@ -75,7 +78,7 @@ const THEME: ThemeRegistration = {
   ],
 }
 
-export const makeHighlighter: Effect.Effect<HighlighterCore> = Effect.promise(() =>
+const makeHighlighter: Effect.Effect<HighlighterCore> = Effect.promise(() =>
   createHighlighterCore({
     themes: [THEME],
     langs: Array.map(Array.dedupe(GRAMMARS.values()), (grammar) => bundledLanguages[grammar]),
@@ -119,10 +122,26 @@ const colouredBlock =
   (block: Block): Block =>
     block.type === 'code' ? { ...block, marks: marksOf(highlighter, block) } : block
 
-export const colouredCorpus = (highlighter: HighlighterCore, corpus: Corpus): Corpus => ({
+const colouredCorpus = (highlighter: HighlighterCore, corpus: Corpus): Corpus => ({
   ...corpus,
   pages: Array.map(corpus.pages, (page) => ({
     ...page,
     blocks: Array.map(page.blocks, colouredBlock(highlighter)),
   })),
 })
+
+const here = dirname(fileURLToPath(import.meta.url))
+
+const BookFile = S.fromJsonString(Corpus)
+
+const colourBook = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
+  const book = yield* fs
+    .readFileString(join(here, 'source.woven.json'))
+    .pipe(Effect.flatMap(S.decodeUnknownEffect(BookFile)))
+  const highlighter = yield* makeHighlighter
+  const coloured = yield* S.encodeEffect(BookFile)(colouredCorpus(highlighter, book))
+  yield* fs.writeFileString(join(here, 'source.coloured.json'), coloured)
+})
+
+colourBook.pipe(Effect.provide(BunServices.layer), BunRuntime.runMain)

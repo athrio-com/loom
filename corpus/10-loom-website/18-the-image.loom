@@ -6,15 +6,17 @@ Language: Dockerfile
 
 # The image
 
-The website ships as a Docker image. It carries the bundled client, the Bun server that renders each page before sending it, and the woven documentation and book those pages read. Docker gives the site a named, managed lifecycle — a host runs one artifact, and rolls back to the one before it when a release goes wrong. The release workflow builds the image and pushes it to the registry on every green push to the default branch.
+The website ships as a Docker image. It carries the bundled client, every page rendered ahead, the Bun server that sends them, and the woven documentation and book those pages read. Docker gives the site a named, managed lifecycle — a host runs one artifact, and rolls back to the one before it when a release goes wrong. The release workflow builds the image and pushes it to the registry on every green push to the default branch.
 
 ## The Dockerfile {Tangle}[Dockerfile]
 
-The build starts from Bun's Alpine image and copies the whole workspace, because the site is one member of it and installs against the workspace's single committed lockfile. Then it bundles the client with Vite.
+The build starts from Bun's Alpine image and copies the whole workspace, because the site is one member of it and installs against the workspace's single committed lockfile. Then it bundles the client with Vite, and renders every page into the bundle's folder with `src/render-ahead.ts`.
 
-The build weaves one thing. The documentation travels in the workspace as the committed `docs.woven.json` file, so the image trusts what the repository already holds for it. Loom's own book is never committed, so the build weaves it with the `weave:source` script before bundling. That script runs the workspace's own `loom` from source, so the image still needs neither the published command nor a network.
+The build weaves one thing. The documentation travels in the workspace as the committed `docs.woven.json` file, so the image trusts what the repository already holds for it. Loom's own book is never committed, so the build weaves it with the `weave:source` script, and colours its code with the `colour:source` script, before bundling. That script runs the workspace's own `loom` from source, so the image still needs neither the published command nor a network.
 
 The runtime runs the server from the package directory. The server reads the port it listens on from the environment, and the image sets it to 4321.
+
+Bun runs the server in its small-memory mode, `--smol`, which collects garbage more often. Rendering a page leaves a lot of short-lived memory behind, and a server that collects it sooner settles at about a quarter less memory once its pages are kept. The cost is a few percent on a page's first render, which a reader does not notice.
 
 =>
 
@@ -25,9 +27,9 @@ COPY . .
 RUN bun install --frozen-lockfile
 
 WORKDIR /loom/site
-RUN bun run weave:source
-RUN bunx --bun vite build
+RUN bun run weave:source && bun run colour:source
+RUN bunx --bun vite build && bun src/render-ahead.ts
 
 ENV PORT=4321
 EXPOSE 4321
-CMD ["bun", "src/server.ts"]
+CMD ["bun", "--smol", "src/server.ts"]

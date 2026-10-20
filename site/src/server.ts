@@ -1,89 +1,21 @@
-import { Cache, Context, Effect, Fiber, FileSystem, Layer, Option, pipe, Schema as S } from 'effect'
+import { Cache, Context, Effect, FileSystem, Layer, Option, Schema as S } from 'effect'
 import { HttpServer, HttpServerRequest, HttpServerResponse } from 'effect/http'
 import { BunHttpServer, BunRuntime, BunServices } from '@effect/platform-bun'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { Server } from 'foldkit/experimental'
-import { view } from './view'
-import { Corpus, Model, Route, routeOf, SearchGroup } from './model'
-import { chapterAt, docsChapterAt, docsCorpus, sliceOf } from './docs-page'
+import { join } from 'node:path'
+import { Route, SearchGroup } from './model'
+import { docsCorpus } from './docs-page'
 import { indexOf, searchIn } from './search'
-import { colouredCorpus, makeHighlighter } from './colour'
-
-const distDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist')
-
-const seed: Model = {
-  route: 'home',
-  chapter: '',
-  drawerOpen: false,
-  runtime: 'bun',
-  searchOpen: false,
-  caret: 0,
-  searching: false,
-  found: [],
-  activeSection: '',
-  player: { struck: 0, beat: 0, playing: false, output: Option.none(), full: false },
-  version: '0.0.15',
-  query: '',
-  focus: 0,
-  copied: '',
-  book: Option.none(),
-}
-
-const NPM_LATEST = 'https://registry.npmjs.org/@athrio/loom/latest'
-
-const Release = S.Struct({ version: S.String })
-
-const latestVersion = (fallback: string): Effect.Effect<string> =>
-  Effect.tryPromise((signal) =>
-    fetch(NPM_LATEST, { signal })
-      .then((response) => response.json())
-      .then((body) => S.decodeUnknownSync(Release)(body).version),
-  ).pipe(
-    Effect.timeout('2 seconds'),
-    Effect.catchCause(() => Effect.succeed(fallback)),
-  )
-
-const bookFile = join(dirname(fileURLToPath(import.meta.url)), 'source.woven.json')
-
-const decodeBook = S.decodeUnknownOption(Corpus)
-
-const readBook = (fs: FileSystem.FileSystem): Effect.Effect<Option.Option<Corpus>> =>
-  fs.readFileString(bookFile).pipe(
-    Effect.map((text) =>
-      Option.flatMap(Option.liftThrowable((json: string): unknown => JSON.parse(json))(text), decodeBook),
-    ),
-    Effect.catchCause(() => Effect.succeed(Option.none())),
-  )
-
-const application = {
-  Flags: Model,
-  init: (model: Model) => ({ model }),
-  view,
-}
-
-const ENTRY = /<script type="module"[^>]*\ssrc="([^"]+)"/
-
-const entryOf = (shell: string): Effect.Effect<string> =>
-  Option.match(Option.fromNullishOr(ENTRY.exec(shell)?.[1]), {
-    onNone: () => Effect.die(new Error('the shell loads no entry script')),
-    onSome: Effect.succeed,
-  })
-
-const pageOf = (shell: string, model: Model): Effect.Effect<string> =>
-  Effect.gen(function* () {
-    const buildId = yield* entryOf(shell)
-    const rendered = yield* Server.renderToString(application, { flags: model, buildId })
-    return Server.injectIntoTemplate(shell, rendered)
-  }).pipe(Effect.orDie)
-
-const bodyOf =
-  (version: string) =>
-  (route: Route): Effect.Effect<string> =>
-    Server.renderToString(application, { flags: { ...seed, route, version }, buildId: 'search' }).pipe(
-      Effect.map((rendered) => rendered.html),
-      Effect.orDie,
-    )
+import {
+  bodyOf,
+  distDir,
+  entryOf,
+  modelAt,
+  pageFileOf,
+  pageOf,
+  placeOf,
+  readBook,
+  type Place,
+} from './pages'
 
 const PAGE_STYLE = `
       :root { --paper: #F7F4EC; --ink: #14130F; --ink-3: #7C6F64; --rule: #E4DCCB; }
@@ -147,27 +79,7 @@ const NOT_BUILT = standalone(
     <p class="line">The server renders from <code>dist</code>, and nothing is there yet. Run <code>bun run build</code>, or <code>bun run dev</code> to keep it building.</p>`,
 )
 
-type Place = { readonly route: Route; readonly chapter: string }
-
 type PageKey = { readonly place: Place; readonly shell: string }
-
-const placeOf = (book: Option.Option<Corpus>, pathname: string): Option.Option<Place> =>
-  pipe(
-    routeOf(pathname),
-    Option.filter((route) => route !== 'source' || Option.isSome(book)),
-    Option.map((route): Place => ({ route, chapter: '' })),
-    Option.orElse(() =>
-      Option.map(docsChapterAt(pathname), (chapter): Place => ({ route: 'docs', chapter })),
-    ),
-    Option.orElse(() =>
-      Option.flatMap(book, (corpus) =>
-        Option.map(
-          chapterAt(corpus, '/source', pathname),
-          (chapter): Place => ({ route: 'source', chapter }),
-        ),
-      ),
-    ),
-  )
 
 export class Site extends Context.Service<Site>()('Site', {
   make: Effect.gen(function* () {
@@ -177,29 +89,17 @@ export class Site extends Context.Service<Site>()('Site', {
       onNone: () => 0,
       onSome: (corpus) => corpus.pages.length,
     })
-    const latest = yield* Effect.forkScoped(latestVersion(seed.version))
-    const highlighter = yield* Effect.forkScoped(makeHighlighter)
-    const index = yield* Effect.cached(
-      Effect.flatMap(Fiber.join(latest), (version) => indexOf(book, bodyOf(version))),
-    )
-    const slices = yield* Cache.make({
-      capacity: bookChapters + 1,
-      lookup: (chapter: string) =>
-        Effect.map(Fiber.join(highlighter), (shiki) =>
-          Option.map(book, (corpus) => colouredCorpus(shiki, sliceOf(corpus, chapter))),
-        ),
-    })
-    const bookFor = (place: Place): Effect.Effect<Option.Option<Corpus>> =>
-      place.route === 'source' ? Cache.get(slices, place.chapter) : Effect.succeed(Option.none())
-    const pages = yield* Cache.make({
+    const index = yield* Effect.cached(indexOf(book, bodyOf))
+    const rendered = yield* Cache.make({
       capacity: Route.literals.length + docsCorpus.pages.length + bookChapters,
-      lookup: (key: PageKey) =>
-        Effect.gen(function* () {
-          const version = yield* Fiber.join(latest)
-          const slice = yield* bookFor(key.place)
-          return yield* pageOf(key.shell, { ...seed, ...key.place, version, book: slice })
-        }),
+      lookup: (key: PageKey) => pageOf(key.shell, modelAt(book, key.place)),
     })
+    const pageIn = (shell: string, place: Place, address: string): Effect.Effect<string> =>
+      Effect.flatMap(entryOf(shell), (buildId) =>
+        fs
+          .readFileString(pageFileOf(buildId, address))
+          .pipe(Effect.catchCause(() => Cache.get(rendered, { place, shell }))),
+      )
     const shell = fs.readFileString(join(distDir, 'index.html'))
     return {
       pageAt: (url: URL): Effect.Effect<Option.Option<string>> =>
@@ -209,7 +109,7 @@ export class Site extends Context.Service<Site>()('Site', {
             shell.pipe(
               Effect.matchEffect({
                 onFailure: () => Effect.succeed(NOT_BUILT),
-                onSuccess: (held) => Cache.get(pages, { place, shell: held }),
+                onSuccess: (held) => pageIn(held, place, url.pathname),
               }),
               Effect.map(Option.some),
             ),
