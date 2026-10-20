@@ -16,12 +16,6 @@ Within the documentation the route is not enough, because every chapter answers 
 
 The runtime is the way the hero's install line installs Loom: one of three package managers, or `curl`, which fetches the install script for the standalone executable. A reader wants the one command that works on their machine rather than four to choose between.
 
-Five fields carry the search palette, which opens over whatever page is showing: whether it is open, where the caret sits inside the query, whether the search is still settling, and — further down, beside the older fields — the query itself and the focused result. The palette draws its own block caret rather than the browser's, so the caret's position has to be state instead of something the input keeps to itself.
-
-The player is the example's own state, held apart because it changes on every frame while the document is being typed. The version is the latest release, which the server reads from npm so the hero never falls behind. The copied field names the copy button flashing its confirmation, or the empty string when none is.
-
-The book is the slice of Loom's own book that the source page shows: the book's whole table of contents and the one chapter on show. Every other page carries none.
-
 =>
 
 import { Array, Match, Option, Schema as S } from 'effect'
@@ -33,6 +27,35 @@ export type Route = typeof Route.Type
 export const Runtime = S.Literals(['bun', 'npm', 'pnpm', 'curl'])
 export type Runtime = typeof Runtime.Type
 
+~
+
+Six fields carry the search palette, which opens over whatever page is showing: whether it is open, where the caret sits inside the query, whether a search is on its way back from the server, the results the server found, and, further down beside the older fields, the query itself and the focused result. The palette draws its own block caret rather than the browser's, so the caret's position has to be state instead of something the input keeps to itself.
+
+The server answers a query with groups of results, one group for each page of the site that has any: the docs, the book, and each of the site's own pages. A result is one section that matched. It carries the address of that section, the chapter or page it sits on, and its heading, which together tell a reader where the result is. It also carries a window onto the section's text, cut into the words before the match, the match itself and the words after, so the palette can pick the match out in colour.
+
+=>
+
+export const SearchHit = S.Struct({
+  href: S.String,
+  place: S.String,
+  heading: S.String,
+  pre: S.String,
+  hit: S.String,
+  post: S.String,
+})
+export type SearchHit = typeof SearchHit.Type
+
+export const SearchGroup = S.Struct({ route: Route, hits: S.Array(SearchHit) })
+export type SearchGroup = typeof SearchGroup.Type
+
+~
+
+The player is the example's own state, held apart because it changes on every frame while the document is being typed. The version is the latest release, which the server reads from npm so the hero never falls behind. The copied field names the copy button flashing its confirmation, or the empty string when none is.
+
+The book is the slice of Loom's own book that the source page shows: the book's whole table of contents and the one chapter on show. Every other page carries none.
+
+=>
+
 export const Model = S.Struct({
   route: Route,
   chapter: S.String,
@@ -41,6 +64,7 @@ export const Model = S.Struct({
   searchOpen: S.Boolean,
   caret: S.Number,
   searching: S.Boolean,
+  found: S.Array(SearchGroup),
   activeSection: S.String,
   player: Player,
   version: S.String,
@@ -171,7 +195,7 @@ export const drawsInPlace = (route: Route): boolean => route !== 'source'
 
 ## The messages
 
-The reader does a handful of things. They follow a link to another page, and the site records which page they went to. They open the search palette with a slash and close it with escape, type a query into it, walk the results with the arrows, and move the caret inside what they have typed; a moment after the last keystroke the search settles. Opening the palette puts the keyboard's focus in its field, and the answer that focus has landed is a message of its own.
+The reader does a handful of things. They follow a link to another page, and the site records which page they went to. They open the search palette with a slash and close it with escape, type a query into it, and move the caret inside what they have typed. A moment after the last keystroke the server's results arrive, named with the query they answer, and the reader walks them with the arrows and opens one with Enter. Opening the palette puts the keyboard's focus in its field, and the answer that focus has landed is a message of its own.
 
 In the example they press play, pause it partway, send it back to the start, or skip to the end, and while it runs each frame advances the clock. They also ask for the card at the height of the window; the page glides to the card first and the height opens only once it has arrived, which is a second message rather than the same one. Once the document has finished they ask for the file one of the two commands writes. Each frame the document may also need moving under the caret, and the answer to that says it has been done.
 
@@ -191,7 +215,8 @@ export const Message = defineMessageUnion({
   FocusedPalette: {},
   ClosedSearch: {},
   MovedCaret: { at: S.Number },
-  SettledSearch: {},
+  Found: { query: S.String, groups: S.Array(SearchGroup) },
+  OpenedHit: { href: S.String },
   ToggledPlay: {},
   ReplayedDocument: {},
   SkippedToEnd: {},
@@ -220,7 +245,8 @@ export const {
   FocusedPalette,
   ClosedSearch,
   MovedCaret,
-  SettledSearch,
+  Found,
+  OpenedHit,
   ToggledPlay,
   ReplayedDocument,
   SkippedToEnd,

@@ -1,0 +1,439 @@
+---
+Part X, Chapter 19: Searching the site
+Package: site/src/
+Language: TypeScript
+---
+
+# Searching the site
+
+The search palette searches everything the site shows: every chapter of the docs, every chapter of Loom's own book, and the site's own pages. A reader who half-remembers a sentence types a few of its words and lands on the section that says it, on whichever page that section sits.
+
+The search runs on the server. Woven, the book alone is two megabytes, more than a reader should download to search it. So the server reads everything once, when it starts, cuts it into sections, and keeps the sections as an index. The palette sends each query to the server and draws what comes back, and every result is a link to its page and to the section on it.
+
+## One section, one entry
+
+The index is a list of entries, one for each place a reader could land. An entry names the page it belongs to by its route, and the address that reaches it. It names the chapter or page it sits on and its own heading, which together tell a reader where a result is. And it holds its text: the words a reader sees there, with the markup gone.
+
+=>
+
+export type Entry = {
+  readonly route: Route
+  readonly href: string
+  readonly place: string
+  readonly heading: string
+  readonly text: string
+}
+
+## The words a run of prose shows
+
+A run of prose in the docs or the book is Markdown, and a reader searches the words it shows, not its marks. `marked`, the parser that draws the prose on the page, reads a run into tokens. A paragraph holds its inline runs, a list its items, and a table its header and its rows. `wordsOf` walks the tokens and keeps the text each leaf shows. It drops the tokens that show no words, such as raw HTML and the space between blocks. The text of a code span stays as written, so a reader who searches for `loom tangle` finds the sentences that name it.
+
+=>
+
+type Run = {
+  readonly type?: string
+  readonly text?: string
+  readonly tokens?: ReadonlyArray<Run>
+  readonly items?: ReadonlyArray<Run>
+  readonly header?: ReadonlyArray<Run> | boolean
+  readonly rows?: ReadonlyArray<ReadonlyArray<Run>>
+}
+
+const SILENT: ReadonlyArray<string> = ['html', 'tag', 'space', 'hr', 'br', 'def']
+
+~
+
+A table's cells come in two places, its header and its rows. A cell also says whether it sits in the header, with a flag under the same name, so `cellsOf` takes the header only when it is a list of cells.
+
+=>
+
+const cellsOf = (table: Run): ReadonlyArray<Run> => [
+  ...(typeof table.header === 'object' ? table.header : []),
+  ...(table.rows ?? []).flat(),
+]
+
+~
+
+`wordsOf` then reads each run by the first rule that fits it.
+
+=>
+
+const wordsOf = (runs: ReadonlyArray<Run>): ReadonlyArray<string> =>
+  Array.flatMap(runs, (run) =>
+    Match.value(run).pipe(
+      Match.withReturnType<ReadonlyArray<string>>(),
+      Match.when(
+        (each: Run) => SILENT.includes(each.type ?? ''),
+        () => [],
+      ),
+      Match.when(
+        (each: Run) => (each.tokens ?? []).length > 0,
+        (each) => wordsOf(each.tokens ?? []),
+      ),
+      Match.when(
+        (each: Run) => each.items !== undefined,
+        (each) => wordsOf(each.items ?? []),
+      ),
+      Match.when(
+        (each: Run) => each.rows !== undefined,
+        (each) => wordsOf(cellsOf(each)),
+      ),
+      Match.orElse((each) => [each.text ?? '']),
+    ),
+  )
+
+const proseText = (markdown: string): string =>
+  wordsOf(Array.fromIterable(marked.lexer(markdown))).join(' ')
+
+~
+
+Whatever a section is made of, its text is searched as one line. `flattened` folds every run of white space, the breaks between paragraphs and the indentation of code alike, into a single space, so a match never hides across a line break.
+
+=>
+
+const flattened = (text: string): string => text.replace(/\s+/g, ' ').trim()
+
+## A chapter, cut into entries
+
+A chapter of the docs or the book becomes one entry for its opening and one for each of its sections. It is cut where each second-level heading starts a section, as the documentation shell cuts it for drawing. The opening's entry is headed by the chapter's title and reaches the chapter itself. A section's entry is headed by its own heading and reaches the chapter at that heading's id.
+
+Every block gives its words to the entry it falls in. Prose and notes give the words they show, and code gives its text as written, so a reader can find a function by its name. A third-level heading stays inside its section, as it does on the page, and its title joins the section's words.
+
+=>
+
+const blockWords = (block: Block): string =>
+  Match.value(block).pipe(
+    Match.when({ type: 'heading' }, (heading) => heading.title),
+    Match.when({ type: 'prose' }, (prose) => proseText(prose.markdown)),
+    Match.when({ type: 'note' }, (note) => proseText(note.markdown)),
+    Match.when({ type: 'code' }, (code) => code.code),
+    Match.exhaustive,
+  )
+
+~
+
+`draftsOf` folds a chapter's blocks into its entries in one pass. The fold carries the entries already finished and the one being filled. A second-level heading finishes the entry being filled and starts the next one, and any other block adds its words to the entry being filled. The chapter's own title heads the opening already, so the fold passes over it.
+
+=>
+
+type Draft = { readonly heading: string; readonly id: string; readonly words: ReadonlyArray<string> }
+
+type Cutting = { readonly done: ReadonlyArray<Draft>; readonly filling: Draft }
+
+const cut = (cutting: Cutting, block: Block): Cutting =>
+  Match.value(block).pipe(
+    Match.withReturnType<Cutting>(),
+    Match.when({ type: 'heading', level: 1 }, () => cutting),
+    Match.when({ type: 'heading', level: 2 }, (heading) => ({
+      done: [...cutting.done, cutting.filling],
+      filling: { heading: heading.title, id: heading.id, words: [] },
+    })),
+    Match.orElse((other) => ({
+      ...cutting,
+      filling: { ...cutting.filling, words: [...cutting.filling.words, blockWords(other)] },
+    })),
+  )
+
+const draftsOf = (page: Page): ReadonlyArray<Draft> => {
+  const opening: Draft = { heading: page.title, id: '', words: [] }
+  const { done, filling } = Array.reduce(page.blocks, { done: [], filling: opening } as Cutting, cut)
+  return [...done, filling]
+}
+
+~
+
+`corpusEntries` turns every chapter of a corpus into its entries. Each entry's address is the chapter's own, the one the shell gives it under the corpus's base, `/docs` or `/source`, with the section's id after it.
+
+=>
+
+const corpusEntries = (corpus: Corpus, base: string, route: Route): ReadonlyArray<Entry> =>
+  Array.flatMap(corpus.pages, (page) => {
+    const address = chapterPath(base, page.slug)
+    return Array.map(draftsOf(page), (draft) => ({
+      route,
+      href: draft.id === '' ? address : `${address}#${draft.id}`,
+      place: page.title,
+      heading: draft.heading,
+      text: flattened(draft.words.join(' ')),
+    }))
+  })
+
+## The site's own pages
+
+The site's other pages hold no woven text. Their words are written into their views, so the index reads them the way a reader does, as the HTML the server draws. The server renders each page's body, and the index cuts the body into the sections the page lays out. A section is a block with an id directly under the page's `<main>`, such as `#why-pairs` on Why Loom, and its address is the page's own with that id after it. Its heading is its first heading, and its text is every word inside it.
+
+The pager at the foot of a page, `#loom-pager`, only names the pages either side, so it stays out of the index.
+
+=>
+
+const UNSEARCHED: ReadonlyArray<string> = ['loom-pager']
+
+~
+
+Bun's `HTMLRewriter` reads the body. It is a streaming HTML parser that calls back for each element and each run of text a selector matches. Its callbacks are the one place in the site's search that fills lists as it goes, since that is how the parser hands its findings over, and the lists never leave `sectionsOfBody`, which fills them. A run of text can arrive in several chunks, and the last chunk of a run says so, so each run ends on a space and the words of two neighbouring elements never run together.
+
+The text arrives still escaped for HTML, so `unescaped` turns the entities the renderer writes back into the characters they stand for.
+
+=>
+
+type PageSection = { readonly id: string; readonly heading: string; readonly text: string }
+
+type Filling = { readonly id: string; readonly headings: Array<string>; readonly words: Array<string> }
+
+const chunkText = (chunk: HTMLRewriterTypes.Text): string =>
+  chunk.lastInTextNode ? `${chunk.text} ` : chunk.text
+
+const sectionsOfBody = (html: string): Effect.Effect<ReadonlyArray<PageSection>> =>
+  Effect.promise(async () => {
+    const sections: Array<Filling> = []
+    const heading: HTMLRewriterTypes.HTMLRewriterElementContentHandlers = {
+      element: () => {
+        sections.at(-1)?.headings.push('')
+      },
+      text: (chunk) => {
+        const headings = sections.at(-1)?.headings
+        headings?.push(`${headings.pop() ?? ''}${chunkText(chunk)}`)
+      },
+    }
+    await new HTMLRewriter()
+      .on('main > div[id]', {
+        element: (element) => {
+          sections.push({ id: element.getAttribute('id') ?? '', headings: [], words: [] })
+        },
+      })
+      .on('main > div[id] h1', heading)
+      .on('main > div[id] h2', heading)
+      .on('main > div[id] *', {
+        text: (chunk) => {
+          sections.at(-1)?.words.push(chunkText(chunk))
+        },
+      })
+      .transform(new Response(html))
+      .text()
+    return Array.map(sections, (section) => ({
+      id: section.id,
+      heading: unescaped(flattened(section.headings[0] ?? '')),
+      text: unescaped(flattened(section.words.join(''))),
+    }))
+  })
+
+const ENTITIES: ReadonlyArray<readonly [string, string]> = [
+  ['&lt;', '<'],
+  ['&gt;', '>'],
+  ['&quot;', '"'],
+  ['&#39;', "'"],
+  ['&#x27;', "'"],
+  ['&amp;', '&'],
+]
+
+const unescaped = (text: string): string =>
+  Array.reduce(ENTITIES, text, (out, [entity, glyph]) => out.split(entity).join(glyph))
+
+~
+
+A page's entries sit on the page's own name, the one the palette shows beside its results.
+
+=>
+
+export const pageName = (route: Route): string =>
+  Match.value(route).pipe(
+    Match.when('home', () => 'Loom'),
+    Match.when('docs', () => 'Docs'),
+    Match.when('source', () => 'Source'),
+    Match.when('why-loom', () => 'Why Loom'),
+    Match.when('community', () => 'Community'),
+    Match.when('license', () => 'License'),
+    Match.exhaustive,
+  )
+
+const pageEntries = (route: Route, body: string): Effect.Effect<ReadonlyArray<Entry>> =>
+  Effect.map(sectionsOfBody(body), (sections) =>
+    pipe(
+      sections,
+      Array.filter((section) => !UNSEARCHED.includes(section.id)),
+      Array.map((section) => ({
+        route,
+        href: `${pathOf(route)}#${section.id}`,
+        place: pageName(route),
+        heading: section.heading,
+        text: section.text,
+      })),
+    ),
+  )
+
+## The index, built once
+
+`indexOf` builds the index when the server starts. It reads the docs, which every build of the site carries, and the book, when the server has one. It also renders each of the site's own pages once, through the `bodyOf` the server hands it, since rendering a page is the server's business and the index only reads what comes back.
+
+=>
+
+const OWN_PAGES: ReadonlyArray<Route> = ['home', 'why-loom', 'community', 'license']
+
+export const indexOf = (
+  book: Option.Option<Corpus>,
+  bodyOf: (route: Route) => Effect.Effect<string>,
+): Effect.Effect<ReadonlyArray<Entry>> =>
+  Effect.map(
+    Effect.forEach(OWN_PAGES, (route) => Effect.flatMap(bodyOf(route), (body) => pageEntries(route, body))),
+    (pages) => [
+      ...corpusEntries(docsCorpus, '/docs', 'docs'),
+      ...Option.match(book, {
+        onNone: () => [],
+        onSome: (corpus) => corpusEntries(corpus, '/source', 'source'),
+      }),
+      ...pages.flat(),
+    ],
+  )
+
+## A window on the match
+
+A result shows its entry's own words, windowed so the match sits inside what a reader can see. Sixty-two characters is the window, the same measure a run of prose takes on the page.
+
+The window opens twenty-two characters ahead of the match and then slides forward to the next word break, so it starts on a word rather than mid-syllable. An ellipsis marks each end that was cut. Whatever space the match and its lead-in leave over goes to the text after the match. An entry that matched only in its heading or its place shows the start of its text instead, clipped to the window.
+
+=>
+
+type Fragment = { readonly pre: string; readonly hit: string; readonly post: string }
+
+const WINDOW = 62
+const LEAD_IN = 22
+
+const toWordBreak = (text: string): string => text.replace(/\s+\S*$/, '')
+
+const clipped = (text: string): string =>
+  text.length > WINDOW ? `${toWordBreak(text.slice(0, WINDOW))}…` : text
+
+const whole = (text: string): Fragment => ({ pre: clipped(text), hit: '', post: '' })
+
+~
+
+Finding the match is its own small question, and it answers with an `Option`, so that "nowhere in this text" stays a value rather than a magic index.
+
+=>
+
+const indexOfIgnoringCase = (haystack: string, needle: string): Option.Option<number> => {
+  const at = haystack.toLowerCase().indexOf(needle.toLowerCase())
+  return at < 0 ? Option.none() : Option.some(at)
+}
+
+const windowedAt = (source: string, at: number, length: number): Fragment => {
+  const from = Math.max(0, at - LEAD_IN)
+  const space = source.indexOf(' ', from)
+  const start = from > 0 && space >= 0 && space < at ? space + 1 : from
+  const pre = `${start > 0 ? '…' : ''}${source.slice(start, at)}`
+  const hit = source.slice(at, at + length)
+  const room = Math.max(0, WINDOW - pre.length - hit.length)
+  const rest = source.slice(at + length)
+  const post = rest.length > room ? `${toWordBreak(rest.slice(0, room))}…` : rest
+  return { pre, hit, post }
+}
+
+const fragmentOf = (text: string, needle: string): Fragment =>
+  Option.match(indexOfIgnoringCase(text, needle), {
+    onNone: () => whole(text),
+    onSome: (at) => windowedAt(text, at, needle.length),
+  })
+
+## Answering a query
+
+A query matches an entry that holds it anywhere, ignoring case. Where it matches decides how high the entry ranks: a match in the heading ranks first, then one in the chapter or page the entry sits on, then one only in its text. Entries that rank alike keep their order in the index, which is the order a reader meets them in. A query shorter than two characters matches nothing, since a single letter appears in nearly every section.
+
+=>
+
+const MIN_QUERY = 2
+
+type Ranked = { readonly entry: Entry; readonly at: number; readonly rank: number }
+
+const rankOf = (entry: Entry, needle: string): number =>
+  pipe(
+    [entry.heading, entry.place, entry.text],
+    Array.findFirstIndex((field) => field.toLowerCase().includes(needle)),
+    Option.match({ onNone: () => 0, onSome: (field) => 3 - field }),
+  )
+
+const byRelevance: Order.Order<Ranked> = Order.combine(
+  Order.mapInput(Order.flip(Order.Number), (ranked: Ranked) => ranked.rank),
+  Order.mapInput(Order.Number, (ranked: Ranked) => ranked.at),
+)
+
+~
+
+The results gather by page, in a fixed order: the docs, the book, then the site's own pages. Each page keeps its five best results, so no one page can fill the palette. A page with no results drops out.
+
+=>
+
+const PER_PAGE = 5
+
+const ORDER: ReadonlyArray<Route> = ['docs', 'source', 'why-loom', 'community', 'home', 'license']
+
+const hitOf = (entry: Entry, needle: string): SearchHit => ({
+  href: entry.href,
+  place: entry.place,
+  heading: entry.heading,
+  ...fragmentOf(entry.text, needle),
+})
+
+export const searchIn = (index: ReadonlyArray<Entry>, query: string): ReadonlyArray<SearchGroup> => {
+  const needle = query.trim().toLowerCase()
+  const ranked =
+    needle.length < MIN_QUERY
+      ? []
+      : pipe(
+          index,
+          Array.map((entry, at): Ranked => ({ entry, at, rank: rankOf(entry, needle) })),
+          Array.filter((each) => each.rank > 0),
+          Array.sort(byRelevance),
+        )
+  return pipe(
+    ORDER,
+    Array.map((route) => ({
+      route,
+      hits: pipe(
+        ranked,
+        Array.filter((each) => each.entry.route === route),
+        Array.take(PER_PAGE),
+        Array.map((each) => hitOf(each.entry, needle)),
+      ),
+    })),
+    Array.filter((group) => group.hits.length > 0),
+  )
+}
+
+## What search draws on
+
+From `effect` come `Array`, `Effect`, `Match`, `Option`, `Order` and `pipe`. `marked` reads Markdown into tokens. The model lends the shapes of a corpus, a page, a block, a route and a result, and the address of each route. The documentation shell lends the docs corpus and the address of a chapter.
+
+=>
+
+import { Array, Effect, Match, Option, Order, pipe } from 'effect'
+import { marked } from 'marked'
+import {
+  pathOf,
+  type Block,
+  type Corpus,
+  type Page,
+  type Route,
+  type SearchGroup,
+  type SearchHit,
+} from './model'
+import { chapterPath, docsCorpus } from './docs-page'
+
+## The module {Tangle}[search.ts]
+
+=>
+
+::[What search draws on]
+
+::[One section, one entry]
+
+::[The words a run of prose shows]
+
+::[A chapter, cut into entries]
+
+::[The site's own pages]
+
+::[The index, built once]
+
+::[A window on the match]
+
+::[Answering a query]

@@ -305,7 +305,7 @@ Each page wears the same chrome. A centred nav carries the wordmark between its 
 
 
 
-The site renders on the server first, for a reader and a crawler, then hydrates and takes over. This part builds it up — the scheme, the model, the marks, the chrome, each page in turn, then the client, the server, the package that ships them, and the image that carries the package to a host.
+The site renders on the server first, for a reader and a crawler, then hydrates and takes over. This part builds it up — the scheme, the model, the marks, the chrome, each page in turn, then the client, the server, the package that ships them, the image that carries the package to a host, and the search that reads across every page.
 
 1. The paper scheme
 2. The model
@@ -325,6 +325,7 @@ The site renders on the server first, for a reader and a crawler, then hydrates 
 16. The server
 17. Packaging the website
 18. The image
+19. Searching the site
 
 ### Part XI — Releasing Loom
 

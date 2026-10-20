@@ -5,8 +5,9 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Server } from 'foldkit/experimental'
 import { view } from './view'
-import { Corpus, Model, routeOf, type Route } from './model'
+import { Corpus, Model, routeOf, SearchGroup, type Route } from './model'
 import { chapterAt, docsChapterAt, sliceOf } from './docs-page'
+import { indexOf, searchIn } from './search'
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist')
 
@@ -18,6 +19,7 @@ const seed: Model = {
   searchOpen: false,
   caret: 0,
   searching: false,
+  found: [],
   activeSection: '',
   player: { struck: 0, beat: 0, playing: false, output: Option.none(), full: false },
   version: '0.0.14',
@@ -70,6 +72,14 @@ const pageOf = (shell: string, model: Model): Effect.Effect<string> =>
     const rendered = yield* Server.renderToString(application, { flags: model, buildId })
     return Server.injectIntoTemplate(shell, rendered)
   }).pipe(Effect.orDie)
+
+const bodyOf =
+  (version: string) =>
+  (route: Route): Effect.Effect<string> =>
+    Server.renderToString(application, { flags: { ...seed, route, version }, buildId: 'search' }).pipe(
+      Effect.map((rendered) => rendered.html),
+      Effect.orDie,
+    )
 
 const PAGE_STYLE = `
       :root { --paper: #F7F4EC; --ink: #14130F; --ink-3: #7C6F64; --rule: #E4DCCB; }
@@ -163,6 +173,7 @@ export class Site extends Context.Service<Site>()('Site', {
     const fs = yield* FileSystem.FileSystem
     const version = yield* latestVersion(seed.version)
     const book = yield* readBook(fs)
+    const index = yield* indexOf(book, bodyOf(version))
     const shell = fs.readFileString(join(distDir, 'index.html'))
     return {
       pageAt: (url: URL): Effect.Effect<Option.Option<string>> =>
@@ -182,20 +193,28 @@ export class Site extends Context.Service<Site>()('Site', {
         HttpServerResponse.file(join(distDir, url.pathname)).pipe(
           Effect.catchCause(() => notFound),
         ),
+      searchAt: (url: URL): Effect.Effect<HttpServerResponse.HttpServerResponse> =>
+        HttpServerResponse.schemaJson(S.Array(SearchGroup))(
+          searchIn(index, url.searchParams.get('q') ?? ''),
+        ).pipe(Effect.orDie),
     } as const
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make).pipe(Layer.provide(BunServices.layer))
 }
 
+const SEARCH = '/search'
+
 const handle = (site: Site['Service'], url: URL) =>
-  Effect.flatMap(
-    site.pageAt(url),
-    Option.match({
-      onSome: (page) => Effect.succeed(HttpServerResponse.text(page, { contentType: 'text/html' })),
-      onNone: () => site.assetAt(url),
-    }),
-  )
+  url.pathname === SEARCH
+    ? site.searchAt(url)
+    : Effect.flatMap(
+        site.pageAt(url),
+        Option.match({
+          onSome: (page) => Effect.succeed(HttpServerResponse.text(page, { contentType: 'text/html' })),
+          onNone: () => site.assetAt(url),
+        }),
+      )
 
 const app = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest

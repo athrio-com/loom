@@ -22,6 +22,7 @@ const at = (over: Partial<Player> = {}): Model =>
   ({
     route: 'home', chapter: '', drawerOpen: false, runtime: 'bun',
     searchOpen: false, caret: 0, searching: false,
+    found: [],
     activeSection: '',
     player: player(over), version: '0.0.9',
     query: '', focus: 0, copied: '', book: Option.none(),

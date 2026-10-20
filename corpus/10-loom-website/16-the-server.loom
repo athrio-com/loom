@@ -20,7 +20,7 @@ The server stays clear of the client runtime. It renders through Foldkit's serve
 
 From `effect` come `Effect`, the `FileSystem` that reads the built shell, the `Option` that fills the model's empty fields and carries a path naming no page, the `pipe` that reads a path as a route or a chapter, the `Schema` that parses what the npm registry returns, and the `Context` and `Layer` that define the server and wire it. From `effect/http` come the request and the responses. `@effect/platform-bun` supplies the Bun HTTP server, its file services, and the runtime edge. Foldkit lends `Server`, from its experimental server module, which renders a view to HTML and writes it into the shell.
 
-The site's own modules supply the view and the model, whose schema doubles as the shape of the flags the page carries to the client. The model also lends the `routeOf` function, which turns the path a request names into the route to render. The documentation shell lends `docsChapterAt`, which turns the address of a chapter into the chapter to open, `chapterAt`, which does the same for any corpus, and `sliceOf`, which cuts the part of a corpus one page shows. The model lends the `Corpus` schema, which the woven book is read against. The client never reads an address itself: it boots from the model the server rendered, so the two always agree on which page and which chapter are on show.
+The site's own modules supply the view and the model, whose schema doubles as the shape of the flags the page carries to the client. The model also lends the `routeOf` function, which turns the path a request names into the route to render. The documentation shell lends `docsChapterAt`, which turns the address of a chapter into the chapter to open, `chapterAt`, which does the same for any corpus, and `sliceOf`, which cuts the part of a corpus one page shows. The model lends the `Corpus` schema, which the woven book is read against, and the `SearchGroup` schema a search answers in. The client never reads an address itself: it boots from the model the server rendered, so the two always agree on which page and which chapter are on show. The search module lends `indexOf`, which builds the index the palette searches, and `searchIn`, which answers a query from it.
 
 =>
 
@@ -31,8 +31,9 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Server } from 'foldkit/experimental'
 import { view } from './view'
-import { Corpus, Model, routeOf, type Route } from './model'
+import { Corpus, Model, routeOf, SearchGroup, type Route } from './model'
 import { chapterAt, docsChapterAt, sliceOf } from './docs-page'
+import { indexOf, searchIn } from './search'
 
 const distDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist')
 
@@ -54,6 +55,7 @@ const seed: Model = {
   searchOpen: false,
   caret: 0,
   searching: false,
+  found: [],
   activeSection: '',
   player: { struck: 0, beat: 0, playing: false, output: Option.none(), full: false },
   version: '::[version]',
@@ -132,6 +134,20 @@ const pageOf = (shell: string, model: Model): Effect.Effect<string> =>
     const rendered = yield* Server.renderToString(application, { flags: model, buildId })
     return Server.injectIntoTemplate(shell, rendered)
   }).pipe(Effect.orDie)
+
+~
+
+The search index reads the site's own pages as their rendered bodies, so `bodyOf` renders a route's page and hands back only its body. That body never reaches a browser, so it needs no shell, and any build id will do.
+
+=>
+
+const bodyOf =
+  (version: string) =>
+  (route: Route): Effect.Effect<string> =>
+    Server.renderToString(application, { flags: { ...seed, route, version }, buildId: 'search' }).pipe(
+      Effect.map((rendered) => rendered.html),
+      Effect.orDie,
+    )
 
 ## The pages the server writes itself
 
@@ -221,11 +237,13 @@ const NOT_BUILT = standalone(
 
 The site reads its shell for each page rather than holding one from startup, because `dist` is rewritten underneath a running server every time a build finishes. A shell held from startup would go on naming the bundle the first build wrote. The page would then arrive running code a developer has since changed, or pointing at files a later build has removed. Reading it per request costs one small file and keeps the server honest about whatever `dist` holds at that moment.
 
-Rendering per request follows, and costs about as little: a render is one pass of the view and one write into the shell. The latest release and the book are the two things read once at startup. A registry is slow to ask and a version changes on a release rather than on a request, and the book changes only with a build.
+Rendering per request follows, and costs about as little: a render is one pass of the view and one write into the shell. The latest release, the book and the search index are the three things made once at startup. A registry is slow to ask and a version changes on a release rather than on a request, and the book, and the index built from it, change only with a build.
 
 Two answers are the whole of what the site owes the handler. The `pageAt` function asks `placeOf` whether the path names a page at all, then renders that page through the shell it has just read. A path names a page in one of three ways. It is a route's own path, such as `/why-loom` or `/docs`, which opens the route as it stands. Or it is a chapter's address under `/docs`, which opens the documentation on that chapter. Or it is a chapter's address under `/source`, which opens the book on that chapter, when the server has a book. `/source` itself opens the book's first chapter, so it too names a page only when the server has a book. Without one it would render the page's frame around nothing: the nav, an empty column and the footer. Any other path names no page, so the server looks for an asset, and answers with the missing page when there is none. A `dist` it cannot read yields the unbuilt page. A render that fails is a fault in the site rather than in the build, so it surfaces as one instead of hiding behind the unbuilt page. The `assetAt` function reads a file from `dist` — the client bundle, the stylesheet, the marks — and falls back to the missing page when there is no such file. Both take the request's whole URL, since a path alone is what the handler happens to match on rather than all it holds.
 
 A source page also carries its slice of the book in its model. `bookFor` cuts it, the book's table of contents and the one chapter the place names, and every other page carries none.
+
+The site answers one more thing, a search. `searchAt` reads the query from the request's `q` parameter and answers with the groups `searchIn` finds, encoded through the `SearchGroup` schema, so the client reads back exactly the shape the server meant.
 
 =>
 
@@ -259,6 +277,7 @@ export class Site extends Context.Service<Site>()('Site', {
     const fs = yield* FileSystem.FileSystem
     const version = yield* latestVersion(seed.version)
     const book = yield* readBook(fs)
+    const index = yield* indexOf(book, bodyOf(version))
     const shell = fs.readFileString(join(distDir, 'index.html'))
     return {
       pageAt: (url: URL): Effect.Effect<Option.Option<string>> =>
@@ -278,6 +297,10 @@ export class Site extends Context.Service<Site>()('Site', {
         HttpServerResponse.file(join(distDir, url.pathname)).pipe(
           Effect.catchCause(() => notFound),
         ),
+      searchAt: (url: URL): Effect.Effect<HttpServerResponse.HttpServerResponse> =>
+        HttpServerResponse.schemaJson(S.Array(SearchGroup))(
+          searchIn(index, url.searchParams.get('q') ?? ''),
+        ).pipe(Effect.orDie),
     } as const
   }),
 }) {
@@ -286,18 +309,22 @@ export class Site extends Context.Service<Site>()('Site', {
 
 ## Answering a request
 
-The server asks the site for a page at the request URL. A path that names a route returns it as HTML, and anything else is an asset read from `dist`.
+The server answers `/search` from the index. For any other path it asks the site for a page at the request URL. A path that names a route returns it as HTML, and anything else is an asset read from `dist`.
 
 =>
 
+const SEARCH = '/search'
+
 const handle = (site: Site['Service'], url: URL) =>
-  Effect.flatMap(
-    site.pageAt(url),
-    Option.match({
-      onSome: (page) => Effect.succeed(HttpServerResponse.text(page, { contentType: 'text/html' })),
-      onNone: () => site.assetAt(url),
-    }),
-  )
+  url.pathname === SEARCH
+    ? site.searchAt(url)
+    : Effect.flatMap(
+        site.pageAt(url),
+        Option.match({
+          onSome: (page) => Effect.succeed(HttpServerResponse.text(page, { contentType: 'text/html' })),
+          onNone: () => site.assetAt(url),
+        }),
+      )
 
 ## Serving it {Tangle}[server.ts]
 

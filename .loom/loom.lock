@@ -133,6 +133,7 @@
     "site/src/operations.ts",
     "site/src/page-head.ts",
     "site/src/raw.d.ts",
+    "site/src/search.ts",
     "site/src/server.ts",
     "site/src/view.ts",
     "site/src/vite-env.d.ts",

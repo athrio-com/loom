@@ -1690,6 +1690,7 @@ h2, .subhead {
   font-family: var(--mono);
   font-size: var(--t-code);
   letter-spacing: 0.04em;
+  text-decoration: none;
   transition: background-color .12s ease;
 }
 
@@ -1701,11 +1702,21 @@ h2, .subhead {
 .palette-row .sigil { flex: none; }
 
 .palette-group .name,
-.palette-row .fragment {
+.palette-row .fragment,
+.palette-row .where {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.palette-row .fragment { flex: 1 1 auto; }
+
+.palette-row .where {
+  flex: 0 1 auto;
+  max-width: 40%;
+  font-size: var(--t-eyebrow);
+  color: var(--navy-muted);
 }
 
 .palette-group .path {

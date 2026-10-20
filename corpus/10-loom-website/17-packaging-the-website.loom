@@ -108,7 +108,7 @@ The rest follow from that. The `build` command writes the bundle to `dist`, `ser
 
 ## The browser TypeScript config {Tangle}[tsconfig.json]
 
-The client runs in the browser and the server on Bun, and their type environments cannot share one program. Foldkit's runtime reads Vite's `import.meta.hot`, and Bun's platform types declare a different `import.meta.hot`; in one program the two collide, and the client's reads stop type-checking. So the configuration splits. This one checks the browser half — the client, the view, and everything they reach — reading Vite's types through the ambient declaration beside it, and leaves the server and the development program to the server config.
+The client runs in the browser and the server on Bun, and their type environments cannot share one program. Foldkit's runtime reads Vite's `import.meta.hot`, and Bun's platform types declare a different `import.meta.hot`; in one program the two collide, and the client's reads stop type-checking. So the configuration splits. This one checks the browser half — the client, the view, and everything they reach — reading Vite's types through the ambient declaration beside it, and leaves the server, the search index the server builds, and the development program to the server config.
 
 =>
 
@@ -125,7 +125,7 @@ The client runs in the browser and the server on Bun, and their type environment
     "skipLibCheck": true
   },
   "include": ["src"],
-  "exclude": ["src/server.ts", "src/dev.ts"]
+  "exclude": ["src/server.ts", "src/search.ts", "src/dev.ts"]
 }
 
 ## The server TypeScript config {Tangle}[tsconfig.server.json]
@@ -146,7 +146,7 @@ This checks the server half under Bun. Because the server never imports the clie
     "types": ["bun"],
     "skipLibCheck": true
   },
-  "include": ["src/server.ts", "src/dev.ts", "src/raw.d.ts", "vite.config.ts"]
+  "include": ["src/server.ts", "src/search.ts", "src/dev.ts", "src/raw.d.ts", "vite.config.ts"]
 }
 
 ## Text imported as text {Tangle}[src/raw.d.ts]

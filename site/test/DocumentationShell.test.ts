@@ -22,6 +22,7 @@ import { renderDocument, renderHtml } from './render'
 const at = (chapter: string, activeSection: string): Model =>
   ({
     route: 'docs', chapter, runtime: 'bun', searchOpen: false, caret: 0, searching: false,
+    found: [],
     activeSection, drawerOpen: false,
     player: { struck: 0, beat: 0, playing: false, output: Option.none(), full: false }, version: '0.0.9',
     query: '', focus: 0, copied: '', book: Option.none(),

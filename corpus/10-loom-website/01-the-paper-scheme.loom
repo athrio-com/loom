@@ -877,7 +877,9 @@ A query in flight shows a stitched bar drawing itself sideways, in the colour of
 
 ~
 
-Results group under the page that holds them. A page's row carries a tilde, its name and its path; the prose found inside it indents beneath, each row marked with a chevron and showing the fragment that matched. The focused row washes in its page's own colour, and the matched words inside a fragment take that colour too, so the eye lands on the page and the phrase at once.
+Results group under the page that holds them. A page's row carries a tilde, its name and its path. Its results indent beneath, each row marked with a chevron and showing the fragment that matched, with where it is, the chapter and the section, set small and muted at the row's right end. The fragment takes the room the row has, and either one ends in an ellipsis when the row runs short. The focused row washes in its page's own colour, and the matched words inside a fragment take that colour too, so the eye lands on the page and the phrase at once.
+
+Every row is a link, so it drops a link's underline and keeps the row's own colour.
 
 =>
 
@@ -912,6 +914,7 @@ Results group under the page that holds them. A page's row carries a tilde, its 
   font-family: var(--mono);
   font-size: var(--t-code);
   letter-spacing: 0.04em;
+  text-decoration: none;
   transition: background-color .12s ease;
 }
 
@@ -923,11 +926,21 @@ Results group under the page that holds them. A page's row carries a tilde, its 
 .palette-row .sigil { flex: none; }
 
 .palette-group .name,
-.palette-row .fragment {
+.palette-row .fragment,
+.palette-row .where {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.palette-row .fragment { flex: 1 1 auto; }
+
+.palette-row .where {
+  flex: 0 1 auto;
+  max-width: 40%;
+  font-size: var(--t-eyebrow);
+  color: var(--navy-muted);
 }
 
 .palette-group .path {

@@ -27,6 +27,8 @@ import {
   CopyReset,
   drawsInPlace,
   FocusedPalette,
+  Found,
+  SearchGroup,
   GrewCard,
   type Message,
   Model,
@@ -189,6 +191,34 @@ const LoadPage = define('LoadPage', {
     Effect.sync(() => window.location.assign(href)).pipe(Effect.as(ClosedSearch())),
 })
 
+## Asking the server
+
+The palette's search runs on the server, which holds the index of every page. `Search` asks it for a query's results. It waits a moment first, so a reader typing a word sends one request for the word rather than one for every letter. A request for each letter would still go out, but each arrives after the next letter has started a newer one, and the update keeps only the answer to the query still in the field. So `Search` answers with `Found`, naming the query it answered. A server that cannot be reached, or an answer that does not decode, finds nothing rather than failing the palette. A query of fewer than two characters is never sent, since the server finds nothing for it either.
+
+=>
+
+const SETTLE = '140 millis'
+
+const searchable = (query: string): boolean => query.trim().length >= 2
+
+const decodeGroups = S.decodeUnknownOption(S.Array(SearchGroup))
+
+const Search = define('Search', {
+  args: { query: S.String },
+  messages: [Found],
+  execute: ({ query }) =>
+    Effect.sleep(SETTLE).pipe(
+      Effect.andThen(
+        Effect.tryPromise(() =>
+          fetch(`/search?q=${encodeURIComponent(query)}`).then((response) => response.json()),
+        ),
+      ),
+      Effect.map((body) => Option.getOrElse(decodeGroups(body), () => [])),
+      Effect.catchCause(() => Effect.succeed([])),
+      Effect.map((groups) => Found({ query, groups })),
+    ),
+})
+
 ## Moving the stage under the reader
 
 The transport moves the stage to three places, and `StageMark` names them. The caret is where the run wants it while the document is being typed. The foot is where skipping and the end of a run leave it. The head is where the back button puts it, since a reader asking for the document from the start is asking to see its first line, not the line they happened to stop on.
@@ -296,7 +326,7 @@ const GlideToCard = define('GlideToCard', {
 
 ## The update
 
-Most messages set one field: the query, the focus clamped to the results, the loom tab's view. Following a link records the page it led to and closes the palette behind it, unless the page is the source page and the client holds no book to draw it with. Then the current page stays, and `LoadPage` sends the browser for the source page instead. Opening a documentation chapter records its slug, clears the section the menu was following, since the previous chapter's headings are no longer on the page, shuts the drawer behind the reader, and scrolls back to the top. Opening the palette puts the focus on its first result and the keyboard in its field; closing it clears the query, the focus and the caret together, so the palette opens empty the next time. Moving the caret records where it now sits, and the search settles a moment after the last keystroke. The example's messages move a position rather than set a flag: playing from the end starts again from the first character, a frame advances the clock and asks the stage to follow the caret, and skipping jumps both the clock and the stage to the foot. Going back to the start puts the clock, the height and the stage all back where they began — the document at its first character, the card down from full height, and the stage at the head of the document rather than wherever the reader stopped reading.
+Most messages set one field: the query, the focus clamped to the results, the loom tab's view. Following a link records the page it led to and closes the palette behind it, unless the page is the source page and the client holds no book to draw it with. Then the current page stays, and `LoadPage` sends the browser for the source page instead. Opening a documentation chapter records its slug, clears the section the menu was following, since the previous chapter's headings are no longer on the page, shuts the drawer behind the reader, and scrolls back to the top. Opening the palette puts the focus on its first result and the keyboard in its field; closing it clears the query, the focus, the caret and the results together, so the palette opens empty the next time. Moving the caret records where it now sits. Typing records the query and, once it is long enough to search, marks a search as on its way and runs `Search`. Results arrive as `Found`, and the update keeps them only when they answer the query still in the field. Opening a result with Enter hands its address to `LoadPage`, as a click on its link would. The example's messages move a position rather than set a flag: playing from the end starts again from the first character, a frame advances the clock and asks the stage to follow the caret, and skipping jumps both the clock and the stage to the foot. Going back to the start puts the clock, the height and the stage all back where they began — the document at its first character, the card down from full height, and the stage at the head of the document rather than wherever the reader stopped reading.
 
 Asking for full height is the one press that changes nothing at once. It runs the glide and waits: the page arrives at the card, `GrewCard` comes back, and only then does the height open. Giving the height back is immediate, since nothing has to travel first. Asking for a command's file toggles it, so pressing the same button twice closes what it opened. Selecting a section sets the active one, shuts the drawer if the section was picked from it, and asks the window to scroll to the section's heading. A section spotted while the reader scrolls sets the active one too, but runs nothing, so the outline follows the scroll rather than fighting it. Copying flashes the pressed button and runs its reset.
 
@@ -399,11 +429,26 @@ const update = (model: Model, message: Message): Step =>
       }),
       FocusedPalette: () => ({ model }),
       ClosedSearch: () => ({
-        model: { ...model, searchOpen: false, query: '', focus: 0, caret: 0, searching: false },
+        model: {
+          ...model,
+          searchOpen: false,
+          query: '',
+          focus: 0,
+          caret: 0,
+          searching: false,
+          found: [],
+        },
       }),
       MovedCaret: ({ at }) => ({ model: { ...model, caret: at } }),
-      SettledSearch: () => ({ model: { ...model, searching: false } }),
-      Typed: ({ query }) => ({ model: { ...model, query, focus: 0 } }),
+      Typed: ({ query }) =>
+        searchable(query)
+          ? { model: { ...model, query, focus: 0, searching: true }, commands: [Search({ query })] }
+          : { model: { ...model, query, focus: 0, searching: false, found: [] } },
+      Found: ({ query, groups }) =>
+        query === model.query
+          ? { model: { ...model, found: groups, searching: false } }
+          : { model },
+      OpenedHit: ({ href }) => ({ model, commands: [LoadPage({ href })] }),
       MovedFocus: ({ delta, count }) => ({
         model: { ...model, focus: clamp(model.focus + delta, Math.max(0, count - 1)) },
       }),
@@ -603,6 +648,8 @@ Runtime.hydrate(application, { buildId: new URL(import.meta.url).pathname })
 ::[Finding your place in the menu]
 
 ::[Leaving for the source page]
+
+::[Asking the server]
 
 ::[Moving the stage under the reader]
 

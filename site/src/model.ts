@@ -73,6 +73,19 @@ export type Route = typeof Route.Type
 export const Runtime = S.Literals(['bun', 'npm', 'pnpm', 'curl'])
 export type Runtime = typeof Runtime.Type
 
+export const SearchHit = S.Struct({
+  href: S.String,
+  place: S.String,
+  heading: S.String,
+  pre: S.String,
+  hit: S.String,
+  post: S.String,
+})
+export type SearchHit = typeof SearchHit.Type
+
+export const SearchGroup = S.Struct({ route: Route, hits: S.Array(SearchHit) })
+export type SearchGroup = typeof SearchGroup.Type
+
 export const Model = S.Struct({
   route: Route,
   chapter: S.String,
@@ -81,6 +94,7 @@ export const Model = S.Struct({
   searchOpen: S.Boolean,
   caret: S.Number,
   searching: S.Boolean,
+  found: S.Array(SearchGroup),
   activeSection: S.String,
   player: Player,
   version: S.String,
@@ -117,7 +131,8 @@ export const Message = defineMessageUnion({
   FocusedPalette: {},
   ClosedSearch: {},
   MovedCaret: { at: S.Number },
-  SettledSearch: {},
+  Found: { query: S.String, groups: S.Array(SearchGroup) },
+  OpenedHit: { href: S.String },
   ToggledPlay: {},
   ReplayedDocument: {},
   SkippedToEnd: {},
@@ -146,7 +161,8 @@ export const {
   FocusedPalette,
   ClosedSearch,
   MovedCaret,
-  SettledSearch,
+  Found,
+  OpenedHit,
   ToggledPlay,
   ReplayedDocument,
   SkippedToEnd,

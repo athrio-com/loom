@@ -5,12 +5,15 @@ import {
   drawsInPlace,
   MovedFocus,
   OpenedDrawer,
+  OpenedHit,
   OpenedSearch,
   Typed,
   WentTo,
   type Message,
   type Model,
   type Route,
+  type SearchGroup,
+  type SearchHit,
 } from './model'
 import {
   externalIcon,
@@ -204,230 +207,48 @@ export type SearchPage = {
   readonly path: string
   readonly ink: string
   readonly rgb: string
-  readonly text: string
 }
 
 export const searchPages: ReadonlyArray<SearchPage> = [
-  {
-    route: 'docs',
-    label: 'Docs',
-    path: '/docs',
-    ink: '#6E9BFF',
-    rgb: '110, 155, 255',
-    text: 'The eight marks, and what tangling does with them.',
-  },
-  {
-    route: 'why-loom',
-    label: 'Why Loom',
-    path: '/why-loom',
-    ink: '#FF6A3D',
-    rgb: '255, 106, 61',
-    text: 'The case for writing the document first.',
-  },
-  {
-    route: 'community',
-    label: 'Community',
-    path: '/community',
-    ink: '#F45C9F',
-    rgb: '244, 92, 159',
-    text: 'People, help and the changelog.',
-  },
-  {
-    route: 'home',
-    label: 'Loom',
-    path: '/',
-    ink: '#F2EFE6',
-    rgb: '242, 239, 230',
-    text: 'What Loom is, in one screen.',
-  },
+  { route: 'docs', label: 'Docs', path: '/docs', ink: '#6E9BFF', rgb: '110, 155, 255' },
+  { route: 'source', label: 'Source', path: '/source', ink: '#19D69C', rgb: '25, 214, 156' },
+  { route: 'why-loom', label: 'Why Loom', path: '/why-loom', ink: '#FF6A3D', rgb: '255, 106, 61' },
+  { route: 'community', label: 'Community', path: '/community', ink: '#F45C9F', rgb: '244, 92, 159' },
+  { route: 'home', label: 'Loom', path: '/', ink: '#F2EFE6', rgb: '242, 239, 230' },
+  { route: 'license', label: 'License', path: '/license', ink: '#FFC53D', rgb: '255, 197, 61' },
 ]
 
-export type Passage = {
-  readonly route: Route
-  readonly title: string
-  readonly text: string
-}
-
-export const anchorMark = (name: string): string => `${':'}:[${name}]`
-
-export const passages: ReadonlyArray<Passage> = [
-  {
-    route: 'docs',
-    title: 'The eight marks',
-    text: `Dashes --- fence the frontmatter, a # heading names a section, brackets [file.ts] name the file its code belongs to, a brace label says what Loom makes of a heading, and an anchor ${anchorMark('a section')} draws another section in whole.`,
-  },
-  {
-    route: 'docs',
-    title: 'Frontmatter',
-    text: 'A chapter opens with a --- fence. Everything inside it names the chapter — the part it belongs to, the target its code is written to, and the language that code is in.',
-  },
-  {
-    route: 'docs',
-    title: 'Sections',
-    text: 'A # heading and everything under it is a section. Its title is its name, and that name is what every anchor refers to.',
-  },
-  {
-    route: 'docs',
-    title: 'Parts',
-    text: 'A ## heading gathers sections beneath it, so a long chapter divides without dividing what it tangles to.',
-  },
-  {
-    route: 'docs',
-    title: 'Anchors',
-    text: `An anchor ${anchorMark('the parser')} draws a whole section in by name, and tangling checks it, so a renamed section fails loudly rather than quietly.`,
-  },
-  {
-    route: 'docs',
-    title: 'Opening and closing code',
-    text: 'The => operator opens a code block and the ~ separator closes it, so prose and code alternate freely down the page.',
-  },
-  {
-    route: 'docs',
-    title: 'Tangling',
-    text: 'loom tangle walks the corpus and writes every code block out to a real file; loom weave renders the same corpus as a document.',
-  },
-  {
-    route: 'why-loom',
-    title: 'The three approaches',
-    text: 'Prompt engineering, spec-driven work, hooks and skills — each one holds until the document stops matching the source.',
-  },
-  {
-    route: 'why-loom',
-    title: 'Writing the document first',
-    text: 'When the document is the source, the explanation cannot drift: tangling fails before the two can disagree.',
-  },
-  {
-    route: 'community',
-    title: 'Corpora in the wild',
-    text: 'Projects whose documentation is the source: parsers, compilers, and a handful of production services.',
-  },
-  {
-    route: 'community',
-    title: 'Editor support',
-    text: 'Highlighting, jump-to-section and tangle-on-save for every mark, in the editors people actually use.',
-  },
-  {
-    route: 'home',
-    title: 'A Loom document, written out',
-    text: 'Typed from the top: the prose explains each mark as it appears, and the code beneath it tangles into hello.ts.',
-  },
-  {
-    route: 'home',
-    title: 'The whole vocabulary',
-    text: 'Eight marks and nothing else — frontmatter, heading, sink, label, open, close, anchor and warp.',
-  },
-  {
-    route: 'home',
-    title: 'From init to eject',
-    text: 'loom init scaffolds a corpus, tangle writes the files, weave renders the document, and eject leaves plain source behind.',
-  },
-]
-
-export type Fragment = {
-  readonly pre: string
-  readonly hit: string
-  readonly post: string
-}
-
-const WINDOW = 62
-const LEAD_IN = 22
-
-const toWordBreak = (text: string): string => text.replace(/\s+\S*$/, '')
-
-const clipped = (text: string): string =>
-  text.length > WINDOW ? `${toWordBreak(text.slice(0, WINDOW))}…` : text
-
-const whole = (text: string): Fragment => ({ pre: clipped(text), hit: '', post: '' })
-
-const indexOfIgnoringCase = (haystack: string, needle: string): Option.Option<number> => {
-  const at = haystack.toLowerCase().indexOf(needle.toLowerCase())
-  return at < 0 ? Option.none() : Option.some(at)
-}
-
-const windowedAt = (source: string, at: number, length: number): Fragment => {
-  const from = Math.max(0, at - LEAD_IN)
-  const space = source.indexOf(' ', from)
-  const start = from > 0 && space >= 0 && space < at ? space + 1 : from
-  const pre = `${start > 0 ? '…' : ''}${source.slice(start, at)}`
-  const hit = source.slice(at, at + length)
-  const room = Math.max(0, WINDOW - pre.length - hit.length)
-  const rest = source.slice(at + length)
-  const post = rest.length > room ? `${toWordBreak(rest.slice(0, room))}…` : rest
-  return { pre, hit, post }
-}
-
-export const fragmentOf = (passage: Passage, query: string): Fragment => {
-  const needle = query.trim()
-  const titled = `${passage.title} · ${passage.text}`
-  return needle === ''
-    ? whole(passage.text)
-    : pipe(
-        indexOfIgnoringCase(passage.text, needle),
-        Option.map((at) => windowedAt(passage.text, at, needle.length)),
-        Option.orElse(() =>
-          pipe(
-            indexOfIgnoringCase(titled, needle),
-            Option.map((at) => windowedAt(titled, at, needle.length)),
-          ),
-        ),
-        Option.getOrElse(() => whole(passage.text)),
-      )
-}
-
-export type Group = {
-  readonly page: SearchPage
-  readonly rows: ReadonlyArray<Passage>
-}
-
-const holds = (needle: string, text: string): boolean => text.toLowerCase().includes(needle)
-
-export const groupsFor = (query: string): ReadonlyArray<Group> => {
-  const needle = query.trim().toLowerCase()
-  return needle === ''
-    ? []
-    : pipe(
-        searchPages,
-        Array.map((page) => ({
-          page,
-          rows: pipe(
-            passages,
-            Array.filter(
-              (passage) =>
-                passage.route === page.route && holds(needle, `${passage.title} ${passage.text}`),
-            ),
-            Array.take(3),
-          ),
-        })),
-        Array.filter(
-          (group) =>
-            group.rows.length > 0 ||
-            holds(needle, `${group.page.label} ${group.page.text} ${group.page.path}`),
-        ),
-      )
-}
+const searchPageOf = (route: Route): SearchPage =>
+  pipe(
+    Array.findFirst(searchPages, (page) => page.route === route),
+    Option.getOrElse(() => searchPages[0] as SearchPage),
+  )
 
 export type Focusable =
   | { readonly kind: 'page'; readonly page: SearchPage }
-  | { readonly kind: 'passage'; readonly page: SearchPage; readonly passage: Passage }
+  | { readonly kind: 'hit'; readonly page: SearchPage; readonly hit: SearchHit }
 
-export const focusables = (groups: ReadonlyArray<Group>): ReadonlyArray<Focusable> =>
-  pipe(
-    groups,
-    Array.flatMap((group) => [
-      { kind: 'page' as const, page: group.page },
-      ...Array.map(group.rows, (passage) => ({
-        kind: 'passage' as const,
-        page: group.page,
-        passage,
-      })),
-    ]),
-  )
+export const focusables = (groups: ReadonlyArray<SearchGroup>): ReadonlyArray<Focusable> =>
+  Array.flatMap(groups, (group) => {
+    const page = searchPageOf(group.route)
+    return [
+      { kind: 'page' as const, page },
+      ...Array.map(group.hits, (hit) => ({ kind: 'hit' as const, page, hit })),
+    ]
+  })
 
 const focusedIn = (list: ReadonlyArray<Focusable>, focus: number): Option.Option<Focusable> =>
   Option.fromNullishOr(list[Math.min(focus, Math.max(0, list.length - 1))])
 
+const hrefOf = (focusable: Focusable): string =>
+  Match.value(focusable).pipe(
+    Match.when({ kind: 'page' }, (row) => row.page.path),
+    Match.when({ kind: 'hit' }, (row) => row.hit.href),
+    Match.exhaustive,
+  )
+
 const paletteKey = (key: string, model: Model): Message => {
-  const list = focusables(groupsFor(model.query))
+  const list = focusables(model.found)
   const stay = MovedFocus({ delta: 0, count: list.length })
   return Match.value(key).pipe(
     Match.when('Escape', () => ClosedSearch()),
@@ -438,7 +259,7 @@ const paletteKey = (key: string, model: Model): Message => {
         focusedIn(list, model.focus),
         Option.match({
           onNone: () => stay,
-          onSome: (focusable) => WentTo({ route: focusable.page.route }),
+          onSome: (focusable) => OpenedHit({ href: hrefOf(focusable) }),
         }),
       ),
     ),
@@ -508,81 +329,70 @@ const pillRow = (focus: number, h: HtmlBuilder<Message>): Html =>
 const wash = (page: SearchPage, focused: boolean): string =>
   focused ? `rgba(${page.rgb}, 0.15)` : 'transparent'
 
-const passageRow = (
-  page: SearchPage,
-  passage: Passage,
-  query: string,
-  focused: boolean,
-  h: HtmlBuilder<Message>,
-): Html => {
-  const fragment = fragmentOf(passage, query)
-  return h.button(
+const whereOf = (hit: SearchHit): string =>
+  hit.heading === '' || hit.heading === hit.place ? hit.place : `${hit.place} › ${hit.heading}`
+
+const hitRow = (page: SearchPage, hit: SearchHit, focused: boolean, h: HtmlBuilder<Message>): Html =>
+  h.a(
     [
       h.Class(focused ? 'palette-row here' : 'palette-row'),
-      h.Type('button'),
+      h.Href(hit.href),
       h.Style({ background: wash(page, focused) }),
-      h.OnClick(WentTo({ route: page.route })),
+      h.OnClick(ClosedSearch()),
     ],
     [
       h.span([h.Class('sigil'), h.Style({ color: focused ? page.ink : '#4E5D8C' })], ['>']),
       h.span(
         [h.Class('fragment')],
-        [
-          fragment.pre,
-          h.span([h.Class('palette-hit'), h.Style({ color: page.ink })], [fragment.hit]),
-          fragment.post,
-        ],
+        [hit.pre, h.span([h.Class('palette-hit'), h.Style({ color: page.ink })], [hit.hit]), hit.post],
       ),
+      h.span([h.Class('where')], [whereOf(hit)]),
     ],
   )
-}
 
 const groupBlock = (
-  group: Group,
-  query: string,
+  group: SearchGroup,
   focus: number,
   from: number,
   h: HtmlBuilder<Message>,
-): Html =>
-  h.div(
+): Html => {
+  const page = searchPageOf(group.route)
+  return h.div(
     [h.Class('palette-kids-wrap')],
     [
-      h.button(
+      h.a(
         [
           h.Class('palette-group'),
-          h.Type('button'),
-          h.Style({ background: wash(group.page, focus === from) }),
-          h.OnClick(WentTo({ route: group.page.route })),
+          h.Href(page.path),
+          h.Style({ background: wash(page, focus === from) }),
+          h.OnClick(ClosedSearch()),
         ],
         [
-          h.span([h.Class('sigil'), h.Style({ color: group.page.ink })], ['~']),
-          h.span([h.Class('name')], [group.page.label]),
-          h.span([h.Class('path')], [group.page.path]),
+          h.span([h.Class('sigil'), h.Style({ color: page.ink })], ['~']),
+          h.span([h.Class('name')], [page.label]),
+          h.span([h.Class('path')], [page.path]),
         ],
       ),
       h.div(
         [h.Class('palette-kids')],
-        Array.map(group.rows, (passage, index) =>
-          passageRow(group.page, passage, query, focus === from + 1 + index, h),
-        ),
+        Array.map(group.hits, (hit, index) => hitRow(page, hit, focus === from + 1 + index, h)),
       ),
     ],
   )
+}
 
-const focusedPage = (model: Model): SearchPage => {
-  const list = focusables(groupsFor(model.query))
-  return pipe(
-    focusedIn(list, model.focus),
+const focusedPage = (model: Model): SearchPage =>
+  pipe(
+    focusedIn(focusables(model.found), model.focus),
     Option.map((focusable) => focusable.page),
     Option.getOrElse(() => searchPages[0] as SearchPage),
   )
-}
 
 const results = (model: Model, h: HtmlBuilder<Message>): Html => {
-  const groups = groupsFor(model.query)
+  const groups = model.found
   const starts = pipe(
     groups,
-    Array.map((group) => group.rows.length + 1),
+    Array.map((group) => group.hits.length + 1),
     Array.reduce([0] as ReadonlyArray<number>, (acc, size) => [
       ...acc,
       (acc[acc.length - 1] ?? 0) + size,
@@ -593,7 +403,7 @@ const results = (model: Model, h: HtmlBuilder<Message>): Html => {
     groups.length === 0
       ? [h.span([h.Class('palette-empty')], [`no match for “${model.query.trim()}”`])]
       : Array.map(groups, (group, index) =>
-          groupBlock(group, model.query, model.focus, starts[index] ?? 0, h),
+          groupBlock(group, model.focus, starts[index] ?? 0, h),
         ),
   )
 }
@@ -631,7 +441,10 @@ const hintBar = (model: Model, page: SearchPage, h: HtmlBuilder<Message>): Html 
     [
       h.span([], ['↑↓ move']),
       h.span([], ['⏎ open']),
-      h.span([h.Class('count')], [countOf(focusables(groupsFor(model.query)).length)]),
+      h.span(
+        [h.Class('count')],
+        [countOf(Array.reduce(model.found, 0, (total, group) => total + group.hits.length))],
+      ),
     ],
   )
 
@@ -640,7 +453,10 @@ const paletteMiddle = (
   page: SearchPage,
   h: HtmlBuilder<Message>,
 ): ReadonlyArray<Html> =>
-  Match.value({ typed: model.query.trim() !== '', settling: model.searching }).pipe(
+  Match.value({
+    typed: model.query.trim() !== '',
+    settling: model.searching && model.found.length === 0,
+  }).pipe(
     Match.when({ typed: false }, () => [pillRow(model.focus, h)]),
     Match.when({ settling: true }, () => [searching(page, h)]),
     Match.orElse(() => [results(model, h), hintBar(model, page, h)]),

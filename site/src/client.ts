@@ -11,6 +11,8 @@ import {
   CopyReset,
   drawsInPlace,
   FocusedPalette,
+  Found,
+  SearchGroup,
   GrewCard,
   type Message,
   Model,
@@ -124,6 +126,28 @@ const LoadPage = define('LoadPage', {
   messages: [ClosedSearch],
   execute: ({ href }) =>
     Effect.sync(() => window.location.assign(href)).pipe(Effect.as(ClosedSearch())),
+})
+
+const SETTLE = '140 millis'
+
+const searchable = (query: string): boolean => query.trim().length >= 2
+
+const decodeGroups = S.decodeUnknownOption(S.Array(SearchGroup))
+
+const Search = define('Search', {
+  args: { query: S.String },
+  messages: [Found],
+  execute: ({ query }) =>
+    Effect.sleep(SETTLE).pipe(
+      Effect.andThen(
+        Effect.tryPromise(() =>
+          fetch(`/search?q=${encodeURIComponent(query)}`).then((response) => response.json()),
+        ),
+      ),
+      Effect.map((body) => Option.getOrElse(decodeGroups(body), () => [])),
+      Effect.catchCause(() => Effect.succeed([])),
+      Effect.map((groups) => Found({ query, groups })),
+    ),
 })
 
 const LINE = 28
@@ -296,11 +320,26 @@ const update = (model: Model, message: Message): Step =>
       }),
       FocusedPalette: () => ({ model }),
       ClosedSearch: () => ({
-        model: { ...model, searchOpen: false, query: '', focus: 0, caret: 0, searching: false },
+        model: {
+          ...model,
+          searchOpen: false,
+          query: '',
+          focus: 0,
+          caret: 0,
+          searching: false,
+          found: [],
+        },
       }),
       MovedCaret: ({ at }) => ({ model: { ...model, caret: at } }),
-      SettledSearch: () => ({ model: { ...model, searching: false } }),
-      Typed: ({ query }) => ({ model: { ...model, query, focus: 0 } }),
+      Typed: ({ query }) =>
+        searchable(query)
+          ? { model: { ...model, query, focus: 0, searching: true }, commands: [Search({ query })] }
+          : { model: { ...model, query, focus: 0, searching: false, found: [] } },
+      Found: ({ query, groups }) =>
+        query === model.query
+          ? { model: { ...model, found: groups, searching: false } }
+          : { model },
+      OpenedHit: ({ href }) => ({ model, commands: [LoadPage({ href })] }),
       MovedFocus: ({ delta, count }) => ({
         model: { ...model, focus: clamp(model.focus + delta, Math.max(0, count - 1)) },
       }),
