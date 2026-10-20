@@ -659,6 +659,8 @@ The search palette is the one place on the site that goes dark. It drops a navy 
 
 The card holds four bands stacked in a column: the query, then either the page pills or the grouped results, and a key hint along the bottom. It never grows past five hundred and sixty pixels wide or three quarters of the window tall, and the results band is the only one that scrolls.
 
+Behind the card, the scrim fills the whole shell, so a click anywhere off the card lands on it. The card is positioned too, which lifts it above the scrim.
+
 The palette draws its own caret. A block caret cannot be styled on a real input, so the input's own caret is hidden and a mirror of the typed text sits behind it, transparent except for a white block at the caret's position. The mirror shares the input's family, size and leading exactly — any difference and the block drifts away from the letter it should be sitting on.
 
 =>
@@ -676,7 +678,13 @@ The palette draws its own caret. A block caret cannot be styled on a real input,
   -webkit-backdrop-filter: blur(2.5px) saturate(106%);
 }
 
+.palette-scrim {
+  position: absolute;
+  inset: 0;
+}
+
 .palette-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -1154,8 +1162,6 @@ The claim's paragraph stops at forty-six characters rather than the site's usual
   color: var(--ink);
   text-wrap: pretty;
 }
-
-.hero-cmd { color: var(--ink); }
 
 .hero-right {
   display: flex;
@@ -2058,20 +2064,28 @@ A place card is a pale panel with a pixel emblem over two lines of type. It stay
 
 ## The argument page
 
-The motivation sets its four paragraphs justified and hyphenated across the two columns running text takes, so the two columns end on an even edge. Below six hundred and forty pixels they become one column.
+The motivation stands in two columns, the question on the left and the answer on the right. Each is a stack of paragraphs, justified and hyphenated, and the gap between the columns is the one running text takes elsewhere on the site. Below six hundred and forty pixels the answer drops under the question.
 
 Under the prose, a legend names the two glyphs before any card uses them, in the deeper orange and green that pass contrast on paper. The cards pack into three columns of uneven height, two below twelve hundred pixels and one below six hundred and forty. A card keeps the paper's pale panel until the pointer reaches it, and then takes the tint and the edge of its own hue, which the card carries as two custom properties.
 
 =>
 
-.why-prose > p {
+.why-prose {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  column-gap: var(--col-gap);
+  row-gap: var(--stack);
+}
+
+.why-column > p {
+  max-width: 62ch;
+  margin: 0 0 var(--stack);
   text-align: justify;
   hyphens: auto;
-  break-inside: avoid;
   text-wrap: pretty;
 }
 
-.why-prose > p:last-child { margin-bottom: 0; }
+.why-column > p:last-child { margin-bottom: 0; }
 
 .why-legend {
   display: flex;
@@ -2129,7 +2143,7 @@ Under the prose, a legend names the two glyphs before any card uses them, in the
 
 @media (max-width: 1179px) { .why-pair-set { column-count: 2; } }
 @media (max-width: 639px) {
-  .why-prose { column-count: 1; }
+  .why-prose { grid-template-columns: minmax(0, 1fr); }
   .why-pair-set { column-count: 1; }
 }
 

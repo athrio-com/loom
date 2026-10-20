@@ -9,7 +9,7 @@
 ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝     ╚═╝
 </pre>
 
-**Literate programming framework for AI-assisted engineering.**
+**Literate programming framework where reasoning is the source.**
 
 [![npm](https://img.shields.io/npm/v/@athrio/loom.svg?color=14b8a6&label=%40athrio%2Floom)](https://www.npmjs.com/package/@athrio/loom)
 ![license](https://img.shields.io/badge/license-MIT-blue.svg)

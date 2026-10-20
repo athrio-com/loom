@@ -35,7 +35,7 @@ describe('the page', () => {
 
   it('puts the hero and its install line on the landing', () => {
     const html = render(at('home'))
-    expect(html).toContain('Literate programming framework for AI-assisted engineering')
+    expect(html).toContain('Literate programming framework where reasoning is the source')
     expect(html).toContain('bun add -g @athrio/loom')
     expect(html).toContain('class="hero-word">Loom<')
   })
@@ -134,7 +134,7 @@ describe('the page', () => {
     expect(html).toContain('Why Loom?</h1>')
     expect(html).toContain('href="https://github.com/athrio-com/loom"')
     expect(html).toContain('href="https://t.me/athrio"')
-    expect(html).toContain('The modern problem')
+    expect(html).toContain('The missing why')
     expect(html.split('class="why-pair"').length - 1).toBe(8)
     expect(html).toContain('--pair-ink')
     expect(html).toContain('class="pager"')

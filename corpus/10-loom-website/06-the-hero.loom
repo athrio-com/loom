@@ -32,9 +32,7 @@ const wordmark = (h: HtmlBuilder<Message>): Html =>
 
 ## The claim
 
-The heading states what Loom is in one line, and the paragraph beneath it says how that works in three sentences. The paragraph stops at forty-six characters a line — narrower than the site's usual prose measure, because it sits beside a column of its own and a long line here would run under the install box.
-
-`loom tangle` appears inside the sentence in primary ink, one step up from the text around it, so the command reads as a name without becoming a link.
+The heading states what Loom is in one line. The paragraph beneath it says, in two sentences, what writing a program in Loom is like. The paragraph stops at forty-six characters a line. That is narrower than the site's usual prose measure, because the paragraph sits beside a column of its own, and a longer line would run under the install box.
 
 =>
 
@@ -42,13 +40,11 @@ const claim = (h: HtmlBuilder<Message>): Html =>
   h.div(
     [h.Class('hero-claim')],
     [
-      h.h1([], ['Literate programming framework for AI-assisted engineering']),
+      h.h1([], ['Literate programming framework where reasoning is the source']),
       h.p(
         [h.Class('hero-lead')],
         [
-          'Write your program the way you write a book. You write the reasoning in prose and the code beneath it, in the order you thought of it. ',
-          h.span([h.Class('hero-cmd')], ['loom tangle']),
-          ' resolves the sections and writes the real files.',
+          'Write your program the way you write a book. Set down the reasoning in prose and the code beside it, as your thoughts flow.',
         ],
       ),
     ],

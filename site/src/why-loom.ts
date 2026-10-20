@@ -3,12 +3,19 @@ import { type Html, inertHtml as ih } from 'foldkit/html'
 import { broadSeam, type Carpet, carpetMark, whyLoomCarpet } from './components'
 import { pageHead, pixels } from './page-head'
 
-const motivation: ReadonlyArray<string> = [
-  'AI-assisted engineering relies on natural language as a primary medium for building software. But the prose describing a system and the code that implements it tend to drift apart and fight for authority. The result is a split brain: the prose on one side, the code on the other.',
-  'Loom applies literate programming principles to address this and the deeper problems behind it. It treats prose and code as equal constituents of a single program. We write prose beside each code chunk, defining what it does and why.',
-  'Keeping intent in the program itself matters most when writing code with AI. The agent reads the prose alongside the code it is changing. Prose and code stay in sync because they live together and change together.',
-  'The state of the art is the other reason for Loom. Literate programming has never come with the tooling modern development takes for granted, and every earlier attempt shows the same pattern: tangling that works for any language, with a full language server behind it, has never come together outside an experiment. Loom brings the two together.',
-]
+type Motivation = { readonly question: ReadonlyArray<string>; readonly answer: ReadonlyArray<string> }
+
+const motivation: Motivation = {
+  question: [
+    "How do we find our way into a large codebase when we don't know where to start? How do we keep the intent behind code once it has left our memory? How do we know the documentation still describes the code? How do we carry context from one agent to the next, or from one model to another?",
+    "Each of the questions asks the same thing: where does the meaning of the code live? Code records what a system does, but not why. The why ends up in documents, tickets and people's heads, and drifts away from the code it was meant to explain.",
+  ],
+  answer: [
+    'In Loom, the why lives in the program. Prose and code are equal parts of one source. The prose defines what the system does and why, and the code does it.',
+    'So the codebase stays open to people. We can return to it at any time, on our first day or years later, to review its quality, recover the intent behind a decision, audit its business logic, or plan the next change. No one has to reconstruct the reasons.',
+    'With AI, this matters most of all. An agent reads the prose alongside the code it changes, so it works from our intent instead of guessing at it.',
+  ],
+}
 
 type Pair = { readonly problem: string; readonly answer: string }
 
@@ -21,7 +28,7 @@ const pairs: ReadonlyArray<Pair> = [
     problem:
       'AI code generation is approximate, never deterministic. The same prose interpreted twice gives two different programs.',
     answer:
-      'You edit the source directly, with its prose beside it. Every change is an ordinary change to the source, never a re-roll of the generator.',
+      'We edit the source directly, with its prose beside it. Every change is an ordinary change to the source, never a re-roll of the generator.',
   },
   {
     problem:
@@ -32,7 +39,7 @@ const pairs: ReadonlyArray<Pair> = [
   {
     problem: 'Natural language does not follow the order a compiler demands.',
     answer:
-      'With Loom you write a program in the order you reason about it, and tangling puts each piece where the compiler wants it.',
+      'With Loom we write a program in the order we reason about it, and tangling puts each piece where the compiler wants it.',
   },
   {
     problem:
@@ -44,7 +51,7 @@ const pairs: ReadonlyArray<Pair> = [
     problem:
       'Adopting a new format usually means converting a whole codebase before any of it pays off.',
     answer:
-      'Loom can host one file at a time. The rest of the codebase stays as it is until you choose to move it.',
+      'Loom can host one file at a time. The rest of the codebase stays as it is until we choose to move it.',
   },
   {
     problem: 'Specs end up scattered across the codebase, with no shape of the whole.',
@@ -109,7 +116,13 @@ const whyHead = (): Html =>
   pageHead(
     'why-top',
     'Why Loom?',
-    'The motivation behind Loom is simple. AI-assisted engineering relies on natural language as a primary medium for building software. Literate programming has been doing that since 1984.',
+    "A program's reasoning belongs in the program. Literate programming has worked that way since 1984. Now that we write code with AI, it matters more than ever.",
+  )
+
+const motivationColumn = (paragraphs: ReadonlyArray<string>): Html =>
+  ih.div(
+    [ih.Class('why-column')],
+    Array.map(paragraphs, (paragraph) => ih.p([ih.Class('prose')], [paragraph])),
   )
 
 const whyMotivation = (): Html =>
@@ -122,13 +135,13 @@ const whyMotivation = (): Html =>
           carpetMark(whyLoomCarpet, '42px', broadSeam),
           ih.div(
             [ih.Class('lines')],
-            [ih.span([ih.Class('eyebrow')], ['The motivation']), ih.h2([], ['The modern problem'])],
+            [ih.span([ih.Class('eyebrow')], ['The motivation']), ih.h2([], ['The missing why'])],
           ),
         ],
       ),
       ih.div(
-        [ih.Class('prose-columns why-prose')],
-        Array.map(motivation, (paragraph) => ih.p([ih.Class('prose')], [paragraph])),
+        [ih.Class('why-prose')],
+        [motivationColumn(motivation.question), motivationColumn(motivation.answer)],
       ),
       legend(),
       ih.div([ih.Class('why-pair-set')], Array.map(pairs, pairCard)),

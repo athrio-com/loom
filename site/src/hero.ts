@@ -10,13 +10,11 @@ const claim = (h: HtmlBuilder<Message>): Html =>
   h.div(
     [h.Class('hero-claim')],
     [
-      h.h1([], ['Literate programming framework for AI-assisted engineering']),
+      h.h1([], ['Literate programming framework where reasoning is the source']),
       h.p(
         [h.Class('hero-lead')],
         [
-          'Write your program the way you write a book. You write the reasoning in prose and the code beneath it, in the order you thought of it. ',
-          h.span([h.Class('hero-cmd')], ['loom tangle']),
-          ' resolves the sections and writes the real files.',
+          'Write your program the way you write a book. Set down the reasoning in prose and the code beside it, as your thoughts flow.',
         ],
       ),
     ],

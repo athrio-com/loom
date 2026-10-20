@@ -467,6 +467,7 @@ export const palette = (model: Model, h: HtmlBuilder<Message>): Html => {
   return h.div(
     [h.Class('palette-shell'), h.Role('dialog')],
     [
+      h.div([h.Class('palette-scrim'), h.OnClick(ClosedSearch())], []),
       h.div(
         [h.Class('palette-card')],
         [
@@ -526,7 +527,7 @@ export const footer = (h: HtmlBuilder<Message>): Html =>
                   ),
                   h.div(
                     [h.Class('footer-blurb')],
-                    ['Literate programming framework for AI-assisted engineering.'],
+                    ['Literate programming framework where reasoning is the source.'],
                   ),
                 ],
               ),
