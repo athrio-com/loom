@@ -1,6 +1,6 @@
 {
   "name": "@athrio/loom-lang-services",
-  "version": "0.0.13",
+  "version": "0.0.14",
   "description": "Loom's language services and the LanguageService contract they share.",
   "license": "MIT",
   "type": "module",
