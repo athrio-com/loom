@@ -23,7 +23,7 @@ const seed: Model = {
   found: [],
   activeSection: '',
   player: { struck: 0, beat: 0, playing: false, output: Option.none(), full: false },
-  version: '0.0.14',
+  version: '0.0.15',
   query: '',
   focus: 0,
   copied: '',

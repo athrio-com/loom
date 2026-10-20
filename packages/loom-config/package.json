@@ -1,6 +1,6 @@
 {
   "name": "@athrio/loom-config",
-  "version": "0.0.14",
+  "version": "0.0.15",
   "description": "The loom.config.json model and reader for Loom projects.",
   "license": "MIT",
   "type": "module",
