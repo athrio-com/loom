@@ -13,15 +13,15 @@
 
 [![npm](https://img.shields.io/npm/v/@athrio/loom.svg?color=14b8a6&label=%40athrio%2Floom)](https://www.npmjs.com/package/@athrio/loom)
 ![license](https://img.shields.io/badge/license-MIT-blue.svg)
-![status](https://img.shields.io/badge/status-pre--release-f59e0b.svg)
+![status](https://img.shields.io/badge/status-beta-f59e0b.svg)
 [![Telegram](https://img.shields.io/badge/Telegram-athrio-26A5E4?logo=telegram&logoColor=white)](https://t.me/athrio)
 
 </div>
 
 > [!NOTE]
-> **Loom is a work in progress.** The parser, the tangler and the `loom`
-> command-line tool work today. Until the first public release the syntax and
-> the tangled output will change.
+> **Loom is in beta.** The parser, the tangler and the `loom` command-line tool
+> work today. The syntax and the tangled output may still change before the
+> first stable release.
 
 ## What it is
 
