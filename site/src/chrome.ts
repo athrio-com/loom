@@ -90,7 +90,6 @@ export const nav = (model: Model, h: HtmlBuilder<Message>): Html =>
           h.OnClick(WentTo({ route: 'home' })),
         ],
         [
-          h.span([h.Class('nav-mark')], [loomMark('page', 0.46)]),
           'Loom',
           h.span([h.Class('nav-beta'), h.AriaHidden(true)], ['beta']),
         ],
@@ -111,7 +110,7 @@ const findButton = (className: string, title: string, h: HtmlBuilder<Message>): 
     ],
     [
       h.span([h.Class('wide')], ['search']),
-      h.span([h.Class('narrow')], ['navs']),
+      h.span([h.Class('narrow')], ['menu']),
       h.span([h.Class('nav-key'), h.AriaHidden(true)], ['/']),
     ],
   )
@@ -466,8 +465,8 @@ const hintBar = (model: Model, page: SearchPage, h: HtmlBuilder<Message>): Html 
       }),
     ],
     [
-      h.span([], ['↑↓ move']),
-      h.span([], ['⏎ open']),
+      h.span([h.Class('palette-key')], ['↑↓ move']),
+      h.span([h.Class('palette-key')], ['⏎ open']),
       h.span(
         [h.Class('count')],
         [countOf(Array.reduce(model.found, 0, (total, group) => total + group.hits.length))],
@@ -509,7 +508,7 @@ export const palette = (model: Model, h: HtmlBuilder<Message>): Html => {
                   h.AriaLabel('Close search'),
                   h.OnClick(ClosedSearch()),
                 ],
-                [h.span([h.Class('cross')], ['×']), h.span([], ['esc'])],
+                [h.span([h.Class('cross')], ['×']), h.span([h.Class('palette-key')], ['esc'])],
               ),
             ],
           ),

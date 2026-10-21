@@ -178,13 +178,13 @@ const operationCard = (operation: Operation, copied: string, h: HtmlBuilder<Mess
 
 ## The section
 
-The four cards sit in a grid of columns three hundred pixels wide, up to three of them, so the fourth wraps under the first and the row of commands reads as a sequence rather than a menu. A window too narrow for three columns at that width takes two, and below nine hundred pixels the grid becomes a rail to swipe rather than a column of cards each wider than what it holds.
+The four cards sit in a grid of columns three hundred pixels wide, up to three of them, so the fourth wraps under the first and the row of commands reads as a sequence rather than a menu. A window too narrow for three columns at that width takes two, and below nine hundred pixels the grid becomes a rail to swipe rather than a column of cards each wider than what it holds. Under the rail, a thin track shows how far along it the reader has swiped.
 
 =>
 
 export const fromInitToEject = (model: Model, h: HtmlBuilder<Message>): Html =>
   h.div(
-    [h.Class('section'), h.Id('loom-operations')],
+    [h.Class('section ops-section'), h.Id('loom-operations')],
     [
       h.div(
         [h.Class('section-head')],
@@ -200,6 +200,7 @@ export const fromInitToEject = (model: Model, h: HtmlBuilder<Message>): Html =>
         [h.Class('ops-grid')],
         Array.map(operations, (operation) => operationCard(operation, model.copied, h)),
       ),
+      h.div([h.Class('ops-progress'), h.AriaHidden(true)], []),
     ],
   )
 

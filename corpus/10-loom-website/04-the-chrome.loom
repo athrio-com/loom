@@ -74,9 +74,9 @@ The nav is a row of links with the wordmark set into the middle of it, so the si
 
 Loom is in beta, and the nav says so on every page: a small tag in the accent hangs off the wordmark's top corner. It hangs outside the row rather than taking a place in it, so the wordmark stays in the middle of the nav.
 
-Two controls close the row, at its right end: search, and the switch between the light and dark themes. Search says `search` on a wide window and `navs` on a narrow one, where it has taken over from the links entirely, and the key badge beside it shows the slash that opens it.
+Two controls close the row, at its right end: search, and the switch between the light and dark themes. Search says `search` on a wide window and `menu` on a narrow one. There it has taken over from the links entirely, and opening it is how a reader moves between pages. The key badge beside it shows the slash that opens it.
 
-On a narrow window, where the links have gone and the wordmark has moved to the left edge, the Loom mark stands beside the wordmark. It is the same mark a page's head shows beside its name, and on a narrow window the head drops it, so the mark moves up into the nav rather than appearing twice.
+On a narrow window the links have gone and the wordmark moves to the left edge, alone. The nav never carries the Loom mark: the landing's hero and every page's head already show it beside their names, at every width, so a mark in the nav would only stand twice on one screen.
 
 On the documentation and the source page, the two pages with a menu of chapters, the nav carries one more control. Below a thousand pixels the chapter menu no longer fits beside the sections, so a burger button at the nav's left end opens it in a drawer. The burger is drawn on every page of either and hidden by the stylesheet wherever the menu fits. Their nav also gets a class of its own, `docs-nav`, which the stylesheet uses to pin it to the top of the window on a narrow screen.
 
@@ -128,7 +128,6 @@ export const nav = (model: Model, h: HtmlBuilder<Message>): Html =>
           h.OnClick(WentTo({ route: 'home' })),
         ],
         [
-          h.span([h.Class('nav-mark')], [loomMark('page', 0.46)]),
           'Loom',
           h.span([h.Class('nav-beta'), h.AriaHidden(true)], ['beta']),
         ],
@@ -155,7 +154,7 @@ const findButton = (className: string, title: string, h: HtmlBuilder<Message>): 
     ],
     [
       h.span([h.Class('wide')], ['search']),
-      h.span([h.Class('narrow')], ['navs']),
+      h.span([h.Class('narrow')], ['menu']),
       h.span([h.Class('nav-key'), h.AriaHidden(true)], ['/']),
     ],
   )
@@ -604,8 +603,8 @@ const hintBar = (model: Model, page: SearchPage, h: HtmlBuilder<Message>): Html 
       }),
     ],
     [
-      h.span([], ['↑↓ move']),
-      h.span([], ['⏎ open']),
+      h.span([h.Class('palette-key')], ['↑↓ move']),
+      h.span([h.Class('palette-key')], ['⏎ open']),
       h.span(
         [h.Class('count')],
         [countOf(Array.reduce(model.found, 0, (total, group) => total + group.hits.length))],
@@ -659,7 +658,7 @@ export const palette = (model: Model, h: HtmlBuilder<Message>): Html => {
                   h.AriaLabel('Close search'),
                   h.OnClick(ClosedSearch()),
                 ],
-                [h.span([h.Class('cross')], ['×']), h.span([], ['esc'])],
+                [h.span([h.Class('cross')], ['×']), h.span([h.Class('palette-key')], ['esc'])],
               ),
             ],
           ),

@@ -802,7 +802,7 @@ it('draws a chapter with no sections as a head and an empty column', () => {
 
 ## The chrome around the docs
 
-The docs wear the site's nav, with a class of their own that pins it on a narrow window. A burger at the nav's left end opens the drawer, and only the docs carry it. Every nav puts the Loom mark beside the wordmark, in both its faces, so the stylesheet can show the one that suits the theme.
+The docs wear the site's nav, with a class of their own that pins it on a narrow window. A burger at the nav's left end opens the drawer, and only the docs carry it. The nav carries the wordmark alone. The Loom mark stands beside the page's name in the head below it, in both its faces, so the stylesheet can show the one that suits the theme, and a mark in the nav would only repeat it.
 
 Every nav ends on search and the theme switch. The switch carries the attribute the head's script answers, and one icon for each of the three choices.
 
@@ -824,10 +824,12 @@ it("opens the drawer from a burger at the nav's left end, on the docs only", () 
   expect(home).not.toContain('nav-burger')
 })
 
-it('puts the Loom mark beside the wordmark in every nav', () => {
+it('leaves the mark out of the nav and puts it beside the page name', () => {
   const html = renderDocument((h) => view(modelAt({ route: 'why-loom' }), h)).html
+  expect(html).toMatch(/class="nav-word"[^>]*>Loom<span[^>]*class="nav-beta"/)
+  expect(html).not.toContain('nav-mark')
   expect(html).toMatch(
-    /class="nav-word"[^>]*><span class="nav-mark"><span class="loom-mark-pair"><img[^>]*class="loom-mark paper"[^>]*><img[^>]*class="loom-mark dark"/,
+    /class="page-title"><span class="loom-mark-pair"><img[^>]*class="loom-mark paper"[^>]*><img[^>]*class="loom-mark dark"/,
   )
 })
 

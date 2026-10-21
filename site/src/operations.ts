@@ -132,7 +132,7 @@ const operationCard = (operation: Operation, copied: string, h: HtmlBuilder<Mess
 
 export const fromInitToEject = (model: Model, h: HtmlBuilder<Message>): Html =>
   h.div(
-    [h.Class('section'), h.Id('loom-operations')],
+    [h.Class('section ops-section'), h.Id('loom-operations')],
     [
       h.div(
         [h.Class('section-head')],
@@ -148,5 +148,6 @@ export const fromInitToEject = (model: Model, h: HtmlBuilder<Message>): Html =>
         [h.Class('ops-grid')],
         Array.map(operations, (operation) => operationCard(operation, model.copied, h)),
       ),
+      h.div([h.Class('ops-progress'), h.AriaHidden(true)], []),
     ],
   )

@@ -252,10 +252,12 @@ describe('the documentation chrome', () => {
     expect(home).not.toContain('nav-burger')
   })
 
-  it('puts the Loom mark beside the wordmark in every nav', () => {
+  it('leaves the mark out of the nav and puts it beside the page name', () => {
     const html = renderDocument((h) => view(modelAt({ route: 'why-loom' }), h)).html
+    expect(html).toMatch(/class="nav-word"[^>]*>Loom<span[^>]*class="nav-beta"/)
+    expect(html).not.toContain('nav-mark')
     expect(html).toMatch(
-      /class="nav-word"[^>]*><span class="nav-mark"><span class="loom-mark-pair"><img[^>]*class="loom-mark paper"[^>]*><img[^>]*class="loom-mark dark"/,
+      /class="page-title"><span class="loom-mark-pair"><img[^>]*class="loom-mark paper"[^>]*><img[^>]*class="loom-mark dark"/,
     )
   })
 

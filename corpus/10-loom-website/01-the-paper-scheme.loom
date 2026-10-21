@@ -212,7 +212,6 @@ html, body { margin: 0; padding: 0; }
 html { background: var(--footer-bg); }
 
 body {
-  min-width: 430px;
   background: var(--paper);
   color: var(--ink);
   font-family: var(--mono);
@@ -778,12 +777,27 @@ The nav's side padding steps down with the window, from eighty pixels to twenty-
   .nav-end { right: 24px; }
 }
 
-.nav-mark { display: none; }
-
 @media (max-width: 839px) {
-  .nav-word { display: inline-flex; align-items: center; gap: 8px; margin-left: 0; }
-  .nav-mark { display: block; }
-  .nav-mark .loom-mark { width: 52px; height: auto; }
+  .nav-word { margin-left: 0; }
+}
+
+~
+
+A touchscreen has no slash key, no arrow keys and no Escape, so on a device that cannot hover the nav's key badge goes, and so do the palette's hints for moving and opening with the keyboard and the word `esc` beside its close cross. A finger also needs a bigger target than a pointer. On a coarse pointer every control in the nav and the drawer grows to forty-four pixels, the size a fingertip can hit without aiming: search, the theme switch, the burger that opens the drawer, and the drawer's close button. All of them still fit the nav's fifty-six-pixel height. The palette's close button is the exception, since it wears a border, and a forty-four-pixel box would be a large empty square in the corner of the card. It keeps its small box, and an invisible layer reaching twelve pixels past each edge takes the taps around it. The burger and the drawer's close button take their size beside their own rules further on, and each gives back half its growth as a negative margin, so the icon stays where it was.
+
+=>
+
+@media (hover: none) {
+  .nav-key,
+  .palette-key { display: none; }
+}
+
+@media (pointer: coarse) {
+  .nav-end { gap: 0; }
+  .nav-find { min-height: 44px; padding: 0 10px; }
+  .theme-switch { width: 44px; height: 44px; }
+  .palette-esc { position: relative; }
+  .palette-esc::after { content: ''; position: absolute; inset: -12px; }
 }
 
 ~
@@ -838,6 +852,8 @@ The burger that opens the drawer sits at the bar's left end, its lines starting 
 
 @media (max-width: 839px) { .docs-nav .nav-word { margin-left: 40px; } }
 @media (max-width: 639px) { .nav-burger { left: 15px; } }
+
+@media (pointer: coarse) { .nav-burger { width: 44px; height: 44px; margin-left: -6px; } }
 
 ## The palette over the page
 
@@ -1533,6 +1549,8 @@ The rail takes over at nine hundred rather than at the phone widths below it, be
 
 A card in the rail is three hundred and thirty pixels, and never narrower than three hundred however far the window closes. The rail exists so that the cards keep their measure and the row moves instead, and a card that shrank with the window would give that back.
 
+A rail shows only its first card and the edge of the next, so under it a thin track says there are four and where the reader is among them. Its thumb is a quarter of the track and slides along it as the rail scrolls, driven by the rail's own scroll position through a scroll timeline, with no script. The section shares that timeline with the track, which sits outside the rail. A browser without scroll timelines leaves the thumb at the start, over the first card.
+
 Every illustration stands on the same stage, three hundred pixels by two hundred and sixteen, and never wider than the card holding it. A narrower card shrinks the stage in proportion, so the four frames stay level with one another at every width. The frame around the stage takes the pale accent rather than the card ground, because the drawing inside it is already made of cards.
 
 Three of the drawings are SVG and scale themselves. The woven JSON is text and cannot, because its lines break where the weave breaks them. Its widest line runs forty characters, and the monospace advances six tenths of an em per character, so the block measures twenty-four ems across at any type size. The block therefore takes its type size from the stage rather than from the type scale. A twenty-fourth of the stage fits it exactly, and a fraction under that keeps the outer characters clear of the frame's padding. Five lines of JSON fall short of two hundred and sixteen pixels, so the block sits centred in the height it leaves empty.
@@ -1628,6 +1646,8 @@ The sentence under a drawing runs the card's whole width. A drawing has a measur
   text-wrap: pretty;
 }
 
+.ops-progress { display: none; }
+
 @media (max-width: 899px) {
   .ops-grid {
     display: flex;
@@ -1641,7 +1661,30 @@ The sentence under a drawing runs the card's whole width. A drawing has a measur
   }
   .ops-grid::-webkit-scrollbar { display: none; }
   .ops-card { flex: none; width: clamp(300px, 84vw, 330px); }
+  .ops-section { timeline-scope: --ops-rail; }
+  .ops-grid { scroll-timeline: --ops-rail inline; }
+  .ops-progress {
+    display: block;
+    position: relative;
+    width: 64px;
+    height: 2px;
+    margin: 20px auto 0;
+    overflow: hidden;
+    border-radius: 1px;
+    background: var(--rule);
+  }
+  .ops-progress::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    width: 25%;
+    background: var(--ink-3);
+    animation: opsRail linear both;
+    animation-timeline: --ops-rail;
+  }
 }
+
+@keyframes opsRail { to { transform: translateX(300%); } }
 
 ~
 
@@ -2176,7 +2219,7 @@ None of the controls answers the cursor. They hold their ink whether it is over 
 
 ## The page head
 
-The pages past the landing open on a shared head rather than a masthead, though on the hero's padding all the same. The Loom mark stands beside the page's name at four fifths of its size, and the pair hold one line with sixteen pixels between them. Below eight hundred and forty pixels the head drops the mark, because the nav shows it there beside the wordmark. Under that, the paragraph and the two link cards share a row of equal halves until the window drops below a thousand pixels, where the cards fall under the paragraph. The gutter between the halves narrows with the window, as every column gap on the site does. The landing's hero lays its parts out as a spaced column, and this head sets its own spacing, so it goes back to an ordinary block.
+The pages past the landing open on a shared head rather than a masthead, though on the hero's padding all the same. The Loom mark stands beside the page's name at four fifths of its size, and the pair hold one line with sixteen pixels between them, at every width. Under that, the paragraph and the two link cards share a row of equal halves until the window drops below a thousand pixels, where the cards fall under the paragraph. The gutter between the halves narrows with the window, as every column gap on the site does. The landing's hero lays its parts out as a spaced column, and this head sets its own spacing, so it goes back to an ordinary block.
 
 =>
 
@@ -2201,7 +2244,6 @@ The pages past the landing open on a shared head rather than a masthead, though 
 
 @media (max-width: 1179px) { .page-head-grid { gap: 40px; } }
 @media (max-width: 999px)  { .page-head-grid { grid-template-columns: minmax(0, 1fr); gap: 36px; } }
-@media (max-width: 839px) { .page-title .loom-mark-pair { display: none; } }
 @media (max-width: 639px) {
   .page-head-grid { gap: 28px; }
   .page-title h1 { font-size: 26px; }
@@ -2250,7 +2292,7 @@ A place card is a pale panel with a pixel emblem over two lines of type. It stay
 
 ## The argument page
 
-The motivation stands in two columns, the question on the left and the answer on the right. Each is a stack of paragraphs, justified and hyphenated, and the gap between the columns is the one running text takes elsewhere on the site. Below six hundred and forty pixels the answer drops under the question.
+The motivation stands in two columns, the question on the left and the answer on the right. Each is a stack of paragraphs, justified and hyphenated, and the gap between the columns is the one running text takes elsewhere on the site. Below six hundred and forty pixels the answer drops under the question, and the paragraphs give up their justification and hyphens. One narrow column, justified, opens wide gaps between words and breaks nearly every line on a hyphen.
 
 Under the prose, the cards stand apart from it by twice the gap between a section's blocks, under a section head of their own. They come in groups. Each group opens on its title, set as a card's sub-heading, and lays its cards in a row of three columns of even height, two below twelve hundred pixels and one below six hundred and forty. The groups stand one block's gap apart. A card keeps the paper's pale panel until the pointer reaches it, and then takes the tint and the edge of its own hue, which the card carries as two custom properties.
 
@@ -2327,6 +2369,7 @@ Under the prose, the cards stand apart from it by twice the gap between a sectio
 @media (max-width: 1179px) { .why-pair-set { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 639px) {
   .why-prose { grid-template-columns: minmax(0, 1fr); }
+  .why-column > p { text-align: left; hyphens: manual; }
   .why-pair-set { grid-template-columns: minmax(0, 1fr); }
 }
 
@@ -2520,6 +2563,8 @@ The scrim also stops taking clicks when it is invisible. An invisible layer that
   background: transparent;
   color: var(--ink);
 }
+
+@media (pointer: coarse) { .drawer-close { width: 44px; height: 44px; margin-right: -7px; } }
 
 .drawer-close::before {
   content: '';
