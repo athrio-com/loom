@@ -1,8 +1,8 @@
 <div align="center">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/loom-dark.png" />
-  <img src=".github/assets/loom.png" alt="Loom" width="320" />
+  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/loom-dark.svg" />
+  <img src=".github/assets/loom.svg" alt="Loom" width="320" />
 </picture>
 
 **Literate programming framework that keeps meaning in your codebase from evaporating.**
