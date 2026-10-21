@@ -733,14 +733,24 @@ const iconOf = (language: string): Option.Option<string> =>
 const sameLanguage = (one: string, other: string): boolean =>
   one === other || Option.exists(iconOf(one), (icon) => Option.contains(iconOf(other), icon))
 
-const iconMark = (icon: string, size: number, h: HtmlBuilder<Message>): Html =>
+const twoFaced: ReadonlySet<string> = new Set(['loom'])
+
+const iconImage = (file: string, face: string, size: number, h: HtmlBuilder<Message>): Html =>
   h.img([
-    h.Class('lang-icon'),
-    h.Src(`/languages/${icon}.svg`),
+    h.Class(`lang-icon ${face}`.trim()),
+    h.Src(`/languages/${file}.svg`),
     h.Alt(''),
     h.Width(String(size)),
     h.Height(String(size)),
   ])
+
+const iconMark = (icon: string, size: number, h: HtmlBuilder<Message>): Html =>
+  twoFaced.has(icon)
+    ? h.span(
+        [h.Class('lang-icon-pair')],
+        [iconImage(icon, 'paper', size, h), iconImage(`${icon}-dark`, 'dark', size, h)],
+      )
+    : iconImage(icon, '', size, h)
 
 const emblemOf = (language: string, size: number, h: HtmlBuilder<Message>): Option.Option<Html> =>
   Option.map(iconOf(language), (icon) => iconMark(icon, size, h))

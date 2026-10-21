@@ -2358,6 +2358,11 @@ h2, .subhead {
 
 .lang-icon { display: block; flex: none; }
 
+.lang-icon-pair { display: contents; }
+.lang-icon-pair .lang-icon.dark { display: none; }
+:root[data-theme='dark'] .lang-icon-pair .lang-icon.paper { display: none; }
+:root[data-theme='dark'] .lang-icon-pair .lang-icon.dark { display: block; }
+
 .menu-item.marked { display: flex; align-items: flex-start; gap: 9px; }
 .menu-item.marked > :first-child { margin-top: 2.5px; }
 .menu-item.marked + .menu-subs { padding-left: 25px; }

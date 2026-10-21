@@ -853,7 +853,9 @@ A chapter of the book marks its sections by language rather than by flower. The 
 
 Each language's emblem is its icon from Devicon, a free collection of language logos under the MIT licence, kept beside the site as files named for the icon: `typescript.svg`, `json.svg`, and so on. Devicon has no icon for two of the book's languages. The tree-sitter queries are written in the query language's S-expressions, so they wear Racket's, a Scheme dialect whose λ marks the same family. TOML wears its logo from Simple Icons, a public-domain collection of the same kind.
 
-Prose is Loom's own language, so it wears Loom's own icon, `loom.svg`, kept beside the others. The icon is a square cut from the carpets the logo weaves: two rows of the logo's flowers, crossed so each orange flower sits over a blue one, either side of its yellow stitch.
+Prose is Loom's own language, so it wears Loom's own icon, kept beside the others. The icon is an illuminated initial: the L of the wordmark, set in Space Grotesk and drawn cell for cell on a sixteen-pixel grid, standing in a field of the logo's flowers. The flowers keep the logo's eight-pixel weave, each pixel drawn as a block of four. The L is parchment, the logo's paper warmed with a third of the star's gold, and a translucent shadow down and to its right lifts it off the weave.
+
+The icon comes in two faces, as the mark does. On paper, `loom.svg` sets the flowers on a navy tile, because a parchment letter on a cream page would vanish. On the dark page, `loom-dark.svg` leaves the ground out, and the flowers and the letter stand on the page itself. `iconMark` draws both faces of an icon that has two, and the stylesheet shows the one that suits the theme. Every other icon is one image.
 
 A section's language comes from the weave, which names it the way the tangler does: by the section's specifier, else by the extension of the file it writes, else by the chapter's language. An extension the tangler does not know stands as itself, so `.rs` reads `rs` and `.sh` reads `sh`. `iconOf` maps each of these names to its icon, and `nameOf` to the name a tag shows, a tree-sitter query reading `Query`; so `rs` and `rust` share Rust's, `sh` and `bash` share Bash's, a `.h` header shares C's, and `.gitignore` and `.gitattributes` share Git's. A section is compared with its chapter through the same map, so a Rust chapter's `.rs` file is not mistaken for another language. A name with no icon, such as a `LICENSE`, wears nothing.
 
@@ -928,14 +930,24 @@ const iconOf = (language: string): Option.Option<string> =>
 const sameLanguage = (one: string, other: string): boolean =>
   one === other || Option.exists(iconOf(one), (icon) => Option.contains(iconOf(other), icon))
 
-const iconMark = (icon: string, size: number, h: HtmlBuilder<Message>): Html =>
+const twoFaced: ReadonlySet<string> = new Set(['loom'])
+
+const iconImage = (file: string, face: string, size: number, h: HtmlBuilder<Message>): Html =>
   h.img([
-    h.Class('lang-icon'),
-    h.Src(`/languages/${icon}.svg`),
+    h.Class(`lang-icon ${face}`.trim()),
+    h.Src(`/languages/${file}.svg`),
     h.Alt(''),
     h.Width(String(size)),
     h.Height(String(size)),
   ])
+
+const iconMark = (icon: string, size: number, h: HtmlBuilder<Message>): Html =>
+  twoFaced.has(icon)
+    ? h.span(
+        [h.Class('lang-icon-pair')],
+        [iconImage(icon, 'paper', size, h), iconImage(`${icon}-dark`, 'dark', size, h)],
+      )
+    : iconImage(icon, '', size, h)
 
 const emblemOf = (language: string, size: number, h: HtmlBuilder<Message>): Option.Option<Html> =>
   Option.map(iconOf(language), (icon) => iconMark(icon, size, h))

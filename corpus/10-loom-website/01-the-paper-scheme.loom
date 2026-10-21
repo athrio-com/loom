@@ -2874,11 +2874,16 @@ A menu that scrolls within itself scrolls its top padding too, so the padding wo
 
 On the source page each chapter in the menu wears its language's emblem, sixteen pixels square and nine pixels before its name, the way an editor's sidebar marks a file. A marked chapter lays its emblem and name out in a row, the emblem centred on the name's first line, so a name long enough to wrap keeps its emblem beside its start. A chapter's name is set at one and a half times its size, with four pixels above and below, so a name that wraps keeps its two lines together while the rows stay apart. The sections under the chapter on show step in by the emblem's width as well, so they still hang under the name rather than under the emblem.
 
-A language's emblem is an image, and it never stretches: it keeps its own size wherever a row or a heading would squeeze it.
+A language's emblem is an image, and it never stretches: it keeps its own size wherever a row or a heading would squeeze it. An emblem with two faces shows its paper face on paper and its dark face on the dark page, as the mark does.
 
 =>
 
 .lang-icon { display: block; flex: none; }
+
+.lang-icon-pair { display: contents; }
+.lang-icon-pair .lang-icon.dark { display: none; }
+:root[data-theme='dark'] .lang-icon-pair .lang-icon.paper { display: none; }
+:root[data-theme='dark'] .lang-icon-pair .lang-icon.dark { display: block; }
 
 .menu-item.marked { display: flex; align-items: flex-start; gap: 9px; }
 .menu-item.marked > :first-child { margin-top: 2.5px; }
