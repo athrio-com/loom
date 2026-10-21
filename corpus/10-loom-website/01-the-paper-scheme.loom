@@ -256,16 +256,18 @@ While the theme changes, the root carries `data-swapping`, and no transition run
 
 The `color-scheme` property tells the browser which theme the page is wearing. The browser then draws its own pieces to match: the scrollbars, the caret, and the default look of a form control.
 
+Each theme names its scheme with `only`. Some phone browsers darken any page they believe is light, inverting its colours on their own, and the paper scheme comes out muddy under that treatment. The page draws both of its themes itself, so it asks to be left alone in each: `only light` on paper and `only dark` on the dark page forbid the browser from repainting either one.
+
 =>
 
-:root { color-scheme: light; }
+:root { color-scheme: only light; }
 
 :root[data-swapping] *,
 :root[data-swapping] *::before,
 :root[data-swapping] *::after { transition: none !important; }
 
 :root[data-theme='dark'] {
-  color-scheme: dark;
+  color-scheme: only dark;
 
   /* Grounds */
   --paper:       #141821;

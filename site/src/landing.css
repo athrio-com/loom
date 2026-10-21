@@ -143,14 +143,14 @@ a:hover { color: var(--ink-3); }
 ::highlight(found) { background-color: var(--amber); color: #14130F; }
 ::highlight(found-area) { background-color: color-mix(in srgb, var(--amber) 33%, transparent); }
 
-:root { color-scheme: light; }
+:root { color-scheme: only light; }
 
 :root[data-swapping] *,
 :root[data-swapping] *::before,
 :root[data-swapping] *::after { transition: none !important; }
 
 :root[data-theme='dark'] {
-  color-scheme: dark;
+  color-scheme: only dark;
 
   /* Grounds */
   --paper:       #141821;
