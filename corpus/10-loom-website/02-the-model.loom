@@ -54,6 +54,8 @@ The player is the example's own state, held apart because it changes on every fr
 
 The book is the slice of Loom's own book that the source page shows: the book's whole table of contents and the one chapter on show. Every other page carries none.
 
+The exact field says whether the palette searches by the query's words alone. Off, the server searches by meaning first. A reader turns it on with the switch beside the query, and it stays as they left it while the page is open, so a reader who wants exact words does not ask for them again on every search.
+
 =>
 
 export const Model = S.Struct({
@@ -69,6 +71,7 @@ export const Model = S.Struct({
   player: Player,
   version: S.String,
   query: S.String,
+  exact: S.Boolean,
   focus: S.Number,
   copied: S.String,
   book: S.OptionFromNullOr(Corpus),
@@ -224,7 +227,7 @@ The reader does a handful of things. They follow a link to another page, and the
 
 In the example they press play, pause it partway, send it back to the start, or skip to the end, and while it runs each frame advances the clock. They also ask for the card at the height of the window; the page glides to the card first and the height opens only once it has arrived, which is a second message rather than the same one. Once the document has finished they ask for the file one of the two commands writes. Each frame the document may also need moving under the caret, and the answer to that says it has been done.
 
-In the documentation they open a chapter, jump to one of its sections, and — scrolling by hand instead — let the outline follow them. They type into the palette, move its focus with the arrows, and open a result, which carries the words the page should pick out once it opens, and the few characters that come before them there. They copy a command, and a moment later the flash resets.
+In the documentation they open a chapter, jump to one of its sections, and — scrolling by hand instead — let the outline follow them. They type into the palette, switch between searching by meaning and by exact words, move its focus with the arrows, and open a result, which carries the words the page should pick out once it opens, and the few characters that come before them there. They copy a command, and a moment later the flash resets.
 
 Foldkit declares every message in one place, as a table from each tag to the fields it carries. The `defineMessageUnion` function turns that table into a schema that checks a message and a constructor for each tag. The module also exports each constructor under its own name, so the views and the update write `WentTo({ route })` rather than reaching through the union every time.
 
@@ -240,7 +243,8 @@ export const Message = defineMessageUnion({
   FocusedPalette: {},
   ClosedSearch: {},
   MovedCaret: { at: S.Number },
-  Found: { query: S.String, groups: S.Array(SearchGroup) },
+  Found: { query: S.String, exact: S.Boolean, groups: S.Array(SearchGroup) },
+  ToggledExact: {},
   OpenedHit: { href: S.String, words: S.String, before: S.String },
   ToggledPlay: {},
   ReplayedDocument: {},
@@ -271,6 +275,7 @@ export const {
   ClosedSearch,
   MovedCaret,
   Found,
+  ToggledExact,
   OpenedHit,
   ToggledPlay,
   ReplayedDocument,

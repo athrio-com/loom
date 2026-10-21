@@ -47,6 +47,7 @@ export const seed: Model = {
   player: { struck: 0, beat: 0, playing: false, output: Option.none(), full: false },
   version: '::[version]',
   query: '',
+  exact: false,
   focus: 0,
   copied: '',
   book: Option.none(),
@@ -224,7 +225,7 @@ const here = dirname(fileURLToPath(import.meta.url))
 
 From `effect` come `Effect`, the `Cache` that keeps each page the server renders itself, the `FileSystem` that reads the shell and the pages rendered ahead, the `Option` that carries a path naming no page, the `Schema` that encodes a search's answer, and the `Context` and `Layer` that define the server and wire it. From `effect/http` come the request and the responses. `@effect/platform-bun` supplies the Bun HTTP server, its file services, and the runtime edge.
 
-The pages module lends everything a page needs: the book, the places a path can name, a place's model, the render, and the file where a page rendered ahead is kept. The model lends the `Route` schema, which lists every route the site has, and the `SearchGroup` schema a search answers in. The documentation shell lends the documentation itself, as `docsCorpus`, which the cache counts its chapters from. The search module lends `indexOf`, which builds the index the palette searches, and `searchIn`, which answers a query from it.
+The pages module lends everything a page needs: the book, the places a path can name, a place's model, the render, and the file where a page rendered ahead is kept. The model lends the `Route` schema, which lists every route the site has, and the `SearchGroup` schema a search answers in. The documentation shell lends the documentation itself, as `docsCorpus`, which the cache counts its chapters from. The search module lends `indexOf`, which builds the index the palette searches, `searchIn`, which answers a query by its words, and `groupsOf`, which gathers any search's results by page. The meaning module lends `Meaning`, which answers a query by its meaning.
 
 The client never reads an address itself. It boots from the model the page carries, so the server and the client always agree on which page and which chapter are on show.
 
@@ -236,7 +237,8 @@ import { BunHttpServer, BunRuntime, BunServices } from '@effect/platform-bun'
 import { join } from 'node:path'
 import { Route, SearchGroup } from './model'
 import { docsCorpus } from './docs-page'
-import { indexOf, searchIn } from './search'
+import { type Entry, groupsOf, indexOf, searchIn } from './search'
+import { Meaning } from './meaning'
 import {
   bodyOf,
   distDir,
@@ -361,15 +363,18 @@ The cache has room for one page at each address the site answers. All of those p
 
 The unbuilt page stays out of the cache. It answers only when there is no shell to key it by, and it is a constant with nothing to render.
 
-The site answers one more thing, a search. `searchAt` reads the query from the request's `q` parameter and answers with the groups `searchIn` finds, encoded through the `SearchGroup` schema, so the client reads back exactly the shape the server meant.
+The site answers one more thing, a search. `searchAt` reads the query from the request's `q` parameter and answers with groups of results, encoded through the `SearchGroup` schema, so the client reads back exactly the shape the server meant. It searches by meaning first, through the `Meaning` service that Part XII describes, and by words when meaning has no answer. A request whose `exact` parameter is `1` asks for words alone, and `searchIn` answers it straight away. The `from` parameter names the route the reader searches from, which decides the order the pages come in. A request that names no route, or one the site does not have, is ordered as the landing would be.
 
 =>
 
 type PageKey = { readonly place: Place; readonly shell: string }
 
+const decodeRoute = S.decodeUnknownOption(Route)
+
 export class Site extends Context.Service<Site>()('Site', {
   make: Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
+    const meaning = yield* Meaning
     const book = yield* readBook(fs)
     const bookChapters = Option.match(book, {
       onNone: () => 0,
@@ -404,16 +409,32 @@ export class Site extends Context.Service<Site>()('Site', {
         HttpServerResponse.file(join(distDir, url.pathname)).pipe(
           Effect.catchCause(() => notFound),
         ),
-      searchAt: (url: URL): Effect.Effect<HttpServerResponse.HttpServerResponse> =>
-        Effect.flatMap(index, (entries) =>
-          HttpServerResponse.schemaJson(S.Array(SearchGroup))(
-            searchIn(entries, url.searchParams.get('q') ?? ''),
-          ),
-        ).pipe(Effect.orDie),
+      searchAt: (url: URL): Effect.Effect<HttpServerResponse.HttpServerResponse> => {
+        const query = url.searchParams.get('q') ?? ''
+        const from = Option.getOrElse(decodeRoute(url.searchParams.get('from')), (): Route => 'home')
+        const byWords = (entries: ReadonlyArray<Entry>) => Effect.succeed(searchIn(entries, query, from))
+        const byMeaning = (entries: ReadonlyArray<Entry>) =>
+          Effect.map(
+            meaning.rank(entries, query),
+            Option.match({
+              onNone: () => searchIn(entries, query, from),
+              onSome: (results) => groupsOf(results, from),
+            }),
+          )
+        return Effect.flatMap(index, (entries) =>
+          url.searchParams.get('exact') === '1' ? byWords(entries) : byMeaning(entries),
+        ).pipe(
+          Effect.flatMap(HttpServerResponse.schemaJson(S.Array(SearchGroup))),
+          Effect.orDie,
+        )
+      },
     } as const
   }),
 }) {
-  static readonly layer = Layer.effect(this, this.make).pipe(Layer.provide(BunServices.layer))
+  static readonly layer = Layer.effect(this, this.make).pipe(
+    Layer.provide(BunServices.layer),
+    Layer.provide(Meaning.layer),
+  )
 }
 
 ## Answering a request

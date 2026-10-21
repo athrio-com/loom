@@ -339,6 +339,13 @@ Loom releases itself on every push. A gate runs first — the tests, a check tha
 3. Releasing on a push
 4. Installing the executable
 
+### Part XII — Searching by meaning
+
+A reader searching the site rarely knows the words the book uses. This part lets the palette find a section by what it means rather than by the words it holds. A service of Loom's own runs an embedding model, which turns a passage into a vector placed near the passages about the same thing, and the site's server ranks its search index by how near each entry lies to the query. The search by words stays, for a reader who asks for it and for every moment meaning has no answer.
+
+1. The embedding service
+2. Matching by meaning
+
 ### Work in progress
 
 - A duplicate section name

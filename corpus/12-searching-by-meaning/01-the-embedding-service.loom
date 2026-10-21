@@ -1,0 +1,59 @@
+---
+Part XII: Searching by meaning
+Chapter 1: The embedding service
+Package: embeddings/
+Language: YAML
+---
+
+# The embedding service
+
+A reader who types into the palette rarely knows the words the book uses. They ask how to rebuild every time they save, and the section that answers is called *Watching*. A search that matches words finds nothing for that question. A search that matches meaning finds the section anyway.
+
+Meaning is matched through embeddings. An embedding model reads a passage and returns a list of numbers, a vector, placed so that passages about the same thing land near one another. The site embeds every passage it can show once, and embeds each query as it arrives. The passages whose vectors lie nearest the query's are the answer.
+
+The model runs in a service of its own rather than inside the site's server. A model of this size holds most of a gigabyte while it works, and the site's server holds a third of one. Keeping the two apart leaves the server as small and quick to restart as it was, and lets the model have the memory and the processor it needs without the server sharing them. The service belongs to Loom alone: nothing else asks it for anything.
+
+## The model, pinned
+
+The model is Snowflake's `snowflake-arctic-embed-m-v1.5`, a model of 110 million parameters released under the Apache 2.0 licence. It was chosen on this book rather than on a leaderboard. Twenty-six questions a reader might ask, each phrased the way a reader would rather than in the book's own words, were put to four candidate models over the site's real search index. This one put the right section first for eighteen of the twenty-six, and in the first five for twenty-two. The next best put it first for eight. Matching words found none of them.
+
+The model is named by its revision as well as by its name. A name on Hugging Face points at whatever its owner last uploaded, and a new upload would change every vector the site compares. A revision is one fixed upload, so the service embeds the same way until this chapter says otherwise.
+
+## The server that runs it
+
+The service is Hugging Face's Text Embeddings Inference, TEI for short, in its build for an ordinary processor. TEI loads one model and answers one question over HTTP: given a list of texts, what are their vectors. Loom writes no code to serve the model.
+
+TEI starts as many workers to split text into tokens as the machine has processors, and each one holds a copy of the tokenizer. Two are plenty for a site's searches, and they keep the service's memory near what the model itself needs.
+
+The model was trained to read a query and a passage differently. A query goes in after a short instruction, *Represent this sentence for searching relevant passages*, and a passage goes in bare. The model carries that instruction under the prompt name `query`, so the site asks for it by name and never copies the sentence.
+
+## Running it on a developer's machine {Tangle}[compose.yaml]
+
+On a developer's machine the service runs in Docker, and this file starts it with `docker compose -f embeddings/compose.yaml up -d`. It answers on port 8090, which is where the site's server looks for it when nothing says otherwise. The model is downloaded once, into a volume of its own, so a restart does not fetch it again.
+
+The site does not need the service to run. A server that cannot reach it searches by words, as it always has, so the service is something a developer starts to work on search, not something every change waits for.
+
+The model and its revision are bound here, once, and the command line reads them from these bindings.
+
+{{ model = Snowflake/snowflake-arctic-embed-m-v1.5 }}
+{{ revision = e58a8f756156a1293d763f17e3aae643474e9b8a }}
+
+=>
+
+services:
+  embeddings:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
+    command:
+      - --model-id
+      - ::[model]
+      - --revision
+      - ::[revision]
+      - --tokenization-workers
+      - "2"
+    ports:
+      - "8090:80"
+    volumes:
+      - models:/data
+
+volumes:
+  models:

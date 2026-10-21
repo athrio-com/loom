@@ -4,7 +4,8 @@ import { BunHttpServer, BunRuntime, BunServices } from '@effect/platform-bun'
 import { join } from 'node:path'
 import { Route, SearchGroup } from './model'
 import { docsCorpus } from './docs-page'
-import { indexOf, searchIn } from './search'
+import { type Entry, groupsOf, indexOf, searchIn } from './search'
+import { Meaning } from './meaning'
 import {
   bodyOf,
   distDir,
@@ -87,9 +88,12 @@ const NOT_BUILT = standalone(
 
 type PageKey = { readonly place: Place; readonly shell: string }
 
+const decodeRoute = S.decodeUnknownOption(Route)
+
 export class Site extends Context.Service<Site>()('Site', {
   make: Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
+    const meaning = yield* Meaning
     const book = yield* readBook(fs)
     const bookChapters = Option.match(book, {
       onNone: () => 0,
@@ -124,16 +128,32 @@ export class Site extends Context.Service<Site>()('Site', {
         HttpServerResponse.file(join(distDir, url.pathname)).pipe(
           Effect.catchCause(() => notFound),
         ),
-      searchAt: (url: URL): Effect.Effect<HttpServerResponse.HttpServerResponse> =>
-        Effect.flatMap(index, (entries) =>
-          HttpServerResponse.schemaJson(S.Array(SearchGroup))(
-            searchIn(entries, url.searchParams.get('q') ?? ''),
-          ),
-        ).pipe(Effect.orDie),
+      searchAt: (url: URL): Effect.Effect<HttpServerResponse.HttpServerResponse> => {
+        const query = url.searchParams.get('q') ?? ''
+        const from = Option.getOrElse(decodeRoute(url.searchParams.get('from')), (): Route => 'home')
+        const byWords = (entries: ReadonlyArray<Entry>) => Effect.succeed(searchIn(entries, query, from))
+        const byMeaning = (entries: ReadonlyArray<Entry>) =>
+          Effect.map(
+            meaning.rank(entries, query),
+            Option.match({
+              onNone: () => searchIn(entries, query, from),
+              onSome: (results) => groupsOf(results, from),
+            }),
+          )
+        return Effect.flatMap(index, (entries) =>
+          url.searchParams.get('exact') === '1' ? byWords(entries) : byMeaning(entries),
+        ).pipe(
+          Effect.flatMap(HttpServerResponse.schemaJson(S.Array(SearchGroup))),
+          Effect.orDie,
+        )
+      },
     } as const
   }),
 }) {
-  static readonly layer = Layer.effect(this, this.make).pipe(Layer.provide(BunServices.layer))
+  static readonly layer = Layer.effect(this, this.make).pipe(
+    Layer.provide(BunServices.layer),
+    Layer.provide(Meaning.layer),
+  )
 }
 
 const SEARCH = '/search'

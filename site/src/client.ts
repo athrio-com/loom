@@ -26,6 +26,7 @@ import {
   MovedCaret,
   OpenedSearch,
   pathOf,
+  Route,
 } from './model'
 import { CHARACTERS, RUN, struckBy } from './example'
 
@@ -300,19 +301,22 @@ const searchable = (query: string): boolean => query.trim().length >= 2
 
 const decodeGroups = S.decodeUnknownOption(S.Array(SearchGroup))
 
+const searchAddress = (query: string, exact: boolean, from: Route): string =>
+  `/search?q=${encodeURIComponent(query)}&from=${from}${exact ? '&exact=1' : ''}`
+
 const Search = define('Search', {
-  args: { query: S.String },
+  args: { query: S.String, exact: S.Boolean, from: Route },
   messages: [Found],
-  execute: ({ query }) =>
+  execute: ({ query, exact, from }) =>
     Effect.sleep(SETTLE).pipe(
       Effect.andThen(
         Effect.tryPromise(() =>
-          fetch(`/search?q=${encodeURIComponent(query)}`).then((response) => response.json()),
+          fetch(searchAddress(query, exact, from)).then((response) => response.json()),
         ),
       ),
       Effect.map((body) => Option.getOrElse(decodeGroups(body), () => [])),
       Effect.catchCause(() => Effect.succeed([])),
-      Effect.map((groups) => Found({ query, groups })),
+      Effect.map((groups) => Found({ query, exact, groups })),
     ),
 })
 
@@ -499,10 +503,22 @@ const update = (model: Model, message: Message): Step =>
       MovedCaret: ({ at }) => ({ model: { ...model, caret: at } }),
       Typed: ({ query }) =>
         searchable(query)
-          ? { model: { ...model, query, focus: 0, searching: true }, commands: [Search({ query })] }
+          ? {
+              model: { ...model, query, focus: 0, searching: true },
+              commands: [Search({ query, exact: model.exact, from: model.route })],
+            }
           : { model: { ...model, query, focus: 0, searching: false, found: [] } },
-      Found: ({ query, groups }) =>
-        query === model.query
+      ToggledExact: () => {
+        const exact = !model.exact
+        return searchable(model.query)
+          ? {
+              model: { ...model, exact, focus: 0, searching: true },
+              commands: [Search({ query: model.query, exact, from: model.route }), FocusPalette()],
+            }
+          : { model: { ...model, exact }, commands: [FocusPalette()] }
+      },
+      Found: ({ query, exact, groups }) =>
+        query === model.query && exact === model.exact
           ? { model: { ...model, found: groups, searching: false } }
           : { model },
       OpenedHit: ({ href, words, before }) => ({ model, commands: [OpenFound({ href, words, before })] }),

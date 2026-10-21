@@ -261,7 +261,10 @@ const byRelevance: Order.Order<Ranked> = Order.combine(
 
 const PER_PAGE = 5
 
-const ORDER: ReadonlyArray<Route> = ['docs', 'source', 'why-loom', 'community', 'home', 'license']
+const OWN_IN_ORDER: ReadonlyArray<Route> = ['why-loom', 'community', 'home', 'license']
+
+const orderFrom = (from: Route): ReadonlyArray<Route> =>
+  from === 'source' ? ['source', 'docs', ...OWN_IN_ORDER] : ['docs', ...OWN_IN_ORDER, 'source']
 
 const hitOf = (entry: Entry, needle: string): SearchHit => ({
   href: entry.href,
@@ -270,28 +273,37 @@ const hitOf = (entry: Entry, needle: string): SearchHit => ({
   ...fragmentOf(entry.text, needle),
 })
 
-export const searchIn = (index: ReadonlyArray<Entry>, query: string): ReadonlyArray<SearchGroup> => {
-  const needle = query.trim().toLowerCase()
-  const ranked =
-    needle.length < MIN_QUERY
-      ? []
-      : pipe(
-          index,
-          Array.map((entry, at): Ranked => ({ entry, at, rank: rankOf(entry, needle) })),
-          Array.filter((each) => each.rank > 0),
-          Array.sort(byRelevance),
-        )
-  return pipe(
-    ORDER,
+export type Result = { readonly entry: Entry; readonly words: string }
+
+export const groupsOf = (results: ReadonlyArray<Result>, from: Route): ReadonlyArray<SearchGroup> =>
+  pipe(
+    orderFrom(from),
     Array.map((route) => ({
       route,
       hits: pipe(
-        ranked,
-        Array.filter((each) => each.entry.route === route),
+        results,
+        Array.filter((result) => result.entry.route === route),
         Array.take(PER_PAGE),
-        Array.map((each) => hitOf(each.entry, needle)),
+        Array.map((result) => hitOf(result.entry, result.words)),
       ),
     })),
     Array.filter((group) => group.hits.length > 0),
   )
+
+export const searchIn = (
+  index: ReadonlyArray<Entry>,
+  query: string,
+  from: Route,
+): ReadonlyArray<SearchGroup> => {
+  const needle = query.trim().toLowerCase()
+  return needle.length < MIN_QUERY
+    ? []
+    : pipe(
+        index,
+        Array.map((entry, at): Ranked => ({ entry, at, rank: rankOf(entry, needle) })),
+        Array.filter((each) => each.rank > 0),
+        Array.sort(byRelevance),
+        Array.map((each): Result => ({ entry: each.entry, words: needle })),
+        (results) => groupsOf(results, from),
+      )
 }

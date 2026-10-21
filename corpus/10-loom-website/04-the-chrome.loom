@@ -29,6 +29,7 @@ import {
   OpenedDrawer,
   OpenedHit,
   OpenedSearch,
+  ToggledExact,
   Typed,
   WentTo,
   type Message,
@@ -420,6 +421,26 @@ const queryField = (model: Model, h: HtmlBuilder<Message>): Html =>
     ],
   )
 
+## Exact words, or their meaning
+
+The palette searches by meaning, through the embedding service Part XII describes, unless the reader asks for exact words. A switch beside the query asks for them. It reads `exact`, and it lights up while it is on, so a reader can always see which kind of search answered them. It sits on the query's row rather than in a menu, because a reader reaches for it in the middle of a search, after a search by meaning has found something near but not the phrase they had in mind.
+
+The switch tells a screen reader its state as well as its name, through `aria-pressed`, the attribute a toggle button carries.
+
+=>
+
+const exactSwitch = (model: Model, h: HtmlBuilder<Message>): Html =>
+  h.button(
+    [
+      h.Class(model.exact ? 'palette-exact on' : 'palette-exact'),
+      h.Type('button'),
+      h.AriaPressed(model.exact ? 'true' : 'false'),
+      h.Title('Search the exact words'),
+      h.OnClick(ToggledExact()),
+    ],
+    ['exact'],
+  )
+
 ## The pills, when nothing is typed
 
 With an empty query the palette offers the site itself rather than an empty list. One pill names each of the site's pages, behind its woven mark, and nothing else: the palette is for moving around Loom's own pages, so a link that leaves the site belongs in the footer instead. Each pill pops in a beat after the one before, so the row assembles in front of a reader instead of appearing whole.
@@ -651,6 +672,7 @@ export const palette = (model: Model, h: HtmlBuilder<Message>): Html => {
             [h.Class('palette-head')],
             [
               queryField(model, h),
+              exactSwitch(model, h),
               h.button(
                 [
                   h.Class('palette-esc'),
@@ -762,6 +784,8 @@ The module opens with what the site contains — the pages the nav names, the pa
 ::[The keys the palette answers to]
 
 ::[The query and its own caret]
+
+::[Exact words, or their meaning]
 
 ::[The pills, when nothing is typed]
 

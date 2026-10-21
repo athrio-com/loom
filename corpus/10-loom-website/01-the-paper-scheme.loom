@@ -382,13 +382,15 @@ The palette's inks are its own, so the card redraws them for itself and leaves t
 
 :root[data-theme='dark'] .palette-input::placeholder { color: #6B7891; }
 
-:root[data-theme='dark'] :is(.palette-esc, .pill-link) { border-color: #6B7891; }
+:root[data-theme='dark'] :is(.palette-esc, .palette-exact:not(.on), .pill-link) { border-color: #6B7891; }
 
 :root[data-theme='dark'] .pill-link { color: #CDD4E0; }
 
 :root[data-theme='dark'] .pill-link.here { border-color: #B9C3D6; }
 
-:root[data-theme='dark'] :is(.palette-esc, .pill-link):hover { border-color: #8D9AB3; }
+:root[data-theme='dark'] :is(.palette-esc, .palette-exact:not(.on), .pill-link):hover { border-color: #8D9AB3; }
+
+:root[data-theme='dark'] .palette-exact.on { color: #2A3346; }
 
 ## Every section in one container
 
@@ -988,6 +990,32 @@ The palette draws its own caret. A block caret cannot be styled on a real input,
 .palette-esc:hover { border-color: #8FA0D6; color: var(--navy-ink); }
 
 .palette-esc .cross { font-size: var(--t-code); line-height: 1; }
+
+~
+
+The exact switch wears the same small frame as the close button beside it, so the two read as a pair of controls on the query's row. Off, it is outlined in the palette's muted ink. On, it fills with the palette's cream and its word turns navy, the one filled control on the card, which is how a reader sees at a glance that the search is matching words.
+
+=>
+
+.palette-exact {
+  appearance: none;
+  cursor: pointer;
+  flex: none;
+  padding: 2px 7px;
+  border: 1px solid #6C7CAE;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font-family: var(--mono);
+  font-size: var(--t-eyebrow);
+  letter-spacing: 0.04em;
+  color: var(--navy-muted);
+  transition: border-color .12s ease, color .12s ease, background-color .12s ease;
+}
+
+.palette-exact:hover { border-color: #8FA0D6; color: var(--navy-ink); }
+
+.palette-exact.on,
+.palette-exact.on:hover { border-color: var(--navy-ink); background: var(--navy-ink); color: var(--navy); }
 
 ~
 
@@ -2253,6 +2281,8 @@ The pages past the landing open on a shared head rather than a masthead, though 
 
 A place card is a pale panel with a pixel emblem over two lines of type. It stays the ink colour under the pointer rather than taking the muted ink every other link fades to, because the card already answers the pointer with its ground and its edge. Each card answers in its own emblem's colour, amber for GitHub and blue for Telegram.
 
+On a phone two cards side by side are too narrow for their titles, which break over two lines. So there the cards stack, each taking the whole row, and each turns on its side: the emblem stands at the left at the pager's forty-two pixels, with the eyebrow and the title beside it, as a pager card sets its mark beside its words.
+
 =>
 
 .page-places {
@@ -2281,8 +2311,6 @@ A place card is a pale panel with a pixel emblem over two lines of type. It stay
 
 .place-emblem { display: block; flex: none; width: 49px; height: 49px; }
 
-On a phone two cards side by side are too narrow for their titles, which break over two lines. So there the cards stack, each taking the whole row, and each turns on its side: the emblem stands at the left at the pager's forty-two pixels, with the eyebrow and the title beside it, as a pager card sets its mark beside its words.
-
 .place-lines { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 
 .place-title {
@@ -2290,6 +2318,12 @@ On a phone two cards side by side are too narrow for their titles, which break o
   font-size: var(--t-sub);
   line-height: var(--lead-head);
   letter-spacing: -0.02em;
+}
+
+@media (max-width: 639px) {
+  .page-places { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .place-card { flex-direction: row; align-items: center; padding: 16px 20px; }
+  .place-emblem { width: 42px; height: 42px; }
 }
 
 ## The argument page
@@ -2319,12 +2353,6 @@ Under the prose, the cards stand apart from it by twice the gap between a sectio
 
 .why-bug,
 .why-a { display: grid; place-items: center; flex: none; width: 14px; height: 14px; }
-
-@media (max-width: 639px) {
-  .page-places { grid-template-columns: minmax(0, 1fr); gap: 12px; }
-  .place-card { flex-direction: row; align-items: center; padding: 16px 20px; }
-  .place-emblem { width: 42px; height: 42px; }
-}
 
 .why-bug { color: var(--eject); }
 .why-a { color: var(--loom-paper); }
@@ -2685,7 +2713,7 @@ A chapter of the book wears the docs' head, so it keeps its spacing: the crumb l
 
 The frontmatter reads as text rather than as a card, so the head holds one box, not two. The fields take the page's body type, one to a line, at a heavier weight. Each key wears the violet the loom gives the frontmatter. On paper each value takes the page's own ink, so the violet keys carry the colour and the values read as plain text; the mark's mint and gold are meant for marks, and as type on cream they read faint or muddy. On the dark page the values wear the mark's mint, which reads clearly there. A long field breaks wherever it must, since a package path has no spaces to break at.
 
-Those rows take the head's left column, and the GitHub card takes its right, with its top level with the crumb line. The right column is exactly as wide as one of the cards in the other pages' heads, a quarter of the head less its gaps, so the card keeps the size it has everywhere else. Below a thousand pixels the columns stack, and the card drops under the frontmatter at half the width, as the other pages' cards drop under their lead. On a phone the card takes the whole row on its side, as every page's cards do there.
+Those rows take the head's left column, and the GitHub card takes its right, with its top level with the crumb line. The right column is exactly as wide as one of the cards in the other pages' heads, a quarter of the head less its gaps, so the card keeps the size it has everywhere else. Below a thousand pixels the columns stack, and the card drops under the frontmatter at half the width, as the other pages' cards drop under their lead. On a phone the card takes the whole row on its side, as every page's cards do there, and sits twenty pixels under the `Raw source` link rather than thirty-six. That small line leaves more air above itself than its box shows, and the full gap made the card look adrift from the head it belongs to.
 
 Under the fields sits the `Raw source` link, set small in muted ink beside GitHub's mark, which takes the accent under the pointer like the site's other quiet links.
 
@@ -2704,6 +2732,8 @@ The chapter's name heads the article in the display face, at twenty-six pixels, 
   overflow-wrap: anywhere;
 }
 
+:root[data-theme='dark'] .front-field { color: color-mix(in srgb, var(--loom), var(--loom-paper) 25%); }
+
 .front-key { color: var(--violet); }
 
 .source-head {
@@ -2721,6 +2751,8 @@ The chapter's name heads the article in the display face, at twenty-six pixels, 
   .source-head .page-places { display: grid; }
 }
 
+@media (max-width: 639px) { .source-head { gap: 20px; } }
+
 .raw-source {
   display: flex;
   width: fit-content;
@@ -2732,8 +2764,6 @@ The chapter's name heads the article in the display face, at twenty-six pixels, 
   color: var(--ink-3);
   text-decoration: none;
   transition: color 140ms ease;
-:root[data-theme='dark'] .front-field { color: color-mix(in srgb, var(--loom), var(--loom-paper) 25%); }
-
 }
 
 .raw-source:hover { color: var(--accent); }

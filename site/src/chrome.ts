@@ -7,6 +7,7 @@ import {
   OpenedDrawer,
   OpenedHit,
   OpenedSearch,
+  ToggledExact,
   Typed,
   WentTo,
   type Message,
@@ -318,6 +319,18 @@ const queryField = (model: Model, h: HtmlBuilder<Message>): Html =>
     ],
   )
 
+const exactSwitch = (model: Model, h: HtmlBuilder<Message>): Html =>
+  h.button(
+    [
+      h.Class(model.exact ? 'palette-exact on' : 'palette-exact'),
+      h.Type('button'),
+      h.AriaPressed(model.exact ? 'true' : 'false'),
+      h.Title('Search the exact words'),
+      h.OnClick(ToggledExact()),
+    ],
+    ['exact'],
+  )
+
 type Pill = {
   readonly label: string
   readonly href: string
@@ -501,6 +514,7 @@ export const palette = (model: Model, h: HtmlBuilder<Message>): Html => {
             [h.Class('palette-head')],
             [
               queryField(model, h),
+              exactSwitch(model, h),
               h.button(
                 [
                   h.Class('palette-esc'),

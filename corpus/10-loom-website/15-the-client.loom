@@ -42,6 +42,7 @@ import {
   MovedCaret,
   OpenedSearch,
   pathOf,
+  Route,
 } from './model'
 import { CHARACTERS, RUN, struckBy } from './example'
 
@@ -397,7 +398,7 @@ const LandOnFound = define('LandOnFound', {
 
 ## Asking the server
 
-The palette's search runs on the server, which holds the index of every page. `Search` asks it for a query's results. It waits a moment first, so a reader typing a word sends one request for the word rather than one for every letter. A request for each letter would still go out, but each arrives after the next letter has started a newer one, and the update keeps only the answer to the query still in the field. So `Search` answers with `Found`, naming the query it answered. A server that cannot be reached, or an answer that does not decode, finds nothing rather than failing the palette. A query of fewer than two characters is never sent, since the server finds nothing for it either.
+The palette's search runs on the server, which holds the index of every page. `Search` asks it for a query's results. It waits a moment first, so a reader typing a word sends one request for the word rather than one for every letter. A request for each letter would still go out, but each arrives after the next letter has started a newer one, and the update keeps only the answer to the query still in the field. So `Search` answers with `Found`, naming the query it answered and whether it searched by exact words. A search asks for exact words with the `exact` parameter, and otherwise lets the server search by meaning. It also names the route the reader is on, in the `from` parameter, so the server puts the pages that reader most likely wants first. A server that cannot be reached, or an answer that does not decode, finds nothing rather than failing the palette. A query of fewer than two characters is never sent, since the server finds nothing for it either.
 
 =>
 
@@ -407,19 +408,22 @@ const searchable = (query: string): boolean => query.trim().length >= 2
 
 const decodeGroups = S.decodeUnknownOption(S.Array(SearchGroup))
 
+const searchAddress = (query: string, exact: boolean, from: Route): string =>
+  `/search?q=${encodeURIComponent(query)}&from=${from}${exact ? '&exact=1' : ''}`
+
 const Search = define('Search', {
-  args: { query: S.String },
+  args: { query: S.String, exact: S.Boolean, from: Route },
   messages: [Found],
-  execute: ({ query }) =>
+  execute: ({ query, exact, from }) =>
     Effect.sleep(SETTLE).pipe(
       Effect.andThen(
         Effect.tryPromise(() =>
-          fetch(`/search?q=${encodeURIComponent(query)}`).then((response) => response.json()),
+          fetch(searchAddress(query, exact, from)).then((response) => response.json()),
         ),
       ),
       Effect.map((body) => Option.getOrElse(decodeGroups(body), () => [])),
       Effect.catchCause(() => Effect.succeed([])),
-      Effect.map((groups) => Found({ query, groups })),
+      Effect.map((groups) => Found({ query, exact, groups })),
     ),
 })
 
@@ -530,7 +534,7 @@ const GlideToCard = define('GlideToCard', {
 
 ## The update
 
-Most messages set one field: the query, the focus clamped to the results, the loom tab's view. Following a link records the page it led to and closes the palette behind it, unless the page is the source page and the client holds no book to draw it with. Then the current page stays, and `LoadPage` sends the browser for the source page instead. Opening a documentation chapter records its slug, clears the section the menu was following, since the previous chapter's headings are no longer on the page, shuts the drawer behind the reader, and scrolls back to the top. Opening the palette puts the focus on its first result and the keyboard in its field; closing it clears the query, the focus, the caret and the results together, so the palette opens empty the next time. Moving the caret records where it now sits. Typing records the query and, once it is long enough to search, marks a search as on its way and runs `Search`. Results arrive as `Found`, and the update keeps them only when they answer the query still in the field. Opening a result hands its address and its words to `OpenFound`, which leaves for the result and picks the words out once it gets there. The example's messages move a position rather than set a flag: playing from the end starts again from the first character, a frame advances the clock and asks the stage to follow the caret, and skipping jumps both the clock and the stage to the foot. Going back to the start puts the clock, the height and the stage all back where they began — the document at its first character, the card down from full height, and the stage at the head of the document rather than wherever the reader stopped reading.
+Most messages set one field: the query, the focus clamped to the results, the loom tab's view. Following a link records the page it led to and closes the palette behind it, unless the page is the source page and the client holds no book to draw it with. Then the current page stays, and `LoadPage` sends the browser for the source page instead. Opening a documentation chapter records its slug, clears the section the menu was following, since the previous chapter's headings are no longer on the page, shuts the drawer behind the reader, and scrolls back to the top. Opening the palette puts the focus on its first result and the keyboard in its field; closing it clears the query, the focus, the caret and the results together, so the palette opens empty the next time. Moving the caret records where it now sits. Typing records the query and, once it is long enough to search, marks a search as on its way and runs `Search`. Turning the exact switch flips how the palette searches, runs the search again for the query in the field, and puts the keyboard back in the field, since the reader's click took it away. Results arrive as `Found`, and the update keeps them only when they answer the query still in the field, searched the way the switch still says. Opening a result hands its address and its words to `OpenFound`, which leaves for the result and picks the words out once it gets there. The example's messages move a position rather than set a flag: playing from the end starts again from the first character, a frame advances the clock and asks the stage to follow the caret, and skipping jumps both the clock and the stage to the foot. Going back to the start puts the clock, the height and the stage all back where they began — the document at its first character, the card down from full height, and the stage at the head of the document rather than wherever the reader stopped reading.
 
 Asking for full height is the one press that changes nothing at once. It runs the glide and waits: the page arrives at the card, `GrewCard` comes back, and only then does the height open. Giving the height back is immediate, since nothing has to travel first. Asking for a command's file toggles it, so pressing the same button twice closes what it opened. Selecting a section sets the active one, shuts the drawer if the section was picked from it, and asks the window to scroll to the section's heading. A section spotted while the reader scrolls sets the active one too, but runs nothing, so the outline follows the scroll rather than fighting it. Copying flashes the pressed button and runs its reset.
 
@@ -646,10 +650,22 @@ const update = (model: Model, message: Message): Step =>
       MovedCaret: ({ at }) => ({ model: { ...model, caret: at } }),
       Typed: ({ query }) =>
         searchable(query)
-          ? { model: { ...model, query, focus: 0, searching: true }, commands: [Search({ query })] }
+          ? {
+              model: { ...model, query, focus: 0, searching: true },
+              commands: [Search({ query, exact: model.exact, from: model.route })],
+            }
           : { model: { ...model, query, focus: 0, searching: false, found: [] } },
-      Found: ({ query, groups }) =>
-        query === model.query
+      ToggledExact: () => {
+        const exact = !model.exact
+        return searchable(model.query)
+          ? {
+              model: { ...model, exact, focus: 0, searching: true },
+              commands: [Search({ query: model.query, exact, from: model.route }), FocusPalette()],
+            }
+          : { model: { ...model, exact }, commands: [FocusPalette()] }
+      },
+      Found: ({ query, exact, groups }) =>
+        query === model.query && exact === model.exact
           ? { model: { ...model, found: groups, searching: false } }
           : { model },
       OpenedHit: ({ href, words, before }) => ({ model, commands: [OpenFound({ href, words, before })] }),

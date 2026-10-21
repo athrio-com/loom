@@ -1,0 +1,17 @@
+services:
+  embeddings:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
+    command:
+      - --model-id
+      - Snowflake/snowflake-arctic-embed-m-v1.5
+      - --revision
+      - e58a8f756156a1293d763f17e3aae643474e9b8a
+      - --tokenization-workers
+      - "2"
+    ports:
+      - "8090:80"
+    volumes:
+      - models:/data
+
+volumes:
+  models:

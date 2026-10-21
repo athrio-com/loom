@@ -21,6 +21,7 @@ export const seed: Model = {
   player: { struck: 0, beat: 0, playing: false, output: Option.none(), full: false },
   version: '0.0.15',
   query: '',
+  exact: false,
   focus: 0,
   copied: '',
   book: Option.none(),

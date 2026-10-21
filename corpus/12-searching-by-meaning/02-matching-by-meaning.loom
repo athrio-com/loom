@@ -1,0 +1,160 @@
+---
+Part XII, Chapter 2: Matching by meaning
+Package: site/src/
+Language: TypeScript
+---
+
+# Matching by meaning
+
+The site's server answers the palette's searches, and until now it matched the query's words. The `Meaning` service lets it match the query's meaning instead. It asks the embedding service for a vector for every entry in the search index and keeps them, then asks for a vector for each query and ranks the entries by how near they lie. The search by words stays, for two reasons. A reader can ask for it outright, by turning the palette's exact switch on. And the server falls back to it whenever meaning has no answer, because the service is unreachable, because the entries' vectors are not ready yet, or because nothing lies near enough to the query to count.
+
+## Where the service answers
+
+The server finds the embedding service at the address in its `LOOM_EMBEDDINGS` setting. On a developer's machine nothing sets it, and the server looks on port 8090, where the developer's own service answers. In the cluster the deployment sets it to the service's address there.
+
+The service answers one request, `/embed`, with one vector for each text it was sent, as an array of arrays of numbers. Each vector arrives normalised to length one, so the nearness of two vectors is their dot product: the larger it is, the nearer the meaning. A query goes in with the prompt name `query`, which tells the service to put the model's instruction for queries in front of it, and an entry goes in bare.
+
+=>
+
+const Vectors = S.Array(S.Array(S.Number))
+
+type Vector = ReadonlyArray<number>
+
+const nearness = (one: Vector, other: Vector): number =>
+  Array.reduce(one, 0, (sum, value, at) => sum + value * (other[at] ?? 0))
+
+~
+
+An entry is embedded as the reader sees it in the palette: the chapter or page it sits on, its heading, then its text. The heading carries a great deal of a section's meaning in a few words, and a section titled *Watching* is found by a question about saving far more easily when the model reads that title too. The service cuts a long passage down to the model's limit of 512 tokens, the first few hundred words, which is where a section says what it is about.
+
+=>
+
+const passageOf = (entry: Entry): string => `${entry.place} — ${entry.heading}\n${entry.text}`
+
+## Embedding the index
+
+The index holds nearly nine hundred entries, and embedding them all takes the service minutes rather than milliseconds. So the server does not wait for them. The first search starts the embedding in a fiber of its own and is answered by words, as is every search after it, until the vectors are ready. A development server restarts on every tangle, and embedding on every start would keep the service busy for no one. Embedding on the first search costs nothing until someone searches.
+
+The entries go to the service thirty-two at a time, the most it takes in one request. A batch that fails stops the whole pass, which leaves the index without vectors. The service may simply not be running, or still loading its model, so the pass waits a minute and starts again, for as long as the server runs. It runs once at a time: a search that arrives while it is under way leaves it alone.
+
+=>
+
+const BATCH = 32
+
+const RETRY = Schedule.spaced('1 minute')
+
+## Answering by meaning
+
+A query is answered by meaning only once every entry has its vector. The query's own vector is compared with all of them, and the entries are ranked from the nearest down.
+
+Not every entry is near. Every entry has some nearness to every query, so a ranking always has a first place, even for a question the site has no answer to. A threshold separates the entries the query is about from the ones it merely sits beside. It was measured on this book. For eight questions about something else entirely, recipes and football and the weather, the nearest entry lay no nearer than 0.28. For twenty-five of twenty-six real questions, the right section lay at 0.30 or nearer. The one exception was a question about rebuilding on every save, whose section the model had ranked twentieth anyway. The threshold sits between the two, at 0.29. A query whose entries all fall below the threshold has no answer by meaning, and the server answers it by words, which may still find the exact phrase.
+
+=>
+
+const THRESHOLD = 0.29
+
+~
+
+A result by meaning still shows words from its entry, and the palette still picks some out in colour. Those words are the query's longest word that the entry holds as it is, so a reader sees why the entry was found where the reason is visible. That word also travels with the result, so the page the reader opens marks it. An entry that holds none of the query's words, found on meaning alone, picks out nothing and shows the start of its text.
+
+=>
+
+const wordsIn = (entry: Entry, query: string): string =>
+  pipe(
+    query.toLowerCase().split(/[^\p{L}\p{N}-]+/u),
+    Array.filter((word) => word.length >= 3 && entry.text.toLowerCase().includes(word)),
+    Array.sort(Order.mapInput(Order.flip(Order.Number), (word: string) => word.length)),
+    Array.head,
+    Option.getOrElse(() => ''),
+  )
+
+## The service
+
+`Meaning` holds the vectors once they are ready, a flag that says whether a pass is under way, and the client it reaches the service with. `rank` answers a query with its results by meaning, or with none, and none is the server's cue to search by words. A query that fails at the service, because the service has gone away since the entries were embedded, also answers none.
+
+=>
+
+export class Meaning extends Context.Service<Meaning>()('Meaning', {
+  make: Effect.gen(function* () {
+    const client = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
+    const service = yield* Config.String('LOOM_EMBEDDINGS').pipe(Config.withDefault('http://localhost:8090'))
+    const vectors = yield* Ref.make<Option.Option<ReadonlyArray<Vector>>>(Option.none())
+    const embedding = yield* Ref.make(false)
+
+    const embed = (inputs: ReadonlyArray<string>, prompt: Option.Option<string>) =>
+      client
+        .execute(
+          HttpClientRequest.bodyJsonUnsafe(HttpClientRequest.post(`${service}/embed`), {
+            inputs,
+            normalize: true,
+            truncate: true,
+            ...Option.match(prompt, { onNone: () => ({}), onSome: (name) => ({ prompt_name: name }) }),
+          }),
+        )
+        .pipe(Effect.flatMap(HttpClientResponse.schemaBodyJson(Vectors)))
+
+    const embedIndex = (index: ReadonlyArray<Entry>) =>
+      Effect.forEach(Array.chunksOf(Array.map(index, passageOf), BATCH), (batch) => embed(batch, Option.none())).pipe(
+        Effect.map(Array.flatten),
+        Effect.flatMap((all) => Ref.set(vectors, Option.some(all))),
+        Effect.retry(RETRY),
+      )
+
+    const startEmbedding = (index: ReadonlyArray<Entry>) =>
+      Effect.flatMap(Ref.getAndSet(embedding, true), (under) =>
+        under ? Effect.void : Effect.asVoid(Effect.forkDetach(embedIndex(index))),
+      )
+
+    const ranked = (index: ReadonlyArray<Entry>, all: ReadonlyArray<Vector>, query: string) =>
+      Effect.map(embed([query], Option.some('query')), (answer) =>
+        pipe(
+          Option.fromNullishOr(answer[0]),
+          Option.map((asked) =>
+            pipe(
+              Array.zipWith(index, all, (entry, vector) => ({ entry, near: nearness(asked, vector) })),
+              Array.filter((each) => each.near >= THRESHOLD),
+              Array.sort(Order.mapInput(Order.flip(Order.Number), (each: { near: number }) => each.near)),
+              Array.map((each): Result => ({ entry: each.entry, words: wordsIn(each.entry, query) })),
+            ),
+          ),
+          Option.filter((results) => results.length > 0),
+        ),
+      )
+
+    return {
+      rank: (index: ReadonlyArray<Entry>, query: string): Effect.Effect<Option.Option<ReadonlyArray<Result>>> =>
+        Effect.flatMap(Ref.get(vectors), (ready) =>
+          Option.match(ready, {
+            onNone: () => Effect.as(startEmbedding(index), Option.none()),
+            onSome: (all) => ranked(index, all, query),
+          }),
+        ).pipe(Effect.catchCause(() => Effect.succeed(Option.none()))),
+    } as const
+  }),
+}) {
+  static readonly layer = Layer.effect(this, this.make).pipe(Layer.provide(FetchHttpClient.layer))
+}
+
+## What matching by meaning draws on
+
+From `effect` come `Array`, `Config`, `Context`, `Effect`, `Layer`, `Option`, `Order`, `Ref`, `Schedule`, `Schema` and `pipe`. From `effect/http` come the client, its requests and responses, and the client that runs over `fetch`. The search module lends the shape of an entry and of a result.
+
+=>
+
+import { Array, Config, Context, Effect, Layer, Option, Order, pipe, Ref, Schedule, Schema as S } from 'effect'
+import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from 'effect/http'
+import type { Entry, Result } from './search'
+
+## The module {Tangle}[meaning.ts]
+
+=>
+
+::[What matching by meaning draws on]
+
+::[Where the service answers]
+
+::[Embedding the index]
+
+::[Answering by meaning]
+
+::[The service]
