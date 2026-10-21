@@ -6,31 +6,22 @@ Language: Prose
 
 # Loom, written in Loom
 
-This book is Loom's source. Every package Loom ships is tangled from the chapters that follow, and the prose beside each piece of code is that code's specification. There is no other copy of the code or of its specification: change a chapter, and the package changes with it.
+This book is Loom's source. Every package Loom ships is tangled from the chapters that follow, and the prose beside each piece of code is that code's specification. There is no other copy of the code or of its specification. Change a chapter, and the package changes with it.
 
-The book is for reading how Loom works, and for changing it. To use Loom, start with [the docs](/docs) instead.
+The book is for reading how Loom works and for changing it. To use Loom, start with [the docs](/docs) instead.
 
-## How the book is laid out
+## How to read this book
 
-The parts follow the path a loom takes through Loom, from the text a person writes to the files on disk, then on to the tools around it. Each part builds on the ones before it.
+The book reads from top to bottom, and each part builds on the ones before it. It starts with the marks a loom is written in and the parser that reads them. It goes on to the composition of a loom's code and the tangle that writes it to files, and ends with the tools around Loom. The menu beside every chapter lists the parts and their chapters, so you can also go straight to the piece you need.
 
-- **The shape of a loom** is the marks a loom is written in and the syntax tree they parse to. It builds `@athrio/loom-ast`.
-- **Reading the text** is the parser, which turns a loom's text into that tree. It builds most of `@athrio/loom-lang`, as do the three parts after it.
-- **The product** composes each section's code, with every anchor resolved to the code it names.
-- **Tangling** writes the composed code to files, and reads a project's configuration in `@athrio/loom-config`.
-- **In the editor** is the language server, which checks a loom as it is typed and links its sections together.
-- **Languages as packages** is how Loom loads the service for each language a project uses, from `@athrio/loom-lang-services` and services such as `@athrio/loom-service-typescript`.
-- **Loom builds Loom** is the `loom` command, `@athrio/loom`, and the bundling and packaging of every package.
-- **Extensions for IDEs** is Loom in VS Code, in Zed and Gram, and in Neovim and Helix, with the tree-sitter grammar they share.
-- **The website** is this site, which draws the docs and this book.
-- **Releasing Loom** is the checks every change passes and the releases that follow.
+A chapter opens with its frontmatter, the fields at the top of its loom. They name the part and the chapter, the `Package` folder its files are written into, and the `Language` its code is written in. The emblem beside the chapter's name shows that language, and a section written in another language wears its own emblem. Under the fields, `Raw source` opens the chapter's loom on GitHub, exactly as its author wrote it.
 
-## Reading a chapter
+After the opening, prose and code take turns. The prose says what the code does and why, and the code follows it. When one section draws in another section's code, it names that section in an anchor, `::[…]`. Every anchor here is a link, so you can follow the code the way Loom composes it, one named piece at a time. A section whose heading ends in `{Tangle}`, or in a file name in brackets, is the place where code becomes a file.
 
-A chapter opens on its frontmatter, the lines between the two `---` marks at the top of its loom. They name the part and the chapter, the `Package` folder its files are written to, and the `Language` its code is written in.
+## How to edit this book
 
-Then the chapter alternates between prose and code. The prose says what the code does and why, and the code follows. A section's code can draw in another section's code by naming it in an anchor, `::[…]`. Here every anchor is a link to the section it names, so you can follow the composition the way Loom does. A section whose heading ends in a file name in brackets, or in `{Tangle}`, is a section that writes a file.
+To change Loom, change its chapter. Clone the repository, install the `loom` command as [the docs](/docs/getting-started/installing-loom) describe, and open `corpus/` in an editor that runs Loom's language server. [Supported editors](/docs/loom-in-your-ide/supported-editors) covers VS Code, Zed, Helix and Neovim. The server checks each loom as you type and takes you from an anchor to the section it names.
 
-## Changing Loom
+Edit the prose and the code together. A change to the code that leaves its prose describing the old behaviour leaves the book wrong, and the prose is what the next reader trusts. Then run `$ loom tangle corpus` from the repository's root to write the packages again, and `$ loom format corpus` to lay the chapters out the way the rest of the book is laid out.
 
-To change Loom, change its chapter. Edit the prose and the code together, then run `$ loom tangle corpus` to write the packages again. The tangled files are committed beside the book, but they are never edited by hand. Every change is checked to make sure the committed files still match the book they come from.
+The tangled files are committed beside the book, so a fresh checkout builds without tangling first. They are never edited by hand. The next tangle would overwrite such an edit, and the checks on every change catch it before then: they tangle the book again and fail if any committed file differs from what the book writes.
