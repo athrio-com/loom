@@ -56,7 +56,7 @@
                 <g id="lm-q5r12"><rect x="95.5" y="0" width="9" height="128" fill="#14204A"/><rect x="95.5" y="0" width="9" height="8" fill="#F2EFE6"/><rect x="95.5" y="40" width="9" height="8" fill="#8B5CF6"/><rect x="95.5" y="48" width="9" height="8" fill="#FF6A3D"/><rect x="95.5" y="64" width="9" height="8" fill="#F2EFE6"/><rect x="95.5" y="88" width="9" height="8" fill="#8B5CF6"/><rect x="95.5" y="96" width="9" height="8" fill="#FF6A3D"/></g><clipPath id="lm-q5r12-c"><rect x="95.5" y="-0.5" width="9" height="49"/></clipPath>
                 <g id="lm-q5r13"><rect x="103.5" y="0" width="9" height="128" fill="#14204A"/><rect x="103.5" y="8" width="9" height="8" fill="#FF6A3D"/><rect x="103.5" y="32" width="9" height="8" fill="#8B5CF6"/><rect x="103.5" y="56" width="9" height="8" fill="#FF6A3D"/><rect x="103.5" y="80" width="9" height="8" fill="#8B5CF6"/><rect x="103.5" y="104" width="9" height="8" fill="#FF6A3D"/></g><clipPath id="lm-q5r13-c"><rect x="103.5" y="-0.5" width="9" height="49"/></clipPath>
               </defs>
-              <rect width="112" height="48" rx="24" fill="#111111"/>
+              <rect x="0.5" y="0.5" width="111" height="47" rx="23.5" fill="#111111"/>
               <g clip-path="url(#lm-pill)" opacity="0">
                 <g opacity="0">
                   <rect width="112" height="48" fill="#14204A"/>
