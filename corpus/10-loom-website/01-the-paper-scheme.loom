@@ -139,7 +139,7 @@ The container is a single width the whole site holds to. Eighty pixels of side p
 
 Three of these values run tighter than the scale suggests, and deliberately so: the air below a section, the air above the footer, and the rhythm between a heading and its content. Each is floored where it stands rather than left free to grow, so the page reads closer than a scale drawn from the steps alone would set it.
 
-A gap narrows as the window does. The side padding steps down through fifty-six and forty to twenty-four, and the gutter between columns follows it. The air below a section and above the footer barely move, because they are what separates one idea from the next and a narrow window needs that separation more, not less. The rhythm does not move at all: a heading sits thirty-six pixels above its content at every width.
+A gap narrows as the window does. The side padding steps down through fifty-six and forty to twenty-four, and the gutter between columns follows it. The air below a section and the rhythm between a heading and its content hold until the window reaches a phone's width, because they are what separates one idea from the next. On a phone they tighten too: the air below a section drops to forty and a heading sits twenty-eight pixels above its content. A phone shows a few lines at a time, and air sized for a desktop leaves a screen with a heading and little else.
 
 These are the landing's own numbers, read from the page itself rather than from a scheme laid over the site. The pages of this site genuinely disagree on their measure, so each takes the one it was drawn with.
 
@@ -174,7 +174,7 @@ Radii come in two steps and a pill. Two rounds a chip, a pixel or a small fence;
 }
 
 @media (max-width: 639px) {
-  :root { --side: 24px; --section-pad: 58px; --col-gap: 24px; }
+  :root { --side: 24px; --section-pad: 40px; --col-gap: 24px; --rhythm: 28px; }
 }
 
 ~
@@ -1529,7 +1529,7 @@ The glyph keeps the pill it always had, and the name now sits beside it in the m
     columns: auto;
     gap: 12px;
     margin: 0 calc(-1 * var(--side));
-    padding: 24px var(--side) 4px;
+    padding: 4px var(--side);
     overflow-x: auto;
     scroll-snap-type: x mandatory;
     overscroll-behavior-x: contain;
@@ -2594,7 +2594,7 @@ The scrim also stops taking clicks when it is invisible. An invisible layer that
 
 ## The documentation shell
 
-A chapter of the docs is laid out like the site's other pages, on the same measure and the same side air. Its head is the page head, with one change of proportion. The lead and the commands beside it split the row as the landing's hero splits it, a little more to the lead, with seventy-six pixels between them. The head also gives back most of the air a page head leaves under itself, sixty-four pixels instead of a hundred and sixteen, because the menu and the first section follow straight on.
+A chapter of the docs is laid out like the site's other pages, on the same measure and the same side air. Its head is the page head, with one change of proportion. The lead and the commands beside it split the row as the landing's hero splits it, a little more to the lead, with seventy-six pixels between them. The head also gives back most of the air a page head leaves under itself, sixty-four pixels instead of a hundred and sixteen, because the menu and the first section follow straight on. On a phone it gives back more still, down to thirty-two, since there the first section sits directly under the lead. A chapter that opens on no commands has an empty command column, and an empty column takes no room: on a narrow window it would otherwise hold the grid's gap open under the lead.
 
 Above the chapter's name, the line that says where it sits is set like an eyebrow: small capitals, muted ink, paler slashes between the steps. The steps that lead somewhere take the accent under the pointer. The chapter's own name stays in primary ink, since it is where the reader already is. Every gap between a heading and the text under it is twenty-four pixels, from the chapter's name down to the last section.
 
@@ -2615,6 +2615,10 @@ Above the chapter's name, the line that says where it sits is set like an eyebro
 .doc-hero .page-lead p + p { margin-top: 16px; }
 
 .hero-cli { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+.hero-cli:empty { display: none; }
+
+@media (max-width: 639px) { .section-hero.doc-hero { padding-bottom: 32px; } }
 
 .doc-crumbs {
   display: flex;

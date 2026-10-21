@@ -107,7 +107,7 @@
 }
 
 @media (max-width: 639px) {
-  :root { --side: 24px; --section-pad: 58px; --col-gap: 24px; }
+  :root { --side: 24px; --section-pad: 40px; --col-gap: 24px; --rhythm: 28px; }
 }
 
 * { box-sizing: border-box; }
@@ -577,7 +577,7 @@ h2, .subhead {
     columns: auto;
     gap: 12px;
     margin: 0 calc(-1 * var(--side));
-    padding: 24px var(--side) 4px;
+    padding: 4px var(--side);
     overflow-x: auto;
     scroll-snap-type: x mandatory;
     overscroll-behavior-x: contain;
@@ -2150,6 +2150,10 @@ h2, .subhead {
 .doc-hero .page-lead p + p { margin-top: 16px; }
 
 .hero-cli { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+.hero-cli:empty { display: none; }
+
+@media (max-width: 639px) { .section-hero.doc-hero { padding-bottom: 32px; } }
 
 .doc-crumbs {
   display: flex;
