@@ -1,5 +1,6 @@
 import { Array, Effect, FileSystem, Option, pipe, Schema as S } from 'effect'
 import { basename, dirname, extname, join } from 'node:path'
+import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { Server } from 'foldkit/experimental'
 import { view } from './view'
@@ -37,6 +38,12 @@ export const readBook = (fs: FileSystem.FileSystem): Effect.Effect<Option.Option
       Option.flatMap(Option.liftThrowable((json: string): unknown => JSON.parse(json))(text), decodeBook),
     ),
     Effect.catchCause(() => Effect.succeed(Option.none())),
+  )
+
+export const bookStampOf = (fs: FileSystem.FileSystem): Effect.Effect<string> =>
+  fs.readFile(bookFile).pipe(
+    Effect.map((bytes) => createHash('sha256').update(bytes).digest('hex').slice(0, 10)),
+    Effect.catchCause(() => Effect.succeed('no-book')),
   )
 
 const application = {
@@ -110,9 +117,9 @@ export const distDir = join(here, '..', 'dist')
 
 export const PAGES_DIR = join(distDir, 'pages')
 
-export const pageFileOf = (buildId: string, address: string): string =>
+export const pageFileOf = (buildId: string, bookStamp: string, address: string): string =>
   join(
     PAGES_DIR,
-    basename(buildId, extname(buildId)),
+    `${basename(buildId, extname(buildId))}-${bookStamp}`,
     `${address === '/' ? 'index' : address.slice(1)}.html`,
   )

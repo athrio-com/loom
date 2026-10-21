@@ -302,7 +302,7 @@ export default defineConfig({
 
 ## Two watchers, started and stopped as one {Tangle}[src/dev.ts]
 
-Development runs two watchers side by side. Vite's build rebuilds the client into `dist` whenever a source changes, and Bun restarts the server whenever a module it renders from changes. The development program starts the two together and stops them together. Like the server, it is an Effect program started from the Bun runtime edge.
+Development runs two watchers side by side. Vite's build rebuilds the client into `dist` whenever a source changes, and Bun restarts the server whenever a module it renders from changes. The program restarts the server itself when the book is woven again. The development program starts the two together and stops them together. Like the server, it is an Effect program started from the Bun runtime edge.
 
 A shell line could start both, with an ampersand between them, but it cannot reliably stop them. A signal sent to the shell alone stops only the shell. Whatever the shell started in the background keeps running with no parent to stop it. A server left behind holds the port the next one needs, and a build left behind goes on rebuilding into the same `dist`. Two builds that write one folder at once empty and refill it over each other, and one of them fails when a file it was copying is deleted under it.
 
@@ -310,7 +310,7 @@ Each watcher is a child process the program runs until the child exits. The `wat
 
 =>
 
-import { Effect, FileSystem } from 'effect'
+import { Effect, FileSystem, Option, Stream } from 'effect'
 import { ChildProcess } from 'effect/process'
 import { BunRuntime, BunServices } from '@effect/platform-bun'
 import { dirname, join } from 'node:path'
@@ -346,14 +346,44 @@ const server = watcher('bun', ['--watch', 'src/server.ts'])
 
 ~
 
-Old bundles would pile up across sessions that way, so the program empties `dist` once, before either watcher starts. Then it races the two. Neither watcher is meant to finish, so whichever stops first has stopped development, be it a server that cannot take its port or a build that crashed. The race interrupts the other watcher, and the program exits with the code the first one stopped with. An interrupt or a termination signal that reaches the program alone stops the race at the runtime edge, and both scopes close, taking their watchers with them.
+Bun's watcher restarts the server when a module it imports changes. The server reads the book from a file rather than importing it, so a book woven again would go unseen until something else restarted it. So the program watches the book as well.
+
+The program watches the book's file for the whole session, as one stream of changes. A rewrite can reach the watcher as several events, and a server started in the middle of one would read half a book, so `bookChanges` lets each change settle for a quarter of a second before it counts. A file that cannot be watched yields no changes at all, and the server simply runs as it would without the watch. The watch is opened once and kept, since Bun stops reporting a file to a second watch opened on it after the first one closes.
+
+=>
+
+const bookFile = join(siteDir, 'src', 'source.coloured.json')
+
+const bookChanges = Stream.unwrap(
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    return fs.watch(bookFile).pipe(Stream.debounce('250 millis'), Stream.catch(() => Stream.never))
+  }),
+)
+
+~
+
+`restartingServer` starts the server once, and then again after every change to the book. `Stream.switchMap` does the replacing: each new element interrupts the server the last one started, its scope stops it, and a fresh server reads the new book. When a server stops on its own, it yields its exit code, and the first code ends the stream. Development is over, and `restartingServer` hands that code on as if the server had been run plainly.
+
+=>
+
+const restartingServer = Stream.succeed(undefined).pipe(
+  Stream.concat(bookChanges),
+  Stream.switchMap(() => Stream.fromEffect(server)),
+  Stream.runHead,
+  Effect.map(Option.getOrElse(() => 0)),
+)
+
+~
+
+Old bundles would pile up across sessions that way, so the program empties `dist` once, before either watcher starts. Then it races the client build against the restarting server. Neither watcher is meant to finish, so whichever stops first has stopped development, be it a server that cannot take its port or a build that crashed. The race interrupts the other watcher, and the program exits with the code the first one stopped with. An interrupt or a termination signal that reaches the program alone stops the race at the runtime edge, and both scopes close, taking their watchers with them.
 
 =>
 
 const development = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
   yield* fs.remove(join(siteDir, 'dist'), { recursive: true, force: true })
-  const code = yield* Effect.raceFirst(clientBuild, server)
+  const code = yield* Effect.raceFirst(clientBuild, restartingServer)
   yield* Effect.sync(() => void (process.exitCode = code))
 })
 

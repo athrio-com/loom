@@ -55,7 +55,7 @@ export const seed: Model = {
 
 ## Loom's own book
 
-The source page draws Loom's own book, and the server is where the book lives. The site's build weaves `corpus/book.loom` to `source.woven.json` beside this file, then colours its code into `source.coloured.json`, and the server reads the coloured book once, when it starts. The build that renders the pages ahead reads it the same way. The book changes only when the site is built again, so there is nothing to gain from reading it per request, and two megabytes of JSON are worth parsing only once.
+The source page draws Loom's own book, and the server is where the book lives. The site's build weaves `corpus/book.loom` to `source.woven.json` beside this file, then colours its code into `source.coloured.json`, and the server reads the coloured book once, when it starts. The build that renders the pages ahead reads it the same way. Two megabytes of JSON are worth parsing only once, so the server never reads the book per request. A book woven again is read by a server started again: the image builds both together, and in development the dev program restarts the server whenever the book is rewritten.
 
 The server parses the file and decodes it against the model's `Corpus` schema, which also drops what the shell never draws, such as where each block came from in its loom. A file that is missing or does not decode leaves the server without a book. It still serves every other page, and the source page's addresses then name no page.
 
@@ -71,6 +71,18 @@ export const readBook = (fs: FileSystem.FileSystem): Effect.Effect<Option.Option
       Option.flatMap(Option.liftThrowable((json: string): unknown => JSON.parse(json))(text), decodeBook),
     ),
     Effect.catchCause(() => Effect.succeed(Option.none())),
+  )
+
+~
+
+Every page the source page draws is rendered from this file, so a page rendered ahead is good only for the book it was rendered from. `bookStampOf` names that book: the first ten hex digits of a SHA-256 of the file's bytes, the same bytes the server and the build both read. A missing file is stamped `no-book`.
+
+=>
+
+export const bookStampOf = (fs: FileSystem.FileSystem): Effect.Effect<string> =>
+  fs.readFile(bookFile).pipe(
+    Effect.map((bytes) => createHash('sha256').update(bytes).digest('hex').slice(0, 10)),
+    Effect.catchCause(() => Effect.succeed('no-book')),
   )
 
 ## Rendering one page
@@ -178,9 +190,9 @@ export const everyAddress = (book: Option.Option<Corpus>): ReadonlyArray<string>
 
 ## Where a page rendered ahead is kept
 
-The build keeps each page it renders as a file under `dist/pages`, in a folder named after the build. A build's name is its id, the entry script the shell loads, without its folder or its extension, such as `index-DJidxQvj`. Inside that folder the page for an address sits at the address with `.html` added, and the landing sits at `index.html`.
+The build keeps each page it renders as a file under `dist/pages`, in a folder named after the two things the page was rendered from. One is the build's id, the entry script the shell loads, without its folder or its extension, such as `index-DJidxQvj`. The other is the book's stamp. Together they name a folder such as `index-DJidxQvj-3f9a1c0b2e`. Inside it, the page for an address sits at the address with `.html` added, and the landing sits at `index.html`.
 
-The folder's name is what keeps a page rendered ahead honest. A page names the bundle and the stylesheet of the shell it was rendered into, so it is good only while the shell still names the same build. A new build has a new name, and until it renders its own pages the server finds none kept for it.
+The folder's name is what keeps a page rendered ahead honest. A page names the bundle and the stylesheet of the shell it was rendered into, so it is good only while the shell still names the same build. The documentation is bundled into the client, so a change to the docs renames the build too. The book is not: the server reads it from its own file, and a book woven again leaves the bundle as it was. So the book's stamp goes into the name beside the build's. A change to either names a new folder, and until the build renders into it, the server finds no page kept there and renders each one fresh.
 
 =>
 
@@ -188,21 +200,22 @@ export const distDir = join(here, '..', 'dist')
 
 export const PAGES_DIR = join(distDir, 'pages')
 
-export const pageFileOf = (buildId: string, address: string): string =>
+export const pageFileOf = (buildId: string, bookStamp: string, address: string): string =>
   join(
     PAGES_DIR,
-    basename(buildId, extname(buildId)),
+    `${basename(buildId, extname(buildId))}-${bookStamp}`,
     `${address === '/' ? 'index' : address.slice(1)}.html`,
   )
 
 ## The pages module {Tangle}[pages.ts]
 
-The pages module draws on `effect`, on Node's `path` and `url` helpers to find its files, and on Foldkit's experimental `Server` module, which renders a view to HTML and writes it into the shell. The site's own modules supply the rest. The view draws the page. The model lends the `Model` schema, which doubles as the shape of the flags a page carries, the `Corpus` schema the book is read against, the `Route` schema that lists every route, and the `pathOf` and `routeOf` functions, which turn a route into its path and a path into its route. The documentation shell lends the documentation itself, as `docsCorpus`, and the functions that read and write a chapter's address and cut the slice of a corpus one page shows.
+The pages module draws on `effect`, on Node's `path` and `url` helpers to find its files, on Node's `crypto` to stamp the book, and on Foldkit's experimental `Server` module, which renders a view to HTML and writes it into the shell. The site's own modules supply the rest. The view draws the page. The model lends the `Model` schema, which doubles as the shape of the flags a page carries, the `Corpus` schema the book is read against, the `Route` schema that lists every route, and the `pathOf` and `routeOf` functions, which turn a route into its path and a path into its route. The documentation shell lends the documentation itself, as `docsCorpus`, and the functions that read and write a chapter's address and cut the slice of a corpus one page shows.
 
 =>
 
 import { Array, Effect, FileSystem, Option, pipe, Schema as S } from 'effect'
 import { basename, dirname, extname, join } from 'node:path'
+import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { Server } from 'foldkit/experimental'
 import { view } from './view'
@@ -241,6 +254,7 @@ import { type Entry, groupsOf, indexOf, searchIn } from './search'
 import { Meaning } from './meaning'
 import {
   bodyOf,
+  bookStampOf,
   distDir,
   entryOf,
   modelAt,
@@ -375,6 +389,7 @@ export class Site extends Context.Service<Site>()('Site', {
     const fs = yield* FileSystem.FileSystem
     const meaning = yield* Meaning
     const book = yield* readBook(fs)
+    const bookStamp = yield* bookStampOf(fs)
     const bookChapters = Option.match(book, {
       onNone: () => 0,
       onSome: (corpus) => corpus.pages.length,
@@ -387,7 +402,7 @@ export class Site extends Context.Service<Site>()('Site', {
     const pageIn = (shell: string, place: Place, address: string): Effect.Effect<string> =>
       Effect.flatMap(entryOf(shell), (buildId) =>
         fs
-          .readFileString(pageFileOf(buildId, address))
+          .readFileString(pageFileOf(buildId, bookStamp, address))
           .pipe(Effect.catchCause(() => Cache.get(rendered, { place, shell }))),
       )
     const shell = fs.readFileString(join(distDir, 'index.html'))

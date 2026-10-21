@@ -29,7 +29,7 @@ const pagesOf = (book: Option.Option<Corpus>): ReadonlyArray<Page> =>
 
 ## Every page, written out
 
-The program reads the shell that Vite has just written to `dist`, and names the build after the entry script the shell loads. It reads the book the way the server does. Then it renders each page through the same `modelAt` and `pageOf` the server uses, and writes it to the file `pageFileOf` names for that build and that address.
+The program reads the shell that Vite has just written to `dist`, and names the build after the entry script the shell loads. It reads the book the way the server does, and stamps it the same way. Then it renders each page through the same `modelAt` and `pageOf` the server uses, and writes it to the file `pageFileOf` names for that build, that book and that address.
 
 Pages from earlier builds are removed first, since no shell will name their builds again. The pages render one at a time. Rendered all at once they would hold every page's short-lived memory together, and the build has no reader waiting on it.
 
@@ -40,23 +40,24 @@ const renderAhead = Effect.gen(function* () {
   const shell = yield* fs.readFileString(join(distDir, 'index.html'))
   const buildId = yield* entryOf(shell)
   const book = yield* readBook(fs)
+  const bookStamp = yield* bookStampOf(fs)
   yield* fs.remove(PAGES_DIR, { recursive: true, force: true })
   const written = yield* Effect.forEach(pagesOf(book), ({ address, place }) =>
     Effect.gen(function* () {
-      const file = pageFileOf(buildId, address)
+      const file = pageFileOf(buildId, bookStamp, address)
       const page = yield* pageOf(shell, modelAt(book, place))
       yield* fs.makeDirectory(dirname(file), { recursive: true })
       yield* fs.writeFileString(file, page)
     }),
   )
-  yield* Effect.log(`rendered ${written.length} pages ahead for ${buildId}`)
+  yield* Effect.log(`rendered ${written.length} pages ahead for ${buildId} and book ${bookStamp}`)
 })
 
 renderAhead.pipe(Effect.provide(BunServices.layer), BunRuntime.runMain)
 
 ## The program {Tangle}[render-ahead.ts]
 
-The program draws on `effect` for its combinators and the file system, on Bun's platform for its file services and the runtime edge it starts from, and on the pages module for everything that renders a page and names its file. The model lends the `Corpus` type the book is read as.
+The program draws on `effect` for its combinators and the file system, on Bun's platform for its file services and the runtime edge it starts from, and on the pages module for everything that renders a page, stamps the book and names a page's file. The model lends the `Corpus` type the book is read as.
 
 =>
 
@@ -65,6 +66,7 @@ import { BunRuntime, BunServices } from '@effect/platform-bun'
 import { dirname, join } from 'node:path'
 import type { Corpus } from './model'
 import {
+  bookStampOf,
   distDir,
   entryOf,
   everyAddress,

@@ -8,6 +8,7 @@ import { type Entry, groupsOf, indexOf, searchIn } from './search'
 import { Meaning } from './meaning'
 import {
   bodyOf,
+  bookStampOf,
   distDir,
   entryOf,
   modelAt,
@@ -94,6 +95,7 @@ export class Site extends Context.Service<Site>()('Site', {
     const fs = yield* FileSystem.FileSystem
     const meaning = yield* Meaning
     const book = yield* readBook(fs)
+    const bookStamp = yield* bookStampOf(fs)
     const bookChapters = Option.match(book, {
       onNone: () => 0,
       onSome: (corpus) => corpus.pages.length,
@@ -106,7 +108,7 @@ export class Site extends Context.Service<Site>()('Site', {
     const pageIn = (shell: string, place: Place, address: string): Effect.Effect<string> =>
       Effect.flatMap(entryOf(shell), (buildId) =>
         fs
-          .readFileString(pageFileOf(buildId, address))
+          .readFileString(pageFileOf(buildId, bookStamp, address))
           .pipe(Effect.catchCause(() => Cache.get(rendered, { place, shell }))),
       )
     const shell = fs.readFileString(join(distDir, 'index.html'))

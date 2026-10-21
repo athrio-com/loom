@@ -3,6 +3,7 @@ import { BunRuntime, BunServices } from '@effect/platform-bun'
 import { dirname, join } from 'node:path'
 import type { Corpus } from './model'
 import {
+  bookStampOf,
   distDir,
   entryOf,
   everyAddress,
@@ -29,16 +30,17 @@ const renderAhead = Effect.gen(function* () {
   const shell = yield* fs.readFileString(join(distDir, 'index.html'))
   const buildId = yield* entryOf(shell)
   const book = yield* readBook(fs)
+  const bookStamp = yield* bookStampOf(fs)
   yield* fs.remove(PAGES_DIR, { recursive: true, force: true })
   const written = yield* Effect.forEach(pagesOf(book), ({ address, place }) =>
     Effect.gen(function* () {
-      const file = pageFileOf(buildId, address)
+      const file = pageFileOf(buildId, bookStamp, address)
       const page = yield* pageOf(shell, modelAt(book, place))
       yield* fs.makeDirectory(dirname(file), { recursive: true })
       yield* fs.writeFileString(file, page)
     }),
   )
-  yield* Effect.log(`rendered ${written.length} pages ahead for ${buildId}`)
+  yield* Effect.log(`rendered ${written.length} pages ahead for ${buildId} and book ${bookStamp}`)
 })
 
 renderAhead.pipe(Effect.provide(BunServices.layer), BunRuntime.runMain)
