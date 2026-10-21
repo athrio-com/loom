@@ -705,9 +705,9 @@ export const palette = (model: Model, h: HtmlBuilder<Message>): Html => {
 
 ## The footer that ends every page
 
-The footer carries the brand on the left and every link the site offers on the right. The brand is the Loom mark in its cream face, since the ground here is dark, beside the wordmark and the one sentence that says what Loom is.
+The footer carries the brand on the left and every link the site offers on the right. The brand is the Loom mark in its cream face, since the ground here is dark, beside the wordmark and the words that say what Loom is, set as a label without a full stop.
 
-The links are one flat list, and each is a chip rather than a line of a column. Eight short labels in one run beat three headed groups here: a footer is where a reader goes looking for one particular door, and eight doors side by side are read faster than eight sorted into piles. The order runs from what a reader most often wants to what they rarely do — the documentation first, the organisation last. That last chip leaves the site for the Quadrivium Academy foundation's own, at qda.ee, and the line under everything names the foundation and the year. A chip that leaves the site, for the foundation, the repository or the Telegram group, opens in a new tab, so a reader who follows it still has Loom's page open behind it. It says so before the click, with an outward arrow after its label.
+The links are one flat list, and each is a chip rather than a line of a column. Eight short labels in one run beat three headed groups here: a footer is where a reader goes looking for one particular door, and eight doors side by side are read faster than eight sorted into piles. The order runs from what a reader most often wants to what they rarely do — the documentation first, the organisation last. That last chip leaves the site for the Quadrivium Academy foundation's own, at qda.ee, and the line under everything names the foundation and the year, where it is registered, in Tallinn, Estonia, beside Estonia's flag, and its registration number, 90015241. Each takes a line of its own, the way a letterhead sets an address. A chip that leaves the site, for the foundation, the repository or the Telegram group, opens in a new tab, so a reader who follows it still has Loom's page open behind it. It says so before the click, with an outward arrow after its label.
 
 =>
 
@@ -745,7 +745,7 @@ export const footer = (h: HtmlBuilder<Message>): Html =>
                   ),
                   h.div(
                     [h.Class('footer-blurb')],
-                    ['Literate programming framework where reasoning is the source.'],
+                    ['Literate programming framework'],
                   ),
                 ],
               ),
@@ -767,7 +767,14 @@ export const footer = (h: HtmlBuilder<Message>): Html =>
               ),
             ],
           ),
-          h.div([h.Class('footer-bottom')], [h.span([], ['© Quadrivium Academy Sihtasutus 2026'])]),
+          h.div(
+            [h.Class('footer-bottom')],
+            [
+              h.span([], ['© Quadrivium Academy Sihtasutus 2026']),
+              h.span([], ['Tallinn, Estonia 🇪🇪']),
+              h.span([], ['Registration number: 90015241']),
+            ],
+          ),
         ],
       ),
     ],

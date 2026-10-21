@@ -32,7 +32,7 @@ const wordmark = (h: HtmlBuilder<Message>): Html =>
 
 ## The claim
 
-The heading states what Loom is in one line. The paragraph beneath it says, in two sentences, what writing a program in Loom is like. The paragraph stops at forty-six characters a line. That is narrower than the site's usual prose measure, because the paragraph sits beside a column of its own, and a longer line would run under the install box.
+The heading says what Loom is and what it is for, in one sentence: a literate programming framework that keeps meaning in a codebase from evaporating. The paragraph beneath it says how, in one more: the program is written like a book, its reasoning in prose and its code, the two as one source. The paragraph stops at forty-six characters a line. That is narrower than the site's usual prose measure, because the paragraph sits beside a column of its own, and a longer line would run under the install box.
 
 =>
 
@@ -40,11 +40,11 @@ const claim = (h: HtmlBuilder<Message>): Html =>
   h.div(
     [h.Class('hero-claim')],
     [
-      h.h1([], ['Literate programming framework where reasoning is the source']),
+      h.h1([], ['Literate programming framework that keeps meaning in your codebase from evaporating']),
       h.p(
         [h.Class('hero-lead')],
         [
-          'Write your program the way you write a book. Set down the reasoning in prose and the code beside it, as your thoughts flow.',
+          'Write your program the way you write a book, with the reasoning in prose and the code — as one source.',
         ],
       ),
     ],

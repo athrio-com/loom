@@ -1,15 +1,13 @@
 <div align="center">
 
-<pre>
-██╗      ██████╗  ██████╗ ███╗   ███╗
-██║     ██╔═══██╗██╔═══██╗████╗ ████║
-██║     ██║   ██║██║   ██║██╔████╔██║
-██║     ██║   ██║██║   ██║██║╚██╔╝██║
-███████╗╚██████╔╝╚██████╔╝██║ ╚═╝ ██║
-╚══════╝ ╚═════╝  ╚═════╝ ╚═╝     ╚═╝
-</pre>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/loom-dark.png" />
+  <img src=".github/assets/loom.png" alt="Loom" width="320" />
+</picture>
 
-**Literate programming framework where reasoning is the source.**
+**Literate programming framework that keeps meaning in your codebase from evaporating.**
+
+Write your program the way you write a book, with the reasoning in prose and the code — as one source.
 
 [![npm](https://img.shields.io/npm/v/@athrio/loom.svg?color=14b8a6&label=%40athrio%2Floom)](https://www.npmjs.com/package/@athrio/loom)
 ![license](https://img.shields.io/badge/license-MIT-blue.svg)

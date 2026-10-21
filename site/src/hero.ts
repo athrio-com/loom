@@ -10,11 +10,11 @@ const claim = (h: HtmlBuilder<Message>): Html =>
   h.div(
     [h.Class('hero-claim')],
     [
-      h.h1([], ['Literate programming framework where reasoning is the source']),
+      h.h1([], ['Literate programming framework that keeps meaning in your codebase from evaporating']),
       h.p(
         [h.Class('hero-lead')],
         [
-          'Write your program the way you write a book. Set down the reasoning in prose and the code beside it, as your thoughts flow.',
+          'Write your program the way you write a book, with the reasoning in prose and the code — as one source.',
         ],
       ),
     ],

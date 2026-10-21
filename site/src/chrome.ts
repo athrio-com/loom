@@ -577,7 +577,7 @@ export const footer = (h: HtmlBuilder<Message>): Html =>
                   ),
                   h.div(
                     [h.Class('footer-blurb')],
-                    ['Literate programming framework where reasoning is the source.'],
+                    ['Literate programming framework'],
                   ),
                 ],
               ),
@@ -599,7 +599,14 @@ export const footer = (h: HtmlBuilder<Message>): Html =>
               ),
             ],
           ),
-          h.div([h.Class('footer-bottom')], [h.span([], ['© Quadrivium Academy Sihtasutus 2026'])]),
+          h.div(
+            [h.Class('footer-bottom')],
+            [
+              h.span([], ['© Quadrivium Academy Sihtasutus 2026']),
+              h.span([], ['Tallinn, Estonia 🇪🇪']),
+              h.span([], ['Registration number: 90015241']),
+            ],
+          ),
         ],
       ),
     ],

@@ -35,7 +35,8 @@ describe('the page', () => {
 
   it('puts the hero and its install line on the landing', () => {
     const html = render(at('home'))
-    expect(html).toContain('Literate programming framework where reasoning is the source')
+    expect(html).toContain('Literate programming framework that keeps meaning in your codebase from evaporating</h1>')
+    expect(html).toContain('and the code — as one source')
     expect(html).toContain('bun add -g @athrio/loom')
     expect(html).toContain('class="hero-word">Loom<')
   })

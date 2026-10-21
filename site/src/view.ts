@@ -51,7 +51,7 @@ const pageFor = (model: Model, h: HtmlBuilder<Message>): Html =>
 
 const titleOf = (route: Route): string =>
   Match.value(route).pipe(
-    Match.when('home', () => 'Loom — literate programming where reasoning is the source'),
+    Match.when('home', () => 'Loom — literate programming framework'),
     Match.when('docs', () => 'Docs — Loom'),
     Match.when('why-loom', () => 'Why Loom'),
     Match.when('community', () => 'Community — Loom'),
