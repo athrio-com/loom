@@ -143,13 +143,6 @@ a:hover { color: var(--ink-3); }
 
 ::highlight(found) { background-color: var(--amber); color: #14130F; }
 
-@keyframes loomWeave   { to { background-position-x: 128px; } }
-@keyframes loomWeaveUp { to { background-position-y: -128px; } }
-
-@media (prefers-reduced-motion: reduce) {
-  .weave-band { animation: none !important; }
-}
-
 :root { color-scheme: light; }
 
 :root[data-swapping] *,

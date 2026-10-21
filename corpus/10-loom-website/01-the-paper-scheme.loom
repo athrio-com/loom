@@ -240,21 +240,6 @@ a:hover { color: var(--ink-3); }
 
 ~
 
-The Loom mark's quilts drift while they show. A band of the pattern tiles every hundred and twenty-eight pixels, so shifting the background by exactly one tile and looping leaves no visible jump. Bands laid across the pill travel sideways, and bands laid down it travel upward.
-
-A reader who has asked their system for less motion gets none: the drift stops, and the mark holds still.
-
-=>
-
-@keyframes loomWeave   { to { background-position-x: 128px; } }
-@keyframes loomWeaveUp { to { background-position-y: -128px; } }
-
-@media (prefers-reduced-motion: reduce) {
-  .weave-band { animation: none !important; }
-}
-
-~
-
 ## The page after dark
 
 The site has a dark theme beside the paper one, and a reader picks between them with the switch in the nav. The script in the page's head writes the theme on the root element as `data-theme`, and this section redraws the scheme for `dark`. Every other rule in the stylesheet reads the scheme's properties, so it follows the theme without a rule of its own.
