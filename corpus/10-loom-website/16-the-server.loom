@@ -364,13 +364,11 @@ The cache has room for one page at each address the site answers. All of those p
 
 The unbuilt page stays out of the cache. It answers only when there is no shell to key it by, and it is a constant with nothing to render.
 
-The site answers one more thing, a search. `searchAt` reads the query from the request's `q` parameter and answers with groups of results, encoded through the `SearchGroup` schema, so the client reads back exactly the shape the server meant. It searches by meaning first, through the `Meaning` service that Part XII describes, and by words when meaning has no answer. A request whose `exact` parameter is `1` asks for words alone, and `searchIn` answers it straight away. The `from` parameter names the route the reader searches from, which decides the order the pages come in. A request that names no route, or one the site does not have, is ordered as the landing would be.
+The site answers one more thing, a search. `searchAt` reads the query from the request's `q` parameter and answers with groups of results, encoded through the `SearchGroup` schema, so the client reads back exactly the shape the server meant. It searches by meaning first, through the `Meaning` service that Part XII describes, and by words when meaning has no answer. A request whose `exact` parameter is `1` asks for words alone, and `searchIn` answers it straight away.
 
 =>
 
 type PageKey = { readonly place: Place; readonly shell: string }
-
-const decodeRoute = S.decodeUnknownOption(Route)
 
 export class Site extends Context.Service<Site>()('Site', {
   make: Effect.gen(function* () {
@@ -412,15 +410,11 @@ export class Site extends Context.Service<Site>()('Site', {
         ),
       searchAt: (url: URL): Effect.Effect<HttpServerResponse.HttpServerResponse> => {
         const query = url.searchParams.get('q') ?? ''
-        const from = Option.getOrElse(decodeRoute(url.searchParams.get('from')), (): Route => 'home')
-        const byWords = (entries: ReadonlyArray<Entry>) => Effect.succeed(searchIn(entries, query, from))
+        const byWords = (entries: ReadonlyArray<Entry>) => Effect.succeed(searchIn(entries, query))
         const byMeaning = (entries: ReadonlyArray<Entry>) =>
           Effect.map(
             meaning.rank(entries, query),
-            Option.match({
-              onNone: () => searchIn(entries, query, from),
-              onSome: (results) => groupsOf(results, from),
-            }),
+            Option.match({ onNone: () => searchIn(entries, query), onSome: groupsOf }),
           )
         return Effect.flatMap(index, (entries) =>
           url.searchParams.get('exact') === '1' ? byWords(entries) : byMeaning(entries),

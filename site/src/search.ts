@@ -98,7 +98,8 @@ const draftsOf = (page: Page): ReadonlyArray<Draft> => {
 }
 
 const corpusEntries = (corpus: Corpus, base: string, route: Route): ReadonlyArray<Entry> =>
-  Array.flatMap(corpus.pages, (page) => {
+  Array.filter(
+    Array.flatMap(corpus.pages, (page) => {
     const address = chapterPath(base, page.slug)
     return Array.map(draftsOf(page), (draft) => ({
       route,
@@ -107,7 +108,14 @@ const corpusEntries = (corpus: Corpus, base: string, route: Route): ReadonlyArra
       heading: draft.heading,
       text: flattened(draft.words.join(' ')),
     }))
-  })
+    }),
+    (entry) => !anchorsAlone(entry.text),
+  )
+
+const ANCHORS = /:{2}\[[^\]]*\](\([^)]*\))?/g
+
+const anchorsAlone = (text: string): boolean =>
+  text.trim() !== '' && text.replace(ANCHORS, '').trim() === ''
 
 const UNSEARCHED: ReadonlyArray<string> = ['loom-pager']
 
@@ -261,15 +269,15 @@ const byRelevance: Order.Order<Ranked> = Order.combine(
 
 const PER_PAGE = 5
 
-const orderOf = (results: ReadonlyArray<Result>, from: Route): ReadonlyArray<Route> => {
-  const pages = pipe(
+const orderOf = (results: ReadonlyArray<Result>): ReadonlyArray<Route> => [
+  ...pipe(
     results,
     Array.map((result) => result.entry.route),
     Array.dedupe,
     Array.filter((route) => route !== 'source'),
-  )
-  return from === 'source' ? ['source', ...pages] : [...pages, 'source']
-}
+  ),
+  'source',
+]
 
 const hitOf = (entry: Entry, needle: string, meaning: boolean): SearchHit => ({
   href: entry.href,
@@ -281,9 +289,9 @@ const hitOf = (entry: Entry, needle: string, meaning: boolean): SearchHit => ({
 
 export type Result = { readonly entry: Entry; readonly words: string; readonly meaning: boolean }
 
-export const groupsOf = (results: ReadonlyArray<Result>, from: Route): ReadonlyArray<SearchGroup> =>
+export const groupsOf = (results: ReadonlyArray<Result>): ReadonlyArray<SearchGroup> =>
   pipe(
-    orderOf(results, from),
+    orderOf(results),
     Array.map((route) => ({
       route,
       hits: pipe(
@@ -296,11 +304,7 @@ export const groupsOf = (results: ReadonlyArray<Result>, from: Route): ReadonlyA
     Array.filter((group) => group.hits.length > 0),
   )
 
-export const searchIn = (
-  index: ReadonlyArray<Entry>,
-  query: string,
-  from: Route,
-): ReadonlyArray<SearchGroup> => {
+export const searchIn = (index: ReadonlyArray<Entry>, query: string): ReadonlyArray<SearchGroup> => {
   const needle = query.trim().toLowerCase()
   return needle.length < MIN_QUERY
     ? []
@@ -310,6 +314,6 @@ export const searchIn = (
         Array.filter((each) => each.rank > 0),
         Array.sort(byRelevance),
         Array.map((each): Result => ({ entry: each.entry, words: needle, meaning: false })),
-        (results) => groupsOf(results, from),
+        groupsOf,
       )
 }

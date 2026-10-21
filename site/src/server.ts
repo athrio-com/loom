@@ -89,8 +89,6 @@ const NOT_BUILT = standalone(
 
 type PageKey = { readonly place: Place; readonly shell: string }
 
-const decodeRoute = S.decodeUnknownOption(Route)
-
 export class Site extends Context.Service<Site>()('Site', {
   make: Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
@@ -131,15 +129,11 @@ export class Site extends Context.Service<Site>()('Site', {
         ),
       searchAt: (url: URL): Effect.Effect<HttpServerResponse.HttpServerResponse> => {
         const query = url.searchParams.get('q') ?? ''
-        const from = Option.getOrElse(decodeRoute(url.searchParams.get('from')), (): Route => 'home')
-        const byWords = (entries: ReadonlyArray<Entry>) => Effect.succeed(searchIn(entries, query, from))
+        const byWords = (entries: ReadonlyArray<Entry>) => Effect.succeed(searchIn(entries, query))
         const byMeaning = (entries: ReadonlyArray<Entry>) =>
           Effect.map(
             meaning.rank(entries, query),
-            Option.match({
-              onNone: () => searchIn(entries, query, from),
-              onSome: (results) => groupsOf(results, from),
-            }),
+            Option.match({ onNone: () => searchIn(entries, query), onSome: groupsOf }),
           )
         return Effect.flatMap(index, (entries) =>
           url.searchParams.get('exact') === '1' ? byWords(entries) : byMeaning(entries),

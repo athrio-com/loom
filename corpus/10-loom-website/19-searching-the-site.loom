@@ -144,10 +144,13 @@ const draftsOf = (page: Page): ReadonlyArray<Draft> => {
 
 `corpusEntries` turns every chapter of a corpus into its entries. Each entry's address is the chapter's own, the one the shell gives it under the corpus's base, `/docs` or `/source`, with the section's id after it.
 
+One kind of section is left out. A module's own section assembles its file and says nothing else: its code is a list of anchors naming the sections that make it up, and it has no prose. A reader learns nothing there, and the names in its anchors are the very sections the index already holds, so a search would find each of them twice, once where it is written and once where it is named. An entry whose text is anchors and nothing else is dropped. The pattern spells the anchor's opening as two colons counted, so the tangle does not take it for an anchor of its own.
+
 =>
 
 const corpusEntries = (corpus: Corpus, base: string, route: Route): ReadonlyArray<Entry> =>
-  Array.flatMap(corpus.pages, (page) => {
+  Array.filter(
+    Array.flatMap(corpus.pages, (page) => {
     const address = chapterPath(base, page.slug)
     return Array.map(draftsOf(page), (draft) => ({
       route,
@@ -156,7 +159,14 @@ const corpusEntries = (corpus: Corpus, base: string, route: Route): ReadonlyArra
       heading: draft.heading,
       text: flattened(draft.words.join(' ')),
     }))
-  })
+    }),
+    (entry) => !anchorsAlone(entry.text),
+  )
+
+const ANCHORS = /:{2}\[[^\]]*\](\([^)]*\))?/g
+
+const anchorsAlone = (text: string): boolean =>
+  text.trim() !== '' && text.replace(ANCHORS, '').trim() === ''
 
 ## The site's own pages
 
@@ -360,7 +370,7 @@ const byRelevance: Order.Order<Ranked> = Order.combine(
 
 The results gather by page, and the pages come in the order of their best results. The page that holds the best result of all comes first, the page that holds the best of the rest comes next, and so on. A reader who asks why they should use Loom then meets the Why Loom page first, rather than a page that merely mentions the word.
 
-The book is the one exception, and where it goes depends on where the reader searches from. The book holds by far the most entries, and most of them describe how Loom is built rather than how to use it, so its results would often lead for a reader who wanted the docs. A reader searching from the docs or from one of the site's own pages finds the book last, whatever its results. A reader searching from the book's own pages is reading the source, so there the book comes first.
+The book is the one exception, and it comes last wherever the reader searches from. The book holds by far the most entries, and most of them describe how Loom is built rather than how to use it, so its results would often lead for a reader who wanted the docs or the site's own pages. A reader who wants the source still finds it, at the foot of the list.
 
 Each page keeps its five best results, so no one page can fill the palette. A page with no results drops out.
 
@@ -370,15 +380,15 @@ A result is an entry, the words to show in it, and whether meaning found it. For
 
 const PER_PAGE = 5
 
-const orderOf = (results: ReadonlyArray<Result>, from: Route): ReadonlyArray<Route> => {
-  const pages = pipe(
+const orderOf = (results: ReadonlyArray<Result>): ReadonlyArray<Route> => [
+  ...pipe(
     results,
     Array.map((result) => result.entry.route),
     Array.dedupe,
     Array.filter((route) => route !== 'source'),
-  )
-  return from === 'source' ? ['source', ...pages] : [...pages, 'source']
-}
+  ),
+  'source',
+]
 
 const hitOf = (entry: Entry, needle: string, meaning: boolean): SearchHit => ({
   href: entry.href,
@@ -390,9 +400,9 @@ const hitOf = (entry: Entry, needle: string, meaning: boolean): SearchHit => ({
 
 export type Result = { readonly entry: Entry; readonly words: string; readonly meaning: boolean }
 
-export const groupsOf = (results: ReadonlyArray<Result>, from: Route): ReadonlyArray<SearchGroup> =>
+export const groupsOf = (results: ReadonlyArray<Result>): ReadonlyArray<SearchGroup> =>
   pipe(
-    orderOf(results, from),
+    orderOf(results),
     Array.map((route) => ({
       route,
       hits: pipe(
@@ -405,11 +415,7 @@ export const groupsOf = (results: ReadonlyArray<Result>, from: Route): ReadonlyA
     Array.filter((group) => group.hits.length > 0),
   )
 
-export const searchIn = (
-  index: ReadonlyArray<Entry>,
-  query: string,
-  from: Route,
-): ReadonlyArray<SearchGroup> => {
+export const searchIn = (index: ReadonlyArray<Entry>, query: string): ReadonlyArray<SearchGroup> => {
   const needle = query.trim().toLowerCase()
   return needle.length < MIN_QUERY
     ? []
@@ -419,7 +425,7 @@ export const searchIn = (
         Array.filter((each) => each.rank > 0),
         Array.sort(byRelevance),
         Array.map((each): Result => ({ entry: each.entry, words: needle, meaning: false })),
-        (results) => groupsOf(results, from),
+        groupsOf,
       )
 }
 

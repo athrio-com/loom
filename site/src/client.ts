@@ -26,7 +26,6 @@ import {
   MovedCaret,
   OpenedSearch,
   pathOf,
-  Route,
 } from './model'
 import { CHARACTERS, RUN, struckBy } from './example'
 
@@ -352,18 +351,16 @@ const searchable = (query: string): boolean => query.trim().length >= 2
 
 const decodeGroups = S.decodeUnknownOption(S.Array(SearchGroup))
 
-const searchAddress = (query: string, exact: boolean, from: Route): string =>
-  `/search?q=${encodeURIComponent(query)}&from=${from}${exact ? '&exact=1' : ''}`
+const searchAddress = (query: string, exact: boolean): string =>
+  `/search?q=${encodeURIComponent(query)}${exact ? '&exact=1' : ''}`
 
 const Search = define('Search', {
-  args: { query: S.String, exact: S.Boolean, from: Route },
+  args: { query: S.String, exact: S.Boolean },
   messages: [Found],
-  execute: ({ query, exact, from }) =>
+  execute: ({ query, exact }) =>
     Effect.sleep(SETTLE).pipe(
       Effect.andThen(
-        Effect.tryPromise(() =>
-          fetch(searchAddress(query, exact, from)).then((response) => response.json()),
-        ),
+        Effect.tryPromise(() => fetch(searchAddress(query, exact)).then((response) => response.json())),
       ),
       Effect.map((body) => Option.getOrElse(decodeGroups(body), () => [])),
       Effect.catchCause(() => Effect.succeed([])),
@@ -558,7 +555,7 @@ const update = (model: Model, message: Message): Step =>
         searchable(query)
           ? {
               model: { ...model, query, focus: 0, searching: true },
-              commands: [Search({ query, exact: model.exact, from: model.route })],
+              commands: [Search({ query, exact: model.exact })],
             }
           : { model: { ...model, query, focus: 0, searching: false, found: [] } },
       ToggledExact: () => {
@@ -566,7 +563,7 @@ const update = (model: Model, message: Message): Step =>
         return searchable(model.query)
           ? {
               model: { ...model, exact, focus: 0, searching: true },
-              commands: [Search({ query: model.query, exact, from: model.route }), FocusPalette()],
+              commands: [Search({ query: model.query, exact }), FocusPalette()],
             }
           : { model: { ...model, exact }, commands: [FocusPalette()] }
       },

@@ -42,7 +42,6 @@ import {
   MovedCaret,
   OpenedSearch,
   pathOf,
-  Route,
 } from './model'
 import { CHARACTERS, RUN, struckBy } from './example'
 
@@ -457,7 +456,7 @@ const LandOnFound = define('LandOnFound', {
 
 ## Asking the server
 
-The palette's search runs on the server, which holds the index of every page. `Search` asks it for a query's results. It waits a moment first, so a reader typing a word sends one request for the word rather than one for every letter. A request for each letter would still go out, but each arrives after the next letter has started a newer one, and the update keeps only the answer to the query still in the field. So `Search` answers with `Found`, naming the query it answered and whether it searched by exact words. A search asks for exact words with the `exact` parameter, and otherwise lets the server search by meaning. It also names the route the reader is on, in the `from` parameter, so the server puts the pages that reader most likely wants first. A server that cannot be reached, or an answer that does not decode, finds nothing rather than failing the palette. A query of fewer than two characters is never sent, since the server finds nothing for it either.
+The palette's search runs on the server, which holds the index of every page. `Search` asks it for a query's results. It waits a moment first, so a reader typing a word sends one request for the word rather than one for every letter. A request for each letter would still go out, but each arrives after the next letter has started a newer one, and the update keeps only the answer to the query still in the field. So `Search` answers with `Found`, naming the query it answered and whether it searched by exact words. A search asks for exact words with the `exact` parameter, and otherwise lets the server search by meaning. A server that cannot be reached, or an answer that does not decode, finds nothing rather than failing the palette. A query of fewer than two characters is never sent, since the server finds nothing for it either.
 
 =>
 
@@ -467,18 +466,16 @@ const searchable = (query: string): boolean => query.trim().length >= 2
 
 const decodeGroups = S.decodeUnknownOption(S.Array(SearchGroup))
 
-const searchAddress = (query: string, exact: boolean, from: Route): string =>
-  `/search?q=${encodeURIComponent(query)}&from=${from}${exact ? '&exact=1' : ''}`
+const searchAddress = (query: string, exact: boolean): string =>
+  `/search?q=${encodeURIComponent(query)}${exact ? '&exact=1' : ''}`
 
 const Search = define('Search', {
-  args: { query: S.String, exact: S.Boolean, from: Route },
+  args: { query: S.String, exact: S.Boolean },
   messages: [Found],
-  execute: ({ query, exact, from }) =>
+  execute: ({ query, exact }) =>
     Effect.sleep(SETTLE).pipe(
       Effect.andThen(
-        Effect.tryPromise(() =>
-          fetch(searchAddress(query, exact, from)).then((response) => response.json()),
-        ),
+        Effect.tryPromise(() => fetch(searchAddress(query, exact)).then((response) => response.json())),
       ),
       Effect.map((body) => Option.getOrElse(decodeGroups(body), () => [])),
       Effect.catchCause(() => Effect.succeed([])),
@@ -713,7 +710,7 @@ const update = (model: Model, message: Message): Step =>
         searchable(query)
           ? {
               model: { ...model, query, focus: 0, searching: true },
-              commands: [Search({ query, exact: model.exact, from: model.route })],
+              commands: [Search({ query, exact: model.exact })],
             }
           : { model: { ...model, query, focus: 0, searching: false, found: [] } },
       ToggledExact: () => {
@@ -721,7 +718,7 @@ const update = (model: Model, message: Message): Step =>
         return searchable(model.query)
           ? {
               model: { ...model, exact, focus: 0, searching: true },
-              commands: [Search({ query: model.query, exact, from: model.route }), FocusPalette()],
+              commands: [Search({ query: model.query, exact }), FocusPalette()],
             }
           : { model: { ...model, exact }, commands: [FocusPalette()] }
       },
