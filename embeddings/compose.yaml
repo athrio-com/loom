@@ -1,6 +1,6 @@
 services:
   embeddings:
-    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.4
     command:
       - --model-id
       - Snowflake/snowflake-arctic-embed-m-v1.5

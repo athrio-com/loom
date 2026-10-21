@@ -202,7 +202,7 @@ The words often have to cross a page load. Most results lead to another page, wh
 
 const LANDING = 'loom-landing'
 
-const Landing = S.Struct({ address: S.String, words: S.String, before: S.String })
+const Landing = S.Struct({ address: S.String, words: S.String, before: S.String, area: S.Boolean })
 type Landing = typeof Landing.Type
 
 const addressOf = (url: URL): string => `${url.pathname}${url.hash}`
@@ -231,7 +231,13 @@ const takeLanding: Effect.Effect<Option.Option<Landing>> = Effect.try(() => {
 
 Landing reads only the page's own content, inside its `main` element, and skips the text a reader does not read there: the nav and the chapter menu, the footer, the script that carries the page's model, and anything the page is not showing, such as the drawer that stands in for the menu on a narrow screen. The menu often holds the very words a reader searched for, and a match there would mark the wrong place.
 
-An address that names a section reads the content after that section's heading. A section's heading often holds the same words as its text, so the text comes first, and the heading answers only when the words are nowhere after it. That is the case when a section matched by its heading alone. An address with no section reads the whole content from the top.
+An address names a section in one of two ways. In the docs and the book it names the section's heading, and the section's text follows the heading rather than sitting inside it. There landing reads the content after the heading. A section's heading often holds the same words as its text, so the text comes first, and the heading answers only when the words are nowhere after it. That is the case when a section matched by its heading alone.
+
+On the site's own pages the address names the section itself, an element that holds its heading and its text together. There landing reads inside the section first, and only then the content after it. Reading only after it would pass over the whole section and land on the next page's worth of words, such as the pager at the foot of the page.
+
+An address with no section reads the whole content from the top.
+
+A line found by meaning is the palette's window onto a section, and the window is cut from the search index's text, which joins the section's paragraphs and items with spaces. On the page those are separate blocks with nothing between them, so a line that runs from the end of one block into the next is nowhere on the page as a whole. When a line is not found, landing tries again with its first half, then the half of that, down to twelve characters. A shorter line is less sure of its place, but it still lands in the right section, and the block it lands in is the one the line began in.
 
 =>
 
@@ -252,6 +258,8 @@ const headingOf = (url: URL): Option.Option<HTMLElement> =>
 
 const follows = (heading: Node, text: Text): boolean =>
   !heading.contains(text) && (heading.compareDocumentPosition(text) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
+
+const isHeading = (element: HTMLElement): boolean => /^H[1-6]$/.test(element.tagName)
 
 ~
 
@@ -300,15 +308,35 @@ const rangeIn = (texts: ReadonlyArray<Text>, words: string, before: string): Opt
   )
 }
 
-const rangeOf = (url: URL, landing: Landing): Option.Option<Range> => {
+const shorterLine = (landing: Landing): Option.Option<Landing> =>
+  Option.liftPredicate(
+    { ...landing, words: landing.words.slice(0, Math.floor(landing.words.length / 2)).trim() },
+    (shorter) => landing.area && shorter.words.length >= 12,
+  )
+
+const rangeOf = (url: URL, landing: Landing): Option.Option<Range> =>
+  pipe(
+    rangeAt(url, landing),
+    Option.orElse(() => Option.flatMap(shorterLine(landing), (shorter) => rangeOf(url, shorter))),
+  )
+
+const rangeAt = (url: URL, landing: Landing): Option.Option<Range> => {
   const texts = Array.filter(textsIn(contentOf()), readable)
   return Option.match(headingOf(url), {
     onNone: () => rangeIn(texts, landing.words, landing.before),
-    onSome: (heading) =>
-      pipe(
-        rangeIn(Array.filter(texts, (text) => follows(heading, text)), landing.words, landing.before),
-        Option.orElse(() => rangeIn(textsIn(heading), landing.words, '')),
-      ),
+    onSome: (target) => {
+      const inside = Array.filter(texts, (text) => target.contains(text))
+      const after = Array.filter(texts, (text) => follows(target, text))
+      return isHeading(target)
+        ? pipe(
+            rangeIn(after, landing.words, landing.before),
+            Option.orElse(() => rangeIn(textsIn(target), landing.words, '')),
+          )
+        : pipe(
+            rangeIn(inside, landing.words, landing.before),
+            Option.orElse(() => rangeIn(after, landing.words, landing.before)),
+          )
+    },
   })
 }
 
@@ -318,16 +346,35 @@ Once found, the words take a mark and scroll smoothly to the middle of the windo
 
 The mark is a highlight rather than a selection. A selection wears the site's quiet green wash, made for text the reader picked out, and inside a coloured command chip that wash all but vanishes. So the words are registered as a highlight named `found`, which the stylesheet paints as an amber marker, the colour a browser's own find paints its matches. A highlight leaves the page's markup alone, so the view Foldkit owns is never touched. It stays until the reader's next press anywhere on the page, which clears it. A browser without highlights selects the words instead.
 
+A result found by meaning marks an area instead of words. The section was found because the whole of it lay near the question, so no word in it deserves the marker. Its landing finds the line the palette showed and marks the block that line sits in: its paragraph, its list item, its code block, or its heading. The area takes a highlight of its own, `found-area`, which the stylesheet washes in the same amber at a third of its strength, since a whole paragraph in full marker would shout. An area taller than most of the window scrolls to its top rather than its middle, so the reader starts reading it from its first line.
+
 =>
 
 const FOUND = 'found'
 
-const highlightWords = (range: Range): Option.Option<void> =>
+const FOUND_AREA = 'found-area'
+
+const BLOCKS = 'p, li, pre, blockquote, td, th, dd, dt, figcaption, h1, h2, h3, h4, h5, h6'
+
+const areaOf = (range: Range): Range =>
+  pipe(
+    Option.fromNullishOr(range.startContainer.parentElement?.closest(BLOCKS)),
+    Option.match({
+      onNone: () => range,
+      onSome: (block) => {
+        const area = document.createRange()
+        area.selectNodeContents(block)
+        return area
+      },
+    }),
+  )
+
+const highlightWords = (range: Range, name: string): Option.Option<void> =>
   pipe(
     Option.liftPredicate(globalThis.CSS, (css) => css !== undefined && 'highlights' in css),
     Option.map((css) => {
-      css.highlights.set(FOUND, new Highlight(range))
-      window.addEventListener('pointerdown', () => css.highlights.delete(FOUND), { once: true })
+      css.highlights.set(name, new Highlight(range))
+      window.addEventListener('pointerdown', () => css.highlights.delete(name), { once: true })
     }),
   )
 
@@ -340,12 +387,23 @@ const selectWords = (range: Range): void =>
     },
   })
 
-const markWords = (range: Range): void => {
-  Option.match(highlightWords(range), { onNone: () => selectWords(range), onSome: () => undefined })
+const scrollTo = (range: Range): void =>
   Option.match(Option.fromNullishOr(range.startContainer.parentElement), {
     onNone: () => undefined,
-    onSome: (element) => element.scrollIntoView({ behavior: 'smooth', block: 'center' }),
+    onSome: (element) =>
+      element.scrollIntoView({
+        behavior: 'smooth',
+        block: range.getBoundingClientRect().height > window.innerHeight * 0.6 ? 'start' : 'center',
+      }),
   })
+
+const markWords = (landing: Landing) => (found: Range): void => {
+  const marked = landing.area ? areaOf(found) : found
+  Option.match(highlightWords(marked, landing.area ? FOUND_AREA : FOUND), {
+    onNone: () => selectWords(marked),
+    onSome: () => undefined,
+  })
+  scrollTo(marked)
 }
 
 const here = (): string => addressOf(new URL(window.location.href))
@@ -355,8 +413,9 @@ const land: Effect.Effect<void> = takeLanding.pipe(
     pipe(
       landing,
       Option.filter((kept) => kept.address === here()),
-      Option.flatMap((kept) => rangeOf(new URL(kept.address, window.location.href), kept)),
-      Option.match({ onNone: () => undefined, onSome: markWords }),
+      Option.flatMap((kept) =>
+        Option.map(rangeOf(new URL(kept.address, window.location.href), kept), (found) => markWords(kept)(found)),
+      ),
     ),
   ),
 )
@@ -372,11 +431,11 @@ const land: Effect.Effect<void> = takeLanding.pipe(
 const onThisPage = (url: URL): boolean => url.pathname === window.location.pathname
 
 const OpenFound = define('OpenFound', {
-  args: { href: S.String, words: S.String, before: S.String },
+  args: { href: S.String, words: S.String, before: S.String, area: S.Boolean },
   messages: [ClosedSearch],
-  execute: ({ href, words, before }) => {
+  execute: ({ href, words, before, area }) => {
     const url = new URL(href, window.location.href)
-    return keepLanding({ address: addressOf(url), words, before }).pipe(
+    return keepLanding({ address: addressOf(url), words, before, area }).pipe(
       Effect.andThen(Effect.sync(() => window.location.assign(href))),
       Effect.andThen(
         onThisPage(url) ? Effect.sleep('30 millis').pipe(Effect.andThen(land)) : Effect.void,
@@ -534,13 +593,15 @@ const GlideToCard = define('GlideToCard', {
 
 ## The update
 
-Most messages set one field: the query, the focus clamped to the results, the loom tab's view. Following a link records the page it led to and closes the palette behind it, unless the page is the source page and the client holds no book to draw it with. Then the current page stays, and `LoadPage` sends the browser for the source page instead. Opening a documentation chapter records its slug, clears the section the menu was following, since the previous chapter's headings are no longer on the page, shuts the drawer behind the reader, and scrolls back to the top. Opening the palette puts the focus on its first result and the keyboard in its field; closing it clears the query, the focus, the caret and the results together, so the palette opens empty the next time. Moving the caret records where it now sits. Typing records the query and, once it is long enough to search, marks a search as on its way and runs `Search`. Turning the exact switch flips how the palette searches, runs the search again for the query in the field, and puts the keyboard back in the field, since the reader's click took it away. Results arrive as `Found`, and the update keeps them only when they answer the query still in the field, searched the way the switch still says. Opening a result hands its address and its words to `OpenFound`, which leaves for the result and picks the words out once it gets there. The example's messages move a position rather than set a flag: playing from the end starts again from the first character, a frame advances the clock and asks the stage to follow the caret, and skipping jumps both the clock and the stage to the foot. Going back to the start puts the clock, the height and the stage all back where they began — the document at its first character, the card down from full height, and the stage at the head of the document rather than wherever the reader stopped reading.
+Most messages set one field: the query, the focus clamped to the results, the loom tab's view. Following a link records the page it led to and closes the palette behind it, unless the page is the source page and the client holds no book to draw it with. Then the current page stays, and `LoadPage` sends the browser for the source page instead. Opening a documentation chapter records its slug, clears the section the menu was following, since the previous chapter's headings are no longer on the page, shuts the drawer behind the reader, and scrolls back to the top. Opening the palette puts the focus on its first result and the keyboard in its field; closing it clears the query, the focus, the caret and the results together, so the palette opens empty the next time. Moving the caret records where it now sits. Typing records the query and, once it is long enough to search, marks a search as on its way and runs `Search`. Turning the exact switch flips how the palette searches, runs the search again for the query in the field, and puts the keyboard back in the field, since the reader's click took it away. Results arrive as `Found`, and the update keeps them only when they answer the query still in the field, searched the way the switch still says. The focus then rests on the first result rather than on the heading of the page it sits under, since the first result is the best one, and Enter should open it. Opening a result hands its address and its words to `OpenFound`, which leaves for the result and picks the words out once it gets there. The example's messages move a position rather than set a flag: playing from the end starts again from the first character, a frame advances the clock and asks the stage to follow the caret, and skipping jumps both the clock and the stage to the foot. Going back to the start puts the clock, the height and the stage all back where they began — the document at its first character, the card down from full height, and the stage at the head of the document rather than wherever the reader stopped reading.
 
 Asking for full height is the one press that changes nothing at once. It runs the glide and waits: the page arrives at the card, `GrewCard` comes back, and only then does the height open. Giving the height back is immediate, since nothing has to travel first. Asking for a command's file toggles it, so pressing the same button twice closes what it opened. Selecting a section sets the active one, shuts the drawer if the section was picked from it, and asks the window to scroll to the section's heading. A section spotted while the reader scrolls sets the active one too, but runs nothing, so the outline follows the scroll rather than fighting it. Copying flashes the pressed button and runs its reset.
 
 =>
 
 const clamp = (value: number, max: number): number => Math.max(0, Math.min(max, value))
+
+const firstResult = (groups: ReadonlyArray<SearchGroup>): number => (groups.length > 0 ? 1 : 0)
 
 const CHARS_PER_SECOND = 26
 
@@ -666,9 +727,12 @@ const update = (model: Model, message: Message): Step =>
       },
       Found: ({ query, exact, groups }) =>
         query === model.query && exact === model.exact
-          ? { model: { ...model, found: groups, searching: false } }
+          ? { model: { ...model, found: groups, searching: false, focus: firstResult(groups) } }
           : { model },
-      OpenedHit: ({ href, words, before }) => ({ model, commands: [OpenFound({ href, words, before })] }),
+      OpenedHit: ({ href, words, before, area }) => ({
+        model,
+        commands: [OpenFound({ href, words, before, area })],
+      }),
       MovedFocus: ({ delta, count }) => ({
         model: { ...model, focus: clamp(model.focus + delta, Math.max(0, count - 1)) },
       }),

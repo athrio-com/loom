@@ -134,6 +134,8 @@ The same step weaves Loom's own book, `corpus/book.loom`, for the source page. T
 
 Once the book is woven, the step colours its code. The `colour:source` script runs the program in `src/colour.ts`, which writes the book in colour to `source.coloured.json`, the file the server reads. The coloured book is never committed either, for the same reason as the woven one.
 
+Once the book is coloured, the `embed` script asks the embedding service for vectors for every search entry that has none, the program Part XII describes. Before `dev` it gives way quietly when the service is not running, so the site starts as it always did and searches by words. Continuous integration runs it strictly, before the image is built.
+
 Because the book is never committed, a fresh checkout has none until the step runs. The step runs before every `dev`, not only when the woven book is missing. Weaving the book and colouring it take about six seconds, and in return every session starts from the corpus as it stands rather than from a book an earlier session left behind.
 
 Each weave is pointed at a *file* rather than at a directory, because weaving takes the corpus around the path it is given and a directory resolves to the one above it.
@@ -156,7 +158,8 @@ The rest follow from that. The `build` command writes the bundle to `dist`, then
     "weave:source": "bun ../packages/loom/src/main.ts weave ../corpus/book.loom src/source.woven.json",
     "colour:source": "bun src/colour.ts",
     "content": "bun run weave:docs && bun run weave:source && bun run colour:source",
-    "predev": "bun run content",
+    "embed": "bun src/embed.ts",
+    "predev": "bun run content && bun run embed",
     "dev": "bun src/dev.ts",
     "prebuild": "bun run content",
     "build": "bunx --bun vite build && bun src/render-ahead.ts",

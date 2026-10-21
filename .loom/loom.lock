@@ -127,6 +127,7 @@
     "site/src/components.ts",
     "site/src/dev.ts",
     "site/src/docs-page.ts",
+    "site/src/embed.ts",
     "site/src/example.ts",
     "site/src/hero.ts",
     "site/src/landing.css",

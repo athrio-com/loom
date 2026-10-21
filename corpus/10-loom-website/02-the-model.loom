@@ -31,7 +31,7 @@ export type Runtime = typeof Runtime.Type
 
 Six fields carry the search palette, which opens over whatever page is showing: whether it is open, where the caret sits inside the query, whether a search is on its way back from the server, the results the server found, and, further down beside the older fields, the query itself and the focused result. The palette draws its own block caret rather than the browser's, so the caret's position has to be state instead of something the input keeps to itself.
 
-The server answers a query with groups of results, one group for each page of the site that has any: the docs, the book, and each of the site's own pages. A result is one section that matched. It carries the address of that section, the chapter or page it sits on, and its heading, which together tell a reader where the result is. It also carries a window onto the section's text, cut into the words before the match, the match itself and the words after, so the palette can pick the match out in colour.
+The server answers a query with groups of results, one group for each page of the site that has any: the docs, the book, and each of the site's own pages. A result is one section that matched. It carries the address of that section, the chapter or page it sits on, and its heading, which together tell a reader where the result is. It also carries a window onto the section's text, cut into the words before the match, the match itself and the words after, so the palette can pick the match out in colour. And it says whether the search found it by meaning rather than by its words, because a section found by meaning has no words that are the reason it was found, and the page it opens marks it differently.
 
 =>
 
@@ -42,6 +42,7 @@ export const SearchHit = S.Struct({
   pre: S.String,
   hit: S.String,
   post: S.String,
+  meaning: S.Boolean,
 })
 export type SearchHit = typeof SearchHit.Type
 
@@ -227,7 +228,7 @@ The reader does a handful of things. They follow a link to another page, and the
 
 In the example they press play, pause it partway, send it back to the start, or skip to the end, and while it runs each frame advances the clock. They also ask for the card at the height of the window; the page glides to the card first and the height opens only once it has arrived, which is a second message rather than the same one. Once the document has finished they ask for the file one of the two commands writes. Each frame the document may also need moving under the caret, and the answer to that says it has been done.
 
-In the documentation they open a chapter, jump to one of its sections, and — scrolling by hand instead — let the outline follow them. They type into the palette, switch between searching by meaning and by exact words, move its focus with the arrows, and open a result, which carries the words the page should pick out once it opens, and the few characters that come before them there. They copy a command, and a moment later the flash resets.
+In the documentation they open a chapter, jump to one of its sections, and — scrolling by hand instead — let the outline follow them. They type into the palette, switch between searching by meaning and by exact words, move its focus with the arrows, and open a result, which carries the words the page should pick out once it opens, the few characters that come before them there, and whether to mark the words alone or the whole area they sit in. They copy a command, and a moment later the flash resets.
 
 Foldkit declares every message in one place, as a table from each tag to the fields it carries. The `defineMessageUnion` function turns that table into a schema that checks a message and a constructor for each tag. The module also exports each constructor under its own name, so the views and the update write `WentTo({ route })` rather than reaching through the union every time.
 
@@ -245,7 +246,7 @@ export const Message = defineMessageUnion({
   MovedCaret: { at: S.Number },
   Found: { query: S.String, exact: S.Boolean, groups: S.Array(SearchGroup) },
   ToggledExact: {},
-  OpenedHit: { href: S.String, words: S.String, before: S.String },
+  OpenedHit: { href: S.String, words: S.String, before: S.String, area: S.Boolean },
   ToggledPlay: {},
   ReplayedDocument: {},
   SkippedToEnd: {},

@@ -6,48 +6,130 @@ Language: TypeScript
 
 # Matching by meaning
 
-The site's server answers the palette's searches, and until now it matched the query's words. The `Meaning` service lets it match the query's meaning instead. It asks the embedding service for a vector for every entry in the search index and keeps them, then asks for a vector for each query and ranks the entries by how near they lie. The search by words stays, for two reasons. A reader can ask for it outright, by turning the palette's exact switch on. And the server falls back to it whenever meaning has no answer, because the service is unreachable, because the entries' vectors are not ready yet, or because nothing lies near enough to the query to count.
+The site's server answers the palette's searches, and until now it matched the query's words. The `Meaning` service lets it match the query's meaning instead. Every entry in the search index has a vector, and each query gets one as it arrives. The entries are ranked by how near their vectors lie to the query's.
+
+The search by words stays, for two reasons. A reader can ask for it outright, by turning the palette's exact switch on. And the server falls back to it whenever meaning has no answer: when the embedding service is unreachable, when no entry has a vector yet, or when nothing lies near enough to the query to count.
 
 ## Where the service answers
 
 The server finds the embedding service at the address in its `LOOM_EMBEDDINGS` setting. On a developer's machine nothing sets it, and the server looks on port 8090, where the developer's own service answers. In the cluster the deployment sets it to the service's address there.
 
-The service answers one request, `/embed`, with one vector for each text it was sent, as an array of arrays of numbers. Each vector arrives normalised to length one, so the nearness of two vectors is their dot product: the larger it is, the nearer the meaning. A query goes in with the prompt name `query`, which tells the service to put the model's instruction for queries in front of it, and an entry goes in bare.
+The service answers two requests. `/embed` takes a list of texts and returns one vector for each, as an array of arrays of numbers. `/info` describes the model the service runs, and among other things names the revision it loaded, as `model_sha`. A vector is only comparable with vectors from the same revision, so the revision is how the site tells whether the vectors it kept are still good.
+
+A query goes to `/embed` with the prompt name `query`, which tells the service to put the model's instruction for queries in front of it. An entry goes in bare. Each vector arrives normalised to length one, so the nearness of two vectors is their dot product: the larger it is, the nearer the meaning.
+
+`Embeddings` is the site's client for the service. The server uses it to embed queries and the entries it has no vectors for, and the build uses it to embed the whole index, in the next chapter.
 
 =>
 
 const Vectors = S.Array(S.Array(S.Number))
 
-type Vector = ReadonlyArray<number>
+const Info = S.Struct({ model_sha: S.String })
+
+export type Vector = ReadonlyArray<number>
+
+export class Embeddings extends Context.Service<Embeddings>()('Embeddings', {
+  make: Effect.gen(function* () {
+    const client = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
+    const service = yield* Config.String('LOOM_EMBEDDINGS').pipe(Config.withDefault('http://localhost:8090'))
+    return {
+      embed: (inputs: ReadonlyArray<string>, prompt: Option.Option<string>) =>
+        client
+          .execute(
+            HttpClientRequest.bodyJsonUnsafe(HttpClientRequest.post(`${service}/embed`), {
+              inputs,
+              normalize: true,
+              truncate: true,
+              ...Option.match(prompt, { onNone: () => ({}), onSome: (name) => ({ prompt_name: name }) }),
+            }),
+          )
+          .pipe(Effect.flatMap(HttpClientResponse.schemaBodyJson(Vectors))),
+      revision: client
+        .execute(HttpClientRequest.get(`${service}/info`))
+        .pipe(
+          Effect.flatMap(HttpClientResponse.schemaBodyJson(Info)),
+          Effect.map((info) => info.model_sha),
+        ),
+    } as const
+  }),
+}) {
+  static readonly layer = Layer.effect(this, this.make).pipe(Layer.provide(FetchHttpClient.layer))
+}
 
 const nearness = (one: Vector, other: Vector): number =>
   Array.reduce(one, 0, (sum, value, at) => sum + value * (other[at] ?? 0))
 
-~
+## An entry, as the model reads it
 
 An entry is embedded as the reader sees it in the palette: the chapter or page it sits on, its heading, then its text. The heading carries a great deal of a section's meaning in a few words, and a section titled *Watching* is found by a question about saving far more easily when the model reads that title too. The service cuts a long passage down to the model's limit of 512 tokens, the first few hundred words, which is where a section says what it is about.
 
+An entry's key is a hash of exactly that passage, SHA-256 written out in hexadecimal. Two builds of the site share most of their entries, since a change to the book touches a few sections at a time, and the key is what lets a vector made for one build serve the next. An entry whose text changed has a new key, and so no vector until it is embedded again. An entry that did not change keeps its key, and its vector with it.
+
 =>
 
-const passageOf = (entry: Entry): string => `${entry.place} — ${entry.heading}\n${entry.text}`
+export const passageOf = (entry: Entry): string => `${entry.place} — ${entry.heading}\n${entry.text}`
 
-## Embedding the index
+export const keyOf = (entry: Entry): string => createHash('sha256').update(passageOf(entry)).digest('hex')
 
-The index holds nearly nine hundred entries, and embedding them all takes the service minutes rather than milliseconds. So the server does not wait for them. The first search starts the embedding in a fiber of its own and is answered by words, as is every search after it, until the vectors are ready. A development server restarts on every tangle, and embedding on every start would keep the service busy for no one. Embedding on the first search costs nothing until someone searches.
+## The vectors, kept
 
-The entries go to the service thirty-two at a time, the most it takes in one request. A batch that fails stops the whole pass, which leaves the index without vectors. The service may simply not be running, or still loading its model, so the pass waits a minute and starts again, for as long as the server runs. It runs once at a time: a search that arrives while it is under way leaves it alone.
+The vectors live in one file, `site/.cache/meaning.json`, which the next chapter's build writes. It names the revision of the model that made them and maps each entry's key to its vector. Git ignores the file, since it is derived from the book, but Docker copies it into the image with the rest of the site, so an image carries the vectors for its own index.
+
+A vector is 768 numbers. Written as JSON text, the whole index would come to some thirteen megabytes. So each vector is kept as its 768 numbers in single precision, the 32-bit floating point the model itself works in, encoded as base64 text, which brings the file to under four megabytes. A file that is missing, unreadable or of the wrong shape counts as no file at all.
+
+=>
+
+export const Store = S.Struct({ revision: S.String, vectors: S.Record(S.String, S.String) })
+
+export type Store = typeof Store.Type
+
+export const storePath = join(dirname(fileURLToPath(import.meta.url)), '..', '.cache', 'meaning.json')
+
+export const encodeVector = (vector: Vector): string =>
+  Buffer.from(new Float32Array(vector).buffer).toString('base64')
+
+const decodeVector = (text: string): Vector =>
+  Array.fromIterable(new Float32Array(new Uint8Array(Buffer.from(text, 'base64')).buffer))
+
+const decodeStore = S.decodeUnknownOption(Store)
+
+export const readStore = (fs: FileSystem.FileSystem): Effect.Effect<Option.Option<Store>> =>
+  fs.readFileString(storePath).pipe(
+    Effect.map((text) =>
+      Option.flatMap(Option.liftThrowable((json: string): unknown => JSON.parse(json))(text), decodeStore),
+    ),
+    Effect.catchCause(() => Effect.succeed(Option.none())),
+  )
+
+~
+
+Entries go to the service thirty-two at a time, the most it takes in one request, and the vectors come back in the order the entries went.
 
 =>
 
 const BATCH = 32
 
+export const embedAll = (embeddings: Embeddings['Service'], passages: ReadonlyArray<string>) =>
+  Effect.map(
+    Effect.forEach(Array.chunksOf(passages, BATCH), (batch) => embeddings.embed(batch, Option.none())),
+    Array.flatten,
+  )
+
+## Trusting the kept vectors
+
+The server reads the file when it starts, but it does not use the vectors until it knows they match the model the service is running. On the first search it asks the service for its revision. A file made by the same revision is adopted whole. A file made by another revision, or no file, leaves the server with no vectors, and every entry is embedded again. The question is asked once. A service that cannot answer it is asked again on the next search.
+
+Entries the file has no vector for are embedded in the background. On a developer's machine these are the sections changed since the file was last written. In the cluster there are none, because the build embedded the whole index the image carries. Only the missing entries go to the service, in a fiber of the server's own, and the search that noticed them is answered at once with the vectors already in hand. Should a batch fail, the fiber waits a minute and tries again. Only one such fiber runs at a time.
+
+=>
+
 const RETRY = Schedule.spaced('1 minute')
 
 ## Answering by meaning
 
-A query is answered by meaning only once every entry has its vector. The query's own vector is compared with all of them, and the entries are ranked from the nearest down.
+A query is ranked against every entry that has a vector. The query's vector is compared with each, and the entries are ranked from the nearest down.
 
-Not every entry is near. Every entry has some nearness to every query, so a ranking always has a first place, even for a question the site has no answer to. A threshold separates the entries the query is about from the ones it merely sits beside. It was measured on this book. For eight questions about something else entirely, recipes and football and the weather, the nearest entry lay no nearer than 0.28. For twenty-five of twenty-six real questions, the right section lay at 0.30 or nearer. The one exception was a question about rebuilding on every save, whose section the model had ranked twentieth anyway. The threshold sits between the two, at 0.29. A query whose entries all fall below the threshold has no answer by meaning, and the server answers it by words, which may still find the exact phrase.
+Not every entry is near. Every entry has some nearness to every query, so a ranking always has a first place, even for a question the site has no answer to. A threshold separates the entries the query is about from the ones it merely sits beside. It was measured on this book. For eight questions about something else entirely, recipes and football and the weather, the nearest entry lay no nearer than 0.28. For twenty-five of twenty-six real questions, the right section lay at 0.30 or nearer. The one exception was a question about rebuilding on every save, whose section the model had ranked twentieth anyway. The threshold sits between the two, at 0.29. A query whose entries all fall below it has no answer by meaning, and the server answers it by words, which may still find the exact phrase.
 
 =>
 
@@ -55,7 +137,7 @@ const THRESHOLD = 0.29
 
 ~
 
-A result by meaning still shows words from its entry, and the palette still picks some out in colour. Those words are the query's longest word that the entry holds as it is, so a reader sees why the entry was found where the reason is visible. That word also travels with the result, so the page the reader opens marks it. An entry that holds none of the query's words, found on meaning alone, picks out nothing and shows the start of its text.
+A result by meaning still shows words from its entry, and the palette still picks some out in colour. Those words are the query's longest word that the entry holds as it is, so a reader sees why the entry was found where the reason is visible. An entry that holds none of the query's words, found on meaning alone, picks out nothing and shows the start of its text. Either way the result says it was found by meaning, and the page the reader opens marks the area that holds the line the palette showed rather than a word, since no word is the reason the section was found.
 
 =>
 
@@ -70,51 +152,66 @@ const wordsIn = (entry: Entry, query: string): string =>
 
 ## The service
 
-`Meaning` holds the vectors once they are ready, a flag that says whether a pass is under way, and the client it reaches the service with. `rank` answers a query with its results by meaning, or with none, and none is the server's cue to search by words. A query that fails at the service, because the service has gone away since the entries were embedded, also answers none.
+`Meaning` holds the vectors it trusts, keyed by entry, and two flags: whether the kept vectors have been checked against the service, and whether a fiber is filling in the missing ones. `rank` answers a query with its results by meaning, or with none, and none is the server's cue to search by words. A query that fails at the service, because the service has gone away, also answers none.
 
 =>
 
+type Keyed = { readonly entry: Entry; readonly key: string }
+
+type Ready = Keyed & { readonly vector: Vector }
+
 export class Meaning extends Context.Service<Meaning>()('Meaning', {
   make: Effect.gen(function* () {
-    const client = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
-    const service = yield* Config.String('LOOM_EMBEDDINGS').pipe(Config.withDefault('http://localhost:8090'))
-    const vectors = yield* Ref.make<Option.Option<ReadonlyArray<Vector>>>(Option.none())
-    const embedding = yield* Ref.make(false)
+    const embeddings = yield* Embeddings
+    const kept = yield* readStore(yield* FileSystem.FileSystem)
+    const known = yield* Ref.make<ReadonlyMap<string, Vector>>(new Map())
+    const checked = yield* Ref.make(false)
+    const filling = yield* Ref.make(false)
 
-    const embed = (inputs: ReadonlyArray<string>, prompt: Option.Option<string>) =>
-      client
-        .execute(
-          HttpClientRequest.bodyJsonUnsafe(HttpClientRequest.post(`${service}/embed`), {
-            inputs,
-            normalize: true,
-            truncate: true,
-            ...Option.match(prompt, { onNone: () => ({}), onSome: (name) => ({ prompt_name: name }) }),
-          }),
-        )
-        .pipe(Effect.flatMap(HttpClientResponse.schemaBodyJson(Vectors)))
-
-    const embedIndex = (index: ReadonlyArray<Entry>) =>
-      Effect.forEach(Array.chunksOf(Array.map(index, passageOf), BATCH), (batch) => embed(batch, Option.none())).pipe(
-        Effect.map(Array.flatten),
-        Effect.flatMap((all) => Ref.set(vectors, Option.some(all))),
-        Effect.retry(RETRY),
+    const adopt = (revision: string): ReadonlyMap<string, Vector> =>
+      Option.match(
+        Option.filter(kept, (store) => store.revision === revision),
+        {
+          onNone: () => new Map(),
+          onSome: (store) =>
+            new Map(Array.map(Object.entries(store.vectors), ([key, text]) => [key, decodeVector(text)] as const)),
+        },
       )
 
-    const startEmbedding = (index: ReadonlyArray<Entry>) =>
-      Effect.flatMap(Ref.getAndSet(embedding, true), (under) =>
-        under ? Effect.void : Effect.asVoid(Effect.forkDetach(embedIndex(index))),
-      )
+    const check = Effect.flatMap(Ref.getAndSet(checked, true), (done) =>
+      done
+        ? Effect.void
+        : embeddings.revision.pipe(
+            Effect.flatMap((revision) => Ref.set(known, adopt(revision))),
+            Effect.catchCause(() => Ref.set(checked, false)),
+          ),
+    )
 
-    const ranked = (index: ReadonlyArray<Entry>, all: ReadonlyArray<Vector>, query: string) =>
-      Effect.map(embed([query], Option.some('query')), (answer) =>
+    const fill = (missing: ReadonlyArray<Keyed>) =>
+      Effect.flatMap(embedAll(embeddings, Array.map(missing, ({ entry }) => passageOf(entry))), (vectors) =>
+        Ref.update(
+          known,
+          (have) => new Map([...have, ...Array.zip(Array.map(missing, ({ key }) => key), vectors)]),
+        ),
+      ).pipe(Effect.retry(RETRY), Effect.ensuring(Ref.set(filling, false)))
+
+    const startFilling = (missing: ReadonlyArray<Keyed>) =>
+      missing.length === 0
+        ? Effect.void
+        : Effect.flatMap(Ref.getAndSet(filling, true), (under) =>
+            under ? Effect.void : Effect.asVoid(Effect.forkDetach(fill(missing))),
+          )
+
+    const ranked = (ready: ReadonlyArray<Ready>, query: string) =>
+      Effect.map(embeddings.embed([query], Option.some('query')), (answer) =>
         pipe(
           Option.fromNullishOr(answer[0]),
           Option.map((asked) =>
             pipe(
-              Array.zipWith(index, all, (entry, vector) => ({ entry, near: nearness(asked, vector) })),
+              Array.map(ready, ({ entry, vector }) => ({ entry, near: nearness(asked, vector) })),
               Array.filter((each) => each.near >= THRESHOLD),
               Array.sort(Order.mapInput(Order.flip(Order.Number), (each: { near: number }) => each.near)),
-              Array.map((each): Result => ({ entry: each.entry, words: wordsIn(each.entry, query) })),
+              Array.map((each): Result => ({ entry: each.entry, words: wordsIn(each.entry, query), meaning: true })),
             ),
           ),
           Option.filter((results) => results.length > 0),
@@ -123,26 +220,55 @@ export class Meaning extends Context.Service<Meaning>()('Meaning', {
 
     return {
       rank: (index: ReadonlyArray<Entry>, query: string): Effect.Effect<Option.Option<ReadonlyArray<Result>>> =>
-        Effect.flatMap(Ref.get(vectors), (ready) =>
-          Option.match(ready, {
-            onNone: () => Effect.as(startEmbedding(index), Option.none()),
-            onSome: (all) => ranked(index, all, query),
-          }),
-        ).pipe(Effect.catchCause(() => Effect.succeed(Option.none()))),
+        Effect.gen(function* () {
+          yield* check
+          const have = yield* Ref.get(known)
+          const [ready, missing] = Array.partition(
+            Array.map(index, (entry): Keyed => ({ entry, key: keyOf(entry) })),
+            (each): Result_.Result<Ready, Keyed> =>
+              Option.match(Option.fromNullishOr(have.get(each.key)), {
+                onNone: () => Result_.fail(each),
+                onSome: (vector) => Result_.succeed({ ...each, vector }),
+              }),
+          )
+          yield* startFilling(missing)
+          return ready.length === 0 ? Option.none() : yield* ranked(ready, query)
+        }).pipe(Effect.catchCause(() => Effect.succeed(Option.none()))),
     } as const
   }),
 }) {
-  static readonly layer = Layer.effect(this, this.make).pipe(Layer.provide(FetchHttpClient.layer))
+  static readonly layer = Layer.effect(this, this.make).pipe(
+    Layer.provide(Embeddings.layer),
+    Layer.provide(BunServices.layer),
+  )
 }
 
 ## What matching by meaning draws on
 
-From `effect` come `Array`, `Config`, `Context`, `Effect`, `Layer`, `Option`, `Order`, `Ref`, `Schedule`, `Schema` and `pipe`. From `effect/http` come the client, its requests and responses, and the client that runs over `fetch`. The search module lends the shape of an entry and of a result.
+From `effect` come `Array`, `Config`, `Context`, `Effect`, `FileSystem`, `Layer`, `Option`, `Order`, `Ref`, `Result`, `Schedule`, `Schema` and `pipe`. `Result` is Effect's success-or-failure value, which `Array.partition` sorts the entries by, and it is imported as `Result_` because the search module's `Result`, a search result, already has the name. From `effect/http` come the client, its requests and responses, and the client that runs over `fetch`. `@effect/platform-bun` lends the file system the server reads the kept vectors with. From Node come the hash that keys an entry and the path to the kept vectors. The search module lends the shape of an entry and of a result.
 
 =>
 
-import { Array, Config, Context, Effect, Layer, Option, Order, pipe, Ref, Schedule, Schema as S } from 'effect'
+import {
+  Array,
+  Config,
+  Context,
+  Effect,
+  FileSystem,
+  Layer,
+  Option,
+  Order,
+  pipe,
+  Ref,
+  Result as Result_,
+  Schedule,
+  Schema as S,
+} from 'effect'
 import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from 'effect/http'
+import { BunServices } from '@effect/platform-bun'
+import { createHash } from 'node:crypto'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { Entry, Result } from './search'
 
 ## The module {Tangle}[meaning.ts]
@@ -153,7 +279,11 @@ import type { Entry, Result } from './search'
 
 ::[Where the service answers]
 
-::[Embedding the index]
+::[An entry, as the model reads it]
+
+::[The vectors, kept]
+
+::[Trusting the kept vectors]
 
 ::[Answering by meaning]
 

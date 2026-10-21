@@ -511,7 +511,9 @@ tasks:
 
 The website builds on no package of the workspace. Its sources are its own code, its assets, the two pages and configs that build it, and the licence it shows on a page of its own. It type-checks twice, once as the client the browser runs and once as the server Bun runs, since the two compile under different configs.
 
-The website also ships, as a container image, and the image task builds it. It builds `site/Dockerfile` with the whole repository as its context and tags the image four ways: `latest`, `sha-` with the commit's short hash, `v` with the version the CLI's manifest carries, and `main-` with the build's time and the short hash. It then pushes every tag to the registry. The `main-` tag is the one the cluster follows. Flux watches the registry, picks the newest build by the time in that tag, and rolls the website forward to it. The other tags cannot order builds: a hash says nothing about time, and several builds share one version. The image's inputs are the site's own sources and Loom's book, since the source page draws the book and the build weaves it into the image. A change that touches none of them builds no image, so a fix to a package's tests leaves the website that is already running alone. The task runs in CI alone, so no developer's moon pushes an image, and moon never caches it, because what it makes lives in the registry rather than in any file.
+The website also ships, as a container image, and the image task builds it. It builds `site/Dockerfile` with the whole repository as its context and tags the image four ways: `latest`, `sha-` with the commit's short hash, `v` with the version the CLI's manifest carries, and `main-` with the build's time and the short hash. It then pushes every tag to the registry. The `main-` tag is the one the cluster follows. Flux watches the registry, picks the newest build by the time in that tag, and rolls the website forward to it. The other tags cannot order builds: a hash says nothing about time, and several builds share one version. Before the image, the task embeds the website's search index, so the image carries the vectors that search by meaning reads, as Part XII describes. It starts the embedding service from the Compose file Part XII tangles, installs the workspace, prepares the site's content, and runs the `embed` program strictly, which waits for the service to load its model and fails the task if it never answers. The vectors land in `site/.cache/meaning.json`, which Docker copies into the image with the rest of the repository.
+
+The image's inputs are the site's own sources, Loom's book, and the embedding service's Compose file, since the source page draws the book, the build weaves it into the image, and the service decides the vectors the image carries. A change that touches none of them builds no image, so a fix to a package's tests leaves the website that is already running alone. The task runs in CI alone, so no developer's moon pushes an image, and moon never caches it, because what it makes lives in the registry rather than in any file.
 
 =>
 
@@ -558,7 +560,11 @@ tasks:
 
   image:
     script: >-
-      docker build . --file site/Dockerfile
+      docker compose -f embeddings/compose.yaml up -d
+      && bun install --frozen-lockfile
+      && bun run --cwd site content
+      && bun run --cwd site embed --strict
+      && docker build . --file site/Dockerfile
       --tag ghcr.io/athrio-com/loom-website:latest
       --tag ghcr.io/athrio-com/loom-website:sha-${GITHUB_SHA::7}
       --tag ghcr.io/athrio-com/loom-website:v$(node -p "require('./packages/loom/package.json').version")
@@ -569,6 +575,7 @@ tasks:
       - "Dockerfile"
       - "moon.yml"
       - "/corpus/**/*"
+      - "/embeddings/**/*"
     options:
       cache: false
       runInCI: "only"
@@ -645,6 +652,8 @@ The first job checks the repository out with its whole history, which moon needs
 
 The second job runs for a push to `main` alone, once the first has passed, and measures its change from the same base. It reads the repository and writes packages, nothing else. It checks the repository out the same way, gets moon from mise, logs in to GitHub's registry with the token the run is given, and asks `moon ci` for the image. When the website did not change, moon builds nothing and the job passes.
 
+The search index's vectors carry over from one build to the next. Before the image, the job restores the last file of vectors the workflow kept, so the `embed` program sends the service only the sections that changed since. After the image, it keeps the file it now has, under a key of its own run, and the next build restores the newest. A build that made no image leaves no file and keeps nothing. Should the kept file ever be lost, the next build embeds the whole index, which takes minutes rather than seconds and changes nothing else.
+
 =>
 
   ship:
@@ -668,8 +677,20 @@ The second job runs for a push to `main` alone, once the first has passed, and m
           install_args: npm:@moonrepo/cli
       - name: Log in to the registry
         run: echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
+      - name: The search index's vectors, from the last build
+        uses: actions/cache/restore@v4
+        with:
+          path: site/.cache/meaning.json
+          key: meaning-${{ github.run_id }}
+          restore-keys: meaning-
       - name: The website's image, pushed to the registry
         run: moon ci :image
+      - name: The search index's vectors, for the next build
+        if: hashFiles('site/.cache/meaning.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: site/.cache/meaning.json
+          key: meaning-${{ github.run_id }}
 
 ## The workflow {Tangle}[.github/workflows/ci.yaml]
 

@@ -41,7 +41,11 @@ tasks:
 
   image:
     script: >-
-      docker build . --file site/Dockerfile
+      docker compose -f embeddings/compose.yaml up -d
+      && bun install --frozen-lockfile
+      && bun run --cwd site content
+      && bun run --cwd site embed --strict
+      && docker build . --file site/Dockerfile
       --tag ghcr.io/athrio-com/loom-website:latest
       --tag ghcr.io/athrio-com/loom-website:sha-${GITHUB_SHA::7}
       --tag ghcr.io/athrio-com/loom-website:v$(node -p "require('./packages/loom/package.json').version")
@@ -52,6 +56,7 @@ tasks:
       - "Dockerfile"
       - "moon.yml"
       - "/corpus/**/*"
+      - "/embeddings/**/*"
     options:
       cache: false
       runInCI: "only"

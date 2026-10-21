@@ -325,6 +325,8 @@ The results arrive already grouped, one group for each page that has any. The ar
 
 A result also names the words to find there, so the page it opens can pick them out. Those are the words that matched, and they are almost always in the section's text. A section can also match by its heading alone, and then the words to find are the heading itself, so a reader still lands on something marked. A page's row names no words, since it opens a whole page rather than a passage of it.
 
+A result found by meaning names other words. No word in it is the reason it was found: the whole section was near the question. So it names the line the palette showed for it, from the picked-out word onward, or from the start of the window when nothing was picked out, at most forty-eight characters. Starting at the picked-out word keeps the line inside one paragraph: the window the palette shows can open at the end of the paragraph before. The page then marks the area that line sits in rather than the words themselves.
+
 The same words can appear several times on a page, in its title, in the menu, and in more than one paragraph. The result the reader chose shows one of them, with the text around it. So a result also carries the last few characters before its match, up to twenty-four, which is enough to tell that occurrence from the others. A window that was cut short opens on an ellipsis, which the page's text does not hold, so it is left out.
 
 =>
@@ -345,22 +347,32 @@ export const focusables = (groups: ReadonlyArray<SearchGroup>): ReadonlyArray<Fo
 const focusedIn = (list: ReadonlyArray<Focusable>, focus: number): Option.Option<Focusable> =>
   Option.fromNullishOr(list[Math.min(focus, Math.max(0, list.length - 1))])
 
-const wordsOf = (hit: SearchHit): string => (hit.hit === '' ? hit.heading : hit.hit)
+const LINE = 48
+
+const lineOf = (hit: SearchHit): string =>
+  (hit.hit === '' ? hit.pre : `${hit.hit}${hit.post}`).replace(/^…|…$/g, '').slice(0, LINE).trim()
+
+const wordsOf = (hit: SearchHit): string =>
+  Match.value(hit).pipe(
+    Match.when({ meaning: true }, lineOf),
+    Match.when({ hit: '' }, (found) => found.heading),
+    Match.orElse((found) => found.hit),
+  )
 
 const LEAD_IN = 24
 
 const beforeOf = (hit: SearchHit): string =>
-  hit.hit === '' ? '' : hit.pre.replace(/^…/, '').slice(-LEAD_IN)
+  hit.meaning || hit.hit === '' ? '' : hit.pre.replace(/^…/, '').slice(-LEAD_IN)
 
 const openedRow = (focusable: Focusable): Message =>
   Match.value(focusable).pipe(
-    Match.when({ kind: 'page' }, (row) => OpenedHit({ href: row.page.path, words: '', before: '' })),
+    Match.when({ kind: 'page' }, (row) => OpenedHit({ href: row.page.path, words: '', before: '', area: false })),
     Match.when({ kind: 'hit' }, (row) => openedHit(row.hit)),
     Match.exhaustive,
   )
 
 const openedHit = (hit: SearchHit): Message =>
-  OpenedHit({ href: hit.href, words: wordsOf(hit), before: beforeOf(hit) })
+  OpenedHit({ href: hit.href, words: wordsOf(hit), before: beforeOf(hit), area: hit.meaning })
 
 ## The keys the palette answers to
 

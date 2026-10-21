@@ -261,30 +261,36 @@ const byRelevance: Order.Order<Ranked> = Order.combine(
 
 const PER_PAGE = 5
 
-const OWN_IN_ORDER: ReadonlyArray<Route> = ['why-loom', 'community', 'home', 'license']
+const orderOf = (results: ReadonlyArray<Result>, from: Route): ReadonlyArray<Route> => {
+  const pages = pipe(
+    results,
+    Array.map((result) => result.entry.route),
+    Array.dedupe,
+    Array.filter((route) => route !== 'source'),
+  )
+  return from === 'source' ? ['source', ...pages] : [...pages, 'source']
+}
 
-const orderFrom = (from: Route): ReadonlyArray<Route> =>
-  from === 'source' ? ['source', 'docs', ...OWN_IN_ORDER] : ['docs', ...OWN_IN_ORDER, 'source']
-
-const hitOf = (entry: Entry, needle: string): SearchHit => ({
+const hitOf = (entry: Entry, needle: string, meaning: boolean): SearchHit => ({
   href: entry.href,
   place: entry.place,
   heading: entry.heading,
   ...fragmentOf(entry.text, needle),
+  meaning,
 })
 
-export type Result = { readonly entry: Entry; readonly words: string }
+export type Result = { readonly entry: Entry; readonly words: string; readonly meaning: boolean }
 
 export const groupsOf = (results: ReadonlyArray<Result>, from: Route): ReadonlyArray<SearchGroup> =>
   pipe(
-    orderFrom(from),
+    orderOf(results, from),
     Array.map((route) => ({
       route,
       hits: pipe(
         results,
         Array.filter((result) => result.entry.route === route),
         Array.take(PER_PAGE),
-        Array.map((result) => hitOf(result.entry, result.words)),
+        Array.map((result) => hitOf(result.entry, result.words, result.meaning)),
       ),
     })),
     Array.filter((group) => group.hits.length > 0),
@@ -303,7 +309,7 @@ export const searchIn = (
         Array.map((entry, at): Ranked => ({ entry, at, rank: rankOf(entry, needle) })),
         Array.filter((each) => each.rank > 0),
         Array.sort(byRelevance),
-        Array.map((each): Result => ({ entry: each.entry, words: needle })),
+        Array.map((each): Result => ({ entry: each.entry, words: needle, meaning: false })),
         (results) => groupsOf(results, from),
       )
 }

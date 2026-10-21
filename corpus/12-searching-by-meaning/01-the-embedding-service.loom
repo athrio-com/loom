@@ -21,7 +21,11 @@ The model is named by its revision as well as by its name. A name on Hugging Fac
 
 ## The server that runs it
 
-The service is Hugging Face's Text Embeddings Inference, TEI for short, in its build for an ordinary processor. TEI loads one model and answers one question over HTTP: given a list of texts, what are their vectors. Loom writes no code to serve the model.
+The service is Hugging Face's Text Embeddings Inference, TEI for short, in its build for an ordinary processor, pinned to release 1.9.4. TEI loads one model and answers one question over HTTP: given a list of texts, what are their vectors. Loom writes no code to serve the model.
+
+The service keeps nothing. It holds the model and computes, and the vectors it returns belong to whoever asked. The site keeps the vectors for its own search index, beside the pages its build renders, because they describe what that build contains. Part XII's third chapter writes them.
+
+In the cluster the service runs from the athrio repository, `infra/k8s/apps/base/loom-embeddings`, with the same release of TEI and the same model at the same revision. The two must agree. The site's vectors for its index and for each query come from whichever service the server reaches, and a vector from one model is meaningless beside a vector from another.
 
 TEI starts as many workers to split text into tokens as the machine has processors, and each one holds a copy of the tokenizer. Two are plenty for a site's searches, and they keep the service's memory near what the model itself needs.
 
@@ -42,7 +46,7 @@ The model and its revision are bound here, once, and the command line reads them
 
 services:
   embeddings:
-    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.4
     command:
       - --model-id
       - ::[model]

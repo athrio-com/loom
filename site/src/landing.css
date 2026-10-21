@@ -141,6 +141,7 @@ a:hover { color: var(--ink-3); }
 .palette-card ::selection { color: var(--navy-ink); }
 
 ::highlight(found) { background-color: var(--amber); color: #14130F; }
+::highlight(found-area) { background-color: color-mix(in srgb, var(--amber) 33%, transparent); }
 
 :root { color-scheme: light; }
 

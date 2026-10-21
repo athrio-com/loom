@@ -66,5 +66,17 @@ jobs:
           install_args: npm:@moonrepo/cli
       - name: Log in to the registry
         run: echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
+      - name: The search index's vectors, from the last build
+        uses: actions/cache/restore@v4
+        with:
+          path: site/.cache/meaning.json
+          key: meaning-${{ github.run_id }}
+          restore-keys: meaning-
       - name: The website's image, pushed to the registry
         run: moon ci :image
+      - name: The search index's vectors, for the next build
+        if: hashFiles('site/.cache/meaning.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: site/.cache/meaning.json
+          key: meaning-${{ github.run_id }}

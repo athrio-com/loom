@@ -131,7 +131,7 @@ const LoadPage = define('LoadPage', {
 
 const LANDING = 'loom-landing'
 
-const Landing = S.Struct({ address: S.String, words: S.String, before: S.String })
+const Landing = S.Struct({ address: S.String, words: S.String, before: S.String, area: S.Boolean })
 type Landing = typeof Landing.Type
 
 const addressOf = (url: URL): string => `${url.pathname}${url.hash}`
@@ -174,6 +174,8 @@ const headingOf = (url: URL): Option.Option<HTMLElement> =>
 const follows = (heading: Node, text: Text): boolean =>
   !heading.contains(text) && (heading.compareDocumentPosition(text) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
 
+const isHeading = (element: HTMLElement): boolean => /^H[1-6]$/.test(element.tagName)
+
 type Run = { readonly text: Text; readonly start: number }
 
 const runsOf = (texts: ReadonlyArray<Text>): ReadonlyArray<Run> =>
@@ -215,26 +217,63 @@ const rangeIn = (texts: ReadonlyArray<Text>, words: string, before: string): Opt
   )
 }
 
-const rangeOf = (url: URL, landing: Landing): Option.Option<Range> => {
+const shorterLine = (landing: Landing): Option.Option<Landing> =>
+  Option.liftPredicate(
+    { ...landing, words: landing.words.slice(0, Math.floor(landing.words.length / 2)).trim() },
+    (shorter) => landing.area && shorter.words.length >= 12,
+  )
+
+const rangeOf = (url: URL, landing: Landing): Option.Option<Range> =>
+  pipe(
+    rangeAt(url, landing),
+    Option.orElse(() => Option.flatMap(shorterLine(landing), (shorter) => rangeOf(url, shorter))),
+  )
+
+const rangeAt = (url: URL, landing: Landing): Option.Option<Range> => {
   const texts = Array.filter(textsIn(contentOf()), readable)
   return Option.match(headingOf(url), {
     onNone: () => rangeIn(texts, landing.words, landing.before),
-    onSome: (heading) =>
-      pipe(
-        rangeIn(Array.filter(texts, (text) => follows(heading, text)), landing.words, landing.before),
-        Option.orElse(() => rangeIn(textsIn(heading), landing.words, '')),
-      ),
+    onSome: (target) => {
+      const inside = Array.filter(texts, (text) => target.contains(text))
+      const after = Array.filter(texts, (text) => follows(target, text))
+      return isHeading(target)
+        ? pipe(
+            rangeIn(after, landing.words, landing.before),
+            Option.orElse(() => rangeIn(textsIn(target), landing.words, '')),
+          )
+        : pipe(
+            rangeIn(inside, landing.words, landing.before),
+            Option.orElse(() => rangeIn(after, landing.words, landing.before)),
+          )
+    },
   })
 }
 
 const FOUND = 'found'
 
-const highlightWords = (range: Range): Option.Option<void> =>
+const FOUND_AREA = 'found-area'
+
+const BLOCKS = 'p, li, pre, blockquote, td, th, dd, dt, figcaption, h1, h2, h3, h4, h5, h6'
+
+const areaOf = (range: Range): Range =>
+  pipe(
+    Option.fromNullishOr(range.startContainer.parentElement?.closest(BLOCKS)),
+    Option.match({
+      onNone: () => range,
+      onSome: (block) => {
+        const area = document.createRange()
+        area.selectNodeContents(block)
+        return area
+      },
+    }),
+  )
+
+const highlightWords = (range: Range, name: string): Option.Option<void> =>
   pipe(
     Option.liftPredicate(globalThis.CSS, (css) => css !== undefined && 'highlights' in css),
     Option.map((css) => {
-      css.highlights.set(FOUND, new Highlight(range))
-      window.addEventListener('pointerdown', () => css.highlights.delete(FOUND), { once: true })
+      css.highlights.set(name, new Highlight(range))
+      window.addEventListener('pointerdown', () => css.highlights.delete(name), { once: true })
     }),
   )
 
@@ -247,12 +286,23 @@ const selectWords = (range: Range): void =>
     },
   })
 
-const markWords = (range: Range): void => {
-  Option.match(highlightWords(range), { onNone: () => selectWords(range), onSome: () => undefined })
+const scrollTo = (range: Range): void =>
   Option.match(Option.fromNullishOr(range.startContainer.parentElement), {
     onNone: () => undefined,
-    onSome: (element) => element.scrollIntoView({ behavior: 'smooth', block: 'center' }),
+    onSome: (element) =>
+      element.scrollIntoView({
+        behavior: 'smooth',
+        block: range.getBoundingClientRect().height > window.innerHeight * 0.6 ? 'start' : 'center',
+      }),
   })
+
+const markWords = (landing: Landing) => (found: Range): void => {
+  const marked = landing.area ? areaOf(found) : found
+  Option.match(highlightWords(marked, landing.area ? FOUND_AREA : FOUND), {
+    onNone: () => selectWords(marked),
+    onSome: () => undefined,
+  })
+  scrollTo(marked)
 }
 
 const here = (): string => addressOf(new URL(window.location.href))
@@ -262,8 +312,9 @@ const land: Effect.Effect<void> = takeLanding.pipe(
     pipe(
       landing,
       Option.filter((kept) => kept.address === here()),
-      Option.flatMap((kept) => rangeOf(new URL(kept.address, window.location.href), kept)),
-      Option.match({ onNone: () => undefined, onSome: markWords }),
+      Option.flatMap((kept) =>
+        Option.map(rangeOf(new URL(kept.address, window.location.href), kept), (found) => markWords(kept)(found)),
+      ),
     ),
   ),
 )
@@ -271,11 +322,11 @@ const land: Effect.Effect<void> = takeLanding.pipe(
 const onThisPage = (url: URL): boolean => url.pathname === window.location.pathname
 
 const OpenFound = define('OpenFound', {
-  args: { href: S.String, words: S.String, before: S.String },
+  args: { href: S.String, words: S.String, before: S.String, area: S.Boolean },
   messages: [ClosedSearch],
-  execute: ({ href, words, before }) => {
+  execute: ({ href, words, before, area }) => {
     const url = new URL(href, window.location.href)
-    return keepLanding({ address: addressOf(url), words, before }).pipe(
+    return keepLanding({ address: addressOf(url), words, before, area }).pipe(
       Effect.andThen(Effect.sync(() => window.location.assign(href))),
       Effect.andThen(
         onThisPage(url) ? Effect.sleep('30 millis').pipe(Effect.andThen(land)) : Effect.void,
@@ -394,6 +445,8 @@ const GlideToCard = define('GlideToCard', {
 })
 
 const clamp = (value: number, max: number): number => Math.max(0, Math.min(max, value))
+
+const firstResult = (groups: ReadonlyArray<SearchGroup>): number => (groups.length > 0 ? 1 : 0)
 
 const CHARS_PER_SECOND = 26
 
@@ -519,9 +572,12 @@ const update = (model: Model, message: Message): Step =>
       },
       Found: ({ query, exact, groups }) =>
         query === model.query && exact === model.exact
-          ? { model: { ...model, found: groups, searching: false } }
+          ? { model: { ...model, found: groups, searching: false, focus: firstResult(groups) } }
           : { model },
-      OpenedHit: ({ href, words, before }) => ({ model, commands: [OpenFound({ href, words, before })] }),
+      OpenedHit: ({ href, words, before, area }) => ({
+        model,
+        commands: [OpenFound({ href, words, before, area })],
+      }),
       MovedFocus: ({ delta, count }) => ({
         model: { ...model, focus: clamp(model.focus + delta, Math.max(0, count - 1)) },
       }),

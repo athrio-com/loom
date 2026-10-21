@@ -257,22 +257,32 @@ export const focusables = (groups: ReadonlyArray<SearchGroup>): ReadonlyArray<Fo
 const focusedIn = (list: ReadonlyArray<Focusable>, focus: number): Option.Option<Focusable> =>
   Option.fromNullishOr(list[Math.min(focus, Math.max(0, list.length - 1))])
 
-const wordsOf = (hit: SearchHit): string => (hit.hit === '' ? hit.heading : hit.hit)
+const LINE = 48
+
+const lineOf = (hit: SearchHit): string =>
+  (hit.hit === '' ? hit.pre : `${hit.hit}${hit.post}`).replace(/^…|…$/g, '').slice(0, LINE).trim()
+
+const wordsOf = (hit: SearchHit): string =>
+  Match.value(hit).pipe(
+    Match.when({ meaning: true }, lineOf),
+    Match.when({ hit: '' }, (found) => found.heading),
+    Match.orElse((found) => found.hit),
+  )
 
 const LEAD_IN = 24
 
 const beforeOf = (hit: SearchHit): string =>
-  hit.hit === '' ? '' : hit.pre.replace(/^…/, '').slice(-LEAD_IN)
+  hit.meaning || hit.hit === '' ? '' : hit.pre.replace(/^…/, '').slice(-LEAD_IN)
 
 const openedRow = (focusable: Focusable): Message =>
   Match.value(focusable).pipe(
-    Match.when({ kind: 'page' }, (row) => OpenedHit({ href: row.page.path, words: '', before: '' })),
+    Match.when({ kind: 'page' }, (row) => OpenedHit({ href: row.page.path, words: '', before: '', area: false })),
     Match.when({ kind: 'hit' }, (row) => openedHit(row.hit)),
     Match.exhaustive,
   )
 
 const openedHit = (hit: SearchHit): Message =>
-  OpenedHit({ href: hit.href, words: wordsOf(hit), before: beforeOf(hit) })
+  OpenedHit({ href: hit.href, words: wordsOf(hit), before: beforeOf(hit), area: hit.meaning })
 
 const paletteKey = (key: string, model: Model): Message => {
   const list = focusables(model.found)

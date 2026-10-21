@@ -358,40 +358,48 @@ const byRelevance: Order.Order<Ranked> = Order.combine(
 
 ~
 
-The results gather by page, and the order of the pages depends on where the reader searches from. The book holds by far the most entries, and most of them describe how Loom is built rather than how to use it. A reader searching from the docs or from one of the site's own pages wants the docs and those pages first, so there the book comes last. A reader searching from the book's own pages is reading the source, so there the book comes first and the docs follow. The site's own pages keep the order the nav gives them, and the landing and the licence close the list.
+The results gather by page, and the pages come in the order of their best results. The page that holds the best result of all comes first, the page that holds the best of the rest comes next, and so on. A reader who asks why they should use Loom then meets the Why Loom page first, rather than a page that merely mentions the word.
+
+The book is the one exception, and where it goes depends on where the reader searches from. The book holds by far the most entries, and most of them describe how Loom is built rather than how to use it, so its results would often lead for a reader who wanted the docs. A reader searching from the docs or from one of the site's own pages finds the book last, whatever its results. A reader searching from the book's own pages is reading the source, so there the book comes first.
 
 Each page keeps its five best results, so no one page can fill the palette. A page with no results drops out.
 
-A result is an entry and the words to show in it. For a search by words, those are the query itself. A search by meaning, in Part XII, finds entries that may not hold the query at all and chooses the words to show for each, so `groupsOf` takes the results already ranked and leaves the ranking to whichever search found them.
+A result is an entry, the words to show in it, and whether meaning found it. For a search by words, those are the query itself. A search by meaning, in Part XII, finds entries that may not hold the query at all and chooses the words to show for each, so `groupsOf` takes the results already ranked and leaves the ranking to whichever search found them.
 
 =>
 
 const PER_PAGE = 5
 
-const OWN_IN_ORDER: ReadonlyArray<Route> = ['why-loom', 'community', 'home', 'license']
+const orderOf = (results: ReadonlyArray<Result>, from: Route): ReadonlyArray<Route> => {
+  const pages = pipe(
+    results,
+    Array.map((result) => result.entry.route),
+    Array.dedupe,
+    Array.filter((route) => route !== 'source'),
+  )
+  return from === 'source' ? ['source', ...pages] : [...pages, 'source']
+}
 
-const orderFrom = (from: Route): ReadonlyArray<Route> =>
-  from === 'source' ? ['source', 'docs', ...OWN_IN_ORDER] : ['docs', ...OWN_IN_ORDER, 'source']
-
-const hitOf = (entry: Entry, needle: string): SearchHit => ({
+const hitOf = (entry: Entry, needle: string, meaning: boolean): SearchHit => ({
   href: entry.href,
   place: entry.place,
   heading: entry.heading,
   ...fragmentOf(entry.text, needle),
+  meaning,
 })
 
-export type Result = { readonly entry: Entry; readonly words: string }
+export type Result = { readonly entry: Entry; readonly words: string; readonly meaning: boolean }
 
 export const groupsOf = (results: ReadonlyArray<Result>, from: Route): ReadonlyArray<SearchGroup> =>
   pipe(
-    orderFrom(from),
+    orderOf(results, from),
     Array.map((route) => ({
       route,
       hits: pipe(
         results,
         Array.filter((result) => result.entry.route === route),
         Array.take(PER_PAGE),
-        Array.map((result) => hitOf(result.entry, result.words)),
+        Array.map((result) => hitOf(result.entry, result.words, result.meaning)),
       ),
     })),
     Array.filter((group) => group.hits.length > 0),
@@ -410,7 +418,7 @@ export const searchIn = (
         Array.map((entry, at): Ranked => ({ entry, at, rank: rankOf(entry, needle) })),
         Array.filter((each) => each.rank > 0),
         Array.sort(byRelevance),
-        Array.map((each): Result => ({ entry: each.entry, words: needle })),
+        Array.map((each): Result => ({ entry: each.entry, words: needle, meaning: false })),
         (results) => groupsOf(results, from),
       )
 }

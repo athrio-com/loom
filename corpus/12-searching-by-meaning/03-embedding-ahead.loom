@@ -1,0 +1,104 @@
+---
+Part XII, Chapter 3: Embedding the index ahead
+Package: site/src/
+Language: TypeScript
+---
+
+# Embedding the index ahead
+
+The search index changes only when the book does, and the book changes only with a build. So the vectors for the index belong to the build too, and the build makes them. The `embed` program builds the index the server will search, asks the embedding service for a vector for every entry the kept vectors lack, and writes the file the server reads when it starts. A site built this way searches by meaning from its first request.
+
+Most entries already have a vector. The file the last build wrote is still there: on a developer's machine because it was never removed, and in continuous integration because the workflow keeps it between builds. An entry is keyed by a hash of its text, so the program sends the service only the entries whose text is new. A change to one chapter embeds a few sections in a few seconds, and only the first build, or the first after the model changes, embeds all of them.
+
+## The vectors the build already has
+
+The kept vectors count only if the service runs the model that made them. The program asks the service for its revision first. Vectors from another revision, or no file at all, leave it with nothing kept, and it embeds the whole index.
+
+=>
+
+const keptFor = (store: Option.Option<Store>, revision: string): Store =>
+  Option.getOrElse(
+    Option.filter(store, (kept) => kept.revision === revision),
+    (): Store => ({ revision, vectors: {} }),
+  )
+
+## Embedding what is missing
+
+The program reads the book and builds the index the way the server does, from the same functions, so the keys it writes are the keys the server will look for. It embeds the entries the kept vectors have no key for, then writes the file afresh. The new file holds a vector for every entry in this index and for nothing else, so the vectors for sections the book has since lost or rewritten go with the build that dropped them.
+
+=>
+
+const embedIndex = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
+  const embeddings = yield* Embeddings
+  const revision = yield* embeddings.revision.pipe(Effect.retry(WAITING))
+  const kept = keptFor(yield* readStore(fs), revision)
+  const index = yield* indexOf(yield* readBook(fs), bodyOf)
+  const keyed = pipe(
+    Array.map(index, (entry) => ({ entry, key: keyOf(entry) })),
+    Array.dedupeWith((one, other) => one.key === other.key),
+  )
+  const missing = Array.filter(keyed, ({ key }) => !(key in kept.vectors))
+  const vectors = yield* embedAll(embeddings, Array.map(missing, ({ entry }) => passageOf(entry)))
+  const made = Object.fromEntries(Array.zip(Array.map(missing, ({ key }) => key), Array.map(vectors, encodeVector)))
+  const all = { ...kept.vectors, ...made }
+  const store: Store = {
+    revision,
+    vectors: Object.fromEntries(Array.map(keyed, ({ key }) => [key, all[key] ?? ''] as const)),
+  }
+  yield* fs.makeDirectory(dirname(storePath), { recursive: true })
+  yield* fs.writeFileString(storePath, JSON.stringify(store))
+  yield* Effect.log(`embedded ${missing.length} of ${keyed.length} entries, kept the rest`)
+})
+
+## Strict where it ships, lenient where it is developed
+
+The program runs in two places, and it fails differently in each.
+
+In continuous integration it runs with `--strict`, before the image is built. The service has only just started there and may still be downloading its model, so the program waits for it, asking every five seconds for up to ten minutes. A service that never answers fails the program, and the build with it. An image therefore never ships without the vectors for its own index.
+
+On a developer's machine it runs before every `dev`, where the service is something a developer starts only to work on search. There the program asks once. A service that is not running leaves the file as it was, and the program says so and steps aside, so `dev` starts as it always has.
+
+=>
+
+const strict = process.argv.includes('--strict')
+
+const WAITING = strict ? { times: 120, schedule: Schedule.spaced('5 seconds') } : { times: 0 }
+
+const program = strict
+  ? embedIndex
+  : embedIndex.pipe(
+      Effect.catchCause(() =>
+        Effect.log('the embedding service is not answering, so the index keeps the vectors it had'),
+      ),
+    )
+
+program.pipe(Effect.provide(Embeddings.layer), Effect.provide(BunServices.layer), BunRuntime.runMain)
+
+## The program {Tangle}[embed.ts]
+
+From `effect` come `Array`, `Effect`, `FileSystem`, `Option`, `Schedule` and `pipe`, and `@effect/platform-bun` supplies the file system and the runtime edge. The meaning module lends the client for the service, the passage and key of an entry, the shape and place of the kept vectors, and the batching that embeds many passages at once. The pages module reads the book and renders the site's own pages, and the search module builds the index from them.
+
+=>
+
+import { Array, Effect, FileSystem, Option, pipe, Schedule } from 'effect'
+import { BunRuntime, BunServices } from '@effect/platform-bun'
+import { dirname } from 'node:path'
+import { bodyOf, readBook } from './pages'
+import { indexOf } from './search'
+import {
+  Embeddings,
+  embedAll,
+  encodeVector,
+  keyOf,
+  passageOf,
+  readStore,
+  type Store,
+  storePath,
+} from './meaning'
+
+::[The vectors the build already has]
+
+::[Embedding what is missing]
+
+::[Strict where it ships, lenient where it is developed]

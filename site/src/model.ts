@@ -95,6 +95,7 @@ export const SearchHit = S.Struct({
   pre: S.String,
   hit: S.String,
   post: S.String,
+  meaning: S.Boolean,
 })
 export type SearchHit = typeof SearchHit.Type
 
@@ -149,7 +150,7 @@ export const Message = defineMessageUnion({
   MovedCaret: { at: S.Number },
   Found: { query: S.String, exact: S.Boolean, groups: S.Array(SearchGroup) },
   ToggledExact: {},
-  OpenedHit: { href: S.String, words: S.String, before: S.String },
+  OpenedHit: { href: S.String, words: S.String, before: S.String, area: S.Boolean },
   ToggledPlay: {},
   ReplayedDocument: {},
   SkippedToEnd: {},
