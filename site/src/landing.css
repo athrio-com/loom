@@ -141,6 +141,8 @@ a:hover { color: var(--ink-3); }
 .palette-card::selection,
 .palette-card ::selection { color: var(--navy-ink); }
 
+::highlight(found) { background-color: var(--amber); color: #14130F; }
+
 @keyframes loomWeave   { to { background-position-x: 128px; } }
 @keyframes loomWeaveUp { to { background-position-y: -128px; } }
 

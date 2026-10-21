@@ -323,6 +323,10 @@ const searchPageOf = (route: Route): SearchPage =>
 
 The results arrive already grouped, one group for each page that has any. The arrow keys walk one flat list, even though the palette draws two levels. Flattening the groups, each page followed by its own results, is what lets a single focus number address either kind of row. A page's row leads to the page itself, and a result's row to its section.
 
+A result also names the words to find there, so the page it opens can pick them out. Those are the words that matched, and they are almost always in the section's text. A section can also match by its heading alone, and then the words to find are the heading itself, so a reader still lands on something marked. A page's row names no words, since it opens a whole page rather than a passage of it.
+
+The same words can appear several times on a page, in its title, in the menu, and in more than one paragraph. The result the reader chose shows one of them, with the text around it. So a result also carries the last few characters before its match, up to twenty-four, which is enough to tell that occurrence from the others. A window that was cut short opens on an ellipsis, which the page's text does not hold, so it is left out.
+
 =>
 
 export type Focusable =
@@ -341,12 +345,22 @@ export const focusables = (groups: ReadonlyArray<SearchGroup>): ReadonlyArray<Fo
 const focusedIn = (list: ReadonlyArray<Focusable>, focus: number): Option.Option<Focusable> =>
   Option.fromNullishOr(list[Math.min(focus, Math.max(0, list.length - 1))])
 
-const hrefOf = (focusable: Focusable): string =>
+const wordsOf = (hit: SearchHit): string => (hit.hit === '' ? hit.heading : hit.hit)
+
+const LEAD_IN = 24
+
+const beforeOf = (hit: SearchHit): string =>
+  hit.hit === '' ? '' : hit.pre.replace(/^…/, '').slice(-LEAD_IN)
+
+const openedRow = (focusable: Focusable): Message =>
   Match.value(focusable).pipe(
-    Match.when({ kind: 'page' }, (row) => row.page.path),
-    Match.when({ kind: 'hit' }, (row) => row.hit.href),
+    Match.when({ kind: 'page' }, (row) => OpenedHit({ href: row.page.path, words: '', before: '' })),
+    Match.when({ kind: 'hit' }, (row) => openedHit(row.hit)),
     Match.exhaustive,
   )
+
+const openedHit = (hit: SearchHit): Message =>
+  OpenedHit({ href: hit.href, words: wordsOf(hit), before: beforeOf(hit) })
 
 ## The keys the palette answers to
 
@@ -366,7 +380,7 @@ const paletteKey = (key: string, model: Model): Message => {
         focusedIn(list, model.focus),
         Option.match({
           onNone: () => stay,
-          onSome: (focusable) => OpenedHit({ href: hrefOf(focusable) }),
+          onSome: openedRow,
         }),
       ),
     ),
@@ -451,7 +465,7 @@ const pillRow = (focus: number, h: HtmlBuilder<Message>): Html =>
 
 A page's row leads with a tilde, the mark a corpus wears, then its name and the path it answers on. Its results indent beneath it, each behind a chevron. A result shows the window onto its text, the matched words picked out in the page's own colour, and at its right end where it is: the chapter or page it sits on, then its heading.
 
-Every row is a link to the place it names, so a reader can also open it in a new tab. Following one closes the palette, which matters when the section is on the page already showing, where the browser only scrolls to it.
+Every row is a link to the place it names, so a reader can also open it in a new tab. A page's row closes the palette and lets the browser follow it. A result's row stops the browser and opens the result the way Enter does, with the words to find, so a click and a key land on the same marked words.
 
 The row holding the focus washes in its page's colour at low strength, so a reader sees which page they are about to open as well as which row they are on.
 
@@ -469,7 +483,7 @@ const hitRow = (page: SearchPage, hit: SearchHit, focused: boolean, h: HtmlBuild
       h.Class(focused ? 'palette-row here' : 'palette-row'),
       h.Href(hit.href),
       h.Style({ background: wash(page, focused) }),
-      h.OnClick(ClosedSearch()),
+      h.OnClick(openedHit(hit), { defaultAction: 'Prevent' }),
     ],
     [
       h.span([h.Class('sigil'), h.Style({ color: focused ? page.ink : '#4E5D8C' })], ['>']),

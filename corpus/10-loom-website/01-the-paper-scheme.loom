@@ -201,6 +201,8 @@ A selection washes the mark's green over the text at a quarter strength and leav
 
 The wash holds on the two dark grounds, but the ink cannot: near-black type under a dark green wash on near-black paper is a smudge. So the footer and the search palette each turn the selected text over to the cream they already set everything else in. A rule matching the region alone would not reach the text inside it, since the page-wide rule matches those descendants too and beats an inherited value — hence the pair of selectors.
 
+Words a reader searched for and landed on wear a stronger mark than a selection: the mark's amber under near-black ink, in both themes, the marker a browser's own find draws. It is a highlight named `found`, which the client sets when it lands on the words.
+
 =>
 
 * { box-sizing: border-box; }
@@ -233,6 +235,8 @@ a:hover { color: var(--ink-3); }
 
 .palette-card::selection,
 .palette-card ::selection { color: var(--navy-ink); }
+
+::highlight(found) { background-color: var(--amber); color: #14130F; }
 
 ~
 

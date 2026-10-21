@@ -191,6 +191,210 @@ const LoadPage = define('LoadPage', {
     Effect.sync(() => window.location.assign(href)).pipe(Effect.as(ClosedSearch())),
 })
 
+## Landing on the words a reader searched for
+
+A result in the palette names a section and the words that matched in it. Opening a section is not enough on its own. The browser scrolls to the section's heading, and a reader who searched for one phrase in a long section is left to hunt for it. So the page a result opens marks the words that matched and scrolls them to the middle of the window.
+
+The words often have to cross a page load. Most results lead to another page, which the browser fetches and draws afresh, and nothing in the client survives the trip. So before it leaves, the client writes a landing into the tab's session storage: the address it is going to, the words to pick out there, and the few characters before them that tell this occurrence from any other. The page that opens reads the landing back once it has booted, removes it, and lands on the words only if the landing names that very page. A landing left behind by some other trip is dropped unread.
+
+=>
+
+const LANDING = 'loom-landing'
+
+const Landing = S.Struct({ address: S.String, words: S.String, before: S.String })
+type Landing = typeof Landing.Type
+
+const addressOf = (url: URL): string => `${url.pathname}${url.hash}`
+
+const keepLanding = (landing: Landing): Effect.Effect<void> =>
+  Effect.try(() => sessionStorage.setItem(LANDING, JSON.stringify(landing))).pipe(Effect.ignore)
+
+const decodeLanding = S.decodeUnknownOption(Landing)
+
+const takeLanding: Effect.Effect<Option.Option<Landing>> = Effect.try(() => {
+  const kept = sessionStorage.getItem(LANDING)
+  sessionStorage.removeItem(LANDING)
+  return kept
+}).pipe(
+  Effect.map((kept) =>
+    pipe(
+      Option.fromNullishOr(kept),
+      Option.flatMap(Option.liftThrowable((json: string): unknown => JSON.parse(json))),
+      Option.flatMap(decodeLanding),
+    ),
+  ),
+  Effect.catchCause(() => Effect.succeed(Option.none())),
+)
+
+~
+
+Landing reads only the page's own content, inside its `main` element, and skips the text a reader does not read there: the nav and the chapter menu, the footer, the script that carries the page's model, and anything the page is not showing, such as the drawer that stands in for the menu on a narrow screen. The menu often holds the very words a reader searched for, and a match there would mark the wrong place.
+
+An address that names a section reads the content after that section's heading. A section's heading often holds the same words as its text, so the text comes first, and the heading answers only when the words are nowhere after it. That is the case when a section matched by its heading alone. An address with no section reads the whole content from the top.
+
+=>
+
+const textsIn = (node: Node): ReadonlyArray<Text> =>
+  node instanceof Text ? [node] : Array.flatMap(Array.fromIterable(node.childNodes), textsIn)
+
+const readable = (text: Text): boolean =>
+  Option.match(Option.fromNullishOr(text.parentElement), {
+    onNone: () => false,
+    onSome: (parent) => !parent.closest('script, style, nav, footer') && parent.checkVisibility(),
+  })
+
+const contentOf = (): Node =>
+  Option.getOrElse(Option.fromNullishOr(document.querySelector('main')), (): Node => document.body)
+
+const headingOf = (url: URL): Option.Option<HTMLElement> =>
+  Option.fromNullishOr(document.getElementById(decodeURIComponent(url.hash.slice(1))))
+
+const follows = (heading: Node, text: Text): boolean =>
+  !heading.contains(text) && (heading.compareDocumentPosition(text) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
+
+~
+
+Within those texts the landing looks first for the lead-in and the words together, the occurrence the reader was shown, and then for the words alone. A match can cross from one run of text into the next, where a word in a sentence meets an inline code span, so the texts are searched as one string. Each run remembers where it starts in that string, and a match maps back to a start in one run and an end in another. The string folds every whitespace character to a plain space, one for one. A line break in the page's markup then matches the space the search index holds in its place, and every offset still points at the same character.
+
+=>
+
+type Run = { readonly text: Text; readonly start: number }
+
+const runsOf = (texts: ReadonlyArray<Text>): ReadonlyArray<Run> =>
+  Array.zipWith(texts, Array.scan(texts, 0, (at, text) => at + text.data.length), (text, start) => ({
+    text,
+    start,
+  }))
+
+const folded = (text: string): string => text.toLowerCase().replace(/\s/g, ' ')
+
+const runAt = (runs: ReadonlyArray<Run>, offset: number, ending: boolean): Option.Option<Run> =>
+  Array.findFirst(runs, (run) =>
+    ending
+      ? offset > run.start && offset <= run.start + run.text.data.length
+      : offset >= run.start && offset < run.start + run.text.data.length,
+  )
+
+const offsetIn = (flat: string, sought: string): Option.Option<number> =>
+  Option.liftPredicate(flat.indexOf(folded(sought)), (at) => sought !== '' && at >= 0)
+
+const rangeIn = (texts: ReadonlyArray<Text>, words: string, before: string): Option.Option<Range> => {
+  const runs = runsOf(texts)
+  const flat = folded(Array.join(Array.map(texts, (text) => text.data), ''))
+  return pipe(
+    offsetIn(flat, `${before}${words}`),
+    Option.map((at) => at + before.length),
+    Option.orElse(() => offsetIn(flat, words)),
+    Option.flatMap((start) =>
+      pipe(
+        Option.all([runAt(runs, start, false), runAt(runs, start + words.length, true)]),
+        Option.map(([first, last]) => {
+          const range = document.createRange()
+          range.setStart(first.text, start - first.start)
+          range.setEnd(last.text, start + words.length - last.start)
+          return range
+        }),
+      ),
+    ),
+  )
+}
+
+const rangeOf = (url: URL, landing: Landing): Option.Option<Range> => {
+  const texts = Array.filter(textsIn(contentOf()), readable)
+  return Option.match(headingOf(url), {
+    onNone: () => rangeIn(texts, landing.words, landing.before),
+    onSome: (heading) =>
+      pipe(
+        rangeIn(Array.filter(texts, (text) => follows(heading, text)), landing.words, landing.before),
+        Option.orElse(() => rangeIn(textsIn(heading), landing.words, '')),
+      ),
+  })
+}
+
+~
+
+Once found, the words take a mark and scroll smoothly to the middle of the window. The page has usually just jumped to the section's heading, so the reader watches the page travel on from the heading to the words and sees exactly where they landed.
+
+The mark is a highlight rather than a selection. A selection wears the site's quiet green wash, made for text the reader picked out, and inside a coloured command chip that wash all but vanishes. So the words are registered as a highlight named `found`, which the stylesheet paints as an amber marker, the colour a browser's own find paints its matches. A highlight leaves the page's markup alone, so the view Foldkit owns is never touched. It stays until the reader's next press anywhere on the page, which clears it. A browser without highlights selects the words instead.
+
+=>
+
+const FOUND = 'found'
+
+const highlightWords = (range: Range): Option.Option<void> =>
+  pipe(
+    Option.liftPredicate(globalThis.CSS, (css) => css !== undefined && 'highlights' in css),
+    Option.map((css) => {
+      css.highlights.set(FOUND, new Highlight(range))
+      window.addEventListener('pointerdown', () => css.highlights.delete(FOUND), { once: true })
+    }),
+  )
+
+const selectWords = (range: Range): void =>
+  Option.match(Option.fromNullishOr(window.getSelection()), {
+    onNone: () => undefined,
+    onSome: (selection) => {
+      selection.removeAllRanges()
+      selection.addRange(range)
+    },
+  })
+
+const markWords = (range: Range): void => {
+  Option.match(highlightWords(range), { onNone: () => selectWords(range), onSome: () => undefined })
+  Option.match(Option.fromNullishOr(range.startContainer.parentElement), {
+    onNone: () => undefined,
+    onSome: (element) => element.scrollIntoView({ behavior: 'smooth', block: 'center' }),
+  })
+}
+
+const here = (): string => addressOf(new URL(window.location.href))
+
+const land: Effect.Effect<void> = takeLanding.pipe(
+  Effect.map((landing) =>
+    pipe(
+      landing,
+      Option.filter((kept) => kept.address === here()),
+      Option.flatMap((kept) => rangeOf(new URL(kept.address, window.location.href), kept)),
+      Option.match({ onNone: () => undefined, onSome: markWords }),
+    ),
+  ),
+)
+
+~
+
+`OpenFound` opens a result. It keeps the landing and hands the address to the browser, as `LoadPage` does. A result on another page lands when that page boots. A result on the page already showing never reloads it: the browser only moves to the section, so `OpenFound` lands on the words itself a moment later, once the palette has closed.
+
+`LandOnFound` is the half that runs on boot. It waits, as `RevealChapter` does, for the page to finish loading and its fonts to arrive, because a font that arrives late can rewrap the text and move the words after they were scrolled into view.
+
+=>
+
+const onThisPage = (url: URL): boolean => url.pathname === window.location.pathname
+
+const OpenFound = define('OpenFound', {
+  args: { href: S.String, words: S.String, before: S.String },
+  messages: [ClosedSearch],
+  execute: ({ href, words, before }) => {
+    const url = new URL(href, window.location.href)
+    return keepLanding({ address: addressOf(url), words, before }).pipe(
+      Effect.andThen(Effect.sync(() => window.location.assign(href))),
+      Effect.andThen(
+        onThisPage(url) ? Effect.sleep('30 millis').pipe(Effect.andThen(land)) : Effect.void,
+      ),
+      Effect.as(ClosedSearch()),
+    )
+  },
+})
+
+const LandOnFound = define('LandOnFound', {
+  messages: [SectionScrolled],
+  execute: afterCommit.pipe(
+    Effect.andThen(pageLoaded),
+    Effect.andThen(Effect.promise(() => document.fonts.ready)),
+    Effect.andThen(land),
+    Effect.as(SectionScrolled()),
+  ),
+})
+
 ## Asking the server
 
 The palette's search runs on the server, which holds the index of every page. `Search` asks it for a query's results. It waits a moment first, so a reader typing a word sends one request for the word rather than one for every letter. A request for each letter would still go out, but each arrives after the next letter has started a newer one, and the update keeps only the answer to the query still in the field. So `Search` answers with `Found`, naming the query it answered. A server that cannot be reached, or an answer that does not decode, finds nothing rather than failing the palette. A query of fewer than two characters is never sent, since the server finds nothing for it either.
@@ -326,7 +530,7 @@ const GlideToCard = define('GlideToCard', {
 
 ## The update
 
-Most messages set one field: the query, the focus clamped to the results, the loom tab's view. Following a link records the page it led to and closes the palette behind it, unless the page is the source page and the client holds no book to draw it with. Then the current page stays, and `LoadPage` sends the browser for the source page instead. Opening a documentation chapter records its slug, clears the section the menu was following, since the previous chapter's headings are no longer on the page, shuts the drawer behind the reader, and scrolls back to the top. Opening the palette puts the focus on its first result and the keyboard in its field; closing it clears the query, the focus, the caret and the results together, so the palette opens empty the next time. Moving the caret records where it now sits. Typing records the query and, once it is long enough to search, marks a search as on its way and runs `Search`. Results arrive as `Found`, and the update keeps them only when they answer the query still in the field. Opening a result with Enter hands its address to `LoadPage`, as a click on its link would. The example's messages move a position rather than set a flag: playing from the end starts again from the first character, a frame advances the clock and asks the stage to follow the caret, and skipping jumps both the clock and the stage to the foot. Going back to the start puts the clock, the height and the stage all back where they began — the document at its first character, the card down from full height, and the stage at the head of the document rather than wherever the reader stopped reading.
+Most messages set one field: the query, the focus clamped to the results, the loom tab's view. Following a link records the page it led to and closes the palette behind it, unless the page is the source page and the client holds no book to draw it with. Then the current page stays, and `LoadPage` sends the browser for the source page instead. Opening a documentation chapter records its slug, clears the section the menu was following, since the previous chapter's headings are no longer on the page, shuts the drawer behind the reader, and scrolls back to the top. Opening the palette puts the focus on its first result and the keyboard in its field; closing it clears the query, the focus, the caret and the results together, so the palette opens empty the next time. Moving the caret records where it now sits. Typing records the query and, once it is long enough to search, marks a search as on its way and runs `Search`. Results arrive as `Found`, and the update keeps them only when they answer the query still in the field. Opening a result hands its address and its words to `OpenFound`, which leaves for the result and picks the words out once it gets there. The example's messages move a position rather than set a flag: playing from the end starts again from the first character, a frame advances the clock and asks the stage to follow the caret, and skipping jumps both the clock and the stage to the foot. Going back to the start puts the clock, the height and the stage all back where they began — the document at its first character, the card down from full height, and the stage at the head of the document rather than wherever the reader stopped reading.
 
 Asking for full height is the one press that changes nothing at once. It runs the glide and waits: the page arrives at the card, `GrewCard` comes back, and only then does the height open. Giving the height back is immediate, since nothing has to travel first. Asking for a command's file toggles it, so pressing the same button twice closes what it opened. Selecting a section sets the active one, shuts the drawer if the section was picked from it, and asks the window to scroll to the section's heading. A section spotted while the reader scrolls sets the active one too, but runs nothing, so the outline follows the scroll rather than fighting it. Copying flashes the pressed button and runs its reset.
 
@@ -448,7 +652,7 @@ const update = (model: Model, message: Message): Step =>
         query === model.query
           ? { model: { ...model, found: groups, searching: false } }
           : { model },
-      OpenedHit: ({ href }) => ({ model, commands: [LoadPage({ href })] }),
+      OpenedHit: ({ href, words, before }) => ({ model, commands: [OpenFound({ href, words, before })] }),
       MovedFocus: ({ delta, count }) => ({
         model: { ...model, focus: clamp(model.focus + delta, Math.max(0, count - 1)) },
       }),
@@ -609,7 +813,7 @@ const subscriptions = Subscription.make<Model, Message>()((entry) => ({
 
 The server has already rendered the page, and it wrote the model it rendered from into the page beside it. `Runtime.hydrate` reads that model back, runs the same `init` over it, and adopts the server's markup in place rather than drawing the page a second time. The `init` function returns the model unchanged, because the server already chose the route, the version and everything else a first render needs.
 
-The server cannot choose how far the menu scrolls, because only the browser knows how tall the window is. So `init` runs one command, `RevealChapter`, which brings the open chapter into the menu's view. Importing the stylesheet here, in the browser entry, keeps it out of the server's path.
+The server cannot choose how far the menu scrolls, because only the browser knows how tall the window is. So `init` runs `RevealChapter`, which brings the open chapter into the menu's view. It also runs `LandOnFound`, which picks out the words a reader searched for when the palette sent them here. Importing the stylesheet here, in the browser entry, keeps it out of the server's path.
 
 =>
 
@@ -618,7 +822,7 @@ import './landing.css'
 const application = Runtime.makeApplication({
   Model,
   Flags: Model,
-  init: (seed: Model): Step => ({ model: seed, commands: [RevealChapter()] }),
+  init: (seed: Model): Step => ({ model: seed, commands: [RevealChapter(), LandOnFound()] }),
   update,
   view,
   subscriptions,
@@ -648,6 +852,8 @@ Runtime.hydrate(application, { buildId: new URL(import.meta.url).pathname })
 ::[Finding your place in the menu]
 
 ::[Leaving for the source page]
+
+::[Landing on the words a reader searched for]
 
 ::[Asking the server]
 

@@ -257,12 +257,22 @@ export const focusables = (groups: ReadonlyArray<SearchGroup>): ReadonlyArray<Fo
 const focusedIn = (list: ReadonlyArray<Focusable>, focus: number): Option.Option<Focusable> =>
   Option.fromNullishOr(list[Math.min(focus, Math.max(0, list.length - 1))])
 
-const hrefOf = (focusable: Focusable): string =>
+const wordsOf = (hit: SearchHit): string => (hit.hit === '' ? hit.heading : hit.hit)
+
+const LEAD_IN = 24
+
+const beforeOf = (hit: SearchHit): string =>
+  hit.hit === '' ? '' : hit.pre.replace(/^…/, '').slice(-LEAD_IN)
+
+const openedRow = (focusable: Focusable): Message =>
   Match.value(focusable).pipe(
-    Match.when({ kind: 'page' }, (row) => row.page.path),
-    Match.when({ kind: 'hit' }, (row) => row.hit.href),
+    Match.when({ kind: 'page' }, (row) => OpenedHit({ href: row.page.path, words: '', before: '' })),
+    Match.when({ kind: 'hit' }, (row) => openedHit(row.hit)),
     Match.exhaustive,
   )
+
+const openedHit = (hit: SearchHit): Message =>
+  OpenedHit({ href: hit.href, words: wordsOf(hit), before: beforeOf(hit) })
 
 const paletteKey = (key: string, model: Model): Message => {
   const list = focusables(model.found)
@@ -276,7 +286,7 @@ const paletteKey = (key: string, model: Model): Message => {
         focusedIn(list, model.focus),
         Option.match({
           onNone: () => stay,
-          onSome: (focusable) => OpenedHit({ href: hrefOf(focusable) }),
+          onSome: openedRow,
         }),
       ),
     ),
@@ -355,7 +365,7 @@ const hitRow = (page: SearchPage, hit: SearchHit, focused: boolean, h: HtmlBuild
       h.Class(focused ? 'palette-row here' : 'palette-row'),
       h.Href(hit.href),
       h.Style({ background: wash(page, focused) }),
-      h.OnClick(ClosedSearch()),
+      h.OnClick(openedHit(hit), { defaultAction: 'Prevent' }),
     ],
     [
       h.span([h.Class('sigil'), h.Style({ color: focused ? page.ink : '#4E5D8C' })], ['>']),

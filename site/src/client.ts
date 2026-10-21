@@ -128,6 +128,172 @@ const LoadPage = define('LoadPage', {
     Effect.sync(() => window.location.assign(href)).pipe(Effect.as(ClosedSearch())),
 })
 
+const LANDING = 'loom-landing'
+
+const Landing = S.Struct({ address: S.String, words: S.String, before: S.String })
+type Landing = typeof Landing.Type
+
+const addressOf = (url: URL): string => `${url.pathname}${url.hash}`
+
+const keepLanding = (landing: Landing): Effect.Effect<void> =>
+  Effect.try(() => sessionStorage.setItem(LANDING, JSON.stringify(landing))).pipe(Effect.ignore)
+
+const decodeLanding = S.decodeUnknownOption(Landing)
+
+const takeLanding: Effect.Effect<Option.Option<Landing>> = Effect.try(() => {
+  const kept = sessionStorage.getItem(LANDING)
+  sessionStorage.removeItem(LANDING)
+  return kept
+}).pipe(
+  Effect.map((kept) =>
+    pipe(
+      Option.fromNullishOr(kept),
+      Option.flatMap(Option.liftThrowable((json: string): unknown => JSON.parse(json))),
+      Option.flatMap(decodeLanding),
+    ),
+  ),
+  Effect.catchCause(() => Effect.succeed(Option.none())),
+)
+
+const textsIn = (node: Node): ReadonlyArray<Text> =>
+  node instanceof Text ? [node] : Array.flatMap(Array.fromIterable(node.childNodes), textsIn)
+
+const readable = (text: Text): boolean =>
+  Option.match(Option.fromNullishOr(text.parentElement), {
+    onNone: () => false,
+    onSome: (parent) => !parent.closest('script, style, nav, footer') && parent.checkVisibility(),
+  })
+
+const contentOf = (): Node =>
+  Option.getOrElse(Option.fromNullishOr(document.querySelector('main')), (): Node => document.body)
+
+const headingOf = (url: URL): Option.Option<HTMLElement> =>
+  Option.fromNullishOr(document.getElementById(decodeURIComponent(url.hash.slice(1))))
+
+const follows = (heading: Node, text: Text): boolean =>
+  !heading.contains(text) && (heading.compareDocumentPosition(text) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
+
+type Run = { readonly text: Text; readonly start: number }
+
+const runsOf = (texts: ReadonlyArray<Text>): ReadonlyArray<Run> =>
+  Array.zipWith(texts, Array.scan(texts, 0, (at, text) => at + text.data.length), (text, start) => ({
+    text,
+    start,
+  }))
+
+const folded = (text: string): string => text.toLowerCase().replace(/\s/g, ' ')
+
+const runAt = (runs: ReadonlyArray<Run>, offset: number, ending: boolean): Option.Option<Run> =>
+  Array.findFirst(runs, (run) =>
+    ending
+      ? offset > run.start && offset <= run.start + run.text.data.length
+      : offset >= run.start && offset < run.start + run.text.data.length,
+  )
+
+const offsetIn = (flat: string, sought: string): Option.Option<number> =>
+  Option.liftPredicate(flat.indexOf(folded(sought)), (at) => sought !== '' && at >= 0)
+
+const rangeIn = (texts: ReadonlyArray<Text>, words: string, before: string): Option.Option<Range> => {
+  const runs = runsOf(texts)
+  const flat = folded(Array.join(Array.map(texts, (text) => text.data), ''))
+  return pipe(
+    offsetIn(flat, `${before}${words}`),
+    Option.map((at) => at + before.length),
+    Option.orElse(() => offsetIn(flat, words)),
+    Option.flatMap((start) =>
+      pipe(
+        Option.all([runAt(runs, start, false), runAt(runs, start + words.length, true)]),
+        Option.map(([first, last]) => {
+          const range = document.createRange()
+          range.setStart(first.text, start - first.start)
+          range.setEnd(last.text, start + words.length - last.start)
+          return range
+        }),
+      ),
+    ),
+  )
+}
+
+const rangeOf = (url: URL, landing: Landing): Option.Option<Range> => {
+  const texts = Array.filter(textsIn(contentOf()), readable)
+  return Option.match(headingOf(url), {
+    onNone: () => rangeIn(texts, landing.words, landing.before),
+    onSome: (heading) =>
+      pipe(
+        rangeIn(Array.filter(texts, (text) => follows(heading, text)), landing.words, landing.before),
+        Option.orElse(() => rangeIn(textsIn(heading), landing.words, '')),
+      ),
+  })
+}
+
+const FOUND = 'found'
+
+const highlightWords = (range: Range): Option.Option<void> =>
+  pipe(
+    Option.liftPredicate(globalThis.CSS, (css) => css !== undefined && 'highlights' in css),
+    Option.map((css) => {
+      css.highlights.set(FOUND, new Highlight(range))
+      window.addEventListener('pointerdown', () => css.highlights.delete(FOUND), { once: true })
+    }),
+  )
+
+const selectWords = (range: Range): void =>
+  Option.match(Option.fromNullishOr(window.getSelection()), {
+    onNone: () => undefined,
+    onSome: (selection) => {
+      selection.removeAllRanges()
+      selection.addRange(range)
+    },
+  })
+
+const markWords = (range: Range): void => {
+  Option.match(highlightWords(range), { onNone: () => selectWords(range), onSome: () => undefined })
+  Option.match(Option.fromNullishOr(range.startContainer.parentElement), {
+    onNone: () => undefined,
+    onSome: (element) => element.scrollIntoView({ behavior: 'smooth', block: 'center' }),
+  })
+}
+
+const here = (): string => addressOf(new URL(window.location.href))
+
+const land: Effect.Effect<void> = takeLanding.pipe(
+  Effect.map((landing) =>
+    pipe(
+      landing,
+      Option.filter((kept) => kept.address === here()),
+      Option.flatMap((kept) => rangeOf(new URL(kept.address, window.location.href), kept)),
+      Option.match({ onNone: () => undefined, onSome: markWords }),
+    ),
+  ),
+)
+
+const onThisPage = (url: URL): boolean => url.pathname === window.location.pathname
+
+const OpenFound = define('OpenFound', {
+  args: { href: S.String, words: S.String, before: S.String },
+  messages: [ClosedSearch],
+  execute: ({ href, words, before }) => {
+    const url = new URL(href, window.location.href)
+    return keepLanding({ address: addressOf(url), words, before }).pipe(
+      Effect.andThen(Effect.sync(() => window.location.assign(href))),
+      Effect.andThen(
+        onThisPage(url) ? Effect.sleep('30 millis').pipe(Effect.andThen(land)) : Effect.void,
+      ),
+      Effect.as(ClosedSearch()),
+    )
+  },
+})
+
+const LandOnFound = define('LandOnFound', {
+  messages: [SectionScrolled],
+  execute: afterCommit.pipe(
+    Effect.andThen(pageLoaded),
+    Effect.andThen(Effect.promise(() => document.fonts.ready)),
+    Effect.andThen(land),
+    Effect.as(SectionScrolled()),
+  ),
+})
+
 const SETTLE = '140 millis'
 
 const searchable = (query: string): boolean => query.trim().length >= 2
@@ -339,7 +505,7 @@ const update = (model: Model, message: Message): Step =>
         query === model.query
           ? { model: { ...model, found: groups, searching: false } }
           : { model },
-      OpenedHit: ({ href }) => ({ model, commands: [LoadPage({ href })] }),
+      OpenedHit: ({ href, words, before }) => ({ model, commands: [OpenFound({ href, words, before })] }),
       MovedFocus: ({ delta, count }) => ({
         model: { ...model, focus: clamp(model.focus + delta, Math.max(0, count - 1)) },
       }),
@@ -481,7 +647,7 @@ import './landing.css'
 const application = Runtime.makeApplication({
   Model,
   Flags: Model,
-  init: (seed: Model): Step => ({ model: seed, commands: [RevealChapter()] }),
+  init: (seed: Model): Step => ({ model: seed, commands: [RevealChapter(), LandOnFound()] }),
   update,
   view,
   subscriptions,

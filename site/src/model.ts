@@ -147,7 +147,7 @@ export const Message = defineMessageUnion({
   ClosedSearch: {},
   MovedCaret: { at: S.Number },
   Found: { query: S.String, groups: S.Array(SearchGroup) },
-  OpenedHit: { href: S.String },
+  OpenedHit: { href: S.String, words: S.String, before: S.String },
   ToggledPlay: {},
   ReplayedDocument: {},
   SkippedToEnd: {},
