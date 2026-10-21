@@ -257,10 +257,15 @@ Neither is built on the shell. The missing page cannot be, because the shell boo
 
 So they stand alone and share a shape — centred on the site's paper, set in the site's type, one line of prose and nothing waiting on a bundle.
 
+They carry no theme switch, so they follow the device. A device set to dark gets the site's slate ground and cool ink, and the page declares both themes so the browser does not darken it on its own.
+
 =>
 
 const PAGE_STYLE = `
-      :root { --paper: #F7F4EC; --ink: #14130F; --ink-3: #7C6F64; --rule: #E4DCCB; }
+      :root { color-scheme: light dark; --paper: #F7F4EC; --ink: #14130F; --ink-3: #7C6F64; --rule: #E4DCCB; }
+      @media (prefers-color-scheme: dark) {
+        :root { --paper: #141821; --ink: #E6E9EF; --ink-3: #8790A3; --rule: #2F384A; }
+      }
       body {
         margin: 0;
         min-height: 100vh;
@@ -303,14 +308,17 @@ const standalone = (title: string, body: string): string => `<!doctype html>
 
 ~
 
-The missing page carries the mark, the number, a sentence, and the way back. A reader who has just missed a page waits on nothing to be told so, and the same page answers in development and in production alike.
+The missing page carries the mark, the number, a sentence, and the way back. A reader who has just missed a page waits on nothing to be told so, and the same page answers in development and in production alike. The mark wears its dark face when the device is dark, through a picture source that matches the same setting the page's colours do.
 
 =>
 
 const MISSING = standalone(
   'Not found — Loom',
   `
-    <img src="/mark.svg" alt="Loom" width="140" height="60" />
+    <picture>
+      <source srcset="/mark-dark.svg" media="(prefers-color-scheme: dark)" />
+      <img src="/mark.svg" alt="Loom" width="140" height="60" />
+    </picture>
     <div class="number">404</div>
     <p class="line">There is no page at this address.</p>
     <a class="back" href="/">Back to Loom</a>`,

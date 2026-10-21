@@ -75,7 +75,7 @@ const licenseHead = (): Html =>
       ih.div(
         [ih.Class('license-column')],
         [
-          ih.div([ih.Class('page-title')], [loomMark('paper', 0.8), ih.h1([], ['License'])]),
+          ih.div([ih.Class('page-title')], [loomMark('page', 0.8), ih.h1([], ['License'])]),
           ih.div(
             [ih.Class('license-plain')],
             Array.map(plainly, (paragraph) => ih.p([ih.Class('prose')], [paragraph])),

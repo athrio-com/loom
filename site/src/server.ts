@@ -18,7 +18,10 @@ import {
 } from './pages'
 
 const PAGE_STYLE = `
-      :root { --paper: #F7F4EC; --ink: #14130F; --ink-3: #7C6F64; --rule: #E4DCCB; }
+      :root { color-scheme: light dark; --paper: #F7F4EC; --ink: #14130F; --ink-3: #7C6F64; --rule: #E4DCCB; }
+      @media (prefers-color-scheme: dark) {
+        :root { --paper: #141821; --ink: #E6E9EF; --ink-3: #8790A3; --rule: #2F384A; }
+      }
       body {
         margin: 0;
         min-height: 100vh;
@@ -62,7 +65,10 @@ const standalone = (title: string, body: string): string => `<!doctype html>
 const MISSING = standalone(
   'Not found — Loom',
   `
-    <img src="/mark.svg" alt="Loom" width="140" height="60" />
+    <picture>
+      <source srcset="/mark-dark.svg" media="(prefers-color-scheme: dark)" />
+      <img src="/mark.svg" alt="Loom" width="140" height="60" />
+    </picture>
     <div class="number">404</div>
     <p class="line">There is no page at this address.</p>
     <a class="back" href="/">Back to Loom</a>`,

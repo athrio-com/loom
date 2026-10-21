@@ -24,7 +24,10 @@ import {
   exampleCarpet,
   docsCarpet,
   loomMark,
+  moonIcon,
   sourceCarpet,
+  sunIcon,
+  systemIcon,
   whyLoomCarpet,
   type Carpet,
 } from './components'
@@ -87,13 +90,13 @@ export const nav = (model: Model, h: HtmlBuilder<Message>): Html =>
           h.OnClick(WentTo({ route: 'home' })),
         ],
         [
-          h.span([h.Class('nav-mark')], [loomMark('paper', 0.46)]),
+          h.span([h.Class('nav-mark')], [loomMark('page', 0.46)]),
           'Loom',
           h.span([h.Class('nav-beta'), h.AriaHidden(true)], ['beta']),
         ],
       ),
       ...Array.map(Array.drop(navPages, 2), (page) => navLink(page, page.route === model.route, h)),
-      findButton('nav-find', 'Search Loom — press /', h),
+      h.div([h.Class('nav-end')], [findButton('nav-find', 'Search Loom — press /', h), themeSwitch(h)]),
     ],
   )
 
@@ -111,6 +114,20 @@ const findButton = (className: string, title: string, h: HtmlBuilder<Message>): 
       h.span([h.Class('narrow')], ['navs']),
       h.span([h.Class('nav-key'), h.AriaHidden(true)], ['/']),
     ],
+  )
+
+const THEME_FACES: ReadonlyArray<readonly [string, string, () => Html]> = [
+  ['light', 'Theme: light', sunIcon],
+  ['system', 'Theme: system', systemIcon],
+  ['dark', 'Theme: dark', moonIcon],
+]
+
+const themeSwitch = (h: HtmlBuilder<Message>): Html =>
+  h.button(
+    [h.Class('theme-switch'), h.Type('button'), h.DataAttribute('theme-toggle', ''), h.Title('Theme')],
+    Array.map(THEME_FACES, ([face, label, icon]) =>
+      h.span([h.Class(`theme-face ${face}`)], [icon(), h.span([h.Class('hush')], [label])]),
+    ),
   )
 
 type Neighbour = {

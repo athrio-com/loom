@@ -46,7 +46,10 @@ import {
   exampleCarpet,
   docsCarpet,
   loomMark,
+  moonIcon,
   sourceCarpet,
+  sunIcon,
+  systemIcon,
   whyLoomCarpet,
   type Carpet,
 } from './components'
@@ -71,7 +74,7 @@ The nav is a row of links with the wordmark set into the middle of it, so the si
 
 Loom is in beta, and the nav says so on every page: a small tag in the accent hangs off the wordmark's top corner. It hangs outside the row rather than taking a place in it, so the wordmark stays in the middle of the nav.
 
-Search closes the row. It says `search` on a wide window and `navs` on a narrow one, where it has taken over from the links entirely, and the key badge beside it shows the slash that opens it.
+Two controls close the row, at its right end: search, and the switch between the light and dark themes. Search says `search` on a wide window and `navs` on a narrow one, where it has taken over from the links entirely, and the key badge beside it shows the slash that opens it.
 
 On a narrow window, where the links have gone and the wordmark has moved to the left edge, the Loom mark stands beside the wordmark. It is the same mark a page's head shows beside its name, and on a narrow window the head drops it, so the mark moves up into the nav rather than appearing twice.
 
@@ -125,19 +128,19 @@ export const nav = (model: Model, h: HtmlBuilder<Message>): Html =>
           h.OnClick(WentTo({ route: 'home' })),
         ],
         [
-          h.span([h.Class('nav-mark')], [loomMark('paper', 0.46)]),
+          h.span([h.Class('nav-mark')], [loomMark('page', 0.46)]),
           'Loom',
           h.span([h.Class('nav-beta'), h.AriaHidden(true)], ['beta']),
         ],
       ),
       ...Array.map(Array.drop(navPages, 2), (page) => navLink(page, page.route === model.route, h)),
-      findButton('nav-find', 'Search Loom — press /', h),
+      h.div([h.Class('nav-end')], [findButton('nav-find', 'Search Loom — press /', h), themeSwitch(h)]),
     ],
   )
 
 ## The button that opens the palette
 
-The search button is a word and a key cap showing the slash that opens the palette. It takes its class from whoever draws it, and the class decides where it sits: the nav's class pins it to the right edge, so the links stay centred whatever the button says.
+The search button is a word and a key cap showing the slash that opens the palette. It takes its class from whoever draws it, and the class decides how it looks.
 
 =>
 
@@ -155,6 +158,30 @@ const findButton = (className: string, title: string, h: HtmlBuilder<Message>): 
       h.span([h.Class('narrow')], ['navs']),
       h.span([h.Class('nav-key'), h.AriaHidden(true)], ['/']),
     ],
+  )
+
+## The switch between light and dark
+
+The theme switch is a small round button beside search. It shows the reader's current choice as one of three icons: a sun for `light`, a half-filled disc for `system`, and a moon for `dark`. A press moves to the next choice, and the chapter *Packaging the website* tells how the next one is picked.
+
+The switch is drawn with all three icons inside it, and the stylesheet shows the one that matches the choice on the root element. The choice lives in the browser and not in the model, because it has to be settled before the client boots. So the switch sends no message, and the view never redraws it. The script in the page's head answers its click through the `data-theme-toggle` attribute and rewrites the root's attributes, and the stylesheet does the rest.
+
+Each icon carries its choice's name in text that only a screen reader announces, so the button says which theme is in force rather than only that it is a theme switch.
+
+=>
+
+const THEME_FACES: ReadonlyArray<readonly [string, string, () => Html]> = [
+  ['light', 'Theme: light', sunIcon],
+  ['system', 'Theme: system', systemIcon],
+  ['dark', 'Theme: dark', moonIcon],
+]
+
+const themeSwitch = (h: HtmlBuilder<Message>): Html =>
+  h.button(
+    [h.Class('theme-switch'), h.Type('button'), h.DataAttribute('theme-toggle', ''), h.Title('Theme')],
+    Array.map(THEME_FACES, ([face, label, icon]) =>
+      h.span([h.Class(`theme-face ${face}`)], [icon(), h.span([h.Class('hush')], [label])]),
+    ),
   )
 
 ## The pager that names its neighbours
@@ -701,7 +728,7 @@ export const footer = (h: HtmlBuilder<Message>): Html =>
 
 ## The module {Tangle}[chrome.ts]
 
-The module opens with what the site contains — the pages the nav names, the pages the palette searches, and the passages inside them — because every piece of chrome reads from it. Then the two bars and the button they share, the palette built up from its fragments and keys, and the footer.
+The module opens with what the site contains — the pages the nav names, the pages the palette searches, and the passages inside them — because every piece of chrome reads from it. Then the two bars, the search button and the theme switch, the palette built up from its fragments and keys, and the footer.
 
 =>
 
@@ -710,6 +737,8 @@ The module opens with what the site contains — the pages the nav names, the pa
 ::[The nav across the top]
 
 ::[The button that opens the palette]
+
+::[The switch between light and dark]
 
 ::[The pager that names its neighbours]
 

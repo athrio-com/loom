@@ -69,7 +69,7 @@ describe('the documentation shell', () => {
     const html = render(at(QUICK))
     expect(html).toContain('class="section section-hero page-hero doc-hero"')
     expect(html).toMatch(
-      /class="page-title"><img[^>]*class="loom-mark"[^>]*><h1 id="quick-start">Quick start<\/h1>/,
+      /class="page-title"><span class="loom-mark-pair">.*?<\/span><h1 id="quick-start">Quick start<\/h1>/,
     )
     expect(html).toContain('class="docs-prose page-lead"><p>In about five minutes')
   })
@@ -254,6 +254,17 @@ describe('the documentation chrome', () => {
 
   it('puts the Loom mark beside the wordmark in every nav', () => {
     const html = renderDocument((h) => view(modelAt({ route: 'why-loom' }), h)).html
-    expect(html).toMatch(/class="nav-word"[^>]*><span class="nav-mark"><img[^>]*class="loom-mark"/)
+    expect(html).toMatch(
+      /class="nav-word"[^>]*><span class="nav-mark"><span class="loom-mark-pair"><img[^>]*class="loom-mark paper"[^>]*><img[^>]*class="loom-mark dark"/,
+    )
+  })
+
+  it('ends every nav on search and the theme switch', () => {
+    const html = renderDocument((h) => view(modelAt(), h)).html
+    expect(html).toMatch(/<div class="nav-end"><button[^>]*class="nav-find"/)
+    expect(html).toMatch(/<button data-theme-toggle=""[^>]*class="theme-switch"/)
+    expect(html).toContain('class="theme-face light"')
+    expect(html).toContain('class="theme-face system"')
+    expect(html).toContain('class="theme-face dark"')
   })
 })

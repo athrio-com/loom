@@ -50,6 +50,71 @@ The server rewrites three spots: the `#root` it fills with the rendered body, th
         font-display: swap;
       }
     </style>
+
+~
+
+The site comes in a light theme and a dark one, and the page says so before anything else can decide for it. The `color-scheme` meta tag tells the browser that the page draws both itself. A browser that is not told this may darken a light page on its own, by inverting colours it knows nothing about, and the paper scheme comes out muddy and wrong. A page that declares both themes is left alone.
+
+The theme a reader sees follows one of three choices. `system` follows the device's own setting, and it is where every reader starts. `light` and `dark` hold one theme whatever the device says. The choice is kept in the browser's local storage under the key `theme`, and `system` is kept by keeping nothing at all.
+
+The choice has to land before the first paint. A page that painted light and then turned dark would flash cream at every reader who wants it dark. The client cannot settle it in time, since the browser runs a module script only after it has drawn the page. So the choice is made by a short classic script in the head, which the browser runs as it reads it, before the body exists. The script writes two attributes on the root element. `data-choice` names the choice, so the switch can show which one is in force. `data-theme` names the theme the page wears, `light` or `dark`, and the stylesheet keys every colour to it.
+
+The switch in the nav carries a `data-theme-toggle` attribute and no handler of its own, and this script answers its click from the document. Each press changes what the reader sees. Under `system` it picks the theme the device is not showing. Under a fixed choice that differs from the device it returns to `system`, which then shows the device's theme. So the switch never stops at a choice that looks the same as the one before it. A reader who changes the device's setting, or the theme in another tab, sees the page follow at once.
+
+A theme changes in one frame, all at once. Many pieces of the page ease their colours on hover, a card's ground or a link's ink over a fifth of a second, and those same transitions would also run when the theme changes. The body would turn dark at once while every card faded out of cream behind it, and the page would flash. So the script marks the root with `data-swapping` while it changes the theme, and the stylesheet stops every transition under that mark. Reading a computed style makes the browser restyle the page there and then, with the transitions stopped, and the mark comes off on the next frame.
+
+The script reads storage inside a `try`, because a browser that blocks storage throws on the read rather than returning nothing. Such a reader starts at `system` on every page, and the switch still works for the page they are on.
+
+=>
+
+    <meta name="color-scheme" content="light dark" />
+    <script>
+      ;(() => {
+        const root = document.documentElement
+        const device = matchMedia('(prefers-color-scheme: dark)')
+        const CHOICES = ['system', 'light', 'dark']
+
+        const chosen = () => {
+          try {
+            const kept = localStorage.getItem('theme')
+            return CHOICES.includes(kept) ? kept : 'system'
+          } catch {
+            return 'system'
+          }
+        }
+
+        const keep = (choice) => {
+          try {
+            if (choice === 'system') localStorage.removeItem('theme')
+            else localStorage.setItem('theme', choice)
+          } catch {}
+        }
+
+        const deviceTheme = () => (device.matches ? 'dark' : 'light')
+        const worn = (choice) => (choice === 'system' ? deviceTheme() : choice)
+        const opposite = (theme) => (theme === 'dark' ? 'light' : 'dark')
+        const next = (choice) =>
+          choice !== 'system' && choice !== deviceTheme() ? 'system' : opposite(worn(choice))
+
+        const apply = () => {
+          const choice = chosen()
+          root.dataset.swapping = ''
+          root.dataset.choice = choice
+          root.dataset.theme = worn(choice)
+          getComputedStyle(root).color
+          requestAnimationFrame(() => delete root.dataset.swapping)
+        }
+
+        apply()
+        device.addEventListener('change', apply)
+        addEventListener('storage', apply)
+        document.addEventListener('click', (event) => {
+          if (!(event.target instanceof Element) || !event.target.closest('[data-theme-toggle]')) return
+          keep(next(chosen()))
+          apply()
+        })
+      })()
+    </script>
     <script type="module" src="/src/client.ts"></script>
   </head>
   <body>

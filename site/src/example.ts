@@ -31,8 +31,8 @@ const BLUE = '#2E6FF2'
 const VIOLET = '#8B5CF6'
 const GREEN = '#00996B'
 const ORANGE = '#E8501F'
-const GREY = '#7C6F64'
-const INK = '#14130F'
+const GREY = 'var(--ink-3)'
+const INK = 'var(--ink)'
 
 type Token = {
   readonly text: string
@@ -54,8 +54,8 @@ const WASH = {
   violet: 'rgba(139, 92, 246, 0.10)',
   green: 'rgba(0, 153, 107, 0.12)',
   orange: 'rgba(232, 80, 31, 0.12)',
-  grey: 'rgba(124, 111, 100, 0.14)',
-  ink: 'rgba(20, 19, 15, 0.06)',
+  grey: 'color-mix(in srgb, var(--ink-3) 14%, transparent)',
+  ink: 'color-mix(in srgb, var(--ink) 6%, transparent)',
 }
 
 const plain = (text: string, colour: string = INK, bold: boolean = false): Token => ({

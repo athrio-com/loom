@@ -280,9 +280,9 @@ describe('the page', () => {
 const css = readFileSync(resolve(__dirname, '../src/landing.css'), 'utf8')
 
 const ruleFor = (selector: string): string => {
-  const start = css.indexOf(`${selector} {`)
+  const start = css.indexOf(`\n${selector} {`)
   expect(start).toBeGreaterThan(-1)
-  return css.slice(start, css.indexOf('}', start))
+  return css.slice(start + 1, css.indexOf('}', start))
 }
 
 describe("the palette's pills", () => {

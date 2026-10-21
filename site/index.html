@@ -30,6 +30,55 @@
         font-display: swap;
       }
     </style>
+
+    <meta name="color-scheme" content="light dark" />
+    <script>
+      ;(() => {
+        const root = document.documentElement
+        const device = matchMedia('(prefers-color-scheme: dark)')
+        const CHOICES = ['system', 'light', 'dark']
+
+        const chosen = () => {
+          try {
+            const kept = localStorage.getItem('theme')
+            return CHOICES.includes(kept) ? kept : 'system'
+          } catch {
+            return 'system'
+          }
+        }
+
+        const keep = (choice) => {
+          try {
+            if (choice === 'system') localStorage.removeItem('theme')
+            else localStorage.setItem('theme', choice)
+          } catch {}
+        }
+
+        const deviceTheme = () => (device.matches ? 'dark' : 'light')
+        const worn = (choice) => (choice === 'system' ? deviceTheme() : choice)
+        const opposite = (theme) => (theme === 'dark' ? 'light' : 'dark')
+        const next = (choice) =>
+          choice !== 'system' && choice !== deviceTheme() ? 'system' : opposite(worn(choice))
+
+        const apply = () => {
+          const choice = chosen()
+          root.dataset.swapping = ''
+          root.dataset.choice = choice
+          root.dataset.theme = worn(choice)
+          getComputedStyle(root).color
+          requestAnimationFrame(() => delete root.dataset.swapping)
+        }
+
+        apply()
+        device.addEventListener('change', apply)
+        addEventListener('storage', apply)
+        document.addEventListener('click', (event) => {
+          if (!(event.target instanceof Element) || !event.target.closest('[data-theme-toggle]')) return
+          keep(next(chosen()))
+          apply()
+        })
+      })()
+    </script>
     <script type="module" src="/src/client.ts"></script>
   </head>
   <body>

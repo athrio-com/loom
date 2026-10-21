@@ -20,6 +20,8 @@ Nothing here is a recording. The replay is deterministic, driven off the clock, 
 
 A line of the document is a row of tokens, and a token is a piece of text with a colour, a weight, and — where it stands for one of Loom's marks — a wash behind it. The washes are the same colours the vocabulary section gives those marks, so a reader who meets `=>` here in green meets it in green again a screen later.
 
+Plain text and grey labels take the page's own inks rather than fixed colours, as do the washes behind them. The player's card is light in the light theme and dark in the dark one, and near-black text written into the card would vanish on the dark one. The marks' own hues read on either card, so they stay fixed.
+
 A line also carries its height, whether its whitespace is kept, and a rest: a pause after it, measured in characters rather than milliseconds so that speeding the playback up shortens the pauses with it.
 
 =>
@@ -57,8 +59,8 @@ const BLUE = '#2E6FF2'
 const VIOLET = '#8B5CF6'
 const GREEN = '#00996B'
 const ORANGE = '#E8501F'
-const GREY = '#7C6F64'
-const INK = '#14130F'
+const GREY = 'var(--ink-3)'
+const INK = 'var(--ink)'
 
 type Token = {
   readonly text: string
@@ -80,8 +82,8 @@ const WASH = {
   violet: 'rgba(139, 92, 246, 0.10)',
   green: 'rgba(0, 153, 107, 0.12)',
   orange: 'rgba(232, 80, 31, 0.12)',
-  grey: 'rgba(124, 111, 100, 0.14)',
-  ink: 'rgba(20, 19, 15, 0.06)',
+  grey: 'color-mix(in srgb, var(--ink-3) 14%, transparent)',
+  ink: 'color-mix(in srgb, var(--ink) 6%, transparent)',
 }
 
 const plain = (text: string, colour: string = INK, bold: boolean = false): Token => ({

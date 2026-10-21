@@ -245,27 +245,34 @@ export const flowerFor = (place: number): Carpet => {
 
 Loom's full mark is a pill with two carets on it, and it is the one piece of the site that moves. The carets blink, glance together, and a woven quilt drifts up behind them before fading out — a loop of twelve and four fifths seconds that runs on nothing but itself.
 
-It is a vendored SVG, drawn in the design and applied here untouched. Two grounds, one mark: the paper copy for the hero and the documentation's bar, and a copy for the footer's single dark ground.
+It is a vendored SVG, drawn in the design and applied here untouched. The design draws it in two faces. The paper face is a near-black pill with cream carets, for a light ground. The dark face inverts it to a cream pill with near-black carets, for a dark ground, and it leaves out the soft shadow the paper face pools under its carets.
 
 The mark is served as a file rather than written into the page. At forty kilobytes each the two would be a third of the document if they were inlined, and they gain nothing from being there — the mark carries no text, so it needs none of the page's type, and its animation runs inside an image as happily as in the document. The three command illustrations go the other way for exactly that reason: they set their file names in live text, and text in an image cannot reach the fonts the page loaded.
 
 The pill is a hundred and twelve by forty-eight at its natural size, and every use scales from there — the hero at one and a fifth, the footer at a little over three quarters, the documentation's bar at just under a half. The wordmark beside it says `Loom` in text, so the image itself is decorative and carries no alternative of its own.
 
+A mark stands on one of two grounds. The footer is dark in both themes, so a mark there always wears the dark face. Every other mark stands on the page, and the page is paper in the light theme and near-black in the dark one. The theme is settled in the browser, after the server has rendered the page, so a mark on the page cannot be told its face in advance. It is drawn in both faces instead, and the stylesheet shows the one that suits the theme. Both files are fetched once and cached, and the footer has already asked for the dark one.
+
 =>
 
-export type MarkGround = 'paper' | 'dark'
+export type MarkGround = 'page' | 'dark'
 
 const MARK_WIDTH = 112
 const MARK_HEIGHT = 48
 
-export const loomMark = (ground: MarkGround, scale: number): Html =>
+const markFace = (face: 'paper' | 'dark', scale: number): Html =>
   ih.img([
-    ih.Class('loom-mark'),
-    ih.Src(ground === 'dark' ? '/mark-dark.svg' : '/mark.svg'),
+    ih.Class(`loom-mark ${face}`),
+    ih.Src(face === 'dark' ? '/mark-dark.svg' : '/mark.svg'),
     ih.Alt(''),
     ih.Width(String(Math.round(MARK_WIDTH * scale))),
     ih.Height(String(Math.round(MARK_HEIGHT * scale))),
   ])
+
+export const loomMark = (ground: MarkGround, scale: number): Html =>
+  ground === 'dark'
+    ? markFace('dark', scale)
+    : ih.span([ih.Class('loom-mark-pair')], [markFace('paper', scale), markFace('dark', scale)])
 
 ## The icons
 
@@ -497,6 +504,40 @@ export const octocatIcon = (size: string): Html =>
       ),
     ],
   )
+
+~
+
+The theme switch wears three more, one for each choice a reader can make. A sun stands for the light theme and a crescent moon for the dark one. The `system` choice is a disc filled on one half, because it shows whichever theme the device is showing. All three are stroked in the current text colour like the rest of the set, and the disc's filled half takes that colour too.
+
+=>
+
+export const sunIcon = (): Html =>
+  strokeIcon('15', [
+    ih.circle([ih.Cx('12'), ih.Cy('12'), ih.R('4')], []),
+    strokePath('M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41'),
+  ])
+
+export const systemIcon = (): Html =>
+  strokeIcon('15', [
+    ih.circle([ih.Cx('12'), ih.Cy('12'), ih.R('9')], []),
+    ih.path([ih.D('M12 3a9 9 0 0 1 0 18z'), ih.Fill('currentColor')], []),
+  ])
+
+export const moonIcon = (): Html => strokeIcon('15', [strokePath('M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z')])
+
+~
+
+The bug marks a problem on the Why Loom page. It is the bug a developer's own tools draw: a round body split down its back, a small head, two short antennae, and three legs on either side. A drawing this size needs its legs and antennae to read as an insect at all, and a pixel grid small enough to sit beside a line of text has no room for them. So the bug is stroked like the rest of the set, and it takes the colour of whatever sits around it.
+
+=>
+
+export const bugIcon = (): Html =>
+  strokeIcon('14', [
+    strokePath('m8 2 1.88 1.88M14.12 3.88 16 2M9 7.13v-1a3 3 0 1 1 6 0v1'),
+    strokePath('M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6M12 20v-9'),
+    strokePath('M6.53 9C4.6 8.8 3 7.1 3 5M6 13H2M3 21c0-2.1 1.7-3.9 3.8-4'),
+    strokePath('M20.97 5c0 2.1-1.6 3.8-3.5 4M22 13h-4M17.2 17c2.1.1 3.8 1.9 3.8 4'),
+  ])
 
 ## The runtime marks
 

@@ -1,7 +1,7 @@
 import { Array, Option } from 'effect'
 import { type Html, inertHtml as ih } from 'foldkit/html'
-import { broadSeam, type Carpet, carpetMark, whyLoomCarpet } from './components'
-import { pageHead, pixels } from './page-head'
+import { broadSeam, bugIcon, type Carpet, carpetMark, checkIcon, whyLoomCarpet } from './components'
+import { pageHead } from './page-head'
 
 type Motivation = { readonly question: ReadonlyArray<string>; readonly answer: ReadonlyArray<string> }
 
@@ -22,7 +22,7 @@ type Pair = { readonly problem: string; readonly answer: string }
 type PairGroup = { readonly title: string; readonly pairs: ReadonlyArray<Pair> }
 
 const pairsEmblem: Carpet = {
-  rows: ['.......', '.a...b.', '..a.b..', '...p...', '..b.a..', '.b...a.', '.......'],
+  rows: ['.......', '.......', '.....b.', '....b..', '.a.b...', '..p....', '.......'],
   threads: { '.': '#14204A', p: '#F2EFE6', a: '#FF6A3D', b: '#2E6FF2' },
 }
 
@@ -100,15 +100,9 @@ const hues: Array.NonEmptyReadonlyArray<Hue> = [
   { ink: '#14204A', tint: '#E8EAF1' },
 ]
 
-const problemMark: Carpet = {
-  rows: ['.o...o.', '..ooo..', '.ooooo.', 'o.o.o.o', '.ooooo.', 'o.o.o.o', '..ooo..'],
-  threads: { '.': 'transparent', o: '#CE3F5C' },
-}
+const problemMark: Html = ih.span([ih.Class('why-bug'), ih.AriaHidden(true)], [bugIcon()])
 
-const answerMark: Carpet = {
-  rows: ['....g', '...g.', 'g.g..', '.g...', '.....'],
-  threads: { '.': 'transparent', g: '#00714F' },
-}
+const answerMark: Html = ih.span([ih.Class('why-a'), ih.AriaHidden(true)], [checkIcon()])
 
 const pairLine = (mark: Html, text: string): Html =>
   ih.div([ih.Class('why-line')], [mark, ih.span([], [text])])
@@ -121,8 +115,8 @@ const pairCard = (pair: Pair, at: number): Html => {
   return ih.div(
     [ih.Class('why-pair'), ih.Style({ '--pair-ink': hue.ink, '--pair-tint': hue.tint })],
     [
-      pairLine(pixels(problemMark, 'why-bug'), pair.problem),
-      pairLine(pixels(answerMark, 'why-a'), pair.answer),
+      pairLine(problemMark, pair.problem),
+      pairLine(answerMark, pair.answer),
     ],
   )
 }

@@ -169,19 +169,24 @@ export const flowerFor = (place: number): Carpet => {
   }
 }
 
-export type MarkGround = 'paper' | 'dark'
+export type MarkGround = 'page' | 'dark'
 
 const MARK_WIDTH = 112
 const MARK_HEIGHT = 48
 
-export const loomMark = (ground: MarkGround, scale: number): Html =>
+const markFace = (face: 'paper' | 'dark', scale: number): Html =>
   ih.img([
-    ih.Class('loom-mark'),
-    ih.Src(ground === 'dark' ? '/mark-dark.svg' : '/mark.svg'),
+    ih.Class(`loom-mark ${face}`),
+    ih.Src(face === 'dark' ? '/mark-dark.svg' : '/mark.svg'),
     ih.Alt(''),
     ih.Width(String(Math.round(MARK_WIDTH * scale))),
     ih.Height(String(Math.round(MARK_HEIGHT * scale))),
   ])
+
+export const loomMark = (ground: MarkGround, scale: number): Html =>
+  ground === 'dark'
+    ? markFace('dark', scale)
+    : ih.span([ih.Class('loom-mark-pair')], [markFace('paper', scale), markFace('dark', scale)])
 
 import logos from './logos.json'
 
@@ -389,6 +394,28 @@ export const octocatIcon = (size: string): Html =>
       ),
     ],
   )
+
+export const sunIcon = (): Html =>
+  strokeIcon('15', [
+    ih.circle([ih.Cx('12'), ih.Cy('12'), ih.R('4')], []),
+    strokePath('M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41'),
+  ])
+
+export const systemIcon = (): Html =>
+  strokeIcon('15', [
+    ih.circle([ih.Cx('12'), ih.Cy('12'), ih.R('9')], []),
+    ih.path([ih.D('M12 3a9 9 0 0 1 0 18z'), ih.Fill('currentColor')], []),
+  ])
+
+export const moonIcon = (): Html => strokeIcon('15', [strokePath('M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z')])
+
+export const bugIcon = (): Html =>
+  strokeIcon('14', [
+    strokePath('m8 2 1.88 1.88M14.12 3.88 16 2M9 7.13v-1a3 3 0 1 1 6 0v1'),
+    strokePath('M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6M12 20v-9'),
+    strokePath('M6.53 9C4.6 8.8 3 7.1 3 5M6 13H2M3 21c0-2.1 1.7-3.9 3.8-4'),
+    strokePath('M20.97 5c0 2.1-1.6 3.8-3.5 4M22 13h-4M17.2 17c2.1.1 3.8 1.9 3.8 4'),
+  ])
 
 const svgMark = (svg: string): Html => ih.span([ih.Class('rt-logo'), ih.InnerHTML(svg)], [])
 

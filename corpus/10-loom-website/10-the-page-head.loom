@@ -20,7 +20,7 @@ export const pageHead = (id: string, title: string, lead: string): Html =>
   ih.div(
     [ih.Class('section section-hero page-hero'), ih.Id(id)],
     [
-      ih.div([ih.Class('page-title')], [loomMark('paper', 0.8), ih.h1([], [title])]),
+      ih.div([ih.Class('page-title')], [loomMark('page', 0.8), ih.h1([], [title])]),
       ih.div(
         [ih.Class('page-head-grid')],
         [

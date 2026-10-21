@@ -17,6 +17,8 @@ Colour divides into grounds, ink, rules and accents.
 
 Three grounds carry the site. Paper is the page itself. A card lifts a region just off the paper, a shade lighter than the ground it sits on. The footer inverts to near-black, the one dark surface the page ends on. A code fence washes the paper with a trace of its own ink rather than taking a ground of its own.
 
+One ground more, the sheet, is pure white, and only two things stand on it: a command a reader copies, and the example's card. White there says "this is not prose, it is a thing you take".
+
 One kind of card does not use that ground. The bordered cards that fill Why Loom and Community sit on the mark's own pale accent instead, which reads a touch warmer and keeps a page of twenty-odd cards from looking like a stack of white boxes. They take `--pale` rather than `--card`, and the difference is deliberate rather than drift.
 
 Ink runs three steps and stops. Primary ink sets headings, body and any code meant to be read. Secondary ink sets interface chrome and the copy inside a mock panel. Muted ink sets eyebrows, captions and meta — never a sentence. On the footer's dark ground the ramp collapses to two: cream for text, grey for the blurb beneath it.
@@ -33,6 +35,7 @@ The navy card is the infographic's ground, and it runs its own small scheme — 
   /* Grounds */
   --paper:       #F7F4EC;
   --card:        #FCFAF4;
+  --sheet:       #FFFFFF;
   --footer-bg:   #111111;
   --fence:       rgba(20, 19, 15, 0.032);
 
@@ -248,6 +251,157 @@ A reader who has asked their system for less motion gets none: the drift stops, 
 
 ~
 
+## The page after dark
+
+The site has a dark theme beside the paper one, and a reader picks between them with the switch in the nav. The script in the page's head writes the theme on the root element as `data-theme`, and this section redraws the scheme for `dark`. Every other rule in the stylesheet reads the scheme's properties, so it follows the theme without a rule of its own.
+
+The dark page is set on slate: a charcoal that leans toward the mark's navy without becoming it. A warm near-black would sit closer to the paper scheme, but every grey layered on it drifts brown, and a page of cards turns muddy. A cool ground keeps each layer clean, and the navy lean ties it to the mark rather than to a stock dark theme.
+
+The grounds step up in clear, even stages. The page is the darkest of them apart from the footer. A card lifts one stage off the page, as it lifts off paper in the light theme, and the sheet lifts one stage further. The footer goes the other way, a stage below the page, so the page ends on something deeper than itself. That deeper ground is also the canvas a rubber-band scroll uncovers past either end.
+
+The inks turn over to a cool white, a blue-grey for interface chrome, and a muted slate for eyebrows and captions. The footer takes the same white and slate, so the warm cream it wears under a paper page does not come back at the foot of a cool one. The rules are the ground lifted twice, enough to draw an edge on a card without outlining it.
+
+Each approach's colour comes as a pair, a bright value for the navy card and a deeper one for paper. On a dark page the deeper value is too dim to read, so the paper name takes the bright value instead. The `loom init` green and the `loom eject` red return to their brighter shades for the same reason, and the accent moves from its deep orange to the mark's own.
+
+While the theme changes, the root carries `data-swapping`, and no transition runs under it. Without this, every card and link that eases its colour on hover would ease out of the old theme too, and the page would flash.
+
+The `color-scheme` property tells the browser which theme the page is wearing. The browser then draws its own pieces to match: the scrollbars, the caret, and the default look of a form control.
+
+=>
+
+:root { color-scheme: light; }
+
+:root[data-swapping] *,
+:root[data-swapping] *::before,
+:root[data-swapping] *::after { transition: none !important; }
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  /* Grounds */
+  --paper:       #141821;
+  --card:        #1C2230;
+  --pale:        #1C2230;
+  --sheet:       #232A3A;
+  --footer-bg:   #0F121A;
+  --fence:       rgba(160, 180, 230, 0.06);
+
+  /* Ink on the footer, matched to the page's */
+  --footer-ink:   #E6E9EF;
+  --footer-muted: #8790A3;
+
+  /* Ink on the dark page */
+  --ink:         #E6E9EF;
+  --ink-2:       #B3BBC9;
+  --ink-3:       #8790A3;
+
+  /* Rules */
+  --rule:        #2F384A;
+  --rule-faint:  #222938;
+
+  /* Colours that need their bright value on a dark ground */
+  --init:          #00B37E;
+  --eject:         #E85A78;
+  --prompt-paper:  var(--prompt);
+  --spec-paper:    var(--spec);
+  --hooks-paper:   var(--hooks);
+  --loom-paper:    var(--loom);
+  --accent:        #FF6A3D;
+  --accent-hover:  #FF8A63;
+}
+
+~
+
+Some colours cannot follow the scheme, because a page writes them into its own markup. A card that tints itself under the cursor carries its colour and its tint as inline properties: the colour draws the card's edge, and the tint is a pale wash mixed for paper. Some of those colours are deepened to read on paper as well, such as the mark's navy on one of Why Loom's cards, a pager card's ink, or a hero link's. On the dark page a navy edge on a slate card is no edge at all.
+
+So the dark theme lifts each such colour before it uses it. The lift raises the colour's lightness to at least seventy-two percent and keeps its hue and its chroma, measured in OKLCH, the colour space whose lightness follows what the eye sees. A colour already that light passes through unchanged, so the mark's bright orange stays orange, while the navy comes out a soft periwinkle and the deep amber a readable amber. Each card names its lifted colour `--lift` once, and draws its edge in it. Its tint is mixed afresh, from a little of the lifted colour stirred into the card's dark ground.
+
+A few washes are a trace of near-black, and near-black does not show on near-black. The tree's guide lines and the hover behind a small round button take the dark rules instead.
+
+=>
+
+:root[data-theme='dark'] .mark-card    { --lift: oklch(from var(--mark-ink) max(l, 0.72) c h); }
+:root[data-theme='dark'] .why-pair     { --lift: oklch(from var(--pair-ink) max(l, 0.72) c h); }
+:root[data-theme='dark'] .channel-card { --lift: oklch(from var(--channel-ink) max(l, 0.72) c h); }
+:root[data-theme='dark'] .hero-link    { --lift: oklch(from var(--hero-ink) max(l, 0.72) c h); }
+:root[data-theme='dark'] .pager-card   { --lift: oklch(from var(--pg-ink) max(l, 0.72) c h); }
+
+:root[data-theme='dark'] :is(.mark-card, .why-pair, .channel-card):hover {
+  background: color-mix(in srgb, var(--lift) 12%, var(--pale));
+  border-color: var(--lift);
+}
+
+:root[data-theme='dark'] .mark-name { color: oklch(from var(--mark-ink) max(l, 0.72) c h); }
+
+:root[data-theme='dark'] :is(.hero-link, .pager-card):hover { color: var(--lift); }
+
+:root[data-theme='dark'] .place-card.github:hover {
+  background: color-mix(in srgb, var(--amber) 12%, var(--pale));
+}
+
+:root[data-theme='dark'] .place-card.telegram:hover {
+  background: color-mix(in srgb, var(--blue) 12%, var(--pale));
+}
+
+:root[data-theme='dark'] .tree-children { border-left-color: var(--rule); }
+
+:root[data-theme='dark'] :is(.tree-row.nested::before, .tree-row.nested::after) { background: var(--rule); }
+
+:root[data-theme='dark'] :is(.nav-burger, .drawer-close):hover { background: var(--rule-faint); }
+
+~
+
+The command illustrations are drawings, and a drawing keeps its own fills. Each one, though, is drawn on a panel of paper, and on the dark page that panel would glare as a cream window cut into the dark. So the dark theme repaints three parts of every illustration: the panel takes the sheet, the file names take the page's inks, and the tree's guide lines take the page's rule. The illustrations sit in the page as live markup, so a rule can match each part by the fill the drawing gave it. The file and folder icons keep their own colours, as icons do on any ground.
+
+=>
+
+:root[data-theme='dark'] .ops-svg rect[fill='#F2EFE6'] { fill: var(--sheet); }
+:root[data-theme='dark'] .ops-svg text[fill='#14130F'] { fill: var(--ink); }
+:root[data-theme='dark'] .ops-svg text[fill='#7C6F64'] { fill: var(--ink-3); }
+:root[data-theme='dark'] .ops-svg g[fill='#DFD8C8'] { fill: var(--rule); }
+
+~
+
+On a paper page the footer is the one dark ground. On the dark page it sits only a stage below the page above it, so a hairline along its top edge marks where the page ends. The footer's link chips take the same rule as their edge, until the cursor gives a chip its own colour.
+
+The Loom mark changes face with the page, from the near-black pill to the cream one. A mark on the page carries both faces, and only the face that suits the theme shows. The pair lays its two images out as if the pair were not there, so each image takes the place in its row that a lone mark would.
+
+=>
+
+:root[data-theme='dark'] .footer { border-top: 1px solid var(--rule); }
+:root[data-theme='dark'] .footer-chip:not(:hover) { border-color: var(--rule); }
+
+.loom-mark-pair { display: contents; }
+.loom-mark-pair .loom-mark.dark { display: none; }
+:root[data-theme='dark'] .loom-mark-pair .loom-mark.paper { display: none; }
+:root[data-theme='dark'] .loom-mark-pair .loom-mark.dark { display: block; }
+
+~
+
+On paper the search palette drops a navy card over the page, and the navy reads as a different mode: the reader has stopped reading and started looking. On the slate page that navy is nearly the page's own colour, and the card sinks into it. So in the dark theme the palette lifts instead. Its card is the page's slate raised several steps, lighter than any card on the page, and its edges, its placeholder and its pills follow in lighter slates. The palette is the one surface on the dark page that stands nearer the reader than everything else, which says the same thing the navy says on paper.
+
+The palette's inks are its own, so the card redraws them for itself and leaves the navy card's scheme alone everywhere else.
+
+=>
+
+:root[data-theme='dark'] .palette-card {
+  --navy-ink:   #EEF1F6;
+  --navy-muted: #97A2B8;
+  --navy-guide: rgba(238, 241, 246, 0.12);
+  background: #2A3346;
+  border-color: #3E4A63;
+}
+
+:root[data-theme='dark'] .palette-input::placeholder { color: #6B7891; }
+
+:root[data-theme='dark'] :is(.palette-esc, .pill-link) { border-color: #6B7891; }
+
+:root[data-theme='dark'] .pill-link { color: #CDD4E0; }
+
+:root[data-theme='dark'] .pill-link.here { border-color: #B9C3D6; }
+
+:root[data-theme='dark'] :is(.palette-esc, .pill-link):hover { border-color: #8D9AB3; }
+
 ## Every section in one container
 
 One container rules the page, and every section is that container. The side padding lives on the section itself, so a section's ground can run to the window's edge while its content still lands on the measure.
@@ -460,11 +614,13 @@ The nav is a single row fifty-six pixels tall, and it centres its links around t
 
 The wordmark is the one thing here in Space Grotesk, and it does not change colour on hover — a logo is not a link that needs to prove it is one. The beta tag hangs off its top-right corner, positioned against the wordmark rather than laid out in the row, so the row stays centred on the word. It is drawn back over the corner by three tenths of its own width, so it reads as part of the mark rather than a word beside it. It is set small in mono capitals, in violet.
 
-Search sits apart from the row. It pins to the right edge rather than joining the flow, so the links stay centred whatever it says. The key badge beside it shows the slash that opens the palette.
+Search and the theme switch sit apart from the row, side by side at its right end. The pair pins to the right edge rather than joining the flow, so the links stay centred whatever search says. The key badge beside search shows the slash that opens the palette.
+
+The theme switch is a twenty-eight-pixel circle drawn in the nav's own manner: no border and no ground of its own, muted ink, and the faint rule behind it when a reader hovers it. Only one of its three icons shows at a time, the one whose choice the root element names. Before the script in the page's head has run there is no choice on the root at all, and the switch shows the `system` disc, which is the choice every reader starts from. The text each icon carries for a screen reader is clipped to nothing on screen.
 
 On a narrow window the Loom mark stands beside the wordmark, a little over half its full width, eight pixels from the word. It is hidden on a wide window, where the wordmark sits between the links and the page head shows the mark at full size.
 
-The nav's side padding steps down with the window, from eighty pixels to twenty-four. The links drop away earlier than that, at seven hundred and sixty-seven pixels, because search is pinned to the right edge rather than laid out in the row: nothing pushes back when the links grow toward it, and by seven hundred pixels the last of them is already under the button. So the row hands over while it still has forty pixels to spare, and from there the wordmark moves to the left edge, search says `navs` instead, and the palette becomes the way through the site.
+The nav's side padding steps down with the window, from eighty pixels to twenty-four. The links drop away earlier than that, at eight hundred and thirty-nine pixels, because search and the theme switch are pinned to the right edge rather than laid out in the row: nothing pushes back when the links grow toward them, and by seven hundred and seventy pixels the last link is already under search. So the row hands over while it still has forty pixels to spare, and from there the wordmark moves to the left edge, search says `navs` instead, and the palette becomes the way through the site.
 
 =>
 
@@ -529,13 +685,19 @@ The nav's side padding steps down with the window, from eighty pixels to twenty-
 
 .nav-find .narrow { display: none; }
 
-.nav-find {
-  appearance: none;
-  cursor: pointer;
+.nav-end {
   position: absolute;
   right: var(--side);
   top: 50%;
   transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.nav-find {
+  appearance: none;
+  cursor: pointer;
   display: flex;
   align-items: center;
   gap: 9px;
@@ -553,6 +715,41 @@ The nav's side padding steps down with the window, from eighty pixels to twenty-
 }
 
 .nav-find:hover { background-color: var(--rule-faint); color: var(--ink); }
+
+.theme-switch {
+  appearance: none;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-3);
+  transition: background-color .14s ease, color .14s ease;
+}
+
+.theme-switch:hover { background-color: var(--rule-faint); color: var(--ink); }
+
+.theme-switch svg { display: block; }
+
+.theme-face { display: none; }
+
+:root:not([data-choice]) .theme-face.system,
+:root[data-choice='light'] .theme-face.light,
+:root[data-choice='system'] .theme-face.system,
+:root[data-choice='dark'] .theme-face.dark { display: contents; }
+
+.hush {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 
 .nav-key {
   display: flex;
@@ -572,15 +769,15 @@ The nav's side padding steps down with the window, from eighty pixels to twenty-
 
 @media (max-width: 1179px) {
   .nav { padding: 0 56px; }
-  .nav-find { right: 56px; }
+  .nav-end { right: 56px; }
 }
 
 @media (max-width: 999px) {
   .nav { gap: 20px; padding: 0 40px; }
-  .nav-find { right: 40px; }
+  .nav-end { right: 40px; }
 }
 
-@media (max-width: 767px) {
+@media (max-width: 839px) {
   .nav { justify-content: flex-start; }
   .nav-link { display: none; }
   .nav-find .wide { display: none; }
@@ -589,12 +786,12 @@ The nav's side padding steps down with the window, from eighty pixels to twenty-
 
 @media (max-width: 639px) {
   .nav { padding: 0 24px; }
-  .nav-find { right: 24px; }
+  .nav-end { right: 24px; }
 }
 
 .nav-mark { display: none; }
 
-@media (max-width: 767px) {
+@media (max-width: 839px) {
   .nav-word { display: inline-flex; align-items: center; gap: 8px; margin-left: 0; }
   .nav-mark { display: block; }
   .nav-mark .loom-mark { width: 52px; height: auto; }
@@ -625,7 +822,7 @@ The burger that opens the drawer sits at the bar's left end, its lines starting 
     right: 0;
     top: 100%;
     height: 28px;
-    background: linear-gradient(var(--paper), rgba(247, 244, 236, 0));
+    background: linear-gradient(var(--paper), transparent);
     pointer-events: none;
   }
 
@@ -650,7 +847,7 @@ The burger that opens the drawer sits at the bar's left end, its lines starting 
   .nav-burger:hover { background: rgba(20, 19, 15, 0.06); }
 }
 
-@media (max-width: 767px) { .docs-nav .nav-word { margin-left: 40px; } }
+@media (max-width: 839px) { .docs-nav .nav-word { margin-left: 40px; } }
 @media (max-width: 639px) { .nav-burger { left: 15px; } }
 
 ## The palette over the page
@@ -1219,7 +1416,7 @@ The command itself is a button on the one pure-white ground the page uses. White
   width: 100%;
   padding: 13px 16px;
   border: 1px solid var(--rule);
-  background: #FFFFFF;
+  background: var(--sheet);
   font-family: var(--mono);
   font-size: var(--t-code);
   color: var(--ink);
@@ -1727,7 +1924,7 @@ The stage scrolls itself and hides its scrollbar, since the caret leads the read
   height: 100%;
   overflow: hidden;
   border-radius: 10px;
-  background: #FFFFFF;
+  background: var(--sheet);
   box-shadow: 0 2px 26px rgba(20, 19, 15, 0.08);
 }
 
@@ -1937,7 +2134,7 @@ None of the controls answers the cursor. They hold their ink whether it is over 
   bottom: 44px;
   height: 44px;
   pointer-events: none;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, #FFFFFF 100%);
+  background: linear-gradient(180deg, transparent 0%, var(--sheet) 100%);
 }
 
 .pl-bar {
@@ -1951,7 +2148,7 @@ None of the controls answers the cursor. They hold their ink whether it is over 
   justify-content: space-between;
   height: 44px;
   padding: 0 18px;
-  background: #FFFFFF;
+  background: var(--sheet);
 }
 
 .pl-back, .pl-skip, .pl-play {
@@ -1990,7 +2187,7 @@ None of the controls answers the cursor. They hold their ink whether it is over 
 
 ## The page head
 
-The pages past the landing open on a shared head rather than a masthead, though on the hero's padding all the same. The Loom mark stands beside the page's name at four fifths of its size, and the pair hold one line with sixteen pixels between them. Below seven hundred and sixty-eight pixels the head drops the mark, because the nav shows it there beside the wordmark. Under that, the paragraph and the two link cards share a row of equal halves until the window drops below a thousand pixels, where the cards fall under the paragraph. The gutter between the halves narrows with the window, as every column gap on the site does. The landing's hero lays its parts out as a spaced column, and this head sets its own spacing, so it goes back to an ordinary block.
+The pages past the landing open on a shared head rather than a masthead, though on the hero's padding all the same. The Loom mark stands beside the page's name at four fifths of its size, and the pair hold one line with sixteen pixels between them. Below eight hundred and forty pixels the head drops the mark, because the nav shows it there beside the wordmark. Under that, the paragraph and the two link cards share a row of equal halves until the window drops below a thousand pixels, where the cards fall under the paragraph. The gutter between the halves narrows with the window, as every column gap on the site does. The landing's hero lays its parts out as a spaced column, and this head sets its own spacing, so it goes back to an ordinary block.
 
 =>
 
@@ -2015,7 +2212,7 @@ The pages past the landing open on a shared head rather than a masthead, though 
 
 @media (max-width: 1179px) { .page-head-grid { gap: 40px; } }
 @media (max-width: 999px)  { .page-head-grid { grid-template-columns: minmax(0, 1fr); gap: 36px; } }
-@media (max-width: 767px) { .page-title .loom-mark { display: none; } }
+@media (max-width: 839px) { .page-title .loom-mark-pair { display: none; } }
 @media (max-width: 639px) {
   .page-head-grid { gap: 28px; }
   .page-title h1 { font-size: 26px; }
@@ -2087,8 +2284,13 @@ Under the prose, the cards stand apart from it by twice the gap between a sectio
 
 .why-column > p:last-child { margin-bottom: 0; }
 
-.why-bug { display: block; flex: none; width: 14px; height: 14px; }
-.why-a { display: block; flex: none; width: 10px; height: 10px; }
+.why-bug,
+.why-a { display: grid; place-items: center; flex: none; width: 14px; height: 14px; }
+
+.why-bug { color: var(--eject); }
+.why-a { color: var(--loom-paper); }
+
+:is(.why-bug, .why-a) svg { display: block; }
 
 .why-cases { margin-top: calc(var(--rhythm) * 2); }
 
@@ -2131,8 +2333,7 @@ Under the prose, the cards stand apart from it by twice the gap between a sectio
   text-wrap: pretty;
 }
 
-.why-line .why-bug { margin-top: 6px; }
-.why-line .why-a { margin-top: 8px; margin-left: 2px; }
+.why-line :is(.why-bug, .why-a) { margin-top: 6px; }
 
 @media (max-width: 1179px) { .why-pair-set { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 639px) {
@@ -2843,7 +3044,7 @@ The page gives way as the window narrows. Below twelve hundred pixels the gap in
 
 ## The stylesheet {Tangle}[landing.css]
 
-The stylesheet is the three schemes first — colour, type and measure — then the base. Then the pieces every page shares: the container and its sections, a section's header, running text, block code, and the file tree. The chrome closes it, since the nav, the palette and the footer wrap whatever a page puts between them.
+The stylesheet is the three schemes first — colour, type and measure — then the base, and the scheme redrawn for the dark theme. Then the pieces every page shares: the container and its sections, a section's header, running text, block code, and the file tree. The chrome closes it, since the nav, the palette and the footer wrap whatever a page puts between them.
 
 =>
 
@@ -2854,6 +3055,8 @@ The stylesheet is the three schemes first — colour, type and measure — then 
 ::[Four pixels at a time]
 
 ::[The page on paper]
+
+::[The page after dark]
 
 ::[Every section in one container]
 

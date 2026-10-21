@@ -28,7 +28,7 @@ import { Copied, PickedRuntime, WentTo, type Message, type Model, type Runtime }
 import { bunIcon, loomMark, npmIcon, pnpmIcon, terminalIcon } from './components'
 
 const wordmark = (h: HtmlBuilder<Message>): Html =>
-  h.div([h.Class('hero-mark')], [loomMark('paper', 1.2), h.div([h.Class('hero-word')], ['Loom'])])
+  h.div([h.Class('hero-mark')], [loomMark('page', 1.2), h.div([h.Class('hero-word')], ['Loom'])])
 
 ## The claim
 

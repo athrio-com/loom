@@ -730,7 +730,7 @@ const docHead = (
               breadcrumb(corpus, root, base, page, h),
               h.div(
                 [h.Class('page-title')],
-                [loomMark('paper', 0.8), h.h1([h.Id(heading.id)], [heading.title])],
+                [loomMark('page', 0.8), h.h1([h.Id(heading.id)], [heading.title])],
               ),
               ...Option.toArray(
                 Option.map(gist, (markdown) => textOf(markdown, 'docs-prose page-lead', model.copied, h)),
@@ -831,7 +831,7 @@ const sourceHead = (
               breadcrumb(corpus, root, base, page, h),
               h.div(
                 [h.Class('page-title')],
-                [loomMark('paper', 0.8), h.p([h.Class('page-place')], [placeOf(corpus, page)])],
+                [loomMark('page', 0.8), h.p([h.Class('page-place')], [placeOf(corpus, page)])],
               ),
               ...Option.toArray(
                 Option.map(Option.fromNullishOr(page.frontmatter), (text) =>
@@ -1171,7 +1171,7 @@ const drawer = (
       h.div(
         [h.Class('drawer-head')],
         [
-          loomMark('paper', 0.495),
+          loomMark('page', 0.495),
           h.span([h.Class('drawer-word')], ['Loom']),
           h.button(
             [
