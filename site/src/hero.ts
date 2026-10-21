@@ -14,7 +14,7 @@ const claim = (h: HtmlBuilder<Message>): Html =>
       h.p(
         [h.Class('hero-lead')],
         [
-          'Write your program the way you write a book, with the reasoning in prose and the code — as one source.',
+          'Write your program the way you write a book, with the reasoning in prose and code — as one source.',
         ],
       ),
     ],

@@ -30,11 +30,11 @@ The server rewrites three spots: the `#root` it fills with the rendered body, th
     <title>loom — programs written to be read</title>
     <link rel="icon" type="image/svg+xml" href="/languages/loom.svg" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <meta name="description" content="Literate programming framework that keeps meaning in your codebase from evaporating. Write your program the way you write a book, with the reasoning in prose and the code — as one source." />
+    <meta name="description" content="Literate programming framework that keeps meaning in your codebase from evaporating. Write your program the way you write a book, with the reasoning in prose and code — as one source." />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Loom" />
     <meta property="og:title" content="Loom — literate programming framework" />
-    <meta property="og:description" content="Literate programming framework that keeps meaning in your codebase from evaporating. Write your program the way you write a book, with the reasoning in prose and the code — as one source." />
+    <meta property="og:description" content="Literate programming framework that keeps meaning in your codebase from evaporating. Write your program the way you write a book, with the reasoning in prose and code — as one source." />
     <meta property="og:url" content="https://loomframework.com/" />
     <meta property="og:image" content="https://loomframework.com/og.png" />
     <meta property="og:image:width" content="1200" />
