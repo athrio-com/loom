@@ -14,6 +14,10 @@ The page is the shell the application fills. It carries an empty `#root` for the
 
 The site is set in two families. Space Grotesk carries the headings, and Lilex carries everything else — the running text as well as the code, since the whole site is set in mono. Lilex has no Google entry, so it arrives as three `@font-face` rules pointing at its own files, with IBM Plex Mono standing behind it in the stack for the moment before they land. Noto Color Emoji comes along for the emoji the documentation shows.
 
+The page's icon in a browser tab is Loom's language emblem, the illuminated L among the logo's flowers. It is the emblem's light face, `loom.svg`, on its navy tile: the tile carries its own ground, so it reads on a light tab bar and a dark one alike, and its sixteen-cell grid lands one cell to a pixel at a tab's sixteen pixels. A phone saving the site to its home screen wants a picture rather than a drawing, so `apple-touch-icon.png` is the same emblem at a hundred and eighty pixels, eleven to a cell inside a two-pixel navy border.
+
+A link to the site shared in a chat or a feed shows a preview card, and the card is drawn from tags in the head. The Open Graph tags give the card its title, its line of description and its picture; the Twitter tag asks for the large picture rather than a thumbnail. The picture, `og.png`, is the site's own landing in miniature, at the twelve hundred by six hundred and thirty pixels every network crops to: the mark with a carpet woven across it beside the wordmark, the slogan under them, and the address. Every route shares the one card, since a link anywhere on the site is a link to Loom.
+
 The server rewrites three spots: the `#root` it fills with the rendered body, the head where it inlines the model, and the `<title>` it replaces with the route's own. The first two it finds by exact text, so the strings `<div id="root"></div>` and `</head>` matter as much as the markup; the title it finds by its element, so the words below are a default no reader sees.
 
 =>
@@ -24,6 +28,19 @@ The server rewrites three spots: the `#root` it fills with the rendered body, th
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>loom — programs written to be read</title>
+    <link rel="icon" type="image/svg+xml" href="/languages/loom.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="description" content="Write your program the way you write a book. Set down the reasoning in prose and the code beside it, as your thoughts flow." />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Loom" />
+    <meta property="og:title" content="Loom — literate programming where reasoning is the source" />
+    <meta property="og:description" content="Write your program the way you write a book. Set down the reasoning in prose and the code beside it, as your thoughts flow." />
+    <meta property="og:url" content="https://loomframework.com/" />
+    <meta property="og:image" content="https://loomframework.com/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="The Loom mark and wordmark above the slogan: Literate programming framework where reasoning is the source." />
+    <meta name="twitter:card" content="summary_large_image" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

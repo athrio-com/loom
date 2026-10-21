@@ -56,6 +56,7 @@ const standalone = (title: string, body: string): string => `<!doctype html>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>${title}</title>
+    <link rel="icon" type="image/svg+xml" href="/languages/loom.svg" />
     <style>${PAGE_STYLE}</style>
   </head>
   <body>${body}
