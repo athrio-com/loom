@@ -650,7 +650,7 @@ The first job checks the repository out with its whole history, which moon needs
 
 ## Shipping the website
 
-The second job runs for a push to `main` alone, once the first has passed, and measures its change from the same base. It reads the repository and writes packages, nothing else. It checks the repository out the same way, gets moon from mise, logs in to GitHub's registry with the token the run is given, and asks `moon ci` for the image. When the website did not change, moon builds nothing and the job passes.
+The second job runs for a push to `main` alone, once the first has passed, and measures its change from the same base. It reads the repository and writes packages, nothing else. It checks the repository out the same way, gets Bun and moon from mise, since the image task runs Bun on the runner to embed the search index before it builds, logs in to GitHub's registry with the token the run is given, and asks `moon ci` for the image. When the website did not change, moon builds nothing and the job passes.
 
 The search index's vectors carry over from one build to the next. Before the image, the job restores the last file of vectors the workflow kept, so the `embed` program sends the service only the sections that changed since. After the image, it keeps the file it now has, under a key of its own run, and the next build restores the newest. A build that made no image leaves no file and keeps nothing. Should the kept file ever be lost, the next build embeds the whole index, which takes minutes rather than seconds and changes nothing else.
 
@@ -674,7 +674,7 @@ The search index's vectors carry over from one build to the next. Before the ima
           filter: blob:none
       - uses: jdx/mise-action@v5
         with:
-          install_args: npm:@moonrepo/cli
+          install_args: bun npm:@moonrepo/cli
       - name: Log in to the registry
         run: echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
       - name: The search index's vectors, from the last build

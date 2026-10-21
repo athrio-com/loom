@@ -63,7 +63,7 @@ jobs:
           filter: blob:none
       - uses: jdx/mise-action@v5
         with:
-          install_args: npm:@moonrepo/cli
+          install_args: bun npm:@moonrepo/cli
       - name: Log in to the registry
         run: echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
       - name: The search index's vectors, from the last build
