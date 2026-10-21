@@ -1250,6 +1250,12 @@ h2, .subhead {
 
 .why-prose {
   display: grid;
+@media (max-width: 639px) {
+  .page-places { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .place-card { flex-direction: row; align-items: center; padding: 16px 20px; }
+  .place-emblem { width: 42px; height: 42px; }
+}
+
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   column-gap: var(--col-gap);
   row-gap: var(--stack);
@@ -2199,7 +2205,7 @@ h2, .subhead {
   margin: 0;
   line-height: 1.8;
   font-weight: 600;
-  color: color-mix(in srgb, var(--loom), var(--loom-paper) 25%);
+  color: var(--ink);
   overflow-wrap: anywhere;
 }
 
@@ -2225,6 +2231,8 @@ h2, .subhead {
   width: fit-content;
   align-items: center;
   gap: 8px;
+:root[data-theme='dark'] .front-field { color: color-mix(in srgb, var(--loom), var(--loom-paper) 25%); }
+
   margin-top: 14px;
   font-size: 12px;
   line-height: 1.4;

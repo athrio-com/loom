@@ -2281,6 +2281,8 @@ A place card is a pale panel with a pixel emblem over two lines of type. It stay
 
 .place-emblem { display: block; flex: none; width: 49px; height: 49px; }
 
+On a phone two cards side by side are too narrow for their titles, which break over two lines. So there the cards stack, each taking the whole row, and each turns on its side: the emblem stands at the left at the pager's forty-two pixels, with the eyebrow and the title beside it, as a pager card sets its mark beside its words.
+
 .place-lines { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 
 .place-title {
@@ -2317,6 +2319,12 @@ Under the prose, the cards stand apart from it by twice the gap between a sectio
 
 .why-bug,
 .why-a { display: grid; place-items: center; flex: none; width: 14px; height: 14px; }
+
+@media (max-width: 639px) {
+  .page-places { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .place-card { flex-direction: row; align-items: center; padding: 16px 20px; }
+  .place-emblem { width: 42px; height: 42px; }
+}
 
 .why-bug { color: var(--eject); }
 .why-a { color: var(--loom-paper); }
@@ -2675,9 +2683,9 @@ The pager also keeps more room above it than a section leaves between blocks, so
 
 A chapter of the book wears the docs' head, so it keeps its spacing: the crumb line, then the mark and the name twenty-four pixels below, then the frontmatter. The head's own gap between its rows is set aside for that, since the head stacks its rows directly. The large line beside the mark is set exactly as a page's title is, though it is a label rather than a heading.
 
-The frontmatter reads as text rather than as a card, so the head holds one box, not two. The fields take the page's body type, one to a line, at a heavier weight. Each key wears the violet the loom gives the frontmatter, and each value wears the mark's mint. The mint is deepened by a quarter of its paper shade, since the full mint is meant for bars and marks and reads faint as type on paper. A long field breaks wherever it must, since a package path has no spaces to break at.
+The frontmatter reads as text rather than as a card, so the head holds one box, not two. The fields take the page's body type, one to a line, at a heavier weight. Each key wears the violet the loom gives the frontmatter. On paper each value takes the page's own ink, so the violet keys carry the colour and the values read as plain text; the mark's mint and gold are meant for marks, and as type on cream they read faint or muddy. On the dark page the values wear the mark's mint, which reads clearly there. A long field breaks wherever it must, since a package path has no spaces to break at.
 
-Those rows take the head's left column, and the GitHub card takes its right, with its top level with the crumb line. The right column is exactly as wide as one of the cards in the other pages' heads, a quarter of the head less its gaps, so the card keeps the size it has everywhere else. Below a thousand pixels the columns stack, and the card drops under the frontmatter at half the width, as the other pages' cards drop under their lead.
+Those rows take the head's left column, and the GitHub card takes its right, with its top level with the crumb line. The right column is exactly as wide as one of the cards in the other pages' heads, a quarter of the head less its gaps, so the card keeps the size it has everywhere else. Below a thousand pixels the columns stack, and the card drops under the frontmatter at half the width, as the other pages' cards drop under their lead. On a phone the card takes the whole row on its side, as every page's cards do there.
 
 Under the fields sits the `Raw source` link, set small in muted ink beside GitHub's mark, which takes the accent under the pointer like the site's other quiet links.
 
@@ -2692,7 +2700,7 @@ The chapter's name heads the article in the display face, at twenty-six pixels, 
   margin: 0;
   line-height: 1.8;
   font-weight: 600;
-  color: color-mix(in srgb, var(--loom), var(--loom-paper) 25%);
+  color: var(--ink);
   overflow-wrap: anywhere;
 }
 
@@ -2724,6 +2732,8 @@ The chapter's name heads the article in the display face, at twenty-six pixels, 
   color: var(--ink-3);
   text-decoration: none;
   transition: color 140ms ease;
+:root[data-theme='dark'] .front-field { color: color-mix(in srgb, var(--loom), var(--loom-paper) 25%); }
+
 }
 
 .raw-source:hover { color: var(--accent); }
