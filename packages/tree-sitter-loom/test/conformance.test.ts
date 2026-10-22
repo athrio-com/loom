@@ -295,7 +295,7 @@ const languageForms = [
   '',
   '# The Package file {Tangle}',
   '',
-  '=>',
+  `=> ${anchor('A sink')}`,
   '',
   'export {}',
   '',
@@ -305,6 +305,7 @@ const languageForms = [
   '',
   'const a = 1',
   anchor('A specifier'),
+  `${anchor('A sink')}${anchor('A specifier')}`,
   'export { a }',
   '',
   '# A Prose section {Prose}',
@@ -314,18 +315,27 @@ const languageForms = [
   'Some text.',
 ]
 
+const rowsWhere = (test: (line: string) => boolean): ReadonlyArray<number> =>
+  Array.filter(Array.range(0, languageForms.length - 1), (row) => test(languageForms[row]))
+
+const headingRows = rowsWhere((line) => line.startsWith('# '))
+
+const blockEnd = (arrow: number): number =>
+  Option.getOrElse(
+    Array.findFirst(headingRows, (row) => row > arrow),
+    () => languageForms.length,
+  )
+
 const codeLanguages = (query: string): Effect.Effect<ReadonlyArray<ReadonlyArray<string>>> =>
   Effect.map(injectionsOf(query, fixture('language-forms', languageForms)), (injections) =>
-    pipe(
-      Array.range(0, languageForms.length - 1),
-      Array.filter((row) => languageForms[row] === '=>'),
-      Array.map((row) =>
+    Array.map(
+      rowsWhere((line) => line.startsWith('=>')),
+      (arrow) =>
         pipe(
           injections,
-          Array.filter((injection) => injection.row === row),
+          Array.filter((injection) => injection.row >= arrow && injection.row < blockEnd(arrow)),
           Array.map((injection) => injection.language),
         ),
-      ),
     ),
   )
 

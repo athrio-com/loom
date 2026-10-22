@@ -362,7 +362,9 @@ const injectionsOf = (query: string, file: string): Effect.Effect<ReadonlyArray<
 
 ~
 
-The loom, `languageForms`, is a chapter whose frontmatter names its file `src/out.ts` and its language TypeScript. Its five sections name their languages five ways: by a specifier, by a sink, by `{Tangle}` alone, by nothing at all, and by `{Prose}`. The section that names nothing draws in the first section by an anchor, between two lines of its own code. The `codeLanguages` function finds each code block by its arrow and lists the language every injection gives that block. A block injected twice shows two languages, and a block never injected shows none.
+The loom, `languageForms`, is a chapter whose frontmatter names its file `src/out.ts` and its language TypeScript. Its five sections name their languages five ways: by a specifier, by a sink, by `{Tangle}` alone, by nothing at all, and by `{Prose}`. Four anchors sit where they could split a block. The `{Tangle}` section draws one in on its arrow's own line, and the section that names nothing draws one in between two lines of its own code and two more side by side.
+
+The `codeLanguages` function finds each code block by its arrow. The block runs from the arrow to the next heading, and an injection belongs to the block where its first span starts. The function lists the language every injection gives each block. A block injected twice shows two languages, even when the second injection starts after an anchor, and a block never injected shows none.
 
 =>
 
@@ -386,7 +388,7 @@ const languageForms = [
   '',
   '# The Package file {Tangle}',
   '',
-  '=>',
+  `=> ${anchor('A sink')}`,
   '',
   'export {}',
   '',
@@ -396,6 +398,7 @@ const languageForms = [
   '',
   'const a = 1',
   anchor('A specifier'),
+  `${anchor('A sink')}${anchor('A specifier')}`,
   'export { a }',
   '',
   '# A Prose section {Prose}',
@@ -405,18 +408,27 @@ const languageForms = [
   'Some text.',
 ]
 
+const rowsWhere = (test: (line: string) => boolean): ReadonlyArray<number> =>
+  Array.filter(Array.range(0, languageForms.length - 1), (row) => test(languageForms[row]))
+
+const headingRows = rowsWhere((line) => line.startsWith('# '))
+
+const blockEnd = (arrow: number): number =>
+  Option.getOrElse(
+    Array.findFirst(headingRows, (row) => row > arrow),
+    () => languageForms.length,
+  )
+
 const codeLanguages = (query: string): Effect.Effect<ReadonlyArray<ReadonlyArray<string>>> =>
   Effect.map(injectionsOf(query, fixture('language-forms', languageForms)), (injections) =>
-    pipe(
-      Array.range(0, languageForms.length - 1),
-      Array.filter((row) => languageForms[row] === '=>'),
-      Array.map((row) =>
+    Array.map(
+      rowsWhere((line) => line.startsWith('=>')),
+      (arrow) =>
         pipe(
           injections,
-          Array.filter((injection) => injection.row === row),
+          Array.filter((injection) => injection.row >= arrow && injection.row < blockEnd(arrow)),
           Array.map((injection) => injection.language),
         ),
-      ),
     ),
   )
 
