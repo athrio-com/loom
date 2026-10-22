@@ -21,6 +21,7 @@ import {
   TypescriptSdk,
 } from '@athrio/loom-lang-services/LanguageService'
 import { createProductProgram, type ProductFile, type ProductProgram } from './ProductProgram'
+import { createNativeProgram, nativeCompilerFor } from './NativeProgram'
 
 type TypeScript = typeof import('typescript')
 
@@ -155,6 +156,7 @@ interface ActionOrigin {
 export const productPlugin = (
   ts: TypeScript,
   composition: CompositionApi,
+  nativeSetting: Option.Option<string> = Option.none(),
 ): LanguageServicePlugin => ({
   name: 'loom-typescript-product',
   capabilities: {
@@ -172,11 +174,23 @@ export const productPlugin = (
   create: (context) => {
     const configOf = configNear(ts)
     const programs = new Map<string, ProductProgram>()
+    const nativePrograms = new Map<string, ProductProgram>()
     const actionTargets = new Map<string, ProductTarget>()
     const programFor = (project: ProductProject): ProductProgram => {
       const existing = programs.get(project.key)
       if (existing !== undefined) return existing
-      const program = createProductProgram(ts, consumerOptions(ts, project.config))
+      const program = Option.match(nativeCompilerFor(project, nativeSetting), {
+        onNone: () => createProductProgram(ts, consumerOptions(ts, project.config)),
+        onSome: (compiler) =>
+          Option.getOrElse(Option.fromNullishOr(nativePrograms.get(compiler)), () => {
+            const shared = createNativeProgram(
+              compiler,
+              Option.match(project.config, { onNone: () => dirname(project.key), onSome: dirname }),
+            )
+            nativePrograms.set(compiler, shared)
+            return shared
+          }),
+      })
       programs.set(project.key, program)
       return program
     }
@@ -331,7 +345,7 @@ export const productPlugin = (
                 .then((resolved) => remapAction(target.roots, resolved)),
           }),
         ),
-      dispose: () => programs.forEach((program) => program.dispose()),
+      dispose: () => new Set(programs.values()).forEach((program) => program.dispose()),
     }
   },
 })
@@ -385,11 +399,15 @@ export const TypescriptService = defineLanguageService({
   id: 'typescript',
   displayName: 'TypeScript',
   extensions: ['.ts', '.tsx'],
-  plugins: () =>
+  plugins: ({ settings }) =>
     Effect.gen(function* () {
       const ts = yield* TypescriptSdk
       const composition = yield* Composition
-      return [productPlugin(ts, composition)]
+      const nativeSetting = Option.filter(
+        Option.fromNullishOr(settings.nativeCompiler),
+        (value): value is string => typeof value === 'string',
+      )
+      return [productPlugin(ts, composition, nativeSetting)]
     }),
   format: formatProduct,
 })

@@ -68,17 +68,16 @@ The `build` script bundles the tangled source files committed to the repository.
 
 ## The TypeScript config {Tangle}[tsconfig.json]
 
-The `tsconfig.json` extends the workspace-root `tsconfig.base.json` and covers the `src` directory. Vite produces the `dist` bundle, so the configuration file is a development tool only and never ships with the published package.
+The `tsconfig.json` extends the workspace-root `tsconfig.base.json` and covers `src`, `test` and `smoke`. The tests and the smoke checks belong to the project, so the editor checks them with the same options as the code they exercise, Bun's types among them. Vite produces the `dist` bundle, so the configuration file is a development tool only and never ships with the published package.
 
 =>
 
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "outDir": "out",
-    "rootDir": "src"
+    "outDir": "out"
   },
-  "include": ["src"]
+  "include": ["src", "test", "smoke"]
 }
 
 ## The licence {Tangle}[LICENSE]

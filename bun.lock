@@ -31,7 +31,7 @@
     },
     "packages/loom": {
       "name": "@athrio/loom",
-      "version": "0.0.14",
+      "version": "0.0.16",
       "bin": {
         "loom": "dist/main.js",
       },
@@ -48,7 +48,7 @@
     },
     "packages/loom-ast": {
       "name": "@athrio/loom-ast",
-      "version": "0.0.14",
+      "version": "0.0.16",
       "devDependencies": {
         "effect": "4.0.5",
       },
@@ -58,7 +58,7 @@
     },
     "packages/loom-config": {
       "name": "@athrio/loom-config",
-      "version": "0.0.14",
+      "version": "0.0.16",
       "dependencies": {
         "yaml": "^2.9.0",
       },
@@ -71,7 +71,7 @@
     },
     "packages/loom-lang": {
       "name": "@athrio/loom-lang",
-      "version": "0.0.14",
+      "version": "0.0.16",
       "bin": {
         "loom-language-server": "./bin/loom-language-server.js",
       },
@@ -97,7 +97,7 @@
     },
     "packages/loom-lang-services": {
       "name": "@athrio/loom-lang-services",
-      "version": "0.0.14",
+      "version": "0.0.16",
       "dependencies": {
         "volar-service-markdown": "^0.0.71",
         "volar-service-typescript": "^0.0.71",
@@ -119,9 +119,10 @@
     },
     "packages/loom-service-typescript": {
       "name": "@athrio/loom-service-typescript",
-      "version": "0.0.14",
+      "version": "0.0.16",
       "dependencies": {
         "prettier": "^3.8.4",
+        "vscode-jsonrpc": "^8.2.1",
       },
       "devDependencies": {
         "@athrio/loom-lang-services": "workspace:*",
@@ -136,7 +137,7 @@
     },
     "packages/loom-vscode": {
       "name": "loom-vscode",
-      "version": "0.0.14",
+      "version": "0.0.16",
       "devDependencies": {
         "@types/vscode": "^1.120.0",
         "@volar/language-server": "^2.4.28",

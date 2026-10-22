@@ -94,6 +94,7 @@ describe('LoomConfig.resolve — workspace manifest', () => {
       services: {},
       packageRoot: undefined,
       workspaceRoot: undefined,
+      corpusDir: undefined,
     })
   })
 

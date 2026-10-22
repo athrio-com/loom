@@ -78,6 +78,8 @@ Loom composes any language, so a language's editor support cannot be built in. I
 5. The language registry
 6. The TypeScript language service
 7. The product's own TypeScript program
+8. A language server in a child process
+9. The native TypeScript program
 
 ### Part VIII — Loom builds Loom
 
