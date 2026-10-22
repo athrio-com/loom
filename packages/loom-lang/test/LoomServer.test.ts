@@ -9,7 +9,7 @@ import {
 } from '@volar/language-server/node'
 import { Array } from 'effect'
 import { spawn } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -126,15 +126,19 @@ const editorAt = async (folder: string) => {
       ).items,
       (diagnostic) => diagnostic.message,
     )
-  const changed = (path: string): Promise<void> =>
+  const shut = (path: string): Promise<void> =>
+    connection.sendNotification('textDocument/didClose', {
+      textDocument: { uri: pathToFileURL(path).href },
+    })
+  const changed = (path: string, type: FileChangeType = FileChangeType.Changed): Promise<void> =>
     connection.sendNotification('workspace/didChangeWatchedFiles', {
-      changes: [{ uri: pathToFileURL(path).href, type: FileChangeType.Changed }],
+      changes: [{ uri: pathToFileURL(path).href, type }],
     })
   const close = (): void => {
     connection.dispose()
     child.kill()
   }
-  return { open, edit, format, diagnostics, changed, close }
+  return { open, edit, shut, format, diagnostics, changed, close }
 }
 
 const texts = (edits: ReadonlyArray<TextEdit>): ReadonlyArray<string> =>
@@ -233,6 +237,43 @@ describe('LoomServer — a chapter that changes on disk', () => {
     }
   }, 30_000)
 
+  it('resolves an anchor into a chapter created on disk', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    const opened = chapterAt(root, 'main.loom', chapter('Main', `${anchor('Answer')}(answer.loom)`))
+    const editor = await editorAt(root)
+    try {
+      await editor.open(opened)
+      expect(await editor.diagnostics(opened)).toEqual([
+        `Unresolved anchor: no section named \`Answer\`.`,
+      ])
+      const created = chapterAt(root, 'answer.loom', chapter('Answer', 'const answer = 42'))
+      await editor.changed(created, FileChangeType.Created)
+      expect(await editor.diagnostics(opened)).toEqual([])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+
+  it('fails an anchor into a chapter deleted from disk', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    const opened = chapterAt(root, 'main.loom', chapter('Main', `${anchor('Answer')}(answer.loom)`))
+    const deleted = chapterAt(root, 'answer.loom', chapter('Answer', 'const answer = 42'))
+    const editor = await editorAt(root)
+    try {
+      await editor.open(opened)
+      expect(await editor.diagnostics(opened)).toEqual([])
+      rmSync(deleted)
+      await editor.changed(deleted, FileChangeType.Deleted)
+      expect(await editor.diagnostics(opened)).toEqual([
+        `Unresolved anchor: no section named \`Answer\`.`,
+      ])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+
   it('checks an open chapter again, keeping the unsaved text of the others', async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
     const main = join(root, 'corpus', 'main.loom')
@@ -257,6 +298,27 @@ describe('LoomServer — a chapter that changes on disk', () => {
       expect(await editor.diagnostics(main)).toEqual([
         "const answer = 43 | const main = 1 | const note = 'unsaved'",
       ])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+
+  it('composes the saved text of a chapter closed without saving', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    const main = join(root, 'corpus', 'main.loom')
+    install(root, checking(main))
+    configure(root, activated)
+    chapterAt(root, 'main.loom', chapter('Main {Tangle}[main.ts]', 'const main = 1'))
+    const note = chapterAt(root, 'note.loom', chapter('Note {Tangle}[note.ts]', "const note = 'saved'"))
+    const editor = await editorAt(root)
+    try {
+      await editor.open(main)
+      await editor.open(note)
+      await editor.edit(note, chapter('Note {Tangle}[note.ts]', "const note = 'unsaved'"))
+      expect(await editor.diagnostics(note)).toEqual(["const main = 1 | const note = 'unsaved'"])
+      expect(await editor.diagnostics(main)).toEqual(["const main = 1 | const note = 'unsaved'"])
+      await editor.shut(note)
+      expect(await editor.diagnostics(main)).toEqual(["const main = 1 | const note = 'saved'"])
     } finally {
       editor.close()
     }

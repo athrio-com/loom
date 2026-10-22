@@ -206,14 +206,22 @@ const rereadLoom = (
   change: FileEvent,
 ): Effect.Effect<Option.Option<FileEvent>> =>
   compiler
-    .invalidate(fileURLToPath(change.uri))
+    .invalidate(URI.parse(change.uri).fsPath)
     .pipe(
       Effect.map((reprojected) =>
-        change.type === FileChangeType.Created || reprojected.length > 0
-          ? Option.some(change)
-          : Option.none(),
+        change.type === FileChangeType.Changed && reprojected.length === 0
+          ? Option.none()
+          : Option.some(change),
       ),
     )
+
+const rereadLooms = (
+  changes: ReadonlyArray<FileEvent>,
+): Effect.Effect<ReadonlyArray<FileEvent>, never, LoomCompiler> =>
+  LoomCompiler.pipe(
+    Effect.flatMap((compiler) => Effect.forEach(changes, (change) => rereadLoom(compiler, change))),
+    Effect.map(Array.getSomes),
+  )
 
 const openLoomsIn = (
   server: LanguageServer,
@@ -226,15 +234,43 @@ const openLoomsIn = (
     Array.filter((uri) => uri.path.endsWith('.loom') && workspaceFor(home, uri) === workspace),
   )
 
-const markStale = (language: Language<URI>, uri: URI): Effect.Effect<void> =>
-  Effect.sync(() =>
-    Option.map(Option.fromNullishOr(language.scripts.get(uri)), (script) => {
-      script.isAssociationDirty = true
-    }),
+const markStale = (project: LanguageServerProject, uri: URI): Effect.Effect<void> =>
+  Effect.promise(async () => project.getLanguageService(uri)).pipe(
+    Effect.map((languageService) => languageService.context.language.scripts.get(uri)),
+    Effect.flatMap((script) =>
+      Option.match(Option.fromNullishOr(script), {
+        onNone: () => Effect.void,
+        onSome: (stale) =>
+          Effect.sync(() => {
+            stale.isAssociationDirty = true
+          }),
+      }),
+    ),
   )
 
 const forgetScript = (language: Language<URI>, uri: URI): Effect.Effect<void> =>
   Effect.sync(() => language.scripts.delete(uri))
+
+const refreshProject = (
+  server: LanguageServer,
+  home: string,
+  workspace: string,
+  project: LanguageServerProject,
+  deleted: ReadonlyArray<URI>,
+): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    const languageServices = yield* Effect.promise(
+      async () => (await project.getExistingLanguageServices()) ?? [],
+    )
+    yield* Effect.forEach(
+      Array.cartesian(languageServices, deleted),
+      ([languageService, uri]) => forgetScript(languageService.context.language, uri),
+      { discard: true },
+    )
+    yield* Effect.forEach(openLoomsIn(server, home, workspace), (uri) => markStale(project, uri), {
+      discard: true,
+    })
+  })
 
 const reprojectWorkspace = (
   server: LanguageServer,
@@ -247,63 +283,46 @@ const reprojectWorkspace = (
     Effect.flatMap(
       Option.match({
         onNone: () => Effect.void,
-        onSome: (project) =>
-          Effect.promise(async () => (await project.getExistingLanguageServices()) ?? []).pipe(
-            Effect.flatMap((languageServices) =>
-              Effect.forEach(
-                languageServices,
-                ({ context: { language } }) =>
-                  Effect.forEach(deleted, (uri) => forgetScript(language, uri), {
-                    discard: true,
-                  }).pipe(
-                    Effect.andThen(
-                      Effect.forEach(
-                        openLoomsIn(server, home, workspace),
-                        (uri) => markStale(language, uri),
-                        { discard: true },
-                      ),
-                    ),
-                  ),
-                { discard: true },
-              ),
-            ),
-          ),
+        onSome: (project) => refreshProject(server, home, workspace, project, deleted),
       }),
     ),
   )
 
-const rereadLooms = (
+const reproject = (
   server: LanguageServer,
   home: string,
   projects: Cache.Cache<string, LanguageServerProject>,
   changes: ReadonlyArray<FileEvent>,
-): Effect.Effect<void, never, LoomCompiler> =>
-  LoomCompiler.pipe(
-    Effect.flatMap((compiler) => Effect.forEach(changes, (change) => rereadLoom(compiler, change))),
-    Effect.map(Array.getSomes),
-    Effect.flatMap((reaching) =>
-      reaching.length === 0
-        ? Effect.void
-        : Effect.forEach(
-            Array.dedupe(Array.map(reaching, (change) => workspaceFor(home, URI.parse(change.uri)))),
-            (workspace) =>
-              reprojectWorkspace(
-                server,
-                home,
-                projects,
-                workspace,
-                pipe(
-                  reaching,
-                  Array.filter((change) => change.type === FileChangeType.Deleted),
-                  Array.map((change) => URI.parse(change.uri)),
-                ),
-              ),
-            { discard: true },
-          ).pipe(
-            Effect.andThen(Effect.sync(() => void server.languageFeatures.requestRefresh(false))),
-          ),
+): Effect.Effect<void> => {
+  const deleted = pipe(
+    changes,
+    Array.filter((change) => change.type === FileChangeType.Deleted),
+    Array.map((change) => URI.parse(change.uri)),
+  )
+  return changes.length === 0
+    ? Effect.void
+    : Effect.forEach(
+        Array.dedupe(Array.map(changes, (change) => workspaceFor(home, URI.parse(change.uri)))),
+        (workspace) => reprojectWorkspace(server, home, projects, workspace, deleted),
+        { discard: true },
+      ).pipe(
+        Effect.andThen(Effect.sync(() => void server.languageFeatures.requestRefresh(false))),
+      )
+}
+
+const rereadOnDisk = (
+  server: LanguageServer,
+  home: string,
+  projects: Cache.Cache<string, LanguageServerProject>,
+  changes: ReadonlyArray<FileEvent>,
+): void => {
+  const counted = runtime.runSync(rereadLooms(changes))
+  runtime.runFork(
+    reproject(server, home, projects, counted).pipe(
+      Effect.catchCause((cause) => Effect.logError('loom: reprojecting open looms failed', cause)),
     ),
   )
+}
 
 const watchLooms = (
   server: LanguageServer,
@@ -311,13 +330,17 @@ const watchLooms = (
   projects: Cache.Cache<string, LanguageServerProject>,
 ): void => {
   void server.fileWatcher.watchFiles(['**/*.loom'])
-  server.fileWatcher.onDidChangeWatchedFiles(({ changes }) => {
-    runtime.runFork(
-      rereadLooms(server, home, projects, closedLoomChanges(server, changes)).pipe(
-        Effect.catchCause((cause) => Effect.logError('loom: rereading changed looms failed', cause)),
-      ),
-    )
-  })
+  server.fileWatcher.onDidChangeWatchedFiles(({ changes }) =>
+    rereadOnDisk(server, home, projects, closedLoomChanges(server, changes)),
+  )
+  server.documents.onDidClose(({ document }) =>
+    rereadOnDisk(
+      server,
+      home,
+      projects,
+      document.uri.endsWith('.loom') ? [{ uri: document.uri, type: FileChangeType.Changed }] : [],
+    ),
+  )
 }
 
 const runtime = ManagedRuntime.make(
