@@ -3,7 +3,9 @@ import {
   createConnection,
   createServer,
   createTypeScriptProject,
+  FileChangeType,
   type FileEvent,
+  type Language,
   type LanguageServer,
   type LanguageServerProject,
   type LanguageServicePlugin,
@@ -189,37 +191,84 @@ const watchConfigs = (
   )
 }
 
-const closedLooms = (
+const closedLoomChanges = (
   server: LanguageServer,
   changes: ReadonlyArray<FileEvent>,
-): ReadonlyArray<URI> =>
-  pipe(
+): ReadonlyArray<FileEvent> =>
+  Array.filter(
     changes,
-    Array.map((change) => change.uri),
-    Array.dedupe,
-    Array.map((uri) => URI.parse(uri)),
-    Array.filter((uri) => uri.path.endsWith('.loom') && server.documents.get(uri) === undefined),
+    (change) =>
+      change.uri.endsWith('.loom') && server.documents.get(URI.parse(change.uri)) === undefined,
   )
 
-const openLooms = (server: LanguageServer): ReadonlyArray<URI> =>
+const rereadLoom = (
+  compiler: LoomCompiler['Service'],
+  change: FileEvent,
+): Effect.Effect<Option.Option<FileEvent>> =>
+  compiler
+    .invalidate(fileURLToPath(change.uri))
+    .pipe(
+      Effect.map((reprojected) =>
+        change.type === FileChangeType.Created || reprojected.length > 0
+          ? Option.some(change)
+          : Option.none(),
+      ),
+    )
+
+const openLoomsIn = (
+  server: LanguageServer,
+  home: string,
+  workspace: string,
+): ReadonlyArray<URI> =>
   pipe(
     server.documents.all(),
     Array.map((document) => URI.parse(document.uri)),
-    Array.filter((uri) => uri.path.endsWith('.loom')),
+    Array.filter((uri) => uri.path.endsWith('.loom') && workspaceFor(home, uri) === workspace),
   )
 
-const reprojectOpenLooms = (
+const markStale = (language: Language<URI>, uri: URI): Effect.Effect<void> =>
+  Effect.sync(() =>
+    Option.map(Option.fromNullishOr(language.scripts.get(uri)), (script) => {
+      script.isAssociationDirty = true
+    }),
+  )
+
+const forgetScript = (language: Language<URI>, uri: URI): Effect.Effect<void> =>
+  Effect.sync(() => language.scripts.delete(uri))
+
+const reprojectWorkspace = (
   server: LanguageServer,
-  project: LanguageServerProject,
+  home: string,
+  projects: Cache.Cache<string, LanguageServerProject>,
+  workspace: string,
+  deleted: ReadonlyArray<URI>,
 ): Effect.Effect<void> =>
-  Effect.promise(async () => (await project.getExistingLanguageServices()) ?? []).pipe(
-    Effect.flatMap((languageServices) =>
-      Effect.forEach(
-        Array.cartesian(languageServices, openLooms(server)),
-        ([languageService, uri]) =>
-          Effect.sync(() => languageService.context.language.scripts.delete(uri)),
-        { discard: true },
-      ),
+  Cache.getSuccess(projects, workspace).pipe(
+    Effect.flatMap(
+      Option.match({
+        onNone: () => Effect.void,
+        onSome: (project) =>
+          Effect.promise(async () => (await project.getExistingLanguageServices()) ?? []).pipe(
+            Effect.flatMap((languageServices) =>
+              Effect.forEach(
+                languageServices,
+                ({ context: { language } }) =>
+                  Effect.forEach(deleted, (uri) => forgetScript(language, uri), {
+                    discard: true,
+                  }).pipe(
+                    Effect.andThen(
+                      Effect.forEach(
+                        openLoomsIn(server, home, workspace),
+                        (uri) => markStale(language, uri),
+                        { discard: true },
+                      ),
+                    ),
+                  ),
+                { discard: true },
+              ),
+            ),
+          ),
+      }),
     ),
   )
 
@@ -227,31 +276,34 @@ const rereadLooms = (
   server: LanguageServer,
   home: string,
   projects: Cache.Cache<string, LanguageServerProject>,
-  looms: ReadonlyArray<URI>,
+  changes: ReadonlyArray<FileEvent>,
 ): Effect.Effect<void, never, LoomCompiler> =>
-  looms.length === 0
-    ? Effect.void
-    : LoomCompiler.pipe(
-        Effect.flatMap((compiler) =>
-          Effect.forEach(looms, (uri) => compiler.invalidate(uri.fsPath), { discard: true }),
-        ),
-        Effect.andThen(
-          Effect.forEach(
-            Array.dedupe(Array.map(looms, (uri) => workspaceFor(home, uri))),
+  LoomCompiler.pipe(
+    Effect.flatMap((compiler) => Effect.forEach(changes, (change) => rereadLoom(compiler, change))),
+    Effect.map(Array.getSomes),
+    Effect.flatMap((reaching) =>
+      reaching.length === 0
+        ? Effect.void
+        : Effect.forEach(
+            Array.dedupe(Array.map(reaching, (change) => workspaceFor(home, URI.parse(change.uri)))),
             (workspace) =>
-              Cache.getSuccess(projects, workspace).pipe(
-                Effect.flatMap(
-                  Option.match({
-                    onNone: () => Effect.void,
-                    onSome: (project) => reprojectOpenLooms(server, project),
-                  }),
+              reprojectWorkspace(
+                server,
+                home,
+                projects,
+                workspace,
+                pipe(
+                  reaching,
+                  Array.filter((change) => change.type === FileChangeType.Deleted),
+                  Array.map((change) => URI.parse(change.uri)),
                 ),
               ),
             { discard: true },
+          ).pipe(
+            Effect.andThen(Effect.sync(() => void server.languageFeatures.requestRefresh(false))),
           ),
-        ),
-        Effect.andThen(Effect.sync(() => void server.languageFeatures.requestRefresh(false))),
-      )
+    ),
+  )
 
 const watchLooms = (
   server: LanguageServer,
@@ -260,7 +312,11 @@ const watchLooms = (
 ): void => {
   void server.fileWatcher.watchFiles(['**/*.loom'])
   server.fileWatcher.onDidChangeWatchedFiles(({ changes }) => {
-    runtime.runFork(rereadLooms(server, home, projects, closedLooms(server, changes)))
+    runtime.runFork(
+      rereadLooms(server, home, projects, closedLoomChanges(server, changes)).pipe(
+        Effect.catchCause((cause) => Effect.logError('loom: rereading changed looms failed', cause)),
+      ),
+    )
   })
 }
 

@@ -106,6 +106,11 @@ const editorAt = async (folder: string) => {
         text: readFileSync(path, 'utf8'),
       },
     })
+  const edit = (path: string, text: string): Promise<void> =>
+    connection.sendNotification('textDocument/didChange', {
+      textDocument: { uri: pathToFileURL(path).href, version: 2 },
+      contentChanges: [{ text }],
+    })
   const format = async (path: string): Promise<ReadonlyArray<TextEdit>> =>
     (await connection.sendRequest<TextEdit[] | null>('textDocument/formatting', {
       textDocument: { uri: pathToFileURL(path).href },
@@ -129,7 +134,7 @@ const editorAt = async (folder: string) => {
     connection.dispose()
     child.kill()
   }
-  return { open, format, diagnostics, changed, close }
+  return { open, edit, format, diagnostics, changed, close }
 }
 
 const texts = (edits: ReadonlyArray<TextEdit>): ReadonlyArray<string> =>
@@ -173,32 +178,84 @@ describe('LoomServer — a loom in a nested workspace', () => {
 
 const chapterAt = (root: string, name: string, text: string): string => {
   mkdirSync(join(root, 'corpus'), { recursive: true })
-  const chapter = join(root, 'corpus', name)
-  writeFileSync(chapter, text)
-  return chapter
+  const path = join(root, 'corpus', name)
+  writeFileSync(path, text)
+  return path
 }
 
-const answering = (title: string): string =>
-  lines('---', 'Language: TypeScript', '---', '', `# ${title}`, '', '=>', '', 'const answer = 42')
+const chapter = (title: string, code: string): string =>
+  lines('---', 'Language: TypeScript', '---', '', `# ${title}`, '', '=>', '', code)
 
 const anchor = (name: string): string => `::${'['}${name}]`
 
-const main = lines('---', 'Language: TypeScript', '---', '', '# Main', '', '=>', '', `${anchor('Answer')}(answer.loom)`)
+const checking = (loom: string): string =>
+  lines(
+    `const { Effect } = globalThis.${runtimeKey}.modules.effect`,
+    `const { Composition } = globalThis.${runtimeKey}.modules['@athrio/loom-lang-services/LanguageService']`,
+    'const composed = (composition) =>',
+    `  composition.rootsFor(${JSON.stringify(loom)}).map((file) => file.content.trim()).sort().join(' | ')`,
+    'export default {',
+    "  id: 'typescript',",
+    "  displayName: 'TypeScript',",
+    "  extensions: ['.ts'],",
+    '  plugins: () => Effect.gen(function* () {',
+    '    const composition = yield* Composition',
+    '    return [{',
+    "      name: 'checking',",
+    '      capabilities: { diagnosticProvider: { interFileDependencies: false, workspaceDiagnostics: false } },',
+    '      create: () => ({',
+    "        provideDiagnostics: (document) => document.languageId === 'typescript'",
+    '          ? [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, message: composed(composition) }]',
+    '          : [],',
+    '      }),',
+    '    }]',
+    '  }),',
+    '}',
+  )
 
 describe('LoomServer — a chapter that changes on disk', () => {
   it('answers an open chapter from the text a closed one holds now', async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
     configure(root, inactive)
-    const opened = chapterAt(root, 'main.loom', main)
-    const closed = chapterAt(root, 'answer.loom', answering('Answer'))
+    const opened = chapterAt(root, 'main.loom', chapter('Main', `${anchor('Answer')}(answer.loom)`))
+    const closed = chapterAt(root, 'answer.loom', chapter('Answer', 'const answer = 42'))
     const editor = await editorAt(root)
     try {
       await editor.open(opened)
       expect(await editor.diagnostics(opened)).toEqual([])
-      chapterAt(root, 'answer.loom', answering('Question'))
+      chapterAt(root, 'answer.loom', chapter('Question', 'const answer = 42'))
       await editor.changed(closed)
       expect(await editor.diagnostics(opened)).toEqual([
         `Unresolved anchor: no section named \`Answer\`.`,
+      ])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+
+  it('checks an open chapter again, keeping the unsaved text of the others', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    const main = join(root, 'corpus', 'main.loom')
+    install(root, checking(main))
+    configure(root, activated)
+    chapterAt(root, 'main.loom', chapter('Main {Tangle}[main.ts]', 'const main = 1'))
+    const note = chapterAt(root, 'note.loom', chapter('Note {Tangle}[note.ts]', "const note = 'saved'"))
+    const closed = chapterAt(root, 'answer.loom', chapter('Answer {Tangle}[answer.ts]', 'const answer = 42'))
+    const editor = await editorAt(root)
+    try {
+      await editor.open(main)
+      await editor.open(note)
+      await editor.edit(note, chapter('Note {Tangle}[note.ts]', "const note = 'unsaved'"))
+      expect(await editor.diagnostics(note)).toEqual([
+        "const answer = 42 | const main = 1 | const note = 'unsaved'",
+      ])
+      expect(await editor.diagnostics(main)).toEqual([
+        "const answer = 42 | const main = 1 | const note = 'unsaved'",
+      ])
+      chapterAt(root, 'answer.loom', chapter('Answer {Tangle}[answer.ts]', 'const answer = 43'))
+      await editor.changed(closed)
+      expect(await editor.diagnostics(main)).toEqual([
+        "const answer = 43 | const main = 1 | const note = 'unsaved'",
       ])
     } finally {
       editor.close()

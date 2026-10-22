@@ -467,12 +467,15 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         ),
 
       invalidate: (path: Path): Effect.Effect<ReadonlyArray<Path>> =>
-        Effect.gen(function* () {
-          const modules = yield* memo.entries
-          const dependents = transitiveDependents(modules, path)
-          yield* memo.evict([path])
-          return [path, ...dependents]
-        }),
+        memo.entries.pipe(
+          Effect.flatMap((modules) =>
+            modules.has(path)
+              ? memo
+                  .evict([path])
+                  .pipe(Effect.as([path, ...transitiveDependents(modules, path)]))
+              : Effect.succeed<ReadonlyArray<Path>>([]),
+          ),
+        ),
     }
   }),
 }) {
