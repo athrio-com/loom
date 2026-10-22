@@ -41,6 +41,7 @@ import {
   workspaceRoot,
 } from '@athrio/loom-lang-services/LoomStore'
 import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
+import { loomsIn } from './LoomProject'
 
 const EditorTsdkSchema = Schema.Struct({
   typescript: Schema.Struct({ tsdk: Schema.String }),
@@ -390,6 +391,22 @@ const runtime = ManagedRuntime.make(
   ),
 )
 
+const warmCorpus = (home: string): Effect.Effect<void, never, LoomCompiler | LoomConfig> =>
+  Effect.gen(function* () {
+    const config = yield* LoomConfig
+    const compiler = yield* LoomCompiler
+    const manifest = yield* config.manifest(home)
+    if (manifest === undefined) return
+    const corpus = join(home, manifest.corpus ?? 'corpus')
+    const project = Option.some({ root: home, ignore: manifest.ignore ?? [] })
+    yield* Option.match(Array.head(loomsIn(corpus, project)), {
+      onNone: () => Effect.void,
+      onSome: (entry) => Effect.asVoid(compiler.reach(entry)),
+    })
+  }).pipe(
+    Effect.catchCause((cause) => Effect.logWarning('loom: could not warm the corpus', cause)),
+  )
+
 export const startLanguageServer = (): void => {
   const connection = createConnection()
   const server = createServer(connection)
@@ -418,6 +435,7 @@ export const startLanguageServer = (): void => {
         return { services, projects, plugins, reprojecting }
       }),
     )
+    setTimeout(() => runtime.runSync(warmCorpus(home)), 10)
     return server.initialize(params, workspaceProject(home, services, projects, reprojecting), [...plugins])
   })
   connection.onInitialized(() => {

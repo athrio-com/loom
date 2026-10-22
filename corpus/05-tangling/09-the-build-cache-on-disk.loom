@@ -1,0 +1,237 @@
+---
+Part V, Chapter 9: The build cache on disk
+Package: packages/loom-lang/src/LoomDiskCache.ts
+Language: TypeScript
+---
+
+# The build cache on disk
+
+The build cache in memory lives only as long as the process that holds it. Every time the editor starts the language server, or the CLI runs a tangle, Loom builds every module of the corpus again: it parses each loom and composes its product. For Loom's own book of about a hundred chapters that takes more than a second, and the editor can answer nothing until it is done. Yet between two sessions almost every chapter is unchanged.
+
+`LoomDiskCache` keeps each built module on disk, so the next process reads it back instead of building it again. Reading a module back costs a small fraction of building it. The in-memory cache still sits in front: a module this process has already built never reaches the disk cache at all.
+
+## What makes a kept module valid
+
+A kept module is valid only if building the loom now would produce the same module. Building depends on the loom's path and text, on the settings the configuration gives it — the anchor delimiters, the primary language and the variables — and on the Loom that does the building. `keyOf` hashes all of them into one key with SHA-256, and a kept module is used only when its key matches the key of the loom as it stands.
+
+The Loom that builds is named by `fingerprint`. A released Loom is fixed, so its version names it: `serviceVersion`, the same version a language service is checked against. A Loom running from its own source is not fixed, since its parser may have changed since the last run without a new version. So when the source folders of the compiler and of the corpus model can be read, `fingerprint` adds the newest modification time among their files, and an edited parser never reads a module an older parser built. A compiled executable carries no such folders, and its fingerprint is its version alone. `cacheFormat` names the layout of the kept file itself, and changes whenever that layout does.
+
+=>
+
+const cacheFormat = 1
+
+const newestIn = (dir: string): number =>
+  pipe(
+    Option.liftThrowable(() => readdirSync(dir, { recursive: true, withFileTypes: true }))(),
+    Option.map((entries) =>
+      Array.reduce(entries, 0, (newest, entry) =>
+        entry.isFile()
+          ? Math.max(newest, statSync(join(entry.parentPath, entry.name)).mtimeMs)
+          : newest,
+      ),
+    ),
+    Option.getOrElse(() => 0),
+  )
+
+const sourceDirs = (): ReadonlyArray<string> =>
+  Array.getSomes([
+    Option.liftThrowable(() => dirname(fileURLToPath(import.meta.url)))(),
+    Option.liftThrowable(() =>
+      dirname(dirname(fileURLToPath(import.meta.resolve('@athrio/loom-ast/LoomCorpusAst')))),
+    )(),
+  ])
+
+const fingerprintNow = (): string =>
+  `${serviceVersion}:${Math.max(0, ...Array.map(sourceDirs(), newestIn))}`
+
+const keyOf = (fingerprint: string, path: Path, text: string, settings: BuildSettings): string =>
+  createHash('sha256')
+    .update(
+      JSON.stringify([
+        cacheFormat,
+        fingerprint,
+        path,
+        settings.delims,
+        settings.primaryLanguage ?? null,
+        settings.variables,
+        text,
+      ]),
+    )
+    .digest('hex')
+
+## Where a module is kept
+
+Each workspace keeps its modules in `.loom/cache/modules/`, one file for each loom, named by a hash of the loom's path. A loom always lands in the same file, so a changed loom overwrites its old entry rather than adding a new one, and the folder never holds more files than the workspace has looms. The file holds the module beside the key it was built under.
+
+The folder is the cache's own, and nothing in it belongs in version control. So when the cache creates `.loom/cache/`, it writes a `.gitignore` there that ignores everything. Every workspace keeps the cache out of Git that way, whether or not its own ignore rules mention it.
+
+=>
+
+interface KeptModule {
+  readonly key: string
+  readonly module: LoomModule
+}
+
+const cacheDirOf = (workspace: string): string => join(workspace, '.loom', 'cache')
+
+const keptFileOf = (workspace: string, path: Path): string =>
+  join(
+    cacheDirOf(workspace),
+    'modules',
+    `${createHash('sha256').update(path).digest('hex').slice(0, 16)}.json`,
+  )
+
+## Reading a module back
+
+JSON keeps a module almost exactly. Fields whose value is `undefined` disappear, and every reader already treats a missing field the same way. The one value JSON cannot keep is an Effect `Option`: it comes back as a plain object, with none of the behaviour of an `Option`. A module holds an `Option` in exactly one place. Each `NameRef` in a product's code names its target section as an `Option`, empty when the anchor resolved to nothing.
+
+So `revived` walks the product and turns each `NameRef`'s target back into an `Option`, through `optionOf`. Converting only that field costs a third of what a reviver run over every value in the file would. A test builds modules from real chapters, keeps them, reads them back and compares the two whole. If the model ever gains another value that JSON cannot keep, that comparison fails, rather than the cache quietly serving a broken module.
+
+`recall` reads a loom's kept file. It returns the module only when the file parses, its key matches, and the module it holds names the same path and text. Anything else, from a missing file to one half written by a crashed process, returns nothing, and the loom is built as if no cache existed.
+
+=>
+
+interface KeptOption {
+  readonly _tag: string
+  readonly value?: SectionId
+}
+
+const optionOf = (kept: KeptOption): Option.Option<SectionId> =>
+  kept._tag === 'Some' && kept.value !== undefined ? Option.some(kept.value) : Option.none()
+
+const revivedPart = (part: Part): Part =>
+  part.type === 'NameRef'
+    ? { ...part, target: optionOf(part.target as unknown as KeptOption) }
+    : part
+
+const revivedCode = (code: Code): Code => ({
+  ...code,
+  fragments: Array.map(code.fragments, revivedPart),
+})
+
+const revived = (module: LoomModule): LoomModule => ({
+  ...module,
+  product: {
+    code: Array.map(module.product.code, revivedCode),
+    files: Array.map(module.product.files, (file) => ({ ...file, code: revivedCode(file.code) })),
+  },
+})
+
+const recall = (file: string, key: string, path: Path, text: string): Option.Option<LoomModule> =>
+  pipe(
+    Option.liftThrowable(() => JSON.parse(readFileSync(file, 'utf8')) as KeptModule)(),
+    Option.filter(
+      (kept) => kept.key === key && kept.module.path === path && kept.module.text === text,
+    ),
+    Option.map((kept) => revived(kept.module)),
+  )
+
+## Keeping a module
+
+A module is kept only when it was built from the loom as it is saved. The editor builds a loom it has open from the text in its buffer, which may hold changes that were never saved. Keeping such a module would write a file on every keystroke, for a text no later process will ever read. So `keep` reads the loom from disk and writes only when the text the module was built from matches it.
+
+`keep` writes the kept file beside its final name and then renames it into place. A rename replaces the old file in one step, so a language server and a tangle working in the same workspace never read each other's half-written file. Keeping is a convenience, and a failure to write, such as a read-only checkout, is ignored: the module was built, and the next process simply builds it again.
+
+=>
+
+const keep = (workspace: string, file: string, key: string, module: LoomModule): void => {
+  const saved = Option.liftThrowable(() => readFileSync(module.path, 'utf8'))()
+  if (!Option.contains(saved, module.text)) return
+  Option.liftThrowable(() => {
+    const cacheDir = cacheDirOf(workspace)
+    mkdirSync(dirname(file), { recursive: true })
+    if (!existsSync(join(cacheDir, '.gitignore'))) writeFileSync(join(cacheDir, '.gitignore'), '*\n')
+    const draft = `${file}.${process.pid}.tmp`
+    writeFileSync(draft, JSON.stringify({ key, module } satisfies KeptModule))
+    renameSync(draft, file)
+  })()
+}
+
+## The cache as a service
+
+`LoomDiskCache` is the cache as a service. It takes `fingerprint` once, when its layer is built, so a process reads the source folders a single time. Its one method, `through`, stands in front of a module's build. Given the loom's source, path and settings, and the `build` that would produce its module, it returns the kept module when one is valid, and otherwise runs `build` and keeps what it produced.
+
+A loom in no workspace has nowhere to keep a module, so `through` runs `build` directly. So does a loom whose source cannot be read, and the build then reports the error as it always did. `through` reads the loom through the same source the build reads, so the key is computed from exactly the text the module would be built from, the open buffer included.
+
+=>
+
+export class LoomDiskCache extends Context.Service<LoomDiskCache>()('LoomDiskCache', {
+  make: Effect.gen(function* () {
+    const fingerprint = yield* Effect.sync(fingerprintNow)
+    return {
+      through: (
+        source: Source,
+        path: Path,
+        settings: BuildSettings,
+        build: Effect.Effect<LoomModule>,
+      ): Effect.Effect<LoomModule> =>
+        Option.match(Option.fromNullishOr(settings.workspaceRoot), {
+          onNone: () => build,
+          onSome: (workspace) =>
+            source.read(path).pipe(
+              Effect.flatMap((text) => {
+                const key = keyOf(fingerprint, path, text, settings)
+                const file = keptFileOf(workspace, path)
+                return Effect.sync(() => recall(file, key, path, text)).pipe(
+                  Effect.flatMap(
+                    Option.match({
+                      onSome: (module) => Effect.succeed(module),
+                      onNone: () =>
+                        build.pipe(
+                          Effect.tap((module) =>
+                            Effect.sync(() => keep(workspace, file, key, module)),
+                          ),
+                        ),
+                    }),
+                  ),
+                )
+              }),
+              Effect.catchTag('ReadError', () => build),
+            ),
+        }),
+    }
+  }),
+}) {
+  static readonly layer = Layer.effect(this, this.make)
+}
+
+## What the module draws on
+
+Effect supplies the service, its layer, and `Array`, `Option` and `pipe` for the steps. Node's `crypto` hashes the keys and the file names, its `fs` reads, writes and renames the kept files and lists the source folders, and its `path` and `url` build the paths. The corpus model gives `LoomModule` and `Path`, the product model gives the `Code`, `Part` and `SectionId` that `revived` walks, `Source` is the seam the builder reads a loom through, and `BuildSettings` carries the settings a key covers. `serviceVersion` names the running Loom.
+
+=>
+
+import { Array, Context, Effect, Layer, Option, pipe } from 'effect'
+import { createHash } from 'node:crypto'
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { type LoomModule, type Path } from '@athrio/loom-ast/LoomCorpusAst'
+import { type Code, type Part, type SectionId } from '@athrio/loom-ast/ProductAst'
+import { serviceVersion } from '@athrio/loom-lang-services/LoomStore'
+import { type Source } from '#ast/LoomCorpusAstBuilder'
+import { type BuildSettings } from './PackageConfig'
+
+## The module {Tangle}
+
+=>
+
+::[What the module draws on]
+
+::[What makes a kept module valid]
+
+::[Where a module is kept]
+
+::[Reading a module back]
+
+::[Keeping a module]
+
+::[The cache as a service]
