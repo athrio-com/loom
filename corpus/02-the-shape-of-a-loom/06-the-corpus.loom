@@ -108,6 +108,8 @@ const anchorsOf = (section: LoomSection): ReadonlyArray<WarpAnchorToken> =>
 
 A run and a tangle need only part of the corpus: the entry and the sections it composes. `reachable` is the forward reach over the anchor graph — the entry, every module a section in it names through an `::[…]` anchor, and the modules those name in turn. Tangling one file never composes an unrelated loom, and a loom the entry never anchors never fails its build. `transitiveDependents` is the reverse — every module that composes a section in a given file, transitively — so an edit reprojects each file that inlined it.
 
+`dependentsOf` runs the same reverse reach from several files at once. The compiler uses it to find what a batch of changed files touches, such as the dozens a `git checkout` rewrites, and it reads the anchor graph once for the whole batch rather than once for each file. It returns the dependents alone, never the files it started from. `transitiveDependents` is `dependentsOf` started from one file.
+
 `reach` grows a set along one direction of the edges until it adds nothing more, guarding a cycle so the walk ends. `anchorEdges` reads the corpus once: each anchor a module carries becomes an edge to the module that holds the section it names.
 
 =>
@@ -160,11 +162,15 @@ export const reachable = (modules: Modules, entry: Path): ReadonlyArray<Path> =>
   )
 }
 
-export const transitiveDependents = (modules: Modules, entry: Path): ReadonlyArray<Path> => {
+export const dependentsOf = (
+  modules: Modules,
+  entries: ReadonlyArray<Path>,
+): ReadonlyArray<Path> => {
   const edges = anchorEdges(modules)
+  const seeds = new Set(entries)
   return pipe(
     Array.fromIterable(
-      reach([entry], (module) =>
+      reach(entries, (module) =>
         Array.getSomes(
           Array.map(edges, (edge) =>
             edge.target === module ? Option.some(edge.owner) : Option.none(),
@@ -172,9 +178,12 @@ export const transitiveDependents = (modules: Modules, entry: Path): ReadonlyArr
         ),
       ),
     ),
-    Array.filter((path) => path !== entry),
+    Array.filter((path) => !seeds.has(path)),
   )
 }
+
+export const transitiveDependents = (modules: Modules, entry: Path): ReadonlyArray<Path> =>
+  dependentsOf(modules, [entry])
 
 ## Navigation over the corpus
 

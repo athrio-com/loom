@@ -31,6 +31,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
     const config = yield* PackageConfig
     const weaver = yield* WeaveBuilder
     const tocBuilder = yield* TableOfContentsBuilder
+    const composed = yield* Ref.make<Composition>(noComposition)
 
     const loadOne = (source: Source, path: Path): Effect.Effect<LoomModule> =>
       config
@@ -115,22 +116,21 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
       composition: (path: Path): Effect.Effect<ReadonlyArray<ComposedFile>> =>
         buildCorpus(documents, path).pipe(
           Effect.flatMap((modules) =>
-            Effect.forEach(
-              Array.fromIterable(modules.values()),
-              (module) =>
-                config.resolve(module.path).pipe(
-                  Effect.map(({ packageRoot }) =>
-                    Array.map(module.product.files, (file): ComposedFile => ({
-                      path: outputPath(Option.fromNullishOr(packageRoot), module.path, file.path),
-                      content: fromProduct(modules, file.code.origin).code,
-                      loomPath: module.path,
-                      rootId: file.code.origin.name.toLowerCase(),
-                      heading: headingLocationOf(modules, module, file.code.origin.name),
-                    })),
-                  ),
+            Effect.forEach(Array.fromIterable(modules.values()), (module) =>
+              config.resolve(module.path).pipe(
+                Effect.map(({ packageRoot }) =>
+                  Option.map(Option.fromNullishOr(packageRoot), (root) => [module.path, root] as const),
                 ),
-              { concurrency: 'unbounded' },
-            ).pipe(Effect.map(Array.flatten)),
+              ),
+            ).pipe(
+              Effect.map((roots) => new Map(Array.getSomes(roots))),
+              Effect.flatMap((roots) =>
+                Ref.modify(composed, (previous) => {
+                  const next = recompose(previous, modules, roots)
+                  return [composedFiles(next), next] as const
+                }),
+              ),
+            ),
           ),
         ),
 
@@ -435,6 +435,99 @@ const headingLocationOf = (modules: Modules, module: LoomModule, name: string): 
     })),
   )
 
+## Composing only what changed
+
+The editor asks for the composition on nearly every request. The TypeScript service calls `composition` before each hover and each go-to-definition, to bring its program up to date with the book. Composing every file in a large corpus takes tens of milliseconds, and most requests come while nothing has changed. So the compiler keeps the last composition it gave and recomposes only the files a change can reach.
+
+A `Composition` holds what the last call composed. Its `modules` are the corpus that call built, its `roots` give each module the package root its files land under, and its `files` hold the files each module composed. A module with no package root has no entry in `roots`. The compiler keeps one `Composition` for the whole session, starting from `noComposition`, which holds nothing.
+
+`changedSince` names the modules whose files may differ from last time. The memo hands back the very same module object until the module is rebuilt, so a module whose object differs from the kept one has changed. So has a module that was added or removed, or one whose package root moved.
+
+A change also reaches the modules that anchor into the changed one, because their files inline its sections. `staleSince` adds them. It asks `dependentsOf` twice, once over the old corpus and once over the new. The old corpus finds a module that anchored a section the change removed. The new corpus finds a module whose anchor the change has just satisfied.
+
+`recompose` builds the next `Composition`. It keeps the files of every module that is not stale and composes the rest with `composedFilesOf`, the same composition each file always had. When nothing changed, it composes nothing. `composedFiles` flattens the result in the corpus's own order, the order `composition` has always returned.
+
+=>
+
+interface Composition {
+  readonly modules: Modules
+  readonly roots: ReadonlyMap<Path, string>
+  readonly files: ReadonlyMap<Path, ReadonlyArray<ComposedFile>>
+}
+
+const noComposition: Composition = { modules: new Map(), roots: new Map(), files: new Map() }
+
+const composedFilesOf = (
+  modules: Modules,
+  module: LoomModule,
+  packageRoot: Option.Option<string>,
+): ReadonlyArray<ComposedFile> =>
+  Array.map(module.product.files, (file): ComposedFile => ({
+    path: outputPath(packageRoot, module.path, file.path),
+    content: fromProduct(modules, file.code.origin).code,
+    loomPath: module.path,
+    rootId: file.code.origin.name.toLowerCase(),
+    heading: headingLocationOf(modules, module, file.code.origin.name),
+  }))
+
+const changedSince = (
+  previous: Composition,
+  modules: Modules,
+  roots: ReadonlyMap<Path, string>,
+): ReadonlyArray<Path> =>
+  Array.filter(
+    Array.dedupe([...previous.modules.keys(), ...modules.keys()]),
+    (path) =>
+      previous.modules.get(path) !== modules.get(path) ||
+      previous.roots.get(path) !== roots.get(path),
+  )
+
+const staleSince = (
+  previous: Composition,
+  modules: Modules,
+  roots: ReadonlyMap<Path, string>,
+): ReadonlySet<Path> => {
+  const changed = changedSince(previous, modules, roots)
+  return changed.length === 0
+    ? new Set()
+    : new Set([
+        ...changed,
+        ...dependentsOf(previous.modules, changed),
+        ...dependentsOf(modules, changed),
+      ])
+}
+
+const recompose = (
+  previous: Composition,
+  modules: Modules,
+  roots: ReadonlyMap<Path, string>,
+): Composition => {
+  const stale = staleSince(previous, modules, roots)
+  return {
+    modules,
+    roots,
+    files: new Map(
+      Array.map(
+        Array.fromIterable(modules.values()),
+        (module) =>
+          [
+            module.path,
+            pipe(
+              Option.fromNullishOr(previous.files.get(module.path)),
+              Option.filter(() => !stale.has(module.path)),
+              Option.getOrElse(() =>
+                composedFilesOf(modules, module, Option.fromNullishOr(roots.get(module.path))),
+              ),
+            ),
+          ] as const,
+      ),
+    ),
+  }
+}
+
+const composedFiles = (composition: Composition): ReadonlyArray<ComposedFile> =>
+  Array.flatten(Array.fromIterable(composition.files.values()))
+
 ## Projecting a file's tree
 
 `projectTree` assembles a file's virtual-code tree. It emits the file's prose as a Markdown document with `fromProse`, one product document per composition root with `fromProduct`, and gathers them under a `loom` root with `rootVirtualCode` — the source itself, the surface Loom serves the Loom syntax on. It also hands the root the section symbols `symbolMappings` reads from the parse — each heading and anchor span — so go-to-definition and rename reach them on the file the author opened. A root is a section that no same-file anchor pulls into another, and `rootsAt` keeps those names and drops the members. `fromProduct` inlines the members a root pulls in, so each emitted document is a whole resolved Product — and a member's span maps into the root that carries it, rather than standing as a document of its own. The projection follows cross-file `::[…]` references through the corpus modules it is handed, so it treats a lone file and a whole corpus the same way.
@@ -540,12 +633,12 @@ export class DocumentSource extends Context.Service<DocumentSource>()('DocumentS
 
 ## What the compiler draws on
 
-From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; the projection functions `fromProduct`, `fromProse`, `rootNamesAt`, `rootVirtualCode`, and `symbolMappings`; the corpus model — `LoomModule`, the `corpusErrors` and `moduleDiagnostics` readers, the `reachable` and `transitiveDependents` reaches over the anchor graph, and the `definitionAt`, `referencesAt`, `renameAt`, `renameRangeAt`, and `navigationRangeAt` navigation walks with the `CorpusLocation` they yield; the product pass's `crossFileFaults`, which judges an anchor into another file against the corpus; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache. The `WeaveBuilder` pass projects the whole corpus into the `WovenCorpus` the `weave` verb returns. The `TableOfContentsBuilder` pass reads the corpus's frontmatter into a table of contents, and `rewriteBook` splices that table back into the book — together what the `contents` verb returns. `profileOf` and `symbolsOf` from `LoomSymbol` give each mapped span its editor features and each of a file's tokens its colour, and `normaliseTitle` folds a heading title to the name an anchor resolves. From the language-service contract come `FrameLocation`, the editor-shaped range the navigation verbs return, and `FrameToken`, a range paired with the colour `semanticTokens` returns. `Diagnostic` carries an error's message and place. From `LoomProject` come `projectIn`, which finds a file's project in its settings, `holds`, which asks whether that project holds the file, and `loomsIn`, which lists the looms a project holds under a folder. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError`, and Bun's `fs` and `path` read each file and resolve each sink.
+From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; the projection functions `fromProduct`, `fromProse`, `rootNamesAt`, `rootVirtualCode`, and `symbolMappings`; the corpus model — `LoomModule`, the `corpusErrors` and `moduleDiagnostics` readers, the `reachable`, `transitiveDependents` and `dependentsOf` reaches over the anchor graph, and the `definitionAt`, `referencesAt`, `renameAt`, `renameRangeAt`, and `navigationRangeAt` navigation walks with the `CorpusLocation` they yield; the product pass's `crossFileFaults`, which judges an anchor into another file against the corpus; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache. The `WeaveBuilder` pass projects the whole corpus into the `WovenCorpus` the `weave` verb returns. The `TableOfContentsBuilder` pass reads the corpus's frontmatter into a table of contents, and `rewriteBook` splices that table back into the book — together what the `contents` verb returns. `profileOf` and `symbolsOf` from `LoomSymbol` give each mapped span its editor features and each of a file's tokens its colour, and `normaliseTitle` folds a heading title to the name an anchor resolves. From the language-service contract come `FrameLocation`, the editor-shaped range the navigation verbs return, and `FrameToken`, a range paired with the colour `semanticTokens` returns. `Diagnostic` carries an error's message and place. From `LoomProject` come `projectIn`, which finds a file's project in its settings, `holds`, which asks whether that project holds the file, and `loomsIn`, which lists the looms a project holds under a folder. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError` and `Ref` for the composition the compiler keeps, and Bun's `fs` and `path` read each file and resolve each sink.
 
 =>
 
 import type { CodeMapping, VirtualCode } from '@volar/language-core'
-import { Array, Context, Data, Effect, Layer, Match, Option, pipe } from 'effect'
+import { Array, Context, Data, Effect, Layer, Match, Option, pipe, Ref } from 'effect'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve as resolvePath } from 'node:path'
 import type * as ts from 'typescript'
@@ -554,6 +647,7 @@ import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAst
 import {
   corpusErrors,
   definitionAt,
+  dependentsOf,
   moduleDiagnostics,
   reachable,
   referencesAt,
@@ -605,6 +699,8 @@ import { TableOfContentsBuilder, rewriteBook } from './weave/TableOfContentsBuil
 ::[Tangling a file]
 
 ::[Locating a source span]
+
+::[Composing only what changed]
 
 ::[Projecting a file's tree]
 

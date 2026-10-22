@@ -1,5 +1,5 @@
 import type { CodeMapping, VirtualCode } from '@volar/language-core'
-import { Array, Context, Data, Effect, Layer, Match, Option, pipe } from 'effect'
+import { Array, Context, Data, Effect, Layer, Match, Option, pipe, Ref } from 'effect'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve as resolvePath } from 'node:path'
 import type * as ts from 'typescript'
@@ -8,6 +8,7 @@ import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAst
 import {
   corpusErrors,
   definitionAt,
+  dependentsOf,
   moduleDiagnostics,
   reachable,
   referencesAt,
@@ -152,6 +153,85 @@ const headingLocationOf = (modules: Modules, module: LoomModule, name: string): 
     })),
   )
 
+interface Composition {
+  readonly modules: Modules
+  readonly roots: ReadonlyMap<Path, string>
+  readonly files: ReadonlyMap<Path, ReadonlyArray<ComposedFile>>
+}
+
+const noComposition: Composition = { modules: new Map(), roots: new Map(), files: new Map() }
+
+const composedFilesOf = (
+  modules: Modules,
+  module: LoomModule,
+  packageRoot: Option.Option<string>,
+): ReadonlyArray<ComposedFile> =>
+  Array.map(module.product.files, (file): ComposedFile => ({
+    path: outputPath(packageRoot, module.path, file.path),
+    content: fromProduct(modules, file.code.origin).code,
+    loomPath: module.path,
+    rootId: file.code.origin.name.toLowerCase(),
+    heading: headingLocationOf(modules, module, file.code.origin.name),
+  }))
+
+const changedSince = (
+  previous: Composition,
+  modules: Modules,
+  roots: ReadonlyMap<Path, string>,
+): ReadonlyArray<Path> =>
+  Array.filter(
+    Array.dedupe([...previous.modules.keys(), ...modules.keys()]),
+    (path) =>
+      previous.modules.get(path) !== modules.get(path) ||
+      previous.roots.get(path) !== roots.get(path),
+  )
+
+const staleSince = (
+  previous: Composition,
+  modules: Modules,
+  roots: ReadonlyMap<Path, string>,
+): ReadonlySet<Path> => {
+  const changed = changedSince(previous, modules, roots)
+  return changed.length === 0
+    ? new Set()
+    : new Set([
+        ...changed,
+        ...dependentsOf(previous.modules, changed),
+        ...dependentsOf(modules, changed),
+      ])
+}
+
+const recompose = (
+  previous: Composition,
+  modules: Modules,
+  roots: ReadonlyMap<Path, string>,
+): Composition => {
+  const stale = staleSince(previous, modules, roots)
+  return {
+    modules,
+    roots,
+    files: new Map(
+      Array.map(
+        Array.fromIterable(modules.values()),
+        (module) =>
+          [
+            module.path,
+            pipe(
+              Option.fromNullishOr(previous.files.get(module.path)),
+              Option.filter(() => !stale.has(module.path)),
+              Option.getOrElse(() =>
+                composedFilesOf(modules, module, Option.fromNullishOr(roots.get(module.path))),
+              ),
+            ),
+          ] as const,
+      ),
+    ),
+  }
+}
+
+const composedFiles = (composition: Composition): ReadonlyArray<ComposedFile> =>
+  Array.flatten(Array.fromIterable(composition.files.values()))
+
 const namesAt = (modules: Modules, path: Path): ReadonlyArray<string> =>
   pipe(
     Option.fromNullishOr(modules.get(path)),
@@ -241,6 +321,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
     const config = yield* PackageConfig
     const weaver = yield* WeaveBuilder
     const tocBuilder = yield* TableOfContentsBuilder
+    const composed = yield* Ref.make<Composition>(noComposition)
 
     const loadOne = (source: Source, path: Path): Effect.Effect<LoomModule> =>
       config
@@ -325,22 +406,21 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
       composition: (path: Path): Effect.Effect<ReadonlyArray<ComposedFile>> =>
         buildCorpus(documents, path).pipe(
           Effect.flatMap((modules) =>
-            Effect.forEach(
-              Array.fromIterable(modules.values()),
-              (module) =>
-                config.resolve(module.path).pipe(
-                  Effect.map(({ packageRoot }) =>
-                    Array.map(module.product.files, (file): ComposedFile => ({
-                      path: outputPath(Option.fromNullishOr(packageRoot), module.path, file.path),
-                      content: fromProduct(modules, file.code.origin).code,
-                      loomPath: module.path,
-                      rootId: file.code.origin.name.toLowerCase(),
-                      heading: headingLocationOf(modules, module, file.code.origin.name),
-                    })),
-                  ),
+            Effect.forEach(Array.fromIterable(modules.values()), (module) =>
+              config.resolve(module.path).pipe(
+                Effect.map(({ packageRoot }) =>
+                  Option.map(Option.fromNullishOr(packageRoot), (root) => [module.path, root] as const),
                 ),
-              { concurrency: 'unbounded' },
-            ).pipe(Effect.map(Array.flatten)),
+              ),
+            ).pipe(
+              Effect.map((roots) => new Map(Array.getSomes(roots))),
+              Effect.flatMap((roots) =>
+                Ref.modify(composed, (previous) => {
+                  const next = recompose(previous, modules, roots)
+                  return [composedFiles(next), next] as const
+                }),
+              ),
+            ),
           ),
         ),
 

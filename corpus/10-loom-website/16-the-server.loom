@@ -293,7 +293,7 @@ const PAGE_STYLE = `
         padding: 40px;
         background: var(--paper);
         color: var(--ink);
-        font-family: 'Lilex', 'IBM Plex Mono', ui-monospace, monospace;
+        font-family: 'Lilex', ui-monospace, monospace;
         text-align: center;
       }
       .number { font-size: 46px; letter-spacing: 0.02em; }

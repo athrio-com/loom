@@ -17,30 +17,55 @@
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="The Loom mark and wordmark above the line: Literate programming framework that keeps meaning in your codebase from evaporating." />
     <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preload" href="/fonts/lilex.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/space-grotesk.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Color+Emoji&display=swap"
-      rel="stylesheet"
-    />
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Color+Emoji&display=swap" rel="stylesheet" />
     <style>
       @font-face {
         font-family: 'Lilex';
-        src: url('https://cdn.jsdelivr.net/npm/@fontsource/lilex/files/lilex-latin-400-normal.woff2') format('woff2');
-        font-weight: 400;
+        src: url('/fonts/lilex.woff2') format('woff2');
+        font-weight: 100 700;
         font-display: swap;
       }
       @font-face {
-        font-family: 'Lilex';
-        src: url('https://cdn.jsdelivr.net/npm/@fontsource/lilex/files/lilex-latin-500-normal.woff2') format('woff2');
-        font-weight: 500;
+        font-family: 'Space Grotesk';
+        src: url('/fonts/space-grotesk.woff2') format('woff2');
+        font-weight: 300 700;
         font-display: swap;
       }
       @font-face {
-        font-family: 'Lilex';
-        src: url('https://cdn.jsdelivr.net/npm/@fontsource/lilex/files/lilex-latin-600-normal.woff2') format('woff2');
-        font-weight: 600;
-        font-display: swap;
+        font-family: 'Lilex Menlo';
+        src: local('Menlo Regular'), local('Menlo-Regular'), local('DejaVu Sans Mono');
+        size-adjust: 99.65%;
+        ascent-override: 100.25%;
+        descent-override: 30.21%;
+        line-gap-override: 0%;
+      }
+      @font-face {
+        font-family: 'Lilex Consolas';
+        src: local('Consolas');
+        size-adjust: 109.13%;
+        ascent-override: 91.54%;
+        descent-override: 27.58%;
+        line-gap-override: 0%;
+      }
+      @font-face {
+        font-family: 'Lilex Courier';
+        src: local('Courier New'), local('CourierNewPSMT');
+        size-adjust: 99.98%;
+        ascent-override: 99.92%;
+        descent-override: 30.11%;
+        line-gap-override: 0%;
+      }
+      @font-face {
+        font-family: 'Space Grotesk Arial';
+        src: local('Arial'), local('ArialMT'), local('Liberation Sans'), local('Arimo');
+        size-adjust: 109.46%;
+        ascent-override: 89.9%;
+        descent-override: 26.68%;
+        line-gap-override: 0%;
       }
     </style>
 
