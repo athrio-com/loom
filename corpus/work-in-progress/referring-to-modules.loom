@@ -1,0 +1,148 @@
+---
+Part: Work in progress
+Chapter: Referring to modules
+Status: Planned
+Priority: 2
+Language: TypeScript
+---
+
+# Referring to modules
+
+A loom connects code in two ways today, and an author has to think on both levels at once. A Loom anchor draws one section into another by the section's name. A language import brings one file's names into another by the file's path. The two do the same work, connecting code an author wrote, yet only the first speaks the book's language.
+
+This chapter designs a single way to refer to a module, written in the prose beside the code that needs it. The prose names the module by its place in the book, and Loom writes the language's import. The author thinks in sections and chapters only, and the tangled code still carries ordinary imports, with no trace of Loom.
+
+## Two ways to connect code
+
+An anchor names a section by its title. It does not care where the section's code lands, which file holds it, or whether the section is written yet. Loom resolves the name against the corpus and composes the code in place.
+
+An import names a file by its path, and that path belongs to the tangled output. The author has to know where each section tangles, relative to the file they are writing in. Moving a section to another sink, or renaming a file, breaks every import of it, and nothing in the loom says so until the language checks the tangled code.
+
+The import also hides a dependency from Loom. The path sits inside a string the language owns, so Loom cannot tell that one section relies on another. The editor feels this first. When an author writes the section an import was waiting for, nothing tells the importing loom to look again, and its diagnostics keep reporting a module that now exists.
+
+Authoring makes this common, not rare. A literate author writes a reference before its target as often as after it, because the prose follows the reader's order, not the compiler's. A design that tracks only references that already resolve misses every forward reference, and those are the ones an author is in the middle of writing.
+
+## A module is a section or a chapter with a file
+
+A module is a node of the book that produces one file. Two kinds of node qualify.
+
+A section is a module when its heading carries a bracket sink naming a file, as `[calculator.ts]` does below. The section is the module's root, and every section it draws in by an anchor is a member of it. A member is part of a module, not a module of its own.
+
+A chapter is a module when its `Package:` names a single file. Its root is the one section marked `{Tangle}`, and the chapter's title names the module. A chapter whose package is a directory holds modules but is not one. Neither is a part.
+
+```
+## Calculator [calculator.ts]
+
+## Calculator {Tangle}
+```
+
+The first heading makes the section a module tangled to `calculator.ts`. The second is valid only in a loom whose `Package:` names one file, and it marks the section that tangles to that file.
+
+A heading carries one of the two, never both. The `{Tangle}` specifier and the bracket sink each say that the section produces a file, so writing both says it twice. Today's `{Tangle}[calculator.ts]` therefore becomes `[calculator.ts]`. Two Loom diagnostics enforce the rule:
+
+- A heading that carries both a `{Tangle}` specifier and a bracket sink.
+- A `{Tangle}` specifier in a loom whose `Package:` does not name a single file, where there is no file for it to mean.
+
+Directory sinks, the bracket forms that place a file under a folder, keep their shape.
+
+## Naming a module from the prose
+
+A reference is a warp that names a module. It sits in the prose, in the sentence that explains why the code needs the module. The prose reads as prose, and the reference is the one mark that binds.
+
+```
+In this code fragment we need the calculateComplexRelations function from the module {{ Complex relations }}.
+```
+
+A reference names its module by the module's place in the book: its part, its chapter, and its section, separated by commas. The full address works from anywhere in the book. Most references need less, because an address resolves by scope, the way a variable does in code. Loom looks for a match first in the referring section's own chapter, then in its part, then in the whole book, and takes the first unique match.
+
+```
+{{ Mathematical operations, Complex relations, Calculator }}
+{{ Complex relations, Calculator }}
+{{ Calculator }}
+```
+
+From another part, the first form is needed. From within the part "Mathematical operations", the second suffices, and from within the chapter "Complex relations", the third. When "Mathematical operations" is itself a chapter that is a module, the reference is that one title.
+
+An address must name a module. One that names a member, or a chapter or part that only holds modules, is a Loom diagnostic, and the diagnostic names the module that holds the member. An address that matches more than one module at the same scope is a diagnostic too, and asks for one more segment.
+
+An address that matches nothing is a forward reference. Loom reports it as unresolved, and because the reference is Loom's own syntax, Loom knows which module the loom is waiting for. When a section by that name appears, Loom knows exactly which looms to look at again.
+
+## The code supplies the symbols
+
+A reference names a module, not a symbol. The code names the symbols, by using them. The section's code calls `calculateComplexRelations` without importing it, and the module the prose named supplies it.
+
+Loom asks the section's language service to resolve each free name in the code against the modules the prose has put in scope. TypeScript already does this for its own auto-import. Here the search is limited to the modules the prose named, so a name can never come from a module the author did not mention.
+
+The full form of a reference lists names before `from`, and the short form is `from` and the target alone. Listing names is optional. An author lists them in two cases. One is a name that two of the modules in scope both export, which Loom reports as ambiguous until the reference says which. The other is an alias, a name the code uses that differs from the one the module exports.
+
+```
+{{ calculateComplexRelations from Complex relations }}
+{{ calculateComplexRelations as relate from Complex relations }}
+{{ Complex relations }}
+```
+
+The last form is shorthand for a reference with no names, which puts the module in scope and nothing more.
+
+The list of names is Loom's own small grammar, not any one language's. It holds names, `as` for an alias, a `type` modifier for a name used only as a type, and `from` before the target. Each language spells the list in its own import syntax.
+
+## Libraries outside the book
+
+A library outside the book uses the same reference, with its target in quotes. A quoted target is the language's own module specifier, written as the language writes it. Loom passes it through to the import unchanged.
+
+```
+{{ type Html, inertHtml as ih from 'foldkit/html' }}
+{{ from 'effect' }}
+{{ from 'node:fs' }}
+```
+
+The quotes decide where Loom looks. A quoted target is outside the book, and an unquoted one is an address in it. A library therefore never collides with a part or a chapter that happens to share its name. Scoped packages, subpaths, and built-in modules need no rule of their own, because the specifier is already in the language's form.
+
+## Writing the import
+
+Each language service turns a section's references into its language's imports. TypeScript comes first. A reference to an address becomes a relative specifier from the file the section lands in to the file the module lands in. A quoted target stays as it is. The generated imports for one reference look like this in three languages:
+
+```
+import { type Html, inertHtml as ih } from 'foldkit/html'
+from foldkit.html import Html, inertHtml as ih
+use foldkit::html::{Html, inertHtml as ih};
+```
+
+Each language decides what to keep. Python and Rust have no type-only import, so their services drop `type`.
+
+A file usually collects code from several sections, and each may carry references. The language service gathers the references of every section that composes into a file and places the imports where the language requires them, at the head of the file for most languages. It writes each import once. Two references that bind the same name to different symbols are a Loom diagnostic.
+
+Some languages tie modules to the layout, and their services need to know it. Go imports a package by its directory and needs no import at all within one package. Rust follows the tree of `mod` declarations. Java requires a package declaration that matches the directory. Loom owns the layout, so each service can be told it. Each such language is a service of its own to write, and TypeScript and Python come before them.
+
+A plain import written in a section's code keeps working. Adoption is gradual, one loom and one language at a time.
+
+## The editor
+
+The editor makes references easy to write and easy to follow.
+
+An author writes the plain sentence first: "Here, we need the Complex relations module." While the author types "Compl", completion offers the modules in scope whose titles match. Accepting one turns the words into a reference. A code action does the same for a module named in plain words already written. Nothing in plain prose binds until the author accepts, so rewording a sentence never changes the code.
+
+A reference behaves like an anchor. Go-to-definition jumps to the module's section, and hover shows the module and what it exports. Renaming a module's section renames every reference that names it. The generated imports are part of the projection the editor checks, so the section's code type-checks against them, and an error in an import maps back to the reference in the prose.
+
+References also give the editor the dependencies it lacked. A loom that refers to a module depends on it by name, whether or not the module exists yet. When a module appears, changes, or disappears, the editor knows which open looms to project again, the forward references included.
+
+## The woven page
+
+The woven page renders a reference as a link that reads as the module's title, without the braces. A reader sees "the module Complex relations", follows it to the section, and learns what the code depends on and why, in the sentence that says so.
+
+## Migrating the sinks
+
+Every heading in the corpus that carries both `{Tangle}` and a bracket sink loses the specifier and keeps the bracket. The rewrite is mechanical, and `loom` can perform it. A chapter whose package is a single file keeps its bare `{Tangle}`. Once the corpus is rewritten, the two new diagnostics keep it that way.
+
+## What this chapter grows into
+
+The design lands in steps, each one useful on its own.
+
+1. The sink rule and its two diagnostics, with the migration of the corpus.
+2. References to addresses: the warp form, the scoped resolution, and the diagnostics for an ambiguous, unresolved, or non-module address.
+3. The TypeScript generator, writing imports into both the tangled file and the editor's projection, with symbols resolved through the language service.
+4. Quoted targets for libraries outside the book.
+5. The editor: completion while typing prose, the code action, navigation, and refreshing the looms that refer to a changed module.
+6. The woven link.
+7. Generators for Python, then the languages that tie modules to the layout.
+
+Each step grows its code in this chapter. When the TypeScript path works end to end, the chapter moves out of the work in progress and into the book.
