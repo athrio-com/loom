@@ -20,7 +20,7 @@ The file's text comes through a passive `Source`. `editorSource` reads the open 
 
 After projecting, the plugin tells Volar what the file depends on, and Volar re-projects the file when any dependency changes. `associate` reads the corpus the projection reached and calls `ctx.getAssociatedScript` for every module the file transitively imports. The registration runs on the warm corpus, after the build, so the projection it triggers is a cache hit rather than a re-entrant build. It registers the whole transitive reach, not the direct imports alone, because Volar marks a dependent dirty one hop at a time on a snapshot change — so a change deep in a chain reaches every file that transcludes it only when each has declared the whole chain.
 
-Volar's hooks are synchronous, so the projection runs through `Runtime.runSync` on the warm runtime built at startup. When a file's own text changes, `updateVirtualCode` sees the change through `changed`, evicts the file's build with the compiler's `invalidate`, then reprojects and re-registers. A reprojection Volar triggered because a dependency changed leaves the build cache alone — the file's own text is unchanged — and the changed dependency, evicted by its own update, rebuilds when the composition runs over it.
+Volar's hooks are synchronous, so the projection runs through `Runtime.runSync` on the warm runtime built at startup. `updateVirtualCode` reprojects the file and re-registers its dependencies, whatever made Volar call it. It never evicts the file's build itself. The compiler's `compile` compares the build it holds with the text it is handed and rebuilds the file when the two differ, so a file whose own text changed is built again, and a file Volar reprojects because a dependency changed keeps its build.
 
 A file's build lasts only as long as Volar's script for it. When Volar deletes a script, `disposeVirtualCode` evicts the file's build too, so the next script at that path builds from the text it is created with. Formatting depends on this. Volar formats a loom through a temporary copy of it, which it deletes once the format is done, and creates again for the next format. A build that outlived the copy would hand the next format the text the copy held last, already formatted, and every format after the first would change nothing.
 
@@ -51,9 +51,6 @@ const associate = (
     ),
   )
 
-const changed = (previous: VirtualCode, next: ts.IScriptSnapshot): boolean =>
-  previous.snapshot.getText(0, previous.snapshot.getLength()) !== next.getText(0, next.getLength())
-
 const projectIsolated = (
   compiler: LoomCompiler['Service'],
   uri: URI,
@@ -77,15 +74,10 @@ export const loomLanguagePlugin = (
           ),
         )
       : undefined,
-  updateVirtualCode: (uri, previous, snapshot, ctx) =>
+  updateVirtualCode: (uri, _previous, snapshot, ctx) =>
     runtime.runSync(
       LoomCompiler.pipe(
-        Effect.flatMap((compiler) =>
-          (changed(previous, snapshot)
-            ? Effect.asVoid(compiler.invalidate(uri.fsPath))
-            : Effect.void
-          ).pipe(Effect.andThen(projectIsolated(compiler, uri, snapshot, ctx))),
-        ),
+        Effect.flatMap((compiler) => projectIsolated(compiler, uri, snapshot, ctx)),
       ),
     ),
   disposeVirtualCode: (uri) =>
@@ -216,7 +208,7 @@ export const loomServicePlugins = (
 
 ## What the plugin draws on
 
-The plugin draws on Volar for its contracts — `LanguagePlugin` and `LanguageServicePlugin` — and its `CodegenContext` and `VirtualCode`, which the per-call source and the cache check read. Effect captures the runtime and runs the collection pass. From the pipeline it takes `LoomCompiler`, which projects and caches the corpus, `LoomFormatter`, which formats a file, the `Source` seam with its `ReadError`, and `loomsIn`, which lists the looms a project holds under a folder. From `@athrio/loom-lang-services` it takes the `LanguageService` contract, the `FrameQuery` capability the collect pass provides, the `LanguageRegistry` that indexes the active set, and `loadActive`, which resolves a workspace's active services — `LoomLanguage` and each installed `@athrio/loom-service-<id>` package. `installHostRuntime` lends those loaded services the host's runtime. From `@athrio/loom-config` it reads the workspace's active languages out of the compiled manifest. `URI` keys a script for `getAssociatedScript`, and Bun's `fs` reads an unopened import.
+The plugin draws on Volar for its contracts — `LanguagePlugin` and `LanguageServicePlugin` — and its `CodegenContext` and `VirtualCode`, which the per-call source and the projection read. Effect captures the runtime and runs the collection pass. From the pipeline it takes `LoomCompiler`, which projects and caches the corpus, `LoomFormatter`, which formats a file, the `Source` seam with its `ReadError`, and `loomsIn`, which lists the looms a project holds under a folder. From `@athrio/loom-lang-services` it takes the `LanguageService` contract, the `FrameQuery` capability the collect pass provides, the `LanguageRegistry` that indexes the active set, and `loadActive`, which resolves a workspace's active services — `LoomLanguage` and each installed `@athrio/loom-service-<id>` package. `installHostRuntime` lends those loaded services the host's runtime. From `@athrio/loom-config` it reads the workspace's active languages out of the compiled manifest. `URI` keys a script for `getAssociatedScript`, and Bun's `fs` reads an unopened import.
 
 =>
 

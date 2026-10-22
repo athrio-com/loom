@@ -23,6 +23,7 @@ import {
 } from '@athrio/loom-ast/LoomCorpusAst'
 import { faulty, UnresolvedTocEntry } from '#ast/LoomFault'
 import { crossFileFaults } from '#ast/ProductBuilder'
+import { keyOf, type Part } from '@athrio/loom-ast/ProductAst'
 import {
   type ComposedFile,
   type FrameLocation,
@@ -153,6 +154,52 @@ const headingLocationOf = (modules: Modules, module: LoomModule, name: string): 
       range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
     })),
   )
+
+const valueOf = (token: { readonly value: string } | undefined): string =>
+  Option.getOrElse(
+    Option.map(Option.fromNullishOr(token), (present) => present.value),
+    () => '',
+  )
+
+const partFaceOf = (part: Part): string =>
+  Match.value(part).pipe(
+    Match.when({ type: 'Fragment' }, (fragment) => fragment.text),
+    Match.when({ type: 'NameRef' }, (ref) =>
+      Option.match(ref.target, { onNone: () => '', onSome: keyOf }),
+    ),
+    Match.exhaustive,
+  )
+
+const faceOf = (module: LoomModule): string =>
+  JSON.stringify({
+    frontmatter: Option.match(Option.fromNullishOr(module.doc.frontmatter), {
+      onNone: () => [],
+      onSome: (frontmatter) =>
+        Array.map(
+          [
+            frontmatter.part,
+            frontmatter.partName,
+            frontmatter.chapter,
+            frontmatter.title,
+            frontmatter.package,
+            frontmatter.language,
+          ],
+          valueOf,
+        ),
+    }),
+    titles: Array.map(module.doc.sections, (section) =>
+      Option.getOrElse(
+        Option.map(Option.fromNullishOr(section.heading.title), (title) => title.source),
+        () => '',
+      ),
+    ),
+    code: Array.map(module.product.code, (code) => [
+      code.origin.name,
+      code.languageId,
+      Array.map(code.fragments, partFaceOf),
+    ]),
+    files: Array.map(module.product.files, (file) => [file.path, file.code.origin.name]),
+  })
 
 interface Composition {
   readonly modules: Modules
@@ -582,6 +629,17 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
                   .evict([path])
                   .pipe(Effect.as([path, ...transitiveDependents(modules, path)]))
               : Effect.succeed<ReadonlyArray<Path>>([]),
+          ),
+        ),
+
+      rebuild: (source: Source, path: Path): Effect.Effect<boolean> =>
+        memo.entries.pipe(
+          Effect.map((modules) => Option.map(Option.fromNullishOr(modules.get(path)), faceOf)),
+          Effect.flatMap((before) =>
+            matchEntry(source, path).pipe(
+              Effect.andThen(loadOne(source, path)),
+              Effect.map((module) => !Option.contains(before, faceOf(module))),
+            ),
           ),
         ),
     }

@@ -7,6 +7,7 @@ import {
   ManagedRuntime,
   Option,
   Schema,
+  Ref,
   Semaphore,
   pipe,
 } from 'effect'
@@ -28,6 +29,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { URI } from 'vscode-uri'
 import { LoomCompiler, DocumentSource } from './LoomCompiler'
+import { ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import { LoomFormatter } from './LoomFormatter'
 import { PackageConfig } from './PackageConfig'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
@@ -122,25 +124,28 @@ const projectOver = (
 }
 
 export const workspaceProject = (
+  server: LanguageServer,
   home: string,
   services: Cache.Cache<string, ReadonlyArray<LanguageServicePlugin>>,
   projects: Cache.Cache<string, LanguageServerProject>,
   reprojecting: Semaphore.Semaphore,
+  edited: Ref.Ref<ReadonlySet<string>>,
 ): LanguageServerProject => ({
   setup: (server) => {
     watchConfigs(server, services, projects)
-    watchLooms(server, home, projects, reprojecting)
+    watchLooms(server, home, projects, reprojecting, edited)
   },
   getLanguageService: (uri) =>
     runtime.runPromise(
-      reprojecting.withPermits(1)(Effect.void).pipe(
+      reprojecting.withPermits(1)(settleEdits(server, home, projects, edited)).pipe(
         Effect.andThen(Cache.get(projects, workspaceFor(home, uri))),
         Effect.flatMap((project) => Effect.promise(async () => project.getLanguageService(uri))),
       ),
     ),
   getExistingLanguageServices: () =>
     runtime.runPromise(
-      Cache.values(projects).pipe(
+      reprojecting.withPermits(1)(settleEdits(server, home, projects, edited)).pipe(
+        Effect.andThen(Cache.values(projects)),
         Effect.flatMap((all) =>
           Effect.forEach(all, (project) =>
             Effect.promise(async () => (await project.getExistingLanguageServices()) ?? []),
@@ -371,8 +376,12 @@ const watchLooms = (
   home: string,
   projects: Cache.Cache<string, LanguageServerProject>,
   reprojecting: Semaphore.Semaphore,
+  edited: Ref.Ref<ReadonlySet<string>>,
 ): void => {
   void server.fileWatcher.watchFiles(['**/*.loom'])
+  server.documents.onDidChangeContent(({ document }) =>
+    runtime.runSync(recordEdit(edited, URI.parse(document.uri))),
+  )
   server.fileWatcher.onDidChangeWatchedFiles(({ changes }) =>
     rereadOnDisk(server, home, projects, reprojecting, closedLoomChanges(server, changes), []),
   )
@@ -382,6 +391,56 @@ const watchLooms = (
     rereadOnDisk(server, home, projects, reprojecting, changes, changes.length > 0 ? [uri] : [])
   })
 }
+
+const openSource = (server: LanguageServer): Source => ({
+  read: (path) =>
+    Option.match(Option.fromNullishOr(server.documents.get(URI.file(path))), {
+      onSome: (document) => Effect.succeed(document.getText()),
+      onNone: () =>
+        Effect.try({
+          try: () => readFileSync(path, 'utf8'),
+          catch: (cause) => new ReadError({ path, cause }),
+        }),
+    }),
+  list: Option.none(),
+})
+
+const recordEdit = (edited: Ref.Ref<ReadonlySet<string>>, uri: URI): Effect.Effect<void> =>
+  isLoom(uri) ? Ref.update(edited, (paths) => new Set([...paths, uri.fsPath])) : Effect.void
+
+const rebuildEdited = (
+  server: LanguageServer,
+  edited: Ref.Ref<ReadonlySet<string>>,
+): Effect.Effect<ReadonlyArray<FileEvent>, never, LoomCompiler> =>
+  Effect.all([Ref.getAndSet(edited, new Set<string>()), LoomCompiler]).pipe(
+    Effect.flatMap(([paths, compiler]) =>
+      Effect.forEach(paths, (path) =>
+        compiler
+          .rebuild(openSource(server), path)
+          .pipe(
+            Effect.map((changed) =>
+              changed
+                ? Option.some<FileEvent>({
+                    uri: URI.file(path).toString(),
+                    type: FileChangeType.Changed,
+                  })
+                : Option.none(),
+            ),
+          ),
+      ),
+    ),
+    Effect.map(Array.getSomes),
+  )
+
+const settleEdits = (
+  server: LanguageServer,
+  home: string,
+  projects: Cache.Cache<string, LanguageServerProject>,
+  edited: Ref.Ref<ReadonlySet<string>>,
+): Effect.Effect<void> =>
+  Effect.sync(() => runtime.runSync(rebuildEdited(server, edited))).pipe(
+    Effect.flatMap((changes) => reproject(server, home, projects, changes, [])),
+  )
 
 const runtime = ManagedRuntime.make(
   Layer.mergeAll(LoomCompiler.layer, LoomFormatter.layer, LoomConfig.layer).pipe(
@@ -415,7 +474,7 @@ export const startLanguageServer = (): void => {
     const folder = params.workspaceFolders?.[0]?.uri
     const root = folder ? fileURLToPath(folder) : process.cwd()
     const home = workspaceRoot(root)
-    const { services, projects, plugins, reprojecting } = await runtime.runPromise(
+    const { services, projects, plugins, reprojecting, edited } = await runtime.runPromise(
       Effect.gen(function* () {
         const path = yield* tsdkFor(params.initializationOptions, root)
         const tsdk = yield* Effect.sync(() => loadTsdkByPath(path, params.locale))
@@ -432,11 +491,16 @@ export const startLanguageServer = (): void => {
         })
         const plugins = yield* Cache.get(services, home)
         const reprojecting = yield* Semaphore.make(1)
-        return { services, projects, plugins, reprojecting }
+        const edited = yield* Ref.make<ReadonlySet<string>>(new Set())
+        return { services, projects, plugins, reprojecting, edited }
       }),
     )
     setTimeout(() => runtime.runSync(warmCorpus(home)), 10)
-    return server.initialize(params, workspaceProject(home, services, projects, reprojecting), [...plugins])
+    return server.initialize(
+      params,
+      workspaceProject(server, home, services, projects, reprojecting, edited),
+      [...plugins],
+    )
   })
   connection.onInitialized(() => {
     server.initialized()

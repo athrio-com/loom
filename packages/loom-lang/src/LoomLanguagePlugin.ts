@@ -47,9 +47,6 @@ const associate = (
     ),
   )
 
-const changed = (previous: VirtualCode, next: ts.IScriptSnapshot): boolean =>
-  previous.snapshot.getText(0, previous.snapshot.getLength()) !== next.getText(0, next.getLength())
-
 const projectIsolated = (
   compiler: LoomCompiler['Service'],
   uri: URI,
@@ -73,15 +70,10 @@ export const loomLanguagePlugin = (
           ),
         )
       : undefined,
-  updateVirtualCode: (uri, previous, snapshot, ctx) =>
+  updateVirtualCode: (uri, _previous, snapshot, ctx) =>
     runtime.runSync(
       LoomCompiler.pipe(
-        Effect.flatMap((compiler) =>
-          (changed(previous, snapshot)
-            ? Effect.asVoid(compiler.invalidate(uri.fsPath))
-            : Effect.void
-          ).pipe(Effect.andThen(projectIsolated(compiler, uri, snapshot, ctx))),
-        ),
+        Effect.flatMap((compiler) => projectIsolated(compiler, uri, snapshot, ctx)),
       ),
     ),
   disposeVirtualCode: (uri) =>

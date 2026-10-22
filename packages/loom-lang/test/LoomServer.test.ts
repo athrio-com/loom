@@ -7,7 +7,7 @@ import {
   StreamMessageWriter,
   type TextEdit,
 } from '@volar/language-server/node'
-import { Array, Cache, Effect, Semaphore } from 'effect'
+import { Array, Cache, Effect, Ref, Semaphore } from 'effect'
 import type { LanguageServer, LanguageServerProject, LanguageServicePlugin } from '@volar/language-server/node'
 import { URI } from 'vscode-uri'
 import { closeOf, refreshProject, workspaceProject } from '../src/LoomServer'
@@ -111,7 +111,7 @@ const editorAt = async (folder: string) => {
     })
   const edit = (path: string, text: string): Promise<void> =>
     connection.sendNotification('textDocument/didChange', {
-      textDocument: { uri: pathToFileURL(path).href, version: 2 },
+      textDocument: { uri: pathToFileURL(path).href, version: Date.now() },
       contentChanges: [{ text }],
     })
   const format = async (path: string): Promise<ReadonlyArray<TextEdit>> =>
@@ -195,9 +195,10 @@ const chapter = (title: string, code: string): string =>
 
 const anchor = (name: string): string => `::${'['}${name}]`
 
-const checking = (loom: string): string =>
+const checking = (loom: string, counted = false): string =>
   lines(
     `const { Effect } = globalThis.${runtimeKey}.modules.effect`,
+    'let reported = 0',
     `const { Composition } = globalThis.${runtimeKey}.modules['@athrio/loom-lang-services/LanguageService']`,
     'const composed = (composition) =>',
     `  composition.rootsFor(${JSON.stringify(loom)}).map((file) => file.content.trim()).sort().join(' | ')`,
@@ -212,7 +213,7 @@ const checking = (loom: string): string =>
     '      capabilities: { diagnosticProvider: { interFileDependencies: false, workspaceDiagnostics: false } },',
     '      create: () => ({',
     "        provideDiagnostics: (document) => document.languageId === 'typescript'",
-    '          ? [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, message: composed(composition) }]',
+    `          ? [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, message: composed(composition)${counted ? " + ' #' + ++reported" : ''} }]`,
     '          : [],',
     '      }),',
     '    }]',
@@ -328,6 +329,72 @@ describe('LoomServer — a chapter that changes on disk', () => {
   }, 30_000)
 })
 
+describe('LoomServer — an edit that reaches other open chapters', () => {
+  it('resolves an anchor renamed across two open chapters before either is saved', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    const opened = chapterAt(root, 'main.loom', chapter('Main', `${anchor('Answer')}(answer.loom)`))
+    const answer = chapterAt(root, 'answer.loom', chapter('Answer', 'const answer = 42'))
+    const editor = await editorAt(root)
+    try {
+      await editor.open(opened)
+      await editor.open(answer)
+      expect(await editor.diagnostics(opened)).toEqual([])
+      await editor.edit(answer, chapter('Question', 'const answer = 42'))
+      await editor.edit(opened, chapter('Main', `${anchor('Question')}(answer.loom)`))
+      expect(await editor.diagnostics(opened)).toEqual([])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+
+  it('checks an open chapter against the unsaved code of another', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    const main = join(root, 'corpus', 'main.loom')
+    install(root, checking(main))
+    configure(root, activated)
+    chapterAt(root, 'main.loom', chapter('Main {Tangle}[main.ts]', 'const main = 1'))
+    const note = chapterAt(root, 'note.loom', chapter('Note {Tangle}[note.ts]', "const note = 'saved'"))
+    const editor = await editorAt(root)
+    try {
+      await editor.open(main)
+      await editor.open(note)
+      expect(await editor.diagnostics(main)).toEqual(["const main = 1 | const note = 'saved'"])
+      await editor.edit(note, chapter('Note {Tangle}[note.ts]', "const note = 'unsaved'"))
+      expect(await editor.diagnostics(main)).toEqual(["const main = 1 | const note = 'unsaved'"])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+
+  it('checks other open chapters again only when an edit changes what they read', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    const main = join(root, 'corpus', 'main.loom')
+    install(root, checking(main, true))
+    configure(root, activated)
+    chapterAt(root, 'main.loom', chapter('Main {Tangle}[main.ts]', 'const main = 1'))
+    const note = chapterAt(root, 'note.loom', chapter('Note {Tangle}[note.ts]', "const note = 'saved'"))
+    const editor = await editorAt(root)
+    try {
+      await editor.open(main)
+      await editor.open(note)
+      expect(await editor.diagnostics(main)).toEqual(["const main = 1 | const note = 'saved' #1"])
+      await editor.edit(
+        note,
+        chapter('Note {Tangle}[note.ts]', "const note = 'saved'").replace(
+          '[note.ts]\n',
+          '[note.ts]\n\nA word of prose.\n',
+        ),
+      )
+      expect(await editor.diagnostics(main)).toEqual(["const main = 1 | const note = 'saved' #1"])
+      await editor.edit(note, chapter('Note {Tangle}[note.ts]', "const note = 'edited'"))
+      expect(await editor.diagnostics(main)).toEqual(["const main = 1 | const note = 'edited' #2"])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+})
+
 const recording = () => {
   const scripts = new Map<string, { isAssociationDirty?: boolean }>()
   const deleted: Array<string> = []
@@ -400,7 +467,7 @@ describe('LoomServer — the pass piece by piece', () => {
 
   it('holds a request back while a reprojection runs', async () => {
     const answering = recording()
-    const { services, projects, reprojecting } = await Effect.runPromise(
+    const { services, projects, reprojecting, edited } = await Effect.runPromise(
       Effect.all({
         services: Cache.make({
           capacity: Infinity,
@@ -411,11 +478,14 @@ describe('LoomServer — the pass piece by piece', () => {
           lookup: (_: string) => Effect.succeed(projectOf(answering, recording())),
         }),
         reprojecting: Semaphore.make(1),
+        edited: Ref.make<ReadonlySet<string>>(new Set()),
       }),
     )
     await Effect.runPromise(reprojecting.take(1))
     const answer = Promise.resolve(
-      workspaceProject(home, services, projects, reprojecting).getLanguageService(mainUri),
+      workspaceProject(serverWith(), home, services, projects, reprojecting, edited).getLanguageService(
+        mainUri,
+      ),
     )
     const waited = await Promise.race([
       answer.then(() => 'answered'),
