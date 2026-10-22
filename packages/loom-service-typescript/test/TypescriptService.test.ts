@@ -4,7 +4,8 @@ import { Option } from 'effect'
 import { URI } from 'vscode-uri'
 import type { ComposedFile } from '@athrio/loom-lang-services/LanguageService'
 import { createProductProgram } from '../src/ProductProgram'
-import { productTarget } from '../src/TypescriptService'
+import type { LanguageServiceContext } from '@volar/language-service'
+import { productPlugin, productTarget } from '../src/TypescriptService'
 
 const options: ts.CompilerOptions = {
   target: ts.ScriptTarget.ES2022,
@@ -263,5 +264,65 @@ describe('productTarget finds a root\'s project', () => {
     expect(second).toBe(first)
     expect(third).not.toBe(first)
     expect(references).not.toBe(first)
+  })
+})
+
+describe('productPlugin resolves a refactor only when it is picked', () => {
+  const actPath = '/project/act.ts'
+  const actLoom = '/project/act.loom'
+  const actCode = 'export const total = 1 + 2\n'
+
+  const standInContext = {
+    decodeEmbeddedDocumentUri: (uri: URI): readonly [URI, string] | undefined =>
+      uri.scheme === 'loom-embedded' ? [URI.file(uri.path), uri.fragment] : undefined,
+    encodeEmbeddedDocumentUri: (uri: URI, id: string): URI =>
+      URI.from({ scheme: 'loom-embedded', path: uri.path, fragment: id }),
+  } as unknown as LanguageServiceContext
+
+  const plugin = () =>
+    productPlugin(ts, {
+      rootsFor: () => [
+        { path: actPath, content: actCode, loomPath: actLoom, rootId: 'main', heading: headOf(actLoom) },
+      ],
+    }).create(standInContext)
+
+  const embedded = standInContext.encodeEmbeddedDocumentUri(URI.file(actLoom), 'main').toString()
+
+  const documentOf = () =>
+    ({ uri: embedded, languageId: 'typescript', version: 1, getText: () => actCode }) as unknown as Parameters<
+      NonNullable<ReturnType<ReturnType<typeof productPlugin>['create']>['provideCodeActions']>
+    >[0]
+
+  const sum = { start: { line: 0, character: 21 }, end: { line: 0, character: 26 } }
+
+  const refactorsAt = async (instance: ReturnType<typeof plugin>) =>
+    ((await instance.provideCodeActions!(documentOf(), sum, { diagnostics: [] }, never)) ?? []).filter(
+      (action) => action.kind?.startsWith('refactor'),
+    )
+
+  const never = { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => {} }) }
+
+  it('lists a refactor without its edit', async () => {
+    const refactors = await refactorsAt(plugin())
+    expect(refactors.length).toBeGreaterThan(0)
+    expect(refactors.every((action) => action.edit === undefined)).toBe(true)
+  })
+
+  it('makes the edit when the refactor is resolved, named by the embedded document', async () => {
+    const instance = plugin()
+    const extract = (await refactorsAt(instance)).find(
+      (action) => action.kind === 'refactor.extract.constant',
+    )
+    const resolved = await instance.resolveCodeAction!(extract!, never)
+    const edit = resolved.edit
+    expect(edit).toBeDefined()
+    const named = [
+      ...Object.keys(edit?.changes ?? {}),
+      ...(edit?.documentChanges ?? []).flatMap((change) =>
+        'textDocument' in change ? [change.textDocument.uri] : [],
+      ),
+    ]
+    expect(named.length).toBeGreaterThan(0)
+    expect(named.every((uri) => uri === embedded)).toBe(true)
   })
 })

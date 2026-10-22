@@ -147,7 +147,15 @@ export const productTarget = (
   return { program, fileName: edited.path, roots }
 }
 
-const productPlugin = (ts: TypeScript, composition: CompositionApi): LanguageServicePlugin => ({
+interface ActionOrigin {
+  readonly document: string
+  readonly original: unknown
+}
+
+export const productPlugin = (
+  ts: TypeScript,
+  composition: CompositionApi,
+): LanguageServicePlugin => ({
   name: 'loom-typescript-product',
   capabilities: {
     diagnosticProvider: { interFileDependencies: false, workspaceDiagnostics: false },
@@ -158,11 +166,13 @@ const productPlugin = (ts: TypeScript, composition: CompositionApi): LanguageSer
     renameProvider: {},
     codeActionProvider: {
       codeActionKinds: ['quickfix', 'refactor', 'source.organizeImports'],
+      resolveProvider: true,
     },
   },
   create: (context) => {
     const configOf = configNear(ts)
     const programs = new Map<string, ProductProgram>()
+    const actionTargets = new Map<string, ProductTarget>()
     const programFor = (project: ProductProject): ProductProgram => {
       const existing = programs.get(project.key)
       if (existing !== undefined) return existing
@@ -291,23 +301,36 @@ const productPlugin = (ts: TypeScript, composition: CompositionApi): LanguageSer
       },
       provideCodeActions: (document, range, context) => {
         const target = targetOf(document.uri, document.languageId, document.getText(), 'project')
-        return target === undefined
-          ? undefined
-          : target.program
-              .codeActions(target.fileName, range, context)
-              .then((actions) =>
-                actions === undefined
-                  ? undefined
-                  : Promise.all(
-                      actions.map((action) =>
-                        (action.edit === undefined
-                          ? target.program.resolveCodeAction(action)
-                          : Promise.resolve(action)
-                        ).then((resolved) => remapAction(target.roots, resolved)),
-                      ),
-                    ),
-              )
+        if (target === undefined) return undefined
+        actionTargets.set(document.uri, target)
+        return target.program.codeActions(target.fileName, range, context).then((actions) =>
+          actions?.map((action) =>
+            action.edit === undefined
+              ? {
+                  ...action,
+                  data: { document: document.uri, original: action.data } satisfies ActionOrigin,
+                }
+              : remapAction(target.roots, action),
+          ),
+        )
       },
+      resolveCodeAction: (action) =>
+        pipe(
+          Option.fromNullishOr(action.data as ActionOrigin | undefined),
+          Option.flatMap((origin) =>
+            Option.map(
+              Option.fromNullishOr(actionTargets.get(origin.document)),
+              (target) => [origin, target] as const,
+            ),
+          ),
+          Option.match({
+            onNone: () => action,
+            onSome: ([origin, target]) =>
+              target.program
+                .resolveCodeAction({ ...action, data: origin.original })
+                .then((resolved) => remapAction(target.roots, resolved)),
+          }),
+        ),
       dispose: () => programs.forEach((program) => program.dispose()),
     }
   },

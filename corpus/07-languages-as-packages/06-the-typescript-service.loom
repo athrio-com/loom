@@ -171,11 +171,23 @@ A result that names a place — a definition, a reference, the edits of a rename
 
 Go-to on an `import` specifier is the one result that names a whole file rather than a place in it: TypeScript points it at the module's start, `(0, 0)`. `remapDefinition` catches that. When a definition lands at the start of a composition root, it redirects to that root's `heading` — the section that tangles the file — so the author arrives at `# The temperature library`, not the transcluded line the composed file opens with. Every other definition takes the `embeddedUriOf` path.
 
-A code action carries edits too, but a refactor leaves its edit unfilled until it is resolved. So `provideCodeActions` resolves any action that arrives without one, then moves every edit's file paths back to the `.loom` through `embeddedUriOf`. An `Add import` quick-fix already carries its edit — the `import` of the missing name, computed in the product's own coordinates — so only its paths cross back. Resolving inside the program keeps each edit on the product's side of the boundary.
+A code action is a fix or a refactor the editor offers at the cursor, such as `Add import` or `Extract to function`. It has two parts: the title the editor lists, and the edit it applies when the person picks it. An `Add import` quick-fix arrives with its edit already made, so `provideCodeActions` only moves its file paths back to the `.loom` through `embeddedUriOf`.
+
+A refactor arrives without its edit, and the edit is the costly part. TypeScript works out a refactor's edit by carrying the refactor out on the code, which takes hundreds of milliseconds for each one. The editor asks for the list of actions every time the cursor moves, so it can show its light bulb, and a request answered one at a time holds up every request behind it, a hover among them. So `provideCodeActions` lists a refactor by its title alone and leaves its edit for later.
+
+The editor asks for an action's edit only when the person picks it, through `resolveCodeAction`. A refactor `provideCodeActions` lists carries an `ActionOrigin` in its `data`: the document it was listed for, beside the data TypeScript gave it. `provideCodeActions` also keeps that document's target in `actionTargets`, so the resolve finds the same program and roots again. `resolveCodeAction` asks that program for the edit and moves the edit's paths back, as `provideCodeActions` does for a quick-fix. Resolving inside the program keeps each edit on the product's side of the boundary. An action whose data the plugin did not write, or one listed for a document it holds no target for, passes through unresolved.
 
 =>
 
-const productPlugin = (ts: TypeScript, composition: CompositionApi): LanguageServicePlugin => ({
+interface ActionOrigin {
+  readonly document: string
+  readonly original: unknown
+}
+
+export const productPlugin = (
+  ts: TypeScript,
+  composition: CompositionApi,
+): LanguageServicePlugin => ({
   name: 'loom-typescript-product',
   capabilities: {
     diagnosticProvider: { interFileDependencies: false, workspaceDiagnostics: false },
@@ -186,11 +198,13 @@ const productPlugin = (ts: TypeScript, composition: CompositionApi): LanguageSer
     renameProvider: {},
     codeActionProvider: {
       codeActionKinds: ['quickfix', 'refactor', 'source.organizeImports'],
+      resolveProvider: true,
     },
   },
   create: (context) => {
     const configOf = configNear(ts)
     const programs = new Map<string, ProductProgram>()
+    const actionTargets = new Map<string, ProductTarget>()
     const programFor = (project: ProductProject): ProductProgram => {
       const existing = programs.get(project.key)
       if (existing !== undefined) return existing
@@ -319,23 +333,36 @@ const productPlugin = (ts: TypeScript, composition: CompositionApi): LanguageSer
       },
       provideCodeActions: (document, range, context) => {
         const target = targetOf(document.uri, document.languageId, document.getText(), 'project')
-        return target === undefined
-          ? undefined
-          : target.program
-              .codeActions(target.fileName, range, context)
-              .then((actions) =>
-                actions === undefined
-                  ? undefined
-                  : Promise.all(
-                      actions.map((action) =>
-                        (action.edit === undefined
-                          ? target.program.resolveCodeAction(action)
-                          : Promise.resolve(action)
-                        ).then((resolved) => remapAction(target.roots, resolved)),
-                      ),
-                    ),
-              )
+        if (target === undefined) return undefined
+        actionTargets.set(document.uri, target)
+        return target.program.codeActions(target.fileName, range, context).then((actions) =>
+          actions?.map((action) =>
+            action.edit === undefined
+              ? {
+                  ...action,
+                  data: { document: document.uri, original: action.data } satisfies ActionOrigin,
+                }
+              : remapAction(target.roots, action),
+          ),
+        )
       },
+      resolveCodeAction: (action) =>
+        pipe(
+          Option.fromNullishOr(action.data as ActionOrigin | undefined),
+          Option.flatMap((origin) =>
+            Option.map(
+              Option.fromNullishOr(actionTargets.get(origin.document)),
+              (target) => [origin, target] as const,
+            ),
+          ),
+          Option.match({
+            onNone: () => action,
+            onSome: ([origin, target]) =>
+              target.program
+                .resolveCodeAction({ ...action, data: origin.original })
+                .then((resolved) => remapAction(target.roots, resolved)),
+          }),
+        ),
       dispose: () => programs.forEach((program) => program.dispose()),
     }
   },
@@ -481,7 +508,8 @@ import { Option } from 'effect'
 import { URI } from 'vscode-uri'
 import type { ComposedFile } from '@athrio/loom-lang-services/LanguageService'
 import { createProductProgram } from '../src/ProductProgram'
-import { productTarget } from '../src/TypescriptService'
+import type { LanguageServiceContext } from '@volar/language-service'
+import { productPlugin, productTarget } from '../src/TypescriptService'
 
 const options: ts.CompilerOptions = {
   target: ts.ScriptTarget.ES2022,
@@ -757,6 +785,74 @@ describe('productTarget finds a root\'s project', () => {
   })
 })
 
+## Testing a refactor resolved when it is picked
+
+These cases drive `productPlugin` itself, with a stand-in for the part of Volar's context it reads. `standInContext` encodes an embedded document's address as a `loom-embedded` URI that carries the `.loom`'s path and the root's id, and decodes it back. `plugin` builds the plugin over one root, `/project/act.ts`, composed from `act.loom`, whose code adds two numbers. `documentOf` gives the embedded document of that root as the editor would hand it over.
+
+Selecting `1 + 2` offers refactors, seventeen of them, from extracting the sum to a constant to ones that do not apply here at all. The first case checks that `provideCodeActions` lists them all without an edit. The second resolves `Extract to constant` through `resolveCodeAction`, the call the editor makes when the person picks it. The action now carries an edit, and the edit names the embedded document of `act.loom`, not the file the root tangles to, so Volar can map it back to the loom.
+
+=>
+
+describe('productPlugin resolves a refactor only when it is picked', () => {
+  const actPath = '/project/act.ts'
+  const actLoom = '/project/act.loom'
+  const actCode = 'export const total = 1 + 2\n'
+
+  const standInContext = {
+    decodeEmbeddedDocumentUri: (uri: URI): readonly [URI, string] | undefined =>
+      uri.scheme === 'loom-embedded' ? [URI.file(uri.path), uri.fragment] : undefined,
+    encodeEmbeddedDocumentUri: (uri: URI, id: string): URI =>
+      URI.from({ scheme: 'loom-embedded', path: uri.path, fragment: id }),
+  } as unknown as LanguageServiceContext
+
+  const plugin = () =>
+    productPlugin(ts, {
+      rootsFor: () => [
+        { path: actPath, content: actCode, loomPath: actLoom, rootId: 'main', heading: headOf(actLoom) },
+      ],
+    }).create(standInContext)
+
+  const embedded = standInContext.encodeEmbeddedDocumentUri(URI.file(actLoom), 'main').toString()
+
+  const documentOf = () =>
+    ({ uri: embedded, languageId: 'typescript', version: 1, getText: () => actCode }) as unknown as Parameters<
+      NonNullable<ReturnType<ReturnType<typeof productPlugin>['create']>['provideCodeActions']>
+    >[0]
+
+  const sum = { start: { line: 0, character: 21 }, end: { line: 0, character: 26 } }
+
+  const refactorsAt = async (instance: ReturnType<typeof plugin>) =>
+    ((await instance.provideCodeActions!(documentOf(), sum, { diagnostics: [] }, never)) ?? []).filter(
+      (action) => action.kind?.startsWith('refactor'),
+    )
+
+  const never = { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => {} }) }
+
+  it('lists a refactor without its edit', async () => {
+    const refactors = await refactorsAt(plugin())
+    expect(refactors.length).toBeGreaterThan(0)
+    expect(refactors.every((action) => action.edit === undefined)).toBe(true)
+  })
+
+  it('makes the edit when the refactor is resolved, named by the embedded document', async () => {
+    const instance = plugin()
+    const extract = (await refactorsAt(instance)).find(
+      (action) => action.kind === 'refactor.extract.constant',
+    )
+    const resolved = await instance.resolveCodeAction!(extract!, never)
+    const edit = resolved.edit
+    expect(edit).toBeDefined()
+    const named = [
+      ...Object.keys(edit?.changes ?? {}),
+      ...(edit?.documentChanges ?? []).flatMap((change) =>
+        'textDocument' in change ? [change.textDocument.uri] : [],
+      ),
+    ]
+    expect(named.length).toBeGreaterThan(0)
+    expect(named.every((uri) => uri === embedded)).toBe(true)
+  })
+})
+
 ## The test file {Tangle}[test/TypescriptService.test.ts]
 
 =>
@@ -764,3 +860,5 @@ describe('productTarget finds a root\'s project', () => {
 ::[Testing how a request finds its program]
 
 ::[Testing a project's program]
+
+::[Testing a refactor resolved when it is picked]
