@@ -12,7 +12,7 @@ import {
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { URI } from 'vscode-uri'
+import { URI } from 'vscode-uri'
 import { LoomCompiler, DocumentSource } from './LoomCompiler'
 import { LoomFormatter } from './LoomFormatter'
 import { PackageConfig } from './PackageConfig'
@@ -111,7 +111,10 @@ const workspaceProject = (
   services: Cache.Cache<string, ReadonlyArray<LanguageServicePlugin>>,
   projects: Cache.Cache<string, LanguageServerProject>,
 ): LanguageServerProject => ({
-  setup: (server) => watchConfigs(server, services, projects),
+  setup: (server) => {
+    watchConfigs(server, services, projects)
+    watchLooms(server, home, projects)
+  },
   getLanguageService: (uri) =>
     runtime.runPromise(
       Cache.get(projects, workspaceFor(home, uri)).pipe(
@@ -184,6 +187,81 @@ const watchConfigs = (
   server.fileWatcher.onDidChangeWatchedFiles(({ changes }) =>
     runtime.runSync(reconfigure(server, services, projects, reconfiguredWorkspaces(changes))),
   )
+}
+
+const closedLooms = (
+  server: LanguageServer,
+  changes: ReadonlyArray<FileEvent>,
+): ReadonlyArray<URI> =>
+  pipe(
+    changes,
+    Array.map((change) => change.uri),
+    Array.dedupe,
+    Array.map((uri) => URI.parse(uri)),
+    Array.filter((uri) => uri.path.endsWith('.loom') && server.documents.get(uri) === undefined),
+  )
+
+const openLooms = (server: LanguageServer): ReadonlyArray<URI> =>
+  pipe(
+    server.documents.all(),
+    Array.map((document) => URI.parse(document.uri)),
+    Array.filter((uri) => uri.path.endsWith('.loom')),
+  )
+
+const reprojectOpenLooms = (
+  server: LanguageServer,
+  project: LanguageServerProject,
+): Effect.Effect<void> =>
+  Effect.promise(async () => (await project.getExistingLanguageServices()) ?? []).pipe(
+    Effect.flatMap((languageServices) =>
+      Effect.forEach(
+        Array.cartesian(languageServices, openLooms(server)),
+        ([languageService, uri]) =>
+          Effect.sync(() => languageService.context.language.scripts.delete(uri)),
+        { discard: true },
+      ),
+    ),
+  )
+
+const rereadLooms = (
+  server: LanguageServer,
+  home: string,
+  projects: Cache.Cache<string, LanguageServerProject>,
+  looms: ReadonlyArray<URI>,
+): Effect.Effect<void, never, LoomCompiler> =>
+  looms.length === 0
+    ? Effect.void
+    : LoomCompiler.pipe(
+        Effect.flatMap((compiler) =>
+          Effect.forEach(looms, (uri) => compiler.invalidate(uri.fsPath), { discard: true }),
+        ),
+        Effect.andThen(
+          Effect.forEach(
+            Array.dedupe(Array.map(looms, (uri) => workspaceFor(home, uri))),
+            (workspace) =>
+              Cache.getSuccess(projects, workspace).pipe(
+                Effect.flatMap(
+                  Option.match({
+                    onNone: () => Effect.void,
+                    onSome: (project) => reprojectOpenLooms(server, project),
+                  }),
+                ),
+              ),
+            { discard: true },
+          ),
+        ),
+        Effect.andThen(Effect.sync(() => void server.languageFeatures.requestRefresh(false))),
+      )
+
+const watchLooms = (
+  server: LanguageServer,
+  home: string,
+  projects: Cache.Cache<string, LanguageServerProject>,
+): void => {
+  void server.fileWatcher.watchFiles(['**/*.loom'])
+  server.fileWatcher.onDidChangeWatchedFiles(({ changes }) => {
+    runtime.runFork(rereadLooms(server, home, projects, closedLooms(server, changes)))
+  })
 }
 
 const runtime = ManagedRuntime.make(

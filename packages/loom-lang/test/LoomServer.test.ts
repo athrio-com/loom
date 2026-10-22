@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import {
   createMessageConnection,
+  type Diagnostic,
   FileChangeType,
   StreamMessageReader,
   StreamMessageWriter,
@@ -110,6 +111,16 @@ const editorAt = async (folder: string) => {
       textDocument: { uri: pathToFileURL(path).href },
       options: { tabSize: 2, insertSpaces: true },
     })) ?? []
+  const diagnostics = async (path: string): Promise<ReadonlyArray<string>> =>
+    Array.map(
+      (
+        await connection.sendRequest<{ readonly items: ReadonlyArray<Diagnostic> }>(
+          'textDocument/diagnostic',
+          { textDocument: { uri: pathToFileURL(path).href } },
+        )
+      ).items,
+      (diagnostic) => diagnostic.message,
+    )
   const changed = (path: string): Promise<void> =>
     connection.sendNotification('workspace/didChangeWatchedFiles', {
       changes: [{ uri: pathToFileURL(path).href, type: FileChangeType.Changed }],
@@ -118,7 +129,7 @@ const editorAt = async (folder: string) => {
     connection.dispose()
     child.kill()
   }
-  return { open, format, changed, close }
+  return { open, format, diagnostics, changed, close }
 }
 
 const texts = (edits: ReadonlyArray<TextEdit>): ReadonlyArray<string> =>
@@ -154,6 +165,41 @@ describe('LoomServer — a loom in a nested workspace', () => {
       configure(nested, activated)
       await editor.changed(join(nested, '.loom', 'config.yaml'))
       expect(texts(await editor.format(nestedLoom))).toEqual([loomOf('const answer = 42')])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+})
+
+const chapterAt = (root: string, name: string, text: string): string => {
+  mkdirSync(join(root, 'corpus'), { recursive: true })
+  const chapter = join(root, 'corpus', name)
+  writeFileSync(chapter, text)
+  return chapter
+}
+
+const answering = (title: string): string =>
+  lines('---', 'Language: TypeScript', '---', '', `# ${title}`, '', '=>', '', 'const answer = 42')
+
+const anchor = (name: string): string => `::${'['}${name}]`
+
+const main = lines('---', 'Language: TypeScript', '---', '', '# Main', '', '=>', '', `${anchor('Answer')}(answer.loom)`)
+
+describe('LoomServer — a chapter that changes on disk', () => {
+  it('answers an open chapter from the text a closed one holds now', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    const opened = chapterAt(root, 'main.loom', main)
+    const closed = chapterAt(root, 'answer.loom', answering('Answer'))
+    const editor = await editorAt(root)
+    try {
+      await editor.open(opened)
+      expect(await editor.diagnostics(opened)).toEqual([])
+      chapterAt(root, 'answer.loom', answering('Question'))
+      await editor.changed(closed)
+      expect(await editor.diagnostics(opened)).toEqual([
+        `Unresolved anchor: no section named \`Answer\`.`,
+      ])
     } finally {
       editor.close()
     }
