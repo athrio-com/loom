@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { Effect, Layer, ManagedRuntime } from 'effect'
-import { mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
@@ -35,5 +35,23 @@ describe('LoomCompiler — what an edit evicts', () => {
     expect([...(await invalidate(answer))].sort()).toEqual([answer, book].sort())
     expect(await invalidate(answer)).toEqual([])
     expect(await invalidate(join(folder, 'nowhere.loom'))).toEqual([])
+  })
+
+  it('evicts every held file under a folder and nothing beside it', async () => {
+    const folder = realpathSync(mkdtempSync(join(tmpdir(), 'loom-invalidate-')))
+    const inside = join(folder, 'inside', 'answer.loom')
+    const beside = join(folder, 'beside.loom')
+    mkdirSync(join(folder, 'inside'))
+    writeFileSync(inside, chapter('Answer', 'const answer = 42'))
+    writeFileSync(beside, chapter('Beside', 'const beside = 1'))
+    const run = <A>(use: (compiler: LoomCompiler['Service']) => Effect.Effect<A>) =>
+      runtime.runPromise(LoomCompiler.pipe(Effect.flatMap(use)))
+    await run((compiler) => compiler.reach(inside))
+    await run((compiler) => compiler.reach(beside))
+    expect(await run((compiler) => compiler.invalidateWithin(join(folder, 'inside')))).toEqual([
+      inside,
+    ])
+    expect(await run((compiler) => compiler.invalidate(inside))).toEqual([])
+    expect(await run((compiler) => compiler.invalidate(beside))).toEqual([beside])
   })
 })

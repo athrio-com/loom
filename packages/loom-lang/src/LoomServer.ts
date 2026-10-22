@@ -132,7 +132,7 @@ export const workspaceProject = (
   edited: Ref.Ref<ReadonlySet<string>>,
 ): LanguageServerProject => ({
   setup: (server) => {
-    watchConfigs(server, services, projects)
+    watchConfigs(server, home, services, projects, edited)
     watchLooms(server, home, projects, reprojecting, edited)
   },
   getLanguageService: (uri) =>
@@ -188,26 +188,52 @@ const forgetWorkspace = (
     Effect.andThen(Cache.invalidate(services, workspace)),
   )
 
+const rebuildUnder = (
+  server: LanguageServer,
+  home: string,
+  edited: Ref.Ref<ReadonlySet<string>>,
+  workspace: string,
+): Effect.Effect<void, never, LoomCompiler> =>
+  LoomCompiler.pipe(
+    Effect.flatMap((compiler) => compiler.invalidateWithin(workspace)),
+    Effect.andThen(
+      Effect.forEach(openLoomsIn(server, home, workspace), (uri) => recordEdit(edited, uri), {
+        discard: true,
+      }),
+    ),
+  )
+
 const reconfigure = (
   server: LanguageServer,
+  home: string,
   services: Cache.Cache<string, ReadonlyArray<LanguageServicePlugin>>,
   projects: Cache.Cache<string, LanguageServerProject>,
+  edited: Ref.Ref<ReadonlySet<string>>,
   workspaces: ReadonlyArray<string>,
-): Effect.Effect<void> =>
+): Effect.Effect<void, never, LoomCompiler> =>
   workspaces.length === 0
     ? Effect.void
-    : Effect.forEach(workspaces, (workspace) => forgetWorkspace(services, projects, workspace), {
-        discard: true,
-      }).pipe(Effect.andThen(Effect.sync(() => void server.languageFeatures.requestRefresh(true))))
+    : Effect.forEach(
+        workspaces,
+        (workspace) =>
+          rebuildUnder(server, home, edited, workspace).pipe(
+            Effect.andThen(forgetWorkspace(services, projects, workspace)),
+          ),
+        { discard: true },
+      ).pipe(Effect.andThen(Effect.sync(() => void server.languageFeatures.requestRefresh(true))))
 
 const watchConfigs = (
   server: LanguageServer,
+  home: string,
   services: Cache.Cache<string, ReadonlyArray<LanguageServicePlugin>>,
   projects: Cache.Cache<string, LanguageServerProject>,
+  edited: Ref.Ref<ReadonlySet<string>>,
 ): void => {
   void server.fileWatcher.watchFiles(['**/.loom/config.yaml'])
   server.fileWatcher.onDidChangeWatchedFiles(({ changes }) =>
-    runtime.runSync(reconfigure(server, services, projects, reconfiguredWorkspaces(changes))),
+    runtime.runSync(
+      reconfigure(server, home, services, projects, edited, reconfiguredWorkspaces(changes)),
+    ),
   )
 }
 

@@ -632,6 +632,14 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
           ),
         ),
 
+      invalidateWithin: (dir: Path): Effect.Effect<ReadonlyArray<Path>> =>
+        memo.entries.pipe(
+          Effect.map((modules) =>
+            Array.filter(Array.fromIterable(modules.keys()), (path) => path.startsWith(`${dir}/`)),
+          ),
+          Effect.tap((paths) => memo.evict(paths)),
+        ),
+
       rebuild: (source: Source, path: Path): Effect.Effect<boolean> =>
         memo.entries.pipe(
           Effect.map((modules) => Option.map(Option.fromNullishOr(modules.get(path)), faceOf)),

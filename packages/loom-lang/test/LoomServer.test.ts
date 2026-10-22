@@ -395,6 +395,46 @@ describe('LoomServer — an edit that reaches other open chapters', () => {
   }, 30_000)
 })
 
+const configuredWith = (answer: number): string =>
+  lines('languages:', '  typescript: {}', 'variables:', `  answer: ${answer}`)
+
+const readingAnswer = lines(
+  '---',
+  'Language: TypeScript',
+  '---',
+  '',
+  '# Main {Tangle}[main.ts]',
+  '',
+  '{{ answer = ${answer} }}',
+  '',
+  '=>',
+  '',
+  `const main = ${anchor('answer')}`,
+)
+
+describe('LoomServer — a configuration that changes', () => {
+  it('composes an open chapter under the new configuration, keeping unsaved text', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    const main = join(root, 'corpus', 'main.loom')
+    install(root, checking(main))
+    configure(root, configuredWith(42))
+    chapterAt(root, 'main.loom', readingAnswer)
+    const note = chapterAt(root, 'note.loom', chapter('Note {Tangle}[note.ts]', "const note = 'saved'"))
+    const editor = await editorAt(root)
+    try {
+      await editor.open(main)
+      await editor.open(note)
+      await editor.edit(note, chapter('Note {Tangle}[note.ts]', "const note = 'unsaved'"))
+      expect(await editor.diagnostics(main)).toEqual(["const main = 42 | const note = 'unsaved'"])
+      configure(root, configuredWith(43))
+      await editor.changed(join(root, '.loom', 'config.yaml'))
+      expect(await editor.diagnostics(main)).toEqual(["const main = 43 | const note = 'unsaved'"])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+})
+
 const recording = () => {
   const scripts = new Map<string, { isAssociationDirty?: boolean }>()
   const deleted: Array<string> = []

@@ -197,7 +197,7 @@ const projectOver = (
 
 ~
 
-`workspaceProject` is the project the server hands to Volar. Its `projects` cache holds one TypeScript project per workspace. Its `services` cache holds the plugins each project is built over. `getLanguageService` answers a document from the project of the document's workspace. It first takes the `reprojecting` semaphore, waiting while a reprojection holds it, and settles the edits the editor has made since the last request. `getExistingLanguageServices` settles them too, then reaches every project the `projects` cache holds, as `reload` does. Volar sets the project up with the server once the editor has initialized. The `projects` cache already builds every workspace's project with that same server, so `setup` has two tasks left. It starts `watchConfigs`, which keeps both caches in step with each workspace's configuration, and `watchLooms`, which keeps every open loom in step with the closed chapters it reads.
+`workspaceProject` is the project the server hands to Volar. Its `projects` cache holds one TypeScript project per workspace. Its `services` cache holds the plugins each project is built over. `getLanguageService` answers a document from the project of the document's workspace. It first takes the `reprojecting` semaphore, waiting while a reprojection holds it, and settles the edits the editor has made since the last request. `getExistingLanguageServices` settles them too, then reaches every project the `projects` cache holds, as `reload` does. Volar sets the project up with the server once the editor has initialized. The `projects` cache already builds every workspace's project with that same server, so `setup` has two tasks left. It starts `watchConfigs`, which keeps both caches and the builds of each workspace's looms in step with its configuration, and `watchLooms`, which keeps every open loom in step with the closed chapters it reads.
 
 =>
 
@@ -210,7 +210,7 @@ export const workspaceProject = (
   edited: Ref.Ref<ReadonlySet<string>>,
 ): LanguageServerProject => ({
   setup: (server) => {
-    watchConfigs(server, services, projects)
+    watchConfigs(server, home, services, projects, edited)
     watchLooms(server, home, projects, reprojecting, edited)
   },
   getLanguageService: (uri) =>
@@ -246,7 +246,11 @@ export const workspaceProject = (
 
 A workspace's configuration can change while the server runs. `loom add` installs a language's service in the store and then rewrites `config.yaml`. `loom remove` takes the service out of the store and rewrites `config.yaml` too. So a change to `config.yaml` is the one sign that a workspace's services changed. `watchConfigs` asks the editor to watch every `.loom/config.yaml` and listens for the changes the editor reports. `reconfiguredWorkspaces` reads a batch of changed files and returns the workspaces whose configuration changed, each the folder that holds a changed `.loom/` folder.
 
-`forgetWorkspace` drops what the server built for one workspace. It reloads the workspace's TypeScript project, which disposes the project's language services and the plugins inside them, then removes the workspace from both caches. The next request for one of the workspace's looms collects its plugins afresh, from the configuration and the store as they now stand, and builds a new project over them. Under Node, a service `loom add` replaced comes back at its new version, because the loader imports each version at an address of its own. `reconfigure` forgets every workspace a batch of changes names. It then asks Volar to refresh, clearing the diagnostics on screen, so every open loom is checked again with the services it now has. A batch that names no `config.yaml`, such as a change to a `tsconfig.json`, forgets nothing and leaves the refresh to Volar's own projects.
+`forgetWorkspace` drops what the server built for one workspace. It reloads the workspace's TypeScript project, which disposes the project's language services and the plugins inside them, then removes the workspace from both caches. The next request for one of the workspace's looms collects its plugins afresh, from the configuration and the store as they now stand, and builds a new project over them. Under Node, a service `loom add` replaced comes back at its new version, because the loader imports each version at an address of its own.
+
+A configuration also decides how each of the workspace's looms is built. It names the anchor delimiters a loom uses, its primary language, and the variables its value warps read. The compiler's build cache holds every loom it built under the old configuration, and the cache would hand those builds back unchanged. So `rebuildUnder` evicts every build within the workspace through the compiler's `invalidateWithin`. A closed loom is built again from disk the next time a composition reads it. An open loom may hold unsaved edits, and a composition that missed it in the cache would read it from disk. So `rebuildUnder` also notes every open loom of the workspace as edited, and the next request rebuilds each one from the editor's text before anything reads it. The build cache on disk needs nothing, because it keys each build by the settings it was built under.
+
+`reconfigure` rebuilds and forgets every workspace a batch of changes names. It then asks Volar to refresh, clearing the diagnostics on screen, so every open loom is checked again with the services it now has. A batch that names no `config.yaml`, such as a change to a `tsconfig.json`, forgets nothing and leaves the refresh to Volar's own projects.
 
 =>
 
@@ -274,26 +278,52 @@ const forgetWorkspace = (
     Effect.andThen(Cache.invalidate(services, workspace)),
   )
 
+const rebuildUnder = (
+  server: LanguageServer,
+  home: string,
+  edited: Ref.Ref<ReadonlySet<string>>,
+  workspace: string,
+): Effect.Effect<void, never, LoomCompiler> =>
+  LoomCompiler.pipe(
+    Effect.flatMap((compiler) => compiler.invalidateWithin(workspace)),
+    Effect.andThen(
+      Effect.forEach(openLoomsIn(server, home, workspace), (uri) => recordEdit(edited, uri), {
+        discard: true,
+      }),
+    ),
+  )
+
 const reconfigure = (
   server: LanguageServer,
+  home: string,
   services: Cache.Cache<string, ReadonlyArray<LanguageServicePlugin>>,
   projects: Cache.Cache<string, LanguageServerProject>,
+  edited: Ref.Ref<ReadonlySet<string>>,
   workspaces: ReadonlyArray<string>,
-): Effect.Effect<void> =>
+): Effect.Effect<void, never, LoomCompiler> =>
   workspaces.length === 0
     ? Effect.void
-    : Effect.forEach(workspaces, (workspace) => forgetWorkspace(services, projects, workspace), {
-        discard: true,
-      }).pipe(Effect.andThen(Effect.sync(() => void server.languageFeatures.requestRefresh(true))))
+    : Effect.forEach(
+        workspaces,
+        (workspace) =>
+          rebuildUnder(server, home, edited, workspace).pipe(
+            Effect.andThen(forgetWorkspace(services, projects, workspace)),
+          ),
+        { discard: true },
+      ).pipe(Effect.andThen(Effect.sync(() => void server.languageFeatures.requestRefresh(true))))
 
 const watchConfigs = (
   server: LanguageServer,
+  home: string,
   services: Cache.Cache<string, ReadonlyArray<LanguageServicePlugin>>,
   projects: Cache.Cache<string, LanguageServerProject>,
+  edited: Ref.Ref<ReadonlySet<string>>,
 ): void => {
   void server.fileWatcher.watchFiles(['**/.loom/config.yaml'])
   server.fileWatcher.onDidChangeWatchedFiles(({ changes }) =>
-    runtime.runSync(reconfigure(server, services, projects, reconfiguredWorkspaces(changes))),
+    runtime.runSync(
+      reconfigure(server, home, services, projects, edited, reconfiguredWorkspaces(changes)),
+    ),
   )
 }
 
@@ -1147,6 +1177,54 @@ describe('LoomServer — an edit that reaches other open chapters', () => {
   }, 30_000)
 })
 
+## Testing a configuration that changes
+
+A workspace's configuration feeds into what its looms compose. A value warp can read a variable the configuration defines, and the code that anchors the warp composes its value. So a change to a variable changes the composed code of every loom that reads it, with no loom changed at all.
+
+The case defines the variable `answer` in the workspace's configuration. `Main` binds a value warp to it and composes the warp's value into its code. `note.loom` is open too, with an unsaved edit. The case changes the variable on disk and reports the changed configuration. The message on `Main` must carry the new value, and must still carry the unsaved note.
+
+=>
+
+const configuredWith = (answer: number): string =>
+  lines('languages:', '  typescript: {}', 'variables:', `  answer: ${answer}`)
+
+const readingAnswer = lines(
+  '---',
+  'Language: TypeScript',
+  '---',
+  '',
+  '# Main {Tangle}[main.ts]',
+  '',
+  '{{ answer = ${answer} }}',
+  '',
+  '=>',
+  '',
+  `const main = ${anchor('answer')}`,
+)
+
+describe('LoomServer — a configuration that changes', () => {
+  it('composes an open chapter under the new configuration, keeping unsaved text', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    const main = join(root, 'corpus', 'main.loom')
+    install(root, checking(main))
+    configure(root, configuredWith(42))
+    chapterAt(root, 'main.loom', readingAnswer)
+    const note = chapterAt(root, 'note.loom', chapter('Note {Tangle}[note.ts]', "const note = 'saved'"))
+    const editor = await editorAt(root)
+    try {
+      await editor.open(main)
+      await editor.open(note)
+      await editor.edit(note, chapter('Note {Tangle}[note.ts]', "const note = 'unsaved'"))
+      expect(await editor.diagnostics(main)).toEqual(["const main = 42 | const note = 'unsaved'"])
+      configure(root, configuredWith(43))
+      await editor.changed(join(root, '.loom', 'config.yaml'))
+      expect(await editor.diagnostics(main)).toEqual(["const main = 43 | const note = 'unsaved'"])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+})
+
 ## Testing the pass piece by piece
 
 Some of what the pass does leaves no trace an editor can see. Volar holds a script in a language service, or holds it nowhere, and no request reveals which. A request that waits on the `reprojecting` semaphore gets the same answer it would have got without waiting. A close that rereads nothing looks the same as one that rereads a file with the same text. So these cases drive the server's parts directly, over stand-ins for Volar's objects.
@@ -1306,5 +1384,7 @@ import { runtimeKey } from '@athrio/loom-lang-services/Runtime'
 ::[Testing a chapter that changes on disk]
 
 ::[Testing an edit that reaches other open chapters]
+
+::[Testing a configuration that changes]
 
 ::[Testing the pass piece by piece]
