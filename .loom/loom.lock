@@ -36,6 +36,7 @@
     "packages/loom-lang/moon.yml",
     "packages/loom-lang/package.json",
     "packages/loom-lang/src/LoomCompiler.ts",
+    "packages/loom-lang/src/LoomDiskCache.ts",
     "packages/loom-lang/src/LoomFormatter.ts",
     "packages/loom-lang/src/LoomLanguagePlugin.ts",
     "packages/loom-lang/src/LoomLock.ts",

@@ -42,7 +42,7 @@ Here the document becomes code. Each section carries the author's code, and each
 
 ### Part V — Tangling
 
-With the product built, Loom writes it out. This part is the back half of the pipeline: the compiler that projects the result, the tangler that writes each file, the configuration that governs the build, the cache beneath it, the lock of what it has written, the rule that decides which looms belong to a project, and the one catalog of every fault.
+With the product built, Loom writes it out. This part is the back half of the pipeline: the compiler that projects the result, the tangler that writes each file, the configuration that governs the build, the cache beneath it, the lock of what it has written, the rule that decides which looms belong to a project, the one catalog of every fault, and the cache that keeps built modules on disk between runs.
 
 1. The compile layer
 2. Tangling to disk
@@ -52,6 +52,7 @@ With the product built, Loom writes it out. This part is the back half of the pi
 6. The build cache
 7. The tangle lock
 8. The looms in a project
+9. The build cache on disk
 
 ### Part VI — In the editor
 

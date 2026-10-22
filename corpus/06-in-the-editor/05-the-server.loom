@@ -12,7 +12,7 @@ Any editor that speaks the Language Server Protocol can start the server. VS Cod
 
 ## Imports
 
-The server is built from Volar's language-server toolkit over a `ManagedRuntime`. From the toolkit it takes the connection, the TypeScript project factory, `loadTsdkByPath`, and the types of a server, a project, a service plugin, a file the editor reports changed, and the language whose scripts a project projects. `FileChangeType` says whether a reported file was created, changed, or deleted. It imports `LoomCompiler`, the projector and cache the runtime warms, and `LoomFormatter`, which formats a file on it, with the `DocumentSource`, `PackageConfig`, and `LoomConfig` they require, and the two halves this module registers, `loomLanguagePlugin` and `loomServicePlugins`. From the language store come `workspaceOf` and `workspaceRoot`, which find the workspace a path belongs to, and what the server needs to keep a TypeScript in a workspace's store: `storeDir`, which locates the store, `storeTypeScript`, which finds a TypeScript there, `installTypeScript` and its `typeScriptRange`, which put one there, and `standalone`, which says whether Loom runs as the standalone executable.
+The server is built from Volar's language-server toolkit over a `ManagedRuntime`. From the toolkit it takes the connection, the TypeScript project factory, `loadTsdkByPath`, and the types of a server, a project, a service plugin, a file the editor reports changed, and the language whose scripts a project projects. `FileChangeType` says whether a reported file was created, changed, or deleted. It imports `LoomCompiler`, the projector and cache the runtime warms, and `LoomFormatter`, which formats a file on it, with the `DocumentSource`, `PackageConfig`, and `LoomConfig` they require, and the two halves this module registers, `loomLanguagePlugin` and `loomServicePlugins`, and `loomsIn`, which lists the looms a project holds under a folder. From the language store come `workspaceOf` and `workspaceRoot`, which find the workspace a path belongs to, and what the server needs to keep a TypeScript in a workspace's store: `storeDir`, which locates the store, `storeTypeScript`, which finds a TypeScript there, `installTypeScript` and its `typeScriptRange`, which put one there, and `standalone`, which says whether Loom runs as the standalone executable.
 
 Effect's `Schema` reads the editor's initialization options, `Option` carries a compiler or a workspace that may not be there, and `Data` types the failure when no compiler is. `Cache` holds what the server builds for each workspace, and `Array` gathers across them. `Semaphore` holds back a request while the server reprojects the open looms. Node's `createRequire` finds an installed `typescript` package the way Node itself would, and `readFileSync` reads the saved text of a loom the editor closes. `join` builds the path a search starts from, and `dirname` trims a file's path to the directory that holds it. `URI` is the address Volar names a document by, and it parses the addresses the editor reports.
 
@@ -61,6 +61,7 @@ import {
   workspaceRoot,
 } from '@athrio/loom-lang-services/LoomStore'
 import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
+import { loomsIn } from './LoomProject'
 
 ## A TypeScript to check against
 
@@ -532,6 +533,10 @@ The `onInitialize` handler runs one Effect on that runtime. The program reads th
 
 The program then makes two caches, each keyed by a workspace's root, and the `reprojecting` semaphore, whose one permit a reprojection holds while it marks the open looms stale. `services` holds the plugins `loomServicePlugins` collects for a workspace. `projects` holds the TypeScript project `projectOver` builds over those plugins. A cache fills a workspace's entry the first time a request needs it, and fills it once, however many requests ask at the same moment. The program collects the plugins of `home` right away, because Volar announces the server's capabilities from them. The handler registers `workspaceProject`, built over both caches and the semaphore, and those plugins with Volar. A `MissingTypeScript` failure rejects the handler, and the client receives its message as the error of `initialize`.
 
+A chapter the editor opens can be answered only once the corpus around it is built, and building it is the first and longest wait after the server starts. So the server starts building it before the editor asks. Once the handler has its answer for `initialize`, it schedules `warmCorpus` for `home` a few milliseconds later, so the answer goes out first.
+
+The warm-up runs in one synchronous piece, with `runSync`, never as a background fiber. Volar's hooks run the compiler synchronously too, and a synchronous run cannot wait. A background fiber can pause in the middle of building a module while it holds the build cache's lock. A chapter the editor opened in that moment would find the lock held, and its synchronous build would fail instead of waiting. Run in one piece, the warm-up finishes before the server reads the editor's next message, so a chapter opened meanwhile waits in line and then finds its corpus built. `warmCorpus` reads the workspace's manifest, finds the first loom in the corpus folder the manifest names, and asks the compiler for that loom's reach, which builds the whole corpus into the build cache. When the person opens a chapter a moment later, its corpus is already built, or partly built, and the editor waits only for the rest. A workspace with no manifest, or no loom in its corpus, warms nothing, and a failure only logs, since the editor builds the corpus on demand anyway.
+
 On `initialized`, the server watches every `tsconfig.json` and `jsconfig.json`. Editing a package's compiler options disposes its project, and the next request rebuilds it, so the consumer's options take effect without an editor reload.
 
 =>
@@ -543,6 +548,22 @@ const runtime = ManagedRuntime.make(
     Layer.provide(LoomConfig.layer),
   ),
 )
+
+const warmCorpus = (home: string): Effect.Effect<void, never, LoomCompiler | LoomConfig> =>
+  Effect.gen(function* () {
+    const config = yield* LoomConfig
+    const compiler = yield* LoomCompiler
+    const manifest = yield* config.manifest(home)
+    if (manifest === undefined) return
+    const corpus = join(home, manifest.corpus ?? 'corpus')
+    const project = Option.some({ root: home, ignore: manifest.ignore ?? [] })
+    yield* Option.match(Array.head(loomsIn(corpus, project)), {
+      onNone: () => Effect.void,
+      onSome: (entry) => Effect.asVoid(compiler.reach(entry)),
+    })
+  }).pipe(
+    Effect.catchCause((cause) => Effect.logWarning('loom: could not warm the corpus', cause)),
+  )
 
 export const startLanguageServer = (): void => {
   const connection = createConnection()
@@ -572,6 +593,7 @@ export const startLanguageServer = (): void => {
         return { services, projects, plugins, reprojecting }
       }),
     )
+    setTimeout(() => runtime.runSync(warmCorpus(home)), 10)
     return server.initialize(params, workspaceProject(home, services, projects, reprojecting), [...plugins])
   })
   connection.onInitialized(() => {

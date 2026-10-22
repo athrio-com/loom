@@ -39,6 +39,7 @@ import {
 import { type LoomVirtualCode, type Mapping } from '@athrio/loom-ast/LoomVirtualCode'
 import { profileOf, symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 import { LoomMemo } from './LoomMemo'
+import { LoomDiskCache } from './LoomDiskCache'
 import { PackageConfig } from './PackageConfig'
 import { holds, loomsIn, projectIn, type LoomProject } from './LoomProject'
 import { WeaveBuilder } from './weave/WeaveBuilder'
@@ -318,6 +319,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
     const documents = yield* DocumentSource
     const builder = yield* LoomCorpusAstBuilder
     const memo = yield* LoomMemo
+    const disk = yield* LoomDiskCache
     const config = yield* PackageConfig
     const weaver = yield* WeaveBuilder
     const tocBuilder = yield* TableOfContentsBuilder
@@ -327,8 +329,22 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
       config
         .resolve(path)
         .pipe(
-          Effect.flatMap(({ delims, primaryLanguage, variables }) =>
-            memo.get(path, builder.build(source, path, delims, primaryLanguage, variables)),
+          Effect.flatMap((settings) =>
+            memo.get(
+              path,
+              disk.through(
+                source,
+                path,
+                settings,
+                builder.build(
+                  source,
+                  path,
+                  settings.delims,
+                  settings.primaryLanguage,
+                  settings.variables,
+                ),
+              ),
+            ),
           ),
         )
 
@@ -359,6 +375,17 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
         onSome: (list) => listFrom(list, entry),
       })
 
+    const matchEntry = (source: Source, path: Path): Effect.Effect<void> =>
+      Effect.all([Effect.option(source.read(path)), memo.entries]).pipe(
+        Effect.flatMap(([text, modules]) =>
+          pipe(
+            Option.all([text, Option.fromNullishOr(modules.get(path))]),
+            Option.filter(([shown, kept]) => kept.text !== shown),
+            Option.match({ onNone: () => Effect.void, onSome: () => memo.evict([path]) }),
+          ),
+        ),
+      )
+
     const buildCorpus = (source: Source, entry: Path): Effect.Effect<Modules> =>
       corpusPaths(source, entry).pipe(
         Effect.flatMap((paths) =>
@@ -371,7 +398,8 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
 
     return {
       compile: (source: Source, path: Path): Effect.Effect<VirtualCode> =>
-        buildCorpus(source, path).pipe(
+        matchEntry(source, path).pipe(
+          Effect.andThen(buildCorpus(source, path)),
           Effect.flatMap((modules) => entryOf(modules, path)),
           Effect.map(({ modules, entry }) => toVolar(projectTree(modules, entry))),
           Effect.catchCause((cause) =>
@@ -564,6 +592,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
       Layer.mergeAll(
         LoomCorpusAstBuilder.layer,
         LoomMemo.layer,
+        LoomDiskCache.layer,
         WeaveBuilder.layer,
         TableOfContentsBuilder.layer,
       ),
