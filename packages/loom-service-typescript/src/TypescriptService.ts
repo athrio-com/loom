@@ -21,7 +21,13 @@ import {
   TypescriptSdk,
 } from '@athrio/loom-lang-services/LanguageService'
 import { createProductProgram, type ProductFile, type ProductProgram } from './ProductProgram'
-import { createNativeProgram, nativeCompilerFor } from './NativeProgram'
+import {
+  CompilerChoice,
+  compilerChoiceFor,
+  createNativeProgram,
+  createUnavailableProgram,
+  projectFolder,
+} from './NativeProgram'
 
 type TypeScript = typeof import('typescript')
 
@@ -73,6 +79,7 @@ export type Reach = 'project' | 'corpus'
 export interface ProductProject {
   readonly key: string
   readonly config: Option.Option<string>
+  readonly loom: string
 }
 
 const projectOf = (
@@ -80,7 +87,7 @@ const projectOf = (
   file: ComposedFile,
 ): ProductProject => {
   const config = configOf(file.path)
-  return { key: Option.getOrElse(config, () => file.loomPath), config }
+  return { key: Option.getOrElse(config, () => file.loomPath), config, loom: file.loomPath }
 }
 
 export interface ProductTarget {
@@ -179,17 +186,15 @@ export const productPlugin = (
     const programFor = (project: ProductProject): ProductProgram => {
       const existing = programs.get(project.key)
       if (existing !== undefined) return existing
-      const program = Option.match(nativeCompilerFor(project, nativeSetting), {
-        onNone: () => createProductProgram(ts, consumerOptions(ts, project.config)),
-        onSome: (compiler) =>
-          Option.getOrElse(Option.fromNullishOr(nativePrograms.get(compiler)), () => {
-            const shared = createNativeProgram(
-              compiler,
-              Option.match(project.config, { onNone: () => dirname(project.key), onSome: dirname }),
-            )
-            nativePrograms.set(compiler, shared)
+      const program = CompilerChoice.$match(compilerChoiceFor(project, nativeSetting), {
+        Classic: () => createProductProgram(ts, consumerOptions(ts, project.config)),
+        Native: ({ executable }) =>
+          Option.getOrElse(Option.fromNullishOr(nativePrograms.get(executable)), () => {
+            const shared = createNativeProgram(executable, projectFolder(project))
+            nativePrograms.set(executable, shared)
             return shared
           }),
+        Unavailable: ({ reason }) => createUnavailableProgram(reason),
       })
       programs.set(project.key, program)
       return program

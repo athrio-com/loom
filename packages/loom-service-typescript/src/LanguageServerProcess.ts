@@ -1,4 +1,4 @@
-import { Array } from 'effect'
+import { Array, Data, Option } from 'effect'
 import { spawn } from 'node:child_process'
 import { basename } from 'node:path'
 import type { MessageConnection } from 'vscode-jsonrpc/node'
@@ -16,30 +16,50 @@ export interface LanguageServerProcess {
   readonly dispose: () => void
 }
 
-export const startLanguageServer = (
+export class LanguageServerFailed extends Data.TaggedError('LanguageServerFailed')<{
+  readonly command: string
+  readonly cause?: unknown
+}> {
+  get message(): string {
+    return `the ${this.command} language server is not running`
+  }
+}
+
+export const spawnLanguageServer = (
   command: string,
   args: ReadonlyArray<string>,
   workspace: string,
   languageId: string,
   capabilities: object,
 ): LanguageServerProcess => {
+  const state = { running: true, disposed: false }
   const child = spawn(command, [...args], { cwd: workspace, stdio: ['pipe', 'pipe', 'ignore'] })
-  const connected: Promise<MessageConnection> = import('vscode-jsonrpc/node').then((rpc) => {
-    const connection = rpc.createMessageConnection(
-      new rpc.StreamMessageReader(child.stdout),
-      new rpc.StreamMessageWriter(child.stdin),
-    )
-    connection.onRequest(() => null)
-    connection.listen()
-    return connection
-  })
-  const state = { running: true }
-  const stop = (): void => {
+  const stopped = (): void => {
+    if (!state.running) return
     state.running = false
     void connected.then((connection) => connection.dispose()).catch(() => undefined)
   }
-  child.on('exit', stop)
-  child.on('error', stop)
+  const spawned = new Promise<void>((resolve, reject) => {
+    child.once('spawn', () => resolve())
+    child.once('error', (cause) => reject(new LanguageServerFailed({ command, cause })))
+  })
+  child.on('exit', stopped)
+  child.on('error', stopped)
+  child.stdin.on('error', stopped)
+
+  const connected: Promise<MessageConnection> = spawned
+    .then(() => import('vscode-jsonrpc/node'))
+    .then((rpc) => {
+      const connection = rpc.createMessageConnection(
+        new rpc.StreamMessageReader(child.stdout),
+        new rpc.StreamMessageWriter(child.stdin),
+      )
+      connection.onError(stopped)
+      connection.onClose(stopped)
+      connection.onRequest(() => null)
+      connection.listen()
+      return connection
+    })
 
   const ready: Promise<MessageConnection> = connected.then((connection) =>
     connection
@@ -52,6 +72,8 @@ export const startLanguageServer = (
       .then(() => connection.sendNotification('initialized', {}))
       .then(() => connection),
   )
+  connected.catch(() => undefined)
+  ready.catch(() => undefined)
 
   const opened = new Map<string, { readonly text: string; readonly version: number }>()
   const uriOf = (path: string): string => URI.file(path).toString()
@@ -59,49 +81,59 @@ export const startLanguageServer = (
     void ready.then((connection) => connection.sendNotification(method, params)).catch(() => undefined)
 
   const keepOpen = (files: ReadonlyArray<OpenFile>): void => {
-    const wanted = new Map(Array.map(files, (file) => [file.path, file.text] as const))
-    Array.fromIterable(opened.keys())
-      .filter((path) => !wanted.has(path))
-      .forEach((path) => {
-        opened.delete(path)
-        send('textDocument/didClose', { textDocument: { uri: uriOf(path) } })
+    const wanted = new Set(Array.map(files, (file) => file.path))
+    const closing = Array.filter(Array.fromIterable(opened.keys()), (path) => !wanted.has(path))
+    const opening = Array.filter(files, (file) => !opened.has(file.path))
+    const changing = Array.filter(files, (file) =>
+      Option.match(Option.fromNullishOr(opened.get(file.path)), {
+        onNone: () => false,
+        onSome: (held) => held.text !== file.text,
+      }),
+    )
+    closing.forEach((path) => {
+      opened.delete(path)
+      send('textDocument/didClose', { textDocument: { uri: uriOf(path) } })
+    })
+    opening.forEach((file) => {
+      opened.set(file.path, { text: file.text, version: 1 })
+      send('textDocument/didOpen', {
+        textDocument: { uri: uriOf(file.path), languageId, version: 1, text: file.text },
       })
-    files.forEach((file) => {
-      const held = opened.get(file.path)
-      if (held === undefined) {
-        opened.set(file.path, { text: file.text, version: 1 })
-        send('textDocument/didOpen', {
-          textDocument: { uri: uriOf(file.path), languageId, version: 1, text: file.text },
-        })
-      } else if (held.text !== file.text) {
-        const version = held.version + 1
-        opened.set(file.path, { text: file.text, version })
-        send('textDocument/didChange', {
-          textDocument: { uri: uriOf(file.path), version },
-          contentChanges: [{ text: file.text }],
-        })
-      }
+    })
+    changing.forEach((file) => {
+      const version = (opened.get(file.path)?.version ?? 0) + 1
+      opened.set(file.path, { text: file.text, version })
+      send('textDocument/didChange', {
+        textDocument: { uri: uriOf(file.path), version },
+        contentChanges: [{ text: file.text }],
+      })
     })
   }
+
+  const shutdownWait = 2000
+  const elapsed = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
   return {
     keepOpen,
     request: <A>(method: string, params: unknown): Promise<A> =>
       state.running
-        ? ready.then((connection) => connection.sendRequest<A>(method, params))
-        : Promise.reject(new Error(`the ${command} language server is not running`)),
+        ? ready
+            .then((connection) => connection.sendRequest<A>(method, params))
+            .catch((cause) => Promise.reject(new LanguageServerFailed({ command, cause })))
+        : Promise.reject(new LanguageServerFailed({ command })),
     alive: () => state.running,
     dispose: () => {
-      if (!state.running) return
-      void ready
+      if (state.disposed) return
+      state.disposed = true
+      const shutdown = ready
         .then((connection) =>
           connection.sendRequest('shutdown').then(() => connection.sendNotification('exit')),
         )
         .catch(() => undefined)
-        .finally(() => {
-          stop()
-          child.kill()
-        })
+      void Promise.race([shutdown, elapsed(shutdownWait)]).finally(() => {
+        stopped()
+        child.kill()
+      })
     },
   }
 }

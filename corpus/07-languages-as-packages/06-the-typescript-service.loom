@@ -77,7 +77,7 @@ A request arrives on an embedded document — one Product of a `.loom`, a compos
 
 A root that tangles to a file is checked at that path, the live buffer overriding what is on disk. A root that tangles nowhere — a section with no file sink — has no path of its own, so `productTarget` checks it beside its `.loom` under a synthetic name. Either way it hands the program the whole composition, so one root's `import` of another resolves against the other's composition. It returns the edited root's path for the caller to query.
 
-`productTarget` hands the composition to the program of the edited root's project. A `ProductProject` names that program by its `key`: the path of the `tsconfig.json` that governs the root or, when none does, the root's own `.loom`, so a loom outside every project keeps a program of its own. `projectOf` finds the project of any root. The program lists the roots that share the edited root's project and holds every other root without listing it. A cross-project `import` still resolves against live composition, and TypeScript parses only what the project's own roots import.
+`productTarget` hands the composition to the program of the edited root's project. A `ProductProject` names that program by its `key`: the path of the `tsconfig.json` that governs the root or, when none does, the root's own `.loom`, so a loom outside every project keeps a program of its own. It also carries the `tsconfig.json` it found, if any, and the `.loom` the root came from, which locate the project on disk however its key is spelled. `projectOf` finds the project of any root. The program lists the roots that share the edited root's project and holds every other root without listing it. A cross-project `import` still resolves against live composition, and TypeScript parses only what the project's own roots import.
 
 A request's `Reach` decides which roots its program lists. Most requests reach the edited root's project. A search for references and a rename reach the whole corpus, since a use of a name may sit in any root. They go to a corpus program, kept beside the project's own, that lists every root and is built the first time one of them is asked for.
 
@@ -88,6 +88,7 @@ export type Reach = 'project' | 'corpus'
 export interface ProductProject {
   readonly key: string
   readonly config: Option.Option<string>
+  readonly loom: string
 }
 
 const projectOf = (
@@ -95,7 +96,7 @@ const projectOf = (
   file: ComposedFile,
 ): ProductProject => {
   const config = configOf(file.path)
-  return { key: Option.getOrElse(config, () => file.loomPath), config }
+  return { key: Option.getOrElse(config, () => file.loomPath), config, loom: file.loomPath }
 }
 
 export interface ProductTarget {
@@ -167,7 +168,11 @@ export const productTarget = (
 
 `productPlugin` is the Volar plugin the host registers. It keeps one `ProductProgram` per project, built on first use from that project's options and shared by every loom whose roots the project governs, and disposes them all when the service shuts down.
 
-The compiler is chosen per project, and a project uses one compiler for everything. A project that has installed TypeScript 7 gets the native program the chapter on the native TypeScript program builds, which asks TypeScript 7's own language server. Every other project gets the TypeScript 6 program, as it always has. `nativeCompilerFor` makes the choice. Every project on the same TypeScript 7 shares one native program, kept in `nativePrograms` by the compiler's path, because TypeScript 7's server holds a whole workspace in one process. It starts in the folder of the first project that asks, the folder of that project's `tsconfig.json`, or its loom's folder when none governs it. Since several projects hold the same native program, the plugin disposes each program once when the service shuts down. `nativeSetting` is the `nativeCompiler` setting, a TypeScript 7 install that every project uses when it is given. It reads the composed corpus from the `Composition` capability the host provides. Each feature routes its document through `productTarget`: when the document is a TypeScript Product, the feature forwards to its program; otherwise it returns nothing, and a document in another language falls to its own service or to syntax highlighting. References and rename reach the whole corpus, and every other feature reaches the edited root's project. The TypeScript analysis itself is `volar-service-typescript`'s, run inside the program.
+The plugin reads the composed corpus from the `Composition` capability the host provides. Each feature routes its document through `productTarget`: when the document is a TypeScript Product, the feature forwards to its program; otherwise it returns nothing, and a document in another language falls to its own service or to syntax highlighting. References and rename reach the whole corpus, and every other feature reaches the edited root's project.
+
+The compiler is chosen per project, and a project uses one compiler for everything. `compilerChoiceFor`, from the chapter on the native TypeScript program, makes the choice, and `programFor` builds the program it names. A `Classic` project gets the TypeScript 6 program, whose analysis is `volar-service-typescript`'s, run inside the program. A `Native` project gets the native program, which asks TypeScript 7's own language server. An `Unavailable` project gets a program that fails every question with the reason it cannot have TypeScript 7. `nativeSetting` is the `nativeCompiler` setting, a TypeScript 7 install that every project uses when it is given.
+
+Every project on the same TypeScript 7 shares one native program, kept in `nativePrograms` by the executable's path, because TypeScript 7's server holds a whole workspace in one process. It starts in the folder of the first project that asks. Since several projects hold the same native program, the plugin disposes each program once when the service shuts down.
 
 A result that names a place — a definition, a reference, the edits of a rename or a code action — comes back under the path the program checks. `embeddedUriOf` rewrites that path to the embedded document Volar knows: it finds the root the program holds there and encodes its `.loom` and id back through `encodeEmbeddedDocumentUri`. Volar then maps the result to the `.loom`, rather than opening a file that may not be on disk. A path that is no root the program holds — a real file under `node_modules` — passes through unchanged.
 
@@ -212,17 +217,15 @@ export const productPlugin = (
     const programFor = (project: ProductProject): ProductProgram => {
       const existing = programs.get(project.key)
       if (existing !== undefined) return existing
-      const program = Option.match(nativeCompilerFor(project, nativeSetting), {
-        onNone: () => createProductProgram(ts, consumerOptions(ts, project.config)),
-        onSome: (compiler) =>
-          Option.getOrElse(Option.fromNullishOr(nativePrograms.get(compiler)), () => {
-            const shared = createNativeProgram(
-              compiler,
-              Option.match(project.config, { onNone: () => dirname(project.key), onSome: dirname }),
-            )
-            nativePrograms.set(compiler, shared)
+      const program = CompilerChoice.$match(compilerChoiceFor(project, nativeSetting), {
+        Classic: () => createProductProgram(ts, consumerOptions(ts, project.config)),
+        Native: ({ executable }) =>
+          Option.getOrElse(Option.fromNullishOr(nativePrograms.get(executable)), () => {
+            const shared = createNativeProgram(executable, projectFolder(project))
+            nativePrograms.set(executable, shared)
             return shared
           }),
+        Unavailable: ({ reason }) => createUnavailableProgram(reason),
       })
       programs.set(project.key, program)
       return program
@@ -469,7 +472,7 @@ export default TypescriptService
 
 ## What the service draws on
 
-The service builds on `@athrio/loom-lang-services` for the `LanguageService` contract, the `TypescriptSdk` and `Composition` capabilities, the `ComposedFile` shape each composition root takes, and the `FormatRequest` a formatter answers with the `ServiceError` it fails with; and on its own `ProductProgram`, with the `ProductFile` each root syncs as, and the native program with `nativeCompilerFor`, which chooses it. From Effect it takes `Effect` for the `plugins` body, and `Array`, `Option`, and `pipe` to search the composition; from Volar, the `LanguageServicePlugin` type, with `CodeAction`, `WorkspaceEdit`, `LocationLink`, and `Range` for the results and edits the plugin moves back to the `.loom`; the `URI` type to decode an embedded document back to its `.loom`; and Bun's `dirname` to walk for a `tsconfig.json`. Node's `createRequire` finds a project's own Prettier, and `pathToFileURL` turns the file it finds into the address `import` takes.
+The service builds on `@athrio/loom-lang-services` for the `LanguageService` contract, the `TypescriptSdk` and `Composition` capabilities, the `ComposedFile` shape each composition root takes, and the `FormatRequest` a formatter answers with the `ServiceError` it fails with; and on its own `ProductProgram`, with the `ProductFile` each root syncs as, and the native program with `compilerChoiceFor`, which chooses the compiler, `projectFolder`, which locates a project, and `createUnavailableProgram`, for a project that cannot have TypeScript 7. From Effect it takes `Effect` for the `plugins` body, and `Array`, `Option`, and `pipe` to search the composition; from Volar, the `LanguageServicePlugin` type, with `CodeAction`, `WorkspaceEdit`, `LocationLink`, and `Range` for the results and edits the plugin moves back to the `.loom`; the `URI` type to decode an embedded document back to its `.loom`; and Bun's `dirname` to walk for a `tsconfig.json`. Node's `createRequire` finds a project's own Prettier, and `pathToFileURL` turns the file it finds into the address `import` takes.
 
 =>
 
@@ -496,7 +499,13 @@ import {
   TypescriptSdk,
 } from '@athrio/loom-lang-services/LanguageService'
 import { createProductProgram, type ProductFile, type ProductProgram } from './ProductProgram'
-import { createNativeProgram, nativeCompilerFor } from './NativeProgram'
+import {
+  CompilerChoice,
+  compilerChoiceFor,
+  createNativeProgram,
+  createUnavailableProgram,
+  projectFolder,
+} from './NativeProgram'
 
 type TypeScript = typeof import('typescript')
 
