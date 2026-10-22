@@ -8,6 +8,7 @@ import {
   Option,
   Schema,
   Ref,
+  Scheduler,
   Semaphore,
   pipe,
 } from 'effect'
@@ -28,7 +29,7 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { URI } from 'vscode-uri'
-import { LoomCompiler, DocumentSource } from './LoomCompiler'
+import { LoomCompiler, DocumentSource, within } from './LoomCompiler'
 import { ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import { LoomFormatter } from './LoomFormatter'
 import { PackageConfig } from './PackageConfig'
@@ -132,7 +133,7 @@ export const workspaceProject = (
   edited: Ref.Ref<ReadonlySet<string>>,
 ): LanguageServerProject => ({
   setup: (server) => {
-    watchConfigs(server, home, services, projects, edited)
+    watchConfigs(server, services, projects, edited)
     watchLooms(server, home, projects, reprojecting, edited)
   },
   getLanguageService: (uri) =>
@@ -188,24 +189,24 @@ const forgetWorkspace = (
     Effect.andThen(Cache.invalidate(services, workspace)),
   )
 
-const rebuildUnder = (
+export const rebuildUnder = (
   server: LanguageServer,
-  home: string,
   edited: Ref.Ref<ReadonlySet<string>>,
   workspace: string,
 ): Effect.Effect<void, never, LoomCompiler> =>
   LoomCompiler.pipe(
     Effect.flatMap((compiler) => compiler.invalidateWithin(workspace)),
     Effect.andThen(
-      Effect.forEach(openLoomsIn(server, home, workspace), (uri) => recordEdit(edited, uri), {
-        discard: true,
-      }),
+      Effect.forEach(
+        Array.filter(openLooms(server), (uri) => within(workspace, uri.fsPath)),
+        (uri) => recordEdit(edited, uri),
+        { discard: true },
+      ),
     ),
   )
 
 const reconfigure = (
   server: LanguageServer,
-  home: string,
   services: Cache.Cache<string, ReadonlyArray<LanguageServicePlugin>>,
   projects: Cache.Cache<string, LanguageServerProject>,
   edited: Ref.Ref<ReadonlySet<string>>,
@@ -216,7 +217,7 @@ const reconfigure = (
     : Effect.forEach(
         workspaces,
         (workspace) =>
-          rebuildUnder(server, home, edited, workspace).pipe(
+          rebuildUnder(server, edited, workspace).pipe(
             Effect.andThen(forgetWorkspace(services, projects, workspace)),
           ),
         { discard: true },
@@ -224,7 +225,6 @@ const reconfigure = (
 
 const watchConfigs = (
   server: LanguageServer,
-  home: string,
   services: Cache.Cache<string, ReadonlyArray<LanguageServicePlugin>>,
   projects: Cache.Cache<string, LanguageServerProject>,
   edited: Ref.Ref<ReadonlySet<string>>,
@@ -232,7 +232,7 @@ const watchConfigs = (
   void server.fileWatcher.watchFiles(['**/.loom/config.yaml'])
   server.fileWatcher.onDidChangeWatchedFiles(({ changes }) =>
     runtime.runSync(
-      reconfigure(server, home, services, projects, edited, reconfiguredWorkspaces(changes)),
+      reconfigure(server, services, projects, edited, reconfiguredWorkspaces(changes)),
     ),
   )
 }
@@ -270,16 +270,19 @@ const rereadLooms = (
     Effect.map(Array.getSomes),
   )
 
+const openLooms = (server: LanguageServer): ReadonlyArray<URI> =>
+  pipe(
+    server.documents.all(),
+    Array.map((document) => URI.parse(document.uri)),
+    Array.filter(isLoom),
+  )
+
 const openLoomsIn = (
   server: LanguageServer,
   home: string,
   workspace: string,
 ): ReadonlyArray<URI> =>
-  pipe(
-    server.documents.all(),
-    Array.map((document) => URI.parse(document.uri)),
-    Array.filter((uri) => isLoom(uri) && workspaceFor(home, uri) === workspace),
-  )
+  Array.filter(openLooms(server), (uri) => workspaceFor(home, uri) === workspace)
 
 const logged = (step: string, uri: URI, effect: Effect.Effect<void>): Effect.Effect<void> =>
   effect.pipe(
@@ -441,18 +444,19 @@ const rebuildEdited = (
   Effect.all([Ref.getAndSet(edited, new Set<string>()), LoomCompiler]).pipe(
     Effect.flatMap(([paths, compiler]) =>
       Effect.forEach(paths, (path) =>
-        compiler
-          .rebuild(openSource(server), path)
-          .pipe(
-            Effect.map((changed) =>
-              changed
-                ? Option.some<FileEvent>({
-                    uri: URI.file(path).toString(),
-                    type: FileChangeType.Changed,
-                  })
-                : Option.none(),
-            ),
+        compiler.rebuild(openSource(server), path).pipe(
+          Effect.catchCause((cause) =>
+            Effect.logError(`loom: rebuilding ${path} failed`, cause).pipe(Effect.as(true)),
           ),
+          Effect.map((changed) =>
+            changed
+              ? Option.some<FileEvent>({
+                  uri: URI.file(path).toString(),
+                  type: FileChangeType.Changed,
+                })
+              : Option.none(),
+          ),
+        ),
       ),
     ),
     Effect.map(Array.getSomes),
@@ -463,8 +467,9 @@ const settleEdits = (
   home: string,
   projects: Cache.Cache<string, LanguageServerProject>,
   edited: Ref.Ref<ReadonlySet<string>>,
-): Effect.Effect<void> =>
-  Effect.sync(() => runtime.runSync(rebuildEdited(server, edited))).pipe(
+): Effect.Effect<void, never, LoomCompiler> =>
+  rebuildEdited(server, edited).pipe(
+    Effect.provideService(Scheduler.PreventSchedulerYield, true),
     Effect.flatMap((changes) => reproject(server, home, projects, changes, [])),
   )
 

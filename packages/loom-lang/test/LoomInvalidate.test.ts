@@ -41,17 +41,22 @@ describe('LoomCompiler — what an edit evicts', () => {
     const folder = realpathSync(mkdtempSync(join(tmpdir(), 'loom-invalidate-')))
     const inside = join(folder, 'inside', 'answer.loom')
     const beside = join(folder, 'beside.loom')
+    const sibling = join(folder, 'inside2', 'sibling.loom')
     mkdirSync(join(folder, 'inside'))
+    mkdirSync(join(folder, 'inside2'))
     writeFileSync(inside, chapter('Answer', 'const answer = 42'))
     writeFileSync(beside, chapter('Beside', 'const beside = 1'))
+    writeFileSync(sibling, chapter('Sibling', 'const sibling = 1'))
     const run = <A>(use: (compiler: LoomCompiler['Service']) => Effect.Effect<A>) =>
       runtime.runPromise(LoomCompiler.pipe(Effect.flatMap(use)))
     await run((compiler) => compiler.reach(inside))
     await run((compiler) => compiler.reach(beside))
-    expect(await run((compiler) => compiler.invalidateWithin(join(folder, 'inside')))).toEqual([
-      inside,
-    ])
+    await run((compiler) => compiler.reach(sibling))
+    expect(await run((compiler) => compiler.invalidateWithin(`${join(folder, 'inside')}/`))).toEqual(
+      [inside],
+    )
     expect(await run((compiler) => compiler.invalidate(inside))).toEqual([])
     expect(await run((compiler) => compiler.invalidate(beside))).toEqual([beside])
+    expect(await run((compiler) => compiler.invalidate(sibling))).toEqual([sibling])
   })
 })

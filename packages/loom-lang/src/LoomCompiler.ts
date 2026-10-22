@@ -1,7 +1,7 @@
 import type { CodeMapping, VirtualCode } from '@volar/language-core'
 import { Array, Context, Data, Effect, Layer, Match, Option, pipe, Ref } from 'effect'
 import { readFileSync } from 'node:fs'
-import { dirname, resolve as resolvePath } from 'node:path'
+import { dirname, join, resolve as resolvePath, sep } from 'node:path'
 import type * as ts from 'typescript'
 import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
 import { LoomCorpusAstBuilder, ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
@@ -155,7 +155,9 @@ const headingLocationOf = (modules: Modules, module: LoomModule, name: string): 
     })),
   )
 
-const valueOf = (token: { readonly value: string } | undefined): string =>
+export const within = (dir: Path, path: Path): boolean => path.startsWith(join(dir, sep))
+
+const tokenValue = (token: { readonly value: string } | undefined): string =>
   Option.getOrElse(
     Option.map(Option.fromNullishOr(token), (present) => present.value),
     () => '',
@@ -184,7 +186,7 @@ const faceOf = (module: LoomModule): string =>
             frontmatter.package,
             frontmatter.language,
           ],
-          valueOf,
+          tokenValue,
         ),
     }),
     titles: Array.map(module.doc.sections, (section) =>
@@ -635,7 +637,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
       invalidateWithin: (dir: Path): Effect.Effect<ReadonlyArray<Path>> =>
         memo.entries.pipe(
           Effect.map((modules) =>
-            Array.filter(Array.fromIterable(modules.keys()), (path) => path.startsWith(`${dir}/`)),
+            Array.filter(Array.fromIterable(modules.keys()), (path) => within(dir, path)),
           ),
           Effect.tap((paths) => memo.evict(paths)),
         ),

@@ -7,10 +7,13 @@ import {
   StreamMessageWriter,
   type TextEdit,
 } from '@volar/language-server/node'
-import { Array, Cache, Effect, Ref, Semaphore } from 'effect'
+import { Array, Cache, Effect, Layer, Ref, Semaphore } from 'effect'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
+import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { PackageConfig } from '../src/PackageConfig'
 import type { LanguageServer, LanguageServerProject, LanguageServicePlugin } from '@volar/language-server/node'
 import { URI } from 'vscode-uri'
-import { closeOf, refreshProject, workspaceProject } from '../src/LoomServer'
+import { closeOf, rebuildUnder, refreshProject, workspaceProject } from '../src/LoomServer'
 import { spawn } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -198,8 +201,9 @@ const anchor = (name: string): string => `::${'['}${name}]`
 const checking = (loom: string, counted = false): string =>
   lines(
     `const { Effect } = globalThis.${runtimeKey}.modules.effect`,
-    'let reported = 0',
+    'const reported = new Map()',
     `const { Composition } = globalThis.${runtimeKey}.modules['@athrio/loom-lang-services/LanguageService']`,
+    'const count = (uri) => reported.set(uri, (reported.get(uri) ?? 0) + 1).get(uri)',
     'const composed = (composition) =>',
     `  composition.rootsFor(${JSON.stringify(loom)}).map((file) => file.content.trim()).sort().join(' | ')`,
     'export default {',
@@ -213,7 +217,7 @@ const checking = (loom: string, counted = false): string =>
     '      capabilities: { diagnosticProvider: { interFileDependencies: false, workspaceDiagnostics: false } },',
     '      create: () => ({',
     "        provideDiagnostics: (document) => document.languageId === 'typescript'",
-    `          ? [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, message: composed(composition)${counted ? " + ' #' + ++reported" : ''} }]`,
+    `          ? [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, message: composed(composition)${counted ? " + ' #' + count(document.uri)" : ''} }]`,
     '          : [],',
     '      }),',
     '    }]',
@@ -503,6 +507,30 @@ describe('LoomServer — the pass piece by piece', () => {
     expect(closeOf(gone, chapter('Gone', 'const gone = 1'))).toEqual([
       { uri: gone.toString(), type: FileChangeType.Deleted },
     ])
+  })
+
+  it('notes every open loom a configuration change evicts, nested workspaces included', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    configure(join(root, 'nested'), inactive)
+    const own = URI.file(join(root, 'corpus', 'main.loom'))
+    const nested = URI.file(join(root, 'nested', 'corpus', 'note.loom'))
+    const outside = URI.file(join(realpathSync(mkdtempSync(join(tmpdir(), 'loom-other-'))), 'x.loom'))
+    const edited = await Effect.runPromise(Ref.make<ReadonlySet<string>>(new Set()))
+    await Effect.runPromise(
+      rebuildUnder(serverWith(own, nested, outside), edited, `${root}/`).pipe(
+        Effect.provide(
+          LoomCompiler.layer.pipe(
+            Layer.provide(DocumentSource.layer),
+            Layer.provide(PackageConfig.layer),
+            Layer.provide(LoomConfig.layer),
+          ),
+        ),
+      ),
+    )
+    expect([...(await Effect.runPromise(Ref.get(edited)))].sort()).toEqual(
+      [own.fsPath, nested.fsPath].sort(),
+    )
   })
 
   it('holds a request back while a reprojection runs', async () => {
