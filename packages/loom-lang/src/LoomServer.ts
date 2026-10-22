@@ -120,7 +120,7 @@ const projectOver = (
   return project
 }
 
-const workspaceProject = (
+export const workspaceProject = (
   home: string,
   services: Cache.Cache<string, ReadonlyArray<LanguageServicePlugin>>,
   projects: Cache.Cache<string, LanguageServerProject>,
@@ -271,7 +271,7 @@ const markStale = (project: LanguageServerProject, uri: URI): Effect.Effect<void
 const forgetScript = (language: Language<URI>, uri: URI): Effect.Effect<void> =>
   Effect.sync(() => language.scripts.delete(uri))
 
-const refreshProject = (
+export const refreshProject = (
   server: LanguageServer,
   home: string,
   workspace: string,
@@ -337,7 +337,7 @@ const reproject = (
       )
 }
 
-const closeOf = (uri: URI, text: string): ReadonlyArray<FileEvent> =>
+export const closeOf = (uri: URI, text: string): ReadonlyArray<FileEvent> =>
   Option.match(
     Option.liftThrowable(() => readFileSync(uri.fsPath, 'utf8'))(),
     {

@@ -198,7 +198,7 @@ const projectOver = (
 
 =>
 
-const workspaceProject = (
+export const workspaceProject = (
   home: string,
   services: Cache.Cache<string, ReadonlyArray<LanguageServicePlugin>>,
   projects: Cache.Cache<string, LanguageServerProject>,
@@ -389,7 +389,7 @@ const markStale = (project: LanguageServerProject, uri: URI): Effect.Effect<void
 const forgetScript = (language: Language<URI>, uri: URI): Effect.Effect<void> =>
   Effect.sync(() => language.scripts.delete(uri))
 
-const refreshProject = (
+export const refreshProject = (
   server: LanguageServer,
   home: string,
   workspace: string,
@@ -469,7 +469,7 @@ A loom the editor closes can leave the build cache behind it too. While the loom
 
 =>
 
-const closeOf = (uri: URI, text: string): ReadonlyArray<FileEvent> =>
+export const closeOf = (uri: URI, text: string): ReadonlyArray<FileEvent> =>
   Option.match(
     Option.liftThrowable(() => readFileSync(uri.fsPath, 'utf8'))(),
     {
@@ -483,7 +483,7 @@ const closeOf = (uri: URI, text: string): ReadonlyArray<FileEvent> =>
 
 `rereadOnDisk` runs the whole pass, in two halves. The rereading half runs synchronously, on the warm runtime, while the server handles the editor's notification. So every eviction finishes before the server reads the editor's next message, however large the batch.
 
-The reprojection half asks a project for its language services, which answers with a promise, so it cannot run synchronously. `rereadOnDisk` forks it on the same runtime, holding the `reprojecting` semaphore while it runs. The project the server hands to Volar waits on that semaphore before it answers any request. So no request is answered from an open loom's old projection between the eviction and the mark. A reprojection that fails logs its cause, so a failure never passes silently.
+The reprojection half asks a project for its language services, which answers with a promise, so it cannot run synchronously. `rereadOnDisk` forks it on the same runtime, holding the `reprojecting` semaphore while it runs. A forked fiber starts at once, so the reprojection takes the semaphore before the handler returns, and so before the server reads another request. The project the server hands to Volar waits on that semaphore before it answers any request. So no request is answered from an open loom's old projection between the eviction and the mark. A reprojection that fails logs its cause, so a failure never passes silently.
 
 `watchLooms` runs `rereadOnDisk` on every batch the editor reports, and on every loom the editor closes.
 
@@ -584,7 +584,7 @@ export const startLanguageServer = (): void => {
 
 ## The server module {Tangle}[src/LoomServer.ts]
 
-The server module assembles the imports, the search for a compiler, the projects kept per workspace, the rereading of closed chapters, and the program, and exports `startLanguageServer`. It runs nothing on import — a caller decides when to start the server, so the same module serves both an editor that spawns it and the `loom lsp` command that calls it in-process.
+The server module assembles the imports, the search for a compiler, the projects kept per workspace, the rereading of closed chapters, and the program, and exports `startLanguageServer`. It also exports `workspaceProject`, `refreshProject`, and `closeOf`, so the cases can drive each one directly. It runs nothing on import — a caller decides when to start the server, so the same module serves both an editor that spawns it and the `loom lsp` command that calls it in-process.
 
 =>
 
@@ -960,9 +960,126 @@ describe('LoomServer — a chapter that changes on disk', () => {
   }, 30_000)
 })
 
+## Testing the pass piece by piece
+
+Some of what the pass does leaves no trace an editor can see. Volar holds a script in a language service, or holds it nowhere, and no request reveals which. A request that waits on the `reprojecting` semaphore gets the same answer it would have got without waiting. A close that rereads nothing looks the same as one that rereads a file with the same text. So these cases drive the server's parts directly, over stand-ins for Volar's objects.
+
+`recording` is a stand-in for one language service. It holds every script anyone reads from it, and lists every script anyone deletes from it. `projectOf` is a stand-in project that answers every loom from one language service and holds two. `serverWith` is a stand-in server whose editor has the given looms open. The looms sit under a folder in no workspace, so each belongs to `home`.
+
+=>
+
+const recording = () => {
+  const scripts = new Map<string, { isAssociationDirty?: boolean }>()
+  const deleted: Array<string> = []
+  const language = {
+    scripts: {
+      get: (uri: URI) => {
+        const script = scripts.get(uri.toString()) ?? {}
+        scripts.set(uri.toString(), script)
+        return script
+      },
+      delete: (uri: URI) => {
+        deleted.push(uri.toString())
+      },
+    },
+  }
+  return { languageService: { context: { language } }, scripts, deleted }
+}
+
+const projectOf = (
+  answering: ReturnType<typeof recording>,
+  other: ReturnType<typeof recording>,
+): LanguageServerProject =>
+  ({
+    setup: () => {},
+    reload: () => {},
+    getLanguageService: async () => answering.languageService,
+    getExistingLanguageServices: async () => [
+      answering.languageService,
+      other.languageService,
+    ],
+  }) as unknown as LanguageServerProject
+
+const serverWith = (...open: ReadonlyArray<URI>): LanguageServer =>
+  ({
+    documents: { all: () => Array.map(open, (uri) => ({ uri: uri.toString() })) },
+  }) as unknown as LanguageServer
+
+const home = '/nowhere'
+
+const mainUri = URI.file('/nowhere/corpus/main.loom')
+
+const goneUri = URI.file('/nowhere/corpus/gone.loom')
+
+~
+
+The first case refreshes a project that holds two language services, the way a project with a `tsconfig.json` does. The editor has `main.loom` open, and the batch deleted `gone.loom`. The open loom must be marked stale in the language service that answers it, and left unread in the other, which would otherwise build a second projection of it. The deleted loom must be forgotten in both, since either may hold its script.
+
+The second case closes looms three ways. A loom whose text matches the file on disk amounts to no change. A loom whose text differs amounts to a change, and a loom whose file is gone amounts to a deletion.
+
+The third case holds the `reprojecting` semaphore, as a reprojection does, and asks the server's project for a loom's language service. The answer must wait until the semaphore is released.
+
+=>
+
+describe('LoomServer — the pass piece by piece', () => {
+  it('marks an open loom where it is answered and forgets a deleted one everywhere', async () => {
+    const answering = recording()
+    const other = recording()
+    await Effect.runPromise(
+      refreshProject(serverWith(mainUri), home, home, projectOf(answering, other), [goneUri]),
+    )
+    expect(answering.scripts.get(mainUri.toString())).toEqual({ isAssociationDirty: true })
+    expect(other.scripts.has(mainUri.toString())).toBe(false)
+    expect(answering.deleted).toEqual([goneUri.toString()])
+    expect(other.deleted).toEqual([goneUri.toString()])
+  })
+
+  it('turns a close into the change it amounts to', () => {
+    const folder = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    const saved = chapterAt(folder, 'saved.loom', chapter('Saved', 'const saved = 1'))
+    const uri = URI.file(saved)
+    const gone = URI.file(join(folder, 'corpus', 'gone.loom'))
+    expect(closeOf(uri, chapter('Saved', 'const saved = 1'))).toEqual([])
+    expect(closeOf(uri, chapter('Saved', 'const saved = 2'))).toEqual([
+      { uri: uri.toString(), type: FileChangeType.Changed },
+    ])
+    expect(closeOf(gone, chapter('Gone', 'const gone = 1'))).toEqual([
+      { uri: gone.toString(), type: FileChangeType.Deleted },
+    ])
+  })
+
+  it('holds a request back while a reprojection runs', async () => {
+    const answering = recording()
+    const { services, projects, reprojecting } = await Effect.runPromise(
+      Effect.all({
+        services: Cache.make({
+          capacity: Infinity,
+          lookup: (_: string) => Effect.succeed<ReadonlyArray<LanguageServicePlugin>>([]),
+        }),
+        projects: Cache.make({
+          capacity: Infinity,
+          lookup: (_: string) => Effect.succeed(projectOf(answering, recording())),
+        }),
+        reprojecting: Semaphore.make(1),
+      }),
+    )
+    await Effect.runPromise(reprojecting.take(1))
+    const answer = Promise.resolve(
+      workspaceProject(home, services, projects, reprojecting).getLanguageService(mainUri),
+    )
+    const waited = await Promise.race([
+      answer.then(() => 'answered'),
+      new Promise<string>((resolve) => setTimeout(() => resolve('waiting'), 100)),
+    ])
+    expect(waited).toBe('waiting')
+    await Effect.runPromise(reprojecting.release(1))
+    expect<unknown>(await answer).toBe(answering.languageService)
+  })
+})
+
 ## What the cases draw on
 
-The cases draw on Bun's test runner, and on Node to make the workspaces, start the server, and turn paths into the `file:` addresses the protocol names documents by. Volar's language-server package carries the client half of the protocol too: `createMessageConnection` and the stream reader and writer it speaks through, the `TextEdit` a format answers with, and the `FileChangeType` a reported change carries. The language store gives `servicePackage` and `serviceVersion`, which name and version the stand-in. The host runtime gives `runtimeKey`, where the stand-in finds Effect. Effect's `Array` reads the text out of the edits a format returns.
+The cases draw on Bun's test runner, and on Node to make the workspaces, start the server, and turn paths into the `file:` addresses the protocol names documents by. Volar's language-server package carries the client half of the protocol too: `createMessageConnection` and the stream reader and writer it speaks through, the `TextEdit` a format answers with, and the `FileChangeType` a reported change carries. The language store gives `servicePackage` and `serviceVersion`, which name and version the stand-in. The host runtime gives `runtimeKey`, where the stand-in finds Effect. Effect's `Array` reads the text out of the edits a format returns. The cases that drive the server's parts directly import them from the server module, and build the caches and the semaphore those parts take with Effect's `Cache` and `Semaphore`, run by `Effect`. They take the types of a server, a project, and a service plugin from Volar, and `URI` names their looms.
 
 =>
 
@@ -975,7 +1092,10 @@ import {
   StreamMessageWriter,
   type TextEdit,
 } from '@volar/language-server/node'
-import { Array } from 'effect'
+import { Array, Cache, Effect, Semaphore } from 'effect'
+import type { LanguageServer, LanguageServerProject, LanguageServicePlugin } from '@volar/language-server/node'
+import { URI } from 'vscode-uri'
+import { closeOf, refreshProject, workspaceProject } from '../src/LoomServer'
 import { spawn } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -994,3 +1114,5 @@ import { runtimeKey } from '@athrio/loom-lang-services/Runtime'
 ::[Testing a nested workspace]
 
 ::[Testing a chapter that changes on disk]
+
+::[Testing the pass piece by piece]

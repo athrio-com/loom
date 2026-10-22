@@ -7,7 +7,10 @@ import {
   StreamMessageWriter,
   type TextEdit,
 } from '@volar/language-server/node'
-import { Array } from 'effect'
+import { Array, Cache, Effect, Semaphore } from 'effect'
+import type { LanguageServer, LanguageServerProject, LanguageServicePlugin } from '@volar/language-server/node'
+import { URI } from 'vscode-uri'
+import { closeOf, refreshProject, workspaceProject } from '../src/LoomServer'
 import { spawn } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -323,4 +326,103 @@ describe('LoomServer — a chapter that changes on disk', () => {
       editor.close()
     }
   }, 30_000)
+})
+
+const recording = () => {
+  const scripts = new Map<string, { isAssociationDirty?: boolean }>()
+  const deleted: Array<string> = []
+  const language = {
+    scripts: {
+      get: (uri: URI) => {
+        const script = scripts.get(uri.toString()) ?? {}
+        scripts.set(uri.toString(), script)
+        return script
+      },
+      delete: (uri: URI) => {
+        deleted.push(uri.toString())
+      },
+    },
+  }
+  return { languageService: { context: { language } }, scripts, deleted }
+}
+
+const projectOf = (
+  answering: ReturnType<typeof recording>,
+  other: ReturnType<typeof recording>,
+): LanguageServerProject =>
+  ({
+    setup: () => {},
+    reload: () => {},
+    getLanguageService: async () => answering.languageService,
+    getExistingLanguageServices: async () => [
+      answering.languageService,
+      other.languageService,
+    ],
+  }) as unknown as LanguageServerProject
+
+const serverWith = (...open: ReadonlyArray<URI>): LanguageServer =>
+  ({
+    documents: { all: () => Array.map(open, (uri) => ({ uri: uri.toString() })) },
+  }) as unknown as LanguageServer
+
+const home = '/nowhere'
+
+const mainUri = URI.file('/nowhere/corpus/main.loom')
+
+const goneUri = URI.file('/nowhere/corpus/gone.loom')
+
+describe('LoomServer — the pass piece by piece', () => {
+  it('marks an open loom where it is answered and forgets a deleted one everywhere', async () => {
+    const answering = recording()
+    const other = recording()
+    await Effect.runPromise(
+      refreshProject(serverWith(mainUri), home, home, projectOf(answering, other), [goneUri]),
+    )
+    expect(answering.scripts.get(mainUri.toString())).toEqual({ isAssociationDirty: true })
+    expect(other.scripts.has(mainUri.toString())).toBe(false)
+    expect(answering.deleted).toEqual([goneUri.toString()])
+    expect(other.deleted).toEqual([goneUri.toString()])
+  })
+
+  it('turns a close into the change it amounts to', () => {
+    const folder = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    const saved = chapterAt(folder, 'saved.loom', chapter('Saved', 'const saved = 1'))
+    const uri = URI.file(saved)
+    const gone = URI.file(join(folder, 'corpus', 'gone.loom'))
+    expect(closeOf(uri, chapter('Saved', 'const saved = 1'))).toEqual([])
+    expect(closeOf(uri, chapter('Saved', 'const saved = 2'))).toEqual([
+      { uri: uri.toString(), type: FileChangeType.Changed },
+    ])
+    expect(closeOf(gone, chapter('Gone', 'const gone = 1'))).toEqual([
+      { uri: gone.toString(), type: FileChangeType.Deleted },
+    ])
+  })
+
+  it('holds a request back while a reprojection runs', async () => {
+    const answering = recording()
+    const { services, projects, reprojecting } = await Effect.runPromise(
+      Effect.all({
+        services: Cache.make({
+          capacity: Infinity,
+          lookup: (_: string) => Effect.succeed<ReadonlyArray<LanguageServicePlugin>>([]),
+        }),
+        projects: Cache.make({
+          capacity: Infinity,
+          lookup: (_: string) => Effect.succeed(projectOf(answering, recording())),
+        }),
+        reprojecting: Semaphore.make(1),
+      }),
+    )
+    await Effect.runPromise(reprojecting.take(1))
+    const answer = Promise.resolve(
+      workspaceProject(home, services, projects, reprojecting).getLanguageService(mainUri),
+    )
+    const waited = await Promise.race([
+      answer.then(() => 'answered'),
+      new Promise<string>((resolve) => setTimeout(() => resolve('waiting'), 100)),
+    ])
+    expect(waited).toBe('waiting')
+    await Effect.runPromise(reprojecting.release(1))
+    expect<unknown>(await answer).toBe(answering.languageService)
+  })
 })

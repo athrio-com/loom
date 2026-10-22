@@ -59,6 +59,7 @@
     "packages/loom-lang/src/weave/WeaveBuilder.ts",
     "packages/loom-lang/src/weave/WovenCorpus.ts",
     "packages/loom-lang/test/LoomFormatter.test.ts",
+    "packages/loom-lang/test/LoomInvalidate.test.ts",
     "packages/loom-lang/test/LoomLanguagePlugin.test.ts",
     "packages/loom-lang/test/LoomServer.test.ts",
     "packages/loom-lang/tsconfig.json",

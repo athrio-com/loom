@@ -1,7 +1,7 @@
 ---
 Part V: Tangling
 Chapter 1: The compile layer
-Package: packages/loom-lang/src/LoomCompiler.ts
+Package: packages/loom-lang/
 Language: TypeScript
 ---
 
@@ -684,7 +684,7 @@ import { WeaveBuilder } from './weave/WeaveBuilder'
 import { type WovenCorpus } from './weave/WovenCorpus'
 import { TableOfContentsBuilder, rewriteBook } from './weave/TableOfContentsBuilder'
 
-## The module {Tangle}
+## The module {Tangle}[src/LoomCompiler.ts]
 
 =>
 
@@ -709,3 +709,57 @@ import { TableOfContentsBuilder, rewriteBook } from './weave/TableOfContentsBuil
 ::[The document source]
 
 ::[The chain and its verbs]
+
+## Testing what an edit evicts
+
+`invalidate` names what an edit to a file must reproject, and only a file the build cache holds can name anything. The case writes two looms on disk, a book that draws in the section `Answer` and the chapter that holds it. It builds the book's corpus through `reach`, which puts both looms in the cache, over a runtime assembled the way the language server assembles its own.
+
+Invalidating the chapter evicts it and names the chapter and the book that draws it in. Invalidating it again names nothing, since the first call evicted it. A path no composition ever read names nothing either. An anchor in this loom's own code would be read as an anchor of this loom, so `anchor` spells the book's in two pieces.
+
+=>
+
+import { describe, expect, it } from 'bun:test'
+import { Effect, Layer, ManagedRuntime } from 'effect'
+import { mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
+import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { PackageConfig } from '../src/PackageConfig'
+
+const runtime = ManagedRuntime.make(
+  LoomCompiler.layer.pipe(
+    Layer.provide(DocumentSource.layer),
+    Layer.provide(PackageConfig.layer),
+    Layer.provide(LoomConfig.layer),
+  ),
+)
+
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
+
+const anchor = (name: string): string => `::${'['}${name}]`
+
+const chapter = (title: string, code: string): string =>
+  lines('---', 'Language: TypeScript', '---', '', `# ${title}`, '', '=>', '', code)
+
+describe('LoomCompiler — what an edit evicts', () => {
+  it('names a held file and its dependents once, and nothing for a file it does not hold', async () => {
+    const folder = realpathSync(mkdtempSync(join(tmpdir(), 'loom-invalidate-')))
+    const book = join(folder, 'book.loom')
+    const answer = join(folder, 'answer.loom')
+    writeFileSync(book, chapter('Book', `${anchor('Answer')}(answer.loom)`))
+    writeFileSync(answer, chapter('Answer', 'const answer = 42'))
+    const invalidate = (path: string) =>
+      runtime.runPromise(LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.invalidate(path))))
+    await runtime.runPromise(LoomCompiler.pipe(Effect.flatMap((compiler) => compiler.reach(book))))
+    expect([...(await invalidate(answer))].sort()).toEqual([answer, book].sort())
+    expect(await invalidate(answer)).toEqual([])
+    expect(await invalidate(join(folder, 'nowhere.loom'))).toEqual([])
+  })
+})
+
+## The test file {Tangle}[test/LoomInvalidate.test.ts]
+
+=>
+
+::[Testing what an edit evicts]
