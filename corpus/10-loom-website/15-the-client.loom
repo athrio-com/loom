@@ -892,9 +892,12 @@ The server has already rendered the page, and it wrote the model it rendered fro
 
 The server cannot choose how far the menu scrolls, because only the browser knows how tall the window is. So `init` runs `RevealChapter`, which brings the open chapter into the menu's view. It also runs `LandOnFound`, which picks out the words a reader searched for when the palette sent them here. Importing the stylesheet here, in the browser entry, keeps it out of the server's path.
 
+The entry also imports the reload listener, the module in `src/reload.ts` that reloads the page when development rebuilds it. A production build gives it no address to listen on, so there it does nothing.
+
 =>
 
 import './landing.css'
+import './reload'
 
 const application = Runtime.makeApplication({
   Model,

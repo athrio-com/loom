@@ -712,6 +712,7 @@ const subscriptions = Subscription.make<Model, Message>()((entry) => ({
 }))
 
 import './landing.css'
+import './reload'
 
 const application = Runtime.makeApplication({
   Model,

@@ -138,6 +138,7 @@
     "site/src/page-head.ts",
     "site/src/pages.ts",
     "site/src/raw.d.ts",
+    "site/src/reload.ts",
     "site/src/render-ahead.ts",
     "site/src/search.ts",
     "site/src/server.ts",

@@ -157,7 +157,7 @@ Because the book is never committed, a fresh checkout has none until the step ru
 
 Each weave is pointed at a *file* rather than at a directory, because weaving takes the corpus around the path it is given and a directory resolves to the one above it.
 
-Development runs the server production runs — the same file, over the same `dist` — so a developer reads the page a reader is sent rather than an approximation of it. What `dev` adds is only the two watchers that keep `dist` and the server current: Vite rebuilding the client on a change, and Bun restarting the server when a module it renders from changes. Neither stands in a request's way. A small program of their own, `src/dev.ts`, starts the pair and stops them as one.
+Development runs the server production runs — the same file, over the same `dist` — so a developer reads the page a reader is sent rather than an approximation of it. What `dev` adds is a set of watchers that keep the page current. Vite rebuilds the client when a source changes. Bun restarts the server when a module it renders from changes. The book and the documentation are woven again when a chapter changes, and an open page reloads once the new version is ready. None of them stands in a request's way. A small program of their own, `src/dev.ts`, starts them together and stops them as one.
 
 The rest follow from that. The `build` command writes the bundle to `dist`, then runs `src/render-ahead.ts` to render every page into it. `serve` runs the server over what the build wrote — the pair the image runs — and `preview` is the two in order, for looking at the built site before shipping it. Vite's own preview server is not among them, and deliberately so: it hands out `dist` as files with nothing in front, so it renders no page, and what it shows is not what a reader would be sent.
 
@@ -267,11 +267,17 @@ declare module '*?raw' {
 
 ## The Vite types {Tangle}[src/vite-env.d.ts]
 
-The client reaches for Vite's ambient types — `import.meta.hot` above all, which Foldkit's runtime reads — so this one line brings them in.
+The client reaches for Vite's ambient types — `import.meta.hot` above all, which Foldkit's runtime reads — so the first line brings them in.
+
+The client also reads one variable of its own from the build's environment. `VITE_RELOAD_URL` names the address the reload listener connects to. Development sets it, and every other build leaves it out, so the type says it may be absent.
 
 =>
 
 /// <reference types="vite/client" />
+
+interface ImportMetaEnv {
+  readonly VITE_RELOAD_URL?: string
+}
 
 ## The build {Tangle}[vite.config.ts]
 
@@ -300,29 +306,36 @@ export default defineConfig({
   },
 })
 
-## Two watchers, started and stopped as one {Tangle}[src/dev.ts]
+## Watchers, started and stopped as one {Tangle}[src/dev.ts]
 
-Development runs two watchers side by side. Vite's build rebuilds the client into `dist` whenever a source changes, and Bun restarts the server whenever a module it renders from changes. The program restarts the server itself when the book is woven again. The development program starts the two together and stops them together. Like the server, it is an Effect program started from the Bun runtime edge.
+Development keeps four things current while a developer works. Vite's build rebuilds the client into `dist` whenever a source changes. Bun restarts the server whenever a module it renders from changes. The book and the documentation are woven again whenever a chapter changes. And a page open in the browser reloads once the version it shows has been replaced. The development program starts all four together and stops them together. Like the server, it is an Effect program started from the Bun runtime edge.
 
-A shell line could start both, with an ampersand between them, but it cannot reliably stop them. A signal sent to the shell alone stops only the shell. Whatever the shell started in the background keeps running with no parent to stop it. A server left behind holds the port the next one needs, and a build left behind goes on rebuilding into the same `dist`. Two builds that write one folder at once empty and refill it over each other, and one of them fails when a file it was copying is deleted under it.
+A shell line could start the build and the server, with an ampersand between them, but it cannot reliably stop them. A signal sent to the shell alone stops only the shell. Whatever the shell started in the background keeps running with no parent to stop it. A server left behind holds the port the next one needs, and a build left behind goes on rebuilding into the same `dist`. Two builds that write one folder at once empty and refill it over each other, and one of them fails when a file it was copying is deleted under it.
 
-Each watcher is a child process the program runs until the child exits. The `watcher` function starts one in the site's own folder, hands it the terminal, and yields its exit code once it stops. The child stays in the program's process group, which is the set of processes a terminal signals together. So an interrupt typed at the terminal reaches both watchers directly, and so does the terminal closing. The scope the child runs in also owns it. When the program alone is told to stop, the scope closes and stops the child on the way out.
+Each watcher is a child process the program runs until the child exits. The `watcher` function starts one in the site's own folder, hands it the terminal, and yields its exit code once it stops. A watcher may be given variables to add to the environment it inherits. The child stays in the program's process group, which is the set of processes a terminal signals together. So an interrupt typed at the terminal reaches every watcher directly, and so does the terminal closing. The scope the child runs in also owns it. When the program alone is told to stop, the scope closes and stops the child on the way out.
 
 =>
 
-import { Effect, FileSystem, Option, Stream } from 'effect'
+import { Array, Data, Effect, FileSystem, Layer, Option, PubSub, Schedule, Stream } from 'effect'
+import { HttpServer, HttpServerResponse } from 'effect/http'
 import { ChildProcess } from 'effect/process'
-import { BunRuntime, BunServices } from '@effect/platform-bun'
-import { dirname, join } from 'node:path'
+import { BunHttpServer, BunRuntime, BunServices } from '@effect/platform-bun'
+import { basename, dirname, extname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const siteDir = join(dirname(fileURLToPath(import.meta.url)), '..')
 
-const watcher = (command: string, args: ReadonlyArray<string>) =>
+const watcher = (
+  command: string,
+  args: ReadonlyArray<string>,
+  env: Record<string, string> = {},
+) =>
   Effect.scoped(
     Effect.flatMap(
       ChildProcess.make(command, args, {
         cwd: siteDir,
+        env,
+        extendEnv: true,
         detached: false,
         stdin: 'inherit',
         stdout: 'inherit',
@@ -334,13 +347,27 @@ const watcher = (command: string, args: ReadonlyArray<string>) =>
 
 ~
 
-The client build is Vite's build left watching, with one difference from the build the image runs. It never empties `dist`. A build that empties the folder first leaves it without a page for as long as the new one takes to render, about a fifth of a second on every rebuild. A reload in that moment gets the unbuilt page, and a page loaded just before it asks for a stylesheet and a bundle that are already gone. A build that writes over the folder keeps every file in place until its replacement lands. It also leaves the old bundle beside the new one, for a page that still names it.
+The client build is Vite's build left watching, with two differences from the build the image runs.
 
-The server is the very file the image runs, under Bun's watcher.
+The first is that it never empties `dist`. A build that empties the folder first leaves it without a page for as long as the new one takes to render, about a fifth of a second on every rebuild. A reload in that moment gets the unbuilt page, and a page loaded just before it asks for a stylesheet and a bundle that are already gone. A build that writes over the folder keeps every file in place until its replacement lands. It also leaves the old bundle beside the new one, for a page that still names it.
+
+The second is the reload address. Development runs a small channel on a port of its own, `reloadPort`, that tells an open page when to reload, and the build passes the channel's address to the client as `VITE_RELOAD_URL`. Vite hands any variable whose name starts with `VITE_` to the client's code, so the address lands in the bundle. The image's build sets no such variable, and its client listens for nothing.
+
+The server is the very file the image runs, under Bun's watcher. It listens on `serverPort`, the port the server itself reads from `PORT`.
 
 =>
 
-const clientBuild = watcher('bunx', ['--bun', 'vite', 'build', '--watch', '--emptyOutDir', 'false'])
+const serverPort = Number(process.env.PORT ?? 5199)
+
+const reloadPort = Number(process.env.RELOAD_PORT ?? 5198)
+
+const reloadAddress = `http://localhost:${reloadPort}/`
+
+const clientBuild = watcher(
+  'bunx',
+  ['--bun', 'vite', 'build', '--watch', '--emptyOutDir', 'false'],
+  { VITE_RELOAD_URL: reloadAddress },
+)
 
 const server = watcher('bun', ['--watch', 'src/server.ts'])
 
@@ -363,28 +390,179 @@ const bookChanges = Stream.unwrap(
 
 ~
 
-`restartingServer` starts the server once, and then again after every change to the book. `Stream.switchMap` does the replacing: each new element interrupts the server the last one started, its scope stops it, and a fresh server reads the new book. When a server stops on its own, it yields its exit code, and the first code ends the stream. Development is over, and `restartingServer` hands that code on as if the server had been run plainly.
+A page open on the old book should reload once the new server can answer it, and no sooner. A restarting server refuses connections for most of a second, then answers every address with a placeholder `404` while it reads the book. A page reloaded in either moment shows an error instead of the chapter. So `announceWhenReady` asks the new server for the landing page every tenth of a second. Any answer but a success fails as `NotAnswering`, and the request is tried again. Once the server answers, `announceWhenReady` publishes a reload to `reloads`. A server that has not answered within thirty seconds is left alone, and no page reloads.
 
 =>
 
-const restartingServer = Stream.succeed(undefined).pipe(
-  Stream.concat(bookChanges),
-  Stream.switchMap(() => Stream.fromEffect(server)),
-  Stream.runHead,
-  Effect.map(Option.getOrElse(() => 0)),
+class NotAnswering extends Data.TaggedError('NotAnswering')<{ readonly status: number }> {}
+
+const serverAnswers = Effect.tryPromise(() => fetch(`http://localhost:${serverPort}/`)).pipe(
+  Effect.flatMap((response) =>
+    response.ok ? Effect.void : Effect.fail(new NotAnswering({ status: response.status })),
+  ),
 )
+
+const announceWhenReady = (reloads: PubSub.PubSub<void>) =>
+  serverAnswers.pipe(
+    Effect.retry(Schedule.spaced('100 millis')),
+    Effect.timeout('30 seconds'),
+    Effect.andThen(PubSub.publish(reloads, undefined)),
+    Effect.ignore,
+  )
 
 ~
 
-Old bundles would pile up across sessions that way, so the program empties `dist` once, before either watcher starts. Then it races the client build against the restarting server. Neither watcher is meant to finish, so whichever stops first has stopped development, be it a server that cannot take its port or a build that crashed. The race interrupts the other watcher, and the program exits with the code the first one stopped with. An interrupt or a termination signal that reaches the program alone stops the race at the runtime edge, and both scopes close, taking their watchers with them.
+`restartingServer` starts the server once, and then again after every change to the book. `Stream.switchMap` does the replacing: each new element interrupts the server the last one started, its scope stops it, and a fresh server reads the new book. Beside each fresh server runs `announceWhenReady`, which finishes once open pages have been told to reload, while the server goes on. When a server stops on its own, it yields its exit code, and the first code ends the stream. Development is over, and `restartingServer` hands that code on as if the server had been run plainly.
 
 =>
 
-const development = Effect.gen(function* () {
-  const fs = yield* FileSystem.FileSystem
-  yield* fs.remove(join(siteDir, 'dist'), { recursive: true, force: true })
-  const code = yield* Effect.raceFirst(clientBuild, restartingServer)
-  yield* Effect.sync(() => void (process.exitCode = code))
-})
+const restartingServer = (reloads: PubSub.PubSub<void>) =>
+  Stream.succeed(undefined).pipe(
+    Stream.concat(bookChanges),
+    Stream.switchMap(() =>
+      Stream.fromEffect(
+        Effect.zipWith(server, announceWhenReady(reloads), (code) => code, { concurrent: true }),
+      ),
+    ),
+    Stream.runHead,
+    Effect.map(Option.getOrElse(() => 0)),
+  )
+
+~
+
+Nothing in the site watches the book's sources. The weave runs once before `dev` starts, so a chapter edited during the session would reach the page only after a restart. So the program watches the sources too: the book's corpus, `corpus/`, and the documentation's, `docs/`, each with every folder inside it.
+
+`loomChanges` merges the two watches into one stream of changes. It keeps only changes to a file whose extension is `.loom`, and lets each burst settle for 300 milliseconds, since an editor saving a file and a tangle rewriting several reach the watcher as many events. A folder that cannot be watched yields no changes, as the book's file does above.
+
+`reweaving` runs the site's `content` script once for each settled change. The script weaves the documentation and the book and colours the book, and its runs follow one another, never overlap. A change that lands during a run waits, and starts the next run once this one ends. A chapter left broken mid-edit fails its weave, and leaves the woven files as they were until the next save weaves it cleanly.
+
+The rest follows from what the weave rewrites. A coloured book rewritten restarts the server, as above. A woven documentation rewritten changes a file the client imports, so Vite rebuilds the client.
+
+=>
+
+const sourceDirs = Array.map(['corpus', 'docs'], (dir) => join(siteDir, '..', dir))
+
+const loomChanges = Stream.unwrap(
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    return Stream.mergeAll(
+      Array.map(sourceDirs, (dir) =>
+        fs.watch(dir, { recursive: true }).pipe(Stream.catch(() => Stream.never)),
+      ),
+      { concurrency: 'unbounded' },
+    )
+  }),
+).pipe(
+  Stream.filter((change) => extname(change.path) === '.loom'),
+  Stream.debounce('300 millis'),
+)
+
+const reweaving = loomChanges.pipe(Stream.runForEach(() => watcher('bun', ['run', 'content'])))
+
+~
+
+A rebuilt client reaches the page only when the page loads again, so `announceBuilds` reloads it. Vite writes the page itself, `dist/index.html`, on every build, so a write to that file marks a finished build. Its other files land in the same moment, so `announceBuilds` waits a quarter of a second after the last write. The watch covers the folder rather than the file, because a build may replace the file outright, and Bun stops reporting a file that was replaced.
+
+A finished build does not yet mean the page can load. The client and the server share modules, the view and the model among them, so a change to one rebuilds the client and restarts the server at once. The two finish within a few hundred milliseconds of each other, in either order. A reload sent before the server is back meets a refused connection. So `announceBuilds` hands each finished build to `announceWhenReady`, which reloads the page only once the server answers. A build that touched nothing on the server finds it answering at once, and the page reloads without delay.
+
+=>
+
+const distDir = join(siteDir, 'dist')
+
+const announceBuilds = (reloads: PubSub.PubSub<void>) =>
+  Stream.unwrap(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      return fs.watch(distDir).pipe(Stream.catch(() => Stream.never))
+    }),
+  ).pipe(
+    Stream.filter((change) => basename(change.path) === 'index.html'),
+    Stream.debounce('250 millis'),
+    Stream.runForEach(() => announceWhenReady(reloads)),
+  )
+
+~
+
+The reload channel is a server of its own, on `reloadPort`, separate from the site's. Keeping it apart keeps the site's server exactly the server the image runs, with no route that exists only in development.
+
+The channel speaks server-sent events, a standard way for a server to push messages down one long response that the browser's `EventSource` reads. Every request gets the same response. It opens with a comment line, so the browser counts the connection as open at once, and then sends a `reload` event each time a message reaches `reloads`. Each connection subscribes to `reloads` on its own, so every open page hears every reload. The page is served from the site's port and the channel from another, so the response allows any origin to read it. Bun closes a connection that sits idle for ten seconds by default, and a channel is idle between reloads, so `idleTimeout` is set to zero, which never closes one.
+
+=>
+
+const encoder = new TextEncoder()
+
+const opened = encoder.encode(': listening for reloads\n\n')
+
+const reloadEvent = encoder.encode('event: reload\ndata:\n\n')
+
+const reloadChannel = (reloads: PubSub.PubSub<void>) =>
+  HttpServer.serve(
+    Effect.sync(() =>
+      HttpServerResponse.stream(
+        Stream.succeed(opened).pipe(
+          Stream.concat(Stream.fromPubSub(reloads).pipe(Stream.as(reloadEvent))),
+        ),
+        {
+          contentType: 'text/event-stream',
+          headers: { 'access-control-allow-origin': '*', 'cache-control': 'no-cache' },
+        },
+      ),
+    ),
+  ).pipe(Layer.provide(BunHttpServer.layer({ port: reloadPort, idleTimeout: 0 })))
+
+~
+
+Reloading is a convenience, and development goes on without it. `liveReload` runs the channel and the build announcer side by side. If the channel cannot take its port, the program warns once and carries on, and pages simply stay as they are until reloaded by hand.
+
+=>
+
+const liveReload = (reloads: PubSub.PubSub<void>) =>
+  Effect.all([Layer.launch(reloadChannel(reloads)), announceBuilds(reloads)], {
+    concurrency: 'unbounded',
+  }).pipe(Effect.catch((cause) => Effect.logWarning('live reload is off', cause)))
+
+~
+
+Old bundles would pile up across sessions with a build that never empties `dist`, so the program empties it once, before any watcher starts. It makes the folder again at once, empty, so the build announcer has a folder to watch before the first build writes into it.
+
+The program then creates `reloads`, the one hub every reload passes through, and starts the corpus watcher and live reload in the background of its scope. Neither can end development, and the scope stops both when development ends.
+
+Last, it races the client build against the restarting server. Neither watcher is meant to finish, so whichever stops first has stopped development, be it a server that cannot take its port or a build that crashed. The race interrupts the other watcher, and the program exits with the code the first one stopped with. An interrupt or a termination signal that reaches the program alone stops the race at the runtime edge, and the scopes close, taking every watcher with them.
+
+=>
+
+const development = Effect.scoped(
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    yield* fs.remove(distDir, { recursive: true, force: true })
+    yield* fs.makeDirectory(distDir, { recursive: true })
+    const reloads = yield* PubSub.unbounded<void>()
+    yield* Effect.forkScoped(reweaving)
+    yield* Effect.forkScoped(liveReload(reloads))
+    const code = yield* Effect.raceFirst(clientBuild, restartingServer(reloads))
+    yield* Effect.sync(() => void (process.exitCode = code))
+  }),
+)
 
 BunRuntime.runMain(development.pipe(Effect.provide(BunServices.layer)))
+
+## The page listens for a rebuild {Tangle}[src/reload.ts]
+
+The other end of the reload channel runs in the page. The reload listener reads the channel's address from `VITE_RELOAD_URL`, which only a development build carries. Given an address, it opens an `EventSource` on it and reloads the page at each `reload` event. Given none, it opens nothing, and the page behaves exactly as a reader's does.
+
+The listener is its own small Effect program, started at its own runtime edge with `Effect.runFork`, because it shares nothing with the application beside it. It never ends while the page is open. If the channel goes away, because development stopped, the browser's `EventSource` keeps retrying on its own, and the next development session picks the page up again.
+
+=>
+
+import { Effect, Option, Stream } from 'effect'
+
+const reloads = (address: string): Stream.Stream<Event> =>
+  Stream.fromEventListener(new EventSource(address), 'reload')
+
+const reloadOn = (address: string): Effect.Effect<void> =>
+  Stream.runForEach(reloads(address), () => Effect.sync(() => window.location.reload()))
+
+Option.match(Option.fromNullishOr(import.meta.env.VITE_RELOAD_URL), {
+  onNone: () => undefined,
+  onSome: (address) => void Effect.runFork(reloadOn(address)),
+})
