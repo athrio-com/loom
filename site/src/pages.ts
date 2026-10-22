@@ -20,7 +20,7 @@ export const seed: Model = {
   found: [],
   activeSection: '',
   player: { struck: 0, beat: 0, playing: false, output: Option.none(), full: false },
-  version: '0.0.15',
+  version: '0.0.16',
   query: '',
   exact: false,
   focus: 0,

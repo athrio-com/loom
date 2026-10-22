@@ -61,7 +61,7 @@ export const serviceManifest = (id: string, dir: string): Option.Option<ServiceM
     Option.flatMap(Schema.decodeUnknownOption(ServiceManifestSchema)),
   )
 
-export const serviceVersion = '0.0.15'
+export const serviceVersion = '0.0.16'
 
 export const installedVersion = (id: string, dir: string): Option.Option<string> =>
   Option.flatMap(serviceManifest(id, dir), (manifest) => Option.fromNullishOr(manifest.version))
