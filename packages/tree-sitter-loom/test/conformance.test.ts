@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
-import { Array, Effect, Stream, pipe } from 'effect'
+import { Array, Effect, Option, Stream, pipe } from 'effect'
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -225,6 +225,170 @@ describe('the corners', () => {
       writeFileSync(file, fenceAndNote.join('\n'))
       yield* checkLoom(file)
     }),
+  )
+})
+
+type Position = readonly [row: number, column: number]
+type Span = { readonly start: Position; readonly end: Position }
+type Injection = {
+  readonly row: number
+  readonly language: string
+  readonly content: ReadonlyArray<Span>
+}
+
+const fixedLanguage = '#set!'
+
+const capturePattern =
+  /capture: (?:\d+ - )?([\w.]+), start: \((\d+), (\d+)\), end: \((\d+), (\d+)\)(?:, text: `([^`\n]*)`)?$/gm
+
+const injectionOf = (match: string): ReadonlyArray<Injection> => {
+  const captures = Array.fromIterable(match.matchAll(capturePattern))
+  const named = Array.findFirst(
+    captures,
+    ([, name]) => name === 'injection.language' || name === 'injection.filename',
+  )
+  const content = pipe(
+    captures,
+    Array.filter(([, name]) => name === 'injection.content'),
+    Array.map(([, , startRow, startColumn, endRow, endColumn]) => ({
+      start: [Number(startRow), Number(startColumn)] as const,
+      end: [Number(endRow), Number(endColumn)] as const,
+    })),
+  )
+  return pipe(
+    Array.head(content),
+    Option.map((first) => ({
+      row: first.start[0],
+      language: Option.match(named, {
+        onNone: () => fixedLanguage,
+        onSome: ([, , , , , , text]) => text ?? '',
+      }),
+      content,
+    })),
+    Option.toArray,
+  )
+}
+
+const injectionsOf = (query: string, file: string): Effect.Effect<ReadonlyArray<Injection>> =>
+  Effect.map(
+    treeSitter(['query', '--lib-path', library, '--lang-name', 'loom', query, file]),
+    (printed) => Array.flatMap(printed.split(/^\s*pattern: \d+$/m).slice(1), injectionOf),
+  )
+
+const languageForms = [
+  '---',
+  'Package: src/out.ts',
+  'Language: TypeScript',
+  '---',
+  '',
+  '# A specifier {json}',
+  '',
+  '=>',
+  '',
+  '{}',
+  '',
+  '# A sink [run.sh]',
+  '',
+  '=>',
+  '',
+  'echo',
+  '',
+  '# The Package file {Tangle}',
+  '',
+  '=>',
+  '',
+  'export {}',
+  '',
+  '# The chapter',
+  '',
+  '=>',
+  '',
+  'const a = 1',
+  anchor('A specifier'),
+  'export { a }',
+  '',
+  '# A Prose section {Prose}',
+  '',
+  '=>',
+  '',
+  'Some text.',
+]
+
+const codeLanguages = (query: string): Effect.Effect<ReadonlyArray<ReadonlyArray<string>>> =>
+  Effect.map(injectionsOf(query, fixture('language-forms', languageForms)), (injections) =>
+    pipe(
+      Array.range(0, languageForms.length - 1),
+      Array.filter((row) => languageForms[row] === '=>'),
+      Array.map((row) =>
+        pipe(
+          injections,
+          Array.filter((injection) => injection.row === row),
+          Array.map((injection) => injection.language),
+        ),
+      ),
+    ),
+  )
+
+describe('the injections', () => {
+  it.effect('the shared queries inject each code block once', () =>
+    Effect.map(codeLanguages('queries/injections.scm'), (languages) =>
+      expect(languages).toEqual([
+        ['json'],
+        ['run.sh'],
+        ['src/out.ts'],
+        ['TypeScript'],
+        [fixedLanguage],
+      ]),
+    ),
+  )
+  it.effect("Helix's queries inject each code block once", () =>
+    Effect.map(codeLanguages('editors/helix/queries/loom/injections.scm'), (languages) =>
+      expect(languages).toEqual([
+        ['json'],
+        ['run.sh'],
+        ['src/out.ts'],
+        [fixedLanguage],
+        [fixedLanguage],
+      ]),
+    ),
+  )
+  it.effect("Zed's queries inject each code block once", () =>
+    Effect.map(codeLanguages('editors/zed/languages/loom/injections.scm'), (languages) =>
+      expect(languages).toEqual([
+        ['json'],
+        ['sh'],
+        ['TypeScript'],
+        ['TypeScript'],
+        [fixedLanguage],
+      ]),
+    ),
+  )
+})
+
+const anchorRow = languageForms.indexOf(anchor('A specifier'))
+
+const before = (a: Position, b: Position): boolean => a[0] < b[0] || (a[0] === b[0] && a[1] <= b[1])
+
+const covers = (span: Span, position: Position): boolean =>
+  before(span.start, position) && !before(span.end, position)
+
+describe('the anchors in a code block', () => {
+  Array.forEach(
+    [
+      'queries/injections.scm',
+      'editors/helix/queries/loom/injections.scm',
+      'editors/zed/languages/loom/injections.scm',
+    ],
+    (query) =>
+      it.effect(`stay out of the text ${query} injects`, () =>
+        Effect.map(injectionsOf(query, fixture('language-forms', languageForms)), (injections) =>
+          expect(
+            Array.some(injections, (injection) =>
+              Array.some(injection.content, (span) => covers(span, [anchorRow, 0])),
+            ),
+          ).toBe(false),
+        ),
+      ),
   )
 })
 

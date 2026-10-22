@@ -12,7 +12,7 @@
   (heading
     specifier: (specifier
       label: (label) @injection.language))
-  (code) @injection.content
+  (code [(code_text) @injection.content (anchor)]+)
   (#not-match? @injection.language "^(Tangle|tangle|TOC|toc|Prose|prose)$")
   (#not-match? @injection.language "^(TypeScript|JavaScript|JSON|YAML|TOML|Markdown|CSS|HTML|Dockerfile|Rust|Python|Go|Lua|C|Bash)$"))
 
@@ -20,7 +20,7 @@
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_language "TypeScript")
   (#set! injection.language "typescript"))
 
@@ -28,7 +28,7 @@
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_language "JavaScript")
   (#set! injection.language "javascript"))
 
@@ -36,7 +36,7 @@
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_language "JSON")
   (#set! injection.language "json"))
 
@@ -44,7 +44,7 @@
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_language "YAML")
   (#set! injection.language "yaml"))
 
@@ -52,7 +52,7 @@
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_language "TOML")
   (#set! injection.language "toml"))
 
@@ -60,7 +60,7 @@
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_language "Markdown")
   (#set! injection.language "markdown"))
 
@@ -68,7 +68,7 @@
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_language "CSS")
   (#set! injection.language "css"))
 
@@ -76,7 +76,7 @@
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_language "HTML")
   (#set! injection.language "html"))
 
@@ -84,7 +84,7 @@
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_language "Dockerfile")
   (#set! injection.language "dockerfile"))
 
@@ -92,7 +92,7 @@
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_language "Rust")
   (#set! injection.language "rust"))
 
@@ -100,7 +100,7 @@
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_language "Python")
   (#set! injection.language "python"))
 
@@ -108,7 +108,7 @@
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_language "Go")
   (#set! injection.language "go"))
 
@@ -116,7 +116,7 @@
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_language "Lua")
   (#set! injection.language "lua"))
 
@@ -124,7 +124,7 @@
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_language "C")
   (#set! injection.language "c"))
 
@@ -132,7 +132,7 @@
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_language "Bash")
   (#set! injection.language "bash"))
 
@@ -145,7 +145,7 @@
     (heading
       !specifier
       !sink)
-    (code) @injection.content)
+    (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_key "Language")
   (#not-match? @injection.language "^(Prose|prose)$")
   (#not-match? @injection.language "^(TypeScript|JavaScript|JSON|YAML|TOML|Markdown|CSS|HTML|Dockerfile|Rust|Python|Go|Lua|C|Bash)$"))
@@ -159,7 +159,7 @@
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#eq? @_language "TypeScript")
   (#set! injection.language "typescript"))
@@ -173,7 +173,7 @@
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#eq? @_language "JavaScript")
   (#set! injection.language "javascript"))
@@ -187,7 +187,7 @@
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#eq? @_language "JSON")
   (#set! injection.language "json"))
@@ -201,7 +201,7 @@
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#eq? @_language "YAML")
   (#set! injection.language "yaml"))
@@ -215,7 +215,7 @@
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#eq? @_language "TOML")
   (#set! injection.language "toml"))
@@ -229,7 +229,7 @@
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#eq? @_language "Markdown")
   (#set! injection.language "markdown"))
@@ -243,7 +243,7 @@
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#eq? @_language "CSS")
   (#set! injection.language "css"))
@@ -257,7 +257,7 @@
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#eq? @_language "HTML")
   (#set! injection.language "html"))
@@ -271,7 +271,7 @@
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#eq? @_language "Dockerfile")
   (#set! injection.language "dockerfile"))
@@ -285,7 +285,7 @@
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#eq? @_language "Rust")
   (#set! injection.language "rust"))
@@ -299,7 +299,7 @@
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#eq? @_language "Python")
   (#set! injection.language "python"))
@@ -313,7 +313,7 @@
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#eq? @_language "Go")
   (#set! injection.language "go"))
@@ -327,7 +327,7 @@
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#eq? @_language "Lua")
   (#set! injection.language "lua"))
@@ -341,7 +341,7 @@
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#eq? @_language "C")
   (#set! injection.language "c"))
@@ -355,7 +355,7 @@
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#eq? @_language "Bash")
   (#set! injection.language "bash"))
@@ -365,7 +365,7 @@
     !specifier
     sink: (sink
       file: (file) @injection.filename))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
 
 (section
   (heading
@@ -373,7 +373,7 @@
       label: (label) @_tangle)
     sink: (sink
       file: (file) @injection.filename))
-  (code) @injection.content
+  (code [(code_text) @injection.content (anchor)]+)
   (#any-of? @_tangle "Tangle" "tangle"))
 
 (document
@@ -386,7 +386,7 @@
       specifier: (specifier
         label: (label) @_tangle)
       !sink)
-    (code) @injection.content)
+    (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_key "Package")
   (#any-of? @_tangle "Tangle" "tangle"))
 
@@ -394,7 +394,7 @@
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#any-of? @_language "Prose" "prose")
   (#set! injection.language "markdown"))
 
@@ -407,7 +407,7 @@
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#any-of? @_language "Prose" "prose")
   (#set! injection.language "markdown"))

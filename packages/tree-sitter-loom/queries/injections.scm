@@ -12,7 +12,7 @@
   (heading
     specifier: (specifier
       label: (label) @injection.language))
-  (code) @injection.content
+  (code [(code_text) @injection.content (anchor)]+)
   (#not-eq? @injection.language "Tangle")
   (#not-eq? @injection.language "tangle")
   (#not-eq? @injection.language "Prose")
@@ -23,7 +23,7 @@
     !specifier
     sink: (sink
       file: (file) @injection.filename))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
 
 (section
   (heading
@@ -31,7 +31,7 @@
       label: (label) @_tangle)
     sink: (sink
       file: (file) @injection.filename))
-  (code) @injection.content
+  (code [(code_text) @injection.content (anchor)]+)
   (#any-of? @_tangle "Tangle" "tangle"))
 
 (document
@@ -44,7 +44,7 @@
       specifier: (specifier
         label: (label) @_tangle)
       !sink)
-    (code) @injection.content)
+    (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_key "Package")
   (#any-of? @_tangle "Tangle" "tangle"))
 
@@ -57,7 +57,7 @@
     (heading
       !specifier
       !sink)
-    (code) @injection.content)
+    (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_key "Language")
   (#not-eq? @injection.language "Prose")
   (#not-eq? @injection.language "prose"))
@@ -66,7 +66,7 @@
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#any-of? @_language "Prose" "prose")
   (#set! injection.language "markdown"))
 
@@ -79,7 +79,7 @@
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#any-of? @_language "Prose" "prose")
   (#set! injection.language "markdown"))

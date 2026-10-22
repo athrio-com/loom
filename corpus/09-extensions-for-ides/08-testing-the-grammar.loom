@@ -305,6 +305,196 @@ describe('the corners', () => {
   )
 })
 
+## Each code block takes one language
+
+The injection queries decide the language each code block is coloured in. They come in three copies: the shared one of Chapter 6, which Neovim reads, Helix's beside it, and Zed's in Chapter 10. A code block that no pattern matches reads as plain text. A code block that two patterns match leaves the editor to choose between them. So the test runs each copy over one loom, which has a section for each way a section names its language. For every code block, it asks that exactly one pattern injects the block, with the language that copy's editor should read. It also asks that the injected text leaves out the block's anchors, which belong to Loom and not to the section's language.
+
+The `tree-sitter query` command prints each match as its pattern's number followed by its captures. Each capture shows the row and column where it starts and ends and, when the capture fits on one line, its text. The `injectionOf` function reads one match into an injection. An injection holds the spans of its content, the row its first span starts on, and the text of the capture that names its language, by a name or by a file. A span is a start and an end, each a row and a column, and the end lies just past the span's last character. A pattern that sets its language with `#set!` writes the language in the query rather than in the loom, so the test records that injection's language as `fixedLanguage`, the text `#set!`. The `injectionsOf` function runs the command and reads every match it prints.
+
+=>
+
+type Position = readonly [row: number, column: number]
+type Span = { readonly start: Position; readonly end: Position }
+type Injection = {
+  readonly row: number
+  readonly language: string
+  readonly content: ReadonlyArray<Span>
+}
+
+const fixedLanguage = '#set!'
+
+const capturePattern =
+  /capture: (?:\d+ - )?([\w.]+), start: \((\d+), (\d+)\), end: \((\d+), (\d+)\)(?:, text: `([^`\n]*)`)?$/gm
+
+const injectionOf = (match: string): ReadonlyArray<Injection> => {
+  const captures = Array.fromIterable(match.matchAll(capturePattern))
+  const named = Array.findFirst(
+    captures,
+    ([, name]) => name === 'injection.language' || name === 'injection.filename',
+  )
+  const content = pipe(
+    captures,
+    Array.filter(([, name]) => name === 'injection.content'),
+    Array.map(([, , startRow, startColumn, endRow, endColumn]) => ({
+      start: [Number(startRow), Number(startColumn)] as const,
+      end: [Number(endRow), Number(endColumn)] as const,
+    })),
+  )
+  return pipe(
+    Array.head(content),
+    Option.map((first) => ({
+      row: first.start[0],
+      language: Option.match(named, {
+        onNone: () => fixedLanguage,
+        onSome: ([, , , , , , text]) => text ?? '',
+      }),
+      content,
+    })),
+    Option.toArray,
+  )
+}
+
+const injectionsOf = (query: string, file: string): Effect.Effect<ReadonlyArray<Injection>> =>
+  Effect.map(
+    treeSitter(['query', '--lib-path', library, '--lang-name', 'loom', query, file]),
+    (printed) => Array.flatMap(printed.split(/^\s*pattern: \d+$/m).slice(1), injectionOf),
+  )
+
+~
+
+The loom, `languageForms`, is a chapter whose frontmatter names its file `src/out.ts` and its language TypeScript. Its five sections name their languages five ways: by a specifier, by a sink, by `{Tangle}` alone, by nothing at all, and by `{Prose}`. The section that names nothing draws in the first section by an anchor, between two lines of its own code. The `codeLanguages` function finds each code block by its arrow and lists the language every injection gives that block. A block injected twice shows two languages, and a block never injected shows none.
+
+=>
+
+const languageForms = [
+  '---',
+  'Package: src/out.ts',
+  'Language: TypeScript',
+  '---',
+  '',
+  '# A specifier {json}',
+  '',
+  '=>',
+  '',
+  '{}',
+  '',
+  '# A sink [run.sh]',
+  '',
+  '=>',
+  '',
+  'echo',
+  '',
+  '# The Package file {Tangle}',
+  '',
+  '=>',
+  '',
+  'export {}',
+  '',
+  '# The chapter',
+  '',
+  '=>',
+  '',
+  'const a = 1',
+  anchor('A specifier'),
+  'export { a }',
+  '',
+  '# A Prose section {Prose}',
+  '',
+  '=>',
+  '',
+  'Some text.',
+]
+
+const codeLanguages = (query: string): Effect.Effect<ReadonlyArray<ReadonlyArray<string>>> =>
+  Effect.map(injectionsOf(query, fixture('language-forms', languageForms)), (injections) =>
+    pipe(
+      Array.range(0, languageForms.length - 1),
+      Array.filter((row) => languageForms[row] === '=>'),
+      Array.map((row) =>
+        pipe(
+          injections,
+          Array.filter((injection) => injection.row === row),
+          Array.map((injection) => injection.language),
+        ),
+      ),
+    ),
+  )
+
+~
+
+Each copy gives the names its editor reads. The shared copy and Helix's pass a file by its whole name, `run.sh` or the `Package` file `src/out.ts`. Helix knows TypeScript only by its lower-case name, so its copy sets that name with `#set!`. Zed's copy passes a sink's extension, `sh`, and gives the `{Tangle}` section the chapter's `Language`.
+
+=>
+
+describe('the injections', () => {
+  it.effect('the shared queries inject each code block once', () =>
+    Effect.map(codeLanguages('queries/injections.scm'), (languages) =>
+      expect(languages).toEqual([
+        ['json'],
+        ['run.sh'],
+        ['src/out.ts'],
+        ['TypeScript'],
+        [fixedLanguage],
+      ]),
+    ),
+  )
+  it.effect("Helix's queries inject each code block once", () =>
+    Effect.map(codeLanguages('editors/helix/queries/loom/injections.scm'), (languages) =>
+      expect(languages).toEqual([
+        ['json'],
+        ['run.sh'],
+        ['src/out.ts'],
+        [fixedLanguage],
+        [fixedLanguage],
+      ]),
+    ),
+  )
+  it.effect("Zed's queries inject each code block once", () =>
+    Effect.map(codeLanguages('editors/zed/languages/loom/injections.scm'), (languages) =>
+      expect(languages).toEqual([
+        ['json'],
+        ['sh'],
+        ['TypeScript'],
+        ['TypeScript'],
+        [fixedLanguage],
+      ]),
+    ),
+  )
+})
+
+~
+
+An anchor stays out of the injected text when no span of any injection covers its first character. `covers` compares positions row first, then column, and holds when a span starts at or before the position and ends after it. Each copy is checked, because each copy writes its own patterns.
+
+=>
+
+const anchorRow = languageForms.indexOf(anchor('A specifier'))
+
+const before = (a: Position, b: Position): boolean => a[0] < b[0] || (a[0] === b[0] && a[1] <= b[1])
+
+const covers = (span: Span, position: Position): boolean =>
+  before(span.start, position) && !before(span.end, position)
+
+describe('the anchors in a code block', () => {
+  Array.forEach(
+    [
+      'queries/injections.scm',
+      'editors/helix/queries/loom/injections.scm',
+      'editors/zed/languages/loom/injections.scm',
+    ],
+    (query) =>
+      it.effect(`stay out of the text ${query} injects`, () =>
+        Effect.map(injectionsOf(query, fixture('language-forms', languageForms)), (injections) =>
+          expect(
+            Array.some(injections, (injection) =>
+              Array.some(injection.content, (span) => covers(span, [anchorRow, 0])),
+            ),
+          ).toBe(false),
+        ),
+      ),
+  )
+})
+
 ## Cleaning up
 
 The scratch folder holds the generated parser, the compiled library, and the fixtures. It goes once every test has run.
@@ -315,13 +505,13 @@ afterAll(() => rmSync(scratch, { recursive: true, force: true }))
 
 ## What the test draws on
 
-Bun's test runner supplies `describe`, `it`, `expect`, `beforeAll`, and `afterAll`, and `effectify` adds the `it.effect` that runs an Effect as a test. Effect's `Array` and `pipe` shape the lists, and `Stream` collects the classifier's wefts. Node supplies the process the command runs in, the filesystem the fixtures and the scratch folder live in, and the resolver that finds the command's package. `LoomWeft` is the weft type from the AST, and `LoomSourceRanges` and `WeftClassifier` are the first two stages of Loom's parser.
+Bun's test runner supplies `describe`, `it`, `expect`, `beforeAll`, and `afterAll`, and `effectify` adds the `it.effect` that runs an Effect as a test. Effect's `Array` and `pipe` shape the lists, `Option` holds a capture a match may lack, and `Stream` collects the classifier's wefts. Node supplies the process the command runs in, the filesystem the fixtures and the scratch folder live in, and the resolver that finds the command's package. `LoomWeft` is the weft type from the AST, and `LoomSourceRanges` and `WeftClassifier` are the first two stages of Loom's parser.
 
 =>
 
 import { afterAll, beforeAll, describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
-import { Array, Effect, Stream, pipe } from 'effect'
+import { Array, Effect, Option, Stream, pipe } from 'effect'
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -353,5 +543,7 @@ const it = effectify(it_)
 ::[Every loom in the repository]
 
 ::[The corners the book does not reach]
+
+::[Each code block takes one language]
 
 ::[Cleaning up]

@@ -153,22 +153,15 @@ module.exports = grammar({
     note_marker: (_) => ':' + anchorOpen + 'Note]',
 
     code: ($) =>
-      seq(
-        $._arrow_line,
-        optional($._space),
-        $.arrow,
-        repeat($._code_inline),
-        $._newline,
-        repeat(seq($._code_line, repeat($._code_inline), $._newline)),
-      ),
+      seq($._arrow_line, optional($._space), $.arrow, repeat(choice($.code_text, $.anchor))),
 
     arrow: (_) => choice('=>', '~>'),
 
-    _code_inline: ($) => choice($._code_text, $.anchor),
+    code_text: ($) => prec.right(repeat1(choice($._code_run, $._newline, $._code_line))),
 
     _text: (_) => choice(/[^`:{\r\n]+/, /:/, /\{/),
     _code_span: (_) => choice(/`[^`\r\n]*`/, /`/),
-    _code_text: (_) => choice(/[^:\r\n]+/, /:/),
+    _code_run: (_) => choice(/[^:\r\n]+/, /:/),
 
     anchor: ($) =>
       seq(

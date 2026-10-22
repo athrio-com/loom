@@ -12,14 +12,14 @@
   (heading
     specifier: (specifier
       label: (label) @injection.language))
-  (code) @injection.content
+  (code [(code_text) @injection.content (anchor)]+)
   (#not-any-of? @injection.language "Tangle" "tangle" "TOC" "toc" "Prose" "prose"))
 
 ((section
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#any-of? @_language "Prose" "prose")
   (#set! injection.language "markdown"))
 
@@ -29,7 +29,7 @@
     sink: (sink
       file: (file
         extension: (extension) @injection.language)))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
 
 (section
   (heading
@@ -38,8 +38,23 @@
     sink: (sink
       file: (file
         extension: (extension) @injection.language)))
-  (code) @injection.content
+  (code [(code_text) @injection.content (anchor)]+)
   (#any-of? @_tangle "Tangle" "tangle"))
+
+(document
+  (frontmatter
+    (field
+      key: (key) @_key
+      value: (value) @injection.language))
+  (section
+    (heading
+      specifier: (specifier
+        label: (label) @_tangle)
+      !sink)
+    (code [(code_text) @injection.content (anchor)]+))
+  (#eq? @_key "Language")
+  (#any-of? @_tangle "Tangle" "tangle")
+  (#not-any-of? @injection.language "Prose" "prose"))
 
 (document
   (frontmatter
@@ -50,7 +65,7 @@
     (heading
       !specifier
       !sink)
-    (code) @injection.content)
+    (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_key "Language")
   (#not-any-of? @injection.language "Prose" "prose"))
 
@@ -63,7 +78,23 @@
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
+  (#any-of? @_language "Prose" "prose")
+  (#set! injection.language "markdown"))
+
+((document
+  (frontmatter
+    (field
+      key: (key) @_key
+      value: (value) @_language))
+  (section
+    (heading
+      specifier: (specifier
+        label: (label) @_tangle)
+      !sink)
+    (code [(code_text) @injection.content (anchor)]+)))
+  (#eq? @_key "Language")
+  (#any-of? @_tangle "Tangle" "tangle")
   (#any-of? @_language "Prose" "prose")
   (#set! injection.language "markdown"))

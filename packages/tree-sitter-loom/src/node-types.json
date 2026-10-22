@@ -55,9 +55,18 @@
         {
           "type": "arrow",
           "named": true
+        },
+        {
+          "type": "code_text",
+          "named": true
         }
       ]
     }
+  },
+  {
+    "type": "code_text",
+    "named": true,
+    "fields": {}
   },
   {
     "type": "document",

@@ -214,6 +214,8 @@ Every run of prose is Markdown: a preamble, a prose block, and a table of conten
 
 Each code block is injected with its section's language, resolved by the rules of Part IV: the section's specifier, then its sink's extension, then the chapter's language. The sections below take the rules one at a time. Each pattern matches only where the rules before it do not apply, so a code block is injected once.
 
+A pattern injects a block's `code_text` nodes, the text between its anchors, rather than the block itself. It captures them all in one match, so the other parser reads the block as one program, with gaps where the anchors were. The pattern spells that as `[(code_text) @injection.content (anchor)]+`, which walks the block's text nodes and anchors in order and captures every text node it passes. Written as `(code_text)+` alone, the pattern would stop at the first anchor and capture only the text before it.
+
 ## Named by a specifier
 
 A specifier names the language outright, `{Bash}` or `{json}`. Neovim reads a language's name in lower case. Three labels are not languages: `{Tangle}` and `{TOC}` are instructions, and a `{Prose}` section is Markdown, which a pattern of its own injects. The negations use `#not-eq?`, because Helix knows no `#not-any-of?`.
@@ -224,7 +226,7 @@ A specifier names the language outright, `{Bash}` or `{json}`. Neovim reads a la
   (heading
     specifier: (specifier
       label: (label) @injection.language))
-  (code) @injection.content
+  (code [(code_text) @injection.content (anchor)]+)
   (#not-eq? @injection.language "Tangle")
   (#not-eq? @injection.language "tangle")
   (#not-eq? @injection.language "Prose")
@@ -241,7 +243,7 @@ A sink names the language by its file. Both Neovim and Helix take an `@injection
     !specifier
     sink: (sink
       file: (file) @injection.filename))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
 
 (section
   (heading
@@ -249,7 +251,7 @@ A sink names the language by its file. Both Neovim and Helix take an `@injection
       label: (label) @_tangle)
     sink: (sink
       file: (file) @injection.filename))
-  (code) @injection.content
+  (code [(code_text) @injection.content (anchor)]+)
   (#any-of? @_tangle "Tangle" "tangle"))
 
 ## Named by the Package file
@@ -268,7 +270,7 @@ A `{Tangle}` section without a sink writes the chapter's own file, the one its `
       specifier: (specifier
         label: (label) @_tangle)
       !sink)
-    (code) @injection.content)
+    (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_key "Package")
   (#any-of? @_tangle "Tangle" "tangle"))
 
@@ -287,7 +289,7 @@ A section with neither a specifier nor a sink takes the chapter's `Language` fie
     (heading
       !specifier
       !sink)
-    (code) @injection.content)
+    (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_key "Language")
   (#not-eq? @injection.language "Prose")
   (#not-eq? @injection.language "prose"))
@@ -302,7 +304,7 @@ A section in Prose is Markdown, whether a `{Prose}` specifier says so or the cha
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#any-of? @_language "Prose" "prose")
   (#set! injection.language "markdown"))
 
@@ -315,7 +317,7 @@ A section in Prose is Markdown, whether a `{Prose}` specifier says so or the cha
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#any-of? @_language "Prose" "prose")
   (#set! injection.language "markdown"))
@@ -332,7 +334,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
   (heading
     specifier: (specifier
       label: (label) @injection.language))
-  (code) @injection.content
+  (code [(code_text) @injection.content (anchor)]+)
   (#not-match? @injection.language "^(Tangle|tangle|TOC|toc|Prose|prose)$")
   (#not-match? @injection.language "^(TypeScript|JavaScript|JSON|YAML|TOML|Markdown|CSS|HTML|Dockerfile|Rust|Python|Go|Lua|C|Bash)$"))
 
@@ -340,7 +342,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_language "TypeScript")
   (#set! injection.language "typescript"))
 
@@ -348,7 +350,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_language "JavaScript")
   (#set! injection.language "javascript"))
 
@@ -356,7 +358,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_language "JSON")
   (#set! injection.language "json"))
 
@@ -364,7 +366,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_language "YAML")
   (#set! injection.language "yaml"))
 
@@ -372,7 +374,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_language "TOML")
   (#set! injection.language "toml"))
 
@@ -380,7 +382,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_language "Markdown")
   (#set! injection.language "markdown"))
 
@@ -388,7 +390,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_language "CSS")
   (#set! injection.language "css"))
 
@@ -396,7 +398,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_language "HTML")
   (#set! injection.language "html"))
 
@@ -404,7 +406,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_language "Dockerfile")
   (#set! injection.language "dockerfile"))
 
@@ -412,7 +414,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_language "Rust")
   (#set! injection.language "rust"))
 
@@ -420,7 +422,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_language "Python")
   (#set! injection.language "python"))
 
@@ -428,7 +430,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_language "Go")
   (#set! injection.language "go"))
 
@@ -436,7 +438,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_language "Lua")
   (#set! injection.language "lua"))
 
@@ -444,7 +446,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_language "C")
   (#set! injection.language "c"))
 
@@ -452,7 +454,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
   (heading
     specifier: (specifier
       label: (label) @_language))
-  (code) @injection.content)
+  (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_language "Bash")
   (#set! injection.language "bash"))
 
@@ -465,7 +467,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
     (heading
       !specifier
       !sink)
-    (code) @injection.content)
+    (code [(code_text) @injection.content (anchor)]+))
   (#eq? @_key "Language")
   (#not-match? @injection.language "^(Prose|prose)$")
   (#not-match? @injection.language "^(TypeScript|JavaScript|JSON|YAML|TOML|Markdown|CSS|HTML|Dockerfile|Rust|Python|Go|Lua|C|Bash)$"))
@@ -479,7 +481,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#eq? @_language "TypeScript")
   (#set! injection.language "typescript"))
@@ -493,7 +495,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#eq? @_language "JavaScript")
   (#set! injection.language "javascript"))
@@ -507,7 +509,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#eq? @_language "JSON")
   (#set! injection.language "json"))
@@ -521,7 +523,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#eq? @_language "YAML")
   (#set! injection.language "yaml"))
@@ -535,7 +537,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#eq? @_language "TOML")
   (#set! injection.language "toml"))
@@ -549,7 +551,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#eq? @_language "Markdown")
   (#set! injection.language "markdown"))
@@ -563,7 +565,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#eq? @_language "CSS")
   (#set! injection.language "css"))
@@ -577,7 +579,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#eq? @_language "HTML")
   (#set! injection.language "html"))
@@ -591,7 +593,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#eq? @_language "Dockerfile")
   (#set! injection.language "dockerfile"))
@@ -605,7 +607,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#eq? @_language "Rust")
   (#set! injection.language "rust"))
@@ -619,7 +621,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#eq? @_language "Python")
   (#set! injection.language "python"))
@@ -633,7 +635,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#eq? @_language "Go")
   (#set! injection.language "go"))
@@ -647,7 +649,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#eq? @_language "Lua")
   (#set! injection.language "lua"))
@@ -661,7 +663,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#eq? @_language "C")
   (#set! injection.language "c"))
@@ -675,7 +677,7 @@ The two rules that read a name, the specifier and the chapter's `Language`, take
     (heading
       !specifier
       !sink)
-    (code) @injection.content))
+    (code [(code_text) @injection.content (anchor)]+)))
   (#eq? @_key "Language")
   (#eq? @_language "Bash")
   (#set! injection.language "bash"))

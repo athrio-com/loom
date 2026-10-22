@@ -218,25 +218,22 @@ note_marker: (_) => ':' + anchorOpen + 'Note]',
 
 A code block opens with an arrow and runs to the next tilde or heading. The plain arrow is `=>`, and the explicit arrow is `~>`, which only a tilde closes. The scanner tells the two apart, so the grammar reads either one the same way. Code may follow the arrow on the arrow's own line, and every later line of the block is code. Inside the code, only anchors are Loom's.
 
+Between the anchors, the block's text gathers into `code_text` nodes. A `code_text` node runs from the end of the arrow or of an anchor to the start of the next anchor or the end of the block. It is the part of the block written in the section's language, and the injection queries hand exactly these nodes to that language's parser. Zed and Gram need the node. They inject the whole range of every node a query captures and subtract nothing from it, so a query that captured the block itself would hand them the arrow and the anchors as well.
+
+A `code_text` node keeps its line breaks. The parser of the section's language reads the text nodes of one block as one program, with gaps where the anchors were, and a missing line break would join two lines of code into one. The scanner still decides where each line starts and ends. The grammar only gathers the line tokens, the text runs, and the line breaks into one node, and `prec.right` makes each node as long as it can be, so two text nodes never sit side by side.
+
 =>
 
 code: ($) =>
-  seq(
-    $._arrow_line,
-    optional($._space),
-    $.arrow,
-    repeat($._code_inline),
-    $._newline,
-    repeat(seq($._code_line, repeat($._code_inline), $._newline)),
-  ),
+  seq($._arrow_line, optional($._space), $.arrow, repeat(choice($.code_text, $.anchor))),
 
 arrow: (_) => choice('=>', '~>'),
 
-_code_inline: ($) => choice($._code_text, $.anchor),
+code_text: ($) => prec.right(repeat1(choice($._code_run, $._newline, $._code_line))),
 
 ## Text between the marks
 
-The text of a line is the part an editor hands to another parser: TypeScript for a code block, Markdown for prose. An editor builds that hand-off from a node's range minus its children's ranges. Neovim subtracts every named child, and Helix subtracts every child. So the text runs are hidden tokens, which appear in neither editor's list of children. That leaves only the anchors and warps to subtract, and they are exactly the spans no other parser should see.
+The text of a line is the part an editor hands to another parser: TypeScript for a code block, Markdown for prose. Neovim and Helix build that hand-off from a node's range minus its children's ranges. Neovim subtracts every named child, and Helix subtracts every child. So the text runs are hidden tokens, which appear in neither editor's list of children. In a prose block, that leaves only the anchors and warps to subtract, and they are exactly the spans no other parser should see. Zed and Gram subtract nothing, which is why a code block gathers its runs into `code_text` nodes of their own.
 
 A text run stops at a colon, because a colon may start an anchor, and the run picks the colon up again as a token of its own when no anchor follows. Prose text also stops at a brace, where a warp may open, and at a backtick. A Markdown code span is one token from backtick to backtick, so an anchor inside it is never found, the way the tokeniser masks code spans before it looks for anchors.
 
@@ -244,7 +241,7 @@ A text run stops at a colon, because a colon may start an anchor, and the run pi
 
 _text: (_) => choice(/[^`:{\r\n]+/, /:/, /\{/),
 _code_span: (_) => choice(/`[^`\r\n]*`/, /`/),
-_code_text: (_) => choice(/[^:\r\n]+/, /:/),
+_code_run: (_) => choice(/[^:\r\n]+/, /:/),
 
 ## Anchors
 
