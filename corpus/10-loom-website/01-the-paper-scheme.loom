@@ -94,20 +94,24 @@ The navy card is the infographic's ground, and it runs its own small scheme — 
 
 Two families dress the whole site. Space Grotesk at 500 sets display type and the wordmarks, and it sets nothing else. One monospace sets everything that remains — prose, interface, code, file names, commands and pixel labels alike. Naming the mono once, as a property, is what keeps the promise: no rule may write a family of its own, so two monospaces can never meet on a page.
 
+Each family is followed in its stack by stand-ins, which the browser draws with until the family's file arrives. A stand-in is a font the reader's system already has, re-cut to the measure of the family it stands in for. `Lilex Menlo` is Menlo at Lilex's width, ascent and descent, `Lilex Consolas` serves Windows, `Lilex Courier` serves a system with neither, and `Space Grotesk Arial` is Arial at Space Grotesk's. The page head declares them beside the families themselves. A line set in a stand-in breaks where Lilex would break it and stands as tall, so the page barely moves when the real face replaces it.
+
 Every size on the site comes off one list, and the list has no half-pixels in it. The scale runs from the hero wordmark down to a pixel badge, and each step names the role it serves rather than a t-shirt size, so a rule asks for the heading size and not for "large".
 
 Running text has exactly one treatment, and `--t-body` is it. A section heading and a card's sub-heading share one treatment at two sizes, both 500 weight tracked at `-0.02em`; colour may vary between them to say which thing a heading names, but never size or weight as well. Block code sits one step down at `--t-code`, and only because a fence is not a sentence.
 
 The example's stage takes the one step in between, `--t-stage`. A document being written is neither running text nor a quoted fence, and it is the only place on the site where a reader watches a line arrive rather than reads it whole.
 
-Two leadings carry the site. Headings hold at 1.25. Anything that runs past one line — prose and code equally — opens right out to 2, which is what gives the page its air. Single-line chrome keeps `normal`, and a glyph box takes 0.
+Two leadings carry the site. Headings hold at 1.25. Anything that runs past one line, prose and code alike, opens right out to 2, which is what gives the page its air.
+
+A single line of chrome, such as a nav link, a chip or a button, takes `--lead-line`, and a glyph box takes 0. The value 1.3 is the leading Lilex asks for itself, so the chrome sets the same height a browser's `normal` would give it. The site writes the number out because `normal` belongs to the font, not to the page. While a font is still on its way, the browser sets the text in a stand-in with a leading of its own. Every line box would change height when Lilex arrived and push everything under it down the page. A number holds the line box still whichever font fills it.
 
 =>
 
 :root {
   /* Faces */
-  --display: 'Space Grotesk', system-ui, -apple-system, 'Noto Color Emoji', sans-serif;
-  --mono:    'Lilex', 'IBM Plex Mono', ui-monospace, Menlo, 'Noto Color Emoji', monospace;
+  --display: 'Space Grotesk', 'Space Grotesk Arial', system-ui, -apple-system, 'Noto Color Emoji', sans-serif;
+  --mono:    'Lilex', 'Lilex Menlo', 'Lilex Consolas', 'Lilex Courier', ui-monospace, 'Noto Color Emoji', monospace;
 
   /* Sizes, by the role each one serves */
   --t-wordmark:        56px;
@@ -127,6 +131,7 @@ Two leadings carry the site. Headings hold at 1.25. Anything that runs past one 
   /* Leading */
   --lead-head: 1.25;
   --lead:      2;
+  --lead-line: 1.3;
 }
 
 ~
@@ -191,6 +196,8 @@ The page and the canvas take different grounds. The canvas is the surface a brow
 
 The base does not touch font smoothing, and that is deliberate. Setting `-webkit-font-smoothing: antialiased` moves a Mac from subpixel rendering to grayscale, which thins every stroke on the page by roughly a shade. On a site set entirely in a monospace, at fifteen pixels, on cream, that reads as a lighter and weaker face than the one the type was chosen for. The browser's own default is the right one here, so no rule overrides it.
 
+A form control does not inherit the page's leading. A browser gives every button and input a leading of `normal`, which the font decides. The install command on the landing is such a button, so its height would change the moment Lilex replaced its stand-in. The base gives every control the single-line leading instead, and a control's own rule can still set another.
+
 A link is set in body ink rather than in a colour of its own, and fades to muted ink under the cursor. Nearly every anchor on this site is a piece of chrome — a nav item, a card, a pager — and those say what they are by their shape, so a colour would only compete with the shape.
 
 Prose is the exception, because a sentence has no shape to read. A link inside a documentation article takes the accent, which is the one place on the site where a run of text has to announce that part of it is a link.
@@ -220,6 +227,8 @@ body {
   font-size: var(--t-body);
   line-height: var(--lead);
 }
+
+button, input, select, textarea { line-height: var(--lead-line); }
 
 a { color: var(--ink); text-decoration: none; }
 a:hover { color: var(--ink-3); }
@@ -424,7 +433,7 @@ Every section opens the same way: a forty-two-pixel woven mark, then a stack of 
 
 Between that block and the content beneath it sits the rhythm — thirty-six pixels, closer than the air around the section itself. A heading belongs to what follows it, so it sits nearer to its content than to its neighbours.
 
-The two lines have to fit the mark, and that is what sets the eyebrow's leading. The heading takes 1.25 over twenty-one pixels, and the gap takes four, which leaves the eyebrow about thirteen — the browser's own leading over eleven pixels of type. Together they stand a little over forty, and the mark beside them is forty-two. Let the eyebrow inherit the running text's leading of two instead and it alone grows to twenty-two, the stack overruns the mark by ten pixels, and every section head on the site is wrong in the same way.
+The two lines have to fit the mark, and that is what sets the eyebrow's leading. The heading takes 1.25 over twenty-one pixels, and the gap takes four, which leaves the eyebrow about fourteen, the single-line leading over eleven pixels of type. Together they stand about forty-four, and the mark beside them is forty-two. Let the eyebrow inherit the running text's leading of two instead and it alone grows to twenty-two, the stack overruns the mark by ten pixels, and every section head on the site is wrong in the same way.
 
 The eyebrow is the widest-tracked type on the site, uppercase in muted ink. A heading takes the mono, not the display face — Space Grotesk stops at the hero — and a sub-heading is the same treatment one step down.
 
@@ -449,7 +458,7 @@ Below six hundred and forty pixels the eyebrow goes. A phone's width belongs to 
 
 .eyebrow {
   font-size: var(--t-eyebrow);
-  line-height: normal;
+  line-height: var(--lead-line);
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--ink-3);
@@ -554,7 +563,7 @@ A syntax token is the one thing that may take a colour of its own inside a fence
   border-radius: var(--radius-sm);
   background: var(--fence);
   font-size: var(--t-code);
-  line-height: normal;
+  line-height: var(--lead-line);
   color: var(--ink-2);
 }
 
@@ -563,7 +572,7 @@ A syntax token is the one thing that may take a colour of its own inside a fence
   align-items: center;
   border-radius: 999px;
   font-size: var(--t-label);
-  line-height: normal;
+  line-height: var(--lead-line);
 }
 
 ~
@@ -588,7 +597,7 @@ The two icons are pixel drawings, and a drawing keeps its own fills: the folder 
 .tree-row .name {
   font-size: var(--t-eyebrow);
   font-weight: 600;
-  line-height: normal;
+  line-height: var(--lead-line);
   color: var(--ink);
 }
 
@@ -603,7 +612,7 @@ The two icons are pixel drawings, and a drawing keeps its own fills: the folder 
 
 ## The nav across the top
 
-The nav is a single row fifty-six pixels tall, and it centres its links around the wordmark rather than pushing them to one side. It sets its own leading back to the browser's default, because the base sets a leading of two for running prose and a nav is not prose — a link with no height of its own would otherwise stand twenty-two pixels tall for eleven pixels of text, and the row of them would read as a stack of blocks rather than a line of words. Its type is the site's smallest: eleven pixels, tracked wide, in capitals and muted ink. A link warms to the faint rule and darkens to primary ink when a reader hovers it, and the page a reader is already on wears that same treatment permanently, so the nav always says where they are.
+The nav is a single row fifty-six pixels tall, and it centres its links around the wordmark rather than pushing them to one side. It sets its own leading to the single-line one, because the base sets a leading of two for running prose and a nav is not prose — a link with no height of its own would otherwise stand twenty-two pixels tall for eleven pixels of text, and the row of them would read as a stack of blocks rather than a line of words. Its type is the site's smallest: eleven pixels, tracked wide, in capitals and muted ink. A link warms to the faint rule and darkens to primary ink when a reader hovers it, and the page a reader is already on wears that same treatment permanently, so the nav always says where they are.
 
 The wordmark is the one thing here in Space Grotesk, and it does not change colour on hover — a logo is not a link that needs to prove it is one. The beta tag hangs off its top-right corner, positioned against the wordmark rather than laid out in the row, so the row stays centred on the word. It is drawn back over the corner by three tenths of its own width, so it reads as part of the mark rather than a word beside it. It is set small in mono capitals, in violet.
 
@@ -624,7 +633,7 @@ The nav's side padding steps down with the window, from eighty pixels to twenty-
   justify-content: center;
   gap: 26px;
   height: 56px;
-  line-height: normal;
+  line-height: var(--lead-line);
   max-width: var(--measure);
   padding: 0 var(--side);
   margin: 0 auto;
@@ -1537,7 +1546,7 @@ The glyph keeps the pill it always had, and the name now sits beside it in the m
   font-family: var(--mono);
   font-weight: 600;
   font-size: var(--t-code);
-  line-height: normal;
+  line-height: var(--lead-line);
 }
 
 .mark-name {

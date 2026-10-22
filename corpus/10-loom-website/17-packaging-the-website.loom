@@ -12,7 +12,13 @@ The website is a small web application: a page the browser loads, a client that 
 
 The page is the shell the application fills. It carries an empty `#root` for the view to mount into, and the module that boots the client.
 
-The site is set in two families. Space Grotesk carries the headings, and Lilex carries everything else — the running text as well as the code, since the whole site is set in mono. Lilex has no Google entry, so it arrives as three `@font-face` rules pointing at its own files, with IBM Plex Mono standing behind it in the stack for the moment before they land. Noto Color Emoji comes along for the emoji the documentation shows.
+The site is set in two families. Space Grotesk carries the headings, and Lilex carries everything else, the running text as well as the code, since the whole site is set in mono.
+
+The site serves both families itself, from `/fonts`. Each is one variable file holding every weight the site uses, cut to the Latin letters, so the two together weigh about sixty kilobytes. A file from the site's own address needs no new connection to another server. The head also preloads both files, so the browser starts fetching them as it reads the head instead of after the stylesheet has asked. On most visits the fonts land before the first paint, and the reader never sees the page in anything else. Each file's Open Font License sits beside it.
+
+A slow visit still paints before the fonts arrive, in the stand-ins the paper scheme names. The head declares each stand-in as a `@font-face` over a font the reader's system already has, re-cut by four descriptors. `size-adjust` scales the stand-in's letters to the width of the family's letters. `ascent-override` and `descent-override` set how far a line reaches above and below its baseline, and `line-gap-override` drops any gap the system font adds. The numbers come from the fonts' own tables. Lilex's letters are 0.600 of an em wide and Menlo's 0.602, so Menlo is scaled by 99.65%, and Lilex's ascent of 0.999 is divided by that scale to 100.25%. Menlo shares its measure with DejaVu Sans Mono, so one face serves both, and Liberation Sans shares Arial's. A paragraph in a stand-in wraps at the same words and stands as tall as it will in Lilex, so the swap changes the letters and moves nothing.
+
+Noto Color Emoji still comes from Google, for the emoji the documentation and the footer show. The browser fetches it only for a page that draws an emoji.
 
 The page's icon in a browser tab is Loom's language emblem, the illuminated L among the logo's flowers. It is the emblem's light face, `loom.svg`, on its navy tile: the tile carries its own ground, so it reads on a light tab bar and a dark one alike, and its sixteen-cell grid lands one cell to a pixel at a tab's sixteen pixels. A phone saving the site to its home screen wants a picture rather than a drawing, so `apple-touch-icon.png` is the same emblem at a hundred and eighty pixels, eleven to a cell inside a two-pixel navy border.
 
@@ -41,30 +47,55 @@ The server rewrites three spots: the `#root` it fills with the rendered body, th
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="The Loom mark and wordmark above the line: Literate programming framework that keeps meaning in your codebase from evaporating." />
     <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preload" href="/fonts/lilex.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/space-grotesk.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Color+Emoji&display=swap"
-      rel="stylesheet"
-    />
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Color+Emoji&display=swap" rel="stylesheet" />
     <style>
       @font-face {
         font-family: 'Lilex';
-        src: url('https://cdn.jsdelivr.net/npm/@fontsource/lilex/files/lilex-latin-400-normal.woff2') format('woff2');
-        font-weight: 400;
+        src: url('/fonts/lilex.woff2') format('woff2');
+        font-weight: 100 700;
         font-display: swap;
       }
       @font-face {
-        font-family: 'Lilex';
-        src: url('https://cdn.jsdelivr.net/npm/@fontsource/lilex/files/lilex-latin-500-normal.woff2') format('woff2');
-        font-weight: 500;
+        font-family: 'Space Grotesk';
+        src: url('/fonts/space-grotesk.woff2') format('woff2');
+        font-weight: 300 700;
         font-display: swap;
       }
       @font-face {
-        font-family: 'Lilex';
-        src: url('https://cdn.jsdelivr.net/npm/@fontsource/lilex/files/lilex-latin-600-normal.woff2') format('woff2');
-        font-weight: 600;
-        font-display: swap;
+        font-family: 'Lilex Menlo';
+        src: local('Menlo Regular'), local('Menlo-Regular'), local('DejaVu Sans Mono');
+        size-adjust: 99.65%;
+        ascent-override: 100.25%;
+        descent-override: 30.21%;
+        line-gap-override: 0%;
+      }
+      @font-face {
+        font-family: 'Lilex Consolas';
+        src: local('Consolas');
+        size-adjust: 109.13%;
+        ascent-override: 91.54%;
+        descent-override: 27.58%;
+        line-gap-override: 0%;
+      }
+      @font-face {
+        font-family: 'Lilex Courier';
+        src: local('Courier New'), local('CourierNewPSMT');
+        size-adjust: 99.98%;
+        ascent-override: 99.92%;
+        descent-override: 30.11%;
+        line-gap-override: 0%;
+      }
+      @font-face {
+        font-family: 'Space Grotesk Arial';
+        src: local('Arial'), local('ArialMT'), local('Liberation Sans'), local('Arimo');
+        size-adjust: 109.46%;
+        ascent-override: 89.9%;
+        descent-override: 26.68%;
+        line-gap-override: 0%;
       }
     </style>
 
