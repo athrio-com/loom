@@ -170,3 +170,86 @@ describe('LoomCompiler — composition projects the de re as a filesystem', () =
   )
 })
 
+
+// The compiler keeps the last composition and recomposes only what a change can
+// reach. book.loom tangles a file that inlines a section of chapter.loom through a
+// cross-file anchor; aside.loom tangles a file of its own that anchors nothing. A
+// mutable in-memory source stands in for the disk, so a probe can edit a chapter,
+// invalidate it as the editor does, and compose again.
+const editable: Record<string, string> = {
+  '/book.loom': `---
+Language: TypeScript
+Package: book.ts
+---
+
+# The book {Tangle}
+
+=>
+
+::[The chapter](chapter.loom)
+`,
+  '/chapter.loom': `---
+Language: TypeScript
+---
+
+# The chapter
+
+=>
+
+export const c = 1
+`,
+  '/aside.loom': `---
+Language: TypeScript
+Package: aside.ts
+---
+
+# The aside {Tangle}
+
+=>
+
+export const aside = 0
+`,
+}
+
+const editableLayer = Layer.provide(
+  Layer.merge(LoomCompiler.layer, LoomMemo.layer),
+  Layer.merge(
+    Layer.succeed(DocumentSource, {
+      read: (path: string) => Effect.succeed(editable[path] ?? ''),
+      list: Option.some(() => Effect.succeed(Object.keys(editable))),
+    }),
+    TestConfig,
+  ),
+)
+
+const byRoot = <F extends { readonly rootId: string }>(files: ReadonlyArray<F>) =>
+  new Map(files.map((file) => [file.rootId, file]))
+
+describe('LoomCompiler — composition recomposes only what changed', () => {
+  it.effect('gives back the same files when nothing changed', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const first = byRoot(yield* c.composition('/book.loom'))
+      const second = byRoot(yield* c.composition('/book.loom'))
+      expect(first.get('thebook')).toBeDefined()
+      expect(second.get('thebook')).toBe(first.get('thebook'))
+      expect(second.get('theaside')).toBe(first.get('theaside'))
+    }).pipe(Effect.provide(editableLayer)),
+  )
+
+  it.effect('recomposes a file that inlines an edited section, and keeps the rest', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const before = byRoot(yield* c.composition('/book.loom'))
+      expect(before.get('thebook')?.content).toContain('export const c = 1')
+
+      editable['/chapter.loom'] = editable['/chapter.loom']!.replace('c = 1', 'c = 2')
+      yield* c.invalidate('/chapter.loom')
+      const after = byRoot(yield* c.composition('/book.loom'))
+
+      expect(after.get('thebook')?.content).toContain('export const c = 2')
+      expect(before.get('theaside')).toBeDefined()
+      expect(after.get('theaside')).toBe(before.get('theaside'))
+    }).pipe(Effect.provide(editableLayer)),
+  )
+})

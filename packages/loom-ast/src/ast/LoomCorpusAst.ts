@@ -128,11 +128,15 @@ export const reachable = (modules: Modules, entry: Path): ReadonlyArray<Path> =>
   )
 }
 
-export const transitiveDependents = (modules: Modules, entry: Path): ReadonlyArray<Path> => {
+export const dependentsOf = (
+  modules: Modules,
+  entries: ReadonlyArray<Path>,
+): ReadonlyArray<Path> => {
   const edges = anchorEdges(modules)
+  const seeds = new Set(entries)
   return pipe(
     Array.fromIterable(
-      reach([entry], (module) =>
+      reach(entries, (module) =>
         Array.getSomes(
           Array.map(edges, (edge) =>
             edge.target === module ? Option.some(edge.owner) : Option.none(),
@@ -140,9 +144,12 @@ export const transitiveDependents = (modules: Modules, entry: Path): ReadonlyArr
         ),
       ),
     ),
-    Array.filter((path) => path !== entry),
+    Array.filter((path) => !seeds.has(path)),
   )
 }
+
+export const transitiveDependents = (modules: Modules, entry: Path): ReadonlyArray<Path> =>
+  dependentsOf(modules, [entry])
 
 export type CorpusLocation = { readonly path: Path; readonly position: Position }
 

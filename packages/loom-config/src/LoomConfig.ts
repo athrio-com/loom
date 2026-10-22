@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Option, Schema } from 'effect'
+import { Context, Effect, Layer, Option, pipe, Ref, Schema } from 'effect'
 import { parse as parseYaml, parseDocument, stringify as stringifyYaml } from 'yaml'
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, resolve as resolvePath } from 'node:path'
@@ -81,6 +81,49 @@ const readManifest = (file: string): WorkspaceManifest | undefined => {
   }
 }
 
+interface KeptManifest {
+  readonly stamp: string
+  readonly manifest: WorkspaceManifest | undefined
+}
+
+type KeptManifests = Ref.Ref<ReadonlyMap<string, KeptManifest>>
+
+const manifestFileOf = (workspace: string): string =>
+  resolvePath(workspace, storeDirName, manifestName)
+
+const stampOf = (file: string): Option.Option<string> =>
+  Option.map(
+    Option.fromNullishOr(statSync(file, { throwIfNoEntry: false })),
+    (stats) => `${stats.mtimeMs}:${stats.size}`,
+  )
+
+const manifestAt = (kept: KeptManifests, file: string): Effect.Effect<WorkspaceManifest | undefined> =>
+  Effect.sync(() => stampOf(file)).pipe(
+    Effect.flatMap(
+      Option.match({
+        onNone: () => Effect.succeed(undefined),
+        onSome: (stamp) =>
+          Ref.get(kept).pipe(
+            Effect.flatMap((manifests) =>
+              pipe(
+                Option.fromNullishOr(manifests.get(file)),
+                Option.filter((entry) => entry.stamp === stamp),
+                Option.match({
+                  onSome: (entry) => Effect.succeed(entry.manifest),
+                  onNone: () =>
+                    Effect.sync(() => readManifest(file)).pipe(
+                      Effect.tap((manifest) =>
+                        Ref.update(kept, (held) => new Map(held).set(file, { stamp, manifest })),
+                      ),
+                    ),
+                }),
+              ),
+            ),
+          ),
+      }),
+    ),
+  )
+
 const serviceFor = (id: string, language: { readonly service?: string }): string =>
   language.service ?? `@athrio/loom-service-${id}`
 
@@ -138,41 +181,45 @@ const isFolder = (path: string): boolean =>
   statSync(path, { throwIfNoEntry: false })?.isDirectory() ?? false
 
 export class LoomConfig extends Context.Service<LoomConfig>()('LoomConfig', {
-  make: Effect.succeed({
-    resolve: (fromPath: string): Effect.Effect<ResolvedConfig> =>
-      Effect.sync(() => {
-        if (fromPath === '') return empty
-        const from = isFolder(fromPath) ? fromPath : dirname(fromPath)
-        const workspace = findWorkspace(from)
-        if (workspace === undefined) return empty
-        const manifest = readManifest(resolvePath(workspace, storeDirName, manifestName))
-        return manifest === undefined ? empty : resolveFromManifest(manifest, workspace, from)
-      }),
+  make: Effect.gen(function* () {
+    const kept: KeptManifests = yield* Ref.make<ReadonlyMap<string, KeptManifest>>(new Map())
+    return {
+      resolve: (fromPath: string): Effect.Effect<ResolvedConfig> =>
+        Effect.gen(function* () {
+          if (fromPath === '') return empty
+          const from = yield* Effect.sync(() => (isFolder(fromPath) ? fromPath : dirname(fromPath)))
+          const workspace = yield* Effect.sync(() => findWorkspace(from))
+          if (workspace === undefined) return empty
+          const manifest = yield* manifestAt(kept, manifestFileOf(workspace))
+          return manifest === undefined ? empty : resolveFromManifest(manifest, workspace, from)
+        }),
 
-    manifest: (fromDir: string): Effect.Effect<WorkspaceManifest | undefined> =>
-      Effect.sync(() => {
-        const workspace = findWorkspace(fromDir)
-        return workspace === undefined
-          ? undefined
-          : readManifest(resolvePath(workspace, storeDirName, manifestName))
-      }),
+      manifest: (fromDir: string): Effect.Effect<WorkspaceManifest | undefined> =>
+        Effect.sync(() => findWorkspace(fromDir)).pipe(
+          Effect.flatMap((workspace) =>
+            workspace === undefined
+              ? Effect.succeed(undefined)
+              : manifestAt(kept, manifestFileOf(workspace)),
+          ),
+        ),
 
-    materialize: (workspace: string, manifest: WorkspaceManifest): Effect.Effect<void> =>
-      Effect.sync(() => {
-        const store = resolvePath(workspace, storeDirName)
-        mkdirSync(store, { recursive: true })
-        writeFileSync(resolvePath(store, manifestName), stringifyYaml(manifest))
-      }),
+      materialize: (workspace: string, manifest: WorkspaceManifest): Effect.Effect<void> =>
+        Effect.sync(() => {
+          const store = resolvePath(workspace, storeDirName)
+          mkdirSync(store, { recursive: true })
+          writeFileSync(resolvePath(store, manifestName), stringifyYaml(manifest))
+        }),
 
-    edit: (workspace: string, path: ReadonlyArray<string>, value: unknown): Effect.Effect<void> =>
-      Effect.sync(() => {
-        const store = resolvePath(workspace, storeDirName)
-        const file = resolvePath(store, manifestName)
-        mkdirSync(store, { recursive: true })
-        const document = parseDocument(existsSync(file) ? readFileSync(file, 'utf8') : '')
-        document.setIn(path, value)
-        writeFileSync(file, document.toString())
-      }),
+      edit: (workspace: string, path: ReadonlyArray<string>, value: unknown): Effect.Effect<void> =>
+        Effect.sync(() => {
+          const store = resolvePath(workspace, storeDirName)
+          const file = resolvePath(store, manifestName)
+          mkdirSync(store, { recursive: true })
+          const document = parseDocument(existsSync(file) ? readFileSync(file, 'utf8') : '')
+          document.setIn(path, value)
+          writeFileSync(file, document.toString())
+        }),
+    }
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make)

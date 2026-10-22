@@ -130,6 +130,59 @@ const readManifest = (file: string): WorkspaceManifest | undefined => {
   }
 }
 
+## Reading a manifest once
+
+A workspace's manifest changes rarely, but it is asked for constantly. The compiler resolves every chapter of a corpus each time it builds one, and the editor builds one on nearly every request. Read and parsed afresh each time, the manifest would be the costliest step in answering a hover.
+
+So `LoomConfig` keeps each manifest it reads, together with a stamp of the file it read. The stamp is the file's modification time and size, which `stampOf` takes from one `stat` of the file. `manifestAt` stats the file again on every request. While the stamp matches the kept one, it returns the kept manifest without reading the file. When the stamp differs, because `loom add`, `loom set` or an editor rewrote the file, it reads and decodes the file afresh and keeps the new manifest in place of the old. A file that no longer exists yields no manifest and keeps nothing.
+
+The stamp makes the cache correct wherever Loom runs. The CLI, the tangler's watch and the language server all see a rewritten file at once, and none of them has to be told the file changed.
+
+=>
+
+interface KeptManifest {
+  readonly stamp: string
+  readonly manifest: WorkspaceManifest | undefined
+}
+
+type KeptManifests = Ref.Ref<ReadonlyMap<string, KeptManifest>>
+
+const manifestFileOf = (workspace: string): string =>
+  resolvePath(workspace, storeDirName, manifestName)
+
+const stampOf = (file: string): Option.Option<string> =>
+  Option.map(
+    Option.fromNullishOr(statSync(file, { throwIfNoEntry: false })),
+    (stats) => `${stats.mtimeMs}:${stats.size}`,
+  )
+
+const manifestAt = (kept: KeptManifests, file: string): Effect.Effect<WorkspaceManifest | undefined> =>
+  Effect.sync(() => stampOf(file)).pipe(
+    Effect.flatMap(
+      Option.match({
+        onNone: () => Effect.succeed(undefined),
+        onSome: (stamp) =>
+          Ref.get(kept).pipe(
+            Effect.flatMap((manifests) =>
+              pipe(
+                Option.fromNullishOr(manifests.get(file)),
+                Option.filter((entry) => entry.stamp === stamp),
+                Option.match({
+                  onSome: (entry) => Effect.succeed(entry.manifest),
+                  onNone: () =>
+                    Effect.sync(() => readManifest(file)).pipe(
+                      Effect.tap((manifest) =>
+                        Ref.update(kept, (held) => new Map(held).set(file, { stamp, manifest })),
+                      ),
+                    ),
+                }),
+              ),
+            ),
+          ),
+      }),
+    ),
+  )
+
 ## Resolving the services
 
 The `services` map is the one resolved field the manifest does not carry directly. Every activated language resolves to the package that serves it: `servicesOf` maps each language id to its service, taking the language's own `service` when it set one and the conventional `@athrio/loom-service-<id>` when it did not.
@@ -207,9 +260,11 @@ const resolveFromManifest = (
 
 ## The service
 
-`LoomConfig` is the service the rest of Loom calls. Its `resolve` takes any path inside a project and returns the configuration that applies to it. The path is usually a `.loom` file, and then `resolve` starts from the folder the file sits in. The path can also be a folder, as when the tangler walks one, and then `resolve` starts from that folder itself. So a workspace's own root resolves to that workspace rather than to whatever lies above it. `isFolder` tells the two apart, and a path that names nothing on disk, such as an in-memory document's, counts as a file. From its starting folder `resolve` finds the workspace, reads the compiled manifest, and resolves against it. A path with no workspace, no manifest, or no name at all resolves to the empty configuration.
+`LoomConfig` is the service the rest of Loom calls. Its `resolve` takes any path inside a project and returns the configuration that applies to it. The path is usually a `.loom` file, and then `resolve` starts from the folder the file sits in. The path can also be a folder, as when the tangler walks one, and then `resolve` starts from that folder itself. So a workspace's own root resolves to that workspace rather than to whatever lies above it. `isFolder` tells the two apart, and a path that names nothing on disk, such as an in-memory document's, counts as a file. From its starting folder `resolve` finds the workspace, takes the compiled manifest from `manifestAt`, and resolves against it. A path with no workspace, no manifest, or no name at all resolves to the empty configuration.
 
-Its `manifest` method reads a workspace's whole manifest, found by walking up from a directory. The activation commands and the editor's service loader share that read. Its `materialize` method writes a whole manifest to the workspace's `.loom/config.yaml`, creating the store directory if it is absent. `loom init` uses it, since it writes the file from nothing.
+Its `manifest` method gives a workspace's whole manifest, found by walking up from a directory, and takes it from `manifestAt` too. The activation commands and the editor's service loader share that read. Its `materialize` method writes a whole manifest to the workspace's `.loom/config.yaml`, creating the store directory if it is absent. `loom init` uses it, since it writes the file from nothing.
+
+The service holds the kept manifests in a `Ref`, created once when its layer is built, so every caller of one `LoomConfig` shares them.
 
 Its `edit` method changes one value in the file and leaves the rest of the file as it was written. It takes the path to the value, such as `variables` and then `version`, and the value to put there. It edits the parsed YAML document, not the decoded manifest, because decoding keeps only the keys this Loom knows. So a key that a newer Loom added survives the edit, and so do the order of the keys and the comments between them. This matters at every release. The published Loom that writes the next version into the file is always a release older than the file it edits.
 
@@ -219,41 +274,45 @@ const isFolder = (path: string): boolean =>
   statSync(path, { throwIfNoEntry: false })?.isDirectory() ?? false
 
 export class LoomConfig extends Context.Service<LoomConfig>()('LoomConfig', {
-  make: Effect.succeed({
-    resolve: (fromPath: string): Effect.Effect<ResolvedConfig> =>
-      Effect.sync(() => {
-        if (fromPath === '') return empty
-        const from = isFolder(fromPath) ? fromPath : dirname(fromPath)
-        const workspace = findWorkspace(from)
-        if (workspace === undefined) return empty
-        const manifest = readManifest(resolvePath(workspace, storeDirName, manifestName))
-        return manifest === undefined ? empty : resolveFromManifest(manifest, workspace, from)
-      }),
+  make: Effect.gen(function* () {
+    const kept: KeptManifests = yield* Ref.make<ReadonlyMap<string, KeptManifest>>(new Map())
+    return {
+      resolve: (fromPath: string): Effect.Effect<ResolvedConfig> =>
+        Effect.gen(function* () {
+          if (fromPath === '') return empty
+          const from = yield* Effect.sync(() => (isFolder(fromPath) ? fromPath : dirname(fromPath)))
+          const workspace = yield* Effect.sync(() => findWorkspace(from))
+          if (workspace === undefined) return empty
+          const manifest = yield* manifestAt(kept, manifestFileOf(workspace))
+          return manifest === undefined ? empty : resolveFromManifest(manifest, workspace, from)
+        }),
 
-    manifest: (fromDir: string): Effect.Effect<WorkspaceManifest | undefined> =>
-      Effect.sync(() => {
-        const workspace = findWorkspace(fromDir)
-        return workspace === undefined
-          ? undefined
-          : readManifest(resolvePath(workspace, storeDirName, manifestName))
-      }),
+      manifest: (fromDir: string): Effect.Effect<WorkspaceManifest | undefined> =>
+        Effect.sync(() => findWorkspace(fromDir)).pipe(
+          Effect.flatMap((workspace) =>
+            workspace === undefined
+              ? Effect.succeed(undefined)
+              : manifestAt(kept, manifestFileOf(workspace)),
+          ),
+        ),
 
-    materialize: (workspace: string, manifest: WorkspaceManifest): Effect.Effect<void> =>
-      Effect.sync(() => {
-        const store = resolvePath(workspace, storeDirName)
-        mkdirSync(store, { recursive: true })
-        writeFileSync(resolvePath(store, manifestName), stringifyYaml(manifest))
-      }),
+      materialize: (workspace: string, manifest: WorkspaceManifest): Effect.Effect<void> =>
+        Effect.sync(() => {
+          const store = resolvePath(workspace, storeDirName)
+          mkdirSync(store, { recursive: true })
+          writeFileSync(resolvePath(store, manifestName), stringifyYaml(manifest))
+        }),
 
-    edit: (workspace: string, path: ReadonlyArray<string>, value: unknown): Effect.Effect<void> =>
-      Effect.sync(() => {
-        const store = resolvePath(workspace, storeDirName)
-        const file = resolvePath(store, manifestName)
-        mkdirSync(store, { recursive: true })
-        const document = parseDocument(existsSync(file) ? readFileSync(file, 'utf8') : '')
-        document.setIn(path, value)
-        writeFileSync(file, document.toString())
-      }),
+      edit: (workspace: string, path: ReadonlyArray<string>, value: unknown): Effect.Effect<void> =>
+        Effect.sync(() => {
+          const store = resolvePath(workspace, storeDirName)
+          const file = resolvePath(store, manifestName)
+          mkdirSync(store, { recursive: true })
+          const document = parseDocument(existsSync(file) ? readFileSync(file, 'utf8') : '')
+          document.setIn(path, value)
+          writeFileSync(file, document.toString())
+        }),
+    }
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make)
@@ -261,11 +320,11 @@ export class LoomConfig extends Context.Service<LoomConfig>()('LoomConfig', {
 
 ## What the module draws on
 
-Effect supplies `Schema` for every shape, `Option` for a decode that may yield nothing, the `Effect` type its methods return, and `Context` and `Layer` for the service and its layer. The `yaml` package parses and serialises the manifest, and parses the file as a document that `edit` can change in place. Bun's synchronous filesystem reads, writes, and creates directories, and tells a folder from a file; its path module resolves paths, walks to parent directories, and names the platform separator.
+Effect supplies `Schema` for every shape, `Option` for a decode that may yield nothing, the `Effect` type its methods return, `Ref` for the manifests the service keeps, `pipe` to thread a value through steps, and `Context` and `Layer` for the service and its layer. The `yaml` package parses and serialises the manifest, and parses the file as a document that `edit` can change in place. Bun's synchronous filesystem reads, writes, and creates directories, and tells a folder from a file; its path module resolves paths, walks to parent directories, and names the platform separator.
 
 =>
 
-import { Context, Effect, Layer, Option, Schema } from 'effect'
+import { Context, Effect, Layer, Option, pipe, Ref, Schema } from 'effect'
 import { parse as parseYaml, parseDocument, stringify as stringifyYaml } from 'yaml'
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, resolve as resolvePath } from 'node:path'
@@ -285,6 +344,8 @@ import { basename, dirname, resolve as resolvePath } from 'node:path'
 ::[Finding the workspace]
 
 ::[Reading the manifest]
+
+::[Reading a manifest once]
 
 ::[Resolving the services]
 

@@ -2,7 +2,7 @@ import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
 const it = effectify(it_)
 import { Effect } from 'effect'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { LoomConfig, type ResolvedConfig } from '../src/LoomConfig'
@@ -120,5 +120,45 @@ describe('LoomConfig.resolve — workspace manifest', () => {
   it('carries no package root for a file outside any corpus directory', () => {
     const dir = workspace('corpus: corpus\nlanguages:\n  typescript: {}\n')
     expect(run(join(dir, 'notes', 'scratch.loom')).packageRoot).toBeUndefined()
+  })
+})
+
+// LoomConfig keeps each manifest it reads and reuses it while the file's
+// modification time and size match. One service instance resolves twice around a
+// rewrite of the file, so the second resolve must read the rewritten manifest.
+describe('LoomConfig.resolve — a manifest rewritten while the service runs', () => {
+  const resolveTwice = (dir: string, rewrite: () => void) =>
+    Effect.runSync(
+      LoomConfig.pipe(
+        Effect.flatMap((config) =>
+          config.resolve(join(dir, 'a.loom')).pipe(
+            Effect.tap(() => Effect.sync(rewrite)),
+            Effect.flatMap((first) =>
+              Effect.map(config.resolve(join(dir, 'a.loom')), (second) => [first, second] as const),
+            ),
+          ),
+        ),
+        Effect.provide(LoomConfig.layer),
+      ),
+    )
+
+  it('reads the new manifest when the file changes size', () => {
+    const dir = workspace('primary: typescript\n')
+    const [first, second] = resolveTwice(dir, () =>
+      writeFileSync(join(dir, '.loom', 'config.yaml'), 'primary: python\n'),
+    )
+    expect(first.primary).toBe('typescript')
+    expect(second.primary).toBe('python')
+  })
+
+  it('reads the new manifest when only the modification time changes', () => {
+    const dir = workspace('primary: aaaa\n')
+    const file = join(dir, '.loom', 'config.yaml')
+    const [first, second] = resolveTwice(dir, () => {
+      writeFileSync(file, 'primary: bbbb\n')
+      utimesSync(file, new Date(), new Date(Date.now() + 60_000))
+    })
+    expect(first.primary).toBe('aaaa')
+    expect(second.primary).toBe('bbbb')
   })
 })
