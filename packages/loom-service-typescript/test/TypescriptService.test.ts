@@ -5,7 +5,7 @@ import { URI } from 'vscode-uri'
 import type { ComposedFile } from '@athrio/loom-lang-services/LanguageService'
 import { createProductProgram } from '../src/ProductProgram'
 import type { LanguageServiceContext } from '@volar/language-service'
-import { productPlugin, productTarget } from '../src/TypescriptService'
+import { knownEdit, productPlugin, productTarget } from '../src/TypescriptService'
 
 const options: ts.CompilerOptions = {
   target: ts.ScriptTarget.ES2022,
@@ -289,6 +289,38 @@ describe('productTarget finds a root\'s project', () => {
     dispose()
     expect(b.program).not.toBe(a.program)
     expect(errors.some((d) => /Cannot redeclare/.test(d.message))).toBe(false)
+  })
+})
+
+describe('knownEdit keeps only the places the editor can reach', () => {
+  it('drops an edit of a file that is neither a root nor on disk, and keeps a file the edit creates', () => {
+    const folder = realpathSync(mkdtempSync(join(tmpdir(), 'loom-known-')))
+    const onDisk = join(folder, 'disk.ts')
+    writeFileSync(onDisk, '')
+    const root = join(folder, 'root.ts')
+    const held = join(folder, 'chapter.loom.renamed.ts')
+    const created = join(folder, 'moved.ts')
+    const uri = (path: string) => URI.file(path).toString()
+    const range = { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } }
+    const change = (path: string) => ({
+      textDocument: { uri: uri(path), version: null },
+      edits: [{ range, newText: 'x' }],
+    })
+    const kept = knownEdit([rootAt(root, join(folder, 'a.loom'), '')], {
+      changes: { [uri(held)]: [], [uri(root)]: [] },
+      documentChanges: [
+        { kind: 'create', uri: uri(created) },
+        change(created),
+        change(held),
+        change(onDisk),
+      ],
+    })
+    expect(Object.keys(kept.changes ?? {})).toEqual([uri(root)])
+    expect(
+      (kept.documentChanges ?? []).map((each) =>
+        'textDocument' in each ? URI.parse(each.textDocument.uri).fsPath : each.kind,
+      ),
+    ).toEqual(['create', created, onDisk])
   })
 })
 

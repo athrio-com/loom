@@ -87,7 +87,7 @@ export const configNear = (): ((path: string) => Option.Option<string>) => {
 
 A request arrives on an embedded document — one Product of a `.loom`, a composition root with its members already folded in. `productTarget` decodes that document's URI back to the `.loom` path and the Product's id, and serves only a TypeScript-family document — `typescript`, `tsx`, `javascript`, or `jsx`. It declines the rest, so a JSON or CSS Product the `.loom` also holds falls to its own service. It then reads the file's composition — every root in the corpus that tangles to a file, at the path it tangles to — and looks for the one this document edits.
 
-A root that tangles to a file is checked at that path, the live buffer overriding what is on disk. A root that tangles nowhere — a section with no file sink — has no path of its own, so `productTarget` checks it beside its `.loom` under a synthetic name, and marks it `loose`, since no `tsconfig.json` includes that name. Either way it hands the program the whole composition, so one root's `import` of another resolves against the other's composition. It returns the edited root's path for the caller to query.
+A root that tangles to a file is checked at that path, the live buffer overriding what is on disk. A root that tangles nowhere — a section with no file sink — has no path of its own, so `productTarget` checks it beside its `.loom` under a synthetic name, and marks it `loose`, so the program knows the root belongs to its loom alone rather than to a file the project wrote. Either way it hands the program the whole composition, so one root's `import` of another resolves against the other's composition. It returns the edited root's path for the caller to query.
 
 `productTarget` hands the composition to the program of the edited root's project. A `ProductProject` names that program by its `key`. The key is the path of the `tsconfig.json` that governs the file the root tangles to, so every loom that tangles into one package shares that package's program. When no `tsconfig.json` governs the file, the key is the root's own `.loom`, and the loom keeps a program of its own. Nothing says that two looms outside every project belong together. A TypeScript 6 program checks the roots it lists as one, and two scripts checked as one share a global scope, so a top-level name declared in each would clash although each runs alone.
 
@@ -228,7 +228,51 @@ export const nativeProjectsOf = (
 
 ~
 
-A result that names a place — a definition, a reference, the edits of a rename or a code action — comes back under the path the program checks. `embeddedUriOf` rewrites that path to the embedded document Volar knows: it finds the root the program holds there and encodes its `.loom` and id back through `encodeEmbeddedDocumentUri`. Volar then maps the result to the `.loom`, rather than opening a file that may not be on disk. A path that is no root the program holds — a real file under `node_modules` — passes through unchanged. A path that is neither a root nor a file on disk names nothing the editor could open or edit. The native program can name such a path for a loose root it still holds open while an older question waits, after the section was renamed or deleted. `known` tells the two apart, and the plugin drops every place, every reference and every edit, whose path it does not know, rather than send the editor to a file that does not exist.
+A result that names a place — a definition, a reference, the edits of a rename or a code action — comes back under the path the program checks. `embeddedUriOf` rewrites that path to the embedded document Volar knows: it finds the root the program holds there and encodes its `.loom` and id back through `encodeEmbeddedDocumentUri`. Volar then maps the result to the `.loom`, rather than opening a file that may not be on disk. A path that is no root the program holds — a real file under `node_modules` — passes through unchanged.
+
+A path that is neither a root nor a file on disk names nothing the editor could open or edit. The native program can name such a path for a loose root it still holds open while an older question waits, after the section was renamed or deleted. `known` tells a path the editor can reach from one it cannot, and the plugin drops every place, every reference and every edit, whose path it does not know, rather than send the editor to a file that does not exist. One kind of path is reachable although it exists nowhere yet: a file the same edit creates, or the new name of a file the same edit renames. `knownEdit` counts those as known, so a refactor that moves code into a new file keeps the code it moves.
+
+=>
+
+type DocumentChange = NonNullable<WorkspaceEdit['documentChanges']>[number]
+
+export const known =
+  (roots: ReadonlyArray<ComposedFile>, created: ReadonlySet<string> = new Set()) =>
+  (uri: string): boolean => {
+    const path = URI.parse(uri).fsPath
+    return created.has(path) || Array.some(roots, (file) => file.path === path) || existsSync(path)
+  }
+
+const createdBy = (change: DocumentChange): ReadonlyArray<string> =>
+  Match.value(change).pipe(
+    Match.when(
+      (each): each is CreateFile => 'kind' in each && each.kind === 'create',
+      (each) => [URI.parse(each.uri).fsPath],
+    ),
+    Match.when(
+      (each): each is RenameFile => 'kind' in each && each.kind === 'rename',
+      (each) => [URI.parse(each.newUri).fsPath],
+    ),
+    Match.orElse(() => []),
+  )
+
+export const knownEdit = (roots: ReadonlyArray<ComposedFile>, edit: WorkspaceEdit): WorkspaceEdit => {
+  const isKnown = known(roots, new Set(Array.flatMap(edit.documentChanges ?? [], createdBy)))
+  return {
+    ...edit,
+    changes: Option.match(Option.fromNullishOr(edit.changes), {
+      onNone: () => undefined,
+      onSome: (changes) => Object.fromEntries(Array.filter(Object.entries(changes), ([uri]) => isKnown(uri))),
+    }),
+    documentChanges: Option.match(Option.fromNullishOr(edit.documentChanges), {
+      onNone: () => undefined,
+      onSome: (changes) =>
+        Array.filter(changes, (change) => !('textDocument' in change) || isKnown(change.textDocument.uri)),
+    }),
+  }
+}
+
+~
 
 Go-to on an `import` specifier is the one result that names a whole file rather than a place in it: TypeScript points it at the module's start, `(0, 0)`. `remapDefinition` catches that. When a definition lands at the start of a composition root, it redirects to that root's `heading` — the section that tangles the file — so the author arrives at `# The temperature library`, not the transcluded line the composed file opens with. Every other definition takes the `embeddedUriOf` path.
 
@@ -324,47 +368,46 @@ export const productPlugin = (
         reach,
       )
 
-    const known =
-      (roots: ReadonlyArray<ComposedFile>) =>
-      (uri: string): boolean => {
-        const path = URI.parse(uri).fsPath
-        return Array.some(roots, (file) => file.path === path) || existsSync(path)
-      }
-
-    const embeddedUriOf = (roots: ReadonlyArray<ComposedFile>, uri: string): string =>
-      Option.match(
-        Array.findFirst(roots, (file) => file.path === URI.parse(uri).fsPath),
+    const embeddedUriOf = (roots: ReadonlyArray<ComposedFile>, uri: string): string => {
+      const path = URI.parse(uri).fsPath
+      return Option.match(
+        Array.findFirst(roots, (file) => file.path === path),
         {
           onNone: () => uri,
           onSome: (file) =>
             context.encodeEmbeddedDocumentUri(URI.file(file.loomPath), file.rootId).toString(),
         },
       )
+    }
 
-    const remapEdit = (roots: ReadonlyArray<ComposedFile>, edit: WorkspaceEdit): WorkspaceEdit => ({
-      ...edit,
-      changes:
-        edit.changes === undefined
-          ? undefined
-          : Object.fromEntries(
-              Object.entries(edit.changes)
-                .filter(([uri]) => known(roots)(uri))
-                .map(([uri, edits]) => [embeddedUriOf(roots, uri), edits]),
+    const remapEdit = (roots: ReadonlyArray<ComposedFile>, edit: WorkspaceEdit): WorkspaceEdit => {
+      const kept = knownEdit(roots, edit)
+      return {
+        ...kept,
+        changes: Option.match(Option.fromNullishOr(kept.changes), {
+          onNone: () => undefined,
+          onSome: (changes) =>
+            Object.fromEntries(
+              Array.map(Object.entries(changes), ([uri, edits]) => [embeddedUriOf(roots, uri), edits] as const),
             ),
-      documentChanges: edit.documentChanges
-        ?.filter((change) => !('textDocument' in change) || known(roots)(change.textDocument.uri))
-        .map((change) =>
-          'textDocument' in change
-            ? {
-                ...change,
-                textDocument: {
-                  ...change.textDocument,
-                  uri: embeddedUriOf(roots, change.textDocument.uri),
-                },
-              }
-            : change,
-        ),
-    })
+        }),
+        documentChanges: Option.match(Option.fromNullishOr(kept.documentChanges), {
+          onNone: () => undefined,
+          onSome: (changes) =>
+            Array.map(changes, (change) =>
+              'textDocument' in change
+                ? {
+                    ...change,
+                    textDocument: {
+                      ...change.textDocument,
+                      uri: embeddedUriOf(roots, change.textDocument.uri),
+                    },
+                  }
+                : change,
+            ),
+        }),
+      }
+    }
 
     const remapAction = (roots: ReadonlyArray<ComposedFile>, action: CodeAction): CodeAction =>
       action.edit === undefined ? action : { ...action, edit: remapEdit(roots, action.edit) }
@@ -577,16 +620,18 @@ export default TypescriptService
 
 ## What the service draws on
 
-The service builds on `@athrio/loom-lang-services` for the `LanguageService` contract, the `TypescriptSdk` and `Composition` capabilities with the `TypescriptSdkApi` and `FetchedTypeScript` the first lends, the `ComposedFile` shape each composition root takes, and the `FormatRequest` a formatter answers with the `ServiceError` it fails with; and on its own `ProductProgram`, with the `ProductFile` each root syncs as, and the native program with `compilerChoiceFor`, which chooses the compiler, `executableOf`, which reads the executable a choice runs, `projectFolder`, which locates a project, `createUnavailableProgram`, for a project that cannot have its compiler, and `NativeProjectOf` with `inferredProject`, which name the project TypeScript 7 places a root in. From Effect it takes `Effect` for the `plugins` body, `Array`, `Option`, and `pipe` to search the composition, and `Result` to read the TypeScript 6 the capability loads or the reason it has none; from Volar, the `LanguageServicePlugin` type, with `CodeAction`, `WorkspaceEdit`, `LocationLink`, and `Range` for the results and edits the plugin moves back to the `.loom`; the `URI` type to decode an embedded document back to its `.loom`; Node's `statSync`, `dirname` and `join` to walk for a `tsconfig.json`, and `existsSync` to tell a result's file on disk from one that is nowhere. Node's `createRequire` finds a project's own Prettier, and `pathToFileURL` turns the file it finds into the address `import` takes. The type `TypeScript` names the TypeScript 6 module a `Classic` program runs on.
+The service builds on `@athrio/loom-lang-services` for the `LanguageService` contract, the `TypescriptSdk` and `Composition` capabilities with the `TypescriptSdkApi` and `FetchedTypeScript` the first lends, the `ComposedFile` shape each composition root takes, and the `FormatRequest` a formatter answers with the `ServiceError` it fails with; and on its own `ProductProgram`, with the `ProductFile` each root syncs as, and the native program with `compilerChoiceFor`, which chooses the compiler, `executableOf`, which reads the executable a choice runs, `projectFolder`, which locates a project, `createUnavailableProgram`, for a project that cannot have its compiler, and `NativeProjectOf` with `inferredProject`, which name the project TypeScript 7 places a root in. From Effect it takes `Effect` for the `plugins` body, `Array`, `Option`, and `pipe` to search the composition, `Match` to read which file an edit creates, and `Result` to read the TypeScript 6 the capability loads or the reason it has none; from Volar, the `LanguageServicePlugin` type, with `CodeAction`, `WorkspaceEdit`, `LocationLink`, and `Range` for the results and edits the plugin moves back to the `.loom`, and `CreateFile` and `RenameFile` for the files an edit makes; the `URI` type to decode an embedded document back to its `.loom`; Node's `statSync`, `dirname` and `join` to walk for a `tsconfig.json`, and `existsSync` to tell a result's file on disk from one that is nowhere. Node's `createRequire` finds a project's own Prettier, and `pathToFileURL` turns the file it finds into the address `import` takes. The type `TypeScript` names the TypeScript 6 module a `Classic` program runs on.
 
 =>
 
-import { Array, Effect, Option, pipe, Result } from 'effect'
+import { Array, Effect, Match, Option, pipe, Result } from 'effect'
 import type {
   CodeAction,
+  CreateFile,
   LanguageServicePlugin,
   LocationLink,
   Range,
+  RenameFile,
   WorkspaceEdit,
 } from '@volar/language-service'
 import { URI } from 'vscode-uri'
@@ -649,7 +694,7 @@ import { URI } from 'vscode-uri'
 import type { ComposedFile } from '@athrio/loom-lang-services/LanguageService'
 import { createProductProgram } from '../src/ProductProgram'
 import type { LanguageServiceContext } from '@volar/language-service'
-import { productPlugin, productTarget } from '../src/TypescriptService'
+import { knownEdit, productPlugin, productTarget } from '../src/TypescriptService'
 
 const options: ts.CompilerOptions = {
   target: ts.ScriptTarget.ES2022,
@@ -952,6 +997,44 @@ describe('productTarget finds a root\'s project', () => {
   })
 })
 
+## Testing the places the editor can reach
+
+`knownEdit` keeps the parts of an edit the editor can apply. The case writes one file to a scratch folder and names one root, then hands `knownEdit` an edit that touches the root, the file on disk, a loose root held open after its section was renamed, and a file the edit itself creates. The edit of the held root goes, from `changes` and from `documentChanges` alike. The root, the file on disk, the new file and its content stay.
+
+=>
+
+describe('knownEdit keeps only the places the editor can reach', () => {
+  it('drops an edit of a file that is neither a root nor on disk, and keeps a file the edit creates', () => {
+    const folder = realpathSync(mkdtempSync(join(tmpdir(), 'loom-known-')))
+    const onDisk = join(folder, 'disk.ts')
+    writeFileSync(onDisk, '')
+    const root = join(folder, 'root.ts')
+    const held = join(folder, 'chapter.loom.renamed.ts')
+    const created = join(folder, 'moved.ts')
+    const uri = (path: string) => URI.file(path).toString()
+    const range = { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } }
+    const change = (path: string) => ({
+      textDocument: { uri: uri(path), version: null },
+      edits: [{ range, newText: 'x' }],
+    })
+    const kept = knownEdit([rootAt(root, join(folder, 'a.loom'), '')], {
+      changes: { [uri(held)]: [], [uri(root)]: [] },
+      documentChanges: [
+        { kind: 'create', uri: uri(created) },
+        change(created),
+        change(held),
+        change(onDisk),
+      ],
+    })
+    expect(Object.keys(kept.changes ?? {})).toEqual([uri(root)])
+    expect(
+      (kept.documentChanges ?? []).map((each) =>
+        'textDocument' in each ? URI.parse(each.textDocument.uri).fsPath : each.kind,
+      ),
+    ).toEqual(['create', created, onDisk])
+  })
+})
+
 ## Testing the plugin itself
 
 These cases drive `productPlugin` itself, with a stand-in for the part of Volar's context it reads. `standInContext` encodes an embedded document's address as a `loom-embedded` URI that carries the `.loom`'s path and the root's id, and decodes it back.
@@ -1142,5 +1225,7 @@ describe('productPlugin completes as the person types', () => {
 ::[Testing how a request finds its program]
 
 ::[Testing a project's program]
+
+::[Testing the places the editor can reach]
 
 ::[Testing the plugin itself]

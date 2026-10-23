@@ -1,9 +1,11 @@
-import { Array, Effect, Option, pipe, Result } from 'effect'
+import { Array, Effect, Match, Option, pipe, Result } from 'effect'
 import type {
   CodeAction,
+  CreateFile,
   LanguageServicePlugin,
   LocationLink,
   Range,
+  RenameFile,
   WorkspaceEdit,
 } from '@volar/language-service'
 import { URI } from 'vscode-uri'
@@ -193,6 +195,44 @@ export const nativeProjectsOf = (
       : Option.none()
 }
 
+type DocumentChange = NonNullable<WorkspaceEdit['documentChanges']>[number]
+
+export const known =
+  (roots: ReadonlyArray<ComposedFile>, created: ReadonlySet<string> = new Set()) =>
+  (uri: string): boolean => {
+    const path = URI.parse(uri).fsPath
+    return created.has(path) || Array.some(roots, (file) => file.path === path) || existsSync(path)
+  }
+
+const createdBy = (change: DocumentChange): ReadonlyArray<string> =>
+  Match.value(change).pipe(
+    Match.when(
+      (each): each is CreateFile => 'kind' in each && each.kind === 'create',
+      (each) => [URI.parse(each.uri).fsPath],
+    ),
+    Match.when(
+      (each): each is RenameFile => 'kind' in each && each.kind === 'rename',
+      (each) => [URI.parse(each.newUri).fsPath],
+    ),
+    Match.orElse(() => []),
+  )
+
+export const knownEdit = (roots: ReadonlyArray<ComposedFile>, edit: WorkspaceEdit): WorkspaceEdit => {
+  const isKnown = known(roots, new Set(Array.flatMap(edit.documentChanges ?? [], createdBy)))
+  return {
+    ...edit,
+    changes: Option.match(Option.fromNullishOr(edit.changes), {
+      onNone: () => undefined,
+      onSome: (changes) => Object.fromEntries(Array.filter(Object.entries(changes), ([uri]) => isKnown(uri))),
+    }),
+    documentChanges: Option.match(Option.fromNullishOr(edit.documentChanges), {
+      onNone: () => undefined,
+      onSome: (changes) =>
+        Array.filter(changes, (change) => !('textDocument' in change) || isKnown(change.textDocument.uri)),
+    }),
+  }
+}
+
 interface ActionOrigin {
   readonly document: string
   readonly original: unknown
@@ -273,47 +313,46 @@ export const productPlugin = (
         reach,
       )
 
-    const known =
-      (roots: ReadonlyArray<ComposedFile>) =>
-      (uri: string): boolean => {
-        const path = URI.parse(uri).fsPath
-        return Array.some(roots, (file) => file.path === path) || existsSync(path)
-      }
-
-    const embeddedUriOf = (roots: ReadonlyArray<ComposedFile>, uri: string): string =>
-      Option.match(
-        Array.findFirst(roots, (file) => file.path === URI.parse(uri).fsPath),
+    const embeddedUriOf = (roots: ReadonlyArray<ComposedFile>, uri: string): string => {
+      const path = URI.parse(uri).fsPath
+      return Option.match(
+        Array.findFirst(roots, (file) => file.path === path),
         {
           onNone: () => uri,
           onSome: (file) =>
             context.encodeEmbeddedDocumentUri(URI.file(file.loomPath), file.rootId).toString(),
         },
       )
+    }
 
-    const remapEdit = (roots: ReadonlyArray<ComposedFile>, edit: WorkspaceEdit): WorkspaceEdit => ({
-      ...edit,
-      changes:
-        edit.changes === undefined
-          ? undefined
-          : Object.fromEntries(
-              Object.entries(edit.changes)
-                .filter(([uri]) => known(roots)(uri))
-                .map(([uri, edits]) => [embeddedUriOf(roots, uri), edits]),
+    const remapEdit = (roots: ReadonlyArray<ComposedFile>, edit: WorkspaceEdit): WorkspaceEdit => {
+      const kept = knownEdit(roots, edit)
+      return {
+        ...kept,
+        changes: Option.match(Option.fromNullishOr(kept.changes), {
+          onNone: () => undefined,
+          onSome: (changes) =>
+            Object.fromEntries(
+              Array.map(Object.entries(changes), ([uri, edits]) => [embeddedUriOf(roots, uri), edits] as const),
             ),
-      documentChanges: edit.documentChanges
-        ?.filter((change) => !('textDocument' in change) || known(roots)(change.textDocument.uri))
-        .map((change) =>
-          'textDocument' in change
-            ? {
-                ...change,
-                textDocument: {
-                  ...change.textDocument,
-                  uri: embeddedUriOf(roots, change.textDocument.uri),
-                },
-              }
-            : change,
-        ),
-    })
+        }),
+        documentChanges: Option.match(Option.fromNullishOr(kept.documentChanges), {
+          onNone: () => undefined,
+          onSome: (changes) =>
+            Array.map(changes, (change) =>
+              'textDocument' in change
+                ? {
+                    ...change,
+                    textDocument: {
+                      ...change.textDocument,
+                      uri: embeddedUriOf(roots, change.textDocument.uri),
+                    },
+                  }
+                : change,
+            ),
+        }),
+      }
+    }
 
     const remapAction = (roots: ReadonlyArray<ComposedFile>, action: CodeAction): CodeAction =>
       action.edit === undefined ? action : { ...action, edit: remapEdit(roots, action.edit) }

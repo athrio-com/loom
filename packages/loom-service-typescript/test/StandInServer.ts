@@ -35,6 +35,9 @@ const handle = (message) => {
   if (uri.includes('crash') && message.method !== 'textDocument/didClose') return crash()
   if (uri.includes('boom') && message.method === 'textDocument/hover') return crash()
   if (uri.includes('throw') && message.method === 'textDocument/hover') return throwLikeNode()
+  if (uri.includes('starve') && message.method === 'textDocument/hover') {
+    return process.stderr.write('error: config warning\\nfatal error: runtime: out of memory', () => process.exit(2))
+  }
   if (uri.includes('garble') && message.method === 'textDocument/hover') {
     return process.stdout.write('Content-Length: 9\\r\\n\\r\\nnot json!')
   }

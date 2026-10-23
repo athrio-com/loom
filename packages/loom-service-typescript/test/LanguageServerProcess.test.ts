@@ -67,6 +67,8 @@ describe('LanguageServerProcess never takes the host down when a server cannot s
     const stand = standInServer()
     const { failure, alive } = await unstartable(stand.command, join(stand.folder, 'gone'))
     expect(failure).toBeInstanceOf(LanguageServerFailed)
+    expect((failure as LanguageServerFailed).message).toContain('working folder')
+    expect((failure as LanguageServerFailed).message).toContain('does not exist')
     expect(alive).toBe(false)
   })
 
@@ -126,6 +128,7 @@ describe('LanguageServerProcess tells an error answer from a crash', () => {
   it('reports a server that crashed mid-request as not running', async () => {
     const { failure, alive } = await hoverFailure('boom.ts')
     expect(failure?.message).toContain('is not running')
+    expect(failure?.message).toContain('(exited with code 1)')
     expect(failure?.message).toContain('it last said: panic: stand-in crashed on boom.ts')
     expect(failure?.message).not.toContain('answered')
     expect(alive).toBe(false)
@@ -134,6 +137,12 @@ describe('LanguageServerProcess tells an error answer from a crash', () => {
   it('reports the error line of a server that dies the way Node does, not its banner', async () => {
     const { failure } = await hoverFailure('throw.ts')
     expect(failure?.message).toContain('it last said: TypeError: stand-in threw on throw.ts')
+  })
+
+  it('reports the newest header, even one written without a line end', async () => {
+    const { failure } = await hoverFailure('starve.ts')
+    expect(failure?.message).toContain('(exited with code 2)')
+    expect(failure?.message).toContain('it last said: fatal error: runtime: out of memory')
   })
 
   it('sends a request before a document opened after it', async () => {

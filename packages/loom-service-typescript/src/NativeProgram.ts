@@ -23,6 +23,7 @@ import {
   FailureReason,
   LanguageServerFailed,
   type LanguageServerProcess,
+  messageOf,
   spawnLanguageServer,
 } from './LanguageServerProcess'
 import type { ProductFile, ProductProgram } from './ProductProgram'
@@ -173,8 +174,6 @@ const failureDiagnostic = (message: string): Diagnostic => ({
   message,
 })
 
-const messageOf = (failure: unknown): string => String((failure as Error)?.message ?? failure)
-
 const reportOnce = (reported: Set<string>, message: string): void => {
   if (reported.has(message)) return
   reported.add(message)
@@ -209,8 +208,12 @@ export type NativeProjectOf = (file: ProductFile) => Option.Option<string>
 
 export const inferredProject = 'the inferred project'
 
-const asOpened = (file: ProductFile): ProductFile =>
-  file.loose === true ? { ...file, text: `${file.text}\nexport {}\n` } : file
+const typeScriptFile = /\.(ts|tsx|mts|cts)$/
+
+export const asOpened = (file: ProductFile): ProductFile =>
+  file.loose === true && typeScriptFile.test(file.path)
+    ? { ...file, text: `${file.text}\n;export {}\n` }
+    : file
 
 const openSet = (
   before: ReadonlyMap<string, ProductFile>,
@@ -253,7 +256,13 @@ const defaultOptions: NativeProgramOptions = {
 
 const incurable = (failure: unknown): boolean =>
   failure instanceof LanguageServerFailed &&
-  (FailureReason.$is('CouldNotStart')(failure.reason) || FailureReason.$is('Unreachable')(failure.reason))
+  FailureReason.$match(failure.reason, {
+    CouldNotStart: ({ lasting }) => lasting,
+    Unreachable: () => true,
+    NotRunning: () => false,
+    Answered: () => false,
+    Refused: () => false,
+  })
 
 export class NativeServerStopped extends Data.TaggedError('NativeServerStopped')<{
   readonly compiler: string
@@ -262,9 +271,9 @@ export class NativeServerStopped extends Data.TaggedError('NativeServerStopped')
   readonly lastFailure: Option.Option<string>
 }> {
   get message(): string {
-    const times = this.starts === 1 ? 'once' : `${this.starts} times`
+    const attempts = this.starts === 1 ? 'one attempt' : `${this.starts} attempts`
     return (
-      `TypeScript 7 (${this.compiler}) stopped ${times} in ${this.workspace}; ` +
+      `TypeScript 7 (${this.compiler}) failed in ${this.workspace} after ${attempts} to start it; ` +
       'its features are off until the Loom language server restarts' +
       Option.match(this.lastFailure, { onNone: () => '', onSome: (last) => `. The last failure: ${last}` })
     )

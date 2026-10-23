@@ -1,5 +1,6 @@
 import { Array, Data, Option, pipe, Result } from 'effect'
 import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { basename } from 'node:path'
 import type { MessageConnection, MessageWriter } from 'vscode-jsonrpc/node.js'
 import { URI } from 'vscode-uri'
@@ -20,14 +21,16 @@ export interface LanguageServerProcess {
 }
 
 export type FailureReason = Data.TaggedEnum<{
-  CouldNotStart: { readonly text: string }
-  NotRunning: { readonly said: Option.Option<string> }
+  CouldNotStart: { readonly text: string; readonly lasting: boolean }
+  NotRunning: { readonly ended: Option.Option<string>; readonly said: Option.Option<string> }
   Unreachable: { readonly text: string }
   Answered: { readonly text: string }
   Refused: { readonly text: string }
 }>
 
 export const FailureReason = Data.taggedEnum<FailureReason>()
+
+export const messageOf = (failure: unknown): string => String((failure as Error)?.message ?? failure)
 
 export class LanguageServerFailed extends Data.TaggedError('LanguageServerFailed')<{
   readonly command: string
@@ -38,17 +41,18 @@ export class LanguageServerFailed extends Data.TaggedError('LanguageServerFailed
     const server = `the ${this.command} language server`
     return FailureReason.$match(this.reason, {
       CouldNotStart: ({ text }) => `${server} could not start: ${text}`,
-      NotRunning: ({ said }) =>
-        Option.match(said, {
-          onNone: () => `${server} is not running`,
-          onSome: (last) => `${server} is not running; it last said: ${last}`,
-        }),
+      NotRunning: ({ ended, said }) =>
+        `${server} is not running` +
+        Option.match(ended, { onNone: () => '', onSome: (how) => ` (${how})` }) +
+        Option.match(said, { onNone: () => '', onSome: (last) => `; it last said: ${last}` }),
       Unreachable: ({ text }) => `Loom cannot speak to ${server}: ${text}`,
       Answered: ({ text }) => `${server} answered: ${text}`,
       Refused: ({ text }) => `${server} refused to start: ${text}`,
     })
   }
 }
+
+const lastingCodes: ReadonlySet<string> = new Set(['ENOENT', 'EACCES', 'ENOEXEC', 'EBADARCH'])
 
 export const spawnLanguageServer = (
   command: string,
@@ -65,7 +69,18 @@ export const spawnLanguageServer = (
     stderr: '',
     partial: '',
     header: Option.none<string>(),
+    ended: Option.none<string>(),
   }
+  const couldNotStart = (cause: unknown): FailureReason =>
+    existsSync(workspace)
+      ? FailureReason.CouldNotStart({
+          text: messageOf(cause),
+          lasting: lastingCodes.has(String((cause as { readonly code?: unknown })?.code)),
+        })
+      : FailureReason.CouldNotStart({
+          text: `its working folder ${workspace} does not exist`,
+          lasting: false,
+        })
   const child = spawn(command, [...args], { cwd: workspace, stdio: ['pipe', 'pipe', 'pipe'] })
   const stopped = (): void => {
     if (!state.running) return
@@ -77,16 +92,16 @@ export const spawnLanguageServer = (
   const spawned = new Promise<void>((resolve, reject) => {
     child.once('spawn', () => resolve())
     child.once('error', (cause) =>
-      reject(
-        new LanguageServerFailed({
-          command,
-          reason: FailureReason.CouldNotStart({ text: String((cause as Error)?.message ?? cause) }),
-          cause,
-        }),
-      ),
+      reject(new LanguageServerFailed({ command, reason: couldNotStart(cause), cause })),
     )
   })
-  child.on('exit', stopped)
+  child.on('exit', (code, signal) => {
+    state.ended = Option.orElse(
+      Option.map(Option.fromNullishOr(signal), (name) => `killed by ${name}`),
+      () => Option.map(Option.fromNullishOr(code), (exit) => `exited with code ${exit}`),
+    )
+    stopped()
+  })
   child.on('error', stopped)
   child.stdin.on('error', stopped)
   child.stderr.on('error', stopped)
@@ -112,9 +127,8 @@ export const spawnLanguageServer = (
 
   const lastWords = (): Option.Option<string> =>
     pipe(
-      Option.orElse(state.header, () =>
-        Option.filter(Option.some(state.partial.trim()), (line) => crashHeader.test(line)),
-      ),
+      Option.filter(Option.some(state.partial.trim()), (line) => crashHeader.test(line)),
+      Option.orElse(() => state.header),
       Option.orElse(() => Array.findLast(linesOf(state.stderr), (line) => !runtimeBanner.test(line))),
       Option.map((line) => line.slice(0, 300)),
     )
@@ -136,7 +150,7 @@ export const spawnLanguageServer = (
       Promise.reject(
         new LanguageServerFailed({
           command,
-          reason: FailureReason.Unreachable({ text: String((cause as Error)?.message ?? cause) }),
+          reason: FailureReason.Unreachable({ text: messageOf(cause) }),
           cause,
         }),
       ),
@@ -219,7 +233,9 @@ export const spawnLanguageServer = (
   const elapsed = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
   const notRunning = (): Promise<FailureReason> =>
-    Promise.race([closed, elapsed(500)]).then(() => FailureReason.NotRunning({ said: lastWords() }))
+    Promise.race([closed, elapsed(500)]).then(() =>
+      FailureReason.NotRunning({ ended: state.ended, said: lastWords() }),
+    )
 
   const failedWith =
     (heard: (text: string) => FailureReason) =>
@@ -255,7 +271,10 @@ export const spawnLanguageServer = (
             failedWith((text) => FailureReason.Refused({ text })),
           )
         : Promise.reject(
-            new LanguageServerFailed({ command, reason: FailureReason.NotRunning({ said: lastWords() }) }),
+            new LanguageServerFailed({
+              command,
+              reason: FailureReason.NotRunning({ ended: state.ended, said: lastWords() }),
+            }),
           ),
     alive: () => state.running,
     uptime: () => (state.running ? Date.now() : state.stoppedAt) - state.startedAt,
