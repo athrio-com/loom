@@ -37,12 +37,19 @@ TypeScript 7's native executable lives in a companion package named for the plat
 const executableName = process.platform === 'win32' ? 'tsc.exe' : 'tsc'
 const companionPackage = `@typescript/typescript-${process.platform}-${process.arch}`
 
-const majorVersionOf = (packageJson: string): Option.Option<number> =>
+interface PackageManifest {
+  readonly name: string
+  readonly major: number
+}
+
+const manifestOf = (packageJson: string): Option.Option<PackageManifest> =>
   pipe(
     Option.liftThrowable(() => JSON.parse(readFileSync(packageJson, 'utf8')))(),
-    Option.flatMap((manifest) => Option.fromNullishOr(manifest?.version)),
-    Option.map((version) => Number(String(version).split('.')[0])),
-    Option.filter((major) => Number.isFinite(major)),
+    Option.map((manifest) => ({
+      name: String(manifest?.name ?? ''),
+      major: Number(String(manifest?.version ?? '').split('.')[0]),
+    })),
+    Option.filter((manifest) => Number.isFinite(manifest.major)),
   )
 
 const executable = (path: string): boolean =>
@@ -70,8 +77,8 @@ const choiceFromProject = (project: ProductProject): CompilerChoice =>
     typescriptPackageFrom(projectFolder(project)),
     Option.flatMap((packageJson) =>
       Option.map(
-        Option.filter(majorVersionOf(packageJson), (major) => major >= 7),
-        (major) => ({ packageJson, major }),
+        Option.filter(manifestOf(packageJson), (manifest) => manifest.major >= 7),
+        ({ major }) => ({ packageJson, major }),
       ),
     ),
     Option.match({
@@ -91,7 +98,7 @@ const choiceFromProject = (project: ProductProject): CompilerChoice =>
 
 ~
 
-A person can also try TypeScript 7 before a project installs it. The `nativeCompiler` setting of the `typescript` language, in `.loom/config.yaml`, names the folder of a TypeScript 7 `typescript` package, and every project then uses that compiler. A relative folder is read from the workspace, the folder that holds `.loom/config.yaml`, which `workspaceRootOf` finds by walking up from the project's loom. The setting names a choice the person made, so a setting that names no `typescript` package, a TypeScript older than 7, or one without a native executable makes the project `Unavailable`, with the reason, rather than quietly giving it TypeScript 6. `compilerChoiceFor` takes the setting first when it is given.
+A person can also try TypeScript 7 before a project installs it. The `nativeCompiler` setting of the `typescript` language, in `.loom/config.yaml`, names the folder of a TypeScript 7 `typescript` package, and every project then uses that compiler. A relative folder is read from the workspace, the folder that holds `.loom/config.yaml`, which `workspaceRootOf` finds by walking up from the project's loom. The setting names a choice the person made, so a setting that is not a folder's path, a folder that holds no `typescript` package, a TypeScript older than 7, or one without a native executable makes the project `Unavailable`, with the reason, rather than quietly giving it TypeScript 6. The setting arrives as the workspace wrote it, so `compilerChoiceFor` first checks that it is a path at all. A list or a number written by mistake is reported, not ignored. `compilerChoiceFor` takes the setting first when it is given.
 
 =>
 
@@ -108,33 +115,44 @@ const choiceFromSetting = (project: ProductProject, setting: string): CompilerCh
   const folder = isAbsolute(setting) ? setting : resolve(workspaceRootOf(project.loom), setting)
   const packageJson = join(folder, 'package.json')
   const named = `the nativeCompiler setting names ${folder}`
-  return Option.match(majorVersionOf(packageJson), {
-    onNone: () => CompilerChoice.Unavailable({ reason: `${named}, which holds no typescript package` }),
-    onSome: (major) =>
-      major < 7
-        ? CompilerChoice.Unavailable({ reason: `${named}, which holds TypeScript ${major}, not 7` })
-        : Option.match(nativeExecutable(packageJson), {
-            onSome: (path) => CompilerChoice.Native({ executable: path }),
-            onNone: () =>
-              CompilerChoice.Unavailable({
-                reason: `${named}, which has no native executable for this platform`,
-              }),
-          }),
-  })
+  return Option.match(
+    Option.filter(manifestOf(packageJson), (manifest) => manifest.name === 'typescript'),
+    {
+      onNone: () =>
+        CompilerChoice.Unavailable({ reason: `${named}, which holds no typescript package` }),
+      onSome: ({ major }) =>
+        major < 7
+          ? CompilerChoice.Unavailable({ reason: `${named}, which holds TypeScript ${major}, not 7` })
+          : Option.match(nativeExecutable(packageJson), {
+              onSome: (path) => CompilerChoice.Native({ executable: path }),
+              onNone: () =>
+                CompilerChoice.Unavailable({
+                  reason: `${named}, which has no native executable for this platform`,
+                }),
+            }),
+    },
+  )
 }
 
 export const compilerChoiceFor = (
   project: ProductProject,
-  setting: Option.Option<string>,
+  setting: Option.Option<unknown>,
 ): CompilerChoice =>
   Option.match(setting, {
     onNone: () => choiceFromProject(project),
-    onSome: (named) => choiceFromSetting(project, named),
+    onSome: (named) =>
+      typeof named === 'string' && named.trim() !== ''
+        ? choiceFromSetting(project, named)
+        : CompilerChoice.Unavailable({
+            reason: 'the nativeCompiler setting must be the path of a TypeScript 7 folder',
+          }),
   })
 
 ## A project that cannot have its compiler
 
-`createUnavailableProgram` is the program an `Unavailable` project gets. It holds nothing and answers nothing. Each question fails with `NativeCompilerUnavailable`, which carries the reason, and Volar writes that failure to the editor's log of the language server, where the person reads what to install or correct.
+`createUnavailableProgram` is the program an `Unavailable` project gets. It holds nothing and answers nothing, and the person must see why. An editor shows diagnostics where the person is looking, and writes a provider's failures only to a log few people open. So the program reports the reason as one error diagnostic on every root it is asked about, through `failureDiagnostic`, and answers every other question with nothing. It also writes the reason to the log once, through `reportOnce`, rather than once for each hover, so the log keeps a single clear line instead of a stream of the same failure.
+
+`NativeCompilerUnavailable` is the failure that carries the reason. `failureDiagnostic` places the diagnostic at the start of the root, as an error, under the source `loom`.
 
 =>
 
@@ -146,18 +164,36 @@ export class NativeCompilerUnavailable extends Data.TaggedError('NativeCompilerU
   }
 }
 
+const failureDiagnostic = (message: string): Diagnostic => ({
+  range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+  severity: 1,
+  source: 'loom',
+  message,
+})
+
+const reportOnce = (reported: Set<string>, message: string): void => {
+  if (reported.has(message)) return
+  reported.add(message)
+  console.warn(`loom: ${message}`)
+}
+
 export const createUnavailableProgram = (reason: string): ProductProgram => {
-  const fail = <A>(): Promise<A> => Promise.reject(new NativeCompilerUnavailable({ reason }))
+  const failure = new NativeCompilerUnavailable({ reason })
+  const reported = new Set<string>()
+  const nothing = <A>(empty: A): Promise<A> => {
+    reportOnce(reported, failure.message)
+    return Promise.resolve(empty)
+  }
   return {
     sync: () => undefined,
-    diagnostics: fail,
-    hover: fail,
-    completions: fail,
-    definition: fail,
-    references: fail,
-    rename: fail,
-    codeActions: fail,
-    resolveCodeAction: fail,
+    diagnostics: () => nothing([failureDiagnostic(failure.message)]),
+    hover: () => nothing(undefined),
+    completions: () => nothing({ isIncomplete: false, items: [] }),
+    definition: () => nothing(undefined),
+    references: () => nothing(undefined),
+    rename: () => nothing(undefined),
+    codeActions: () => nothing([]),
+    resolveCodeAction: (action) => nothing(action),
     dispose: () => undefined,
   }
 }
@@ -174,47 +210,60 @@ TypeScript 7's language server is a workspace server: one process holds every pr
 
 The program loads the whole workspace into the server once, early, the way a language server for Scala or Rust indexes a project when it opens. Loading takes seconds and every core, and done on demand it would land on a person's first search for references, holding up every hover and go-to-definition behind it. Done once, in the background, it leaves a warm codebase in which every later question answers at once.
 
-One kind of root stays out of that. A section that tangles to no file is composed under a name of its own beside its loom, `<loom>.<root>.ts`, a file no `tsconfig.json` includes. TypeScript 7 places every such loose file in one shared project, so the loose roots of two looms would see each other's top-level names, and a `const` declared in both would clash. Those roots belong to their loom alone. `isLoose` recognizes one by its name, and the program keeps open only the loose roots of the loom being asked about, closing the others as the person moves on.
+One kind of root stays out of that. A section that tangles to no file is composed under a name of its own beside its loom, `<loom>.<root>.ts`, a file no `tsconfig.json` includes. TypeScript 7 places every such loose file in one shared project, so the loose roots of two looms would see each other's top-level names, and a `const` declared in both would clash. Those roots belong to their loom alone. The service marks each one `loose` when it hands it over, and the program keeps open only the loose roots of the loom being asked about, closing the others as the person moves on.
 
-`openSet` is the set the server keeps open, computed from the composition. Before the warm-up it holds the roots the person has asked about. After the warm-up it holds every root of the composition. Either way it holds the loose roots of the current loom alone, and a root leaves it when it leaves the composition.
+A workspace can also mix projects on TypeScript 7 with projects still on TypeScript 6. The program serves only the roots `servedBy` names, the roots of projects on this same TypeScript 7, so the warm-up never loads a TypeScript 6 project into TypeScript 7.
+
+`openSet` is the set the server keeps open, computed from the composition and `listed`, the roots of the project being asked about. It holds the roots of `listed` that `servedBy` names, and the loose roots of `listed`, the current loom's. Before the warm-up it also keeps the roots already open. After the warm-up it adds every root `servedBy` names. A root leaves it when it leaves the composition. A search across the whole corpus lists every root, the other languages' files among them, so a `listed` root that is neither served nor loose stays closed. The root a question is about is opened by `ask` itself when the open set leaves it out, so a loom no `tsconfig.json` governs is still answered.
 
 =>
-
-const isLoose = (path: string): boolean => /\.loom\.[^/\\]+\.(ts|tsx|js|jsx)$/.test(path)
 
 const openSet = (
   before: ReadonlyMap<string, ProductFile>,
   composition: ReadonlyMap<string, ProductFile>,
   listed: ReadonlyArray<ProductFile>,
   warmed: boolean,
+  servedBy: (path: string) => boolean,
 ): ReadonlyMap<string, ProductFile> => {
-  const current = new Set(Array.map(listed, (file) => file.path))
-  const kept = Array.filter(
-    Array.fromIterable(warmed ? composition.keys() : before.keys()),
-    (path) => composition.has(path) && (!isLoose(path) || current.has(path)),
+  const fromBefore = Array.getSomes(
+    Array.map(Array.fromIterable(before.keys()), (path) => Option.fromNullishOr(composition.get(path))),
   )
+  const fromWarmUp = warmed
+    ? Array.filter(Array.fromIterable(composition.values()), (file) => servedBy(file.path))
+    : []
   return new Map([
-    ...Array.getSomes(
-      Array.map(kept, (path) =>
-        Option.map(Option.fromNullishOr(composition.get(path)), (file) => [path, file] as const),
-      ),
+    ...Array.map(
+      Array.filter([...fromBefore, ...fromWarmUp], (file) => !file.loose),
+      (file) => [file.path, file] as const,
     ),
-    ...Array.map(listed, (file) => [file.path, file] as const),
+    ...Array.map(
+      Array.filter(listed, (file) => file.loose === true || servedBy(file.path)),
+      (file) => [file.path, file] as const,
+    ),
   ])
 }
 
 ### Starting, restarting and stopping
 
-`running` gives the server, starting it the first time a question needs it, in the workspace folder the plugin hands the program, and opening the roots in `openSet`. It tells the server what the plugin can take: hover in Markdown, definitions as links, pulled diagnostics, completions, and code actions whose edits are resolved only when picked.
+`running` gives the server, starting it the first time a question needs it, in the workspace folder the plugin hands the program, and opening the roots in the open set. It tells the server what the plugin can take: hover in Markdown, definitions as links, pulled diagnostics, completions, and code actions whose edits are resolved only when picked.
 
-A server that stops is started again on the next question, so a crash costs one cold start rather than the session. After `maxRestarts` restarts in a row the program gives up, since a server that fails on every start would otherwise cost a cold start on every question. Restarts in a row means restarts close together: a server that has run for `stableFor`, five minutes, has its count reset, so three crashes spread over a long day never turn the features off. Once the program gives up, every question fails with `NativeServerStopped`, which names the compiler and the folder, and Volar writes it to the editor's log. The project never switches to another compiler behind the person's back.
+A server that stops is started again on the next question, so a crash costs one cold start rather than the session. Restarting stops the old process first, in case it outlived its connection. After `maxRestarts` restarts in a row the program gives up, since a server that fails on every start would otherwise cost a cold start on every question. Restarts in a row means each server failed soon after it started. A server that stayed up for `stableFor`, five minutes by the bridge's `uptime`, before it stopped resets the count, so three crashes spread over a long day never turn the features off, and a server that fails as soon as it starts stays given up on. Once the program gives up, every question fails with `NativeServerStopped`, which names the compiler and the folder. The project never switches to another compiler behind the person's back.
+
+A restarted server holds the roots the program had open, but has loaded none of their projects, so a restart also undoes the warm-up, and the next answer runs it again.
+
+`NativeProgramOptions` lets a test shorten `stableFor`, so a case can watch the count reset without waiting five minutes.
 
 `dispose` marks the program disposed before it stops the server. A disposed program starts nothing, so a warm-up still under way cannot bring the server back after the program was shut down. A question asked of it fails with `NativeProgramDisposed`, which says the program was shut down rather than that its server crashed.
 
 =>
 
 const maxRestarts = 3
-const stableFor = 5 * 60_000
+
+export interface NativeProgramOptions {
+  readonly stableFor: number
+}
+
+const defaultOptions: NativeProgramOptions = { stableFor: 5 * 60_000 }
 
 export class NativeServerStopped extends Data.TaggedError('NativeServerStopped')<{
   readonly compiler: string
@@ -236,24 +285,30 @@ export class NativeProgramDisposed extends Data.TaggedError('NativeProgramDispos
   }
 }
 
-export const createNativeProgram = (compiler: string, workspace: string): ProductProgram => {
+export const createNativeProgram = (
+  compiler: string,
+  workspace: string,
+  servedBy: (path: string) => boolean = () => true,
+  options: NativeProgramOptions = defaultOptions,
+): ProductProgram => {
   const state: {
     open: ReadonlyMap<string, ProductFile>
     composition: ReadonlyMap<string, ProductFile>
+    listed: ReadonlyArray<ProductFile>
     warmed: boolean
     disposed: boolean
     server: Option.Option<LanguageServerProcess>
     restarts: number
-    startedAt: number
   } = {
     open: new Map(),
     composition: new Map(),
+    listed: [],
     warmed: false,
     disposed: false,
     server: Option.none(),
     restarts: 0,
-    startedAt: 0,
   }
+  const reported = new Set<string>()
 
   const pushOpen = (): void =>
     Option.match(state.server, {
@@ -280,15 +335,16 @@ export const createNativeProgram = (compiler: string, workspace: string): Produc
       },
     })
     state.server = Option.some(server)
-    state.startedAt = Date.now()
     pushOpen()
     return server
   }
 
-  const restart = (): Option.Option<LanguageServerProcess> => {
-    if (Date.now() - state.startedAt >= stableFor) state.restarts = 0
+  const restart = (previous: LanguageServerProcess): Option.Option<LanguageServerProcess> => {
+    if (previous.uptime() >= options.stableFor) state.restarts = 0
     if (state.restarts >= maxRestarts) return Option.none()
     state.restarts += 1
+    previous.dispose()
+    state.warmed = false
     return Option.some(start())
   }
 
@@ -300,14 +356,14 @@ export const createNativeProgram = (compiler: string, workspace: string): Produc
       ? Option.none()
       : Option.match(state.server, {
           onNone: () => Option.some(start()),
-          onSome: () => Option.orElse(live(), restart),
+          onSome: (previous) => Option.orElse(live(), () => restart(previous)),
         })
 
 ~
 
 ### The warm-up
 
-`warm` runs once, after the first question is answered, so it never delays that answer. It widens the open set to the whole composition, then asks the server for each root's diagnostics, one root at a time. Asking makes TypeScript 7 load and check the root's project. One request at a time keeps the warm-up from crowding out the person's own questions: a question asked meanwhile waits for one root's check at most, not for the whole workspace.
+`warm` runs after the first question the server answers, so it never delays that answer, and again after the first answer from a restarted server. A question that fails starts nothing. It widens the open set with every root `servedBy` names, keeping the roots of the project last asked about, then asks the server for each served root's diagnostics, one root at a time. Asking makes TypeScript 7 load and check the root's project. One request at a time keeps the warm-up from crowding out the person's own questions: a question asked meanwhile waits for one root's check at most, not for the whole workspace.
 
 The warm-up asks only a server that is running, through `live`, and never starts or restarts one. A server that stops during the warm-up ends the warm-up, and the next question the person asks restarts the server under the rules above. So a root that makes the server crash cannot spend the restarts in the background. A request that fails while the server keeps running is skipped, and the warm-up moves on to the next root.
 
@@ -328,17 +384,31 @@ The warm-up asks only a server that is running, through `live`, and never starts
   const warm = (): void => {
     if (state.warmed || state.disposed) return
     state.warmed = true
-    state.open = openSet(state.open, state.composition, [], true)
+    state.open = openSet(state.open, state.composition, state.listed, true, servedBy)
     pushOpen()
     void Array.reduce(
-      Array.filter(Array.fromIterable(state.composition.keys()), (path) => !isLoose(path)),
+      Array.filter(
+        Array.fromIterable(state.composition.values()),
+        (file) => !file.loose && servedBy(file.path),
+      ),
       Promise.resolve(true),
-      (previous, path) => previous.then((going) => (going ? warmOne(path) : false)),
+      (previous, file) => previous.then((going) => (going ? warmOne(file.path) : false)),
     )
   }
 
-  const ask = <A>(method: string, params: unknown): Promise<A> =>
-    Option.match(running(), {
+  const openForQuestion = (fileName: string): void =>
+    Option.match(Option.fromNullishOr(state.composition.get(fileName)), {
+      onNone: () => undefined,
+      onSome: (file) => {
+        if (state.open.has(fileName)) return
+        state.open = new Map([...state.open, [fileName, file] as const])
+        pushOpen()
+      },
+    })
+
+  const ask = <A>(fileName: string, method: string, params: unknown): Promise<A> => {
+    openForQuestion(fileName)
+    return Option.match(running(), {
       onNone: () =>
         Promise.reject(
           state.disposed
@@ -347,14 +417,30 @@ The warm-up asks only a server that is running, through `live`, and never starts
         ),
       onSome: (server) => {
         const answer = server.request<A>(method, params)
-        void answer.then(warm, warm)
+        void answer.then(warm, () => undefined)
         return answer
       },
     })
+  }
+
+  const orNothing =
+    <A>(empty: A) =>
+    (failure: unknown): A => {
+      reportOnce(reported, String((failure as Error)?.message ?? failure))
+      return empty
+    }
+
+  const orFailureDiagnostic = (failure: unknown): Diagnostic[] => {
+    const message = String((failure as Error)?.message ?? failure)
+    reportOnce(reported, message)
+    return [failureDiagnostic(message)]
+  }
 
 ~
 
 ### Forwarding the questions
+
+A question that fails, because the server stopped, was given up on, or the program was disposed, must not vanish into the log. Diagnostics turn the failure into one error diagnostic with its message, through `orFailureDiagnostic`, where the person sees it. Every other question answers with nothing, through `orNothing`. Both write the message to the log once.
 
 The program forwards each question in the form LSP gives it. A definition may come back as locations rather than links, and `asLinks` turns each location into a link to the same place, the form the plugin rewrites. Diagnostics come back as a report, and the program hands on its items. Completions may come back as a bare list of items, and `asCompletionList` wraps one in a complete list. Code actions may come with bare commands beside them, and the program keeps only the actions, the form the plugin handles. An action whose edit is left for later goes back to the same server to be resolved. An action that already carries its edit, as TypeScript 7's `Organize Imports` does, is complete, and resolving it hands it back unchanged rather than asking the server, which refuses such a request.
 
@@ -397,47 +483,60 @@ The program forwards each question in the form LSP gives it. A definition may co
       state.composition = new Map(
         Array.map([...listed, ...others], (file) => [file.path, file] as const),
       )
-      state.open = openSet(state.open, state.composition, listed, state.warmed)
+      state.listed = listed
+      state.open = openSet(state.open, state.composition, listed, state.warmed, servedBy)
       pushOpen()
     },
     hover: (fileName, position) =>
-      ask<Hover | null>('textDocument/hover', at(fileName, position)).then(
-        (hover) => hover ?? undefined,
-      ),
+      ask<Hover | null>(fileName, 'textDocument/hover', at(fileName, position))
+        .then((hover) => hover ?? undefined)
+        .catch(orNothing<Hover | undefined>(undefined)),
     definition: (fileName, position) =>
       ask<ReadonlyArray<Location | LocationLink> | Location | null>(
+        fileName,
         'textDocument/definition',
         at(fileName, position),
-      ).then(asLinks),
+      )
+        .then(asLinks)
+        .catch(orNothing<LocationLink[] | undefined>(undefined)),
     diagnostics: (fileName) =>
-      ask<{ readonly items?: Diagnostic[] }>('textDocument/diagnostic', {
+      ask<{ readonly items?: Diagnostic[] }>(fileName, 'textDocument/diagnostic', {
         textDocument: document(fileName),
-      }).then((report) => report.items ?? []),
+      })
+        .then((report) => report.items ?? [])
+        .catch(orFailureDiagnostic),
     completions: (fileName, position) =>
       ask<CompletionList | CompletionItem[] | null>(
+        fileName,
         'textDocument/completion',
         at(fileName, position),
-      ).then(asCompletionList),
+      )
+        .then(asCompletionList)
+        .catch(orNothing<CompletionList>({ isIncomplete: false, items: [] })),
     references: (fileName, position) =>
-      ask<Location[] | null>('textDocument/references', {
+      ask<Location[] | null>(fileName, 'textDocument/references', {
         ...at(fileName, position),
         context: { includeDeclaration: true },
-      }).then((found) => found ?? undefined),
+      })
+        .then((found) => found ?? undefined)
+        .catch(orNothing<Location[] | undefined>(undefined)),
     rename: (fileName, position, newName) =>
-      ask<WorkspaceEdit | null>('textDocument/rename', { ...at(fileName, position), newName }).then(
-        (edit) => edit ?? undefined,
-      ),
+      ask<WorkspaceEdit | null>(fileName, 'textDocument/rename', { ...at(fileName, position), newName })
+        .then((edit) => edit ?? undefined)
+        .catch(orNothing<WorkspaceEdit | undefined>(undefined)),
     codeActions: (fileName, range, context) =>
-      ask<ReadonlyArray<CodeAction | Command> | null>('textDocument/codeAction', {
+      ask<ReadonlyArray<CodeAction | Command> | null>(fileName, 'textDocument/codeAction', {
         textDocument: document(fileName),
         range,
         context,
-      }).then((found) =>
-        Array.filter(found ?? [], (each): each is CodeAction => typeof each.command !== 'string'),
-      ),
+      })
+        .then((found) =>
+          Array.filter(found ?? [], (each): each is CodeAction => typeof each.command !== 'string'),
+        )
+        .catch(orNothing<CodeAction[]>([])),
     resolveCodeAction: (action) =>
       action.edit === undefined
-        ? ask<CodeAction>('codeAction/resolve', action)
+        ? ask<CodeAction>('', 'codeAction/resolve', action).catch(orNothing(action))
         : Promise.resolve(action),
     dispose: () => {
       state.disposed = true
@@ -486,8 +585,6 @@ import type { ProductProject } from './TypescriptService'
 
 ::[A project that cannot have its compiler]
 
-::[Asking the native server]
-
 ::[The roots kept open]
 
 ::[Starting, restarting and stopping]
@@ -496,11 +593,9 @@ import type { ProductProject } from './TypescriptService'
 
 ::[Forwarding the questions]
 
-## Testing which compiler a project uses
+## What the tests draw on
 
-These cases check the choice `compilerChoiceFor` makes, with no TypeScript 7 installed. `install` writes a fake `typescript` package of a given version into a project folder, and for TypeScript 7 the companion package for this platform with an executable in its `lib` folder. The executable is an empty file marked executable, since the cases only look for it. `projectAt` names a project governed by the folder's `tsconfig.json`, and `looseAt` names a loom that no `tsconfig.json` governs.
-
-A project that installs TypeScript 7 is `Native`, with its executable. A project that installs TypeScript 6 is `Classic`. A project on TypeScript 7 without the companion package for this platform is `Unavailable`, and so is one whose executable may not be run. A loom with no `tsconfig.json` chooses from its own folder, and so does the search across the whole corpus, whose project carries a key of its own. The `nativeCompiler` setting wins over the project's own install, reads a relative folder from the workspace, and makes the project `Unavailable` when it names nothing, or names TypeScript 6.
+The cases below share one test file, so its imports sit here, ahead of them. They draw on Bun's test runner, Effect's `Option`, Node's `fs`, `os` and `path` to build fake installs in scratch folders, the program's own exports, and the stand-in language server from the previous chapter.
 
 =>
 
@@ -509,7 +604,20 @@ import { Option } from 'effect'
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { compilerChoiceFor } from '../src/NativeProgram'
+import {
+  compilerChoiceFor,
+  createNativeProgram,
+  createUnavailableProgram,
+} from '../src/NativeProgram'
+import { settled, standInServer, startedIn } from './StandInServer'
+
+## Testing which compiler a project uses
+
+These cases check the choice `compilerChoiceFor` makes, with no TypeScript 7 installed. `install` writes a fake `typescript` package of a given version into a project folder, and for TypeScript 7 the companion package for this platform with an executable in its `lib` folder. The executable is an empty file marked executable, since the cases only look for it. `projectAt` names a project governed by the folder's `tsconfig.json`, and `looseAt` names a loom that no `tsconfig.json` governs.
+
+A project that installs TypeScript 7 is `Native`, with its executable. A project that installs TypeScript 6 is `Classic`. A project on TypeScript 7 without the companion package for this platform is `Unavailable`, and so is one whose executable may not be run. A loom with no `tsconfig.json` chooses from its own folder, and so does the search across the whole corpus, whose project carries a key of its own. The `nativeCompiler` setting wins over the project's own install and reads a relative folder from the workspace. It makes the project `Unavailable` when it names nothing, names TypeScript 6, names a package that is not `typescript`, or is not a path at all.
+
+=>
 
 const executableName = process.platform === 'win32' ? 'tsc.exe' : 'tsc'
 const companion = `typescript-${process.platform}-${process.arch}`
@@ -518,10 +626,11 @@ const install = (
   folder: string,
   version: string,
   companionPackage: 'executable' | 'plain' | 'none' = 'executable',
+  name = 'typescript',
 ): string => {
-  const typescript = join(folder, 'node_modules', 'typescript')
+  const typescript = join(folder, 'node_modules', name)
   mkdirSync(typescript, { recursive: true })
-  writeFileSync(join(typescript, 'package.json'), JSON.stringify({ name: 'typescript', version }))
+  writeFileSync(join(typescript, 'package.json'), JSON.stringify({ name, version }))
   if (version.startsWith('7') && companionPackage !== 'none') {
     const lib = join(folder, 'node_modules', '@typescript', companion, 'lib')
     mkdirSync(lib, { recursive: true })
@@ -625,135 +734,169 @@ describe('compilerChoiceFor follows the nativeCompiler setting', () => {
 
   it('reports a setting that names TypeScript 6 as unavailable', () => {
     const root = folder()
-    const elsewhere = folder()
-    const named = install(elsewhere, '6.0.3')
+    const named = install(folder(), '6.0.3')
     const choice = compilerChoiceFor(projectAt(root), Option.some(named))
     expect(choice._tag).toBe('Unavailable')
     expect(choice._tag === 'Unavailable' && choice.reason).toContain('TypeScript 6')
+  })
+
+  it('reports a setting that names another package as unavailable', () => {
+    const root = folder()
+    const named = install(folder(), '7.0.2', 'executable', 'not-typescript')
+    expect(compilerChoiceFor(projectAt(root), Option.some(named))._tag).toBe('Unavailable')
+  })
+
+  it('reports a setting that is not a path as unavailable', () => {
+    const root = folder()
+    expect(compilerChoiceFor(projectAt(root), Option.some(true))._tag).toBe('Unavailable')
+    expect(compilerChoiceFor(projectAt(root), Option.some(''))._tag).toBe('Unavailable')
   })
 })
 
 ## Testing the native program
 
-These cases drive `createNativeProgram` against the stand-in server from the previous chapter, which writes every message it receives to its log. They check the behaviour around the server rather than TypeScript itself.
+These cases drive `createNativeProgram` against the stand-in server, which writes every message it receives to its log. They check the behaviour around the server rather than TypeScript itself. A failure shows up where the person would see it, as an error diagnostic, so `diagnosticsOf` reads the message a program reports for a root.
 
-The warm-up runs once, after the first answer, and asks for the diagnostics of every root except the loose ones. A loose root of one loom is closed when another loom is asked about, so the loose roots of two looms are never open together. A program disposed while its warm-up runs starts no new server, and a question asked of it afterwards fails with `NativeProgramDisposed`. A server that crashes on every question is restarted three times, then the program fails with `NativeServerStopped`. An unavailable project fails every question with its reason.
+The warm-up runs after the first answer and asks for the diagnostics of every root the program serves, but not a loose root, and not a root `servedBy` leaves to TypeScript 6. It keeps the loose root being edited open. A loose root of one loom is closed when another loom is asked about. The warm-up stops when the server dies, without restarting it, and a restarted server is warmed again. A program disposed mid warm-up starts no new server and reports that it was shut down. A server that crashes as soon as it starts is restarted three times, then the program reports that it stopped. A server that ran for a while before it crashed has its restarts counted afresh. An unavailable project reports its reason.
 
 =>
 
-import { describe as describeProgram, expect as expectProgram, it as itProgram } from 'bun:test'
-import { join as joinPath } from 'node:path'
-import {
-  createNativeProgram,
-  createUnavailableProgram,
-  NativeCompilerUnavailable,
-  NativeProgramDisposed,
-  NativeServerStopped,
-} from '../src/NativeProgram'
-import { settled, standInServer } from './StandInServer'
-
 const position = { line: 0, character: 0 }
 
-describeProgram('createNativeProgram warms the workspace once', () => {
-  itProgram('asks for every non-loose root\'s diagnostics after the first answer, once', async () => {
+const diagnosticsOf = async (
+  program: ReturnType<typeof createUnavailableProgram>,
+  path: string,
+): Promise<string> => (await program.diagnostics(path)).map((d) => d.message).join(' | ')
+
+const diagnosticPaths = (lines: ReadonlyArray<string>): ReadonlyArray<string> =>
+  lines.filter((line) => line.startsWith('textDocument/diagnostic')).sort()
+
+describe('createNativeProgram warms the workspace', () => {
+  it('asks for every served root\'s diagnostics after the first answer, keeping the edited loose root', async () => {
     const stand = standInServer()
-    const program = createNativeProgram(stand.command, stand.folder)
-    const a = joinPath(stand.folder, 'a.ts')
-    const b = joinPath(stand.folder, 'b.ts')
-    const loose = joinPath(stand.folder, 'chapter.loom.aside.ts')
-    program.sync([{ path: a, text: 'a' }], [
-      { path: b, text: 'b' },
-      { path: loose, text: 'aside' },
-    ])
-    await program.hover(a, position)
-    await program.hover(a, position)
+    const loose = join(stand.folder, 'chapter.loom.aside.ts')
+    const program = createNativeProgram(stand.command, stand.folder, (path) => !path.endsWith('old.ts'))
+    program.sync(
+      [{ path: loose, text: 'aside', loose: true }],
+      [
+        { path: join(stand.folder, 'b.ts'), text: 'b' },
+        { path: join(stand.folder, 'old.ts'), text: 'old' },
+      ],
+    )
+    await program.hover(loose, position)
     await settled(600)
-    const diagnostics = stand.lines().filter((line) => line.startsWith('textDocument/diagnostic'))
-    expectProgram(diagnostics.sort()).toEqual([
-      'textDocument/diagnostic a.ts',
-      'textDocument/diagnostic b.ts',
-    ])
-    expectProgram(stand.lines()).not.toContain('textDocument/didOpen chapter.loom.aside.ts v1')
+    const lines = stand.lines()
+    expect(diagnosticPaths(lines)).toEqual(['textDocument/diagnostic b.ts'])
+    expect(lines).not.toContain('textDocument/didClose chapter.loom.aside.ts')
+    expect(lines).not.toContain('textDocument/didOpen old.ts v1')
     program.dispose()
   })
 
-  itProgram('closes one loom\'s loose roots when another loom is asked about', async () => {
+  it('closes one loom\'s loose roots when another loom is asked about', async () => {
     const stand = standInServer()
     const program = createNativeProgram(stand.command, stand.folder)
-    const first = joinPath(stand.folder, 'first.loom.aside.ts')
-    const second = joinPath(stand.folder, 'second.loom.aside.ts')
-    program.sync([{ path: first, text: 'one' }], [{ path: second, text: 'two' }])
+    const first = join(stand.folder, 'first.loom.aside.ts')
+    const second = join(stand.folder, 'second.loom.aside.ts')
+    program.sync([{ path: first, text: 'one', loose: true }])
     await program.hover(first, position)
-    program.sync([{ path: second, text: 'two' }], [{ path: first, text: 'one' }])
+    program.sync([{ path: second, text: 'two', loose: true }])
     await program.hover(second, position)
     await settled()
     const lines = stand.lines()
-    expectProgram(lines).toContain('textDocument/didClose first.loom.aside.ts')
-    expectProgram(lines.indexOf('textDocument/didClose first.loom.aside.ts')).toBeLessThan(
+    expect(lines).toContain('textDocument/didClose first.loom.aside.ts')
+    expect(lines.indexOf('textDocument/didClose first.loom.aside.ts')).toBeLessThan(
       lines.indexOf('textDocument/didOpen second.loom.aside.ts v1'),
     )
     program.dispose()
   })
 
-  itProgram('starts no new server once disposed, even mid warm-up', async () => {
+  it('stops the warm-up when the server dies, and warms a restarted server again', async () => {
+    const stand = standInServer()
+    const program = createNativeProgram(stand.command, stand.folder)
+    const a = join(stand.folder, 'a.ts')
+    program.sync([{ path: a, text: 'a' }], [{ path: join(stand.folder, 'crash-late.ts'), text: 'x' }])
+    await program.hover(a, position)
+    await settled(600)
+    expect(startedIn(stand.lines())).toHaveLength(1)
+    program.sync([{ path: a, text: 'a' }])
+    await program.hover(a, position)
+    await settled(600)
+    expect(startedIn(stand.lines())).toHaveLength(2)
+    expect(diagnosticPaths(stand.lines())).toContain('textDocument/diagnostic a.ts')
+    program.dispose()
+  })
+
+  it('starts no new server once disposed, even mid warm-up', async () => {
     const stand = standInServer()
     const program = createNativeProgram(stand.command, stand.folder)
     const roots = Array.from({ length: 20 }, (_, index) => ({
-      path: joinPath(stand.folder, `r${index}.ts`),
+      path: join(stand.folder, `r${index}.ts`),
       text: `export const r${index} = ${index}`,
     }))
     program.sync(roots.slice(0, 1), roots.slice(1))
     await program.hover(roots[0]!.path, position)
     program.dispose()
     await settled(800)
-    expectProgram(stand.lines().filter((line) => line === 'started')).toEqual(['started'])
-    const failure = await program.hover(roots[0]!.path, position).then(
-      () => undefined,
-      (error: unknown) => error,
-    )
-    expectProgram(failure).toBeInstanceOf(NativeProgramDisposed)
+    expect(startedIn(stand.lines())).toHaveLength(1)
+    expect(await diagnosticsOf(program, roots[0]!.path)).toContain('was shut down')
   })
 })
 
-describeProgram('createNativeProgram restarts a crashed server a few times', () => {
-  itProgram('restarts three times, then fails with NativeServerStopped', async () => {
+describe('createNativeProgram restarts a crashed server a few times', () => {
+  it('gives up after three restarts of a server that crashes as it starts', async () => {
     const stand = standInServer()
     const program = createNativeProgram(stand.command, stand.folder)
-    const crash = joinPath(stand.folder, 'crash.ts')
+    const crash = join(stand.folder, 'crash.ts')
     program.sync([{ path: crash, text: 'boom' }])
-    const failures = await Array.from({ length: 5 }).reduce<Promise<ReadonlyArray<unknown>>>(
+    const messages = await Array.from({ length: 5 }).reduce<Promise<ReadonlyArray<string>>>(
       (previous) =>
         previous.then(async (found) => {
-          const failure = await program.hover(crash, position).then(
-            () => undefined,
-            (error: unknown) => error,
-          )
+          const message = await diagnosticsOf(program, crash)
           await settled(150)
-          return [...found, failure]
+          return [...found, message]
         }),
       Promise.resolve([]),
     )
-    expectProgram(stand.lines().filter((line) => line === 'started')).toHaveLength(4)
-    expectProgram(failures[failures.length - 1]).toBeInstanceOf(NativeServerStopped)
+    expect(startedIn(stand.lines())).toHaveLength(4)
+    expect(messages[messages.length - 1]).toContain('stopped 4 times')
+    program.dispose()
+  })
+
+  it('counts restarts afresh after a server that ran for a while', async () => {
+    const stand = standInServer()
+    const program = createNativeProgram(stand.command, stand.folder, () => true, { stableFor: 100 })
+    const a = join(stand.folder, 'a.ts')
+    const boom = join(stand.folder, 'boom.ts')
+    program.sync([{ path: a, text: 'a' }], [{ path: boom, text: 'boom' }])
+    await Array.from({ length: 5 }).reduce<Promise<void>>(
+      (previous) =>
+        previous.then(async () => {
+          await program.hover(a, position)
+          await settled(200)
+          await program.hover(boom, position)
+          await settled(100)
+        }),
+      Promise.resolve(),
+    )
+    expect(startedIn(stand.lines())).toHaveLength(5)
+    expect(await diagnosticsOf(program, a)).not.toContain('stopped')
     program.dispose()
   })
 })
 
-describeProgram('createUnavailableProgram fails every question with its reason', () => {
-  itProgram('rejects with NativeCompilerUnavailable carrying the reason', async () => {
+describe('createUnavailableProgram reports its reason', () => {
+  it('reports the reason as an error diagnostic and answers other questions with nothing', async () => {
     const program = createUnavailableProgram('install @typescript/typescript-test')
-    const failure = await program.hover('/a.ts', position).then(
-      () => undefined,
-      (error: unknown) => error,
-    )
-    expectProgram(failure).toBeInstanceOf(NativeCompilerUnavailable)
-    expectProgram(String((failure as Error).message)).toContain('install @typescript/typescript-test')
+    expect(await diagnosticsOf(program, '/a.ts')).toContain('install @typescript/typescript-test')
+    expect(await program.hover('/a.ts', position)).toBeUndefined()
   })
 })
 
 ## The test file {Tangle}[test/NativeProgram.test.ts]
 
 =>
+
+::[What the tests draw on]
 
 ::[Testing which compiler a project uses]
 

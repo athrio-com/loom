@@ -12,7 +12,7 @@ export interface StandIn {
 const standInSource = (log: string): string => `#!/usr/bin/env bun
 const { appendFileSync } = require('node:fs')
 const log = (line) => appendFileSync(${JSON.stringify(log)}, line + '\\n')
-log('started')
+log('started ' + process.pid)
 let buffer = Buffer.alloc(0)
 const reply = (id, result) => {
   const body = JSON.stringify({ jsonrpc: '2.0', id, result })
@@ -23,6 +23,10 @@ const handle = (message) => {
   const version = message.params?.textDocument?.version
   log(message.method + (uri ? ' ' + uri.split('/').pop() : '') + (version ? ' v' + version : ''))
   if (uri.includes('crash') && message.method !== 'textDocument/didClose') process.exit(1)
+  if (uri.includes('boom') && message.method === 'textDocument/hover') process.exit(1)
+  if (uri.includes('garble') && message.method === 'textDocument/hover') {
+    return process.stdout.write('Content-Length: 9\\r\\n\\r\\nnot json!')
+  }
   if (message.id === undefined) return
   if (message.method === 'initialize') return reply(message.id, { capabilities: {} })
   if (message.method === 'textDocument/hover') return reply(message.id, { contents: 'stand-in' })
@@ -59,3 +63,15 @@ export const standInServer = (): StandIn => {
 }
 
 export const settled = (ms = 300): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
+export const startedIn = (lines: ReadonlyArray<string>): ReadonlyArray<number> =>
+  lines.filter((line) => line.startsWith('started ')).map((line) => Number(line.split(' ')[1]))
+
+export const running = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}

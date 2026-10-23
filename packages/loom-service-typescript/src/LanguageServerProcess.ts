@@ -1,7 +1,7 @@
 import { Array, Data, Option } from 'effect'
 import { spawn } from 'node:child_process'
 import { basename } from 'node:path'
-import type { MessageConnection } from 'vscode-jsonrpc/node'
+import type { MessageConnection } from 'vscode-jsonrpc/node.js'
 import { URI } from 'vscode-uri'
 
 export interface OpenFile {
@@ -13,6 +13,7 @@ export interface LanguageServerProcess {
   readonly keepOpen: (files: ReadonlyArray<OpenFile>) => void
   readonly request: <A>(method: string, params: unknown) => Promise<A>
   readonly alive: () => boolean
+  readonly uptime: () => number
   readonly dispose: () => void
 }
 
@@ -32,12 +33,14 @@ export const spawnLanguageServer = (
   languageId: string,
   capabilities: object,
 ): LanguageServerProcess => {
-  const state = { running: true, disposed: false }
+  const state = { running: true, disposed: false, startedAt: Date.now(), stoppedAt: 0 }
   const child = spawn(command, [...args], { cwd: workspace, stdio: ['pipe', 'pipe', 'ignore'] })
   const stopped = (): void => {
     if (!state.running) return
     state.running = false
+    state.stoppedAt = Date.now()
     void connected.then((connection) => connection.dispose()).catch(() => undefined)
+    child.kill()
   }
   const spawned = new Promise<void>((resolve, reject) => {
     child.once('spawn', () => resolve())
@@ -48,7 +51,7 @@ export const spawnLanguageServer = (
   child.stdin.on('error', stopped)
 
   const connected: Promise<MessageConnection> = spawned
-    .then(() => import('vscode-jsonrpc/node'))
+    .then(() => import('vscode-jsonrpc/node.js'))
     .then((rpc) => {
       const connection = rpc.createMessageConnection(
         new rpc.StreamMessageReader(child.stdout),
@@ -122,6 +125,7 @@ export const spawnLanguageServer = (
             .catch((cause) => Promise.reject(new LanguageServerFailed({ command, cause })))
         : Promise.reject(new LanguageServerFailed({ command })),
     alive: () => state.running,
+    uptime: () => (state.running ? Date.now() : state.stoppedAt) - state.startedAt,
     dispose: () => {
       if (state.disposed) return
       state.disposed = true

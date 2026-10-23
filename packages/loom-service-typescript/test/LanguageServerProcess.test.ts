@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'bun:test'
+import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
 import { writeFileSync } from 'node:fs'
 import { LanguageServerFailed, spawnLanguageServer } from '../src/LanguageServerProcess'
-import { settled, standInServer } from './StandInServer'
+import { running, settled, standInServer, startedIn } from './StandInServer'
 
 describe('LanguageServerProcess keeps files open and sends requests in order', () => {
   it('opens, changes and closes files, and sends a request after them', async () => {
@@ -19,8 +20,7 @@ describe('LanguageServerProcess keeps files open and sends requests in order', (
       position: { line: 0, character: 0 },
     })
     expect(hover.contents).toBe('stand-in')
-    expect(stand.lines()).toEqual([
-      'started',
+    expect(stand.lines().slice(1)).toEqual([
       'initialize',
       'initialized',
       'textDocument/didOpen a.ts v1',
@@ -67,6 +67,30 @@ describe('LanguageServerProcess never takes the host down when a server cannot s
     expect(failure).toBeInstanceOf(LanguageServerFailed)
     expect(alive).toBe(false)
   })
+
+  it('reports a server that exits as soon as it starts', async () => {
+    const stand = standInServer()
+    const quitter = join(stand.folder, 'quitter')
+    writeFileSync(quitter, '#!/bin/sh\nexit 3\n', { mode: 0o755 })
+    const { failure, alive } = await unstartable(quitter, stand.folder)
+    expect(failure).toBeInstanceOf(LanguageServerFailed)
+    expect(alive).toBe(false)
+  })
+
+  it('stops a server that answers with a message it cannot read', async () => {
+    const stand = standInServer()
+    const server = spawnLanguageServer(stand.command, [], stand.folder, 'typescript', {})
+    const failure = await server
+      .request('textDocument/hover', { textDocument: { uri: `file://${join(stand.folder, 'garble.ts')}` } })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+    await settled()
+    expect(failure).toBeInstanceOf(LanguageServerFailed)
+    expect(server.alive()).toBe(false)
+    expect(startedIn(stand.lines()).every((pid) => !running(pid))).toBe(true)
+  })
 })
 
 describe('LanguageServerProcess shuts a server down once', () => {
@@ -79,5 +103,26 @@ describe('LanguageServerProcess shuts a server down once', () => {
     await settled()
     expect(server.alive()).toBe(false)
     expect(stand.lines().filter((line) => line === 'shutdown')).toEqual(['shutdown'])
+  })
+})
+
+describe('LanguageServerProcess runs under Node', () => {
+  const node = spawnSync('node', ['--version']).status === 0
+
+  it.skipIf(!node)('starts a server and gets an answer when Node runs it', () => {
+    const stand = standInServer()
+    const script = join(stand.folder, 'under-node.ts')
+    const bridge = join(import.meta.dir, '..', 'src', 'LanguageServerProcess.ts')
+    writeFileSync(
+      script,
+      `import { spawnLanguageServer } from ${JSON.stringify(bridge)}\n` +
+        `const server = spawnLanguageServer(${JSON.stringify(stand.command)}, [], ${JSON.stringify(stand.folder)}, 'typescript', {})\n` +
+        `server.request('textDocument/hover', {}).then(\n` +
+        `  (hover) => { console.log(JSON.stringify(hover)); server.dispose() },\n` +
+        `  (error) => { console.log('failed: ' + error.message); server.dispose() },\n` +
+        `)\n`,
+    )
+    const run = spawnSync('node', [script], { cwd: join(import.meta.dir, '..'), encoding: 'utf8', timeout: 20_000 })
+    expect(run.stdout.trim()).toBe(JSON.stringify({ contents: 'stand-in' }))
   })
 })

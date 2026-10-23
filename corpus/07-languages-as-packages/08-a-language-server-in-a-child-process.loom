@@ -14,7 +14,7 @@ Most languages already have a language server: a program that answers an editor'
 
 A language server answers only about files it knows, and a composed file exists nowhere on disk, or exists there as an older tangle. So the bridge sends each file's text to the server as an open document, which the server reads in place of the disk. `keepOpen` takes the whole set of files that should be open, each an `OpenFile` with its path and text. It opens the files new to the set, sends the new text of the files that changed, and closes the files no longer in it. Every call names the full set, so the caller never tracks what the server has already seen.
 
-`request` sends one request and resolves with the server's answer. `alive` says whether the server is still running, so its owner can decide whether to start another. `dispose` asks the server to shut down and stops the process.
+`request` sends one request and resolves with the server's answer. `alive` says whether the server is still running, so its owner can decide whether to start another. `uptime` says how long the server ran, until now or until it stopped, so its owner can tell a server that ran for a while from one that failed as soon as it started. `dispose` asks the server to shut down and stops the process.
 
 =>
 
@@ -27,6 +27,7 @@ export interface LanguageServerProcess {
   readonly keepOpen: (files: ReadonlyArray<OpenFile>) => void
   readonly request: <A>(method: string, params: unknown) => Promise<A>
   readonly alive: () => boolean
+  readonly uptime: () => number
   readonly dispose: () => void
 }
 
@@ -51,7 +52,7 @@ export class LanguageServerFailed extends Data.TaggedError('LanguageServerFailed
 
 The bridge mirrors a running process, so it holds state that the process changes under it: whether the process still runs, and which files it holds open. That state lives in the bridge's own closure and nowhere else, because the process is the one thing outside the program that the program must keep pace with. Everything the bridge hands out, a request's answer or a file's status, is computed from that state at the moment it is asked for.
 
-A process can fail to start, because its command is missing, or cannot be executed, or its folder does not exist. Node reports that failure as an `error` event on the child, after the call that started it has returned. Writing to such a child would fail as well, and an unhandled failure ends the whole language server, which hosts every other language too. So the bridge waits for the child's `spawn` event, which says the process truly started, before it builds a connection or writes a byte. `spawned` is the promise of that event, and it fails with `LanguageServerFailed` on an `error` event instead. A child that started can still close its input later, so the bridge listens for errors on that stream too and takes them as the process stopping. `stopped` records that the process has stopped, once, and disposes the connection, which fails every request still waiting for an answer, so a caller hears of the failure at once rather than waiting for an answer that will never come.
+A process can fail to start, because its command is missing, or cannot be executed, or its folder does not exist. Node reports that failure as an `error` event on the child, after the call that started it has returned. Writing to such a child would fail as well, and an unhandled failure ends the whole language server, which hosts every other language too. So the bridge waits for the child's `spawn` event, which says the process truly started, before it builds a connection or writes a byte. `spawned` is the promise of that event, and it fails with `LanguageServerFailed` on an `error` event instead. A child that started can still close its input later, so the bridge listens for errors on that stream too and takes them as the process stopping. `stopped` runs once, whenever the bridge gives up on the server: when the process exits or fails, when its input breaks, or when the connection reports an error, such as a message it cannot read. It records the moment, disposes the connection, which fails every request still waiting for an answer, and stops the process. A process can outlive a broken connection, and stopping it there keeps a server the bridge can no longer talk to from running on unseen.
 
 =>
 
@@ -62,12 +63,14 @@ export const spawnLanguageServer = (
   languageId: string,
   capabilities: object,
 ): LanguageServerProcess => {
-  const state = { running: true, disposed: false }
+  const state = { running: true, disposed: false, startedAt: Date.now(), stoppedAt: 0 }
   const child = spawn(command, [...args], { cwd: workspace, stdio: ['pipe', 'pipe', 'ignore'] })
   const stopped = (): void => {
     if (!state.running) return
     state.running = false
+    state.stoppedAt = Date.now()
     void connected.then((connection) => connection.dispose()).catch(() => undefined)
+    child.kill()
   }
   const spawned = new Promise<void>((resolve, reject) => {
     child.once('spawn', () => resolve())
@@ -79,7 +82,7 @@ export const spawnLanguageServer = (
 
 ~
 
-The bridge imports `vscode-jsonrpc` only when it starts a server. A workspace that never runs a language server never loads the package, and the service itself loads without it, the way it loads without Prettier until it formats. `connected` is the promise of the connection, built once the process has started and the import has arrived. The connection reports its own failures through `onError` and `onClose`, and the bridge takes either as the server stopping.
+The bridge imports `vscode-jsonrpc` only when it starts a server. It names the module `vscode-jsonrpc/node.js`, with the extension. The package declares no map of its entry points, so Node resolves a path inside it only as written, and `vscode-jsonrpc/node` names no file to Node. Bun resolves either form, and the VS Code extension and the npm command run the language server on Node. A workspace that never runs a language server never loads the package, and the service itself loads without it, the way it loads without Prettier until it formats. `connected` is the promise of the connection, built once the process has started and the import has arrived. The connection reports its own failures through `onError` and `onClose`, and the bridge takes either as the server stopping.
 
 A server may receive nothing before it has answered `initialize`. So the bridge keeps `ready`, the promise of that answer, and sends every later message only once `ready` settles. Each message is attached to `ready` in the order the caller sent it, and a promise runs its callbacks in the order they were attached, so the server receives them in that order too. An open document always reaches the server before a request about it.
 
@@ -88,7 +91,7 @@ A server may receive nothing before it has answered `initialize`. So the bridge 
 =>
 
   const connected: Promise<MessageConnection> = spawned
-    .then(() => import('vscode-jsonrpc/node'))
+    .then(() => import('vscode-jsonrpc/node.js'))
     .then((rpc) => {
       const connection = rpc.createMessageConnection(
         new rpc.StreamMessageReader(child.stdout),
@@ -176,6 +179,7 @@ A server may receive nothing before it has answered `initialize`. So the bridge 
             .catch((cause) => Promise.reject(new LanguageServerFailed({ command, cause })))
         : Promise.reject(new LanguageServerFailed({ command })),
     alive: () => state.running,
+    uptime: () => (state.running ? Date.now() : state.stoppedAt) - state.startedAt,
     dispose: () => {
       if (state.disposed) return
       state.disposed = true
@@ -201,7 +205,7 @@ Node's `child_process` starts the server, and `path` names its workspace folder.
 import { Array, Data, Option } from 'effect'
 import { spawn } from 'node:child_process'
 import { basename } from 'node:path'
-import type { MessageConnection } from 'vscode-jsonrpc/node'
+import type { MessageConnection } from 'vscode-jsonrpc/node.js'
 import { URI } from 'vscode-uri'
 
 ## The module {Tangle}[src/LanguageServerProcess.ts]
@@ -216,7 +220,9 @@ import { URI } from 'vscode-uri'
 
 ## A stand-in language server
 
-The bridge is tested against a language server small enough to read. `standInServer` writes one to a scratch folder as an executable script with no dependencies. It frames LSP messages on its standard streams by hand, answers `initialize`, a hover and a pulled diagnostic, and writes one line to its log for every message it receives, so a case can read back exactly what the bridge sent and in what order. It writes `started` to the log when it starts, so a case can count how many processes ran. It exits at once when asked about a file whose name holds `crash`, the way a server that fails on some input would.
+The bridge is tested against a language server small enough to read. `standInServer` writes one to a scratch folder as an executable script with no dependencies. It frames LSP messages on its standard streams by hand, answers `initialize`, a hover and a pulled diagnostic, and writes one line to its log for every message it receives, so a case can read back exactly what the bridge sent and in what order. It writes `started` and its process id to the log when it starts, so a case can count how many processes ran and check whether one still runs.
+
+A few file names make it misbehave, the way a real server might on some input. Any message about a file whose name holds `crash` makes it exit at once, so a file opened at start ends the server as soon as it starts. A hover on a file whose name holds `boom` makes it exit then, after it has run for a while. A hover on a file whose name holds `garble` makes it answer with a message that is not JSON, and keep running.
 
 The stand-in is written with plain loops and string handling. It is a fixture that stands in for a foreign program, not code of Loom's, and it must run alone, with nothing to import.
 
@@ -236,7 +242,7 @@ export interface StandIn {
 const standInSource = (log: string): string => `#!/usr/bin/env bun
 const { appendFileSync } = require('node:fs')
 const log = (line) => appendFileSync(${JSON.stringify(log)}, line + '\\n')
-log('started')
+log('started ' + process.pid)
 let buffer = Buffer.alloc(0)
 const reply = (id, result) => {
   const body = JSON.stringify({ jsonrpc: '2.0', id, result })
@@ -247,6 +253,10 @@ const handle = (message) => {
   const version = message.params?.textDocument?.version
   log(message.method + (uri ? ' ' + uri.split('/').pop() : '') + (version ? ' v' + version : ''))
   if (uri.includes('crash') && message.method !== 'textDocument/didClose') process.exit(1)
+  if (uri.includes('boom') && message.method === 'textDocument/hover') process.exit(1)
+  if (uri.includes('garble') && message.method === 'textDocument/hover') {
+    return process.stdout.write('Content-Length: 9\\r\\n\\r\\nnot json!')
+  }
   if (message.id === undefined) return
   if (message.method === 'initialize') return reply(message.id, { capabilities: {} })
   if (message.method === 'textDocument/hover') return reply(message.id, { contents: 'stand-in' })
@@ -284,6 +294,18 @@ export const standInServer = (): StandIn => {
 
 export const settled = (ms = 300): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
+export const startedIn = (lines: ReadonlyArray<string>): ReadonlyArray<number> =>
+  lines.filter((line) => line.startsWith('started ')).map((line) => Number(line.split(' ')[1]))
+
+export const running = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
 ## The stand-in module {Tangle}[test/StandInServer.ts]
 
 =>
@@ -294,17 +316,20 @@ export const settled = (ms = 300): Promise<void> => new Promise((resolve) => set
 
 These cases drive the bridge against the stand-in server, and against commands that cannot start.
 
-The first case checks what `keepOpen` sends and in what order. Opening `a.ts`, then changing it and opening `b.ts`, then leaving only `b.ts` sends `a.ts` at version one, `a.ts` again at version two, `b.ts` at version one, and a close for `a.ts`. A request sent last reaches the server after all of them.
+The first case checks what `keepOpen` sends and in what order. It opens `a.ts`, then changes it and opens `b.ts`, then leaves only `b.ts`. Within a call the bridge opens new files before it changes old ones, so the server receives `a.ts` at version one, `b.ts` at version one, `a.ts` at version two, and a close for `a.ts`. A request sent last reaches the server after all of them.
 
-The next cases check that a server which cannot start never takes the host down. A command that does not exist, a file that cannot be executed, and a folder that does not exist each leave the bridge not alive, and a request fails with `LanguageServerFailed` instead of crashing the test process. The last case checks that `dispose` stops the process, and that a second call does nothing.
+The next cases check that a server which cannot start never takes the host down. A command that does not exist, a file that cannot be executed, a folder that does not exist, and a server that exits as soon as it starts each leave the bridge not alive, and a request fails with `LanguageServerFailed` instead of crashing the test process. A server that answers with a message that is not JSON is stopped, and its process no longer runs. `dispose` stops the process, and a second call does nothing.
+
+The last case runs the bridge under Node, the runtime the VS Code extension and the npm command use. It starts Node on a small script that imports the bridge's own source, which Node runs by stripping its types, and has the bridge ask the stand-in for a hover. The case passes only if the hover comes back, so a module name Node cannot resolve fails it. A machine without Node skips it.
 
 =>
 
 import { describe, expect, it } from 'bun:test'
+import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
 import { writeFileSync } from 'node:fs'
 import { LanguageServerFailed, spawnLanguageServer } from '../src/LanguageServerProcess'
-import { settled, standInServer } from './StandInServer'
+import { running, settled, standInServer, startedIn } from './StandInServer'
 
 describe('LanguageServerProcess keeps files open and sends requests in order', () => {
   it('opens, changes and closes files, and sends a request after them', async () => {
@@ -321,8 +346,7 @@ describe('LanguageServerProcess keeps files open and sends requests in order', (
       position: { line: 0, character: 0 },
     })
     expect(hover.contents).toBe('stand-in')
-    expect(stand.lines()).toEqual([
-      'started',
+    expect(stand.lines().slice(1)).toEqual([
       'initialize',
       'initialized',
       'textDocument/didOpen a.ts v1',
@@ -369,6 +393,30 @@ describe('LanguageServerProcess never takes the host down when a server cannot s
     expect(failure).toBeInstanceOf(LanguageServerFailed)
     expect(alive).toBe(false)
   })
+
+  it('reports a server that exits as soon as it starts', async () => {
+    const stand = standInServer()
+    const quitter = join(stand.folder, 'quitter')
+    writeFileSync(quitter, '#!/bin/sh\nexit 3\n', { mode: 0o755 })
+    const { failure, alive } = await unstartable(quitter, stand.folder)
+    expect(failure).toBeInstanceOf(LanguageServerFailed)
+    expect(alive).toBe(false)
+  })
+
+  it('stops a server that answers with a message it cannot read', async () => {
+    const stand = standInServer()
+    const server = spawnLanguageServer(stand.command, [], stand.folder, 'typescript', {})
+    const failure = await server
+      .request('textDocument/hover', { textDocument: { uri: `file://${join(stand.folder, 'garble.ts')}` } })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+    await settled()
+    expect(failure).toBeInstanceOf(LanguageServerFailed)
+    expect(server.alive()).toBe(false)
+    expect(startedIn(stand.lines()).every((pid) => !running(pid))).toBe(true)
+  })
 })
 
 describe('LanguageServerProcess shuts a server down once', () => {
@@ -381,6 +429,27 @@ describe('LanguageServerProcess shuts a server down once', () => {
     await settled()
     expect(server.alive()).toBe(false)
     expect(stand.lines().filter((line) => line === 'shutdown')).toEqual(['shutdown'])
+  })
+})
+
+describe('LanguageServerProcess runs under Node', () => {
+  const node = spawnSync('node', ['--version']).status === 0
+
+  it.skipIf(!node)('starts a server and gets an answer when Node runs it', () => {
+    const stand = standInServer()
+    const script = join(stand.folder, 'under-node.ts')
+    const bridge = join(import.meta.dir, '..', 'src', 'LanguageServerProcess.ts')
+    writeFileSync(
+      script,
+      `import { spawnLanguageServer } from ${JSON.stringify(bridge)}\n` +
+        `const server = spawnLanguageServer(${JSON.stringify(stand.command)}, [], ${JSON.stringify(stand.folder)}, 'typescript', {})\n` +
+        `server.request('textDocument/hover', {}).then(\n` +
+        `  (hover) => { console.log(JSON.stringify(hover)); server.dispose() },\n` +
+        `  (error) => { console.log('failed: ' + error.message); server.dispose() },\n` +
+        `)\n`,
+    )
+    const run = spawnSync('node', [script], { cwd: join(import.meta.dir, '..'), encoding: 'utf8', timeout: 20_000 })
+    expect(run.stdout.trim()).toBe(JSON.stringify({ contents: 'stand-in' }))
   })
 })
 

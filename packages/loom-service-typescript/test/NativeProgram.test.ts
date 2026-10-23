@@ -3,7 +3,12 @@ import { Option } from 'effect'
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { compilerChoiceFor } from '../src/NativeProgram'
+import {
+  compilerChoiceFor,
+  createNativeProgram,
+  createUnavailableProgram,
+} from '../src/NativeProgram'
+import { settled, standInServer, startedIn } from './StandInServer'
 
 const executableName = process.platform === 'win32' ? 'tsc.exe' : 'tsc'
 const companion = `typescript-${process.platform}-${process.arch}`
@@ -12,10 +17,11 @@ const install = (
   folder: string,
   version: string,
   companionPackage: 'executable' | 'plain' | 'none' = 'executable',
+  name = 'typescript',
 ): string => {
-  const typescript = join(folder, 'node_modules', 'typescript')
+  const typescript = join(folder, 'node_modules', name)
   mkdirSync(typescript, { recursive: true })
-  writeFileSync(join(typescript, 'package.json'), JSON.stringify({ name: 'typescript', version }))
+  writeFileSync(join(typescript, 'package.json'), JSON.stringify({ name, version }))
   if (version.startsWith('7') && companionPackage !== 'none') {
     const lib = join(folder, 'node_modules', '@typescript', companion, 'lib')
     mkdirSync(lib, { recursive: true })
@@ -119,120 +125,152 @@ describe('compilerChoiceFor follows the nativeCompiler setting', () => {
 
   it('reports a setting that names TypeScript 6 as unavailable', () => {
     const root = folder()
-    const elsewhere = folder()
-    const named = install(elsewhere, '6.0.3')
+    const named = install(folder(), '6.0.3')
     const choice = compilerChoiceFor(projectAt(root), Option.some(named))
     expect(choice._tag).toBe('Unavailable')
     expect(choice._tag === 'Unavailable' && choice.reason).toContain('TypeScript 6')
   })
-})
 
-import { describe as describeProgram, expect as expectProgram, it as itProgram } from 'bun:test'
-import { join as joinPath } from 'node:path'
-import {
-  createNativeProgram,
-  createUnavailableProgram,
-  NativeCompilerUnavailable,
-  NativeProgramDisposed,
-  NativeServerStopped,
-} from '../src/NativeProgram'
-import { settled, standInServer } from './StandInServer'
+  it('reports a setting that names another package as unavailable', () => {
+    const root = folder()
+    const named = install(folder(), '7.0.2', 'executable', 'not-typescript')
+    expect(compilerChoiceFor(projectAt(root), Option.some(named))._tag).toBe('Unavailable')
+  })
+
+  it('reports a setting that is not a path as unavailable', () => {
+    const root = folder()
+    expect(compilerChoiceFor(projectAt(root), Option.some(true))._tag).toBe('Unavailable')
+    expect(compilerChoiceFor(projectAt(root), Option.some(''))._tag).toBe('Unavailable')
+  })
+})
 
 const position = { line: 0, character: 0 }
 
-describeProgram('createNativeProgram warms the workspace once', () => {
-  itProgram('asks for every non-loose root\'s diagnostics after the first answer, once', async () => {
+const diagnosticsOf = async (
+  program: ReturnType<typeof createUnavailableProgram>,
+  path: string,
+): Promise<string> => (await program.diagnostics(path)).map((d) => d.message).join(' | ')
+
+const diagnosticPaths = (lines: ReadonlyArray<string>): ReadonlyArray<string> =>
+  lines.filter((line) => line.startsWith('textDocument/diagnostic')).sort()
+
+describe('createNativeProgram warms the workspace', () => {
+  it('asks for every served root\'s diagnostics after the first answer, keeping the edited loose root', async () => {
     const stand = standInServer()
-    const program = createNativeProgram(stand.command, stand.folder)
-    const a = joinPath(stand.folder, 'a.ts')
-    const b = joinPath(stand.folder, 'b.ts')
-    const loose = joinPath(stand.folder, 'chapter.loom.aside.ts')
-    program.sync([{ path: a, text: 'a' }], [
-      { path: b, text: 'b' },
-      { path: loose, text: 'aside' },
-    ])
-    await program.hover(a, position)
-    await program.hover(a, position)
+    const loose = join(stand.folder, 'chapter.loom.aside.ts')
+    const program = createNativeProgram(stand.command, stand.folder, (path) => !path.endsWith('old.ts'))
+    program.sync(
+      [{ path: loose, text: 'aside', loose: true }],
+      [
+        { path: join(stand.folder, 'b.ts'), text: 'b' },
+        { path: join(stand.folder, 'old.ts'), text: 'old' },
+      ],
+    )
+    await program.hover(loose, position)
     await settled(600)
-    const diagnostics = stand.lines().filter((line) => line.startsWith('textDocument/diagnostic'))
-    expectProgram(diagnostics.sort()).toEqual([
-      'textDocument/diagnostic a.ts',
-      'textDocument/diagnostic b.ts',
-    ])
-    expectProgram(stand.lines()).not.toContain('textDocument/didOpen chapter.loom.aside.ts v1')
+    const lines = stand.lines()
+    expect(diagnosticPaths(lines)).toEqual(['textDocument/diagnostic b.ts'])
+    expect(lines).not.toContain('textDocument/didClose chapter.loom.aside.ts')
+    expect(lines).not.toContain('textDocument/didOpen old.ts v1')
     program.dispose()
   })
 
-  itProgram('closes one loom\'s loose roots when another loom is asked about', async () => {
+  it('closes one loom\'s loose roots when another loom is asked about', async () => {
     const stand = standInServer()
     const program = createNativeProgram(stand.command, stand.folder)
-    const first = joinPath(stand.folder, 'first.loom.aside.ts')
-    const second = joinPath(stand.folder, 'second.loom.aside.ts')
-    program.sync([{ path: first, text: 'one' }], [{ path: second, text: 'two' }])
+    const first = join(stand.folder, 'first.loom.aside.ts')
+    const second = join(stand.folder, 'second.loom.aside.ts')
+    program.sync([{ path: first, text: 'one', loose: true }])
     await program.hover(first, position)
-    program.sync([{ path: second, text: 'two' }], [{ path: first, text: 'one' }])
+    program.sync([{ path: second, text: 'two', loose: true }])
     await program.hover(second, position)
     await settled()
     const lines = stand.lines()
-    expectProgram(lines).toContain('textDocument/didClose first.loom.aside.ts')
-    expectProgram(lines.indexOf('textDocument/didClose first.loom.aside.ts')).toBeLessThan(
+    expect(lines).toContain('textDocument/didClose first.loom.aside.ts')
+    expect(lines.indexOf('textDocument/didClose first.loom.aside.ts')).toBeLessThan(
       lines.indexOf('textDocument/didOpen second.loom.aside.ts v1'),
     )
     program.dispose()
   })
 
-  itProgram('starts no new server once disposed, even mid warm-up', async () => {
+  it('stops the warm-up when the server dies, and warms a restarted server again', async () => {
+    const stand = standInServer()
+    const program = createNativeProgram(stand.command, stand.folder)
+    const a = join(stand.folder, 'a.ts')
+    program.sync([{ path: a, text: 'a' }], [{ path: join(stand.folder, 'crash-late.ts'), text: 'x' }])
+    await program.hover(a, position)
+    await settled(600)
+    expect(startedIn(stand.lines())).toHaveLength(1)
+    program.sync([{ path: a, text: 'a' }])
+    await program.hover(a, position)
+    await settled(600)
+    expect(startedIn(stand.lines())).toHaveLength(2)
+    expect(diagnosticPaths(stand.lines())).toContain('textDocument/diagnostic a.ts')
+    program.dispose()
+  })
+
+  it('starts no new server once disposed, even mid warm-up', async () => {
     const stand = standInServer()
     const program = createNativeProgram(stand.command, stand.folder)
     const roots = Array.from({ length: 20 }, (_, index) => ({
-      path: joinPath(stand.folder, `r${index}.ts`),
+      path: join(stand.folder, `r${index}.ts`),
       text: `export const r${index} = ${index}`,
     }))
     program.sync(roots.slice(0, 1), roots.slice(1))
     await program.hover(roots[0]!.path, position)
     program.dispose()
     await settled(800)
-    expectProgram(stand.lines().filter((line) => line === 'started')).toEqual(['started'])
-    const failure = await program.hover(roots[0]!.path, position).then(
-      () => undefined,
-      (error: unknown) => error,
-    )
-    expectProgram(failure).toBeInstanceOf(NativeProgramDisposed)
+    expect(startedIn(stand.lines())).toHaveLength(1)
+    expect(await diagnosticsOf(program, roots[0]!.path)).toContain('was shut down')
   })
 })
 
-describeProgram('createNativeProgram restarts a crashed server a few times', () => {
-  itProgram('restarts three times, then fails with NativeServerStopped', async () => {
+describe('createNativeProgram restarts a crashed server a few times', () => {
+  it('gives up after three restarts of a server that crashes as it starts', async () => {
     const stand = standInServer()
     const program = createNativeProgram(stand.command, stand.folder)
-    const crash = joinPath(stand.folder, 'crash.ts')
+    const crash = join(stand.folder, 'crash.ts')
     program.sync([{ path: crash, text: 'boom' }])
-    const failures = await Array.from({ length: 5 }).reduce<Promise<ReadonlyArray<unknown>>>(
+    const messages = await Array.from({ length: 5 }).reduce<Promise<ReadonlyArray<string>>>(
       (previous) =>
         previous.then(async (found) => {
-          const failure = await program.hover(crash, position).then(
-            () => undefined,
-            (error: unknown) => error,
-          )
+          const message = await diagnosticsOf(program, crash)
           await settled(150)
-          return [...found, failure]
+          return [...found, message]
         }),
       Promise.resolve([]),
     )
-    expectProgram(stand.lines().filter((line) => line === 'started')).toHaveLength(4)
-    expectProgram(failures[failures.length - 1]).toBeInstanceOf(NativeServerStopped)
+    expect(startedIn(stand.lines())).toHaveLength(4)
+    expect(messages[messages.length - 1]).toContain('stopped 4 times')
+    program.dispose()
+  })
+
+  it('counts restarts afresh after a server that ran for a while', async () => {
+    const stand = standInServer()
+    const program = createNativeProgram(stand.command, stand.folder, () => true, { stableFor: 100 })
+    const a = join(stand.folder, 'a.ts')
+    const boom = join(stand.folder, 'boom.ts')
+    program.sync([{ path: a, text: 'a' }], [{ path: boom, text: 'boom' }])
+    await Array.from({ length: 5 }).reduce<Promise<void>>(
+      (previous) =>
+        previous.then(async () => {
+          await program.hover(a, position)
+          await settled(200)
+          await program.hover(boom, position)
+          await settled(100)
+        }),
+      Promise.resolve(),
+    )
+    expect(startedIn(stand.lines())).toHaveLength(5)
+    expect(await diagnosticsOf(program, a)).not.toContain('stopped')
     program.dispose()
   })
 })
 
-describeProgram('createUnavailableProgram fails every question with its reason', () => {
-  itProgram('rejects with NativeCompilerUnavailable carrying the reason', async () => {
+describe('createUnavailableProgram reports its reason', () => {
+  it('reports the reason as an error diagnostic and answers other questions with nothing', async () => {
     const program = createUnavailableProgram('install @typescript/typescript-test')
-    const failure = await program.hover('/a.ts', position).then(
-      () => undefined,
-      (error: unknown) => error,
-    )
-    expectProgram(failure).toBeInstanceOf(NativeCompilerUnavailable)
-    expectProgram(String((failure as Error).message)).toContain('install @typescript/typescript-test')
+    expect(await diagnosticsOf(program, '/a.ts')).toContain('install @typescript/typescript-test')
+    expect(await program.hover('/a.ts', position)).toBeUndefined()
   })
 })

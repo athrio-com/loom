@@ -75,7 +75,7 @@ export const configNear = (ts: TypeScript): ((path: string) => Option.Option<str
 
 A request arrives on an embedded document — one Product of a `.loom`, a composition root with its members already folded in. `productTarget` decodes that document's URI back to the `.loom` path and the Product's id, and serves only a TypeScript-family document — `typescript`, `tsx`, `javascript`, or `jsx`. It declines the rest, so a JSON or CSS Product the `.loom` also holds falls to its own service. It then reads the file's composition — every root in the corpus that tangles to a file, at the path it tangles to — and looks for the one this document edits.
 
-A root that tangles to a file is checked at that path, the live buffer overriding what is on disk. A root that tangles nowhere — a section with no file sink — has no path of its own, so `productTarget` checks it beside its `.loom` under a synthetic name. Either way it hands the program the whole composition, so one root's `import` of another resolves against the other's composition. It returns the edited root's path for the caller to query.
+A root that tangles to a file is checked at that path, the live buffer overriding what is on disk. A root that tangles nowhere — a section with no file sink — has no path of its own, so `productTarget` checks it beside its `.loom` under a synthetic name, and marks it `loose`, since no `tsconfig.json` includes that name. Either way it hands the program the whole composition, so one root's `import` of another resolves against the other's composition. It returns the edited root's path for the caller to query.
 
 `productTarget` hands the composition to the program of the edited root's project. A `ProductProject` names that program by its `key`: the path of the `tsconfig.json` that governs the root or, when none does, the root's own `.loom`, so a loom outside every project keeps a program of its own. It also carries the `tsconfig.json` it found, if any, and the `.loom` the root came from, which locate the project on disk however its key is spelled. `projectOf` finds the project of any root. The program lists the roots that share the edited root's project and holds every other root without listing it. A cross-project `import` still resolves against live composition, and TypeScript parses only what the project's own roots import.
 
@@ -153,6 +153,7 @@ export const productTarget = (
   const asFile = (file: ComposedFile): ProductFile => ({
     path: file.path,
     text: file === edited ? text : file.content,
+    loose: file === edited && Option.isNone(sink),
   })
   program.sync(
     Array.map(Array.filter(roots, listed), asFile),
@@ -170,9 +171,11 @@ export const productTarget = (
 
 The plugin reads the composed corpus from the `Composition` capability the host provides. Each feature routes its document through `productTarget`: when the document is a TypeScript Product, the feature forwards to its program; otherwise it returns nothing, and a document in another language falls to its own service or to syntax highlighting. References and rename reach the whole corpus, and every other feature reaches the edited root's project.
 
-The compiler is chosen per project, and a project uses one compiler for everything. `compilerChoiceFor`, from the chapter on the native TypeScript program, makes the choice, and `programFor` builds the program it names. A `Classic` project gets the TypeScript 6 program, whose analysis is `volar-service-typescript`'s, run inside the program. A `Native` project gets the native program, which asks TypeScript 7's own language server. An `Unavailable` project gets a program that fails every question with the reason it cannot have TypeScript 7. `nativeSetting` is the `nativeCompiler` setting, a TypeScript 7 install that every project uses when it is given.
+The compiler is chosen per project, and a project uses one compiler for everything. `compilerChoiceFor`, from the chapter on the native TypeScript program, makes the choice, and `programFor` builds the program it names. A `Classic` project gets the TypeScript 6 program, whose analysis is `volar-service-typescript`'s, run inside the program. A `Native` project gets the native program, which asks TypeScript 7's own language server. An `Unavailable` project gets a program that fails every question with the reason it cannot have TypeScript 7. `nativeSetting` is the `nativeCompiler` setting, a TypeScript 7 install that every project uses when it is given. The plugin hands it on as the workspace wrote it, whatever its type, so `compilerChoiceFor` can report a setting that is not a folder's path rather than ignore it.
 
-Every project on the same TypeScript 7 shares one native program, kept in `nativePrograms` by the executable's path, because TypeScript 7's server holds a whole workspace in one process. It starts in the folder of the first project that asks. Since several projects hold the same native program, the plugin disposes each program once when the service shuts down.
+Every project on the same TypeScript 7 shares one native program, kept in `nativePrograms` by the executable's path, because TypeScript 7's server holds a whole workspace in one process. It starts in the folder of the first project that asks.
+
+A workspace can mix projects on TypeScript 7 with projects still on TypeScript 6, and the native program's warm-up must not load the TypeScript 6 projects into TypeScript 7. `servedBy` tells the native program which roots are its own: a root is, when it is a TypeScript or JavaScript file and the `tsconfig.json` that governs it chooses this same executable. The composition also holds the other files a book tangles, a `package.json` or a workflow, and TypeScript 7 has no business opening those as code. A root with no `tsconfig.json` is not served either, and the native program opens it only when a question is about it. `servedBy` remembers the choice for each configuration, since the warm-up asks about every root. Since several projects hold the same native program, the plugin disposes each program once when the service shuts down.
 
 A result that names a place — a definition, a reference, the edits of a rename or a code action — comes back under the path the program checks. `embeddedUriOf` rewrites that path to the embedded document Volar knows: it finds the root the program holds there and encodes its `.loom` and id back through `encodeEmbeddedDocumentUri`. Volar then maps the result to the `.loom`, rather than opening a file that may not be on disk. A path that is no root the program holds — a real file under `node_modules` — passes through unchanged.
 
@@ -194,7 +197,7 @@ interface ActionOrigin {
 export const productPlugin = (
   ts: TypeScript,
   composition: CompositionApi,
-  nativeSetting: Option.Option<string> = Option.none(),
+  nativeSetting: Option.Option<unknown> = Option.none(),
 ): LanguageServicePlugin => ({
   name: 'loom-typescript-product',
   capabilities: {
@@ -214,6 +217,23 @@ export const productPlugin = (
     const programs = new Map<string, ProductProgram>()
     const nativePrograms = new Map<string, ProductProgram>()
     const actionTargets = new Map<string, ProductTarget>()
+    const scriptExtension = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/
+    const choices = new Map<string, CompilerChoice>()
+    const servedBy =
+      (executable: string) =>
+      (path: string): boolean =>
+        scriptExtension.test(path) &&
+        Option.match(configOf(path), {
+          onNone: () => false,
+          onSome: (config) => {
+            const choice = Option.getOrElse(Option.fromNullishOr(choices.get(config)), () => {
+              const chosen = compilerChoiceFor({ key: config, config: Option.some(config), loom: config }, nativeSetting)
+              choices.set(config, chosen)
+              return chosen
+            })
+            return CompilerChoice.$is('Native')(choice) && choice.executable === executable
+          },
+        })
     const programFor = (project: ProductProject): ProductProgram => {
       const existing = programs.get(project.key)
       if (existing !== undefined) return existing
@@ -221,7 +241,11 @@ export const productPlugin = (
         Classic: () => createProductProgram(ts, consumerOptions(ts, project.config)),
         Native: ({ executable }) =>
           Option.getOrElse(Option.fromNullishOr(nativePrograms.get(executable)), () => {
-            const shared = createNativeProgram(executable, projectFolder(project))
+            const shared = createNativeProgram(
+              executable,
+              projectFolder(project),
+              servedBy(executable),
+            )
             nativePrograms.set(executable, shared)
             return shared
           }),
@@ -445,7 +469,7 @@ const formatProduct = (request: FormatRequest): Effect.Effect<string, ServiceErr
 
 ## The service
 
-`TypescriptService` is the `LanguageService` the host activates for `typescript`. Its `plugins` Effect takes the editor's TypeScript compiler from `TypescriptSdk` and the composed corpus from `Composition`, then builds the one plugin. It reads the `nativeCompiler` setting from the settings the workspace gives the language, keeping it only when it is a string. Where the frame rides Volar's shared TypeScript program, this service owns a program of its own. Its `format` is `formatProduct`.
+`TypescriptService` is the `LanguageService` the host activates for `typescript`. Its `plugins` Effect takes the editor's TypeScript compiler from `TypescriptSdk` and the composed corpus from `Composition`, then builds the one plugin. It reads the `nativeCompiler` setting from the settings the workspace gives the language and hands it on as written. Where the frame rides Volar's shared TypeScript program, this service owns a program of its own. Its `format` is `formatProduct`.
 
 The package exports the service as its default. That default is the entry the dynamic loader reads: `LanguageLoader` imports the built package and takes `default`, expecting a value that satisfies the `LanguageService` contract under the id `typescript`.
 
@@ -459,11 +483,7 @@ export const TypescriptService = defineLanguageService({
     Effect.gen(function* () {
       const ts = yield* TypescriptSdk
       const composition = yield* Composition
-      const nativeSetting = Option.filter(
-        Option.fromNullishOr(settings.nativeCompiler),
-        (value): value is string => typeof value === 'string',
-      )
-      return [productPlugin(ts, composition, nativeSetting)]
+      return [productPlugin(ts, composition, Option.fromNullishOr(settings.nativeCompiler))]
     }),
   format: formatProduct,
 })

@@ -28,6 +28,7 @@ type TypeScript = typeof import('typescript')
 export interface ProductFile {
   readonly path: string
   readonly text: string
+  readonly loose?: boolean
 }
 
 export interface ProductProgram {

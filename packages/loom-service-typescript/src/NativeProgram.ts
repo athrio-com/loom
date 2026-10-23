@@ -30,12 +30,19 @@ export const CompilerChoice = Data.taggedEnum<CompilerChoice>()
 const executableName = process.platform === 'win32' ? 'tsc.exe' : 'tsc'
 const companionPackage = `@typescript/typescript-${process.platform}-${process.arch}`
 
-const majorVersionOf = (packageJson: string): Option.Option<number> =>
+interface PackageManifest {
+  readonly name: string
+  readonly major: number
+}
+
+const manifestOf = (packageJson: string): Option.Option<PackageManifest> =>
   pipe(
     Option.liftThrowable(() => JSON.parse(readFileSync(packageJson, 'utf8')))(),
-    Option.flatMap((manifest) => Option.fromNullishOr(manifest?.version)),
-    Option.map((version) => Number(String(version).split('.')[0])),
-    Option.filter((major) => Number.isFinite(major)),
+    Option.map((manifest) => ({
+      name: String(manifest?.name ?? ''),
+      major: Number(String(manifest?.version ?? '').split('.')[0]),
+    })),
+    Option.filter((manifest) => Number.isFinite(manifest.major)),
   )
 
 const executable = (path: string): boolean =>
@@ -63,8 +70,8 @@ const choiceFromProject = (project: ProductProject): CompilerChoice =>
     typescriptPackageFrom(projectFolder(project)),
     Option.flatMap((packageJson) =>
       Option.map(
-        Option.filter(majorVersionOf(packageJson), (major) => major >= 7),
-        (major) => ({ packageJson, major }),
+        Option.filter(manifestOf(packageJson), (manifest) => manifest.major >= 7),
+        ({ major }) => ({ packageJson, major }),
       ),
     ),
     Option.match({
@@ -95,28 +102,37 @@ const choiceFromSetting = (project: ProductProject, setting: string): CompilerCh
   const folder = isAbsolute(setting) ? setting : resolve(workspaceRootOf(project.loom), setting)
   const packageJson = join(folder, 'package.json')
   const named = `the nativeCompiler setting names ${folder}`
-  return Option.match(majorVersionOf(packageJson), {
-    onNone: () => CompilerChoice.Unavailable({ reason: `${named}, which holds no typescript package` }),
-    onSome: (major) =>
-      major < 7
-        ? CompilerChoice.Unavailable({ reason: `${named}, which holds TypeScript ${major}, not 7` })
-        : Option.match(nativeExecutable(packageJson), {
-            onSome: (path) => CompilerChoice.Native({ executable: path }),
-            onNone: () =>
-              CompilerChoice.Unavailable({
-                reason: `${named}, which has no native executable for this platform`,
-              }),
-          }),
-  })
+  return Option.match(
+    Option.filter(manifestOf(packageJson), (manifest) => manifest.name === 'typescript'),
+    {
+      onNone: () =>
+        CompilerChoice.Unavailable({ reason: `${named}, which holds no typescript package` }),
+      onSome: ({ major }) =>
+        major < 7
+          ? CompilerChoice.Unavailable({ reason: `${named}, which holds TypeScript ${major}, not 7` })
+          : Option.match(nativeExecutable(packageJson), {
+              onSome: (path) => CompilerChoice.Native({ executable: path }),
+              onNone: () =>
+                CompilerChoice.Unavailable({
+                  reason: `${named}, which has no native executable for this platform`,
+                }),
+            }),
+    },
+  )
 }
 
 export const compilerChoiceFor = (
   project: ProductProject,
-  setting: Option.Option<string>,
+  setting: Option.Option<unknown>,
 ): CompilerChoice =>
   Option.match(setting, {
     onNone: () => choiceFromProject(project),
-    onSome: (named) => choiceFromSetting(project, named),
+    onSome: (named) =>
+      typeof named === 'string' && named.trim() !== ''
+        ? choiceFromSetting(project, named)
+        : CompilerChoice.Unavailable({
+            reason: 'the nativeCompiler setting must be the path of a TypeScript 7 folder',
+          }),
   })
 
 export class NativeCompilerUnavailable extends Data.TaggedError('NativeCompilerUnavailable')<{
@@ -127,49 +143,72 @@ export class NativeCompilerUnavailable extends Data.TaggedError('NativeCompilerU
   }
 }
 
+const failureDiagnostic = (message: string): Diagnostic => ({
+  range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+  severity: 1,
+  source: 'loom',
+  message,
+})
+
+const reportOnce = (reported: Set<string>, message: string): void => {
+  if (reported.has(message)) return
+  reported.add(message)
+  console.warn(`loom: ${message}`)
+}
+
 export const createUnavailableProgram = (reason: string): ProductProgram => {
-  const fail = <A>(): Promise<A> => Promise.reject(new NativeCompilerUnavailable({ reason }))
+  const failure = new NativeCompilerUnavailable({ reason })
+  const reported = new Set<string>()
+  const nothing = <A>(empty: A): Promise<A> => {
+    reportOnce(reported, failure.message)
+    return Promise.resolve(empty)
+  }
   return {
     sync: () => undefined,
-    diagnostics: fail,
-    hover: fail,
-    completions: fail,
-    definition: fail,
-    references: fail,
-    rename: fail,
-    codeActions: fail,
-    resolveCodeAction: fail,
+    diagnostics: () => nothing([failureDiagnostic(failure.message)]),
+    hover: () => nothing(undefined),
+    completions: () => nothing({ isIncomplete: false, items: [] }),
+    definition: () => nothing(undefined),
+    references: () => nothing(undefined),
+    rename: () => nothing(undefined),
+    codeActions: () => nothing([]),
+    resolveCodeAction: (action) => nothing(action),
     dispose: () => undefined,
   }
 }
-
-
-
-const isLoose = (path: string): boolean => /\.loom\.[^/\\]+\.(ts|tsx|js|jsx)$/.test(path)
 
 const openSet = (
   before: ReadonlyMap<string, ProductFile>,
   composition: ReadonlyMap<string, ProductFile>,
   listed: ReadonlyArray<ProductFile>,
   warmed: boolean,
+  servedBy: (path: string) => boolean,
 ): ReadonlyMap<string, ProductFile> => {
-  const current = new Set(Array.map(listed, (file) => file.path))
-  const kept = Array.filter(
-    Array.fromIterable(warmed ? composition.keys() : before.keys()),
-    (path) => composition.has(path) && (!isLoose(path) || current.has(path)),
+  const fromBefore = Array.getSomes(
+    Array.map(Array.fromIterable(before.keys()), (path) => Option.fromNullishOr(composition.get(path))),
   )
+  const fromWarmUp = warmed
+    ? Array.filter(Array.fromIterable(composition.values()), (file) => servedBy(file.path))
+    : []
   return new Map([
-    ...Array.getSomes(
-      Array.map(kept, (path) =>
-        Option.map(Option.fromNullishOr(composition.get(path)), (file) => [path, file] as const),
-      ),
+    ...Array.map(
+      Array.filter([...fromBefore, ...fromWarmUp], (file) => !file.loose),
+      (file) => [file.path, file] as const,
     ),
-    ...Array.map(listed, (file) => [file.path, file] as const),
+    ...Array.map(
+      Array.filter(listed, (file) => file.loose === true || servedBy(file.path)),
+      (file) => [file.path, file] as const,
+    ),
   ])
 }
 
 const maxRestarts = 3
-const stableFor = 5 * 60_000
+
+export interface NativeProgramOptions {
+  readonly stableFor: number
+}
+
+const defaultOptions: NativeProgramOptions = { stableFor: 5 * 60_000 }
 
 export class NativeServerStopped extends Data.TaggedError('NativeServerStopped')<{
   readonly compiler: string
@@ -191,24 +230,30 @@ export class NativeProgramDisposed extends Data.TaggedError('NativeProgramDispos
   }
 }
 
-export const createNativeProgram = (compiler: string, workspace: string): ProductProgram => {
+export const createNativeProgram = (
+  compiler: string,
+  workspace: string,
+  servedBy: (path: string) => boolean = () => true,
+  options: NativeProgramOptions = defaultOptions,
+): ProductProgram => {
   const state: {
     open: ReadonlyMap<string, ProductFile>
     composition: ReadonlyMap<string, ProductFile>
+    listed: ReadonlyArray<ProductFile>
     warmed: boolean
     disposed: boolean
     server: Option.Option<LanguageServerProcess>
     restarts: number
-    startedAt: number
   } = {
     open: new Map(),
     composition: new Map(),
+    listed: [],
     warmed: false,
     disposed: false,
     server: Option.none(),
     restarts: 0,
-    startedAt: 0,
   }
+  const reported = new Set<string>()
 
   const pushOpen = (): void =>
     Option.match(state.server, {
@@ -235,15 +280,16 @@ export const createNativeProgram = (compiler: string, workspace: string): Produc
       },
     })
     state.server = Option.some(server)
-    state.startedAt = Date.now()
     pushOpen()
     return server
   }
 
-  const restart = (): Option.Option<LanguageServerProcess> => {
-    if (Date.now() - state.startedAt >= stableFor) state.restarts = 0
+  const restart = (previous: LanguageServerProcess): Option.Option<LanguageServerProcess> => {
+    if (previous.uptime() >= options.stableFor) state.restarts = 0
     if (state.restarts >= maxRestarts) return Option.none()
     state.restarts += 1
+    previous.dispose()
+    state.warmed = false
     return Option.some(start())
   }
 
@@ -255,7 +301,7 @@ export const createNativeProgram = (compiler: string, workspace: string): Produc
       ? Option.none()
       : Option.match(state.server, {
           onNone: () => Option.some(start()),
-          onSome: () => Option.orElse(live(), restart),
+          onSome: (previous) => Option.orElse(live(), () => restart(previous)),
         })
 
   const warmOne = (path: string): Promise<boolean> =>
@@ -273,17 +319,31 @@ export const createNativeProgram = (compiler: string, workspace: string): Produc
   const warm = (): void => {
     if (state.warmed || state.disposed) return
     state.warmed = true
-    state.open = openSet(state.open, state.composition, [], true)
+    state.open = openSet(state.open, state.composition, state.listed, true, servedBy)
     pushOpen()
     void Array.reduce(
-      Array.filter(Array.fromIterable(state.composition.keys()), (path) => !isLoose(path)),
+      Array.filter(
+        Array.fromIterable(state.composition.values()),
+        (file) => !file.loose && servedBy(file.path),
+      ),
       Promise.resolve(true),
-      (previous, path) => previous.then((going) => (going ? warmOne(path) : false)),
+      (previous, file) => previous.then((going) => (going ? warmOne(file.path) : false)),
     )
   }
 
-  const ask = <A>(method: string, params: unknown): Promise<A> =>
-    Option.match(running(), {
+  const openForQuestion = (fileName: string): void =>
+    Option.match(Option.fromNullishOr(state.composition.get(fileName)), {
+      onNone: () => undefined,
+      onSome: (file) => {
+        if (state.open.has(fileName)) return
+        state.open = new Map([...state.open, [fileName, file] as const])
+        pushOpen()
+      },
+    })
+
+  const ask = <A>(fileName: string, method: string, params: unknown): Promise<A> => {
+    openForQuestion(fileName)
+    return Option.match(running(), {
       onNone: () =>
         Promise.reject(
           state.disposed
@@ -292,10 +352,24 @@ export const createNativeProgram = (compiler: string, workspace: string): Produc
         ),
       onSome: (server) => {
         const answer = server.request<A>(method, params)
-        void answer.then(warm, warm)
+        void answer.then(warm, () => undefined)
         return answer
       },
     })
+  }
+
+  const orNothing =
+    <A>(empty: A) =>
+    (failure: unknown): A => {
+      reportOnce(reported, String((failure as Error)?.message ?? failure))
+      return empty
+    }
+
+  const orFailureDiagnostic = (failure: unknown): Diagnostic[] => {
+    const message = String((failure as Error)?.message ?? failure)
+    reportOnce(reported, message)
+    return [failureDiagnostic(message)]
+  }
 
   const document = (fileName: string) => ({ uri: URI.file(fileName).toString() })
   const at = (fileName: string, position: Position) => ({ textDocument: document(fileName), position })
@@ -334,47 +408,60 @@ export const createNativeProgram = (compiler: string, workspace: string): Produc
       state.composition = new Map(
         Array.map([...listed, ...others], (file) => [file.path, file] as const),
       )
-      state.open = openSet(state.open, state.composition, listed, state.warmed)
+      state.listed = listed
+      state.open = openSet(state.open, state.composition, listed, state.warmed, servedBy)
       pushOpen()
     },
     hover: (fileName, position) =>
-      ask<Hover | null>('textDocument/hover', at(fileName, position)).then(
-        (hover) => hover ?? undefined,
-      ),
+      ask<Hover | null>(fileName, 'textDocument/hover', at(fileName, position))
+        .then((hover) => hover ?? undefined)
+        .catch(orNothing<Hover | undefined>(undefined)),
     definition: (fileName, position) =>
       ask<ReadonlyArray<Location | LocationLink> | Location | null>(
+        fileName,
         'textDocument/definition',
         at(fileName, position),
-      ).then(asLinks),
+      )
+        .then(asLinks)
+        .catch(orNothing<LocationLink[] | undefined>(undefined)),
     diagnostics: (fileName) =>
-      ask<{ readonly items?: Diagnostic[] }>('textDocument/diagnostic', {
+      ask<{ readonly items?: Diagnostic[] }>(fileName, 'textDocument/diagnostic', {
         textDocument: document(fileName),
-      }).then((report) => report.items ?? []),
+      })
+        .then((report) => report.items ?? [])
+        .catch(orFailureDiagnostic),
     completions: (fileName, position) =>
       ask<CompletionList | CompletionItem[] | null>(
+        fileName,
         'textDocument/completion',
         at(fileName, position),
-      ).then(asCompletionList),
+      )
+        .then(asCompletionList)
+        .catch(orNothing<CompletionList>({ isIncomplete: false, items: [] })),
     references: (fileName, position) =>
-      ask<Location[] | null>('textDocument/references', {
+      ask<Location[] | null>(fileName, 'textDocument/references', {
         ...at(fileName, position),
         context: { includeDeclaration: true },
-      }).then((found) => found ?? undefined),
+      })
+        .then((found) => found ?? undefined)
+        .catch(orNothing<Location[] | undefined>(undefined)),
     rename: (fileName, position, newName) =>
-      ask<WorkspaceEdit | null>('textDocument/rename', { ...at(fileName, position), newName }).then(
-        (edit) => edit ?? undefined,
-      ),
+      ask<WorkspaceEdit | null>(fileName, 'textDocument/rename', { ...at(fileName, position), newName })
+        .then((edit) => edit ?? undefined)
+        .catch(orNothing<WorkspaceEdit | undefined>(undefined)),
     codeActions: (fileName, range, context) =>
-      ask<ReadonlyArray<CodeAction | Command> | null>('textDocument/codeAction', {
+      ask<ReadonlyArray<CodeAction | Command> | null>(fileName, 'textDocument/codeAction', {
         textDocument: document(fileName),
         range,
         context,
-      }).then((found) =>
-        Array.filter(found ?? [], (each): each is CodeAction => typeof each.command !== 'string'),
-      ),
+      })
+        .then((found) =>
+          Array.filter(found ?? [], (each): each is CodeAction => typeof each.command !== 'string'),
+        )
+        .catch(orNothing<CodeAction[]>([])),
     resolveCodeAction: (action) =>
       action.edit === undefined
-        ? ask<CodeAction>('codeAction/resolve', action)
+        ? ask<CodeAction>('', 'codeAction/resolve', action).catch(orNothing(action))
         : Promise.resolve(action),
     dispose: () => {
       state.disposed = true

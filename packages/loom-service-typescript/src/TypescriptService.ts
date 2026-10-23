@@ -144,6 +144,7 @@ export const productTarget = (
   const asFile = (file: ComposedFile): ProductFile => ({
     path: file.path,
     text: file === edited ? text : file.content,
+    loose: file === edited && Option.isNone(sink),
   })
   program.sync(
     Array.map(Array.filter(roots, listed), asFile),
@@ -163,7 +164,7 @@ interface ActionOrigin {
 export const productPlugin = (
   ts: TypeScript,
   composition: CompositionApi,
-  nativeSetting: Option.Option<string> = Option.none(),
+  nativeSetting: Option.Option<unknown> = Option.none(),
 ): LanguageServicePlugin => ({
   name: 'loom-typescript-product',
   capabilities: {
@@ -183,6 +184,23 @@ export const productPlugin = (
     const programs = new Map<string, ProductProgram>()
     const nativePrograms = new Map<string, ProductProgram>()
     const actionTargets = new Map<string, ProductTarget>()
+    const scriptExtension = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/
+    const choices = new Map<string, CompilerChoice>()
+    const servedBy =
+      (executable: string) =>
+      (path: string): boolean =>
+        scriptExtension.test(path) &&
+        Option.match(configOf(path), {
+          onNone: () => false,
+          onSome: (config) => {
+            const choice = Option.getOrElse(Option.fromNullishOr(choices.get(config)), () => {
+              const chosen = compilerChoiceFor({ key: config, config: Option.some(config), loom: config }, nativeSetting)
+              choices.set(config, chosen)
+              return chosen
+            })
+            return CompilerChoice.$is('Native')(choice) && choice.executable === executable
+          },
+        })
     const programFor = (project: ProductProject): ProductProgram => {
       const existing = programs.get(project.key)
       if (existing !== undefined) return existing
@@ -190,7 +208,11 @@ export const productPlugin = (
         Classic: () => createProductProgram(ts, consumerOptions(ts, project.config)),
         Native: ({ executable }) =>
           Option.getOrElse(Option.fromNullishOr(nativePrograms.get(executable)), () => {
-            const shared = createNativeProgram(executable, projectFolder(project))
+            const shared = createNativeProgram(
+              executable,
+              projectFolder(project),
+              servedBy(executable),
+            )
             nativePrograms.set(executable, shared)
             return shared
           }),
@@ -408,11 +430,7 @@ export const TypescriptService = defineLanguageService({
     Effect.gen(function* () {
       const ts = yield* TypescriptSdk
       const composition = yield* Composition
-      const nativeSetting = Option.filter(
-        Option.fromNullishOr(settings.nativeCompiler),
-        (value): value is string => typeof value === 'string',
-      )
-      return [productPlugin(ts, composition, nativeSetting)]
+      return [productPlugin(ts, composition, Option.fromNullishOr(settings.nativeCompiler))]
     }),
   format: formatProduct,
 })

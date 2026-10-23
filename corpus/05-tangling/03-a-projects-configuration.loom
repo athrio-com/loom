@@ -14,7 +14,7 @@ The read is synchronous. The editor resolves a file's configuration inside Volar
 
 ## The pieces a configuration is built from
 
-Four small shapes recur across every configuration. The anchor pair holds the delimiters a section's anchors open and close with, each side optional so a configuration overrides only the one it cares about. A language entry carries the one thing activating a language can override — the `service` package that gives it editor support — and is otherwise empty, since a language's presence is what activates it. The settings map holds, for each language id, a free-form bag the host passes to that language's service untouched. The variables map holds the named strings a warp interpolates, one value — a version, say — the whole workspace shares.
+Four small shapes recur across every configuration. The anchor pair holds the delimiters a section's anchors open and close with, each side optional so a configuration overrides only the one it cares about. A language entry carries the one thing activating a language can override — the `service` package that gives it editor support — and is otherwise empty, since a language's presence is what activates it. The settings map holds, for each language id, a free-form bag the host passes to that language's service untouched. The TypeScript service, for one, reads `nativeCompiler` there: the folder of a TypeScript 7 install every project then uses, as the chapter on the native TypeScript program describes. The variables map holds the named strings a warp interpolates, one value — a version, say — the whole workspace shares.
 
 =>
 
