@@ -66,9 +66,9 @@ describe('productTarget routes a Product to its program', () => {
       {
         path: '/project/b.ts',
         content: 'export const b = 2\n',
-        loomPath: '/elsewhere/b.loom',
+        loomPath: '/project/b.loom',
         rootId: 'b',
-        heading: headOf('/elsewhere/b.loom'),
+        heading: headOf('/project/b.loom'),
       },
     ]
     const target = productTarget(
@@ -266,32 +266,29 @@ describe('productTarget finds a root\'s project', () => {
     expect(references).not.toBe(first)
   })
 
-  it('lists the roots of looms in one folder together when no tsconfig.json governs them', () => {
-    const synced: Array<{ readonly listed: ReadonlyArray<string>; readonly others: ReadonlyArray<string> }> = []
-    const program = createProductProgram(ts, options)
-    const recording: ProductProgram = {
-      ...program,
-      sync: (listed, others = []) => {
-        synced.push({ listed: listed.map((file) => file.path), others: others.map((file) => file.path) })
-        program.sync(listed, others)
-      },
-    }
+  it('gives each loom no tsconfig.json governs a program of its own, so its scripts never meet', async () => {
+    const { programFor, dispose } = programsFor()
+    const script = (name: string) => `const greeting = '${name}'\nconsole.log(greeting)\n`
     const roots = [
-      rootAt('/book/src/a.ts', '/book/corpus/a.loom', "import { b } from './b.ts'\n"),
-      rootAt('/book/src/b.ts', '/book/corpus/b.loom', 'export const b = 2\n'),
-      rootAt('/book/src/c.ts', '/book/elsewhere/c.loom', 'export const c = 3\n'),
+      rootAt('/book/src/a.ts', '/book/corpus/a.loom', script('a')),
+      rootAt('/book/src/b.ts', '/book/corpus/b.loom', script('b')),
     ]
-    productTarget(
-      [URI.file('/book/corpus/a.loom'), 'main'],
-      'typescript',
-      "import { b } from './b.ts'\n",
-      () => recording,
-      () => roots,
-      noConfig,
-      'project',
-    )
-    program.dispose()
-    expect(synced).toEqual([{ listed: ['/book/src/a.ts', '/book/src/b.ts'], others: ['/book/src/c.ts'] }])
+    const targetOf = (name: string) =>
+      productTarget(
+        [URI.file(`/book/corpus/${name}.loom`), 'main'],
+        'typescript',
+        script(name),
+        programFor,
+        () => roots,
+        noConfig,
+        'project',
+      )!
+    const a = targetOf('a')
+    const b = targetOf('b')
+    const errors = await a.program.diagnostics(a.fileName)
+    dispose()
+    expect(b.program).not.toBe(a.program)
+    expect(errors.some((d) => /Cannot redeclare/.test(d.message))).toBe(false)
   })
 })
 

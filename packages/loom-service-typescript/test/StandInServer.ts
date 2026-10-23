@@ -32,7 +32,16 @@ const handle = (message) => {
   if (uri.includes('refuse') && message.method === 'textDocument/hover') {
     return write({ id: message.id, error: { code: -32803, message: 'no project here' } })
   }
+  if (message.method === 'initialize' && process.argv.includes('--refuse')) {
+    return write({ id: message.id, error: { code: -32603, message: 'cannot read tsconfig.json' } })
+  }
   if (message.method === 'initialize') return reply(message.id, { capabilities: {} })
+  if (uri.includes('slow') && message.method === 'textDocument/hover') {
+    return setTimeout(() => {
+      log('answered ' + uri.split('/').pop())
+      reply(message.id, { contents: 'stand-in' })
+    }, 300)
+  }
   if (message.method === 'textDocument/hover') return reply(message.id, { contents: 'stand-in' })
   if (message.method === 'textDocument/diagnostic') return reply(message.id, { kind: 'full', items: [] })
   return reply(message.id, null)

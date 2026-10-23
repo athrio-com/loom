@@ -168,6 +168,8 @@ const failureDiagnostic = (message: string): Diagnostic => ({
   message,
 })
 
+const messageOf = (failure: unknown): string => String((failure as Error)?.message ?? failure)
+
 const reportOnce = (reported: Set<string>, message: string): void => {
   if (reported.has(message)) return
   reported.add(message)
@@ -198,29 +200,51 @@ export const createUnavailableProgram = (compiler: string, reason: string): Prod
   }
 }
 
+export type NativeProjectOf = (file: ProductFile) => Option.Option<string>
+
+export const inferredProject = 'the inferred project'
+
+const loomOf = (file: ProductFile): string => file.loom ?? file.path
+
+const keepLooseOf = (
+  open: ReadonlyMap<string, ProductFile>,
+  loom: string,
+): ReadonlyMap<string, ProductFile> =>
+  new Map(Array.filter(Array.fromIterable(open), ([, file]) => file.loose !== true || loomOf(file) === loom))
+
 const openSet = (
   before: ReadonlyMap<string, ProductFile>,
   composition: ReadonlyMap<string, ProductFile>,
   listed: ReadonlyArray<ProductFile>,
   warmed: boolean,
-  servedBy: (file: ProductFile) => boolean,
+  nativeProjectOf: NativeProjectOf,
 ): ReadonlyMap<string, ProductFile> => {
-  const fromBefore = Array.getSomes(
-    Array.map(Array.fromIterable(before.keys()), (path) => Option.fromNullishOr(composition.get(path))),
+  const served = (file: ProductFile): boolean => Option.isSome(nativeProjectOf(file))
+  const sunk = (files: Iterable<ProductFile>): ReadonlyArray<ProductFile> =>
+    Array.filter(Array.fromIterable(files), (file) => file.loose !== true)
+  const asked = new Set(Array.getSomes(Array.map(sunk(listed), nativeProjectOf)))
+  const fromProjects = Array.filter(sunk(composition.values()), (file) =>
+    Option.exists(nativeProjectOf(file), (project) => asked.has(project)),
   )
-  const fromWarmUp = warmed
-    ? Array.filter(Array.fromIterable(composition.values()), servedBy)
-    : []
-  return new Map([
-    ...Array.map(
-      Array.filter([...fromBefore, ...fromWarmUp], (file) => !file.loose),
+  const fromBefore = Array.getSomes(
+    Array.map(sunk(before.values()), (file) => Option.fromNullishOr(composition.get(file.path))),
+  )
+  const fromWarmUp = warmed ? Array.filter(sunk(composition.values()), served) : []
+  const looseBefore = Array.filter(Array.fromIterable(before.values()), (file) => file.loose === true)
+  const fromListed = Array.filter(listed, (file) => file.loose === true || served(file))
+  const kept = new Map(
+    Array.map(
+      [...fromBefore, ...fromProjects, ...fromWarmUp, ...looseBefore, ...fromListed],
       (file) => [file.path, file] as const,
     ),
-    ...Array.map(
-      Array.filter(listed, (file) => file.loose === true || servedBy(file)),
-      (file) => [file.path, file] as const,
-    ),
-  ])
+  )
+  return Option.match(
+    Array.findFirst(listed, (file) => file.loose === true),
+    {
+      onNone: () => kept,
+      onSome: (file) => keepLooseOf(kept, loomOf(file)),
+    },
+  )
 }
 
 const maxRestarts = 3
@@ -238,11 +262,13 @@ const defaultOptions: NativeProgramOptions = {
 export class NativeServerStopped extends Data.TaggedError('NativeServerStopped')<{
   readonly compiler: string
   readonly workspace: string
+  readonly lastFailure: Option.Option<string>
 }> {
   get message(): string {
     return (
       `TypeScript 7 (${this.compiler}) stopped ${maxRestarts + 1} times in ${this.workspace}; ` +
-      'its features are off until the Loom language server restarts'
+      'its features are off until the Loom language server restarts' +
+      Option.match(this.lastFailure, { onNone: () => '', onSome: (last) => `. The last failure: ${last}` })
     )
   }
 }
@@ -258,29 +284,33 @@ export class NativeProgramDisposed extends Data.TaggedError('NativeProgramDispos
 export const createNativeProgram = (
   compiler: string,
   workspace: string,
-  servedBy: (file: ProductFile) => boolean = () => true,
+  nativeProjectOf: NativeProjectOf = () => Option.some(inferredProject),
   chosen: Partial<NativeProgramOptions> = {},
 ): ProductProgram => {
   const options: NativeProgramOptions = { ...defaultOptions, ...chosen }
   const state: {
     open: ReadonlyMap<string, ProductFile>
+    waiting: ReadonlyMap<string, { readonly file: ProductFile; readonly count: number }>
     composition: ReadonlyMap<string, ProductFile>
     listed: ReadonlyArray<ProductFile>
     warmed: boolean
     disposed: boolean
     server: Option.Option<LanguageServerProcess>
     restarts: number
+    lastFailure: Option.Option<string>
   } = {
     open: new Map(),
+    waiting: new Map(),
     composition: new Map(),
     listed: [],
     warmed: false,
     disposed: false,
     server: Option.none(),
     restarts: 0,
+    lastFailure: Option.none(),
   }
   const reported = new Set<string>()
-  const unmade = new Set<string>()
+  const served = (file: ProductFile): boolean => Option.isSome(nativeProjectOf(file))
 
   const insideWorkspace = (folder: string, loom: string): boolean => {
     const path = relative(workspaceRootOf(loom), folder)
@@ -288,26 +318,24 @@ export const createNativeProgram = (
   }
 
   const makeFolder = (folder: string, loom: string): void => {
-    if (unmade.has(folder) || existsSync(folder)) return
+    if (existsSync(folder)) return
     if (!insideWorkspace(folder, loom)) {
-      unmade.add(folder)
       reportOnce(reported, `${folder} lies outside the workspace, so the editor leaves it to the tangle`)
       return
     }
     Result.match(Result.try(() => mkdirSync(folder, { recursive: true })), {
       onSuccess: () => undefined,
-      onFailure: (cause) => {
-        unmade.add(folder)
-        reportOnce(reported, `could not make ${folder}: ${String((cause as Error)?.message ?? cause)}`)
-      },
+      onFailure: (cause) => reportOnce(reported, `could not make ${folder}: ${messageOf(cause)}`),
     })
   }
 
   const makeFolders = (files: ReadonlyArray<ProductFile>): void =>
     new Map(
-      Array.map(
-        Array.filter(files, (file) => !file.loose && servedBy(file)),
-        (file) => [dirname(file.path), file.loom ?? file.path] as const,
+      Array.getSomes(
+        Array.map(
+          Array.filter(files, (file) => !file.loose && served(file)),
+          (file) => Option.map(Option.fromNullishOr(file.loom), (loom) => [dirname(file.path), loom] as const),
+        ),
       ),
     ).forEach((loom, folder) => makeFolder(folder, loom))
 
@@ -315,7 +343,12 @@ export const createNativeProgram = (
     Option.match(state.server, {
       onNone: () => undefined,
       onSome: (server) => {
-        const files = Array.fromIterable(state.open.values())
+        const files = Array.fromIterable(
+          new Map([
+            ...Array.map(Array.fromIterable(state.waiting.values()), ({ file }) => [file.path, file] as const),
+            ...state.open,
+          ]).values(),
+        )
         makeFolders(files)
         server.keepOpen(files)
       },
@@ -382,12 +415,12 @@ export const createNativeProgram = (
   const warm = (): void => {
     if (state.warmed || state.disposed) return
     state.warmed = true
-    state.open = openSet(state.open, state.composition, state.listed, true, servedBy)
+    state.open = openSet(state.open, state.composition, state.listed, true, nativeProjectOf)
     pushOpen()
     void Array.reduce(
       Array.filter(
         Array.fromIterable(state.composition.values()),
-        (file) => !file.loose && servedBy(file),
+        (file) => !file.loose && served(file),
       ),
       Promise.resolve(true),
       (previous, file) => previous.then((going) => (going ? warmOne(file.path) : false)),
@@ -398,9 +431,36 @@ export const createNativeProgram = (
     Option.match(Option.fromNullishOr(state.composition.get(fileName)), {
       onNone: () => undefined,
       onSome: (file) => {
-        if (state.open.has(fileName)) return
-        state.open = new Map([...state.open, [fileName, file] as const])
+        const next = keepLooseOf(new Map([...state.open, [fileName, file] as const]), loomOf(file))
+        if (state.open.has(fileName) && next.size === state.open.size) return
+        state.open = next
         pushOpen()
+      },
+    })
+
+  const waitingCount = (fileName: string): number =>
+    Option.match(Option.fromNullishOr(state.waiting.get(fileName)), {
+      onNone: () => 0,
+      onSome: ({ count }) => count,
+    })
+
+  const hold = (fileName: string): (() => void) =>
+    Option.match(Option.fromNullishOr(state.open.get(fileName)), {
+      onNone: () => () => undefined,
+      onSome: (file) => {
+        state.waiting = new Map([
+          ...state.waiting,
+          [fileName, { file, count: waitingCount(fileName) + 1 }] as const,
+        ])
+        return () => {
+          const count = waitingCount(fileName) - 1
+          state.waiting = new Map(
+            count > 0
+              ? [...state.waiting, [fileName, { file, count }] as const]
+              : Array.filter(Array.fromIterable(state.waiting), ([path]) => path !== fileName),
+          )
+          if (count === 0 && !state.open.has(fileName)) pushOpen()
+        }
       },
     })
 
@@ -412,11 +472,17 @@ export const createNativeProgram = (
           Promise.reject(
             state.disposed
               ? new NativeProgramDisposed({ workspace })
-              : new NativeServerStopped({ compiler, workspace }),
+              : new NativeServerStopped({ compiler, workspace, lastFailure: state.lastFailure }),
           ),
         onSome: (server) => {
+          const release = hold(fileName)
           const answer = server.request<A>(method, params)
-          void answer.then(warm, () => undefined).catch(orNothing(undefined))
+          void answer
+            .then(warm, (failure) => {
+              state.lastFailure = Option.some(messageOf(failure))
+            })
+            .catch(orNothing(undefined))
+            .finally(release)
           return answer
         },
       }),
@@ -426,12 +492,12 @@ export const createNativeProgram = (
   const orNothing =
     <A>(empty: A) =>
     (failure: unknown): A => {
-      reportOnce(reported, String((failure as Error)?.message ?? failure))
+      reportOnce(reported, messageOf(failure))
       return empty
     }
 
   const orFailureDiagnostic = (failure: unknown): Diagnostic[] => {
-    const message = String((failure as Error)?.message ?? failure)
+    const message = messageOf(failure)
     reportOnce(reported, message)
     return [failureDiagnostic(message)]
   }
@@ -474,7 +540,7 @@ export const createNativeProgram = (
         Array.map([...listed, ...others], (file) => [file.path, file] as const),
       )
       state.listed = listed
-      state.open = openSet(state.open, state.composition, listed, state.warmed, servedBy)
+      state.open = openSet(state.open, state.composition, listed, state.warmed, nativeProjectOf)
       pushOpen()
     },
     hover: (fileName, position) =>

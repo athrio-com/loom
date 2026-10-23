@@ -30,6 +30,8 @@ import {
   createNativeProgram,
   createUnavailableProgram,
   executableOf,
+  inferredProject,
+  type NativeProjectOf,
   projectFolder,
 } from './NativeProgram'
 
@@ -100,7 +102,7 @@ export const projectOf = (
   loom: string,
 ): ProductProject => {
   const config = configOf(path)
-  return { key: Option.getOrElse(config, () => `loom folder ${dirname(loom)}`), config, loom }
+  return { key: Option.getOrElse(config, () => loom), config, loom }
 }
 
 export interface ProductTarget {
@@ -170,11 +172,11 @@ export const productTarget = (
   return { program, fileName: edited.path, roots }
 }
 
-export const servedByCompiler = (
+export const nativeProjectsOf = (
   configOf: (path: string) => Option.Option<string>,
   nativeSetting: Option.Option<unknown>,
   fetched: FetchedTypeScript,
-): ((executable: string) => (file: ProductFile) => boolean) => {
+): ((executable: string) => NativeProjectOf) => {
   const scriptExtension = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/
   const choices = new Map<string, CompilerChoice>()
   const choiceOf = (file: ProductFile): CompilerChoice => {
@@ -187,6 +189,8 @@ export const servedByCompiler = (
   }
   return (executable) => (file) =>
     scriptExtension.test(file.path) && Option.contains(executableOf(choiceOf(file)), executable)
+      ? Option.some(Option.getOrElse(configOf(file.path), () => inferredProject))
+      : Option.none()
 }
 
 interface ActionOrigin {
@@ -220,7 +224,7 @@ export const productPlugin = (
     const programs = new Map<string, ProductProgram>()
     const nativePrograms = new Map<string, ProductProgram>()
     const actionTargets = new Map<string, ProductTarget>()
-    const servedBy = servedByCompiler(configOf, nativeSetting, sdk.fetched)
+    const nativeProjectFor = nativeProjectsOf(configOf, nativeSetting, sdk.fetched)
     const classicProgramFor = (project: ProductProject): ProductProgram =>
       Result.match(sdk.classic(projectFolder(project)), {
         onSuccess: (ts) => createProductProgram(ts, consumerOptions(ts, project.config)),
@@ -232,9 +236,12 @@ export const productPlugin = (
       ready: () => Promise<void>,
     ): ProductProgram =>
       Option.getOrElse(Option.fromNullishOr(nativePrograms.get(executable)), () => {
-        const shared = createNativeProgram(executable, projectFolder(project), servedBy(executable), {
-          ready,
-        })
+        const shared = createNativeProgram(
+          executable,
+          projectFolder(project),
+          nativeProjectFor(executable),
+          { ready },
+        )
         nativePrograms.set(executable, shared)
         return shared
       })
