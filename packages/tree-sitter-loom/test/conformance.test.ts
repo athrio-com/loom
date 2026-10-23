@@ -402,4 +402,31 @@ describe('the anchors in a code block', () => {
   )
 })
 
+const lastGrammarCommit: Effect.Effect<string> = Effect.sync(() => {
+  const asked = spawnSync('git', ['log', '-1', '--format=%H', '--', 'src'], {
+    cwd: grammarDir,
+    encoding: 'utf8',
+  })
+  expect(asked.status).toBe(0)
+  return asked.stdout.trim()
+})
+
+const pinnedRevision = (manifest: string): Option.Option<string> =>
+  pipe(
+    Option.fromNullishOr(
+      /rev = "([0-9a-f]{40})"/.exec(readFileSync(join(grammarDir, manifest), 'utf8')),
+    ),
+    Option.map(([, revision]) => revision),
+  )
+
+describe('the pins', () => {
+  Array.forEach(['editors/zed/extension.toml', 'editors/helix/languages.toml'], (manifest) =>
+    it.effect(`${manifest} pins the commit that last changed the grammar`, () =>
+      Effect.map(lastGrammarCommit, (commit) =>
+        expect(pinnedRevision(manifest)).toEqual(Option.some(commit)),
+      ),
+    ),
+  )
+})
+
 afterAll(() => rmSync(scratch, { recursive: true, force: true }))

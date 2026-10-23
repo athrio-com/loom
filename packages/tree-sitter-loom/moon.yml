@@ -46,3 +46,10 @@ tasks:
       - "@group(sources)"
       - "moon.yml"
       - "/mise.toml"
+
+  pin:
+    command: "bun scripts/pin-grammar.ts"
+    deps: ["install"]
+    options:
+      cache: false
+      runFromWorkspaceRoot: true

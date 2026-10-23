@@ -456,6 +456,8 @@ The tree-sitter grammar's test reads every loom in the repository with both the 
 
 The test needs two tools beyond Bun. The `tree-sitter` command arrives as a package, and a C compiler builds the parser, which every runner and every machine that builds Loom already has.
 
+The `pin` task runs the tool of Part IX, Chapter 11, which moves the editors' pin to the commit that last changed the grammar. A person runs it with `moon run tree-sitter-loom:pin` after committing a change to the grammar, and commits what it writes. It runs from the workspace root, where the tool finds the configuration, and moon never caches it, because its answer depends on the history of the repository rather than on any file moon could hash.
+
 =>
 
 $schema: "https://moonrepo.dev/schemas/project.json"
@@ -506,6 +508,13 @@ tasks:
       - "@group(sources)"
       - "moon.yml"
       - "/mise.toml"
+
+  pin:
+    command: "bun scripts/pin-grammar.ts"
+    deps: ["install"]
+    options:
+      cache: false
+      runFromWorkspaceRoot: true
 
 ## The website's tasks {Tangle}[site/moon.yml]
 

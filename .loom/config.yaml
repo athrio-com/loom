@@ -7,4 +7,5 @@ variables:
   version: 0.0.16
   effect: 4.0.5
   grammar: 0.0.12
-  zed: 0.0.12
+  zed: 0.0.13
+  grammarRevision: a2dbcd01d2ac8bbc6030753718d12dbe5c16ecd8

@@ -122,6 +122,7 @@
     "packages/tree-sitter-loom/tree-sitter.json",
     "packages/tree-sitter-loom/tsconfig.json",
     "scripts/install.sh",
+    "scripts/pin-grammar.ts",
     "scripts/release.ts",
     "site/Dockerfile",
     "site/index.html",

@@ -94,9 +94,9 @@ Helix learns a language from a `languages.toml` file, its own built-in one or a 
 
 A person sets Helix up with `loom helix`. That command writes the same language and server entries into the user's `languages.toml` and compiles the grammar the CLI ships straight into Helix's runtime folder, so the user's file needs no grammar entry. This file is the other form, the one Helix's own project collects for a language it supports, where Helix fetches and builds the grammar itself.
 
-The server entry names the command. The grammar entry tells Helix where to fetch the grammar and which subfolder to build. Helix pins a grammar to a commit and fetches it again only when the pin changes, so a branch name would hold whatever commit the first fetch found. The revision names the commit that last changed the grammar, and moves when the grammar does.
+The server entry names the command. The grammar entry tells Helix where to fetch the grammar and which subfolder to build. Helix pins a grammar to a commit and fetches it again only when the pin changes, so a branch name would hold whatever commit the first fetch found. The revision names the commit that last changed the grammar, and moves when the grammar does. It is the `grammarRevision` variable of the workspace configuration, which the tool of Chapter 11 moves.
 
-{{ revision = "bbadbf24e9cb8b131a2f3fa5e390e9929960bd01" }}
+{{ revision = ${grammarRevision} }}
 
 =>
 

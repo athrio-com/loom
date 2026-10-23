@@ -12,4 +12,4 @@ args = ["lsp", "--stdio"]
 
 [[grammar]]
 name = "loom"
-source = { git = "https://github.com/athrio-com/loom", rev = "bbadbf24e9cb8b131a2f3fa5e390e9929960bd01", subpath = "packages/tree-sitter-loom" }
+source = { git = "https://github.com/athrio-com/loom", rev = "a2dbcd01d2ac8bbc6030753718d12dbe5c16ecd8", subpath = "packages/tree-sitter-loom" }

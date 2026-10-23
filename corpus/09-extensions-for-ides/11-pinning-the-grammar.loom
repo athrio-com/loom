@@ -1,0 +1,180 @@
+---
+Part IX, Chapter 11: Pinning the grammar
+Package: scripts/
+Language: TypeScript
+---
+
+# Pinning the grammar
+
+Zed, Gram and Helix can fetch the grammar themselves. Zed and Gram build it from the repository and commit that the extension's manifest names, and Helix does the same for the entry its own project collects. Each compiles the parser and the scanner it finds in `packages/tree-sitter-loom/src` at that commit. The queries do not come from there. They ship with the extension, or in Helix's runtime folder, and they name the grammar's nodes, so a pin that lags behind them hands an editor queries for nodes its parser does not have. The editor then rejects the queries and colours nothing.
+
+So the pin follows one rule: it names the last commit that changed the files an editor compiles, the contents of `src/`. The `grammarRevision` variable of the workspace configuration holds that commit, and the manifests of Chapter 9 and Chapter 10 take it from there. A commit cannot carry its own hash, so a change to the grammar always reaches the pin one commit later.
+
+The `pin-grammar` tool makes that second commit a single command, `moon run tree-sitter-loom:pin`. It reads the last commit that changed `src/`, and when the pin names another, it writes the new commit into `grammarRevision` and raises the extension's version, since Zed sends an extension to its users only when the version rises. The grammar's test fails while the pin is stale, and the gate runs that test on every push, so a stale pin never reaches the default branch unnoticed. A local `moon run` may reuse a passing result from before the commit, because a commit changes no file moon hashes, so a person checks the pin locally with `bun test` in the grammar's folder.
+
+A release raises the `grammar` version, and the generated parser carries that version, so the release commit changes `src/` too. The pin then moves once more, and the release commit and the pin's commit go to the default branch together. The same holds for a merge: when a branch and the default branch both changed the grammar, the merge commit is the last to change `src/`, and the pin follows it in the commit after.
+
+## What the tool draws on
+
+The tool asks Git for a commit and asks the published `loom` command to change the configuration, so it spawns processes through Bun. It reads the configuration through `LoomConfig`, the service Part V describes, and runs from the workspace root, which it finds from its own module's place in `scripts/`.
+
+=>
+
+import { Console, Data, Effect, Option, pipe } from 'effect'
+import { BunRuntime } from '@effect/platform-bun'
+import { LoomConfig } from '@athrio/loom-config/LoomConfig'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const workspace = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+
+## Two ways to fail
+
+The tool fails in two ways, and each is a value of its own. A `CommandFailed` names a command that could not start or exited with an error, so a pin is never written from a failed read. A `CannotPin` says why the tool refused to write a pin it could not stand behind, such as an extension version it cannot raise.
+
+=>
+
+class CommandFailed extends Data.TaggedError('CommandFailed')<{
+  readonly command: string
+}> {}
+
+class CannotPin extends Data.TaggedError('CannotPin')<{
+  readonly reason: string
+}> {}
+
+## Asking Git and Loom
+
+`capture` runs a command in the workspace and returns what it printed. `run` runs one and passes its output through. A command that is missing, or that exits with an error, fails either one with a `CommandFailed`.
+
+=>
+
+const spawned = (
+  command: ReadonlyArray<string>,
+  stdout: 'pipe' | 'inherit',
+): Effect.Effect<string, CommandFailed> => {
+  const failed = new CommandFailed({ command: command.join(' ') })
+  return Effect.tryPromise({
+    try: async () => {
+      const child = Bun.spawn([...command], { cwd: workspace, stdout, stderr: 'inherit' })
+      const text = stdout === 'pipe' ? await new Response(child.stdout).text() : ''
+      return { code: await child.exited, text: text.trim() }
+    },
+    catch: () => failed,
+  }).pipe(
+    Effect.flatMap(({ code, text }) => (code === 0 ? Effect.succeed(text) : Effect.fail(failed))),
+  )
+}
+
+const capture = (command: ReadonlyArray<string>): Effect.Effect<string, CommandFailed> =>
+  spawned(command, 'pipe')
+
+const run = (command: ReadonlyArray<string>): Effect.Effect<void, CommandFailed> =>
+  Effect.asVoid(spawned(command, 'inherit'))
+
+## The commit the grammar last changed in
+
+`git log` with a path lists only the commits that changed something under it, newest first, and `-1` keeps the newest. The path is the folder an editor compiles, so a change to the queries or to the tests moves no pin.
+
+Git answers from the commits alone, so an edit to `src/` that is not yet committed would leave the pin one change behind. `committedSources` fails with the reason it is given while `git status` lists any change under `src/`. The tool asks it twice: before it writes, and again after, since each `loom set` re-tangles the corpus, and a re-tangle can rewrite the scanner in `src/` when its chapter changed. A pin commit that touched `src/` would be stale the moment it landed.
+
+=>
+
+const grammarSources = 'packages/tree-sitter-loom/src'
+
+const lastGrammarCommit: Effect.Effect<string, CommandFailed> = capture([
+  'git',
+  'log',
+  '-1',
+  '--format=%H',
+  '--',
+  grammarSources,
+])
+
+const committedSources = (reason: string): Effect.Effect<void, CommandFailed | CannotPin> =>
+  Effect.flatMap(capture(['git', 'status', '--porcelain', '--', grammarSources]), (changes) =>
+    changes === '' ? Effect.void : Effect.fail(new CannotPin({ reason })),
+  )
+
+## The next version of the extension
+
+The extension's version rises by its last number, so `0.0.12` becomes `0.0.13`. A new pin is a fix to the extension, not a feature, and the two numbers before it stay as they are. `nextPatch` reads the version as three whole numbers. A version missing from the configuration, or written any other way, `0.1.0-rc` say, fails with a `CannotPin` rather than guessing at a number.
+
+=>
+
+const nextPatch = (version: Option.Option<string>): Effect.Effect<string, CannotPin> =>
+  pipe(
+    version,
+    Option.flatMap((text) => Option.fromNullishOr(/^(\d+)\.(\d+)\.(\d+)$/.exec(text))),
+    Option.map(([, major, minor, patch]) => `${major}.${minor}.${Number(patch) + 1}`),
+    Option.match({
+      onNone: () =>
+        Effect.fail(
+          new CannotPin({ reason: 'the zed variable is not a version of three numbers' }),
+        ),
+      onSome: Effect.succeed,
+    }),
+  )
+
+## Moving the pin
+
+The tool reads the pin and the extension's version from the configuration, and compares the pin with the commit the grammar last changed in. When they agree, it says so and changes nothing. When they differ, it runs `loom set` twice, once for the pin and once for the version. Each run writes its one value and re-tangles the corpus with the published Loom, so the two manifests follow the pin and the extension's manifests follow the version. The person then commits what the two runs wrote.
+
+=>
+
+const pin = Effect.gen(function* () {
+  const config = yield* LoomConfig
+  const { variables } = yield* config.resolve(workspace)
+  yield* committedSources(`${grammarSources} has uncommitted changes; commit them, then pin`)
+  const commit = yield* lastGrammarCommit
+  if (variables.grammarRevision === commit) {
+    yield* Console.log(`the grammar is pinned to ${commit}, the commit that last changed it`)
+    return
+  }
+  const version = yield* nextPatch(Option.fromNullishOr(variables.zed))
+  yield* run(['loom', 'set', 'grammarRevision', commit])
+  yield* run(['loom', 'set', 'zed', version])
+  yield* committedSources(
+    `the re-tangle changed ${grammarSources}; commit that change, then pin again`,
+  )
+  yield* Console.log(`pinned the grammar to ${commit} and raised the Zed extension to ${version}`)
+}).pipe(Effect.provide(LoomConfig.layer))
+
+~
+
+A failure prints what went wrong and sets the exit code, so `moon` reports the task as failed.
+
+=>
+
+const failWith = (message: string): Effect.Effect<void> =>
+  Console.error(`pin-grammar: ${message}`).pipe(
+    Effect.andThen(
+      Effect.sync(() => {
+        process.exitCode = 1
+      }),
+    ),
+  )
+
+BunRuntime.runMain(
+  pin.pipe(
+    Effect.catchTags({
+      CommandFailed: (error) => failWith(`command failed — ${error.command}`),
+      CannotPin: (error) => failWith(error.reason),
+    }),
+  ),
+)
+
+## The tool assembled {Tangle}[pin-grammar.ts]
+
+=>
+
+::[What the tool draws on]
+
+::[Two ways to fail]
+
+::[Asking Git and Loom]
+
+::[The commit the grammar last changed in]
+
+::[The next version of the extension]
+
+::[Moving the pin]

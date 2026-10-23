@@ -507,6 +507,41 @@ describe('the anchors in a code block', () => {
   )
 })
 
+## The pins name the grammar's last commit
+
+Zed and Helix compile the grammar at the commit their manifests pin, and Chapter 11 sets the rule: the pin names the last commit that changed `src/`. The test holds every push to that rule. It asks Git for the commit, reads the revision out of Zed's `extension.toml` and Helix's `languages.toml`, and expects both to name it. A commit that changes the grammar fails this test until the next commit moves the pin, which `bun scripts/pin-grammar.ts` writes.
+
+The test expects Git itself to succeed first, so a copy that is no repository fails on that rather than on a pin compared with nothing. Git can answer only from a history it holds. The gate checks the repository out whole, so the answer is the true one there. A copy with no history but its last commit names that commit for every path, and the test then fails until the history is fetched.
+
+=>
+
+const lastGrammarCommit: Effect.Effect<string> = Effect.sync(() => {
+  const asked = spawnSync('git', ['log', '-1', '--format=%H', '--', 'src'], {
+    cwd: grammarDir,
+    encoding: 'utf8',
+  })
+  expect(asked.status).toBe(0)
+  return asked.stdout.trim()
+})
+
+const pinnedRevision = (manifest: string): Option.Option<string> =>
+  pipe(
+    Option.fromNullishOr(
+      /rev = "([0-9a-f]{40})"/.exec(readFileSync(join(grammarDir, manifest), 'utf8')),
+    ),
+    Option.map(([, revision]) => revision),
+  )
+
+describe('the pins', () => {
+  Array.forEach(['editors/zed/extension.toml', 'editors/helix/languages.toml'], (manifest) =>
+    it.effect(`${manifest} pins the commit that last changed the grammar`, () =>
+      Effect.map(lastGrammarCommit, (commit) =>
+        expect(pinnedRevision(manifest)).toEqual(Option.some(commit)),
+      ),
+    ),
+  )
+})
+
 ## Cleaning up
 
 The scratch folder holds the generated parser, the compiled library, and the fixtures. It goes once every test has run.
@@ -557,5 +592,7 @@ const it = effectify(it_)
 ::[The corners the book does not reach]
 
 ::[Each code block takes one language]
+
+::[The pins name the grammar's last commit]
 
 ::[Cleaning up]
