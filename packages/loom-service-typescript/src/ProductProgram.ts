@@ -55,7 +55,7 @@ export interface ProductProgram {
     range: Range,
     context: CodeActionContext,
   ) => Promise<CodeAction[] | undefined>
-  readonly resolveCodeAction: (action: CodeAction) => Promise<CodeAction>
+  readonly resolveCodeAction: (action: CodeAction, fileName: string) => Promise<CodeAction>
   readonly documentSymbols: (fileName: string) => Promise<DocumentSymbol[] | undefined>
   readonly foldingRanges: (fileName: string) => Promise<FoldingRange[] | undefined>
   readonly selectionRanges: (

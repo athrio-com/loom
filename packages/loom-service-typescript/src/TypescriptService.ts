@@ -109,6 +109,7 @@ export interface ProductTarget {
   readonly program: ProductProgram
   readonly fileName: string
   readonly roots: ReadonlyArray<ComposedFile>
+  readonly resync: () => void
 }
 
 const tsExtension: ReadonlyMap<string, string> = new Map([
@@ -162,14 +163,14 @@ export const productTarget = (
     loose: file === edited && Option.isNone(sink),
     loom: file.loomPath,
   })
-  program.sync(
-    Array.map(Array.filter(roots, listed), asFile),
-    Array.map(
-      Array.filter(roots, (file) => !listed(file)),
-      asFile,
-    ),
+  const listedFiles = Array.map(Array.filter(roots, listed), asFile)
+  const otherFiles = Array.map(
+    Array.filter(roots, (file) => !listed(file)),
+    asFile,
   )
-  return { program, fileName: edited.path, roots }
+  const resync = (): void => program.sync(listedFiles, otherFiles)
+  resync()
+  return { program, fileName: edited.path, roots, resync }
 }
 
 export const nativeProjectsOf = (
@@ -402,10 +403,12 @@ export const productPlugin = (
           ),
           Option.match({
             onNone: () => action,
-            onSome: ([origin, target]) =>
-              target.program
-                .resolveCodeAction({ ...action, data: origin.original })
-                .then((resolved) => remapAction(target.roots, resolved)),
+            onSome: ([origin, target]) => {
+              target.resync()
+              return target.program
+                .resolveCodeAction({ ...action, data: origin.original }, target.fileName)
+                .then((resolved) => remapAction(target.roots, resolved))
+            },
           }),
         ),
       provideDocumentSymbols: (document) => {

@@ -235,15 +235,15 @@ TypeScript 7's language server is a workspace server: one process holds every pr
 
 The program loads the whole workspace into the server once, early, the way a language server for Scala or Rust indexes a project when it opens. Loading takes seconds and every core, and done on demand it would land on a person's first search for references, holding up every hover and go-to-definition behind it. Done once, in the background, it leaves a warm codebase in which every later question answers at once.
 
-A workspace can mix projects on TypeScript 7 with projects still on TypeScript 6, so the program must know which roots are its own. `nativeProjectOf`, which the plugin hands the program, names the native project of a root: the project TypeScript 7 places it in. That is the `tsconfig.json` that governs the root or, when none does, `inferredProject`, the one project TypeScript 7 keeps for every file no `tsconfig.json` governs. A root of a project on TypeScript 6, or a file that is not code, has no native project, and the program never opens it. The roots with a native project are the roots the program serves, and the warm-up loads only those, so it never loads a TypeScript 6 project into TypeScript 7.
+A workspace can mix projects on TypeScript 7 with projects still on TypeScript 6, so the program must know which roots are its own. `nativeProjectOf`, which the plugin hands the program, names the native project of a root: the `tsconfig.json` nearest to it or, when none governs it, `inferredProject`, the one project TypeScript 7 keeps for every file no `tsconfig.json` governs. The nearest `tsconfig.json` is the project TypeScript 7 places the root in, unless its `include` leaves the root out, which makes the root a loose file to TypeScript 7. The program uses the native project only to decide which roots to open together, so such a root is at worst opened with the wrong group before the warm-up. A root of a project on TypeScript 6, or a file that is not code, has no native project, and the program never opens it. The roots with a native project are the roots the program serves, and the warm-up loads only those, so it never loads a TypeScript 6 project into TypeScript 7.
 
-The service lists a request's roots by its own projects, which for a loom no `tsconfig.json` governs are narrower than TypeScript 7's. The service gives each such loom a project of its own, for TypeScript 6's sake, while TypeScript 7 places all of them in the inferred project, where any root can import any other. So the program opens, from the first question on, every root that shares a native project with a root of `listed`. An import from one such loom into another then resolves in the first answer, not only after the warm-up.
+The service lists a request's roots by its own projects, which for a loom no `tsconfig.json` governs are narrower than TypeScript 7's. The service gives each such loom a project of its own, for TypeScript 6's sake, while TypeScript 7 places all of them in the inferred project, where any root can import any other. So the program opens, from the first question on, every root that shares a native project with a root of `listed`, the loose root being edited among them. An import from one such loom into another then resolves in the first answer, not only after the warm-up.
 
 Scripts in one project share a global scope, in the inferred project as in any other. A file with no `import` and no `export` is a script to TypeScript, so two looms that each declare the same top-level name in a script clash there, exactly as TypeScript 7's own editor would report it. That is the project's to settle, with a `tsconfig.json` or with `moduleDetection: "force"`, which makes every file a module.
 
-One kind of root needs more care. A section that tangles to no file is composed under a name of its own beside its loom, `<loom>.<root>.ts`, a file no `tsconfig.json` includes, so it too lands in the inferred project. Such loose roots are often fragments with no imports, and the loose roots of two looms would see each other's top-level names. Those roots belong to their loom alone. The service marks each one `loose` when it hands it over, and hands over only the one the person is editing. The program keeps open every loose root of the current loom, each with the last text it was given, so moving between two unsunk sections of one chapter closes neither. It closes the loose roots of other looms when the person turns to another loom: at the sync that hands over that loom's loose root, or, when the root asked about has a sink, at the question itself.
+One kind of root needs more care. A section that tangles to no file is composed under a name of its own beside its loom, `<loom>.<root>.ts`, a file no `tsconfig.json` includes, so it lands in the inferred project too. Such loose roots are often fragments with no imports, so two of them open together would see each other's top-level names and clash. The service marks the loose root it hands over `loose`, and hands over only the one the person is editing. Of the others the program knows nothing. A section renamed, given a sink or deleted leaves no trace the program could notice, and keeping its old root open would report clashes with a root that no longer exists, and offer it to a rename. So the program keeps open only the loose root being edited, and closes it as soon as a sync names another, or none.
 
-`openSet` is the set the server keeps open, computed from the composition and `listed`, the roots of the project being asked about. It holds every root that shares a native project with a root of `listed`, and the loose root of `listed`. It keeps the roots already open while they stay in the composition, and the loose roots already open while they belong to the current loom, the loom of the loose root in `listed`. After the warm-up it adds every served root. `keepLooseOf` drops the loose roots of every loom but one.
+`openSet` is the set the server keeps open, computed from the composition and `listed`, the roots of the project being asked about. It holds every root that shares a native project with a root of `listed`, and the loose root of `listed` itself. It keeps the roots already open while they stay in the composition, but never a loose root that `listed` no longer names. After the warm-up it adds every served root.
 
 TypeScript 7 resolves an import between two open documents only when the folder they sit in exists on disk. A package that has never been tangled has no such folder, so a root that imports its neighbour would report the neighbour missing although both are open. `pushOpen` therefore makes the missing folder of each served root, the folder a tangle would write the root into anyway. So opening a chapter in the editor can create folders, and they stay when the editor closes, ready for the tangle that fills them.
 
@@ -251,21 +251,13 @@ The program makes folders only, never files, and only inside the workspace, the 
 
 A search across the whole corpus lists every root, the other languages' files among them, so a `listed` root that is neither served nor loose stays closed. `ask` opens the root a question is about whenever the open set leaves it out, so the server answers about the text the person is editing, never about an older copy on disk. It then waits for `ready` before it starts or asks the server.
 
-A root can leave the open set while a question about it still waits for its answer, when the person turns to another loom mid-request. Closing it then would turn the answer into TypeScript 7's complaint that it knows no such file, and that complaint would show as an error on a root that has none. So a root stays open while a question about it waits, held in `waiting`, and closes once the last such answer arrives.
+A root can leave the open set while a question about it still waits for its answer, when the person moves on to another section mid-request. Closing it then would turn the answer into TypeScript 7's complaint that it knows no such file, and that complaint would show as an error on a root that has none. So a root stays open while a question about it waits, held in `waiting`, and closes once the last such answer arrives. A question holds its root from the moment it is asked, through the wait for `ready`, until its answer. Each new question about a root that is held updates the text held for it, so a root that closes after its first answer keeps the text the last question was asked about.
 
 =>
 
 export type NativeProjectOf = (file: ProductFile) => Option.Option<string>
 
 export const inferredProject = 'the inferred project'
-
-const loomOf = (file: ProductFile): string => file.loom ?? file.path
-
-const keepLooseOf = (
-  open: ReadonlyMap<string, ProductFile>,
-  loom: string,
-): ReadonlyMap<string, ProductFile> =>
-  new Map(Array.filter(Array.fromIterable(open), ([, file]) => file.loose !== true || loomOf(file) === loom))
 
 const openSet = (
   before: ReadonlyMap<string, ProductFile>,
@@ -277,7 +269,7 @@ const openSet = (
   const served = (file: ProductFile): boolean => Option.isSome(nativeProjectOf(file))
   const sunk = (files: Iterable<ProductFile>): ReadonlyArray<ProductFile> =>
     Array.filter(Array.fromIterable(files), (file) => file.loose !== true)
-  const asked = new Set(Array.getSomes(Array.map(sunk(listed), nativeProjectOf)))
+  const asked = new Set(Array.getSomes(Array.map(listed, nativeProjectOf)))
   const fromProjects = Array.filter(sunk(composition.values()), (file) =>
     Option.exists(nativeProjectOf(file), (project) => asked.has(project)),
   )
@@ -285,20 +277,12 @@ const openSet = (
     Array.map(sunk(before.values()), (file) => Option.fromNullishOr(composition.get(file.path))),
   )
   const fromWarmUp = warmed ? Array.filter(sunk(composition.values()), served) : []
-  const looseBefore = Array.filter(Array.fromIterable(before.values()), (file) => file.loose === true)
   const fromListed = Array.filter(listed, (file) => file.loose === true || served(file))
-  const kept = new Map(
+  return new Map(
     Array.map(
-      [...fromBefore, ...fromProjects, ...fromWarmUp, ...looseBefore, ...fromListed],
+      [...fromBefore, ...fromProjects, ...fromWarmUp, ...fromListed],
       (file) => [file.path, file] as const,
     ),
-  )
-  return Option.match(
-    Array.findFirst(listed, (file) => file.loose === true),
-    {
-      onNone: () => kept,
-      onSome: (file) => keepLooseOf(kept, loomOf(file)),
-    },
   )
 }
 
@@ -512,9 +496,8 @@ The warm-up asks only a server that is running, through `live`, and never starts
     Option.match(Option.fromNullishOr(state.composition.get(fileName)), {
       onNone: () => undefined,
       onSome: (file) => {
-        const next = keepLooseOf(new Map([...state.open, [fileName, file] as const]), loomOf(file))
-        if (state.open.has(fileName) && next.size === state.open.size) return
-        state.open = next
+        if (state.open.has(fileName)) return
+        state.open = new Map([...state.open, [fileName, file] as const])
         pushOpen()
       },
     })
@@ -537,7 +520,10 @@ The warm-up asks only a server that is running, through `live`, and never starts
           const count = waitingCount(fileName) - 1
           state.waiting = new Map(
             count > 0
-              ? [...state.waiting, [fileName, { file, count }] as const]
+              ? Array.map(
+                  Array.fromIterable(state.waiting),
+                  ([path, entry]) => [path, path === fileName ? { ...entry, count } : entry] as const,
+                )
               : Array.filter(Array.fromIterable(state.waiting), ([path]) => path !== fileName),
           )
           if (count === 0 && !state.open.has(fileName)) pushOpen()
@@ -547,7 +533,8 @@ The warm-up asks only a server that is running, through `live`, and never starts
 
   const ask = <A>(fileName: string, method: string, params: unknown): Promise<A> => {
     openForQuestion(fileName)
-    return options.ready().then(() =>
+    const release = hold(fileName)
+    const answered: Promise<A> = options.ready().then(() =>
       Option.match(running(), {
         onNone: () =>
           Promise.reject(
@@ -556,18 +543,18 @@ The warm-up asks only a server that is running, through `live`, and never starts
               : new NativeServerStopped({ compiler, workspace, lastFailure: state.lastFailure }),
           ),
         onSome: (server) => {
-          const release = hold(fileName)
           const answer = server.request<A>(method, params)
           void answer
             .then(warm, (failure) => {
               state.lastFailure = Option.some(messageOf(failure))
             })
             .catch(orNothing(undefined))
-            .finally(release)
           return answer
         },
       }),
     )
+    void answered.then(release, release)
+    return answered
   }
 
   const orNothing =
@@ -589,7 +576,7 @@ The warm-up asks only a server that is running, through `live`, and never starts
 
 A question that fails, because the server stopped, was given up on, or the program was disposed, must not vanish into the log. Diagnostics turn the failure into one error diagnostic with its message, through `orFailureDiagnostic`, where the person sees it. Every other question answers with nothing, through `orNothing`. Both write the message to the log once.
 
-The program forwards each question in the form LSP gives it. A definition may come back as locations rather than links, and `asLinks` turns each location into a link to the same place, the form the plugin rewrites. Diagnostics come back as a report, and the program hands on its items. Completions may come back as a bare list of items, and `asCompletionList` wraps one in a complete list. Code actions may come with bare commands beside them, and the program keeps only the actions, the form the plugin handles. An action whose edit is left for later goes back to the same server to be resolved, and an answer of nothing hands back the action as it was. An action that already carries its edit, as TypeScript 7's `Organize Imports` does, is complete, and resolving it hands it back unchanged rather than asking the server, which refuses such a request.
+The program forwards each question in the form LSP gives it. A definition may come back as locations rather than links, and `asLinks` turns each location into a link to the same place, the form the plugin rewrites. Diagnostics come back as a report, and the program hands on its items. Completions may come back as a bare list of items, and `asCompletionList` wraps one in a complete list. Code actions may come with bare commands beside them, and the program keeps only the actions, the form the plugin handles. An action whose edit is left for later goes back to the same server to be resolved, as a question about the root it was listed for, so that root is open and held while the server works out the edit. An answer of nothing hands back the action as it was. An action that already carries its edit, as TypeScript 7's `Organize Imports` does, is complete, and resolving it hands it back unchanged rather than asking the server, which refuses such a request.
 
 Three questions ask only about the code's shape: the outline of a root's symbols, the ranges an editor folds, and the ranges a selection grows through as the person widens it. The server answers them like any other question, and an answer of nothing hands on nothing. The client asked for the outline nested, so the server answers with `DocumentSymbol`s, each holding the symbols declared inside it.
 
@@ -683,9 +670,9 @@ Three questions ask only about the code's shape: the outline of a root's symbols
           Array.filter(found ?? [], (each): each is CodeAction => typeof each.command !== 'string'),
         )
         .catch(orNothing<CodeAction[]>([])),
-    resolveCodeAction: (action) =>
+    resolveCodeAction: (action, fileName) =>
       action.edit === undefined
-        ? ask<CodeAction | null>('', 'codeAction/resolve', action)
+        ? ask<CodeAction | null>(fileName, 'codeAction/resolve', action)
             .then((resolved) => resolved ?? action)
             .catch(orNothing(action))
         : Promise.resolve(action),
@@ -992,7 +979,7 @@ describe('nativeProjectsOf names the project TypeScript 7 places a root in', () 
 
 These cases drive `createNativeProgram` against the stand-in server, which writes every message it receives to its log. They check the behaviour around the server rather than TypeScript itself. A failure shows up where the person would see it, as an error diagnostic, so `diagnosticsOf` reads the message a program reports for a root.
 
-The warm-up runs after the first answer and asks for the diagnostics of every root the program serves, but not a loose root, and not a root with no native project, such as one left to TypeScript 6. It keeps the loose root being edited open. A served root whose folder does not exist yet has the folder made for it, and a loose root has none made. A root whose folder lies outside the workspace has none made either. A root whose folder cannot be made, under a read-only folder, costs the other roots nothing. The program answers, keeps every root open, and syncs again without failing. A loose root of one loom is closed when another loom is asked about, while every loose root of the loom being edited stays open as the person moves between them. A root a waiting question is about stays open until its answer arrives, even when the person turns to another loom. A root that shares a native project with the root asked about opens before the first answer, and a root of another project opens only with the warm-up. The warm-up stops when the server dies, without restarting it, and a restarted server is warmed again. A program disposed mid warm-up starts no new server and reports that it was shut down. A server that crashes as soon as it starts is restarted three times, then the program reports that it stopped, and it stays given up on however long the gaps between questions, since such a server never stayed up. A server that ran for a while before it crashed has its restarts counted afresh. A server that refuses to start is reported with its words, and once the program gives up on it, the program still repeats them. A program waits for its compiler to be ready before it starts the server, and reports a compiler it could not fetch. It forwards the questions about a root's outline, folding and selection to the server. An unavailable project reports its compiler and its reason.
+The warm-up runs after the first answer and asks for the diagnostics of every root the program serves, but not a loose root, and not a root with no native project, such as one left to TypeScript 6. It keeps the loose root being edited open. A served root whose folder does not exist yet has the folder made for it, and a loose root has none made. A root whose folder lies outside the workspace has none made either. A root whose folder cannot be made, under a read-only folder, costs the other roots nothing. The program answers, keeps every root open, and syncs again without failing. A loose root is closed as soon as the person edits another, in the same loom or another. A root a waiting question is about stays open until its answer arrives, and a root that closes after an older question was answered keeps the text of the newer question still waiting. A root that shares a native project with the root asked about opens before the first answer, a loose root's project as well, and a root of another project opens only with the warm-up. A code action listed on a loose root that has closed since is resolved with that root open again. The warm-up stops when the server dies, without restarting it, and a restarted server is warmed again. A program disposed mid warm-up starts no new server and reports that it was shut down. A server that crashes as soon as it starts is restarted three times, then the program reports that it stopped, and it stays given up on however long the gaps between questions, since such a server never stayed up. A server that ran for a while before it crashed has its restarts counted afresh. A server that refuses to start is reported with its words, and once the program gives up on it, the program still repeats them. A program waits for its compiler to be ready before it starts the server, and reports a compiler it could not fetch. It forwards the questions about a root's outline, folding and selection to the server. An unavailable project reports its compiler and its reason.
 
 =>
 
@@ -1102,7 +1089,7 @@ describe('createNativeProgram opens what TypeScript 7 checks together', () => {
     program.dispose()
   })
 
-  it('keeps every loose root of the loom being edited open', async () => {
+  it('keeps open only the loose root being edited', async () => {
     const stand = standInServer()
     const program = createNativeProgram(stand.command, stand.folder)
     const loom = join(stand.folder, 'chapter.loom')
@@ -1112,10 +1099,46 @@ describe('createNativeProgram opens what TypeScript 7 checks together', () => {
     await program.hover(x.path, position)
     program.sync([y])
     await program.hover(y.path, position)
-    program.sync([x])
-    await program.hover(x.path, position)
     await settled()
-    expect(stand.lines().filter((line) => line.startsWith('textDocument/didClose'))).toEqual([])
+    const lines = stand.lines()
+    expect(lines).toContain('textDocument/didClose chapter.loom.x.ts')
+    expect(lines.indexOf('textDocument/didClose chapter.loom.x.ts')).toBeLessThan(
+      lines.indexOf('textDocument/hover chapter.loom.y.ts'),
+    )
+    program.dispose()
+  })
+
+  it('opens the roots of a loose root\'s native project before the first answer', async () => {
+    const stand = standInServer()
+    const program = createNativeProgram(stand.command, stand.folder)
+    const loom = join(stand.folder, 'chapter.loom')
+    const aside = { path: `${loom}.aside.ts`, text: "import { b } from './b'", loose: true, loom }
+    program.sync([aside], [{ path: join(stand.folder, 'b.ts'), text: 'export const b = 1' }])
+    await program.hover(aside.path, position)
+    const lines = stand.lines()
+    expect(lines.indexOf('textDocument/didOpen b.ts v1')).toBeLessThan(
+      lines.indexOf('textDocument/hover chapter.loom.aside.ts'),
+    )
+    program.dispose()
+  })
+
+  it('resolves an action about the root it was listed for, open again', async () => {
+    const stand = standInServer()
+    const program = createNativeProgram(stand.command, stand.folder)
+    const loom = join(stand.folder, 'chapter.loom')
+    const x = { path: `${loom}.x.ts`, text: 'x', loose: true, loom }
+    const y = { path: `${loom}.y.ts`, text: 'y', loose: true, loom }
+    program.sync([x])
+    await program.codeActions(x.path, { start: position, end: position }, { diagnostics: [] })
+    program.sync([y])
+    await program.hover(y.path, position)
+    program.sync([x])
+    const action = { title: 'Extract to constant', kind: 'refactor.extract', data: { at: 'x' } }
+    expect(await program.resolveCodeAction(action, x.path)).toEqual(action)
+    const lines = stand.lines()
+    expect(lines.lastIndexOf('textDocument/didOpen chapter.loom.x.ts v1')).toBeLessThan(
+      lines.indexOf('codeAction/resolve'),
+    )
     program.dispose()
   })
 
@@ -1138,6 +1161,29 @@ describe('createNativeProgram opens what TypeScript 7 checks together', () => {
     expect(lines.indexOf('answered first.loom.slow.ts')).toBeLessThan(
       lines.indexOf('textDocument/didClose first.loom.slow.ts'),
     )
+    program.dispose()
+  })
+})
+
+describe('createNativeProgram holds the text the last question was about', () => {
+  it('keeps the newer text of a held root once an older question is answered', async () => {
+    const stand = standInServer()
+    const program = createNativeProgram(stand.command, stand.folder)
+    const first = join(stand.folder, 'first.loom')
+    const second = join(stand.folder, 'second.loom')
+    const slow = (text: string) => ({ path: `${first}.slow.ts`, text, loose: true, loom: first })
+    const aside = { path: `${second}.aside.ts`, text: 'aside', loose: true, loom: second }
+    program.sync([slow('one')])
+    const older = program.hover(slow('one').path, position)
+    await settled(50)
+    program.sync([slow('two')])
+    const newer = program.hover(slow('two').path, position)
+    await older
+    program.sync([aside])
+    await program.hover(aside.path, position)
+    await newer
+    await settled()
+    expect(stand.lines()).not.toContain('textDocument/didChange first.loom.slow.ts v3')
     program.dispose()
   })
 })
