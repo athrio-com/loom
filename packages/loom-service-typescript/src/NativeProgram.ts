@@ -19,7 +19,12 @@ import type {
 } from '@volar/language-service'
 import { URI } from 'vscode-uri'
 import type { FetchedTypeScript } from '@athrio/loom-lang-services/LanguageService'
-import { type LanguageServerProcess, spawnLanguageServer } from './LanguageServerProcess'
+import {
+  FailureReason,
+  LanguageServerFailed,
+  type LanguageServerProcess,
+  spawnLanguageServer,
+} from './LanguageServerProcess'
 import type { ProductFile, ProductProgram } from './ProductProgram'
 import type { ProductProject } from './TypescriptService'
 
@@ -204,6 +209,9 @@ export type NativeProjectOf = (file: ProductFile) => Option.Option<string>
 
 export const inferredProject = 'the inferred project'
 
+const asOpened = (file: ProductFile): ProductFile =>
+  file.loose === true ? { ...file, text: `${file.text}\nexport {}\n` } : file
+
 const openSet = (
   before: ReadonlyMap<string, ProductFile>,
   composition: ReadonlyMap<string, ProductFile>,
@@ -243,14 +251,20 @@ const defaultOptions: NativeProgramOptions = {
   ready: () => Promise.resolve(),
 }
 
+const incurable = (failure: unknown): boolean =>
+  failure instanceof LanguageServerFailed &&
+  (FailureReason.$is('CouldNotStart')(failure.reason) || FailureReason.$is('Unreachable')(failure.reason))
+
 export class NativeServerStopped extends Data.TaggedError('NativeServerStopped')<{
   readonly compiler: string
   readonly workspace: string
+  readonly starts: number
   readonly lastFailure: Option.Option<string>
 }> {
   get message(): string {
+    const times = this.starts === 1 ? 'once' : `${this.starts} times`
     return (
-      `TypeScript 7 (${this.compiler}) stopped ${maxRestarts + 1} times in ${this.workspace}; ` +
+      `TypeScript 7 (${this.compiler}) stopped ${times} in ${this.workspace}; ` +
       'its features are off until the Loom language server restarts' +
       Option.match(this.lastFailure, { onNone: () => '', onSome: (last) => `. The last failure: ${last}` })
     )
@@ -281,6 +295,7 @@ export const createNativeProgram = (
     disposed: boolean
     server: Option.Option<LanguageServerProcess>
     restarts: number
+    incurable: boolean
     lastFailure: Option.Option<string>
   } = {
     open: new Map(),
@@ -291,6 +306,7 @@ export const createNativeProgram = (
     disposed: false,
     server: Option.none(),
     restarts: 0,
+    incurable: false,
     lastFailure: Option.none(),
   }
   const reported = new Set<string>()
@@ -334,7 +350,7 @@ export const createNativeProgram = (
           ]).values(),
         )
         makeFolders(files)
-        server.keepOpen(files)
+        server.keepOpen(Array.map(files, asOpened))
       },
     })
 
@@ -366,7 +382,7 @@ export const createNativeProgram = (
 
   const restart = (previous: LanguageServerProcess): Option.Option<LanguageServerProcess> => {
     if (previous.uptime() >= options.stableFor) state.restarts = 0
-    if (state.restarts >= maxRestarts) return Option.none()
+    if (state.incurable || state.restarts >= maxRestarts) return Option.none()
     state.restarts += 1
     previous.dispose()
     state.warmed = false
@@ -453,19 +469,25 @@ export const createNativeProgram = (
   const ask = <A>(fileName: string, method: string, params: unknown): Promise<A> => {
     openForQuestion(fileName)
     const release = hold(fileName)
-    const answered: Promise<A> = options.ready().then(() =>
+    const answered: Promise<A> = Promise.resolve().then(options.ready).then(() =>
       Option.match(running(), {
         onNone: () =>
           Promise.reject(
             state.disposed
               ? new NativeProgramDisposed({ workspace })
-              : new NativeServerStopped({ compiler, workspace, lastFailure: state.lastFailure }),
+              : new NativeServerStopped({
+                  compiler,
+                  workspace,
+                  starts: state.restarts + 1,
+                  lastFailure: state.lastFailure,
+                }),
           ),
         onSome: (server) => {
           const answer = server.request<A>(method, params)
           void answer
             .then(warm, (failure) => {
               state.lastFailure = Option.some(messageOf(failure))
+              state.incurable = state.incurable || incurable(failure)
             })
             .catch(orNothing(undefined))
           return answer

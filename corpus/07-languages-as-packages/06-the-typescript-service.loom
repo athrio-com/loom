@@ -87,7 +87,7 @@ export const configNear = (): ((path: string) => Option.Option<string>) => {
 
 A request arrives on an embedded document — one Product of a `.loom`, a composition root with its members already folded in. `productTarget` decodes that document's URI back to the `.loom` path and the Product's id, and serves only a TypeScript-family document — `typescript`, `tsx`, `javascript`, or `jsx`. It declines the rest, so a JSON or CSS Product the `.loom` also holds falls to its own service. It then reads the file's composition — every root in the corpus that tangles to a file, at the path it tangles to — and looks for the one this document edits.
 
-A root that tangles to a file is checked at that path, the live buffer overriding what is on disk. A root that tangles nowhere — a section with no file sink — has no path of its own, so `productTarget` checks it beside its `.loom` under a synthetic name, and marks it `loose`, since no `tsconfig.json` includes that name. Either way it hands the program the whole composition, so one root's `import` of another resolves against the other's composition. It returns the edited root's path for the caller to query, and `resync`, which repeats the same sync for a caller that comes back to the program later.
+A root that tangles to a file is checked at that path, the live buffer overriding what is on disk. A root that tangles nowhere — a section with no file sink — has no path of its own, so `productTarget` checks it beside its `.loom` under a synthetic name, and marks it `loose`, since no `tsconfig.json` includes that name. Either way it hands the program the whole composition, so one root's `import` of another resolves against the other's composition. It returns the edited root's path for the caller to query.
 
 `productTarget` hands the composition to the program of the edited root's project. A `ProductProject` names that program by its `key`. The key is the path of the `tsconfig.json` that governs the file the root tangles to, so every loom that tangles into one package shares that package's program. When no `tsconfig.json` governs the file, the key is the root's own `.loom`, and the loom keeps a program of its own. Nothing says that two looms outside every project belong together. A TypeScript 6 program checks the roots it lists as one, and two scripts checked as one share a global scope, so a top-level name declared in each would clash although each runs alone.
 
@@ -120,7 +120,6 @@ export interface ProductTarget {
   readonly program: ProductProgram
   readonly fileName: string
   readonly roots: ReadonlyArray<ComposedFile>
-  readonly resync: () => void
 }
 
 const tsExtension: ReadonlyMap<string, string> = new Map([
@@ -174,14 +173,14 @@ export const productTarget = (
     loose: file === edited && Option.isNone(sink),
     loom: file.loomPath,
   })
-  const listedFiles = Array.map(Array.filter(roots, listed), asFile)
-  const otherFiles = Array.map(
-    Array.filter(roots, (file) => !listed(file)),
-    asFile,
+  program.sync(
+    Array.map(Array.filter(roots, listed), asFile),
+    Array.map(
+      Array.filter(roots, (file) => !listed(file)),
+      asFile,
+    ),
   )
-  const resync = (): void => program.sync(listedFiles, otherFiles)
-  resync()
-  return { program, fileName: edited.path, roots, resync }
+  return { program, fileName: edited.path, roots }
 }
 
 ## The editor plugin
@@ -229,7 +228,7 @@ export const nativeProjectsOf = (
 
 ~
 
-A result that names a place — a definition, a reference, the edits of a rename or a code action — comes back under the path the program checks. `embeddedUriOf` rewrites that path to the embedded document Volar knows: it finds the root the program holds there and encodes its `.loom` and id back through `encodeEmbeddedDocumentUri`. Volar then maps the result to the `.loom`, rather than opening a file that may not be on disk. A path that is no root the program holds — a real file under `node_modules` — passes through unchanged.
+A result that names a place — a definition, a reference, the edits of a rename or a code action — comes back under the path the program checks. `embeddedUriOf` rewrites that path to the embedded document Volar knows: it finds the root the program holds there and encodes its `.loom` and id back through `encodeEmbeddedDocumentUri`. Volar then maps the result to the `.loom`, rather than opening a file that may not be on disk. A path that is no root the program holds — a real file under `node_modules` — passes through unchanged. A path that is neither a root nor a file on disk names nothing the editor could open or edit. The native program can name such a path for a loose root it still holds open while an older question waits, after the section was renamed or deleted. `known` tells the two apart, and the plugin drops every place, every reference and every edit, whose path it does not know, rather than send the editor to a file that does not exist.
 
 Go-to on an `import` specifier is the one result that names a whole file rather than a place in it: TypeScript points it at the module's start, `(0, 0)`. `remapDefinition` catches that. When a definition lands at the start of a composition root, it redirects to that root's `heading` — the section that tangles the file — so the author arrives at `# The temperature library`, not the transcluded line the composed file opens with. Every other definition takes the `embeddedUriOf` path.
 
@@ -237,7 +236,7 @@ A code action is a fix or a refactor the editor offers at the cursor, such as `A
 
 A refactor arrives without its edit, and the edit is the costly part. TypeScript works out a refactor's edit by carrying the refactor out on the code, which takes hundreds of milliseconds for each one. The editor asks for the list of actions every time the cursor moves, so it can show its light bulb, and a request answered one at a time holds up every request behind it, a hover among them. So `provideCodeActions` lists a refactor by its title alone and leaves its edit for later.
 
-The editor asks for an action's edit only when the person picks it, through `resolveCodeAction`. A refactor `provideCodeActions` lists carries an `ActionOrigin` in its `data`: the document it was listed for, beside the data TypeScript gave it. `provideCodeActions` also keeps that document's target in `actionTargets`, so the resolve finds the same program and roots again. Other requests may have synced that program since, with other roots, and a loose root the action came from may be closed by now. So `resolveCodeAction` first repeats the target's sync through `resync`, then asks the program for the edit of the action on the root it was listed for, and moves the edit's paths back, as `provideCodeActions` does for a quick-fix. Resolving inside the program keeps each edit on the product's side of the boundary. An action whose data the plugin did not write, or one listed for a document it holds no target for, passes through unresolved.
+The editor asks for an action's edit only when the person picks it, through `resolveCodeAction`. A refactor `provideCodeActions` lists carries an `ActionOrigin` in its `data`: the document it was listed for, beside the data TypeScript gave it. `provideCodeActions` also keeps that document's language and text in `actionDocuments`, one entry per document. Other requests may have synced the program since, and a loose root the action came from may be closed by now. So `resolveCodeAction` finds the target afresh, from the document's text as it was listed and the composition as it is now, which syncs the program again without turning back the other roots the person edited meanwhile. It then asks the program for the edit of the action on the root it was listed for, and moves the edit's paths back, as `provideCodeActions` does for a quick-fix. Resolving inside the program keeps each edit on the product's side of the boundary. An action whose data the plugin did not write, or one listed for a document it holds no target for, passes through unresolved.
 
 The editor asks for completions as the person types a `.`, a `*` or an `@`. A `*` that opens a doc comment, `/**`, may call for the comment's template, and an `@` after `//` for one of TypeScript's directives, such as `@ts-expect-error`. The plugin hands the program the context the editor asked in, with the character typed, so a program on TypeScript 6 asks only the plugins that answer that character, and a `*` typed in `a * b` brings up no list.
 
@@ -275,7 +274,7 @@ export const productPlugin = (
     const configOf = configNear()
     const programs = new Map<string, ProductProgram>()
     const nativePrograms = new Map<string, ProductProgram>()
-    const actionTargets = new Map<string, ProductTarget>()
+    const actionDocuments = new Map<string, { readonly languageId: string; readonly text: string }>()
     const nativeProjectFor = nativeProjectsOf(configOf, nativeSetting, sdk.fetched)
     const classicProgramFor = (project: ProductProject): ProductProgram =>
       Result.match(sdk.classic(projectFolder(project)), {
@@ -325,6 +324,13 @@ export const productPlugin = (
         reach,
       )
 
+    const known =
+      (roots: ReadonlyArray<ComposedFile>) =>
+      (uri: string): boolean => {
+        const path = URI.parse(uri).fsPath
+        return Array.some(roots, (file) => file.path === path) || existsSync(path)
+      }
+
     const embeddedUriOf = (roots: ReadonlyArray<ComposedFile>, uri: string): string =>
       Option.match(
         Array.findFirst(roots, (file) => file.path === URI.parse(uri).fsPath),
@@ -341,22 +347,23 @@ export const productPlugin = (
         edit.changes === undefined
           ? undefined
           : Object.fromEntries(
-              Object.entries(edit.changes).map(([uri, edits]) => [
-                embeddedUriOf(roots, uri),
-                edits,
-              ]),
+              Object.entries(edit.changes)
+                .filter(([uri]) => known(roots)(uri))
+                .map(([uri, edits]) => [embeddedUriOf(roots, uri), edits]),
             ),
-      documentChanges: edit.documentChanges?.map((change) =>
-        'textDocument' in change
-          ? {
-              ...change,
-              textDocument: {
-                ...change.textDocument,
-                uri: embeddedUriOf(roots, change.textDocument.uri),
-              },
-            }
-          : change,
-      ),
+      documentChanges: edit.documentChanges
+        ?.filter((change) => !('textDocument' in change) || known(roots)(change.textDocument.uri))
+        .map((change) =>
+          'textDocument' in change
+            ? {
+                ...change,
+                textDocument: {
+                  ...change.textDocument,
+                  uri: embeddedUriOf(roots, change.textDocument.uri),
+                },
+              }
+            : change,
+        ),
     })
 
     const remapAction = (roots: ReadonlyArray<ComposedFile>, action: CodeAction): CodeAction =>
@@ -407,17 +414,23 @@ export const productPlugin = (
           ? undefined
           : target.program
               .definition(target.fileName, position)
-              .then((links) => links?.map((link) => remapDefinition(target.roots, link)))
+              .then((links) =>
+                links
+                  ?.filter((link) => known(target.roots)(link.targetUri))
+                  .map((link) => remapDefinition(target.roots, link)),
+              )
       },
       provideReferences: (document, position) => {
         const target = targetOf(document.uri, document.languageId, document.getText(), 'corpus')
         return target === undefined
           ? undefined
           : target.program.references(target.fileName, position).then((locations) =>
-              locations?.map((location) => ({
-                ...location,
-                uri: embeddedUriOf(target.roots, location.uri),
-              })),
+              locations
+                ?.filter((location) => known(target.roots)(location.uri))
+                .map((location) => ({
+                  ...location,
+                  uri: embeddedUriOf(target.roots, location.uri),
+                })),
             )
       },
       provideRenameEdits: (document, position, newName) => {
@@ -431,7 +444,7 @@ export const productPlugin = (
       provideCodeActions: (document, range, context) => {
         const target = targetOf(document.uri, document.languageId, document.getText(), 'project')
         if (target === undefined) return undefined
-        actionTargets.set(document.uri, target)
+        actionDocuments.set(document.uri, { languageId: document.languageId, text: document.getText() })
         return target.program.codeActions(target.fileName, range, context).then((actions) =>
           actions?.map((action) =>
             action.edit === undefined
@@ -447,19 +460,20 @@ export const productPlugin = (
         pipe(
           Option.fromNullishOr(action.data as ActionOrigin | undefined),
           Option.flatMap((origin) =>
-            Option.map(
-              Option.fromNullishOr(actionTargets.get(origin.document)),
-              (target) => [origin, target] as const,
+            pipe(
+              Option.fromNullishOr(actionDocuments.get(origin.document)),
+              Option.flatMap(({ languageId, text }) =>
+                Option.fromNullishOr(targetOf(origin.document, languageId, text, 'project')),
+              ),
+              Option.map((target) => [origin, target] as const),
             ),
           ),
           Option.match({
             onNone: () => action,
-            onSome: ([origin, target]) => {
-              target.resync()
-              return target.program
+            onSome: ([origin, target]) =>
+              target.program
                 .resolveCodeAction({ ...action, data: origin.original }, target.fileName)
-                .then((resolved) => remapAction(target.roots, resolved))
-            },
+                .then((resolved) => remapAction(target.roots, resolved)),
           }),
         ),
       provideDocumentSymbols: (document) => {
@@ -563,7 +577,7 @@ export default TypescriptService
 
 ## What the service draws on
 
-The service builds on `@athrio/loom-lang-services` for the `LanguageService` contract, the `TypescriptSdk` and `Composition` capabilities with the `TypescriptSdkApi` and `FetchedTypeScript` the first lends, the `ComposedFile` shape each composition root takes, and the `FormatRequest` a formatter answers with the `ServiceError` it fails with; and on its own `ProductProgram`, with the `ProductFile` each root syncs as, and the native program with `compilerChoiceFor`, which chooses the compiler, `executableOf`, which reads the executable a choice runs, `projectFolder`, which locates a project, `createUnavailableProgram`, for a project that cannot have its compiler, and `NativeProjectOf` with `inferredProject`, which name the project TypeScript 7 places a root in. From Effect it takes `Effect` for the `plugins` body, `Array`, `Option`, and `pipe` to search the composition, and `Result` to read the TypeScript 6 the capability loads or the reason it has none; from Volar, the `LanguageServicePlugin` type, with `CodeAction`, `WorkspaceEdit`, `LocationLink`, and `Range` for the results and edits the plugin moves back to the `.loom`; the `URI` type to decode an embedded document back to its `.loom`; and Node's `statSync`, `dirname` and `join` to walk for a `tsconfig.json`. Node's `createRequire` finds a project's own Prettier, and `pathToFileURL` turns the file it finds into the address `import` takes. The type `TypeScript` names the TypeScript 6 module a `Classic` program runs on.
+The service builds on `@athrio/loom-lang-services` for the `LanguageService` contract, the `TypescriptSdk` and `Composition` capabilities with the `TypescriptSdkApi` and `FetchedTypeScript` the first lends, the `ComposedFile` shape each composition root takes, and the `FormatRequest` a formatter answers with the `ServiceError` it fails with; and on its own `ProductProgram`, with the `ProductFile` each root syncs as, and the native program with `compilerChoiceFor`, which chooses the compiler, `executableOf`, which reads the executable a choice runs, `projectFolder`, which locates a project, `createUnavailableProgram`, for a project that cannot have its compiler, and `NativeProjectOf` with `inferredProject`, which name the project TypeScript 7 places a root in. From Effect it takes `Effect` for the `plugins` body, `Array`, `Option`, and `pipe` to search the composition, and `Result` to read the TypeScript 6 the capability loads or the reason it has none; from Volar, the `LanguageServicePlugin` type, with `CodeAction`, `WorkspaceEdit`, `LocationLink`, and `Range` for the results and edits the plugin moves back to the `.loom`; the `URI` type to decode an embedded document back to its `.loom`; Node's `statSync`, `dirname` and `join` to walk for a `tsconfig.json`, and `existsSync` to tell a result's file on disk from one that is nowhere. Node's `createRequire` finds a project's own Prettier, and `pathToFileURL` turns the file it finds into the address `import` takes. The type `TypeScript` names the TypeScript 6 module a `Classic` program runs on.
 
 =>
 
@@ -576,7 +590,7 @@ import type {
   WorkspaceEdit,
 } from '@volar/language-service'
 import { URI } from 'vscode-uri'
-import { statSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'

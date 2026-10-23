@@ -572,6 +572,45 @@ describe('createNativeProgram asks the server about the code\'s shape', () => {
   })
 })
 
+describe('createNativeProgram gives up at once on a server that cannot start', () => {
+  it('reports the reason, and tries no restart', async () => {
+    const stand = standInServer()
+    const program = createNativeProgram(join(stand.folder, 'missing'), stand.folder)
+    const a = join(stand.folder, 'a.ts')
+    program.sync([{ path: a, text: 'a' }])
+    const first = await diagnosticsOf(program, a)
+    await settled(150)
+    const second = await diagnosticsOf(program, a)
+    expect(first).toContain('could not start')
+    expect(second).toContain('stopped once')
+    expect(second).toContain('could not start')
+    program.dispose()
+  })
+})
+
+describe('createNativeProgram holds a root from the moment it is asked about', () => {
+  it('keeps the root open through the wait for ready', async () => {
+    const stand = standInServer()
+    const program = createNativeProgram(stand.command, stand.folder, () => Option.some(inferredProject), {
+      ready: () => settled(300),
+    })
+    const first = join(stand.folder, 'first.loom')
+    const second = join(stand.folder, 'second.loom')
+    const x = { path: `${first}.x.ts`, text: 'x', loose: true, loom: first }
+    const y = { path: `${second}.y.ts`, text: 'y', loose: true, loom: second }
+    program.sync([x])
+    const asked = program.hover(x.path, position)
+    program.sync([y])
+    await Promise.all([asked, program.hover(y.path, position)])
+    await settled()
+    const lines = stand.lines()
+    expect(lines.indexOf('textDocument/hover first.loom.x.ts')).toBeLessThan(
+      lines.indexOf('textDocument/didClose first.loom.x.ts'),
+    )
+    program.dispose()
+  })
+})
+
 describe('createNativeProgram repeats why a server would not start', () => {
   it('reports the refusal, and repeats it once it gives up', async () => {
     const stand = standInServer()

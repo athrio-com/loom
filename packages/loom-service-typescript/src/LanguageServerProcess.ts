@@ -20,6 +20,7 @@ export interface LanguageServerProcess {
 }
 
 export type FailureReason = Data.TaggedEnum<{
+  CouldNotStart: { readonly text: string }
   NotRunning: { readonly said: Option.Option<string> }
   Unreachable: { readonly text: string }
   Answered: { readonly text: string }
@@ -36,6 +37,7 @@ export class LanguageServerFailed extends Data.TaggedError('LanguageServerFailed
   get message(): string {
     const server = `the ${this.command} language server`
     return FailureReason.$match(this.reason, {
+      CouldNotStart: ({ text }) => `${server} could not start: ${text}`,
       NotRunning: ({ said }) =>
         Option.match(said, {
           onNone: () => `${server} is not running`,
@@ -55,7 +57,15 @@ export const spawnLanguageServer = (
   languageId: string,
   capabilities: object,
 ): LanguageServerProcess => {
-  const state = { running: true, disposed: false, startedAt: Date.now(), stoppedAt: 0, stderr: '' }
+  const state = {
+    running: true,
+    disposed: false,
+    startedAt: Date.now(),
+    stoppedAt: 0,
+    stderr: '',
+    partial: '',
+    header: Option.none<string>(),
+  }
   const child = spawn(command, [...args], { cwd: workspace, stdio: ['pipe', 'pipe', 'pipe'] })
   const stopped = (): void => {
     if (!state.running) return
@@ -68,29 +78,46 @@ export const spawnLanguageServer = (
     child.once('spawn', () => resolve())
     child.once('error', (cause) =>
       reject(
-        new LanguageServerFailed({ command, reason: FailureReason.NotRunning({ said: Option.none() }), cause }),
+        new LanguageServerFailed({
+          command,
+          reason: FailureReason.CouldNotStart({ text: String((cause as Error)?.message ?? cause) }),
+          cause,
+        }),
       ),
     )
   })
   child.on('exit', stopped)
   child.on('error', stopped)
   child.stdin.on('error', stopped)
-  child.stderr.on('data', (chunk) => {
-    state.stderr = (state.stderr + String(chunk)).slice(-8192)
-  })
+  child.stderr.on('error', stopped)
   const closed = new Promise<void>((resolve) => child.once('close', () => resolve()))
 
-  const lastWords = (): Option.Option<string> => {
-    const lines = Array.filter(
-      Array.map(state.stderr.split('\n'), (line) => line.trim()),
+  const crashHeader = /^(panic:|fatal error:|SIG[A-Z]+:|(?:[A-Z][A-Za-z]*)?[Ee]rror: )/
+  const runtimeBanner = /^(Node\.js|Bun) v\d/
+  const linesOf = (text: string): ReadonlyArray<string> =>
+    Array.filter(
+      Array.map(text.split('\n'), (line) => line.trim()),
       (line) => line !== '',
     )
-    return pipe(
-      Array.findFirst(lines, (line) => /^(panic|fatal error):/.test(line)),
-      Option.orElse(() => Array.last(lines)),
+
+  child.stderr.on('data', (chunk) => {
+    const lines = (state.partial + String(chunk)).split('\n')
+    state.partial = Option.getOrElse(Array.last(lines), () => '')
+    state.header = Option.orElse(
+      Array.findLast(linesOf(Array.dropRight(lines, 1).join('\n')), (line) => crashHeader.test(line)),
+      () => state.header,
+    )
+    state.stderr = (state.stderr + String(chunk)).slice(-8192)
+  })
+
+  const lastWords = (): Option.Option<string> =>
+    pipe(
+      Option.orElse(state.header, () =>
+        Option.filter(Option.some(state.partial.trim()), (line) => crashHeader.test(line)),
+      ),
+      Option.orElse(() => Array.findLast(linesOf(state.stderr), (line) => !runtimeBanner.test(line))),
       Option.map((line) => line.slice(0, 300)),
     )
-  }
 
   const guardedWriter = (writer: MessageWriter): MessageWriter => ({
     write: (message) => writer.write(message).catch(() => stopped()),

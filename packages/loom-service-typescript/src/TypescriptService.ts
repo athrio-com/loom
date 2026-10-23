@@ -7,7 +7,7 @@ import type {
   WorkspaceEdit,
 } from '@volar/language-service'
 import { URI } from 'vscode-uri'
-import { statSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -109,7 +109,6 @@ export interface ProductTarget {
   readonly program: ProductProgram
   readonly fileName: string
   readonly roots: ReadonlyArray<ComposedFile>
-  readonly resync: () => void
 }
 
 const tsExtension: ReadonlyMap<string, string> = new Map([
@@ -163,14 +162,14 @@ export const productTarget = (
     loose: file === edited && Option.isNone(sink),
     loom: file.loomPath,
   })
-  const listedFiles = Array.map(Array.filter(roots, listed), asFile)
-  const otherFiles = Array.map(
-    Array.filter(roots, (file) => !listed(file)),
-    asFile,
+  program.sync(
+    Array.map(Array.filter(roots, listed), asFile),
+    Array.map(
+      Array.filter(roots, (file) => !listed(file)),
+      asFile,
+    ),
   )
-  const resync = (): void => program.sync(listedFiles, otherFiles)
-  resync()
-  return { program, fileName: edited.path, roots, resync }
+  return { program, fileName: edited.path, roots }
 }
 
 export const nativeProjectsOf = (
@@ -224,7 +223,7 @@ export const productPlugin = (
     const configOf = configNear()
     const programs = new Map<string, ProductProgram>()
     const nativePrograms = new Map<string, ProductProgram>()
-    const actionTargets = new Map<string, ProductTarget>()
+    const actionDocuments = new Map<string, { readonly languageId: string; readonly text: string }>()
     const nativeProjectFor = nativeProjectsOf(configOf, nativeSetting, sdk.fetched)
     const classicProgramFor = (project: ProductProject): ProductProgram =>
       Result.match(sdk.classic(projectFolder(project)), {
@@ -274,6 +273,13 @@ export const productPlugin = (
         reach,
       )
 
+    const known =
+      (roots: ReadonlyArray<ComposedFile>) =>
+      (uri: string): boolean => {
+        const path = URI.parse(uri).fsPath
+        return Array.some(roots, (file) => file.path === path) || existsSync(path)
+      }
+
     const embeddedUriOf = (roots: ReadonlyArray<ComposedFile>, uri: string): string =>
       Option.match(
         Array.findFirst(roots, (file) => file.path === URI.parse(uri).fsPath),
@@ -290,22 +296,23 @@ export const productPlugin = (
         edit.changes === undefined
           ? undefined
           : Object.fromEntries(
-              Object.entries(edit.changes).map(([uri, edits]) => [
-                embeddedUriOf(roots, uri),
-                edits,
-              ]),
+              Object.entries(edit.changes)
+                .filter(([uri]) => known(roots)(uri))
+                .map(([uri, edits]) => [embeddedUriOf(roots, uri), edits]),
             ),
-      documentChanges: edit.documentChanges?.map((change) =>
-        'textDocument' in change
-          ? {
-              ...change,
-              textDocument: {
-                ...change.textDocument,
-                uri: embeddedUriOf(roots, change.textDocument.uri),
-              },
-            }
-          : change,
-      ),
+      documentChanges: edit.documentChanges
+        ?.filter((change) => !('textDocument' in change) || known(roots)(change.textDocument.uri))
+        .map((change) =>
+          'textDocument' in change
+            ? {
+                ...change,
+                textDocument: {
+                  ...change.textDocument,
+                  uri: embeddedUriOf(roots, change.textDocument.uri),
+                },
+              }
+            : change,
+        ),
     })
 
     const remapAction = (roots: ReadonlyArray<ComposedFile>, action: CodeAction): CodeAction =>
@@ -356,17 +363,23 @@ export const productPlugin = (
           ? undefined
           : target.program
               .definition(target.fileName, position)
-              .then((links) => links?.map((link) => remapDefinition(target.roots, link)))
+              .then((links) =>
+                links
+                  ?.filter((link) => known(target.roots)(link.targetUri))
+                  .map((link) => remapDefinition(target.roots, link)),
+              )
       },
       provideReferences: (document, position) => {
         const target = targetOf(document.uri, document.languageId, document.getText(), 'corpus')
         return target === undefined
           ? undefined
           : target.program.references(target.fileName, position).then((locations) =>
-              locations?.map((location) => ({
-                ...location,
-                uri: embeddedUriOf(target.roots, location.uri),
-              })),
+              locations
+                ?.filter((location) => known(target.roots)(location.uri))
+                .map((location) => ({
+                  ...location,
+                  uri: embeddedUriOf(target.roots, location.uri),
+                })),
             )
       },
       provideRenameEdits: (document, position, newName) => {
@@ -380,7 +393,7 @@ export const productPlugin = (
       provideCodeActions: (document, range, context) => {
         const target = targetOf(document.uri, document.languageId, document.getText(), 'project')
         if (target === undefined) return undefined
-        actionTargets.set(document.uri, target)
+        actionDocuments.set(document.uri, { languageId: document.languageId, text: document.getText() })
         return target.program.codeActions(target.fileName, range, context).then((actions) =>
           actions?.map((action) =>
             action.edit === undefined
@@ -396,19 +409,20 @@ export const productPlugin = (
         pipe(
           Option.fromNullishOr(action.data as ActionOrigin | undefined),
           Option.flatMap((origin) =>
-            Option.map(
-              Option.fromNullishOr(actionTargets.get(origin.document)),
-              (target) => [origin, target] as const,
+            pipe(
+              Option.fromNullishOr(actionDocuments.get(origin.document)),
+              Option.flatMap(({ languageId, text }) =>
+                Option.fromNullishOr(targetOf(origin.document, languageId, text, 'project')),
+              ),
+              Option.map((target) => [origin, target] as const),
             ),
           ),
           Option.match({
             onNone: () => action,
-            onSome: ([origin, target]) => {
-              target.resync()
-              return target.program
+            onSome: ([origin, target]) =>
+              target.program
                 .resolveCodeAction({ ...action, data: origin.original }, target.fileName)
-                .then((resolved) => remapAction(target.roots, resolved))
-            },
+                .then((resolved) => remapAction(target.roots, resolved)),
           }),
         ),
       provideDocumentSymbols: (document) => {

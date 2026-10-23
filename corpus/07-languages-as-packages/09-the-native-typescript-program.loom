@@ -241,7 +241,9 @@ The service lists a request's roots by its own projects, which for a loom no `ts
 
 Scripts in one project share a global scope, in the inferred project as in any other. A file with no `import` and no `export` is a script to TypeScript, so two looms that each declare the same top-level name in a script clash there, exactly as TypeScript 7's own editor would report it. That is the project's to settle, with a `tsconfig.json` or with `moduleDetection: "force"`, which makes every file a module.
 
-One kind of root needs more care. A section that tangles to no file is composed under a name of its own beside its loom, `<loom>.<root>.ts`, a file no `tsconfig.json` includes, so it lands in the inferred project too. Such loose roots are often fragments with no imports, so two of them open together would see each other's top-level names and clash. The service marks the loose root it hands over `loose`, and hands over only the one the person is editing. Of the others the program knows nothing. A section renamed, given a sink or deleted leaves no trace the program could notice, and keeping its old root open would report clashes with a root that no longer exists, and offer it to a rename. So the program keeps open only the loose root being edited, and closes it as soon as a sync names another, or none.
+One kind of root needs more care. A section that tangles to no file is composed under a name of its own beside its loom, `<loom>.<root>.ts`, a file no `tsconfig.json` includes, so it lands in the inferred project too. Such loose roots are often fragments with no imports, which TypeScript takes as scripts, and scripts in one project share a global scope. Two loose roots open together, or a loose root and a script the project tangles, would see each other's top-level names and clash. A loose root is a file Loom makes up, not one the project wrote, so how it is shown to TypeScript is Loom's choice. `asOpened` makes every loose root a module, by ending the text the server receives with `export {}`. A module keeps its top-level names to itself, so no loose root can clash with any other file, however many are open. The line comes after everything the person wrote, so no position in the root moves.
+
+The service marks the loose root it hands over `loose`, and hands over only the one the person is editing. Of the others the program knows nothing. A section renamed, given a sink or deleted leaves no trace the program could notice. So the program keeps open only the loose root being edited, and closes it as soon as a sync names another, or none, unless a question about it still waits.
 
 `openSet` is the set the server keeps open, computed from the composition and `listed`, the roots of the project being asked about. It holds every root that shares a native project with a root of `listed`, and the loose root of `listed` itself. It keeps the roots already open while they stay in the composition, but never a loose root that `listed` no longer names. After the warm-up it adds every served root.
 
@@ -258,6 +260,9 @@ A root can leave the open set while a question about it still waits for its answ
 export type NativeProjectOf = (file: ProductFile) => Option.Option<string>
 
 export const inferredProject = 'the inferred project'
+
+const asOpened = (file: ProductFile): ProductFile =>
+  file.loose === true ? { ...file, text: `${file.text}\nexport {}\n` } : file
 
 const openSet = (
   before: ReadonlyMap<string, ProductFile>,
@@ -290,7 +295,7 @@ const openSet = (
 
 `running` gives the server, starting it the first time a question needs it, in the workspace folder the plugin hands the program, and opening the roots in the open set. It tells the server what the plugin can take: hover in Markdown, definitions as links, pulled diagnostics, completions, code actions whose edits are resolved only when picked, and the outline of a file's symbols nested inside one another.
 
-A server that stops is started again on the next question, so a crash costs one cold start rather than the session. Restarting stops the old process first, in case it outlived its connection. After `maxRestarts` restarts in a row the program gives up, since a server that fails on every start would otherwise cost a cold start on every question. Restarts in a row means each server failed soon after it started. A server that stayed up for `stableFor`, five minutes by the bridge's `uptime`, before it stopped resets the count, so three crashes spread over a long day never turn the features off, and a server that fails as soon as it starts stays given up on. Once the program gives up, every question fails with `NativeServerStopped`, which names the compiler and the folder. It also repeats `lastFailure`, the last failure a question met, such as a configuration the server refused to start with, because that failure is the clue to what to fix. The project never switches to another compiler behind the person's back.
+A server that stops is started again on the next question, so a crash costs one cold start rather than the session. Restarting stops the old process first, in case it outlived its connection. After `maxRestarts` restarts in a row the program gives up, since a server that fails on every start would otherwise cost a cold start on every question. Restarts in a row means each server failed soon after it started. A server that stayed up for `stableFor`, five minutes by the bridge's `uptime`, before it stopped resets the count, so three crashes spread over a long day never turn the features off, and a server that fails as soon as it starts stays given up on. A failure no restart can cure ends the restarts at once. A server that could not start, because its executable is missing or cannot run, and one Loom cannot speak to, because `vscode-jsonrpc` did not load, would fail the same way three more times, so `incurable` marks such a failure and the program gives up on the spot. Once the program gives up, every question fails with `NativeServerStopped`, which names the compiler, the folder and how many times the server was started. It also repeats `lastFailure`, the last failure a question met, such as a configuration the server refused to start with, because that failure is the clue to what to fix. The project never switches to another compiler behind the person's back.
 
 A restarted server holds the roots the program had open, but has loaded none of their projects, so a restart also undoes the warm-up, and the next answer runs it again.
 
@@ -314,14 +319,20 @@ const defaultOptions: NativeProgramOptions = {
   ready: () => Promise.resolve(),
 }
 
+const incurable = (failure: unknown): boolean =>
+  failure instanceof LanguageServerFailed &&
+  (FailureReason.$is('CouldNotStart')(failure.reason) || FailureReason.$is('Unreachable')(failure.reason))
+
 export class NativeServerStopped extends Data.TaggedError('NativeServerStopped')<{
   readonly compiler: string
   readonly workspace: string
+  readonly starts: number
   readonly lastFailure: Option.Option<string>
 }> {
   get message(): string {
+    const times = this.starts === 1 ? 'once' : `${this.starts} times`
     return (
-      `TypeScript 7 (${this.compiler}) stopped ${maxRestarts + 1} times in ${this.workspace}; ` +
+      `TypeScript 7 (${this.compiler}) stopped ${times} in ${this.workspace}; ` +
       'its features are off until the Loom language server restarts' +
       Option.match(this.lastFailure, { onNone: () => '', onSome: (last) => `. The last failure: ${last}` })
     )
@@ -352,6 +363,7 @@ export const createNativeProgram = (
     disposed: boolean
     server: Option.Option<LanguageServerProcess>
     restarts: number
+    incurable: boolean
     lastFailure: Option.Option<string>
   } = {
     open: new Map(),
@@ -362,6 +374,7 @@ export const createNativeProgram = (
     disposed: false,
     server: Option.none(),
     restarts: 0,
+    incurable: false,
     lastFailure: Option.none(),
   }
   const reported = new Set<string>()
@@ -405,7 +418,7 @@ export const createNativeProgram = (
           ]).values(),
         )
         makeFolders(files)
-        server.keepOpen(files)
+        server.keepOpen(Array.map(files, asOpened))
       },
     })
 
@@ -437,7 +450,7 @@ export const createNativeProgram = (
 
   const restart = (previous: LanguageServerProcess): Option.Option<LanguageServerProcess> => {
     if (previous.uptime() >= options.stableFor) state.restarts = 0
-    if (state.restarts >= maxRestarts) return Option.none()
+    if (state.incurable || state.restarts >= maxRestarts) return Option.none()
     state.restarts += 1
     previous.dispose()
     state.warmed = false
@@ -534,19 +547,25 @@ The warm-up asks only a server that is running, through `live`, and never starts
   const ask = <A>(fileName: string, method: string, params: unknown): Promise<A> => {
     openForQuestion(fileName)
     const release = hold(fileName)
-    const answered: Promise<A> = options.ready().then(() =>
+    const answered: Promise<A> = Promise.resolve().then(options.ready).then(() =>
       Option.match(running(), {
         onNone: () =>
           Promise.reject(
             state.disposed
               ? new NativeProgramDisposed({ workspace })
-              : new NativeServerStopped({ compiler, workspace, lastFailure: state.lastFailure }),
+              : new NativeServerStopped({
+                  compiler,
+                  workspace,
+                  starts: state.restarts + 1,
+                  lastFailure: state.lastFailure,
+                }),
           ),
         onSome: (server) => {
           const answer = server.request<A>(method, params)
           void answer
             .then(warm, (failure) => {
               state.lastFailure = Option.some(messageOf(failure))
+              state.incurable = state.incurable || incurable(failure)
             })
             .catch(orNothing(undefined))
           return answer
@@ -706,7 +725,7 @@ A request for completions carries the editor's context to the server, the charac
 
 ## What the program draws on
 
-Node's `fs`, `module` and `path` find a project's `typescript` package and the native executable beside it, follow a linked folder to its real path, check that the executable may be run, and make a served root's missing folder when it lies inside the workspace. The bridge from the previous chapter starts and speaks to the server, and the product program supplies the `ProductProgram` contract and the `ProductFile` each root syncs as. The service names a `ProductProject`, and the service contract names the `FetchedTypeScript` the host describes. Volar's types name the answers: `CodeAction`, `Command`, `CompletionItem`, `CompletionList`, `Diagnostic`, `DocumentSymbol`, `FoldingRange`, `Hover`, `Location`, `LocationLink`, `Position`, `SelectionRange` and `WorkspaceEdit`. `URI` names a root by its `file:` address. Effect's `Data` builds the `CompilerChoice` and the tagged failures, `Match` reads the forms an answer comes in, `Result` catches a folder that cannot be made, and `Array`, `Option` and `pipe` carry the steps.
+Node's `fs`, `module` and `path` find a project's `typescript` package and the native executable beside it, follow a linked folder to its real path, check that the executable may be run, and make a served root's missing folder when it lies inside the workspace. The bridge from the previous chapter starts and speaks to the server, and its `LanguageServerFailed` and `FailureReason` let the program tell a failure no restart can cure. The product program supplies the `ProductProgram` contract and the `ProductFile` each root syncs as. The service names a `ProductProject`, and the service contract names the `FetchedTypeScript` the host describes. Volar's types name the answers: `CodeAction`, `Command`, `CompletionItem`, `CompletionList`, `Diagnostic`, `DocumentSymbol`, `FoldingRange`, `Hover`, `Location`, `LocationLink`, `Position`, `SelectionRange` and `WorkspaceEdit`. `URI` names a root by its `file:` address. Effect's `Data` builds the `CompilerChoice` and the tagged failures, `Match` reads the forms an answer comes in, `Result` catches a folder that cannot be made, and `Array`, `Option` and `pipe` carry the steps.
 
 =>
 
@@ -731,7 +750,12 @@ import type {
 } from '@volar/language-service'
 import { URI } from 'vscode-uri'
 import type { FetchedTypeScript } from '@athrio/loom-lang-services/LanguageService'
-import { type LanguageServerProcess, spawnLanguageServer } from './LanguageServerProcess'
+import {
+  FailureReason,
+  LanguageServerFailed,
+  type LanguageServerProcess,
+  spawnLanguageServer,
+} from './LanguageServerProcess'
 import type { ProductFile, ProductProgram } from './ProductProgram'
 import type { ProductProject } from './TypescriptService'
 
@@ -978,7 +1002,7 @@ describe('nativeProjectsOf names the project TypeScript 7 places a root in', () 
 
 These cases drive `createNativeProgram` against the stand-in server, which writes every message it receives to its log. They check the behaviour around the server rather than TypeScript itself. A failure shows up where the person would see it, as an error diagnostic, so `diagnosticsOf` reads the message a program reports for a root.
 
-The warm-up runs after the first answer and asks for the diagnostics of every root the program serves, but not a loose root, and not a root with no native project, such as one left to TypeScript 6. It keeps the loose root being edited open. A served root whose folder does not exist yet has the folder made for it, and a loose root has none made. A root whose folder lies outside the workspace has none made either. A root whose folder cannot be made, under a read-only folder, costs the other roots nothing. The program answers, keeps every root open, and syncs again without failing. A loose root is closed as soon as the person edits another, in the same loom or another. A root a waiting question is about stays open until its answer arrives, and a root that closes after an older question was answered keeps the text of the newer question still waiting. A root that shares a native project with the root asked about opens before the first answer, a loose root's project as well, and a root of another project opens only with the warm-up. A code action listed on a loose root that has closed since is resolved with that root open again. The warm-up stops when the server dies, without restarting it, and a restarted server is warmed again. A program disposed mid warm-up starts no new server and reports that it was shut down. A server that crashes as soon as it starts is restarted three times, then the program reports that it stopped, and it stays given up on however long the gaps between questions, since such a server never stayed up. A server that ran for a while before it crashed has its restarts counted afresh. A server that refuses to start is reported with its words, and once the program gives up on it, the program still repeats them. A program waits for its compiler to be ready before it starts the server, and reports a compiler it could not fetch. It forwards the questions about a root's outline, folding and selection to the server. An unavailable project reports its compiler and its reason.
+The warm-up runs after the first answer and asks for the diagnostics of every root the program serves, but not a loose root, and not a root with no native project, such as one left to TypeScript 6. It keeps the loose root being edited open. A served root whose folder does not exist yet has the folder made for it, and a loose root has none made. A root whose folder lies outside the workspace has none made either. A root whose folder cannot be made, under a read-only folder, costs the other roots nothing. The program answers, keeps every root open, and syncs again without failing. A loose root is closed as soon as the person edits another, in the same loom or another. A root a waiting question is about stays open until its answer arrives, and a root that closes after an older question was answered keeps the text of the newer question still waiting. A root that shares a native project with the root asked about opens before the first answer, a loose root's project as well, and a root of another project opens only with the warm-up. A code action listed on a loose root that has closed since is resolved with that root open again. The warm-up stops when the server dies, without restarting it, and a restarted server is warmed again. A program disposed mid warm-up starts no new server and reports that it was shut down. A server that crashes as soon as it starts is restarted three times, then the program reports that it stopped, and it stays given up on however long the gaps between questions, since such a server never stayed up. A server that ran for a while before it crashed has its restarts counted afresh. A server that refuses to start is reported with its words, and once the program gives up on it, the program still repeats them. A server whose executable is missing is reported as one that could not start, and the program gives up on it at once, without a restart. A root asked about while the program waits for `ready` stays open until its answer. A program waits for its compiler to be ready before it starts the server, and reports a compiler it could not fetch. It forwards the questions about a root's outline, folding and selection to the server. An unavailable project reports its compiler and its reason.
 
 =>
 
@@ -1348,6 +1372,45 @@ describe('createNativeProgram asks the server about the code\'s shape', () => {
         'textDocument/foldingRange a.ts',
         'textDocument/selectionRange a.ts',
       ]),
+    )
+    program.dispose()
+  })
+})
+
+describe('createNativeProgram gives up at once on a server that cannot start', () => {
+  it('reports the reason, and tries no restart', async () => {
+    const stand = standInServer()
+    const program = createNativeProgram(join(stand.folder, 'missing'), stand.folder)
+    const a = join(stand.folder, 'a.ts')
+    program.sync([{ path: a, text: 'a' }])
+    const first = await diagnosticsOf(program, a)
+    await settled(150)
+    const second = await diagnosticsOf(program, a)
+    expect(first).toContain('could not start')
+    expect(second).toContain('stopped once')
+    expect(second).toContain('could not start')
+    program.dispose()
+  })
+})
+
+describe('createNativeProgram holds a root from the moment it is asked about', () => {
+  it('keeps the root open through the wait for ready', async () => {
+    const stand = standInServer()
+    const program = createNativeProgram(stand.command, stand.folder, () => Option.some(inferredProject), {
+      ready: () => settled(300),
+    })
+    const first = join(stand.folder, 'first.loom')
+    const second = join(stand.folder, 'second.loom')
+    const x = { path: `${first}.x.ts`, text: 'x', loose: true, loom: first }
+    const y = { path: `${second}.y.ts`, text: 'y', loose: true, loom: second }
+    program.sync([x])
+    const asked = program.hover(x.path, position)
+    program.sync([y])
+    await Promise.all([asked, program.hover(y.path, position)])
+    await settled()
+    const lines = stand.lines()
+    expect(lines.indexOf('textDocument/hover first.loom.x.ts')).toBeLessThan(
+      lines.indexOf('textDocument/didClose first.loom.x.ts'),
     )
     program.dispose()
   })

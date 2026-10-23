@@ -23,12 +23,18 @@ const handle = (message) => {
   const uri = message.params?.textDocument?.uri ?? ''
   const version = message.params?.textDocument?.version
   log(message.method + (uri ? ' ' + uri.split('/').pop() : '') + (version ? ' v' + version : ''))
+  const name = uri.split('/').pop()
   const crash = () => {
-    process.stderr.write('goroutine 1 [running]:\\npanic: stand-in crashed on ' + uri.split('/').pop() + '\\n\\tmain.go:1\\n')
-    process.exit(1)
+    const stack = 'main.handle(...)\\n\\t/stand-in/main.go:1 +0x1d\\n'.repeat(400)
+    process.stderr.write('panic: stand-in crashed on ' + name + '\\n\\ngoroutine 1 [running]:\\n' + stack, () => process.exit(1))
+  }
+  const throwLikeNode = () => {
+    const stack = '    at handle (/stand-in/server.js:1:1)\\n'.repeat(4)
+    process.stderr.write('TypeError: stand-in threw on ' + name + '\\n' + stack + '\\nNode.js v26.0.0\\n', () => process.exit(1))
   }
   if (uri.includes('crash') && message.method !== 'textDocument/didClose') return crash()
   if (uri.includes('boom') && message.method === 'textDocument/hover') return crash()
+  if (uri.includes('throw') && message.method === 'textDocument/hover') return throwLikeNode()
   if (uri.includes('garble') && message.method === 'textDocument/hover') {
     return process.stdout.write('Content-Length: 9\\r\\n\\r\\nnot json!')
   }

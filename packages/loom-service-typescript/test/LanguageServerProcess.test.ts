@@ -49,6 +49,8 @@ describe('LanguageServerProcess never takes the host down when a server cannot s
     const stand = standInServer()
     const { failure, alive } = await unstartable(join(stand.folder, 'missing'), stand.folder)
     expect(failure).toBeInstanceOf(LanguageServerFailed)
+    expect((failure as LanguageServerFailed).message).toContain('could not start')
+    expect((failure as LanguageServerFailed).message).toContain('ENOENT')
     expect(alive).toBe(false)
   })
 
@@ -127,6 +129,26 @@ describe('LanguageServerProcess tells an error answer from a crash', () => {
     expect(failure?.message).toContain('it last said: panic: stand-in crashed on boom.ts')
     expect(failure?.message).not.toContain('answered')
     expect(alive).toBe(false)
+  })
+
+  it('reports the error line of a server that dies the way Node does, not its banner', async () => {
+    const { failure } = await hoverFailure('throw.ts')
+    expect(failure?.message).toContain('it last said: TypeError: stand-in threw on throw.ts')
+  })
+
+  it('sends a request before a document opened after it', async () => {
+    const stand = standInServer()
+    const server = spawnLanguageServer(stand.command, [], stand.folder, 'typescript', {})
+    const hover = server.request('textDocument/hover', {
+      textDocument: { uri: `file://${join(stand.folder, 'a.ts')}` },
+      position: { line: 0, character: 0 },
+    })
+    server.keepOpen([{ path: join(stand.folder, 'b.ts'), text: 'b' }])
+    await hover
+    await settled()
+    const lines = stand.lines()
+    expect(lines.indexOf('textDocument/hover a.ts')).toBeLessThan(lines.indexOf('textDocument/didOpen b.ts v1'))
+    server.dispose()
   })
 })
 
