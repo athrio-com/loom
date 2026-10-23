@@ -16,8 +16,9 @@ import {
   compilerChoiceFor,
   createNativeProgram,
   createUnavailableProgram,
+  inferredProject,
 } from '../src/NativeProgram'
-import { configNear, servedByCompiler } from '../src/TypescriptService'
+import { configNear, nativeProjectsOf } from '../src/TypescriptService'
 import { settled, standInServer, startedIn } from './StandInServer'
 
 const executableName = process.platform === 'win32' ? 'tsc.exe' : 'tsc'
@@ -166,20 +167,25 @@ describe('compilerChoiceFor follows the nativeCompiler setting', () => {
   })
 })
 
-describe('servedByCompiler names the roots a native program serves', () => {
-  it('serves the scripts of looms in one folder, not other files or a project on TypeScript 6', () => {
+describe('nativeProjectsOf names the project TypeScript 7 places a root in', () => {
+  it('puts looms with no tsconfig.json in the inferred project, and leaves other files and TypeScript 6 out', () => {
     const root = folder()
     install(root, '7.0.2')
     const legacy = join(root, 'legacy')
     mkdirSync(legacy, { recursive: true })
     install(legacy, '6.0.3')
     writeFileSync(join(legacy, 'tsconfig.json'), '{}')
-    const servedBy = servedByCompiler(configNear(ts), Option.none())(executableIn(root))
-    const rootOf = (path: string, loom: string) => ({ path: join(root, path), text: '', loom: join(root, loom) })
-    expect(servedBy(rootOf('src/a.ts', 'corpus/a.loom'))).toBe(true)
-    expect(servedBy(rootOf('src/b.ts', 'corpus/b.loom'))).toBe(true)
-    expect(servedBy(rootOf('package.json', 'corpus/a.loom'))).toBe(false)
-    expect(servedBy(rootOf('legacy/src/c.ts', 'corpus/c.loom'))).toBe(false)
+    const app = join(root, 'app')
+    mkdirSync(app, { recursive: true })
+    writeFileSync(join(app, 'tsconfig.json'), '{}')
+    const projectOf = nativeProjectsOf(configNear(ts), Option.none())(executableIn(root))
+    const projectOfRoot = (path: string, loom: string) =>
+      Option.getOrUndefined(projectOf({ path: join(root, path), text: '', loom: join(root, loom) }))
+    expect(projectOfRoot('src/a.ts', 'corpus/a.loom')).toBe(inferredProject)
+    expect(projectOfRoot('src/b.ts', 'corpus/b.loom')).toBe(inferredProject)
+    expect(projectOfRoot('app/src/c.ts', 'corpus/c.loom')).toBe(join(app, 'tsconfig.json'))
+    expect(projectOfRoot('package.json', 'corpus/a.loom')).toBeUndefined()
+    expect(projectOfRoot('legacy/src/d.ts', 'corpus/d.loom')).toBeUndefined()
   })
 })
 
@@ -197,7 +203,9 @@ describe('createNativeProgram warms the workspace', () => {
   it('asks for every served root\'s diagnostics after the first answer, keeping the edited loose root', async () => {
     const stand = standInServer()
     const loose = join(stand.folder, 'chapter.loom.aside.ts')
-    const program = createNativeProgram(stand.command, stand.folder, (file) => !file.path.endsWith('old.ts'))
+    const program = createNativeProgram(stand.command, stand.folder, (file) =>
+      file.path.endsWith('old.ts') ? Option.none() : Option.some(inferredProject),
+    )
     program.sync(
       [{ path: loose, text: 'aside', loose: true }],
       [
@@ -261,6 +269,69 @@ describe('createNativeProgram warms the workspace', () => {
     await settled(800)
     expect(startedIn(stand.lines())).toHaveLength(1)
     expect(await diagnosticsOf(program, roots[0]!.path)).toContain('was shut down')
+  })
+})
+
+describe('createNativeProgram opens what TypeScript 7 checks together', () => {
+  it('opens the roots that share the asked root\'s native project before the first answer', async () => {
+    const stand = standInServer()
+    const program = createNativeProgram(stand.command, stand.folder, (file) =>
+      Option.some(file.path.endsWith('c.ts') ? join(stand.folder, 'app', 'tsconfig.json') : inferredProject),
+    )
+    const a = join(stand.folder, 'a.ts')
+    program.sync(
+      [{ path: a, text: 'a' }],
+      [
+        { path: join(stand.folder, 'b.ts'), text: 'b' },
+        { path: join(stand.folder, 'c.ts'), text: 'c' },
+      ],
+    )
+    await program.hover(a, position)
+    await settled(600)
+    const lines = stand.lines()
+    const hover = lines.indexOf('textDocument/hover a.ts')
+    expect(lines.indexOf('textDocument/didOpen b.ts v1')).toBeLessThan(hover)
+    expect(lines.indexOf('textDocument/didOpen c.ts v1')).toBeGreaterThan(hover)
+    program.dispose()
+  })
+
+  it('keeps every loose root of the loom being edited open', async () => {
+    const stand = standInServer()
+    const program = createNativeProgram(stand.command, stand.folder)
+    const loom = join(stand.folder, 'chapter.loom')
+    const x = { path: `${loom}.x.ts`, text: 'x', loose: true, loom }
+    const y = { path: `${loom}.y.ts`, text: 'y', loose: true, loom }
+    program.sync([x])
+    await program.hover(x.path, position)
+    program.sync([y])
+    await program.hover(y.path, position)
+    program.sync([x])
+    await program.hover(x.path, position)
+    await settled()
+    expect(stand.lines().filter((line) => line.startsWith('textDocument/didClose'))).toEqual([])
+    program.dispose()
+  })
+
+  it('keeps a root open until the question about it is answered', async () => {
+    const stand = standInServer()
+    const program = createNativeProgram(stand.command, stand.folder)
+    const first = join(stand.folder, 'first.loom')
+    const second = join(stand.folder, 'second.loom')
+    const slow = { path: `${first}.slow.ts`, text: 'slow', loose: true, loom: first }
+    const aside = { path: `${second}.aside.ts`, text: 'aside', loose: true, loom: second }
+    program.sync([slow])
+    const waiting = program.hover(slow.path, position)
+    await settled(50)
+    program.sync([aside])
+    await program.hover(aside.path, position)
+    expect(await waiting).toBeDefined()
+    await settled()
+    const lines = stand.lines()
+    expect(lines).toContain('textDocument/didClose first.loom.slow.ts')
+    expect(lines.indexOf('answered first.loom.slow.ts')).toBeLessThan(
+      lines.indexOf('textDocument/didClose first.loom.slow.ts'),
+    )
+    program.dispose()
   })
 })
 
@@ -336,7 +407,9 @@ describe('createNativeProgram restarts a crashed server a few times', () => {
 
   it('keeps giving up on a server that crashes as it starts, however long the wait', async () => {
     const stand = standInServer()
-    const program = createNativeProgram(stand.command, stand.folder, () => true, { stableFor: 100 })
+    const program = createNativeProgram(stand.command, stand.folder, () => Option.some(inferredProject), {
+      stableFor: 100,
+    })
     const crash = join(stand.folder, 'crash.ts')
     program.sync([{ path: crash, text: 'boom' }])
     const messages = await Array.from({ length: 6 }).reduce<Promise<ReadonlyArray<string>>>(
@@ -355,7 +428,9 @@ describe('createNativeProgram restarts a crashed server a few times', () => {
 
   it('counts restarts afresh after a server that ran for a while', async () => {
     const stand = standInServer()
-    const program = createNativeProgram(stand.command, stand.folder, () => true, { stableFor: 100 })
+    const program = createNativeProgram(stand.command, stand.folder, () => Option.some(inferredProject), {
+      stableFor: 100,
+    })
     const a = join(stand.folder, 'a.ts')
     const boom = join(stand.folder, 'boom.ts')
     program.sync([{ path: a, text: 'a' }], [{ path: boom, text: 'boom' }])
@@ -371,6 +446,30 @@ describe('createNativeProgram restarts a crashed server a few times', () => {
     )
     expect(startedIn(stand.lines())).toHaveLength(5)
     expect(await diagnosticsOf(program, a)).not.toContain('stopped')
+    program.dispose()
+  })
+})
+
+describe('createNativeProgram repeats why a server would not start', () => {
+  it('reports the refusal, and repeats it once it gives up', async () => {
+    const stand = standInServer()
+    const refusing = join(stand.folder, 'refusing')
+    writeFileSync(refusing, `#!/bin/sh\nexec ${JSON.stringify(stand.command)} --refuse "$@"\n`, { mode: 0o755 })
+    const program = createNativeProgram(refusing, stand.folder)
+    const a = join(stand.folder, 'a.ts')
+    program.sync([{ path: a, text: 'a' }])
+    const messages = await Array.from({ length: 5 }).reduce<Promise<ReadonlyArray<string>>>(
+      (previous) =>
+        previous.then(async (found) => {
+          const message = await diagnosticsOf(program, a)
+          await settled(150)
+          return [...found, message]
+        }),
+      Promise.resolve([]),
+    )
+    expect(messages[0]).toContain('refused to start: cannot read tsconfig.json')
+    expect(messages[messages.length - 1]).toContain('stopped 4 times')
+    expect(messages[messages.length - 1]).toContain('cannot read tsconfig.json')
     program.dispose()
   })
 })

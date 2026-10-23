@@ -35,19 +35,29 @@ export interface LanguageServerProcess {
 
 A request fails with `LanguageServerFailed` when the server could not start, or has stopped, or stopped while the request waited, or answered the request with an error of its own. It names the command, so the editor's log says which server failed, and it carries the underlying cause when there is one.
 
-A server that answered with an error is still running, and saying it is not running would send the person looking for a crash that never happened. So the failure carries the server's own words as its `answer`, and the message repeats them. Every other failure has no `answer`, and its message says the server is not running.
+The failure says why in its `reason`, a `FailureReason` of three cases, because each sends the person somewhere different. `NotRunning` is a server that could not start, or has stopped. `Answered` is a server that answered the request with an error of its own. Such a server is still running, and saying it is not running would send the person looking for a crash that never happened, so the failure repeats the server's words. `Refused` is a server that answered `initialize` with an error, such as a configuration it cannot read. The server's words are then the only clue to what to fix, so the failure repeats them too.
 
 =>
 
+export type FailureReason = Data.TaggedEnum<{
+  NotRunning: {}
+  Answered: { readonly text: string }
+  Refused: { readonly text: string }
+}>
+
+export const FailureReason = Data.taggedEnum<FailureReason>()
+
 export class LanguageServerFailed extends Data.TaggedError('LanguageServerFailed')<{
   readonly command: string
-  readonly answer: Option.Option<string>
+  readonly reason: FailureReason
   readonly cause?: unknown
 }> {
   get message(): string {
-    return Option.match(this.answer, {
-      onSome: (answer) => `the ${this.command} language server answered: ${answer}`,
-      onNone: () => `the ${this.command} language server is not running`,
+    const server = `the ${this.command} language server`
+    return FailureReason.$match(this.reason, {
+      NotRunning: () => `${server} is not running`,
+      Answered: ({ text }) => `${server} answered: ${text}`,
+      Refused: ({ text }) => `${server} refused to start: ${text}`,
     })
   }
 }
@@ -81,7 +91,7 @@ export const spawnLanguageServer = (
   const spawned = new Promise<void>((resolve, reject) => {
     child.once('spawn', () => resolve())
     child.once('error', (cause) =>
-      reject(new LanguageServerFailed({ command, answer: Option.none(), cause })),
+      reject(new LanguageServerFailed({ command, reason: FailureReason.NotRunning(), cause })),
     )
   })
   child.on('exit', stopped)
@@ -91,6 +101,26 @@ export const spawnLanguageServer = (
 ~
 
 The bridge imports `vscode-jsonrpc` only when it starts a server. It names the module `vscode-jsonrpc/node.js`, with the extension. The package declares no map of its entry points, so Node resolves a path inside it only as written, and `vscode-jsonrpc/node` names no file to Node. Bun resolves either form, but the VS Code extension and the npm command run the language server on Node. A workspace that never runs a language server never loads the package, and the service itself loads without it, the way it loads without Prettier until it formats. `loaded` is the promise of the module, and `connected` the promise of the connection, built once the process has started and the module has arrived. The connection reports its own failures through `onError` and `onClose`, and the bridge takes either as the server stopping.
+
+Writing to a server that has died fails, and when the write was a request, `vscode-jsonrpc` reports that failure twice. It fails the request for its caller, then throws the same failure again from inside the library, where no code can handle it. Node ends the whole process for such a failure, and the language server dies with every language it hosts. The warm-up makes this likely rather than rare. It queues megabytes of open documents, the server dies while it reads them, and the request behind them is written to a closed pipe.
+
+So the bridge hands `vscode-jsonrpc` a writer whose `write` never fails. `guardedWriter` passes each message to the real writer and takes a failed write as the server stopping. Stopping disposes the connection, which fails every waiting request, so the request's caller still hears the failure, once, as the server not running.
+
+=>
+
+  const guardedWriter = (writer: MessageWriter): MessageWriter => ({
+    write: (message) => writer.write(message).catch(() => stopped()),
+    get onError() {
+      return writer.onError
+    },
+    get onClose() {
+      return writer.onClose
+    },
+    end: () => writer.end(),
+    dispose: () => writer.dispose(),
+  })
+
+~
 
 A server may receive nothing before it has answered `initialize`. So the bridge keeps `ready`, the promise of that answer, and sends every later message only once `ready` settles. Each message is attached to `ready` in the order the caller sent it, and a promise runs its callbacks in the order they were attached, so the server receives them in that order too. An open document always reaches the server before a request about it.
 
@@ -102,7 +132,7 @@ A server may receive nothing before it has answered `initialize`. So the bridge 
   const connected: Promise<MessageConnection> = loaded.then((rpc) => {
     const connection = rpc.createMessageConnection(
       new rpc.StreamMessageReader(child.stdout),
-      new rpc.StreamMessageWriter(child.stdin),
+      guardedWriter(new rpc.StreamMessageWriter(child.stdin)),
     )
     connection.onError(stopped)
     connection.onClose(stopped)
@@ -168,9 +198,11 @@ A server may receive nothing before it has answered `initialize`. So the bridge 
 
 ~
 
-`request` waits for `ready` like every other message, then sends the request. A server that is no longer running rejects the request at once. A request whose `ready` fails, because the server never started or never answered `initialize`, rejects with `LanguageServerFailed` carrying the cause and no answer, since the server never heard the request.
+`request` waits for `ready` like every other message, then sends the request. A server that is no longer running rejects the request at once, as `NotRunning`.
 
-A request that fails after it was sent needs one more look, because `vscode-jsonrpc` reports two different events the same way. A server's error answer arrives as a `ResponseError` with the code the server sent. But `vscode-jsonrpc` also fails a request with a `ResponseError` of its own when the trouble is on the client's side, under codes it reserves for itself: a message it could not write, a message it could not read, a connection that is not active, and a request still waiting when the connection was disposed. That last one is what a server that crashes mid-request leaves behind. `answerOf` takes a `ResponseError` as the server's answer only when its code is none of `clientCodes`, those four. Anything else, a `ResponseError` under one of them or a closed connection's `ConnectionError`, means the server stopped, and the failure carries no answer.
+A failure needs one more look before it gets its reason, because `vscode-jsonrpc` reports two different events the same way. A server's error answer arrives as a `ResponseError` with the code the server sent. But `vscode-jsonrpc` also fails a request with a `ResponseError` of its own when the trouble is on the client's side, under codes it reserves for itself: a message it could not write, a message it could not read, a connection that is not active, and a request still waiting when the connection was disposed. That last one is what a server that crashes mid-request leaves behind. `answerOf` takes a `ResponseError` as the server's words only when its code is none of `clientCodes`, those four. Anything else, a `ResponseError` under one of them or a closed connection's `ConnectionError`, means the server stopped.
+
+`failedWith` turns a failure into `LanguageServerFailed`. When `answerOf` finds the server's words, `heard` names the case they belong to. A failure of the request itself is `Answered`. A failure of `ready` is `Refused`, since the only request the server answered then was `initialize`. A failure without the server's words is `NotRunning`, and so is any failure when the module never loaded, because then the server never started.
 
 =>
 
@@ -187,14 +219,29 @@ A request that fails after it was sent needs one more look, because `vscode-json
       ? Option.some(cause.message)
       : Option.none()
 
+  const failedWith =
+    (heard: (text: string) => FailureReason) =>
+    (cause: unknown): Promise<never> =>
+      loaded.then(
+        (rpc) =>
+          Promise.reject(
+            new LanguageServerFailed({
+              command,
+              reason: Option.match(answerOf(rpc, cause), {
+                onSome: heard,
+                onNone: () => FailureReason.NotRunning(),
+              }),
+              cause,
+            }),
+          ),
+        () =>
+          Promise.reject(new LanguageServerFailed({ command, reason: FailureReason.NotRunning(), cause })),
+      )
+
   const asked = <A>(connection: MessageConnection, method: string, params: unknown): Promise<A> =>
     Promise.resolve()
       .then(() => connection.sendRequest<A>(method, params))
-      .catch((cause) =>
-        loaded.then((rpc) =>
-          Promise.reject(new LanguageServerFailed({ command, answer: answerOf(rpc, cause), cause })),
-        ),
-      )
+      .catch(failedWith((text) => FailureReason.Answered({ text })))
 
 ~
 
@@ -211,10 +258,9 @@ A request that fails after it was sent needs one more look, because `vscode-json
       state.running
         ? ready.then(
             (connection) => asked<A>(connection, method, params),
-            (cause) =>
-              Promise.reject(new LanguageServerFailed({ command, answer: Option.none(), cause })),
+            failedWith((text) => FailureReason.Refused({ text })),
           )
-        : Promise.reject(new LanguageServerFailed({ command, answer: Option.none() })),
+        : Promise.reject(new LanguageServerFailed({ command, reason: FailureReason.NotRunning() })),
     alive: () => state.running,
     uptime: () => (state.running ? Date.now() : state.stoppedAt) - state.startedAt,
     dispose: () => {
@@ -235,14 +281,14 @@ A request that fails after it was sent needs one more look, because `vscode-json
 
 ## What the bridge draws on
 
-Node's `child_process` starts the server, and `path` names its workspace folder. `vscode-jsonrpc` frames the messages on the process's standard streams and pairs each answer with its request. It is a dependency the service imports at run time rather than bundles, for the reason the chapter on bundling the service gives. Only its types are named at the top, the `MessageConnection` and `Rpc`, the shape of the whole module, since the module itself arrives only when a server starts. `URI` turns a path into the `file:` address the protocol names a document by. Effect's `Data` builds the tagged `LanguageServerFailed`, and `Array` and `Option` sort the files the caller wants open.
+Node's `child_process` starts the server, and `path` names its workspace folder. `vscode-jsonrpc` frames the messages on the process's standard streams and pairs each answer with its request. It is a dependency the service imports at run time rather than bundles, for the reason the chapter on bundling the service gives. Only its types are named at the top, the `MessageConnection`, the `MessageWriter` and `Rpc`, the shape of the whole module, since the module itself arrives only when a server starts. `URI` turns a path into the `file:` address the protocol names a document by. Effect's `Data` builds the tagged `LanguageServerFailed`, and `Array` and `Option` sort the files the caller wants open.
 
 =>
 
 import { Array, Data, Option } from 'effect'
 import { spawn } from 'node:child_process'
 import { basename } from 'node:path'
-import type { MessageConnection } from 'vscode-jsonrpc/node.js'
+import type { MessageConnection, MessageWriter } from 'vscode-jsonrpc/node.js'
 import { URI } from 'vscode-uri'
 
 type Rpc = typeof import('vscode-jsonrpc/node.js')
@@ -261,7 +307,7 @@ type Rpc = typeof import('vscode-jsonrpc/node.js')
 
 The bridge is tested against a language server small enough to read. `standInServer` writes one to a scratch folder as an executable script with no dependencies. It frames LSP messages on its standard streams by hand, answers `initialize`, a hover and a pulled diagnostic, and writes one line to its log for every message it receives, so a case can read back exactly what the bridge sent and in what order. It writes `started` and its process id to the log when it starts, so a case can count how many processes ran and check whether one still runs.
 
-A few file names make it misbehave, the way a real server might on some input. Any message about a file whose name holds `crash`, other than closing it, makes it exit at once, so a file opened at start ends the server as soon as it starts. A hover on a file whose name holds `boom` makes it exit then, after it has run for a while. A hover on a file whose name holds `garble` makes it answer with a message that is not JSON, and keep running. A hover on a file whose name holds `refuse` makes it answer with an error, `no project here`, and keep running, the way a real server refuses a question it cannot answer.
+A few file names make it misbehave, the way a real server might on some input. Any message about a file whose name holds `crash`, other than closing it, makes it exit at once, so a file opened at start ends the server as soon as it starts. A hover on a file whose name holds `boom` makes it exit then, after it has run for a while. A hover on a file whose name holds `garble` makes it answer with a message that is not JSON, and keep running. A hover on a file whose name holds `refuse` makes it answer with an error, `no project here`, and keep running, the way a real server refuses a question it cannot answer. A hover on a file whose name holds `slow` is answered only after a third of a second, and the stand-in writes `answered` and the file's name to its log when it answers, so a case can check what reached the server while the question waited. Started with the argument `--refuse`, it answers `initialize` itself with an error, `cannot read tsconfig.json`, the way a real server refuses a configuration it cannot read.
 
 The stand-in is written with plain loops and string handling. It is a fixture that stands in for a foreign program, not code of Loom's, and it must run alone, with nothing to import.
 
@@ -301,7 +347,16 @@ const handle = (message) => {
   if (uri.includes('refuse') && message.method === 'textDocument/hover') {
     return write({ id: message.id, error: { code: -32803, message: 'no project here' } })
   }
+  if (message.method === 'initialize' && process.argv.includes('--refuse')) {
+    return write({ id: message.id, error: { code: -32603, message: 'cannot read tsconfig.json' } })
+  }
   if (message.method === 'initialize') return reply(message.id, { capabilities: {} })
+  if (uri.includes('slow') && message.method === 'textDocument/hover') {
+    return setTimeout(() => {
+      log('answered ' + uri.split('/').pop())
+      reply(message.id, { contents: 'stand-in' })
+    }, 300)
+  }
   if (message.method === 'textDocument/hover') return reply(message.id, { contents: 'stand-in' })
   if (message.method === 'textDocument/diagnostic') return reply(message.id, { kind: 'full', items: [] })
   return reply(message.id, null)
@@ -363,9 +418,9 @@ The first case checks what `keepOpen` sends and in what order. It opens `a.ts`, 
 
 The next cases check that a server which cannot start never takes the host down. A command that does not exist, a file that cannot be executed, a folder that does not exist, and a server that exits as soon as it starts each leave the bridge not alive, and a request fails with `LanguageServerFailed` instead of crashing the test process. A server that answers with a message that is not JSON is stopped, and its process no longer runs.
 
-Two cases check what a failed request says. A server that answers a hover with an error keeps running, and the failure repeats the server's words. A server that crashes while a hover waits is reported as not running, never as having answered, although `vscode-jsonrpc` fails the waiting request with an error of its own. `dispose` stops the process, and a second call does nothing.
+Three cases check what a failed request says. A server that answers a hover with an error keeps running, and the failure repeats the server's words. A server that refuses `initialize` is reported as having refused to start, with its words. A server that crashes while a hover waits is reported as not running, never as having answered, although `vscode-jsonrpc` fails the waiting request with an error of its own. `dispose` stops the process, and a second call does nothing.
 
-The last case runs the bridge under Node, the runtime the VS Code extension and the npm command use. It starts Node on a small script that imports the bridge's own source, which Node runs by stripping its types, and has the bridge ask the stand-in for a hover. The case passes only if the hover comes back, so a module name Node cannot resolve fails it. A machine without Node skips it.
+The last two cases run the bridge under Node, the runtime the VS Code extension and the npm command use. The first starts Node on a small script that imports the bridge's own source, which Node runs by stripping its types, and has the bridge ask the stand-in for a hover. The case passes only if the hover comes back, so a module name Node cannot resolve fails it. A second case under Node floods the server with open documents, the first of them named `crash` so the server dies while it reads the rest, and then sends a request behind them. It passes only if Node reports the request failed and keeps running, which is what the guarded writer is for. A machine without Node skips both.
 
 =>
 
@@ -465,9 +520,9 @@ describe('LanguageServerProcess never takes the host down when a server cannot s
 })
 
 describe('LanguageServerProcess tells an error answer from a crash', () => {
-  const hoverFailure = async (file: string) => {
+  const hoverFailure = async (file: string, args: ReadonlyArray<string> = []) => {
     const stand = standInServer()
-    const server = spawnLanguageServer(stand.command, [], stand.folder, 'typescript', {})
+    const server = spawnLanguageServer(stand.command, args, stand.folder, 'typescript', {})
     const failure = await server
       .request('textDocument/hover', { textDocument: { uri: `file://${join(stand.folder, file)}` } })
       .then(
@@ -484,6 +539,12 @@ describe('LanguageServerProcess tells an error answer from a crash', () => {
     const { failure, alive } = await hoverFailure('refuse.ts')
     expect(failure?.message).toContain('answered: no project here')
     expect(alive).toBe(true)
+  })
+
+  it('repeats the words of a server that refused to start', async () => {
+    const { failure, alive } = await hoverFailure('a.ts', ['--refuse'])
+    expect(failure?.message).toContain('refused to start: cannot read tsconfig.json')
+    expect(alive).toBe(false)
   })
 
   it('reports a server that crashed mid-request as not running', async () => {
@@ -525,6 +586,33 @@ describe('LanguageServerProcess runs under Node', () => {
     )
     const run = spawnSync('node', [script], { cwd: join(import.meta.dir, '..'), encoding: 'utf8', timeout: 20_000 })
     expect(run.stdout.trim()).toBe(JSON.stringify({ contents: 'stand-in' }))
+  })
+
+  it.skipIf(!node)('survives a server that dies while it reads a flood of documents', () => {
+    const stand = standInServer()
+    const script = join(stand.folder, 'flood.ts')
+    const bridge = join(import.meta.dir, '..', 'src', 'LanguageServerProcess.ts')
+    writeFileSync(
+      script,
+      `import { join } from 'node:path'\n` +
+        `import { spawnLanguageServer } from ${JSON.stringify(bridge)}\n` +
+        `const folder = ${JSON.stringify(stand.folder)}\n` +
+        `const server = spawnLanguageServer(${JSON.stringify(stand.command)}, [], folder, 'typescript', {})\n` +
+        `const big = '//'.repeat(200_000)\n` +
+        `server.keepOpen([\n` +
+        `  { path: join(folder, 'crash.ts'), text: 'x' },\n` +
+        `  ...Array.from({ length: 40 }, (_, i) => ({ path: join(folder, 'p' + i + '.ts'), text: big })),\n` +
+        `])\n` +
+        `server.request('textDocument/hover', {}).then(\n` +
+        `  () => console.log('answered'),\n` +
+        `  (error) => console.log('failed: ' + error.message),\n` +
+        `)\n` +
+        `setTimeout(() => { console.log('survived'); server.dispose() }, 1500)\n`,
+    )
+    const run = spawnSync('node', [script], { cwd: join(import.meta.dir, '..'), encoding: 'utf8', timeout: 20_000 })
+    expect(run.stdout).toContain('is not running')
+    expect(run.stdout).toContain('survived')
+    expect(run.status).toBe(0)
   })
 })
 

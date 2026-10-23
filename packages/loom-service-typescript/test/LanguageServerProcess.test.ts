@@ -94,9 +94,9 @@ describe('LanguageServerProcess never takes the host down when a server cannot s
 })
 
 describe('LanguageServerProcess tells an error answer from a crash', () => {
-  const hoverFailure = async (file: string) => {
+  const hoverFailure = async (file: string, args: ReadonlyArray<string> = []) => {
     const stand = standInServer()
-    const server = spawnLanguageServer(stand.command, [], stand.folder, 'typescript', {})
+    const server = spawnLanguageServer(stand.command, args, stand.folder, 'typescript', {})
     const failure = await server
       .request('textDocument/hover', { textDocument: { uri: `file://${join(stand.folder, file)}` } })
       .then(
@@ -113,6 +113,12 @@ describe('LanguageServerProcess tells an error answer from a crash', () => {
     const { failure, alive } = await hoverFailure('refuse.ts')
     expect(failure?.message).toContain('answered: no project here')
     expect(alive).toBe(true)
+  })
+
+  it('repeats the words of a server that refused to start', async () => {
+    const { failure, alive } = await hoverFailure('a.ts', ['--refuse'])
+    expect(failure?.message).toContain('refused to start: cannot read tsconfig.json')
+    expect(alive).toBe(false)
   })
 
   it('reports a server that crashed mid-request as not running', async () => {
@@ -154,5 +160,32 @@ describe('LanguageServerProcess runs under Node', () => {
     )
     const run = spawnSync('node', [script], { cwd: join(import.meta.dir, '..'), encoding: 'utf8', timeout: 20_000 })
     expect(run.stdout.trim()).toBe(JSON.stringify({ contents: 'stand-in' }))
+  })
+
+  it.skipIf(!node)('survives a server that dies while it reads a flood of documents', () => {
+    const stand = standInServer()
+    const script = join(stand.folder, 'flood.ts')
+    const bridge = join(import.meta.dir, '..', 'src', 'LanguageServerProcess.ts')
+    writeFileSync(
+      script,
+      `import { join } from 'node:path'\n` +
+        `import { spawnLanguageServer } from ${JSON.stringify(bridge)}\n` +
+        `const folder = ${JSON.stringify(stand.folder)}\n` +
+        `const server = spawnLanguageServer(${JSON.stringify(stand.command)}, [], folder, 'typescript', {})\n` +
+        `const big = '//'.repeat(200_000)\n` +
+        `server.keepOpen([\n` +
+        `  { path: join(folder, 'crash.ts'), text: 'x' },\n` +
+        `  ...Array.from({ length: 40 }, (_, i) => ({ path: join(folder, 'p' + i + '.ts'), text: big })),\n` +
+        `])\n` +
+        `server.request('textDocument/hover', {}).then(\n` +
+        `  () => console.log('answered'),\n` +
+        `  (error) => console.log('failed: ' + error.message),\n` +
+        `)\n` +
+        `setTimeout(() => { console.log('survived'); server.dispose() }, 1500)\n`,
+    )
+    const run = spawnSync('node', [script], { cwd: join(import.meta.dir, '..'), encoding: 'utf8', timeout: 20_000 })
+    expect(run.stdout).toContain('is not running')
+    expect(run.stdout).toContain('survived')
+    expect(run.status).toBe(0)
   })
 })
