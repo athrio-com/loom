@@ -6,6 +6,7 @@ import {
   Layer,
   ManagedRuntime,
   Option,
+  Result,
   Schema,
   Ref,
   Scheduler,
@@ -14,35 +15,45 @@ import {
 } from 'effect'
 import {
   createConnection,
+  createLanguageServiceEnvironment,
   createServer,
-  createTypeScriptProject,
   FileChangeType,
   type FileEvent,
   type Language,
   type LanguageServer,
   type LanguageServerProject,
   type LanguageServicePlugin,
-  loadTsdkByPath,
 } from '@volar/language-server/node'
-import { readFileSync } from 'node:fs'
+import {
+  createLanguage,
+  createLanguageService,
+  createUriMap,
+  type IScriptSnapshot,
+  type LanguageService,
+} from '@volar/language-service'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { URI } from 'vscode-uri'
-import { LoomCompiler, DocumentSource, within } from './LoomCompiler'
+import { LoomCompiler, DocumentSource, stringSnapshot, within } from './LoomCompiler'
 import { ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import { LoomFormatter } from './LoomFormatter'
 import { PackageConfig } from './PackageConfig'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
-  installTypeScript,
+  fetchedExecutable,
+  fetchedTypeScriptDir,
+  fetchTypeScript,
   standalone,
-  storeDir,
-  storeTypeScript,
-  typeScriptRange,
+  typeScriptVersion,
   workspaceOf,
   workspaceRoot,
 } from '@athrio/loom-lang-services/LoomStore'
+import type {
+  FetchedTypeScript,
+  TypescriptSdkApi,
+} from '@athrio/loom-lang-services/LanguageService'
 import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
 import { loomsIn } from './LoomProject'
 
@@ -51,9 +62,10 @@ const EditorTsdkSchema = Schema.Struct({
 })
 
 const editorTsdk = (options: unknown): Option.Option<string> =>
-  Option.map(
+  pipe(
     Schema.decodeUnknownOption(EditorTsdkSchema)(options),
-    (decoded) => decoded.typescript.tsdk,
+    Option.map((decoded) => decoded.typescript.tsdk),
+    Option.filter((tsdk) => existsSync(join(tsdk, 'typescript.js'))),
   )
 
 const installedTsdk = (from: string): Option.Option<string> =>
@@ -65,63 +77,151 @@ const installedTsdk = (from: string): Option.Option<string> =>
 const besideLoom = (): Option.Option<string> =>
   standalone ? Option.none() : installedTsdk(import.meta.url)
 
-const foundTsdk = (options: unknown, root: string): Option.Option<string> =>
+const classicTsdk = (options: unknown, folder: string): Option.Option<string> =>
   pipe(
     editorTsdk(options),
-    Option.orElse(() => installedTsdk(join(root, 'package.json'))),
+    Option.orElse(() => installedTsdk(join(folder, 'package.json'))),
     Option.orElse(besideLoom),
-    Option.orElse(() => Option.map(storeTypeScript(root), dirname)),
   )
 
-export class MissingTypeScript extends Data.TaggedError('MissingTypeScript')<{
-  readonly root: string
-  readonly failedInstall: Option.Option<string>
+type TypeScript = typeof import('typescript')
+
+const classicTypeScript = (options: unknown): ((folder: string) => Result.Result<TypeScript, string>) => {
+  const loaded = new Map<string, TypeScript>()
+  const load = (tsdk: string): Result.Result<TypeScript, string> =>
+    Option.match(Option.fromNullishOr(loaded.get(tsdk)), {
+      onSome: (ts) => Result.succeed(ts),
+      onNone: () =>
+        pipe(
+          Result.try((): TypeScript => {
+            const file = join(tsdk, 'typescript.js')
+            return createRequire(file)(file)
+          }),
+          Result.map((ts) => {
+            loaded.set(tsdk, ts)
+            return ts
+          }),
+          Result.mapError((cause) => `the TypeScript in ${tsdk} did not load: ${String(cause)}`),
+        ),
+    })
+  return (folder) =>
+    Option.match(classicTsdk(options, folder), {
+      onNone: () =>
+        Result.fail(
+          `found no TypeScript 6 for ${folder}, in the project or beside Loom; ` +
+            'install it in the project with `npm install -D typescript@6`',
+        ),
+      onSome: load,
+    })
+}
+
+export class TypeScriptNotFetched extends Data.TaggedError('TypeScriptNotFetched')<{
+  readonly version: string
+  readonly folder: string
+  readonly cause: unknown
 }> {
   get message(): string {
-    const why = Option.match(this.failedInstall, {
-      onNone: () =>
-        `${this.root} lies in no Loom workspace, so there is no store to install one into; run \`loom init\` there`,
-      onSome: (cause) => `installing one into the workspace's store failed: ${cause}`,
-    })
-    return `Loom's language server needs TypeScript 6 or earlier, and found none in ${this.root} or beside Loom. TypeScript 7 has no JavaScript API for it to load. ${why}. You can also install one in the project with \`bun add -d typescript@6\`, or have the editor send its path as \`initializationOptions.typescript.tsdk\`.`
+    return `could not fetch TypeScript ${this.version} into ${this.folder}: ${String(this.cause)}`
   }
 }
 
-const fetchedTsdk = (root: string): Effect.Effect<string, MissingTypeScript> =>
-  Option.match(workspaceOf(root), {
-    onNone: () => Effect.fail(new MissingTypeScript({ root, failedInstall: Option.none() })),
-    onSome: (workspace) =>
-      Effect.logInfo(`installing TypeScript ${typeScriptRange} into ${storeDir(workspace)}`).pipe(
-        Effect.andThen(installTypeScript(workspace)),
-        Effect.map(dirname),
-        Effect.mapError(
-          (error) =>
-            new MissingTypeScript({ root, failedInstall: Option.some(String(error.cause)) }),
-        ),
+const fetchedTypeScript: Effect.Effect<FetchedTypeScript> = Effect.gen(function* () {
+  const folder = fetchedTypeScriptDir(typeScriptVersion)
+  const once = yield* Effect.cached(
+    fetchTypeScript(typeScriptVersion).pipe(
+      Effect.mapError(
+        (error) =>
+          new TypeScriptNotFetched({ version: typeScriptVersion, folder, cause: error.cause }),
       ),
-  })
+    ),
+  )
+  return {
+    version: typeScriptVersion,
+    executable: fetchedExecutable(typeScriptVersion),
+    fetch: () => runtime.runPromise(Effect.asVoid(once)),
+  }
+})
 
-const tsdkFor = (options: unknown, root: string): Effect.Effect<string, MissingTypeScript> =>
-  Option.match(foundTsdk(options, root), {
-    onNone: () => fetchedTsdk(root),
-    onSome: Effect.succeed,
-  })
+const typescriptSdkFor = (options: unknown): Effect.Effect<TypescriptSdkApi> =>
+  Effect.map(fetchedTypeScript, (fetched) => ({ classic: classicTypeScript(options), fetched }))
 
 const workspaceFor = (home: string, uri: URI): string =>
   uri.scheme === 'file' ? Option.getOrElse(workspaceOf(dirname(uri.fsPath)), () => home) : home
 
-type Tsdk = ReturnType<typeof loadTsdkByPath>
-
-const projectOver = (
+const languageServiceOver = (
   server: LanguageServer,
-  tsdk: Tsdk,
+  plugins: ReadonlyArray<LanguageServicePlugin>,
+  savedLoom: (uri: URI) => Option.Option<IScriptSnapshot>,
+): LanguageService => {
+  const language: Language<URI> = createLanguage<URI>(
+    [{ getLanguageId: (uri) => server.documents.get(uri)?.languageId }, loomLanguagePlugin(runtime)],
+    createUriMap(false),
+    (uri, includeFsFiles) =>
+      Option.match(
+        Option.orElse(
+          Option.map(Option.fromNullishOr(server.documents.get(uri)), (document) =>
+            document.getSnapshot(),
+          ),
+          () => (includeFsFiles ? savedLoom(uri) : Option.none()),
+        ),
+        {
+          onSome: (snapshot) => void language.scripts.set(uri, snapshot),
+          onNone: () => language.scripts.delete(uri),
+        },
+      ),
+  )
+  return createLanguageService(
+    language,
+    [...plugins],
+    createLanguageServiceEnvironment(server, server.workspaceFolders.all),
+    {},
+  )
+}
+
+export const projectOver = (
+  server: LanguageServer,
   plugins: ReadonlyArray<LanguageServicePlugin>,
 ): LanguageServerProject => {
-  const project = createTypeScriptProject(tsdk.typescript, tsdk.diagnosticMessages, () => ({
-    languagePlugins: [loomLanguagePlugin(runtime)],
-  }))
-  project.setup({ ...server, languageServicePlugins: [...plugins] })
-  return project
+  const savedLoom = savedLooms()
+  const state = { service: languageServiceOver(server, plugins, savedLoom) }
+  return {
+    setup: () => undefined,
+    getLanguageService: () => state.service,
+    getExistingLanguageServices: () => [state.service],
+    reload: () => {
+      state.service.dispose()
+      state.service = languageServiceOver(server, plugins, savedLoom)
+    },
+  }
+}
+
+interface SavedLoom {
+  readonly modified: number
+  readonly snapshot: IScriptSnapshot
+}
+
+const savedLooms = (): ((uri: URI) => Option.Option<IScriptSnapshot>) => {
+  const read = new Map<string, SavedLoom>()
+  const readAgain = (path: string, modified: number): Option.Option<IScriptSnapshot> =>
+    Option.map(Option.liftThrowable(() => readFileSync(path, 'utf8'))(), (text) => {
+      const snapshot = stringSnapshot(text)
+      read.set(path, { modified, snapshot })
+      return snapshot
+    })
+  return (uri) =>
+    pipe(
+      Option.some(uri),
+      Option.filter((loom) => loom.scheme === 'file' && isLoom(loom)),
+      Option.flatMap((loom) => Option.liftThrowable(() => statSync(loom.fsPath).mtimeMs)()),
+      Option.flatMap((modified) =>
+        pipe(
+          Option.fromNullishOr(read.get(uri.fsPath)),
+          Option.filter((held) => held.modified === modified),
+          Option.map((held) => held.snapshot),
+          Option.orElse(() => readAgain(uri.fsPath, modified)),
+        ),
+      ),
+    )
 }
 
 export const workspaceProject = (
@@ -133,7 +233,7 @@ export const workspaceProject = (
   edited: Ref.Ref<ReadonlySet<string>>,
 ): LanguageServerProject => ({
   setup: (server) => {
-    watchConfigs(server, services, projects, edited)
+    watchConfigs(server, home, services, projects, edited)
     watchLooms(server, home, projects, reprojecting, edited)
   },
   getLanguageService: (uri) =>
@@ -173,8 +273,7 @@ const reconfiguredWorkspaces = (changes: ReadonlyArray<FileEvent>): ReadonlyArra
     Array.dedupe,
   )
 
-const forgetWorkspace = (
-  services: Cache.Cache<string, ReadonlyArray<LanguageServicePlugin>>,
+const reloadProject = (
   projects: Cache.Cache<string, LanguageServerProject>,
   workspace: string,
 ): Effect.Effect<void> =>
@@ -185,6 +284,14 @@ const forgetWorkspace = (
         onSome: (project) => Effect.sync(() => project.reload()),
       }),
     ),
+  )
+
+const forgetWorkspace = (
+  services: Cache.Cache<string, ReadonlyArray<LanguageServicePlugin>>,
+  projects: Cache.Cache<string, LanguageServerProject>,
+  workspace: string,
+): Effect.Effect<void> =>
+  reloadProject(projects, workspace).pipe(
     Effect.andThen(Cache.invalidate(projects, workspace)),
     Effect.andThen(Cache.invalidate(services, workspace)),
   )
@@ -223,16 +330,43 @@ const reconfigure = (
         { discard: true },
       ).pipe(Effect.andThen(Effect.sync(() => void server.languageFeatures.requestRefresh(true))))
 
+const isCompilerConfig = (uri: string): boolean => /\/(tsconfig|jsconfig)\.json$/.test(uri)
+
+const retypedWorkspaces = (
+  home: string,
+  changes: ReadonlyArray<FileEvent>,
+): ReadonlyArray<string> =>
+  pipe(
+    changes,
+    Array.filter((change) => isCompilerConfig(change.uri)),
+    Array.map((change) => workspaceFor(home, URI.parse(change.uri))),
+    Array.dedupe,
+  )
+
+const retype = (
+  server: LanguageServer,
+  projects: Cache.Cache<string, LanguageServerProject>,
+  workspaces: ReadonlyArray<string>,
+): Effect.Effect<void> =>
+  workspaces.length === 0
+    ? Effect.void
+    : Effect.forEach(workspaces, (workspace) => reloadProject(projects, workspace), {
+        discard: true,
+      }).pipe(Effect.andThen(Effect.sync(() => void server.languageFeatures.requestRefresh(true))))
+
 const watchConfigs = (
   server: LanguageServer,
+  home: string,
   services: Cache.Cache<string, ReadonlyArray<LanguageServicePlugin>>,
   projects: Cache.Cache<string, LanguageServerProject>,
   edited: Ref.Ref<ReadonlySet<string>>,
 ): void => {
-  void server.fileWatcher.watchFiles(['**/.loom/config.yaml'])
+  void server.fileWatcher.watchFiles(['**/.loom/config.yaml', '**/tsconfig.json', '**/jsconfig.json'])
   server.fileWatcher.onDidChangeWatchedFiles(({ changes }) =>
     runtime.runSync(
-      reconfigure(server, services, projects, edited, reconfiguredWorkspaces(changes)),
+      reconfigure(server, services, projects, edited, reconfiguredWorkspaces(changes)).pipe(
+        Effect.andThen(retype(server, projects, retypedWorkspaces(home, changes))),
+      ),
     ),
   )
 }
@@ -507,17 +641,16 @@ export const startLanguageServer = (): void => {
     const home = workspaceRoot(root)
     const { services, projects, plugins, reprojecting, edited } = await runtime.runPromise(
       Effect.gen(function* () {
-        const path = yield* tsdkFor(params.initializationOptions, root)
-        const tsdk = yield* Effect.sync(() => loadTsdkByPath(path, params.locale))
+        const sdk = yield* typescriptSdkFor(params.initializationOptions)
         const services = yield* Cache.make({
           capacity: Infinity,
-          lookup: (workspace: string) => loomServicePlugins(runtime, tsdk.typescript, workspace),
+          lookup: (workspace: string) => loomServicePlugins(runtime, sdk, workspace),
         })
         const projects = yield* Cache.make({
           capacity: Infinity,
           lookup: (workspace: string) =>
             Cache.get(services, workspace).pipe(
-              Effect.flatMap((plugins) => Effect.sync(() => projectOver(server, tsdk, plugins))),
+              Effect.flatMap((plugins) => Effect.sync(() => projectOver(server, plugins))),
             ),
         })
         const plugins = yield* Cache.get(services, home)
@@ -533,10 +666,7 @@ export const startLanguageServer = (): void => {
       [...plugins],
     )
   })
-  connection.onInitialized(() => {
-    server.initialized()
-    void server.fileWatcher.watchFiles(['**/tsconfig.json', '**/jsconfig.json'])
-  })
+  connection.onInitialized(() => server.initialized())
   connection.onShutdown(server.shutdown)
   connection.listen()
 }

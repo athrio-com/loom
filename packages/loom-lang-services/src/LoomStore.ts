@@ -9,9 +9,9 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
+import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
-import { gunzipSync } from 'node:zlib'
 
 const run = promisify(execFile)
 
@@ -85,9 +85,9 @@ export class StoreError extends Data.TaggedError('StoreError')<{
   readonly cause: unknown
 }> {}
 
-const prepareStore = (store: string): void => {
-  mkdirSync(store, { recursive: true })
-  const manifest = join(store, 'package.json')
+const prepareRoot = (root: string): void => {
+  mkdirSync(root, { recursive: true })
+  const manifest = join(root, 'package.json')
   if (!existsSync(manifest))
     writeFileSync(
       manifest,
@@ -101,28 +101,27 @@ interface PackageManager {
   readonly env: NodeJS.ProcessEnv
 }
 
-const packageManager = (store: string, spec: string): PackageManager =>
+const packageManager = (root: string, spec: string): PackageManager =>
   standalone
     ? {
         command: process.execPath,
-        args: ['add', spec, '--cwd', store, '--omit', 'peer'],
+        args: ['add', spec, '--cwd', root, '--omit', 'peer', '--linker', 'hoisted'],
         env: { ...process.env, BUN_BE_BUN: '1' },
       }
     : {
         command: 'npm',
-        args: ['install', spec, '--prefix', store, '--omit=peer', '--no-audit', '--no-fund'],
+        args: ['install', spec, '--prefix', root, '--omit=peer', '--no-audit', '--no-fund'],
         env: process.env,
       }
 
 const installPackage = (
-  dir: string,
+  root: string,
   packageName: string,
   range: string,
 ): Effect.Effect<void, StoreError> =>
   Effect.gen(function* () {
-    const store = storeDir(dir)
-    yield* Effect.sync(() => prepareStore(store))
-    const manager = packageManager(store, `${packageName}@${range}`)
+    yield* Effect.sync(() => prepareRoot(root))
+    const manager = packageManager(root, `${packageName}@${range}`)
     yield* Effect.tryPromise({
       try: () => run(manager.command, [...manager.args], { env: manager.env }),
       catch: (cause) => new StoreError({ packageName, cause }),
@@ -140,79 +139,62 @@ export const installService = (id: string, dir: string): Effect.Effect<ServiceIn
   Effect.gen(function* () {
     const installed = installedVersion(id, dir)
     if (Option.contains(installed, serviceVersion)) return ServiceInstall.Current()
-    yield* installPackage(dir, servicePackage(id), serviceVersion)
+    yield* installPackage(storeDir(dir), servicePackage(id), serviceVersion)
     return Option.match(installed, {
       onNone: () => ServiceInstall.Installed(),
       onSome: (from) => ServiceInstall.Updated({ from }),
     })
   })
 
-export const typeScriptRange = '^6'
+export const typeScriptVersion = '7.0.2'
 
-export const storeTypeScript = (dir: string): Option.Option<string> => {
-  const file = join(storeDir(dir), 'node_modules', 'typescript', 'lib', 'typescript.js')
-  return existsSync(file) ? Option.some(file) : Option.none()
-}
+export const loomHome = (): string => process.env.LOOM_HOME ?? join(homedir(), '.loom')
 
-const typeScriptAsset = 'typescript.json.gz'
+export const fetchedTypeScriptDir = (version: string): string =>
+  join(loomHome(), 'typescript', version)
 
-const PackedTypeScriptSchema = Schema.Struct({
-  files: Schema.Record(Schema.String, Schema.String),
-})
+const executableName = process.platform === 'win32' ? 'tsc.exe' : 'tsc'
 
-const typeScriptError = (cause: unknown): StoreError =>
-  new StoreError({ packageName: 'typescript', cause })
+export const fetchedExecutable = (version: string): string =>
+  join(
+    fetchedTypeScriptDir(version),
+    'node_modules',
+    '@typescript',
+    `typescript-${process.platform}-${process.arch}`,
+    'lib',
+    executableName,
+  )
 
-const unpackTypeScript = (dir: string, packed: Blob): Effect.Effect<void, StoreError> =>
-  Effect.gen(function* () {
-    const archive = yield* Effect.tryPromise({
-      try: async () => new Uint8Array(await packed.arrayBuffer()),
-      catch: typeScriptError,
-    })
-    const json = yield* Effect.try({
-      try: (): unknown => JSON.parse(gunzipSync(archive).toString('utf8')),
-      catch: typeScriptError,
-    })
-    const { files } = yield* Schema.decodeUnknownEffect(PackedTypeScriptSchema)(json).pipe(
-      Effect.mapError(typeScriptError),
-    )
-    const store = storeDir(dir)
-    const modules = join(store, 'node_modules')
-    const partial = join(modules, `.typescript-${process.pid}`)
-    yield* Effect.sync(() => prepareStore(store))
-    yield* Effect.forEach(
-      Object.entries(files),
-      ([path, text]) =>
-        Effect.try({
-          try: () => {
-            mkdirSync(dirname(join(partial, path)), { recursive: true })
-            writeFileSync(join(partial, path), text)
-          },
-          catch: typeScriptError,
-        }),
-      { discard: true },
-    )
+const present = (path: string): Effect.Effect<boolean> => Effect.sync(() => existsSync(path))
+
+export const fetchTypeScript = (version: string): Effect.Effect<string, StoreError> => {
+  const folder = fetchedTypeScriptDir(version)
+  const partial = `${folder}.partial-${process.pid}`
+  const executable = fetchedExecutable(version)
+  const failed = (cause: unknown): StoreError =>
+    new StoreError({ packageName: `typescript@${version}`, cause })
+  const install = Effect.gen(function* () {
+    yield* Effect.logInfo(`loom: fetching TypeScript ${version} into ${folder}`)
+    yield* Effect.sync(() => rmSync(partial, { recursive: true, force: true }))
+    yield* installPackage(partial, 'typescript', version)
     yield* Effect.try({
-      try: () => {
-        rmSync(join(modules, 'typescript'), { recursive: true, force: true })
-        renameSync(partial, join(modules, 'typescript'))
-      },
-      catch: typeScriptError,
+      try: () =>
+        existsSync(folder)
+          ? rmSync(partial, { recursive: true, force: true })
+          : renameSync(partial, folder),
+      catch: failed,
     })
   })
-
-export const installTypeScript = (dir: string): Effect.Effect<string, StoreError> =>
-  Option.match(embeddedFile(typeScriptAsset), {
-    onSome: (packed) => unpackTypeScript(dir, packed),
-    onNone: () => installPackage(dir, 'typescript', typeScriptRange),
-  }).pipe(
-    Effect.flatMap(() =>
-      Option.match(storeTypeScript(dir), {
-        onNone: () => Effect.fail(typeScriptError('the store holds no lib/typescript.js')),
-        onSome: Effect.succeed,
-      }),
+  return present(executable).pipe(
+    Effect.flatMap((there) => (there ? Effect.void : install)),
+    Effect.andThen(present(executable)),
+    Effect.flatMap((there) =>
+      there
+        ? Effect.succeed(executable)
+        : Effect.fail(failed(`the fetched TypeScript holds no executable at ${executable}`)),
     ),
   )
+}
 
 export const removeService = (id: string, dir: string): Effect.Effect<void> =>
   Effect.sync(() => rmSync(serviceDir(id, dir), { recursive: true, force: true }))

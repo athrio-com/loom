@@ -1,10 +1,8 @@
-import { Array, Console, Data, Effect, pipe } from 'effect'
+import { Console, Data, Effect } from 'effect'
 import { NodeRuntime } from '@effect/platform-node'
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
+import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { gzipSync } from 'node:zlib'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const build = join(here, 'build')
@@ -40,41 +38,11 @@ const compiledGrammar = run([
   join(build, grammarLibrary),
 ])
 
-const typeScriptDir = dirname(createRequire(import.meta.url).resolve('typescript/package.json'))
-
-const typeScriptFiles = (): ReadonlyArray<string> => [
-  'package.json',
-  'lib/typescript.js',
-  ...pipe(
-    readdirSync(join(typeScriptDir, 'lib')),
-    Array.filter((name) => name.startsWith('lib.') && name.endsWith('.d.ts')),
-    Array.map((name) => `lib/${name}`),
-  ),
-]
-
-const packedTypeScript = Effect.sync(() =>
-  writeFileSync(
-    join(build, 'typescript.json.gz'),
-    gzipSync(
-      JSON.stringify({
-        files: Object.fromEntries(
-          Array.map(typeScriptFiles(), (file) => [
-            file,
-            readFileSync(join(typeScriptDir, file), 'utf8'),
-          ]),
-        ),
-      }),
-      { level: 9 },
-    ),
-  ),
-)
-
 const compiledExecutable = run([
   process.execPath,
   'build',
   join(here, 'dist', 'main.js'),
   join(build, grammarLibrary),
-  join(build, 'typescript.json.gz'),
   '--compile',
   '--asset-naming=[name].[ext]',
   '--outfile',
@@ -89,10 +57,9 @@ const signedExecutable =
 const compile = Effect.gen(function* () {
   yield* Effect.sync(() => mkdirSync(build, { recursive: true }))
   yield* compiledGrammar
-  yield* packedTypeScript
   yield* compiledExecutable
   yield* signedExecutable
-  yield* Console.log(`compile: wrote ${join(build, 'loom')} with ${grammarLibrary} and TypeScript`)
+  yield* Console.log(`compile: wrote ${join(build, 'loom')} with ${grammarLibrary}`)
 })
 
 NodeRuntime.runMain(

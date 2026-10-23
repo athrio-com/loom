@@ -396,7 +396,7 @@ In Zed, clone this repository, run `zed: install dev extension`, and choose the 
 TypeScript
 ----------
 
-Loom's own checks work in any loom. To check TypeScript sections too, turn TypeScript on in the project with `loom add typescript`, and give the server a TypeScript 6 to check with, `bun add -d typescript@6`. TypeScript 7 has no JavaScript API for the server to load.
+Loom's own checks work in any loom. To check TypeScript sections too, turn TypeScript on in the project with `loom add typescript`. The server checks them with the TypeScript the project installs, 6 or 7. For a project that installs none, it fetches TypeScript 7 once per machine, into `~/.loom/typescript`.
 
 Licence
 -------

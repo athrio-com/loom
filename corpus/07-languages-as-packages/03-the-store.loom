@@ -8,7 +8,7 @@ Language: TypeScript
 
 A language service is editor tooling, not a dependency of the code a project ships, so Loom keeps the services it installs in a store of its own and never writes to the consumer's `package.json`. This module owns that store: where it sits, which services it holds, and the two commands that fill and empty it.
 
-The store holds one package that is not a service. Every service runs on the TypeScript its host lends it, and a project written in Python or Go has no TypeScript to lend. So the store also keeps a copy of TypeScript for the host to use when no other copy is at hand.
+One download belongs to the machine rather than to any workspace. A project that installs no TypeScript has its TypeScript sections checked by a TypeScript 7 that Loom fetches for it, and that one compiler serves every such project on the machine. This module keeps it under `~/.loom`, apart from every store.
 
 `LanguageLoader` reads the store to load a project's active services. This module is the other half, the half that writes it. The two resolve the store's location through one shared function, so the loader always reads what `loom add` wrote.
 
@@ -111,7 +111,7 @@ export const installedVersion = (id: string, dir: string): Option.Option<string>
 
 Loom ships in two forms. The npm package is a JavaScript bundle that Node or Bun runs, so whoever installs it already has a JavaScript runtime and a package manager. The standalone executable is that same bundle compiled by Bun into one file, with Bun's runtime inside it, for a person who has no JavaScript tooling at all.
 
-The executable also carries files that are not code, which its build adds beside the bundle: the TypeScript compiler, and the grammar library an editor loads. Bun lists such files in `Bun.embeddedFiles`, each a `Blob` that knows its own name. `embeddedFiles` reads that list, and it is empty in the npm package, where Bun may not be the runtime at all and nothing is embedded. `embeddedFile` finds one file in it by name.
+The executable also carries a file that is not code, which its build adds beside the bundle: the grammar library an editor loads. Bun lists such files in `Bun.embeddedFiles`, each a `Blob` that knows its own name. `embeddedFiles` reads that list, and it is empty in the npm package, where Bun may not be the runtime at all and nothing is embedded. `embeddedFile` finds one file in it by name.
 
 =>
 
@@ -128,7 +128,7 @@ export const embeddedFile = (name: string): Option.Option<EmbeddedFile> =>
 
 ~
 
-The two forms differ in what they can find around them, and a few steps of Loom must know which form is running. `standalone` answers that. Bun has no flag that says a program was compiled, so `standalone` reads two signs of it. The first is the list of embedded files: only a compiled executable has any, and Loom's always carries two.
+The two forms differ in what they can find around them, and a few steps of Loom must know which form is running. `standalone` answers that. Bun has no flag that says a program was compiled, so `standalone` reads two signs of it. The first is the list of embedded files: only a compiled executable has any, and Loom's always carries one.
 
 The second sign covers an executable compiled without them. Bun gives every module of a compiled executable an address in a file system of its own, under `/$bunfs/` on macOS and Linux and under `~BUN` on Windows. The exact form of that address differs between platforms, so the test looks for either name anywhere in the address, with or without its first character percent-encoded.
 
@@ -139,9 +139,11 @@ export const standalone: boolean =
 
 ## Installing a package into the store
 
-The store is a package root, a folder with a private `package.json` for a package manager to install into. `prepareStore` makes that folder and that file the first time anything is installed.
+The store is a package root, a folder with a private `package.json` for a package manager to install into. `prepareRoot` makes that folder and that file the first time anything is installed. The folder Loom fetches TypeScript 7 into is a package root of the same kind.
 
-`installPackage` installs one package into the store at a range of versions, and the form Loom runs in picks the package manager. The npm package runs `npm install`. The standalone executable has no npm to run, but it carries Bun, and Bun answers as itself when the `BUN_BE_BUN` variable is set. So the executable starts a second copy of itself as Bun and runs `bun add`.
+`installPackage` installs one package into a package root at a range of versions, and the form Loom runs in picks the package manager. The npm package runs `npm install`. The standalone executable has no npm to run, but it carries Bun, and Bun answers as itself when the `BUN_BE_BUN` variable is set. So the executable starts a second copy of itself as Bun and runs `bun add`.
+
+Both lay the packages out flat, with every dependency beside the package that needs it under `node_modules`. npm always does, and Bun is asked to with `--linker hoisted`, so a package lands at the same path whichever manager installed it.
 
 Both leave out peer dependencies. Effect, Volar's contracts, and the service interface are a service's peers, and the host that loads the service supplies all three, so the store need not hold them.
 
@@ -154,9 +156,9 @@ export class StoreError extends Data.TaggedError('StoreError')<{
   readonly cause: unknown
 }> {}
 
-const prepareStore = (store: string): void => {
-  mkdirSync(store, { recursive: true })
-  const manifest = join(store, 'package.json')
+const prepareRoot = (root: string): void => {
+  mkdirSync(root, { recursive: true })
+  const manifest = join(root, 'package.json')
   if (!existsSync(manifest))
     writeFileSync(
       manifest,
@@ -170,28 +172,27 @@ interface PackageManager {
   readonly env: NodeJS.ProcessEnv
 }
 
-const packageManager = (store: string, spec: string): PackageManager =>
+const packageManager = (root: string, spec: string): PackageManager =>
   standalone
     ? {
         command: process.execPath,
-        args: ['add', spec, '--cwd', store, '--omit', 'peer'],
+        args: ['add', spec, '--cwd', root, '--omit', 'peer', '--linker', 'hoisted'],
         env: { ...process.env, BUN_BE_BUN: '1' },
       }
     : {
         command: 'npm',
-        args: ['install', spec, '--prefix', store, '--omit=peer', '--no-audit', '--no-fund'],
+        args: ['install', spec, '--prefix', root, '--omit=peer', '--no-audit', '--no-fund'],
         env: process.env,
       }
 
 const installPackage = (
-  dir: string,
+  root: string,
   packageName: string,
   range: string,
 ): Effect.Effect<void, StoreError> =>
   Effect.gen(function* () {
-    const store = storeDir(dir)
-    yield* Effect.sync(() => prepareStore(store))
-    const manager = packageManager(store, `${packageName}@${range}`)
+    yield* Effect.sync(() => prepareRoot(root))
+    const manager = packageManager(root, `${packageName}@${range}`)
     yield* Effect.tryPromise({
       try: () => run(manager.command, [...manager.args], { env: manager.env }),
       catch: (cause) => new StoreError({ packageName, cause }),
@@ -215,101 +216,82 @@ export const installService = (id: string, dir: string): Effect.Effect<ServiceIn
   Effect.gen(function* () {
     const installed = installedVersion(id, dir)
     if (Option.contains(installed, serviceVersion)) return ServiceInstall.Current()
-    yield* installPackage(dir, servicePackage(id), serviceVersion)
+    yield* installPackage(storeDir(dir), servicePackage(id), serviceVersion)
     return Option.match(installed, {
       onNone: () => ServiceInstall.Installed(),
       onSome: (from) => ServiceInstall.Updated({ from }),
     })
   })
 
-## A TypeScript for the host
+## TypeScript 7 for a project that installs none
 
-Two hosts load services, the language server and `loom format`, and each lends the services it loads the TypeScript compiler. The language server also checks every TypeScript section against that compiler. Both hosts look for one in the project and then beside their own install, and the language server first takes the one an editor sends. The store is the last place either looks, and the one place Loom can fill itself, so a project with no TypeScript of its own still gets one.
+A project written in Python or Go installs no TypeScript, and neither does a TypeScript project that has not added it yet. The TypeScript service must still check such a project's TypeScript sections against a compiler. Loom fetches TypeScript 7 for it, once per machine, and never falls back to TypeScript 6.
 
-The host loads TypeScript through its JavaScript API, the `lib/typescript.js` file that TypeScript 6 and every earlier release ship. TypeScript 7 is a native program with no such file, so the store holds a release of TypeScript 6, the range `typeScriptRange` names. `storeTypeScript` finds that file in the store, and yields nothing when the store holds no TypeScript or holds a release without it.
+The fetched compiler lives outside every workspace, in `~/.loom/typescript/<version>/`, beside the folder the install script keeps the executable in. It belongs to no one project. Every workspace on the machine reuses it, so the download happens once, and a project that installs its own TypeScript never touches it, because the project's own install always wins. Two Loom releases that pin different versions keep one folder each. `LOOM_HOME` moves this folder as it moves the store, for a test or a shared setup.
+
+`typeScriptVersion` is the version Loom fetches. The workspace configuration pins it in the `typescript` variable, so a release names it in one place. `loomHome` names the folder Loom keeps its downloads in, `fetchedTypeScriptDir` names the folder for one version within it, and `fetchedExecutable` names the native executable inside that. TypeScript 7 runs as a program named `tsc`, or `tsc.exe` on Windows, which ships in the companion package for this platform, `@typescript/typescript-<platform>-<arch>`.
+
+{{ typescript = ${typescript} }}
 
 =>
 
-export const typeScriptRange = '^6'
+export const typeScriptVersion = '::[typescript]'
 
-export const storeTypeScript = (dir: string): Option.Option<string> => {
-  const file = join(storeDir(dir), 'node_modules', 'typescript', 'lib', 'typescript.js')
-  return existsSync(file) ? Option.some(file) : Option.none()
-}
+export const loomHome = (): string => process.env.LOOM_HOME ?? join(homedir(), '.loom')
+
+export const fetchedTypeScriptDir = (version: string): string =>
+  join(loomHome(), 'typescript', version)
+
+const executableName = process.platform === 'win32' ? 'tsc.exe' : 'tsc'
+
+export const fetchedExecutable = (version: string): string =>
+  join(
+    fetchedTypeScriptDir(version),
+    'node_modules',
+    '@typescript',
+    `typescript-${process.platform}-${process.arch}`,
+    'lib',
+    executableName,
+  )
 
 ~
 
-The standalone executable carries TypeScript itself, so it never downloads it. Its build packs the compiler and the declaration files of the standard library, `lib.*.d.ts`, into one gzipped file, `typescript.json.gz`, which holds the package's own `package.json` and a map from each file's path in the package to its text. `PackedTypeScriptSchema` is that map. `unpackTypeScript` writes those files into the store, where `storeTypeScript` finds them, as though a package manager had installed them.
+`fetchTypeScript` brings one version onto the machine and returns the path of its executable. A machine that already holds the executable answers at once, with no network.
 
-It writes them into a folder of its own beside the store's packages first, and then renames that folder to `typescript` in one step. A host that starts while the unpack runs finds either no TypeScript or a whole one, never a compiler without its standard library. The package manager leaves the folder alone when it later installs a service, since it touches only the packages it was asked for.
+Otherwise it writes a line to the log that names the version and the folder, so the person sees why the editor waits, and installs `typescript` at that version. The package manager installs the companion package for this platform with it. The install goes into a folder of its own beside the final one, named for this process, and the finished folder is renamed into place in one step. Two editors may fetch at the same moment, and each finds either no compiler or a whole one, never half of one. When the other editor's folder is already in place, this one's copy is removed and the other's is kept. A fetch that leaves no executable where `fetchedExecutable` says fails with a `StoreError`, as a failed install does.
 
 =>
 
-const typeScriptAsset = 'typescript.json.gz'
+const present = (path: string): Effect.Effect<boolean> => Effect.sync(() => existsSync(path))
 
-const PackedTypeScriptSchema = Schema.Struct({
-  files: Schema.Record(Schema.String, Schema.String),
-})
-
-const typeScriptError = (cause: unknown): StoreError =>
-  new StoreError({ packageName: 'typescript', cause })
-
-const unpackTypeScript = (dir: string, packed: Blob): Effect.Effect<void, StoreError> =>
-  Effect.gen(function* () {
-    const archive = yield* Effect.tryPromise({
-      try: async () => new Uint8Array(await packed.arrayBuffer()),
-      catch: typeScriptError,
-    })
-    const json = yield* Effect.try({
-      try: (): unknown => JSON.parse(gunzipSync(archive).toString('utf8')),
-      catch: typeScriptError,
-    })
-    const { files } = yield* Schema.decodeUnknownEffect(PackedTypeScriptSchema)(json).pipe(
-      Effect.mapError(typeScriptError),
-    )
-    const store = storeDir(dir)
-    const modules = join(store, 'node_modules')
-    const partial = join(modules, `.typescript-${process.pid}`)
-    yield* Effect.sync(() => prepareStore(store))
-    yield* Effect.forEach(
-      Object.entries(files),
-      ([path, text]) =>
-        Effect.try({
-          try: () => {
-            mkdirSync(dirname(join(partial, path)), { recursive: true })
-            writeFileSync(join(partial, path), text)
-          },
-          catch: typeScriptError,
-        }),
-      { discard: true },
-    )
+export const fetchTypeScript = (version: string): Effect.Effect<string, StoreError> => {
+  const folder = fetchedTypeScriptDir(version)
+  const partial = `${folder}.partial-${process.pid}`
+  const executable = fetchedExecutable(version)
+  const failed = (cause: unknown): StoreError =>
+    new StoreError({ packageName: `typescript@${version}`, cause })
+  const install = Effect.gen(function* () {
+    yield* Effect.logInfo(`loom: fetching TypeScript ${version} into ${folder}`)
+    yield* Effect.sync(() => rmSync(partial, { recursive: true, force: true }))
+    yield* installPackage(partial, 'typescript', version)
     yield* Effect.try({
-      try: () => {
-        rmSync(join(modules, 'typescript'), { recursive: true, force: true })
-        renameSync(partial, join(modules, 'typescript'))
-      },
-      catch: typeScriptError,
+      try: () =>
+        existsSync(folder)
+          ? rmSync(partial, { recursive: true, force: true })
+          : renameSync(partial, folder),
+      catch: failed,
     })
   })
-
-~
-
-`installTypeScript` brings TypeScript into the store and returns the path of its `typescript.js`. The executable unpacks the copy it carries. The npm package has none to unpack, so it installs TypeScript from the registry with its package manager, which needs the network once per workspace. Either way, a store that still holds no `lib/typescript.js` afterwards fails with a `StoreError`, just as a failed install does.
-
-=>
-
-export const installTypeScript = (dir: string): Effect.Effect<string, StoreError> =>
-  Option.match(embeddedFile(typeScriptAsset), {
-    onSome: (packed) => unpackTypeScript(dir, packed),
-    onNone: () => installPackage(dir, 'typescript', typeScriptRange),
-  }).pipe(
-    Effect.flatMap(() =>
-      Option.match(storeTypeScript(dir), {
-        onNone: () => Effect.fail(typeScriptError('the store holds no lib/typescript.js')),
-        onSome: Effect.succeed,
-      }),
+  return present(executable).pipe(
+    Effect.flatMap((there) => (there ? Effect.void : install)),
+    Effect.andThen(present(executable)),
+    Effect.flatMap((there) =>
+      there
+        ? Effect.succeed(executable)
+        : Effect.fail(failed(`the fetched TypeScript holds no executable at ${executable}`)),
     ),
   )
+}
 
 ## Removing a service
 
@@ -322,7 +304,7 @@ export const removeService = (id: string, dir: string): Effect.Effect<void> =>
 
 ## What this module draws on
 
-The store works in Effect: `Effect` runs each read and write, `Data` gives `StoreError` and `ServiceInstall` their tags, `Schema` decodes a service's manifest and the TypeScript the executable carries, `Array` finds a file the executable embeds, and `Option` with `pipe` carries a value that may be missing, such as the workspace above a directory or the version of a service the store lacks. Node's modules supply the rest, and Bun provides them too. `child_process` runs the package manager, which `promisify` turns into a promise `Effect.tryPromise` can await. `fs` reads the store's contents and a package's manifest, and adds, removes and renames packages. `zlib` unpacks the TypeScript the executable carries. `join` and `dirname` form and walk the store path up to the workspace root, and `existsSync` tells whether a folder holds a configuration.
+The store works in Effect: `Effect` runs each read and write, `Data` gives `StoreError` and `ServiceInstall` their tags, `Schema` decodes a service's manifest, `Array` finds a file the executable embeds, and `Option` with `pipe` carries a value that may be missing, such as the workspace above a directory or the version of a service the store lacks. Node's modules supply the rest, and Bun provides them too. `child_process` runs the package manager, which `promisify` turns into a promise `Effect.tryPromise` can await. `fs` reads the store's contents and a package's manifest, and adds, removes and renames packages. `join` and `dirname` form and walk the store path up to the workspace root, `existsSync` tells whether a folder holds a configuration, and `homedir` finds the home folder Loom keeps its downloads under.
 
 =>
 
@@ -337,9 +319,9 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
+import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
-import { gunzipSync } from 'node:zlib'
 
 const run = promisify(execFile)
 
@@ -365,6 +347,6 @@ const run = promisify(execFile)
 
 ::[Installing a service]
 
-::[A TypeScript for the host]
+::[TypeScript 7 for a project that installs none]
 
 ::[Removing a service]

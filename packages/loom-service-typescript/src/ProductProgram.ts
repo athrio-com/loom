@@ -10,11 +10,14 @@ import type {
   CodeActionContext,
   CompletionList,
   Diagnostic,
+  DocumentSymbol,
+  FoldingRange,
   Hover,
   Location,
   LocationLink,
   Position,
   Range,
+  SelectionRange,
   WorkspaceEdit,
 } from '@volar/language-service'
 import type { Language } from '@volar/language-core'
@@ -53,6 +56,12 @@ export interface ProductProgram {
     context: CodeActionContext,
   ) => Promise<CodeAction[] | undefined>
   readonly resolveCodeAction: (action: CodeAction) => Promise<CodeAction>
+  readonly documentSymbols: (fileName: string) => Promise<DocumentSymbol[] | undefined>
+  readonly foldingRanges: (fileName: string) => Promise<FoldingRange[] | undefined>
+  readonly selectionRanges: (
+    fileName: string,
+    positions: Position[],
+  ) => Promise<SelectionRange[] | undefined>
   readonly dispose: () => void
 }
 
@@ -193,6 +202,10 @@ export const createProductProgram = (
     codeActions: (fileName, range, context) =>
       service.getCodeActions(asUri(fileName), range, context),
     resolveCodeAction: (action) => service.resolveCodeAction(action),
+    documentSymbols: (fileName) => service.getDocumentSymbols(asUri(fileName)),
+    foldingRanges: (fileName) => service.getFoldingRanges(asUri(fileName)),
+    selectionRanges: (fileName, positions) =>
+      service.getSelectionRanges(asUri(fileName), positions),
     dispose: () => service.dispose(),
   }
 }

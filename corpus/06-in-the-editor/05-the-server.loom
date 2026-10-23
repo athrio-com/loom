@@ -6,15 +6,15 @@ Language: TypeScript
 
 # The language server
 
-The Loom language server is an Effect program. `startLanguageServer` runs it: it builds the pipeline layers once and captures a warm runtime, because Volar's hooks are synchronous and the language plugin runs the projection on that runtime. On `initialize` the server finds a TypeScript compiler to check against and collects the plugins of the workspace the editor opened. From then on it serves every loom with the plugins of the loom's own workspace. It collects them the first time it meets a loom there, and again whenever that workspace's configuration changes. It also rereads a chapter whenever the chapter changes on disk while the editor has it closed, and whenever the editor closes it without saving, so an open loom never answers from text the chapter no longer holds.
+The Loom language server is an Effect program. `startLanguageServer` runs it: it builds the pipeline layers once and captures a warm runtime, because Volar's hooks are synchronous and the language plugin runs the projection on that runtime. On `initialize` the server collects the plugins of the workspace the editor opened. It needs no compiler to start. A project's TypeScript is found, or fetched, the first time that project asks. From then on it serves every loom with the plugins of the loom's own workspace. It collects them the first time it meets a loom there, and again whenever that workspace's configuration changes. It also rereads a chapter whenever the chapter changes on disk while the editor has it closed, and whenever the editor closes it without saving, so an open loom never answers from text the chapter no longer holds.
 
 Any editor that speaks the Language Server Protocol can start the server. VS Code starts it through the Loom extension, which loads a thin entry module. Neovim, Helix, Zed, and the JetBrains IDEs start it with the `loom lsp` command and talk to it over standard input and output. So the server lives in the CLI, the one tool every Loom user already has.
 
 ## Imports
 
-The server is built from Volar's language-server toolkit over a `ManagedRuntime`. From the toolkit it takes the connection, the TypeScript project factory, `loadTsdkByPath`, and the types of a server, a project, a service plugin, a file the editor reports changed, and the language whose scripts a project projects. `FileChangeType` says whether a reported file was created, changed, or deleted. It imports `LoomCompiler`, the projector and cache the runtime warms, and `LoomFormatter`, which formats a file on it, with the `DocumentSource`, `PackageConfig`, and `LoomConfig` they require, and the two halves this module registers, `loomLanguagePlugin` and `loomServicePlugins`, and `loomsIn`, which lists the looms a project holds under a folder. From the language store come `workspaceOf` and `workspaceRoot`, which find the workspace a path belongs to, and what the server needs to keep a TypeScript in a workspace's store: `storeDir`, which locates the store, `storeTypeScript`, which finds a TypeScript there, `installTypeScript` and its `typeScriptRange`, which put one there, and `standalone`, which says whether Loom runs as the standalone executable.
+The server is built from Volar's language-server toolkit over a `ManagedRuntime`. From the toolkit it takes the connection, the environment a language service runs in, and the types of a server, a project, a service plugin, a file the editor reports changed, and the language whose scripts a project projects. From Volar's language service it takes what a project is built from: `createLanguage`, which registers a project's scripts, `createUriMap`, which keys them, and `createLanguageService`, which runs the service plugins over them, with the types of a language service and of the snapshot a script holds. `FileChangeType` says whether a reported file was created, changed, or deleted. It imports `LoomCompiler`, the projector and cache the runtime warms, and `LoomFormatter`, which formats a file on it, with the `DocumentSource`, `PackageConfig`, and `LoomConfig` they require, and the two halves this module registers, `loomLanguagePlugin` and `loomServicePlugins`, and `loomsIn`, which lists the looms a project holds under a folder. From the language store come `workspaceOf` and `workspaceRoot`, which find the workspace a path belongs to, `standalone`, which says whether Loom runs as the standalone executable, and what the server needs to fetch TypeScript 7: `fetchTypeScript`, which fetches it, `typeScriptVersion`, the version it fetches, and `fetchedTypeScriptDir` and `fetchedExecutable`, which say where it lands. The service contract names the `TypescriptSdkApi` the server lends and the `FetchedTypeScript` within it.
 
-Effect's `Schema` reads the editor's initialization options, `Option` carries a compiler or a workspace that may not be there, and `Data` types the failure when no compiler is. `Cache` holds what the server builds for each workspace, and `Array` gathers across them. `Semaphore` holds back a request while the server reprojects the open looms, and `Ref` holds the looms the editor has changed since the last request. `Scheduler` keeps the fiber that rebuilds them from yielding. A `Source` is what the compiler reads a loom's text through, and `ReadError` is its failure. Node's `createRequire` finds an installed `typescript` package the way Node itself would, and `readFileSync` reads a loom's saved text, for a loom the editor closes and for one it does not hold. `join` builds the path a search starts from, and `dirname` trims a file's path to the directory that holds it. `URI` is the address Volar names a document by, and it parses the addresses the editor reports.
+Effect's `Schema` reads the editor's initialization options, `Option` carries a compiler or a workspace that may not be there, `Result` carries a compiler or the reason there is none, and `Data` types the failure of a fetch. `Cache` holds what the server builds for each workspace, and `Array` gathers across them. `Semaphore` holds back a request while the server reprojects the open looms, and `Ref` holds the looms the editor has changed since the last request. `Scheduler` keeps the fiber that rebuilds them from yielding. A `Source` is what the compiler reads a loom's text through, and `ReadError` is its failure. Node's `createRequire` finds an installed `typescript` package the way Node itself would, and loads it. `existsSync` checks that a folder holds a compiler, `statSync` reads when a loom was last saved, and `readFileSync` reads a loom's saved text, for a loom the editor closes and for one it does not hold. `stringSnapshot` turns that text into the snapshot a script holds. `join` builds the path a search starts from, and `dirname` trims a file's path to the directory that holds it. `URI` is the address Volar names a document by, and it parses the addresses the editor reports.
 
 =>
 
@@ -26,6 +26,7 @@ import {
   Layer,
   ManagedRuntime,
   Option,
+  Result,
   Schema,
   Ref,
   Scheduler,
@@ -34,43 +35,55 @@ import {
 } from 'effect'
 import {
   createConnection,
+  createLanguageServiceEnvironment,
   createServer,
-  createTypeScriptProject,
   FileChangeType,
   type FileEvent,
   type Language,
   type LanguageServer,
   type LanguageServerProject,
   type LanguageServicePlugin,
-  loadTsdkByPath,
 } from '@volar/language-server/node'
-import { readFileSync } from 'node:fs'
+import {
+  createLanguage,
+  createLanguageService,
+  createUriMap,
+  type IScriptSnapshot,
+  type LanguageService,
+} from '@volar/language-service'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { URI } from 'vscode-uri'
-import { LoomCompiler, DocumentSource, within } from './LoomCompiler'
+import { LoomCompiler, DocumentSource, stringSnapshot, within } from './LoomCompiler'
 import { ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
 import { LoomFormatter } from './LoomFormatter'
 import { PackageConfig } from './PackageConfig'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
-  installTypeScript,
+  fetchedExecutable,
+  fetchedTypeScriptDir,
+  fetchTypeScript,
   standalone,
-  storeDir,
-  storeTypeScript,
-  typeScriptRange,
+  typeScriptVersion,
   workspaceOf,
   workspaceRoot,
 } from '@athrio/loom-lang-services/LoomStore'
+import type {
+  FetchedTypeScript,
+  TypescriptSdkApi,
+} from '@athrio/loom-lang-services/LanguageService'
 import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
 import { loomsIn } from './LoomProject'
 
-## A TypeScript to check against
+## The compilers a project may ask for
 
-The server type-checks every TypeScript section against a real compiler, so it needs one before it can start. Volar's `loadTsdkByPath` loads the compiler from a TypeScript SDK directory, which Volar calls the tsdk: the `lib` directory of a `typescript` package, where `typescript.js` sits beside the standard library's declaration files. The server's first task is to find that directory.
+The server checks no code itself, so it needs no compiler to start. The TypeScript service checks a project's code on the compiler the project chose, and asks the `TypescriptSdk` capability for that compiler the first time the project needs it. The server builds the capability, because only the server knows what the editor sent and where Loom itself is installed. A workspace with no TypeScript project never loads a compiler at all.
 
-VS Code supplies it. The Loom extension sends the path of the TypeScript that VS Code ships, in the `typescript.tsdk` field of its initialization options. `EditorTsdkSchema` is the shape of that field, and `editorTsdk` decodes it from whatever the client sent, yielding nothing when the field is absent or malformed.
+A project that installs TypeScript 6 checks against a TypeScript 6 loaded into the server's own process. Such a compiler comes from a TypeScript SDK directory, which Volar calls the tsdk: the `lib` directory of a `typescript` package, where `typescript.js` sits beside the standard library's declaration files.
+
+VS Code supplies one. The Loom extension sends the path of the TypeScript that VS Code ships, in the `typescript.tsdk` field of its initialization options. `EditorTsdkSchema` is the shape of that field, and `editorTsdk` decodes it from whatever the client sent, yielding nothing when the field is absent or malformed, or when the folder it names holds no `typescript.js`.
 
 =>
 
@@ -79,14 +92,15 @@ const EditorTsdkSchema = Schema.Struct({
 })
 
 const editorTsdk = (options: unknown): Option.Option<string> =>
-  Option.map(
+  pipe(
     Schema.decodeUnknownOption(EditorTsdkSchema)(options),
-    (decoded) => decoded.typescript.tsdk,
+    Option.map((decoded) => decoded.typescript.tsdk),
+    Option.filter((tsdk) => existsSync(join(tsdk, 'typescript.js'))),
   )
 
 ~
 
-Every other editor starts `loom lsp` with no such option, so the server looks for the compiler itself. What it looks for is TypeScript's JavaScript API, the `lib/typescript.js` file that TypeScript 6 and every earlier release ship. TypeScript 7 is a native program, and its package holds no such file for Volar to load.
+Every other editor starts `loom lsp` with no such option, so the server looks for the compiler itself. What it looks for is TypeScript's JavaScript API, the `lib/typescript.js` file that TypeScript 6 and every earlier release ship. TypeScript 7 is a native program, and its package holds no such file.
 
 `installedTsdk` resolves `typescript/lib/typescript.js` the way Node's `require` would from a given file, walking up its `node_modules` directories, and returns the directory that holds it. It yields nothing when the walk finds no TypeScript, and nothing when the TypeScript it finds is version 7, so the search moves on to the next place.
 
@@ -100,68 +114,102 @@ const installedTsdk = (from: string): Option.Option<string> =>
 
 ~
 
-`foundTsdk` tries four places in order and takes the first that holds a compiler. The editor's own path comes first, so VS Code keeps the TypeScript it ships. The project being edited comes second, so a section is checked by the project's own TypeScript whenever it is one the server can load.
+`classicTsdk` tries three places in order for a project's folder and takes the first that holds a compiler. The editor's own path comes first, so VS Code keeps the TypeScript it ships. The project's folder comes second, so every other editor checks a project with the TypeScript 6 the project installs.
 
 Loom's own install comes third: the directories above the server's module, which hold `typescript` when Loom is installed beside it. Only the ES-module bundle that `loom lsp` runs knows its own location. The CommonJS bundles, the VS Code extension's `server.js` and the `loom-language-server` bin, compile `import.meta` to an empty object, so the search finds nothing there, and VS Code never needs it. The standalone executable skips this place, since nothing is installed beside it. Its modules live inside the executable, and a search that starts there would walk up from the working directory instead.
-
-The workspace's store comes last. It holds a TypeScript when Loom has already installed one there, for this server or for `loom format`.
 
 =>
 
 const besideLoom = (): Option.Option<string> =>
   standalone ? Option.none() : installedTsdk(import.meta.url)
 
-const foundTsdk = (options: unknown, root: string): Option.Option<string> =>
+const classicTsdk = (options: unknown, folder: string): Option.Option<string> =>
   pipe(
     editorTsdk(options),
-    Option.orElse(() => installedTsdk(join(root, 'package.json'))),
+    Option.orElse(() => installedTsdk(join(folder, 'package.json'))),
     Option.orElse(besideLoom),
-    Option.orElse(() => Option.map(storeTypeScript(root), dirname)),
   )
 
 ~
 
-A project written in another language holds no TypeScript, and nothing sits beside the standalone executable, so outside VS Code all four places can be empty. The server then puts TypeScript 6 into the workspace's store itself, through the store's `installTypeScript`, and loads it from there. The standalone executable unpacks the copy it carries, with no network at all. The npm package downloads one, which needs the network that once. Either way it happens once per workspace, and every later start finds the copy in the store.
-
-The install needs a workspace to hold the store. A folder that lies in no workspace has no store, and installing one would turn the folder into a workspace behind the person's back, so the server installs nothing there.
-
-When the server finds no compiler and can install none, it refuses to start and says why. `MissingTypeScript` names the folder it searched and says which TypeScript it can load. It says why no install happened, either because the folder lies in no workspace or because the install failed, and then it gives the ways to supply a compiler. The error travels back to the editor as the answer to `initialize`, so the person reads the reason instead of watching a server die.
+`classicTypeScript` loads the compiler from the directory `classicTsdk` finds, with `require`. It loads each compiler once and keeps it for the server's life in `loaded`, keyed by its directory, so every project on the same TypeScript 6 shares one copy. When no place holds a TypeScript 6, or the compiler fails to load, it yields the reason, and the project's TypeScript features report that reason. Nothing else is tried in its place.
 
 =>
 
-export class MissingTypeScript extends Data.TaggedError('MissingTypeScript')<{
-  readonly root: string
-  readonly failedInstall: Option.Option<string>
+type TypeScript = typeof import('typescript')
+
+const classicTypeScript = (options: unknown): ((folder: string) => Result.Result<TypeScript, string>) => {
+  const loaded = new Map<string, TypeScript>()
+  const load = (tsdk: string): Result.Result<TypeScript, string> =>
+    Option.match(Option.fromNullishOr(loaded.get(tsdk)), {
+      onSome: (ts) => Result.succeed(ts),
+      onNone: () =>
+        pipe(
+          Result.try((): TypeScript => {
+            const file = join(tsdk, 'typescript.js')
+            return createRequire(file)(file)
+          }),
+          Result.map((ts) => {
+            loaded.set(tsdk, ts)
+            return ts
+          }),
+          Result.mapError((cause) => `the TypeScript in ${tsdk} did not load: ${String(cause)}`),
+        ),
+    })
+  return (folder) =>
+    Option.match(classicTsdk(options, folder), {
+      onNone: () =>
+        Result.fail(
+          `found no TypeScript 6 for ${folder}, in the project or beside Loom; ` +
+            'install it in the project with `npm install -D typescript@6`',
+        ),
+      onSome: load,
+    })
+}
+
+~
+
+A project that installs no TypeScript checks against the TypeScript 7 Loom fetches, at the version Loom pins, through the store's `fetchTypeScript`. `fetchedTypeScript` describes that compiler for the capability. Its `executable` is where the fetch puts it, so a project can be assigned to it before it is on the machine.
+
+Its `fetch` runs the fetch on the server's runtime the first time any project asks. `Effect.cached` keeps the outcome, so every later call shares that one fetch, and the editor downloads TypeScript 7 once however many projects ask at the same moment. A machine that holds it already answers at once. The store writes a line to the log whenever it downloads, naming the version and the folder. When the fetch fails, every later call fails the same way, with a `TypeScriptNotFetched` that names the version, the folder and the cause, until the server restarts. A failed download is not tried again on every keystroke.
+
+=>
+
+export class TypeScriptNotFetched extends Data.TaggedError('TypeScriptNotFetched')<{
+  readonly version: string
+  readonly folder: string
+  readonly cause: unknown
 }> {
   get message(): string {
-    const why = Option.match(this.failedInstall, {
-      onNone: () =>
-        `${this.root} lies in no Loom workspace, so there is no store to install one into; run \`loom init\` there`,
-      onSome: (cause) => `installing one into the workspace's store failed: ${cause}`,
-    })
-    return `Loom's language server needs TypeScript 6 or earlier, and found none in ${this.root} or beside Loom. TypeScript 7 has no JavaScript API for it to load. ${why}. You can also install one in the project with \`bun add -d typescript@6\`, or have the editor send its path as \`initializationOptions.typescript.tsdk\`.`
+    return `could not fetch TypeScript ${this.version} into ${this.folder}: ${String(this.cause)}`
   }
 }
 
-const fetchedTsdk = (root: string): Effect.Effect<string, MissingTypeScript> =>
-  Option.match(workspaceOf(root), {
-    onNone: () => Effect.fail(new MissingTypeScript({ root, failedInstall: Option.none() })),
-    onSome: (workspace) =>
-      Effect.logInfo(`installing TypeScript ${typeScriptRange} into ${storeDir(workspace)}`).pipe(
-        Effect.andThen(installTypeScript(workspace)),
-        Effect.map(dirname),
-        Effect.mapError(
-          (error) =>
-            new MissingTypeScript({ root, failedInstall: Option.some(String(error.cause)) }),
-        ),
+const fetchedTypeScript: Effect.Effect<FetchedTypeScript> = Effect.gen(function* () {
+  const folder = fetchedTypeScriptDir(typeScriptVersion)
+  const once = yield* Effect.cached(
+    fetchTypeScript(typeScriptVersion).pipe(
+      Effect.mapError(
+        (error) =>
+          new TypeScriptNotFetched({ version: typeScriptVersion, folder, cause: error.cause }),
       ),
-  })
+    ),
+  )
+  return {
+    version: typeScriptVersion,
+    executable: fetchedExecutable(typeScriptVersion),
+    fetch: () => runtime.runPromise(Effect.asVoid(once)),
+  }
+})
 
-const tsdkFor = (options: unknown, root: string): Effect.Effect<string, MissingTypeScript> =>
-  Option.match(foundTsdk(options, root), {
-    onNone: () => fetchedTsdk(root),
-    onSome: Effect.succeed,
-  })
+~
+
+`typescriptSdkFor` assembles the capability from the editor's initialization options. The server builds it once, and every workspace's services share it.
+
+=>
+
+const typescriptSdkFor = (options: unknown): Effect.Effect<TypescriptSdkApi> =>
+  Effect.map(fetchedTypeScript, (fetched) => ({ classic: classicTypeScript(options), fetched }))
 
 ## Every loom answers to its own workspace
 
@@ -178,27 +226,99 @@ const workspaceFor = (home: string, uri: URI): string =>
 
 ~
 
-Volar already has a seam for this. For every request, Volar asks a project which language service answers the document. Every language service carries its own list of service plugins, and Volar's TypeScript project builds its language services from the plugins of the server it is set up with. So `projectOver` builds a TypeScript project for one workspace and sets it up with a copy of the server whose `languageServicePlugins` are that workspace's. Every language service the project builds then carries the workspace's plugins. The project's looms still project through the Loom language plugin, on the one warm runtime every workspace shares.
+Volar already has a seam for this. For every request, Volar asks a project which language service answers the document, and a language service carries its own list of service plugins. So a project per workspace, built over that workspace's plugins, serves each loom with the services of its own workspace.
+
+Volar ships two kinds of project, and Loom uses neither. Its TypeScript project builds a language service for each `tsconfig.json` it finds, and loads a TypeScript compiler to find them. A Loom workspace is the folder of its `.loom/config.yaml`, not of a `tsconfig.json`, and the TypeScript service finds each project's `tsconfig.json` itself, so that compiler would be loaded for nothing. Volar's simple project loads no compiler, but it knows only the documents the editor has open. An answer often lands in a chapter the editor has closed: the definition of a name in another chapter's code, or a reference there. Volar maps such an answer back to its place in the `.loom` only when it can project the closed chapter, and the simple project cannot.
+
+So `projectOver` builds a project of Loom's own for one workspace. It holds one language service over the workspace's plugins, which `languageServiceOver` builds, and `reload` disposes it and builds it again. The language behind it reads each document from the editor, as the simple project's does. A loom the editor has not opened it reads from disk, through `savedLoom`, when Volar asks for files on disk. The project's looms project through the Loom language plugin, on the one warm runtime every workspace shares.
 
 =>
 
-type Tsdk = ReturnType<typeof loadTsdkByPath>
-
-const projectOver = (
+const languageServiceOver = (
   server: LanguageServer,
-  tsdk: Tsdk,
+  plugins: ReadonlyArray<LanguageServicePlugin>,
+  savedLoom: (uri: URI) => Option.Option<IScriptSnapshot>,
+): LanguageService => {
+  const language: Language<URI> = createLanguage<URI>(
+    [{ getLanguageId: (uri) => server.documents.get(uri)?.languageId }, loomLanguagePlugin(runtime)],
+    createUriMap(false),
+    (uri, includeFsFiles) =>
+      Option.match(
+        Option.orElse(
+          Option.map(Option.fromNullishOr(server.documents.get(uri)), (document) =>
+            document.getSnapshot(),
+          ),
+          () => (includeFsFiles ? savedLoom(uri) : Option.none()),
+        ),
+        {
+          onSome: (snapshot) => void language.scripts.set(uri, snapshot),
+          onNone: () => language.scripts.delete(uri),
+        },
+      ),
+  )
+  return createLanguageService(
+    language,
+    [...plugins],
+    createLanguageServiceEnvironment(server, server.workspaceFolders.all),
+    {},
+  )
+}
+
+export const projectOver = (
+  server: LanguageServer,
   plugins: ReadonlyArray<LanguageServicePlugin>,
 ): LanguageServerProject => {
-  const project = createTypeScriptProject(tsdk.typescript, tsdk.diagnosticMessages, () => ({
-    languagePlugins: [loomLanguagePlugin(runtime)],
-  }))
-  project.setup({ ...server, languageServicePlugins: [...plugins] })
-  return project
+  const savedLoom = savedLooms()
+  const state = { service: languageServiceOver(server, plugins, savedLoom) }
+  return {
+    setup: () => undefined,
+    getLanguageService: () => state.service,
+    getExistingLanguageServices: () => [state.service],
+    reload: () => {
+      state.service.dispose()
+      state.service = languageServiceOver(server, plugins, savedLoom)
+    },
+  }
 }
 
 ~
 
-`workspaceProject` is the project the server hands to Volar. Its `projects` cache holds one TypeScript project per workspace. Its `services` cache holds the plugins each project is built over. `getLanguageService` answers a document from the project of the document's workspace. It first takes the `reprojecting` semaphore, waiting while a reprojection holds it, and settles the edits the editor has made since the last request. `getExistingLanguageServices` settles them too, then reaches every project the `projects` cache holds, as `reload` does. Volar sets the project up with the server once the editor has initialized. The `projects` cache already builds every workspace's project with that same server, so `setup` has two tasks left. It starts `watchConfigs`, which keeps both caches and the builds of each workspace's looms in step with its configuration, and `watchLooms`, which keeps every open loom in step with the closed chapters it reads.
+`savedLooms` builds the reader that `projectOver` calls `savedLoom`. It reads a loom from disk and keeps its snapshot until the file's modified time moves. Volar asks for a script each time it needs one, and a fresh snapshot is a new version to Volar, so a loom read afresh on every ask would be projected afresh on every ask. A chapter read once is projected once. A file that is no loom, or that is no longer on disk, yields nothing, and the language forgets it.
+
+=>
+
+interface SavedLoom {
+  readonly modified: number
+  readonly snapshot: IScriptSnapshot
+}
+
+const savedLooms = (): ((uri: URI) => Option.Option<IScriptSnapshot>) => {
+  const read = new Map<string, SavedLoom>()
+  const readAgain = (path: string, modified: number): Option.Option<IScriptSnapshot> =>
+    Option.map(Option.liftThrowable(() => readFileSync(path, 'utf8'))(), (text) => {
+      const snapshot = stringSnapshot(text)
+      read.set(path, { modified, snapshot })
+      return snapshot
+    })
+  return (uri) =>
+    pipe(
+      Option.some(uri),
+      Option.filter((loom) => loom.scheme === 'file' && isLoom(loom)),
+      Option.flatMap((loom) => Option.liftThrowable(() => statSync(loom.fsPath).mtimeMs)()),
+      Option.flatMap((modified) =>
+        pipe(
+          Option.fromNullishOr(read.get(uri.fsPath)),
+          Option.filter((held) => held.modified === modified),
+          Option.map((held) => held.snapshot),
+          Option.orElse(() => readAgain(uri.fsPath, modified)),
+        ),
+      ),
+    )
+}
+
+~
+
+`workspaceProject` is the project the server hands to Volar. Its `projects` cache holds one TypeScript project per workspace. Its `services` cache holds the plugins each project is built over. `getLanguageService` answers a document from the project of the document's workspace. It first takes the `reprojecting` semaphore, waiting while a reprojection holds it, and settles the edits the editor has made since the last request. `getExistingLanguageServices` settles them too, then reaches every project the `projects` cache holds, as `reload` does. Volar sets the project up with the server once the editor has initialized. The `projects` cache already builds every workspace's project with that same server, so `setup` has two tasks left. It starts `watchConfigs`, which keeps both caches and the builds of each workspace's looms in step with its configuration and its compiler options, and `watchLooms`, which keeps every open loom in step with the closed chapters it reads.
 
 =>
 
@@ -211,7 +331,7 @@ export const workspaceProject = (
   edited: Ref.Ref<ReadonlySet<string>>,
 ): LanguageServerProject => ({
   setup: (server) => {
-    watchConfigs(server, services, projects, edited)
+    watchConfigs(server, home, services, projects, edited)
     watchLooms(server, home, projects, reprojecting, edited)
   },
   getLanguageService: (uri) =>
@@ -247,11 +367,13 @@ export const workspaceProject = (
 
 A workspace's configuration can change while the server runs. `loom add` installs a language's service in the store and then rewrites `config.yaml`. `loom remove` takes the service out of the store and rewrites `config.yaml` too. So a change to `config.yaml` is the one sign that a workspace's services changed. `watchConfigs` asks the editor to watch every `.loom/config.yaml` and listens for the changes the editor reports. `reconfiguredWorkspaces` reads a batch of changed files and returns the workspaces whose configuration changed, each the folder that holds a changed `.loom/` folder.
 
-`forgetWorkspace` drops what the server built for one workspace. It reloads the workspace's TypeScript project, which disposes the project's language services and the plugins inside them, then removes the workspace from both caches. The next request for one of the workspace's looms collects its plugins afresh, from the configuration and the store as they now stand, and builds a new project over them. Under Node, a service `loom add` replaced comes back at its new version, because the loader imports each version at an address of its own.
+`forgetWorkspace` drops what the server built for one workspace. It reloads the workspace's project through `reloadProject`, which disposes the project's language service and the plugins inside it, then removes the workspace from both caches. The next request for one of the workspace's looms collects its plugins afresh, from the configuration and the store as they now stand, and builds a new project over them. Under Node, a service `loom add` replaced comes back at its new version, because the loader imports each version at an address of its own.
 
 A configuration also decides how each of the workspace's looms is built. It names the anchor delimiters a loom uses, its primary language, and the variables its value warps read. The compiler's build cache holds every loom it built under the old configuration, and the cache would hand those builds back unchanged. So `rebuildUnder` evicts every build within the workspace through the compiler's `invalidateWithin`. A closed loom is built again from disk the next time a composition reads it. An open loom may hold unsaved edits, and a composition that missed it in the cache would read it from disk. So `rebuildUnder` also notes as edited every open loom the eviction reached, and the next request rebuilds each one from the editor's text before anything reads it. It takes them by the same rule the eviction uses, the compiler's `within`, because the eviction reaches past the workspace into any workspace nested inside it. `openLooms` lists every loom the editor has open. The build cache on disk needs nothing, because it keys each build by the settings it was built under.
 
-`reconfigure` rebuilds and forgets every workspace a batch of changes names. It then asks Volar to refresh, clearing the diagnostics on screen, so every open loom is checked again with the services it now has. A batch that names no `config.yaml`, such as a change to a `tsconfig.json`, forgets nothing and leaves the refresh to Volar's own projects.
+`reconfigure` rebuilds and forgets every workspace a batch of changes names. It then asks Volar to refresh, clearing the diagnostics on screen, so every open loom is checked again with the services it now has.
+
+A `tsconfig.json` or a `jsconfig.json` changes no service, but it may change the compiler options a TypeScript 6 program checks with, which the TypeScript service read when it built the program. `retypedWorkspaces` returns the workspaces a batch of such changes reaches, each the workspace the changed file belongs to. `retype` reloads each one's project and asks Volar to refresh, so the next request builds the TypeScript service's programs afresh, from the options as they now stand. A TypeScript 7 program restarts its server in the same way, and loads the workspace again. `watchConfigs` asks the editor to watch all three kinds of file.
 
 =>
 
@@ -263,8 +385,7 @@ const reconfiguredWorkspaces = (changes: ReadonlyArray<FileEvent>): ReadonlyArra
     Array.dedupe,
   )
 
-const forgetWorkspace = (
-  services: Cache.Cache<string, ReadonlyArray<LanguageServicePlugin>>,
+const reloadProject = (
   projects: Cache.Cache<string, LanguageServerProject>,
   workspace: string,
 ): Effect.Effect<void> =>
@@ -275,6 +396,14 @@ const forgetWorkspace = (
         onSome: (project) => Effect.sync(() => project.reload()),
       }),
     ),
+  )
+
+const forgetWorkspace = (
+  services: Cache.Cache<string, ReadonlyArray<LanguageServicePlugin>>,
+  projects: Cache.Cache<string, LanguageServerProject>,
+  workspace: string,
+): Effect.Effect<void> =>
+  reloadProject(projects, workspace).pipe(
     Effect.andThen(Cache.invalidate(projects, workspace)),
     Effect.andThen(Cache.invalidate(services, workspace)),
   )
@@ -313,23 +442,50 @@ const reconfigure = (
         { discard: true },
       ).pipe(Effect.andThen(Effect.sync(() => void server.languageFeatures.requestRefresh(true))))
 
+const isCompilerConfig = (uri: string): boolean => /\/(tsconfig|jsconfig)\.json$/.test(uri)
+
+const retypedWorkspaces = (
+  home: string,
+  changes: ReadonlyArray<FileEvent>,
+): ReadonlyArray<string> =>
+  pipe(
+    changes,
+    Array.filter((change) => isCompilerConfig(change.uri)),
+    Array.map((change) => workspaceFor(home, URI.parse(change.uri))),
+    Array.dedupe,
+  )
+
+const retype = (
+  server: LanguageServer,
+  projects: Cache.Cache<string, LanguageServerProject>,
+  workspaces: ReadonlyArray<string>,
+): Effect.Effect<void> =>
+  workspaces.length === 0
+    ? Effect.void
+    : Effect.forEach(workspaces, (workspace) => reloadProject(projects, workspace), {
+        discard: true,
+      }).pipe(Effect.andThen(Effect.sync(() => void server.languageFeatures.requestRefresh(true))))
+
 const watchConfigs = (
   server: LanguageServer,
+  home: string,
   services: Cache.Cache<string, ReadonlyArray<LanguageServicePlugin>>,
   projects: Cache.Cache<string, LanguageServerProject>,
   edited: Ref.Ref<ReadonlySet<string>>,
 ): void => {
-  void server.fileWatcher.watchFiles(['**/.loom/config.yaml'])
+  void server.fileWatcher.watchFiles(['**/.loom/config.yaml', '**/tsconfig.json', '**/jsconfig.json'])
   server.fileWatcher.onDidChangeWatchedFiles(({ changes }) =>
     runtime.runSync(
-      reconfigure(server, services, projects, edited, reconfiguredWorkspaces(changes)),
+      reconfigure(server, services, projects, edited, reconfiguredWorkspaces(changes)).pipe(
+        Effect.andThen(retype(server, projects, retypedWorkspaces(home, changes))),
+      ),
     ),
   )
 }
 
 ~
 
-One limit remains, and it concerns capabilities. The editor learns the server's capabilities once, from the answer to `initialize`, and Volar derives that answer from the plugins of `home`. A nested workspace's plugins receive only the requests those capabilities let the editor send. So do the plugins of a language activated after the server started. The Loom language is active in every workspace, and its TypeScript plugins already claim the common features: diagnostics, hover, completion, navigation, rename, and formatting. So the limit reaches only a feature that no plugin of `home` claimed at `initialize`.
+One limit remains, and it concerns capabilities. The editor learns the server's capabilities once, from the answer to `initialize`, and Volar derives that answer from the plugins of `home`. A nested workspace's plugins receive only the requests those capabilities let the editor send. So do the plugins of a language activated after the server started. The Loom language is active in every workspace, and its plugins already claim diagnostics, navigation, rename, colouring, and formatting. So the limit reaches only a feature that no plugin of `home` claimed at `initialize`, such as hover in a workspace whose `home` activates no TypeScript.
 
 ## A chapter changes behind the editor's back
 
@@ -384,9 +540,9 @@ Evicting a chapter is not enough for the looms the editor has open. Each open lo
 
 Volar has a flag for this. A script whose `isAssociationDirty` is set is projected again on the next request for it, through the language plugin's `updateVirtualCode`, from the text the editor holds. Volar sets the flag itself when a script a loom depends on changes, but only for a loom that draws the script in by an anchor. A loom that imports a closed chapter's file through its code holds no such link, so the server marks every open loom of the workspace instead. `markStale` sets the flag on one open loom's script. The reprojection keeps the loom's own build, because the loom's text has not changed, so an unsaved edit survives it. Only the evicted chapter is read from disk again.
 
-A workspace's project can build more than one language service. Volar's TypeScript project builds one for the `tsconfig.json` nearest a loom even when another language service answers the loom. Reading a loom's script from a language service creates the script there if it is missing, and projects the loom a second time. So `markStale` reaches each open loom through the one language service the project answers it from.
+Reading a loom's script from a language service creates the script there if it is missing, and projects the loom again. So `markStale` reaches each open loom through the language service the project answers it from, and never asks a language service that does not hold the loom.
 
-A deleted chapter leaves its script behind in Volar, with the projection it last held, and no request asks for that script again. `forgetScript` deletes it from every language service the project has built, since any of them may hold it. Deleting a script that is not there does nothing.
+A deleted chapter leaves its script behind in Volar, with the projection it last held, and no request asks for that script again. `forgetScript` deletes it from every language service the project reports, since any of them may hold it. Deleting a script that is not there does nothing.
 
 `refreshProject` brings one workspace's project up to date. It forgets the script of each loom it is handed, then marks every open loom of the workspace stale. `openLoomsIn` lists those open looms. A step that fails for one loom logs its cause through `logged`, and the pass moves on to the next. `reprojectWorkspace` refreshes the project of one workspace. A workspace whose project the server has not built yet holds no projections, so it needs nothing.
 
@@ -643,15 +799,13 @@ const settleEdits = (
 
 A `ManagedRuntime`, built once from the pipeline layers, warms the services the server runs. The language plugin runs the per-keystroke projection on it, and resolves each file's activated languages from `LoomConfig` on it too. A format request runs `LoomFormatter` on it.
 
-The `onInitialize` handler runs one Effect on that runtime. The program reads the workspace folder the editor opened, falling back to the working directory when the editor names none. It takes `home` to be the workspace that folder belongs to. It finds the tsdk with `tsdkFor` and loads the compiler from it, so a TypeScript section checks against a real standard library.
+The `onInitialize` handler runs one Effect on that runtime. The program reads the workspace folder the editor opened, falling back to the working directory when the editor names none. It takes `home` to be the workspace that folder belongs to. It builds the `TypescriptSdk` with `typescriptSdkFor`, from the options the editor sent, and loads no compiler while it does.
 
-The program then makes two caches, each keyed by a workspace's root, the `reprojecting` semaphore, whose one permit a reprojection holds while it marks the open looms stale, and the `edited` set of looms the editor has changed since the last request. `services` holds the plugins `loomServicePlugins` collects for a workspace. `projects` holds the TypeScript project `projectOver` builds over those plugins. A cache fills a workspace's entry the first time a request needs it, and fills it once, however many requests ask at the same moment. The program collects the plugins of `home` right away, because Volar announces the server's capabilities from them. The handler registers `workspaceProject`, built over both caches, the semaphore, and the set, and those plugins with Volar. A `MissingTypeScript` failure rejects the handler, and the client receives its message as the error of `initialize`.
+The program then makes two caches, each keyed by a workspace's root, the `reprojecting` semaphore, whose one permit a reprojection holds while it marks the open looms stale, and the `edited` set of looms the editor has changed since the last request. `services` holds the plugins `loomServicePlugins` collects for a workspace. `projects` holds the TypeScript project `projectOver` builds over those plugins. A cache fills a workspace's entry the first time a request needs it, and fills it once, however many requests ask at the same moment. The program collects the plugins of `home` right away, because Volar announces the server's capabilities from them. The handler registers `workspaceProject`, built over both caches, the semaphore, and the set, and those plugins with Volar.
 
 A chapter the editor opens can be answered only once the corpus around it is built, and building it is the first and longest wait after the server starts. So the server starts building it before the editor asks. Once the handler has its answer for `initialize`, it schedules `warmCorpus` for `home` a few milliseconds later, so the answer goes out first.
 
 The warm-up runs in one synchronous piece, with `runSync`, never as a background fiber. Volar's hooks run the compiler synchronously too, and a synchronous run cannot wait. A background fiber can pause in the middle of building a module while it holds the build cache's lock. A chapter the editor opened in that moment would find the lock held, and its synchronous build would fail instead of waiting. Run in one piece, the warm-up finishes before the server reads the editor's next message, so a chapter opened meanwhile waits in line and then finds its corpus built. `warmCorpus` reads the workspace's manifest, finds the first loom in the corpus folder the manifest names, and asks the compiler for that loom's reach, which builds the whole corpus into the build cache. When the person opens a chapter a moment later, its corpus is already built, or partly built, and the editor waits only for the rest. A workspace with no manifest, or no loom in its corpus, warms nothing, and a failure only logs, since the editor builds the corpus on demand anyway.
-
-On `initialized`, the server watches every `tsconfig.json` and `jsconfig.json`. Editing a package's compiler options disposes its project, and the next request rebuilds it, so the consumer's options take effect without an editor reload.
 
 =>
 
@@ -689,17 +843,16 @@ export const startLanguageServer = (): void => {
     const home = workspaceRoot(root)
     const { services, projects, plugins, reprojecting, edited } = await runtime.runPromise(
       Effect.gen(function* () {
-        const path = yield* tsdkFor(params.initializationOptions, root)
-        const tsdk = yield* Effect.sync(() => loadTsdkByPath(path, params.locale))
+        const sdk = yield* typescriptSdkFor(params.initializationOptions)
         const services = yield* Cache.make({
           capacity: Infinity,
-          lookup: (workspace: string) => loomServicePlugins(runtime, tsdk.typescript, workspace),
+          lookup: (workspace: string) => loomServicePlugins(runtime, sdk, workspace),
         })
         const projects = yield* Cache.make({
           capacity: Infinity,
           lookup: (workspace: string) =>
             Cache.get(services, workspace).pipe(
-              Effect.flatMap((plugins) => Effect.sync(() => projectOver(server, tsdk, plugins))),
+              Effect.flatMap((plugins) => Effect.sync(() => projectOver(server, plugins))),
             ),
         })
         const plugins = yield* Cache.get(services, home)
@@ -715,23 +868,20 @@ export const startLanguageServer = (): void => {
       [...plugins],
     )
   })
-  connection.onInitialized(() => {
-    server.initialized()
-    void server.fileWatcher.watchFiles(['**/tsconfig.json', '**/jsconfig.json'])
-  })
+  connection.onInitialized(() => server.initialized())
   connection.onShutdown(server.shutdown)
   connection.listen()
 }
 
 ## The server module {Tangle}[src/LoomServer.ts]
 
-The server module assembles the imports, the search for a compiler, the projects kept per workspace, the rereading of closed chapters, and the program, and exports `startLanguageServer`. It also exports `workspaceProject`, `refreshProject`, `rebuildUnder`, and `closeOf`, so the cases can drive each one directly. It runs nothing on import — a caller decides when to start the server, so the same module serves both an editor that spawns it and the `loom lsp` command that calls it in-process.
+The server module assembles the imports, the compilers a project may ask for, the projects kept per workspace, the rereading of closed chapters, and the program, and exports `startLanguageServer`. It also exports `projectOver`, `workspaceProject`, `refreshProject`, `rebuildUnder`, and `closeOf`, so the cases can drive each one directly. It runs nothing on import — a caller decides when to start the server, so the same module serves both an editor that spawns it and the `loom lsp` command that calls it in-process.
 
 =>
 
 ::[Imports]
 
-::[A TypeScript to check against]
+::[The compilers a project may ask for]
 
 ::[Every loom answers to its own workspace]
 
@@ -1235,7 +1385,7 @@ describe('LoomServer — a configuration that changes', () => {
 
 Some of what the pass does leaves no trace an editor can see. Volar holds a script in a language service, or holds it nowhere, and no request reveals which. A request that waits on the `reprojecting` semaphore gets the same answer it would have got without waiting. A close that rereads nothing looks the same as one that rereads a file with the same text. So these cases drive the server's parts directly, over stand-ins for Volar's objects.
 
-`recording` is a stand-in for one language service. It holds every script anyone reads from it, and lists every script anyone deletes from it. `projectOf` is a stand-in project that answers every loom from one language service and holds two. `serverWith` is a stand-in server whose editor has the given looms open. The looms sit under a folder in no workspace, so each belongs to `home`.
+`recording` is a stand-in for one language service. It holds every script anyone reads from it, and lists every script anyone deletes from it. `projectOf` is a stand-in project that answers every loom from one language service and holds two. `serverWith` is a stand-in server whose editor has the given looms open. The looms sit under a folder in no workspace, so each belongs to `home`. `closedEditor` is a stand-in server whose editor has nothing open, with the few parts a language service reads from a server.
 
 =>
 
@@ -1276,6 +1426,13 @@ const serverWith = (...open: ReadonlyArray<URI>): LanguageServer =>
     documents: { all: () => Array.map(open, (uri) => ({ uri: uri.toString() })) },
   }) as unknown as LanguageServer
 
+const closedEditor = {
+  documents: { all: () => [], get: () => undefined },
+  workspaceFolders: { all: [] },
+  configurations: { get: async () => undefined, onDidChange: () => ({ dispose: () => {} }) },
+  fileWatcher: { onDidChangeWatchedFiles: () => ({ dispose: () => {} }) },
+} as unknown as LanguageServer
+
 const home = '/nowhere'
 
 const mainUri = URI.file('/nowhere/corpus/main.loom')
@@ -1291,6 +1448,8 @@ The second case closes looms three ways. A loom whose text matches the file on d
 The third case changes a workspace's configuration while the editor has looms open in it, in a workspace nested inside it, and in a folder outside both. Both workspaces exist on disk, each with its own configuration, so the nested one is a workspace of its own. `rebuildUnder` must note as edited every open loom the eviction reaches, the nested workspace's included, and none outside. A case over the real server could not show this. Volar pushes diagnostics for every open loom a moment after each change, and a push rebuilds a loom from the editor's text whatever `rebuildUnder` noted.
 
 The fourth case holds the `reprojecting` semaphore, as a reprojection does, and asks the server's project for a loom's language service. The answer must wait until the semaphore is released.
+
+The fifth case builds a workspace's project over an editor that has nothing open. It asks the project's language for a loom that sits on disk, as Volar does when a definition lands in a chapter the editor has closed. The project must project the loom from its saved text, so the answer can map back to its place there. Asked again, it must hand back the same snapshot, since a new snapshot would project the loom anew.
 
 =>
 
@@ -1375,11 +1534,24 @@ describe('LoomServer — the pass piece by piece', () => {
     await Effect.runPromise(reprojecting.release(1))
     expect<unknown>(await answer).toBe(answering.languageService)
   })
+
+  it('projects a loom the editor has closed from disk, and reads it once', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    const text = chapter('Answer', 'const answer = 42')
+    const closed = URI.file(chapterAt(root, 'answer.loom', text))
+    const languageService = await projectOver(closedEditor, []).getLanguageService(closed)
+    const first = languageService.context.language.scripts.get(closed)
+    const again = languageService.context.language.scripts.get(closed)
+    expect(first?.snapshot.getText(0, first.snapshot.getLength())).toBe(text)
+    expect(first?.generated?.root.snapshot.getText(0, text.length)).toBe(text)
+    expect(again?.snapshot).toBe(first?.snapshot)
+  })
 })
 
 ## What the cases draw on
 
-The cases draw on Bun's test runner, and on Node to make the workspaces, start the server, and turn paths into the `file:` addresses the protocol names documents by. Volar's language-server package carries the client half of the protocol too: `createMessageConnection` and the stream reader and writer it speaks through, the `TextEdit` a format answers with, and the `FileChangeType` a reported change carries. The language store gives `servicePackage` and `serviceVersion`, which name and version the stand-in. The host runtime gives `runtimeKey`, where the stand-in finds Effect. Effect's `Array` reads the text out of the edits a format returns. The cases that drive the server's parts directly import them from the server module, and build the caches, the semaphore, and the set those parts take with Effect's `Cache`, `Semaphore`, and `Ref`, run by `Effect`. They take the types of a server, a project, and a service plugin from Volar, and `URI` names their looms. To run `rebuildUnder` they assemble the compiler the way the server does, from `LoomCompiler`, `DocumentSource`, `PackageConfig`, and `LoomConfig`, with Effect's `Layer`.
+The cases draw on Bun's test runner, and on Node to make the workspaces, start the server, and turn paths into the `file:` addresses the protocol names documents by. Volar's language-server package carries the client half of the protocol too: `createMessageConnection` and the stream reader and writer it speaks through, the `TextEdit` a format answers with, and the `FileChangeType` a reported change carries. The language store gives `servicePackage` and `serviceVersion`, which name and version the stand-in. The host runtime gives `runtimeKey`, where the stand-in finds Effect. Effect's `Array` reads the text out of the edits a format returns. The cases that drive the server's parts directly import them from the server module, `projectOver` among them, and build the caches, the semaphore, and the set those parts take with Effect's `Cache`, `Semaphore`, and `Ref`, run by `Effect`. They take the types of a server, a project, and a service plugin from Volar, and `URI` names their looms. To run `rebuildUnder` they assemble the compiler the way the server does, from `LoomCompiler`, `DocumentSource`, `PackageConfig`, and `LoomConfig`, with Effect's `Layer`.
 
 =>
 
@@ -1398,7 +1570,13 @@ import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { PackageConfig } from '../src/PackageConfig'
 import type { LanguageServer, LanguageServerProject, LanguageServicePlugin } from '@volar/language-server/node'
 import { URI } from 'vscode-uri'
-import { closeOf, rebuildUnder, refreshProject, workspaceProject } from '../src/LoomServer'
+import {
+  closeOf,
+  projectOver,
+  rebuildUnder,
+  refreshProject,
+  workspaceProject,
+} from '../src/LoomServer'
 import { spawn } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'

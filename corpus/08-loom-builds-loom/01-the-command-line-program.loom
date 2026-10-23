@@ -159,43 +159,11 @@ const format = (path: string, check: boolean) =>
 
 ~
 
-The command formats code through the project's language services, the same packages the editor loads from the store. A loaded service reads Effect, the service contract and TypeScript from the host that loads it, so `formatLanguages` first installs that host runtime. It needs a TypeScript to lend, and it looks where the language server looks: in the project, then beside Loom, then in the workspace's store. The standalone executable has nothing beside it, so it skips the second place.
-
-When none of the three holds a TypeScript, the command installs TypeScript 6 into the store, as the language server does, and lends that. A project in another language reaches this step on its first `loom format`, and every later run finds the copy in the store. When the install fails, the command says why, loads no service, and formats the prose alone, leaving every code section as written.
+The command formats code through the project's language services, the same packages the editor loads from the store. A loaded service reads Effect and the service contract from the host that loads it, so `formatLanguages` first installs that host runtime. Formatting needs no compiler, since the TypeScript service lays code out with Prettier, so the command lends no TypeScript and looks for none.
 
 The loader brings the Loom language with it, and the Loom language brings Volar, which is CommonJS and calls `require` as it loads. So `formatLanguages` imports the loader and the host runtime only when it reaches them, after exposing a `require` the way the `lsp` branch does, and a plain `tangle` never pays to load Volar.
 
 =>
-
-const typeScriptFrom = (from: string): Option.Option<string> =>
-  Option.liftThrowable(() => createRequire(from).resolve('typescript/lib/typescript.js'))()
-
-const foundTypeScript = (root: string): Option.Option<string> =>
-  pipe(
-    typeScriptFrom(resolvePath(root, 'package.json')),
-    Option.orElse(() => (standalone ? Option.none() : typeScriptFrom(import.meta.url))),
-    Option.orElse(() => storeTypeScript(root)),
-  )
-
-const storedTypeScript = (root: string): Effect.Effect<string, StoreError> =>
-  Console.error(`loom: installing TypeScript ${typeScriptRange} into ${storeDir(root)}`).pipe(
-    Effect.andThen(installTypeScript(root)),
-    Effect.tapError((error) =>
-      Console.error(`loom: could not install TypeScript — ${String(error.cause)}`),
-    ),
-  )
-
-const projectTypeScript = (
-  root: string,
-): Effect.Effect<Option.Option<typeof import('typescript')>> =>
-  Option.match(foundTypeScript(root), {
-    onNone: () => storedTypeScript(root),
-    onSome: Effect.succeed,
-  }).pipe(
-    Effect.flatMap((file) => Effect.tryPromise(() => import(pathToFileURL(file).href))),
-    Effect.map((module) => Option.some(module.default ?? module)),
-    Effect.orElseSucceed(() => Option.none()),
-  )
 
 const formatLanguages = (target: string) =>
   Effect.gen(function* () {
@@ -204,27 +172,17 @@ const formatLanguages = (target: string) =>
     const manifest = yield* config.manifest(root)
     const ids = Object.keys(manifest?.languages ?? {})
     if (ids.length === 0) return [] as ReadonlyArray<LanguageService>
-    const typescript = yield* projectTypeScript(root)
-    return yield* Option.match(typescript, {
-      onNone: () =>
-        Console.error(
-          'loom: found no TypeScript to load the language services with, so code sections stay as written',
-        ).pipe(Effect.as([] as ReadonlyArray<LanguageService>)),
-      onSome: (ts) =>
-        Effect.gen(function* () {
-          yield* Effect.sync(() => {
-            ;(globalThis as { require?: unknown }).require ??= createRequire(import.meta.url)
-          })
-          const { installHostRuntime } = yield* Effect.promise(
-            () => import('@athrio/loom-lang-services/Runtime'),
-          )
-          const { loadActive } = yield* Effect.promise(
-            () => import('@athrio/loom-lang-services/LanguageLoader'),
-          )
-          yield* Effect.sync(() => installHostRuntime(ts))
-          return yield* loadActive(ids, root)
-        }),
+    yield* Effect.sync(() => {
+      ;(globalThis as { require?: unknown }).require ??= createRequire(import.meta.url)
     })
+    const { installHostRuntime } = yield* Effect.promise(
+      () => import('@athrio/loom-lang-services/Runtime'),
+    )
+    const { loadActive } = yield* Effect.promise(
+      () => import('@athrio/loom-lang-services/LanguageLoader'),
+    )
+    yield* Effect.sync(() => installHostRuntime())
+    return yield* loadActive(ids, root)
   })
 
 ## Scaffolding a workspace
@@ -882,7 +840,7 @@ const status = Effect.gen(function* () {
 
 ## A check-up for Loom
 
-`loom doctor` looks for what goes wrong around Loom rather than inside it, and pairs each problem it finds with the command that fixes it. It asks four questions. Which `loom` does a terminal run, and who installed it? Does any other `loom` wait on `PATH`? Does the store hold each activated language's service at this Loom's version? Can the language server find a TypeScript? The first two concern the machine, so the doctor always asks them. The last two concern a workspace, so the doctor asks them only inside one.
+`loom doctor` looks for what goes wrong around Loom rather than inside it, and pairs each problem it finds with the command that fixes it. It asks four questions. Which `loom` does a terminal run, and who installed it? Does any other `loom` wait on `PATH`? Does the store hold each activated language's service at this Loom's version? Can a project with no TypeScript of its own get the TypeScript 7 Loom fetches for it? The first two concern the machine, so the doctor always asks them. The last two concern a workspace, so the doctor asks them only inside one.
 
 Each answer is a `Finding`. A fine finding notes that something is in order. A problem carries its fix, the command a person runs to put it right, and the type admits no problem without one.
 
@@ -1022,38 +980,40 @@ const serviceFindings = (languages: ReadonlyArray<string>, root: string): Readon
 
 ~
 
-The last question is the TypeScript the language server checks code against. VS Code sends the server one of its own, but every other editor leaves the server to search, and the doctor searches where the server does. It looks in the project, then beside Loom, then in the store, the search `foundTypeScript` already makes for `loom format`.
+The last question is the TypeScript 7 that Loom fetches for a project that installs no TypeScript. The language server fetches it the first time such a project asks, once per machine, into `~/.loom/typescript/<version>/`. A machine that holds it already is in order.
 
-When the search finds nothing, the server puts TypeScript 6 into the store the first time it starts. The standalone executable unpacks the copy it carries, which always works. The npm package installs TypeScript with npm, which fails when npm is not on `PATH`, as on a Linux system whose Node came without it. That failure is the one problem here. The install script fixes it, because the standalone executable needs no npm.
+On a machine that does not, the fetch still lies ahead. The standalone executable fetches with the Bun it carries, which always runs. The npm package fetches with npm, which fails when npm is not on `PATH`, as on a Linux system whose Node came without it. That failure is the one problem here. The install script fixes it, because the standalone executable needs no npm.
 
 =>
 
-const missingTypeScript = (root: string): Finding =>
-  Match.value({ standalone, npm: programsOnPath('npm').length > 0 }).pipe(
+const unfetchedTypeScript = (): Finding => {
+  const fetchInto = `TypeScript ${typeScriptVersion} into ${fetchedTypeScriptDir(typeScriptVersion)}`
+  return Match.value({ standalone, npm: programsOnPath('npm').length > 0 }).pipe(
     Match.when({ standalone: true }, () =>
       Finding.Fine({
-        note: `the language server unpacks the TypeScript Loom carries into ${storeDir(root)} when it first starts`,
+        note: `the language server fetches ${fetchInto} the first time a project with no TypeScript asks`,
       }),
     ),
     Match.when({ npm: true }, () =>
       Finding.Fine({
-        note: `the language server installs TypeScript ${typeScriptRange} into ${storeDir(root)} with npm when it first starts`,
+        note: `the language server fetches ${fetchInto} with npm the first time a project with no TypeScript asks`,
       }),
     ),
     Match.orElse(() =>
       Finding.Problem({
-        note: 'the language server finds no TypeScript, and has no npm to install one with',
+        note: `the language server has no npm to fetch ${fetchInto} with, for a project with no TypeScript`,
         fix: installLine,
       }),
     ),
   )
+}
 
-const typeScriptFinding = (root: string): Finding =>
-  Option.match(foundTypeScript(root), {
-    onNone: () => missingTypeScript(root),
-    onSome: (file) =>
-      Finding.Fine({ note: `the language server finds TypeScript in ${dirname(dirname(file))}` }),
-  })
+const typeScriptFinding = (): Finding =>
+  existsSync(fetchedExecutable(typeScriptVersion))
+    ? Finding.Fine({
+        note: `TypeScript ${typeScriptVersion} is fetched into ${fetchedTypeScriptDir(typeScriptVersion)}`,
+      })
+    : unfetchedTypeScript()
 
 const workspaceFindings = (
   root: string,
@@ -1063,7 +1023,7 @@ const workspaceFindings = (
     const manifest = yield* config.manifest(root)
     return [
       ...serviceFindings(Object.keys(manifest?.languages ?? {}), root),
-      typeScriptFinding(root),
+      typeScriptFinding(),
     ]
   })
 
@@ -1694,13 +1654,13 @@ if (process.argv[2] === 'lsp') {
 
 The program is built on Effect, a functional TypeScript library for composing and running effectful programs. Effect's CLI toolkit parses the command line and drives the interactive prompts, and the Node platform supplies the runtime, the terminal, and filesystem access. `Stream` drives `tangle --watch`, draining the tangler's watch as a sequence of passes, and `Result` carries each pass's outcome.
 
-Node's `path` resolves a workspace directory for `init`. `node:fs` writes the configuration, the `.mcp.json` and the `.editorconfig`, creates the corpus folder, unpacks the grammar into a temporary folder and removes it again, copies and renames the files Helix and Neovim read, and writes the executable `loom upgrade` downloads. Effect's child-process module runs Loom Design's binary for `design` and the C compiler for `helix` and `nvim`, `Data` types their failures, and `Scope` keeps the unpacked grammar until the command that unpacked it is done. `node:module` supplies the resolver that finds Design's binary, the workspace's grammar and a TypeScript — the same resolver the `lsp` branch borrows to give Volar a `require`. `pipe` threads each search through `Option`, `node:os` supplies the home folder that Helix's configuration and Neovim's data live under and the temporary folder the grammar unpacks into, and `node:url` turns the bundle's own address into a path.
+Node's `path` resolves a workspace directory for `init`. `node:fs` writes the configuration, the `.mcp.json` and the `.editorconfig`, creates the corpus folder, unpacks the grammar into a temporary folder and removes it again, copies and renames the files Helix and Neovim read, and writes the executable `loom upgrade` downloads. Effect's child-process module runs Loom Design's binary for `design` and the C compiler for `helix` and `nvim`, `Data` types their failures, and `Scope` keeps the unpacked grammar until the command that unpacked it is done. `node:module` supplies the resolver that finds Design's binary and the workspace's grammar — the same resolver the `lsp` branch borrows to give Volar a `require`. `pipe` threads each search through `Option`, `node:os` supplies the home folder that Helix's configuration and Neovim's data live under and the temporary folder the grammar unpacks into, and `node:url` turns the bundle's own address into a path.
 
 For `loom upgrade`, `Schema` decodes the release GitHub describes, `Array` finds a file in it, `Order` compares two versions, `node:crypto` computes the checksum of a download, and `node:zlib` unpacks it. `Match` reads an installer's marks in a path, and `realpathSync` follows the links that lead to a file. For `loom doctor`, `delimiter` splits `PATH` into its folders, `statSync` tells whether a file in one of them is a program, and `Equal` compares two installations by what they hold.
 
 The language server contributes six services: `LoomTangler`, which walks a `.loom` file, emits the tangled output, and watches it for changes; `LoomWeaver`, which projects a corpus and writes the woven data; `LoomContents`, which regenerates a book's table of contents; `LoomFormatter`, which formats a loom and names the looms a folder holds; `DocumentSource`, which feeds them source text from disk; and `PackageConfig`, which resolves a `.loom`'s package settings. `TangledFile` and `TangleError` ride along from the compiler, typing the files a pass writes and the error a broken corpus raises. From `@athrio/loom-config` comes `LoomConfig`, which resolves a file's configuration, reads the whole compiled manifest, and writes it back, and `defaultWidth`, the width a loom's lines keep to when its project names none.
 
-From `@athrio/loom-lang-services` come the store operations behind activation: `installService` and `removeService` install and uninstall a language's package, with `ServiceInstall` saying what an install did and `StoreError` the reason one failed, `installedVersion` reads the version of a service the store holds, and `serviceVersion` is the version this Loom expects. `storeDir` locates the store, `workspaceRoot` finds the workspace it sits in, `workspaceOf` says whether any workspace holds a folder, and `servicePackage` names a language's package. `storeTypeScript` and `installTypeScript` find and install the TypeScript the store keeps, at the range `typeScriptRange` names, `standalone` says whether Loom runs as the standalone executable, and `embeddedFile` finds the grammar library an executable carries. For `format`, `loadActive` loads the project's language services from the store and `installHostRuntime` lends them the host's Effect and TypeScript, both imported only when `format` reaches them; `LanguageService` types what the loader returns, and `pathToFileURL` turns the TypeScript it finds into the address `import` takes.
+From `@athrio/loom-lang-services` come the store operations behind activation: `installService` and `removeService` install and uninstall a language's package, with `ServiceInstall` saying what an install did and `StoreError` the reason one failed, `installedVersion` reads the version of a service the store holds, and `serviceVersion` is the version this Loom expects. `storeDir` locates the store, `workspaceRoot` finds the workspace it sits in, `workspaceOf` says whether any workspace holds a folder, and `servicePackage` names a language's package. `typeScriptVersion` is the TypeScript 7 Loom fetches for a project with none, which `fetchedTypeScriptDir` and `fetchedExecutable` locate, `standalone` says whether Loom runs as the standalone executable, and `embeddedFile` finds the grammar library an executable carries. For `format`, `loadActive` loads the project's language services from the store and `installHostRuntime` lends them the host's Effect and service contract, both imported only when `format` reaches them; `LanguageService` types what the loader returns.
 
 =>
 
@@ -1739,7 +1699,7 @@ import {
 import { createRequire } from 'node:module'
 import { homedir, tmpdir } from 'node:os'
 import { delimiter, dirname, resolve as resolvePath } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 import { DocumentSource, type TangledFile, type TangleError } from '@athrio/loom-lang/LoomCompiler'
 import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
@@ -1752,7 +1712,8 @@ import {
   installedVersion,
   installService,
   embeddedFile,
-  installTypeScript,
+  fetchedExecutable,
+  fetchedTypeScriptDir,
   removeService,
   ServiceInstall,
   type StoreError,
@@ -1760,8 +1721,7 @@ import {
   serviceVersion,
   standalone,
   storeDir,
-  storeTypeScript,
-  typeScriptRange,
+  typeScriptVersion,
   workspaceOf,
   workspaceRoot,
 } from '@athrio/loom-lang-services/LoomStore'

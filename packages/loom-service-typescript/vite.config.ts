@@ -7,7 +7,7 @@ const here = dirname(fileURLToPath(import.meta.url))
 const nodeBuiltins = [...builtinModules, ...builtinModules.map((name) => `node:${name}`)]
 
 const runtimeKey = '__loomRuntime'
-const runtimeSpecifiers = ['effect', '@athrio/loom-lang-services/LanguageService', 'typescript']
+const runtimeSpecifiers = ['effect', '@athrio/loom-lang-services/LanguageService']
 
 const runtimePrefix = '\0loom-runtime:'
 

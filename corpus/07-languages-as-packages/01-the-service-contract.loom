@@ -51,22 +51,22 @@ Editor features take a different route. The host runs each service's `plugins` E
   completion → mapped back to its span in the .loom.
 ```
 
-The host hands a service its `settings` and runs `plugins`, providing the capabilities the Effect requires — today, the TypeScript SDK. An in-process service builds its plugins in memory; an external one spawns its binary and bridges it — both inside the Effect, so the collect-and-register pass is the same for every language.
+The host hands a service its `settings` and runs `plugins`, providing the capabilities the Effect requires, such as the TypeScript compilers a project may ask for. An in-process service builds its plugins in memory; an external one spawns its binary and bridges it — both inside the Effect, so the collect-and-register pass is the same for every language.
 
 ## Imports
 
-The contract names Volar's `LanguageServicePlugin`, the unit of editor behavior; from Effect, `Data` for the tagged error and `Effect` itself, since a service builds its plugins in an Effect and a capability is an Effect service; and from `@athrio/loom-ast`, the `Diagnostic` the frame query returns and the `SemanticToken` colour it tags each of a file's tokens with.
+The contract names Volar's `LanguageServicePlugin`, the unit of editor behavior; from Effect, `Data` for the tagged error, `Effect` itself, since a service builds its plugins in an Effect and a capability is an Effect service, and `Result`, the answer of a search that may fail with its reason; and from `@athrio/loom-ast`, the `Diagnostic` the frame query returns and the `SemanticToken` colour it tags each of a file's tokens with.
 
 =>
 
 import type { LanguageServicePlugin } from '@volar/language-service'
-import { Context, Data, Effect, Layer } from 'effect'
+import { Context, Data, Effect, Layer, type Result } from 'effect'
 import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
 import type { SemanticToken } from '@athrio/loom-ast/LoomSymbol'
 
 ## A service
 
-A `LanguageService` is one language's entry: the section `id` it serves, a `displayName` for the `loom activate` menu, its file `extensions`, and `plugins` — the Effect that builds its Volar plugins. That Effect may fail with a `ServiceError` — an external binary that will not start — which the host reports without bringing the other languages down. A service may draw on the host's capabilities (`HostCapabilities`): the Loom and TypeScript services take the TypeScript SDK, a CSS service takes nothing. A tangle path's extension names its language — a section that tangles to `main.ts` turns on the TypeScript service.
+A `LanguageService` is one language's entry: the section `id` it serves, a `displayName` for the `loom activate` menu, its file `extensions`, and `plugins` — the Effect that builds its Volar plugins. That Effect may fail with a `ServiceError` — an external binary that will not start — which the host reports without bringing the other languages down. A service may draw on the host's capabilities (`HostCapabilities`): the Loom service takes the frame query, the TypeScript service takes the TypeScript compilers and the composition, and a CSS service takes nothing. A tangle path's extension names its language — a section that tangles to `main.ts` turns on the TypeScript service.
 
 =>
 
@@ -103,7 +103,9 @@ export interface FormatRequest {
 
 A service may draw on capabilities the host provides, taken through the Effect environment so each service asks only for what it needs. There are three.
 
-`TypescriptSdk` is the TypeScript compiler itself. It carries no default — the host supplies the editor's own instance (via Volar's `loadTsdkByPath`), so analysis matches the user's project. The Loom and TypeScript services both take it; `create` needs the compiler to check the frame and the TypeScript product. A CSS or Go service never asks.
+`TypescriptSdk` hands out the TypeScript compilers a project may need, and only when a project asks for one. A project chooses its compiler by what it installs, as the chapter on the native TypeScript program explains, so the host cannot know at startup which compiler a session will need, if any. Lending none up front lets the editor start on a machine that holds no TypeScript 6 at all.
+
+The capability answers two questions. `classic` gives the TypeScript 6 that a project on TypeScript 6 checks against, found from the project's folder. TypeScript 6 is a JavaScript library, so the host loads it into its own process the first time such a project asks. When no TypeScript 6 can be found, `classic` fails with the reason, and the project's TypeScript features report it rather than fall back to anything else. `fetched` describes the TypeScript 7 that Loom fetches once per machine for a project that installs no TypeScript at all. A `FetchedTypeScript` names its `version` and the `executable` it runs as, and its `fetch` brings it onto the machine the first time it is needed, resolving once the executable is there. The host decides where the two come from, and the chapter on the language server says where it looks. Like the other capabilities it carries no default. Only the TypeScript service takes it; the Loom service and a CSS or Go service never ask.
 
 `FrameQuery` is the host's read into the frame — the questions Loom can answer about a file from the composition it built. Its first reader, `diagnostics`, returns that file's Loom diagnostics, the grammatical and semantic health in Loom's own terms, so the frame service can surface them. Four more readers answer navigation and rename. `definition` gives the heading an anchor at an offset resolves to, and `references` gives every anchor that names the section under an offset. `rename` gives the title and anchor-name spans a rename rewrites together, and `renameRange` gives the one span the rename box covers. These answer in `FrameLocation`s — a path and a range in the editor's own line-and-character coordinates. Another reader, `semanticTokens`, gives each of a file's tokens its colour: a `FrameToken` pairing a range with the `SemanticToken` kind `LoomSymbol` assigns, so the editor highlights the source. The last, `format`, answers with a file's text formatted, its prose paragraphs each on one line and its code laid out by each language's formatter. It takes the text itself, the open buffer the editor holds, rather than reading the warm corpus, so a format never works from a stale copy, and it answers with a promise, because a language's formatter may take its time. The host builds the query over the warm corpus, and like `TypescriptSdk` it carries no default. Only the Loom service takes it.
 
@@ -115,10 +117,19 @@ A product service still asks nothing about its own file's sections: the editor h
 
 =>
 
+export interface FetchedTypeScript {
+  readonly version: string
+  readonly executable: string
+  readonly fetch: () => Promise<void>
+}
+
+export interface TypescriptSdkApi {
+  readonly classic: (folder: string) => Result.Result<typeof import('typescript'), string>
+  readonly fetched: FetchedTypeScript
+}
+
 export class TypescriptSdk extends Context.Service<TypescriptSdk>()('TypescriptSdk', {
-  make: Effect.die('TypescriptSdk must be provided by the host') as Effect.Effect<
-    typeof import('typescript')
-  >,
+  make: Effect.die('TypescriptSdk must be provided by the host') as Effect.Effect<TypescriptSdkApi>,
 }) {
   static readonly layer = Layer.effect(this, this.make)
 }

@@ -17,6 +17,7 @@ import {
   type FrameQueryApi,
   type LanguageService,
   TypescriptSdk,
+  type TypescriptSdkApi,
 } from '@athrio/loom-lang-services/LanguageService'
 import { ActiveLanguages, LanguageRegistry } from '@athrio/loom-lang-services/LanguageRegistry'
 import { loadActive } from '@athrio/loom-lang-services/LanguageLoader'
@@ -103,7 +104,7 @@ const dedupeByName = (
 
 const collect = (
   active: ReadonlyArray<LanguageService>,
-  tsdk: typeof import('typescript'),
+  sdk: TypescriptSdkApi,
   settings: Record<string, Record<string, unknown>>,
   frameQuery: FrameQueryApi,
   composition: CompositionApi,
@@ -119,7 +120,7 @@ const collect = (
   }).pipe(
     Effect.provide(LanguageRegistry.layer),
     Effect.provide(Layer.succeed(ActiveLanguages, { all: active })),
-    Effect.provideService(TypescriptSdk, tsdk),
+    Effect.provideService(TypescriptSdk, sdk),
     Effect.provideService(FrameQuery, frameQuery),
     Effect.provideService(Composition, composition),
   )
@@ -165,7 +166,7 @@ const compositionOver = (
 
 export const loomServicePlugins = (
   runtime: ManagedRuntime.ManagedRuntime<LoomCompiler | LoomFormatter, never>,
-  tsdk: typeof import('typescript'),
+  sdk: TypescriptSdkApi,
   workspace: string,
 ): Effect.Effect<ReadonlyArray<LanguageServicePlugin>, never, LoomConfig> =>
   Effect.gen(function* () {
@@ -173,11 +174,11 @@ export const loomServicePlugins = (
     const manifest = yield* config.manifest(workspace)
     const languages = Object.keys(manifest?.languages ?? {})
     const settings = manifest?.settings ?? {}
-    yield* Effect.sync(() => installHostRuntime(tsdk))
+    yield* Effect.sync(() => installHostRuntime())
     const active = yield* loadActive(languages, workspace)
     return yield* collect(
       active,
-      tsdk,
+      sdk,
       settings,
       frameQueryOver(runtime, active),
       compositionOver(runtime),

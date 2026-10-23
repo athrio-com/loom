@@ -12,7 +12,7 @@ Language: JSON
 
 The `exports` field is the package's surface: the `LanguageService` contract, the `LanguageRegistry`, the `LanguageLoader` that resolves a project's active services from the Loom store, the `LoomStore` that installs and holds them, the `Runtime` the host lends a loaded service, and the two built-in services, `LoomLanguage` for the Frame and `ProseLanguage` for the prose.
 
-`LoomLanguage` wraps `volar-service-typescript` and `ProseLanguage` wraps `volar-service-markdown` — the two real dependencies. The other peers — `@athrio/loom-ast` for Loom's shared types, `effect`, `@volar/language-service`, `typescript`, and `vscode-uri` for decoding an embedded document's uri — are supplied by the host bundle.
+`ProseLanguage` wraps `volar-service-markdown`, the one real dependency. The peers — `@athrio/loom-ast` for Loom's shared types, `effect`, `@volar/language-service`, and `vscode-uri` for decoding an embedded document's uri — are supplied by the host bundle. TypeScript is only a `devDependency`. The contract names TypeScript 6 by its types alone, for the compiler the `TypescriptSdk` capability lends, and nothing in the package loads it.
 
 {{ version = ${version} }}
 {{ effect = ${effect} }}
@@ -35,14 +35,12 @@ The `exports` field is the package's surface: the `LanguageService` contract, th
     "./ProseLanguage": "./src/ProseLanguage.ts"
   },
   "dependencies": {
-    "volar-service-markdown": "^0.0.71",
-    "volar-service-typescript": "^0.0.71"
+    "volar-service-markdown": "^0.0.71"
   },
   "peerDependencies": {
     "@athrio/loom-ast": "workspace:*",
     "@volar/language-service": "^2.4.28",
     "effect": "::[effect]",
-    "typescript": "^6.0.3",
     "vscode-uri": "^3.1.0"
   },
   "devDependencies": {

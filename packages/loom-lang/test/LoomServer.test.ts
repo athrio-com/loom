@@ -13,7 +13,13 @@ import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { PackageConfig } from '../src/PackageConfig'
 import type { LanguageServer, LanguageServerProject, LanguageServicePlugin } from '@volar/language-server/node'
 import { URI } from 'vscode-uri'
-import { closeOf, rebuildUnder, refreshProject, workspaceProject } from '../src/LoomServer'
+import {
+  closeOf,
+  projectOver,
+  rebuildUnder,
+  refreshProject,
+  workspaceProject,
+} from '../src/LoomServer'
 import { spawn } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -476,6 +482,13 @@ const serverWith = (...open: ReadonlyArray<URI>): LanguageServer =>
     documents: { all: () => Array.map(open, (uri) => ({ uri: uri.toString() })) },
   }) as unknown as LanguageServer
 
+const closedEditor = {
+  documents: { all: () => [], get: () => undefined },
+  workspaceFolders: { all: [] },
+  configurations: { get: async () => undefined, onDidChange: () => ({ dispose: () => {} }) },
+  fileWatcher: { onDidChangeWatchedFiles: () => ({ dispose: () => {} }) },
+} as unknown as LanguageServer
+
 const home = '/nowhere'
 
 const mainUri = URI.file('/nowhere/corpus/main.loom')
@@ -562,5 +575,18 @@ describe('LoomServer — the pass piece by piece', () => {
     expect(waited).toBe('waiting')
     await Effect.runPromise(reprojecting.release(1))
     expect<unknown>(await answer).toBe(answering.languageService)
+  })
+
+  it('projects a loom the editor has closed from disk, and reads it once', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    const text = chapter('Answer', 'const answer = 42')
+    const closed = URI.file(chapterAt(root, 'answer.loom', text))
+    const languageService = await projectOver(closedEditor, []).getLanguageService(closed)
+    const first = languageService.context.language.scripts.get(closed)
+    const again = languageService.context.language.scripts.get(closed)
+    expect(first?.snapshot.getText(0, first.snapshot.getLength())).toBe(text)
+    expect(first?.generated?.root.snapshot.getText(0, text.length)).toBe(text)
+    expect(again?.snapshot).toBe(first?.snapshot)
   })
 })

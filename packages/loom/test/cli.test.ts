@@ -618,6 +618,7 @@ describe('loom cli — doctor', () => {
     () => {
       const root = machine()
       const npm = linkedLoom(root, 'npm/bin', 'npm/lib/node_modules/@athrio/loom/dist/main.js')
+      program(join(npm, 'npm'))
       const home = userStore()
       const dir = workspace('corpus: corpus\nlanguages:\n  typescript: {}\nprimary: typescript\n')
       installFake(home, 'typescript')
@@ -637,6 +638,7 @@ describe('loom cli — doctor', () => {
     () => {
       const root = machine()
       const npm = linkedLoom(root, 'npm/bin', 'npm/lib/node_modules/@athrio/loom/dist/main.js')
+      program(join(npm, 'npm'))
       const home = userStore()
       const dir = workspace('corpus: corpus\nlanguages:\n  typescript: {}\nprimary: typescript\n')
       installFake(home, 'typescript', '0.0.1')
@@ -646,6 +648,26 @@ describe('loom cli — doctor', () => {
         `the store holds typescript's service at 0.0.1, and this Loom needs ${loomVersion}`,
       )
       expect(stdout).toContain('loom update typescript')
+      expect(stdout).toContain('1 problem found')
+      rmSync(root, { recursive: true, force: true })
+      rmSync(home, { recursive: true, force: true })
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    'reports a TypeScript 7 it has no npm to fetch, with the install script',
+    () => {
+      const root = machine()
+      const npm = linkedLoom(root, 'npm/bin', 'npm/lib/node_modules/@athrio/loom/dist/main.js')
+      const home = userStore()
+      const dir = workspace('corpus: corpus\nlanguages:\n  typescript: {}\nprimary: typescript\n')
+      installFake(home, 'typescript')
+      const { status, stdout } = loom(['doctor'], { cwd: dir, env: { PATH: npm, LOOM_HOME: home } })
+      expect(status).toBe(1)
+      expect(stdout).toContain('has no npm to fetch TypeScript')
+      expect(stdout).toContain('install.sh')
       expect(stdout).toContain('1 problem found')
       rmSync(root, { recursive: true, force: true })
       rmSync(home, { recursive: true, force: true })

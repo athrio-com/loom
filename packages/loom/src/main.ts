@@ -33,7 +33,7 @@ import {
 import { createRequire } from 'node:module'
 import { homedir, tmpdir } from 'node:os'
 import { delimiter, dirname, resolve as resolvePath } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 import { DocumentSource, type TangledFile, type TangleError } from '@athrio/loom-lang/LoomCompiler'
 import { LoomTangler } from '@athrio/loom-lang/LoomTangler'
@@ -46,7 +46,8 @@ import {
   installedVersion,
   installService,
   embeddedFile,
-  installTypeScript,
+  fetchedExecutable,
+  fetchedTypeScriptDir,
   removeService,
   ServiceInstall,
   type StoreError,
@@ -54,8 +55,7 @@ import {
   serviceVersion,
   standalone,
   storeDir,
-  storeTypeScript,
-  typeScriptRange,
+  typeScriptVersion,
   workspaceOf,
   workspaceRoot,
 } from '@athrio/loom-lang-services/LoomStore'
@@ -169,36 +169,6 @@ const format = (path: string, check: boolean) =>
     if (check && changed.length > 0) yield* Effect.sync(() => void (process.exitCode = 1))
   })
 
-const typeScriptFrom = (from: string): Option.Option<string> =>
-  Option.liftThrowable(() => createRequire(from).resolve('typescript/lib/typescript.js'))()
-
-const foundTypeScript = (root: string): Option.Option<string> =>
-  pipe(
-    typeScriptFrom(resolvePath(root, 'package.json')),
-    Option.orElse(() => (standalone ? Option.none() : typeScriptFrom(import.meta.url))),
-    Option.orElse(() => storeTypeScript(root)),
-  )
-
-const storedTypeScript = (root: string): Effect.Effect<string, StoreError> =>
-  Console.error(`loom: installing TypeScript ${typeScriptRange} into ${storeDir(root)}`).pipe(
-    Effect.andThen(installTypeScript(root)),
-    Effect.tapError((error) =>
-      Console.error(`loom: could not install TypeScript — ${String(error.cause)}`),
-    ),
-  )
-
-const projectTypeScript = (
-  root: string,
-): Effect.Effect<Option.Option<typeof import('typescript')>> =>
-  Option.match(foundTypeScript(root), {
-    onNone: () => storedTypeScript(root),
-    onSome: Effect.succeed,
-  }).pipe(
-    Effect.flatMap((file) => Effect.tryPromise(() => import(pathToFileURL(file).href))),
-    Effect.map((module) => Option.some(module.default ?? module)),
-    Effect.orElseSucceed(() => Option.none()),
-  )
-
 const formatLanguages = (target: string) =>
   Effect.gen(function* () {
     const config = yield* LoomConfig
@@ -206,27 +176,17 @@ const formatLanguages = (target: string) =>
     const manifest = yield* config.manifest(root)
     const ids = Object.keys(manifest?.languages ?? {})
     if (ids.length === 0) return [] as ReadonlyArray<LanguageService>
-    const typescript = yield* projectTypeScript(root)
-    return yield* Option.match(typescript, {
-      onNone: () =>
-        Console.error(
-          'loom: found no TypeScript to load the language services with, so code sections stay as written',
-        ).pipe(Effect.as([] as ReadonlyArray<LanguageService>)),
-      onSome: (ts) =>
-        Effect.gen(function* () {
-          yield* Effect.sync(() => {
-            ;(globalThis as { require?: unknown }).require ??= createRequire(import.meta.url)
-          })
-          const { installHostRuntime } = yield* Effect.promise(
-            () => import('@athrio/loom-lang-services/Runtime'),
-          )
-          const { loadActive } = yield* Effect.promise(
-            () => import('@athrio/loom-lang-services/LanguageLoader'),
-          )
-          yield* Effect.sync(() => installHostRuntime(ts))
-          return yield* loadActive(ids, root)
-        }),
+    yield* Effect.sync(() => {
+      ;(globalThis as { require?: unknown }).require ??= createRequire(import.meta.url)
     })
+    const { installHostRuntime } = yield* Effect.promise(
+      () => import('@athrio/loom-lang-services/Runtime'),
+    )
+    const { loadActive } = yield* Effect.promise(
+      () => import('@athrio/loom-lang-services/LanguageLoader'),
+    )
+    yield* Effect.sync(() => installHostRuntime())
+    return yield* loadActive(ids, root)
   })
 
 const mergeMcpConfig = (root: string): void => {
@@ -832,32 +792,34 @@ const serviceFindings = (languages: ReadonlyArray<string>, root: string): Readon
     onNonEmpty: (ids) => Array.map(ids, (id) => serviceFinding(id, root)),
   })
 
-const missingTypeScript = (root: string): Finding =>
-  Match.value({ standalone, npm: programsOnPath('npm').length > 0 }).pipe(
+const unfetchedTypeScript = (): Finding => {
+  const fetchInto = `TypeScript ${typeScriptVersion} into ${fetchedTypeScriptDir(typeScriptVersion)}`
+  return Match.value({ standalone, npm: programsOnPath('npm').length > 0 }).pipe(
     Match.when({ standalone: true }, () =>
       Finding.Fine({
-        note: `the language server unpacks the TypeScript Loom carries into ${storeDir(root)} when it first starts`,
+        note: `the language server fetches ${fetchInto} the first time a project with no TypeScript asks`,
       }),
     ),
     Match.when({ npm: true }, () =>
       Finding.Fine({
-        note: `the language server installs TypeScript ${typeScriptRange} into ${storeDir(root)} with npm when it first starts`,
+        note: `the language server fetches ${fetchInto} with npm the first time a project with no TypeScript asks`,
       }),
     ),
     Match.orElse(() =>
       Finding.Problem({
-        note: 'the language server finds no TypeScript, and has no npm to install one with',
+        note: `the language server has no npm to fetch ${fetchInto} with, for a project with no TypeScript`,
         fix: installLine,
       }),
     ),
   )
+}
 
-const typeScriptFinding = (root: string): Finding =>
-  Option.match(foundTypeScript(root), {
-    onNone: () => missingTypeScript(root),
-    onSome: (file) =>
-      Finding.Fine({ note: `the language server finds TypeScript in ${dirname(dirname(file))}` }),
-  })
+const typeScriptFinding = (): Finding =>
+  existsSync(fetchedExecutable(typeScriptVersion))
+    ? Finding.Fine({
+        note: `TypeScript ${typeScriptVersion} is fetched into ${fetchedTypeScriptDir(typeScriptVersion)}`,
+      })
+    : unfetchedTypeScript()
 
 const workspaceFindings = (
   root: string,
@@ -867,7 +829,7 @@ const workspaceFindings = (
     const manifest = yield* config.manifest(root)
     return [
       ...serviceFindings(Object.keys(manifest?.languages ?? {}), root),
-      typeScriptFinding(root),
+      typeScriptFinding(),
     ]
   })
 

@@ -12,23 +12,36 @@ TypeScript 7 ships no programmatic API for an editor's questions, so the product
 
 ## Which compiler a project uses
 
-A project uses TypeScript 7 only when it has chosen TypeScript 7 itself, by installing it. TypeScript 7 removes options that TypeScript 6 still accepts, such as `baseUrl`, `target: es5` and `moduleResolution: node`, and it ignores a `tsconfig.json`'s language-service plugins. A project still written for TypeScript 6 would meet errors in its own configuration, and its editor would disagree with its own build. So a project that has not installed TypeScript 7 keeps the TypeScript 6 program, exactly as before.
+A project's own install decides its compiler. TypeScript 7 removes options that TypeScript 6 still accepts, such as `baseUrl`, `target: es5` and `moduleResolution: node`, and it ignores a `tsconfig.json`'s language-service plugins. A project still written for TypeScript 6 would meet errors in its own configuration, and its editor would disagree with its own build. So a project that installs TypeScript 6 keeps the TypeScript 6 program, exactly as before, and a project that installs TypeScript 7 gets TypeScript 7.
 
-A `CompilerChoice` names the outcome for one project, as one of three cases. `Classic` is TypeScript 6. `Native` is TypeScript 7, with the path of its native executable. `Unavailable` is a project that has chosen TypeScript 7 but cannot have it, with the reason. A project in that last case never quietly gets TypeScript 6 instead: its TypeScript features fail, each with the reason, so the person sees what to fix.
+A project that installs no TypeScript at all has no build for its editor to disagree with. It gets TypeScript 7 too, the copy Loom fetches once per machine, rather than a TypeScript 6 it never asked for.
+
+A `CompilerChoice` names the outcome for one project, as one of four cases. `Classic` is TypeScript 6. `Native` is a TypeScript 7 the project or the person installed, with the path of its native executable. `Fetched` is the TypeScript 7 Loom fetches, with its version and the path its executable has once it is fetched. `Unavailable` is a project that has chosen TypeScript 7 but cannot have it, with the reason. A project in that last case never quietly gets TypeScript 6 instead: its TypeScript features fail, each with the reason, so the person sees what to fix.
+
+`executableOf` reads the executable a choice runs as. Only `Native` and `Fetched` have one.
 
 =>
 
 export type CompilerChoice = Data.TaggedEnum<{
   Classic: {}
   Native: { readonly executable: string }
+  Fetched: { readonly version: string; readonly executable: string }
   Unavailable: { readonly reason: string }
 }>
 
 export const CompilerChoice = Data.taggedEnum<CompilerChoice>()
 
+export const executableOf = (choice: CompilerChoice): Option.Option<string> =>
+  CompilerChoice.$match(choice, {
+    Classic: () => Option.none(),
+    Native: ({ executable }) => Option.some(executable),
+    Fetched: ({ executable }) => Option.some(executable),
+    Unavailable: () => Option.none(),
+  })
+
 ~
 
-`compilerChoiceFor` makes the choice for a project. It looks for the `typescript` package the project would import, starting from the project's folder: the folder of its `tsconfig.json`, or its loom's folder when no `tsconfig.json` governs it. A project without a `typescript` package, or with one older than 7, is `Classic`. A package of version 7 or later is TypeScript 7.
+`compilerChoiceFor` makes the choice for a project. It looks for the `typescript` package the project would import, starting from the project's folder: the folder of its `tsconfig.json`, or its loom's folder when no `tsconfig.json` governs it. A package older than 7 is `Classic`, and a package of version 7 or later is TypeScript 7. A project with no `typescript` package is `Fetched`, on the TypeScript 7 that the host's `TypescriptSdk` capability describes, whether or not it is on the machine yet.
 
 TypeScript 7's native executable lives in a companion package named for the platform, such as `@typescript/typescript-darwin-arm64`, in that package's `lib` folder, under the name `tsc`, or `tsc.exe` on Windows. `nativeExecutable` finds it the way TypeScript's own launcher does, from beside the `typescript` package, and accepts it only when the file exists and may be executed. A project on TypeScript 7 whose install lacks the companion package for this platform is `Unavailable`. That happens when optional dependencies were left out, or when the packages were installed on another platform, and the reason says which package to install.
 
@@ -72,18 +85,13 @@ const typescriptPackageFrom = (folder: string): Option.Option<string> =>
 export const projectFolder = (project: ProductProject): string =>
   Option.match(project.config, { onNone: () => dirname(project.loom), onSome: dirname })
 
-const choiceFromProject = (project: ProductProject): CompilerChoice =>
+const choiceFromPackage = (project: ProductProject, packageJson: string): CompilerChoice =>
   pipe(
-    typescriptPackageFrom(projectFolder(project)),
-    Option.flatMap((packageJson) =>
-      Option.map(
-        Option.filter(manifestOf(packageJson), (manifest) => manifest.major >= 7),
-        ({ major }) => ({ packageJson, major }),
-      ),
-    ),
+    manifestOf(packageJson),
+    Option.filter((manifest) => manifest.major >= 7),
     Option.match({
       onNone: () => CompilerChoice.Classic(),
-      onSome: ({ packageJson, major }) =>
+      onSome: ({ major }) =>
         Option.match(nativeExecutable(packageJson), {
           onSome: (path) => CompilerChoice.Native({ executable: path }),
           onNone: () =>
@@ -96,9 +104,16 @@ const choiceFromProject = (project: ProductProject): CompilerChoice =>
     }),
   )
 
+const choiceFromProject = (project: ProductProject, fetched: FetchedTypeScript): CompilerChoice =>
+  Option.match(typescriptPackageFrom(projectFolder(project)), {
+    onNone: () =>
+      CompilerChoice.Fetched({ version: fetched.version, executable: fetched.executable }),
+    onSome: (packageJson) => choiceFromPackage(project, packageJson),
+  })
+
 ~
 
-A person can also try TypeScript 7 before a project installs it. The `nativeCompiler` setting of the `typescript` language, in `.loom/config.yaml`, names the folder of a TypeScript 7 `typescript` package, and every project then uses that compiler. A relative folder is read from the workspace, the folder that holds `.loom/config.yaml`, which `workspaceRootOf` finds by walking up from the project's loom. The setting names a choice the person made, so a setting that is not a folder's path, a folder that holds no `typescript` package, a TypeScript older than 7, or one without a native executable makes the project `Unavailable`, with the reason, rather than quietly giving it TypeScript 6. The setting arrives as the workspace wrote it, so `compilerChoiceFor` first checks that it is a path at all. A list or a number written by mistake is reported, not ignored. `compilerChoiceFor` takes the setting first when it is given.
+A person can also choose a TypeScript 7 for every project at once. The `nativeCompiler` setting of the `typescript` language, in `.loom/config.yaml`, names the folder of a TypeScript 7 `typescript` package, and every project then uses that compiler. A relative folder is read from the workspace, the folder that holds `.loom/config.yaml`, which `workspaceRootOf` finds by walking up from the project's loom. The setting names a choice the person made, so a setting that is not a folder's path, a folder that holds no `typescript` package, a TypeScript older than 7, or one without a native executable makes the project `Unavailable`, with the reason, rather than quietly giving it TypeScript 6. The setting arrives as the workspace wrote it, so `compilerChoiceFor` first checks that it is a path at all. A list or a number written by mistake is reported, not ignored. `compilerChoiceFor` takes the setting first when it is given.
 
 The folder the setting names may be a link. pnpm, and Bun with its isolated installs, link each package into `node_modules` from a store elsewhere, and keep the companion package beside the package in that store, not beside the link. So `choiceFromSetting` follows the link to the folder's real path before it looks for the companion package. A project's own `typescript` package needs no such step, because resolving it through `createRequire` already lands on its real path.
 
@@ -140,9 +155,10 @@ const choiceFromSetting = (project: ProductProject, setting: string): CompilerCh
 export const compilerChoiceFor = (
   project: ProductProject,
   setting: Option.Option<unknown>,
+  fetched: FetchedTypeScript,
 ): CompilerChoice =>
   Option.match(setting, {
-    onNone: () => choiceFromProject(project),
+    onNone: () => choiceFromProject(project, fetched),
     onSome: (named) =>
       typeof named === 'string' && named.trim() !== ''
         ? choiceFromSetting(project, named)
@@ -153,17 +169,18 @@ export const compilerChoiceFor = (
 
 ## A project that cannot have its compiler
 
-`createUnavailableProgram` is the program an `Unavailable` project gets. It holds nothing and answers nothing, and the person must see why. An editor shows diagnostics where the person is looking, and writes a provider's failures only to a log few people open. So the program reports the reason as one error diagnostic on every root it is asked about, through `failureDiagnostic`, and answers every other question with nothing. It also writes the reason to the log once, through `reportOnce`, rather than once for each hover, so the log keeps a single clear line instead of a stream of the same failure.
+`createUnavailableProgram` is the program a project gets when it cannot have its compiler. That is an `Unavailable` project, which chose a TypeScript 7 it cannot run, or a `Classic` one for which the host finds no TypeScript 6 to load. The program holds nothing and answers nothing, and the person must see why. An editor shows diagnostics where the person is looking, and writes a provider's failures only to a log few people open. So the program reports the reason as one error diagnostic on every root it is asked about, through `failureDiagnostic`, and answers every other question with nothing. It also writes the reason to the log once, through `reportOnce`, rather than once for each hover, so the log keeps a single clear line instead of a stream of the same failure.
 
-`NativeCompilerUnavailable` is the failure that carries the reason. `failureDiagnostic` places the diagnostic at the start of the root, as an error, under the source `loom`.
+`CompilerUnavailable` is the failure that carries the compiler the project cannot have and the reason. `failureDiagnostic` places the diagnostic at the start of the root, as an error, under the source `loom`.
 
 =>
 
-export class NativeCompilerUnavailable extends Data.TaggedError('NativeCompilerUnavailable')<{
+export class CompilerUnavailable extends Data.TaggedError('CompilerUnavailable')<{
+  readonly compiler: string
   readonly reason: string
 }> {
   get message(): string {
-    return `TypeScript 7 is unavailable: ${this.reason}`
+    return `${this.compiler} is unavailable: ${this.reason}`
   }
 }
 
@@ -180,8 +197,8 @@ const reportOnce = (reported: Set<string>, message: string): void => {
   console.warn(`loom: ${message}`)
 }
 
-export const createUnavailableProgram = (reason: string): ProductProgram => {
-  const failure = new NativeCompilerUnavailable({ reason })
+export const createUnavailableProgram = (compiler: string, reason: string): ProductProgram => {
+  const failure = new CompilerUnavailable({ compiler, reason })
   const reported = new Set<string>()
   const nothing = <A>(empty: A): Promise<A> => {
     reportOnce(reported, failure.message)
@@ -197,13 +214,16 @@ export const createUnavailableProgram = (reason: string): ProductProgram => {
     rename: () => nothing(undefined),
     codeActions: () => nothing([]),
     resolveCodeAction: (action) => nothing(action),
+    documentSymbols: () => nothing(undefined),
+    foldingRanges: () => nothing(undefined),
+    selectionRanges: () => nothing(undefined),
     dispose: () => undefined,
   }
 }
 
 ## Asking the native server
 
-`createNativeProgram` holds the roots it is given and starts the server only when the first question needs it. A project on TypeScript 7 is on TypeScript 7 entirely: every question about its roots goes to the native server, and the project never builds a TypeScript 6 program. Where TypeScript 7 offers less than TypeScript 6, such as refactors, the project gets what TypeScript 7 offers. That is the truth about the compiler the project chose, and it grows as TypeScript 7 does.
+`createNativeProgram` holds the roots it is given and starts the server only when the first question needs it. It serves a project that is `Native` or `Fetched` alike, since both run a TypeScript 7 executable. A project on TypeScript 7 is on TypeScript 7 entirely: every question about its roots goes to the native server, and the project never builds a TypeScript 6 program. Where TypeScript 7 offers less than TypeScript 6, such as refactors, the project gets what TypeScript 7 offers. That is the truth about the compiler the project chose, and it grows as TypeScript 7 does.
 
 The native server sees exactly what `tsc` sees. A root its `tsconfig.json` includes belongs to the project. A root the configuration leaves out is a loose file to TypeScript 7, checked with default options, as it would be to the project's own `tsc`. A project whose tests sit outside its `include` fixes that in its configuration, by including them. The options Loom forced on the TypeScript 6 program, `noEmit`, `allowImportingTsExtensions` and `composite` turned off, never reach TypeScript 7 either, since the server reads only the configuration on disk. A project on TypeScript 7 that imports `.ts` files by name sets `allowImportingTsExtensions` itself.
 
@@ -223,7 +243,7 @@ TypeScript 7 resolves an import between two open documents only when the folder 
 
 The program makes folders only, never files, and only inside the workspace, the folder that holds `.loom/config.yaml`. A `{Tangle}` sink may name a path outside the workspace, and the editor has no business creating folders there, so the program leaves such a folder to the tangle and writes so to the log once. A folder that cannot be made, because its parent is read-only or a file stands in its path, is written to the log once too. Either way the program keeps every root open as before. One root it cannot help must not cost the person the answers about every other root.
 
-A search across the whole corpus lists every root, the other languages' files among them, so a `listed` root that is neither served nor loose stays closed. `ask` opens the root a question is about whenever the open set leaves it out, so the server answers about the text the person is editing, never about an older copy on disk.
+A search across the whole corpus lists every root, the other languages' files among them, so a `listed` root that is neither served nor loose stays closed. `ask` opens the root a question is about whenever the open set leaves it out, so the server answers about the text the person is editing, never about an older copy on disk. It then waits for `ready` before it starts or asks the server.
 
 =>
 
@@ -254,13 +274,15 @@ const openSet = (
 
 ### Starting, restarting and stopping
 
-`running` gives the server, starting it the first time a question needs it, in the workspace folder the plugin hands the program, and opening the roots in the open set. It tells the server what the plugin can take: hover in Markdown, definitions as links, pulled diagnostics, completions, and code actions whose edits are resolved only when picked.
+`running` gives the server, starting it the first time a question needs it, in the workspace folder the plugin hands the program, and opening the roots in the open set. It tells the server what the plugin can take: hover in Markdown, definitions as links, pulled diagnostics, completions, code actions whose edits are resolved only when picked, and the outline of a file's symbols nested inside one another.
 
 A server that stops is started again on the next question, so a crash costs one cold start rather than the session. Restarting stops the old process first, in case it outlived its connection. After `maxRestarts` restarts in a row the program gives up, since a server that fails on every start would otherwise cost a cold start on every question. Restarts in a row means each server failed soon after it started. A server that stayed up for `stableFor`, five minutes by the bridge's `uptime`, before it stopped resets the count, so three crashes spread over a long day never turn the features off, and a server that fails as soon as it starts stays given up on. Once the program gives up, every question fails with `NativeServerStopped`, which names the compiler and the folder. The project never switches to another compiler behind the person's back.
 
 A restarted server holds the roots the program had open, but has loaded none of their projects, so a restart also undoes the warm-up, and the next answer runs it again.
 
-`NativeProgramOptions` lets a test shorten `stableFor`, so a case can watch the count reset without waiting five minutes.
+A `Fetched` program has one more thing to wait for. Its executable may not be on the machine yet, and nothing can start it until the fetch has put it there. `NativeProgramOptions` carries `ready`, which every question waits on before it reaches the server. A program on a TypeScript 7 already on disk is ready at once. The plugin gives a `Fetched` program the capability's `fetch`, which the host runs once per machine. So the first question waits for the download and every later one finds it done. A fetch that fails fails the question with its reason, and diagnostics show that reason where the person looks.
+
+`NativeProgramOptions` also lets a test shorten `stableFor`, so a case can watch the count reset without waiting five minutes, and hand in a `ready` of its own. A caller names only the options it changes, and `defaultOptions` fills in the rest.
 
 `dispose` marks the program disposed before it stops the server. A disposed program starts nothing, so a warm-up still under way cannot bring the server back after the program was shut down. A question asked of it fails with `NativeProgramDisposed`, which says the program was shut down rather than that its server crashed.
 
@@ -270,9 +292,13 @@ const maxRestarts = 3
 
 export interface NativeProgramOptions {
   readonly stableFor: number
+  readonly ready: () => Promise<void>
 }
 
-const defaultOptions: NativeProgramOptions = { stableFor: 5 * 60_000 }
+const defaultOptions: NativeProgramOptions = {
+  stableFor: 5 * 60_000,
+  ready: () => Promise.resolve(),
+}
 
 export class NativeServerStopped extends Data.TaggedError('NativeServerStopped')<{
   readonly compiler: string
@@ -298,8 +324,9 @@ export const createNativeProgram = (
   compiler: string,
   workspace: string,
   servedBy: (file: ProductFile) => boolean = () => true,
-  options: NativeProgramOptions = defaultOptions,
+  chosen: Partial<NativeProgramOptions> = {},
 ): ProductProgram => {
+  const options: NativeProgramOptions = { ...defaultOptions, ...chosen }
   const state: {
     open: ReadonlyMap<string, ProductFile>
     composition: ReadonlyMap<string, ProductFile>
@@ -375,6 +402,9 @@ export const createNativeProgram = (
         },
         rename: {},
         references: {},
+        documentSymbol: { hierarchicalDocumentSymbolSupport: true },
+        foldingRange: {},
+        selectionRange: {},
       },
     })
     state.server = Option.some(server)
@@ -451,19 +481,21 @@ The warm-up asks only a server that is running, through `live`, and never starts
 
   const ask = <A>(fileName: string, method: string, params: unknown): Promise<A> => {
     openForQuestion(fileName)
-    return Option.match(running(), {
-      onNone: () =>
-        Promise.reject(
-          state.disposed
-            ? new NativeProgramDisposed({ workspace })
-            : new NativeServerStopped({ compiler, workspace }),
-        ),
-      onSome: (server) => {
-        const answer = server.request<A>(method, params)
-        void answer.then(warm, () => undefined).catch(orNothing(undefined))
-        return answer
-      },
-    })
+    return options.ready().then(() =>
+      Option.match(running(), {
+        onNone: () =>
+          Promise.reject(
+            state.disposed
+              ? new NativeProgramDisposed({ workspace })
+              : new NativeServerStopped({ compiler, workspace }),
+          ),
+        onSome: (server) => {
+          const answer = server.request<A>(method, params)
+          void answer.then(warm, () => undefined).catch(orNothing(undefined))
+          return answer
+        },
+      }),
+    )
   }
 
   const orNothing =
@@ -486,6 +518,8 @@ The warm-up asks only a server that is running, through `live`, and never starts
 A question that fails, because the server stopped, was given up on, or the program was disposed, must not vanish into the log. Diagnostics turn the failure into one error diagnostic with its message, through `orFailureDiagnostic`, where the person sees it. Every other question answers with nothing, through `orNothing`. Both write the message to the log once.
 
 The program forwards each question in the form LSP gives it. A definition may come back as locations rather than links, and `asLinks` turns each location into a link to the same place, the form the plugin rewrites. Diagnostics come back as a report, and the program hands on its items. Completions may come back as a bare list of items, and `asCompletionList` wraps one in a complete list. Code actions may come with bare commands beside them, and the program keeps only the actions, the form the plugin handles. An action whose edit is left for later goes back to the same server to be resolved, and an answer of nothing hands back the action as it was. An action that already carries its edit, as TypeScript 7's `Organize Imports` does, is complete, and resolving it hands it back unchanged rather than asking the server, which refuses such a request.
+
+Three questions ask only about the code's shape: the outline of a root's symbols, the ranges an editor folds, and the ranges a selection grows through as the person widens it. The server answers them like any other question, and an answer of nothing hands on nothing. The client asked for the outline nested, so the server answers with `DocumentSymbol`s, each holding the symbols declared inside it.
 
 =>
 
@@ -583,6 +617,25 @@ The program forwards each question in the form LSP gives it. A definition may co
             .then((resolved) => resolved ?? action)
             .catch(orNothing(action))
         : Promise.resolve(action),
+    documentSymbols: (fileName) =>
+      ask<DocumentSymbol[] | null>(fileName, 'textDocument/documentSymbol', {
+        textDocument: document(fileName),
+      })
+        .then((found) => found ?? undefined)
+        .catch(orNothing<DocumentSymbol[] | undefined>(undefined)),
+    foldingRanges: (fileName) =>
+      ask<FoldingRange[] | null>(fileName, 'textDocument/foldingRange', {
+        textDocument: document(fileName),
+      })
+        .then((found) => found ?? undefined)
+        .catch(orNothing<FoldingRange[] | undefined>(undefined)),
+    selectionRanges: (fileName, positions) =>
+      ask<SelectionRange[] | null>(fileName, 'textDocument/selectionRange', {
+        textDocument: document(fileName),
+        positions,
+      })
+        .then((found) => found ?? undefined)
+        .catch(orNothing<SelectionRange[] | undefined>(undefined)),
     dispose: () => {
       state.disposed = true
       Option.match(state.server, {
@@ -595,7 +648,7 @@ The program forwards each question in the form LSP gives it. A definition may co
 
 ## What the program draws on
 
-Node's `fs`, `module` and `path` find a project's `typescript` package and the native executable beside it, follow a linked folder to its real path, check that the executable may be run, and make a served root's missing folder when it lies inside the workspace. The bridge from the previous chapter starts and speaks to the server, and the product program supplies the `ProductProgram` contract and the `ProductFile` each root syncs as. The service names a `ProductProject`. Volar's types name the answers: `CodeAction`, `Command`, `CompletionItem`, `CompletionList`, `Diagnostic`, `Hover`, `Location`, `LocationLink`, `Position` and `WorkspaceEdit`. `URI` names a root by its `file:` address. Effect's `Data` builds the `CompilerChoice` and the tagged failures, `Match` reads the forms an answer comes in, `Result` catches a folder that cannot be made, and `Array`, `Option` and `pipe` carry the steps.
+Node's `fs`, `module` and `path` find a project's `typescript` package and the native executable beside it, follow a linked folder to its real path, check that the executable may be run, and make a served root's missing folder when it lies inside the workspace. The bridge from the previous chapter starts and speaks to the server, and the product program supplies the `ProductProgram` contract and the `ProductFile` each root syncs as. The service names a `ProductProject`, and the service contract names the `FetchedTypeScript` the host describes. Volar's types name the answers: `CodeAction`, `Command`, `CompletionItem`, `CompletionList`, `Diagnostic`, `DocumentSymbol`, `FoldingRange`, `Hover`, `Location`, `LocationLink`, `Position`, `SelectionRange` and `WorkspaceEdit`. `URI` names a root by its `file:` address. Effect's `Data` builds the `CompilerChoice` and the tagged failures, `Match` reads the forms an answer comes in, `Result` catches a folder that cannot be made, and `Array`, `Option` and `pipe` carry the steps.
 
 =>
 
@@ -609,13 +662,17 @@ import type {
   CompletionItem,
   CompletionList,
   Diagnostic,
+  DocumentSymbol,
+  FoldingRange,
   Hover,
   Location,
   LocationLink,
   Position,
+  SelectionRange,
   WorkspaceEdit,
 } from '@volar/language-service'
 import { URI } from 'vscode-uri'
+import type { FetchedTypeScript } from '@athrio/loom-lang-services/LanguageService'
 import { type LanguageServerProcess, spawnLanguageServer } from './LanguageServerProcess'
 import type { ProductFile, ProductProgram } from './ProductProgram'
 import type { ProductProject } from './TypescriptService'
@@ -640,11 +697,12 @@ import type { ProductProject } from './TypescriptService'
 
 ## What the tests draw on
 
-The cases below share one test file, so its imports sit here, ahead of them. They draw on Bun's test runner, Effect's `Option`, Node's `fs`, `os` and `path` to build fake installs in scratch folders, the program's own exports, and the stand-in language server from the previous chapter. The cases that check which roots a native program serves also draw on the service's `servedByCompiler` and `configNear`, and on TypeScript 6, whose file search `configNear` uses to find a `tsconfig.json`.
+The cases below share one test file, so its imports sit here, ahead of them. They draw on Bun's test runner, Effect's `Option`, Node's `fs`, `os` and `path` to build fake installs in scratch folders, the program's own exports, and the stand-in language server from the previous chapter. The cases that check which roots a native program serves also draw on the service's `servedByCompiler` and `configNear`.
+
+`fetched` stands for the TypeScript 7 the host would fetch. Its executable lies nowhere, and its fetch fails, so a case that reached for it by mistake would say so.
 
 =>
 
-import * as ts from 'typescript'
 import { describe, expect, it } from 'bun:test'
 import { Option } from 'effect'
 import {
@@ -666,11 +724,17 @@ import {
 import { configNear, servedByCompiler } from '../src/TypescriptService'
 import { settled, standInServer, startedIn } from './StandInServer'
 
+const fetched = {
+  version: '7.0.0-test',
+  executable: '/nowhere/tsc',
+  fetch: () => Promise.reject(new Error('the tests fetch nothing')),
+}
+
 ## Testing which compiler a project uses
 
 These cases check the choice `compilerChoiceFor` makes, with no TypeScript 7 installed. `install` writes a fake `typescript` package of a given version into a project folder, and for TypeScript 7 the companion package for this platform with an executable in its `lib` folder. The executable is an empty file marked executable, since the cases only look for it. `projectAt` names a project governed by the folder's `tsconfig.json`, and `looseAt` names a loom that no `tsconfig.json` governs.
 
-A project that installs TypeScript 7 is `Native`, with its executable. A project that installs TypeScript 6 is `Classic`. A project on TypeScript 7 without the companion package for this platform is `Unavailable`, and so is one whose executable may not be run. A loom with no `tsconfig.json` chooses from its own folder, and so does the search across the whole corpus, whose project carries a key of its own. The `nativeCompiler` setting wins over the project's own install and reads a relative folder from the workspace. It follows a linked folder to the store the link points into, the way pnpm lays packages out. It makes the project `Unavailable` when it names nothing, names TypeScript 6, names a package that is not `typescript`, or is not a path at all.
+A project that installs TypeScript 7 is `Native`, with its executable. A project that installs TypeScript 6 is `Classic`, and a project that installs no TypeScript is `Fetched`, on the TypeScript 7 the host describes. A project on TypeScript 7 without the companion package for this platform is `Unavailable`, and so is one whose executable may not be run. A loom with no `tsconfig.json` chooses from its own folder, and so does the search across the whole corpus, whose project carries a key of its own. The `nativeCompiler` setting wins over the project's own install and reads a relative folder from the workspace. It follows a linked folder to the store the link points into, the way pnpm lays packages out. It makes the project `Unavailable` when it names nothing, names TypeScript 6, names a package that is not `typescript`, or is not a path at all.
 
 `servedByCompiler`, from the service's chapter, builds on that choice. In a workspace on TypeScript 7 with no `tsconfig.json`, it serves the TypeScript roots of two looms in one folder, and not a `package.json` the book also tangles. A project whose own `tsconfig.json` and `typescript` package keep it on TypeScript 6 stays out.
 
@@ -722,7 +786,7 @@ describe('compilerChoiceFor chooses TypeScript 7 for a project that installs it'
   it('chooses the native executable of a project on TypeScript 7', () => {
     const root = folder()
     install(root, '7.0.2')
-    expect(compilerChoiceFor(projectAt(root), Option.none())).toEqual(
+    expect(compilerChoiceFor(projectAt(root), Option.none(), fetched)).toEqual(
       expect.objectContaining({ _tag: 'Native', executable: executableIn(root) }),
     )
   })
@@ -730,13 +794,20 @@ describe('compilerChoiceFor chooses TypeScript 7 for a project that installs it'
   it('leaves a project on TypeScript 6 to the TypeScript 6 program', () => {
     const root = folder()
     install(root, '6.0.3')
-    expect(compilerChoiceFor(projectAt(root), Option.none())._tag).toBe('Classic')
+    expect(compilerChoiceFor(projectAt(root), Option.none(), fetched)._tag).toBe('Classic')
+  })
+
+  it('gives a project with no TypeScript the TypeScript 7 Loom fetches', () => {
+    const root = folder()
+    expect(compilerChoiceFor(projectAt(root), Option.none(), fetched)).toEqual(
+      expect.objectContaining({ _tag: 'Fetched', version: fetched.version, executable: fetched.executable }),
+    )
   })
 
   it('reports a TypeScript 7 without this platform\'s executable as unavailable', () => {
     const root = folder()
     install(root, '7.0.2', 'none')
-    const choice = compilerChoiceFor(projectAt(root), Option.none())
+    const choice = compilerChoiceFor(projectAt(root), Option.none(), fetched)
     expect(choice._tag).toBe('Unavailable')
     expect(choice._tag === 'Unavailable' && choice.reason).toContain(`@typescript/${companion}`)
   })
@@ -744,20 +815,20 @@ describe('compilerChoiceFor chooses TypeScript 7 for a project that installs it'
   it('reports an executable that may not be run as unavailable', () => {
     const root = folder()
     install(root, '7.0.2', 'plain')
-    expect(compilerChoiceFor(projectAt(root), Option.none())._tag).toBe('Unavailable')
+    expect(compilerChoiceFor(projectAt(root), Option.none(), fetched)._tag).toBe('Unavailable')
   })
 
   it('chooses from the loom\'s own folder when no tsconfig.json governs it', () => {
     const root = folder()
     install(root, '7.0.2')
-    expect(compilerChoiceFor(looseAt(root), Option.none())._tag).toBe('Native')
+    expect(compilerChoiceFor(looseAt(root), Option.none(), fetched)._tag).toBe('Native')
   })
 
   it('chooses the same for the corpus search, whose key is its own', () => {
     const root = folder()
     install(root, '7.0.2')
     const corpus = { ...looseAt(root), key: `corpus of ${join(root, 'chapter.loom')}` }
-    expect(compilerChoiceFor(corpus, Option.none())._tag).toBe('Native')
+    expect(compilerChoiceFor(corpus, Option.none(), fetched)._tag).toBe('Native')
   })
 })
 
@@ -767,7 +838,7 @@ describe('compilerChoiceFor follows the nativeCompiler setting', () => {
     install(root, '6.0.3')
     const elsewhere = folder()
     const named = install(elsewhere, '7.0.2')
-    expect(compilerChoiceFor(projectAt(root), Option.some(named))).toEqual(
+    expect(compilerChoiceFor(projectAt(root), Option.some(named), fetched)).toEqual(
       expect.objectContaining({ _tag: 'Native', executable: executableIn(elsewhere) }),
     )
   })
@@ -779,20 +850,20 @@ describe('compilerChoiceFor follows the nativeCompiler setting', () => {
     install(join(root, 'tools'), '7.0.2')
     const project = { ...projectAt(root), loom: join(root, 'corpus', 'part', 'chapter.loom') }
     expect(
-      compilerChoiceFor(project, Option.some('tools/node_modules/typescript'))._tag,
+      compilerChoiceFor(project, Option.some('tools/node_modules/typescript'), fetched)._tag,
     ).toBe('Native')
   })
 
   it('reports a setting that names no typescript package as unavailable', () => {
     const root = folder()
-    const choice = compilerChoiceFor(projectAt(root), Option.some(join(root, 'nothing-here')))
+    const choice = compilerChoiceFor(projectAt(root), Option.some(join(root, 'nothing-here')), fetched)
     expect(choice._tag).toBe('Unavailable')
   })
 
   it('reports a setting that names TypeScript 6 as unavailable', () => {
     const root = folder()
     const named = install(folder(), '6.0.3')
-    const choice = compilerChoiceFor(projectAt(root), Option.some(named))
+    const choice = compilerChoiceFor(projectAt(root), Option.some(named), fetched)
     expect(choice._tag).toBe('Unavailable')
     expect(choice._tag === 'Unavailable' && choice.reason).toContain('TypeScript 6')
   })
@@ -800,13 +871,13 @@ describe('compilerChoiceFor follows the nativeCompiler setting', () => {
   it('reports a setting that names another package as unavailable', () => {
     const root = folder()
     const named = install(folder(), '7.0.2', 'executable', 'not-typescript')
-    expect(compilerChoiceFor(projectAt(root), Option.some(named))._tag).toBe('Unavailable')
+    expect(compilerChoiceFor(projectAt(root), Option.some(named), fetched)._tag).toBe('Unavailable')
   })
 
   it('reports a setting that is not a path as unavailable', () => {
     const root = folder()
-    expect(compilerChoiceFor(projectAt(root), Option.some(true))._tag).toBe('Unavailable')
-    expect(compilerChoiceFor(projectAt(root), Option.some(''))._tag).toBe('Unavailable')
+    expect(compilerChoiceFor(projectAt(root), Option.some(true), fetched)._tag).toBe('Unavailable')
+    expect(compilerChoiceFor(projectAt(root), Option.some(''), fetched)._tag).toBe('Unavailable')
   })
 
   it('follows a linked folder to the store it points into', () => {
@@ -816,7 +887,7 @@ describe('compilerChoiceFor follows the nativeCompiler setting', () => {
     mkdirSync(join(root, 'node_modules'), { recursive: true })
     symlinkSync(real, join(root, 'node_modules', 'typescript-native'))
     const named = join(root, 'node_modules', 'typescript-native')
-    expect(compilerChoiceFor(projectAt(root), Option.some(named))).toEqual(
+    expect(compilerChoiceFor(projectAt(root), Option.some(named), fetched)).toEqual(
       expect.objectContaining({ _tag: 'Native', executable: executableIn(store) }),
     )
   })
@@ -830,7 +901,7 @@ describe('servedByCompiler names the roots a native program serves', () => {
     mkdirSync(legacy, { recursive: true })
     install(legacy, '6.0.3')
     writeFileSync(join(legacy, 'tsconfig.json'), '{}')
-    const servedBy = servedByCompiler(configNear(ts), Option.none())(executableIn(root))
+    const servedBy = servedByCompiler(configNear(), Option.none(), fetched)(executableIn(root))
     const rootOf = (path: string, loom: string) => ({ path: join(root, path), text: '', loom: join(root, loom) })
     expect(servedBy(rootOf('src/a.ts', 'corpus/a.loom'))).toBe(true)
     expect(servedBy(rootOf('src/b.ts', 'corpus/b.loom'))).toBe(true)
@@ -843,7 +914,7 @@ describe('servedByCompiler names the roots a native program serves', () => {
 
 These cases drive `createNativeProgram` against the stand-in server, which writes every message it receives to its log. They check the behaviour around the server rather than TypeScript itself. A failure shows up where the person would see it, as an error diagnostic, so `diagnosticsOf` reads the message a program reports for a root.
 
-The warm-up runs after the first answer and asks for the diagnostics of every root the program serves, but not a loose root, and not a root `servedBy` leaves to TypeScript 6. It keeps the loose root being edited open. A served root whose folder does not exist yet has the folder made for it, and a loose root has none made. A root whose folder lies outside the workspace has none made either. A root whose folder cannot be made, under a read-only folder, costs the other roots nothing. The program answers, keeps every root open, and syncs again without failing. A loose root of one loom is closed when another loom is asked about. The warm-up stops when the server dies, without restarting it, and a restarted server is warmed again. A program disposed mid warm-up starts no new server and reports that it was shut down. A server that crashes as soon as it starts is restarted three times, then the program reports that it stopped, and it stays given up on however long the gaps between questions, since such a server never stayed up. A server that ran for a while before it crashed has its restarts counted afresh. An unavailable project reports its reason.
+The warm-up runs after the first answer and asks for the diagnostics of every root the program serves, but not a loose root, and not a root `servedBy` leaves to TypeScript 6. It keeps the loose root being edited open. A served root whose folder does not exist yet has the folder made for it, and a loose root has none made. A root whose folder lies outside the workspace has none made either. A root whose folder cannot be made, under a read-only folder, costs the other roots nothing. The program answers, keeps every root open, and syncs again without failing. A loose root of one loom is closed when another loom is asked about. The warm-up stops when the server dies, without restarting it, and a restarted server is warmed again. A program disposed mid warm-up starts no new server and reports that it was shut down. A server that crashes as soon as it starts is restarted three times, then the program reports that it stopped, and it stays given up on however long the gaps between questions, since such a server never stayed up. A server that ran for a while before it crashed has its restarts counted afresh. A program waits for its compiler to be ready before it starts the server, and reports a compiler it could not fetch. It forwards the questions about a root's outline, folding and selection to the server. An unavailable project reports its compiler and its reason.
 
 =>
 
@@ -1039,11 +1110,65 @@ describe('createNativeProgram restarts a crashed server a few times', () => {
   })
 })
 
+describe('createNativeProgram waits for its compiler', () => {
+  it('starts the server only once its compiler is ready', async () => {
+    const stand = standInServer()
+    const gate = Promise.withResolvers<void>()
+    const program = createNativeProgram(stand.command, stand.folder, () => true, {
+      ready: () => gate.promise,
+    })
+    const a = join(stand.folder, 'a.ts')
+    program.sync([{ path: a, text: 'a' }])
+    const hover = program.hover(a, position)
+    await settled(200)
+    expect(startedIn(stand.lines())).toHaveLength(0)
+    gate.resolve()
+    expect(await hover).toBeDefined()
+    expect(startedIn(stand.lines())).toHaveLength(1)
+    program.dispose()
+  })
+
+  it('reports a compiler it could not fetch, and starts nothing', async () => {
+    const stand = standInServer()
+    const program = createNativeProgram(stand.command, stand.folder, () => true, {
+      ready: () => Promise.reject(new Error('could not fetch TypeScript 7.0.0-test')),
+    })
+    const a = join(stand.folder, 'a.ts')
+    program.sync([{ path: a, text: 'a' }])
+    expect(await diagnosticsOf(program, a)).toContain('could not fetch TypeScript 7.0.0-test')
+    expect(startedIn(stand.lines())).toHaveLength(0)
+    program.dispose()
+  })
+})
+
+describe('createNativeProgram asks the server about the code\'s shape', () => {
+  it('forwards the outline, folding and selection questions', async () => {
+    const stand = standInServer()
+    const program = createNativeProgram(stand.command, stand.folder)
+    const a = join(stand.folder, 'a.ts')
+    program.sync([{ path: a, text: 'export const a = 1' }])
+    await program.documentSymbols(a)
+    await program.foldingRanges(a)
+    await program.selectionRanges(a, [position])
+    expect(stand.lines()).toEqual(
+      expect.arrayContaining([
+        'textDocument/documentSymbol a.ts',
+        'textDocument/foldingRange a.ts',
+        'textDocument/selectionRange a.ts',
+      ]),
+    )
+    program.dispose()
+  })
+})
+
 describe('createUnavailableProgram reports its reason', () => {
-  it('reports the reason as an error diagnostic and answers other questions with nothing', async () => {
-    const program = createUnavailableProgram('install @typescript/typescript-test')
-    expect(await diagnosticsOf(program, '/a.ts')).toContain('install @typescript/typescript-test')
+  it('reports the compiler and the reason as an error diagnostic and answers other questions with nothing', async () => {
+    const program = createUnavailableProgram('TypeScript 7', 'install @typescript/typescript-test')
+    const message = await diagnosticsOf(program, '/a.ts')
+    expect(message).toContain('TypeScript 7 is unavailable')
+    expect(message).toContain('install @typescript/typescript-test')
     expect(await program.hover('/a.ts', position)).toBeUndefined()
+    expect(await program.documentSymbols('/a.ts')).toBeUndefined()
   })
 })
 

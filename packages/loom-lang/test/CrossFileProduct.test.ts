@@ -10,7 +10,7 @@ import { PackageConfig } from '../src/PackageConfig'
 import { LoomFormatter } from '../src/LoomFormatter'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { loomLanguagePlugin, loomServicePlugins } from '../src/LoomLanguagePlugin'
-import { serviceStore } from './store'
+import { serviceStore, classicSdk } from './store'
 
 // End-to-end through Volar, across two .loom files. library.loom exports `greet`
 // and tangles to library.ts; two callers sit beside it in the same corpus.
@@ -66,7 +66,7 @@ const checkerFor = async (entry: string) => {
     ),
   )
   const servicePlugins = await runtime.runPromise(
-    loomServicePlugins(runtime, ts, entry),
+    loomServicePlugins(runtime, classicSdk(ts), entry),
   )
   return createTypeScriptInferredChecker(
     [loomLanguagePlugin(runtime)],

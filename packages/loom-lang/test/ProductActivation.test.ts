@@ -10,7 +10,7 @@ import { PackageConfig } from '../src/PackageConfig'
 import { LoomFormatter } from '../src/LoomFormatter'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { loomLanguagePlugin, loomServicePlugins } from '../src/LoomLanguagePlugin'
-import { serviceStore } from './store'
+import { serviceStore, classicSdk } from './store'
 
 // End-to-end through Volar: activating `typescript` in loom.json makes loadActive
 // load @athrio/loom-service-typescript from the store, whose service checks the
@@ -70,7 +70,7 @@ const checkerActivating = async (languages: ReadonlyArray<string>) => {
   // The real collect-and-register pass: it registers TypescriptService when the
   // config activates typescript; the service checks the file's Products on its own.
   const servicePlugins = await runtime.runPromise(
-    loomServicePlugins(runtime, ts, fixture),
+    loomServicePlugins(runtime, classicSdk(ts), fixture),
   )
   return createTypeScriptInferredChecker(
     [loomLanguagePlugin(runtime)],

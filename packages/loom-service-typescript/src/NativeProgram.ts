@@ -8,13 +8,17 @@ import type {
   CompletionItem,
   CompletionList,
   Diagnostic,
+  DocumentSymbol,
+  FoldingRange,
   Hover,
   Location,
   LocationLink,
   Position,
+  SelectionRange,
   WorkspaceEdit,
 } from '@volar/language-service'
 import { URI } from 'vscode-uri'
+import type { FetchedTypeScript } from '@athrio/loom-lang-services/LanguageService'
 import { type LanguageServerProcess, spawnLanguageServer } from './LanguageServerProcess'
 import type { ProductFile, ProductProgram } from './ProductProgram'
 import type { ProductProject } from './TypescriptService'
@@ -22,10 +26,19 @@ import type { ProductProject } from './TypescriptService'
 export type CompilerChoice = Data.TaggedEnum<{
   Classic: {}
   Native: { readonly executable: string }
+  Fetched: { readonly version: string; readonly executable: string }
   Unavailable: { readonly reason: string }
 }>
 
 export const CompilerChoice = Data.taggedEnum<CompilerChoice>()
+
+export const executableOf = (choice: CompilerChoice): Option.Option<string> =>
+  CompilerChoice.$match(choice, {
+    Classic: () => Option.none(),
+    Native: ({ executable }) => Option.some(executable),
+    Fetched: ({ executable }) => Option.some(executable),
+    Unavailable: () => Option.none(),
+  })
 
 const executableName = process.platform === 'win32' ? 'tsc.exe' : 'tsc'
 const companionPackage = `@typescript/typescript-${process.platform}-${process.arch}`
@@ -65,18 +78,13 @@ const typescriptPackageFrom = (folder: string): Option.Option<string> =>
 export const projectFolder = (project: ProductProject): string =>
   Option.match(project.config, { onNone: () => dirname(project.loom), onSome: dirname })
 
-const choiceFromProject = (project: ProductProject): CompilerChoice =>
+const choiceFromPackage = (project: ProductProject, packageJson: string): CompilerChoice =>
   pipe(
-    typescriptPackageFrom(projectFolder(project)),
-    Option.flatMap((packageJson) =>
-      Option.map(
-        Option.filter(manifestOf(packageJson), (manifest) => manifest.major >= 7),
-        ({ major }) => ({ packageJson, major }),
-      ),
-    ),
+    manifestOf(packageJson),
+    Option.filter((manifest) => manifest.major >= 7),
     Option.match({
       onNone: () => CompilerChoice.Classic(),
-      onSome: ({ packageJson, major }) =>
+      onSome: ({ major }) =>
         Option.match(nativeExecutable(packageJson), {
           onSome: (path) => CompilerChoice.Native({ executable: path }),
           onNone: () =>
@@ -88,6 +96,13 @@ const choiceFromProject = (project: ProductProject): CompilerChoice =>
         }),
     }),
   )
+
+const choiceFromProject = (project: ProductProject, fetched: FetchedTypeScript): CompilerChoice =>
+  Option.match(typescriptPackageFrom(projectFolder(project)), {
+    onNone: () =>
+      CompilerChoice.Fetched({ version: fetched.version, executable: fetched.executable }),
+    onSome: (packageJson) => choiceFromPackage(project, packageJson),
+  })
 
 const workspaceRootOf = (loom: string): string => {
   const climb = (folder: string): Option.Option<string> => {
@@ -125,9 +140,10 @@ const choiceFromSetting = (project: ProductProject, setting: string): CompilerCh
 export const compilerChoiceFor = (
   project: ProductProject,
   setting: Option.Option<unknown>,
+  fetched: FetchedTypeScript,
 ): CompilerChoice =>
   Option.match(setting, {
-    onNone: () => choiceFromProject(project),
+    onNone: () => choiceFromProject(project, fetched),
     onSome: (named) =>
       typeof named === 'string' && named.trim() !== ''
         ? choiceFromSetting(project, named)
@@ -136,11 +152,12 @@ export const compilerChoiceFor = (
           }),
   })
 
-export class NativeCompilerUnavailable extends Data.TaggedError('NativeCompilerUnavailable')<{
+export class CompilerUnavailable extends Data.TaggedError('CompilerUnavailable')<{
+  readonly compiler: string
   readonly reason: string
 }> {
   get message(): string {
-    return `TypeScript 7 is unavailable: ${this.reason}`
+    return `${this.compiler} is unavailable: ${this.reason}`
   }
 }
 
@@ -157,8 +174,8 @@ const reportOnce = (reported: Set<string>, message: string): void => {
   console.warn(`loom: ${message}`)
 }
 
-export const createUnavailableProgram = (reason: string): ProductProgram => {
-  const failure = new NativeCompilerUnavailable({ reason })
+export const createUnavailableProgram = (compiler: string, reason: string): ProductProgram => {
+  const failure = new CompilerUnavailable({ compiler, reason })
   const reported = new Set<string>()
   const nothing = <A>(empty: A): Promise<A> => {
     reportOnce(reported, failure.message)
@@ -174,6 +191,9 @@ export const createUnavailableProgram = (reason: string): ProductProgram => {
     rename: () => nothing(undefined),
     codeActions: () => nothing([]),
     resolveCodeAction: (action) => nothing(action),
+    documentSymbols: () => nothing(undefined),
+    foldingRanges: () => nothing(undefined),
+    selectionRanges: () => nothing(undefined),
     dispose: () => undefined,
   }
 }
@@ -207,9 +227,13 @@ const maxRestarts = 3
 
 export interface NativeProgramOptions {
   readonly stableFor: number
+  readonly ready: () => Promise<void>
 }
 
-const defaultOptions: NativeProgramOptions = { stableFor: 5 * 60_000 }
+const defaultOptions: NativeProgramOptions = {
+  stableFor: 5 * 60_000,
+  ready: () => Promise.resolve(),
+}
 
 export class NativeServerStopped extends Data.TaggedError('NativeServerStopped')<{
   readonly compiler: string
@@ -235,8 +259,9 @@ export const createNativeProgram = (
   compiler: string,
   workspace: string,
   servedBy: (file: ProductFile) => boolean = () => true,
-  options: NativeProgramOptions = defaultOptions,
+  chosen: Partial<NativeProgramOptions> = {},
 ): ProductProgram => {
+  const options: NativeProgramOptions = { ...defaultOptions, ...chosen }
   const state: {
     open: ReadonlyMap<string, ProductFile>
     composition: ReadonlyMap<string, ProductFile>
@@ -312,6 +337,9 @@ export const createNativeProgram = (
         },
         rename: {},
         references: {},
+        documentSymbol: { hierarchicalDocumentSymbolSupport: true },
+        foldingRange: {},
+        selectionRange: {},
       },
     })
     state.server = Option.some(server)
@@ -378,19 +406,21 @@ export const createNativeProgram = (
 
   const ask = <A>(fileName: string, method: string, params: unknown): Promise<A> => {
     openForQuestion(fileName)
-    return Option.match(running(), {
-      onNone: () =>
-        Promise.reject(
-          state.disposed
-            ? new NativeProgramDisposed({ workspace })
-            : new NativeServerStopped({ compiler, workspace }),
-        ),
-      onSome: (server) => {
-        const answer = server.request<A>(method, params)
-        void answer.then(warm, () => undefined).catch(orNothing(undefined))
-        return answer
-      },
-    })
+    return options.ready().then(() =>
+      Option.match(running(), {
+        onNone: () =>
+          Promise.reject(
+            state.disposed
+              ? new NativeProgramDisposed({ workspace })
+              : new NativeServerStopped({ compiler, workspace }),
+          ),
+        onSome: (server) => {
+          const answer = server.request<A>(method, params)
+          void answer.then(warm, () => undefined).catch(orNothing(undefined))
+          return answer
+        },
+      }),
+    )
   }
 
   const orNothing =
@@ -500,6 +530,25 @@ export const createNativeProgram = (
             .then((resolved) => resolved ?? action)
             .catch(orNothing(action))
         : Promise.resolve(action),
+    documentSymbols: (fileName) =>
+      ask<DocumentSymbol[] | null>(fileName, 'textDocument/documentSymbol', {
+        textDocument: document(fileName),
+      })
+        .then((found) => found ?? undefined)
+        .catch(orNothing<DocumentSymbol[] | undefined>(undefined)),
+    foldingRanges: (fileName) =>
+      ask<FoldingRange[] | null>(fileName, 'textDocument/foldingRange', {
+        textDocument: document(fileName),
+      })
+        .then((found) => found ?? undefined)
+        .catch(orNothing<FoldingRange[] | undefined>(undefined)),
+    selectionRanges: (fileName, positions) =>
+      ask<SelectionRange[] | null>(fileName, 'textDocument/selectionRange', {
+        textDocument: document(fileName),
+        positions,
+      })
+        .then((found) => found ?? undefined)
+        .catch(orNothing<SelectionRange[] | undefined>(undefined)),
     dispose: () => {
       state.disposed = true
       Option.match(state.server, {

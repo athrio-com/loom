@@ -268,7 +268,7 @@ const editorAt = async (folder: string) => {
 
 describe('the executable — language server', () => {
   it(
-    'unpacks the TypeScript it carries and formats with a service from the store',
+    'starts with no TypeScript and formats with a service from the store',
     async () => {
       const dir = workspace('corpus: .', 'languages:', '  typescript: {}', 'primary: typescript')
       installStandIn(dir)
@@ -283,11 +283,7 @@ describe('the executable — language server', () => {
           capabilities: {},
         })
         await connection.sendNotification('initialized', {})
-        expect(
-          existsSync(
-            join(dir, '.loom', 'services', 'node_modules', 'typescript', 'lib', 'lib.es5.d.ts'),
-          ),
-        ).toBe(true)
+        expect(existsSync(join(dir, '.loom', 'services', 'node_modules', 'typescript'))).toBe(false)
         await connection.sendNotification('textDocument/didOpen', {
           textDocument: {
             uri: pathToFileURL(loom).href,

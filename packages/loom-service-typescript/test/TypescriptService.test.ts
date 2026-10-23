@@ -214,7 +214,7 @@ describe('productTarget finds a root\'s project', () => {
     const loom = join(folder, 'corpus', 'value.loom')
     const source = 'export const value: string = null\n'
     const { programFor, dispose } = programsFor()
-    const configOf = configNear(ts)
+    const configOf = configNear()
     const errorsAt = async (path: string) => {
       const target = productTarget(
         [URI.file(loom), 'main'],
@@ -245,7 +245,7 @@ describe('productTarget finds a root\'s project', () => {
       rootAt(join(folder, 'other', 'src', 'third.ts'), loomOf('third'), 'export const three = 3\n'),
     ]
     const { programFor, dispose } = programsFor()
-    const configOf = configNear(ts)
+    const configOf = configNear()
     const programOf = (name: string, reach: 'project' | 'corpus') =>
       productTarget(
         [URI.file(loomOf(name)), 'main'],
@@ -295,31 +295,48 @@ describe('productTarget finds a root\'s project', () => {
   })
 })
 
+import { Result } from 'effect'
+import type { TypescriptSdkApi } from '@athrio/loom-lang-services/LanguageService'
+
+const actPath = join(import.meta.dir, 'act.ts')
+const actLoom = join(import.meta.dir, 'act.loom')
+const actCode =
+  'export const total = 1 + 2\n\nexport function twice(n: number): number {\n  return n * 2\n}\n'
+
+const standInContext = {
+  decodeEmbeddedDocumentUri: (uri: URI): readonly [URI, string] | undefined =>
+    uri.scheme === 'loom-embedded' ? [URI.file(uri.path), uri.fragment] : undefined,
+  encodeEmbeddedDocumentUri: (uri: URI, id: string): URI =>
+    URI.from({ scheme: 'loom-embedded', path: uri.path, fragment: id }),
+} as unknown as LanguageServiceContext
+
+const lending = (classic: Result.Result<typeof ts, string>): TypescriptSdkApi => ({
+  classic: () => classic,
+  fetched: {
+    version: '7.0.0-test',
+    executable: '/nowhere/tsc',
+    fetch: () => Promise.reject(new Error('the tests fetch nothing')),
+  },
+})
+
+const pluginWith = (sdk: TypescriptSdkApi) =>
+  productPlugin(sdk, {
+    rootsFor: () => [
+      { path: actPath, content: actCode, loomPath: actLoom, rootId: 'main', heading: headOf(actLoom) },
+    ],
+  }).create(standInContext)
+
+const embedded = standInContext.encodeEmbeddedDocumentUri(URI.file(actLoom), 'main').toString()
+
+const documentOf = () =>
+  ({ uri: embedded, languageId: 'typescript', version: 1, getText: () => actCode }) as unknown as Parameters<
+    NonNullable<ReturnType<ReturnType<typeof productPlugin>['create']>['provideCodeActions']>
+  >[0]
+
+const never = { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => {} }) }
+
 describe('productPlugin resolves a refactor only when it is picked', () => {
-  const actPath = '/project/act.ts'
-  const actLoom = '/project/act.loom'
-  const actCode = 'export const total = 1 + 2\n'
-
-  const standInContext = {
-    decodeEmbeddedDocumentUri: (uri: URI): readonly [URI, string] | undefined =>
-      uri.scheme === 'loom-embedded' ? [URI.file(uri.path), uri.fragment] : undefined,
-    encodeEmbeddedDocumentUri: (uri: URI, id: string): URI =>
-      URI.from({ scheme: 'loom-embedded', path: uri.path, fragment: id }),
-  } as unknown as LanguageServiceContext
-
-  const plugin = () =>
-    productPlugin(ts, {
-      rootsFor: () => [
-        { path: actPath, content: actCode, loomPath: actLoom, rootId: 'main', heading: headOf(actLoom) },
-      ],
-    }).create(standInContext)
-
-  const embedded = standInContext.encodeEmbeddedDocumentUri(URI.file(actLoom), 'main').toString()
-
-  const documentOf = () =>
-    ({ uri: embedded, languageId: 'typescript', version: 1, getText: () => actCode }) as unknown as Parameters<
-      NonNullable<ReturnType<ReturnType<typeof productPlugin>['create']>['provideCodeActions']>
-    >[0]
+  const plugin = () => pluginWith(lending(Result.succeed(ts)))
 
   const sum = { start: { line: 0, character: 21 }, end: { line: 0, character: 26 } }
 
@@ -327,8 +344,6 @@ describe('productPlugin resolves a refactor only when it is picked', () => {
     ((await instance.provideCodeActions!(documentOf(), sum, { diagnostics: [] }, never)) ?? []).filter(
       (action) => action.kind?.startsWith('refactor'),
     )
-
-  const never = { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => {} }) }
 
   it('lists a refactor without its edit', async () => {
     const refactors = await refactorsAt(plugin())
@@ -352,5 +367,28 @@ describe('productPlugin resolves a refactor only when it is picked', () => {
     ]
     expect(named.length).toBeGreaterThan(0)
     expect(named.every((uri) => uri === embedded)).toBe(true)
+  })
+})
+
+describe('productPlugin answers about the code\'s shape', () => {
+  it('outlines a root, folds its function and grows a selection', async () => {
+    const instance = pluginWith(lending(Result.succeed(ts)))
+    const symbols = (await instance.provideDocumentSymbols!(documentOf(), never)) ?? []
+    const folds = (await instance.provideFoldingRanges!(documentOf(), never)) ?? []
+    const selections =
+      (await instance.provideSelectionRanges!(documentOf(), [{ line: 0, character: 14 }], never)) ?? []
+    expect(symbols.map((symbol) => symbol.name)).toEqual(['total', 'twice'])
+    expect(folds.some((fold) => fold.startLine === 2)).toBe(true)
+    expect(selections).toHaveLength(1)
+  })
+})
+
+describe('productPlugin reports a project that cannot have TypeScript 6', () => {
+  it('fails each check with the reason, rather than fall back to another compiler', async () => {
+    const instance = pluginWith(lending(Result.fail('no TypeScript 6 lies near this project')))
+    const diagnostics = (await instance.provideDiagnostics!(documentOf(), never)) ?? []
+    expect(diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
+      'TypeScript 6 is unavailable: no TypeScript 6 lies near this project',
+    ])
   })
 })

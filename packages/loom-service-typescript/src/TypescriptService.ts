@@ -1,4 +1,4 @@
-import { Array, Effect, Option, pipe } from 'effect'
+import { Array, Effect, Option, pipe, Result } from 'effect'
 import type {
   CodeAction,
   LanguageServicePlugin,
@@ -7,8 +7,9 @@ import type {
   WorkspaceEdit,
 } from '@volar/language-service'
 import { URI } from 'vscode-uri'
+import { statSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { CompilerOptions } from 'typescript'
 import {
@@ -16,9 +17,11 @@ import {
   type ComposedFile,
   type CompositionApi,
   defineLanguageService,
+  type FetchedTypeScript,
   type FormatRequest,
   ServiceError,
   TypescriptSdk,
+  type TypescriptSdkApi,
 } from '@athrio/loom-lang-services/LanguageService'
 import { createProductProgram, type ProductFile, type ProductProgram } from './ProductProgram'
 import {
@@ -26,6 +29,7 @@ import {
   compilerChoiceFor,
   createNativeProgram,
   createUnavailableProgram,
+  executableOf,
   projectFolder,
 } from './NativeProgram'
 
@@ -60,14 +64,22 @@ export const consumerOptions = (ts: TypeScript, config: Option.Option<string>): 
       ),
   })
 
-export const configNear = (ts: TypeScript): ((path: string) => Option.Option<string>) => {
+const isFile = (path: string): boolean =>
+  Option.getOrElse(Option.liftThrowable(() => statSync(path).isFile())(), () => false)
+
+const tsconfigAbove = (folder: string): Option.Option<string> => {
+  const candidate = join(folder, 'tsconfig.json')
+  if (isFile(candidate)) return Option.some(candidate)
+  const parent = dirname(folder)
+  return parent === folder ? Option.none() : tsconfigAbove(parent)
+}
+
+export const configNear = (): ((path: string) => Option.Option<string>) => {
   const found = new Map<string, Option.Option<string>>()
   return (path) => {
     const folder = dirname(path)
     return Option.getOrElse(Option.fromNullishOr(found.get(folder)), () => {
-      const config = Option.fromNullishOr(
-        ts.findConfigFile(folder, ts.sys.fileExists, 'tsconfig.json'),
-      )
+      const config = tsconfigAbove(folder)
       found.set(folder, config)
       return config
     })
@@ -161,25 +173,20 @@ export const productTarget = (
 export const servedByCompiler = (
   configOf: (path: string) => Option.Option<string>,
   nativeSetting: Option.Option<unknown>,
+  fetched: FetchedTypeScript,
 ): ((executable: string) => (file: ProductFile) => boolean) => {
   const scriptExtension = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/
   const choices = new Map<string, CompilerChoice>()
   const choiceOf = (file: ProductFile): CompilerChoice => {
     const project = projectOf(configOf, file.path, file.loom ?? file.path)
     return Option.getOrElse(Option.fromNullishOr(choices.get(project.key)), () => {
-      const chosen = compilerChoiceFor(project, nativeSetting)
+      const chosen = compilerChoiceFor(project, nativeSetting, fetched)
       choices.set(project.key, chosen)
       return chosen
     })
   }
-  return (executable) => (file) => {
-    const choice = choiceOf(file)
-    return (
-      scriptExtension.test(file.path) &&
-      CompilerChoice.$is('Native')(choice) &&
-      choice.executable === executable
-    )
-  }
+  return (executable) => (file) =>
+    scriptExtension.test(file.path) && Option.contains(executableOf(choiceOf(file)), executable)
 }
 
 interface ActionOrigin {
@@ -188,7 +195,7 @@ interface ActionOrigin {
 }
 
 export const productPlugin = (
-  ts: TypeScript,
+  sdk: TypescriptSdkApi,
   composition: CompositionApi,
   nativeSetting: Option.Option<unknown> = Option.none(),
 ): LanguageServicePlugin => ({
@@ -204,29 +211,41 @@ export const productPlugin = (
       codeActionKinds: ['quickfix', 'refactor', 'source.organizeImports'],
       resolveProvider: true,
     },
+    documentSymbolProvider: true,
+    foldingRangeProvider: true,
+    selectionRangeProvider: true,
   },
   create: (context) => {
-    const configOf = configNear(ts)
+    const configOf = configNear()
     const programs = new Map<string, ProductProgram>()
     const nativePrograms = new Map<string, ProductProgram>()
     const actionTargets = new Map<string, ProductTarget>()
-    const servedBy = servedByCompiler(configOf, nativeSetting)
+    const servedBy = servedByCompiler(configOf, nativeSetting, sdk.fetched)
+    const classicProgramFor = (project: ProductProject): ProductProgram =>
+      Result.match(sdk.classic(projectFolder(project)), {
+        onSuccess: (ts) => createProductProgram(ts, consumerOptions(ts, project.config)),
+        onFailure: (reason) => createUnavailableProgram('TypeScript 6', reason),
+      })
+    const nativeProgramFor = (
+      executable: string,
+      project: ProductProject,
+      ready: () => Promise<void>,
+    ): ProductProgram =>
+      Option.getOrElse(Option.fromNullishOr(nativePrograms.get(executable)), () => {
+        const shared = createNativeProgram(executable, projectFolder(project), servedBy(executable), {
+          ready,
+        })
+        nativePrograms.set(executable, shared)
+        return shared
+      })
     const programFor = (project: ProductProject): ProductProgram => {
       const existing = programs.get(project.key)
       if (existing !== undefined) return existing
-      const program = CompilerChoice.$match(compilerChoiceFor(project, nativeSetting), {
-        Classic: () => createProductProgram(ts, consumerOptions(ts, project.config)),
-        Native: ({ executable }) =>
-          Option.getOrElse(Option.fromNullishOr(nativePrograms.get(executable)), () => {
-            const shared = createNativeProgram(
-              executable,
-              projectFolder(project),
-              servedBy(executable),
-            )
-            nativePrograms.set(executable, shared)
-            return shared
-          }),
-        Unavailable: ({ reason }) => createUnavailableProgram(reason),
+      const program = CompilerChoice.$match(compilerChoiceFor(project, nativeSetting, sdk.fetched), {
+        Classic: () => classicProgramFor(project),
+        Native: ({ executable }) => nativeProgramFor(executable, project, () => Promise.resolve()),
+        Fetched: ({ executable }) => nativeProgramFor(executable, project, sdk.fetched.fetch),
+        Unavailable: ({ reason }) => createUnavailableProgram('TypeScript 7', reason),
       })
       programs.set(project.key, program)
       return program
@@ -382,6 +401,20 @@ export const productPlugin = (
                 .then((resolved) => remapAction(target.roots, resolved)),
           }),
         ),
+      provideDocumentSymbols: (document) => {
+        const target = targetOf(document.uri, document.languageId, document.getText(), 'project')
+        return target === undefined ? undefined : target.program.documentSymbols(target.fileName)
+      },
+      provideFoldingRanges: (document) => {
+        const target = targetOf(document.uri, document.languageId, document.getText(), 'project')
+        return target === undefined ? undefined : target.program.foldingRanges(target.fileName)
+      },
+      provideSelectionRanges: (document, positions) => {
+        const target = targetOf(document.uri, document.languageId, document.getText(), 'project')
+        return target === undefined
+          ? undefined
+          : target.program.selectionRanges(target.fileName, positions)
+      },
       dispose: () => new Set(programs.values()).forEach((program) => program.dispose()),
     }
   },
@@ -438,9 +471,9 @@ export const TypescriptService = defineLanguageService({
   extensions: ['.ts', '.tsx'],
   plugins: ({ settings }) =>
     Effect.gen(function* () {
-      const ts = yield* TypescriptSdk
+      const sdk = yield* TypescriptSdk
       const composition = yield* Composition
-      return [productPlugin(ts, composition, Option.fromNullishOr(settings.nativeCompiler))]
+      return [productPlugin(sdk, composition, Option.fromNullishOr(settings.nativeCompiler))]
     }),
   format: formatProduct,
 })

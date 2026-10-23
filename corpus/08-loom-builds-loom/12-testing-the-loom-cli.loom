@@ -675,7 +675,9 @@ const linkedLoom = (root: string, folder: string, copy: string): string => {
 
 The first case puts four other looms on `PATH`, none of them this one. Homebrew's copy sits under its `Cellar`. Bun's sits in a `.bun` folder. A project's sits in the project's `node_modules`, beside a `package.json` and Bun's lockfile. The last is a lone file that no installer owns. The doctor reports that a terminal runs Homebrew's copy instead of this Loom, and names the command that removes each copy. Homebrew and Bun each get their own uninstall, the project gets Bun's removal run in its folder, and the lone file gets `rm`.
 
-The tests run the CLI from its source, which Loom takes for an npm install, as `loom upgrade` does. So in the second case a `loom` that npm installed reads as this one. That `loom` is the only one on `PATH`, and the workspace's store holds its service at this Loom's version, so the doctor finds no problem and exits zero. The third case changes one thing, a service an older release left in the store. The doctor names the version it found and `loom update`, counts one problem, and exits non-zero.
+The tests run the CLI from its source, which Loom takes for an npm install, as `loom upgrade` does. So in the second case a `loom` that npm installed reads as this one. That `loom` is the only one on `PATH`, beside the `npm` that installed it, which can fetch TypeScript 7 for a project with none. The workspace's store holds its service at this Loom's version, so the doctor finds no problem and exits zero. The third case changes one thing, a service an older release left in the store. The doctor names the version it found and `loom update`, counts one problem, and exits non-zero.
+
+The last case takes `npm` away again. The npm package then has no way to fetch TypeScript 7 for a project with none, and the doctor says so and names the install script, which brings a Loom that needs no npm.
 
 =>
 
@@ -722,6 +724,7 @@ describe('loom cli — doctor', () => {
     () => {
       const root = machine()
       const npm = linkedLoom(root, 'npm/bin', 'npm/lib/node_modules/@athrio/loom/dist/main.js')
+      program(join(npm, 'npm'))
       const home = userStore()
       const dir = workspace('corpus: corpus\nlanguages:\n  typescript: {}\nprimary: typescript\n')
       installFake(home, 'typescript')
@@ -741,6 +744,7 @@ describe('loom cli — doctor', () => {
     () => {
       const root = machine()
       const npm = linkedLoom(root, 'npm/bin', 'npm/lib/node_modules/@athrio/loom/dist/main.js')
+      program(join(npm, 'npm'))
       const home = userStore()
       const dir = workspace('corpus: corpus\nlanguages:\n  typescript: {}\nprimary: typescript\n')
       installFake(home, 'typescript', '0.0.1')
@@ -750,6 +754,26 @@ describe('loom cli — doctor', () => {
         `the store holds typescript's service at 0.0.1, and this Loom needs ${loomVersion}`,
       )
       expect(stdout).toContain('loom update typescript')
+      expect(stdout).toContain('1 problem found')
+      rmSync(root, { recursive: true, force: true })
+      rmSync(home, { recursive: true, force: true })
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    'reports a TypeScript 7 it has no npm to fetch, with the install script',
+    () => {
+      const root = machine()
+      const npm = linkedLoom(root, 'npm/bin', 'npm/lib/node_modules/@athrio/loom/dist/main.js')
+      const home = userStore()
+      const dir = workspace('corpus: corpus\nlanguages:\n  typescript: {}\nprimary: typescript\n')
+      installFake(home, 'typescript')
+      const { status, stdout } = loom(['doctor'], { cwd: dir, env: { PATH: npm, LOOM_HOME: home } })
+      expect(status).toBe(1)
+      expect(stdout).toContain('has no npm to fetch TypeScript')
+      expect(stdout).toContain('install.sh')
       expect(stdout).toContain('1 problem found')
       rmSync(root, { recursive: true, force: true })
       rmSync(home, { recursive: true, force: true })

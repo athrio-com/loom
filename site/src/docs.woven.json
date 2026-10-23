@@ -7,17 +7,20 @@
         {
           "number": "1",
           "title": "Quick start",
-          "slug": "01-getting-started/01-quick-start"
+          "slug": "01-getting-started/01-quick-start",
+          "language": "Prose"
         },
         {
           "number": "2",
           "title": "Installing Loom",
-          "slug": "01-getting-started/02-installing-loom"
+          "slug": "01-getting-started/02-installing-loom",
+          "language": "Prose"
         },
         {
           "number": "3",
           "title": "Loom projects",
-          "slug": "01-getting-started/03-loom-projects"
+          "slug": "01-getting-started/03-loom-projects",
+          "language": "Prose"
         }
       ]
     },
@@ -28,7 +31,8 @@
         {
           "number": "1",
           "title": "Sections, prose and code",
-          "slug": "02-writing-looms/01-sections-prose-and-code"
+          "slug": "02-writing-looms/01-sections-prose-and-code",
+          "language": "Prose"
         }
       ]
     },
@@ -39,7 +43,8 @@
         {
           "number": "1",
           "title": "Supported editors",
-          "slug": "03-loom-in-your-ide/01-supported-editors"
+          "slug": "03-loom-in-your-ide/01-supported-editors",
+          "language": "Prose"
         }
       ]
     },
@@ -50,7 +55,8 @@
         {
           "number": "1",
           "title": "Syntax",
-          "slug": "04-the-format/01-syntax"
+          "slug": "04-the-format/01-syntax",
+          "language": "Prose"
         }
       ]
     },
@@ -61,42 +67,50 @@
         {
           "number": "1",
           "title": "loom init",
-          "slug": "05-cli/01-loom-init"
+          "slug": "05-cli/01-loom-init",
+          "language": "Prose"
         },
         {
           "number": "2",
           "title": "loom tangle",
-          "slug": "05-cli/02-loom-tangle"
+          "slug": "05-cli/02-loom-tangle",
+          "language": "Prose"
         },
         {
           "number": "3",
           "title": "loom weave",
-          "slug": "05-cli/03-loom-weave"
+          "slug": "05-cli/03-loom-weave",
+          "language": "Prose"
         },
         {
           "number": "4",
           "title": "loom eject",
-          "slug": "05-cli/04-loom-eject"
+          "slug": "05-cli/04-loom-eject",
+          "language": "Prose"
         },
         {
           "number": "5",
           "title": "loom format",
-          "slug": "05-cli/05-loom-format"
+          "slug": "05-cli/05-loom-format",
+          "language": "Prose"
         },
         {
           "number": "6",
           "title": "loom update",
-          "slug": "05-cli/06-loom-update"
+          "slug": "05-cli/06-loom-update",
+          "language": "Prose"
         },
         {
           "number": "7",
           "title": "loom upgrade",
-          "slug": "05-cli/07-loom-upgrade"
+          "slug": "05-cli/07-loom-upgrade",
+          "language": "Prose"
         },
         {
           "number": "8",
           "title": "loom doctor",
-          "slug": "05-cli/08-loom-doctor"
+          "slug": "05-cli/08-loom-doctor",
+          "language": "Prose"
         }
       ]
     }
@@ -107,6 +121,7 @@
       "slug": "01-getting-started/01-quick-start",
       "title": "Quick start",
       "part": "Getting started",
+      "frontmatter": "---\nPart I: Getting started\nChapter 1: Quick start\nLanguage: Prose\n---\n",
       "blocks": [
         {
           "type": "heading",
@@ -186,6 +201,7 @@
       "slug": "01-getting-started/02-installing-loom",
       "title": "Installing Loom",
       "part": "Getting started",
+      "frontmatter": "---\nPart I: Getting started\nChapter 2: Installing Loom\nLanguage: Prose\n---\n",
       "blocks": [
         {
           "type": "heading",
@@ -283,6 +299,7 @@
       "slug": "01-getting-started/03-loom-projects",
       "title": "Loom projects",
       "part": "Getting started",
+      "frontmatter": "---\nPart I: Getting started\nChapter 3: Loom projects\nLanguage: Prose\n---\n",
       "blocks": [
         {
           "type": "heading",
@@ -398,6 +415,7 @@
       "slug": "02-writing-looms/01-sections-prose-and-code",
       "title": "Sections, prose and code",
       "part": "Writing looms",
+      "frontmatter": "---\nPart II: Writing looms\nChapter 1: Sections, prose and code\nLanguage: Prose\n---\n",
       "blocks": [
         {
           "type": "heading",
@@ -477,6 +495,7 @@
       "slug": "03-loom-in-your-ide/01-supported-editors",
       "title": "Supported editors",
       "part": "Loom in your IDE",
+      "frontmatter": "---\nPart III: Loom in your IDE\nChapter 1: Supported editors\nLanguage: Prose\n---\n",
       "blocks": [
         {
           "type": "heading",
@@ -638,7 +657,7 @@
             "chapter": "03-loom-in-your-ide/01-supported-editors",
             "section": "checking-typescript"
           },
-          "markdown": "Loom checks each section's code with that language's own server. Turn TypeScript on in a project with `$ loom add typescript`. After you upgrade Loom, bring the servers up to date with `$ loom update --all`.\n\nOutside VS Code, the server checks with the project's own TypeScript, version 6 or earlier. Add one with `$ npm install -D typescript@6`. TypeScript 7 has no JavaScript API for the server to load."
+          "markdown": "Loom checks each section's code with that language's own server. Turn TypeScript on in a project with `$ loom add typescript`. After you upgrade Loom, bring the servers up to date with `$ loom update --all`.\n\nThe server checks a project with the TypeScript the project installs, TypeScript 6 or TypeScript 7. In VS Code, a project on TypeScript 6 checks with the TypeScript that VS Code ships. A project that installs no TypeScript gets TypeScript 7, which the server fetches once per machine, into `~/.loom/typescript`, the first time such a project asks."
         }
       ]
     },
@@ -646,6 +665,7 @@
       "slug": "04-the-format/01-syntax",
       "title": "Syntax",
       "part": "The format",
+      "frontmatter": "---\nPart IV: The format\nChapter 1: Syntax\nLanguage: Prose\n---\n",
       "blocks": [
         {
           "type": "heading",
@@ -851,6 +871,7 @@
       "slug": "05-cli/01-loom-init",
       "title": "loom init",
       "part": "The command line",
+      "frontmatter": "---\nPart V: The command line\nChapter 1: loom init\nLanguage: Prose\n---\n",
       "blocks": [
         {
           "type": "heading",
@@ -930,6 +951,7 @@
       "slug": "05-cli/02-loom-tangle",
       "title": "loom tangle",
       "part": "The command line",
+      "frontmatter": "---\nPart V: The command line\nChapter 2: loom tangle\nLanguage: Prose\n---\n",
       "blocks": [
         {
           "type": "heading",
@@ -1027,6 +1049,7 @@
       "slug": "05-cli/03-loom-weave",
       "title": "loom weave",
       "part": "The command line",
+      "frontmatter": "---\nPart V: The command line\nChapter 3: loom weave\nLanguage: Prose\n---\n",
       "blocks": [
         {
           "type": "heading",
@@ -1106,6 +1129,7 @@
       "slug": "05-cli/04-loom-eject",
       "title": "loom eject",
       "part": "The command line",
+      "frontmatter": "---\nPart V: The command line\nChapter 4: loom eject\nLanguage: Prose\n---\n",
       "blocks": [
         {
           "type": "heading",
@@ -1167,6 +1191,7 @@
       "slug": "05-cli/05-loom-format",
       "title": "loom format",
       "part": "The command line",
+      "frontmatter": "---\nPart V: The command line\nChapter 5: loom format\nLanguage: Prose\n---\n",
       "blocks": [
         {
           "type": "heading",
@@ -1228,6 +1253,7 @@
       "slug": "05-cli/06-loom-update",
       "title": "loom update",
       "part": "The command line",
+      "frontmatter": "---\nPart V: The command line\nChapter 6: loom update\nLanguage: Prose\n---\n",
       "blocks": [
         {
           "type": "heading",
@@ -1289,6 +1315,7 @@
       "slug": "05-cli/07-loom-upgrade",
       "title": "loom upgrade",
       "part": "The command line",
+      "frontmatter": "---\nPart V: The command line\nChapter 7: loom upgrade\nLanguage: Prose\n---\n",
       "blocks": [
         {
           "type": "heading",
@@ -1368,6 +1395,7 @@
       "slug": "05-cli/08-loom-doctor",
       "title": "loom doctor",
       "part": "The command line",
+      "frontmatter": "---\nPart V: The command line\nChapter 8: loom doctor\nLanguage: Prose\n---\n",
       "blocks": [
         {
           "type": "heading",

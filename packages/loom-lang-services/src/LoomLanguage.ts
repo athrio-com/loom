@@ -1,4 +1,3 @@
-import { create } from 'volar-service-typescript'
 import { Array, Effect, pipe } from 'effect'
 import type {
   Diagnostic as LspDiagnostic,
@@ -15,7 +14,6 @@ import {
   type FrameLocation,
   FrameQuery,
   type FrameQueryApi,
-  TypescriptSdk,
 } from './LanguageService'
 
 const lspSeverity = (severity: Diagnostic['severity']): LspDiagnostic['severity'] =>
@@ -172,24 +170,14 @@ const loomFormatting = (frame: FrameQueryApi): LanguageServicePlugin => ({
   }),
 })
 
-const withoutHighlights = (plugin: LanguageServicePlugin): LanguageServicePlugin => ({
-  ...plugin,
-  create: (context) => ({
-    ...plugin.create(context),
-    provideDocumentHighlights: () => [],
-  }),
-})
-
 export const LoomLanguage = defineLanguageService({
   id: 'loom',
   displayName: 'Loom',
   extensions: [],
   plugins: () =>
     Effect.gen(function* () {
-      const ts = yield* TypescriptSdk
       const frame = yield* FrameQuery
       return [
-        ...create(ts).map(withoutHighlights),
         loomDiagnostics(frame),
         loomDefinition(frame),
         loomReferences(frame),

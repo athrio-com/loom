@@ -10,7 +10,7 @@ import { PackageConfig } from '../src/PackageConfig'
 import { LoomFormatter } from '../src/LoomFormatter'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { loomLanguagePlugin, loomServicePlugins } from '../src/LoomLanguagePlugin'
-import { serviceStore } from './store'
+import { serviceStore, classicSdk } from './store'
 
 // End-to-end through Volar: Loom's own health — the grammatical and semantic
 // diagnostics Loom finds, which TypeScript knows nothing about — must reach the
@@ -68,7 +68,7 @@ const checkerFor = (fixture: string) => {
     ),
   )
   return runtime
-    .runPromise(loomServicePlugins(runtime, ts, dirname(fixture)))
+    .runPromise(loomServicePlugins(runtime, classicSdk(ts), dirname(fixture)))
     .then((plugins) =>
       createTypeScriptInferredChecker(
         [loomLanguagePlugin(runtime)],

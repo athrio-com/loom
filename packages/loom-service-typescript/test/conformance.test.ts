@@ -1,4 +1,4 @@
-import { Effect } from 'effect'
+import { Effect, Result } from 'effect'
 import { execSync } from 'node:child_process'
 import { cpSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -16,9 +16,9 @@ import {
 import { installHostRuntime } from '@athrio/loom-lang-services/Runtime'
 
 // The conformance gate for the migration. The built service is loaded from a
-// directory with NO node_modules: it can resolve effect, the SPI, or typescript
-// nowhere of its own, so it runs purely on the runtime the host lends through the
-// global. This is the shipped reality — a bundled host and a far-off store — that
+// directory with NO node_modules: it can resolve effect or the SPI nowhere of its
+// own, so it runs purely on the runtime the host lends through the global, and it
+// takes a TypeScript only through the TypescriptSdk capability. This is the shipped reality — a bundled host and a far-off store — that
 // the unbundled e2e tests cannot reproduce, because there both sides share the
 // workspace's one copy by luck. The original externalize-all build would fail the
 // positive test here with MODULE_NOT_FOUND; the bridge build passes it.
@@ -58,7 +58,7 @@ describe('conformance — the service runs on the host runtime alone', () => {
   })
 
   it('with the host runtime installed, the service loads and TypescriptSdk meets', async () => {
-    installHostRuntime(ts)
+    installHostRuntime()
     const loaded = (await import(
       pathToFileURL(join(withHost, 'index.js')).href
     )) as { default: unknown }
@@ -77,7 +77,14 @@ describe('conformance — the service runs on the host runtime alone', () => {
       (service as { plugins: (config: { settings: Record<string, unknown> }) => Effect.Effect<ReadonlyArray<{ name?: string }>, never, TypescriptSdk | Composition> })
         .plugins({ settings: {} })
         .pipe(
-          Effect.provideService(TypescriptSdk, ts),
+          Effect.provideService(TypescriptSdk, {
+            classic: () => Result.succeed(ts),
+            fetched: {
+              version: '7.0.0-test',
+              executable: '/nowhere/tsc',
+              fetch: () => Promise.reject(new Error('the tests fetch nothing')),
+            },
+          }),
           Effect.provideService(Composition, { rootsFor: () => [] }),
         ),
     )

@@ -8,7 +8,9 @@ Language: TypeScript
 
 The loader imports a built JavaScript file, not TypeScript source, so the package builds to one: `dist/index.js`, an ES module whose default export is the `TypescriptService`. The build folds the service's own modules and its Volar machinery into that single file, so the store holds a self-contained service with nothing left to resolve.
 
-The one thing the service must not bundle is the runtime it shares with the host. A second copy of Effect would give the service its own `TypescriptSdk` tag, distinct from the one the host provides, and the dependency injection would never meet. So three specifiers stay out of the bundle — `effect`, the `LanguageService` contract, and `typescript`. The host lends those, and a small plugin rewrites their imports to read the host's live copies through the global the host writes. `Runtime` in `@athrio/loom-lang-services` names that boundary.
+The one thing the service must not bundle is the runtime it shares with the host. A second copy of Effect would give the service its own `TypescriptSdk` tag, distinct from the one the host provides, and the dependency injection would never meet. So two specifiers stay out of the bundle, `effect` and the `LanguageService` contract. The host lends those, and a small plugin rewrites their imports to read the host's live copies through the global the host writes. `Runtime` in `@athrio/loom-lang-services` names that boundary.
+
+TypeScript is not among them. The service names TypeScript 6 only by its types, and takes the compiler itself from the `TypescriptSdk` capability when a project asks, so the bundle imports no TypeScript at all.
 
 ## The runtime bridge
 
@@ -51,7 +53,7 @@ const loomRuntimeBridge = (): Plugin => ({
 
 ## The build
 
-The runtime's built-in modules stay external — every runtime carries them. Prettier stays external too: the service formats with the project's own Prettier when the project has one, so it must import Prettier at run time rather than carry a copy, and the store installs the package's own Prettier beside it for a project that has none. `vscode-jsonrpc`, which speaks to a language server in a child process, stays external as well, and the store installs it beside the service. Its Node entry is a CommonJS module that only re-exports another file, and the bundler wraps such a module without ever calling it, so a bundled copy would leave every export undefined. Imported at run time, it resolves as any package does, provided the bridge names the file with its extension, `vscode-jsonrpc/node.js`, since the package declares no map of its entry points and Node resolves only what is written. Everything else is bundled, except the three specifiers the bridge intercepts — so `volar-service-typescript` and the rest of Volar are inlined, their CommonJS internals transformed in place, rather than left to resolve from a store that does not carry them. The one entry builds to `dist/index.js`, the ES module the loader's dynamic `import` reads.
+The runtime's built-in modules stay external — every runtime carries them. Prettier stays external too: the service formats with the project's own Prettier when the project has one, so it must import Prettier at run time rather than carry a copy, and the store installs the package's own Prettier beside it for a project that has none. `vscode-jsonrpc`, which speaks to a language server in a child process, stays external as well, and the store installs it beside the service. Its Node entry is a CommonJS module that only re-exports another file, and the bundler wraps such a module without ever calling it, so a bundled copy would leave every export undefined. Imported at run time, it resolves as any package does, provided the bridge names the file with its extension, `vscode-jsonrpc/node.js`, since the package declares no map of its entry points and Node resolves only what is written. Everything else is bundled, except the two specifiers the bridge intercepts — so `volar-service-typescript` and the rest of Volar are inlined, their CommonJS internals transformed in place, rather than left to resolve from a store that does not carry them. The one entry builds to `dist/index.js`, the ES module the loader's dynamic `import` reads.
 
 =>
 
@@ -92,7 +94,7 @@ const here = dirname(fileURLToPath(import.meta.url))
 const nodeBuiltins = [...builtinModules, ...builtinModules.map((name) => `node:${name}`)]
 
 const runtimeKey = '__loomRuntime'
-const runtimeSpecifiers = ['effect', '@athrio/loom-lang-services/LanguageService', 'typescript']
+const runtimeSpecifiers = ['effect', '@athrio/loom-lang-services/LanguageService']
 
 ## The module {Tangle}
 

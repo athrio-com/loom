@@ -1,4 +1,3 @@
-import * as ts from 'typescript'
 import { describe, expect, it } from 'bun:test'
 import { Option } from 'effect'
 import {
@@ -19,6 +18,12 @@ import {
 } from '../src/NativeProgram'
 import { configNear, servedByCompiler } from '../src/TypescriptService'
 import { settled, standInServer, startedIn } from './StandInServer'
+
+const fetched = {
+  version: '7.0.0-test',
+  executable: '/nowhere/tsc',
+  fetch: () => Promise.reject(new Error('the tests fetch nothing')),
+}
 
 const executableName = process.platform === 'win32' ? 'tsc.exe' : 'tsc'
 const companion = `typescript-${process.platform}-${process.arch}`
@@ -66,7 +71,7 @@ describe('compilerChoiceFor chooses TypeScript 7 for a project that installs it'
   it('chooses the native executable of a project on TypeScript 7', () => {
     const root = folder()
     install(root, '7.0.2')
-    expect(compilerChoiceFor(projectAt(root), Option.none())).toEqual(
+    expect(compilerChoiceFor(projectAt(root), Option.none(), fetched)).toEqual(
       expect.objectContaining({ _tag: 'Native', executable: executableIn(root) }),
     )
   })
@@ -74,13 +79,20 @@ describe('compilerChoiceFor chooses TypeScript 7 for a project that installs it'
   it('leaves a project on TypeScript 6 to the TypeScript 6 program', () => {
     const root = folder()
     install(root, '6.0.3')
-    expect(compilerChoiceFor(projectAt(root), Option.none())._tag).toBe('Classic')
+    expect(compilerChoiceFor(projectAt(root), Option.none(), fetched)._tag).toBe('Classic')
+  })
+
+  it('gives a project with no TypeScript the TypeScript 7 Loom fetches', () => {
+    const root = folder()
+    expect(compilerChoiceFor(projectAt(root), Option.none(), fetched)).toEqual(
+      expect.objectContaining({ _tag: 'Fetched', version: fetched.version, executable: fetched.executable }),
+    )
   })
 
   it('reports a TypeScript 7 without this platform\'s executable as unavailable', () => {
     const root = folder()
     install(root, '7.0.2', 'none')
-    const choice = compilerChoiceFor(projectAt(root), Option.none())
+    const choice = compilerChoiceFor(projectAt(root), Option.none(), fetched)
     expect(choice._tag).toBe('Unavailable')
     expect(choice._tag === 'Unavailable' && choice.reason).toContain(`@typescript/${companion}`)
   })
@@ -88,20 +100,20 @@ describe('compilerChoiceFor chooses TypeScript 7 for a project that installs it'
   it('reports an executable that may not be run as unavailable', () => {
     const root = folder()
     install(root, '7.0.2', 'plain')
-    expect(compilerChoiceFor(projectAt(root), Option.none())._tag).toBe('Unavailable')
+    expect(compilerChoiceFor(projectAt(root), Option.none(), fetched)._tag).toBe('Unavailable')
   })
 
   it('chooses from the loom\'s own folder when no tsconfig.json governs it', () => {
     const root = folder()
     install(root, '7.0.2')
-    expect(compilerChoiceFor(looseAt(root), Option.none())._tag).toBe('Native')
+    expect(compilerChoiceFor(looseAt(root), Option.none(), fetched)._tag).toBe('Native')
   })
 
   it('chooses the same for the corpus search, whose key is its own', () => {
     const root = folder()
     install(root, '7.0.2')
     const corpus = { ...looseAt(root), key: `corpus of ${join(root, 'chapter.loom')}` }
-    expect(compilerChoiceFor(corpus, Option.none())._tag).toBe('Native')
+    expect(compilerChoiceFor(corpus, Option.none(), fetched)._tag).toBe('Native')
   })
 })
 
@@ -111,7 +123,7 @@ describe('compilerChoiceFor follows the nativeCompiler setting', () => {
     install(root, '6.0.3')
     const elsewhere = folder()
     const named = install(elsewhere, '7.0.2')
-    expect(compilerChoiceFor(projectAt(root), Option.some(named))).toEqual(
+    expect(compilerChoiceFor(projectAt(root), Option.some(named), fetched)).toEqual(
       expect.objectContaining({ _tag: 'Native', executable: executableIn(elsewhere) }),
     )
   })
@@ -123,20 +135,20 @@ describe('compilerChoiceFor follows the nativeCompiler setting', () => {
     install(join(root, 'tools'), '7.0.2')
     const project = { ...projectAt(root), loom: join(root, 'corpus', 'part', 'chapter.loom') }
     expect(
-      compilerChoiceFor(project, Option.some('tools/node_modules/typescript'))._tag,
+      compilerChoiceFor(project, Option.some('tools/node_modules/typescript'), fetched)._tag,
     ).toBe('Native')
   })
 
   it('reports a setting that names no typescript package as unavailable', () => {
     const root = folder()
-    const choice = compilerChoiceFor(projectAt(root), Option.some(join(root, 'nothing-here')))
+    const choice = compilerChoiceFor(projectAt(root), Option.some(join(root, 'nothing-here')), fetched)
     expect(choice._tag).toBe('Unavailable')
   })
 
   it('reports a setting that names TypeScript 6 as unavailable', () => {
     const root = folder()
     const named = install(folder(), '6.0.3')
-    const choice = compilerChoiceFor(projectAt(root), Option.some(named))
+    const choice = compilerChoiceFor(projectAt(root), Option.some(named), fetched)
     expect(choice._tag).toBe('Unavailable')
     expect(choice._tag === 'Unavailable' && choice.reason).toContain('TypeScript 6')
   })
@@ -144,13 +156,13 @@ describe('compilerChoiceFor follows the nativeCompiler setting', () => {
   it('reports a setting that names another package as unavailable', () => {
     const root = folder()
     const named = install(folder(), '7.0.2', 'executable', 'not-typescript')
-    expect(compilerChoiceFor(projectAt(root), Option.some(named))._tag).toBe('Unavailable')
+    expect(compilerChoiceFor(projectAt(root), Option.some(named), fetched)._tag).toBe('Unavailable')
   })
 
   it('reports a setting that is not a path as unavailable', () => {
     const root = folder()
-    expect(compilerChoiceFor(projectAt(root), Option.some(true))._tag).toBe('Unavailable')
-    expect(compilerChoiceFor(projectAt(root), Option.some(''))._tag).toBe('Unavailable')
+    expect(compilerChoiceFor(projectAt(root), Option.some(true), fetched)._tag).toBe('Unavailable')
+    expect(compilerChoiceFor(projectAt(root), Option.some(''), fetched)._tag).toBe('Unavailable')
   })
 
   it('follows a linked folder to the store it points into', () => {
@@ -160,7 +172,7 @@ describe('compilerChoiceFor follows the nativeCompiler setting', () => {
     mkdirSync(join(root, 'node_modules'), { recursive: true })
     symlinkSync(real, join(root, 'node_modules', 'typescript-native'))
     const named = join(root, 'node_modules', 'typescript-native')
-    expect(compilerChoiceFor(projectAt(root), Option.some(named))).toEqual(
+    expect(compilerChoiceFor(projectAt(root), Option.some(named), fetched)).toEqual(
       expect.objectContaining({ _tag: 'Native', executable: executableIn(store) }),
     )
   })
@@ -174,7 +186,7 @@ describe('servedByCompiler names the roots a native program serves', () => {
     mkdirSync(legacy, { recursive: true })
     install(legacy, '6.0.3')
     writeFileSync(join(legacy, 'tsconfig.json'), '{}')
-    const servedBy = servedByCompiler(configNear(ts), Option.none())(executableIn(root))
+    const servedBy = servedByCompiler(configNear(), Option.none(), fetched)(executableIn(root))
     const rootOf = (path: string, loom: string) => ({ path: join(root, path), text: '', loom: join(root, loom) })
     expect(servedBy(rootOf('src/a.ts', 'corpus/a.loom'))).toBe(true)
     expect(servedBy(rootOf('src/b.ts', 'corpus/b.loom'))).toBe(true)
@@ -375,10 +387,64 @@ describe('createNativeProgram restarts a crashed server a few times', () => {
   })
 })
 
+describe('createNativeProgram waits for its compiler', () => {
+  it('starts the server only once its compiler is ready', async () => {
+    const stand = standInServer()
+    const gate = Promise.withResolvers<void>()
+    const program = createNativeProgram(stand.command, stand.folder, () => true, {
+      ready: () => gate.promise,
+    })
+    const a = join(stand.folder, 'a.ts')
+    program.sync([{ path: a, text: 'a' }])
+    const hover = program.hover(a, position)
+    await settled(200)
+    expect(startedIn(stand.lines())).toHaveLength(0)
+    gate.resolve()
+    expect(await hover).toBeDefined()
+    expect(startedIn(stand.lines())).toHaveLength(1)
+    program.dispose()
+  })
+
+  it('reports a compiler it could not fetch, and starts nothing', async () => {
+    const stand = standInServer()
+    const program = createNativeProgram(stand.command, stand.folder, () => true, {
+      ready: () => Promise.reject(new Error('could not fetch TypeScript 7.0.0-test')),
+    })
+    const a = join(stand.folder, 'a.ts')
+    program.sync([{ path: a, text: 'a' }])
+    expect(await diagnosticsOf(program, a)).toContain('could not fetch TypeScript 7.0.0-test')
+    expect(startedIn(stand.lines())).toHaveLength(0)
+    program.dispose()
+  })
+})
+
+describe('createNativeProgram asks the server about the code\'s shape', () => {
+  it('forwards the outline, folding and selection questions', async () => {
+    const stand = standInServer()
+    const program = createNativeProgram(stand.command, stand.folder)
+    const a = join(stand.folder, 'a.ts')
+    program.sync([{ path: a, text: 'export const a = 1' }])
+    await program.documentSymbols(a)
+    await program.foldingRanges(a)
+    await program.selectionRanges(a, [position])
+    expect(stand.lines()).toEqual(
+      expect.arrayContaining([
+        'textDocument/documentSymbol a.ts',
+        'textDocument/foldingRange a.ts',
+        'textDocument/selectionRange a.ts',
+      ]),
+    )
+    program.dispose()
+  })
+})
+
 describe('createUnavailableProgram reports its reason', () => {
-  it('reports the reason as an error diagnostic and answers other questions with nothing', async () => {
-    const program = createUnavailableProgram('install @typescript/typescript-test')
-    expect(await diagnosticsOf(program, '/a.ts')).toContain('install @typescript/typescript-test')
+  it('reports the compiler and the reason as an error diagnostic and answers other questions with nothing', async () => {
+    const program = createUnavailableProgram('TypeScript 7', 'install @typescript/typescript-test')
+    const message = await diagnosticsOf(program, '/a.ts')
+    expect(message).toContain('TypeScript 7 is unavailable')
+    expect(message).toContain('install @typescript/typescript-test')
     expect(await program.hover('/a.ts', position)).toBeUndefined()
+    expect(await program.documentSymbols('/a.ts')).toBeUndefined()
   })
 })

@@ -1,5 +1,5 @@
 import type { LanguageServicePlugin } from '@volar/language-service'
-import { Context, Data, Effect, Layer } from 'effect'
+import { Context, Data, Effect, Layer, type Result } from 'effect'
 import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
 import type { SemanticToken } from '@athrio/loom-ast/LoomSymbol'
 
@@ -24,10 +24,19 @@ export interface FormatRequest {
   readonly width: number
 }
 
+export interface FetchedTypeScript {
+  readonly version: string
+  readonly executable: string
+  readonly fetch: () => Promise<void>
+}
+
+export interface TypescriptSdkApi {
+  readonly classic: (folder: string) => Result.Result<typeof import('typescript'), string>
+  readonly fetched: FetchedTypeScript
+}
+
 export class TypescriptSdk extends Context.Service<TypescriptSdk>()('TypescriptSdk', {
-  make: Effect.die('TypescriptSdk must be provided by the host') as Effect.Effect<
-    typeof import('typescript')
-  >,
+  make: Effect.die('TypescriptSdk must be provided by the host') as Effect.Effect<TypescriptSdkApi>,
 }) {
   static readonly layer = Layer.effect(this, this.make)
 }

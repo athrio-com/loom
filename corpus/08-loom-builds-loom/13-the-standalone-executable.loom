@@ -14,7 +14,7 @@ The executable is large, between seventy and a hundred and twenty megabytes depe
 
 ## What changes inside an executable
 
-The executable runs the same program as the npm package, but four things that program expects are missing from around it. A person who downloads the executable should need nothing else, no compiler and no further download, so each gap is closed inside the executable itself.
+The executable runs the same program as the npm package, but three things that program expects are missing from around it. A person who downloads the executable should need nothing else installed, no runtime, no package manager and no compiler, so each gap is closed inside the executable itself.
 
 Node's resolver cannot find a package by its bare name inside an executable, though it finds a file at a known path. So the loader reads a language service's own manifest to find the file it imports, rather than asking the resolver.
 
@@ -22,29 +22,25 @@ There is no npm to install a language service with. The executable carries Bun, 
 
 `loom helix` and `loom nvim` give an editor Loom's grammar as a compiled library, which the npm package builds with the system's C compiler. The executable carries that library already built for its platform, so the commands write it out and need no compiler.
 
-Nothing beside the executable holds TypeScript either, which the language server and `loom format` both need. The executable carries TypeScript 6, packed into one gzipped file, and unpacks it into the workspace's store the first time either finds none there.
+TypeScript is no such gap, and the executable carries none. Neither the language server nor `loom format` needs a compiler to start, and a project's TypeScript comes from the project itself, so the editor checks a project with the compiler the project builds with. A project that installs no TypeScript gets the TypeScript 7 Loom fetches once per machine, with the Bun the executable carries.
 
 ## Compiling the executable [compile.ts]
 
-The package's `compile` script runs this program, which builds the executable for the machine it runs on. The release runs it once on each platform's own machine. It works in three steps, and a fourth on macOS, and each writes into `build`, a folder Git ignores.
+The package's `compile` script runs this program, which builds the executable for the machine it runs on. The release runs it once on each platform's own machine. It works in two steps, and a third on macOS, and each writes into `build`, a folder Git ignores.
 
 First it compiles the grammar into a library, under the name `loom helix` writes it by, `loom.so` or `loom.dll` on Windows. The compiler call is the one `loom helix` makes, and `CC` names another compiler, as it does there.
 
-Second it packs TypeScript into `typescript.json.gz`, the shape the store unpacks: the package's `package.json`, the compiler in `lib/typescript.js`, and the declaration files of the standard library, `lib.*.d.ts`. That is about thirteen megabytes of text, and gzip brings it to about two. The TypeScript it packs is the workspace's own, the release of TypeScript 6 the package's `devDependencies` name.
-
-Third it compiles `dist/main.js` into `build/loom`, with the library and the packed TypeScript as two more files beside the program. Bun embeds a file it cannot run as code under its name, and `--asset-naming` keeps that name exactly, so the executable finds each by the name it was given.
+Second it compiles `dist/main.js` into `build/loom`, with the library as one more file beside the program. Bun embeds a file it cannot run as code under its name, and `--asset-naming` keeps that name exactly, so the executable finds the library by the name it was given.
 
 `run` spawns each command and fails with `CompileError`, naming the command, when one exits non-zero or cannot start. The program reports the error and exits non-zero, so a release never ships an executable built from a step that failed.
 
 =>
 
-import { Array, Console, Data, Effect, pipe } from 'effect'
+import { Console, Data, Effect } from 'effect'
 import { NodeRuntime } from '@effect/platform-node'
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
+import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { gzipSync } from 'node:zlib'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const build = join(here, 'build')
@@ -88,41 +84,6 @@ const compiledGrammar = run([
 
 ~
 
-`typeScriptFiles` names the files to pack, each by its path in the package.
-
-=>
-
-const typeScriptDir = dirname(createRequire(import.meta.url).resolve('typescript/package.json'))
-
-const typeScriptFiles = (): ReadonlyArray<string> => [
-  'package.json',
-  'lib/typescript.js',
-  ...pipe(
-    readdirSync(join(typeScriptDir, 'lib')),
-    Array.filter((name) => name.startsWith('lib.') && name.endsWith('.d.ts')),
-    Array.map((name) => `lib/${name}`),
-  ),
-]
-
-const packedTypeScript = Effect.sync(() =>
-  writeFileSync(
-    join(build, 'typescript.json.gz'),
-    gzipSync(
-      JSON.stringify({
-        files: Object.fromEntries(
-          Array.map(typeScriptFiles(), (file) => [
-            file,
-            readFileSync(join(typeScriptDir, file), 'utf8'),
-          ]),
-        ),
-      }),
-      { level: 9 },
-    ),
-  ),
-)
-
-~
-
 The compile runs on the Bun that runs this program, so it needs no `bun` on `PATH`.
 
 =>
@@ -132,7 +93,6 @@ const compiledExecutable = run([
   'build',
   join(here, 'dist', 'main.js'),
   join(build, grammarLibrary),
-  join(build, 'typescript.json.gz'),
   '--compile',
   '--asset-naming=[name].[ext]',
   '--outfile',
@@ -141,7 +101,7 @@ const compiledExecutable = run([
 
 ~
 
-On macOS a fourth step signs the executable again. Bun builds it from its own runtime, which comes signed, and then writes Loom's program into the file after that signature was made. The signature no longer matches the file, so `codesign --verify` rejects it. macOS still runs the file, since it checks only the pages of code it loads, but a stricter check by a security tool or a managed Mac would refuse it. `signedExecutable` signs the finished file ad hoc, with no certificate, as `codesign --sign -` does, and names it `loom`. Signing with a Developer ID, which lets Gatekeeper open a file downloaded through a browser, would replace that `-` with the identity.
+On macOS a third step signs the executable again. Bun builds it from its own runtime, which comes signed, and then writes Loom's program into the file after that signature was made. The signature no longer matches the file, so `codesign --verify` rejects it. macOS still runs the file, since it checks only the pages of code it loads, but a stricter check by a security tool or a managed Mac would refuse it. `signedExecutable` signs the finished file ad hoc, with no certificate, as `codesign --sign -` does, and names it `loom`. Signing with a Developer ID, which lets Gatekeeper open a file downloaded through a browser, would replace that `-` with the identity.
 
 =>
 
@@ -153,10 +113,9 @@ const signedExecutable =
 const compile = Effect.gen(function* () {
   yield* Effect.sync(() => mkdirSync(build, { recursive: true }))
   yield* compiledGrammar
-  yield* packedTypeScript
   yield* compiledExecutable
   yield* signedExecutable
-  yield* Console.log(`compile: wrote ${join(build, 'loom')} with ${grammarLibrary} and TypeScript`)
+  yield* Console.log(`compile: wrote ${join(build, 'loom')} with ${grammarLibrary}`)
 })
 
 NodeRuntime.runMain(
@@ -175,7 +134,7 @@ NodeRuntime.runMain(
 
 ## A smoke test for the executable
 
-The tests of the CLI run its source under Bun, and none of these four differences shows there. So the executable has a test of its own, a smoke test, which runs the compiled file the way a person runs it and checks that each of its commands still answers.
+The tests of the CLI run its source under Bun, and none of these three differences shows there. So the executable has a test of its own, a smoke test, which runs the compiled file the way a person runs it and checks that each of its commands still answers.
 
 The test runs `build/loom`, which the package's `compile` script writes. Each case runs the executable in a folder of its own, in an environment `bareEnv` strips of two things. Its `PATH` is an empty folder, so the executable finds no `npm`, `bun`, `node` or C compiler to lean on. Its package registry, which `NPM_CONFIG_REGISTRY` names, is an address where nothing answers, so a download it did not mean to make fails the case. A case that serves a registry or a release of its own names that address instead. Every other variable passes through, since Windows cannot open a network connection without the ones that name its system folders.
 
@@ -439,7 +398,7 @@ describe('the executable — languages', () => {
 
 ## A language server with no TypeScript
 
-This case drives `loom lsp` the way an editor does, over standard input and output. The workspace activates TypeScript and holds the stand-in, but no TypeScript compiler lies anywhere the server looks: not in the project, not beside the executable, not in the store. The server must unpack the TypeScript the executable carries into the store before it answers `initialize`. The registry points nowhere, so the case fails if the server tries to download TypeScript instead.
+This case drives `loom lsp` the way an editor does, over standard input and output. The workspace activates TypeScript and holds the stand-in, but no TypeScript compiler lies anywhere: not in the project, not beside the executable, not in the store. The server must answer `initialize` all the same, and write no TypeScript into the store. The registry points nowhere, so the case fails if the server tries to download anything.
 
 The case then opens a loom and asks the server to format it. The answer can come only from the stand-in, so a squeezed loom proves the executable loaded a service from the store.
 
@@ -469,7 +428,7 @@ const editorAt = async (folder: string) => {
 
 describe('the executable — language server', () => {
   it(
-    'unpacks the TypeScript it carries and formats with a service from the store',
+    'starts with no TypeScript and formats with a service from the store',
     async () => {
       const dir = workspace('corpus: .', 'languages:', '  typescript: {}', 'primary: typescript')
       installStandIn(dir)
@@ -484,11 +443,7 @@ describe('the executable — language server', () => {
           capabilities: {},
         })
         await connection.sendNotification('initialized', {})
-        expect(
-          existsSync(
-            join(dir, '.loom', 'services', 'node_modules', 'typescript', 'lib', 'lib.es5.d.ts'),
-          ),
-        ).toBe(true)
+        expect(existsSync(join(dir, '.loom', 'services', 'node_modules', 'typescript'))).toBe(false)
         await connection.sendNotification('textDocument/didOpen', {
           textDocument: {
             uri: pathToFileURL(loom).href,
