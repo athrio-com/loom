@@ -50,9 +50,10 @@ import {
   workspaceOf,
   workspaceRoot,
 } from '@athrio/loom-lang-services/LoomStore'
-import type {
-  FetchedTypeScript,
-  TypescriptSdkApi,
+import {
+  ClassicTypeScriptMissing,
+  type FetchedTypeScript,
+  type TypescriptSdkApi,
 } from '@athrio/loom-lang-services/LanguageService'
 import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
 import { loomsIn } from './LoomProject'
@@ -79,16 +80,18 @@ const besideLoom = (): Option.Option<string> =>
 
 const classicTsdk = (options: unknown, folder: string): Option.Option<string> =>
   pipe(
-    editorTsdk(options),
-    Option.orElse(() => installedTsdk(join(folder, 'package.json'))),
+    installedTsdk(join(folder, 'package.json')),
+    Option.orElse(() => editorTsdk(options)),
     Option.orElse(besideLoom),
   )
 
 type TypeScript = typeof import('typescript')
 
-const classicTypeScript = (options: unknown): ((folder: string) => Result.Result<TypeScript, string>) => {
+export const classicTypeScript = (
+  options: unknown,
+): ((folder: string) => Result.Result<TypeScript, ClassicTypeScriptMissing>) => {
   const loaded = new Map<string, TypeScript>()
-  const load = (tsdk: string): Result.Result<TypeScript, string> =>
+  const load = (folder: string, tsdk: string): Result.Result<TypeScript, ClassicTypeScriptMissing> =>
     Option.match(Option.fromNullishOr(loaded.get(tsdk)), {
       onSome: (ts) => Result.succeed(ts),
       onNone: () =>
@@ -101,17 +104,15 @@ const classicTypeScript = (options: unknown): ((folder: string) => Result.Result
             loaded.set(tsdk, ts)
             return ts
           }),
-          Result.mapError((cause) => `the TypeScript in ${tsdk} did not load: ${String(cause)}`),
+          Result.mapError(
+            (cause) => new ClassicTypeScriptMissing({ folder, tsdk: Option.some(tsdk), cause }),
+          ),
         ),
     })
   return (folder) =>
     Option.match(classicTsdk(options, folder), {
-      onNone: () =>
-        Result.fail(
-          `found no TypeScript 6 for ${folder}, in the project or beside Loom; ` +
-            'install it in the project with `npm install -D typescript@6`',
-        ),
-      onSome: load,
+      onNone: () => Result.fail(new ClassicTypeScriptMissing({ folder, tsdk: Option.none() })),
+      onSome: (tsdk) => load(folder, tsdk),
     })
 }
 
@@ -330,7 +331,8 @@ const reconfigure = (
         { discard: true },
       ).pipe(Effect.andThen(Effect.sync(() => void server.languageFeatures.requestRefresh(true))))
 
-const isCompilerConfig = (uri: string): boolean => /\/(tsconfig|jsconfig)\.json$/.test(uri)
+const isCompilerSetting = (uri: string): boolean =>
+  /\/(tsconfig|jsconfig|package)\.json$/.test(uri) && !uri.includes('/node_modules/')
 
 const retypedWorkspaces = (
   home: string,
@@ -338,7 +340,7 @@ const retypedWorkspaces = (
 ): ReadonlyArray<string> =>
   pipe(
     changes,
-    Array.filter((change) => isCompilerConfig(change.uri)),
+    Array.filter((change) => isCompilerSetting(change.uri)),
     Array.map((change) => workspaceFor(home, URI.parse(change.uri))),
     Array.dedupe,
   )
@@ -361,7 +363,12 @@ const watchConfigs = (
   projects: Cache.Cache<string, LanguageServerProject>,
   edited: Ref.Ref<ReadonlySet<string>>,
 ): void => {
-  void server.fileWatcher.watchFiles(['**/.loom/config.yaml', '**/tsconfig.json', '**/jsconfig.json'])
+  void server.fileWatcher.watchFiles([
+    '**/.loom/config.yaml',
+    '**/tsconfig.json',
+    '**/jsconfig.json',
+    '**/package.json',
+  ])
   server.fileWatcher.onDidChangeWatchedFiles(({ changes }) =>
     runtime.runSync(
       reconfigure(server, services, projects, edited, reconfiguredWorkspaces(changes)).pipe(

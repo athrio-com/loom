@@ -591,7 +591,7 @@ A question that fails, because the server stopped, was given up on, or the progr
 
 The program forwards each question in the form LSP gives it. A definition may come back as locations rather than links, and `asLinks` turns each location into a link to the same place, the form the plugin rewrites. Diagnostics come back as a report, and the program hands on its items. Completions may come back as a bare list of items, and `asCompletionList` wraps one in a complete list. Code actions may come with bare commands beside them, and the program keeps only the actions, the form the plugin handles. An action whose edit is left for later goes back to the same server to be resolved, and an answer of nothing hands back the action as it was. An action that already carries its edit, as TypeScript 7's `Organize Imports` does, is complete, and resolving it hands it back unchanged rather than asking the server, which refuses such a request.
 
-Three questions ask only about the code's shape: the outline of a root's symbols, the ranges an editor folds, and the ranges a selection grows through as the person widens it. The server answers them like any other question, and an answer of nothing hands on nothing. The client asked for the outline nested, so the server answers with `DocumentSymbol`s, each holding the symbols declared inside it.
+A request for completions carries the editor's context to the server, the character the person typed among it, so the server decides what a `*` or an `@` calls for. Three questions ask only about the code's shape: the outline of a root's symbols, the ranges an editor folds, and the ranges a selection grows through as the person widens it. The server answers them like any other question, and an answer of nothing hands on nothing. The client asked for the outline nested, so the server answers with `DocumentSymbol`s, each holding the symbols declared inside it.
 
 =>
 
@@ -654,12 +654,11 @@ Three questions ask only about the code's shape: the outline of a root's symbols
       })
         .then((report) => report.items ?? [])
         .catch(orFailureDiagnostic),
-    completions: (fileName, position) =>
-      ask<CompletionList | CompletionItem[] | null>(
-        fileName,
-        'textDocument/completion',
-        at(fileName, position),
-      )
+    completions: (fileName, position, context) =>
+      ask<CompletionList | CompletionItem[] | null>(fileName, 'textDocument/completion', {
+        ...at(fileName, position),
+        context,
+      })
         .then(asCompletionList)
         .catch(orNothing<CompletionList>({ isIncomplete: false, items: [] })),
     references: (fileName, position) =>

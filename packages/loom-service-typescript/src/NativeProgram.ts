@@ -561,12 +561,11 @@ export const createNativeProgram = (
       })
         .then((report) => report.items ?? [])
         .catch(orFailureDiagnostic),
-    completions: (fileName, position) =>
-      ask<CompletionList | CompletionItem[] | null>(
-        fileName,
-        'textDocument/completion',
-        at(fileName, position),
-      )
+    completions: (fileName, position, context) =>
+      ask<CompletionList | CompletionItem[] | null>(fileName, 'textDocument/completion', {
+        ...at(fileName, position),
+        context,
+      })
         .then(asCompletionList)
         .catch(orNothing<CompletionList>({ isIncomplete: false, items: [] })),
     references: (fileName, position) =>

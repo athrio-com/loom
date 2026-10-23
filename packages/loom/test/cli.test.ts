@@ -675,6 +675,24 @@ describe('loom cli — doctor', () => {
     },
     SPAWN_TIMEOUT,
   )
+
+  it(
+    'asks nothing about TypeScript 7 in a workspace that turns no language on',
+    () => {
+      const root = machine()
+      const npm = linkedLoom(root, 'npm/bin', 'npm/lib/node_modules/@athrio/loom/dist/main.js')
+      const home = userStore()
+      const dir = workspace('corpus: corpus\nprimary: typescript\n')
+      const { status, stdout } = loom(['doctor'], { cwd: dir, env: { PATH: npm, LOOM_HOME: home } })
+      expect(status).toBe(0)
+      expect(stdout).not.toContain('TypeScript 7')
+      expect(stdout).toContain('no problems found')
+      rmSync(root, { recursive: true, force: true })
+      rmSync(home, { recursive: true, force: true })
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
 })
 
 const explicitWorkspace = (chapter: string): string => {

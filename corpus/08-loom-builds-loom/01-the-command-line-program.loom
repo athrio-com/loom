@@ -980,7 +980,7 @@ const serviceFindings = (languages: ReadonlyArray<string>, root: string): Readon
 
 ~
 
-The last question is the TypeScript 7 that Loom fetches for a project that installs no TypeScript. The language server fetches it the first time such a project asks, once per machine, into `~/.loom/typescript/<version>/`. A machine that holds it already is in order.
+The last question is the TypeScript 7 that Loom fetches for a project that installs no TypeScript. The language server fetches it the first time such a project asks, once per machine, into `~/.loom/typescript/<version>/`. Only a workspace that turns TypeScript on can ask, so the doctor asks this question only there. A machine that holds the fetched TypeScript already is in order.
 
 On a machine that does not, the fetch still lies ahead. The standalone executable fetches with the Bun it carries, which always runs. The npm package fetches with npm, which fails when npm is not on `PATH`, as on a Linux system whose Node came without it. That failure is the one problem here. The install script fixes it, because the standalone executable needs no npm.
 
@@ -1021,9 +1021,10 @@ const workspaceFindings = (
   Effect.gen(function* () {
     const config = yield* LoomConfig
     const manifest = yield* config.manifest(root)
+    const languages = Object.keys(manifest?.languages ?? {})
     return [
-      ...serviceFindings(Object.keys(manifest?.languages ?? {}), root),
-      typeScriptFinding(),
+      ...serviceFindings(languages, root),
+      ...(Array.contains(languages, 'typescript') ? [typeScriptFinding()] : []),
     ]
   })
 

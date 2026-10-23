@@ -657,7 +657,7 @@
             "chapter": "03-loom-in-your-ide/01-supported-editors",
             "section": "checking-typescript"
           },
-          "markdown": "Loom checks each section's code with that language's own server. Turn TypeScript on in a project with `$ loom add typescript`. After you upgrade Loom, bring the servers up to date with `$ loom update --all`.\n\nThe server checks a project with the TypeScript the project installs, TypeScript 6 or TypeScript 7. In VS Code, a project on TypeScript 6 checks with the TypeScript that VS Code ships. A project that installs no TypeScript gets TypeScript 7, which the server fetches once per machine, into `~/.loom/typescript`, the first time such a project asks."
+          "markdown": "Loom checks each section's code with that language's own server. Turn TypeScript on in a project with `$ loom add typescript`. After you upgrade Loom, bring the servers up to date with `$ loom update --all`.\n\nThe server checks a project with the TypeScript the project installs, TypeScript 6 or TypeScript 7, in every editor. A project that installs no TypeScript gets TypeScript 7, which the server fetches once per machine, into `~/.loom/typescript`, the first time such a project asks."
         }
       ]
     },

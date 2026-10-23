@@ -8,6 +8,7 @@ import {
 import type {
   CodeAction,
   CodeActionContext,
+  CompletionContext,
   CompletionList,
   Diagnostic,
   DocumentSymbol,
@@ -42,7 +43,11 @@ export interface ProductProgram {
   ) => void
   readonly diagnostics: (fileName: string) => Promise<Diagnostic[]>
   readonly hover: (fileName: string, position: Position) => Promise<Hover | undefined>
-  readonly completions: (fileName: string, position: Position) => Promise<CompletionList>
+  readonly completions: (
+    fileName: string,
+    position: Position,
+    context?: CompletionContext,
+  ) => Promise<CompletionList>
   readonly definition: (fileName: string, position: Position) => Promise<LocationLink[] | undefined>
   readonly references: (fileName: string, position: Position) => Promise<Location[] | undefined>
   readonly rename: (
@@ -191,7 +196,8 @@ export const createProductProgram = (
     sync,
     diagnostics: (fileName) => service.getDiagnostics(asUri(fileName)),
     hover: (fileName, position) => service.getHover(asUri(fileName), position),
-    completions: (fileName, position) => service.getCompletionItems(asUri(fileName), position),
+    completions: (fileName, position, context) =>
+      service.getCompletionItems(asUri(fileName), position, context),
     definition: (fileName, position) => service.getDefinition(asUri(fileName), position),
     references: (fileName, position) =>
       service.getReferences(asUri(fileName), position, {

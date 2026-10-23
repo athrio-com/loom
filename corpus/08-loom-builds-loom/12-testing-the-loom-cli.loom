@@ -677,7 +677,7 @@ The first case puts four other looms on `PATH`, none of them this one. Homebrew'
 
 The tests run the CLI from its source, which Loom takes for an npm install, as `loom upgrade` does. So in the second case a `loom` that npm installed reads as this one. That `loom` is the only one on `PATH`, beside the `npm` that installed it, which can fetch TypeScript 7 for a project with none. The workspace's store holds its service at this Loom's version, so the doctor finds no problem and exits zero. The third case changes one thing, a service an older release left in the store. The doctor names the version it found and `loom update`, counts one problem, and exits non-zero.
 
-The last case takes `npm` away again. The npm package then has no way to fetch TypeScript 7 for a project with none, and the doctor says so and names the install script, which brings a Loom that needs no npm.
+The fourth case takes `npm` away again. The npm package then has no way to fetch TypeScript 7 for a project with none, and the doctor says so and names the install script, which brings a Loom that needs no npm. The last case keeps `npm` away from a workspace that turns no language on. Nothing there can ask for TypeScript 7, so the doctor asks nothing about it and finds no problem.
 
 =>
 
@@ -775,6 +775,24 @@ describe('loom cli — doctor', () => {
       expect(stdout).toContain('has no npm to fetch TypeScript')
       expect(stdout).toContain('install.sh')
       expect(stdout).toContain('1 problem found')
+      rmSync(root, { recursive: true, force: true })
+      rmSync(home, { recursive: true, force: true })
+      rmSync(dir, { recursive: true, force: true })
+    },
+    SPAWN_TIMEOUT,
+  )
+
+  it(
+    'asks nothing about TypeScript 7 in a workspace that turns no language on',
+    () => {
+      const root = machine()
+      const npm = linkedLoom(root, 'npm/bin', 'npm/lib/node_modules/@athrio/loom/dist/main.js')
+      const home = userStore()
+      const dir = workspace('corpus: corpus\nprimary: typescript\n')
+      const { status, stdout } = loom(['doctor'], { cwd: dir, env: { PATH: npm, LOOM_HOME: home } })
+      expect(status).toBe(0)
+      expect(stdout).not.toContain('TypeScript 7')
+      expect(stdout).toContain('no problems found')
       rmSync(root, { recursive: true, force: true })
       rmSync(home, { recursive: true, force: true })
       rmSync(dir, { recursive: true, force: true })

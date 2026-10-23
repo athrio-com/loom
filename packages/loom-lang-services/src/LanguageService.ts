@@ -1,5 +1,5 @@
 import type { LanguageServicePlugin } from '@volar/language-service'
-import { Context, Data, Effect, Layer, type Result } from 'effect'
+import { Context, Data, Effect, Layer, Option, type Result } from 'effect'
 import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
 import type { SemanticToken } from '@athrio/loom-ast/LoomSymbol'
 
@@ -30,8 +30,25 @@ export interface FetchedTypeScript {
   readonly fetch: () => Promise<void>
 }
 
+export class ClassicTypeScriptMissing extends Data.TaggedError('ClassicTypeScriptMissing')<{
+  readonly folder: string
+  readonly tsdk: Option.Option<string>
+  readonly cause?: unknown
+}> {
+  get message(): string {
+    return Option.match(this.tsdk, {
+      onNone: () =>
+        `found no TypeScript 6 for ${this.folder}, in the project or beside Loom; ` +
+        'install it in the project with `npm install -D typescript@6`',
+      onSome: (tsdk) => `the TypeScript in ${tsdk} did not load: ${String(this.cause)}`,
+    })
+  }
+}
+
 export interface TypescriptSdkApi {
-  readonly classic: (folder: string) => Result.Result<typeof import('typescript'), string>
+  readonly classic: (
+    folder: string,
+  ) => Result.Result<typeof import('typescript'), ClassicTypeScriptMissing>
   readonly fetched: FetchedTypeScript
 }
 

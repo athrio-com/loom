@@ -207,7 +207,7 @@ export const productPlugin = (
   capabilities: {
     diagnosticProvider: { interFileDependencies: false, workspaceDiagnostics: false },
     hoverProvider: true,
-    completionProvider: { triggerCharacters: ['.'] },
+    completionProvider: { triggerCharacters: ['.', '*', '@'] },
     definitionProvider: true,
     referencesProvider: true,
     renameProvider: {},
@@ -228,7 +228,7 @@ export const productPlugin = (
     const classicProgramFor = (project: ProductProject): ProductProgram =>
       Result.match(sdk.classic(projectFolder(project)), {
         onSuccess: (ts) => createProductProgram(ts, consumerOptions(ts, project.config)),
-        onFailure: (reason) => createUnavailableProgram('TypeScript 6', reason),
+        onFailure: (missing) => createUnavailableProgram('TypeScript 6', missing.message),
       })
     const nativeProgramFor = (
       executable: string,
@@ -343,11 +343,11 @@ export const productPlugin = (
         const target = targetOf(document.uri, document.languageId, document.getText(), 'project')
         return target === undefined ? undefined : target.program.hover(target.fileName, position)
       },
-      provideCompletionItems: (document, position) => {
+      provideCompletionItems: (document, position, completionContext) => {
         const target = targetOf(document.uri, document.languageId, document.getText(), 'project')
         return target === undefined
           ? undefined
-          : target.program.completions(target.fileName, position)
+          : target.program.completions(target.fileName, position, completionContext)
       },
       provideDefinition: (document, position) => {
         const target = targetOf(document.uri, document.languageId, document.getText(), 'project')

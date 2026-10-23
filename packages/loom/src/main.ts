@@ -827,9 +827,10 @@ const workspaceFindings = (
   Effect.gen(function* () {
     const config = yield* LoomConfig
     const manifest = yield* config.manifest(root)
+    const languages = Object.keys(manifest?.languages ?? {})
     return [
-      ...serviceFindings(Object.keys(manifest?.languages ?? {}), root),
-      typeScriptFinding(),
+      ...serviceFindings(languages, root),
+      ...(Array.contains(languages, 'typescript') ? [typeScriptFinding()] : []),
     ]
   })
 

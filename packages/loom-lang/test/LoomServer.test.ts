@@ -7,13 +7,14 @@ import {
   StreamMessageWriter,
   type TextEdit,
 } from '@volar/language-server/node'
-import { Array, Cache, Effect, Layer, Ref, Semaphore } from 'effect'
+import { Array, Cache, Effect, Layer, Ref, Result, Semaphore } from 'effect'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { PackageConfig } from '../src/PackageConfig'
 import type { LanguageServer, LanguageServerProject, LanguageServicePlugin } from '@volar/language-server/node'
 import { URI } from 'vscode-uri'
 import {
+  classicTypeScript,
   closeOf,
   projectOver,
   rebuildUnder,
@@ -443,6 +444,86 @@ describe('LoomServer — a configuration that changes', () => {
       editor.close()
     }
   }, 30_000)
+})
+
+const creating = lines(
+  `const { Effect } = globalThis.${runtimeKey}.modules.effect`,
+  'const created = { count: 0 }',
+  'export default {',
+  "  id: 'typescript',",
+  "  displayName: 'TypeScript',",
+  "  extensions: ['.ts'],",
+  '  plugins: () => Effect.succeed([{',
+  "    name: 'creating',",
+  '    capabilities: { diagnosticProvider: { interFileDependencies: false, workspaceDiagnostics: false } },',
+  '    create: () => {',
+  '      created.count += 1',
+  '      const mine = created.count',
+  '      return {',
+  "        provideDiagnostics: (document) => document.languageId === 'typescript'",
+  "          ? [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, message: 'created ' + mine }]",
+  '          : [],',
+  '      }',
+  '    },',
+  '  }]),',
+  '}',
+)
+
+describe('LoomServer — a compiler setting that changes', () => {
+  it('builds the services afresh when a tsconfig.json or a package.json changes', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    install(root, creating)
+    configure(root, activated)
+    const main = chapterAt(root, 'main.loom', chapter('Main {Tangle}[main.ts]', 'const main = 1'))
+    const editor = await editorAt(root)
+    try {
+      await editor.open(main)
+      expect(await editor.diagnostics(main)).toEqual(['created 1'])
+      writeFileSync(join(root, 'tsconfig.json'), '{}\n')
+      await editor.changed(join(root, 'tsconfig.json'), FileChangeType.Created)
+      expect(await editor.diagnostics(main)).toEqual(['created 2'])
+      writeFileSync(join(root, 'package.json'), '{}\n')
+      await editor.changed(join(root, 'package.json'), FileChangeType.Created)
+      expect(await editor.diagnostics(main)).toEqual(['created 3'])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+})
+
+const fakeTypeScript = (folder: string, from: string): void => {
+  mkdirSync(folder, { recursive: true })
+  writeFileSync(join(folder, 'typescript.js'), `module.exports = { from: ${JSON.stringify(from)} }\n`)
+}
+
+const editorCopy = (root: string): string => {
+  fakeTypeScript(join(root, 'editor', 'lib'), 'editor')
+  return join(root, 'editor', 'lib')
+}
+
+const projectAt = (root: string): string => {
+  const typescript = join(root, 'project', 'node_modules', 'typescript')
+  fakeTypeScript(join(typescript, 'lib'), 'project')
+  writeFileSync(join(typescript, 'package.json'), JSON.stringify({ name: 'typescript', version: '6.0.0' }))
+  return join(root, 'project')
+}
+
+describe('LoomServer — where a TypeScript 6 comes from', () => {
+  it('prefers the project\'s copy, then the editor\'s, and loads each once', () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-classic-')))
+    const tsdk = editorCopy(root)
+    const project = projectAt(root)
+    const bare = join(root, 'bare')
+    mkdirSync(bare)
+    const fromOf = (result: ReturnType<ReturnType<typeof classicTypeScript>>): unknown =>
+      Result.isSuccess(result) ? (result.success as unknown as { from: string }).from : result.failure
+    const withEditor = classicTypeScript({ typescript: { tsdk } })
+    expect(fromOf(withEditor(project))).toBe('project')
+    expect(fromOf(withEditor(bare))).toBe('editor')
+    const first = withEditor(project)
+    const again = withEditor(project)
+    expect(Result.isSuccess(first) && Result.isSuccess(again) && first.success === again.success).toBe(true)
+  })
 })
 
 const recording = () => {

@@ -41,7 +41,7 @@ let client: BaseLanguageClient
 
 VS Code calls `activate` the first time a `.loom` file opens. The function points the client at the bundled `server.js` and launches it over IPC, under two profiles: a plain `run` profile, and a `debug` profile that opens an inspector port for attaching a debugger.
 
-The server type-checks the synthesised frame, so it needs a TypeScript `lib/` directory. Rather than bundle one, the client points the server at the TypeScript that VS Code already ships — `loadTsdkByPath` on the server loads `typescript.js` from there and resolves the `lib.*.d.ts` files beside it.
+The server needs no TypeScript to start, and it checks a project on TypeScript 6 with the TypeScript the project installs. The client still points the server at the TypeScript that VS Code ships, its `lib/` directory, where `typescript.js` sits beside the `lib.*.d.ts` files. The server falls back on it only when a project's own install holds no `typescript.js` it can load.
 
 The client is scoped to the `loom` language. Once it has started, the function wires auto-insertion for `loom` documents and registers the client with the Volar Labs inspector, then returns the inspector's exports.
 

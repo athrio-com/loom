@@ -99,7 +99,13 @@ interface PackageManager {
   readonly command: string
   readonly args: ReadonlyArray<string>
   readonly env: NodeJS.ProcessEnv
+  readonly shell: boolean
 }
+
+const onWindows = process.platform === 'win32'
+
+const quotedOnWindows = (argument: string): string =>
+  onWindows && /\s/.test(argument) ? `"${argument}"` : argument
 
 const packageManager = (root: string, spec: string): PackageManager =>
   standalone
@@ -107,11 +113,16 @@ const packageManager = (root: string, spec: string): PackageManager =>
         command: process.execPath,
         args: ['add', spec, '--cwd', root, '--omit', 'peer', '--linker', 'hoisted'],
         env: { ...process.env, BUN_BE_BUN: '1' },
+        shell: false,
       }
     : {
         command: 'npm',
-        args: ['install', spec, '--prefix', root, '--omit=peer', '--no-audit', '--no-fund'],
+        args: Array.map(
+          ['install', spec, '--prefix', root, '--omit=peer', '--no-audit', '--no-fund'],
+          quotedOnWindows,
+        ),
         env: process.env,
+        shell: onWindows,
       }
 
 const installPackage = (
@@ -123,7 +134,8 @@ const installPackage = (
     yield* Effect.sync(() => prepareRoot(root))
     const manager = packageManager(root, `${packageName}@${range}`)
     yield* Effect.tryPromise({
-      try: () => run(manager.command, [...manager.args], { env: manager.env }),
+      try: () =>
+        run(manager.command, [...manager.args], { env: manager.env, shell: manager.shell }),
       catch: (cause) => new StoreError({ packageName, cause }),
     })
   })
@@ -167,6 +179,12 @@ export const fetchedExecutable = (version: string): string =>
 
 const present = (path: string): Effect.Effect<boolean> => Effect.sync(() => existsSync(path))
 
+const placeFetched = (partial: string, folder: string, executable: string): void => {
+  if (existsSync(executable)) return
+  rmSync(folder, { recursive: true, force: true })
+  Option.liftThrowable(() => renameSync(partial, folder))()
+}
+
 export const fetchTypeScript = (version: string): Effect.Effect<string, StoreError> => {
   const folder = fetchedTypeScriptDir(version)
   const partial = `${folder}.partial-${process.pid}`
@@ -177,21 +195,17 @@ export const fetchTypeScript = (version: string): Effect.Effect<string, StoreErr
     yield* Effect.logInfo(`loom: fetching TypeScript ${version} into ${folder}`)
     yield* Effect.sync(() => rmSync(partial, { recursive: true, force: true }))
     yield* installPackage(partial, 'typescript', version)
-    yield* Effect.try({
-      try: () =>
-        existsSync(folder)
-          ? rmSync(partial, { recursive: true, force: true })
-          : renameSync(partial, folder),
-      catch: failed,
-    })
-  })
+    yield* Effect.sync(() => placeFetched(partial, folder, executable))
+  }).pipe(Effect.ensuring(Effect.sync(() => rmSync(partial, { recursive: true, force: true }))))
   return present(executable).pipe(
     Effect.flatMap((there) => (there ? Effect.void : install)),
     Effect.andThen(present(executable)),
     Effect.flatMap((there) =>
       there
         ? Effect.succeed(executable)
-        : Effect.fail(failed(`the fetched TypeScript holds no executable at ${executable}`)),
+        : Effect.fail(
+            failed(`${folder} holds no TypeScript executable for this platform at ${executable}`),
+          ),
     ),
   )
 }

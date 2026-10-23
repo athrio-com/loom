@@ -31,6 +31,7 @@
     "packages/loom-lang-services/src/LoomStore.ts",
     "packages/loom-lang-services/src/ProseLanguage.ts",
     "packages/loom-lang-services/src/Runtime.ts",
+    "packages/loom-lang-services/test/LoomStore.test.ts",
     "packages/loom-lang-services/tsconfig.json",
     "packages/loom-lang/bin/loom-language-server.js",
     "packages/loom-lang/moon.yml",

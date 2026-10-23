@@ -293,12 +293,24 @@ describe('productTarget finds a root\'s project', () => {
 })
 
 import { Result } from 'effect'
-import type { TypescriptSdkApi } from '@athrio/loom-lang-services/LanguageService'
+import type { CompletionContext } from '@volar/language-service'
+import {
+  ClassicTypeScriptMissing,
+  type TypescriptSdkApi,
+} from '@athrio/loom-lang-services/LanguageService'
 
-const actPath = join(import.meta.dir, 'act.ts')
-const actLoom = join(import.meta.dir, 'act.loom')
-const actCode =
-  'export const total = 1 + 2\n\nexport function twice(n: number): number {\n  return n * 2\n}\n'
+const actIn = (folder: string, code: string) => ({
+  path: join(folder, 'act.ts'),
+  loom: join(folder, 'act.loom'),
+  code,
+})
+
+type Act = ReturnType<typeof actIn>
+
+const act = actIn(
+  import.meta.dir,
+  'export const total = 1 + 2\n\nexport function twice(n: number): number {\n  return n * 2\n}\n',
+)
 
 const standInContext = {
   decodeEmbeddedDocumentUri: (uri: URI): readonly [URI, string] | undefined =>
@@ -307,26 +319,28 @@ const standInContext = {
     URI.from({ scheme: 'loom-embedded', path: uri.path, fragment: id }),
 } as unknown as LanguageServiceContext
 
-const lending = (classic: Result.Result<typeof ts, string>): TypescriptSdkApi => ({
+const lending = (
+  classic: Result.Result<typeof ts, ClassicTypeScriptMissing>,
+  fetch: () => Promise<void> = () => Promise.reject(new Error('the tests fetch nothing')),
+): TypescriptSdkApi => ({
   classic: () => classic,
-  fetched: {
-    version: '7.0.0-test',
-    executable: '/nowhere/tsc',
-    fetch: () => Promise.reject(new Error('the tests fetch nothing')),
-  },
+  fetched: { version: '7.0.0-test', executable: '/nowhere/tsc', fetch },
 })
 
-const pluginWith = (sdk: TypescriptSdkApi) =>
+const pluginWith = (sdk: TypescriptSdkApi, root: Act = act) =>
   productPlugin(sdk, {
     rootsFor: () => [
-      { path: actPath, content: actCode, loomPath: actLoom, rootId: 'main', heading: headOf(actLoom) },
+      { path: root.path, content: root.code, loomPath: root.loom, rootId: 'main', heading: headOf(root.loom) },
     ],
   }).create(standInContext)
 
-const embedded = standInContext.encodeEmbeddedDocumentUri(URI.file(actLoom), 'main').toString()
+const embeddedOf = (root: Act): string =>
+  standInContext.encodeEmbeddedDocumentUri(URI.file(root.loom), 'main').toString()
 
-const documentOf = () =>
-  ({ uri: embedded, languageId: 'typescript', version: 1, getText: () => actCode }) as unknown as Parameters<
+const embedded = embeddedOf(act)
+
+const documentOf = (root: Act = act) =>
+  ({ uri: embeddedOf(root), languageId: 'typescript', version: 1, getText: () => root.code }) as unknown as Parameters<
     NonNullable<ReturnType<ReturnType<typeof productPlugin>['create']>['provideCodeActions']>
   >[0]
 
@@ -382,10 +396,53 @@ describe('productPlugin answers about the code\'s shape', () => {
 
 describe('productPlugin reports a project that cannot have TypeScript 6', () => {
   it('fails each check with the reason, rather than fall back to another compiler', async () => {
-    const instance = pluginWith(lending(Result.fail('no TypeScript 6 lies near this project')))
+    const missing = new ClassicTypeScriptMissing({ folder: '/nowhere', tsdk: Option.none() })
+    const instance = pluginWith(lending(Result.fail(missing)))
     const diagnostics = (await instance.provideDiagnostics!(documentOf(), never)) ?? []
     expect(diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
-      'TypeScript 6 is unavailable: no TypeScript 6 lies near this project',
+      `TypeScript 6 is unavailable: ${missing.message}`,
     ])
+  })
+})
+
+describe('productPlugin puts a project with no TypeScript on the fetched TypeScript 7', () => {
+  it('waits for the fetch, and reports a fetch that failed', async () => {
+    const bare = actIn(realpathSync(mkdtempSync(join(tmpdir(), 'loom-bare-'))), 'export const one = 1\n')
+    const fetches: Array<string> = []
+    const fetch = () => {
+      fetches.push('fetch')
+      return Promise.reject(new Error('could not fetch TypeScript 7.0.0-test'))
+    }
+    const instance = pluginWith(lending(Result.succeed(ts), fetch), bare)
+    const diagnostics = (await instance.provideDiagnostics!(documentOf(bare), never)) ?? []
+    expect(fetches.length).toBeGreaterThan(0)
+    expect(diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
+      'could not fetch TypeScript 7.0.0-test',
+    ])
+  })
+})
+
+describe('productPlugin completes as the person types', () => {
+  const commented = actIn(
+    join(import.meta.dir, 'typed'),
+    '/** */\nexport function half(n: number): number {\n  return n / 2\n}\n// @\nexport const product = 2 * 3\n',
+  )
+
+  const typed = (character: string): CompletionContext => ({ triggerKind: 2, triggerCharacter: character })
+
+  const labelsAt = async (line: number, character: number, typedCharacter: string) =>
+    (
+      (await pluginWith(lending(Result.succeed(ts)), commented).provideCompletionItems!(
+        documentOf(commented),
+        { line, character },
+        typed(typedCharacter),
+        never,
+      ))?.items ?? []
+    ).map((item) => item.label)
+
+  it('offers a doc comment\'s template, the directives, and nothing for a product', async () => {
+    expect(await labelsAt(0, 3, '*')).toContain('/** */')
+    expect(await labelsAt(4, 4, '@')).toContain('@ts-expect-error')
+    expect(await labelsAt(5, 26, '*')).toEqual([])
   })
 })

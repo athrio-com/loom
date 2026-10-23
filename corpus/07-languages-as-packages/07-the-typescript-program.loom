@@ -12,7 +12,7 @@ The program never opens a `.loom`. The host composes the file's whole corpus, ev
 
 ## What the program offers
 
-A `ProductProgram` holds the product's roots and answers the editor's questions about them. `sync` sets those roots in one call. It takes the roots the program lists, each a `ProductFile` with its path and text, and the other roots of the composition, which the program reads only when a listed root imports one. A program called with no other roots lists every root it holds. A `ProductFile` may also name the `.loom` it was composed from, and a root marked `loose` is a section that tangles to no file, composed under a name of its own beside its loom. The TypeScript 6 program needs neither and treats every root alike; the native program uses both to decide which roots it serves. `sync` adds the roots new since the last call, replaces the ones whose text changed, and drops the ones now gone. The feature methods answer over a root by its path: `diagnostics` for the whole file; `hover`, `completions`, `definition`, and `references` at a position; `rename` for a new name; and `codeActions` for the quick-fixes and refactors in a range, with `resolveCodeAction` filling in an action's edit. Three more ask only about the code's shape: `documentSymbols` for the outline of a root's symbols, `foldingRanges` for the ranges an editor folds, and `selectionRanges` for the ranges a selection grows through from each position. Each returns what `volar-service-typescript` finds, named by that path. The service rewrites each such path to the embedded document it stands for, and Volar maps the coordinates back to the `.loom`. `dispose` releases the service.
+A `ProductProgram` holds the product's roots and answers the editor's questions about them. `sync` sets those roots in one call. It takes the roots the program lists, each a `ProductFile` with its path and text, and the other roots of the composition, which the program reads only when a listed root imports one. A program called with no other roots lists every root it holds. A `ProductFile` may also name the `.loom` it was composed from, and a root marked `loose` is a section that tangles to no file, composed under a name of its own beside its loom. The TypeScript 6 program needs neither and treats every root alike; the native program uses both to decide which roots it serves. `sync` adds the roots new since the last call, replaces the ones whose text changed, and drops the ones now gone. The feature methods answer over a root by its path: `diagnostics` for the whole file; `hover`, `completions`, `definition`, and `references` at a position; `rename` for a new name; and `codeActions` for the quick-fixes and refactors in a range, with `resolveCodeAction` filling in an action's edit. `completions` also takes the context the editor asked in, such as the character the person typed, and hands it to the plugins, so only the plugins that answer that character are asked. Three more ask only about the code's shape: `documentSymbols` for the outline of a root's symbols, `foldingRanges` for the ranges an editor folds, and `selectionRanges` for the ranges a selection grows through from each position. Each returns what `volar-service-typescript` finds, named by that path. The service rewrites each such path to the embedded document it stands for, and Volar maps the coordinates back to the `.loom`. `dispose` releases the service.
 
 =>
 
@@ -30,7 +30,11 @@ export interface ProductProgram {
   ) => void
   readonly diagnostics: (fileName: string) => Promise<Diagnostic[]>
   readonly hover: (fileName: string, position: Position) => Promise<Hover | undefined>
-  readonly completions: (fileName: string, position: Position) => Promise<CompletionList>
+  readonly completions: (
+    fileName: string,
+    position: Position,
+    context?: CompletionContext,
+  ) => Promise<CompletionList>
   readonly definition: (fileName: string, position: Position) => Promise<LocationLink[] | undefined>
   readonly references: (fileName: string, position: Position) => Promise<Location[] | undefined>
   readonly rename: (
@@ -199,7 +203,8 @@ export const createProductProgram = (
     sync,
     diagnostics: (fileName) => service.getDiagnostics(asUri(fileName)),
     hover: (fileName, position) => service.getHover(asUri(fileName), position),
-    completions: (fileName, position) => service.getCompletionItems(asUri(fileName), position),
+    completions: (fileName, position, context) =>
+      service.getCompletionItems(asUri(fileName), position, context),
     definition: (fileName, position) => service.getDefinition(asUri(fileName), position),
     references: (fileName, position) =>
       service.getReferences(asUri(fileName), position, {
@@ -246,6 +251,7 @@ import {
 import type {
   CodeAction,
   CodeActionContext,
+  CompletionContext,
   CompletionList,
   Diagnostic,
   DocumentSymbol,

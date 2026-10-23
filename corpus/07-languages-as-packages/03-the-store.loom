@@ -1,6 +1,6 @@
 ---
 Part VII, Chapter 3: The store of installed services
-Package: packages/loom-lang-services/src/LoomStore.ts
+Package: packages/loom-lang-services/
 Language: TypeScript
 ---
 
@@ -145,6 +145,8 @@ The store is a package root, a folder with a private `package.json` for a packag
 
 Both lay the packages out flat, with every dependency beside the package that needs it under `node_modules`. npm always does, and Bun is asked to with `--linker hoisted`, so a package lands at the same path whichever manager installed it.
 
+On Windows, npm is a batch script, `npm.cmd`, and Node starts a batch script only through the shell. So there the store runs npm through the shell, and `quotedOnWindows` quotes each argument that holds a space, which the shell would otherwise split in two.
+
 Both leave out peer dependencies. Effect, Volar's contracts, and the service interface are a service's peers, and the host that loads the service supplies all three, so the store need not hold them.
 
 An install that fails, whether the registry is unreachable, the package is not published, or `npm` is absent, fails with a `StoreError` that names the package and carries the cause. The command that called it can then report the reason rather than a stack trace.
@@ -170,7 +172,13 @@ interface PackageManager {
   readonly command: string
   readonly args: ReadonlyArray<string>
   readonly env: NodeJS.ProcessEnv
+  readonly shell: boolean
 }
+
+const onWindows = process.platform === 'win32'
+
+const quotedOnWindows = (argument: string): string =>
+  onWindows && /\s/.test(argument) ? `"${argument}"` : argument
 
 const packageManager = (root: string, spec: string): PackageManager =>
   standalone
@@ -178,11 +186,16 @@ const packageManager = (root: string, spec: string): PackageManager =>
         command: process.execPath,
         args: ['add', spec, '--cwd', root, '--omit', 'peer', '--linker', 'hoisted'],
         env: { ...process.env, BUN_BE_BUN: '1' },
+        shell: false,
       }
     : {
         command: 'npm',
-        args: ['install', spec, '--prefix', root, '--omit=peer', '--no-audit', '--no-fund'],
+        args: Array.map(
+          ['install', spec, '--prefix', root, '--omit=peer', '--no-audit', '--no-fund'],
+          quotedOnWindows,
+        ),
         env: process.env,
+        shell: onWindows,
       }
 
 const installPackage = (
@@ -194,7 +207,8 @@ const installPackage = (
     yield* Effect.sync(() => prepareRoot(root))
     const manager = packageManager(root, `${packageName}@${range}`)
     yield* Effect.tryPromise({
-      try: () => run(manager.command, [...manager.args], { env: manager.env }),
+      try: () =>
+        run(manager.command, [...manager.args], { env: manager.env, shell: manager.shell }),
       catch: (cause) => new StoreError({ packageName, cause }),
     })
   })
@@ -258,11 +272,21 @@ export const fetchedExecutable = (version: string): string =>
 
 `fetchTypeScript` brings one version onto the machine and returns the path of its executable. A machine that already holds the executable answers at once, with no network.
 
-Otherwise it writes a line to the log that names the version and the folder, so the person sees why the editor waits, and installs `typescript` at that version. The package manager installs the companion package for this platform with it. The install goes into a folder of its own beside the final one, named for this process, and the finished folder is renamed into place in one step. Two editors may fetch at the same moment, and each finds either no compiler or a whole one, never half of one. When the other editor's folder is already in place, this one's copy is removed and the other's is kept. A fetch that leaves no executable where `fetchedExecutable` says fails with a `StoreError`, as a failed install does.
+Otherwise it writes a line to the log that names the version and the folder, so the person sees why the editor waits, and installs `typescript` at that version. The package manager installs the companion package for this platform with it. The install goes into a folder of its own beside the final one, named for this process, and `placeFetched` moves the finished folder into place with one rename.
+
+The folder in place may already hold the executable, because another editor fetched at the same moment and finished first. Then that folder stays, and this copy is dropped. A folder in place that lacks the executable is broken. An install that left the companion package out made it, or a machine of another kind that shares the folder, since the folder is named by version alone. Then the new copy replaces it, so the next fetch repairs what the last one left. A rename that fails because the other editor's folder arrived in between changes nothing, since that folder is whole.
+
+The copy is removed afterwards in every case, after a failed install as after a good one, so no half-fetched folder is left behind. A fetch that still leaves no executable where `fetchedExecutable` says fails with a `StoreError` that names the folder, as a failed install does.
 
 =>
 
 const present = (path: string): Effect.Effect<boolean> => Effect.sync(() => existsSync(path))
+
+const placeFetched = (partial: string, folder: string, executable: string): void => {
+  if (existsSync(executable)) return
+  rmSync(folder, { recursive: true, force: true })
+  Option.liftThrowable(() => renameSync(partial, folder))()
+}
 
 export const fetchTypeScript = (version: string): Effect.Effect<string, StoreError> => {
   const folder = fetchedTypeScriptDir(version)
@@ -274,21 +298,17 @@ export const fetchTypeScript = (version: string): Effect.Effect<string, StoreErr
     yield* Effect.logInfo(`loom: fetching TypeScript ${version} into ${folder}`)
     yield* Effect.sync(() => rmSync(partial, { recursive: true, force: true }))
     yield* installPackage(partial, 'typescript', version)
-    yield* Effect.try({
-      try: () =>
-        existsSync(folder)
-          ? rmSync(partial, { recursive: true, force: true })
-          : renameSync(partial, folder),
-      catch: failed,
-    })
-  })
+    yield* Effect.sync(() => placeFetched(partial, folder, executable))
+  }).pipe(Effect.ensuring(Effect.sync(() => rmSync(partial, { recursive: true, force: true }))))
   return present(executable).pipe(
     Effect.flatMap((there) => (there ? Effect.void : install)),
     Effect.andThen(present(executable)),
     Effect.flatMap((there) =>
       there
         ? Effect.succeed(executable)
-        : Effect.fail(failed(`the fetched TypeScript holds no executable at ${executable}`)),
+        : Effect.fail(
+            failed(`${folder} holds no TypeScript executable for this platform at ${executable}`),
+          ),
     ),
   )
 }
@@ -325,7 +345,7 @@ import { promisify } from 'node:util'
 
 const run = promisify(execFile)
 
-## The module {Tangle}
+## The module {Tangle}[src/LoomStore.ts]
 
 =>
 
@@ -350,3 +370,117 @@ const run = promisify(execFile)
 ::[TypeScript 7 for a project that installs none]
 
 ::[Removing a service]
+
+## Testing the fetch
+
+The fetch runs a package manager, so these cases put a stand-in `npm` first on `PATH`. The stand-in is a shell script that writes a `typescript` package into the folder it is given, with the companion package for this platform when the case asks for one. It notes each install in a log, so a case can count them, and it fails when the case asks it to. `fetchIn` runs one fetch with the stand-in on `PATH` and `LOOM_HOME` in a scratch folder, so nothing touches the real home folder, and puts every variable back afterwards. `leftovers` lists the partial folders a fetch left beside the final one.
+
+A first fetch puts the compiler in the folder for its version and returns its executable. A second finds it there and installs nothing. A fetch whose install left the companion package out fails, naming the folder, and the next fetch replaces that folder with a whole one. A failed install leaves no partial folder behind. The stand-in is a shell script, so the cases skip Windows.
+
+=>
+
+import { describe, expect, it } from 'bun:test'
+import { Effect, Result } from 'effect'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fetchedExecutable, fetchedTypeScriptDir, fetchTypeScript } from '../src/LoomStore'
+
+const standInNpm = `#!/bin/sh
+prefix=""
+while [ $# -gt 0 ]; do
+  if [ "$1" = "--prefix" ]; then prefix="$2"; fi
+  shift
+done
+echo install >> "$STAND_IN_LOG"
+if [ "$STAND_IN_FAILS" = yes ]; then exit 1; fi
+mkdir -p "$prefix/node_modules/typescript"
+echo '{"name":"typescript","version":"7.0.0"}' > "$prefix/node_modules/typescript/package.json"
+if [ "$STAND_IN_COMPANION" = yes ]; then
+  mkdir -p "$prefix/node_modules/@typescript/typescript-$STAND_IN_PLATFORM/lib"
+  printf '' > "$prefix/node_modules/@typescript/typescript-$STAND_IN_PLATFORM/lib/tsc"
+fi
+`
+
+const version = '7.0.0-test'
+
+const machine = () => {
+  const folder = realpathSync(mkdtempSync(join(tmpdir(), 'loom-fetch-')))
+  const bin = join(folder, 'bin')
+  mkdirSync(bin)
+  writeFileSync(join(bin, 'npm'), standInNpm, { mode: 0o755 })
+  return { home: join(folder, 'home'), bin, log: join(folder, 'log') }
+}
+
+type Machine = ReturnType<typeof machine>
+
+const fetchIn = async (place: Machine, companion: boolean, fails = false) => {
+  const variables: Record<string, string> = {
+    PATH: `${place.bin}:${process.env.PATH ?? ''}`,
+    LOOM_HOME: place.home,
+    STAND_IN_LOG: place.log,
+    STAND_IN_COMPANION: companion ? 'yes' : 'no',
+    STAND_IN_FAILS: fails ? 'yes' : 'no',
+    STAND_IN_PLATFORM: `${process.platform}-${process.arch}`,
+  }
+  const saved = Object.fromEntries(Object.keys(variables).map((name) => [name, process.env[name]]))
+  Object.assign(process.env, variables)
+  try {
+    return await Effect.runPromise(Effect.result(fetchTypeScript(version)))
+  } finally {
+    Object.entries(saved).forEach(([name, value]) =>
+      value === undefined ? delete process.env[name] : (process.env[name] = value),
+    )
+  }
+}
+
+const installs = (place: Machine): number =>
+  existsSync(place.log) ? readFileSync(place.log, 'utf8').split('\n').filter(Boolean).length : 0
+
+const leftovers = (place: Machine): ReadonlyArray<string> =>
+  existsSync(join(place.home, 'typescript'))
+    ? readdirSync(join(place.home, 'typescript')).filter((name) => name.includes('.partial-'))
+    : []
+
+describe.skipIf(process.platform === 'win32')('fetchTypeScript', () => {
+  it('fetches TypeScript into its version\'s folder once, and returns the executable', async () => {
+    const place = machine()
+    const first = await fetchIn(place, true)
+    const again = await fetchIn(place, true)
+    process.env.LOOM_HOME = place.home
+    const executable = fetchedExecutable(version)
+    delete process.env.LOOM_HOME
+    expect(Result.isSuccess(first) && first.success).toBe(executable)
+    expect(Result.isSuccess(again)).toBe(true)
+    expect(existsSync(executable)).toBe(true)
+    expect(installs(place)).toBe(1)
+    expect(leftovers(place)).toEqual([])
+  })
+
+  it('replaces a folder that lacks the executable on the next fetch', async () => {
+    const place = machine()
+    const broken = await fetchIn(place, false)
+    process.env.LOOM_HOME = place.home
+    const folder = fetchedTypeScriptDir(version)
+    delete process.env.LOOM_HOME
+    expect(Result.isFailure(broken) && String(broken.failure.cause)).toContain(folder)
+    expect(existsSync(folder)).toBe(true)
+    const repaired = await fetchIn(place, true)
+    expect(Result.isSuccess(repaired)).toBe(true)
+    expect(leftovers(place)).toEqual([])
+  })
+
+  it('leaves no partial folder after a failed install', async () => {
+    const place = machine()
+    const failed = await fetchIn(place, true, true)
+    expect(Result.isFailure(failed)).toBe(true)
+    expect(installs(place)).toBe(1)
+    expect(leftovers(place)).toEqual([])
+  })
+})
+
+## The test file {Tangle}[test/LoomStore.test.ts]
+
+=>
+
+::[Testing the fetch]

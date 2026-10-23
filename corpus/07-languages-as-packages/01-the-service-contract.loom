@@ -55,12 +55,12 @@ The host hands a service its `settings` and runs `plugins`, providing the capabi
 
 ## Imports
 
-The contract names Volar's `LanguageServicePlugin`, the unit of editor behavior; from Effect, `Data` for the tagged error, `Effect` itself, since a service builds its plugins in an Effect and a capability is an Effect service, and `Result`, the answer of a search that may fail with its reason; and from `@athrio/loom-ast`, the `Diagnostic` the frame query returns and the `SemanticToken` colour it tags each of a file's tokens with.
+The contract names Volar's `LanguageServicePlugin`, the unit of editor behavior; from Effect, `Data` for the tagged errors, `Effect` itself, since a service builds its plugins in an Effect and a capability is an Effect service, `Option` for a value that may be missing, and `Result`, the answer of a search that may fail; and from `@athrio/loom-ast`, the `Diagnostic` the frame query returns and the `SemanticToken` colour it tags each of a file's tokens with.
 
 =>
 
 import type { LanguageServicePlugin } from '@volar/language-service'
-import { Context, Data, Effect, Layer, type Result } from 'effect'
+import { Context, Data, Effect, Layer, Option, type Result } from 'effect'
 import { type Diagnostic } from '@athrio/loom-ast/LoomNode'
 import type { SemanticToken } from '@athrio/loom-ast/LoomSymbol'
 
@@ -105,7 +105,7 @@ A service may draw on capabilities the host provides, taken through the Effect e
 
 `TypescriptSdk` hands out the TypeScript compilers a project may need, and only when a project asks for one. A project chooses its compiler by what it installs, as the chapter on the native TypeScript program explains, so the host cannot know at startup which compiler a session will need, if any. Lending none up front lets the editor start on a machine that holds no TypeScript 6 at all.
 
-The capability answers two questions. `classic` gives the TypeScript 6 that a project on TypeScript 6 checks against, found from the project's folder. TypeScript 6 is a JavaScript library, so the host loads it into its own process the first time such a project asks. When no TypeScript 6 can be found, `classic` fails with the reason, and the project's TypeScript features report it rather than fall back to anything else. `fetched` describes the TypeScript 7 that Loom fetches once per machine for a project that installs no TypeScript at all. A `FetchedTypeScript` names its `version` and the `executable` it runs as, and its `fetch` brings it onto the machine the first time it is needed, resolving once the executable is there. The host decides where the two come from, and the chapter on the language server says where it looks. Like the other capabilities it carries no default. Only the TypeScript service takes it; the Loom service and a CSS or Go service never ask.
+The capability answers two questions. `classic` gives the TypeScript 6 that a project on TypeScript 6 checks against, found from the project's folder. TypeScript 6 is a JavaScript library, so the host loads it into its own process the first time such a project asks. When it finds none, or the one it finds will not load, `classic` fails with a `ClassicTypeScriptMissing`. The failure names the project's folder and, for a compiler that would not load, its directory and the cause, and the project's TypeScript features report its message rather than fall back to anything else. `fetched` describes the TypeScript 7 that Loom fetches once per machine for a project that installs no TypeScript at all. A `FetchedTypeScript` names its `version` and the `executable` it runs as, and its `fetch` brings it onto the machine the first time it is needed, resolving once the executable is there. The host decides where the two come from, and the chapter on the language server says where it looks. Like the other capabilities it carries no default. Only the TypeScript service takes it; the Loom service and a CSS or Go service never ask.
 
 `FrameQuery` is the host's read into the frame — the questions Loom can answer about a file from the composition it built. Its first reader, `diagnostics`, returns that file's Loom diagnostics, the grammatical and semantic health in Loom's own terms, so the frame service can surface them. Four more readers answer navigation and rename. `definition` gives the heading an anchor at an offset resolves to, and `references` gives every anchor that names the section under an offset. `rename` gives the title and anchor-name spans a rename rewrites together, and `renameRange` gives the one span the rename box covers. These answer in `FrameLocation`s — a path and a range in the editor's own line-and-character coordinates. Another reader, `semanticTokens`, gives each of a file's tokens its colour: a `FrameToken` pairing a range with the `SemanticToken` kind `LoomSymbol` assigns, so the editor highlights the source. The last, `format`, answers with a file's text formatted, its prose paragraphs each on one line and its code laid out by each language's formatter. It takes the text itself, the open buffer the editor holds, rather than reading the warm corpus, so a format never works from a stale copy, and it answers with a promise, because a language's formatter may take its time. The host builds the query over the warm corpus, and like `TypescriptSdk` it carries no default. Only the Loom service takes it.
 
@@ -123,8 +123,25 @@ export interface FetchedTypeScript {
   readonly fetch: () => Promise<void>
 }
 
+export class ClassicTypeScriptMissing extends Data.TaggedError('ClassicTypeScriptMissing')<{
+  readonly folder: string
+  readonly tsdk: Option.Option<string>
+  readonly cause?: unknown
+}> {
+  get message(): string {
+    return Option.match(this.tsdk, {
+      onNone: () =>
+        `found no TypeScript 6 for ${this.folder}, in the project or beside Loom; ` +
+        'install it in the project with `npm install -D typescript@6`',
+      onSome: (tsdk) => `the TypeScript in ${tsdk} did not load: ${String(this.cause)}`,
+    })
+  }
+}
+
 export interface TypescriptSdkApi {
-  readonly classic: (folder: string) => Result.Result<typeof import('typescript'), string>
+  readonly classic: (
+    folder: string,
+  ) => Result.Result<typeof import('typescript'), ClassicTypeScriptMissing>
   readonly fetched: FetchedTypeScript
 }
 
