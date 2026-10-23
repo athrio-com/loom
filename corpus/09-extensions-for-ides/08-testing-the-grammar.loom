@@ -88,12 +88,16 @@ const treeSitter = (args: ReadonlyArray<string>): Effect.Effect<string> =>
 
 The parser is compiled once, into a scratch folder, before any test runs, and every loom is parsed with that one library. The command would otherwise keep its own compiled copy in a shared cache and decide for itself when to rebuild it.
 
+Compiling the parser takes a C compiler a few seconds on a fast machine, and longer on a cold CI runner. Bun gives a hook five seconds unless it is told otherwise, and from Bun 1.4 on it holds `beforeAll` to that limit too, failing the whole file when the compile runs past it. So the hook allows two minutes, `compileTime`.
+
 =>
 
 const scratch = mkdtempSync(join(tmpdir(), 'tree-sitter-loom-'))
 const library = join(scratch, 'loom.so')
 
-beforeAll(() => Effect.runPromise(treeSitter(['build', '--output', library])))
+const compileTime = 120_000
+
+beforeAll(() => Effect.runPromise(treeSitter(['build', '--output', library])), { timeout: compileTime })
 
 const parseTree = (file: string): Effect.Effect<string> =>
   treeSitter(['parse', '--lib-path', library, '--lang-name', 'loom', file])

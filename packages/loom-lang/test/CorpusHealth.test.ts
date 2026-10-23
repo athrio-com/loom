@@ -46,7 +46,7 @@ beforeAll(async () => {
       Effect.flatMap((c) => c.diagnose(resolve(corpusDir, looms[0]!))),
     ),
   )
-})
+}, 60_000)
 
 describe('corpus health — every loom-lang corpus file builds without error', () => {
   it.each(looms)('%s carries no error diagnostics', (file) => {

@@ -64,7 +64,9 @@ const treeSitter = (args: ReadonlyArray<string>): Effect.Effect<string> =>
 const scratch = mkdtempSync(join(tmpdir(), 'tree-sitter-loom-'))
 const library = join(scratch, 'loom.so')
 
-beforeAll(() => Effect.runPromise(treeSitter(['build', '--output', library])))
+const compileTime = 120_000
+
+beforeAll(() => Effect.runPromise(treeSitter(['build', '--output', library])), { timeout: compileTime })
 
 const parseTree = (file: string): Effect.Effect<string> =>
   treeSitter(['parse', '--lib-path', library, '--lang-name', 'loom', file])

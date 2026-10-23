@@ -36,7 +36,7 @@ const SLOW = 30_000
 let teardown: () => void
 beforeAll(() => {
   teardown = serviceStore()
-})
+}, SLOW)
 afterAll(() => teardown())
 
 const checkerFor = async (entry: string) => {
