@@ -9,3 +9,6 @@ variables:
   grammar: 0.0.12
   zed: 0.0.13
   grammarRevision: a2dbcd01d2ac8bbc6030753718d12dbe5c16ecd8
+settings:
+  typescript:
+    nativeCompiler: node_modules/typescript-native

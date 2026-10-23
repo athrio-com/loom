@@ -33,7 +33,7 @@ export interface LanguageServerProcess {
 
 ~
 
-A request fails with `LanguageServerFailed` when the server could not start, or has stopped, or stopped while the request waited. It names the command, so the editor's log says which server failed, and it carries the underlying cause when there is one.
+A request fails with `LanguageServerFailed` when the server could not start, or has stopped, or stopped while the request waited, or answered the request with an error of its own. It names the command, so the editor's log says which server failed, and it carries the underlying cause when there is one. A server that answered with an error is still running, so the message then repeats the server's own words rather than saying the server is not running. An error answer is the one cause that carries a numeric `code`, as LSP's error responses do.
 
 =>
 
@@ -42,7 +42,10 @@ export class LanguageServerFailed extends Data.TaggedError('LanguageServerFailed
   readonly cause?: unknown
 }> {
   get message(): string {
-    return `the ${this.command} language server is not running`
+    const cause = this.cause as { readonly code?: unknown; readonly message?: unknown } | undefined
+    return typeof cause?.code === 'number'
+      ? `the ${this.command} language server answered: ${String(cause.message)}`
+      : `the ${this.command} language server is not running`
   }
 }
 
@@ -82,11 +85,11 @@ export const spawnLanguageServer = (
 
 ~
 
-The bridge imports `vscode-jsonrpc` only when it starts a server. It names the module `vscode-jsonrpc/node.js`, with the extension. The package declares no map of its entry points, so Node resolves a path inside it only as written, and `vscode-jsonrpc/node` names no file to Node. Bun resolves either form, and the VS Code extension and the npm command run the language server on Node. A workspace that never runs a language server never loads the package, and the service itself loads without it, the way it loads without Prettier until it formats. `connected` is the promise of the connection, built once the process has started and the import has arrived. The connection reports its own failures through `onError` and `onClose`, and the bridge takes either as the server stopping.
+The bridge imports `vscode-jsonrpc` only when it starts a server. It names the module `vscode-jsonrpc/node.js`, with the extension. The package declares no map of its entry points, so Node resolves a path inside it only as written, and `vscode-jsonrpc/node` names no file to Node. Bun resolves either form, but the VS Code extension and the npm command run the language server on Node. A workspace that never runs a language server never loads the package, and the service itself loads without it, the way it loads without Prettier until it formats. `connected` is the promise of the connection, built once the process has started and the import has arrived. The connection reports its own failures through `onError` and `onClose`, and the bridge takes either as the server stopping.
 
 A server may receive nothing before it has answered `initialize`. So the bridge keeps `ready`, the promise of that answer, and sends every later message only once `ready` settles. Each message is attached to `ready` in the order the caller sent it, and a promise runs its callbacks in the order they were attached, so the server receives them in that order too. An open document always reaches the server before a request about it.
 
-`connected` and `ready` each get a handler of their own that swallows their failure. Every caller attaches to them as well and hears the failure on its own promise, but a promise that fails with no handler at all would be reported as unhandled, and the runtime would end the process for it.
+`connected` and `ready` each get a handler of their own. Every caller attaches to them as well and hears the failure on its own promise, but a promise that fails with no handler at all would be reported as unhandled, and the runtime would end the process for it. The handler on `ready` also calls `stopped`. A server that refused `initialize` but kept running can answer nothing, so the bridge treats it as stopped, and its owner's restart rules apply to it as to a crash.
 
 =>
 
@@ -116,7 +119,7 @@ A server may receive nothing before it has answered `initialize`. So the bridge 
       .then(() => connection),
   )
   connected.catch(() => undefined)
-  ready.catch(() => undefined)
+  ready.catch(() => stopped())
 
 ~
 
@@ -222,7 +225,7 @@ import { URI } from 'vscode-uri'
 
 The bridge is tested against a language server small enough to read. `standInServer` writes one to a scratch folder as an executable script with no dependencies. It frames LSP messages on its standard streams by hand, answers `initialize`, a hover and a pulled diagnostic, and writes one line to its log for every message it receives, so a case can read back exactly what the bridge sent and in what order. It writes `started` and its process id to the log when it starts, so a case can count how many processes ran and check whether one still runs.
 
-A few file names make it misbehave, the way a real server might on some input. Any message about a file whose name holds `crash` makes it exit at once, so a file opened at start ends the server as soon as it starts. A hover on a file whose name holds `boom` makes it exit then, after it has run for a while. A hover on a file whose name holds `garble` makes it answer with a message that is not JSON, and keep running.
+A few file names make it misbehave, the way a real server might on some input. Any message about a file whose name holds `crash`, other than closing it, makes it exit at once, so a file opened at start ends the server as soon as it starts. A hover on a file whose name holds `boom` makes it exit then, after it has run for a while. A hover on a file whose name holds `garble` makes it answer with a message that is not JSON, and keep running.
 
 The stand-in is written with plain loops and string handling. It is a fixture that stands in for a foreign program, not code of Loom's, and it must run alone, with nothing to import.
 

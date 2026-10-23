@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { Option } from 'effect'
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -158,7 +158,7 @@ describe('createNativeProgram warms the workspace', () => {
   it('asks for every served root\'s diagnostics after the first answer, keeping the edited loose root', async () => {
     const stand = standInServer()
     const loose = join(stand.folder, 'chapter.loom.aside.ts')
-    const program = createNativeProgram(stand.command, stand.folder, (path) => !path.endsWith('old.ts'))
+    const program = createNativeProgram(stand.command, stand.folder, (file) => !file.path.endsWith('old.ts'))
     program.sync(
       [{ path: loose, text: 'aside', loose: true }],
       [
@@ -225,6 +225,20 @@ describe('createNativeProgram warms the workspace', () => {
   })
 })
 
+describe('createNativeProgram makes the folders its roots need', () => {
+  it('makes a served root\'s missing folder, and none for a loose root', async () => {
+    const stand = standInServer()
+    const program = createNativeProgram(stand.command, stand.folder)
+    const tangled = join(stand.folder, 'never', 'tangled', 'a.ts')
+    const loose = join(stand.folder, 'elsewhere', 'chapter.loom.aside.ts')
+    program.sync([{ path: tangled, text: 'a' }, { path: loose, text: 'aside', loose: true }])
+    await program.hover(tangled, position)
+    expect(existsSync(join(stand.folder, 'never', 'tangled'))).toBe(true)
+    expect(existsSync(join(stand.folder, 'elsewhere'))).toBe(false)
+    program.dispose()
+  })
+})
+
 describe('createNativeProgram restarts a crashed server a few times', () => {
   it('gives up after three restarts of a server that crashes as it starts', async () => {
     const stand = standInServer()
@@ -236,6 +250,25 @@ describe('createNativeProgram restarts a crashed server a few times', () => {
         previous.then(async (found) => {
           const message = await diagnosticsOf(program, crash)
           await settled(150)
+          return [...found, message]
+        }),
+      Promise.resolve([]),
+    )
+    expect(startedIn(stand.lines())).toHaveLength(4)
+    expect(messages[messages.length - 1]).toContain('stopped 4 times')
+    program.dispose()
+  })
+
+  it('keeps giving up on a server that crashes as it starts, however long the wait', async () => {
+    const stand = standInServer()
+    const program = createNativeProgram(stand.command, stand.folder, () => true, { stableFor: 100 })
+    const crash = join(stand.folder, 'crash.ts')
+    program.sync([{ path: crash, text: 'boom' }])
+    const messages = await Array.from({ length: 6 }).reduce<Promise<ReadonlyArray<string>>>(
+      (previous) =>
+        previous.then(async (found) => {
+          const message = await diagnosticsOf(program, crash)
+          await settled(300)
           return [...found, message]
         }),
       Promise.resolve([]),

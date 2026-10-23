@@ -22,7 +22,10 @@ export class LanguageServerFailed extends Data.TaggedError('LanguageServerFailed
   readonly cause?: unknown
 }> {
   get message(): string {
-    return `the ${this.command} language server is not running`
+    const cause = this.cause as { readonly code?: unknown; readonly message?: unknown } | undefined
+    return typeof cause?.code === 'number'
+      ? `the ${this.command} language server answered: ${String(cause.message)}`
+      : `the ${this.command} language server is not running`
   }
 }
 
@@ -76,7 +79,7 @@ export const spawnLanguageServer = (
       .then(() => connection),
   )
   connected.catch(() => undefined)
-  ready.catch(() => undefined)
+  ready.catch(() => stopped())
 
   const opened = new Map<string, { readonly text: string; readonly version: number }>()
   const uriOf = (path: string): string => URI.file(path).toString()

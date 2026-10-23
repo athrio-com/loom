@@ -145,6 +145,7 @@ export const productTarget = (
     path: file.path,
     text: file === edited ? text : file.content,
     loose: file === edited && Option.isNone(sink),
+    loom: file.loomPath,
   })
   program.sync(
     Array.map(Array.filter(roots, listed), asFile),
@@ -186,21 +187,29 @@ export const productPlugin = (
     const actionTargets = new Map<string, ProductTarget>()
     const scriptExtension = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/
     const choices = new Map<string, CompilerChoice>()
+    const choiceOf = (file: ProductFile): CompilerChoice => {
+      const config = configOf(file.path)
+      const loom = file.loom ?? file.path
+      const remembered = Option.getOrElse(config, () => `loom folder ${dirname(loom)}`)
+      return Option.getOrElse(Option.fromNullishOr(choices.get(remembered)), () => {
+        const chosen = compilerChoiceFor(
+          { key: Option.getOrElse(config, () => loom), config, loom },
+          nativeSetting,
+        )
+        choices.set(remembered, chosen)
+        return chosen
+      })
+    }
     const servedBy =
       (executable: string) =>
-      (path: string): boolean =>
-        scriptExtension.test(path) &&
-        Option.match(configOf(path), {
-          onNone: () => false,
-          onSome: (config) => {
-            const choice = Option.getOrElse(Option.fromNullishOr(choices.get(config)), () => {
-              const chosen = compilerChoiceFor({ key: config, config: Option.some(config), loom: config }, nativeSetting)
-              choices.set(config, chosen)
-              return chosen
-            })
-            return CompilerChoice.$is('Native')(choice) && choice.executable === executable
-          },
-        })
+      (file: ProductFile): boolean => {
+        const choice = choiceOf(file)
+        return (
+          scriptExtension.test(file.path) &&
+          CompilerChoice.$is('Native')(choice) &&
+          choice.executable === executable
+        )
+      }
     const programFor = (project: ProductProject): ProductProgram => {
       const existing = programs.get(project.key)
       if (existing !== undefined) return existing

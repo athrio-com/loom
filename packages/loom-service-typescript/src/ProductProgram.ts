@@ -29,6 +29,7 @@ export interface ProductFile {
   readonly path: string
   readonly text: string
   readonly loose?: boolean
+  readonly loom?: string
 }
 
 export interface ProductProgram {

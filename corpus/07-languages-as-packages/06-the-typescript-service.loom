@@ -154,6 +154,7 @@ export const productTarget = (
     path: file.path,
     text: file === edited ? text : file.content,
     loose: file === edited && Option.isNone(sink),
+    loom: file.loomPath,
   })
   program.sync(
     Array.map(Array.filter(roots, listed), asFile),
@@ -175,7 +176,11 @@ The compiler is chosen per project, and a project uses one compiler for everythi
 
 Every project on the same TypeScript 7 shares one native program, kept in `nativePrograms` by the executable's path, because TypeScript 7's server holds a whole workspace in one process. It starts in the folder of the first project that asks.
 
-A workspace can mix projects on TypeScript 7 with projects still on TypeScript 6, and the native program's warm-up must not load the TypeScript 6 projects into TypeScript 7. `servedBy` tells the native program which roots are its own: a root is, when it is a TypeScript or JavaScript file and the `tsconfig.json` that governs it chooses this same executable. The composition also holds the other files a book tangles, a `package.json` or a workflow, and TypeScript 7 has no business opening those as code. A root with no `tsconfig.json` is not served either, and the native program opens it only when a question is about it. `servedBy` remembers the choice for each configuration, since the warm-up asks about every root. Since several projects hold the same native program, the plugin disposes each program once when the service shuts down.
+Several projects hold the same native program, so the plugin disposes each program once when the service shuts down.
+
+A workspace can mix projects on TypeScript 7 with projects still on TypeScript 6, and the native program's warm-up must not load the TypeScript 6 projects into TypeScript 7. `servedBy` tells the native program which roots are its own. A root is its own when it is a TypeScript or JavaScript file and its project chooses this same executable. The composition also holds the other files a book tangles, a `package.json` or a workflow, and TypeScript 7 has no business opening those as code.
+
+`choiceOf` finds a root's project the way `projectOf` does: by the `tsconfig.json` that governs the file the root tangles to, or, when none does, by the folder of the `.loom` the root came from, which the root carries. It remembers the choice for each `tsconfig.json` and each such folder, because the warm-up asks about every root.
 
 A result that names a place — a definition, a reference, the edits of a rename or a code action — comes back under the path the program checks. `embeddedUriOf` rewrites that path to the embedded document Volar knows: it finds the root the program holds there and encodes its `.loom` and id back through `encodeEmbeddedDocumentUri`. Volar then maps the result to the `.loom`, rather than opening a file that may not be on disk. A path that is no root the program holds — a real file under `node_modules` — passes through unchanged.
 
@@ -219,21 +224,29 @@ export const productPlugin = (
     const actionTargets = new Map<string, ProductTarget>()
     const scriptExtension = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/
     const choices = new Map<string, CompilerChoice>()
+    const choiceOf = (file: ProductFile): CompilerChoice => {
+      const config = configOf(file.path)
+      const loom = file.loom ?? file.path
+      const remembered = Option.getOrElse(config, () => `loom folder ${dirname(loom)}`)
+      return Option.getOrElse(Option.fromNullishOr(choices.get(remembered)), () => {
+        const chosen = compilerChoiceFor(
+          { key: Option.getOrElse(config, () => loom), config, loom },
+          nativeSetting,
+        )
+        choices.set(remembered, chosen)
+        return chosen
+      })
+    }
     const servedBy =
       (executable: string) =>
-      (path: string): boolean =>
-        scriptExtension.test(path) &&
-        Option.match(configOf(path), {
-          onNone: () => false,
-          onSome: (config) => {
-            const choice = Option.getOrElse(Option.fromNullishOr(choices.get(config)), () => {
-              const chosen = compilerChoiceFor({ key: config, config: Option.some(config), loom: config }, nativeSetting)
-              choices.set(config, chosen)
-              return chosen
-            })
-            return CompilerChoice.$is('Native')(choice) && choice.executable === executable
-          },
-        })
+      (file: ProductFile): boolean => {
+        const choice = choiceOf(file)
+        return (
+          scriptExtension.test(file.path) &&
+          CompilerChoice.$is('Native')(choice) &&
+          choice.executable === executable
+        )
+      }
     const programFor = (project: ProductProject): ProductProgram => {
       const existing = programs.get(project.key)
       if (existing !== undefined) return existing

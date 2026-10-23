@@ -1,5 +1,5 @@
 import { Array, Data, Match, Option, pipe } from 'effect'
-import { accessSync, constants, existsSync, readFileSync } from 'node:fs'
+import { accessSync, constants, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import type {
@@ -182,13 +182,13 @@ const openSet = (
   composition: ReadonlyMap<string, ProductFile>,
   listed: ReadonlyArray<ProductFile>,
   warmed: boolean,
-  servedBy: (path: string) => boolean,
+  servedBy: (file: ProductFile) => boolean,
 ): ReadonlyMap<string, ProductFile> => {
   const fromBefore = Array.getSomes(
     Array.map(Array.fromIterable(before.keys()), (path) => Option.fromNullishOr(composition.get(path))),
   )
   const fromWarmUp = warmed
-    ? Array.filter(Array.fromIterable(composition.values()), (file) => servedBy(file.path))
+    ? Array.filter(Array.fromIterable(composition.values()), servedBy)
     : []
   return new Map([
     ...Array.map(
@@ -196,7 +196,7 @@ const openSet = (
       (file) => [file.path, file] as const,
     ),
     ...Array.map(
-      Array.filter(listed, (file) => file.loose === true || servedBy(file.path)),
+      Array.filter(listed, (file) => file.loose === true || servedBy(file)),
       (file) => [file.path, file] as const,
     ),
   ])
@@ -233,7 +233,7 @@ export class NativeProgramDisposed extends Data.TaggedError('NativeProgramDispos
 export const createNativeProgram = (
   compiler: string,
   workspace: string,
-  servedBy: (path: string) => boolean = () => true,
+  servedBy: (file: ProductFile) => boolean = () => true,
   options: NativeProgramOptions = defaultOptions,
 ): ProductProgram => {
   const state: {
@@ -255,10 +255,24 @@ export const createNativeProgram = (
   }
   const reported = new Set<string>()
 
+  const makeFolders = (files: ReadonlyArray<ProductFile>): void =>
+    Array.dedupe(
+      Array.map(
+        Array.filter(files, (file) => !file.loose && servedBy(file)),
+        (file) => dirname(file.path),
+      ),
+    ).forEach((folder) => {
+      if (!existsSync(folder)) mkdirSync(folder, { recursive: true })
+    })
+
   const pushOpen = (): void =>
     Option.match(state.server, {
       onNone: () => undefined,
-      onSome: (server) => server.keepOpen(Array.fromIterable(state.open.values())),
+      onSome: (server) => {
+        const files = Array.fromIterable(state.open.values())
+        makeFolders(files)
+        server.keepOpen(files)
+      },
     })
 
   const start = (): LanguageServerProcess => {
@@ -324,7 +338,7 @@ export const createNativeProgram = (
     void Array.reduce(
       Array.filter(
         Array.fromIterable(state.composition.values()),
-        (file) => !file.loose && servedBy(file.path),
+        (file) => !file.loose && servedBy(file),
       ),
       Promise.resolve(true),
       (previous, file) => previous.then((going) => (going ? warmOne(file.path) : false)),
@@ -461,7 +475,9 @@ export const createNativeProgram = (
         .catch(orNothing<CodeAction[]>([])),
     resolveCodeAction: (action) =>
       action.edit === undefined
-        ? ask<CodeAction>('', 'codeAction/resolve', action).catch(orNothing(action))
+        ? ask<CodeAction | null>('', 'codeAction/resolve', action)
+            .then((resolved) => resolved ?? action)
+            .catch(orNothing(action))
         : Promise.resolve(action),
     dispose: () => {
       state.disposed = true
