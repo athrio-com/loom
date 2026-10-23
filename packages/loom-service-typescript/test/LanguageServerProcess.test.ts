@@ -124,6 +124,7 @@ describe('LanguageServerProcess tells an error answer from a crash', () => {
   it('reports a server that crashed mid-request as not running', async () => {
     const { failure, alive } = await hoverFailure('boom.ts')
     expect(failure?.message).toContain('is not running')
+    expect(failure?.message).toContain('it last said: panic: stand-in crashed on boom.ts')
     expect(failure?.message).not.toContain('answered')
     expect(alive).toBe(false)
   })

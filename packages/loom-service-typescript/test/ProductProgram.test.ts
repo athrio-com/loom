@@ -99,7 +99,7 @@ describe('the product program offers an auto-import quick-fix across roots', () 
     // a quick-fix carries its edit inline; resolve only fills in a lazy action
     const resolved =
       addImport!.edit === undefined
-        ? await program.resolveCodeAction(addImport!)
+        ? await program.resolveCodeAction(addImport!, '/proj/caller.ts')
         : addImport!
     program.dispose()
 

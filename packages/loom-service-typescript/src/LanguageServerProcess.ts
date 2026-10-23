@@ -1,4 +1,4 @@
-import { Array, Data, Option } from 'effect'
+import { Array, Data, Option, pipe, Result } from 'effect'
 import { spawn } from 'node:child_process'
 import { basename } from 'node:path'
 import type { MessageConnection, MessageWriter } from 'vscode-jsonrpc/node.js'
@@ -20,7 +20,8 @@ export interface LanguageServerProcess {
 }
 
 export type FailureReason = Data.TaggedEnum<{
-  NotRunning: {}
+  NotRunning: { readonly said: Option.Option<string> }
+  Unreachable: { readonly text: string }
   Answered: { readonly text: string }
   Refused: { readonly text: string }
 }>
@@ -35,7 +36,12 @@ export class LanguageServerFailed extends Data.TaggedError('LanguageServerFailed
   get message(): string {
     const server = `the ${this.command} language server`
     return FailureReason.$match(this.reason, {
-      NotRunning: () => `${server} is not running`,
+      NotRunning: ({ said }) =>
+        Option.match(said, {
+          onNone: () => `${server} is not running`,
+          onSome: (last) => `${server} is not running; it last said: ${last}`,
+        }),
+      Unreachable: ({ text }) => `Loom cannot speak to ${server}: ${text}`,
       Answered: ({ text }) => `${server} answered: ${text}`,
       Refused: ({ text }) => `${server} refused to start: ${text}`,
     })
@@ -49,8 +55,8 @@ export const spawnLanguageServer = (
   languageId: string,
   capabilities: object,
 ): LanguageServerProcess => {
-  const state = { running: true, disposed: false, startedAt: Date.now(), stoppedAt: 0 }
-  const child = spawn(command, [...args], { cwd: workspace, stdio: ['pipe', 'pipe', 'ignore'] })
+  const state = { running: true, disposed: false, startedAt: Date.now(), stoppedAt: 0, stderr: '' }
+  const child = spawn(command, [...args], { cwd: workspace, stdio: ['pipe', 'pipe', 'pipe'] })
   const stopped = (): void => {
     if (!state.running) return
     state.running = false
@@ -61,12 +67,30 @@ export const spawnLanguageServer = (
   const spawned = new Promise<void>((resolve, reject) => {
     child.once('spawn', () => resolve())
     child.once('error', (cause) =>
-      reject(new LanguageServerFailed({ command, reason: FailureReason.NotRunning(), cause })),
+      reject(
+        new LanguageServerFailed({ command, reason: FailureReason.NotRunning({ said: Option.none() }), cause }),
+      ),
     )
   })
   child.on('exit', stopped)
   child.on('error', stopped)
   child.stdin.on('error', stopped)
+  child.stderr.on('data', (chunk) => {
+    state.stderr = (state.stderr + String(chunk)).slice(-8192)
+  })
+  const closed = new Promise<void>((resolve) => child.once('close', () => resolve()))
+
+  const lastWords = (): Option.Option<string> => {
+    const lines = Array.filter(
+      Array.map(state.stderr.split('\n'), (line) => line.trim()),
+      (line) => line !== '',
+    )
+    return pipe(
+      Array.findFirst(lines, (line) => /^(panic|fatal error):/.test(line)),
+      Option.orElse(() => Array.last(lines)),
+      Option.map((line) => line.slice(0, 300)),
+    )
+  }
 
   const guardedWriter = (writer: MessageWriter): MessageWriter => ({
     write: (message) => writer.write(message).catch(() => stopped()),
@@ -80,7 +104,17 @@ export const spawnLanguageServer = (
     dispose: () => writer.dispose(),
   })
 
-  const loaded: Promise<Rpc> = spawned.then(() => import('vscode-jsonrpc/node.js'))
+  const loaded: Promise<Rpc> = spawned.then(() =>
+    import('vscode-jsonrpc/node.js').catch((cause: unknown) =>
+      Promise.reject(
+        new LanguageServerFailed({
+          command,
+          reason: FailureReason.Unreachable({ text: String((cause as Error)?.message ?? cause) }),
+          cause,
+        }),
+      ),
+    ),
+  )
   const connected: Promise<MessageConnection> = loaded.then((rpc) => {
     const connection = rpc.createMessageConnection(
       new rpc.StreamMessageReader(child.stdout),
@@ -155,32 +189,35 @@ export const spawnLanguageServer = (
       ? Option.some(cause.message)
       : Option.none()
 
+  const elapsed = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
+  const notRunning = (): Promise<FailureReason> =>
+    Promise.race([closed, elapsed(500)]).then(() => FailureReason.NotRunning({ said: lastWords() }))
+
   const failedWith =
     (heard: (text: string) => FailureReason) =>
     (cause: unknown): Promise<never> =>
-      loaded.then(
-        (rpc) =>
-          Promise.reject(
-            new LanguageServerFailed({
-              command,
-              reason: Option.match(answerOf(rpc, cause), {
-                onSome: heard,
-                onNone: () => FailureReason.NotRunning(),
+      cause instanceof LanguageServerFailed
+        ? Promise.reject(cause)
+        : loaded
+            .then((rpc) =>
+              Option.match(answerOf(rpc, cause), {
+                onSome: (text) => Promise.resolve(heard(text)),
+                onNone: notRunning,
               }),
-              cause,
-            }),
-          ),
-        () =>
-          Promise.reject(new LanguageServerFailed({ command, reason: FailureReason.NotRunning(), cause })),
-      )
+            )
+            .then((reason) => Promise.reject(new LanguageServerFailed({ command, reason, cause })))
 
   const asked = <A>(connection: MessageConnection, method: string, params: unknown): Promise<A> =>
-    Promise.resolve()
-      .then(() => connection.sendRequest<A>(method, params))
-      .catch(failedWith((text) => FailureReason.Answered({ text })))
+    Result.match(
+      Result.try(() => connection.sendRequest<A>(method, params)),
+      {
+        onSuccess: (answer) => answer.catch(failedWith((text) => FailureReason.Answered({ text }))),
+        onFailure: failedWith((text) => FailureReason.Answered({ text })),
+      },
+    )
 
   const shutdownWait = 2000
-  const elapsed = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
   return {
     keepOpen,
@@ -190,7 +227,9 @@ export const spawnLanguageServer = (
             (connection) => asked<A>(connection, method, params),
             failedWith((text) => FailureReason.Refused({ text })),
           )
-        : Promise.reject(new LanguageServerFailed({ command, reason: FailureReason.NotRunning() })),
+        : Promise.reject(
+            new LanguageServerFailed({ command, reason: FailureReason.NotRunning({ said: lastWords() }) }),
+          ),
     alive: () => state.running,
     uptime: () => (state.running ? Date.now() : state.stoppedAt) - state.startedAt,
     dispose: () => {

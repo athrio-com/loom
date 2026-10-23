@@ -307,7 +307,7 @@ describe('createNativeProgram opens what TypeScript 7 checks together', () => {
     program.dispose()
   })
 
-  it('keeps every loose root of the loom being edited open', async () => {
+  it('keeps open only the loose root being edited', async () => {
     const stand = standInServer()
     const program = createNativeProgram(stand.command, stand.folder)
     const loom = join(stand.folder, 'chapter.loom')
@@ -317,10 +317,46 @@ describe('createNativeProgram opens what TypeScript 7 checks together', () => {
     await program.hover(x.path, position)
     program.sync([y])
     await program.hover(y.path, position)
-    program.sync([x])
-    await program.hover(x.path, position)
     await settled()
-    expect(stand.lines().filter((line) => line.startsWith('textDocument/didClose'))).toEqual([])
+    const lines = stand.lines()
+    expect(lines).toContain('textDocument/didClose chapter.loom.x.ts')
+    expect(lines.indexOf('textDocument/didClose chapter.loom.x.ts')).toBeLessThan(
+      lines.indexOf('textDocument/hover chapter.loom.y.ts'),
+    )
+    program.dispose()
+  })
+
+  it('opens the roots of a loose root\'s native project before the first answer', async () => {
+    const stand = standInServer()
+    const program = createNativeProgram(stand.command, stand.folder)
+    const loom = join(stand.folder, 'chapter.loom')
+    const aside = { path: `${loom}.aside.ts`, text: "import { b } from './b'", loose: true, loom }
+    program.sync([aside], [{ path: join(stand.folder, 'b.ts'), text: 'export const b = 1' }])
+    await program.hover(aside.path, position)
+    const lines = stand.lines()
+    expect(lines.indexOf('textDocument/didOpen b.ts v1')).toBeLessThan(
+      lines.indexOf('textDocument/hover chapter.loom.aside.ts'),
+    )
+    program.dispose()
+  })
+
+  it('resolves an action about the root it was listed for, open again', async () => {
+    const stand = standInServer()
+    const program = createNativeProgram(stand.command, stand.folder)
+    const loom = join(stand.folder, 'chapter.loom')
+    const x = { path: `${loom}.x.ts`, text: 'x', loose: true, loom }
+    const y = { path: `${loom}.y.ts`, text: 'y', loose: true, loom }
+    program.sync([x])
+    await program.codeActions(x.path, { start: position, end: position }, { diagnostics: [] })
+    program.sync([y])
+    await program.hover(y.path, position)
+    program.sync([x])
+    const action = { title: 'Extract to constant', kind: 'refactor.extract', data: { at: 'x' } }
+    expect(await program.resolveCodeAction(action, x.path)).toEqual(action)
+    const lines = stand.lines()
+    expect(lines.lastIndexOf('textDocument/didOpen chapter.loom.x.ts v1')).toBeLessThan(
+      lines.indexOf('codeAction/resolve'),
+    )
     program.dispose()
   })
 
@@ -343,6 +379,29 @@ describe('createNativeProgram opens what TypeScript 7 checks together', () => {
     expect(lines.indexOf('answered first.loom.slow.ts')).toBeLessThan(
       lines.indexOf('textDocument/didClose first.loom.slow.ts'),
     )
+    program.dispose()
+  })
+})
+
+describe('createNativeProgram holds the text the last question was about', () => {
+  it('keeps the newer text of a held root once an older question is answered', async () => {
+    const stand = standInServer()
+    const program = createNativeProgram(stand.command, stand.folder)
+    const first = join(stand.folder, 'first.loom')
+    const second = join(stand.folder, 'second.loom')
+    const slow = (text: string) => ({ path: `${first}.slow.ts`, text, loose: true, loom: first })
+    const aside = { path: `${second}.aside.ts`, text: 'aside', loose: true, loom: second }
+    program.sync([slow('one')])
+    const older = program.hover(slow('one').path, position)
+    await settled(50)
+    program.sync([slow('two')])
+    const newer = program.hover(slow('two').path, position)
+    await older
+    program.sync([aside])
+    await program.hover(aside.path, position)
+    await newer
+    await settled()
+    expect(stand.lines()).not.toContain('textDocument/didChange first.loom.slow.ts v3')
     program.dispose()
   })
 })

@@ -204,14 +204,6 @@ export type NativeProjectOf = (file: ProductFile) => Option.Option<string>
 
 export const inferredProject = 'the inferred project'
 
-const loomOf = (file: ProductFile): string => file.loom ?? file.path
-
-const keepLooseOf = (
-  open: ReadonlyMap<string, ProductFile>,
-  loom: string,
-): ReadonlyMap<string, ProductFile> =>
-  new Map(Array.filter(Array.fromIterable(open), ([, file]) => file.loose !== true || loomOf(file) === loom))
-
 const openSet = (
   before: ReadonlyMap<string, ProductFile>,
   composition: ReadonlyMap<string, ProductFile>,
@@ -222,7 +214,7 @@ const openSet = (
   const served = (file: ProductFile): boolean => Option.isSome(nativeProjectOf(file))
   const sunk = (files: Iterable<ProductFile>): ReadonlyArray<ProductFile> =>
     Array.filter(Array.fromIterable(files), (file) => file.loose !== true)
-  const asked = new Set(Array.getSomes(Array.map(sunk(listed), nativeProjectOf)))
+  const asked = new Set(Array.getSomes(Array.map(listed, nativeProjectOf)))
   const fromProjects = Array.filter(sunk(composition.values()), (file) =>
     Option.exists(nativeProjectOf(file), (project) => asked.has(project)),
   )
@@ -230,20 +222,12 @@ const openSet = (
     Array.map(sunk(before.values()), (file) => Option.fromNullishOr(composition.get(file.path))),
   )
   const fromWarmUp = warmed ? Array.filter(sunk(composition.values()), served) : []
-  const looseBefore = Array.filter(Array.fromIterable(before.values()), (file) => file.loose === true)
   const fromListed = Array.filter(listed, (file) => file.loose === true || served(file))
-  const kept = new Map(
+  return new Map(
     Array.map(
-      [...fromBefore, ...fromProjects, ...fromWarmUp, ...looseBefore, ...fromListed],
+      [...fromBefore, ...fromProjects, ...fromWarmUp, ...fromListed],
       (file) => [file.path, file] as const,
     ),
-  )
-  return Option.match(
-    Array.findFirst(listed, (file) => file.loose === true),
-    {
-      onNone: () => kept,
-      onSome: (file) => keepLooseOf(kept, loomOf(file)),
-    },
   )
 }
 
@@ -431,9 +415,8 @@ export const createNativeProgram = (
     Option.match(Option.fromNullishOr(state.composition.get(fileName)), {
       onNone: () => undefined,
       onSome: (file) => {
-        const next = keepLooseOf(new Map([...state.open, [fileName, file] as const]), loomOf(file))
-        if (state.open.has(fileName) && next.size === state.open.size) return
-        state.open = next
+        if (state.open.has(fileName)) return
+        state.open = new Map([...state.open, [fileName, file] as const])
         pushOpen()
       },
     })
@@ -456,7 +439,10 @@ export const createNativeProgram = (
           const count = waitingCount(fileName) - 1
           state.waiting = new Map(
             count > 0
-              ? [...state.waiting, [fileName, { file, count }] as const]
+              ? Array.map(
+                  Array.fromIterable(state.waiting),
+                  ([path, entry]) => [path, path === fileName ? { ...entry, count } : entry] as const,
+                )
               : Array.filter(Array.fromIterable(state.waiting), ([path]) => path !== fileName),
           )
           if (count === 0 && !state.open.has(fileName)) pushOpen()
@@ -466,7 +452,8 @@ export const createNativeProgram = (
 
   const ask = <A>(fileName: string, method: string, params: unknown): Promise<A> => {
     openForQuestion(fileName)
-    return options.ready().then(() =>
+    const release = hold(fileName)
+    const answered: Promise<A> = options.ready().then(() =>
       Option.match(running(), {
         onNone: () =>
           Promise.reject(
@@ -475,18 +462,18 @@ export const createNativeProgram = (
               : new NativeServerStopped({ compiler, workspace, lastFailure: state.lastFailure }),
           ),
         onSome: (server) => {
-          const release = hold(fileName)
           const answer = server.request<A>(method, params)
           void answer
             .then(warm, (failure) => {
               state.lastFailure = Option.some(messageOf(failure))
             })
             .catch(orNothing(undefined))
-            .finally(release)
           return answer
         },
       }),
     )
+    void answered.then(release, release)
+    return answered
   }
 
   const orNothing =
@@ -589,9 +576,9 @@ export const createNativeProgram = (
           Array.filter(found ?? [], (each): each is CodeAction => typeof each.command !== 'string'),
         )
         .catch(orNothing<CodeAction[]>([])),
-    resolveCodeAction: (action) =>
+    resolveCodeAction: (action, fileName) =>
       action.edit === undefined
-        ? ask<CodeAction | null>('', 'codeAction/resolve', action)
+        ? ask<CodeAction | null>(fileName, 'codeAction/resolve', action)
             .then((resolved) => resolved ?? action)
             .catch(orNothing(action))
         : Promise.resolve(action),
