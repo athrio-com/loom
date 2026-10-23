@@ -1,13 +1,23 @@
+import * as ts from 'typescript'
 import { describe, expect, it } from 'bun:test'
 import { Option } from 'effect'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import {
   compilerChoiceFor,
   createNativeProgram,
   createUnavailableProgram,
 } from '../src/NativeProgram'
+import { configNear, servedByCompiler } from '../src/TypescriptService'
 import { settled, standInServer, startedIn } from './StandInServer'
 
 const executableName = process.platform === 'win32' ? 'tsc.exe' : 'tsc'
@@ -142,6 +152,35 @@ describe('compilerChoiceFor follows the nativeCompiler setting', () => {
     expect(compilerChoiceFor(projectAt(root), Option.some(true))._tag).toBe('Unavailable')
     expect(compilerChoiceFor(projectAt(root), Option.some(''))._tag).toBe('Unavailable')
   })
+
+  it('follows a linked folder to the store it points into', () => {
+    const root = folder()
+    const store = folder()
+    const real = install(store, '7.0.2')
+    mkdirSync(join(root, 'node_modules'), { recursive: true })
+    symlinkSync(real, join(root, 'node_modules', 'typescript-native'))
+    const named = join(root, 'node_modules', 'typescript-native')
+    expect(compilerChoiceFor(projectAt(root), Option.some(named))).toEqual(
+      expect.objectContaining({ _tag: 'Native', executable: executableIn(store) }),
+    )
+  })
+})
+
+describe('servedByCompiler names the roots a native program serves', () => {
+  it('serves the scripts of looms in one folder, not other files or a project on TypeScript 6', () => {
+    const root = folder()
+    install(root, '7.0.2')
+    const legacy = join(root, 'legacy')
+    mkdirSync(legacy, { recursive: true })
+    install(legacy, '6.0.3')
+    writeFileSync(join(legacy, 'tsconfig.json'), '{}')
+    const servedBy = servedByCompiler(configNear(ts), Option.none())(executableIn(root))
+    const rootOf = (path: string, loom: string) => ({ path: join(root, path), text: '', loom: join(root, loom) })
+    expect(servedBy(rootOf('src/a.ts', 'corpus/a.loom'))).toBe(true)
+    expect(servedBy(rootOf('src/b.ts', 'corpus/b.loom'))).toBe(true)
+    expect(servedBy(rootOf('package.json', 'corpus/a.loom'))).toBe(false)
+    expect(servedBy(rootOf('legacy/src/c.ts', 'corpus/c.loom'))).toBe(false)
+  })
 })
 
 const position = { line: 0, character: 0 }
@@ -226,16 +265,52 @@ describe('createNativeProgram warms the workspace', () => {
 })
 
 describe('createNativeProgram makes the folders its roots need', () => {
-  it('makes a served root\'s missing folder, and none for a loose root', async () => {
+  const workspaceIn = (folder: string): string => {
+    mkdirSync(join(folder, '.loom'), { recursive: true })
+    writeFileSync(join(folder, '.loom', 'config.yaml'), 'languages: {}\n')
+    return join(folder, 'corpus', 'chapter.loom')
+  }
+
+  it('makes a served root\'s missing folder, and none for a loose root or outside the workspace', async () => {
     const stand = standInServer()
+    const loom = workspaceIn(stand.folder)
     const program = createNativeProgram(stand.command, stand.folder)
     const tangled = join(stand.folder, 'never', 'tangled', 'a.ts')
     const loose = join(stand.folder, 'elsewhere', 'chapter.loom.aside.ts')
-    program.sync([{ path: tangled, text: 'a' }, { path: loose, text: 'aside', loose: true }])
+    const escape = join(stand.folder, '..', `${basename(stand.folder)}-escape`, 'e.ts')
+    program.sync([
+      { path: tangled, text: 'a', loom },
+      { path: loose, text: 'aside', loose: true, loom },
+      { path: escape, text: 'e', loom },
+    ])
     await program.hover(tangled, position)
     expect(existsSync(join(stand.folder, 'never', 'tangled'))).toBe(true)
     expect(existsSync(join(stand.folder, 'elsewhere'))).toBe(false)
+    expect(existsSync(join(stand.folder, '..', `${basename(stand.folder)}-escape`))).toBe(false)
     program.dispose()
+  })
+
+  it('keeps answering when a root\'s folder cannot be made', async () => {
+    const stand = standInServer()
+    const loom = workspaceIn(stand.folder)
+    const locked = join(stand.folder, 'locked')
+    mkdirSync(locked)
+    chmodSync(locked, 0o555)
+    const program = createNativeProgram(stand.command, stand.folder)
+    const a = join(stand.folder, 'a.ts')
+    const blocked = join(locked, 'deep', 'b.ts')
+    const roots = [
+      { path: a, text: 'a', loom },
+      { path: blocked, text: 'b', loom },
+    ]
+    program.sync(roots)
+    expect(await program.hover(a, position)).toBeDefined()
+    await settled(600)
+    expect(() => program.sync(roots)).not.toThrow()
+    expect(stand.lines()).toContain('textDocument/didOpen b.ts v1')
+    expect(diagnosticPaths(stand.lines())).toContain('textDocument/diagnostic a.ts')
+    program.dispose()
+    chmodSync(locked, 0o755)
   })
 })
 

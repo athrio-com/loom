@@ -100,6 +100,8 @@ const choiceFromProject = (project: ProductProject): CompilerChoice =>
 
 A person can also try TypeScript 7 before a project installs it. The `nativeCompiler` setting of the `typescript` language, in `.loom/config.yaml`, names the folder of a TypeScript 7 `typescript` package, and every project then uses that compiler. A relative folder is read from the workspace, the folder that holds `.loom/config.yaml`, which `workspaceRootOf` finds by walking up from the project's loom. The setting names a choice the person made, so a setting that is not a folder's path, a folder that holds no `typescript` package, a TypeScript older than 7, or one without a native executable makes the project `Unavailable`, with the reason, rather than quietly giving it TypeScript 6. The setting arrives as the workspace wrote it, so `compilerChoiceFor` first checks that it is a path at all. A list or a number written by mistake is reported, not ignored. `compilerChoiceFor` takes the setting first when it is given.
 
+The folder the setting names may be a link. pnpm, and Bun with its isolated installs, link each package into `node_modules` from a store elsewhere, and keep the companion package beside the package in that store, not beside the link. So `choiceFromSetting` follows the link to the folder's real path before it looks for the companion package. A project's own `typescript` package needs no such step, because resolving it through `createRequire` already lands on its real path.
+
 =>
 
 const workspaceRootOf = (loom: string): string => {
@@ -113,7 +115,8 @@ const workspaceRootOf = (loom: string): string => {
 
 const choiceFromSetting = (project: ProductProject, setting: string): CompilerChoice => {
   const folder = isAbsolute(setting) ? setting : resolve(workspaceRootOf(project.loom), setting)
-  const packageJson = join(folder, 'package.json')
+  const real = Option.getOrElse(Option.liftThrowable(() => realpathSync(folder))(), () => folder)
+  const packageJson = join(real, 'package.json')
   const named = `the nativeCompiler setting names ${folder}`
   return Option.match(
     Option.filter(manifestOf(packageJson), (manifest) => manifest.name === 'typescript'),
@@ -216,9 +219,11 @@ A workspace can also mix projects on TypeScript 7 with projects still on TypeScr
 
 `openSet` is the set the server keeps open, computed from the composition and `listed`, the roots of the project being asked about. It holds the roots of `listed` that `servedBy` names, and the loose roots of `listed`, the current loom's. It keeps the roots already open, except loose roots of other looms. After the warm-up it adds every root `servedBy` names. A root leaves it when it leaves the composition.
 
-TypeScript 7 resolves an import between two open documents only when the folder they sit in exists on disk. A package that has never been tangled has no such folder, so a root that imports its neighbour would report the neighbour missing although both are open. `pushOpen` therefore makes the folder of each served root that lacks one, the folder a tangle would write the root into anyway. It makes folders only, never files, and only for roots `servedBy` names, which a project's own configuration governs.
+TypeScript 7 resolves an import between two open documents only when the folder they sit in exists on disk. A package that has never been tangled has no such folder, so a root that imports its neighbour would report the neighbour missing although both are open. `pushOpen` therefore makes the missing folder of each served root, the folder a tangle would write the root into anyway. So opening a chapter in the editor can create folders, and they stay when the editor closes, ready for the tangle that fills them.
 
-A search across the whole corpus lists every root, the other languages' files among them, so a `listed` root that is neither served nor loose stays closed. The root a question is about is opened by `ask` itself when the open set leaves it out, so a loom no `tsconfig.json` governs is still answered.
+The program makes folders only, never files, and only inside the workspace, the folder that holds `.loom/config.yaml`. A `{Tangle}` sink may name a path outside the workspace, and the editor has no business creating folders there, so the program leaves such a folder to the tangle and writes so to the log once. A folder that cannot be made, because its parent is read-only or a file stands in its path, is written to the log once too. Either way the program keeps every root open as before. One root it cannot help must not cost the person the answers about every other root.
+
+A search across the whole corpus lists every root, the other languages' files among them, so a `listed` root that is neither served nor loose stays closed. `ask` opens the root a question is about whenever the open set leaves it out, so the server answers about the text the person is editing, never about an older copy on disk.
 
 =>
 
@@ -313,16 +318,36 @@ export const createNativeProgram = (
     restarts: 0,
   }
   const reported = new Set<string>()
+  const unmade = new Set<string>()
+
+  const insideWorkspace = (folder: string, loom: string): boolean => {
+    const path = relative(workspaceRootOf(loom), folder)
+    return path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path)
+  }
+
+  const makeFolder = (folder: string, loom: string): void => {
+    if (unmade.has(folder) || existsSync(folder)) return
+    if (!insideWorkspace(folder, loom)) {
+      unmade.add(folder)
+      reportOnce(reported, `${folder} lies outside the workspace, so the editor leaves it to the tangle`)
+      return
+    }
+    Result.match(Result.try(() => mkdirSync(folder, { recursive: true })), {
+      onSuccess: () => undefined,
+      onFailure: (cause) => {
+        unmade.add(folder)
+        reportOnce(reported, `could not make ${folder}: ${String((cause as Error)?.message ?? cause)}`)
+      },
+    })
+  }
 
   const makeFolders = (files: ReadonlyArray<ProductFile>): void =>
-    Array.dedupe(
+    new Map(
       Array.map(
         Array.filter(files, (file) => !file.loose && servedBy(file)),
-        (file) => dirname(file.path),
+        (file) => [dirname(file.path), file.loom ?? file.path] as const,
       ),
-    ).forEach((folder) => {
-      if (!existsSync(folder)) mkdirSync(folder, { recursive: true })
-    })
+    ).forEach((loom, folder) => makeFolder(folder, loom))
 
   const pushOpen = (): void =>
     Option.match(state.server, {
@@ -383,7 +408,7 @@ export const createNativeProgram = (
 
 `warm` runs after the first question the server answers, so it never delays that answer, and again after the first answer from a restarted server. A question that fails starts nothing. It widens the open set with every root `servedBy` names, keeping the roots of the project last asked about, then asks the server for each served root's diagnostics, one root at a time. Asking makes TypeScript 7 load and check the root's project. One request at a time keeps the warm-up from crowding out the person's own questions: a question asked meanwhile waits for one root's check at most, not for the whole workspace.
 
-The warm-up asks only a server that is running, through `live`, and never starts or restarts one. A server that stops during the warm-up ends the warm-up, and the next question the person asks restarts the server under the rules above. So a root that makes the server crash cannot spend the restarts in the background. A request that fails while the server keeps running is skipped, and the warm-up moves on to the next root.
+The warm-up asks only a server that is running, through `live`, and never starts or restarts one. A server that stops during the warm-up ends the warm-up, and the next question the person asks restarts the server under the rules above. So a root that makes the server crash cannot spend the restarts in the background. A request that fails while the server keeps running is skipped, and the warm-up moves on to the next root. Anything else that goes wrong in the warm-up is written to the log once. It is never left as a failure no code handles, for which Node would end the whole language server.
 
 =>
 
@@ -435,7 +460,7 @@ The warm-up asks only a server that is running, through `live`, and never starts
         ),
       onSome: (server) => {
         const answer = server.request<A>(method, params)
-        void answer.then(warm, () => undefined)
+        void answer.then(warm, () => undefined).catch(orNothing(undefined))
         return answer
       },
     })
@@ -570,14 +595,14 @@ The program forwards each question in the form LSP gives it. A definition may co
 
 ## What the program draws on
 
-Node's `fs`, `module` and `path` find a project's `typescript` package and the native executable beside it, check that the executable may be run, and make a served root's missing folder. The bridge from the previous chapter starts and speaks to the server, and the product program supplies the `ProductProgram` contract and the `ProductFile` each root syncs as. The service names a `ProductProject`. Volar's types name the answers: `CodeAction`, `Command`, `CompletionItem`, `CompletionList`, `Diagnostic`, `Hover`, `Location`, `LocationLink`, `Position` and `WorkspaceEdit`. `URI` names a root by its `file:` address. Effect's `Data` builds the `CompilerChoice` and the tagged failures, `Match` reads the forms an answer comes in, and `Array`, `Option` and `pipe` carry the steps.
+Node's `fs`, `module` and `path` find a project's `typescript` package and the native executable beside it, follow a linked folder to its real path, check that the executable may be run, and make a served root's missing folder when it lies inside the workspace. The bridge from the previous chapter starts and speaks to the server, and the product program supplies the `ProductProgram` contract and the `ProductFile` each root syncs as. The service names a `ProductProject`. Volar's types name the answers: `CodeAction`, `Command`, `CompletionItem`, `CompletionList`, `Diagnostic`, `Hover`, `Location`, `LocationLink`, `Position` and `WorkspaceEdit`. `URI` names a root by its `file:` address. Effect's `Data` builds the `CompilerChoice` and the tagged failures, `Match` reads the forms an answer comes in, `Result` catches a folder that cannot be made, and `Array`, `Option` and `pipe` carry the steps.
 
 =>
 
-import { Array, Data, Match, Option, pipe } from 'effect'
-import { accessSync, constants, existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { Array, Data, Match, Option, pipe, Result } from 'effect'
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type {
   CodeAction,
   Command,
@@ -615,27 +640,39 @@ import type { ProductProject } from './TypescriptService'
 
 ## What the tests draw on
 
-The cases below share one test file, so its imports sit here, ahead of them. They draw on Bun's test runner, Effect's `Option`, Node's `fs`, `os` and `path` to build fake installs in scratch folders, the program's own exports, and the stand-in language server from the previous chapter.
+The cases below share one test file, so its imports sit here, ahead of them. They draw on Bun's test runner, Effect's `Option`, Node's `fs`, `os` and `path` to build fake installs in scratch folders, the program's own exports, and the stand-in language server from the previous chapter. The cases that check which roots a native program serves also draw on the service's `servedByCompiler` and `configNear`, and on TypeScript 6, whose file search `configNear` uses to find a `tsconfig.json`.
 
 =>
 
+import * as ts from 'typescript'
 import { describe, expect, it } from 'bun:test'
 import { Option } from 'effect'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import {
   compilerChoiceFor,
   createNativeProgram,
   createUnavailableProgram,
 } from '../src/NativeProgram'
+import { configNear, servedByCompiler } from '../src/TypescriptService'
 import { settled, standInServer, startedIn } from './StandInServer'
 
 ## Testing which compiler a project uses
 
 These cases check the choice `compilerChoiceFor` makes, with no TypeScript 7 installed. `install` writes a fake `typescript` package of a given version into a project folder, and for TypeScript 7 the companion package for this platform with an executable in its `lib` folder. The executable is an empty file marked executable, since the cases only look for it. `projectAt` names a project governed by the folder's `tsconfig.json`, and `looseAt` names a loom that no `tsconfig.json` governs.
 
-A project that installs TypeScript 7 is `Native`, with its executable. A project that installs TypeScript 6 is `Classic`. A project on TypeScript 7 without the companion package for this platform is `Unavailable`, and so is one whose executable may not be run. A loom with no `tsconfig.json` chooses from its own folder, and so does the search across the whole corpus, whose project carries a key of its own. The `nativeCompiler` setting wins over the project's own install and reads a relative folder from the workspace. It makes the project `Unavailable` when it names nothing, names TypeScript 6, names a package that is not `typescript`, or is not a path at all.
+A project that installs TypeScript 7 is `Native`, with its executable. A project that installs TypeScript 6 is `Classic`. A project on TypeScript 7 without the companion package for this platform is `Unavailable`, and so is one whose executable may not be run. A loom with no `tsconfig.json` chooses from its own folder, and so does the search across the whole corpus, whose project carries a key of its own. The `nativeCompiler` setting wins over the project's own install and reads a relative folder from the workspace. It follows a linked folder to the store the link points into, the way pnpm lays packages out. It makes the project `Unavailable` when it names nothing, names TypeScript 6, names a package that is not `typescript`, or is not a path at all.
+
+`servedByCompiler`, from the service's chapter, builds on that choice. In a workspace on TypeScript 7 with no `tsconfig.json`, it serves the TypeScript roots of two looms in one folder, and not a `package.json` the book also tangles. A project whose own `tsconfig.json` and `typescript` package keep it on TypeScript 6 stays out.
 
 =>
 
@@ -771,13 +808,42 @@ describe('compilerChoiceFor follows the nativeCompiler setting', () => {
     expect(compilerChoiceFor(projectAt(root), Option.some(true))._tag).toBe('Unavailable')
     expect(compilerChoiceFor(projectAt(root), Option.some(''))._tag).toBe('Unavailable')
   })
+
+  it('follows a linked folder to the store it points into', () => {
+    const root = folder()
+    const store = folder()
+    const real = install(store, '7.0.2')
+    mkdirSync(join(root, 'node_modules'), { recursive: true })
+    symlinkSync(real, join(root, 'node_modules', 'typescript-native'))
+    const named = join(root, 'node_modules', 'typescript-native')
+    expect(compilerChoiceFor(projectAt(root), Option.some(named))).toEqual(
+      expect.objectContaining({ _tag: 'Native', executable: executableIn(store) }),
+    )
+  })
+})
+
+describe('servedByCompiler names the roots a native program serves', () => {
+  it('serves the scripts of looms in one folder, not other files or a project on TypeScript 6', () => {
+    const root = folder()
+    install(root, '7.0.2')
+    const legacy = join(root, 'legacy')
+    mkdirSync(legacy, { recursive: true })
+    install(legacy, '6.0.3')
+    writeFileSync(join(legacy, 'tsconfig.json'), '{}')
+    const servedBy = servedByCompiler(configNear(ts), Option.none())(executableIn(root))
+    const rootOf = (path: string, loom: string) => ({ path: join(root, path), text: '', loom: join(root, loom) })
+    expect(servedBy(rootOf('src/a.ts', 'corpus/a.loom'))).toBe(true)
+    expect(servedBy(rootOf('src/b.ts', 'corpus/b.loom'))).toBe(true)
+    expect(servedBy(rootOf('package.json', 'corpus/a.loom'))).toBe(false)
+    expect(servedBy(rootOf('legacy/src/c.ts', 'corpus/c.loom'))).toBe(false)
+  })
 })
 
 ## Testing the native program
 
 These cases drive `createNativeProgram` against the stand-in server, which writes every message it receives to its log. They check the behaviour around the server rather than TypeScript itself. A failure shows up where the person would see it, as an error diagnostic, so `diagnosticsOf` reads the message a program reports for a root.
 
-The warm-up runs after the first answer and asks for the diagnostics of every root the program serves, but not a loose root, and not a root `servedBy` leaves to TypeScript 6. It keeps the loose root being edited open. A served root whose folder does not exist yet has the folder made for it, and a loose root has none made. A loose root of one loom is closed when another loom is asked about. The warm-up stops when the server dies, without restarting it, and a restarted server is warmed again. A program disposed mid warm-up starts no new server and reports that it was shut down. A server that crashes as soon as it starts is restarted three times, then the program reports that it stopped, and it stays given up on however long the gaps between questions, since such a server never stayed up. A server that ran for a while before it crashed has its restarts counted afresh. An unavailable project reports its reason.
+The warm-up runs after the first answer and asks for the diagnostics of every root the program serves, but not a loose root, and not a root `servedBy` leaves to TypeScript 6. It keeps the loose root being edited open. A served root whose folder does not exist yet has the folder made for it, and a loose root has none made. A root whose folder lies outside the workspace has none made either. A root whose folder cannot be made, under a read-only folder, costs the other roots nothing. The program answers, keeps every root open, and syncs again without failing. A loose root of one loom is closed when another loom is asked about. The warm-up stops when the server dies, without restarting it, and a restarted server is warmed again. A program disposed mid warm-up starts no new server and reports that it was shut down. A server that crashes as soon as it starts is restarted three times, then the program reports that it stopped, and it stays given up on however long the gaps between questions, since such a server never stayed up. A server that ran for a while before it crashed has its restarts counted afresh. An unavailable project reports its reason.
 
 =>
 
@@ -863,16 +929,52 @@ describe('createNativeProgram warms the workspace', () => {
 })
 
 describe('createNativeProgram makes the folders its roots need', () => {
-  it('makes a served root\'s missing folder, and none for a loose root', async () => {
+  const workspaceIn = (folder: string): string => {
+    mkdirSync(join(folder, '.loom'), { recursive: true })
+    writeFileSync(join(folder, '.loom', 'config.yaml'), 'languages: {}\n')
+    return join(folder, 'corpus', 'chapter.loom')
+  }
+
+  it('makes a served root\'s missing folder, and none for a loose root or outside the workspace', async () => {
     const stand = standInServer()
+    const loom = workspaceIn(stand.folder)
     const program = createNativeProgram(stand.command, stand.folder)
     const tangled = join(stand.folder, 'never', 'tangled', 'a.ts')
     const loose = join(stand.folder, 'elsewhere', 'chapter.loom.aside.ts')
-    program.sync([{ path: tangled, text: 'a' }, { path: loose, text: 'aside', loose: true }])
+    const escape = join(stand.folder, '..', `${basename(stand.folder)}-escape`, 'e.ts')
+    program.sync([
+      { path: tangled, text: 'a', loom },
+      { path: loose, text: 'aside', loose: true, loom },
+      { path: escape, text: 'e', loom },
+    ])
     await program.hover(tangled, position)
     expect(existsSync(join(stand.folder, 'never', 'tangled'))).toBe(true)
     expect(existsSync(join(stand.folder, 'elsewhere'))).toBe(false)
+    expect(existsSync(join(stand.folder, '..', `${basename(stand.folder)}-escape`))).toBe(false)
     program.dispose()
+  })
+
+  it('keeps answering when a root\'s folder cannot be made', async () => {
+    const stand = standInServer()
+    const loom = workspaceIn(stand.folder)
+    const locked = join(stand.folder, 'locked')
+    mkdirSync(locked)
+    chmodSync(locked, 0o555)
+    const program = createNativeProgram(stand.command, stand.folder)
+    const a = join(stand.folder, 'a.ts')
+    const blocked = join(locked, 'deep', 'b.ts')
+    const roots = [
+      { path: a, text: 'a', loom },
+      { path: blocked, text: 'b', loom },
+    ]
+    program.sync(roots)
+    expect(await program.hover(a, position)).toBeDefined()
+    await settled(600)
+    expect(() => program.sync(roots)).not.toThrow()
+    expect(stand.lines()).toContain('textDocument/didOpen b.ts v1')
+    expect(diagnosticPaths(stand.lines())).toContain('textDocument/diagnostic a.ts')
+    program.dispose()
+    chmodSync(locked, 0o755)
   })
 })
 

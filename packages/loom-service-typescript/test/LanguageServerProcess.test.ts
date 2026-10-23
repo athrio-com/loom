@@ -93,6 +93,36 @@ describe('LanguageServerProcess never takes the host down when a server cannot s
   })
 })
 
+describe('LanguageServerProcess tells an error answer from a crash', () => {
+  const hoverFailure = async (file: string) => {
+    const stand = standInServer()
+    const server = spawnLanguageServer(stand.command, [], stand.folder, 'typescript', {})
+    const failure = await server
+      .request('textDocument/hover', { textDocument: { uri: `file://${join(stand.folder, file)}` } })
+      .then(
+        () => undefined,
+        (error: unknown) => error as LanguageServerFailed,
+      )
+    await settled()
+    const alive = server.alive()
+    server.dispose()
+    return { failure, alive }
+  }
+
+  it('repeats the words of a server that answered with an error', async () => {
+    const { failure, alive } = await hoverFailure('refuse.ts')
+    expect(failure?.message).toContain('answered: no project here')
+    expect(alive).toBe(true)
+  })
+
+  it('reports a server that crashed mid-request as not running', async () => {
+    const { failure, alive } = await hoverFailure('boom.ts')
+    expect(failure?.message).toContain('is not running')
+    expect(failure?.message).not.toContain('answered')
+    expect(alive).toBe(false)
+  })
+})
+
 describe('LanguageServerProcess shuts a server down once', () => {
   it('stops the process, and a second dispose does nothing', async () => {
     const stand = standInServer()

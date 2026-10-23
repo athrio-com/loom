@@ -14,10 +14,11 @@ const { appendFileSync } = require('node:fs')
 const log = (line) => appendFileSync(${JSON.stringify(log)}, line + '\\n')
 log('started ' + process.pid)
 let buffer = Buffer.alloc(0)
-const reply = (id, result) => {
-  const body = JSON.stringify({ jsonrpc: '2.0', id, result })
+const write = (message) => {
+  const body = JSON.stringify({ jsonrpc: '2.0', ...message })
   process.stdout.write('Content-Length: ' + Buffer.byteLength(body) + '\\r\\n\\r\\n' + body)
 }
+const reply = (id, result) => write({ id, result })
 const handle = (message) => {
   const uri = message.params?.textDocument?.uri ?? ''
   const version = message.params?.textDocument?.version
@@ -28,6 +29,9 @@ const handle = (message) => {
     return process.stdout.write('Content-Length: 9\\r\\n\\r\\nnot json!')
   }
   if (message.id === undefined) return
+  if (uri.includes('refuse') && message.method === 'textDocument/hover') {
+    return write({ id: message.id, error: { code: -32803, message: 'no project here' } })
+  }
   if (message.method === 'initialize') return reply(message.id, { capabilities: {} })
   if (message.method === 'textDocument/hover') return reply(message.id, { contents: 'stand-in' })
   if (message.method === 'textDocument/diagnostic') return reply(message.id, { kind: 'full', items: [] })

@@ -4,6 +4,8 @@ import { basename } from 'node:path'
 import type { MessageConnection } from 'vscode-jsonrpc/node.js'
 import { URI } from 'vscode-uri'
 
+type Rpc = typeof import('vscode-jsonrpc/node.js')
+
 export interface OpenFile {
   readonly path: string
   readonly text: string
@@ -19,13 +21,14 @@ export interface LanguageServerProcess {
 
 export class LanguageServerFailed extends Data.TaggedError('LanguageServerFailed')<{
   readonly command: string
+  readonly answer: Option.Option<string>
   readonly cause?: unknown
 }> {
   get message(): string {
-    const cause = this.cause as { readonly code?: unknown; readonly message?: unknown } | undefined
-    return typeof cause?.code === 'number'
-      ? `the ${this.command} language server answered: ${String(cause.message)}`
-      : `the ${this.command} language server is not running`
+    return Option.match(this.answer, {
+      onSome: (answer) => `the ${this.command} language server answered: ${answer}`,
+      onNone: () => `the ${this.command} language server is not running`,
+    })
   }
 }
 
@@ -47,25 +50,26 @@ export const spawnLanguageServer = (
   }
   const spawned = new Promise<void>((resolve, reject) => {
     child.once('spawn', () => resolve())
-    child.once('error', (cause) => reject(new LanguageServerFailed({ command, cause })))
+    child.once('error', (cause) =>
+      reject(new LanguageServerFailed({ command, answer: Option.none(), cause })),
+    )
   })
   child.on('exit', stopped)
   child.on('error', stopped)
   child.stdin.on('error', stopped)
 
-  const connected: Promise<MessageConnection> = spawned
-    .then(() => import('vscode-jsonrpc/node.js'))
-    .then((rpc) => {
-      const connection = rpc.createMessageConnection(
-        new rpc.StreamMessageReader(child.stdout),
-        new rpc.StreamMessageWriter(child.stdin),
-      )
-      connection.onError(stopped)
-      connection.onClose(stopped)
-      connection.onRequest(() => null)
-      connection.listen()
-      return connection
-    })
+  const loaded: Promise<Rpc> = spawned.then(() => import('vscode-jsonrpc/node.js'))
+  const connected: Promise<MessageConnection> = loaded.then((rpc) => {
+    const connection = rpc.createMessageConnection(
+      new rpc.StreamMessageReader(child.stdout),
+      new rpc.StreamMessageWriter(child.stdin),
+    )
+    connection.onError(stopped)
+    connection.onClose(stopped)
+    connection.onRequest(() => null)
+    connection.listen()
+    return connection
+  })
 
   const ready: Promise<MessageConnection> = connected.then((connection) =>
     connection
@@ -116,6 +120,28 @@ export const spawnLanguageServer = (
     })
   }
 
+  const clientCodes = (rpc: Rpc): ReadonlySet<number> =>
+    new Set([
+      rpc.ErrorCodes.MessageWriteError,
+      rpc.ErrorCodes.MessageReadError,
+      rpc.ErrorCodes.ConnectionInactive,
+      rpc.ErrorCodes.PendingResponseRejected,
+    ])
+
+  const answerOf = (rpc: Rpc, cause: unknown): Option.Option<string> =>
+    cause instanceof rpc.ResponseError && !clientCodes(rpc).has(cause.code)
+      ? Option.some(cause.message)
+      : Option.none()
+
+  const asked = <A>(connection: MessageConnection, method: string, params: unknown): Promise<A> =>
+    Promise.resolve()
+      .then(() => connection.sendRequest<A>(method, params))
+      .catch((cause) =>
+        loaded.then((rpc) =>
+          Promise.reject(new LanguageServerFailed({ command, answer: answerOf(rpc, cause), cause })),
+        ),
+      )
+
   const shutdownWait = 2000
   const elapsed = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -123,10 +149,12 @@ export const spawnLanguageServer = (
     keepOpen,
     request: <A>(method: string, params: unknown): Promise<A> =>
       state.running
-        ? ready
-            .then((connection) => connection.sendRequest<A>(method, params))
-            .catch((cause) => Promise.reject(new LanguageServerFailed({ command, cause })))
-        : Promise.reject(new LanguageServerFailed({ command })),
+        ? ready.then(
+            (connection) => asked<A>(connection, method, params),
+            (cause) =>
+              Promise.reject(new LanguageServerFailed({ command, answer: Option.none(), cause })),
+          )
+        : Promise.reject(new LanguageServerFailed({ command, answer: Option.none() })),
     alive: () => state.running,
     uptime: () => (state.running ? Date.now() : state.stoppedAt) - state.startedAt,
     dispose: () => {

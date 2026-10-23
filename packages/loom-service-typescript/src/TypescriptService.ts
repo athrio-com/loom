@@ -82,12 +82,13 @@ export interface ProductProject {
   readonly loom: string
 }
 
-const projectOf = (
+export const projectOf = (
   configOf: (path: string) => Option.Option<string>,
-  file: ComposedFile,
+  path: string,
+  loom: string,
 ): ProductProject => {
-  const config = configOf(file.path)
-  return { key: Option.getOrElse(config, () => file.loomPath), config, loom: file.loomPath }
+  const config = configOf(path)
+  return { key: Option.getOrElse(config, () => `loom folder ${dirname(loom)}`), config, loom }
 }
 
 export interface ProductTarget {
@@ -135,9 +136,9 @@ export const productTarget = (
     onNone: () => Array.append(composed, edited),
     onSome: () => composed,
   })
-  const project = projectOf(configOf, edited)
+  const project = projectOf(configOf, edited.path, edited.loomPath)
   const listed = (file: ComposedFile): boolean =>
-    reach === 'corpus' || projectOf(configOf, file).key === project.key
+    reach === 'corpus' || projectOf(configOf, file.path, file.loomPath).key === project.key
   const program = programFor(
     reach === 'corpus' ? { ...project, key: `corpus of ${project.key}` } : project,
   )
@@ -155,6 +156,30 @@ export const productTarget = (
     ),
   )
   return { program, fileName: edited.path, roots }
+}
+
+export const servedByCompiler = (
+  configOf: (path: string) => Option.Option<string>,
+  nativeSetting: Option.Option<unknown>,
+): ((executable: string) => (file: ProductFile) => boolean) => {
+  const scriptExtension = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/
+  const choices = new Map<string, CompilerChoice>()
+  const choiceOf = (file: ProductFile): CompilerChoice => {
+    const project = projectOf(configOf, file.path, file.loom ?? file.path)
+    return Option.getOrElse(Option.fromNullishOr(choices.get(project.key)), () => {
+      const chosen = compilerChoiceFor(project, nativeSetting)
+      choices.set(project.key, chosen)
+      return chosen
+    })
+  }
+  return (executable) => (file) => {
+    const choice = choiceOf(file)
+    return (
+      scriptExtension.test(file.path) &&
+      CompilerChoice.$is('Native')(choice) &&
+      choice.executable === executable
+    )
+  }
 }
 
 interface ActionOrigin {
@@ -185,31 +210,7 @@ export const productPlugin = (
     const programs = new Map<string, ProductProgram>()
     const nativePrograms = new Map<string, ProductProgram>()
     const actionTargets = new Map<string, ProductTarget>()
-    const scriptExtension = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/
-    const choices = new Map<string, CompilerChoice>()
-    const choiceOf = (file: ProductFile): CompilerChoice => {
-      const config = configOf(file.path)
-      const loom = file.loom ?? file.path
-      const remembered = Option.getOrElse(config, () => `loom folder ${dirname(loom)}`)
-      return Option.getOrElse(Option.fromNullishOr(choices.get(remembered)), () => {
-        const chosen = compilerChoiceFor(
-          { key: Option.getOrElse(config, () => loom), config, loom },
-          nativeSetting,
-        )
-        choices.set(remembered, chosen)
-        return chosen
-      })
-    }
-    const servedBy =
-      (executable: string) =>
-      (file: ProductFile): boolean => {
-        const choice = choiceOf(file)
-        return (
-          scriptExtension.test(file.path) &&
-          CompilerChoice.$is('Native')(choice) &&
-          choice.executable === executable
-        )
-      }
+    const servedBy = servedByCompiler(configOf, nativeSetting)
     const programFor = (project: ProductProject): ProductProgram => {
       const existing = programs.get(project.key)
       if (existing !== undefined) return existing

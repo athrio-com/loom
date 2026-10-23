@@ -66,9 +66,9 @@ describe('productTarget routes a Product to its program', () => {
       {
         path: '/project/b.ts',
         content: 'export const b = 2\n',
-        loomPath: '/project/b.loom',
+        loomPath: '/elsewhere/b.loom',
         rootId: 'b',
-        heading: headOf('/project/b.loom'),
+        heading: headOf('/elsewhere/b.loom'),
       },
     ]
     const target = productTarget(
@@ -264,6 +264,34 @@ describe('productTarget finds a root\'s project', () => {
     expect(second).toBe(first)
     expect(third).not.toBe(first)
     expect(references).not.toBe(first)
+  })
+
+  it('lists the roots of looms in one folder together when no tsconfig.json governs them', () => {
+    const synced: Array<{ readonly listed: ReadonlyArray<string>; readonly others: ReadonlyArray<string> }> = []
+    const program = createProductProgram(ts, options)
+    const recording: ProductProgram = {
+      ...program,
+      sync: (listed, others = []) => {
+        synced.push({ listed: listed.map((file) => file.path), others: others.map((file) => file.path) })
+        program.sync(listed, others)
+      },
+    }
+    const roots = [
+      rootAt('/book/src/a.ts', '/book/corpus/a.loom', "import { b } from './b.ts'\n"),
+      rootAt('/book/src/b.ts', '/book/corpus/b.loom', 'export const b = 2\n'),
+      rootAt('/book/src/c.ts', '/book/elsewhere/c.loom', 'export const c = 3\n'),
+    ]
+    productTarget(
+      [URI.file('/book/corpus/a.loom'), 'main'],
+      'typescript',
+      "import { b } from './b.ts'\n",
+      () => recording,
+      () => roots,
+      noConfig,
+      'project',
+    )
+    program.dispose()
+    expect(synced).toEqual([{ listed: ['/book/src/a.ts', '/book/src/b.ts'], others: ['/book/src/c.ts'] }])
   })
 })
 

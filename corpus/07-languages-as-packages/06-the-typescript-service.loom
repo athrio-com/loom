@@ -77,7 +77,9 @@ A request arrives on an embedded document — one Product of a `.loom`, a compos
 
 A root that tangles to a file is checked at that path, the live buffer overriding what is on disk. A root that tangles nowhere — a section with no file sink — has no path of its own, so `productTarget` checks it beside its `.loom` under a synthetic name, and marks it `loose`, since no `tsconfig.json` includes that name. Either way it hands the program the whole composition, so one root's `import` of another resolves against the other's composition. It returns the edited root's path for the caller to query.
 
-`productTarget` hands the composition to the program of the edited root's project. A `ProductProject` names that program by its `key`: the path of the `tsconfig.json` that governs the root or, when none does, the root's own `.loom`, so a loom outside every project keeps a program of its own. It also carries the `tsconfig.json` it found, if any, and the `.loom` the root came from, which locate the project on disk however its key is spelled. `projectOf` finds the project of any root. The program lists the roots that share the edited root's project and holds every other root without listing it. A cross-project `import` still resolves against live composition, and TypeScript parses only what the project's own roots import.
+`productTarget` hands the composition to the program of the edited root's project. A `ProductProject` names that program by its `key`. The key is the path of the `tsconfig.json` that governs the file the root tangles to. When none does, the key is the folder of the root's `.loom`, so the looms of one folder that no `tsconfig.json` governs form one project, and a root that imports a neighbour from the next loom finds it listed beside itself. A project also carries the `tsconfig.json` it found, if any, and the `.loom` the root came from, which locate the project on disk however its key is spelled.
+
+`projectOf` finds the project of a root from the path the root tangles to and its `.loom`. Every part of the service that groups roots by project calls it, so no two parts can disagree about which roots belong together. The program lists the roots that share the edited root's project and holds every other root without listing it. A cross-project `import` still resolves against live composition, and TypeScript parses only what the project's own roots import.
 
 A request's `Reach` decides which roots its program lists. Most requests reach the edited root's project. A search for references and a rename reach the whole corpus, since a use of a name may sit in any root. They go to a corpus program, kept beside the project's own, that lists every root and is built the first time one of them is asked for.
 
@@ -91,12 +93,13 @@ export interface ProductProject {
   readonly loom: string
 }
 
-const projectOf = (
+export const projectOf = (
   configOf: (path: string) => Option.Option<string>,
-  file: ComposedFile,
+  path: string,
+  loom: string,
 ): ProductProject => {
-  const config = configOf(file.path)
-  return { key: Option.getOrElse(config, () => file.loomPath), config, loom: file.loomPath }
+  const config = configOf(path)
+  return { key: Option.getOrElse(config, () => `loom folder ${dirname(loom)}`), config, loom }
 }
 
 export interface ProductTarget {
@@ -144,9 +147,9 @@ export const productTarget = (
     onNone: () => Array.append(composed, edited),
     onSome: () => composed,
   })
-  const project = projectOf(configOf, edited)
+  const project = projectOf(configOf, edited.path, edited.loomPath)
   const listed = (file: ComposedFile): boolean =>
-    reach === 'corpus' || projectOf(configOf, file).key === project.key
+    reach === 'corpus' || projectOf(configOf, file.path, file.loomPath).key === project.key
   const program = programFor(
     reach === 'corpus' ? { ...project, key: `corpus of ${project.key}` } : project,
   )
@@ -178,9 +181,37 @@ Every project on the same TypeScript 7 shares one native program, kept in `nativ
 
 Several projects hold the same native program, so the plugin disposes each program once when the service shuts down.
 
-A workspace can mix projects on TypeScript 7 with projects still on TypeScript 6, and the native program's warm-up must not load the TypeScript 6 projects into TypeScript 7. `servedBy` tells the native program which roots are its own. A root is its own when it is a TypeScript or JavaScript file and its project chooses this same executable. The composition also holds the other files a book tangles, a `package.json` or a workflow, and TypeScript 7 has no business opening those as code.
+A workspace can mix projects on TypeScript 7 with projects still on TypeScript 6, and the native program's warm-up must not load the TypeScript 6 projects into TypeScript 7. `servedByCompiler` builds the test that tells a native program which roots are its own. A root is its own when it is a TypeScript or JavaScript file and its project chooses this same executable. The composition also holds the other files a book tangles, a `package.json` or a workflow, and TypeScript 7 has no business opening those as code.
 
-`choiceOf` finds a root's project the way `projectOf` does: by the `tsconfig.json` that governs the file the root tangles to, or, when none does, by the folder of the `.loom` the root came from, which the root carries. It remembers the choice for each `tsconfig.json` and each such folder, because the warm-up asks about every root.
+The test finds a root's project through `projectOf`, from the path the root tangles to and the `.loom` the root carries, exactly as `productTarget` does. So the roots a program lists and the roots it serves come from one grouping. It remembers each project's choice by the project's key, because the warm-up asks about every root.
+
+=>
+
+export const servedByCompiler = (
+  configOf: (path: string) => Option.Option<string>,
+  nativeSetting: Option.Option<unknown>,
+): ((executable: string) => (file: ProductFile) => boolean) => {
+  const scriptExtension = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/
+  const choices = new Map<string, CompilerChoice>()
+  const choiceOf = (file: ProductFile): CompilerChoice => {
+    const project = projectOf(configOf, file.path, file.loom ?? file.path)
+    return Option.getOrElse(Option.fromNullishOr(choices.get(project.key)), () => {
+      const chosen = compilerChoiceFor(project, nativeSetting)
+      choices.set(project.key, chosen)
+      return chosen
+    })
+  }
+  return (executable) => (file) => {
+    const choice = choiceOf(file)
+    return (
+      scriptExtension.test(file.path) &&
+      CompilerChoice.$is('Native')(choice) &&
+      choice.executable === executable
+    )
+  }
+}
+
+~
 
 A result that names a place — a definition, a reference, the edits of a rename or a code action — comes back under the path the program checks. `embeddedUriOf` rewrites that path to the embedded document Volar knows: it finds the root the program holds there and encodes its `.loom` and id back through `encodeEmbeddedDocumentUri`. Volar then maps the result to the `.loom`, rather than opening a file that may not be on disk. A path that is no root the program holds — a real file under `node_modules` — passes through unchanged.
 
@@ -222,31 +253,7 @@ export const productPlugin = (
     const programs = new Map<string, ProductProgram>()
     const nativePrograms = new Map<string, ProductProgram>()
     const actionTargets = new Map<string, ProductTarget>()
-    const scriptExtension = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/
-    const choices = new Map<string, CompilerChoice>()
-    const choiceOf = (file: ProductFile): CompilerChoice => {
-      const config = configOf(file.path)
-      const loom = file.loom ?? file.path
-      const remembered = Option.getOrElse(config, () => `loom folder ${dirname(loom)}`)
-      return Option.getOrElse(Option.fromNullishOr(choices.get(remembered)), () => {
-        const chosen = compilerChoiceFor(
-          { key: Option.getOrElse(config, () => loom), config, loom },
-          nativeSetting,
-        )
-        choices.set(remembered, chosen)
-        return chosen
-      })
-    }
-    const servedBy =
-      (executable: string) =>
-      (file: ProductFile): boolean => {
-        const choice = choiceOf(file)
-        return (
-          scriptExtension.test(file.path) &&
-          CompilerChoice.$is('Native')(choice) &&
-          choice.executable === executable
-        )
-      }
+    const servedBy = servedByCompiler(configOf, nativeSetting)
     const programFor = (project: ProductProject): ProductProgram => {
       const existing = programs.get(project.key)
       if (existing !== undefined) return existing
@@ -505,7 +512,7 @@ export default TypescriptService
 
 ## What the service draws on
 
-The service builds on `@athrio/loom-lang-services` for the `LanguageService` contract, the `TypescriptSdk` and `Composition` capabilities, the `ComposedFile` shape each composition root takes, and the `FormatRequest` a formatter answers with the `ServiceError` it fails with; and on its own `ProductProgram`, with the `ProductFile` each root syncs as, and the native program with `compilerChoiceFor`, which chooses the compiler, `projectFolder`, which locates a project, and `createUnavailableProgram`, for a project that cannot have TypeScript 7. From Effect it takes `Effect` for the `plugins` body, and `Array`, `Option`, and `pipe` to search the composition; from Volar, the `LanguageServicePlugin` type, with `CodeAction`, `WorkspaceEdit`, `LocationLink`, and `Range` for the results and edits the plugin moves back to the `.loom`; the `URI` type to decode an embedded document back to its `.loom`; and Bun's `dirname` to walk for a `tsconfig.json`. Node's `createRequire` finds a project's own Prettier, and `pathToFileURL` turns the file it finds into the address `import` takes.
+The service builds on `@athrio/loom-lang-services` for the `LanguageService` contract, the `TypescriptSdk` and `Composition` capabilities, the `ComposedFile` shape each composition root takes, and the `FormatRequest` a formatter answers with the `ServiceError` it fails with; and on its own `ProductProgram`, with the `ProductFile` each root syncs as, and the native program with `compilerChoiceFor`, which chooses the compiler, `projectFolder`, which locates a project, and `createUnavailableProgram`, for a project that cannot have TypeScript 7. From Effect it takes `Effect` for the `plugins` body, and `Array`, `Option`, and `pipe` to search the composition; from Volar, the `LanguageServicePlugin` type, with `CodeAction`, `WorkspaceEdit`, `LocationLink`, and `Range` for the results and edits the plugin moves back to the `.loom`; the `URI` type to decode an embedded document back to its `.loom`; and Bun's `dirname` to walk for a `tsconfig.json` and to name a loom's folder. Node's `createRequire` finds a project's own Prettier, and `pathToFileURL` turns the file it finds into the address `import` takes.
 
 =>
 
@@ -594,7 +601,7 @@ const headOf = (path: string): ComposedFile['heading'] => ({
 
 ~
 
-A TypeScript Product is checked at the path it tangles to, with the live buffer as its text rather than what is on disk. An `import` from one root to another resolves against the other's composition, even when the other root belongs to another loom, and so to another project. The edited root's program holds that root without listing it. A `tsx` Product keeps its extension. A JSON document and a uri that names no embedded document are declined. A root that tangles nowhere is checked beside its `.loom` under a synthetic name.
+A TypeScript Product is checked at the path it tangles to, with the live buffer as its text rather than what is on disk. An `import` from one root to another resolves against the other's composition, even when the other root comes from a loom in another folder, and so belongs to another project. The edited root's program holds that root without listing it. A `tsx` Product keeps its extension. A JSON document and a uri that names no embedded document are declined. A root that tangles nowhere is checked beside its `.loom` under a synthetic name.
 
 =>
 
@@ -638,9 +645,9 @@ describe('productTarget routes a Product to its program', () => {
       {
         path: '/project/b.ts',
         content: 'export const b = 2\n',
-        loomPath: '/project/b.loom',
+        loomPath: '/elsewhere/b.loom',
         rootId: 'b',
-        heading: headOf('/project/b.loom'),
+        heading: headOf('/elsewhere/b.loom'),
       },
     ]
     const target = productTarget(
@@ -746,6 +753,8 @@ A project is found on disk, so these cases write real folders. `projectFolder` m
 
 A root that tangles into `loose` is checked under that package's options, so a `null` assigned to a string passes there. The same root tangled into the corpus folder, which no `tsconfig.json` governs, is checked under the strict baseline and fails. Two looms whose roots tangle into `loose` share one program, a root in `other` gets a program of its own, and a search for references reaches a corpus program apart from both.
 
+Two looms in one folder that no `tsconfig.json` governs form one project too. The program of the first lists the second's root beside its own from the first request, so an import between them resolves before any warm-up. A root from a loom in another folder is held without being listed.
+
 =>
 
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
@@ -844,6 +853,34 @@ describe('productTarget finds a root\'s project', () => {
     expect(second).toBe(first)
     expect(third).not.toBe(first)
     expect(references).not.toBe(first)
+  })
+
+  it('lists the roots of looms in one folder together when no tsconfig.json governs them', () => {
+    const synced: Array<{ readonly listed: ReadonlyArray<string>; readonly others: ReadonlyArray<string> }> = []
+    const program = createProductProgram(ts, options)
+    const recording: ProductProgram = {
+      ...program,
+      sync: (listed, others = []) => {
+        synced.push({ listed: listed.map((file) => file.path), others: others.map((file) => file.path) })
+        program.sync(listed, others)
+      },
+    }
+    const roots = [
+      rootAt('/book/src/a.ts', '/book/corpus/a.loom', "import { b } from './b.ts'\n"),
+      rootAt('/book/src/b.ts', '/book/corpus/b.loom', 'export const b = 2\n'),
+      rootAt('/book/src/c.ts', '/book/elsewhere/c.loom', 'export const c = 3\n'),
+    ]
+    productTarget(
+      [URI.file('/book/corpus/a.loom'), 'main'],
+      'typescript',
+      "import { b } from './b.ts'\n",
+      () => recording,
+      () => roots,
+      noConfig,
+      'project',
+    )
+    program.dispose()
+    expect(synced).toEqual([{ listed: ['/book/src/a.ts', '/book/src/b.ts'], others: ['/book/src/c.ts'] }])
   })
 })
 

@@ -1,7 +1,7 @@
-import { Array, Data, Match, Option, pipe } from 'effect'
-import { accessSync, constants, existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { Array, Data, Match, Option, pipe, Result } from 'effect'
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type {
   CodeAction,
   Command,
@@ -100,7 +100,8 @@ const workspaceRootOf = (loom: string): string => {
 
 const choiceFromSetting = (project: ProductProject, setting: string): CompilerChoice => {
   const folder = isAbsolute(setting) ? setting : resolve(workspaceRootOf(project.loom), setting)
-  const packageJson = join(folder, 'package.json')
+  const real = Option.getOrElse(Option.liftThrowable(() => realpathSync(folder))(), () => folder)
+  const packageJson = join(real, 'package.json')
   const named = `the nativeCompiler setting names ${folder}`
   return Option.match(
     Option.filter(manifestOf(packageJson), (manifest) => manifest.name === 'typescript'),
@@ -254,16 +255,36 @@ export const createNativeProgram = (
     restarts: 0,
   }
   const reported = new Set<string>()
+  const unmade = new Set<string>()
+
+  const insideWorkspace = (folder: string, loom: string): boolean => {
+    const path = relative(workspaceRootOf(loom), folder)
+    return path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path)
+  }
+
+  const makeFolder = (folder: string, loom: string): void => {
+    if (unmade.has(folder) || existsSync(folder)) return
+    if (!insideWorkspace(folder, loom)) {
+      unmade.add(folder)
+      reportOnce(reported, `${folder} lies outside the workspace, so the editor leaves it to the tangle`)
+      return
+    }
+    Result.match(Result.try(() => mkdirSync(folder, { recursive: true })), {
+      onSuccess: () => undefined,
+      onFailure: (cause) => {
+        unmade.add(folder)
+        reportOnce(reported, `could not make ${folder}: ${String((cause as Error)?.message ?? cause)}`)
+      },
+    })
+  }
 
   const makeFolders = (files: ReadonlyArray<ProductFile>): void =>
-    Array.dedupe(
+    new Map(
       Array.map(
         Array.filter(files, (file) => !file.loose && servedBy(file)),
-        (file) => dirname(file.path),
+        (file) => [dirname(file.path), file.loom ?? file.path] as const,
       ),
-    ).forEach((folder) => {
-      if (!existsSync(folder)) mkdirSync(folder, { recursive: true })
-    })
+    ).forEach((loom, folder) => makeFolder(folder, loom))
 
   const pushOpen = (): void =>
     Option.match(state.server, {
@@ -366,7 +387,7 @@ export const createNativeProgram = (
         ),
       onSome: (server) => {
         const answer = server.request<A>(method, params)
-        void answer.then(warm, () => undefined)
+        void answer.then(warm, () => undefined).catch(orNothing(undefined))
         return answer
       },
     })
