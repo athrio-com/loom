@@ -21,7 +21,7 @@ mise, a tool manager, pins the two tools every check runs on: Bun, at the versio
 
 mise pins Bun at 1.4.2, a release from Bun's rewrite in Rust, which replaced its original Zig code. On Loom's own corpus, the `loom` command runs 15 to 25 percent faster on it than on Bun 1.2.20, in up to a fifth less memory.
 
-Loom skips the two releases after it. Bun 1.4.3 changed its memory allocator, and a long-running process on it is reported to freeze at full CPU (Bun issue 46576). The language server and the website's server are both long-running processes. Bun 1.4.4 makes every standalone executable about 28 MB larger, and every user who installs Loom downloads that executable. The pin moves past 1.4.2 only to a release that fixes both the freeze and the size.
+Loom stays off Bun 1.4.3 and 1.4.4. Bun 1.4.3 changed its memory allocator, and a long-running process on it is reported to freeze at full CPU (Bun issue 46576). The language server and the website's server are both long-running processes. Bun 1.4.4 makes every standalone executable about 28 MB larger, and every user who installs Loom downloads that executable. The pin moves past 1.4.2 only to a release that fixes both the freeze and the size.
 
 =>
 
