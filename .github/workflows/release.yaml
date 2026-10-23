@@ -20,7 +20,7 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.2.20
+          bun-version: 1.4.2
       - run: npm install --global npm@latest
       - run: bun install --frozen-lockfile
       - name: Publish
@@ -70,7 +70,7 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.2.20
+          bun-version: 1.4.2
       - name: Build the executable and run its smoke test
         env:
           CC: ${{ matrix.cc || 'cc' }}

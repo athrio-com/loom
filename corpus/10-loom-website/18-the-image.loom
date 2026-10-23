@@ -16,11 +16,11 @@ The build weaves one thing. The documentation travels in the workspace as the co
 
 The runtime runs the server from the package directory. The server reads the port it listens on from the environment, and the image sets it to 4321.
 
-Bun runs the server in its small-memory mode, `--smol`, which collects garbage more often. Rendering a page leaves a lot of short-lived memory behind, and a server that collects it sooner settles at about a quarter less memory once its pages are kept. The cost is a few percent on a page's first render, which a reader does not notice.
+Bun runs the server in its small-memory mode, `--smol`, which collects garbage more often. The server mostly reads pages the build rendered ahead. Serving every one of them, it settles near 91 MB with the flag and 94 MB without. A page the build did not render, the server renders itself. On that path the flag saves nothing on Bun 1.4.2. A server that renders every page itself settles near 200 MB with or without it. The flag costs about two percent on a page's first render, too little for a reader to notice, so it stays for the few megabytes it saves.
 
 =>
 
-FROM oven/bun:1.2.20-alpine
+FROM oven/bun:1.4.2-alpine
 
 WORKDIR /loom
 COPY . .
