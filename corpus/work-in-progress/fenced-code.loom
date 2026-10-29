@@ -1,0 +1,87 @@
+---
+Part: Work in progress
+Chapter: Fenced code
+Status: Planned
+Priority: 2
+Language: TypeScript
+---
+
+# Fenced code
+
+A plain block of code ends at the next heading. A heading is a run of one to six hashes followed by a space, so any line of code that starts that way ends the block, whatever its author meant by it. Most code never writes such a line. A shebang like `#!/bin/sh`, a C `#include`, and a Rust attribute like `#[derive(Debug)]` carry no space after the hash, so they stay code.
+
+The lines that do end a block by mistake form a short list, but a real one:
+
+- a comment in a shell script, a Python module, or a YAML file;
+- a directive written as a comment, such as `# shellcheck disable=SC2086`, a Dockerfile's `# syntax=docker/dockerfile:1`, or Python's `# type: ignore`;
+- a heading in a Markdown file that a section writes.
+
+A literate loom rarely needs the comments, since its prose explains the code. The other two are not optional. A directive changes what a tool does, and a Markdown heading is the content of the file.
+
+Today the explicit arrow serves these lines. A block that opens with `~>` instead of `=>` ignores headings and runs until a tilde closes it. The explicit arrow is a mark of Loom's own, which a reader must learn for a rare case, and it looks almost exactly like the arrow it differs from. This chapter retires it. A block of code that must hold such lines is fenced instead, the way Markdown fences any code, with a mark every reader already knows.
+
+## An arrow, then a fence
+
+A fenced block opens like every block of code, with an arrow on its own line. On the line straight after the arrow comes a fence: three backticks, optionally followed by the section's language. Every line after the fence is code, until a closing fence ends the block.
+
+Inside a fenced block, a line that starts with `#`, `=>`, or `~` is code like any other, and so is a line of dashes, which the chapter "Divisions" otherwise reads as a divider. Anchors and warps still compose, so a fenced block draws in other sections just as a plain block does. A quote composes nothing, so composition is what tells a fenced block from a quote.
+
+The closing fence ends the block, and prose follows on the next line, with no tilde to close the code.
+
+Part XI's install script shows the case this serves. The script opens with a comment that says what it does and how to run it, and the comment belongs in the file, since a person who opens `install.sh` reads it there. Its shebang stays code, because no space follows the hash, but nearly every line of the comment starts with a hash and a space. A plain block would end at the first of those lines and read the rest as headings. So today the block opens with the explicit arrow:
+
+```
+~>
+
+#!/bin/sh
+# Installs Loom's standalone executable and puts it on PATH.
+#
+#   curl -fsSL https://github.com/athrio-com/loom/releases/latest/download/install.sh | sh
+```
+
+Fenced, the same block opens with an arrow and then a fence labelled for the shell, ```` ```sh ````. Every line after the fence is the script, its comment included, and a closing fence of three backticks ends the block where the tilde ends it today.
+
+This chapter cannot quote the fenced form yet, because the fence inside the quote would close the quote around it. The section "Long fences hold short ones" explains why, and how the design fixes it. Once long fences work, this section quotes the fenced block beside the one above.
+
+## A fence alone is a quote
+
+A fence in prose that does not follow an arrow stays what it is today: a quote. Its lines are shown and never composed, and none of them is a mark. Part XI, Releasing Loom, quotes this way the one line a person types to install Loom. Part VII, Languages as packages, quotes a diagram of how editor requests reach each language. Neither belongs in any file the book writes, and the fence keeps them out.
+
+A fence inside a plain block of code belongs to the code. A section that writes a Markdown file may hold fences of its own, and they are part of the file it writes.
+
+So a reader tells the two kinds of fence apart by the line above them. An arrow above a fence opens product code. Prose above a fence opens a quote.
+
+## Long fences hold short ones
+
+A closing fence starts its line, and it is at least as long as the fence that opened the block. A block of code that holds three backticks of its own, such as a Markdown file or a test that builds a loom, opens with a fence of four. The rule holds for quotes as well, so a loom can quote a loom that holds fenced code.
+
+Today neither a long fence nor a quoted fence works. The `isCodeFence` test opens or closes a fence on any line that starts with three backticks, at any indentation. It reads a fence of four as a fence of three, and an indented line of backticks inside a TypeScript template string would close the block around it. The tokeniser's `fenceStep` follows the same rule. In this design, both track each fence's length and its column.
+
+## The fence's label
+
+A fence may carry a label, the language name Markdown writes after the backticks. Loom already knows each section's language, from the chapter's `Language:`, the heading's specifier, or the sink's extension, so a label tells Loom nothing new. It must therefore agree with what Loom knows. A label matches when it names the section's language by any name the language's package answers to, so `ts` and `typescript` both label a TypeScript section. A label that names another language is a fault, so one block never has two languages.
+
+The label serves the readers outside Loom. GitHub, and any other Markdown viewer, colours a fenced block by its label.
+
+## What can go wrong
+
+Three faults keep fenced blocks honest:
+
+- **A fence that never closes.** A fenced block with no closing fence would swallow the rest of the loom, so the opening fence is a fault, and its line says where the block began. This fault replaces `UnclosedExplicitBlock`, which marks an explicit arrow no tilde closes.
+- **A label against the language.** A fence whose label names a language other than the section's is a fault.
+- **A heading against code.** The `HeadingAgainstCode` fault already marks a heading written directly under a line of code, where a `#` comment most likely ended the code by mistake. The fault stays, and its message now names the fix: fence the block.
+
+## Retiring the explicit arrow
+
+The explicit arrow appears in a single chapter, Part XI's install script, which holds twelve explicit blocks. Each becomes an arrow and a fence, and the tilde that closed it becomes a closing fence.
+
+The rest of Loom sheds it too. The classifier loses its `inExplicit` flag and the `nextExplicit` step that set it. The arrow's probe, `/^\s*[=~]>/`, matches `=>` alone. The `UnclosedExplicitBlock` fault leaves the catalog, and the primitives that "The first syntax" lists name a single arrow. The tree-sitter grammar in Part IX, Extensions for IDEs, learns the fence after an arrow.
+
+## What this chapter grows into
+
+1. Fence length and column in the classifier and the tokeniser, for quotes and code alike.
+2. The fenced block after an arrow, with the faults for a fence that never closes and a label against the language.
+3. Part XI's install script rewritten, and the explicit arrow retired from the classifier, the fault catalog, the tree-sitter grammar, and "The first syntax".
+4. The fenced form of the install script's first block quoted in the section "An arrow, then a fence", once long fences work.
+
+When the book holds no explicit arrow and its fenced blocks tangle, this chapter joins Part III, Reading the text.

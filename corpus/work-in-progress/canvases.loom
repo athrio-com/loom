@@ -1,0 +1,56 @@
+---
+Part: Work in progress
+Chapter: Canvases
+Status: Planned
+Priority: 3
+Language: TypeScript
+---
+
+# Canvases
+
+Before there is code to explain, there is often a question to think through. In a game, what a monster is, what wakes it, and whether waking and reaching are one idea or two are questions an author settles while the code is still taking shape. That thinking belongs in the book, beside the chapters it leads to. A canvas is a chapter in that state, a chapter whose thinking has not settled yet.
+
+A canvas is not a kind of loom. It is a chapter like any other, with the same frontmatter, sections, code, and sinks, and its status says that the chapter is still a canvas. An author thinks freely in a canvas, in prose and in code alike. Loom forbids nothing in a canvas that it allows in a chapter.
+
+## The status of a chapter
+
+Loom's frontmatter already has a `Status` line, which the numberless chapters of the Work in progress part use to show their state on a board. A canvas is a chapter whose status is `Canvas`:
+
+```
+---
+Part I, Chapter 3: Monsters
+Status: Canvas
+Language: TypeScript
+---
+```
+
+Every new chapter starts as a canvas. The editor writes `Status: Canvas` into the frontmatter of each chapter it opens, whether from a box or from scratch. The author settles a chapter by deleting the line, so a chapter with no status is a settled one, as every chapter in the book is today.
+
+## Leaning on a canvas
+
+A canvas's code may change shape at any moment, so code in another chapter that depends on it depends on something unsettled. An anchor that reaches a canvas's section from another chapter still composes, and Loom warns about it. The editor marks the anchor, and `loom tangle` reports it while it writes the file.
+
+The warning never stops the tangle. It tells the author that a settled chapter now leans on an unsettled one. An anchor between two sections of the same canvas raises no warning, because the canvas is one unsettled whole.
+
+A warning differs from a promise, which the chapter "Names through the book" describes. A promise holds no code, so the tangler refuses to ship it. A canvas holds code that runs, so the tangler ships it and says so.
+
+## Numbers
+
+A canvas is a chapter, so it takes its number among its part's chapters. The editor gives a new canvas the next number in its part, so opening one renumbers nothing. Moving a chapter renumbers the chapters it passes, and the editor rewrites every numbered path that names them, as the chapter "Names through the book" describes.
+
+A canvas keeps its number and its title when it settles, so no reference changes when its status line goes.
+
+## What to work out
+
+- **A canvas's own files.** Whether `loom tangle` also warns when a canvas writes a file through a sink of its own, or warns only for anchors that reach it, is open.
+- **The table of contents.** How `book.loom` and the woven contents mark a canvas is open.
+- **The woven page.** Whether the woven book shows canvases to its readers, or keeps them for the authors, is open.
+- **Statuses beyond the canvas.** The work in progress uses `Status: Planned` today. Whether other statuses join `Canvas`, and what each one means, is open.
+
+## What this chapter grows into
+
+1. `Status: Canvas` in the frontmatter, written into every chapter the editor opens.
+2. The warning for an anchor that reaches a canvas from another chapter, in the editor and in `loom tangle`.
+3. The canvas's mark in the editor and in the table of contents.
+
+When canvases warn in the editor and in the tangle, this chapter joins Part V, Tangling, and Part VI, In the editor.

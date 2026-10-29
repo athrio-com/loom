@@ -1,0 +1,20 @@
+---
+Part: Work in progress
+Chapter: Editor commands
+Status: Planned
+Priority: 3
+Language: TypeScript
+---
+
+# Editor commands
+
+An author starts most new looms from the place in the book that needs them. A command in the editor writes a box at the cursor that points to the new loom, then opens the loom itself. Two such commands come first: `/chapter` writes a box of kind `Chapter` and opens a chapter, which starts as a canvas, and `/discussion` writes a box of kind `Discussion` and opens a discussion. The chapters "Boxes", "Canvases", and "Discussions" describe what the commands write.
+
+This chapter is a stub. Which commands the editor offers, and how they look, are still to be designed.
+
+## What to work out
+
+- **The set of commands.** Beyond `/chapter` and `/discussion`, which commands the editor offers is open: one that settles a canvas, say, or one that closes a topic with a conclusion.
+- **Their names.** Whether the commands keep their slash names, and how they read in the editor's menus, is open.
+- **Reaching every editor.** How each editor offers the same commands, through code actions or a command palette, is open.
+- **The command line.** Which of the commands `loom` also runs, such as refreshing every box's summary from its loom, is open.

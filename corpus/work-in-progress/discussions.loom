@@ -1,0 +1,121 @@
+---
+Part: Work in progress
+Chapter: Discussions
+Status: Planned
+Priority: 2
+Language: TypeScript
+---
+
+# Discussions
+
+Some questions take more than a paragraph to settle. An author argues them out with an agent, with a colleague, or alone, as an exercise in reasoning. The argument is worth keeping, because it shows how the book reached its answer. A discussion is the loom that keeps it: a thread of messages, divided into topics, which git keeps beside the chapters it shaped.
+
+A discussion is a kind of loom, as a chapter is. A chapter explains code and composes it. A discussion holds no code. It is where a thought runs freely before any of it becomes a chapter, or where a question goes when a chapter raises more than its own prose can hold.
+
+## Where a discussion sits
+
+A discussion's identity line names its kind, as a chapter's does, and places the discussion under a part:
+
+```
+---
+Part I, Discussion 1: Waking
+---
+```
+
+Discussions are numbered within their part, apart from its chapters, so opening a discussion never renumbers a chapter. The tokeniser reads a discussion's number into a token of its own, a `FrontmatterDiscussion`, beside the `FrontmatterChapter` that holds a chapter's number.
+
+A discussion's file lives in a `discussions` folder inside its part's folder, as in `01-the-room/discussions/waking.loom`. The table of contents lists a part's discussions at the bottom of the part's section, after its chapters.
+
+In the tree of the book's names, a discussion sits under its part. A name finds a discussion wherever it would find a chapter.
+
+## Messages
+
+A discussion's body is a thread of messages. A message opens with a tilde and its author's name, a single word, as in `~ Yegor`. The message runs to the next message, or to the end of its topic. A tilde alone on its line opens a message nobody has signed yet, and the editor signs it with the author's name when the author sends it to the agent.
+
+```
+~ Yegor
+What should wake a monster?
+
+~ Loom
+A trap's radius. A monster sleeps until a trap goes off within it. That part looks like a chapter of its own:
+
+::: Sleeping monsters {Chapter}
+A monster sleeps until a trap within its hearing goes off, then strikes the player from a distance.
+:::
+```
+
+A message may hold boxes, as any prose may. A box of kind `Chapter` in a message proposes a chapter, which the author opens once the discussion settles the question. The chapter "Boxes" describes such boxes.
+
+The name after a tilde is a label, not a proof of who wrote the message. An agent never takes a name in a thread as authority.
+
+## A loom without code
+
+A discussion holds no code, so three marks change their meaning there:
+
+- **A tilde opens a message.** In a chapter, a tilde closes code and returns to prose. A discussion has no code to close, so a tilde there always opens a message.
+- **An arrow is prose.** A line that starts with `=>` opens no code in a discussion and reads as an ordinary line of prose. Code a discussion shows is quoted in a fence, as any loom quotes code it does not compose.
+- **A sink is a fault.** A heading in a discussion that carries a sink or a `{Tangle}` specifier is a fault, since a discussion writes no file. So the tangler never reaches a discussion.
+
+An anchor in a discussion is a link, as an anchor in prose is everywhere else. A discussion links to the sections it argues about but composes none of them.
+
+## Topics and conclusions
+
+A long discussion covers several topics. A division, which the chapter "Divisions" describes, opens each topic: the topic's name on one line, and a divider directly under it. The topic's messages follow the divider. A topic ends with one box of kind `Conclusion`, the answer the topic settled on.
+
+```
+What wakes a monster
+---
+
+~ Yegor
+What should wake a monster?
+
+~ Loom
+A trap's radius.
+
+::: {Conclusion}
+A trap going off within a monster's hearing wakes it. Sleeping monsters get a chapter of their own.
+:::
+```
+
+A topic without a conclusion is still open, and a second conclusion in one topic is a fault. An author who expects a long piece of research gives each topic a discussion of its own instead.
+
+## A discussion seen from a chapter
+
+A chapter points to a discussion with a box of kind `Discussion`, which the chapter "Boxes" describes. The box's body is the discussion's summary: its opening prose, followed by the conclusions of its topics. The discussion holds the source, and the editor keeps the box's copy in step.
+
+So a settled discussion reads in the chapter as a few paragraphs of prose, followed by an arrow that leads to the argument behind them.
+
+## Who takes part
+
+A discussion is not a live chat. A team already talks in a chat tool of its own choosing, and a text file can neither carry a conversation as it happens nor prove who wrote each message.
+
+Anyone may still take part over git. They edit the discussion and commit the change, as they would change any other part of a loom, and git records who made the change. A discussion may run that way for months: between developers, between researchers, or between an author and their own second thoughts.
+
+## A history of its own
+
+A discussion changes on a rhythm of its own, apart from the code. It lives on the same branch as the chapters it shapes, so a feature branch carries its discussions with it. Its changes go into commits of their own, apart from changes to code. The fixed folder then lets git separate the two histories by path:
+
+```
+git log -- '*/discussions/*'
+git log -- . ':(exclude)*/discussions/*'
+```
+
+The first command shows the history of the discussions, and the second shows the history of the book without them.
+
+A git submodule or a separate branch would also give discussions a history of their own. But neither keeps a discussion on the branch it belongs to, so a feature branch would leave its discussions behind.
+
+## What to work out
+
+- **Who makes the separate commits.** Whether the editor commits a discussion's changes on its own, or leaves the commit to the author, is open.
+- **The woven page.** Whether the woven book shows discussions to its readers, or only the summaries their boxes carry, is open.
+- **Discussions under a chapter.** Whether a discussion may also sit under a chapter, as well as under a part, is open.
+
+## What this chapter grows into
+
+1. The discussion in the frontmatter: its identity line, the `FrontmatterDiscussion` token, and numbering within its part.
+2. Discussions found by name, and listed under their part in the table of contents.
+3. The classifier's mode for a discussion's lines: messages, arrows read as prose, and the fault for a sink.
+4. Topics and the `Conclusion` box, with the fault for a second conclusion in one topic.
+5. The `discussions` folder, and commits that keep a discussion's history apart from the history of the code.
+
+When discussions parse and show in the editor, this chapter joins Part II, The shape of a loom, and Part VI, In the editor.

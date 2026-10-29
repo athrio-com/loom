@@ -1,0 +1,122 @@
+---
+Part: Work in progress
+Chapter: Names through the book
+Status: Planned
+Priority: 1
+Language: TypeScript
+---
+
+# Names through the book
+
+Much of what an author does with names already reaches across the book. A table-of-contents entry names a chapter by its title, wherever the chapter lives. Go-to-definition, find-references, and rename work over the whole corpus, so renaming a section rewrites every loom that mentions it.
+
+One thing still stops at the edge of a loom: the anchor's own lookup. A bare `::[Name]` resolves only in the loom it stands in. An anchor reaches a section in another loom by spelling that loom's path, as `::[Name](path.loom)` does, so the author has to know which file a chapter lives in. That path is also what the chapter "Referring to modules" needs to free, so that the parentheses can name a file the book emits.
+
+This chapter changes the lookup so that a name resolves by its place in the book: in its own chapter first, then among the chapters, and by a path of names for the rest. The lookup stays where it is today, in the corpus, and no new pass runs before compiling. The book's names and references, seen together, form a graph, and that graph is derived from the corpus whenever something wants to draw it.
+
+## Where a name lives
+
+The book is a tree of named things. A part holds chapters, and it may also hold discussions, the looms the chapter "Discussions" describes. A chapter holds its sections. A section holds the sections nested under its heading and the boxes written in it. The tree is also the scope. It decides which names must differ, and which names a reference can see.
+
+A name must be unique among its siblings, and nowhere else. Two chapters in one part may not share a title, and neither may two sections under one heading, or two boxes in one section. Two parts may each hold a chapter called "Setup". Twenty-seven chapters of the book already hold a section called "What this module draws on", and that stays legal.
+
+A duplicate among siblings is a fault at the heading that repeats the name, because no reference could ever tell the two apart. The chapter "A duplicate section name" plans this fault as `DuplicateSectionName`, for a repeat anywhere in one loom. Here it marks a repeat among siblings instead, and since siblings can be chapters and boxes as well as sections, it becomes `DuplicateName`.
+
+The chapter index needs the same scope. Today `chapterIndex` keys every chapter by its title alone, and when two chapters share a title, the first one it meets wins and the second disappears without a fault. Under this rule the index keys a chapter by its part and its title, so the two "Setup" chapters of two parts both stay in reach.
+
+## Finding a name from where it stands
+
+A reference resolves nearest first, outward from the section it stands in. A bare name, `::[Resolving names]`, looks first among the sections and boxes of its own chapter. When none matches, it looks among the chapters and discussions of the book. A bare name never finds a part.
+
+Every bare anchor in the book keeps its meaning under this rule. A chapter is one loom, so a bare name still looks in its own loom first, as it does today.
+
+A box of kind `Chapter` or `Discussion` stands for the loom it points to. A name that finds the box finds that loom once it exists, so a reference written beside the box resolves before and after the loom is opened.
+
+An author writes a name that is out of reach as a path. A path lists names from the outside in, separated by commas, and each name after the first lies inside the one before it. `::[The multi-file AST, Resolving names]` names a section of another chapter. `::[The shape of a loom, The multi-file AST, Resolving names]` names the same section through its part. A part enters a reference only this way, as the first name of a path.
+
+A path may also name a part or a chapter by its number, the way a loom's identity line does. `::[Part II, Chapter 6, Resolving names]` is the short form of the full path above. Each name in a path takes either form, so `::[Part II, The multi-file AST, Resolving names]` names the same section too, and a discussion takes its number as `Discussion 1`. A section has no number, so a path that ends at a section always ends with the section's title.
+
+A number names a position, not a chapter. When a chapter moves, a numbered reference points at whichever chapter took the number, and it still resolves, so no fault reveals the change. Two things guard against it. Renumbering a chapter through the editor rewrites every numbered reference to it in the same edit. And the editor shows the chapter's title beside each numbered reference, so a reader sees where the reference points.
+
+A bare name is ambiguous when it matches two things at the nearest scope where it matches at all. The fault sits at the reference, not at either declaration, since both are legal where they stand. The `AmbiguousAnchor` fault lists the paths that would each resolve, and the editor offers every one of them as a fix. Two parts may each hold a chapter called "Setup", and nothing is wrong until a bare `::[Setup]` asks for one of them.
+
+## The lookup, changed in place
+
+The corpus already holds everything the rule reads. The `titleIndexes` function indexes each loom's sections by title, and `chapterIndex` indexes the book's chapters by the titles their frontmatter declares. The frontmatter also carries each chapter's part numeral and chapter number, which index the short form. So `resolveAnchor` keeps its place and changes its steps. It looks in the anchor's own loom through `titleIndexes`. Failing that, it looks for a chapter through `chapterIndex`. For a path, it finds the chapter that the path's leading names give, by title or by number, and walks the rest through that chapter's titles.
+
+The navigation functions, the weave, and the `anchorEdges` function behind `reachable` and `dependentsOf` already resolve through `resolveAnchor`, so they follow the new rule at once.
+
+The product pass sees one loom at a time. It binds a bare name that its own loom holds, as it does today. A name its loom does not hold becomes an edge that names the section but not yet its loom, the way `crossFileRef` already makes an edge the pass cannot judge alone. The compiler binds that edge through `resolveAnchor` once it holds the corpus, and `crossFileFaults` judges it as it judges every edge into another loom.
+
+The `(path.loom)` target retires, and with it the `anchorModule` and `resolveRelative` functions that turn the path into a loom.
+
+## A promise is prose
+
+A literate author writes a reference before its target as often as after it, because the prose follows the reader's order and not the compiler's. Programming meets the same need with a mock, which fakes a piece's behaviour so the rest of a program can run, or with a typed hole, which marks a gap the compiler can describe. Literate programming has long allowed a looser order. Knuth's WEB names its sections in reading order, so a section is often used before it is written, and the tools object only to a name that is used and never defined.
+
+Loom keeps the promise in the prose. A section's prose is its specification, so a section declared with its heading and the prose that specifies it, but no code yet, already says what its code will do. That section is the literate counterpart of a mock. It fakes no behaviour, but it states the intent, and a reader can read it before any code exists. A box that points to a chapter not yet written makes the same promise for a whole loom.
+
+So a reference that composes or refers names one of three things:
+
+- **Something missing.** No node in reach carries the name: a typo, or a section not yet declared. The `UnresolvedAnchor` fault reports it, as it does today. The editor offers a fix that declares the section, a heading and an empty specification, below the section that names it.
+- **A promise.** The node exists but holds no code yet: a section with prose alone, a box whose chapter is not written, or a chapter that emits no file yet. The reference resolves, and nothing is wrong while the author writes. The editor marks the reference as a promise, the graph of the book lists every open promise, and the woven page marks each promised section, the way the website marks a page it has not written yet as "Being written".
+- **Something written.** The node holds code, and the reference composes it or refers to it. When the node belongs to a canvas in another chapter, a composing reference also raises the warning the chapter "Canvases" describes.
+
+A promise belongs to the reference, not to the section. Many sections hold prose alone by design, such as the opening section of most chapters. A section with no code becomes a promise only when a composing anchor names it.
+
+A promise can be read, but not shipped. The tangler refuses a file whose composition reaches a promised section, and it names each promise it met. Without that rule, a promise would compose nothing, and the tangled file would carry a gap that nothing points to.
+
+## The contract a promise collects
+
+An import from a promised chapter has no module behind it yet. The editor hands the language service an empty module in place of the file the chapter will emit. The service then reports every name the code imports from that module, and how the code uses each one: the arguments a function receives, the members an object must have, the type a value must fit. Those reports are the promised chapter's contract, written by the code that depends on it.
+
+The contract can become a stub, with no guessing involved. Editors have long offered to create a function or a class from its uses. They read each call site, take each parameter's type from the argument passed, and write a declaration whose body is the language's own placeholder. TypeScript's placeholder throws an error, Rust's calls `todo!()`, and Python's raises `NotImplementedError`. The language package writes the stub, through its language service's own fix where the service has one, and otherwise from the types the service reports at each use.
+
+Loom decides where the stub lands, which no editor can decide alone. The stub goes into the promised chapter, as a new section with a heading for its name and an empty specification for the author to write. It gathers every use across the book, not the uses in one file.
+
+A stub is code, so the section it lands in is written and no longer a promise. The language's placeholder is what still marks it unfinished.
+
+## Waiting for a missing name
+
+The compiler must notice when a missing name appears. It finds the looms an edit touches through `dependentsOf`, and `anchorEdges` builds its edges only from anchors that resolve. A missing name resolves to nothing, so it makes no edge, and declaring the section it waits for would leave its loom out of the reverse reach. Its fault would stand until that loom was checked for another reason.
+
+So an anchor that resolves to nothing records the name it waits for, as part of its loom's `UnresolvedAnchor` fault. When an edit declares a title, the compiler checks again every loom whose faults wait for that title. Declaring the section an anchor waited for then clears the anchor's fault at once.
+
+## The book as a graph
+
+The book's names and references, seen together, form a graph. Its nodes are the named things of the book: parts, chapters, discussions, sections, boxes, and the files sections emit. Its edges are the references between them, of six kinds:
+
+- **Composes:** a `::[Name]` anchor in code, which draws the named section's code in place.
+- **Refers:** a `::[Name](file.ext)` anchor in code, which names a file the book emits, the way an import names a module.
+- **Links:** a `::[Name]` anchor in prose, which a reader follows.
+- **Places:** a table-of-contents entry, or a prose anchor that places a chapter in the book.
+- **Emits:** a sink on a heading, from its section to the file the section writes.
+- **Declares:** a box of kind `Chapter` or `Discussion`, from the box to the loom it points to.
+
+Nothing builds this graph before compiling, and nothing in compiling reads it. Each piece already lives in the corpus. The `titleIndexes` and `chapterIndex` indexes give the nodes, and the sinks on the headings give the files. Each loom's product holds its composing edges, and the anchors in its prose and its table of contents hold the rest. The graph is a projection of the produced corpus, a sibling of the compile, the tangle, and the weave, and it is computed only when something asks for it.
+
+The corpus already treats the links between looms this way. The `anchorEdges` function derives them from `titleIndexes` and from every loom's anchors each time `reachable` or `dependentsOf` asks, and it keeps nothing between calls. The graph of the book derives its nodes and edges the same way, one level finer, with sections and files in place of whole looms.
+
+This keeps the chain the book already settled: compiling resolves from the corpus, and no resolve pass stands between the two. Building the graph is cheap, a walk over each loom's headings and anchors, which costs far less than reading the looms' lines or type-checking their code. But a graph kept beside the corpus would be a second record of the same facts, and the language server would have to keep the two in step on every edit. A projection is never out of date, because it is read from the corpus it describes.
+
+The graph serves the views that want the book as a whole: a drawing of which chapters compose which, the backlinks a woven page lists, or the looms a change would touch.
+
+## What to work out
+
+- **Titles that hold a comma.** A comma separates the names in a path, yet many titles hold a comma. Part X alone anchors `::[Once, as the site is built]`, `::[What the licence says, plainly]`, and `::[A chapter, cut into entries]`. So a name is first tried whole, and is split into a path only when the whole name matches nothing, which keeps those anchors resolving. How a path names a title with a comma inside it is still open.
+- **How far a box's name reaches.** A bare name finds a box within the box's own chapter. Whether a box should also be found by a bare name from another chapter is open. A path reaches it either way.
+- **Stubs in TypeScript 7.** TypeScript 7.0.2 ships none of the fixes that create code from its uses. Asked over its language server, it offers import fixes, "Implement interface", and the fixes for a missing type annotation. TypeScript 6.0.3 also adds a missing function, declares a missing method or property in another file, adds missing properties, implements an abstract class, and infers parameter types from usage. TypeScript 7's main branch holds the same code actions as 7.0.2, and its team does not plan to port every one. No version of TypeScript offers a fix for the case a promise needs most: a name imported from a module that does not export it. So the TypeScript package writes stubs itself, from the types the language server reports at each use, or borrows TypeScript 6's fixes in a project that still runs TypeScript 6. Which of the two is open, and so is how a stub's types read when a use gives little to infer from, as when a value is only passed along.
+- **Running a promise.** A language package could compose a placeholder in place of a promise, so a program runs before it is finished. Where a placeholder is valid syntax, and whether the author asks for it per tangle, is open.
+- **Where the graph is drawn.** Whether the first view of the graph is a `loom` verb, a panel in the editor, or a page of the website is open.
+
+## What this chapter grows into
+
+1. The new steps in `resolveAnchor`, `chapterIndex` keyed by part and title, `AmbiguousAnchor` carrying its fixes, and `DuplicateName` scoped to siblings.
+2. Numbered paths, with renumbering in the editor rewriting them and each one showing its chapter's title.
+3. Missing names that wait, checked again when an edit declares them, and the fix that declares a section.
+4. Promises: marked in the editor and on the woven page, and refused by the tangler.
+5. The contract a promise collects, and stubs written from it into the promised chapter.
+6. The `(path.loom)` target retired, with the book's examples and tests rewritten to the new form.
+7. The graph as a projection of the produced corpus, with its first view.
+
+When anchors resolve by their place in the book and the editor follows them, this chapter joins Part II, The shape of a loom, beside "The multi-file AST".
