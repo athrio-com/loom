@@ -187,35 +187,13 @@ const formatLanguages = (target: string) =>
 
 ## Scaffolding a workspace
 
-`loom init` sets a workspace up for review, and it is safe to run again — a second run only fills in what a first left undone, and never undoes it. The first run writes `.loom/config.yaml`, the compiled configuration the editor and the tangler read, and a `.gitignore` beside it that keeps the generated service store out of version control. It asks for the primary language a specifier-less section inherits, and for the languages the editor activates services for. A later run finds that configuration and leaves it untouched; `loom add` and `loom remove` change the activated languages afterwards.
+`loom init` sets a workspace up, and it is safe to run again — a second run only fills in what a first left undone, and never undoes it. The first run writes `.loom/config.yaml`, the compiled configuration the editor and the tangler read, and a `.gitignore` beside it that keeps the generated service store out of version control. It asks for the primary language a specifier-less section inherits, and for the languages the editor activates services for. A later run finds that configuration and leaves it untouched; `loom add` and `loom remove` change the activated languages afterwards.
 
 The configuration the first run writes carries an empty `ignore` list. A new project needs no pattern there, because Loom already leaves out whatever Git ignores and every loom named `*.fixture.loom`. The empty key shows where a pattern goes when a folder of drafts or a copied example should stay out of the project.
 
 Every run makes sure the corpus folder exists. The configuration names it, `corpus` unless a project chose another, and `init` creates it when it is missing, so a fresh project has a place for its first loom straight away. A folder that is already there is left exactly as it is, looms and all, so running `init` again is as safe for the corpus as it is for the configuration.
 
 The primary language defaults to TypeScript, and the activation answer defaults to that same language, so a TypeScript workspace is two key-presses away. The activation answer is a space-separated list, since one workspace may run several languages. A prompt the author quits — with `Ctrl-C` — fails with `QuitError`, which `init` catches to leave with a word rather than a stack trace.
-
-Every run also connects the workspace to a coding agent. It merges a `loom` entry into `.mcp.json`, the file an agent reads to find its tools, pointing it at the Design service's `/mcp` and leaving any other servers there in place. Run twice, the merge adds nothing new.
-
-=>
-
-const mergeMcpConfig = (root: string): void => {
-  const path = resolvePath(root, '.mcp.json')
-  const existing = existsSync(path)
-    ? (JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>)
-    : {}
-  const servers = (existing.mcpServers as Record<string, unknown> | undefined) ?? {}
-  const merged = {
-    ...existing,
-    mcpServers: {
-      ...servers,
-      loom: { type: 'http', url: 'http://localhost:5710/mcp' },
-    },
-  }
-  writeFileSync(path, JSON.stringify(merged, null, 2) + '\n')
-}
-
-~
 
 Every run also tells the editor how wide a loom's lines run. A loom's prose keeps each paragraph on one line, which the editor wraps on screen, and its code keeps to the project's `width`, a hundred columns unless the configuration names another. An `.editorconfig` file holds settings many editors share, such as indentation, and Zed, Gram and Helix take a line's width from its `max_line_length` setting. So `init` writes a `[*.loom]` section into the project's `.editorconfig` that sets `max_line_length` to the project's width, and those editors wrap a loom's prose where its code ends.
 
@@ -250,7 +228,7 @@ const editorconfigBlock = (width: number): ManagedBlock => ({
 
 ~
 
-`init` asks its questions only when no configuration exists yet. Every run then reads the configuration it found or wrote, and settles the corpus folder, the agent's `.mcp.json` and the editor's `.editorconfig` from it.
+`init` asks its questions only when no configuration exists yet. Every run then reads the configuration it found or wrote, and settles the corpus folder and the editor's `.editorconfig` from it.
 
 =>
 
@@ -302,9 +280,6 @@ const init = (dir: Option.Option<string>) =>
     const corpusDir = resolvePath(root, manifest?.corpus ?? 'corpus')
     yield* Effect.sync(() => mkdirSync(corpusDir, { recursive: true }))
     yield* Console.log(`   ${teal('✓')} corpus at ${corpusDir}\n`)
-
-    yield* Effect.sync(() => mergeMcpConfig(root))
-    yield* Console.log(`   ${teal('✓')} wrote ${resolvePath(root, '.mcp.json')}\n`)
 
     const editorconfig = resolvePath(root, '.editorconfig')
     const current = yield* Effect.sync(() =>
@@ -1103,68 +1078,6 @@ const set = (name: string, value: string) =>
     ),
   )
 
-## Standing Design in front of an application
-
-`loom design <name> <address>` runs Loom Design over an application already running somewhere else. Design proxies that application and holds a review surface over it. Both arguments are Design's own — the name its notes are filed under, then the address it stands in front of — and they travel through unread.
-
-Design is a separate product, in a repository of its own and under a licence of its own, so this command runs Design's binary rather than loading Design's modules. Nothing here imports `@athrio/loom-design`, and that absence is the point: a bundler cannot follow an import that is not written, so Design's code stays out of this package's bundle and Design's source stays out of its source maps.
-
-Node's own resolver finds the binary. Asking it to resolve Design's manifest from the working directory walks up through every `node_modules` above the project, exactly as an import would, and the binary sits beside that manifest. A project's own copy therefore wins; a copy installed beside the CLI answers when the project has none.
-
-=>
-
-class DesignMissing extends Data.TaggedError('DesignMissing')<{
-  readonly directory: string
-}> {}
-
-const manifestOf = (base: string) =>
-  Effect.try(() => createRequire(base).resolve('@athrio/loom-design/package.json'))
-
-const designBinary = Effect.gen(function* () {
-  const directory = process.cwd()
-  const manifest = yield* manifestOf(resolvePath(directory, 'index.js')).pipe(
-    Effect.catch(() => manifestOf(import.meta.url)),
-    Effect.mapError(() => new DesignMissing({ directory })),
-  )
-  return resolvePath(dirname(manifest), 'dist', 'loom-design.js')
-})
-
-~
-
-Design inherits this terminal rather than being read through a pipe. It writes its own addresses and its own warnings where the person is already looking, an interrupt reaches it because it runs in the same process group, and its exit code becomes this program's.
-
-A missing binary is the one failure worth handling here, and it is the likely one, since a developer who has Loom need not have Design. The message names the package to install. Anything else that stops the launch is printed as it happened, because guessing at a spawn failure costs more time than showing it.
-
-=>
-
-const design = (project: string, application: string, port: number) =>
-  Effect.gen(function* () {
-    const binary = yield* designBinary
-    const code = yield* Effect.scoped(
-      Effect.flatMap(
-        ChildProcess.make(binary, [project, application, '--port', String(port)], {
-          stdin: 'inherit',
-          stdout: 'inherit',
-          stderr: 'inherit',
-        }),
-        (running) => running.exitCode,
-      ),
-    )
-    yield* Effect.sync(() => void (process.exitCode = code))
-  }).pipe(
-    Effect.catchTag('DesignMissing', () =>
-      Console.error(
-        'loom: Loom Design is not installed.\n' +
-          '      Add it with `bun add -d @athrio/loom-design`, then run this again.',
-      ).pipe(Effect.andThen(Effect.sync(() => void (process.exitCode = 1)))),
-    ),
-    Effect.catchCause((cause) =>
-      Console.error(`loom: Loom Design could not start\n${Cause.pretty(cause)}`).pipe(
-        Effect.andThen(Effect.sync(() => void (process.exitCode = 1))),
-      ),
-    ),
-  )
-
 ## The grammar the CLI carries
 
 Two commands set an editor up for looms, `loom helix` and `loom nvim`, and both build the grammar this CLI carries. The grammar travels inside the CLI, so it always matches the Loom that is installed. Running either command again after an upgrade rebuilds the grammar from the new release, and nothing needs fetching from the network.
@@ -1528,7 +1441,7 @@ const nvim = Effect.gen(function* () {
 
 ## Where the world ends
 
-The command program is sixteen subcommands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them, recording each in the lock; with `--watch` it stays running and re-tangles as the looms change, so a dev server watching the output reacts to a loom edit. `loom orphans` lists the files across the workspace that the lock records but no loom still produces, one path per line for a shell to pipe into `rm`, and `--prune` removes them and rewrites the lock. `loom weave <path> <out>` projects a corpus into a `WovenCorpus` and writes it as JSON to `out`. `loom toc <path>` rewrites a book's table of contents from the corpus's own frontmatter. `loom format <path>` formats the looms a file or a folder holds, and with `--check` names the ones that would change instead. `loom init [dir]` scaffolds a `.loom/config.yaml`, an `.mcp.json` and an `.editorconfig`, defaulting to the working directory. `loom add <language>` and `loom remove <language>` turn a language on and off, and `loom update <language>…` or `loom update --all` brings the services of active languages to this Loom's version. `loom upgrade` replaces Loom with its latest release, or names the installer's command that does. `loom status` reports what the workspace has activated and what the store holds, and `loom doctor` checks the install, `PATH` and the workspace's services, naming the command that fixes each problem it finds. `loom set <name> <value>` writes a workspace variable and re-tangles the corpus, so a version bump is one command. `loom design <name> <address>` stands Loom Design in front of a running application. `loom helix` sets the Helix editor up for looms, and `loom nvim` sets up Neovim. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the weaver, the contents writer, the formatter, the package config, the configuration, and the Node platform behind the prompts and the filesystem.
+The command program is fifteen subcommands. `loom tangle <path>` emits a `.loom`'s files, the path a file or a directory of them, recording each in the lock; with `--watch` it stays running and re-tangles as the looms change, so a dev server watching the output reacts to a loom edit. `loom orphans` lists the files across the workspace that the lock records but no loom still produces, one path per line for a shell to pipe into `rm`, and `--prune` removes them and rewrites the lock. `loom weave <path> <out>` projects a corpus into a `WovenCorpus` and writes it as JSON to `out`. `loom toc <path>` rewrites a book's table of contents from the corpus's own frontmatter. `loom format <path>` formats the looms a file or a folder holds, and with `--check` names the ones that would change instead. `loom init [dir]` scaffolds a `.loom/config.yaml` and an `.editorconfig`, defaulting to the working directory. `loom add <language>` and `loom remove <language>` turn a language on and off, and `loom update <language>…` or `loom update --all` brings the services of active languages to this Loom's version. `loom upgrade` replaces Loom with its latest release, or names the installer's command that does. `loom status` reports what the workspace has activated and what the store holds, and `loom doctor` checks the install, `PATH` and the workspace's services, naming the command that fixes each problem it finds. `loom set <name> <value>` writes a workspace variable and re-tangles the corpus, so a version bump is one command. `loom helix` sets the Helix editor up for looms, and `loom nvim` sets up Neovim. `@effect/cli` parses the line, dispatches to the matching command, and prints help when none matches. The run site provides every service the commands reach for — the tangler and its disk source, the weaver, the contents writer, the formatter, the package config, the configuration, and the Node platform behind the prompts and the filesystem.
 
 One entry point sits outside the command program. `loom lsp --stdio` starts the language server for any editor. It loads Volar only when it is reached, so a plain `tangle` never pays to bundle it, and it runs on its own Bun runtime rather than nesting one inside a command. Volar is CommonJS and calls `require` at runtime for the built-in modules; this bundle is an ES module, where `require` is absent, so before loading the server the `lsp` branch exposes one through `createRequire` on `globalThis` — the shim Volar's bundled code reaches for. That cost lands only on the `lsp` path.
 
@@ -1597,16 +1510,6 @@ const setCommand = Command.make(
   ({ name, value }) => set(name, value),
 )
 
-const designCommand = Command.make(
-  'design',
-  {
-    project: Argument.String('name'),
-    application: Argument.String('address'),
-    port: Flag.Int('port').pipe(Flag.withDefault(5710)),
-  },
-  ({ project, application, port }) => design(project, application, port),
-)
-
 const helixCommand = Command.make('helix', {}, () => helix)
 
 const nvimCommand = Command.make('nvim', {}, () => nvim)
@@ -1626,7 +1529,6 @@ const loom = Command.make('loom').pipe(
     statusCommand,
     doctorCommand,
     setCommand,
-    designCommand,
     helixCommand,
     nvimCommand,
   ]),
@@ -1655,7 +1557,7 @@ if (process.argv[2] === 'lsp') {
 
 The program is built on Effect, a functional TypeScript library for composing and running effectful programs. Effect's CLI toolkit parses the command line and drives the interactive prompts, and the Node platform supplies the runtime, the terminal, and filesystem access. `Stream` drives `tangle --watch`, draining the tangler's watch as a sequence of passes, and `Result` carries each pass's outcome.
 
-Node's `path` resolves a workspace directory for `init`. `node:fs` writes the configuration, the `.mcp.json` and the `.editorconfig`, creates the corpus folder, unpacks the grammar into a temporary folder and removes it again, copies and renames the files Helix and Neovim read, and writes the executable `loom upgrade` downloads. Effect's child-process module runs Loom Design's binary for `design` and the C compiler for `helix` and `nvim`, `Data` types their failures, and `Scope` keeps the unpacked grammar until the command that unpacked it is done. `node:module` supplies the resolver that finds Design's binary and the workspace's grammar — the same resolver the `lsp` branch borrows to give Volar a `require`. `pipe` threads each search through `Option`, `node:os` supplies the home folder that Helix's configuration and Neovim's data live under and the temporary folder the grammar unpacks into, and `node:url` turns the bundle's own address into a path.
+Node's `path` resolves a workspace directory for `init`. `node:fs` writes the configuration and the `.editorconfig`, creates the corpus folder, unpacks the grammar into a temporary folder and removes it again, copies and renames the files Helix and Neovim read, and writes the executable `loom upgrade` downloads. Effect's child-process module runs the C compiler for `helix` and `nvim`, `Data` types their failures, and `Scope` keeps the unpacked grammar until the command that unpacked it is done. `node:module` supplies the resolver that finds the workspace's grammar — the same resolver the `lsp` branch borrows to give Volar a `require`. `pipe` threads each search through `Option`, `node:os` supplies the home folder that Helix's configuration and Neovim's data live under and the temporary folder the grammar unpacks into, and `node:url` turns the bundle's own address into a path.
 
 For `loom upgrade`, `Schema` decodes the release GitHub describes, `Array` finds a file in it, `Order` compares two versions, `node:crypto` computes the checksum of a download, and `node:zlib` unpacks it. `Match` reads an installer's marks in a path, and `realpathSync` follows the links that lead to a file. For `loom doctor`, `delimiter` splits `PATH` into its folders, `statSync` tells whether a file in one of them is a program, and `Equal` compares two installations by what they hold.
 
@@ -1667,7 +1569,6 @@ From `@athrio/loom-lang-services` come the store operations behind activation: `
 
 import {
   Array,
-  Cause,
   Console,
   Data,
   Effect,
@@ -1761,8 +1662,6 @@ import type { LanguageService } from '@athrio/loom-lang-services/LanguageService
 ::[A check-up for Loom]
 
 ::[Setting a workspace variable]
-
-::[Standing Design in front of an application]
 
 ::[The grammar the CLI carries]
 

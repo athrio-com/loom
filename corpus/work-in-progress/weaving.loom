@@ -28,4 +28,4 @@ So weave runs per corpus, once for each. A project with a corpus of guides and a
 
 Weave keeps every block tied to the loom it came from. Each block records a source anchor: the chapter and the section it was written under. A consumer carries the anchor onto the element it draws, so a reader who points at the rendered page points at the loom section behind it — the spec, not the HTML.
 
-That tie is what lets a person annotate looms as specs. Loom Design reads the source anchor to pin a note to the source rather than to a brittle element selector, so a re-weave and the edits around it leave the pin where it belongs. The woven page and the loom it came from meet in one place.
+That tie is what lets a person annotate looms as specs. A review tool reads the source anchor to pin a note to the loom section rather than to a brittle element selector, so a re-weave and the edits around it leave the pin where it belongs. The woven page and the loom it came from meet in one place.

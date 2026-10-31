@@ -56,13 +56,6 @@ zed-extension/target/
 # Loom workspace store — installed services are generated; config.yaml is committed
 .loom/services/
 
-# Loom Design: a project commits its identity and ignores its working files
-**/.loom/design/artifacts/
-
-# Loom Design keeps its notes in a local SQLite file
-**/.loom/*.sqlite
-**/.loom/*.sqlite-wal
-**/.loom/*.sqlite-shm
 
 age.key
 

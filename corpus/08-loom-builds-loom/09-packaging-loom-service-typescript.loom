@@ -81,8 +81,6 @@ npm ships a package's `LICENSE` whatever the `files` field says, and until now t
 
 It carries the MIT licence in full. Loom was dual-licensed under MIT and Apache-2.0 for a while, inheriting a Rust convention rather than a decision; the Apache branch bought a patent grant nobody was obliged to take, and dropping it left one licence to read and one string to keep consistent.
 
-It also says what is *not* here. Athrio sells Loom Design under a licence of its own, and a reader who finds a permissive text here should not conclude it reaches that product too.
-
 =>
 
 MIT License

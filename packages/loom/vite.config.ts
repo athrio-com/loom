@@ -78,7 +78,7 @@ export default defineConfig({
       fileName: () => 'main.js',
     },
     rollupOptions: {
-      external: [...nodeBuiltins, 'bun:sqlite', 'node:sqlite'],
+      external: nodeBuiltins,
       output: { banner: '#!/usr/bin/env node' },
     },
   },

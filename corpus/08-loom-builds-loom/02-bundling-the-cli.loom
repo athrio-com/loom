@@ -8,8 +8,6 @@ Language: TypeScript
 
 Vite bundles the CLI program, the language server's TypeScript source, and Effect into a single `dist/main.js` module and adds a Node shebang, the line that makes the file directly executable. The installed `loom` binary therefore carries no runtime dependencies and no TypeScript source to compile.
 
-Loom Design is in neither this bundle nor any other file this build writes. Athrio Media OÜ licenses Design commercially, while the Quadrivium Academy foundation licenses this package under MIT, so a copy of Design inside `dist/main.js` would publish the paid product under the free product's terms — which is what version 0.0.10 did, and a permissive grant once made cannot be taken back. `loom design` runs Design's own binary and imports nothing from it, which leaves the bundler no import to follow.
-
 ## Vite build {Tangle}[vite.config.ts]
 
 The `node:` built-in modules stay external, since the runtime supplies them and the bundle need not carry them. Everything else — the language server's TypeScript source and Effect — is inlined into `dist/main.js`.
@@ -116,7 +114,7 @@ export default defineConfig({
       fileName: () => 'main.js',
     },
     rollupOptions: {
-      external: [...nodeBuiltins, 'bun:sqlite', 'node:sqlite'],
+      external: nodeBuiltins,
       output: { banner: '#!/usr/bin/env node' },
     },
   },

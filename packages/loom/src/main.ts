@@ -1,6 +1,5 @@
 import {
   Array,
-  Cause,
   Console,
   Data,
   Effect,
@@ -189,22 +188,6 @@ const formatLanguages = (target: string) =>
     return yield* loadActive(ids, root)
   })
 
-const mergeMcpConfig = (root: string): void => {
-  const path = resolvePath(root, '.mcp.json')
-  const existing = existsSync(path)
-    ? (JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>)
-    : {}
-  const servers = (existing.mcpServers as Record<string, unknown> | undefined) ?? {}
-  const merged = {
-    ...existing,
-    mcpServers: {
-      ...servers,
-      loom: { type: 'http', url: 'http://localhost:5710/mcp' },
-    },
-  }
-  writeFileSync(path, JSON.stringify(merged, null, 2) + '\n')
-}
-
 interface ManagedBlock {
   readonly begin: string
   readonly end: string
@@ -278,9 +261,6 @@ const init = (dir: Option.Option<string>) =>
     const corpusDir = resolvePath(root, manifest?.corpus ?? 'corpus')
     yield* Effect.sync(() => mkdirSync(corpusDir, { recursive: true }))
     yield* Console.log(`   ${teal('✓')} corpus at ${corpusDir}\n`)
-
-    yield* Effect.sync(() => mergeMcpConfig(root))
-    yield* Console.log(`   ${teal('✓')} wrote ${resolvePath(root, '.mcp.json')}\n`)
 
     const editorconfig = resolvePath(root, '.editorconfig')
     const current = yield* Effect.sync(() =>
@@ -895,50 +875,6 @@ const set = (name: string, value: string) =>
     ),
   )
 
-class DesignMissing extends Data.TaggedError('DesignMissing')<{
-  readonly directory: string
-}> {}
-
-const manifestOf = (base: string) =>
-  Effect.try(() => createRequire(base).resolve('@athrio/loom-design/package.json'))
-
-const designBinary = Effect.gen(function* () {
-  const directory = process.cwd()
-  const manifest = yield* manifestOf(resolvePath(directory, 'index.js')).pipe(
-    Effect.catch(() => manifestOf(import.meta.url)),
-    Effect.mapError(() => new DesignMissing({ directory })),
-  )
-  return resolvePath(dirname(manifest), 'dist', 'loom-design.js')
-})
-
-const design = (project: string, application: string, port: number) =>
-  Effect.gen(function* () {
-    const binary = yield* designBinary
-    const code = yield* Effect.scoped(
-      Effect.flatMap(
-        ChildProcess.make(binary, [project, application, '--port', String(port)], {
-          stdin: 'inherit',
-          stdout: 'inherit',
-          stderr: 'inherit',
-        }),
-        (running) => running.exitCode,
-      ),
-    )
-    yield* Effect.sync(() => void (process.exitCode = code))
-  }).pipe(
-    Effect.catchTag('DesignMissing', () =>
-      Console.error(
-        'loom: Loom Design is not installed.\n' +
-          '      Add it with `bun add -d @athrio/loom-design`, then run this again.',
-      ).pipe(Effect.andThen(Effect.sync(() => void (process.exitCode = 1)))),
-    ),
-    Effect.catchCause((cause) =>
-      Console.error(`loom: Loom Design could not start\n${Cause.pretty(cause)}`).pipe(
-        Effect.andThen(Effect.sync(() => void (process.exitCode = 1))),
-      ),
-    ),
-  )
-
 const embeddedGrammar: Effect.Effect<Option.Option<Readonly<Record<string, string>>>> =
   Effect.tryPromise(() => import('virtual:tree-sitter-loom')).pipe(
     Effect.map((module) => Option.some(module.default)),
@@ -1275,16 +1211,6 @@ const setCommand = Command.make(
   ({ name, value }) => set(name, value),
 )
 
-const designCommand = Command.make(
-  'design',
-  {
-    project: Argument.String('name'),
-    application: Argument.String('address'),
-    port: Flag.Int('port').pipe(Flag.withDefault(5710)),
-  },
-  ({ project, application, port }) => design(project, application, port),
-)
-
 const helixCommand = Command.make('helix', {}, () => helix)
 
 const nvimCommand = Command.make('nvim', {}, () => nvim)
@@ -1304,7 +1230,6 @@ const loom = Command.make('loom').pipe(
     statusCommand,
     doctorCommand,
     setCommand,
-    designCommand,
     helixCommand,
     nvimCommand,
   ]),

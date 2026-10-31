@@ -8,8 +8,6 @@ Language: TypeScript
 
 Loom publishes two packages to npm: `@athrio/loom`, the command-line tool, and `@athrio/loom-service-typescript`, the loadable TypeScript service. They share one version — the `version` variable a `loom set` writes across the corpus — so a reader who installs the pair never reconciles two numbers. The `release` tool publishes each package that npm does not already carry.
 
-Loom Design is not among them. It carries a licence of its own, lives in a repository of its own, and releases from there rather than from a job whose every other package goes out under MIT.
-
 It runs from the workspace root under Bun, and it is safe to run twice: it asks npm what it already holds and publishes only what is missing. The release workflow runs it on every push to the default branch, so it must never fail on a version that is already out.
 
 ## What the release tool draws on

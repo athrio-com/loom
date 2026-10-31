@@ -7,13 +7,11 @@ Language: YAML
 
 # Continuous integration
 
-Every push and every pull request runs the same gate: the code type-checks, the tests pass, the committed source matches the corpus it tangles from, the command-line tool carries none of Loom Design, and the standalone executable still runs. The release workflow waits on this one. It runs only after the gate passes on the default branch, so nothing publishes on a red build.
+Every push and every pull request runs the same gate: the code type-checks, the tests pass, the committed source matches the corpus it tangles from, and the standalone executable still runs. The release workflow waits on this one. It runs only after the gate passes on the default branch, so nothing publishes on a red build.
 
 A push runs only the checks its change can affect. The repository holds a book, eight packages and a website, and a change to one rarely touches the rest. So the checks run under moon, a task runner made for repositories that hold several projects. Each check names the files it reads, and moon runs a check only when one of those files changed. A fix to the website's stylesheet type-checks and tests the website and leaves the language server's four hundred tests alone. A change to the AST, which every package builds on, runs nearly everything.
 
 The tangle check is what a literate framework owes its readers. Loom commits its tangled output so a checkout builds without re-tangling, and that output is only trustworthy if it never drifts from the looms that produce it. The check re-tangles the corpus and fails on any difference, so a loom edited without a re-tangle cannot reach the default branch.
-
-The Design check guards a licence rather than a build. Loom belongs to the Quadrivium Academy foundation under the MIT licence, while Loom Design is a commercial product of Athrio Media OÜ, so a bundle that quietly carries Design publishes the paid product under the free product's terms. Version 0.0.10 did exactly that, and the permissive grant it made on Design's source cannot be withdrawn. Design now lives in a repository of its own, which makes the mistake harder to repeat but not impossible, since a dependency added for convenience would be enough. So the check stays.
 
 ## The tools, pinned {Tangle}[mise.toml]
 
@@ -325,7 +323,7 @@ tasks:
 
 ## The CLI's tasks {Tangle}[packages/loom/moon.yml]
 
-The CLI builds on the language and so on everything the language builds on. It also reads the grammar of `tree-sitter-loom`: its build copies the grammar's sources into the bundle, and its tests run `loom helix` and `loom nvim`, which compile them. Besides its type check and its tests it carries the Design check. That check builds the tool and packs it the way npm would, then reads what came out. A file named for Design in the tarball fails the task: one with `design`, `overlay` or `shell` in its name, or one named `ui`. The `ui` must start the file's name, because a bundled chunk's name ends in a hash, and a hash can spell `ui` by chance. A source map fails the task as well when it lists one of Design's files among its sources, the path by which Design's TypeScript reached the registry the first time. Design's name inside a string is allowed, since the `design` command has to say which package to install. The tarball is removed once it has been read, so the check leaves no file behind on a developer's machine.
+The CLI builds on the language and so on everything the language builds on. It also reads the grammar of `tree-sitter-loom`: its build copies the grammar's sources into the bundle, and its tests run `loom helix` and `loom nvim`, which compile them.
 
 =>
 
@@ -375,28 +373,6 @@ tasks:
 
   test:
     command: "bun test"
-    deps: ["install"]
-    inputs:
-      - "@group(sources)"
-      - "moon.yml"
-      - "/mise.toml"
-
-  nodesign:
-    script: |
-      set -e
-      bun run build
-      npm pack --ignore-scripts --silent > /dev/null
-      contents=$(tar tzf athrio-loom-*.tgz)
-      rm -f athrio-loom-*.tgz
-      if echo "$contents" | grep -Eiq 'design|overlay|shell|(^|/)ui\.'; then
-        echo "the tarball carries Loom Design:" >&2
-        echo "$contents" | grep -Ei 'design|overlay|shell|(^|/)ui\.' >&2
-        exit 1
-      fi
-      if grep -oh '"sources":\[[^]]*\]' dist/*.js.map | grep -q 'loom-design'; then
-        echo "a source map carries Loom Design's source" >&2
-        exit 1
-      fi
     deps: ["install"]
     inputs:
       - "@group(sources)"
@@ -656,7 +632,7 @@ The first job checks the repository out with its whole history, which moon needs
         with:
           install_args: bun npm:@moonrepo/cli
       - name: The book's checks, asked of the change
-        run: moon ci --concurrency 1 :typecheck :test :tangle :nodesign :smoke
+        run: moon ci --concurrency 1 :typecheck :test :tangle :smoke
         env:
           MOON_BASE: ${{ steps.base.outputs.sha }}
           MOON_HEAD: ${{ github.sha }}
