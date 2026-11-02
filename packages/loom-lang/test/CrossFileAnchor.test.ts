@@ -1,33 +1,37 @@
 import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
-const it = effectify(it_)
 import { Array, Effect, Layer, Option } from 'effect'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { PackageConfig } from '../src/PackageConfig'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
-// A code anchor with a path, `::[Saying hello](greeting.loom)`, composes a section
-// from another loom. The product pass cannot see that other file, so it records the
-// edge and the compiler judges it against the corpus: the tangle inlines the section
-// when it exists and refuses the build when it does not, and the editor projects the
-// inlined block without mapping it into the wrong file. Each corpus here is held in
-// memory, two or three frontmatter-less looms under a TypeScript primary language —
-// the quick start's own shape.
+const it = effectify(it_)
 
-const greeting = `# Saying hello
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
 
-A greeting takes a name and returns a line of welcome.
+const anchor = (name: string): string => `::${'['}${name}]`
 
-=>
-const greet = (name: string): string => \`Hello, \${name}!\`
-`
+const greeting = lines(
+  '# Saying hello',
+  '',
+  'A greeting takes a name and returns a line of welcome.',
+  '',
+  '=>',
+  'const greet = (name: string): string => `Hello, ${name}!`',
+)
 
-const helloAnchoring = (anchor: string) => `# The program [hello.ts]
+const helloAnchoring = (line: string) =>
+  lines(
+    '# The program [hello.ts]',
+    '',
+    'The program greets the world.',
+    '',
+    '=>',
+    line,
+    "console.log(greet('world'))",
+  )
 
-The program greets the world.
-
-=>
-${anchor}
+const program = `const greet = (name: string): string => \`Hello, \${name}!\`
 console.log(greet('world'))
 `
 
@@ -67,17 +71,13 @@ const refusal = (files: Record<string, string>, entry: string) =>
     Effect.map((error) => error.message),
   )
 
-const program = `const greet = (name: string): string => \`Hello, \${name}!\`
-console.log(greet('world'))
-`
-
 describe('a code anchor composes a section from another loom', () => {
   it.effect('tangles the section its path names', () =>
     Effect.gen(function* () {
       const files = yield* tangled(
         {
           '/corpus/greeting.loom': greeting,
-          '/corpus/hello.loom': helloAnchoring('::[Saying hello](greeting.loom)'),
+          '/corpus/hello.loom': helloAnchoring(`${anchor('Saying hello')}(greeting.loom)`),
         },
         '/corpus/hello.loom',
       )
@@ -91,7 +91,7 @@ describe('a code anchor composes a section from another loom', () => {
       const dotted = yield* tangled(
         {
           '/corpus/greeting.loom': greeting,
-          '/corpus/hello.loom': helloAnchoring('::[Saying hello](./greeting.loom)'),
+          '/corpus/hello.loom': helloAnchoring(`${anchor('Saying hello')}(./greeting.loom)`),
         },
         '/corpus/hello.loom',
       )
@@ -101,7 +101,7 @@ describe('a code anchor composes a section from another loom', () => {
         {
           '/corpus/lib/greeting.loom': greeting,
           '/corpus/app/hello.loom': helloAnchoring(
-            '::[Saying hello](../lib/greeting.loom)',
+            `${anchor('Saying hello')}(../lib/greeting.loom)`,
           ),
         },
         '/corpus/app/hello.loom',
@@ -115,7 +115,7 @@ describe('a code anchor composes a section from another loom', () => {
       const message = yield* refusal(
         {
           '/corpus/greeting.loom': greeting,
-          '/corpus/hello.loom': helloAnchoring('::[Saying goodbye](greeting.loom)'),
+          '/corpus/hello.loom': helloAnchoring(`${anchor('Saying goodbye')}(greeting.loom)`),
         },
         '/corpus/hello.loom',
       )
@@ -130,7 +130,7 @@ describe('a code anchor composes a section from another loom', () => {
       const message = yield* refusal(
         {
           '/corpus/greeting.loom': greeting,
-          '/corpus/hello.loom': helloAnchoring('::[Saying hello](nowhere.loom)'),
+          '/corpus/hello.loom': helloAnchoring(`${anchor('Saying hello')}(nowhere.loom)`),
         },
         '/corpus/hello.loom',
       )
@@ -145,7 +145,7 @@ describe('a code anchor composes a section from another loom', () => {
       const message = yield* refusal(
         {
           '/corpus/settings.loom': `# Saying hello {json}\n\n=>\n{ "greeting": "Hello" }\n`,
-          '/corpus/hello.loom': helloAnchoring('::[Saying hello](settings.loom)'),
+          '/corpus/hello.loom': helloAnchoring(`${anchor('Saying hello')}(settings.loom)`),
         },
         '/corpus/hello.loom',
       )
@@ -158,7 +158,7 @@ describe('a code anchor composes a section from another loom', () => {
       const message = yield* refusal(
         {
           '/corpus/greeting.loom': `${greeting}\n# Saying hello\n\n=>\nconst again = 1\n`,
-          '/corpus/hello.loom': helloAnchoring('::[Saying hello](greeting.loom)'),
+          '/corpus/hello.loom': helloAnchoring(`${anchor('Saying hello')}(greeting.loom)`),
         },
         '/corpus/hello.loom',
       )
@@ -170,7 +170,7 @@ describe('a code anchor composes a section from another loom', () => {
     Effect.gen(function* () {
       const files = {
         '/corpus/greeting.loom': greeting,
-        '/corpus/hello.loom': helloAnchoring('::[Saying goodbye](greeting.loom)'),
+        '/corpus/hello.loom': helloAnchoring(`${anchor('Saying goodbye')}(greeting.loom)`),
       }
       const diagnostics = yield* LoomCompiler.pipe(
         Effect.flatMap((c) => c.diagnose('/corpus/hello.loom')),
@@ -190,7 +190,7 @@ describe('a code anchor composes a section from another loom', () => {
     Effect.gen(function* () {
       const files = {
         '/corpus/greeting.loom': greeting,
-        '/corpus/hello.loom': helloAnchoring('::[Saying hello](greeting.loom)'),
+        '/corpus/hello.loom': helloAnchoring(`${anchor('Saying hello')}(greeting.loom)`),
       }
       const hello = files['/corpus/hello.loom']
       const root = yield* LoomCompiler.pipe(
@@ -210,8 +210,6 @@ describe('a code anchor composes a section from another loom', () => {
       )
       const generated = product.snapshot.getText(0, product.snapshot.getLength())
       expect(generated).toBe(program)
-      // every mapping reads the same text in hello.loom as in the product — so no
-      // span of greeting.loom's inlined block claims an offset in hello.loom
       expect(product.mappings.length).toBeGreaterThan(0)
       product.mappings.forEach((m) => {
         const source = m.sourceOffsets[0]!

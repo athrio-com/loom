@@ -1,71 +1,59 @@
 import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
-const it = effectify(it_)
 import { Effect, Layer, Option } from 'effect'
-import { DocumentSource } from '../src/LoomCompiler'
-import { LoomCompiler } from '../src/LoomCompiler'
+import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
 import { PackageConfig } from '../src/PackageConfig'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
-// Drives the corpus pipeline end-to-end over an in-memory DocumentSource:
-// book.loom composes The chapter — which lives in chapter.loom — through a
-// cross-file `::[…]` anchor, so the corpus reaches the chapter and a change to the
-// chapter invalidates the book. That is the anchor graph the single-file editor
-// projection can't see. DocumentSource is a free requirement, so the test injects a
-// fake one without touching the filesystem; its `list` reports both looms as the corpus.
+const it = effectify(it_)
+
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
+
+const anchor = (name: string): string => `::${'['}${name}]`
 
 const files: Record<string, string> = {
-  '/chapter.loom': `---
-Language: TypeScript
----
-
-# The chapter
-
-=>
-
-export const c = 1
-`,
-  '/book.loom': `---
-Language: TypeScript
----
-
-# The part
-
-::[The chapter](chapter.loom)
-`,
+  '/chapter.loom': lines(
+    '---',
+    'Language: TypeScript',
+    '---',
+    '',
+    '# The chapter',
+    '',
+    '=>',
+    '',
+    'export const c = 1',
+  ),
+  '/book.loom': lines(
+    '---',
+    'Language: TypeScript',
+    '---',
+    '',
+    '# The part',
+    '',
+    `${anchor('The chapter')}(chapter.loom)`,
+  ),
 }
 
-const TestDocs = Layer.succeed(
-  DocumentSource,
-  {
-    read: (path: string) => Effect.succeed(files[path] ?? ''),
-    list: Option.some(() => Effect.succeed(Object.keys(files))),
-    hold: () => Effect.void,
-  },
-)
+const TestDocs = Layer.succeed(DocumentSource, {
+  read: (path: string) => Effect.succeed(files[path] ?? ''),
+  list: Option.some(() => Effect.succeed(Object.keys(files))),
+  hold: () => Effect.void,
+})
 
-// a stub config: this probe drives the corpus over in-memory paths, so it never
-// touches disk — every file resolves to the default `::[` delimiters and no
-// configured primary language.
-const TestConfig = Layer.succeed(
-  PackageConfig,
-  {
-    resolve: () =>
-      Effect.succeed({
-        delims: defaultAnchorDelims,
-        primaryLanguage: undefined,
-        variables: {},
-        width: 100,
-        packageRoot: undefined,
-        workspaceRoot: undefined,
-        corpusDir: undefined,
-      }),
-  },
-)
+const TestConfig = Layer.succeed(PackageConfig, {
+  resolve: () =>
+    Effect.succeed({
+      delims: defaultAnchorDelims,
+      primaryLanguage: undefined,
+      variables: {},
+      width: 100,
+      packageRoot: undefined,
+      workspaceRoot: undefined,
+      corpusDir: undefined,
+    }),
+})
 
-// merge LoomMemo into the provided context (the same instance the compiler uses,
-// by Effect's layer memoisation) so a probe can read its hit/miss stats.
 const layer = Layer.provide(
   Layer.merge(LoomCompiler.layer, LoomMemo.layer),
   Layer.merge(TestDocs, TestConfig),
@@ -75,7 +63,6 @@ describe('LoomCompiler — the chain projected for each consumer', () => {
   it.effect('reach reports the chapters a book places', () =>
     Effect.gen(function* () {
       const c = yield* LoomCompiler
-      // book places The chapter, which lives in chapter.loom
       expect([...(yield* c.reach('/book.loom'))]).toEqual(['/chapter.loom'])
     }).pipe(Effect.provide(layer)),
   )
@@ -83,9 +70,8 @@ describe('LoomCompiler — the chain projected for each consumer', () => {
   it.effect('invalidate names the file and the books that place it', () =>
     Effect.gen(function* () {
       const c = yield* LoomCompiler
-      yield* c.reach('/book.loom') // warm the cache (loads book + chapter)
+      yield* c.reach('/book.loom')
       const dirty = yield* c.invalidate('/chapter.loom')
-      // the chapter itself, plus the book that places it
       expect([...dirty].sort()).toEqual(['/book.loom', '/chapter.loom'])
     }).pipe(Effect.provide(layer)),
   )
@@ -94,59 +80,54 @@ describe('LoomCompiler — the chain projected for each consumer', () => {
     Effect.gen(function* () {
       const c = yield* LoomCompiler
       const memo = yield* LoomMemo
-      yield* c.reach('/book.loom') // builds book + chapter — two misses
+      yield* c.reach('/book.loom')
       const first = yield* memo.stats
       expect(first).toMatchObject({ misses: 2, size: 2 })
 
-      yield* c.reach('/book.loom') // again — all hits, nothing rebuilt
+      yield* c.reach('/book.loom')
       const second = yield* memo.stats
-      expect(second.misses).toBe(2) // no new builds
+      expect(second.misses).toBe(2)
       expect(second.hits).toBeGreaterThan(first.hits)
     }).pipe(Effect.provide(layer)),
   )
 })
 
-// `composition` is the editor's read of the de re: every root in the corpus as
-// the code it tangles to, at the path it tangles to. a.loom imports b.loom's
-// output, so a language service can resolve that import against b's live
-// composition rather than its on-disk output.
 const crossImport: Record<string, string> = {
-  '/a.loom': `---
-Language: TypeScript
-Package: a.ts
----
-
-# A {Tangle}
-
-=>
-
-import { b } from './b.js'
-export const a = b + 1
-`,
-  '/b.loom': `---
-Language: TypeScript
-Package: b.ts
----
-
-# B {Tangle}
-
-=>
-
-export const b = 2
-`,
+  '/a.loom': lines(
+    '---',
+    'Language: TypeScript',
+    'Package: a.ts',
+    '---',
+    '',
+    '# A {Tangle}',
+    '',
+    '=>',
+    '',
+    "import { b } from './b.js'",
+    'export const a = b + 1',
+  ),
+  '/b.loom': lines(
+    '---',
+    'Language: TypeScript',
+    'Package: b.ts',
+    '---',
+    '',
+    '# B {Tangle}',
+    '',
+    '=>',
+    '',
+    'export const b = 2',
+  ),
 }
 
 const crossLayer = Layer.provide(
   Layer.merge(LoomCompiler.layer, LoomMemo.layer),
   Layer.merge(
-    Layer.succeed(
-      DocumentSource,
-      {
-        read: (path: string) => Effect.succeed(crossImport[path] ?? ''),
-        list: Option.some(() => Effect.succeed(Object.keys(crossImport))),
-        hold: () => Effect.void,
-      },
-    ),
+    Layer.succeed(DocumentSource, {
+      read: (path: string) => Effect.succeed(crossImport[path] ?? ''),
+      list: Option.some(() => Effect.succeed(Object.keys(crossImport))),
+      hold: () => Effect.void,
+    }),
     TestConfig,
   ),
 )
@@ -164,53 +145,48 @@ describe('LoomCompiler — composition projects the de re as a filesystem', () =
       expect(a?.content).toContain("import { b } from './b.js'")
       expect(b?.path).toBe('/b.ts')
       expect(b?.content).toContain('export const b = 2')
-      // each root carries its heading — the `# A` title on line 5 (char 2) — so a
-      // cross-file import go-to lands on the section that tangles the file
       expect(a?.heading.path).toBe('/a.loom')
       expect(a?.heading.range.start).toEqual({ line: 5, character: 2 })
     }).pipe(Effect.provide(crossLayer)),
   )
 })
 
-
-// The compiler keeps the last composition and recomposes only what a change can
-// reach. book.loom tangles a file that inlines a section of chapter.loom through a
-// cross-file anchor; aside.loom tangles a file of its own that anchors nothing. A
-// mutable in-memory source stands in for the disk, so a probe can edit a chapter,
-// invalidate it as the editor does, and compose again.
 const editable: Record<string, string> = {
-  '/book.loom': `---
-Language: TypeScript
-Package: book.ts
----
-
-# The book {Tangle}
-
-=>
-
-::[The chapter](chapter.loom)
-`,
-  '/chapter.loom': `---
-Language: TypeScript
----
-
-# The chapter
-
-=>
-
-export const c = 1
-`,
-  '/aside.loom': `---
-Language: TypeScript
-Package: aside.ts
----
-
-# The aside {Tangle}
-
-=>
-
-export const aside = 0
-`,
+  '/book.loom': lines(
+    '---',
+    'Language: TypeScript',
+    'Package: book.ts',
+    '---',
+    '',
+    '# The book {Tangle}',
+    '',
+    '=>',
+    '',
+    `${anchor('The chapter')}(chapter.loom)`,
+  ),
+  '/chapter.loom': lines(
+    '---',
+    'Language: TypeScript',
+    '---',
+    '',
+    '# The chapter',
+    '',
+    '=>',
+    '',
+    'export const c = 1',
+  ),
+  '/aside.loom': lines(
+    '---',
+    'Language: TypeScript',
+    'Package: aside.ts',
+    '---',
+    '',
+    '# The aside {Tangle}',
+    '',
+    '=>',
+    '',
+    'export const aside = 0',
+  ),
 }
 
 const editableLayer = Layer.provide(

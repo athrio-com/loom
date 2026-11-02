@@ -1,6 +1,5 @@
 import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
-const it = effectify(it_)
 import { Effect, Layer, Option } from 'effect'
 import { parseDocument, ParseLayer } from './parse'
 import { symbolsOf } from '@athrio/loom-ast/LoomSymbol'
@@ -9,38 +8,33 @@ import { LoomMemo } from '../src/LoomMemo'
 import { PackageConfig } from '../src/PackageConfig'
 import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
 
-// A `{TOC}` heading opens a table-of-contents section. Every heading H2–H6 and
-// every list line inside it is a toc weft — never a section, never prose — until
-// the next top-level `#`. `####` is a part, and a numbered item is a chapter whose
-// list number is its `Chapter N` and whose text is its title.
-const fixture = `# Contents {TOC}
+const it = effectify(it_)
 
-#### Part III — The shape of a loom
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
 
-1. The node foundation
-2. The leaf tokens
+const fixture = lines(
+  '# Contents {TOC}',
+  '',
+  '#### Part III — The shape of a loom',
+  '',
+  '1. The node foundation',
+  '2. The leaf tokens',
+  '',
+  '#### Part IV — Reading the text',
+  '',
+  '1. Line ranges',
+  '',
+  '# Afterword',
+  '',
+  'Ordinary prose after the contents.',
+)
 
-#### Part IV — Reading the text
-
-1. Line ranges
-
-# Afterword
-
-Ordinary prose after the contents.
-`
-
-const parse = (src: string) =>
-  Effect.runSync(parseDocument(src).pipe(Effect.provide(ParseLayer)))
+const parse = (src: string) => Effect.runSync(parseDocument(src).pipe(Effect.provide(ParseLayer)))
 
 describe('the table-of-contents section', () => {
   it('keeps the whole listing in one section, exiting at the next H1', () => {
     const doc = parse(fixture)
-    // Two sections only: the {TOC} section and the Afterword — the `####` part
-    // headings never open sections of their own.
-    expect(doc.sections.map((s) => s.heading.title?.source)).toEqual([
-      'Contents',
-      'Afterword',
-    ])
+    expect(doc.sections.map((s) => s.heading.title?.source)).toEqual(['Contents', 'Afterword'])
   })
 
   it('collects the parts and chapters into the section entries', () => {
@@ -48,10 +42,7 @@ describe('the table-of-contents section', () => {
     const entries = doc.sections[0].entries ?? []
 
     const parts = entries.flatMap((e) => (e.part ? [e.part.value] : []))
-    expect(parts).toEqual([
-      'Part III — The shape of a loom',
-      'Part IV — Reading the text',
-    ])
+    expect(parts).toEqual(['Part III — The shape of a loom', 'Part IV — Reading the text'])
 
     const chapters = entries.flatMap((e) =>
       e.chapter && e.title ? [[e.chapter.value, e.title.value]] : [],
@@ -75,30 +66,28 @@ describe('the table-of-contents section', () => {
   })
 })
 
-// A two-file corpus: a book whose contents lists one chapter that exists and one
-// that does not, and the chapter itself. The compiler resolves the entry the same
-// way it resolves an anchor — go-to-definition follows it to the chapter, and an
-// entry that names no chapter is a diagnostic.
-const book = `# Contents {TOC}
+const book = lines(
+  '# Contents {TOC}',
+  '',
+  '#### Part III — The shape of a loom',
+  '',
+  '1. The node foundation',
+  '2. A chapter that is missing',
+)
 
-#### Part III — The shape of a loom
-
-1. The node foundation
-2. A chapter that is missing
-`
-
-const chapter = `---
-Part III, Chapter 1: The node foundation
-Package: pkg/LoomNode.ts
-Language: TypeScript
----
-
-# The node foundation
-
-=>
-
-export const x = 1
-`
+const chapter = lines(
+  '---',
+  'Part III, Chapter 1: The node foundation',
+  'Package: pkg/LoomNode.ts',
+  'Language: TypeScript',
+  '---',
+  '',
+  '# The node foundation',
+  '',
+  '=>',
+  '',
+  'export const x = 1',
+)
 
 const corpus: Record<string, string> = {
   '/book.loom': book,
@@ -109,29 +98,23 @@ const makeCompilerLayer = (files: Record<string, string>) =>
   Layer.provide(
     Layer.merge(LoomCompiler.layer, LoomMemo.layer),
     Layer.merge(
-      Layer.succeed(
-        DocumentSource,
-        {
-          read: (path: string) => Effect.succeed(files[path] ?? ''),
-          list: Option.some(() => Effect.succeed(Object.keys(files))),
-          hold: () => Effect.void,
-        },
-      ),
-      Layer.succeed(
-        PackageConfig,
-        {
-          resolve: () =>
-            Effect.succeed({
-              delims: defaultAnchorDelims,
-              primaryLanguage: undefined,
-              variables: {},
-              width: 100,
-              packageRoot: undefined,
-              workspaceRoot: undefined,
-              corpusDir: undefined,
-            }),
-        },
-      ),
+      Layer.succeed(DocumentSource, {
+        read: (path: string) => Effect.succeed(files[path] ?? ''),
+        list: Option.some(() => Effect.succeed(Object.keys(files))),
+        hold: () => Effect.void,
+      }),
+      Layer.succeed(PackageConfig, {
+        resolve: () =>
+          Effect.succeed({
+            delims: defaultAnchorDelims,
+            primaryLanguage: undefined,
+            variables: {},
+            width: 100,
+            packageRoot: undefined,
+            workspaceRoot: undefined,
+            corpusDir: undefined,
+          }),
+      }),
     ),
   )
 
@@ -144,7 +127,6 @@ describe('the table of contents in the editor', () => {
       const offset = book.indexOf('The node foundation') + 2
       const target = yield* c.definition('/book.loom', offset)
       expect(target?.path).toBe('/node.loom')
-      // the chapter's frontmatter title — line 1 (0-based), not the heading
       expect(target?.range.start.line).toBe(1)
     }).pipe(Effect.provide(compilerLayer)),
   )
@@ -155,7 +137,6 @@ describe('the table of contents in the editor', () => {
       const messages = (yield* c.diagnose('/book.loom')).map((d) => d.message)
       expect(messages.some((m) => m.includes('no chapter titled'))).toBe(true)
       expect(messages.join('\n')).toContain('A chapter that is missing')
-      // the entry that does resolve raises nothing
       expect(messages.some((m) => m.includes('The node foundation'))).toBe(false)
     }).pipe(Effect.provide(compilerLayer)),
   )
@@ -167,9 +148,9 @@ describe('the table of contents in the editor', () => {
       const refs = yield* c.references('/book.loom', offset)
       const at = (path: string, line: number) =>
         refs.some((r) => r.path === path && r.range.start.line === line)
-      expect(at('/book.loom', 4)).toBe(true) // the entry itself
-      expect(at('/node.loom', 1)).toBe(true) // the frontmatter title — the identity
-      expect(at('/node.loom', 6)).toBe(false) // not the heading
+      expect(at('/book.loom', 4)).toBe(true)
+      expect(at('/node.loom', 1)).toBe(true)
+      expect(at('/node.loom', 6)).toBe(false)
     }).pipe(Effect.provide(compilerLayer)),
   )
 
@@ -184,37 +165,37 @@ describe('the table of contents in the editor', () => {
   )
 })
 
-// A part is announced in its opening chapter's frontmatter — the standalone
-// `Part I: Using Loom`. A contents part heading and every later chapter's
-// `Part I` reference it, keyed by the part number, and resolve to the opener.
-const partBook = `# Contents {TOC}
+const partBook = lines(
+  '# Contents {TOC}',
+  '',
+  '### Part I — Using Loom',
+  '',
+  '1. A first loom',
+  '2. A workspace',
+)
 
-### Part I — Using Loom
+const opener = lines(
+  '---',
+  'Part I: Using Loom',
+  'Chapter 1: A first loom',
+  'Language: Prose',
+  '---',
+  '',
+  '# A first loom',
+  '',
+  'The opening chapter.',
+)
 
-1. A first loom
-2. A workspace
-`
-
-const opener = `---
-Part I: Using Loom
-Chapter 1: A first loom
-Language: Prose
----
-
-# A first loom
-
-The opening chapter.
-`
-
-const workspace = `---
-Part I, Chapter 2: A workspace
-Language: Prose
----
-
-# A workspace
-
-The second chapter.
-`
+const workspace = lines(
+  '---',
+  'Part I, Chapter 2: A workspace',
+  'Language: Prose',
+  '---',
+  '',
+  '# A workspace',
+  '',
+  'The second chapter.',
+)
 
 const partCorpus: Record<string, string> = {
   '/book.loom': partBook,
@@ -231,7 +212,6 @@ describe('parts navigate to where they are announced', () => {
       const offset = partBook.indexOf('Part I — Using Loom') + 2
       const target = yield* c.definition('/book.loom', offset)
       expect(target?.path).toBe('/opener.loom')
-      // the `Part I: Using Loom` announcement — line 1 (0-based)
       expect(target?.range.start.line).toBe(1)
     }).pipe(Effect.provide(partLayer)),
   )
@@ -253,9 +233,9 @@ describe('parts navigate to where they are announced', () => {
       const refs = yield* c.references('/opener.loom', offset)
       const has = (path: string, line: number) =>
         refs.some((r) => r.path === path && r.range.start.line === line)
-      expect(has('/opener.loom', 1)).toBe(true) // the announcement
-      expect(has('/workspace.loom', 1)).toBe(true) // the chapter's `Part I`
-      expect(has('/book.loom', 2)).toBe(true) // the contents part heading
+      expect(has('/opener.loom', 1)).toBe(true)
+      expect(has('/workspace.loom', 1)).toBe(true)
+      expect(has('/book.loom', 2)).toBe(true)
     }).pipe(Effect.provide(partLayer)),
   )
 
@@ -265,11 +245,10 @@ describe('parts navigate to where they are announced', () => {
       const offset = partBook.indexOf('Part I — Using Loom') + 2
       const nav = yield* c.navigationRange('/book.loom', offset)
       const ren = yield* c.renameRange('/book.loom', offset)
-      const width =
-        (nav?.range.end.character ?? 0) - (nav?.range.start.character ?? 0)
+      const width = (nav?.range.end.character ?? 0) - (nav?.range.start.character ?? 0)
       expect(nav).not.toBeUndefined()
-      expect(width).toBeGreaterThan('Part I'.length) // the whole label, not a word
-      expect(ren).toBeUndefined() // navigable, but not yet renameable
+      expect(width).toBeGreaterThan('Part I'.length)
+      expect(ren).toBeUndefined()
     }).pipe(Effect.provide(partLayer)),
   )
 })

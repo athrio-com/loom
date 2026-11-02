@@ -921,3 +921,1382 @@ describe('LoomCompiler — what an edit evicts', () => {
 =>
 
 ::[Testing what an edit evicts]
+
+## Testing the chain over looms held in memory
+
+The chain runs from a book to the files its corpus composes. These cases drive it end to end without a disk. The `LoomCompiler.layer` layer supplies the passes and caches the compiler draws on, such as `LoomCorpusAstBuilder` and `LoomMemo`. It leaves two services to its caller, the `DocumentSource` that reads each loom and the `PackageConfig` that settles each loom's build settings. The cases supply a stand-in for each, so the compiler builds a corpus held in memory.
+
+The cases run on Bun's test runner. The `effectify` helper from the `@athrio/effect-test` package adds an `it.effect` function to Bun's `it`, so a case can be written as an Effect, which the runner runs to its end. Each case provides the compiler's layer to its own Effect. Providing a layer builds it afresh, so no case sees a module that another case built.
+
+=>
+
+import { describe, expect, it as it_ } from 'bun:test'
+import { effectify } from '@athrio/effect-test'
+import { Effect, Layer, Option } from 'effect'
+import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { LoomMemo } from '../src/LoomMemo'
+import { PackageConfig } from '../src/PackageConfig'
+import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
+
+const it = effectify(it_)
+
+~
+
+The first corpus holds two looms. The chapter, `chapter.loom`, holds the section `The chapter` with one line of code. The book, `book.loom`, places that section with an anchor that names the chapter's file. A projection of the book alone cannot follow that anchor, but the corpus can. Through the anchor the corpus reaches the chapter, and an edit to the chapter reaches the book.
+
+A loom written into this loom's code would be read as part of this loom. A line that starts with `#` and a space would open a section here. A line that starts with `=>`, or a lone `~`, would open or close a block of code. An anchor counts as an anchor wherever it stands. So each fixture is a list of its lines, and the `lines` helper joins them into the text a file holds, ending on a newline. The `anchor` helper spells an anchor in two pieces for the same reason.
+
+=>
+
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
+
+const anchor = (name: string): string => `::${'['}${name}]`
+
+const files: Record<string, string> = {
+  '/chapter.loom': lines(
+    '---',
+    'Language: TypeScript',
+    '---',
+    '',
+    '# The chapter',
+    '',
+    '=>',
+    '',
+    'export const c = 1',
+  ),
+  '/book.loom': lines(
+    '---',
+    'Language: TypeScript',
+    '---',
+    '',
+    '# The part',
+    '',
+    `${anchor('The chapter')}(chapter.loom)`,
+  ),
+}
+
+~
+
+The stand-in source reads each loom from the `files` record, which maps a path to the loom's text. It reads a path the record lacks as empty text, lists every path in the record as the corpus, and ignores any workspace it is asked to hold.
+
+The stand-in configuration gives every loom the same settings. It keeps Loom's default anchor delimiters and a width of a hundred, and names no primary language and no variables. It names no package root, so each file a loom tangles lands beside the loom. It names no workspace root either. Without one the build cache on disk keeps nothing, so no case writes to the disk.
+
+=>
+
+const TestDocs = Layer.succeed(DocumentSource, {
+  read: (path: string) => Effect.succeed(files[path] ?? ''),
+  list: Option.some(() => Effect.succeed(Object.keys(files))),
+  hold: () => Effect.void,
+})
+
+const TestConfig = Layer.succeed(PackageConfig, {
+  resolve: () =>
+    Effect.succeed({
+      delims: defaultAnchorDelims,
+      primaryLanguage: undefined,
+      variables: {},
+      width: 100,
+      packageRoot: undefined,
+      workspaceRoot: undefined,
+      corpusDir: undefined,
+    }),
+})
+
+~
+
+The `LoomMemo` cache keeps each module the compiler builds and counts its hits and misses. The cases read those counts, so the `layer` they run under merges the memo's layer beside the compiler's. Effect builds a layer once, however many times one graph names it. The memo a case reads is therefore the very memo the compiler fills.
+
+=>
+
+const layer = Layer.provide(
+  Layer.merge(LoomCompiler.layer, LoomMemo.layer),
+  Layer.merge(TestDocs, TestConfig),
+)
+
+## What a book reaches, and what the memo keeps
+
+The `reach` verb names the looms an entry draws in. From the book it names the chapter alone, since the book places one section and that section lives in `chapter.loom`.
+
+=>
+
+describe('LoomCompiler — the chain projected for each consumer', () => {
+  it.effect('reach reports the chapters a book places', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      expect([...(yield* c.reach('/book.loom'))]).toEqual(['/chapter.loom'])
+    }).pipe(Effect.provide(layer)),
+  )
+
+~
+
+The `invalidate` verb evicts a loom from the cache and names what an edit to that loom must reproject. The case first builds the corpus through `reach`, which loads the book and the chapter into the cache. The case then invalidates the chapter, and `invalidate` names the chapter itself and the book that places it.
+
+=>
+
+  it.effect('invalidate names the file and the books that place it', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      yield* c.reach('/book.loom')
+      const dirty = yield* c.invalidate('/chapter.loom')
+      expect([...dirty].sort()).toEqual(['/book.loom', '/chapter.loom'])
+    }).pipe(Effect.provide(layer)),
+  )
+
+~
+
+The memo keeps every module the compiler builds, so a second request rebuilds nothing. The first `reach` builds the book and the chapter, two misses that leave two modules in the memo. The second `reach` finds both modules there. The misses stay at two, and the hits grow.
+
+=>
+
+  it.effect('reuses built modules across requests (the memo)', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const memo = yield* LoomMemo
+      yield* c.reach('/book.loom')
+      const first = yield* memo.stats
+      expect(first).toMatchObject({ misses: 2, size: 2 })
+
+      yield* c.reach('/book.loom')
+      const second = yield* memo.stats
+      expect(second.misses).toBe(2)
+      expect(second.hits).toBeGreaterThan(first.hits)
+    }).pipe(Effect.provide(layer)),
+  )
+})
+
+## The composition as a filesystem
+
+The `composition` verb gives the editor each file the corpus composes, with the code a root tangles and the path where the file lands. A language service for the product builds its program over those files. An import from another loom's output then resolves against that loom's live composition, not against the file on disk.
+
+Two looms make this corpus. Each tangles a file of its own, named through the `Package` field of its frontmatter and a bare `{Tangle}` on its heading. The loom `a.loom` tangles `a.ts`, which imports `b` from `./b.js`. The loom `b.loom` tangles `b.ts`, which exports `b`. The `crossLayer` layer serves this corpus through a stand-in source of its own, under the same configuration.
+
+=>
+
+const crossImport: Record<string, string> = {
+  '/a.loom': lines(
+    '---',
+    'Language: TypeScript',
+    'Package: a.ts',
+    '---',
+    '',
+    '# A {Tangle}',
+    '',
+    '=>',
+    '',
+    "import { b } from './b.js'",
+    'export const a = b + 1',
+  ),
+  '/b.loom': lines(
+    '---',
+    'Language: TypeScript',
+    'Package: b.ts',
+    '---',
+    '',
+    '# B {Tangle}',
+    '',
+    '=>',
+    '',
+    'export const b = 2',
+  ),
+}
+
+const crossLayer = Layer.provide(
+  Layer.merge(LoomCompiler.layer, LoomMemo.layer),
+  Layer.merge(
+    Layer.succeed(DocumentSource, {
+      read: (path: string) => Effect.succeed(crossImport[path] ?? ''),
+      list: Option.some(() => Effect.succeed(Object.keys(crossImport))),
+      hold: () => Effect.void,
+    }),
+    TestConfig,
+  ),
+)
+
+~
+
+The case composes from `a.loom` and finds each file by the id of its root. Each file lands at its output path and holds its content. The file of `a` names the loom it came from and the place of its root's heading title. That title, `A`, starts on line 5 at character 2, both counted from zero. A go-to-definition on a cross-file import lands there, on the section that tangles the file.
+
+=>
+
+describe('LoomCompiler — composition projects the de re as a filesystem', () => {
+  it.effect('returns every root at its output path, with content and origin', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const files = yield* c.composition('/a.loom')
+      const byId = new Map(files.map((file) => [file.rootId, file]))
+      const a = byId.get('a')
+      const b = byId.get('b')
+      expect(a?.path).toBe('/a.ts')
+      expect(a?.loomPath).toBe('/a.loom')
+      expect(a?.content).toContain("import { b } from './b.js'")
+      expect(b?.path).toBe('/b.ts')
+      expect(b?.content).toContain('export const b = 2')
+      expect(a?.heading.path).toBe('/a.loom')
+      expect(a?.heading.range.start).toEqual({ line: 5, character: 2 })
+    }).pipe(Effect.provide(crossLayer)),
+  )
+})
+
+## Recomposing only what an edit reaches
+
+The compiler keeps the last composition it gave and recomposes only the files a change can reach. These cases watch it do so over three looms. The book tangles `book.ts`. Its code inlines the section `The chapter` from `chapter.loom` through a cross-file anchor. The aside tangles `aside.ts` and anchors nothing, so no edit to the chapter reaches it.
+
+The `editable` record holds the three looms where a case can rewrite them. A case edits the chapter there, invalidates the chapter as the editor does, and composes again. The `byRoot` helper keys the composed files by the id of their root.
+
+=>
+
+const editable: Record<string, string> = {
+  '/book.loom': lines(
+    '---',
+    'Language: TypeScript',
+    'Package: book.ts',
+    '---',
+    '',
+    '# The book {Tangle}',
+    '',
+    '=>',
+    '',
+    `${anchor('The chapter')}(chapter.loom)`,
+  ),
+  '/chapter.loom': lines(
+    '---',
+    'Language: TypeScript',
+    '---',
+    '',
+    '# The chapter',
+    '',
+    '=>',
+    '',
+    'export const c = 1',
+  ),
+  '/aside.loom': lines(
+    '---',
+    'Language: TypeScript',
+    'Package: aside.ts',
+    '---',
+    '',
+    '# The aside {Tangle}',
+    '',
+    '=>',
+    '',
+    'export const aside = 0',
+  ),
+}
+
+const editableLayer = Layer.provide(
+  Layer.merge(LoomCompiler.layer, LoomMemo.layer),
+  Layer.merge(
+    Layer.succeed(DocumentSource, {
+      read: (path: string) => Effect.succeed(editable[path] ?? ''),
+      list: Option.some(() => Effect.succeed(Object.keys(editable))),
+      hold: () => Effect.void,
+    }),
+    TestConfig,
+  ),
+)
+
+const byRoot = <F extends { readonly rootId: string }>(files: ReadonlyArray<F>) =>
+  new Map(files.map((file) => [file.rootId, file]))
+
+~
+
+With nothing changed, a second composition gives back the very objects the first gave, both the book's file and the aside's.
+
+=>
+
+describe('LoomCompiler — composition recomposes only what changed', () => {
+  it.effect('gives back the same files when nothing changed', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const first = byRoot(yield* c.composition('/book.loom'))
+      const second = byRoot(yield* c.composition('/book.loom'))
+      expect(first.get('thebook')).toBeDefined()
+      expect(second.get('thebook')).toBe(first.get('thebook'))
+      expect(second.get('theaside')).toBe(first.get('theaside'))
+    }).pipe(Effect.provide(editableLayer)),
+  )
+
+~
+
+The second case changes `c = 1` to `c = 2` in the chapter and invalidates the chapter. The book's file then holds the new value, since the book inlines the chapter. The aside's file stays the same object as before, because nothing it composes has changed.
+
+=>
+
+  it.effect('recomposes a file that inlines an edited section, and keeps the rest', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const before = byRoot(yield* c.composition('/book.loom'))
+      expect(before.get('thebook')?.content).toContain('export const c = 1')
+
+      editable['/chapter.loom'] = editable['/chapter.loom']!.replace('c = 1', 'c = 2')
+      yield* c.invalidate('/chapter.loom')
+      const after = byRoot(yield* c.composition('/book.loom'))
+
+      expect(after.get('thebook')?.content).toContain('export const c = 2')
+      expect(before.get('theaside')).toBeDefined()
+      expect(after.get('theaside')).toBe(before.get('theaside'))
+    }).pipe(Effect.provide(editableLayer)),
+  )
+})
+
+## The compiler test file {Tangle}[test/LoomCompiler.test.ts]
+
+=>
+
+::[Testing the chain over looms held in memory]
+
+::[What a book reaches, and what the memo keeps]
+
+::[The composition as a filesystem]
+
+::[Recomposing only what an edit reaches]
+
+## Testing an anchor into another loom
+
+An anchor may carry a path, as `::[Saying hello](greeting.loom)` does. Such an anchor composes a section from another loom. The product pass reads one loom at a time and cannot see the other. It records the edge instead, and the compiler judges the edge against the corpus. The tangle inlines the section when the named loom holds it, and refuses the build when it does not. The editor shows the inlined block too, and maps none of the block into the loom that anchors it.
+
+Each case builds its corpus in memory from two or three looms. The looms carry no frontmatter and build under TypeScript as the primary language, the shape of Loom's quick start. The cases run on Bun's runner with `effectify`, as the chain's cases do. Effect's `Array` module searches the tree the editor receives.
+
+=>
+
+import { describe, expect, it as it_ } from 'bun:test'
+import { effectify } from '@athrio/effect-test'
+import { Array, Effect, Layer, Option } from 'effect'
+import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { PackageConfig } from '../src/PackageConfig'
+import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
+
+const it = effectify(it_)
+
+~
+
+The `greeting` loom holds the section `Saying hello`, which defines `greet`. The `helloAnchoring` function writes the loom that calls `greet`, a section named `The program` that tangles to `hello.ts`. The program's code opens with the line a case passes in, an anchor to the greeting, and closes by greeting the world. The `program` constant holds what a sound tangle writes, the definition of `greet` inlined above the call. As in the chain's cases, the `lines` and `anchor` helpers keep each fixture from reading as part of this loom.
+
+=>
+
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
+
+const anchor = (name: string): string => `::${'['}${name}]`
+
+const greeting = lines(
+  '# Saying hello',
+  '',
+  'A greeting takes a name and returns a line of welcome.',
+  '',
+  '=>',
+  'const greet = (name: string): string => `Hello, ${name}!`',
+)
+
+const helloAnchoring = (line: string) =>
+  lines(
+    '# The program [hello.ts]',
+    '',
+    'The program greets the world.',
+    '',
+    '=>',
+    line,
+    "console.log(greet('world'))",
+  )
+
+const program = `const greet = (name: string): string => \`Hello, \${name}!\`
+console.log(greet('world'))
+`
+
+~
+
+The `layerOf` function builds the compiler over a record of looms. Its stand-in source reads the record, and its stand-in configuration names TypeScript as the primary language. The `tangled` function tangles an entry over that layer. The `refusal` function expects the tangle to fail and gives back the message the failure carries.
+
+=>
+
+const layerOf = (files: Record<string, string>) =>
+  Layer.provide(
+    LoomCompiler.layer,
+    Layer.merge(
+      Layer.succeed(DocumentSource, {
+        read: (path: string) => Effect.succeed(files[path] ?? ''),
+        list: Option.some(() => Effect.succeed(Object.keys(files))),
+        hold: () => Effect.void,
+      }),
+      Layer.succeed(PackageConfig, {
+        resolve: () =>
+          Effect.succeed({
+            delims: defaultAnchorDelims,
+            primaryLanguage: 'typescript',
+            variables: {},
+            width: 100,
+            packageRoot: undefined,
+            workspaceRoot: undefined,
+            corpusDir: undefined,
+          }),
+      }),
+    ),
+  )
+
+const tangled = (files: Record<string, string>, entry: string) =>
+  LoomCompiler.pipe(
+    Effect.flatMap((c) => c.tangle(entry)),
+    Effect.provide(layerOf(files)),
+  )
+
+const refusal = (files: Record<string, string>, entry: string) =>
+  tangled(files, entry).pipe(
+    Effect.flip,
+    Effect.map((error) => error.message),
+  )
+
+## A section from another loom, inlined or refused
+
+The first case anchors `Saying hello` in `greeting.loom`, the loom beside the program. The tangle writes one file, `hello.ts`, beside the program. The file holds `program` exactly.
+
+=>
+
+describe('a code anchor composes a section from another loom', () => {
+  it.effect('tangles the section its path names', () =>
+    Effect.gen(function* () {
+      const files = yield* tangled(
+        {
+          '/corpus/greeting.loom': greeting,
+          '/corpus/hello.loom': helloAnchoring(`${anchor('Saying hello')}(greeting.loom)`),
+        },
+        '/corpus/hello.loom',
+      )
+      expect(files.map((f) => f.path)).toEqual(['/corpus/hello.ts'])
+      expect(files[0]!.content).toBe(program)
+    }),
+  )
+
+~
+
+The path reads relative to the loom the anchor stands in. A path that starts with `./` names the same loom as a bare name does. A path that climbs with `../` reaches a loom in a sibling folder, here from `app` to `lib`.
+
+=>
+
+  it.effect('reads the path relative to the anchor’s own loom', () =>
+    Effect.gen(function* () {
+      const dotted = yield* tangled(
+        {
+          '/corpus/greeting.loom': greeting,
+          '/corpus/hello.loom': helloAnchoring(`${anchor('Saying hello')}(./greeting.loom)`),
+        },
+        '/corpus/hello.loom',
+      )
+      expect(dotted[0]!.content).toBe(program)
+
+      const climbing = yield* tangled(
+        {
+          '/corpus/lib/greeting.loom': greeting,
+          '/corpus/app/hello.loom': helloAnchoring(
+            `${anchor('Saying hello')}(../lib/greeting.loom)`,
+          ),
+        },
+        '/corpus/app/hello.loom',
+      )
+      expect(climbing[0]!.content).toBe(program)
+    }),
+  )
+
+~
+
+The tangle refuses an anchor it cannot satisfy. Its message names the loom and the line where the anchor stands, here line 6 of `hello.loom`. The rest of the message says what is wrong. The anchor may name a section the named loom lacks, here `Saying goodbye`. It may name a loom that does not exist. The message then reads as it does for a loom without the section.
+
+=>
+
+  it.effect('refuses a section the named loom lacks', () =>
+    Effect.gen(function* () {
+      const message = yield* refusal(
+        {
+          '/corpus/greeting.loom': greeting,
+          '/corpus/hello.loom': helloAnchoring(`${anchor('Saying goodbye')}(greeting.loom)`),
+        },
+        '/corpus/hello.loom',
+      )
+      expect(message).toContain(
+        '/corpus/hello.loom:6: Unresolved anchor: no section named `Saying goodbye`.',
+      )
+    }),
+  )
+
+  it.effect('refuses a path that names no loom', () =>
+    Effect.gen(function* () {
+      const message = yield* refusal(
+        {
+          '/corpus/greeting.loom': greeting,
+          '/corpus/hello.loom': helloAnchoring(`${anchor('Saying hello')}(nowhere.loom)`),
+        },
+        '/corpus/hello.loom',
+      )
+      expect(message).toContain(
+        '/corpus/hello.loom:6: Unresolved anchor: no section named `Saying hello`.',
+      )
+    }),
+  )
+
+~
+
+The section may be written in another language, here JSON, and TypeScript code cannot inline it. Two sections of the named loom may also share the name, so the anchor cannot choose between them.
+
+=>
+
+  it.effect('refuses a section in another language', () =>
+    Effect.gen(function* () {
+      const message = yield* refusal(
+        {
+          '/corpus/settings.loom': `# Saying hello {json}\n\n=>\n{ "greeting": "Hello" }\n`,
+          '/corpus/hello.loom': helloAnchoring(`${anchor('Saying hello')}(settings.loom)`),
+        },
+        '/corpus/hello.loom',
+      )
+      expect(message).toContain('Cross-language transclusion: `Saying hello` is json')
+    }),
+  )
+
+  it.effect('refuses a name two sections of the named loom share', () =>
+    Effect.gen(function* () {
+      const message = yield* refusal(
+        {
+          '/corpus/greeting.loom': `${greeting}\n# Saying hello\n\n=>\nconst again = 1\n`,
+          '/corpus/hello.loom': helloAnchoring(`${anchor('Saying hello')}(greeting.loom)`),
+        },
+        '/corpus/hello.loom',
+      )
+      expect(message).toContain('Ambiguous anchor: 2 sections are named `Saying hello`.')
+    }),
+  )
+
+~
+
+The `diagnose` verb marks a broken anchor for the editor. For the anchor to `Saying goodbye` it gives one diagnostic, an error whose span covers exactly the name the anchor gives.
+
+=>
+
+  it.effect('diagnose marks the broken anchor in the editor', () =>
+    Effect.gen(function* () {
+      const files = {
+        '/corpus/greeting.loom': greeting,
+        '/corpus/hello.loom': helloAnchoring(`${anchor('Saying goodbye')}(greeting.loom)`),
+      }
+      const diagnostics = yield* LoomCompiler.pipe(
+        Effect.flatMap((c) => c.diagnose('/corpus/hello.loom')),
+        Effect.provide(layerOf(files)),
+      )
+      const hello = files['/corpus/hello.loom']
+      expect(
+        diagnostics.map((d) => [
+          d.severity,
+          hello.slice(d.position.start.offset, d.position.end.offset),
+        ]),
+      ).toEqual([['error', 'Saying goodbye']])
+    }),
+  )
+
+~
+
+The `compile` verb inlines the greeting into the product the editor sees, so the root `theprogram` generates `program` exactly. The case hands `compile` a source of its own, since the editor hands `compile` the buffer it shows.
+
+Every mapping into the product reads the same text in `hello.loom` as in the product. None starts before the end of the product's first line, the line that holds the inlined greeting. So no span of the greeting's block claims an offset in the loom that anchors it.
+
+=>
+
+  it.effect('the editor inlines the section but maps only the anchoring loom', () =>
+    Effect.gen(function* () {
+      const files = {
+        '/corpus/greeting.loom': greeting,
+        '/corpus/hello.loom': helloAnchoring(`${anchor('Saying hello')}(greeting.loom)`),
+      }
+      const hello = files['/corpus/hello.loom']
+      const root = yield* LoomCompiler.pipe(
+        Effect.flatMap((c) =>
+          c.compile(
+            {
+              read: (path) => Effect.succeed(files[path as keyof typeof files] ?? ''),
+              list: Option.some(() => Effect.succeed(Object.keys(files))),
+            },
+            '/corpus/hello.loom',
+          ),
+        ),
+        Effect.provide(layerOf(files)),
+      )
+      const product = Option.getOrThrow(
+        Array.findFirst(root.embeddedCodes ?? [], (code) => code.id === 'theprogram'),
+      )
+      const generated = product.snapshot.getText(0, product.snapshot.getLength())
+      expect(generated).toBe(program)
+      expect(product.mappings.length).toBeGreaterThan(0)
+      product.mappings.forEach((m) => {
+        const source = m.sourceOffsets[0]!
+        const gen = m.generatedOffsets[0]!
+        expect(hello.slice(source, source + m.lengths[0]!)).toBe(
+          generated.slice(gen, gen + (m.generatedLengths?.[0] ?? m.lengths[0]!)),
+        )
+        expect(gen).toBeGreaterThanOrEqual(generated.indexOf('\n'))
+      })
+    }),
+  )
+})
+
+## The cross-file anchor test file {Tangle}[test/CrossFileAnchor.test.ts]
+
+=>
+
+::[Testing an anchor into another loom]
+
+::[A section from another loom, inlined or refused]
+
+## Testing navigation within one loom
+
+The navigation verbs take a loom and an offset into its text, where the editor's cursor rests. They answer with places in the corpus. Each place is a `FrameLocation`, a path and a range of lines and characters, both counted from zero as the editor counts them. These cases build the compiler over looms held in memory, with the stand-ins the chain's cases use. They take every offset straight from a fixture's text.
+
+=>
+
+import { describe, expect, it as it_ } from 'bun:test'
+import { effectify } from '@athrio/effect-test'
+import { Effect, Layer, Option } from 'effect'
+import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { LoomMemo } from '../src/LoomMemo'
+import { PackageConfig } from '../src/PackageConfig'
+import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
+
+const it = effectify(it_)
+
+~
+
+The `doc` fixture holds two sections. The first, `The greeting`, defines `hi`. The second, `The bundle`, tangles a file, and its code draws in `The greeting` through an anchor in the same loom. The `lines` and `anchor` helpers keep the fixture from reading as part of this loom.
+
+The `anchorOffset` offset rests inside the anchor's name, four characters past its start. The `titleOffset` offset rests inside the heading's title, three characters past the start of its line. The title starts on line 4 at character 2, after the `# ` marker. The anchor stands on line 14.
+
+=>
+
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
+
+const anchor = (name: string): string => `::${'['}${name}]`
+
+const doc = lines(
+  '---',
+  'Language: TypeScript',
+  '---',
+  '',
+  '# The greeting',
+  '',
+  '=>',
+  '',
+  'const hi = "hi"',
+  '',
+  '# The bundle {out/bundle.ts}',
+  '',
+  '=>',
+  '',
+  anchor('The greeting'),
+  'export const out = hi',
+)
+
+const files: Record<string, string> = { '/doc.loom': doc }
+
+const anchorOffset = doc.indexOf(anchor('The greeting')) + 4
+const titleOffset = doc.indexOf('# The greeting') + 3
+
+~
+
+The cases build the compiler from `layer`, which serves `doc` alone through the stand-in source and configuration. The `makeLayer` function builds the same compiler over any record of looms, for the cases that need more than one.
+
+=>
+
+const TestDocs = Layer.succeed(DocumentSource, {
+  read: (path: string) => Effect.succeed(files[path] ?? ''),
+  list: Option.some(() => Effect.succeed(Object.keys(files))),
+  hold: () => Effect.void,
+})
+
+const TestConfig = Layer.succeed(PackageConfig, {
+  resolve: () =>
+    Effect.succeed({
+      delims: defaultAnchorDelims,
+      primaryLanguage: undefined,
+      variables: {},
+      width: 100,
+      packageRoot: undefined,
+      workspaceRoot: undefined,
+      corpusDir: undefined,
+    }),
+})
+
+const layer = Layer.provide(
+  Layer.merge(LoomCompiler.layer, LoomMemo.layer),
+  Layer.merge(TestDocs, TestConfig),
+)
+
+const makeLayer = (docs: Record<string, string>) =>
+  Layer.provide(
+    Layer.merge(LoomCompiler.layer, LoomMemo.layer),
+    Layer.merge(
+      Layer.succeed(DocumentSource, {
+        read: (path: string) => Effect.succeed(docs[path] ?? ''),
+        list: Option.some(() => Effect.succeed(Object.keys(docs))),
+        hold: () => Effect.void,
+      }),
+      TestConfig,
+    ),
+  )
+
+~
+
+The `definition` verb follows the anchor to the section it names and lands on the start of the heading's title. Asked from that title, the `references` verb lists the heading and every anchor that names it, here the heading on line 4 and the anchor on line 14.
+
+=>
+
+describe('LoomCompiler — navigation over anchors and sections', () => {
+  it.effect('definition jumps from an anchor to the section it names', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const target = yield* c.definition('/doc.loom', anchorOffset)
+      expect(target?.path).toBe('/doc.loom')
+      expect(target?.range.start).toEqual({ line: 4, character: 2 })
+    }).pipe(Effect.provide(layer)),
+  )
+
+  it.effect('references lists the heading and every anchor that names it', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const refs = yield* c.references('/doc.loom', titleOffset)
+      expect(refs.map((r) => r.range.start.line).sort((a, b) => a - b)).toEqual([4, 14])
+    }).pipe(Effect.provide(layer)),
+  )
+
+~
+
+Under a position that holds no anchor, such as the declaration of `hi`, the `definition` verb finds nothing.
+
+=>
+
+  it.effect('definition finds nothing under a position that is not an anchor', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const target = yield* c.definition('/doc.loom', doc.indexOf('const hi'))
+      expect(target).toBeUndefined()
+    }).pipe(Effect.provide(layer)),
+  )
+
+~
+
+The `rename` verb gathers the same two places, the heading's title and the anchor's name. The span on the anchor starts at character 3, after the `::[` that opens it, so a rename leaves the brackets alone. The `renameRange` verb covers the whole title under the cursor, all twelve characters of `The greeting`, from character 2 to character 14.
+
+=>
+
+  it.effect('rename gathers the heading title and every anchor name', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const edits = yield* c.rename('/doc.loom', titleOffset)
+      expect(edits.map((e) => e.range.start.line).sort((a, b) => a - b)).toEqual([4, 14])
+      const anchorEdit = edits.find((e) => e.range.start.line === 14)
+      expect(anchorEdit?.range.start.character).toBe(3)
+    }).pipe(Effect.provide(layer)),
+  )
+
+  it.effect('renameRange covers the whole multi-word title under the cursor', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const span = yield* c.renameRange('/doc.loom', titleOffset)
+      expect(span?.range.start).toEqual({ line: 4, character: 2 })
+      expect(span?.range.end).toEqual({ line: 4, character: 14 })
+    }).pipe(Effect.provide(layer)),
+  )
+})
+
+## Navigating to a chapter in another loom
+
+A book places a chapter that lives in another loom through an anchor that carries the chapter's path. The anchor makes the chapter a member of the book. The editor follows that member across files. Here the book's section `Core` places `The widget`, the chapter that `widget.loom` holds. The `memberOffset` offset rests inside the member's name.
+
+=>
+
+describe('LoomCompiler — navigation across files', () => {
+  const docs: Record<string, string> = {
+    '/book.loom': lines(
+      '# Book',
+      '',
+      '## Core [packages/core]',
+      '',
+      '~',
+      '',
+      `${anchor('The widget')}(widget.loom)`,
+    ),
+    '/widget.loom':
+      '# The widget\n\n## The module [src, Widget.ts]\n\n=>\n\nexport const x = 1\n',
+  }
+  const crossLayer = makeLayer(docs)
+  const memberOffset = docs['/book.loom']!.indexOf(anchor('The widget')) + 4
+
+~
+
+From the member, the `definition` verb lands in `widget.loom`, on the title of its heading, line 0 at character 2. From that title, the `references` verb finds the heading and the member back in the book.
+
+=>
+
+  it.effect('definition jumps across files to the named chapter', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const target = yield* c.definition('/book.loom', memberOffset)
+      expect(target?.path).toBe('/widget.loom')
+      expect(target?.range.start).toEqual({ line: 0, character: 2 })
+    }).pipe(Effect.provide(crossLayer)),
+  )
+
+  it.effect('references finds the cross-file member from its chapter heading', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const widgetTitleOffset = docs['/widget.loom']!.indexOf('# The widget') + 3
+      const refs = yield* c.references('/widget.loom', widgetTitleOffset)
+      expect(refs.map((r) => r.path).sort()).toEqual(['/book.loom', '/widget.loom'])
+    }).pipe(Effect.provide(crossLayer)),
+  )
+})
+
+## Navigating a value warp
+
+A value warp such as `{{ratio = 1.8}}`, written in a section's preamble, binds a name to a value. The section's code names the warp with `::[ratio]` anchors. Navigation ties each anchor to the warp within the section. The `warp` fixture defines `ratio` on line 6 and names it on lines 10 and 11. The `anchorOffset` offset rests inside the first anchor's name, and the `defOffset` offset inside the definition's name.
+
+=>
+
+describe('LoomCompiler — navigation over value warps', () => {
+  const warp = lines(
+    '---',
+    'Language: TypeScript',
+    '---',
+    '',
+    '# Converting',
+    '',
+    '{{ratio = 1.8}}',
+    '',
+    '=>',
+    '',
+    `export const toF = (c: number) => c * ${anchor('ratio')} + 32`,
+    `export const back = (f: number) => (f - 32) / ${anchor('ratio')}`,
+  )
+  const warpLayer = makeLayer({ '/convert.loom': warp })
+  const anchorOffset = warp.indexOf(anchor('ratio')) + 4
+  const defOffset = warp.indexOf('{{ratio') + 2
+
+~
+
+From an anchor, the `definition` verb lands on the warp's name, line 6 at character 2, after the `{{` that opens the warp. From the definition, the `references` verb gathers the definition and both anchors, on lines 6, 10, and 11.
+
+=>
+
+  it.effect('definition jumps from a warp anchor to its definition', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const target = yield* c.definition('/convert.loom', anchorOffset)
+      expect(target?.path).toBe('/convert.loom')
+      expect(target?.range.start).toEqual({ line: 6, character: 2 })
+    }).pipe(Effect.provide(warpLayer)),
+  )
+
+  it.effect('references gathers the definition and every anchor', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const refs = yield* c.references('/convert.loom', defOffset)
+      expect(refs.map((r) => r.range.start.line).sort((a, b) => a - b)).toEqual([6, 10, 11])
+    }).pipe(Effect.provide(warpLayer)),
+  )
+
+~
+
+The `rename` verb rewrites three spans, the definition's name and each anchor's. Each span is the bare name, the five characters of `ratio`, so the braces and the brackets around it stay. The `renameRange` verb covers the name under the cursor, from character 2 to character 7 of line 6.
+
+=>
+
+  it.effect('rename rewrites the definition name and every anchor name', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const edits = yield* c.rename('/convert.loom', anchorOffset)
+      expect(edits.length).toBe(3)
+      expect(edits.every((e) => e.range.end.character - e.range.start.character === 5)).toBe(
+        true,
+      )
+    }).pipe(Effect.provide(warpLayer)),
+  )
+
+  it.effect('renameRange covers the warp name under the cursor', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const span = yield* c.renameRange('/convert.loom', defOffset)
+      expect(span?.range.start).toEqual({ line: 6, character: 2 })
+      expect(span?.range.end).toEqual({ line: 6, character: 7 })
+    }).pipe(Effect.provide(warpLayer)),
+  )
+})
+
+## The navigation test file {Tangle}[test/Navigation.test.ts]
+
+=>
+
+::[Testing navigation within one loom]
+
+::[Navigating to a chapter in another loom]
+
+::[Navigating a value warp]
+
+## Testing the colour of each token
+
+The `semanticTokens` verb colours each token a loom declares, with the colour that the table in `LoomSymbol` sets for the token's kind. These cases ask for the tokens of one loom and check the colours the verb draws. They build the compiler with the stand-ins the chain's cases use.
+
+=>
+
+import { describe, expect, it as it_ } from 'bun:test'
+import { effectify } from '@athrio/effect-test'
+import { Effect, Layer, Option } from 'effect'
+import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { LoomMemo } from '../src/LoomMemo'
+import { PackageConfig } from '../src/PackageConfig'
+import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
+
+const it = effectify(it_)
+
+~
+
+The `doc` fixture holds a heading's title with its `{TypeScript}` specifier and its `[., convert.ts]` sink, the value warp `{{ratio = 1.8}}`, an anchor `::[ratio]` that names the warp, and the `=>` and `~` that open and close its code. As in the chain's cases, the `lines` and `anchor` helpers keep the fixture from reading as part of this loom.
+
+=>
+
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
+
+const anchor = (name: string): string => `::${'['}${name}]`
+
+const doc = lines(
+  '---',
+  'Language: TypeScript',
+  '---',
+  '',
+  '# Converting {TypeScript} [., convert.ts]',
+  '',
+  '{{ratio = 1.8}}',
+  '',
+  'The forward direction.',
+  '',
+  '=>',
+  '',
+  `export const scale = ${anchor('ratio')}`,
+  '',
+  '~',
+  '',
+  'The reverse direction.',
+)
+
+const files: Record<string, string> = { '/convert.loom': doc }
+
+~
+
+The stand-in source serves the fixture alone. The stand-in configuration settles the fixture as it settles the chain's looms.
+
+=>
+
+const TestDocs = Layer.succeed(DocumentSource, {
+  read: (path: string) => Effect.succeed(files[path] ?? ''),
+  list: Option.some(() => Effect.succeed(Object.keys(files))),
+  hold: () => Effect.void,
+})
+
+const TestConfig = Layer.succeed(PackageConfig, {
+  resolve: () =>
+    Effect.succeed({
+      delims: defaultAnchorDelims,
+      primaryLanguage: undefined,
+      variables: {},
+      width: 100,
+      packageRoot: undefined,
+      workspaceRoot: undefined,
+      corpusDir: undefined,
+    }),
+})
+
+const layer = Layer.provide(
+  Layer.merge(LoomCompiler.layer, LoomMemo.layer),
+  Layer.merge(TestDocs, TestConfig),
+)
+
+~
+
+Each kind takes its colour from the table. The heading's title is a namespace, and the warp and its anchor are variables. The specifier is a keyword, the sink and the frontmatter's value are strings, and the arrow and the tilde are operators. The fixture therefore draws all five colours the legend carries.
+
+=>
+
+describe('LoomCompiler — semantic tokens over the source', () => {
+  it.effect('draws every colour the legend carries', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const tokens = yield* c.semanticTokens('/convert.loom')
+      const types = new Set(tokens.map((token) => token.type))
+      expect([...types].sort()).toEqual(['keyword', 'namespace', 'operator', 'string', 'variable'])
+    }).pipe(Effect.provide(layer)),
+  )
+
+~
+
+Only two tokens are operators, the arrow that opens the code and the tilde that closes it.
+
+=>
+
+  it.effect('colours the arrow and the tilde as operators', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const tokens = yield* c.semanticTokens('/convert.loom')
+      const operators = tokens.filter((token) => token.type === 'operator')
+      expect(operators.length).toBe(2)
+    }).pipe(Effect.provide(layer)),
+  )
+})
+
+## The semantic token test file {Tangle}[test/SemanticTokens.test.ts]
+
+=>
+
+::[Testing the colour of each token]
+
+## Testing the table of contents as it parses
+
+A heading marked `{TOC}` opens a section that holds a table of contents. Inside that section the parser reads every heading below the top level and every line of a list as an entry of the table, never as a section and never as prose. The next top-level `#` heading closes the section. A heading below the top level names a part. A numbered item names a chapter, its list number the chapter's number and its text the chapter's title.
+
+The first cases parse a loom and read its tree, with no compiler at all. The `parse` helper runs the four parse stages, from splitting the text into lines to building the tree, through `parseDocument`. The tests' shared `parse` module exports that function beside `ParseLayer`, the layer that provides the stages. A test is a boundary where an Effect may run, so the `parse` helper runs the stages with `Effect.runSync`. The `symbolsOf` function from `LoomSymbol` lists the symbols a parsed loom declares.
+
+=>
+
+import { describe, expect, it as it_ } from 'bun:test'
+import { effectify } from '@athrio/effect-test'
+import { Effect, Layer, Option } from 'effect'
+import { parseDocument, ParseLayer } from './parse'
+import { symbolsOf } from '@athrio/loom-ast/LoomSymbol'
+import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { LoomMemo } from '../src/LoomMemo'
+import { PackageConfig } from '../src/PackageConfig'
+import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
+
+const it = effectify(it_)
+
+~
+
+The `fixture` loom holds a table with two parts, Part III with two chapters and Part IV with one, and then an ordinary section of prose, `Afterword`. The fixture's headings would open sections of this loom, so the `lines` helper writes the fixture as a list of its lines.
+
+=>
+
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
+
+const fixture = lines(
+  '# Contents {TOC}',
+  '',
+  '#### Part III — The shape of a loom',
+  '',
+  '1. The node foundation',
+  '2. The leaf tokens',
+  '',
+  '#### Part IV — Reading the text',
+  '',
+  '1. Line ranges',
+  '',
+  '# Afterword',
+  '',
+  'Ordinary prose after the contents.',
+)
+
+const parse = (src: string) => Effect.runSync(parseDocument(src).pipe(Effect.provide(ParseLayer)))
+
+~
+
+The whole listing stays in one section, which ends at the next top-level heading. Only two sections parse, the table and `Afterword`, since the part headings open no section of their own.
+
+=>
+
+describe('the table-of-contents section', () => {
+  it('keeps the whole listing in one section, exiting at the next H1', () => {
+    const doc = parse(fixture)
+    expect(doc.sections.map((s) => s.heading.title?.source)).toEqual(['Contents', 'Afterword'])
+  })
+
+~
+
+The table's entries collect the name of each part, and each chapter as its number and its title. The ordinary section has no entries at all.
+
+=>
+
+  it('collects the parts and chapters into the section entries', () => {
+    const doc = parse(fixture)
+    const entries = doc.sections[0].entries ?? []
+
+    const parts = entries.flatMap((e) => (e.part ? [e.part.value] : []))
+    expect(parts).toEqual(['Part III — The shape of a loom', 'Part IV — Reading the text'])
+
+    const chapters = entries.flatMap((e) =>
+      e.chapter && e.title ? [[e.chapter.value, e.title.value]] : [],
+    )
+    expect(chapters).toEqual([
+      ['1', 'The node foundation'],
+      ['2', 'The leaf tokens'],
+      ['1', 'Line ranges'],
+    ])
+  })
+
+  it('leaves an ordinary section with no entries', () => {
+    const doc = parse(fixture)
+    expect(doc.sections[1].entries).toBeUndefined()
+  })
+
+~
+
+Each part also gives a `tocPart` symbol and each chapter a `tocEntry` symbol, two and three of them here.
+
+=>
+
+  it('emits a tocPart and a tocEntry symbol for each part and chapter', () => {
+    const kinds = symbolsOf(parse(fixture)).map((s) => s.kind)
+    expect(kinds.filter((k) => k === 'tocPart')).toHaveLength(2)
+    expect(kinds.filter((k) => k === 'tocEntry')).toHaveLength(3)
+  })
+})
+
+## A table of contents in the editor
+
+The compiler resolves an entry of the table the way it resolves an anchor. Go-to-definition follows an entry to the chapter it names, and an entry that names no chapter is a diagnostic.
+
+The `book` loom lists two chapters under Part III. The chapter `The node foundation` exists, and the chapter `A chapter that is missing` does not. The `chapter` loom names itself in its frontmatter, `Part III, Chapter 1: The node foundation`, and opens with a heading of the same title. The frontmatter is the chapter's identity. So navigation lands on the title in the frontmatter, on line 1 counted from zero, and never on the heading, on line 6.
+
+The `makeCompilerLayer` function builds the compiler over a record of looms, with the stand-ins the chain's cases use. The `compilerLayer` layer serves the book and the chapter.
+
+=>
+
+const book = lines(
+  '# Contents {TOC}',
+  '',
+  '#### Part III — The shape of a loom',
+  '',
+  '1. The node foundation',
+  '2. A chapter that is missing',
+)
+
+const chapter = lines(
+  '---',
+  'Part III, Chapter 1: The node foundation',
+  'Package: pkg/LoomNode.ts',
+  'Language: TypeScript',
+  '---',
+  '',
+  '# The node foundation',
+  '',
+  '=>',
+  '',
+  'export const x = 1',
+)
+
+const corpus: Record<string, string> = {
+  '/book.loom': book,
+  '/node.loom': chapter,
+}
+
+const makeCompilerLayer = (files: Record<string, string>) =>
+  Layer.provide(
+    Layer.merge(LoomCompiler.layer, LoomMemo.layer),
+    Layer.merge(
+      Layer.succeed(DocumentSource, {
+        read: (path: string) => Effect.succeed(files[path] ?? ''),
+        list: Option.some(() => Effect.succeed(Object.keys(files))),
+        hold: () => Effect.void,
+      }),
+      Layer.succeed(PackageConfig, {
+        resolve: () =>
+          Effect.succeed({
+            delims: defaultAnchorDelims,
+            primaryLanguage: undefined,
+            variables: {},
+            width: 100,
+            packageRoot: undefined,
+            workspaceRoot: undefined,
+            corpusDir: undefined,
+          }),
+      }),
+    ),
+  )
+
+const compilerLayer = makeCompilerLayer(corpus)
+
+~
+
+From the entry, the `definition` verb lands in the chapter, on the title in its frontmatter.
+
+=>
+
+describe('the table of contents in the editor', () => {
+  it.effect('a chapter entry navigates to the chapter it names', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const offset = book.indexOf('The node foundation') + 2
+      const target = yield* c.definition('/book.loom', offset)
+      expect(target?.path).toBe('/node.loom')
+      expect(target?.range.start.line).toBe(1)
+    }).pipe(Effect.provide(compilerLayer)),
+  )
+
+~
+
+The `diagnose` verb reports the entry that names no chapter and quotes the missing title. The entry that resolves raises nothing.
+
+=>
+
+  it.effect('an entry that names no chapter reports a diagnostic', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const messages = (yield* c.diagnose('/book.loom')).map((d) => d.message)
+      expect(messages.some((m) => m.includes('no chapter titled'))).toBe(true)
+      expect(messages.join('\n')).toContain('A chapter that is missing')
+      expect(messages.some((m) => m.includes('The node foundation'))).toBe(false)
+    }).pipe(Effect.provide(compilerLayer)),
+  )
+
+~
+
+From the entry, the `references` verb gathers the entry itself, on line 4 of the book, and the title in the chapter's frontmatter, but not the chapter's heading. The `rename` verb rewrites the chapter's title and the entry together, so its edits reach both looms.
+
+=>
+
+  it.effect('references gathers the chapter and the entry that names it', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const offset = book.indexOf('The node foundation') + 2
+      const refs = yield* c.references('/book.loom', offset)
+      const at = (path: string, line: number) =>
+        refs.some((r) => r.path === path && r.range.start.line === line)
+      expect(at('/book.loom', 4)).toBe(true)
+      expect(at('/node.loom', 1)).toBe(true)
+      expect(at('/node.loom', 6)).toBe(false)
+    }).pipe(Effect.provide(compilerLayer)),
+  )
+
+  it.effect('rename rewrites the chapter title and the entry together', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const offset = book.indexOf('The node foundation') + 2
+      const edits = yield* c.rename('/book.loom', offset)
+      const paths = edits.map((e) => e.path).sort()
+      expect(paths).toEqual(['/book.loom', '/node.loom'])
+    }).pipe(Effect.provide(compilerLayer)),
+  )
+})
+
+## Where a part is announced
+
+A part's opening chapter announces the part once, in its frontmatter, as in `Part I: Using Loom`. Every other mention of the part refers to that announcement by the part's number, whether a part heading in the table or the `Part I` in a later chapter's frontmatter. Each mention resolves to the opening chapter.
+
+The `partBook` loom lists Part I and its two chapters. The `opener` loom announces the part on line 1, and the `workspace` loom joins it as chapter 2. The `partLayer` layer serves all three.
+
+=>
+
+const partBook = lines(
+  '# Contents {TOC}',
+  '',
+  '### Part I — Using Loom',
+  '',
+  '1. A first loom',
+  '2. A workspace',
+)
+
+const opener = lines(
+  '---',
+  'Part I: Using Loom',
+  'Chapter 1: A first loom',
+  'Language: Prose',
+  '---',
+  '',
+  '# A first loom',
+  '',
+  'The opening chapter.',
+)
+
+const workspace = lines(
+  '---',
+  'Part I, Chapter 2: A workspace',
+  'Language: Prose',
+  '---',
+  '',
+  '# A workspace',
+  '',
+  'The second chapter.',
+)
+
+const partCorpus: Record<string, string> = {
+  '/book.loom': partBook,
+  '/opener.loom': opener,
+  '/workspace.loom': workspace,
+}
+
+const partLayer = makeCompilerLayer(partCorpus)
+
+~
+
+From the part heading in the table, and from the `Part I` in the second chapter, the `definition` verb lands on the announcement in the opening chapter, on line 1.
+
+=>
+
+describe('parts navigate to where they are announced', () => {
+  it.effect('a contents part heading goes to the opening frontmatter', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const offset = partBook.indexOf('Part I — Using Loom') + 2
+      const target = yield* c.definition('/book.loom', offset)
+      expect(target?.path).toBe('/opener.loom')
+      expect(target?.range.start.line).toBe(1)
+    }).pipe(Effect.provide(partLayer)),
+  )
+
+  it.effect("a chapter's `Part I` goes to the opening frontmatter", () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const offset = workspace.indexOf('Part I,') + 2
+      const target = yield* c.definition('/workspace.loom', offset)
+      expect(target?.path).toBe('/opener.loom')
+      expect(target?.range.start.line).toBe(1)
+    }).pipe(Effect.provide(partLayer)),
+  )
+
+~
+
+From the part's name in the announcement, the `references` verb gathers the announcement itself, the second chapter's `Part I`, and the part heading on line 2 of the table.
+
+=>
+
+  it.effect('references gather the announcement, the parts, and the heading', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const offset = opener.indexOf('Using Loom') + 2
+      const refs = yield* c.references('/opener.loom', offset)
+      const has = (path: string, line: number) =>
+        refs.some((r) => r.path === path && r.range.start.line === line)
+      expect(has('/opener.loom', 1)).toBe(true)
+      expect(has('/workspace.loom', 1)).toBe(true)
+      expect(has('/book.loom', 2)).toBe(true)
+    }).pipe(Effect.provide(partLayer)),
+  )
+
+~
+
+The editor can navigate from a part but cannot rename it. The `navigationRange` verb underlines the whole label under the cursor, wider than `Part I` alone. The `renameRange` verb gives nothing.
+
+=>
+
+  it.effect('a part underlines its whole span but offers no rename', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const offset = partBook.indexOf('Part I — Using Loom') + 2
+      const nav = yield* c.navigationRange('/book.loom', offset)
+      const ren = yield* c.renameRange('/book.loom', offset)
+      const width = (nav?.range.end.character ?? 0) - (nav?.range.start.character ?? 0)
+      expect(nav).not.toBeUndefined()
+      expect(width).toBeGreaterThan('Part I'.length)
+      expect(ren).toBeUndefined()
+    }).pipe(Effect.provide(partLayer)),
+  )
+})
+
+## The contents test file {Tangle}[test/Toc.test.ts]
+
+=>
+
+::[Testing the table of contents as it parses]
+
+::[A table of contents in the editor]
+
+::[Where a part is announced]

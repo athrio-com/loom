@@ -1,77 +1,67 @@
 import { describe, expect, it as it_ } from 'bun:test'
 import { effectify } from '@athrio/effect-test'
-const it = effectify(it_)
 import { Effect, Layer, Option } from 'effect'
-import { parseDocument, ParseLayer } from './parse'
-import {
-  profileOf,
-  symbolsOf,
-  SymbolKindSchema,
-} from '@athrio/loom-ast/LoomSymbol'
+import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
+import { profileOf, SymbolKindSchema, symbolsOf } from '@athrio/loom-ast/LoomSymbol'
 import { symbolMappings } from '#ast/LoomVirtualCodeBuilder'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { LoomMemo } from '../src/LoomMemo'
 import { PackageConfig } from '../src/PackageConfig'
-import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
+import { parseDocument, ParseLayer } from './parse'
 
-// LoomSymbol.profileOf is the one table; three consumers read it, and this file guards
-// that they cannot drift from it. The fixture exercises every kind symbolsOf emits: the
-// {{ratio}} warp, two heading titles, a {TypeScript} specifier and a [., convert.ts]
-// sink, a ::[ratio] warp anchor and a ::[Converting] section anchor, the => arrows and
-// the ~ tilde.
-const fixture = `---
-Language: TypeScript
----
+const it = effectify(it_)
 
-# Converting {TypeScript} [., convert.ts]
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
 
-{{ratio = 1.8}}
+const anchor = (name: string): string => `::${'['}${name}]`
 
-=>
+const fixture = lines(
+  '---',
+  'Language: TypeScript',
+  '---',
+  '',
+  '# Converting {TypeScript} [., convert.ts]',
+  '',
+  '{{ratio = 1.8}}',
+  '',
+  '=>',
+  '',
+  `export const scale = ${anchor('ratio')}`,
+  '',
+  '~',
+  '',
+  '# Doubling',
+  '',
+  '=>',
+  '',
+  anchor('Converting'),
+  'export const twice = (n: number) => n * 2',
+)
 
-export const scale = ::[ratio]
-
-~
-
-# Doubling
-
-=>
-
-::[Converting]
-export const twice = (n: number) => n * 2
-`
-
-const parse = (src: string) =>
-  Effect.runSync(parseDocument(src).pipe(Effect.provide(ParseLayer)))
+const parse = (src: string) => Effect.runSync(parseDocument(src).pipe(Effect.provide(ParseLayer)))
 
 const files: Record<string, string> = { '/convert.loom': fixture }
 
 const layer = Layer.provide(
   Layer.merge(LoomCompiler.layer, LoomMemo.layer),
   Layer.merge(
-    Layer.succeed(
-      DocumentSource,
-      {
-        read: (path: string) => Effect.succeed(files[path] ?? ''),
-        list: Option.some(() => Effect.succeed(Object.keys(files))),
-        hold: () => Effect.void,
-      },
-    ),
-    Layer.succeed(
-      PackageConfig,
-      {
-        resolve: () =>
-          Effect.succeed({
-            delims: defaultAnchorDelims,
-            primaryLanguage: undefined,
-            variables: {},
-            width: 100,
-            packageRoot: undefined,
-            workspaceRoot: undefined,
-            corpusDir: undefined,
-          }),
-      },
-    ),
+    Layer.succeed(DocumentSource, {
+      read: (path: string) => Effect.succeed(files[path] ?? ''),
+      list: Option.some(() => Effect.succeed(Object.keys(files))),
+      hold: () => Effect.void,
+    }),
+    Layer.succeed(PackageConfig, {
+      resolve: () =>
+        Effect.succeed({
+          delims: defaultAnchorDelims,
+          primaryLanguage: undefined,
+          variables: {},
+          width: 100,
+          packageRoot: undefined,
+          workspaceRoot: undefined,
+          corpusDir: undefined,
+        }),
+    }),
   ),
 )
 
@@ -96,22 +86,18 @@ describe('the capability table drives the editor', () => {
       const fromTable = new Set(
         symbolsOf(doc).flatMap((s) => Option.toArray(profileOf(s.kind).semantic)),
       )
-      const c = yield* LoomCompiler
-      const emitted = new Set(
-        (yield* c.semanticTokens('/convert.loom')).map((t) => t.type),
-      )
+      const compiler = yield* LoomCompiler
+      const emitted = new Set((yield* compiler.semanticTokens('/convert.loom')).map((t) => t.type))
       expect(emitted).toEqual(fromTable)
     }).pipe(Effect.provide(layer)),
   )
 
   it.effect('a rename range appears only where the table marks a kind navigable', () =>
     Effect.gen(function* () {
-      const c = yield* LoomCompiler
-      // heading title — profileOf marks it navigable
-      const atTitle = yield* c.renameRange('/convert.loom', fixture.indexOf('Converting'))
+      const compiler = yield* LoomCompiler
+      const atTitle = yield* compiler.renameRange('/convert.loom', fixture.indexOf('Converting'))
       expect(atTitle).not.toBeUndefined()
-      // sink — profileOf grants it verification only, no navigation
-      const atSink = yield* c.renameRange('/convert.loom', fixture.indexOf('convert.ts'))
+      const atSink = yield* compiler.renameRange('/convert.loom', fixture.indexOf('convert.ts'))
       expect(atSink).toBeUndefined()
     }).pipe(Effect.provide(layer)),
   )

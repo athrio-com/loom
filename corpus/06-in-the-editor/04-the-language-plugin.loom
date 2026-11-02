@@ -304,3 +304,194 @@ describe('LoomLanguagePlugin — a script Volar deletes', () => {
 =>
 
 ::[Testing the plugin]
+
+## Testing the capability table
+
+A symbol is a token in a loom that a cursor can rest on, such as a heading title, an anchor or an arrow. Every symbol has a kind. The capability table is the `profileOf` function, which gives each kind its profile. A profile names the colour a token of that kind wears, and the editor requests that Volar forwards at its span, such as go-to-definition or rename. The chapter "The symbol-capability registry" defines the table.
+
+Three parts of the editor read the table. The first is the root this plugin hands Volar, where the `symbolMappings` function lays one span for each symbol. The `LoomCompiler` service forwards at each span the requests that the symbol's profile allows. The second is the compiler's `semanticTokens` verb, which colours each token. The third is the compiler's navigation, which decides where a rename may begin. None of the three keeps an answer of its own, so a symbol of one kind behaves alike in all three.
+
+Four cases guard that agreement. The first checks that the table answers for every kind. Each of the other three checks one part of the editor, over one small loom.
+
+=>
+
+describe('the capability table drives the editor', () => {
+  ::[Every kind has a profile]
+
+  ::[One span for every symbol]
+
+  ::[The colours the table assigns]
+
+  ::[A rename only where the table allows]
+})
+
+## A loom with nine kinds of symbol
+
+The cases that check the editor read one loom, `convert.loom`. A loom quoted in this chapter's code would be read as part of the chapter. In a loom, a line that starts with `#` and a space opens a section. A line that starts with an arrow opens a code block, and a line that holds a lone tilde closes one. An anchor is an anchor wherever it stands. So the loom is written as a list of its lines, each one quoted and indented, where the chapter cannot mistake any of them for its own. The `lines` function joins them into the text a file holds, ending on a newline as a file does. The `anchor` function spells an anchor in two pieces, so the chapter never holds one whole.
+
+=>
+
+const lines = (...rows: ReadonlyArray<string>): string => `${rows.join('\n')}\n`
+
+const anchor = (name: string): string => `::${'['}${name}]`
+
+~
+
+The loom holds eleven symbols of nine kinds. The value of its frontmatter's `Language` field is a `frontmatterValue` symbol. The first section, `Converting`, carries a heading title, a `{TypeScript}` specifier and a `[., convert.ts]` sink. Its preamble declares the value warp `ratio`, a `warpDef` symbol. Its code block opens on an arrow and closes on a tilde, and the code between them names `ratio` in an anchor, a `warpAnchor` symbol. The second section, `Doubling`, carries a heading title of its own. Its code block opens on an arrow and anchors the section `Converting`, a `sectionAnchor` symbol.
+
+=>
+
+const fixture = lines(
+  '---',
+  'Language: TypeScript',
+  '---',
+  '',
+  '# Converting {TypeScript} [., convert.ts]',
+  '',
+  '{{ratio = 1.8}}',
+  '',
+  '=>',
+  '',
+  `export const scale = ${anchor('ratio')}`,
+  '',
+  '~',
+  '',
+  '# Doubling',
+  '',
+  '=>',
+  '',
+  anchor('Converting'),
+  'export const twice = (n: number) => n * 2',
+)
+
+## Reading the loom into a document
+
+Two cases read the loom's symbols straight from its parse. The `parse` function hands the loom's text to `parseDocument`, which runs the four stages that turn text into a `LoomDocument`. The stages range the lines, classify them, tokenise them and build the tree, and the `ParseLayer` layer provides all four. The `parse` function runs that chain at the test's own boundary, with `Effect.runSync`, and returns the document.
+
+=>
+
+const parse = (src: string) => Effect.runSync(parseDocument(src).pipe(Effect.provide(ParseLayer)))
+
+## A compiler over one loom
+
+Two cases ask the `LoomCompiler` service itself. The compiler reads its looms through a `DocumentSource` service and its build settings through a `PackageConfig` service, and the test's `layer` stands in for both. Its `DocumentSource` keeps the loom in `files`, at the path `/convert.loom`. It reads any other path as empty, lists only that loom, and ignores a request to hold a workspace. Its `PackageConfig` gives every path the same settings. They hold the built-in anchor delimiters and a width of 100, with no primary language, no variables, and no package, workspace or corpus root. Over those two stand-ins, `layer` provides the compiler, with a `LoomMemo` cache beside it.
+
+=>
+
+const files: Record<string, string> = { '/convert.loom': fixture }
+
+const layer = Layer.provide(
+  Layer.merge(LoomCompiler.layer, LoomMemo.layer),
+  Layer.merge(
+    Layer.succeed(DocumentSource, {
+      read: (path: string) => Effect.succeed(files[path] ?? ''),
+      list: Option.some(() => Effect.succeed(Object.keys(files))),
+      hold: () => Effect.void,
+    }),
+    Layer.succeed(PackageConfig, {
+      resolve: () =>
+        Effect.succeed({
+          delims: defaultAnchorDelims,
+          primaryLanguage: undefined,
+          variables: {},
+          width: 100,
+          packageRoot: undefined,
+          workspaceRoot: undefined,
+          corpusDir: undefined,
+        }),
+    }),
+  ),
+)
+
+## Every kind has a profile
+
+The type checker already refuses a kind with no profile, because the `profileOf` function closes its `Match` with `Match.exhaustive`. The case asks the same question of the running code. It walks every kind that the `SymbolKindSchema` schema lists, asks `profileOf` for that kind's profile, and expects each profile to carry its features.
+
+=>
+
+it('profileOf covers every symbol kind', () => {
+  const unprofiled = SymbolKindSchema.literals.filter(
+    (kind) => typeof profileOf(kind).features !== 'object',
+  )
+  expect(unprofiled).toEqual([])
+})
+
+## One span for every symbol
+
+The `symbolMappings` function lays the spans the plugin hands Volar on a loom's root. The case reads the parsed loom twice, once through `symbolsOf` and once through `symbolMappings`. The kinds the mappings carry must equal the kinds of the symbols, in the same order. So the mappings lay exactly one span per symbol, and each span carries the kind that `LoomCompiler` reads to choose the requests Volar forwards there.
+
+=>
+
+it('the mappings lay one span per symbol, carrying its kind', () => {
+  const doc = parse(fixture)
+  const symbols = symbolsOf(doc)
+  const mappings = symbolMappings(doc)
+  expect(mappings.map((m) => m.kind)).toEqual(symbols.map((s) => s.kind))
+})
+
+## The colours the table assigns
+
+The compiler's `semanticTokens` verb gives each of a loom's tokens its colour. The case gathers two sets of colours. The set `fromTable` holds the colours the table assigns to the loom's symbols. The set `emitted` holds the colours the compiler gives the tokens of `/convert.loom`. The two sets must be equal. Every colour the compiler emits is one the table assigns, and every colour the table assigns is emitted.
+
+=>
+
+it.effect('the colours are exactly the colours the table assigns', () =>
+  Effect.gen(function* () {
+    const doc = parse(fixture)
+    const fromTable = new Set(
+      symbolsOf(doc).flatMap((s) => Option.toArray(profileOf(s.kind).semantic)),
+    )
+    const compiler = yield* LoomCompiler
+    const emitted = new Set((yield* compiler.semanticTokens('/convert.loom')).map((t) => t.type))
+    expect(emitted).toEqual(fromTable)
+  }).pipe(Effect.provide(layer)),
+)
+
+## A rename only where the table allows
+
+A rename begins only on a symbol whose profile sets the `navigation` flag. The case asks the compiler for a rename range, the span the editor's rename box covers, at two places in the loom. At the heading title `Converting`, whose kind the table marks navigable, a range comes back. Inside the sink `[., convert.ts]`, whose kind the table marks for verification only, none comes back.
+
+=>
+
+it.effect('a rename range appears only where the table marks a kind navigable', () =>
+  Effect.gen(function* () {
+    const compiler = yield* LoomCompiler
+    const atTitle = yield* compiler.renameRange('/convert.loom', fixture.indexOf('Converting'))
+    expect(atTitle).not.toBeUndefined()
+    const atSink = yield* compiler.renameRange('/convert.loom', fixture.indexOf('convert.ts'))
+    expect(atSink).toBeUndefined()
+  }).pipe(Effect.provide(layer)),
+)
+
+## What the cases draw on
+
+The cases run on Bun's test runner. The `effectify` helper wraps the runner's `it` function, so a case may also be an Effect, run with `it.effect`. The `LoomSymbol` module supplies the table, `profileOf`, and `symbolsOf`, which reads a document's symbols. It also supplies `SymbolKindSchema`, which lists every kind. The `symbolMappings` function comes from the `LoomVirtualCodeBuilder` module. This package supplies the `LoomCompiler` service, the `DocumentSource` and `PackageConfig` services it reads through, and the `LoomMemo` cache. The tests' own `parse` module supplies `parseDocument` and `ParseLayer`. The `defaultAnchorDelims` pair holds the built-in anchor delimiters that the stand-in configuration hands out. Effect supplies the `Effect`, `Layer` and `Option` modules.
+
+=>
+
+import { describe, expect, it as it_ } from 'bun:test'
+import { effectify } from '@athrio/effect-test'
+import { Effect, Layer, Option } from 'effect'
+import { defaultAnchorDelims } from '@athrio/loom-ast/LoomTokens'
+import { profileOf, SymbolKindSchema, symbolsOf } from '@athrio/loom-ast/LoomSymbol'
+import { symbolMappings } from '#ast/LoomVirtualCodeBuilder'
+import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
+import { LoomMemo } from '../src/LoomMemo'
+import { PackageConfig } from '../src/PackageConfig'
+import { parseDocument, ParseLayer } from './parse'
+
+const it = effectify(it_)
+
+## The capability table test file {Tangle}[test/CapabilityTable.test.ts]
+
+=>
+
+::[What the cases draw on]
+
+::[A loom with nine kinds of symbol]
+
+::[Reading the loom into a document]
+
+::[A compiler over one loom]
+
+::[Testing the capability table]
