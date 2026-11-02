@@ -1,0 +1,125 @@
+---
+Part: Work in progress
+Chapter: Books
+Status: Planned
+Priority: 2
+Language: TypeScript
+---
+
+# Books
+
+A corpus holds one book today. The book loom carries the book's title, the prose that opens it, and its table of contents, and the book's parts hold its chapters. Loom's own corpus works this way, with `corpus/book.loom` as its book loom.
+
+A repository often holds more than one project. A game may share its repository with the website that sells it and the server that keeps its scores, and one corpus may hold all three. Each project then deserves a book of its own, with its own parts, its own table of contents, and its own glossary. This chapter adds the book to the tree of the corpus, which runs from the corpus to its books, their parts, their chapters, and the chapters' sections.
+
+The chapter also gives each book the three zones a printed book has. The front matter opens the book, the body holds its numbered parts and chapters, and the back matter closes it.
+
+## A corpus of books
+
+A book is one project, written as a book: a command line, an application, a game. A corpus holds one book or several.
+
+A corpus with one book needs no book level. Its looms name no book, and the corpus and its book are one and the same. Every corpus written today is such a corpus, so none of its looms change.
+
+A corpus with several books gives each book a book loom of its own, and each chapter names its book in a `Book` field of its frontmatter:
+
+```
+---
+Part I, Chapter 2: Sleeping monsters
+Book: The game
+Language: TypeScript
+---
+```
+
+A book loom names its own book in the same field, and names no part. Loom finds a book loom the way it finds one today, by the `{TOC}` section the loom carries. The `bookEntries` function, in Part VIII's chapter "The table of contents", reads the module that holds that section.
+
+The `Book` field places a loom in its book, and the loom's folder does not. On a disk, an author keeps each book in a folder of its own, such as `corpus/the-game/`. In remote storage, though, a loom's location is a name and not a path, as the chapter "Where a workspace is kept" describes. A folder therefore can never be what places a loom.
+
+Books take names and never numbers. The books of a corpus are separate projects with no reading order between them, so a number would rank what nothing ranks.
+
+## Front, body, and back
+
+Printed books share one layout, which publishing style guides such as the Chicago Manual of Style describe. The front matter opens the book with its title page, its contents, and a foreword or a preface. The body holds the parts and the chapters. The back matter closes the book with its appendices, notes, glossary, bibliography, and index. DocBook and EPUB, two formats for digital books, keep the same three zones.
+
+A Loom book has the same three zones:
+
+- **Front matter:** the book loom. Its title opens the book, its opening prose is the book's preface, and its `{TOC}` section is the table of contents.
+- **Body:** the parts and their chapters, as today.
+- **Back matter:** the book's discussions, which the chapter "Discussions" describes, its glossaries, which the chapter "Glossaries" describes, and the index, which the weave builds from the book's references to its terms.
+
+## Numbers belong to the body
+
+Only the body numbers its chapters, so nothing added to the front or the back of a book renumbers a chapter.
+
+A printed book keeps this rule strictly. Its front matter numbers its pages in roman numerals, so the body's first page stays page 1 however long the preface grows. Its appendices take letters, a sequence of their own. Its glossary and its index take no number, since each is the only one of its kind.
+
+Loom follows the same rule. A chapter takes its number within its part, as today. A discussion takes its number within its part too, in a sequence apart from the chapters, the way an appendix takes a letter. A glossary takes no number at all, because a scope holds one glossary at most, and the scope names it.
+
+## The back of the book
+
+A discussion belongs to a part, and a part may have a glossary of its own. Both still sit in the back matter of their book, listed under their part. A printed book treats its endnotes the same way, gathering them at the back under each chapter's name.
+
+The back matter lists the discussions first, part by part. The glossaries follow, the book's own first and then each part's. The index comes last.
+
+## Two tables of contents
+
+Each book keeps a table of contents in its front matter. The table lists the book's parts and chapters, then the back matter under a heading of its own:
+
+```
+# Table of Contents {TOC}
+
+### Part I — The room
+
+1. A grid of cells
+2. Sleeping monsters
+
+### Back matter
+
+- Part I, Discussion 1: Waking
+- Glossary
+- Part I, Glossary
+```
+
+The index has no line in the table, since no loom holds it. The woven contents end with it.
+
+A corpus of several books keeps a table of contents too, in the corpus loom. The corpus loom opens the corpus the way a book loom opens its book, with a title, the prose that introduces the corpus, and a `{TOC}` section, and it names no book. Its table lists the books, then the corpus's own back matter, which holds the corpus's glossary:
+
+```
+# Contents {TOC}
+
+### Books
+
+- The game
+- The website
+- The score server
+
+### Back matter
+
+- Glossary
+```
+
+`loom toc` writes both tables from the frontmatter of the looms they list, as it writes the one table today. Its `lineOf` function reads every heading in a table as a part. It learns two headings that name no part: `Back matter` in either table, and `Books` in the corpus's.
+
+## Names reach through books
+
+A name resolves nearest first, as the chapter "Names through the book" describes. It looks in its own chapter, then among the chapters and discussions of its book. With books, that book is the one the reference stands in, so a bare name never reaches a chapter in another book.
+
+A path reaches into another book by starting with the book's name. `::[The website, Part I, Chapter 2, Pricing]` names a section of the website from a chapter of the game.
+
+A reference never leaves its corpus. Another corpus is another workspace, with names and a history of its own, so a loom that needs another corpus's text quotes it in a fence.
+
+## What to work out
+
+- **The Work in progress part.** Loom's own book lists its unfinished chapters under a numberless part, Work in progress. Whether those chapters belong to the body or to the back matter is open.
+- **More front matter.** Whether a book's front matter may hold looms beside the book loom, such as a foreword by another author, is open.
+- **A book's package.** Each chapter names its package in its `Package` field. A book is one project, so whether a book names one root for all its chapters is open.
+- **A trope's division.** A trope for research papers lists the works a chapter cites. Whether a trope may add a division of its own to the back matter, such as a bibliography, is open.
+- **Books on the woven site.** How the woven site shows a corpus of several books, and whether each book gets a site of its own, is open.
+
+## What this chapter grows into
+
+1. The `Book` field in the frontmatter, the book loom and the corpus loom, and the fault for a chapter whose book has no book loom.
+2. The three zones, and the back matter in the table of contents that `loom toc` writes.
+3. Names found within the reference's own book, and paths that start with a book's name.
+4. The back matter and the index in the woven book.
+
+When a corpus of several books parses, resolves, and weaves, this chapter joins Part II, The shape of a loom, and Part VIII's chapter "The table of contents".

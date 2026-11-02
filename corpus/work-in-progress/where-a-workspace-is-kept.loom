@@ -1,0 +1,168 @@
+---
+Part: Work in progress
+Chapter: Where a workspace is kept
+Status: Planned
+Priority: 1
+Language: TypeScript
+---
+
+# Where a workspace is kept
+
+A workspace is the set of looms that one `.loom/config.yaml` file governs, and Loom assumes it is a folder. The compiler walks that folder to find the looms. The configuration service climbs out of it to find the configuration file. The language server reads files directly.
+
+This chapter gives Loom two storage environments. The file system keeps working as it does today. Remote storage is any service that honours Loom's storage contract at a web address, or URL, and it keeps its data however it likes, in a database, an object store, or a vault. The looms stay the same plain text, the passes stay the same, and a new service, `WorkspaceSource`, hides the difference from the compiler and the language server.
+
+## A loom stays text
+
+A loom is text wherever it is kept. Every position in Loom counts characters into that text, so a diagnostic, a source mapping, and a rename edit all point at offsets in it. Remote storage may hold a loom in any shape, as one record or as many blocks. It must hand Loom the complete text, and the same bytes on every request until the loom changes.
+
+The parsed tree stays derived. The `LoomCorpusAstBuilder` service builds it from the text, and the `LoomDiskCache` service keeps a copy only to save time, so deleting the cache loses nothing. A storage service that wants a tree of sections for its own queries derives one the same way.
+
+## What a source must answer
+
+The `WorkspaceSource` service is how Loom reaches a workspace. It names each loom by a location, a string that identifies the loom and means nothing to the compiler. It answers two questions that may take time, and four that may not.
+
+The first two fetch text. The `open` method hands over a whole `Workspace` value, which holds the settings and the text of every loom. The `read` method hands over one loom's text again after that loom changes. Both may wait on a network, and both fail with the existing `ReadError`.
+
+The other four must answer at once. The `workspaceOf` method names the workspace a loom belongs to, and for a loom outside any workspace it names the loom's own folder. The `placeOf` method says where a sink lands. The `locationOf` and `uriOf` methods cross between a location and a uniform resource identifier, or URI, the address that the Language Server Protocol uses.
+
+```
+interface Workspace {
+  readonly location: Location
+  readonly manifest: Option.Option<WorkspaceManifest>
+  readonly looms: ReadonlyMap<Location, string>
+}
+
+interface WorkspaceSourceApi {
+  readonly open: (workspace: Location) => Effect.Effect<Workspace, ReadError>
+  readonly read: (loom: Location) => Effect.Effect<string, ReadError>
+  readonly workspaceOf: (loom: Location) => Location
+  readonly placeOf: (loom: Location, sink: string) => string
+  readonly locationOf: (uri: URI) => Location
+  readonly uriOf: (loom: Location) => URI
+}
+```
+
+Loom ships one source for each environment. The `FileSystemSource` layer reads folders the way Loom does today. The `RemoteSource` layer speaks the storage contract. Both provide the `WorkspaceSource` service, and a test can supply its own through the `Layer.succeed` function.
+
+## Why the text waits in memory
+
+The language server cannot wait for a network. Volar calls the `createVirtualCode` hook synchronously, and the `LoomLanguagePlugin` module answers that call with the `runtime.runSync` method. It answers diagnostics, go-to-definition, and rename the same way. The `runSync` method fails on any effect that has to wait, so a network read cannot run inside those calls.
+
+The text must therefore be in memory before the editor asks for it. The server calls the `open` method while it handles the `initialize` request, which Volar lets it await, and the `DocumentSource` service holds what comes back. The compiler keeps reading through the `DocumentSource` service as it does today, and each read becomes a lookup in memory.
+
+In short, the `WorkspaceSource` service fetches and the `DocumentSource` service remembers.
+
+Holding the text costs almost nothing, because Loom already holds it. Each `LoomModule` value carries its loom's text, and the `warmCorpus` function builds the whole corpus when the server starts. The `tangle` verb reads the whole corpus too, on every run.
+
+An editor can also open a loom from a workspace the server has not opened yet. The file-system source handles this during a synchronous call, because its reads never wait. The remote source never meets the case, because its URL names one workspace.
+
+## The storage contract
+
+Remote storage answers two requests, because only the `open` and `read` methods fetch anything. The other four methods must answer at once, so they cannot cross a network, and the `RemoteSource` layer answers them by rule.
+
+A URL names one workspace, and each loom's location is a URL beneath it, ending in `.loom`. Volar's language lookup and the `isLoom` function both read that ending. Every request carries the secret key in an `Authorization: Bearer` header.
+
+A `GET` request on the workspace's URL returns the workspace as JSON. It holds the contract's version, the workspace's manifest, and every loom's text keyed by location.
+
+```
+{
+  "contract": 1,
+  "manifest": { "corpus": "corpus", "primary": "TypeScript" },
+  "looms": {
+    "https://storage.example/books/42/corpus/book.loom": "---\nPart: ..."
+  }
+}
+```
+
+A `GET` request on a loom's location returns that loom's text.
+
+An Effect Schema defines the JSON shape, and a service written in any language can honour it. New versions of the contract only add fields, so an older Loom still reads a newer service.
+
+The contract holds no write request. The server never saves a loom, so writing belongs to whoever edits the text. Permissions, conflicts, and history belong there too.
+
+The `RemoteSource` layer answers the other four methods from the URL. The `workspaceOf` method always names that URL. The `placeOf` method returns the sink unchanged, so a sink stays relative to the workspace. The `locationOf` and `uriOf` methods pass a URI through as a string and parse it back.
+
+## The URL and the key
+
+Two environment variables connect Loom to remote storage. The `LOOM_STORAGE_URL` variable names the workspace, and the `LOOM_STORAGE_KEY` variable holds the secret key. When the first is set, Loom uses the `RemoteSource` layer, and the second must be set too. When the first is unset, Loom uses the `FileSystemSource` layer.
+
+Neither value belongs in the `.loom/config.yaml` file. On the file system that file sits in a repository. In remote storage, Loom needs the key to fetch that file in the first place.
+
+The key stays in an Effect `Redacted` value, so a log line cannot print it. A wrong key fails the `open` method, so the editor hears of it as it connects.
+
+The two variables are all the language server needs, so it can run on an author's machine or next to the storage.
+
+## A location is a name, not a path
+
+The compiler compares locations and keys its maps by them, and it never takes one apart. Only the source knows what a location means, because the source makes it. The `Path` type becomes `Location` to say so.
+
+The file-system source keeps today's absolute paths as locations, so nothing changes for a loom in a folder.
+
+The `locationOf` and `uriOf` methods replace every use of `uri.fsPath`, `URI.file`, and `fileURLToPath` in the `LoomLanguagePlugin`, `LoomServer`, and `LoomLanguage` modules. This removes a trap as well. The `fsPath` property ignores a URI's scheme, so `memory:/a.loom` and `file:///a.loom` both come out as `/a.loom`.
+
+One form of anchor still reads inside a location. The anchor `::[Name](path.loom)` goes through the `resolveRelative` function, which splits the location on `/`. A URL splits the same way, so this anchor keeps working until the chapter "Names through the book" retires it.
+
+## Four folder rules move out
+
+Four rules about folders sit in the compiler and its neighbours. Each one moves into the file-system source or behind a layer, so the compiler no longer depends on a folder.
+
+**Which looms belong.** The `listFrom` function finds the corpus folder, then uses the `holds` and `loomsIn` functions to walk it under the rules in `.gitignore` files. The chapter "The looms in a project" describes that walk, and none of it means anything without folders. The walk becomes part of the file-system source's `open` method, and the compiler takes the keys of the `Workspace.looms` map instead. The `list` method of the `Source` interface loses its folder and project arguments.
+
+**Where a workspace begins.** The `LoomConfig` service climbs folders to find the `.loom/config.yaml` file, then works out `packageRoot` and `corpusDir` from folder names. The `PackageConfig` service now reads the manifest the workspace holds. The `BuildSettings` interface keeps what a manifest says, such as the anchor delimiters, the primary language, the variables, and the width.
+
+**Where a sink lands.** The `outputPath` function resolves a sink against the parent of the corpus folder, or against the loom's own folder when the loom sits outside any corpus folder. So a loom's folder can decide where its output goes. The `outputPath` function moves into the file-system source as its `placeOf` method. The compiler stores the answer in each `TangledFile` and `ComposedFile` value and never reads it.
+
+**What the cache may keep.** The `LoomDiskCache` service writes to the `.loom/cache` folder, and it reads the loom's file to check that it is not keeping an unsaved edit. That check now compares against the text the `DocumentSource` service holds. The `LoomCompiler` layer provides this cache itself today, and the entry point provides it instead. Remote storage can then run with a cache that keeps nothing, and the server rebuilds the corpus at each start.
+
+## How the server hears of a change
+
+The server needs no new signal. Editors already report changes through the protocol's `workspace/didChangeWatchedFiles` notification, and the `LoomServer` module already reacts to it. The notification carries a URI of any scheme, so an editor working over remote storage sends the same message.
+
+The handler changes in one way. It calls the `read` method for each changed loom, updates the `DocumentSource` service, and then invalidates as it does today. That read may wait, so this work moves out of the `runSync` call and into the fiber the handler already forks to reproject open looms.
+
+The server recognises a change to the settings by the ending of its URI, `/.loom/config.yaml`, and then calls the `open` method again.
+
+The server never saves a loom. Rename and formatting return edits, and the editor applies them and saves. An editor working over remote storage saves through its own service, then sends the notification.
+
+## What keeps its folder
+
+Three things stay on disk.
+
+**What the command line writes.** The `tangle` and `weave` commands only read looms, so they read from either environment and write their output to a folder. With the two variables set, the `loom tangle` command fetches a workspace from remote storage and writes its product to the current folder. This works because the `tangle` verb returns `TangledFile` values and writes nothing. The lock stays beside that output, because it records what the tangle wrote. The `format`, `toc`, and `set` commands rewrite a workspace's own text, so they work only on the file system.
+
+**The programs Loom runs.** The `.loom/services` folder and the `~/.loom/typescript` folder hold language services and TypeScript 7. Neither holds a workspace's content, so both stay on the machine that runs the server. The `LOOM_HOME` variable already moves the services out of the workspace folder.
+
+**Language services that need a folder.** TypeScript 7 runs as `tsc --lsp` in a real folder and reads `tsconfig.json` and `node_modules` from it. A workspace with no folder gets every feature Loom answers itself: its own diagnostics, go-to-definition, find-references, rename, semantic tokens, composition, and weaving. It gets no type checking from TypeScript until something gives that service a folder. That limit belongs to the language service, not to the compiler.
+
+## Choosing the environment at startup
+
+The `LoomServer` module builds its `ManagedRuntime` value as a module constant, over the `DocumentSource.layer` value. That constant becomes a value the `startLanguageServer` function builds from a layer it receives. The server's entry point reads the two variables and passes the matching layer, and the `loom` program does the same. The rest of the service graph stays as it is.
+
+## A workspace with no folder
+
+Two tests decide when this chapter is done. Both run a small storage service on a local port, which holds its looms in a map behind a key. That service is also the stub a consumer of the contract starts from.
+
+The first test starts the language server with that service's URL and key, and with no folder. It opens a loom and receives diagnostics, follows a definition into another loom, renames a section across looms, and reads the composed files. It then sends a change notification and watches the diagnostics move. Every read crosses a real socket and really waits, so any code still reading inside a synchronous call fails this test.
+
+The second test starts the server with a wrong key and expects the failure during the `initialize` request, with no key in the message.
+
+The existing tests keep passing, with their stubs updated to the new shapes. The `loom tangle` command writes the same bytes over this book.
+
+## What to work out
+
+- **A folder for language services.** TypeScript 7 needs a folder holding the product and its dependencies. The `loom tangle` command can fill one from remote storage. Where that folder lives, and whether the language service's contract asks for it, is open.
+- **Building the product.** Tangling needs only text. Compiling the product needs a folder, a toolchain, and the dependencies, so it runs wherever those three exist, such as a continuous integration job. How a build's errors, which name tangled files, find their way back to their sections is open.
+- **Editors that report no changes.** The `savedLooms` function reads a file's modified time on every request, so a saved edit reaches the server even when the editor sends no notification. Whether the file-system source keeps this check needs testing in Helix and Neovim before the check goes.
+- **Very large workspaces.** The `open` method fetches every loom's text at once. This book holds about two megabytes of text, so that request stays small. A far larger workspace may need a later version of the contract that lists a hash for each loom, so Loom fetches only what changed.
+
+## What this chapter grows into
+
+1. The `WorkspaceSource` service and the `FileSystemSource` layer, with the `DocumentSource` service holding what the `open` method hands over. Nothing visible changes.
+2. The direct reads in the `LoomLanguagePlugin`, `LoomServer`, and `LoomDiskCache` modules give way to that held text.
+3. The folder rules move out: the walk, the climb to the `.loom/config.yaml` file, and the `outputPath` function.
+4. The `locationOf` and `uriOf` methods at the server's edge, and the `Location` type.
+5. The `startLanguageServer` function takes its source as a layer.
+6. The storage contract: its schema, the `RemoteSource` layer, the stub service, and the two tests.
+
+When those tests pass, this chapter joins Part V.

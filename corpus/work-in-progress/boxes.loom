@@ -10,11 +10,11 @@ Language: TypeScript
 
 A loom holds more than prose and code. An author sketches a diagram, leaves a note for a reader, and keeps the command that starts a server. An author also meets thoughts too large for the section they start in, and points to a chapter or a discussion of their own. An author writes every one of these as the same block, the box, and a trope can teach Loom a new kind of box without any new syntax.
 
-The note is the only block of this kind today. It opens with `:::[Note] {}`, closes with a lone `:::`, and the classifier keeps every line between the two inert. A box grows the note into a general block with a name, a kind, parameters, and a body, and a box can hold other boxes.
+The note is the only block of this kind today. It opens with `:::[Note] {}`, closes with a lone `:::`, and the classifier keeps every line between the two inert. A box grows the note into a general block with a name, a kind, parameters, and a body.
 
 ## The shape of a box
 
-A box opens with a line of three or more colons, then an optional name, then optional braces. It closes with a line of exactly as many colons as opened it.
+A box opens with a line of three colons, then an optional name, then optional braces. It closes with a line of three colons alone.
 
 ```
 ::: One turn of the game {Mermaid}
@@ -26,25 +26,29 @@ flowchart LR
 
 The name identifies the box in the book, the way a heading's title identifies a section. The name is also the box's caption, which the editor and the woven page show with the box. A box therefore never repeats its name in a parameter.
 
-The braces hold the box's parameters. Each parameter is a `key=value` pair, and a value that holds a space is quoted. The parameter named `kind` gives the box its kind.
+The braces are the box's specifier, as `{Bash}` is a section's. A specifier holds parameters, each a `key=value` pair, and a value that holds a space is quoted. The parameter named `kind` gives the box its kind.
 
-A bare word in the braces is shorthand for the kind, so `{Mermaid}` means `{kind=Mermaid}`. The shorthand reads like the `{Bash}` specifier on a section's heading, and a box almost always names its kind this way. Braces name the kind only once. A second bare word, or a bare word beside a `kind` parameter, is a fault.
+A specifier that holds one parameter may write its value alone, so `{Mermaid}` is the short form of `{kind=Mermaid}`, and a box almost always names its kind this way. A box that needs more parameters writes each one in full, and a bare word beside a parameter is a fault. The chapter "Parameters in braces" gives the grammar that a box's specifier shares with a heading's and an anchor's.
 
-A box with no kind is a note. The `{Note}` specifier names that kind outright, but a note needs no braces at all. A line of colons alone closes the open box whose opener has the same length, and anywhere else the same line opens a note.
+A box with no kind is a note. The `{Note}` specifier names that kind outright, but a note needs no braces at all. A line of three colons alone therefore closes the open box, and outside a box the same line opens a note.
 
-A box inside another box opens with one colon more than its parent. The inner box's closer is then too long to close the outer box, so the two can never be confused. Here a note holds a diagram:
+A box never holds another box. Inside an open box, a line of three colons alone closes it, and a line that would open a box is a fault. A run of four or more colons opens nothing and is a fault too, so no reader has to count colons to see where a box ends.
+
+A note that needs a diagram stands beside the diagram rather than around it:
 
 ```
 ::: Why a grid
 The room is small enough to model as cells, so the game needs no engine.
+:::
 
-:::: Cells of the room {Mermaid}
+::: Cells of the room {Mermaid}
 flowchart LR
   Room --> Cell
   Cell --> Thing
-::::
 :::
 ```
+
+A thought that needs more structure than one box gives it belongs in a loom of its own. A chapter holds sections and a discussion holds topics, each with boxes of their own, and a box points to the loom from the section where the thought began.
 
 The body of a box never composes. A line that starts with `#`, `=>`, or `~` inside a box opens nothing in the loom, just as a fence or a note keeps such lines inert today. The box's kind alone decides what its body means.
 
@@ -66,7 +70,7 @@ Such a box moves the opposite way to an anchor. An anchor pulls a section's code
 
 The loom may not exist yet. The box then makes a promise, which the chapter "Names through the book" describes: a reference to the box resolves, and the editor marks it as promised until the loom is written. When the author opens the loom, the editor writes it with the box's name as its title and the box's body as its opening prose. A new chapter starts with the status `Canvas`, which the chapter "Canvases" describes.
 
-Once the loom exists, the box's body is the loom's summary. For a chapter, the summary is the opening prose under the chapter's title. For a discussion, it is the opening prose followed by the discussion's conclusions. The loom holds the summary's source, and the box holds a copy.
+Once the loom exists, the box's body is the loom's summary. For a chapter, the summary is the opening prose under the chapter's title. For a discussion, it is the opening prose followed by the text of the discussion's conclusions. Each conclusion arrives as plain prose, without its box, because a box never holds another. The loom holds the summary's source, and the box holds a copy.
 
 The editor keeps the two in step. An edit to either one reaches the other, and the author can open the box in a side panel to edit the loom's opening without leaving the section. Loom's command line refreshes every copy from its source, the way `loom toc` regenerates the table of contents from the chapters' frontmatter. A copy that differs from its source is a warning, never a silent overwrite, so an edit made outside the editor is never lost.
 
@@ -92,7 +96,7 @@ A kind that neither the core nor an installed trope knows is a fault, so a missp
 
 ## Notes become boxes
 
-Today's note opener, `:::[Note] {}`, becomes a line of three colons alone, or `::: {Note}` for an author who wants to name the kind. The note keeps its body and its closer, and the rewrite over the book is mechanical. The classifier's `inNote` flag grows into a stack of open boxes, one entry for each depth, so a closer ends exactly the box whose length it matches.
+Today's note opener, `:::[Note] {}`, becomes a line of three colons alone, or `::: {Note}` for an author who wants to name the kind. The note keeps its body and its closer, and the rewrite over the book is mechanical. The classifier's `inNote` flag becomes a flag for the open box. At most one box is open on any line, so a closer always ends the box that is open.
 
 ## What to work out
 
@@ -103,10 +107,10 @@ Today's note opener, `:::[Note] {}`, becomes a line of three colons alone, or `:
 
 ## What this chapter grows into
 
-1. The box in the classifier, the tokeniser, and the Loom AST: its opener, name, parameters, kind and the kind's shorthand, body, and nesting by the length of its fence.
+1. The box in the classifier, the tokeniser, and the Loom AST: its opener, name, parameters, kind and the kind's shorthand, body, and the faults for a box opened inside another and for a run of four or more colons.
 2. Every note in the book rewritten as a box with no kind.
 3. Boxes that point to looms: found by name, opened as a chapter or a discussion, their summaries kept in step with the loom's opening prose, and the fault for a chapter box beside code.
 4. The registry of kinds: `Note`, `Chapter`, `Discussion`, and `Conclusion` in the core, and the kinds tropes contribute, with `Mermaid` and `Run` first.
 5. Boxes in the tree-sitter grammar and in each editor's highlighting.
 
-When boxes parse, nest, and draw in the editor, this chapter joins Part II, The shape of a loom, and Part III, Reading the text.
+When boxes parse and draw in the editor, this chapter joins Part II, The shape of a loom, and Part III, Reading the text.

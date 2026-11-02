@@ -1,0 +1,129 @@
+---
+Part: Work in progress
+Chapter: Decorators
+Status: Planned
+Priority: 2
+Language: TypeScript
+---
+
+# Decorators
+
+An editor shows more than a file's text. A word carries a wavy underline, a few muted words follow a line, a button sits above a block. None of these is part of the file. Saving the file saves none of them, and closing the editor loses nothing.
+
+A decorator is something an editor draws on a loom without changing its text. The drafts of this book already ask for several. A reference to a promise is marked as promised, and a numbered reference shows its chapter's title. A term reference shows the term's definition, a variant shows when it falls behind, and a box of kind `Run` carries a button that runs it. Tropes ask for more of their own.
+
+Editors draw such things in different ways, and some draw few of them. This chapter gives decorators one model. Loom's language server turns each decorator into what an editor can draw: standard features that every editor understands, and richer forms for the editors that ask for them.
+
+## A place, a kind, and its content
+
+A decorator has three parts. Its place is a range, a line, or a point in a loom. Its kind says how the editor draws it. Its content is what the editor draws: a few words, a passage of Markdown, an image, or the command a button runs.
+
+A decorator is never saved. The language server works out each decorator from the corpus whenever the editor asks, so a decorator is always as current as the text it decorates.
+
+A fault is not a decorator. A fault says what is wrong with a loom, and Loom's diagnostics report it, as Part VI's chapter "The Loom language" describes. A decorator shows what is true of a loom: that a test passed, that a term means this, that a section has an Estonian variant.
+
+## Six kinds
+
+Six kinds cover what the drafts ask for:
+
+- **Hint:** a few words drawn inside a line, such as the chapter's title beside `::[Part II, Chapter 6, Resolving names]`.
+- **Action:** a labelled button above a line, which runs a command, such as Run above a box of kind `Run`.
+- **Hover:** a passage shown while the pointer rests on a range, such as a term's definition.
+- **Badge:** a short state on a heading or a box, such as passed, failed, promised, or `et` for an Estonian variant.
+- **Style:** a colour or an underline over a range, such as the underline under a term reference.
+- **Widget:** content drawn in place of a range or between two lines, such as the diagram a Mermaid box describes.
+
+The list is fixed, and the tropes contract carries it in its schema. A trope that needs a kind the list lacks asks for the contract to grow, as the chapter "Tropes" describes for every contribution.
+
+A view is not a seventh kind. A view is a surface beside the loom, such as a web page or a terminal, and a trope contributes it as a contribution of its own. A decorator reaches a view through an action, such as a button that opens the game a chapter builds.
+
+## What every editor draws
+
+The Language Server Protocol, LSP for short, already defines features that draw most of the six kinds. The language server turns each decorator into the nearest of them:
+
+- **A hint** becomes an inlay hint, from the `textDocument/inlayHint` request. An inlay hint is a few muted words that the editor draws inside a line and the cursor steps over.
+- **An action** becomes a code lens, from the `textDocument/codeLens` request, and a code action, from the `textDocument/codeAction` request. A code lens is a line of clickable text above a line of the file. A code action is an entry in the editor's menu of fixes.
+- **A hover** becomes a hover, from the `textDocument/hover` request.
+- **A badge** becomes an inlay hint at the end of its heading's line.
+- **A style** becomes a semantic token, from the `textDocument/semanticTokens` request, which the user's theme colours.
+- **A widget** becomes a hover that renders its content as Markdown, and an action that opens the content on its own.
+
+An editor that draws no code lenses still lists each action among its code actions, so every editor can run every action.
+
+A view opens through the `window/showDocument` request, which asks the editor to open a document. With its `external` flag set, the request asks the operating system to open the document instead, in a browser. So an editor that cannot show a web page beside its text still shows the game a chapter builds, in a browser window.
+
+The Loom language already composes its features from plugins over the `FrameQuery` capability: `loomDiagnostics`, `loomDefinition`, `loomReferences`, `loomRename`, `loomSemanticTokens`, and `loomFormatting`. Decorators add four more plugins beside them: `loomInlayHints`, `loomCodeLenses`, `loomHover`, and `loomCodeActions`.
+
+The Loom language claims those four features in its answer to the editor's `initialize` request. The editor learns the server's features once, from that answer, as Part VI's chapter "The language server" explains, and it never sends a request for a feature nobody claimed. Claiming them from the start lets a trope installed after the server started still reach the editor.
+
+A decorator may change without any edit, such as when a test finishes or a trope's answer arrives late. The server then asks the editor to draw again, with the `workspace/inlayHint/refresh` and `workspace/codeLens/refresh` requests.
+
+## What a richer editor draws
+
+Some decorators lose much in their standard form. A diagram in a hover is not a diagram drawn in place of its box, and a badge squeezed into an inlay hint is not a mark in the margin. So Loom adds messages of its own beside the protocol, for the editors that can draw more.
+
+An editor asks for these messages when it starts. Its `initialize` request lists the features it supports, and LSP sets aside an `experimental` field in that list for features outside the protocol. An editor that draws some kinds of decorator itself names them there:
+
+```
+{ "capabilities": { "experimental": { "loomDecorators": { "kinds": ["badge", "widget"] } } } }
+```
+
+The server then sends that editor each decorator of those kinds as itself, with its place and its content, in a `loom/decorators` message for each open loom. For those kinds, the server sends no standard form, so no editor draws one decorator twice. Every other kind still arrives in its standard form. An editor that names no kinds receives the standard forms alone, so every editor receives the same decorators, each drawn as well as that editor can draw it.
+
+A box of kind `Mermaid` shows the difference. The trope that contributes the kind answers with one decorator, a widget whose place is the box and whose content is the drawn diagram. An editor that names no kinds receives that widget in its standard form. Resting the pointer on the box shows the diagram in a hover, wherever the editor's hovers render images, and an action above the box opens the diagram on its own. An editor that names `widget` receives the widget itself in a `loom/decorators` message, and draws the diagram in place of the box's text.
+
+The extensions in Part IX, Extensions for IDEs, can each draw more in their own way:
+
+- **VS Code** draws styles and badges through its decorations, and shows views in its webviews.
+- **Neovim** draws hints and badges as extmarks, with virtual text inside a line and signs in the margin.
+- **A web editor built on CodeMirror** draws widgets with CodeMirror's own decorations, `Decoration.widget` between lines and `Decoration.replace` in place of a range, and shows a view in a sandboxed frame.
+
+An extension adds the richer form of one kind at a time, and draws the standard form of every kind it has not reached yet.
+
+## Decorators are data
+
+A decorator carries text, Markdown, an image, or the name of a command, and never code. The editor draws each decorator with its own code. So a trope that decorates a loom never runs code inside the editor. A careless trope can show the wrong words, but it cannot break the editor.
+
+A view is the one surface where a trope's own page runs, and the editor shows it in a sandboxed frame, as the chapter "Tropes" requires.
+
+## Where decorators come from
+
+Decorators come from three sources: the core, a language, and a trope.
+
+The core supplies the decorators that Loom's own drafts call for:
+
+- the mark on a promise and the title beside a numbered reference, from the chapter "Names through the book";
+- a term's definition, the count of its uses, and the hint on an override, from the chapter "Glossaries";
+- the badges that name a section's variants, and the mark on a variant that has fallen behind, from the chapter "Variants".
+
+These are defaults. A trope may decorate the same structures beside the core, such as a term reference or a variant's heading.
+
+A language supplies decorators through its language service, as TypeScript's hover already does.
+
+A trope supplies decorators through a contribution, which the chapter "Tropes" describes. Decorating is something a trope offers, so its manifest lists it under the `contributes` key. It is not a capability, since a capability is what the host lends a trope, such as the `Composition` service.
+
+A decorator trope extends Loom's language, in every editor, the way a language trope does. It decorates structures of the syntax, never particular things written in it. Its manifest names the structures it decorates and the kind of decorator it draws on each: a widget on every box of kind `Mermaid`, say, or a style on every term reference. A manifest never names one box or one term, so a trope decorates every loom of every book that installs it in the same way.
+
+The structures a manifest can name form a fixed list in the contract's schema, as the six kinds of decorator do: a heading, a section of a kind, a box of a kind, an anchor, a term reference, a field of the frontmatter, and a mark of syntax that the trope itself contributes. The list names structures of Loom's syntax, not the classes of Loom's own tree, so Loom can reshape its tree without breaking any trope. A trope that needs a structure the list lacks asks for the contract to grow.
+
+The contribution answers one request, `Decorate`, over Effect's protocol for remote procedure calls. The editor sends the request for one loom at a time. The request carries the loom's nodes of the structures the manifest names, each with its place and its text, and the trope answers with the decorators it draws on them. The editor never sends a trope a structure its manifest does not name.
+
+The language server merges the three lists for each loom, then turns the merged list into standard features or sends it as Loom's messages.
+
+## What to work out
+
+- **How often to ask.** A trope's decorators cost a request on every change. Whether the editor asks only about the visible lines, as an inlay hint request does with its range, and how long it waits for a slow trope, is open.
+- **Two decorators in one place.** Two tropes may badge one heading or hover one word. How the editor orders the two, and whether one trope may hide another's decorator, is open.
+- **Decorators on the woven page.** The woven book shows a term's definition on hover. Whether it shows any other decorator, such as a test's result, is open.
+- **The message's schema.** The exact shape of a decorator inside a `loom/decorators` message, and how it is versioned with the tropes contract, is open.
+
+## What this chapter grows into
+
+1. The decorator in the tropes contract: its place, its six kinds, and its content.
+2. The core's decorators for promises, numbered references, terms, and variants.
+3. The standard forms: the `loomInlayHints`, `loomCodeLenses`, `loomHover`, and `loomCodeActions` plugins, claimed at `initialize`, with a refresh when a decorator changes without an edit.
+4. Loom's messages for richer editors, named under `experimental` and sent as `loom/decorators`.
+5. Decorators from tropes: the structures and kinds a manifest names, and the `Decorate` request that carries a loom's nodes of those structures.
+6. The richer forms in Part IX's extensions, one kind at a time.
+
+When the core's decorators reach VS Code, Neovim, and Helix in their standard forms, this chapter joins Part VI, In the editor.

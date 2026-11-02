@@ -1,0 +1,95 @@
+---
+Part: Work in progress
+Chapter: Parameters in braces
+Status: Planned
+Priority: 2
+Language: TypeScript
+---
+
+# Parameters in braces
+
+A specifier is the pair of braces after a heading's title, together with what they hold. Today a specifier holds one word, its label, such as `{Bash}` or `{TOC}`. The label names the language a section's code is written in, or the role the section plays, and the tokeniser reads it as one run of letters, digits, hyphens, and underscores.
+
+Three drafts ask a specifier to say more. A box names its kind and its parameters. A variant names the section it varies and the locale it is written for. A reference to a term names the term, and the words the sentence shows for it. This chapter gives specifiers one grammar, wherever they stand.
+
+## Three places, one grammar
+
+A specifier stands in three places:
+
+```
+## Magavad koletised {varies="Sleeping monsters" locale=et}
+
+::: One turn of the game {Mermaid}
+
+Billing closes ::[Account]{kind=Term text=accounts} that stay empty for a year.
+```
+
+After a heading's title, a specifier describes the section, as `{Bash}` does today. After a box's name, it describes the box, as the chapter "Boxes" describes. After an anchor in prose, it describes what the anchor refers to, as the chapter "Glossaries" describes. In all three places a specifier follows the same grammar.
+
+## A specifier holds parameters
+
+A specifier holds a list of parameters, separated by spaces, in any order. A parameter is a key, an equals sign, and a value, as in `locale=et`.
+
+A value made only of letters, digits, hyphens, underscores, and full stops needs no quotes. Any other value takes double quotes, as `varies="Sleeping monsters"` does. Inside the quotes, a backslash escapes a double quote or another backslash.
+
+A key appears once in a specifier. A second `locale=` in one specifier is a fault, since nothing could tell which of the two values the author meant.
+
+## One label is the short form
+
+A specifier that holds a single parameter may drop the key and the equals sign, and write the value alone. That lone value is the specifier's label. `{Bash}` on a heading is the short form of `{lang=Bash}`, and `{Mermaid}` on a box is the short form of `{kind=Mermaid}`.
+
+The short form serves one parameter and no more. A specifier with two or more parameters writes each of them in full, so a label beside a parameter is a fault. `{Term text=accounts}` is a fault, and `{kind=Term text=accounts}` is its correct form. A reader of a full specifier never has to guess which key a bare word stands for.
+
+The place where a specifier stands decides which key its label stands for:
+
+- **On a box,** a label is the box's `kind`.
+- **On an anchor,** a label is the `kind` of thing the anchor refers to, and `Term` is the first such kind.
+- **On a heading,** a label is the section's `kind` when it names one of the core's kinds of section, `Tangle`, `TOC`, or `Term`. Any other label is the `lang` of the section's code, since every other label on a heading names a language.
+
+The `lang` key names the language that code is written in, the one meaning Loom gives the word language. What a reader reads is a locale, which the `locale` key names, as the chapter "Variants" describes.
+
+Every heading in the book keeps its meaning, because every specifier written today holds one label.
+
+## A specifier may name no kind
+
+A specifier may name neither a kind nor a language. A variant's specifier holds `varies`, `locale`, and `from`, because a variant is the same kind of section as the section it varies. A box whose specifier names no kind is a note, as a box without a specifier is.
+
+## Each place knows its keys
+
+The core defines the keys that each place and each of its own kinds accepts:
+
+- A heading takes `lang` and `kind`.
+- A variant's heading takes `varies`, `locale`, and `from` instead.
+- A term takes `override`.
+- A box takes `kind`.
+- A reference to a term takes `kind` and `text`.
+
+A trope that contributes a kind of box defines that kind's further keys in its manifest, as the chapter "Tropes" describes.
+
+A key that nothing defines is a fault, so a misspelt key never passes in silence. The chapter "Boxes" refuses a kind of box that neither the core nor an installed trope defines, for the same reason.
+
+## A specifier on an anchor stands in prose
+
+A specifier on an anchor touches the anchor's closing bracket, with no space between them: `::[Account]{Term}`.
+
+In code, an anchor takes no specifier. Code often puts a brace right after a name. Go writes a composite literal as a type followed directly by its braces, as in `Point{X: 1}`, so an anchor that composes the type's name meets the code's own brace. In a code block, everything after an anchor's closing bracket is therefore code, braces included.
+
+## What the tokeniser reads
+
+Today the `SpecifierLabelTokenSchema` schema matches one label. A specifier becomes a run of tokens instead: the key and the value of each parameter, or a label alone. The editor colours each token, and Loom's own diagnostics place a fault on the exact parameter that is wrong.
+
+## What to work out
+
+- **Lists as values.** A term with synonyms wants a value that holds several, such as `aka="ref, anchor reference"`. Whether a value may hold a list, and how the list is written, is open.
+- **The frontmatter's names.** The frontmatter names a chapter's language in its `Language` field, and a specifier names a section's in its `lang` key. Whether the two share one name, and one grammar for values, is open.
+
+## What this chapter grows into
+
+1. Specifiers in the tokeniser: parameters with bare and quoted values, and the short form, wherever specifiers stand.
+2. The faults for a repeated key, a label beside a parameter, and a key that nothing defines.
+3. The key a label stands for at each place: `kind` on a box and on an anchor, and `kind` or `lang` on a heading.
+4. The keys of the core's own kinds, and the keys a trope's manifest declares for each kind of box it contributes.
+5. Specifiers on anchors in prose, and the rule that leaves a brace after an anchor in code to the code.
+6. Specifiers in the tree-sitter grammar and in each editor's colouring.
+
+When specifiers parse with parameters on headings, boxes, and anchors, this chapter joins Part II, The shape of a loom, and Part III, Reading the text.

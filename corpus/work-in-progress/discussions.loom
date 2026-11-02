@@ -24,7 +24,7 @@ Part I, Discussion 1: Waking
 
 Discussions are numbered within their part, apart from its chapters, so opening a discussion never renumbers a chapter. The tokeniser reads a discussion's number into a token of its own, a `FrontmatterDiscussion`, beside the `FrontmatterChapter` that holds a chapter's number.
 
-A discussion's file lives in a `discussions` folder inside its part's folder, as in `01-the-room/discussions/waking.loom`. The table of contents lists a part's discussions at the bottom of the part's section, after its chapters.
+A discussion's file lives in a `discussions` folder inside its part's folder, as in `01-the-room/discussions/waking.loom`. A discussion belongs to the back matter of its book, which the chapter "Books" describes, so the table of contents lists it there, under its part.
 
 In the tree of the book's names, a discussion sits under its part. A name finds a discussion wherever it would find a chapter.
 
@@ -81,7 +81,7 @@ A topic without a conclusion is still open, and a second conclusion in one topic
 
 ## A discussion seen from a chapter
 
-A chapter points to a discussion with a box of kind `Discussion`, which the chapter "Boxes" describes. The box's body is the discussion's summary: its opening prose, followed by the conclusions of its topics. The discussion holds the source, and the editor keeps the box's copy in step.
+A chapter points to a discussion with a box of kind `Discussion`, which the chapter "Boxes" describes. The box's body is the discussion's summary: its opening prose, followed by the text of its topics' conclusions, written as plain prose because a box never holds another box. The discussion holds the source, and the editor keeps the box's copy in step.
 
 So a settled discussion reads in the chapter as a few paragraphs of prose, followed by an arrow that leads to the argument behind them.
 
@@ -113,7 +113,7 @@ A git submodule or a separate branch would also give discussions a history of th
 ## What this chapter grows into
 
 1. The discussion in the frontmatter: its identity line, the `FrontmatterDiscussion` token, and numbering within its part.
-2. Discussions found by name, and listed under their part in the table of contents.
+2. Discussions found by name, and listed under their part in the back matter of the table of contents.
 3. The classifier's mode for a discussion's lines: messages, arrows read as prose, and the fault for a sink.
 4. Topics and the `Conclusion` box, with the fault for a second conclusion in one topic.
 5. The `discussions` folder, and commits that keep a discussion's history apart from the history of the code.

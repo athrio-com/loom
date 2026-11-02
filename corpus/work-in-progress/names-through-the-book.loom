@@ -16,29 +16,31 @@ This chapter changes the lookup so that a name resolves by its place in the book
 
 ## Where a name lives
 
-The book is a tree of named things. A part holds chapters, and it may also hold discussions, the looms the chapter "Discussions" describes. A chapter holds its sections. A section holds the sections nested under its heading and the boxes written in it. The tree is also the scope. It decides which names must differ, and which names a reference can see.
+The corpus is a tree of named things. It holds one book or several, as the chapter "Books" describes. A book holds parts. A part holds chapters, and it may also hold discussions, the looms the chapter "Discussions" describes. A chapter holds its sections. A section holds the sections nested under its heading and the boxes written in it. The tree is also the scope. It decides which names must differ, and which names a reference can see.
 
 A name must be unique among its siblings, and nowhere else. Two chapters in one part may not share a title, and neither may two sections under one heading, or two boxes in one section. Two parts may each hold a chapter called "Setup". Twenty-seven chapters of the book already hold a section called "What this module draws on", and that stays legal.
 
 A duplicate among siblings is a fault at the heading that repeats the name, because no reference could ever tell the two apart. The chapter "A duplicate section name" plans this fault as `DuplicateSectionName`, for a repeat anywhere in one loom. Here it marks a repeat among siblings instead, and since siblings can be chapters and boxes as well as sections, it becomes `DuplicateName`.
 
-The chapter index needs the same scope. Today `chapterIndex` keys every chapter by its title alone, and when two chapters share a title, the first one it meets wins and the second disappears without a fault. Under this rule the index keys a chapter by its part and its title, so the two "Setup" chapters of two parts both stay in reach.
+The chapter index needs the same scope. Today `chapterIndex` keys every chapter by its title alone, and when two chapters share a title, the first one it meets wins and the second disappears without a fault. Under this rule the index keys a chapter by its book, its part, and its title. Two "Setup" chapters in two parts then both stay in reach, and so do two in two books.
 
 ## Finding a name from where it stands
 
-A reference resolves nearest first, outward from the section it stands in. A bare name, `::[Resolving names]`, looks first among the sections and boxes of its own chapter. When none matches, it looks among the chapters and discussions of the book. A bare name never finds a part.
+A reference resolves nearest first, outward from the section it stands in. A bare name, `::[Resolving names]`, looks first among the sections and boxes of its own chapter. When none matches, it looks among the chapters and discussions of its own book. A bare name never finds a part or a book, and never a chapter of another book.
 
 Every bare anchor in the book keeps its meaning under this rule. A chapter is one loom, so a bare name still looks in its own loom first, as it does today.
 
 A box of kind `Chapter` or `Discussion` stands for the loom it points to. A name that finds the box finds that loom once it exists, so a reference written beside the box resolves before and after the loom is opened.
 
-An author writes a name that is out of reach as a path. A path lists names from the outside in, separated by commas, and each name after the first lies inside the one before it. `::[The multi-file AST, Resolving names]` names a section of another chapter. `::[The shape of a loom, The multi-file AST, Resolving names]` names the same section through its part. A part enters a reference only this way, as the first name of a path.
+An author writes a name that is out of reach as a path. A path lists names from the outside in, separated by commas, and each name after the first lies inside the one before it. `::[The multi-file AST, Resolving names]` names a section of another chapter. `::[The shape of a loom, The multi-file AST, Resolving names]` names the same section through its part. A book or a part enters a reference only this way, at the head of a path. A path into another book starts with the book's name, as `::[The website, Part I, Chapter 2, Pricing]` does, and the part comes next.
 
 A path may also name a part or a chapter by its number, the way a loom's identity line does. `::[Part II, Chapter 6, Resolving names]` is the short form of the full path above. Each name in a path takes either form, so `::[Part II, The multi-file AST, Resolving names]` names the same section too, and a discussion takes its number as `Discussion 1`. A section has no number, so a path that ends at a section always ends with the section's title.
 
 A number names a position, not a chapter. When a chapter moves, a numbered reference points at whichever chapter took the number, and it still resolves, so no fault reveals the change. Two things guard against it. Renumbering a chapter through the editor rewrites every numbered reference to it in the same edit. And the editor shows the chapter's title beside each numbered reference, so a reader sees where the reference points.
 
 A bare name is ambiguous when it matches two things at the nearest scope where it matches at all. The fault sits at the reference, not at either declaration, since both are legal where they stand. The `AmbiguousAnchor` fault lists the paths that would each resolve, and the editor offers every one of them as a fix. Two parts may each hold a chapter called "Setup", and nothing is wrong until a bare `::[Setup]` asks for one of them.
+
+A term reference, written `::[Account]{Term}`, has a lookup of its own. It looks only among terms, through the chain of glossaries that the chapter "Glossaries" describes, and a plain anchor never finds a term. A term and a section may therefore share a name without making a reference to either one ambiguous.
 
 ## The lookup, changed in place
 
@@ -84,11 +86,11 @@ So an anchor that resolves to nothing records the name it waits for, as part of 
 
 ## The book as a graph
 
-The book's names and references, seen together, form a graph. Its nodes are the named things of the book: parts, chapters, discussions, sections, boxes, and the files sections emit. Its edges are the references between them, of six kinds:
+The book's names and references, seen together, form a graph. Its nodes are the named things of the corpus: books, parts, chapters, discussions, glossaries and their terms, sections, boxes, and the files sections emit. Its edges are the references between them, of six kinds:
 
 - **Composes:** a `::[Name]` anchor in code, which draws the named section's code in place.
 - **Refers:** a `::[Name](file.ext)` anchor in code, which names a file the book emits, the way an import names a module.
-- **Links:** a `::[Name]` anchor in prose, which a reader follows.
+- **Links:** a `::[Name]` anchor in prose, which a reader follows, including a reference to a term.
 - **Places:** a table-of-contents entry, or a prose anchor that places a chapter in the book.
 - **Emits:** a sink on a heading, from its section to the file the section writes.
 - **Declares:** a box of kind `Chapter` or `Discussion`, from the box to the loom it points to.
