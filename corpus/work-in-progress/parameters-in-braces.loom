@@ -10,29 +10,35 @@ Language: TypeScript
 
 A specifier is the pair of braces after a heading's title, together with what they hold. Today a specifier holds one word, its label, such as `{Bash}` or `{TOC}`. The label names the language a section's code is written in, or the role the section plays, and the tokeniser reads it as one run of letters, digits, hyphens, and underscores.
 
-Three drafts ask a specifier to say more. A box names its kind and its parameters. A variant names the section it varies and the locale it is written for. A reference to a term names the term, and the words the sentence shows for it. This chapter gives specifiers one grammar, wherever they stand.
+Boxes and tropes ask a specifier to say more. A box names its kind and its parameters. A trope declares kinds of section and of anchor, each with parameters of its own, as the chapter "Tropes" describes. A term of the Glossary trope takes an `override` parameter, and a reference to a term takes the words the sentence shows for it. This chapter gives specifiers one grammar, wherever they stand.
 
 ## Three places, one grammar
 
 A specifier stands in three places:
 
 ```
-## Magavad koletised {varies="Sleeping monsters" locale=et}
+## Account {kind=Term override=true}
 
 ::: One turn of the game {Mermaid}
 
 Billing closes ::[Account]{kind=Term text=accounts} that stay empty for a year.
 ```
 
-After a heading's title, a specifier describes the section, as `{Bash}` does today. After a box's name, it describes the box, as the chapter "Boxes" describes. After an anchor in prose, it describes what the anchor refers to, as the chapter "Glossaries" describes. In all three places a specifier follows the same grammar.
+After a heading's title, a specifier describes the section, as `{Bash}` does today. After a box's name, it describes the box, as the chapter "Boxes" describes. After an anchor in prose, it describes what the anchor refers to, as the chapter "The Glossary trope" describes. In all three places a specifier follows the same grammar.
 
 ## A specifier holds parameters
 
-A specifier holds a list of parameters, separated by spaces, in any order. A parameter is a key, an equals sign, and a value, as in `locale=et`.
+A specifier holds a list of parameters, separated by spaces, in any order. A parameter is a key, an equals sign, and a value, as in `override=true`.
 
-A value made only of letters, digits, hyphens, underscores, and full stops needs no quotes. Any other value takes double quotes, as `varies="Sleeping monsters"` does. Inside the quotes, a backslash escapes a double quote or another backslash.
+A value takes one of three shapes, and the parser reads nothing but the shape:
 
-A key appears once in a specifier. A second `locale=` in one specifier is a fault, since nothing could tell which of the two values the author meant.
+- **Bare:** letters, digits, hyphens, underscores, and full stops, as in `480`, `true`, or `et`.
+- **Quoted:** any text in double quotes, as in `text="open accounts"`. Inside the quotes, a backslash escapes a double quote or another backslash.
+- **A list:** values in square brackets, separated by commas, each bare or quoted, as in `aka=[ref, "anchor reference"]`.
+
+Quotes carry no type. They only let a value hold characters that a bare value cannot.
+
+A key appears once in a specifier. A second `text=` in one specifier is a fault, since nothing could tell which of the two values the author meant.
 
 ## One label is the short form
 
@@ -44,29 +50,41 @@ The place where a specifier stands decides which key its label stands for:
 
 - **On a box,** a label is the box's `kind`.
 - **On an anchor,** a label is the `kind` of thing the anchor refers to, and `Term` is the first such kind.
-- **On a heading,** a label is the section's `kind` when it names one of the core's kinds of section, `Tangle`, `TOC`, or `Term`. Any other label is the `lang` of the section's code, since every other label on a heading names a language.
+- **On a heading,** a label is the section's `kind` when it names a kind of section, one of the core's, such as `Tangle` or `TOC`, or one a trope declares, such as `Term`. Any other label is the `lang` of the section's code, since every other label on a heading names a language.
 
-The `lang` key names the language that code is written in, the one meaning Loom gives the word language. What a reader reads is a locale, which the `locale` key names, as the chapter "Variants" describes.
+The `lang` key names the language that code is written in, the one meaning Loom gives the word language. A trope that needs the language its readers read names it a locale, under a key of its own, and never `lang`.
 
 Every heading in the book keeps its meaning, because every specifier written today holds one label.
 
 ## A specifier may name no kind
 
-A specifier may name neither a kind nor a language. A variant's specifier holds `varies`, `locale`, and `from`, because a variant is the same kind of section as the section it varies. A box whose specifier names no kind is a note, as a box without a specifier is.
+A specifier may name neither a kind nor a language. A trope may declare parameters that any heading may carry, as the chapter "Tropes" describes, so a heading's specifier may hold those parameters alone. A box whose specifier names no kind is a note, as a box without a specifier is.
 
 ## Each place knows its keys
 
-The core defines the keys that each place and each of its own kinds accepts:
+The core defines the keys of each place. A heading takes `lang` and `kind`, a box takes `kind`, and an anchor in prose takes `kind`.
 
-- A heading takes `lang` and `kind`.
-- A variant's heading takes `varies`, `locale`, and `from` instead.
-- A term takes `override`.
-- A box takes `kind`.
-- A reference to a term takes `kind` and `text`.
-
-A trope that contributes a kind of box defines that kind's further keys in its manifest, as the chapter "Tropes" describes.
+A trope declares the further keys of each kind it contributes in its manifest, and any keys a heading may carry, as the chapter "Tropes" describes. The Glossary trope declares `override` for a term, and `text` for a reference to a term.
 
 A key that nothing defines is a fault, so a misspelt key never passes in silence. The chapter "Boxes" refuses a kind of box that neither the core nor an installed trope defines, for the same reason.
+
+## A value's type comes from its key
+
+A value's shape never decides its type. The key's declared type decides it, and the core reads the value through that type. A trope declares the type of each key it adds, as the chapter "Tropes" describes, from a fixed list:
+
+- **text:** a value as it is written;
+- **number:** a value that reads as a number, such as `width=480`;
+- **boolean:** `true` or `false`;
+- **choice:** one word from a list the key declares, such as `status=draft`;
+- **locale:** a language tag that follows BCP 47, such as `et` or `pt-BR`;
+- **reference:** the name of a section, which makes the parameter a relation, as the chapter "Tropes" describes;
+- **a list** of any one of these.
+
+The pass that checks parameters, which the chapter "Small passes over the tree" describes, decodes each value against its key's type. A key declared as a number reads `width=480` as 480, and `width=wide` is a fault that says a number was expected. A key declared as a list of references reads `related=[Anchor, Sink]` as two sections, and the book's graph shows a relation to each. The core's own keys are typed as well: `kind` takes a kind in the registry, and `lang` takes one of the workspace's active languages.
+
+A value is never typed by how it looks. A format that guesses a type from a value's look surprises its authors: YAML 1.1 reads a bare `NO`, Norway's country code, as false. HTML gives every attribute value as text, and each element's definition says what its `width` means. A specifier works the way HTML does, so `NO` stays text wherever its key says text.
+
+The type is known before the author finishes a value, so the editor completes the value as it is typed. It offers `true` or `false` for a boolean, the words of a choice, and the names of sections for a reference. A hover on a key shows the key's type and the trope that declared it.
 
 ## A specifier on an anchor stands in prose
 
@@ -76,20 +94,21 @@ In code, an anchor takes no specifier. Code often puts a brace right after a nam
 
 ## What the tokeniser reads
 
-Today the `SpecifierLabelTokenSchema` schema matches one label. A specifier becomes a run of tokens instead: the key and the value of each parameter, or a label alone. The editor colours each token, and Loom's own diagnostics place a fault on the exact parameter that is wrong.
+Today the `SpecifierLabelTokenSchema` schema matches one label. A specifier becomes a run of tokens instead: the key and the value of each parameter, with the elements of a list, or a label alone. The editor colours each token, and Loom's own diagnostics place a fault on the exact parameter that is wrong.
 
 ## What to work out
 
-- **Lists as values.** A term with synonyms wants a value that holds several, such as `aka="ref, anchor reference"`. Whether a value may hold a list, and how the list is written, is open.
+- **Warps.** A value warp, `{{ name [: type] = value }}`, binds a literal that its section's code composes, and nothing checks the value against its type today. Whether warps share this chapter's shapes and types, so that a warp's `: number` is checked, is open.
 - **The frontmatter's names.** The frontmatter names a chapter's language in its `Language` field, and a specifier names a section's in its `lang` key. Whether the two share one name, and one grammar for values, is open.
 
 ## What this chapter grows into
 
-1. Specifiers in the tokeniser: parameters with bare and quoted values, and the short form, wherever specifiers stand.
-2. The faults for a repeated key, a label beside a parameter, and a key that nothing defines.
+1. Specifiers in the tokeniser: parameters with bare, quoted, and list values, and the short form, wherever specifiers stand.
+2. The faults for a repeated key, a label beside a parameter, a key that nothing defines, and a value of the wrong type.
 3. The key a label stands for at each place: `kind` on a box and on an anchor, and `kind` or `lang` on a heading.
-4. The keys of the core's own kinds, and the keys a trope's manifest declares for each kind of box it contributes.
-5. Specifiers on anchors in prose, and the rule that leaves a brace after an anchor in code to the code.
-6. Specifiers in the tree-sitter grammar and in each editor's colouring.
+4. The value types, read through each key's declared type, with completion and hover from the registry.
+5. The keys of the core's own kinds, and the keys a trope's manifest declares for each kind it contributes.
+6. Specifiers on anchors in prose, and the rule that leaves a brace after an anchor in code to the code.
+7. Specifiers in the tree-sitter grammar and in each editor's colouring.
 
 When specifiers parse with parameters on headings, boxes, and anchors, this chapter joins Part II, The shape of a loom, and Part III, Reading the text.

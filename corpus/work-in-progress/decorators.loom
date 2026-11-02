@@ -10,7 +10,7 @@ Language: TypeScript
 
 An editor shows more than a file's text. A word carries a wavy underline, a few muted words follow a line, a button sits above a block. None of these is part of the file. Saving the file saves none of them, and closing the editor loses nothing.
 
-A decorator is something an editor draws on a loom without changing its text. The drafts of this book already ask for several. A reference to a promise is marked as promised, and a numbered reference shows its chapter's title. A term reference shows the term's definition, a variant shows when it falls behind, and a box of kind `Run` carries a button that runs it. Tropes ask for more of their own.
+A decorator is something an editor draws on a loom without changing its text. The drafts of this book already ask for several. A reference to a promise is marked as promised, and a numbered reference shows its chapter's title. A term reference shows the term's definition, and a box of kind `Run` carries a button that runs it. Tropes ask for more of their own.
 
 Editors draw such things in different ways, and some draw few of them. This chapter gives decorators one model. Loom's language server turns each decorator into what an editor can draw: standard features that every editor understands, and richer forms for the editors that ask for them.
 
@@ -20,7 +20,7 @@ A decorator has three parts. Its place is a range, a line, or a point in a loom.
 
 A decorator is never saved. The language server works out each decorator from the corpus whenever the editor asks, so a decorator is always as current as the text it decorates.
 
-A fault is not a decorator. A fault says what is wrong with a loom, and Loom's diagnostics report it, as Part VI's chapter "The Loom language" describes. A decorator shows what is true of a loom: that a test passed, that a term means this, that a section has an Estonian variant.
+A fault is not a decorator. A fault says what is wrong with a loom, and Loom's diagnostics report it, as Part VI's chapter "The Loom language" describes. A decorator shows what is true of a loom: that a test passed, that a term means this, that a chapter is still a canvas.
 
 ## Six kinds
 
@@ -29,7 +29,7 @@ Six kinds cover what the drafts ask for:
 - **Hint:** a few words drawn inside a line, such as the chapter's title beside `::[Part II, Chapter 6, Resolving names]`.
 - **Action:** a labelled button above a line, which runs a command, such as Run above a box of kind `Run`.
 - **Hover:** a passage shown while the pointer rests on a range, such as a term's definition.
-- **Badge:** a short state on a heading or a box, such as passed, failed, promised, or `et` for an Estonian variant.
+- **Badge:** a short state on a heading or a box, such as passed, failed, or promised.
 - **Style:** a colour or an underline over a range, such as the underline under a term reference.
 - **Widget:** content drawn in place of a range or between two lines, such as the diagram a Mermaid box describes.
 
@@ -90,21 +90,17 @@ A view is the one surface where a trope's own page runs, and the editor shows it
 
 Decorators come from three sources: the core, a language, and a trope.
 
-The core supplies the decorators that Loom's own drafts call for:
-
-- the mark on a promise and the title beside a numbered reference, from the chapter "Names through the book";
-- a term's definition, the count of its uses, and the hint on an override, from the chapter "Glossaries";
-- the badges that name a section's variants, and the mark on a variant that has fallen behind, from the chapter "Variants".
-
-These are defaults. A trope may decorate the same structures beside the core, such as a term reference or a variant's heading.
+The core supplies the decorators that its own drafts call for: the mark on a promise and the title beside a numbered reference, which the chapter "Names through the book" describes. A trope may decorate the same structures beside the core.
 
 A language supplies decorators through its language service, as TypeScript's hover already does.
 
-A trope supplies decorators through a contribution, which the chapter "Tropes" describes. Decorating is something a trope offers, so its manifest lists it under the `contributes` key. It is not a capability, since a capability is what the host lends a trope, such as the `Composition` service.
+A trope supplies decorators through a contribution, which the chapter "Tropes" describes. The Glossary trope draws a term's definition and the count of its uses this way, as the chapter "The Glossary trope" describes. Decorating is something a trope offers, so its manifest lists it under the `contributes` key. It is not a capability, since a capability is what the host lends a trope, such as the `Composition` service.
 
 A decorator trope extends Loom's language, in every editor, the way a language trope does. It decorates structures of the syntax, never particular things written in it. Its manifest names the structures it decorates and the kind of decorator it draws on each: a widget on every box of kind `Mermaid`, say, or a style on every term reference. A manifest never names one box or one term, so a trope decorates every loom of every book that installs it in the same way.
 
-The structures a manifest can name form a fixed list in the contract's schema, as the six kinds of decorator do: a heading, a section of a kind, a box of a kind, an anchor, a term reference, a field of the frontmatter, and a mark of syntax that the trope itself contributes. The list names structures of Loom's syntax, not the classes of Loom's own tree, so Loom can reshape its tree without breaking any trope. A trope that needs a structure the list lacks asks for the contract to grow.
+The structures a manifest can name form a fixed list in the contract's schema, as the six kinds of decorator do: a heading, a section of a kind, a box of a kind, an anchor of a kind, a value warp, a field of the frontmatter, and a mark of syntax that the trope itself contributes. The list names structures of Loom's syntax, not the classes of Loom's own tree, so Loom can reshape its tree without breaking any trope. A trope that needs a structure the list lacks asks for the contract to grow.
+
+A value warp is on the list so that a trope can put a control on a value that the code computes with. A slider on `{{ n: number = 1000 }}` is one. Moving the slider hands the editor an edit that rewrites the warp's value, and a trope that runs the section can run it again with the new value.
 
 The contribution answers one request, `Decorate`, over Effect's protocol for remote procedure calls. The editor sends the request for one loom at a time. The request carries the loom's nodes of the structures the manifest names, each with its place and its text, and the trope answers with the decorators it draws on them. The editor never sends a trope a structure its manifest does not name.
 
@@ -120,7 +116,7 @@ The language server merges the three lists for each loom, then turns the merged 
 ## What this chapter grows into
 
 1. The decorator in the tropes contract: its place, its six kinds, and its content.
-2. The core's decorators for promises, numbered references, terms, and variants.
+2. The core's decorators for promises and numbered references.
 3. The standard forms: the `loomInlayHints`, `loomCodeLenses`, `loomHover`, and `loomCodeActions` plugins, claimed at `initialize`, with a refresh when a decorator changes without an edit.
 4. Loom's messages for richer editors, named under `experimental` and sent as `loom/decorators`.
 5. Decorators from tropes: the structures and kinds a manifest names, and the `Decorate` request that carries a loom's nodes of those structures.

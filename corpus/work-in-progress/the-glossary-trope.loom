@@ -1,16 +1,34 @@
 ---
 Part: Work in progress
-Chapter: Glossaries
+Chapter: The Glossary trope
 Status: Planned
 Priority: 3
 Language: TypeScript
 ---
 
-# Glossaries
+# The Glossary trope
 
 A book coins words for its ideas, and it uses each word in many chapters. Loom's own book says anchor, sink, and box on nearly every page. The people who build the product need each word to keep one meaning, so that no two chapters use it in two senses. A reader who first meets one of the words in Part VI needs its meaning there, without hunting for the chapter that introduced it.
 
 A glossary is a loom of terms, each with its definition. Prose refers to a term by name, and the editor and the woven page show the term's definition wherever the prose refers to it.
+
+The Glossary trope brings glossaries to Loom, and Loom ships it in its own release. It is a trope and not part of the core, because a book reads, composes, tangles, and weaves without it, and the chapter "Tropes" keeps the core to what every book needs. It is also the first trope to extend Loom's language with kinds of its own.
+
+## What the trope declares
+
+The trope's manifest declares three kinds, as the section "Extending the language" of the chapter "Tropes" describes:
+
+```
+"kinds": {
+  "loom":    [{ "kind": "Glossary", "numbered": false, "zone": "back", "code": "none", "holds": ["Term"] }],
+  "section": [{ "kind": "Term", "code": "none", "parameters": { "override": "boolean" } }],
+  "anchor":  [{ "kind": "Term", "in": "prose", "parameters": { "text": "text" } }]
+}
+```
+
+The core reads these declarations into its registry as a workspace opens. On every keystroke, its small passes apply them, as the chapter "Small passes over the tree" describes. A glossary therefore holds no code, takes no number, and sits in the back matter. A term takes an `override` parameter that must be a boolean, and a term reference stands in prose and takes a `text` parameter. None of the trope's own code runs for any of this.
+
+The trope's code does the rest: it decides which term a reference means, raises the faults that need that decision, and draws the term's decorators. The sections below describe each.
 
 ## A term and its definition
 
@@ -28,12 +46,11 @@ The definition is what the editor shows while the pointer rests on a reference t
 
 Terminology work tests a definition by substitution, as the standard ISO 704 sets out. A good definition can stand in a sentence in place of its term, and the sentence keeps its meaning.
 
-A term holds prose and boxes, and no code. Code in a term is a fault, since a definition explains an idea and composes nothing.
+A term holds prose and boxes, and no code, since a definition explains an idea and composes nothing. The trope declares the kind without code, so the core raises the fault for code in a term.
 
-A term is a section rather than a box, for three reasons:
+A term is a section rather than a box, for two reasons:
 
 - **A term has a life of its own.** People rename a term, link to it, and keep its history, and a section already supports all three.
-- **A term has translations.** A term's translation is a variant of its section, as the chapter "Variants" describes, so `## Ankur {varies="Anchor" locale=et}` is the Estonian term for the same idea. Terminology databases work the same way, with one entry for each idea, holding its term in English, in Estonian, and in every other locale the database keeps.
 - **A heading reads as a headword.** A printed glossary sets each term as a headword, and a glossary's outline becomes the list of its terms.
 
 ## A glossary is a loom of its own
@@ -99,33 +116,36 @@ A definition resolves its own references from where it is written. When the corp
 
 A path reaches a term outside the chain. `::[The website, Account]{Term}` names the website book's Account from anywhere in the corpus. No reference reaches the terms of another corpus. A loom quotes another corpus's definition in a fence instead.
 
+The trope's code walks the chain. It answers the editor's requests to go to a term's definition, to find a term's references, and to rename a term, and it raises `UnresolvedTerm` and the faults about overrides. Each of these is a feature of the editor, which may wait for the trope's answer, as the chapter "Tropes" describes.
+
 ## What the editor and the page show
 
-A term's decorators come from the same sources as every other decorator, which the chapter "Decorators" describes. Loom draws four by default:
+The trope draws four decorators, of the kinds the chapter "Decorators" describes:
 
 - A hover on a term reference shows the definition that the reference resolves to.
 - A line above a term's heading counts the term's uses, such as "used in 14 places", and lists them when clicked.
 - A hint on an overriding term names the wider term it overrides.
 - A quick fix on an unlinked use of a term's name links it.
 
-A trope may draw more on the same structures, a term reference or a term's heading, as it may on any structure of a loom. The chapter "Decorators" describes how.
+Another trope may draw more on the same structures, a term reference or a term's heading, as it may on any structure of a loom.
 
-The woven book gives each glossary a page in its back matter, with each term's definition, notes, and the sections that refer to it. A term reference on any woven page shows its definition on hover too.
+The woven book gives each glossary a page in its back matter, with each term's definition, its notes, and the sections that refer to it. A term reference on any woven page links to its term, and shows the term's definition on hover. The weave takes each link's target from the trope's answer, the one the editor gets when it asks for a term's definition.
 
-The index at the end of the woven book gathers the terms of every glossary in the book into one list, each with the sections that refer to it. The weave builds the index from the term references, as `loom toc` builds the table of contents from the frontmatter.
+The index at the end of the woven book gathers the terms of every glossary in the book into one list, each with the sections that refer to it. The trope builds the index from the term references, as `loom toc` builds the table of contents from the frontmatter.
 
 ## What to work out
 
 - **Synonyms and abbreviations.** A term may go by other names, and an abbreviation such as LSP wants its expansion at its first use. Whether a term lists its synonyms in an `aka` parameter, and how an abbreviation expands, is open.
 - **The order of a woven glossary.** A glossary's source keeps the author's order. Whether its woven page sorts the terms instead is open. So is the sorting itself, since locales sort differently: Estonian places š, z, and ž after s, and õ, ä, ö, and ü after w.
+- **The index on the woven site.** The woven site gives a page to each loom. How the trope's index, which no loom holds, reaches the woven site is open.
 - **Sharing a glossary.** A glossary keeps one product's words precise, so a glossary rarely serves as a library for other books. When one does, it is most often a public loom that another book copies or quotes. Installing a glossary as a trope may suit some books too. How a package's looms become part of a consumer's corpus is the open question of looms that tropes share, which the chapter "Tropes" lists.
 
 ## What this chapter grows into
 
-1. The `{Term}` specifier, a term's definition as its first paragraph, and the fault for code in a term.
-2. The glossary as a kind of loom: its identity line, one glossary per scope, its place in the back matter, and the fault for a sink.
+1. The trope's manifest, with its three kinds, applied by the core's small passes.
+2. The glossary as a kind of loom: its identity line, one glossary per scope, and its place in the back matter.
 3. Term references, with the `text` parameter, and the `UnresolvedTerm` fault with its fix.
-4. The chain of scopes, the `override` parameter with its warning and its fault, and resolution from where a definition is written.
-5. The default decorators of terms, the woven glossary pages, and the index.
+4. The chain of scopes, the `override` parameter with its warning and its fault, and resolution from where a definition is written, answered by the trope's code.
+5. The trope's decorators, the woven glossary pages, and the index.
 
-When terms resolve through the chain and show their definitions in the editor, this chapter joins Part II, The shape of a loom, and Part VI, In the editor.
+When terms resolve through the chain and show their definitions in the editor, this chapter joins Part VII, Languages as packages, beside the chapter on tropes.

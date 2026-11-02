@@ -1,0 +1,76 @@
+---
+Part: Work in progress
+Chapter: Small passes over the tree
+Status: Planned
+Priority: 2
+Language: TypeScript
+---
+
+# Small passes over the tree
+
+Loom's pipeline is already a chain of passes between explicit models, as the chapter "The product pass" says. Five passes carry a loom from its text to its code. `LineRanges` cuts the text into lines, `WeftClassifier` labels each line, and `WeftTokeniser` fills each line's tokens. `LoomAstBuilder` builds the `LoomDocument`, and `ProductBuilder` composes the product. `LoomCorpusAstBuilder` runs them in turn for each file.
+
+Tropes now ask the tree to grow. A trope declares kinds of loom, section, box, and anchor, with typed parameters and rules, as the chapter "Tropes" describes, and the core applies those declarations to every loom on every keystroke. This chapter adds the place where the core applies them: a row of small passes over the tree, after `LoomAstBuilder` and before `ProductBuilder`, built the way nanopass compilers are built.
+
+## What a nanopass is
+
+The Nanopass framework builds a compiler out of many tiny passes. Dipanwita Sarkar, Oscar Waddell, and R. Kent Dybvig described it in 2004, for teaching compilers. In 2013, Andrew Keep and Dybvig rebuilt the compiler of Chez Scheme, a commercial Scheme, from dozens of such passes.
+
+Three ideas carry the framework:
+
+- **One job per pass.** Each pass makes one change to the program, such as removing one form or making one fact explicit.
+- **A language between every two passes.** Each pass reads one language and writes another, and most languages are a small edit of an earlier one: one language may be the previous one without `when` and with `if`. The framework checks that a pass writes the language it claims.
+- **No walk to write.** The framework generates the walk over every form a pass leaves alone, so a pass holds only the cases for the forms it changes.
+
+## Where Loom's passes stand
+
+Loom's passes share the framework's spirit. Each one reads a model with a schema and writes another, each is pure and total, and each records a fault on the node it concerns instead of throwing.
+
+They differ from nanopasses in four ways:
+
+- **Size.** Each of Loom's passes does many jobs. The tokeniser fills every kind of line. The product pass turns anchors into edges, makes a `File` for each sink, and attaches the faults that need names.
+- **Models.** Lines, wefts, a document, and a product are four separate shapes, each defined from scratch, where a nanopass language is an edit of the one before it.
+- **Walks.** Each of Loom's passes walks its whole input by hand.
+- **Extension.** Nothing outside the core can add a form to Loom's models. A nanopass language that extends an earlier one is exactly what a trope needs.
+
+## Small passes begin at the tree
+
+The front of the pipeline stays as it is. Text becomes lines, lines become wefts, and wefts become a tree, and each of those steps changes the shape of the whole. Splitting them gains little, and nanopass compilers also begin with a parser that writes their first language.
+
+Small passes begin once the tree exists. The Loom AST, the `LoomDocument` and its nodes, is the core language, a union of tagged node classes in Effect Schema. A small pass is a pure function from one tree to the next. It runs over a generic fold of the tree: it matches only the tags of the nodes it changes, and the fold rebuilds every other node as it was.
+
+Each pass's output has a schema of its own: the core language, edited by that pass. A test decodes what a pass returns against that schema, so it catches a pass that leaves behind a node it should have changed.
+
+## The first passes
+
+The first passes apply the specifier grammar of the chapter "Parameters in braces" and the registry of the chapter "Tropes", in this order:
+
+1. **Expanding short forms.** A lone label becomes its full parameter, so `{Bash}` becomes `{lang=Bash}` and a box's `{Mermaid}` becomes `{kind=Mermaid}`. No later pass ever handles a label.
+2. **Claiming kinds.** Each kind named in an identity line or a specifier is looked up in the registry, among the core's own kinds and the declared ones. A section of kind `Term` becomes a node of that kind, and a kind that nothing declares is a fault.
+3. **Checking parameters and bodies.** Each parameter is decoded against the type its kind declares. A key that the kind does not declare, a repeated key, and a value of the wrong type are each a fault on that parameter. A box whose kind declares a data body is decoded against the body's schema, and each fault sits on the field that is wrong.
+4. **Resolving references.** Each parameter whose value is a reference resolves through `resolveAnchor`, as an anchor does, and a reference to nothing is a fault. The book's graph then shows the parameter as a relation, named by its key.
+5. **Setting data apart.** A data section leaves the book's reading order. It shapes no nesting, takes no number, and gives the product and the weave nothing. It stays in the tree, for the editor and for any program that reads the loom.
+
+`ProductBuilder` and `WeaveBuilder` then read the last pass's tree. That tree differs from today's only by the claimed kinds and the data set apart, so neither pass loses anything it does today.
+
+## Synchronous by construction
+
+Every pass in the row is Loom's own code, reading the tree and the registry in memory. None waits on a file, the network, or a trope. So the whole row runs inside the hooks where Volar builds a loom's embedded code, which must return at once, as the chapter "Tropes" describes.
+
+A trope's code never joins the row. What a trope's code adds, such as a decorator or a fault that needs the trope's own logic, arrives later as a feature of the editor, and the chapter "Tropes" describes how a feature waits for it.
+
+A walk over one loom's tree costs far less than reading the loom's lines, so a row of small walks adds little to a keystroke.
+
+## What to work out
+
+- **The service that runs the row.** Loom gives each pass a model and a builder. Whether each small pass is a builder service of its own, or one service runs a list of pure passes, is open.
+- **Splitting the large passes.** The product pass could later split into small passes of its own, for edges, files, and faults. Whether it should is open, and nothing in this chapter depends on it.
+
+## What this chapter grows into
+
+1. The core language: the Loom AST as a union of tagged node classes in Effect Schema, with a generic fold over it.
+2. The first passes: expanding short forms, claiming kinds, checking parameters, resolving references, and setting data apart.
+3. A schema for each pass's output, and tests that decode each pass's output against it.
+4. `ProductBuilder` and `WeaveBuilder` reading the last pass's tree.
+
+When the row runs in the editor and in the tangler, this chapter joins Part III, Reading the text, after the chapter "The document builder".

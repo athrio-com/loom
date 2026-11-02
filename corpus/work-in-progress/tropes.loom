@@ -10,7 +10,9 @@ Language: TypeScript
 
 Loom keeps a small core. The core reads a loom, resolves its names, composes its code, tangles the files, and weaves the pages. It also gives the editor its support for Loom's own syntax and for prose. Everything else Loom does for a book comes from a trope.
 
-A trope is a package that adds to the editor, to Loom as a language, or to the book itself. TypeScript's checks come from a trope. So do a mark for citing a paper, a kind of box that draws a diagram, a view that shows a game running beside its code, a model that completes a line, and a chapter that sets up a release pipeline, written once for any book to take up.
+A trope adds to Loom as a language, to the way people interact with a book, or to the book itself. TypeScript's checks come from a trope. So do a mark for citing a paper, a kind of box that draws a diagram, a glossary of a book's terms, a view that shows a game running beside its code, a model that completes a line, and a chapter that sets up a release pipeline, written once for any book to take up.
+
+A trope is itself a loom, of the kind `Trope`, which a book keeps in its back matter. A package carries a trope's loom to other books.
 
 The word comes from writing, where a trope is a familiar turn that any author may take up. A Loom trope is the same for books: a way of doing something, packaged once, so that any book can install it.
 
@@ -23,6 +25,8 @@ The core holds what every book needs before it can be read at all:
 - the classifier, the parser, and the Loom AST;
 - the corpus and its name lookup;
 - the product pass, tangling, and weaving;
+- the `Trope` kind of loom, which the core reads before any declaration of a trope's;
+- the registry of what tropes declare, and the small passes that apply it;
 - the Loom and Prose languages, which the `loadActive` function puts at the head of every active set;
 - the store, the loader, and the host that runs every trope.
 
@@ -34,11 +38,31 @@ A trope contributes one or more of seven things.
 
 - **A language:** the editor support that Part VII's `LanguageService` interface defines, namely diagnostics, hover, completion, and formatting. A language trope also writes the stub for a promise, the work the chapter "Names through the book" gives to a language's package.
 - **Syntax:** a mark that Loom reads in a loom, such as a citation of a paper in a research book, or a field of its own in the frontmatter. The trope declares the mark as a pattern in its manifest, and the classifier applies the pattern itself, so none of the trope's code runs while the classifier reads a line. The trope's process gives the mark its meaning: what the mark refers to, and what is wrong with it. On a machine without the trope, the mark reads as plain prose.
-- **A kind of box:** how the editor draws a box of that kind, whether the box runs, and what the box's body must satisfy, as the chapter "Boxes" describes.
+- **Kinds:** a kind of loom, of section, of box, or of anchor, with the parameters its specifier takes and the rules it follows, as the section "Extending the language" describes. A kind of box also says how the editor draws the box, whether the box runs, and what the box's body must satisfy, as the chapter "Boxes" describes.
 - **A view:** a surface the editor shows beside a loom, the way a browser shows one page inside another. A web view shows a page, such as the game a chapter builds, running beside its code. A terminal view shows a process's output, such as that of the command a box of kind `Run` starts.
 - **A decorator:** something the editor draws on one structure of the syntax in every loom, such as a heading, a box of one kind, or a reference, without changing the loom's text. A Run button above every box of kind `Run` is one. The chapter "Decorators" gives the six kinds of decorator, and how each editor draws them.
 - **An assist:** an answer to a question the editor asks at a place in a loom, such as the code that completes a line or the body of a stub. An assist may call a model to find its answer.
-- **Looms:** a way of doing something, written as chapters that any book can take up. Part XI, Releasing Loom, is one such way: another book that ships a command line could release itself the same way. Looms published for other books are tropes too, though how a book takes them up is still to be designed.
+- **Looms:** a way of doing something, written as chapters that any book can take up. Part XI, Releasing Loom, is one such way: another book that ships a command line could release itself the same way. A book takes such looms up by copying them into its corpus, as the section "Three planes" describes.
+
+## Three planes
+
+The seven contributions fall into three planes, each named for what a trope extends:
+
+- **Language:** syntax, kinds, and languages. A trope on this plane extends what Loom reads in a loom.
+- **Interaction:** decorators, views, and assists. A trope on this plane extends how people interact with a loom: what they see, hear, or touch while they write it, read it, or study it.
+- **Templates:** looms. A trope on this plane extends the book itself, with a way of doing something that the book copies into its corpus and keeps as its own. shadcn/ui's command line works the same way, copying a component's source into a project instead of installing it as a dependency.
+
+A trope's planes follow from its contributions, so a manifest never states them twice. The editor and `loom add` show them beside every trope.
+
+The planes also say whether a trope's code runs at all. Declared syntax and declared kinds are data that the core applies, and templates are text, so none of them runs any of a trope's code. A language runs as a language server, and every Interaction contribution that needs the trope's own logic runs in the trope's process. A trope whose only contributions are declared syntax, declared kinds, and templates therefore needs no process and no sandbox.
+
+An Interaction contribution also names its targets, the places where it appears:
+
+- **The editor,** through the standard features of the Language Server Protocol and Loom's own messages, as the chapter "Decorators" describes.
+- **The woven page,** which the weave writes.
+- **An application** built on Loom's language server, such as a web editor.
+
+A contribution appears only in the targets it names. A hover written for the editor reaches the woven page only when it names that target too.
 
 ## The contract
 
@@ -52,7 +76,41 @@ Part VII's loader works the other way today. It imports a language's package int
 
 The word for an offer comes from VS Code. A VS Code extension lists its contribution points under the `contributes` key of its manifest, and VS Code reads them without running the extension, whose code starts only when an activation event calls for it. A trope's manifest borrows the key along with the rule. The other direction keeps the word Part VII already gives it: a capability is something the host lends, such as the `TypescriptSdk` and `Composition` services, and a trope asks for capabilities in its needs.
 
-The manifest lives in the `loom` field of the trope's `package.json` file. An npm package is how a trope travels. It carries a trope's code and its looms alike, and its version and its integrity hash are what a grant pins, as the section "What a trope asks for" describes.
+The manifest lives in the trope's own loom, as the next section describes. An npm package is how a trope travels to other books. It carries the trope's loom, the files the loom tangles, and any looms the trope offers as templates. Its version and its integrity hash are what a grant pins, as the section "What a trope asks for" describes.
+
+## A trope is a loom
+
+A trope is a loom of the kind `Trope`. Its identity line names the trope, as `Trope: Survey charts` does, and the loom sits in the back matter of its book, as the chapter "Books" describes. It takes no number. Wherever it sits, its declarations apply to the whole workspace.
+
+`Trope` is one of the core's own kinds, and the only kind of loom the core keeps for itself. The core must find every trope before it knows any kind a trope declares, so it reads a `Trope` loom with core Loom alone. A `Trope` loom therefore uses none of the kinds that tropes declare, its own included.
+
+A `Trope` loom holds its manifest in a section of the kind `Manifest`, another of the core's kinds. The section's code is the manifest, written in JSON. Like any section's code, it may draw in other sections with anchors, so a long manifest can be cut where the prose about it turns. The core composes the section with the product pass and decodes the result against the contract's schema. Composing is pure, so no build runs, and none of the trope's code runs to learn what the trope offers.
+
+```
+---
+Trope: Survey charts
+---
+
+# Survey charts
+
+Charts of a survey, each drawn from a box that names its data.
+
+## What the trope declares {Manifest}
+
+=>
+{
+  "contract": "1",
+  "process": "dist/trope.js",
+  "contributes": {
+    "kinds": { "box": [{ "kind": "Chart", "body": "yaml", "schema": "schemas/chart.json" }] },
+    "views": [{ "name": "Chart", "type": "web", "page": "dist/chart.html", "targets": ["editor", "page"] }]
+  }
+}
+```
+
+The rest of the loom explains the trope and holds its code. Sections with sinks tangle the trope's process, its schemas, and its pages into the trope's folder, as any chapter tangles its files.
+
+A `Trope` loom reaches a workspace in one of two ways. A book may hold it in its own corpus, written there or copied there from another book. Or a package in the workspace's store may carry it, together with the files it tangles, already built. The registry reads both the same way. A `Trope` loom in the corpus is text that Loom already holds, so an edit to its manifest reaches the registry on the keystroke. A package's loom is read once, as the workspace opens.
 
 ## A manifest, by example
 
@@ -60,20 +118,16 @@ A language trope's manifest holds what today's loader learns by importing a pack
 
 ```
 {
-  "name": "loom-trope-python",
-  "version": "1.0.0",
-  "loom": {
-    "contract": "1",
-    "contributes": {
-      "languages": [
-        {
-          "id": "python",
-          "displayName": "Python",
-          "extensions": [".py"],
-          "server": ["pyright-langserver", "--stdio"]
-        }
-      ]
-    }
+  "contract": "1",
+  "contributes": {
+    "languages": [
+      {
+        "id": "python",
+        "displayName": "Python",
+        "extensions": [".py"],
+        "server": ["pyright-langserver", "--stdio"]
+      }
+    ]
   }
 }
 ```
@@ -84,33 +138,29 @@ A trope may contribute several kinds at once. A trope for research papers contri
 
 ```
 {
-  "name": "loom-trope-papers",
-  "version": "0.3.0",
-  "loom": {
-    "contract": "1",
-    "process": "dist/trope.js",
-    "contributes": {
-      "syntax": [
-        { "mark": "citation", "in": "prose", "open": "[@", "close": "]" },
-        { "mark": "authors", "in": "frontmatter", "field": "Authors" }
-      ],
-      "boxes": [{ "kind": "Abstract", "body": "prose" }],
-      "views": [{ "name": "References", "type": "web", "page": "dist/references.html" }],
-      "assists": ["cite"],
-      "looms": ["looms/a-method-of-research.loom"]
-    },
-    "needs": {
-      "network": ["api.crossref.org"]
-    }
+  "contract": "1",
+  "process": "dist/trope.js",
+  "contributes": {
+    "syntax": [
+      { "mark": "citation", "in": "prose", "open": "[@", "close": "]" },
+      { "mark": "authors", "in": "frontmatter", "field": "Authors" }
+    ],
+    "kinds": { "box": [{ "kind": "Abstract", "body": "prose" }] },
+    "views": [{ "name": "References", "type": "web", "page": "dist/references.html" }],
+    "assists": ["cite"],
+    "looms": ["looms/a-method-of-research.loom"]
+  },
+  "needs": {
+    "network": ["api.crossref.org"]
   }
 }
 ```
 
 - The `syntax` key declares two marks: a citation such as `[@knuth1984]` in prose, found by its opening and closing delimiters, and an `Authors` field in the frontmatter.
-- The `boxes` key names the kind `Abstract`, so a box of that kind is no fault.
+- The `kinds` key declares one kind of box, `Abstract`, so a box of that kind is no fault.
 - The `views` key names a web page that lists the works a chapter cites.
 - The `assists` key names one question the trope answers. The `cite` assist finds a reference by its title or by its digital object identifier, its DOI. The `needs` key asks for the one host that answer takes, `api.crossref.org`.
-- The `looms` key lists a chapter that the package ships.
+- The `looms` key lists a chapter that the trope offers as a template.
 - The `process` key names the one entry point that runs code. It runs inside the sandbox and answers the requests for the box kind, the view, and the assist.
 
 ## Fit or refused
@@ -120,6 +170,74 @@ Loom decodes every manifest against the contract's schema, with Effect Schema, a
 The schema also decides what no trope can do, since no manifest can declare what the schema cannot express. A mark of syntax is a pair of delimiters, not a regular expression. The classifier applies every mark in the editor's process on every keystroke, and a careless regular expression can hang it, while delimiters always match in linear time. A view is a page that the editor shows in a sandboxed frame, so no view reaches into the editor's own page. A trope's needs come from a fixed list: hosts on the network, secrets, and the services the host lends.
 
 The `contract` field names the version a trope was built against. Each Loom release supports a range of versions, and it refuses a trope outside the range with the reason: built for contract 3, say, where this Loom supports 1 and 2. A new version only adds to the schema. A trope that needs something the contract cannot express asks for the contract to grow, and the next version brings the core code that supports the new kind or field, the way VS Code alone adds contribution points.
+
+## Extending the language
+
+A trope extends Loom's language by declaring kinds. A kind is a named sort of loom, section, box, or anchor. An author picks a loom's kind in its identity line, and the kind of a section, a box, or an anchor in its specifier, as the chapter "Parameters in braces" describes. The Glossary trope that Loom ships declares three kinds:
+
+```
+"kinds": {
+  "loom":    [{ "kind": "Glossary", "numbered": false, "zone": "back", "code": "none", "holds": ["Term"] }],
+  "section": [{ "kind": "Term", "code": "none", "parameters": { "override": "boolean" } }],
+  "anchor":  [{ "kind": "Term", "in": "prose", "parameters": { "text": "text" } }]
+}
+```
+
+A kind lists the parameters its specifier may hold, and each parameter has a key and a value type. The key belongs to the trope. It is new syntax, which Loom learns only from the manifest. The value type comes from a fixed list in the contract: text, a number, a boolean, a choice among words the key lists, a locale tag, a reference, or a list of any one of these. A manifest writes a list as `{ "list": "reference" }` and a choice as `{ "choice": ["draft", "done"] }`. The chapter "Parameters in braces" describes each type, and how the core reads a value through its key's declared type rather than from the value's look. The type is all the core needs to handle a value. A trope that needs a type the list lacks, such as a date, asks for the contract to grow.
+
+A parameter whose value is a reference, or a list of references, declares a relation. Each reference names a section the way an anchor does, so the core resolves it, rewrites it when the section is renamed, and raises a fault when it names nothing. The book's graph, which the chapter "Names through the book" derives from the corpus, shows the relation as an edge from the section that carries the parameter to each section it names, and the edge takes the parameter's key as its kind. Finding the references to a section then lists every section that points to it through the relation.
+
+The meaning of a key stays with the trope. The core resolves a relation and follows its edge without ever interpreting the key's name. Only the trope's code, or a program that reads the loom, knows what the relation says.
+
+A kind also follows rules from a fixed list:
+
+- **Code.** A kind either holds code or holds none. In a loom whose kind holds none, an arrow reads as prose and a sink is a fault, as in a discussion.
+- **Place.** A kind of loom says whether it takes a number, and which zone of the book it sits in, as the chapter "Books" describes.
+- **Contents.** A kind of loom names the kinds of section it holds.
+- **Data.** A kind may make its sections data.
+
+A data section stays in its loom and in the tree, and the editor shows and checks it. It opens no branch of the book, though. The sections after it nest as if it were not there, it takes no number and no line in the table of contents, and neither the tangle nor the weave reads it. A trope declares data for text that a program of its own reads from the loom later, such as the translations a website shows each reader in their locale.
+
+A kind of box also declares its body. A body holds prose, or text in a format the kind names: a diagram's source, a command, or data such as YAML or JSON. A data body comes with a schema, a JSON Schema file that the trope ships and the manifest names. A trope for research notebooks declares such a box for the datasets a notebook reads:
+
+```
+"kinds": { "box": [{ "kind": "Dataset", "body": "yaml", "schema": "schemas/dataset.json" }] }
+```
+
+```
+::: Survey sample {Dataset}
+source: data/survey-2026.csv
+columns: [age, region, income]
+:::
+```
+
+The core decodes a data body against its schema, as it decodes a parameter against its type, and it puts each fault on the field that is wrong. A box's body is where data too rich for one line belongs, such as nested fields, tables, and long values. A specifier holds only a node's small facts.
+
+A trope may also declare, under the `headings` key, parameters that any heading may carry, with the rules for a section that carries them. A trope for translations declares a relation that names the section a translation varies, and a parameter that names the translation's locale, and makes every section that carries them data.
+
+The kinds a trope declares form an edit of Loom's language: core Loom, plus these forms. The chapter "Small passes over the tree" describes how the core applies such an edit.
+
+## The registry of declared kinds
+
+Loom applies what tropes declare without running any trope. When a workspace opens, before the language server answers the editor's `initialize` request, Loom finds every `Trope` loom, in the corpus and in the packages of the workspace's store. It composes each one's manifest and decodes it. It gathers the declared kinds into the registry: a table of kinds for each of looms, sections, boxes, and anchors, beside a table of the parameters any heading may carry. Reading the packages' looms, and the schemas the manifests name, waits on files, so Loom reads them once, ahead of every request, as `DocumentSource` keeps each loom's text ahead of the editor's requests.
+
+Two tropes that declare one kind cannot both decide what it means. Loom refuses the second trope and reports it, as it reports a manifest that fails to decode. A trope that declares one of the core's own kinds, such as `Tangle` or `TOC`, is refused the same way.
+
+On every keystroke, Loom's own code applies the registry. It parses the loom, looks each kind up in the registry, and follows the kind's rules. Each step is a lookup in memory followed by code of Loom's own, and nothing in it waits on a file, the network, or a trope. So the step fits inside the hooks where Volar, the framework under Loom's editor support, builds a loom's embedded code. Those hooks, `createVirtualCode` and `updateVirtualCode`, must return at once and cannot wait for anything.
+
+Installing, updating, or removing a trope rebuilds the registry, and so does an edit to the manifest of a `Trope` loom in the corpus. The editor then checks the open looms again.
+
+## What a trope's code never decides
+
+A trope's code never decides how a loom composes: how an anchor resolves to code, or what a tangled file holds. A trope's declarations may shape both, but only through rules the contract defines and the core runs. A language trope's declared file extensions already decide which language a sink composes, and a kind declared without code changes how a loom's lines are read.
+
+Three reasons keep a trope's code out of composition:
+
+- **The hooks are synchronous.** Volar builds a loom's embedded code in hooks that cannot wait, and a trope answers only over a protocol, which takes time.
+- **A tangle must repeat.** The same corpus, the same Loom release, and the same manifests tangle to the same files on every machine, whether or not a trope's process runs, and however fast it answers.
+- **A trope must not rewrite a product.** A third party's process never changes the code a book ships.
+
+A trope that needs a new rule of composition asks for the contract to grow, as it asks for any field the schema lacks. The core gains the rule, and tropes declare where it applies.
 
 ## A language is the first trope
 
@@ -139,7 +257,11 @@ A **third-party** trope is anyone else's code, from a package registry or from a
 
 A bundled trope that needs nothing from the editor's process runs in a process of its own as well. The separate process is the default. The editor's process is an exception, kept for a bundled trope that cannot do without it.
 
-Two kinds of contribution run none of a trope's code in either place. A mark of syntax is a pattern that the classifier applies, and a trope's looms are text that the core reads like any loom of the book's own. Only the meaning a trope gives its marks comes from the trope's process.
+A trope written in the book's own corpus runs the same way, in a process of its own inside the sandbox. Its code is the book's own, but the sandbox costs it nothing, and it keeps a mistake in that code from reaching the editor.
+
+On the web, a trope's code runs in a third place, a worker in the browser, as the section "Tropes on the web" describes.
+
+Three kinds of contribution run none of a trope's code in either place. A mark of syntax is a pattern that the classifier applies. A declared kind is a row of the registry, which the core's passes apply. A trope's looms are text that the core reads like any loom of the book's own. Only the meaning a trope gives its marks and its kinds, beyond what the declared rules say, comes from the trope's process.
 
 ## Why the boundary is a process
 
@@ -174,15 +296,11 @@ A trope declares the rights it needs beyond the default under its manifest's `ne
 
 ```
 {
-  "name": "loom-trope-haiku",
-  "version": "0.1.0",
-  "loom": {
-    "contract": "1",
-    "contributes": { "assists": ["complete", "stub"] },
-    "needs": {
-      "network": ["api.anthropic.com"],
-      "secrets": { "ANTHROPIC_API_KEY": "api.anthropic.com" }
-    }
+  "contract": "1",
+  "contributes": { "assists": ["complete", "stub"] },
+  "needs": {
+    "network": ["api.anthropic.com"],
+    "secrets": { "ANTHROPIC_API_KEY": "api.anthropic.com" }
   }
 }
 ```
@@ -205,6 +323,8 @@ The configuration is committed, so a team reviews a new grant the way it reviews
 
 The grant pins the trope by its version and by its integrity, a hash of the package's contents. A pin closes the gap between the trope a person reviewed and the trope that runs later. To Loom, an update that changes the hash is a new trope. An update that asks for more than its grant stops and asks again.
 
+A trope in the corpus is pinned by nothing, since git already keeps every change to its loom. Its grants sit in the same configuration, under the trope's name.
+
 ## Installing without running
 
 Installing a trope must not run it. When Loom runs from its npm package, the store installs packages with npm, and npm runs each package's install scripts with all of the user's rights, outside any sandbox. The standalone executable installs with Bun, which runs such scripts only for packages on its list of trusted ones. The store therefore installs every third-party trope with its install scripts turned off. A trope that needs a build step ships its built files instead.
@@ -215,9 +335,47 @@ A trope process speaks one of two protocols, chosen by what the trope contribute
 
 A language trope speaks the Language Server Protocol, LSP for short, which language servers already speak. Part VII's `LanguageServerProcess` bridge starts a language server as a child process and speaks LSP to it, and nothing in the bridge knows which language it serves. So a third-party language trope needs no code in the editor's process at all. It is a language server and a manifest. A general adapter in the editor turns the server's answers into Volar plugins. TypeScript 7's `tsc --lsp` already runs as such a child. Its adapter, the native TypeScript program, is written for TypeScript alone.
 
-Every other contribution that runs code speaks Effect's own protocol for remote procedure calls, from the `effect/rpc` module, over the trope process's standard input and output. A remote procedure call, RPC for short, lets the editor call a function that runs in another process and wait for its answer. Each kind of contribution is an `RpcGroup`: a set of requests, each with a schema for the request and a schema for its answer. Those groups make up the runtime half of the contract, and the manifest's `contract` field versions them together with the manifest's schema.
+Every other contribution that runs code speaks Effect's own protocol for remote procedure calls, from the `effect/rpc` module. The protocol travels over a transport: the standard input and output of a process on a machine, or the messages of a worker in a browser, as the section "Tropes on the web" describes. A remote procedure call, RPC for short, lets the editor call a function that runs in another process and wait for its answer. Each kind of contribution is an `RpcGroup`: a set of requests, each with a schema for the request and a schema for its answer. Those groups make up the runtime half of the contract, and the manifest's `contract` field versions them together with the manifest's schema.
+
+Every request a trope answers serves a feature of the editor, such as a hover, a decorator, or a fault that needs the trope's own logic. Volar lets each feature answer with a promise, so a feature can wait for its trope. It waits under a time limit, and with the editor's cancellation, so an answer that the next keystroke makes stale is dropped.
+
+An answer too slow for a keystroke is worked out ahead instead. Loom asks the trope again after each change, keeps the latest answer for each version of the loom, and serves that answer. When a newer answer arrives, Loom asks the editor to draw again, through the protocol's refresh requests, such as `workspace/inlayHint/refresh`.
 
 A trope's process runs its own copy of Effect. The runtime bridge exists to share one Effect inside one process, so it plays no part here. A capability the host lends, such as the `Composition` service, reaches a trope's process as one more set of requests, and the host answers them only for a trope it granted them to.
+
+## Writing a trope
+
+A trope's author writes the trope's loom: the prose that explains the trope, its manifest, and the handlers that answer the editor's requests. Nothing else should be needed, so Loom ships a kit that implements the rest of the contract once:
+
+- **The protocol:** the RPC server over either transport, the request groups of every contribution, and the time limits and cancellation that every request carries.
+- **Views:** the frame a view's page runs in, and the messages between the page and its trope.
+- **Bodies and parameters:** each handler receives a box's body and a node's parameters already decoded, and typed by the schemas the manifest declares.
+- **Tests:** a harness that runs the trope against a loom and checks the decorators and faults it answers with.
+
+A handler is an Effect, as the rest of Loom is. The kit runs it under whichever transport the trope is started on, so one handler serves both a machine and a browser.
+
+A new trope begins from the starter, a template that Loom offers on the Templates plane. Taking the starter up copies a `Trope` loom into the corpus, with a manifest that declares one kind of box, a handler that draws a hint on it, and a test. The author renames the kind and grows the loom from there, and the copy is the book's own from its first edit.
+
+A trope written this way runs straight from the corpus. Saving its loom tangles its files, and Loom restarts its process and asks the editor to draw again. Its declarations need not wait for the tangle, since the registry reads the manifest straight from the loom's text.
+
+## Tropes on the web
+
+A book is not always written on a machine with a terminal. In a web editor, the corpus lives in remote storage, as the chapter "Where a workspace is kept" describes, and a trope's code has no operating system process to run in.
+
+VS Code for the Web meets the same problem with its web extensions. It runs each one in a Web Worker in the browser, and only an extension written for the browser runs there. A trope does the same. Its manifest says where its process can run, on a machine, on the web, or in both, under the `runs` key:
+
+```
+"process": "dist/trope.js",
+"runs": ["machine", "web"]
+```
+
+A web trope's process runs in a worker. Effect's RPC carries the same request groups over the worker's messages that it carries over standard input and output on a machine. A web trope uses none of the modules that only Node and Bun provide, such as `node:fs`, since a browser has none of them.
+
+The browser keeps the worker in a sandbox of its own. The worker runs in a frame with an origin of its own, so it shares no storage with the editor. The frame also limits the worker's network to the hosts the trope was granted, such as through a content security policy whose `connect-src` directive names only those hosts.
+
+The loop of writing a trope stays short on the web. An edit to the trope's manifest reaches the registry at once, since composing the manifest is the core's own pure work. An edit to its code is bundled again by a bundler that runs in the browser, such as esbuild's WebAssembly build, and the worker restarts with the new code.
+
+A trope that runs only on a machine, because it reads files or runs a kernel for another language, needs a machine near the web editor. The application that hosts the web editor provides that machine, and Loom's contract stays the same on it.
 
 ## When a trope oversteps
 
@@ -234,7 +392,8 @@ A trope that keeps failing, or that the editor stops, costs only itself. Its con
 - **Tropes that only compute.** A trope such as a formatter needs no files, no network, and perhaps no process. QuickJS, a small JavaScript engine, runs compiled to WebAssembly through the MIT-licensed quickjs-emscripten. It could run such a trope inside the editor's process with only the functions the editor hands it, under a time limit and a memory cap. Whether Effect runs inside QuickJS is untested.
 - **Views in the editor.** Where a view sits, whether beside a box, in a side panel, or in a tab of its own, is open. So is how a web view's page talks to its trope. A trope that only marks a line beside a section needs no view, since a decorator draws the mark, as the chapter "Decorators" describes.
 - **Syntax from several tropes.** How a trope's marks avoid clashing with Loom's own marks and with another trope's, and how the tree-sitter grammar in Part IX highlights them, is open.
-- **Looms that tropes share.** How a book takes up a trope's looms is open. One way copies them into the book, as shadcn/ui's command line copies a component's source into a project instead of installing it as a dependency. The copy then becomes the book's own text, which its authors edit and its git keeps. The other way reads the looms in place, at a pinned version. A reference never leaves its corpus, as the chapter "Books" describes, which favours the copy. How the names of a trope's looms resolve among the book's own, and how an update reaches a copy the book has changed, are open either way. A trope's looms run nothing in the editor, but the code they tangle runs wherever the book's own build runs it, as a dependency's code does. So a trope's looms need the same review as its code.
+- **Templates that change.** A book copies a template's looms into its corpus, and the copy is the book's own from then on. How an update to the template reaches a copy the book has changed, and how the names of a template's looms resolve among the book's own, are open. A template's looms run nothing in the editor, but the code they tangle runs wherever the book's own build runs it, as a dependency's code does. So a template needs the same review as a trope's code.
+- **The kit's types.** A handler's types and the schemas its manifest declares say the same thing twice. Whether the kit derives the handler's types from the manifest, or the manifest's schemas from the handler's types, is open.
 - **Reviewing a published trope.** How an author reviews a trope before installing it, and whether Loom can tangle the trope from its loom to check the published code, are open.
 - **The configuration.** Whether the languages the configuration activates fold into its tropes is open.
 - **How long a contract version lives.** How many versions of the contract one Loom release supports, and when an old version retires, is open.
@@ -243,13 +402,17 @@ A trope that keeps failing, or that the editor stops, costs only itself. Its con
 ## What this chapter grows into
 
 1. The contract's manifest schema, in Effect Schema and versioned by the `contract` field: the language service as the first kind of contribution, TypeScript declared as a bundled trope, and the loader reading a language's `id`, `displayName`, and `extensions` from the manifest instead of from the package's export.
-2. Third-party packages in the store: named in full, built against a contract version, installed with their install scripts off, and pinned by version and integrity.
-3. The sandbox around every trope process, with the default rights, an explicit environment, and Loom's own protected paths.
-4. Grants: `loom add` shows what a trope asks for and records the grant, and an update that asks for more asks again.
-5. Language tropes over LSP, through a general adapter over the `LanguageServerProcess` bridge.
-6. Effect's RPC for kinds of box, views, decorators, and assists: stubs for promises first, then completion by a model.
-7. Syntax as a contribution: marks declared as patterns in the manifest, applied by the classifier, and given their meaning over RPC.
-8. Denials shown in the editor.
-9. Looms shared as tropes, once the way a book takes them up is designed.
+2. Declared kinds: the `kinds` and `headings` keys, the value types, data bodies checked against their schemas, the registry built as a workspace opens, the refusal of a clash, the core's passes that apply the registry, and relations shown as edges in the book's graph, with the Glossary trope as the first trope to declare kinds.
+3. Third-party packages in the store: named in full, built against a contract version, installed with their install scripts off, and pinned by version and integrity.
+4. The sandbox around every trope process, with the default rights, an explicit environment, and Loom's own protected paths.
+5. Grants: `loom add` shows what a trope asks for and records the grant, and an update that asks for more asks again.
+6. Language tropes over LSP, through a general adapter over the `LanguageServerProcess` bridge.
+7. Effect's RPC for kinds, views, decorators, and assists, with features that wait for a trope under a time limit or work its answer out ahead: stubs for promises first, then completion by a model.
+8. Syntax as a contribution: marks declared as patterns in the manifest, applied by the classifier, and given their meaning over RPC.
+9. Denials shown in the editor.
+10. The `Trope` kind of loom and its `Manifest` section, read with core Loom alone, in the corpus and in packages, with each trope's planes shown beside it.
+11. Templates copied into a corpus, with the starter as the first.
+12. The kit: both transports, the frames of views, decoded bodies and parameters, and the test harness.
+13. Web tropes: the `runs` key, workers that speak Effect's RPC, and bundling in the browser.
 
 When a third-party trope runs inside the sandbox from its install to its first answer, this chapter joins Part VII, which then covers tropes of every kind.

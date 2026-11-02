@@ -40,7 +40,7 @@ A number names a position, not a chapter. When a chapter moves, a numbered refer
 
 A bare name is ambiguous when it matches two things at the nearest scope where it matches at all. The fault sits at the reference, not at either declaration, since both are legal where they stand. The `AmbiguousAnchor` fault lists the paths that would each resolve, and the editor offers every one of them as a fix. Two parts may each hold a chapter called "Setup", and nothing is wrong until a bare `::[Setup]` asks for one of them.
 
-A term reference, written `::[Account]{Term}`, has a lookup of its own. It looks only among terms, through the chain of glossaries that the chapter "Glossaries" describes, and a plain anchor never finds a term. A term and a section may therefore share a name without making a reference to either one ambiguous.
+A term reference, written `::[Account]{Term}`, has a lookup of its own. It looks only among terms, through the chain of glossaries that the chapter "The Glossary trope" describes, and a plain anchor never finds a term. A term and a section may therefore share a name without making a reference to either one ambiguous.
 
 ## The lookup, changed in place
 
@@ -86,7 +86,7 @@ So an anchor that resolves to nothing records the name it waits for, as part of 
 
 ## The book as a graph
 
-The book's names and references, seen together, form a graph. Its nodes are the named things of the corpus: books, parts, chapters, discussions, glossaries and their terms, sections, boxes, and the files sections emit. Its edges are the references between them, of six kinds:
+The book's names and references, seen together, form a graph. Its nodes are the named things of the corpus: books, parts, chapters, discussions, glossaries and their terms, sections, boxes, and the files sections emit. Its edges are the references between them, of seven kinds:
 
 - **Composes:** a `::[Name]` anchor in code, which draws the named section's code in place.
 - **Refers:** a `::[Name](file.ext)` anchor in code, which names a file the book emits, the way an import names a module.
@@ -94,8 +94,9 @@ The book's names and references, seen together, form a graph. Its nodes are the 
 - **Places:** a table-of-contents entry, or a prose anchor that places a chapter in the book.
 - **Emits:** a sink on a heading, from its section to the file the section writes.
 - **Declares:** a box of kind `Chapter` or `Discussion`, from the box to the loom it points to.
+- **Relates:** a parameter whose value is a reference, which a trope declares, from the section that carries the parameter to the section it names. The edge takes the parameter's key as its name, so the relations of one trope stay apart from those of every other, as the chapter "Tropes" describes.
 
-Nothing builds this graph before compiling, and nothing in compiling reads it. Each piece already lives in the corpus. The `titleIndexes` and `chapterIndex` indexes give the nodes, and the sinks on the headings give the files. Each loom's product holds its composing edges, and the anchors in its prose and its table of contents hold the rest. The graph is a projection of the produced corpus, a sibling of the compile, the tangle, and the weave, and it is computed only when something asks for it.
+Nothing builds this graph before compiling, and nothing in compiling reads it. Each piece already lives in the corpus. The `titleIndexes` and `chapterIndex` indexes give the nodes, and the sinks on the headings give the files. Each loom's product holds its composing edges. The anchors in its prose, its table of contents, and the reference parameters on its headings hold the rest. The graph is a projection of the produced corpus, a sibling of the compile, the tangle, and the weave, and it is computed only when something asks for it.
 
 The corpus already treats the links between looms this way. The `anchorEdges` function derives them from `titleIndexes` and from every loom's anchors each time `reachable` or `dependentsOf` asks, and it keeps nothing between calls. The graph of the book derives its nodes and edges the same way, one level finer, with sections and files in place of whole looms.
 

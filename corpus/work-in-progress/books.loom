@@ -44,7 +44,7 @@ A Loom book has the same three zones:
 
 - **Front matter:** the book loom. Its title opens the book, its opening prose is the book's preface, and its `{TOC}` section is the table of contents.
 - **Body:** the parts and their chapters, as today.
-- **Back matter:** the book's discussions, which the chapter "Discussions" describes, its glossaries, which the chapter "Glossaries" describes, and the index, which the weave builds from the book's references to its terms.
+- **Back matter:** the book's discussions, which the chapter "Discussions" describes, the book's tropes, which the chapter "Tropes" describes, and every loom whose kind a trope places at the back. The glossaries of the Glossary trope sit there, with the index the trope builds from the book's references to its terms.
 
 ## Numbers belong to the body
 
@@ -58,7 +58,7 @@ Loom follows the same rule. A chapter takes its number within its part, as today
 
 A discussion belongs to a part, and a part may have a glossary of its own. Both still sit in the back matter of their book, listed under their part. A printed book treats its endnotes the same way, gathering them at the back under each chapter's name.
 
-The back matter lists the discussions first, part by part. The glossaries follow, the book's own first and then each part's. The index comes last.
+The back matter lists the discussions first, part by part. The glossaries follow, the book's own first and then each part's. The book's tropes come next, and the index comes last.
 
 ## Two tables of contents
 
