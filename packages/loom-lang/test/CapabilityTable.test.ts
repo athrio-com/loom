@@ -54,6 +54,7 @@ const layer = Layer.provide(
       {
         read: (path: string) => Effect.succeed(files[path] ?? ''),
         list: Option.some(() => Effect.succeed(Object.keys(files))),
+        hold: () => Effect.void,
       },
     ),
     Layer.succeed(

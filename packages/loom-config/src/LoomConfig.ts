@@ -63,9 +63,9 @@ const empty: ResolvedConfig = {
 
 const storeDirName = '.loom'
 const manifestName = 'config.yaml'
-const defaultCorpus = 'corpus'
+export const defaultCorpus = 'corpus'
 
-const findWorkspace = (dir: string): string | undefined => {
+export const findWorkspace = (dir: string): string | undefined => {
   if (existsSync(resolvePath(dir, storeDirName, manifestName))) return dir
   const parent = dirname(dir)
   return parent === dir ? undefined : findWorkspace(parent)
@@ -139,7 +139,7 @@ const variablesOf = (
 ): Record<string, string> =>
   Object.fromEntries(Object.entries(variables ?? {}).map(([name, value]) => [name, String(value)]))
 
-const containerRoot = (dir: string, container: string, workspace: string): string | undefined => {
+export const containerRoot = (dir: string, container: string, workspace: string): string | undefined => {
   if (basename(dir) === container) return dirname(dir)
   const parent = dirname(dir)
   return dir === workspace || parent === dir

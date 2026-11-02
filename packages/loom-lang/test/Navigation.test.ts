@@ -37,6 +37,7 @@ const TestDocs = Layer.succeed(
   {
     read: (path: string) => Effect.succeed(files[path] ?? ''),
     list: Option.some(() => Effect.succeed(Object.keys(files))),
+    hold: () => Effect.void,
   },
 )
 
@@ -70,6 +71,7 @@ const makeLayer = (docs: Record<string, string>) =>
         {
           read: (path: string) => Effect.succeed(docs[path] ?? ''),
           list: Option.some(() => Effect.succeed(Object.keys(docs))),
+          hold: () => Effect.void,
         },
       ),
       TestConfig,

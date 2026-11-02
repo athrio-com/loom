@@ -38,6 +38,7 @@ const layerOf = (files: Record<string, string>) =>
       Layer.succeed(DocumentSource, {
         read: (path: string) => Effect.succeed(files[path] ?? ''),
         list: Option.some(() => Effect.succeed(Object.keys(files))),
+        hold: () => Effect.void,
       }),
       Layer.succeed(PackageConfig, {
         resolve: () =>

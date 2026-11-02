@@ -43,6 +43,7 @@ import { LoomMemo } from './LoomMemo'
 import { LoomDiskCache } from './LoomDiskCache'
 import { PackageConfig } from './PackageConfig'
 import { holds, loomsIn, projectIn, type LoomProject } from './LoomProject'
+import type { Workspace } from './WorkspaceSource'
 import { WeaveBuilder } from './weave/WeaveBuilder'
 import { type WovenCorpus } from './weave/WovenCorpus'
 import { TableOfContentsBuilder, rewriteBook } from './weave/TableOfContentsBuilder'
@@ -347,17 +348,32 @@ export const toVolar = (vc: LoomVirtualCode): VirtualCode => ({
   embeddedCodes: Array.map(vc.embeddedCodes, toVolar),
 })
 
+export const fromDisk = (path: Path): Effect.Effect<string, ReadError> =>
+  Effect.try({
+    try: () => readFileSync(path, 'utf8'),
+    catch: (cause) => new ReadError({ path, cause }),
+  })
+
 export class DocumentSource extends Context.Service<DocumentSource>()('DocumentSource', {
-  make: Effect.succeed({
-    read: (path: Path): Effect.Effect<string, ReadError> =>
-      Effect.try({
-        try: () => readFileSync(path, 'utf8'),
-        catch: (cause) => new ReadError({ path, cause }),
-      }),
-    list: Option.some(
-      (dir: Path, project: Option.Option<LoomProject>): Effect.Effect<ReadonlyArray<Path>> =>
-        Effect.sync(() => loomsIn(dir, project)),
-    ),
+  make: Effect.gen(function* () {
+    const held = yield* Ref.make<ReadonlyMap<Path, string>>(new Map())
+    return {
+      read: (path: Path): Effect.Effect<string, ReadError> =>
+        Ref.get(held).pipe(
+          Effect.flatMap((texts) =>
+            Option.match(Option.fromNullishOr(texts.get(path)), {
+              onNone: () => fromDisk(path),
+              onSome: (text) => Effect.succeed(text),
+            }),
+          ),
+        ),
+      hold: (workspace: Workspace): Effect.Effect<void> =>
+        Ref.update(held, (texts) => new Map([...texts, ...workspace.looms])),
+      list: Option.some(
+        (dir: Path, project: Option.Option<LoomProject>): Effect.Effect<ReadonlyArray<Path>> =>
+          Effect.sync(() => loomsIn(dir, project)),
+      ),
+    }
   }),
 }) {
   static readonly layer = Layer.effect(this, this.make)

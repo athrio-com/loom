@@ -102,13 +102,15 @@ A workspace is the directory that holds a configuration, the `.loom/config.yaml`
 
 A `.loom` folder without a configuration makes no workspace. The install script puts the standalone executable in `~/.loom/bin`, and that folder must not turn the home folder into a project that every loose loom below it joins. The language store finds a workspace by the same rule, so the configuration and the store always agree on which workspace a path belongs to.
 
+The file-system source, which the chapter "Where a workspace is kept" describes, names a loom's workspace through `findWorkspace` too. So the source and the configuration agree as well.
+
 =>
 
 const storeDirName = '.loom'
 const manifestName = 'config.yaml'
-const defaultCorpus = 'corpus'
+export const defaultCorpus = 'corpus'
 
-const findWorkspace = (dir: string): string | undefined => {
+export const findWorkspace = (dir: string): string | undefined => {
   if (existsSync(resolvePath(dir, storeDirName, manifestName))) return dir
   const parent = dirname(dir)
   return parent === dir ? undefined : findWorkspace(parent)
@@ -214,13 +216,13 @@ const variablesOf = (
 
 Resolving a file gives it the workspace defaults and the root its sinks tangle under. The anchor, primary, settings, width, and ignore patterns are the workspace's; the languages are its activated set; the services resolve from those languages.
 
-`containerRoot` derives the package root by convention. It walks up from the file to the nearest directory named like the corpus — `corpus` by default — and takes the directory above it, so a loom in `pkg/corpus/` tangles into `pkg/`. A file inside no corpus directory carries no root and tangles beside itself.
+`containerRoot` derives the package root by convention. It walks up from the file to the nearest directory named like the corpus — `corpus` by default — and takes the directory above it, so a loom in `pkg/corpus/` tangles into `pkg/`. A file inside no corpus directory carries no root and tangles beside itself. The file-system source places a sink by the same convention, so it shares `containerRoot` and `defaultCorpus` rather than repeating them.
 
 `corpusDir` is the other half of that walk: the corpus directory the file lives in, the one Loom enumerates to discover its sibling looms. It is the same nearest ancestor `containerRoot` finds, returned whole rather than stepped above. A file in no corpus directory — a workspace whose `corpus` is `.`, or a loose file — discovers from its own directory, never climbing out to scan a whole workspace.
 
 =>
 
-const containerRoot = (dir: string, container: string, workspace: string): string | undefined => {
+export const containerRoot = (dir: string, container: string, workspace: string): string | undefined => {
   if (basename(dir) === container) return dirname(dir)
   const parent = dirname(dir)
   return dir === workspace || parent === dir
