@@ -1876,6 +1876,41 @@ describe('a path names parts and chapters by number', () => {
   )
 })
 
+## A missing section, declared by a fix
+
+An anchor whose name nothing in the book carries offers a fix that declares the section in the anchor's own loom. The heading takes the level of the heading above the anchor, here `#`. With no section after the program, it goes at the end of the loom. With a section after it, `## Later`, it goes just above that section. Either way, the loom with the fix applied reports nothing, because the anchor now names a section of its own loom.
+
+=>
+
+describe('a fix declares a missing section', () => {
+  const diagnose = (text: string) =>
+    LoomCompiler.pipe(
+      Effect.flatMap((c) => c.diagnose('/corpus/hello.loom')),
+      Effect.provide(layerOf({ '/corpus/hello.loom': text })),
+    )
+  const applied = (text: string, fix: { readonly text: string; readonly at?: unknown }) => {
+    const at = fix.at as { readonly start: { readonly offset: number } }
+    return `${text.slice(0, at.start.offset)}${fix.text}${text.slice(at.start.offset)}`
+  }
+
+  it.effect('declares the section below the one that names it', () =>
+    Effect.gen(function* () {
+      const alone = helloAnchoring(anchor('Saying goodbye'))
+      const followed = `${alone}\n## Later\n\nMore to come.\n`
+      const [atEnd] = (yield* diagnose(alone))[0]!.fixes ?? []
+      expect([atEnd!.title, atEnd!.text]).toEqual([
+        'Declare the section `Saying goodbye`',
+        '\n# Saying goodbye\n',
+      ])
+      expect(yield* diagnose(applied(alone, atEnd!))).toEqual([])
+      const [beforeNext] = (yield* diagnose(followed))[0]!.fixes ?? []
+      expect(beforeNext!.text).toBe('# Saying goodbye\n\n')
+      expect(applied(followed, beforeNext!)).toContain('# Saying goodbye\n\n## Later')
+      expect(yield* diagnose(applied(followed, beforeNext!))).toEqual([])
+    }),
+  )
+})
+
 ## The cross-file anchor test file {Tangle}[test/CrossFileAnchor.test.ts]
 
 =>
@@ -1889,6 +1924,8 @@ describe('a path names parts and chapters by number', () => {
 ::[A name repeated among siblings]
 
 ::[A path by number]
+
+::[A missing section, declared by a fix]
 
 ## Testing navigation within one loom
 

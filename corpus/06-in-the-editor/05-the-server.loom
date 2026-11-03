@@ -1748,6 +1748,96 @@ describe('LoomServer — the title beside a number', () => {
   }, 30_000)
 })
 
+## Testing a name that waits
+
+An anchor may name a section or a chapter before anyone has written it, and its fault clears the moment the name appears, with no edit to the anchor's own loom. An edit that declares a title changes what other looms see of the loom it edits, so the server checks every open loom of the workspace again.
+
+In the first case `Main` names `Words, Saying hello` while `words.loom` holds no such section. An unsaved edit adds it, and `Main` reports nothing. In the second, `Other` names a chapter, `A chapter to come`, that no loom declares. A loom that declares it, with code in its opening section, appears on disk, and `Other` reports nothing.
+
+=>
+
+describe('LoomServer — a name that waits', () => {
+  it('clears when an edit declares the section or the chapter it names', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    const wordsHead = [
+      '---',
+      'Part I, Chapter 2: Words',
+      'Language: TypeScript',
+      '---',
+      '',
+      '# Words',
+    ]
+    const words = chapterAt(root, 'words.loom', lines(...wordsHead))
+    const main = chapterAt(root, 'main.loom', chapter('Main', anchor('Words, Saying hello')))
+    const other = chapterAt(root, 'other.loom', chapter('Other', anchor('A chapter to come')))
+    const editor = await editorAt(root)
+    try {
+      await editor.open(main)
+      await editor.open(words)
+      await editor.open(other)
+      expect(await editor.diagnostics(main)).toEqual([
+        'Unresolved anchor: no section named `Words, Saying hello`.',
+      ])
+      await editor.edit(
+        words,
+        lines(...wordsHead, '', '## Saying hello', '', '=>', '', 'const hi = 1'),
+      )
+      expect(await editor.diagnostics(main)).toEqual([])
+      expect(await editor.diagnostics(other)).toEqual([
+        'Unresolved anchor: no section named `A chapter to come`.',
+      ])
+      const later = chapterAt(
+        root,
+        'later.loom',
+        lines(
+          '---',
+          'Part I, Chapter 3: A chapter to come',
+          'Language: TypeScript',
+          '---',
+          '',
+          '# A chapter to come',
+          '',
+          '=>',
+          '',
+          'const later = 1',
+        ),
+      )
+      await editor.changed(later, FileChangeType.Created)
+      expect(await editor.diagnostics(other)).toEqual([])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+
+~
+
+The fix that declares a missing section reaches the editor as a quick fix. `Main` names `Saying goodbye`, which nothing declares, on line 8. The fix writes the heading `# Saying goodbye` at the end of `main.loom`, which is line 9 at character 0.
+
+=>
+
+  it('offers a quick fix that declares the missing section', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    const main = chapterAt(root, 'main.loom', chapter('Main', anchor('Saying goodbye')))
+    const editor = await editorAt(root)
+    try {
+      await editor.open(main)
+      const actions = await editor.fixes(main, 8)
+      expect(
+        actions.map((action) => [
+          action.title,
+          Object.values(action.edit?.changes ?? {})
+            .flat()
+            .map((edit) => [edit.newText, edit.range.start.line, edit.range.start.character]),
+        ]),
+      ).toEqual([['Declare the section `Saying goodbye`', [['\n# Saying goodbye\n', 9, 0]]]])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+})
+
 ## Testing the pass piece by piece
 
 Some of what the pass does leaves no trace an editor can see. Volar holds a script in a language service, or holds it nowhere, and no request reveals which. A request that waits on the `reprojecting` semaphore gets the same answer it would have got without waiting. A close that rereads nothing looks the same as one that rereads a file with the same text. So these cases drive the server's parts directly, over stand-ins for Volar's objects.
@@ -1987,5 +2077,7 @@ import { runtimeKey } from '@athrio/loom-lang-services/Runtime'
 ::[Testing a fix for an ambiguous anchor]
 
 ::[Testing the title beside a number]
+
+::[Testing a name that waits]
 
 ::[Testing the pass piece by piece]

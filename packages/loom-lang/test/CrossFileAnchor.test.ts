@@ -470,3 +470,32 @@ describe('a path names parts and chapters by number', () => {
     }),
   )
 })
+
+describe('a fix declares a missing section', () => {
+  const diagnose = (text: string) =>
+    LoomCompiler.pipe(
+      Effect.flatMap((c) => c.diagnose('/corpus/hello.loom')),
+      Effect.provide(layerOf({ '/corpus/hello.loom': text })),
+    )
+  const applied = (text: string, fix: { readonly text: string; readonly at?: unknown }) => {
+    const at = fix.at as { readonly start: { readonly offset: number } }
+    return `${text.slice(0, at.start.offset)}${fix.text}${text.slice(at.start.offset)}`
+  }
+
+  it.effect('declares the section below the one that names it', () =>
+    Effect.gen(function* () {
+      const alone = helloAnchoring(anchor('Saying goodbye'))
+      const followed = `${alone}\n## Later\n\nMore to come.\n`
+      const [atEnd] = (yield* diagnose(alone))[0]!.fixes ?? []
+      expect([atEnd!.title, atEnd!.text]).toEqual([
+        'Declare the section `Saying goodbye`',
+        '\n# Saying goodbye\n',
+      ])
+      expect(yield* diagnose(applied(alone, atEnd!))).toEqual([])
+      const [beforeNext] = (yield* diagnose(followed))[0]!.fixes ?? []
+      expect(beforeNext!.text).toBe('# Saying goodbye\n\n')
+      expect(applied(followed, beforeNext!)).toContain('# Saying goodbye\n\n## Later')
+      expect(yield* diagnose(applied(followed, beforeNext!))).toEqual([])
+    }),
+  )
+})

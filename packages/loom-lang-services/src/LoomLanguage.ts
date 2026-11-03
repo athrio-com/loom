@@ -1,4 +1,4 @@
-import { Array, Effect, pipe } from 'effect'
+import { Array, Effect, Option, pipe } from 'effect'
 import type {
   CodeAction,
   Diagnostic as LspDiagnostic,
@@ -66,7 +66,19 @@ const fixActions =
       title: fix.title,
       kind: 'quickfix',
       diagnostics: [repaired],
-      edit: { changes: { [uri]: [{ range: repaired.range, newText: fix.text }] } },
+      edit: {
+        changes: {
+          [uri]: [
+            {
+              range: Option.match(Option.fromNullishOr(fix.at), {
+                onNone: () => repaired.range,
+                onSome: (span) => ({ start: at(span.start.offset), end: at(span.end.offset) }),
+              }),
+              newText: fix.text,
+            },
+          ],
+        },
+      },
     }))
   }
 

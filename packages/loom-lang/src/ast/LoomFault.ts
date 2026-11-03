@@ -1,4 +1,4 @@
-import { Array, Data, Match } from 'effect'
+import { Array, Data, Match, Option } from 'effect'
 import type { Diagnostic, Fix, Health, Position, Severity } from '@athrio/loom-ast/LoomNode'
 
 export type MalformedConstruct = 'specifier' | 'path' | 'warpName' | 'anchorName'
@@ -6,6 +6,8 @@ export type MalformedConstruct = 'specifier' | 'path' | 'warpName' | 'anchorName
 export type EmptyConstruct = MalformedConstruct | 'warpAnnotation' | 'warpDefault'
 
 export type Sibling = 'section' | 'chapter'
+
+export type Declaration = { readonly at: Position; readonly text: string }
 
 export type LoomFault = Data.TaggedEnum<{
   UnclosedDelimiter: { readonly expected: string }
@@ -16,7 +18,7 @@ export type LoomFault = Data.TaggedEnum<{
   }
   MissingWarpValue: { readonly name: string }
   UnknownVariable: { readonly name: string }
-  UnresolvedAnchor: { readonly name: string }
+  UnresolvedAnchor: { readonly name: string; readonly declaration?: Declaration }
   AmbiguousAnchor: {
     readonly name: string
     readonly count: number
@@ -152,6 +154,15 @@ export const fixesOf = (fault: LoomFault): ReadonlyArray<Fix> =>
   Match.value(fault).pipe(
     Match.tag('AmbiguousAnchor', ({ paths }) =>
       Array.map(paths, (path): Fix => ({ title: `Write the path \`${path}\``, text: path })),
+    ),
+    Match.tag('UnresolvedAnchor', ({ name, declaration }) =>
+      Option.toArray(
+        Option.map(Option.fromNullishOr(declaration), (declared): Fix => ({
+          title: `Declare the section \`${name}\``,
+          text: declared.text,
+          at: declared.at,
+        })),
+      ),
     ),
     Match.orElse((): ReadonlyArray<Fix> => []),
   )

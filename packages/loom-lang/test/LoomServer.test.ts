@@ -631,6 +631,82 @@ describe('LoomServer — the title beside a number', () => {
   }, 30_000)
 })
 
+describe('LoomServer — a name that waits', () => {
+  it('clears when an edit declares the section or the chapter it names', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    const wordsHead = [
+      '---',
+      'Part I, Chapter 2: Words',
+      'Language: TypeScript',
+      '---',
+      '',
+      '# Words',
+    ]
+    const words = chapterAt(root, 'words.loom', lines(...wordsHead))
+    const main = chapterAt(root, 'main.loom', chapter('Main', anchor('Words, Saying hello')))
+    const other = chapterAt(root, 'other.loom', chapter('Other', anchor('A chapter to come')))
+    const editor = await editorAt(root)
+    try {
+      await editor.open(main)
+      await editor.open(words)
+      await editor.open(other)
+      expect(await editor.diagnostics(main)).toEqual([
+        'Unresolved anchor: no section named `Words, Saying hello`.',
+      ])
+      await editor.edit(
+        words,
+        lines(...wordsHead, '', '## Saying hello', '', '=>', '', 'const hi = 1'),
+      )
+      expect(await editor.diagnostics(main)).toEqual([])
+      expect(await editor.diagnostics(other)).toEqual([
+        'Unresolved anchor: no section named `A chapter to come`.',
+      ])
+      const later = chapterAt(
+        root,
+        'later.loom',
+        lines(
+          '---',
+          'Part I, Chapter 3: A chapter to come',
+          'Language: TypeScript',
+          '---',
+          '',
+          '# A chapter to come',
+          '',
+          '=>',
+          '',
+          'const later = 1',
+        ),
+      )
+      await editor.changed(later, FileChangeType.Created)
+      expect(await editor.diagnostics(other)).toEqual([])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+
+  it('offers a quick fix that declares the missing section', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    const main = chapterAt(root, 'main.loom', chapter('Main', anchor('Saying goodbye')))
+    const editor = await editorAt(root)
+    try {
+      await editor.open(main)
+      const actions = await editor.fixes(main, 8)
+      expect(
+        actions.map((action) => [
+          action.title,
+          Object.values(action.edit?.changes ?? {})
+            .flat()
+            .map((edit) => [edit.newText, edit.range.start.line, edit.range.start.character]),
+        ]),
+      ).toEqual([['Declare the section `Saying goodbye`', [['\n# Saying goodbye\n', 9, 0]]]])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+})
+
 const recording = () => {
   const scripts = new Map<string, { isAssociationDirty?: boolean }>()
   const deleted: Array<string> = []

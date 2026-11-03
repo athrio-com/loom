@@ -96,9 +96,9 @@ A promise holds no code yet, so its stated symbols are the contract its stub ful
 
 ## Waiting for a missing name
 
-The compiler must notice when a missing name appears. It finds the looms an edit touches through `dependentsOf`, and `anchorEdges` builds its edges only from anchors that resolve. A missing name resolves to nothing, so it makes no edge, and declaring the section it waits for would leave its loom out of the reverse reach. Its fault would stand until that loom was checked for another reason.
+A missing name needs no record of what it waits for. An edit that declares a title changes the face of the loom it edits, the part of a module that other looms can see, so the server checks every open loom of the workspace again, as the chapter "The language server" describes. The anchor that waited then resolves at once, with no edit to its own loom. The composition asks for the dependents of a change over the new corpus as well as the old, so a loom whose anchor the edit has just satisfied is composed again too, as the chapter "The compile layer" describes.
 
-So an anchor that resolves to nothing records the name it waits for, as part of its loom's `UnresolvedAnchor` fault. When an edit declares a title, the compiler checks again every loom whose faults wait for that title. Declaring the section an anchor waited for then clears the anchor's fault at once.
+The editor offers a fix that declares the missing section in the anchor's own loom: a heading at the level of the section that names it, placed just below that section.
 
 ## The book as a graph
 
@@ -130,10 +130,9 @@ The graph serves the views that want the book as a whole: a drawing of which cha
 
 ## What this chapter grows into
 
-1. Missing names that wait, checked again when an edit declares them, and the fix that declares a section.
-2. Promises: marked in the editor and on the woven page, and refused by the tangler.
-3. The contract a promise collects, the `symbols` parameter that states one on the anchor with its `MissingSymbol` fault, and stubs written from both into the promised chapter.
-4. The `(path.loom)` target retired, with the book's examples and tests rewritten to the new form.
-5. The graph as a projection of the produced corpus, with its first view.
+1. Promises: marked in the editor and on the woven page, and refused by the tangler.
+2. The contract a promise collects, the `symbols` parameter that states one on the anchor with its `MissingSymbol` fault, and stubs written from both into the promised chapter.
+3. The `(path.loom)` target retired, with the book's examples and tests rewritten to the new form.
+4. The graph as a projection of the produced corpus, with its first view.
 
 When anchors resolve by their place in the book and the editor follows them, this chapter joins Part II, The shape of a loom, beside "The multi-file AST".

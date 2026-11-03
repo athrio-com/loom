@@ -39,6 +39,7 @@ import {
   AmbiguousAnchor,
   ChapterWithoutCode,
   CrossLanguageAnchor,
+  type Declaration,
   DuplicateName,
   faulty,
   UnknownVariable,
@@ -542,7 +543,17 @@ const nameHealth = (
 ): Health => {
   const trails = trailsOf(book, module.path, ref.name)
   return Array.matchLeft(trails, {
-    onEmpty: () => unresolved(ref.name, ref.anchor),
+    onEmpty: () =>
+      faulty(
+        UnresolvedAnchor({
+          name: ref.name,
+          ...Option.match(declarationBelow(module, host, ref.name), {
+            onNone: () => ({}),
+            onSome: (declaration) => ({ declaration }),
+          }),
+        }),
+        ref.anchor,
+      ),
     onNonEmpty: (trail, rest) =>
       rest.length > 0
         ? ambiguous(ref.name, ref.anchor, trails.length, pathsTo(book, module.path, trails))
@@ -564,6 +575,36 @@ const trailHealth = (
         Array.lastNonEmpty(trail).place._tag === 'Chapter' && code.fragments.length === 0
           ? faulty(ChapterWithoutCode({ name: ref.name }), ref.anchor)
           : languageHealth(ref.name, ref.anchor, host.languageId, code.languageId),
+    },
+  )
+
+const pointAtEnd = (text: string): Point => {
+  const lines = text.split('\n')
+  return { line: lines.length, column: lines[lines.length - 1]!.length + 1, offset: text.length }
+}
+
+const declarationBelow = (
+  module: LoomModule,
+  host: Code,
+  name: string,
+): Option.Option<Declaration> =>
+  Option.map(
+    Array.findFirstIndex(
+      module.doc.sections,
+      (section) => sectionNameOf(section) === host.origin.name,
+    ),
+    (index): Declaration => {
+      const heading = `${module.doc.sections[index]!.heading.headingStart.source.trim()} ${name}\n`
+      return Option.match(Array.get(module.doc.sections, index + 1), {
+        onSome: (next) => ({
+          at: between(next.heading.position.start, next.heading.position.start),
+          text: `${heading}\n`,
+        }),
+        onNone: () => ({
+          at: between(pointAtEnd(module.text), pointAtEnd(module.text)),
+          text: `${module.text.endsWith('\n') ? '\n' : '\n\n'}${heading}`,
+        }),
+      })
     },
   )
 

@@ -17,7 +17,7 @@ So this pass stays within one document. A bare anchor whose name the document ho
 
 ## What this module draws on
 
-The pass reads the Loom AST and writes the product AST, so it draws from both. From `effect` come the array and option combinators, `Match` for dispatching on a weft, `Order` for sorting a run's anchors by position, and `pipe` for the spine. From the Loom side come the document and section types, the warp and anchor tokens a section carries, and the section-body weft a code run is made of. The fault catalog gives `faulty`, the anchor faults this pass and its judgement raise, and the `DuplicateName` fault a repeated section name raises, and the tokeniser's `normaliseTitle` folds a heading into the name that identifies its section. From the product side come the schema constructors for every node the pass builds — the `Code` of a section, its `Fragment` and `NameRef` leaves, and the `File` a `{Tangle}` section emits — together with the `SectionId` that stamps each one. From the corpus model come `anchorModule`, which picks the loom an anchor with a path resolves in, the `LoomModule` the judgement reads, and the `Book` it resolves names in, through `trailsOf`, `sectionOf`, and `resolveName`, and `pathsTo`, which names each candidate of an ambiguous name, with the `Diagnostic` it returns.
+The pass reads the Loom AST and writes the product AST, so it draws from both. From `effect` come the array and option combinators, `Match` for dispatching on a weft, `Order` for sorting a run's anchors by position, and `pipe` for the spine. From the Loom side come the document and section types, the warp and anchor tokens a section carries, and the section-body weft a code run is made of. The fault catalog gives `faulty`, the anchor faults this pass and its judgement raise, with the `Declaration` an unresolved anchor offers, and the `DuplicateName` fault a repeated section name raises, and the tokeniser's `normaliseTitle` folds a heading into the name that identifies its section. From the product side come the schema constructors for every node the pass builds — the `Code` of a section, its `Fragment` and `NameRef` leaves, and the `File` a `{Tangle}` section emits — together with the `SectionId` that stamps each one. From the corpus model come `anchorModule`, which picks the loom an anchor with a path resolves in, the `LoomModule` the judgement reads, and the `Book` it resolves names in, through `trailsOf`, `sectionOf`, and `resolveName`, and `pathsTo`, which names each candidate of an ambiguous name, with the `Diagnostic` it returns.
 
 =>
 
@@ -62,6 +62,7 @@ import {
   AmbiguousAnchor,
   ChapterWithoutCode,
   CrossLanguageAnchor,
+  type Declaration,
   DuplicateName,
   faulty,
   UnknownVariable,
@@ -648,9 +649,11 @@ const pathHealth = (
 
 ~
 
-An open edge resolves its name through the book, and `nameHealth` judges what `trailsOf` finds. No trail means that no section carries the name, so the anchor is unresolved. More than one trail is an ambiguity, and `pathsTo` gives the path that names each candidate alone, which the fault offers as fixes. One trail reaches a place, and `trailHealth` judges it.
+An open edge resolves its name through the book, and `nameHealth` judges what `trailsOf` finds. No trail means that no section carries the name, so the anchor is unresolved. The anchor's own loom is the natural place for the missing section, so the fault carries the declaration `declarationBelow` writes. More than one trail is an ambiguity, and `pathsTo` gives the path that names each candidate alone, which the fault offers as fixes. One trail reaches a place, and `trailHealth` judges it.
 
 The place is a section, or a chapter that stands for its opening section. A chapter with no titled section gives the anchor no section to compose, so the anchor is unresolved. A chapter whose opening section holds no code composes nothing, so it raises the `ChapterWithoutCode` warning. Any other section must share the host's language. `codeOf` finds the `Code` a reached section composed, and `languageHealth` is the last question alone: the found language against the host's.
+
+`declarationBelow` writes the heading that would declare a missing section, at the same level as the heading of the section that holds the anchor. It goes just above the next section's heading, so the new section follows the one that names it, or at the end of the loom when no section follows. `pointAtEnd` finds that end, as a line, a column, and an offset.
 
 =>
 
@@ -663,7 +666,17 @@ const nameHealth = (
 ): Health => {
   const trails = trailsOf(book, module.path, ref.name)
   return Array.matchLeft(trails, {
-    onEmpty: () => unresolved(ref.name, ref.anchor),
+    onEmpty: () =>
+      faulty(
+        UnresolvedAnchor({
+          name: ref.name,
+          ...Option.match(declarationBelow(module, host, ref.name), {
+            onNone: () => ({}),
+            onSome: (declaration) => ({ declaration }),
+          }),
+        }),
+        ref.anchor,
+      ),
     onNonEmpty: (trail, rest) =>
       rest.length > 0
         ? ambiguous(ref.name, ref.anchor, trails.length, pathsTo(book, module.path, trails))
@@ -685,6 +698,36 @@ const trailHealth = (
         Array.lastNonEmpty(trail).place._tag === 'Chapter' && code.fragments.length === 0
           ? faulty(ChapterWithoutCode({ name: ref.name }), ref.anchor)
           : languageHealth(ref.name, ref.anchor, host.languageId, code.languageId),
+    },
+  )
+
+const pointAtEnd = (text: string): Point => {
+  const lines = text.split('\n')
+  return { line: lines.length, column: lines[lines.length - 1]!.length + 1, offset: text.length }
+}
+
+const declarationBelow = (
+  module: LoomModule,
+  host: Code,
+  name: string,
+): Option.Option<Declaration> =>
+  Option.map(
+    Array.findFirstIndex(
+      module.doc.sections,
+      (section) => sectionNameOf(section) === host.origin.name,
+    ),
+    (index): Declaration => {
+      const heading = `${module.doc.sections[index]!.heading.headingStart.source.trim()} ${name}\n`
+      return Option.match(Array.get(module.doc.sections, index + 1), {
+        onSome: (next) => ({
+          at: between(next.heading.position.start, next.heading.position.start),
+          text: `${heading}\n`,
+        }),
+        onNone: () => ({
+          at: between(pointAtEnd(module.text), pointAtEnd(module.text)),
+          text: `${module.text.endsWith('\n') ? '\n' : '\n\n'}${heading}`,
+        }),
+      })
     },
   )
 

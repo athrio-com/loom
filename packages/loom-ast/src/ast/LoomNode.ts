@@ -24,6 +24,7 @@ export type Severity = typeof SeveritySchema.Type
 export const FixSchema = Schema.Struct({
   title: Schema.String,
   text: Schema.String,
+  at: Schema.optional(PositionSchema),
 })
 export type Fix = typeof FixSchema.Type
 
