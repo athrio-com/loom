@@ -333,9 +333,26 @@ describe('a name resolves through the book', () => {
   it.effect('a title two chapters share is ambiguous until a part names one', () =>
     Effect.gen(function* () {
       const message = yield* refusal(book(anchor('Setup')), '/corpus/hello.loom')
-      expect(message).toContain('Ambiguous anchor: 2 sections are named `Setup`.')
+      expect(message).toContain(
+        'Ambiguous anchor: 2 sections are named `Setup`. Write the path to the one you mean:',
+      )
+      expect(message).toContain('`Saying things, Setup`')
+      expect(message).toContain('`Doing things, Setup`')
       const files = yield* tangled(book(anchor('Doing things, Setup')), '/corpus/hello.loom')
       expect(files[0]!.content).toBe(program)
+    }),
+  )
+
+  it.effect('offers the path through each part as a fix', () =>
+    Effect.gen(function* () {
+      const diagnostics = yield* LoomCompiler.pipe(
+        Effect.flatMap((c) => c.diagnose('/corpus/hello.loom')),
+        Effect.provide(layerOf(book(anchor('Setup')))),
+      )
+      expect(diagnostics.flatMap((d) => (d.fixes ?? []).map((fix) => fix.text)).sort()).toEqual([
+        'Doing things, Setup',
+        'Saying things, Setup',
+      ])
     }),
   )
 

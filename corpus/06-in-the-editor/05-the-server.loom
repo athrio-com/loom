@@ -1129,7 +1129,7 @@ const workspaceAt = (root: string, service: string): string => {
 
 The cases start the server from source the way an editor does. The server runs as a process of its own and speaks the Language Server Protocol over its standard input and output. The client hands it the TypeScript this repository installs, as VS Code hands over its own. It leaves `LOOM_HOME` out of the server's environment, since that variable would point every workspace at one store.
 
-The client declares that it watches files for the server, as an editor does. It does not watch any itself. A case reports a file created, changed, or deleted through `changed`, the way an editor's watcher would, and a change is the default. The client answers every request the server makes of it with nothing, whether the server asks for the editor's settings or asks it to watch a file. `open` shows the server a loom, `edit` replaces the text the editor holds for it without saving, under a version that only grows, `shut` closes it without saving, `format` asks for the edits that format it, and `texts` reads the text out of those edits. `diagnostics` asks for the problems the server finds in a loom and returns their messages.
+The client declares that it watches files for the server, as an editor does. It does not watch any itself. A case reports a file created, changed, or deleted through `changed`, the way an editor's watcher would, and a change is the default. The client answers every request the server makes of it with nothing, whether the server asks for the editor's settings or asks it to watch a file. `open` shows the server a loom, `edit` replaces the text the editor holds for it without saving, under a version that only grows, `shut` closes it without saving, `format` asks for the edits that format it, and `texts` reads the text out of those edits. `diagnostics` asks for the problems the server finds in a loom and returns their messages. `fixes` asks for the code actions the server offers on one line of a loom.
 
 =>
 
@@ -1186,6 +1186,12 @@ const editorAt = async (folder: string) => {
       ).items,
       (diagnostic) => diagnostic.message,
     )
+  const fixes = async (path: string, line: number): Promise<ReadonlyArray<CodeAction>> =>
+    (await connection.sendRequest<CodeAction[] | null>('textDocument/codeAction', {
+      textDocument: { uri: pathToFileURL(path).href },
+      range: { start: { line, character: 0 }, end: { line: line + 1, character: 0 } },
+      context: { diagnostics: [] },
+    })) ?? []
   const shut = (path: string): Promise<void> =>
     connection.sendNotification('textDocument/didClose', {
       textDocument: { uri: pathToFileURL(path).href },
@@ -1198,7 +1204,7 @@ const editorAt = async (folder: string) => {
     connection.dispose()
     child.kill()
   }
-  return { open, edit, shut, format, diagnostics, changed, close }
+  return { open, edit, shut, format, diagnostics, fixes, changed, close }
 }
 
 const texts = (edits: ReadonlyArray<TextEdit>): ReadonlyArray<string> =>
@@ -1635,6 +1641,62 @@ describe('LoomServer — where a TypeScript 6 comes from', () => {
   })
 })
 
+## Testing a fix for an ambiguous anchor
+
+An ambiguous anchor offers the editor a fix for each path that names one of its candidates. The two chapters called `Setup` open two parts, `Saying things` and `Doing things`, and `Main` names `Setup` bare on line 8, its name starting at character 3. The server offers two quick fixes on that line, one for each part, and each writes its path over the anchor's name in `main.loom`.
+
+=>
+
+describe('LoomServer — a fix for an ambiguous anchor', () => {
+  it('offers the path through each part as a quick fix', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    const setup = (part: string, code: string): string =>
+      lines(
+        '---',
+        part,
+        'Chapter 1: Setup',
+        'Language: TypeScript',
+        '---',
+        '',
+        '# Setup',
+        '',
+        '=>',
+        '',
+        code,
+      )
+    chapterAt(root, 'setup-one.loom', setup('Part I: Saying things', 'const one = 1'))
+    chapterAt(root, 'setup-two.loom', setup('Part II: Doing things', 'const two = 2'))
+    const main = chapterAt(root, 'main.loom', chapter('Main', anchor('Setup')))
+    const editor = await editorAt(root)
+    try {
+      await editor.open(main)
+      const actions = await editor.fixes(main, 8)
+      expect(
+        actions
+          .map((action) => [
+            action.title,
+            action.kind,
+            Object.values(action.edit?.changes ?? {})
+              .flat()
+              .map((edit) => [edit.newText, edit.range.start.character, edit.range.end.character]),
+          ])
+          .sort(),
+      ).toEqual([
+        ['Write the path `Doing things, Setup`', 'quickfix', [['Doing things, Setup', 3, 8]]],
+        ['Write the path `Saying things, Setup`', 'quickfix', [['Saying things, Setup', 3, 8]]],
+      ])
+      expect(
+        actions.every((action) =>
+          Object.keys(action.edit?.changes ?? {}).every((uri) => uri.endsWith('/main.loom')),
+        ),
+      ).toBe(true)
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+})
+
 ## Testing the pass piece by piece
 
 Some of what the pass does leaves no trace an editor can see. Volar holds a script in a language service, or holds it nowhere, and no request reveals which. A request that waits on the `reprojecting` semaphore gets the same answer it would have got without waiting. A close that rereads nothing looks the same as one that rereads a file with the same text. So these cases drive the server's parts directly, over stand-ins for Volar's objects.
@@ -1813,12 +1875,13 @@ describe('LoomServer — the pass piece by piece', () => {
 
 ## What the cases draw on
 
-The cases draw on Bun's test runner, and on Node to make the workspaces, start the server, and turn paths into the `file:` addresses the protocol names documents by. Volar's language-server package carries the client half of the protocol too: `createMessageConnection` and the stream reader and writer it speaks through, the `TextEdit` a format answers with, and the `FileChangeType` a reported change carries. The language store gives `servicePackage` and `serviceVersion`, which name and version the stand-in. The host runtime gives `runtimeKey`, where the stand-in finds Effect. Effect's `Array` reads the text out of the edits a format returns. The cases that drive the server's parts directly import them from the server module, `projectOver` and `classicTypeScript` among them, and read what `classicTypeScript` loads with Effect's `Result`, and build the caches, the semaphore, and the set those parts take with Effect's `Cache`, `Semaphore`, and `Ref`, run by `Effect`. They take the types of a server, a project, and a service plugin from Volar, and `URI` names their looms. To run `rebuildUnder` they assemble the compiler the way the server does, from `LoomCompiler`, `DocumentSource`, `WorkspaceSettings`, and `LoomConfig`, with Effect's `Layer`. To run `closeOf` they add the `FileSystemSource` layer.
+The cases draw on Bun's test runner, and on Node to make the workspaces, start the server, and turn paths into the `file:` addresses the protocol names documents by. Volar's language-server package carries the client half of the protocol too: `createMessageConnection` and the stream reader and writer it speaks through, the `TextEdit` a format answers with, the `CodeAction` a fix arrives as, and the `FileChangeType` a reported change carries. The language store gives `servicePackage` and `serviceVersion`, which name and version the stand-in. The host runtime gives `runtimeKey`, where the stand-in finds Effect. Effect's `Array` reads the text out of the edits a format returns. The cases that drive the server's parts directly import them from the server module, `projectOver` and `classicTypeScript` among them, and read what `classicTypeScript` loads with Effect's `Result`, and build the caches, the semaphore, and the set those parts take with Effect's `Cache`, `Semaphore`, and `Ref`, run by `Effect`. They take the types of a server, a project, and a service plugin from Volar, and `URI` names their looms. To run `rebuildUnder` they assemble the compiler the way the server does, from `LoomCompiler`, `DocumentSource`, `WorkspaceSettings`, and `LoomConfig`, with Effect's `Layer`. To run `closeOf` they add the `FileSystemSource` layer.
 
 =>
 
 import { describe, expect, it } from 'bun:test'
 import {
+  type CodeAction,
   createMessageConnection,
   type Diagnostic,
   FileChangeType,
@@ -1868,5 +1931,7 @@ import { runtimeKey } from '@athrio/loom-lang-services/Runtime'
 ::[Testing a compiler setting that changes]
 
 ::[Testing where a TypeScript 6 comes from]
+
+::[Testing a fix for an ambiguous anchor]
 
 ::[Testing the pass piece by piece]

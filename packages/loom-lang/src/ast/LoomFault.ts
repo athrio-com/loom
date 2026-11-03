@@ -1,5 +1,5 @@
-import { Data, Match } from 'effect'
-import type { Health, Position, Severity } from '@athrio/loom-ast/LoomNode'
+import { Array, Data, Match } from 'effect'
+import type { Diagnostic, Fix, Health, Position, Severity } from '@athrio/loom-ast/LoomNode'
 
 export type MalformedConstruct = 'specifier' | 'path' | 'warpName' | 'anchorName'
 
@@ -15,7 +15,11 @@ export type LoomFault = Data.TaggedEnum<{
   MissingWarpValue: { readonly name: string }
   UnknownVariable: { readonly name: string }
   UnresolvedAnchor: { readonly name: string }
-  AmbiguousAnchor: { readonly name: string; readonly count: number }
+  AmbiguousAnchor: {
+    readonly name: string
+    readonly count: number
+    readonly paths: ReadonlyArray<string>
+  }
   ChapterWithoutCode: { readonly name: string }
   CrossLanguageAnchor: {
     readonly name: string
@@ -61,6 +65,16 @@ const noun: Record<EmptyConstruct, string> = {
   warpDefault: 'warp default',
 }
 
+const disambiguation = (paths: ReadonlyArray<string>): string =>
+  Array.match(paths, {
+    onEmpty: () => 'A name anchor resolves to exactly one section; rename to disambiguate.',
+    onNonEmpty: (all) =>
+      `Write the path to the one you mean: ${Array.join(
+        Array.map(all, (path) => `\`${path}\``),
+        ' or ',
+      )}.`,
+  })
+
 const rule: Record<MalformedConstruct, string> = {
   specifier: 'may contain only letters, digits, hyphen, and underscore',
   path: 'may contain only letters, digits, hyphen, underscore, dot, and slash',
@@ -86,10 +100,8 @@ export const describe = (fault: LoomFault): Note =>
     Match.tag('UnresolvedAnchor', ({ name }) =>
       error(`Unresolved anchor: no section named \`${name}\`.`),
     ),
-    Match.tag('AmbiguousAnchor', ({ name, count }) =>
-      error(
-        `Ambiguous anchor: ${count} sections are named \`${name}\`. A name anchor resolves to exactly one section; rename to disambiguate.`,
-      ),
+    Match.tag('AmbiguousAnchor', ({ name, count, paths }) =>
+      error(`Ambiguous anchor: ${count} sections are named \`${name}\`. ${disambiguation(paths)}`),
     ),
     Match.tag('ChapterWithoutCode', ({ name }) =>
       warning(
@@ -124,10 +136,23 @@ export const describe = (fault: LoomFault): Note =>
 
 const statusOf = (severity: Severity): Health['status'] => (severity === 'info' ? 'ok' : severity)
 
+export const fixesOf = (fault: LoomFault): ReadonlyArray<Fix> =>
+  Match.value(fault).pipe(
+    Match.tag('AmbiguousAnchor', ({ paths }) =>
+      Array.map(paths, (path): Fix => ({ title: `Write the path \`${path}\``, text: path })),
+    ),
+    Match.orElse((): ReadonlyArray<Fix> => []),
+  )
+
+const diagnosticOf = (note: Note, position: Position, fixes: ReadonlyArray<Fix>): Diagnostic =>
+  Array.isReadonlyArrayNonEmpty(fixes)
+    ? { message: note.message, position, severity: note.severity, fixes }
+    : { message: note.message, position, severity: note.severity }
+
 export const faulty = (fault: LoomFault, position: Position): Health => {
   const note = describe(fault)
   return {
     status: statusOf(note.severity),
-    diagnostics: [{ message: note.message, position, severity: note.severity }],
+    diagnostics: [diagnosticOf(note, position, fixesOf(fault))],
   }
 }

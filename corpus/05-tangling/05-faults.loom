@@ -12,7 +12,7 @@ Writing them once is the point. A reader sees everything Loom can say, gathered 
 
 ## What Loom can get wrong
 
-A `LoomFault` is a tagged union, and each variant names one fault and carries only what its message needs. An `UnclosedDelimiter` carries the delimiter it expected to find. An `UnresolvedAnchor` carries the name that matched no section, and an `AmbiguousAnchor` adds the count that made it ambiguous. A `ChapterWithoutCode` carries the name of a chapter that a code anchor composes, when the chapter's opening section holds no code to compose. A `MissingWarpValue` carries the name of a Warp that bound nothing. An `UnknownVariable` carries the name a warp interpolated that the configuration never declared. A `CrossLanguageAnchor` carries the anchor name, the language found at the target, and the language the host section composes. An `UnresolvedTocEntry` carries the title of a table-of-contents entry that names no chapter. A `HeadingAgainstCode` carries nothing either: it marks a heading written directly under a line of code, where a `#` comment most likely ended the code by mistake. A `StrayFragment` carries the text of a fragment a line had no place for, such as a second specifier on a heading. An `UnclosedExplicitBlock` carries nothing: it marks an explicit arrow, `~>`, that no tilde ever closes, and the arrow's own position says where the block began.
+A `LoomFault` is a tagged union, and each variant names one fault and carries only what its message needs. An `UnclosedDelimiter` carries the delimiter it expected to find. An `UnresolvedAnchor` carries the name that matched no section. An `AmbiguousAnchor` adds the count that made it ambiguous and the `paths` that each name one of the candidates alone. A `ChapterWithoutCode` carries the name of a chapter that a code anchor composes, when the chapter's opening section holds no code to compose. A `MissingWarpValue` carries the name of a Warp that bound nothing. An `UnknownVariable` carries the name a warp interpolated that the configuration never declared. A `CrossLanguageAnchor` carries the anchor name, the language found at the target, and the language the host section composes. An `UnresolvedTocEntry` carries the title of a table-of-contents entry that names no chapter. A `HeadingAgainstCode` carries nothing either: it marks a heading written directly under a line of code, where a `#` comment most likely ended the code by mistake. A `StrayFragment` carries the text of a fragment a line had no place for, such as a second specifier on a heading. An `UnclosedExplicitBlock` carries nothing: it marks an explicit arrow, `~>`, that no tilde ever closes, and the arrow's own position says where the block began.
 
 The label faults fold many constructs into two variants. A construct is a named span the grammar validates — a specifier, a file path, a warp name, an anchor name. `EmptyLabel` is one with no text. `MalformedLabel` is one whose text breaks the construct's rule. Two further constructs — a warp annotation and a warp default — can only be empty, never malformed, so `EmptyConstruct` adds those two to `MalformedConstruct`.
 
@@ -32,7 +32,11 @@ export type LoomFault = Data.TaggedEnum<{
   MissingWarpValue: { readonly name: string }
   UnknownVariable: { readonly name: string }
   UnresolvedAnchor: { readonly name: string }
-  AmbiguousAnchor: { readonly name: string; readonly count: number }
+  AmbiguousAnchor: {
+    readonly name: string
+    readonly count: number
+    readonly paths: ReadonlyArray<string>
+  }
   ChapterWithoutCode: { readonly name: string }
   CrossLanguageAnchor: {
     readonly name: string
@@ -73,6 +77,8 @@ export const {
 
 Two small lookups carry the wording that varies by construct. `noun` gives each construct the name a reader knows it by, and `rule` gives each construct that can be malformed the rule its text broke. An empty label then reads `<noun> cannot be empty`, and a malformed one reads `<noun> <rule>; got <value>`.
 
+An ambiguous anchor ends its message with the way out. `disambiguation` names the paths that each reach one candidate alone. When there are none, as for two sections of one loom that share a title, it asks the author to rename one.
+
 =>
 
 type Note = { readonly severity: Severity; readonly message: string }
@@ -91,6 +97,16 @@ const noun: Record<EmptyConstruct, string> = {
   warpAnnotation: 'warp annotation',
   warpDefault: 'warp default',
 }
+
+const disambiguation = (paths: ReadonlyArray<string>): string =>
+  Array.match(paths, {
+    onEmpty: () => 'A name anchor resolves to exactly one section; rename to disambiguate.',
+    onNonEmpty: (all) =>
+      `Write the path to the one you mean: ${Array.join(
+        Array.map(all, (path) => `\`${path}\``),
+        ' or ',
+      )}.`,
+  })
 
 const rule: Record<MalformedConstruct, string> = {
   specifier: 'may contain only letters, digits, hyphen, and underscore',
@@ -117,10 +133,8 @@ export const describe = (fault: LoomFault): Note =>
     Match.tag('UnresolvedAnchor', ({ name }) =>
       error(`Unresolved anchor: no section named \`${name}\`.`),
     ),
-    Match.tag('AmbiguousAnchor', ({ name, count }) =>
-      error(
-        `Ambiguous anchor: ${count} sections are named \`${name}\`. A name anchor resolves to exactly one section; rename to disambiguate.`,
-      ),
+    Match.tag('AmbiguousAnchor', ({ name, count, paths }) =>
+      error(`Ambiguous anchor: ${count} sections are named \`${name}\`. ${disambiguation(paths)}`),
     ),
     Match.tag('ChapterWithoutCode', ({ name }) =>
       warning(
@@ -157,26 +171,41 @@ export const describe = (fault: LoomFault): Note =>
 
 A detection site holds a fault and the span it covers, and needs a `Health` for the node. `faulty` is that step: it describes the fault through the catalog and returns a health carrying the one diagnostic, positioned where the fault was found. The severity sets the node's status: an error or a warning fails it. An informational note would leave it healthy, but the catalog raises only errors and warnings — never `info`.
 
+`fixesOf` gives the fixes a fault offers, and only an ambiguous anchor offers any. Each of its paths becomes one fix, which writes the path in place of the anchor's name. `diagnosticOf` builds the diagnostic, and gives it `fixes` only when there are some, so a fault with nothing to offer carries no empty list.
+
 =>
 
 const statusOf = (severity: Severity): Health['status'] => (severity === 'info' ? 'ok' : severity)
+
+export const fixesOf = (fault: LoomFault): ReadonlyArray<Fix> =>
+  Match.value(fault).pipe(
+    Match.tag('AmbiguousAnchor', ({ paths }) =>
+      Array.map(paths, (path): Fix => ({ title: `Write the path \`${path}\``, text: path })),
+    ),
+    Match.orElse((): ReadonlyArray<Fix> => []),
+  )
+
+const diagnosticOf = (note: Note, position: Position, fixes: ReadonlyArray<Fix>): Diagnostic =>
+  Array.isReadonlyArrayNonEmpty(fixes)
+    ? { message: note.message, position, severity: note.severity, fixes }
+    : { message: note.message, position, severity: note.severity }
 
 export const faulty = (fault: LoomFault, position: Position): Health => {
   const note = describe(fault)
   return {
     status: statusOf(note.severity),
-    diagnostics: [{ message: note.message, position, severity: note.severity }],
+    diagnostics: [diagnosticOf(note, position, fixesOf(fault))],
   }
 }
 
 ## What this module draws on
 
-`Data` builds the tagged union and a constructor for each fault, and `Match` builds the exhaustive table. `@athrio/loom-ast` types what a fault becomes — the `Severity` and `Position` a diagnostic carries, and the `Health` a node holds.
+`Data` builds the tagged union and a constructor for each fault, `Match` builds the exhaustive table, and `Array` turns an ambiguous anchor's paths into its message and its fixes. `@athrio/loom-ast` types what a fault becomes — the `Diagnostic` with its `Severity`, `Position`, and each `Fix` it offers, and the `Health` a node holds.
 
 =>
 
-import { Data, Match } from 'effect'
-import type { Health, Position, Severity } from '@athrio/loom-ast/LoomNode'
+import { Array, Data, Match } from 'effect'
+import type { Diagnostic, Fix, Health, Position, Severity } from '@athrio/loom-ast/LoomNode'
 
 ## The module {Tangle}
 

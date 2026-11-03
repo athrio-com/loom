@@ -76,7 +76,7 @@ describe('LoomFault — the diagnostic catalog', () => {
       /^Unresolved anchor: no section named `n`\./,
     )
     expect(
-      renderFault(AmbiguousAnchor({ name: 'Helper', count: 2 })).message,
+      renderFault(AmbiguousAnchor({ name: 'Helper', count: 2, paths: [] })).message,
     ).toMatch(/^Ambiguous anchor: 2 sections are named `Helper`\./)
     expect(
       renderFault(

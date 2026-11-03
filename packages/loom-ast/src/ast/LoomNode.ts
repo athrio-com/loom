@@ -21,10 +21,17 @@ export type Position = typeof PositionSchema.Type
 export const SeveritySchema = Schema.Literals(['error', 'warning', 'info'])
 export type Severity = typeof SeveritySchema.Type
 
+export const FixSchema = Schema.Struct({
+  title: Schema.String,
+  text: Schema.String,
+})
+export type Fix = typeof FixSchema.Type
+
 export const DiagnosticSchema = Schema.Struct({
   message: Schema.String,
   position: PositionSchema,
   severity: SeveritySchema,
+  fixes: Schema.optional(Schema.Array(FixSchema)),
 })
 export type Diagnostic = typeof DiagnosticSchema.Type
 

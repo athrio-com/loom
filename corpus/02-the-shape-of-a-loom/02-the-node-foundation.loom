@@ -44,15 +44,24 @@ export type Position = typeof PositionSchema.Type
 
 A `Diagnostic` is a positioned message with a `Severity` — `error`, `warning`, or `info`. `info` is not a failure: a node carrying only `info` diagnostics stays healthy.
 
+A diagnostic may also carry `fixes`, the edits an editor offers to repair what it reports. A `Fix` holds the `title` the editor shows and the `text` that replaces the span the diagnostic covers. An ambiguous anchor offers one fix for each path that names one of its candidates alone, and each fix writes that path in place of the anchor's name.
+
 =>
 
 export const SeveritySchema = Schema.Literals(['error', 'warning', 'info'])
 export type Severity = typeof SeveritySchema.Type
 
+export const FixSchema = Schema.Struct({
+  title: Schema.String,
+  text: Schema.String,
+})
+export type Fix = typeof FixSchema.Type
+
 export const DiagnosticSchema = Schema.Struct({
   message: Schema.String,
   position: PositionSchema,
   severity: SeveritySchema,
+  fixes: Schema.optional(Schema.Array(FixSchema)),
 })
 export type Diagnostic = typeof DiagnosticSchema.Type
 

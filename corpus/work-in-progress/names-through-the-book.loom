@@ -116,7 +116,7 @@ The graph serves the views that want the book as a whole: a drawing of which cha
 
 ## What this chapter grows into
 
-1. `AmbiguousAnchor` carrying its fixes, `DuplicateName` scoped to siblings, and `chapterIndex` keyed by part and title for the table of contents.
+1. `DuplicateName` scoped to siblings, and `chapterIndex` keyed by part and title for the table of contents.
 2. Numbered paths, with renumbering in the editor rewriting them and each one showing its chapter's title.
 3. Missing names that wait, checked again when an edit declares them, and the fix that declares a section.
 4. Promises: marked in the editor and on the woven page, and refused by the tangler.

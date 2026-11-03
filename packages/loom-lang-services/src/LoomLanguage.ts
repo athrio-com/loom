@@ -1,5 +1,6 @@
 import { Array, Effect, pipe } from 'effect'
 import type {
+  CodeAction,
   Diagnostic as LspDiagnostic,
   LanguageServicePlugin,
   LocationLink,
@@ -48,6 +49,42 @@ const loomDiagnostics = (frame: FrameQueryApi): LanguageServicePlugin => ({
       return pipe(
         frame.diagnostics(frame.locationOf(decoded[0])),
         Array.map((diagnostic) => toLspDiagnostic(at, diagnostic)),
+      )
+    },
+  }),
+})
+
+const meets = (diagnostic: Diagnostic, start: number, end: number): boolean =>
+  diagnostic.position.start.offset <= end && start <= diagnostic.position.end.offset
+
+const fixActions =
+  (uri: string, at: (offset: number) => LspDiagnostic['range']['start']) =>
+  (diagnostic: Diagnostic): ReadonlyArray<CodeAction> => {
+    const repaired = toLspDiagnostic(at, diagnostic)
+    return Array.map(diagnostic.fixes ?? [], (fix): CodeAction => ({
+      title: fix.title,
+      kind: 'quickfix',
+      diagnostics: [repaired],
+      edit: { changes: { [uri]: [{ range: repaired.range, newText: fix.text }] } },
+    }))
+  }
+
+const loomFixes = (frame: FrameQueryApi): LanguageServicePlugin => ({
+  name: 'loom-fixes',
+  capabilities: { codeActionProvider: { codeActionKinds: ['quickfix'] } },
+  create: (context) => ({
+    provideCodeActions: (document, range) => {
+      const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
+      if (!decoded || decoded[1] !== 'root') return undefined
+      const loom = frame.locationOf(decoded[0])
+      const start = document.offsetAt(range.start)
+      const end = document.offsetAt(range.end)
+      return pipe(
+        frame.diagnostics(loom),
+        Array.filter((diagnostic) => meets(diagnostic, start, end)),
+        Array.flatMap(
+          fixActions(frame.uriOf(loom).toString(), (offset) => document.positionAt(offset)),
+        ),
       )
     },
   }),
@@ -182,6 +219,7 @@ export const LoomLanguage = defineLanguageService({
       const frame = yield* FrameQuery
       return [
         loomDiagnostics(frame),
+        loomFixes(frame),
         loomDefinition(frame),
         loomReferences(frame),
         loomRename(frame),

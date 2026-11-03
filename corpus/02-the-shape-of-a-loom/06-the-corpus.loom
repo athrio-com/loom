@@ -332,6 +332,75 @@ export const resolveAnchor = (
 
 ~
 
+An ambiguous name reaches several places, and a longer path can name each of them alone. `pathsTo` gives, for each trail of an ambiguous name, the shortest path that leads from the anchor's loom to that trail's place and to nothing else. The faults offer these paths as fixes.
+
+`namesFor` lists the paths that can name a place, shortest first. A path names a chapter by its title, or by its part and its title. A path names a section by its chapter and its title, or by the chapter's part, the chapter, and the title. `chapterOf` finds the chapter a section's loom declares, and `throughPart` adds the longer path when the chapter belongs to a part. `samePlace` compares two places, and `leadsTo` resolves a path through `trailsOf` and accepts it when its one trail ends at the place. A place that no path names alone gets none, such as one of two sections that share a title in one loom.
+
+=>
+
+const chapterOf = (book: Book, module: Location): Option.Option<Chapter> =>
+  Array.findFirst(book.chapters, (chapter) => chapter.module.path === module)
+
+const throughPart = (
+  chapter: Chapter,
+  names: ReadonlyArray<string>,
+): ReadonlyArray<ReadonlyArray<string>> => [
+  names,
+  ...Option.toArray(Option.map(chapter.part, (part) => [part, ...names])),
+]
+
+const namesFor = (book: Book, place: Place): ReadonlyArray<ReadonlyArray<string>> =>
+  Match.value(place).pipe(
+    Match.tag('Chapter', ({ chapter }) => throughPart(chapter, [chapter.title])),
+    Match.tag('Section', ({ ref }) =>
+      Option.match(
+        Option.all([chapterOf(book, ref.module), Option.fromNullishOr(ref.section.heading.title)]),
+        {
+          onNone: (): ReadonlyArray<ReadonlyArray<string>> => [],
+          onSome: ([chapter, title]) => throughPart(chapter, [chapter.title, title.source]),
+        },
+      ),
+    ),
+    Match.tag('Part', (): ReadonlyArray<ReadonlyArray<string>> => []),
+    Match.exhaustive,
+  )
+
+const samePlace = (place: Place, other: Place): boolean =>
+  Match.value(place).pipe(
+    Match.tag('Part', (part) => other._tag === 'Part' && other.name === part.name),
+    Match.tag(
+      'Chapter',
+      ({ chapter }) =>
+        other._tag === 'Chapter' && other.chapter.module.path === chapter.module.path,
+    ),
+    Match.tag('Section', ({ ref }) => namesSection(ref)(other)),
+    Match.exhaustive,
+  )
+
+const leadsTo =
+  (book: Book, from: Location, place: Place) =>
+  (path: string): boolean =>
+    Option.exists(soleTrail(trailsOf(book, from, path)), (trail) =>
+      samePlace(Array.lastNonEmpty(trail).place, place),
+    )
+
+export const pathsTo = (
+  book: Book,
+  from: Location,
+  trails: ReadonlyArray<Trail>,
+): ReadonlyArray<string> =>
+  Array.getSomes(
+    Array.map(trails, (trail) => {
+      const place = Array.lastNonEmpty(trail).place
+      return Array.findFirst(
+        Array.map(namesFor(book, place), (names) => Array.join(names, ', ')),
+        leadsTo(book, from, place),
+      )
+    }),
+  )
+
+~
+
 `anchorsOf` gathers every anchor a section carries — across its preamble and its body, code and prose alike — since the reachability walk and the navigation read the same set.
 
 =>

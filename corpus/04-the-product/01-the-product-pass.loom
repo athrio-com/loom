@@ -17,7 +17,7 @@ So this pass stays within one document. A bare anchor whose name the document ho
 
 ## What this module draws on
 
-The pass reads the Loom AST and writes the product AST, so it draws from both. From `effect` come the array and option combinators, `Match` for dispatching on a weft, `Order` for sorting a run's anchors by position, and `pipe` for the spine. From the Loom side come the document and section types, the warp and anchor tokens a section carries, and the section-body weft a code run is made of. The fault catalog gives `faulty` and the anchor faults this pass and its judgement raise, and the tokeniser's `normaliseTitle` folds a heading into the name that identifies its section. From the product side come the schema constructors for every node the pass builds — the `Code` of a section, its `Fragment` and `NameRef` leaves, and the `File` a `{Tangle}` section emits — together with the `SectionId` that stamps each one. From the corpus model come `anchorModule`, which picks the loom an anchor with a path resolves in, the `LoomModule` the judgement reads, and the `Book` it resolves names in, through `trailsOf`, `sectionOf`, and `resolveName`, with the `Diagnostic` it returns.
+The pass reads the Loom AST and writes the product AST, so it draws from both. From `effect` come the array and option combinators, `Match` for dispatching on a weft, `Order` for sorting a run's anchors by position, and `pipe` for the spine. From the Loom side come the document and section types, the warp and anchor tokens a section carries, and the section-body weft a code run is made of. The fault catalog gives `faulty` and the anchor faults this pass and its judgement raise, and the tokeniser's `normaliseTitle` folds a heading into the name that identifies its section. From the product side come the schema constructors for every node the pass builds — the `Code` of a section, its `Fragment` and `NameRef` leaves, and the `File` a `{Tangle}` section emits — together with the `SectionId` that stamps each one. From the corpus model come `anchorModule`, which picks the loom an anchor with a path resolves in, the `LoomModule` the judgement reads, and the `Book` it resolves names in, through `trailsOf`, `sectionOf`, and `resolveName`, and `pathsTo`, which names each candidate of an ambiguous name, with the `Diagnostic` it returns.
 
 =>
 
@@ -35,6 +35,7 @@ import {
   type Book,
   type Location,
   type LoomModule,
+  pathsTo,
   resolveName,
   sectionOf,
   type SectionRef,
@@ -495,7 +496,7 @@ Otherwise the name is looked up among the document's section titles. One match r
 
 A name that no section of the document carries may still lie elsewhere in the book. `openRef` composes an edge for it that records the name and leaves the target open, and the compiler binds that edge once it holds the corpus.
 
-An anchor that cannot compose leaves an empty fragment instead, and what rides on that fragment depends on why it failed. A grammatically broken anchor, such as an empty `::[]` or an unclosed `::[n`, already carries the parser's fault on its own span, so the fragment adds none. A well-formed name that two sections of the document share is ambiguous, and the fragment carries that fault on the anchor.
+An anchor that cannot compose leaves an empty fragment instead, and what rides on that fragment depends on why it failed. A grammatically broken anchor, such as an empty `::[]` or an unclosed `::[n`, already carries the parser's fault on its own span, so the fragment adds none. A well-formed name that two sections of the document share is ambiguous, and the fragment carries that fault on the anchor. No path tells two sections of one loom apart, so the fault offers none.
 
 =>
 
@@ -525,7 +526,7 @@ const bindAnchor =
               health:
                 entry.language === host ? okHealth : crossLanguage(name, at, host, entry.language),
             })
-          : blankFragment(anchor.position, ambiguous(name, at, rest.length + 1)),
+          : blankFragment(anchor.position, ambiguous(name, at, rest.length + 1, [])),
     })
   }
 
@@ -544,8 +545,12 @@ const blankFragment = (at: Position, health: Health = okHealth): Fragment =>
 
 const unresolved = (name: string, at: Position): Health => faulty(UnresolvedAnchor({ name }), at)
 
-const ambiguous = (name: string, at: Position, count: number): Health =>
-  faulty(AmbiguousAnchor({ name, count }), at)
+const ambiguous = (
+  name: string,
+  at: Position,
+  count: number,
+  paths: ReadonlyArray<string>,
+): Health => faulty(AmbiguousAnchor({ name, count, paths }), at)
 
 const crossLanguage = (name: string, at: Position, host: string, found: string): Health =>
   faulty(CrossLanguageAnchor({ name, host, found }), at)
@@ -625,14 +630,14 @@ const pathHealth = (
     onEmpty: () => unresolved(ref.name, ref.anchor),
     onNonEmpty: (code, rest) =>
       rest.length > 0
-        ? ambiguous(ref.name, ref.anchor, rest.length + 1)
+        ? ambiguous(ref.name, ref.anchor, rest.length + 1, [])
         : languageHealth(ref.name, ref.anchor, host.languageId, code.languageId),
   })
 }
 
 ~
 
-An open edge resolves its name through the book, and `nameHealth` judges what `trailsOf` finds. No trail means that no section carries the name, so the anchor is unresolved. More than one trail is an ambiguity. One trail reaches a place, and `trailHealth` judges it.
+An open edge resolves its name through the book, and `nameHealth` judges what `trailsOf` finds. No trail means that no section carries the name, so the anchor is unresolved. More than one trail is an ambiguity, and `pathsTo` gives the path that names each candidate alone, which the fault offers as fixes. One trail reaches a place, and `trailHealth` judges it.
 
 The place is a section, or a chapter that stands for its opening section. A chapter with no titled section gives the anchor no section to compose, so the anchor is unresolved. A chapter whose opening section holds no code composes nothing, so it raises the `ChapterWithoutCode` warning. Any other section must share the host's language. `codeOf` finds the `Code` a reached section composed, and `languageHealth` is the last question alone: the found language against the host's.
 
@@ -644,14 +649,16 @@ const nameHealth = (
   module: LoomModule,
   host: Code,
   ref: NameRef,
-): Health =>
-  Array.matchLeft(trailsOf(book, module.path, ref.name), {
+): Health => {
+  const trails = trailsOf(book, module.path, ref.name)
+  return Array.matchLeft(trails, {
     onEmpty: () => unresolved(ref.name, ref.anchor),
     onNonEmpty: (trail, rest) =>
       rest.length > 0
-        ? ambiguous(ref.name, ref.anchor, rest.length + 1)
+        ? ambiguous(ref.name, ref.anchor, trails.length, pathsTo(book, module.path, trails))
         : trailHealth(modules, host, ref, trail),
   })
+}
 
 const trailHealth = (
   modules: ReadonlyMap<string, LoomModule>,

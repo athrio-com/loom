@@ -1662,16 +1662,33 @@ A chapter whose opening section holds no code gives the anchor nothing to compos
 
 ~
 
-Two chapters may share a title when they stand in different parts. A bare name that finds both cannot choose between them, and a path through the part names the one it means. A title that holds a comma resolves whole, because a name splits into a path only when the whole name matches nothing.
+Two chapters may share a title when they stand in different parts. A bare name that finds both cannot choose between them. The fault names the path through each chapter's part, and the `diagnose` verb offers each path as a fix that writes it in place of the name. A path through the part then names the one the author means. A title that holds a comma resolves whole, because a name splits into a path only when the whole name matches nothing.
 
 =>
 
   it.effect('a title two chapters share is ambiguous until a part names one', () =>
     Effect.gen(function* () {
       const message = yield* refusal(book(anchor('Setup')), '/corpus/hello.loom')
-      expect(message).toContain('Ambiguous anchor: 2 sections are named `Setup`.')
+      expect(message).toContain(
+        'Ambiguous anchor: 2 sections are named `Setup`. Write the path to the one you mean:',
+      )
+      expect(message).toContain('`Saying things, Setup`')
+      expect(message).toContain('`Doing things, Setup`')
       const files = yield* tangled(book(anchor('Doing things, Setup')), '/corpus/hello.loom')
       expect(files[0]!.content).toBe(program)
+    }),
+  )
+
+  it.effect('offers the path through each part as a fix', () =>
+    Effect.gen(function* () {
+      const diagnostics = yield* LoomCompiler.pipe(
+        Effect.flatMap((c) => c.diagnose('/corpus/hello.loom')),
+        Effect.provide(layerOf(book(anchor('Setup')))),
+      )
+      expect(diagnostics.flatMap((d) => (d.fixes ?? []).map((fix) => fix.text)).sort()).toEqual([
+        'Doing things, Setup',
+        'Saying things, Setup',
+      ])
     }),
   )
 

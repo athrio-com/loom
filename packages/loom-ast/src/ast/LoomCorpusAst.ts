@@ -272,6 +272,67 @@ export const resolveAnchor = (
 ): Option.Option<SectionRef> =>
   Option.flatMap(soleTrail(anchorTrails(book, from, anchor)), sectionOf)
 
+const chapterOf = (book: Book, module: Location): Option.Option<Chapter> =>
+  Array.findFirst(book.chapters, (chapter) => chapter.module.path === module)
+
+const throughPart = (
+  chapter: Chapter,
+  names: ReadonlyArray<string>,
+): ReadonlyArray<ReadonlyArray<string>> => [
+  names,
+  ...Option.toArray(Option.map(chapter.part, (part) => [part, ...names])),
+]
+
+const namesFor = (book: Book, place: Place): ReadonlyArray<ReadonlyArray<string>> =>
+  Match.value(place).pipe(
+    Match.tag('Chapter', ({ chapter }) => throughPart(chapter, [chapter.title])),
+    Match.tag('Section', ({ ref }) =>
+      Option.match(
+        Option.all([chapterOf(book, ref.module), Option.fromNullishOr(ref.section.heading.title)]),
+        {
+          onNone: (): ReadonlyArray<ReadonlyArray<string>> => [],
+          onSome: ([chapter, title]) => throughPart(chapter, [chapter.title, title.source]),
+        },
+      ),
+    ),
+    Match.tag('Part', (): ReadonlyArray<ReadonlyArray<string>> => []),
+    Match.exhaustive,
+  )
+
+const samePlace = (place: Place, other: Place): boolean =>
+  Match.value(place).pipe(
+    Match.tag('Part', (part) => other._tag === 'Part' && other.name === part.name),
+    Match.tag(
+      'Chapter',
+      ({ chapter }) =>
+        other._tag === 'Chapter' && other.chapter.module.path === chapter.module.path,
+    ),
+    Match.tag('Section', ({ ref }) => namesSection(ref)(other)),
+    Match.exhaustive,
+  )
+
+const leadsTo =
+  (book: Book, from: Location, place: Place) =>
+  (path: string): boolean =>
+    Option.exists(soleTrail(trailsOf(book, from, path)), (trail) =>
+      samePlace(Array.lastNonEmpty(trail).place, place),
+    )
+
+export const pathsTo = (
+  book: Book,
+  from: Location,
+  trails: ReadonlyArray<Trail>,
+): ReadonlyArray<string> =>
+  Array.getSomes(
+    Array.map(trails, (trail) => {
+      const place = Array.lastNonEmpty(trail).place
+      return Array.findFirst(
+        Array.map(namesFor(book, place), (names) => Array.join(names, ', ')),
+        leadsTo(book, from, place),
+      )
+    }),
+  )
+
 const anchorsOf = (section: LoomSection): ReadonlyArray<WarpAnchorToken> =>
   pipe(
     [...section.preamble, ...section.code],

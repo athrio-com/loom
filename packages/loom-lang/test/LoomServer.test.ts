@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import {
+  type CodeAction,
   createMessageConnection,
   type Diagnostic,
   FileChangeType,
@@ -141,6 +142,12 @@ const editorAt = async (folder: string) => {
       ).items,
       (diagnostic) => diagnostic.message,
     )
+  const fixes = async (path: string, line: number): Promise<ReadonlyArray<CodeAction>> =>
+    (await connection.sendRequest<CodeAction[] | null>('textDocument/codeAction', {
+      textDocument: { uri: pathToFileURL(path).href },
+      range: { start: { line, character: 0 }, end: { line: line + 1, character: 0 } },
+      context: { diagnostics: [] },
+    })) ?? []
   const shut = (path: string): Promise<void> =>
     connection.sendNotification('textDocument/didClose', {
       textDocument: { uri: pathToFileURL(path).href },
@@ -153,7 +160,7 @@ const editorAt = async (folder: string) => {
     connection.dispose()
     child.kill()
   }
-  return { open, edit, shut, format, diagnostics, changed, close }
+  return { open, edit, shut, format, diagnostics, fixes, changed, close }
 }
 
 const texts = (edits: ReadonlyArray<TextEdit>): ReadonlyArray<string> =>
@@ -526,6 +533,56 @@ describe('LoomServer — where a TypeScript 6 comes from', () => {
     const again = withEditor(project)
     expect(Result.isSuccess(first) && Result.isSuccess(again) && first.success === again.success).toBe(true)
   })
+})
+
+describe('LoomServer — a fix for an ambiguous anchor', () => {
+  it('offers the path through each part as a quick fix', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    const setup = (part: string, code: string): string =>
+      lines(
+        '---',
+        part,
+        'Chapter 1: Setup',
+        'Language: TypeScript',
+        '---',
+        '',
+        '# Setup',
+        '',
+        '=>',
+        '',
+        code,
+      )
+    chapterAt(root, 'setup-one.loom', setup('Part I: Saying things', 'const one = 1'))
+    chapterAt(root, 'setup-two.loom', setup('Part II: Doing things', 'const two = 2'))
+    const main = chapterAt(root, 'main.loom', chapter('Main', anchor('Setup')))
+    const editor = await editorAt(root)
+    try {
+      await editor.open(main)
+      const actions = await editor.fixes(main, 8)
+      expect(
+        actions
+          .map((action) => [
+            action.title,
+            action.kind,
+            Object.values(action.edit?.changes ?? {})
+              .flat()
+              .map((edit) => [edit.newText, edit.range.start.character, edit.range.end.character]),
+          ])
+          .sort(),
+      ).toEqual([
+        ['Write the path `Doing things, Setup`', 'quickfix', [['Doing things, Setup', 3, 8]]],
+        ['Write the path `Saying things, Setup`', 'quickfix', [['Saying things, Setup', 3, 8]]],
+      ])
+      expect(
+        actions.every((action) =>
+          Object.keys(action.edit?.changes ?? {}).every((uri) => uri.endsWith('/main.loom')),
+        ),
+      ).toBe(true)
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
 })
 
 const recording = () => {

@@ -12,6 +12,7 @@ import {
   type Book,
   type Location,
   type LoomModule,
+  pathsTo,
   resolveName,
   sectionOf,
   type SectionRef,
@@ -426,7 +427,7 @@ const bindAnchor =
               health:
                 entry.language === host ? okHealth : crossLanguage(name, at, host, entry.language),
             })
-          : blankFragment(anchor.position, ambiguous(name, at, rest.length + 1)),
+          : blankFragment(anchor.position, ambiguous(name, at, rest.length + 1, [])),
     })
   }
 
@@ -445,8 +446,12 @@ const blankFragment = (at: Position, health: Health = okHealth): Fragment =>
 
 const unresolved = (name: string, at: Position): Health => faulty(UnresolvedAnchor({ name }), at)
 
-const ambiguous = (name: string, at: Position, count: number): Health =>
-  faulty(AmbiguousAnchor({ name, count }), at)
+const ambiguous = (
+  name: string,
+  at: Position,
+  count: number,
+  paths: ReadonlyArray<string>,
+): Health => faulty(AmbiguousAnchor({ name, count, paths }), at)
 
 const crossLanguage = (name: string, at: Position, host: string, found: string): Health =>
   faulty(CrossLanguageAnchor({ name, host, found }), at)
@@ -512,7 +517,7 @@ const pathHealth = (
     onEmpty: () => unresolved(ref.name, ref.anchor),
     onNonEmpty: (code, rest) =>
       rest.length > 0
-        ? ambiguous(ref.name, ref.anchor, rest.length + 1)
+        ? ambiguous(ref.name, ref.anchor, rest.length + 1, [])
         : languageHealth(ref.name, ref.anchor, host.languageId, code.languageId),
   })
 }
@@ -523,14 +528,16 @@ const nameHealth = (
   module: LoomModule,
   host: Code,
   ref: NameRef,
-): Health =>
-  Array.matchLeft(trailsOf(book, module.path, ref.name), {
+): Health => {
+  const trails = trailsOf(book, module.path, ref.name)
+  return Array.matchLeft(trails, {
     onEmpty: () => unresolved(ref.name, ref.anchor),
     onNonEmpty: (trail, rest) =>
       rest.length > 0
-        ? ambiguous(ref.name, ref.anchor, rest.length + 1)
+        ? ambiguous(ref.name, ref.anchor, trails.length, pathsTo(book, module.path, trails))
         : trailHealth(modules, host, ref, trail),
   })
+}
 
 const trailHealth = (
   modules: ReadonlyMap<string, LoomModule>,
