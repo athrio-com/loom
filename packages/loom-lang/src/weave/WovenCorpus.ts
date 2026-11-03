@@ -20,6 +20,12 @@ export const AnchorLinkSchema = Schema.Struct({
 })
 export type AnchorLink = typeof AnchorLinkSchema.Type
 
+export const UnsettledSpanSchema = Schema.Struct({
+  offset: Schema.Number.check(intAtLeast(0)),
+  length: Schema.Number.check(intAtLeast(0)),
+})
+export type UnsettledSpan = typeof UnsettledSpanSchema.Type
+
 export const ProseBlockSchema = Schema.Struct({
   type: Schema.tag('prose'),
   source: SourceAnchorSchema,
@@ -33,6 +39,7 @@ export const HeadingBlockSchema = Schema.Struct({
   level: Schema.Number.check(intAtLeast(1)),
   title: Schema.String,
   id: Schema.String,
+  unsettled: Schema.Boolean,
 })
 export type HeadingBlock = typeof HeadingBlockSchema.Type
 
@@ -42,6 +49,7 @@ export const CodeBlockSchema = Schema.Struct({
   language: Schema.String,
   code: Schema.String,
   links: Schema.Array(AnchorLinkSchema),
+  unsettled: Schema.Array(UnsettledSpanSchema),
   arrow: Schema.String,
   closed: Schema.Boolean,
 })

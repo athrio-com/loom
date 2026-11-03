@@ -3050,6 +3050,8 @@ A command is usually one short line, and stretched across the column it would be
 
 On the source page an anchor inside the code is a link, and it looks like one. It takes the accent's orange and a dotted underline, which turns solid under the pointer.
 
+An anchor to a section still to be settled points at code nobody has written. It keeps its underline but trades the orange for the muted ink, and the line turns dashed, so it reads as a reference to something not there yet. The heading of such a section carries a pill that says it is to be settled. The pill sits in the muted ink inside a dashed rule, quiet enough that a reader sees it without mistaking it for part of the title.
+
 The rest of the code takes its colours from the marks the server sends, one class for each kind of token, drawn from the scheme's own inks. Keywords take the violet of `weave`, and the names of functions the blue of `tangle`. Strings keep the green the landing's JSON already gives them. Constants take the hooks' magenta and the names of types the spec's amber, both in the deeper shades the scheme keeps for text on paper. Comments recede into the muted ink, so the code a comment explains stays in front of it. No kind takes the accent's orange, which belongs to the anchors.
 
 A block of code on the source page keeps its code on the same sheet the docs use for a fence, with the copy button in the sheet's corner. The sheet holds the program and nothing else. A sheet that scrolls would carry its copy button away with the code, so the code inside the sheet scrolls sideways rather than the sheet itself, and the button stays in its corner.
@@ -3069,6 +3071,19 @@ A note is a reader's annotation rather than part of the chapter, so it reads qui
 }
 
 .code-anchor:hover { text-decoration-style: solid; }
+
+.code-anchor.unsettled {
+  color: var(--ink-3);
+  text-decoration-style: dashed;
+}
+
+.pill.settle {
+  margin-left: 12px;
+  padding: 0 10px;
+  border: 1px dashed var(--rule);
+  color: var(--ink-3);
+  vertical-align: middle;
+}
 
 .tok-keyword  { color: var(--weave); }
 .tok-function { color: var(--tangle); }

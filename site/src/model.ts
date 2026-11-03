@@ -3,6 +3,7 @@ const HeadingBlock = S.Struct({
   level: S.Number,
   title: S.String,
   id: S.String,
+  unsettled: S.Boolean.pipe(S.withDecodingDefaultKey(Effect.succeed(false))),
 })
 export type HeadingBlock = typeof HeadingBlock.Type
 
@@ -31,11 +32,14 @@ const CodeMark = S.Tuple([S.Number, S.Number, TokenKind]).pipe(
 )
 export type CodeMark = typeof CodeMark.Type
 
+const UnsettledSpan = S.Struct({ offset: S.Number, length: S.Number })
+
 const CodeBlock = S.Struct({
   type: S.Literal('code'),
   language: S.String,
   code: S.String,
   links: S.Array(CodeLink),
+  unsettled: S.Array(UnsettledSpan).pipe(S.withDecodingDefaultKey(Effect.succeed([]))),
   marks: S.Array(CodeMark).pipe(S.withDecodingDefaultKey(Effect.succeed([]))),
   arrow: S.optional(S.String),
   closed: S.optional(S.Boolean),

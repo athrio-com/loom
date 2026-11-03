@@ -152,9 +152,7 @@ describe('the documentation shell', () => {
     expect(html).not.toContain('<code>$ loom init</code>')
     expect(html).toContain('<code>.loom/config.yaml</code>')
     expect(html).toContain('style="--cmd-ink: var(--tangle)" data-copy="loom tangle corpus"')
-    expect(html).toContain(
-      'style="--cmd-ink: var(--prompt-paper)" data-copy="mv hello.loom corpus/"',
-    )
+    expect(html).toContain('style="--cmd-ink: var(--prompt-paper)" data-copy="mv hello.loom corpus/"')
   })
 
   it('marks the inline button it copied, and only that one', () => {
@@ -222,7 +220,7 @@ describe('the documentation shell', () => {
           slug: 'only',
           title: 'Only',
           blocks: [
-            { type: 'heading', level: 1, title: 'Only', id: 'only' },
+            { type: 'heading', level: 1, title: 'Only', id: 'only', unsettled: false },
             { type: 'prose', markdown: 'A page with nothing under it.' },
           ],
         },

@@ -86,18 +86,24 @@ const makeHighlighter: Effect.Effect<HighlighterCore> = Effect.promise(() =>
   }),
 )
 
+type Place = { readonly offset: number; readonly length: number }
+
+const anchorSpans = (block: CodeBlock): ReadonlyArray<Place> => [...block.links, ...block.unsettled]
+
 const blanked = (block: CodeBlock): string =>
   Array.reduce(
-    block.links,
+    anchorSpans(block),
     block.code,
-    (code, link) =>
-      code.slice(0, link.offset) + '_'.repeat(link.length) + code.slice(link.offset + link.length),
+    (code, anchor) =>
+      code.slice(0, anchor.offset) +
+      '_'.repeat(anchor.length) +
+      code.slice(anchor.offset + anchor.length),
   )
 
 const kindOf = S.decodeUnknownOption(TokenKind)
 
-const overlaps = (mark: CodeMark, link: CodeLink): boolean =>
-  mark.offset < link.offset + link.length && link.offset < mark.offset + mark.length
+const overlaps = (mark: CodeMark, anchor: Place): boolean =>
+  mark.offset < anchor.offset + anchor.length && anchor.offset < mark.offset + mark.length
 
 const marksOf = (highlighter: HighlighterCore, block: CodeBlock): ReadonlyArray<CodeMark> =>
   Option.match(grammarOf(block.language), {
@@ -113,7 +119,7 @@ const marksOf = (highlighter: HighlighterCore, block: CodeBlock): ReadonlyArray<
           ),
         ),
         Array.getSomes,
-        Array.filter((mark) => !Array.some(block.links, (link) => overlaps(mark, link))),
+        Array.filter((mark) => !Array.some(anchorSpans(block), (anchor) => overlaps(mark, anchor))),
       ),
   })
 

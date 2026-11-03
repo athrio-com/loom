@@ -83,13 +83,20 @@ describe('the page', () => {
           slug: '01-using-loom/01-a-first-loom',
           title: 'A first loom',
           blocks: [
-            { type: 'heading', level: 1, title: 'A first loom', id: 'a-first-loom' },
+            {
+              type: 'heading',
+              level: 1,
+              title: 'A first loom',
+              id: 'a-first-loom',
+              unsettled: false,
+            },
             { type: 'prose', markdown: 'Opening words.' },
-            { type: 'heading', level: 2, title: 'The program', id: 'the-program' },
+            { type: 'heading', level: 2, title: 'The program', id: 'the-program', unsettled: false },
             {
               type: 'code',
               language: 'typescript',
               code: `${anchor('Greeting')}\nconsole.log(greet())`,
+              unsettled: [],
               links: [
                 {
                   name: 'Greeting',
@@ -101,11 +108,12 @@ describe('the page', () => {
               ],
               marks: [{ offset: 25, length: 5, kind: 'function' }],
             },
-            { type: 'heading', level: 2, title: 'Greeting', id: 'greeting' },
+            { type: 'heading', level: 2, title: 'Greeting', id: 'greeting', unsettled: false },
             {
               type: 'code',
               language: 'typescript',
               code: 'const greet = () => 1',
+              unsettled: [],
               links: [],
               marks: [
                 { offset: 0, length: 5, kind: 'keyword' },
@@ -133,6 +141,56 @@ describe('the page', () => {
     expect(html.match(/loom-syntax arrow/g)).toHaveLength(1)
     expect(html).toContain('href="/source/using-loom/a-workspace"')
     ROUTES.forEach((route) => expect(render(at(route))).not.toContain('Being written'))
+  })
+
+  it('marks the sections still to be settled and the anchors that reach them', () => {
+    const greeting = anchor('Greeting')
+    const farewell = `${anchor('Farewell')}{To be settled}`
+    const book: Corpus = {
+      nav: [
+        {
+          number: 'I',
+          name: 'Using Loom',
+          chapters: [{ number: '1', title: 'A first loom', slug: '01-using-loom/01-a-first-loom' }],
+        },
+      ],
+      pages: [
+        {
+          slug: '01-using-loom/01-a-first-loom',
+          title: 'A first loom',
+          blocks: [
+            { type: 'heading', level: 2, title: 'The program', id: 'the-program', unsettled: false },
+            {
+              type: 'code',
+              language: 'typescript',
+              code: `${greeting}\n${farewell}`,
+              links: [
+                {
+                  name: 'Greeting',
+                  offset: 0,
+                  length: greeting.length,
+                  targetSlug: '01-using-loom/01-a-first-loom',
+                  targetId: 'greeting',
+                },
+              ],
+              unsettled: [
+                { offset: 0, length: greeting.length },
+                { offset: greeting.length + 1, length: farewell.length },
+              ],
+              marks: [],
+            },
+            { type: 'heading', level: 2, title: 'Greeting', id: 'greeting', unsettled: true },
+            { type: 'prose', markdown: 'A greeting, still to be written.' },
+          ],
+        },
+      ],
+    }
+    const html = render(at('source', { book: Option.some(book) }))
+    expect(html).toContain(`<a class="code-anchor unsettled" href="#greeting">${greeting}</a>`)
+    expect(html).toContain(
+      `<span class="code-anchor unsettled" title="To be settled">${farewell}</span>`,
+    )
+    expect(html).toContain('<span class="pill settle">To be settled</span>')
   })
 
   it('makes the case on the argument page: head, motivation, eight pairs in three groups', () => {

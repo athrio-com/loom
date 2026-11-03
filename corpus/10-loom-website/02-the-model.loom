@@ -83,7 +83,7 @@ export type Model = typeof Model.Type
 
 The docs and the source page both draw a woven corpus: the shape `loom weave` gives a book. Its table of contents is a list of parts, each with a number, a name, and its chapters. Each chapter has a number, a title, a slug, the path of its loom without the extension, and the language its frontmatter names, when it names one. Each chapter's page holds its slug, its title, its frontmatter as the loom writes it, when it has one, and its blocks, in the order the loom wrote them.
 
-A block is one of four things. A heading carries its level, its title, and the id a link reaches it by. A run of prose is Markdown. A run of code carries its language, the code itself, its links and its colours. Its links are its `::[…]` anchors, each as the name, where it sits in the code, and the chapter and section it reaches. A note is a reader's annotation, in Markdown. The docs hold headings and prose only, and the book holds all four.
+A block is one of four things. A heading carries its level, its title, the id a link reaches it by, and whether its section is still to be settled, declared but holding no code yet. A run of prose is Markdown. A run of code carries its language, the code itself, its links and its colours. Its links are its `::[…]` anchors, each as the name, where it sits in the code, and the chapter and section it reaches. Its unsettled spans are the anchors in it that reach no code yet, each as where it sits. A note is a reader's annotation, in Markdown. The docs hold headings and prose only, and the book holds all four.
 
 The documentation is small enough to ship to the browser whole, so its corpus is part of the client. Loom's own book is not. Woven, it is two megabytes, and a reader reads one chapter of it at a time. So the server holds the book and hands each source page a slice of it, through the model: the whole table of contents, which the menu and the pager need, and the one page on show.
 
@@ -94,6 +94,7 @@ const HeadingBlock = S.Struct({
   level: S.Number,
   title: S.String,
   id: S.String,
+  unsettled: S.Boolean.pipe(S.withDecodingDefaultKey(Effect.succeed(false))),
 })
 export type HeadingBlock = typeof HeadingBlock.Type
 
@@ -116,7 +117,7 @@ The weave hands over no marks, because colouring code is the site's concern rath
 
 A chapter in colour carries thousands of marks, and every one travels to the browser inside the page's model. So a mark travels as a bare triple, `[offset, length, kind]`, rather than as an object that spells out its three field names each time. The triple makes the largest chapter's model more than a third smaller. The model still reads a mark by its names, and the schema converts between the two forms on the way in and on the way out.
 
-A block also keeps the syntax that framed it in the loom: the `arrow` that opened it, and whether a tilde `closed` it. The source page draws both around the code, so a reader sees the rhythm of a loom as its author wrote it. A book woven by an older Loom carries neither, so both are optional, and a block without them draws as bare code.
+A block also keeps the syntax that framed it in the loom: the `arrow` that opened it, and whether a tilde `closed` it. The source page draws both around the code, so a reader sees the rhythm of a loom as its author wrote it. A book woven by an older Loom carries neither, so both are optional, and a block without them draws as bare code. Such a book carries no unsettled spans either, nor the flag on a heading, so the two default to none.
 
 =>
 
@@ -134,11 +135,14 @@ const CodeMark = S.Tuple([S.Number, S.Number, TokenKind]).pipe(
 )
 export type CodeMark = typeof CodeMark.Type
 
+const UnsettledSpan = S.Struct({ offset: S.Number, length: S.Number })
+
 const CodeBlock = S.Struct({
   type: S.Literal('code'),
   language: S.String,
   code: S.String,
   links: S.Array(CodeLink),
+  unsettled: S.Array(UnsettledSpan).pipe(S.withDecodingDefaultKey(Effect.succeed([]))),
   marks: S.Array(CodeMark).pipe(S.withDecodingDefaultKey(Effect.succeed([]))),
   arrow: S.optional(S.String),
   closed: S.optional(S.Boolean),

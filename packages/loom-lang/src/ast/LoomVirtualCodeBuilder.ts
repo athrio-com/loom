@@ -136,15 +136,31 @@ export type Unsettled = {
   readonly path: Location
   readonly anchor: Position
   readonly name: string
-  readonly declared: boolean
+  readonly section: Option.Option<SectionId>
 }
 
-const unsettledAt = (node: Code, ref: Ref, declared: boolean): Unsettled => ({
-  path: node.origin.path,
+const unsettledAt = (owner: Location, ref: Ref, section: Option.Option<SectionId>): Unsettled => ({
+  path: owner,
   anchor: ref.anchor,
   name: ref.name,
-  declared,
+  section,
 })
+
+export const unsettledRef = (
+  modules: ReadonlyMap<Location, LoomModule>,
+  book: Book,
+  owner: Location,
+  ref: Ref,
+): Option.Option<Unsettled> =>
+  Option.match(targetOf(book, owner, ref), {
+    onNone: () => Option.map(ref.toBeSettled, () => unsettledAt(owner, ref, Option.none())),
+    onSome: (target) =>
+      pipe(
+        lookup(modules, target),
+        Option.filter((code) => !Array.isReadonlyArrayNonEmpty(code.fragments)),
+        Option.map(() => unsettledAt(owner, ref, Option.some(target))),
+      ),
+  })
 
 const unsettledFrom =
   (modules: ReadonlyMap<Location, LoomModule>, book: Book, seen: ReadonlySet<string>) =>
@@ -152,20 +168,18 @@ const unsettledFrom =
     Array.flatMap(node.fragments, (part) =>
       part.type === 'Fragment'
         ? []
-        : Option.match(targetOf(book, node.origin.path, part), {
-            onNone: () => (Option.isSome(part.toBeSettled) ? [unsettledAt(node, part, false)] : []),
-            onSome: (target) =>
+        : Option.match(unsettledRef(modules, book, node.origin.path, part), {
+            onSome: (unsettled) => [unsettled],
+            onNone: () =>
               pipe(
-                Option.some(target),
+                targetOf(book, node.origin.path, part),
                 Option.filter((reached) => !seen.has(keyOf(reached))),
-                Option.flatMap((reached) => lookup(modules, reached)),
-                Option.match({
-                  onNone: (): ReadonlyArray<Unsettled> => [],
-                  onSome: (code) =>
-                    Array.isReadonlyArrayNonEmpty(code.fragments)
-                      ? unsettledFrom(modules, book, new Set([...seen, keyOf(target)]))(code)
-                      : [unsettledAt(node, part, true)],
-                }),
+                Option.flatMap((reached) =>
+                  Option.map(lookup(modules, reached), (code) =>
+                    unsettledFrom(modules, book, new Set([...seen, keyOf(reached)]))(code),
+                  ),
+                ),
+                Option.getOrElse((): ReadonlyArray<Unsettled> => []),
               ),
           }),
     )

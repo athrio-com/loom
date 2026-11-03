@@ -2524,6 +2524,19 @@ h2, .subhead {
 
 .code-anchor:hover { text-decoration-style: solid; }
 
+.code-anchor.unsettled {
+  color: var(--ink-3);
+  text-decoration-style: dashed;
+}
+
+.pill.settle {
+  margin-left: 12px;
+  padding: 0 10px;
+  border: 1px dashed var(--rule);
+  color: var(--ink-3);
+  vertical-align: middle;
+}
+
 .tok-keyword  { color: var(--weave); }
 .tok-function { color: var(--tangle); }
 .tok-constant { color: var(--hooks-paper); }

@@ -108,28 +108,34 @@ const makeHighlighter: Effect.Effect<HighlighterCore> = Effect.promise(() =>
 
 ## Anchors stay out of the grammar
 
-A `::[…]` anchor belongs to Loom, not to the language around it, so a grammar reads one as broken code. A grammar that has lost its place can colour the rest of the run wrongly. So `blanked` writes underscores over each anchor before Shiki reads the code. Nearly every language reads a run of underscores as a name. The code also keeps its length, so every mark lands where it belongs in the code as the loom wrote it.
+A `::[…]` anchor belongs to Loom, not to the language around it, so a grammar reads one as broken code. A grammar that has lost its place can colour the rest of the run wrongly. So `blanked` writes underscores over each anchor before Shiki reads the code. `anchorSpans` gives every anchor's place: each link, and each anchor still to be settled, which may have no link at all. Nearly every language reads a run of underscores as a name. The code also keeps its length, so every mark lands where it belongs in the code as the loom wrote it.
 
 =>
 
+type Place = { readonly offset: number; readonly length: number }
+
+const anchorSpans = (block: CodeBlock): ReadonlyArray<Place> => [...block.links, ...block.unsettled]
+
 const blanked = (block: CodeBlock): string =>
   Array.reduce(
-    block.links,
+    anchorSpans(block),
     block.code,
-    (code, link) =>
-      code.slice(0, link.offset) + '_'.repeat(link.length) + code.slice(link.offset + link.length),
+    (code, anchor) =>
+      code.slice(0, anchor.offset) +
+      '_'.repeat(anchor.length) +
+      code.slice(anchor.offset + anchor.length),
   )
 
 ## Tokens become marks
 
-`marksOf` reads a run of code into its marks. Shiki cuts each line into tokens, and each token carries its text, where it starts in the code, and what the theme gives it, which here is a kind or plain. A plain token draws in ink, so it needs no mark. A mark that falls on an anchor's underscores is dropped too, because the anchor draws as a link.
+`marksOf` reads a run of code into its marks. Shiki cuts each line into tokens, and each token carries its text, where it starts in the code, and what the theme gives it, which here is a kind or plain. A plain token draws in ink, so it needs no mark. A mark that falls on an anchor's underscores is dropped too, because the anchor draws as a link, or as a mark of its own when it is still to be settled.
 
 =>
 
 const kindOf = S.decodeUnknownOption(TokenKind)
 
-const overlaps = (mark: CodeMark, link: CodeLink): boolean =>
-  mark.offset < link.offset + link.length && link.offset < mark.offset + mark.length
+const overlaps = (mark: CodeMark, anchor: Place): boolean =>
+  mark.offset < anchor.offset + anchor.length && anchor.offset < mark.offset + mark.length
 
 const marksOf = (highlighter: HighlighterCore, block: CodeBlock): ReadonlyArray<CodeMark> =>
   Option.match(grammarOf(block.language), {
@@ -145,7 +151,7 @@ const marksOf = (highlighter: HighlighterCore, block: CodeBlock): ReadonlyArray<
           ),
         ),
         Array.getSomes,
-        Array.filter((mark) => !Array.some(block.links, (link) => overlaps(mark, link))),
+        Array.filter((mark) => !Array.some(anchorSpans(block), (anchor) => overlaps(mark, anchor))),
       ),
   })
 

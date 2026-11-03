@@ -148,8 +148,10 @@ const unsettledFailures = (
       diagnostics: Array.flatMap(
         unsettled,
         (one) =>
-          faulty(UnsettledSection({ name: one.name, declared: one.declared }), one.anchor)
-            .diagnostics,
+          faulty(
+            UnsettledSection({ name: one.name, declared: Option.isSome(one.section) }),
+            one.anchor,
+          ).diagnostics,
       ),
     })),
   )

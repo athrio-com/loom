@@ -314,7 +314,13 @@ const runLine = (file: string, model: Model, h: HtmlBuilder<Message>): Html => {
 
 type Run =
   | { readonly type: 'plain'; readonly text: string }
-  | { readonly type: 'anchor'; readonly text: string; readonly link: CodeLink }
+  | {
+      readonly type: 'anchor'
+      readonly text: string
+      readonly link: CodeLink
+      readonly unsettled: boolean
+    }
+  | { readonly type: 'unsettled'; readonly text: string }
   | { readonly type: 'mark'; readonly text: string; readonly kind: TokenKind }
 
 type Span = {
@@ -325,14 +331,33 @@ type Span = {
 
 const byOffset = Order.mapInput(Order.Number, (span: Span) => span.offset)
 
+const unsettledAt = (block: CodeBlock, offset: number): boolean =>
+  Array.some(block.unsettled, (span) => span.offset === offset)
+
 const spansOf = (block: CodeBlock): ReadonlyArray<Span> =>
   Array.sort(
     [
       ...Array.map(block.links, (link): Span => ({
         offset: link.offset,
         length: link.length,
-        runOf: (text) => ({ type: 'anchor', text, link }),
+        runOf: (text) => ({
+          type: 'anchor',
+          text,
+          link,
+          unsettled: unsettledAt(block, link.offset),
+        }),
       })),
+      ...Array.map(
+        Array.filter(
+          block.unsettled,
+          (span) => !Array.some(block.links, (link) => link.offset === span.offset),
+        ),
+        (span): Span => ({
+          offset: span.offset,
+          length: span.length,
+          runOf: (text) => ({ type: 'unsettled', text }),
+        }),
+      ),
       ...Array.map(block.marks, (mark): Span => ({
         offset: mark.offset,
         length: mark.length,
@@ -375,7 +400,12 @@ const runHtml = (run: Run, base: string, page: Page): string =>
     Match.when(
       { type: 'anchor' },
       (anchor) =>
-        `<a class="code-anchor" href="${escaped(anchorHref(base, page.slug, anchor.link))}">${escaped(anchor.text)}</a>`,
+        `<a class="code-anchor${anchor.unsettled ? ' unsettled' : ''}" href="${escaped(anchorHref(base, page.slug, anchor.link))}">${escaped(anchor.text)}</a>`,
+    ),
+    Match.when(
+      { type: 'unsettled' },
+      (unsettled) =>
+        `<span class="code-anchor unsettled" title="To be settled">${escaped(unsettled.text)}</span>`,
     ),
     Match.when(
       { type: 'mark' },
@@ -452,7 +482,9 @@ const blockOf = (
   h: HtmlBuilder<Message>,
 ): ReadonlyArray<Html> =>
   Match.value(block).pipe(
-    Match.when({ type: 'heading' }, (heading) => [h.h3([h.Id(heading.id)], [heading.title])]),
+    Match.when({ type: 'heading' }, (heading) => [
+      h.h3([h.Id(heading.id)], [heading.title, ...settleMark(heading, h)]),
+    ]),
     Match.when({ type: 'prose' }, (prose) =>
       Array.map(piecesOf(prose.markdown), (piece) =>
         piece.type === 'text'
@@ -466,6 +498,9 @@ const blockOf = (
     ),
     Match.exhaustive,
   )
+
+const settleMark = (heading: HeadingBlock, h: HtmlBuilder<Message>): ReadonlyArray<Html> =>
+  heading.unsettled ? [h.span([h.Class('pill settle')], ['To be settled'])] : []
 
 const markOf = (flower: Option.Option<Carpet>, section: Section): Option.Option<Html> =>
   Option.orElse(editorMark(section.heading.title), () =>
@@ -487,7 +522,15 @@ const sectionOf = (
         [h.Class('section-head')],
         [
           ...Option.toArray(mark),
-          h.div([h.Class('lines')], [h.h2([h.Id(section.heading.id)], [section.heading.title])]),
+          h.div(
+            [h.Class('lines')],
+            [
+              h.h2(
+                [h.Id(section.heading.id)],
+                [section.heading.title, ...settleMark(section.heading, h)],
+              ),
+            ],
+          ),
         ],
       ),
       h.div(
@@ -555,6 +598,7 @@ const chapterHeading = (page: Page, cut: Cut): HeadingBlock =>
     level: 1,
     title: page.title,
     id: page.slug,
+    unsettled: false,
   }))
 
 const docHead = (
@@ -581,7 +625,10 @@ const docHead = (
               breadcrumb(corpus, root, base, page, h),
               h.div(
                 [h.Class('page-title')],
-                [loomMark('page', 0.8), h.h1([h.Id(heading.id)], [heading.title])],
+                [
+                  loomMark('page', 0.8),
+                  h.h1([h.Id(heading.id)], [heading.title, ...settleMark(heading, h)]),
+                ],
               ),
               ...Option.toArray(
                 Option.map(gist, (markdown) => textOf(markdown, 'docs-prose page-lead', model.copied, h)),
@@ -1065,7 +1112,10 @@ const sourceOpening: OpeningOf = (corpus, root, base, page, cut, model, h) => {
               ...Option.toArray(
                 chapterEmblem(page, h),
               ),
-              h.h1([h.Id(heading.id), h.Class('chapter-title')], [heading.title]),
+              h.h1(
+                [h.Id(heading.id), h.Class('chapter-title')],
+                [heading.title, ...settleMark(heading, h)],
+              ),
             ],
           ),
           ...Array.flatMap(cut.opening, (block) => blockOf(block, base, page, model, h)),

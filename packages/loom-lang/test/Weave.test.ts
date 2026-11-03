@@ -185,6 +185,52 @@ Then the explicit arrow.
   })
 })
 
+// A chapter whose program composes two names nobody has written yet: `The name`,
+// declared with prose and no code, and `The farewell`, which only its anchor's
+// `{To be settled}` label declares. Weave marks both anchors' spans as unsettled,
+// keeps the first as a link, and flags the heading of `The name`.
+const unsettled = `---
+Part I: Using Loom
+Chapter 1: A greeting
+Package: greeting.ts
+Language: TypeScript
+---
+
+# A greeting
+
+The greeting composes names still to be written.
+
+## The name
+
+The name the greeting uses.
+
+## The greeting {Tangle}
+
+=>
+
+::[The name]
+::[The farewell]{To be settled}
+`
+
+describe('sections still to be settled', () => {
+  it('marks the anchors that reach no code, and the headings of their sections', () => {
+    const page = weave(
+      buildCorpus({ '/corpus/book.loom': book, '/corpus/using/greeting.loom': unsettled }),
+    ).pages[0]!
+    const headings = page.blocks.filter((block): block is HeadingBlock => block.type === 'heading')
+    expect(headings.map((heading) => [heading.title, heading.unsettled])).toEqual([
+      ['A greeting', false],
+      ['The name', true],
+      ['The greeting', false],
+    ])
+    const program = page.blocks.find((block): block is CodeBlock => block.type === 'code')!
+    expect(
+      program.unsettled.map((span) => program.code.slice(span.offset, span.offset + span.length)),
+    ).toEqual(['::[The name]', '::[The farewell]{To be settled}'])
+    expect(program.links.map((link) => link.name)).toEqual(['The name'])
+  })
+})
+
 // A chapter with a note in its prose. The `:::[Note] … :::` block is split into a
 // note block, and a `#` inside it stays inert — no phantom section.
 const noted = `---

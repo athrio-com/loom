@@ -8,7 +8,12 @@ import {
   resolveAnchor,
   bookOf,
   type Book,
+  type Location,
 } from '@athrio/loom-ast/LoomCorpusAst'
+import { type Position } from '@athrio/loom-ast/LoomNode'
+import { keyOf } from '@athrio/loom-ast/ProductAst'
+import { sectionNameOf } from '#ast/ProductBuilder'
+import { unsettledRef } from '#ast/LoomVirtualCodeBuilder'
 import {
   type AnchorLink,
   AnchorLinkSchema,
@@ -18,6 +23,7 @@ import {
   ProseBlockSchema,
   type SourceAnchor,
   SourceAnchorSchema,
+  UnsettledSpanSchema,
   type WovenBlock,
   type WovenCorpus,
   WovenCorpusSchema,
@@ -42,16 +48,49 @@ export class WeaveBuilder extends Context.Service<WeaveBuilder>()('WeaveBuilder'
 
 export const buildCorpus = (corpus: LoomCorpusAst): WovenCorpus => {
   const modules = Array.fromIterable(corpus.modules.values())
-  const book = bookOf(corpus.modules)
+  const weaving = weavingOf(corpus.modules)
   const toc = buildContents(corpus)
   const nav = Array.map(toc.parts, wovenPart)
   const loose = Array.map(toc.loose, wovenEntry)
   const partOfSlug = partIndex(nav)
   const pages = pipe(
-    Array.getSomes(Array.map(modules, (module) => buildPage(module, book, partOfSlug))),
+    Array.getSomes(Array.map(modules, (module) => buildPage(module, weaving, partOfSlug))),
     Array.sort(inReadingOrder(navOrder(nav))),
   )
   return WovenCorpusSchema.make({ nav, loose, pages })
+}
+
+type Weaving = {
+  readonly book: Book
+  readonly anchors: ReadonlySet<string>
+  readonly sections: ReadonlySet<string>
+}
+
+const anchorKey = (path: Location, at: Position): string => `${path}#${at.start.offset}`
+
+const weavingOf = (modules: ReadonlyMap<Location, LoomModule>): Weaving => {
+  const book = bookOf(modules)
+  const unsettled = pipe(
+    Array.fromIterable(modules.values()),
+    Array.flatMap((module) =>
+      Array.flatMap(module.product.code, (code) =>
+        Array.getSomes(
+          Array.map(code.fragments, (part) =>
+            part.type === 'NameRef'
+              ? unsettledRef(modules, book, module.path, part)
+              : Option.none(),
+          ),
+        ),
+      ),
+    ),
+  )
+  return {
+    book,
+    anchors: new Set(Array.map(unsettled, (one) => anchorKey(one.path, one.anchor))),
+    sections: new Set(
+      Array.flatMap(unsettled, (one) => Option.toArray(Option.map(one.section, keyOf))),
+    ),
+  }
 }
 
 type Span = { readonly start: number; readonly end: number }
@@ -128,7 +167,7 @@ const chapterTitleOf = (module: LoomModule): Option.Option<string> =>
 
 const buildPage = (
   module: LoomModule,
-  book: Book,
+  weaving: Weaving,
   partOfSlug: ReadonlyMap<string, string>,
 ): Option.Option<WovenPage> =>
   isBookRoot(module)
@@ -140,12 +179,12 @@ const buildPage = (
           title,
           part: partOfSlug.get(slug),
           frontmatter: module.doc.frontmatter?.source,
-          blocks: buildBlocks(module, book),
+          blocks: buildBlocks(module, weaving),
         })
       })
 
-const buildBlocks = (module: LoomModule, book: Book): ReadonlyArray<WovenBlock> =>
-  Array.flatMap(module.doc.sections, sectionBlocks(module, book))
+const buildBlocks = (module: LoomModule, weaving: Weaving): ReadonlyArray<WovenBlock> =>
+  Array.flatMap(module.doc.sections, sectionBlocks(module, weaving))
 
 const sectionSource = (module: LoomModule, section: LoomSection): SourceAnchor =>
   SourceAnchorSchema.make({
@@ -154,14 +193,14 @@ const sectionSource = (module: LoomModule, section: LoomSection): SourceAnchor =
   })
 
 const sectionBlocks =
-  (module: LoomModule, book: Book) =>
+  (module: LoomModule, weaving: Weaving) =>
   (section: LoomSection): ReadonlyArray<WovenBlock> => {
     const source = sectionSource(module, section)
     const runs = splitRuns(sectionBody(section))
     return [
-      headingBlock(section, source),
+      headingBlock(module, weaving, section, source),
       ...Array.flatMap(runs, (run, index) =>
-        runBlocks(module, book, section, source)(run, tildeOpens(Array.get(runs, index + 1))),
+        runBlocks(module, weaving, section, source)(run, tildeOpens(Array.get(runs, index + 1))),
       ),
     ]
   }
@@ -173,12 +212,18 @@ const headingLevel = (section: LoomSection): number => {
   return marks === 0 ? 1 : marks
 }
 
-const headingBlock = (section: LoomSection, source: SourceAnchor): WovenBlock =>
+const headingBlock = (
+  module: LoomModule,
+  weaving: Weaving,
+  section: LoomSection,
+  source: SourceAnchor,
+): WovenBlock =>
   HeadingBlockSchema.make({
     source,
     level: headingLevel(section),
     title: titleSource(section),
     id: slugify(titleSource(section)),
+    unsettled: weaving.sections.has(keyOf({ path: module.path, name: sectionNameOf(section) })),
   })
 
 type BodyWeft = PreambleWeft | SectionBodyWeft
@@ -290,7 +335,7 @@ const proseBlocks = (markdown: string, source: SourceAnchor): ReadonlyArray<Wove
 
 const codeBlock = (
   module: LoomModule,
-  book: Book,
+  weaving: Weaving,
   section: LoomSection,
   source: SourceAnchor,
   run: ReadonlyArray<BodyWeft>,
@@ -304,19 +349,32 @@ const codeBlock = (
     code: sliceContent(module.text, span),
     arrow,
     closed,
-    links: pipe(
-      Array.flatMap(run, (weft) => weft.anchors),
-      Array.filter(
-        (anchor) =>
-          anchor.position.start.offset >= span.start && anchor.position.end.offset <= span.end,
+    links: Array.getSomes(
+      Array.map(anchorsWithin(run, span), (anchor) =>
+        resolveLink(module, weaving, span.start, anchor),
       ),
-      Array.map((anchor) => resolveLink(module, book, span.start, anchor)),
-      Array.getSomes,
+    ),
+    unsettled: pipe(
+      anchorsWithin(run, span),
+      Array.filter((anchor) => weaving.anchors.has(anchorKey(module.path, anchor.name.position))),
+      Array.map((anchor) =>
+        UnsettledSpanSchema.make({
+          offset: anchor.position.start.offset - span.start,
+          length: anchor.position.end.offset - anchor.position.start.offset,
+        }),
+      ),
     ),
   })
 
+const anchorsWithin = (run: ReadonlyArray<BodyWeft>, span: Span): ReadonlyArray<WarpAnchorToken> =>
+  Array.filter(
+    Array.flatMap(run, (weft) => weft.anchors),
+    (anchor) =>
+      anchor.position.start.offset >= span.start && anchor.position.end.offset <= span.end,
+  )
+
 const runBlocks =
-  (module: LoomModule, book: Book, section: LoomSection, source: SourceAnchor) =>
+  (module: LoomModule, weaving: Weaving, section: LoomSection, source: SourceAnchor) =>
   (run: ReadonlyArray<BodyWeft>, closed: boolean): ReadonlyArray<WovenBlock> =>
     Array.matchLeft(run, {
       onEmpty: (): ReadonlyArray<WovenBlock> => [],
@@ -327,7 +385,16 @@ const runBlocks =
             Match.value(first).pipe(
               Match.withReturnType<ReadonlyArray<WovenBlock>>(),
               Match.when({ type: 'ArrowWeft' }, (opened) => [
-                codeBlock(module, book, section, source, run, span, opened.arrow.source.trim(), closed),
+                codeBlock(
+                  module,
+                  weaving,
+                  section,
+                  source,
+                  run,
+                  span,
+                  opened.arrow.source.trim(),
+                  closed,
+                ),
               ]),
               Match.orElse(() => proseBlocks(sliceContent(module.text, span), source)),
             ),
@@ -336,12 +403,12 @@ const runBlocks =
 
 const resolveLink = (
   module: LoomModule,
-  book: Book,
+  weaving: Weaving,
   blockStart: number,
   anchor: WarpAnchorToken,
 ): Option.Option<AnchorLink> =>
   pipe(
-    resolveAnchor(book, module.path, anchor),
+    resolveAnchor(weaving.book, module.path, anchor),
     Option.flatMap((ref) =>
       Option.map(Option.fromNullishOr(ref.section.heading.title), (title): AnchorLink =>
         AnchorLinkSchema.make({
