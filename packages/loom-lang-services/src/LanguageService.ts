@@ -72,6 +72,11 @@ export interface FrameToken {
   readonly type: SemanticToken
 }
 
+export interface FrameHint {
+  readonly position: FrameLocation['range']['start']
+  readonly label: string
+}
+
 export interface FrameQueryApi {
   readonly diagnostics: (path: string) => ReadonlyArray<Diagnostic>
   readonly definition: (path: string, offset: number) => FrameLocation | undefined
@@ -80,6 +85,7 @@ export interface FrameQueryApi {
   readonly renameRange: (path: string, offset: number) => FrameLocation | undefined
   readonly navigationRange: (path: string, offset: number) => FrameLocation | undefined
   readonly semanticTokens: (path: string) => ReadonlyArray<FrameToken>
+  readonly hints: (path: string) => ReadonlyArray<FrameHint>
   readonly format: (path: string, text: string) => Promise<string>
   readonly locationOf: (uri: URI) => string
   readonly uriOf: (location: string) => URI

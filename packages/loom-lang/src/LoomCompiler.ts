@@ -10,6 +10,7 @@ import {
   corpusErrors,
   definitionAt,
   dependentsOf,
+  hintsAt,
   moduleDiagnostics,
   namesakesOf,
   reachable,
@@ -28,6 +29,7 @@ import { crossFileFaults } from '#ast/ProductBuilder'
 import { keyOf, type Part } from '@athrio/loom-ast/ProductAst'
 import {
   type ComposedFile,
+  type FrameHint,
   type FrameLocation,
   type FrameToken,
 } from '@athrio/loom-lang-services/LanguageService'
@@ -361,7 +363,11 @@ const productFeatures: CodeMapping['data'] = {
 
 const featuresOf = (kind: Mapping['kind']): CodeMapping['data'] =>
   Match.value(kind).pipe(
-    Match.when('source', () => ({ verification: true, format: true })),
+    Match.when('source', () => ({
+      verification: true,
+      format: true,
+      semantic: { shouldHighlight: () => false },
+    })),
     Match.when('product', () => productFeatures),
     Match.when(Match.defined, (symbol) => profileOf(symbol).features),
     Match.orElse(() => productFeatures),
@@ -633,6 +639,20 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
                   ),
               }),
             ),
+          ),
+        ),
+
+      hints: (path: Location): Effect.Effect<ReadonlyArray<FrameHint>> =>
+        buildCorpus(documents, path).pipe(
+          Effect.map((modules) =>
+            Option.match(Option.fromNullishOr(modules.get(path)), {
+              onNone: (): ReadonlyArray<FrameHint> => [],
+              onSome: (module) =>
+                Array.map(hintsAt({ modules }, path), (hint): FrameHint => ({
+                  position: lineCharAt(module.text, hint.offset),
+                  label: hint.label,
+                })),
+            }),
           ),
         ),
 

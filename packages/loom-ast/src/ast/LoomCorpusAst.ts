@@ -71,6 +71,7 @@ type PartRef = {
 
 type Chapter = {
   readonly title: string
+  readonly number: Option.Option<string>
   readonly part: PartRef
   readonly module: LoomModule
 }
@@ -122,6 +123,10 @@ const chaptersIn = (modules: Modules): ReadonlyArray<Chapter> => {
     Array.map(Array.fromIterable(modules.values()), (module) =>
       Option.map(chapterTitleToken(module), (title) => ({
         title: title.source,
+        number: Option.map(
+          Option.fromNullishOr(module.doc.frontmatter?.chapter),
+          (chapter) => chapter.value,
+        ),
         part: partOf(names, module),
         module,
       })),
@@ -143,7 +148,7 @@ export const bookOf = (modules: Modules): Book => ({
 })
 
 export type Place = Data.TaggedEnum<{
-  Part: { readonly name: string }
+  Part: { readonly part: PartRef }
   Chapter: { readonly chapter: Chapter }
   Section: { readonly ref: SectionRef }
 }>
@@ -152,56 +157,92 @@ const Place = Data.taggedEnum<Place>()
 
 export type Segment = { readonly text: string; readonly start: number; readonly end: number }
 
-export type Step = { readonly segment: Segment; readonly place: Place }
+export type Step = { readonly segment: Segment; readonly place: Place; readonly numbered: boolean }
 
 export type Trail = Array.NonEmptyReadonlyArray<Step>
 
-const chaptersTitled = (
+const numberIn = (keyword: string, name: string): Option.Option<string> =>
+  Option.fromNullishOr(new RegExp(`^${keyword}\\s+(\\S+)$`).exec(name)?.[1])
+
+const chaptersWithin = (
   book: Book,
-  title: string,
-  part: Option.Option<string>,
+  scope: Option.Option<PartRef>,
+  test: (chapter: Chapter) => boolean,
 ): ReadonlyArray<Chapter> =>
   Array.filter(
     book.chapters,
     (chapter) =>
-      chapter.title === title &&
-      Option.match(part, {
+      test(chapter) &&
+      Option.match(scope, {
         onNone: () => true,
-        onSome: (name) => Option.contains(chapter.part.name, name),
+        onSome: (part) => samePart(chapter.part, part),
       }),
+  )
+
+const partsWhere = (book: Book, test: (part: PartRef) => boolean): ReadonlyArray<PartRef> =>
+  Option.toArray(
+    Option.map(
+      Array.findFirst(book.chapters, (chapter) => test(chapter.part)),
+      (chapter) => chapter.part,
+    ),
   )
 
 const sectionTitled = (book: Book, module: Location, title: string): Option.Option<SectionRef> =>
   Option.fromNullishOr(book.titles.get(module)?.get(title))
 
-const placesNamed = (book: Book, scope: Option.Option<Place>, name: string): ReadonlyArray<Place> =>
-  Option.match(scope, {
+const stepsNamed = (
+  book: Book,
+  scope: Option.Option<Place>,
+  segment: Segment,
+): ReadonlyArray<Step> => {
+  const step =
+    (numbered: boolean) =>
+    (place: Place): Step => ({ segment, place, numbered })
+  const chapterSteps = (part: Option.Option<PartRef>): ReadonlyArray<Step> => [
+    ...Array.map(
+      chaptersWithin(book, part, (chapter) => chapter.title === segment.text),
+      (chapter) => step(false)(Place.Chapter({ chapter })),
+    ),
+    ...Option.match(numberIn('Chapter', segment.text), {
+      onNone: (): ReadonlyArray<Step> => [],
+      onSome: (number) =>
+        Array.map(
+          chaptersWithin(book, part, (chapter) => Option.contains(chapter.number, number)),
+          (chapter) => step(true)(Place.Chapter({ chapter })),
+        ),
+    }),
+  ]
+  return Option.match(scope, {
     onNone: () => [
-      ...(Array.some(book.chapters, (chapter) => Option.contains(chapter.part.name, name))
-        ? [Place.Part({ name })]
-        : []),
-      ...Array.map(chaptersTitled(book, name, Option.none()), (chapter) =>
-        Place.Chapter({ chapter }),
+      ...Array.map(
+        partsWhere(book, (part) => Option.contains(part.name, segment.text)),
+        (part) => step(false)(Place.Part({ part })),
       ),
+      ...Option.match(numberIn('Part', segment.text), {
+        onNone: (): ReadonlyArray<Step> => [],
+        onSome: (number) =>
+          Array.map(
+            partsWhere(book, (part) => Option.contains(part.number, number)),
+            (part) => step(true)(Place.Part({ part })),
+          ),
+      }),
+      ...chapterSteps(Option.none()),
     ],
     onSome: (place) =>
       Match.value(place).pipe(
-        Match.tag('Part', (part) =>
-          Array.map(chaptersTitled(book, name, Option.some(part.name)), (chapter) =>
-            Place.Chapter({ chapter }),
-          ),
-        ),
+        Match.tag('Part', ({ part }) => chapterSteps(Option.some(part))),
         Match.tag('Chapter', ({ chapter }) =>
           Option.toArray(
-            Option.map(sectionTitled(book, chapter.module.path, name), (ref) =>
-              Place.Section({ ref }),
+            Option.map(sectionTitled(book, chapter.module.path, segment.text), (ref) =>
+              step(false)(Place.Section({ ref })),
             ),
           ),
         ),
-        Match.tag('Section', (): ReadonlyArray<Place> => []),
+        Match.tag('Section', (): ReadonlyArray<Step> => []),
         Match.exhaustive,
       ),
   })
+}
 
 const finished = (trail: ReadonlyArray<Step>): ReadonlyArray<Trail> =>
   Array.isReadonlyArrayNonEmpty(trail) && Array.lastNonEmpty(trail).place._tag !== 'Part'
@@ -217,12 +258,12 @@ const walk = (
     onEmpty: () => finished(trail),
     onNonEmpty: (segment, rest) =>
       Array.flatMap(
-        placesNamed(
+        stepsNamed(
           book,
           Option.map(Array.last(trail), (step) => step.place),
-          segment.text,
+          segment,
         ),
-        (place) => walk(book, Array.append(trail, { segment, place }), rest),
+        (step) => walk(book, Array.append(trail, step), rest),
       ),
   })
 
@@ -238,7 +279,7 @@ const segmentsOf = (name: string): ReadonlyArray<Segment> =>
 const sectionTrail = (book: Book, module: Location, name: string): ReadonlyArray<Trail> =>
   Option.toArray(
     Option.map(sectionTitled(book, module, name), (ref): Trail => [
-      { segment: whole(name), place: Place.Section({ ref }) },
+      { segment: whole(name), place: Place.Section({ ref }), numbered: false },
     ]),
   )
 
@@ -318,7 +359,7 @@ const namesFor = (book: Book, place: Place): ReadonlyArray<ReadonlyArray<string>
 
 const samePlace = (place: Place, other: Place): boolean =>
   Match.value(place).pipe(
-    Match.tag('Part', (part) => other._tag === 'Part' && other.name === part.name),
+    Match.tag('Part', ({ part }) => other._tag === 'Part' && samePart(part, other.part)),
     Match.tag(
       'Chapter',
       ({ chapter }) =>
@@ -509,34 +550,44 @@ const stepAt = (trail: Trail, anchor: WarpAnchorToken, offset: number): Step =>
     () => Array.lastNonEmpty(trail),
   )
 
-const anchorPlaceAt = (
+const anchorStepAt = (
   book: Book,
   modules: Modules,
   path: Location,
   offset: number,
-): Option.Option<Place> =>
+): Option.Option<Step> =>
   Option.flatMap(anchorAt(modules, path, offset), (anchor) =>
-    Option.map(
-      soleTrail(anchorTrails(book, path, anchor)),
-      (trail) => stepAt(trail, anchor, offset).place,
+    Option.map(soleTrail(anchorTrails(book, path, anchor)), (trail) =>
+      stepAt(trail, anchor, offset),
     ),
   )
 
-const placeAt = (
+type Mention = { readonly place: Place; readonly numbered: boolean }
+
+const mentionAt = (
   book: Book,
   modules: Modules,
   path: Location,
   offset: number,
-): Option.Option<Place> =>
+): Option.Option<Mention> =>
   Option.orElse(
-    Option.map(sectionRefAt(modules, path, offset), (ref) => Place.Section({ ref })),
-    () => anchorPlaceAt(book, modules, path, offset),
+    Option.map(sectionRefAt(modules, path, offset), (ref): Mention => ({
+      place: Place.Section({ ref }),
+      numbered: false,
+    })),
+    () => anchorStepAt(book, modules, path, offset),
   )
+
+const stepsOf = (book: Book, from: Location, anchor: WarpAnchorToken): ReadonlyArray<Step> =>
+  Option.match(soleTrail(anchorTrails(book, from, anchor)), {
+    onNone: (): ReadonlyArray<Step> => [],
+    onSome: (trail) => trail,
+  })
 
 const anchorsNaming = (
   book: Book,
   modules: Modules,
-  names: (place: Place) => boolean,
+  names: (step: Step) => boolean,
   spanOf: SpanOf,
 ): ReadonlyArray<CorpusLocation> =>
   Array.flatMap(Array.fromIterable(modules.values()), (m) =>
@@ -544,18 +595,14 @@ const anchorsNaming = (
       m.doc.sections,
       Array.flatMap(anchorsOf),
       Array.flatMap((anchor) =>
-        Option.match(soleTrail(anchorTrails(book, m.path, anchor)), {
-          onNone: (): ReadonlyArray<CorpusLocation> => [],
-          onSome: (trail) =>
-            pipe(
-              trail,
-              Array.filter((step) => names(step.place)),
-              Array.map((step): CorpusLocation => ({
-                path: m.path,
-                position: spanOf(anchor, step.segment),
-              })),
-            ),
-        }),
+        pipe(
+          stepsOf(book, m.path, anchor),
+          Array.filter(names),
+          Array.map((step): CorpusLocation => ({
+            path: m.path,
+            position: spanOf(anchor, step.segment),
+          })),
+        ),
       ),
     ),
   )
@@ -577,7 +624,7 @@ const sectionDefinitionAt = (
   path: Location,
   offset: number,
 ): Option.Option<CorpusLocation> =>
-  Option.flatMap(anchorPlaceAt(bookOf(corpus.modules), corpus.modules, path, offset), (place) =>
+  Option.flatMap(anchorStepAt(bookOf(corpus.modules), corpus.modules, path, offset), ({ place }) =>
     Match.value(place).pipe(
       Match.tag('Section', ({ ref }) => titleLocation(ref)),
       Match.tag('Chapter', ({ chapter }) => chapterLocation(chapter)),
@@ -593,18 +640,22 @@ const sectionNames = (
   spanOf: SpanOf,
 ): ReadonlyArray<CorpusLocation> => [
   ...Option.toArray(titleLocation(ref)),
-  ...anchorsNaming(book, modules, namesSection(ref), spanOf),
+  ...anchorsNaming(book, modules, (step) => namesSection(ref)(step.place), spanOf),
 ]
 
 const placeNames = (
   book: Book,
   modules: Modules,
-  place: Place,
+  mention: Mention,
   spanOf: SpanOf,
 ): ReadonlyArray<CorpusLocation> =>
-  Match.value(place).pipe(
+  Match.value(mention.place).pipe(
     Match.tag('Section', ({ ref }) => sectionNames(book, modules, ref, spanOf)),
-    Match.tag('Chapter', ({ chapter }) => chapterNames(book, modules, chapter, spanOf)),
+    Match.tag('Chapter', ({ chapter }) =>
+      mention.numbered
+        ? chapterNumbers(book, modules, chapter, spanOf)
+        : chapterNames(book, modules, chapter, spanOf),
+    ),
     Match.tag('Part', (): ReadonlyArray<CorpusLocation> => []),
     Match.exhaustive,
   )
@@ -616,9 +667,9 @@ const placeNamesAt = (
   spanOf: SpanOf,
 ): ReadonlyArray<CorpusLocation> => {
   const book = bookOf(corpus.modules)
-  return Option.match(placeAt(book, corpus.modules, path, offset), {
+  return Option.match(mentionAt(book, corpus.modules, path, offset), {
     onNone: (): ReadonlyArray<CorpusLocation> => [],
-    onSome: (place) => placeNames(book, corpus.modules, place, spanOf),
+    onSome: (mention) => placeNames(book, corpus.modules, mention, spanOf),
   })
 }
 
@@ -833,7 +884,12 @@ const chapterNames = (
 ): ReadonlyArray<CorpusLocation> => [
   ...Option.toArray(chapterLocation(chapter)),
   ...entriesNaming(book, modules, chapter),
-  ...anchorsNaming(book, modules, namesChapter(chapter), spanOf),
+  ...anchorsNaming(
+    book,
+    modules,
+    (step) => !step.numbered && namesChapter(chapter)(step.place),
+    spanOf,
+  ),
 ]
 
 const chapterNamesAt = (
@@ -846,6 +902,38 @@ const chapterNamesAt = (
   return Option.match(chapterAt(book, corpus.modules, path, offset), {
     onNone: (): ReadonlyArray<CorpusLocation> => [],
     onSome: (chapter) => chapterNames(book, corpus.modules, chapter, spanOf),
+  })
+}
+
+const chapterNumbers = (
+  book: Book,
+  modules: Modules,
+  chapter: Chapter,
+  spanOf: SpanOf,
+): ReadonlyArray<CorpusLocation> => [
+  ...Option.toArray(
+    Option.map(
+      Option.fromNullishOr(chapter.module.doc.frontmatter?.chapter),
+      (number): CorpusLocation => ({ path: chapter.module.path, position: number.position }),
+    ),
+  ),
+  ...anchorsNaming(
+    book,
+    modules,
+    (step) => step.numbered && namesChapter(chapter)(step.place),
+    spanOf,
+  ),
+]
+
+const chapterNumbersAt = (
+  corpus: LoomCorpusAst,
+  path: Location,
+  spanOf: SpanOf,
+): ReadonlyArray<CorpusLocation> => {
+  const book = bookOf(corpus.modules)
+  return Option.match(chapterOf(book, path), {
+    onNone: (): ReadonlyArray<CorpusLocation> => [],
+    onSome: (chapter) => chapterNumbers(book, corpus.modules, chapter, spanOf),
   })
 }
 
@@ -1013,6 +1101,7 @@ export const referencesAt = (
           Match.whenOr('tocEntry', 'frontmatterTitle', () =>
             chapterNamesAt(corpus, path, offset, wholeAnchor),
           ),
+          Match.when('frontmatterMembership', () => chapterNumbersAt(corpus, path, wholeAnchor)),
           Match.whenOr('tocPart', 'frontmatterPart', 'frontmatterPartName', () =>
             partGroupAt(corpus, path, offset),
           ),
@@ -1046,6 +1135,9 @@ export const renameAt = (
           Match.whenOr('tocEntry', 'frontmatterTitle', () =>
             chapterNamesAt(corpus, path, offset, segmentPosition),
           ),
+          Match.when('frontmatterMembership', () =>
+            chapterNumbersAt(corpus, path, segmentPosition),
+          ),
           Match.orElse((): ReadonlyArray<CorpusLocation> => []),
         ),
     },
@@ -1072,6 +1164,41 @@ export const renameRangeAt = (
     navigationRangeAt(corpus, path, offset),
     () => renameAt(corpus, path, offset).length > 0,
   )
+
+export type CorpusHint = { readonly offset: number; readonly label: string }
+
+const labelOf = (place: Place): Option.Option<string> =>
+  Match.value(place).pipe(
+    Match.tag('Chapter', ({ chapter }) => Option.some(chapter.title)),
+    Match.tag('Part', ({ part }) => part.name),
+    Match.tag('Section', () => Option.none<string>()),
+    Match.exhaustive,
+  )
+
+export const hintsAt = (corpus: LoomCorpusAst, path: Location): ReadonlyArray<CorpusHint> => {
+  const book = bookOf(corpus.modules)
+  return Option.match(Option.fromNullishOr(corpus.modules.get(path)), {
+    onNone: (): ReadonlyArray<CorpusHint> => [],
+    onSome: (module) =>
+      pipe(
+        module.doc.sections,
+        Array.flatMap(anchorsOf),
+        Array.flatMap((anchor) =>
+          pipe(
+            stepsOf(book, path, anchor),
+            Array.filter((step) => step.numbered),
+            Array.map((step) =>
+              Option.map(labelOf(step.place), (label) => ({
+                offset: segmentPosition(anchor, step.segment).end.offset,
+                label,
+              })),
+            ),
+            Array.getSomes,
+          ),
+        ),
+      ),
+  })
+}
 
 const diagnosticsIn = (node: unknown): ReadonlyArray<Diagnostic> => {
   if (Array.isArray(node)) return node.flatMap(diagnosticsIn)

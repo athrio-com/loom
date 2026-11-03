@@ -118,11 +118,10 @@ The graph serves the views that want the book as a whole: a drawing of which cha
 
 ## What this chapter grows into
 
-1. Numbered paths, with renumbering in the editor rewriting them and each one showing its chapter's title.
-2. Missing names that wait, checked again when an edit declares them, and the fix that declares a section.
-3. Promises: marked in the editor and on the woven page, and refused by the tangler.
-4. The contract a promise collects, and stubs written from it into the promised chapter.
-5. The `(path.loom)` target retired, with the book's examples and tests rewritten to the new form.
-6. The graph as a projection of the produced corpus, with its first view.
+1. Missing names that wait, checked again when an edit declares them, and the fix that declares a section.
+2. Promises: marked in the editor and on the woven page, and refused by the tangler.
+3. The contract a promise collects, and stubs written from it into the promised chapter.
+4. The `(path.loom)` target retired, with the book's examples and tests rewritten to the new form.
+5. The graph as a projection of the produced corpus, with its first view.
 
 When anchors resolve by their place in the book and the editor follows them, this chapter joins Part II, The shape of a loom, beside "The multi-file AST".

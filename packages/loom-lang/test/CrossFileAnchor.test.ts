@@ -456,3 +456,17 @@ describe('a name repeated among siblings', () => {
     }),
   )
 })
+
+describe('a path names parts and chapters by number', () => {
+  it.effect('composes through a part and a chapter given by number', () =>
+    Effect.gen(function* () {
+      const numbered = yield* tangled(
+        book(anchor('Part I, Chapter 2, Saying hello')),
+        '/corpus/hello.loom',
+      )
+      expect(numbered[0]!.content).toBe(program)
+      const mixed = yield* tangled(book(anchor('Saying things, Chapter 1')), '/corpus/hello.loom')
+      expect(mixed[0]!.content).toBe(program)
+    }),
+  )
+})

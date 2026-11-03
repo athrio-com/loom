@@ -242,6 +242,68 @@ describe('LoomCompiler — navigation along a path', () => {
   )
 })
 
+describe('LoomCompiler — renumbering a chapter', () => {
+  const words = lines(
+    '---',
+    'Part I, Chapter 2: Words',
+    '---',
+    '',
+    '# Words',
+    '',
+    'What the program says.',
+    '',
+    '## Saying hello',
+    '',
+    '=>',
+    '',
+    'const hi = "hi"',
+  )
+  const numbered = lines(
+    '# Numbered',
+    '',
+    '=>',
+    '',
+    anchor('Chapter 2, Saying hello'),
+    anchor('Words, Saying hello'),
+  )
+  const numberLayer = makeLayer({ '/words.loom': words, '/numbered.loom': numbered })
+  const spans = (locations: ReadonlyArray<{ readonly path: string; readonly range: unknown }>) =>
+    locations.map((location) => JSON.stringify(location)).sort()
+  const span = (path: string, line: number, from: number, to: number) => ({
+    path,
+    range: { start: { line, character: from }, end: { line, character: to } },
+  })
+
+  it.effect('renumbering rewrites the numbered names, and retitling the titled ones', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const renumbered = [span('/numbered.loom', 4, 3, 12), span('/words.loom', 1, 8, 17)].map(
+        (location) => JSON.stringify(location),
+      )
+      expect(spans(yield* c.rename('/words.loom', words.indexOf('Chapter 2') + 2))).toEqual(
+        renumbered.sort(),
+      )
+      expect(spans(yield* c.rename('/numbered.loom', numbered.indexOf('Chapter 2') + 2))).toEqual(
+        renumbered.sort(),
+      )
+      expect(spans(yield* c.rename('/words.loom', words.indexOf('Words') + 1))).toEqual(
+        [span('/numbered.loom', 5, 3, 8), span('/words.loom', 1, 19, 24)]
+          .map((location) => JSON.stringify(location))
+          .sort(),
+      )
+    }).pipe(Effect.provide(numberLayer)),
+  )
+
+  it.effect('hints show the title beside each number', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      expect(yield* c.hints('/numbered.loom')).toEqual([
+        { position: { line: 4, character: 12 }, label: 'Words' },
+      ])
+    }).pipe(Effect.provide(numberLayer)),
+  )
+})
+
 describe('LoomCompiler — navigation over value warps', () => {
   const warp = lines(
     '---',

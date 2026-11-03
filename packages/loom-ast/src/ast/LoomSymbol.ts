@@ -78,7 +78,7 @@ export const profileOf = (kind: SymbolKind): SymbolProfile =>
     Match.when('tilde', () => profile(Option.some('operator'), {})),
     Match.when('prose', () => profile(Option.none(), { structure: true })),
     Match.when('frontmatterMembership', () =>
-      profile(Option.some('namespace'), { structure: true }),
+      profile(Option.some('namespace'), { navigation: true, structure: true }),
     ),
     Match.when('frontmatterValue', () => profile(Option.some('string'), { structure: true })),
     Match.when('frontmatterTitle', () =>

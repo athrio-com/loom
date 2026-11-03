@@ -4,6 +4,7 @@ import {
   createMessageConnection,
   type Diagnostic,
   FileChangeType,
+  type InlayHint,
   StreamMessageReader,
   StreamMessageWriter,
   type TextEdit,
@@ -148,6 +149,16 @@ const editorAt = async (folder: string) => {
       range: { start: { line, character: 0 }, end: { line: line + 1, character: 0 } },
       context: { diagnostics: [] },
     })) ?? []
+  const hints = async (
+    path: string,
+  ): Promise<ReadonlyArray<{ readonly position: unknown; readonly label: unknown }>> =>
+    Array.map(
+      (await connection.sendRequest<InlayHint[] | null>('textDocument/inlayHint', {
+        textDocument: { uri: pathToFileURL(path).href },
+        range: { start: { line: 0, character: 0 }, end: { line: 10_000, character: 0 } },
+      })) ?? [],
+      (hint) => ({ position: hint.position, label: hint.label }),
+    )
   const shut = (path: string): Promise<void> =>
     connection.sendNotification('textDocument/didClose', {
       textDocument: { uri: pathToFileURL(path).href },
@@ -160,7 +171,7 @@ const editorAt = async (folder: string) => {
     connection.dispose()
     child.kill()
   }
-  return { open, edit, shut, format, diagnostics, fixes, changed, close }
+  return { open, edit, shut, format, diagnostics, fixes, hints, changed, close }
 }
 
 const texts = (edits: ReadonlyArray<TextEdit>): ReadonlyArray<string> =>
@@ -579,6 +590,41 @@ describe('LoomServer — a fix for an ambiguous anchor', () => {
           Object.keys(action.edit?.changes ?? {}).every((uri) => uri.endsWith('/main.loom')),
         ),
       ).toBe(true)
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+})
+
+describe('LoomServer — the title beside a number', () => {
+  it('shows the chapter title after a chapter named by number', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    chapterAt(
+      root,
+      'words.loom',
+      lines(
+        '---',
+        'Part I, Chapter 2: Words',
+        'Language: TypeScript',
+        '---',
+        '',
+        '# Words',
+        '',
+        '## Saying hello',
+        '',
+        '=>',
+        '',
+        'const hi = 1',
+      ),
+    )
+    const main = chapterAt(root, 'main.loom', chapter('Main', anchor('Chapter 2, Saying hello')))
+    const editor = await editorAt(root)
+    try {
+      await editor.open(main)
+      expect(await editor.hints(main)).toEqual([
+        { position: { line: 8, character: 12 }, label: 'Words' },
+      ])
     } finally {
       editor.close()
     }

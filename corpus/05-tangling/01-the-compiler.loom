@@ -19,9 +19,9 @@ A module this process has never built may still be waiting on disk. `loadOne` ha
 
 The product is built once, with the parse. `LoomCorpusAstBuilder` composes each module's product as it loads, so `LoomMemo` caches the whole module — parse and product together — and a second projection of an unedited file reuses it. An edit evicts the edited file alone, so the next projection rebuilds only what changed. A file that draws in the edited one keeps its build, because a cross-file anchor is inlined when a file is projected, not when it is built.
 
-The verbs project the corpus for the consumers. `compile` gives the editor its Volar tree, the source as the `loom` root and the product sections beneath it. `tangle` resolves a file's `{path}` sinks to the content and target the CLI writes. `diagnose` gives a file's Loom health, the diagnostics the editor shows. `definition` follows an anchor to the section it names, and `references` finds every anchor that names the section under the cursor. `rename` gathers the title and anchors a rename rewrites together, and `renameRange` gives the span the rename box covers, while `navigationRange` gives the whole span a definition link underlines over any navigable token. `semanticTokens` gives each of a file's tokens its colour, so the editor highlights the source. `reach` gives the files an entry pulls in, so the editor associates their scripts. `weave` projects the whole corpus into a `WovenCorpus`, the pages and navigation the website renders. `contents` reads each chapter's frontmatter and rewrites the book's own table of contents from it, returning the rewritten source. `invalidate` evicts a file and names what an edit to it must reproject: the file and every file that draws it in. A file the cache does not hold has no build to evict, and no projection holds its old text, so `invalidate` names nothing for it. `invalidateWithin` evicts every file the cache holds under a folder and names them, for a change that reaches every loom there at once, such as a change to the folder's configuration. `within` decides which files lie under a folder. It joins the folder with the platform's separator, so a trailing slash makes no difference, and a sibling folder whose name merely starts the same, `inside2` beside `inside`, is not under it. `rebuild` builds a file again from the text a source gives, and says whether what other files see of it changed.
+The verbs project the corpus for the consumers. `compile` gives the editor its Volar tree, the source as the `loom` root and the product sections beneath it. `tangle` resolves a file's `{path}` sinks to the content and target the CLI writes. `diagnose` gives a file's Loom health, the diagnostics the editor shows. `definition` follows an anchor to the section it names, and `references` finds every anchor that names the section under the cursor. `rename` gathers the title and anchors a rename rewrites together, and `renameRange` gives the span the rename box covers, while `navigationRange` gives the whole span a definition link underlines over any navigable token. `semanticTokens` gives each of a file's tokens its colour, so the editor highlights the source. `hints` gives the title beside each part or chapter an anchor names by number, so the editor shows where a numbered reference points. `reach` gives the files an entry pulls in, so the editor associates their scripts. `weave` projects the whole corpus into a `WovenCorpus`, the pages and navigation the website renders. `contents` reads each chapter's frontmatter and rewrites the book's own table of contents from it, returning the rewritten source. `invalidate` evicts a file and names what an edit to it must reproject: the file and every file that draws it in. A file the cache does not hold has no build to evict, and no projection holds its old text, so `invalidate` names nothing for it. `invalidateWithin` evicts every file the cache holds under a folder and names them, for a change that reaches every loom there at once, such as a change to the folder's configuration. `within` decides which files lie under a folder. It joins the folder with the platform's separator, so a trailing slash makes no difference, and a sibling folder whose name merely starts the same, `inside2` beside `inside`, is not under it. `rebuild` builds a file again from the text a source gives, and says whether what other files see of it changed.
 
-Every verb builds the corpus the same way and differs only in what it reads. `compile` and `tangle` read the product — the composed sections and the sink files. `diagnose`, `definition`, `references`, `rename`, `renameRange`, `navigationRange`, `semanticTokens`, `reach`, `weave`, and `contents` read the parse and the corpus graph, since Loom health, navigation, colour, placement, the woven page, and the table of contents need no product. `compile` takes its `Source` from the caller, so the editor reads the open buffer.
+Every verb builds the corpus the same way and differs only in what it reads. `compile` and `tangle` read the product — the composed sections and the sink files. `diagnose`, `definition`, `references`, `rename`, `renameRange`, `navigationRange`, `semanticTokens`, `hints`, `reach`, `weave`, and `contents` read the parse and the corpus graph, since Loom health, navigation, colour, placement, the woven page, and the table of contents need no product. `compile` takes its `Source` from the caller, so the editor reads the open buffer.
 
 The build cache keys a module by its path alone, so it can hold a build of the entry from text the editor no longer shows. The corpus may have been built from disk before the editor projected a chapter it has open: by the language server warming the corpus at start, or by a composition the TypeScript service asked for. That build holds the saved text, while the editor's buffer may hold edits that were never saved. So `compile` first runs `matchEntry`, which compares the kept build of the entry with the text its source gives and evicts the build when the two differ. A source that cannot read the entry leaves the build alone, and the build reports the error as it always did. The entry is then built from the buffer, and the editor never answers from text it is not showing.
 
@@ -256,6 +256,20 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
                   ),
               }),
             ),
+          ),
+        ),
+
+      hints: (path: Location): Effect.Effect<ReadonlyArray<FrameHint>> =>
+        buildCorpus(documents, path).pipe(
+          Effect.map((modules) =>
+            Option.match(Option.fromNullishOr(modules.get(path)), {
+              onNone: (): ReadonlyArray<FrameHint> => [],
+              onSome: (module) =>
+                Array.map(hintsAt({ modules }, path), (hint): FrameHint => ({
+                  position: lineCharAt(module.text, hint.offset),
+                  label: hint.label,
+                })),
+            }),
           ),
         ),
 
@@ -681,7 +695,7 @@ const projectTree = (modules: Modules, entry: LoomModule): LoomVirtualCode => {
 
 Every model up to here is plain data, which keeps the pipeline serialisable and easy to test. Volar is not plain data: it wants a function-based `IScriptSnapshot` for a document's text and its own `CodeMapping` for each source span. `toVolar` is the one adapter that crosses from a `LoomVirtualCode` tree to Volar's `VirtualCode`, and the only place in Loom that touches Volar's runtime types. It recurses down the embedded tree, converting every node.
 
-Three small functions do the work. `stringSnapshot` presents a string as the minimal snapshot Volar reads. `featuresOf` chooses which editor features Volar forwards at a mapped span, and for every author-facing token it defers to `LoomSymbol`: it reads the span's symbol kind through `profileOf` and forwards exactly the features that kind allows — a heading navigates, an anchor navigates and verifies, prose only folds and outlines. The table is the one place those features live, so `featuresOf` repeats none of them. It answers only for the two kinds that carry the projection's structure rather than a token a cursor rests on. A `source` span — the whole-file identity mapping the root carries — takes verification and formatting alone, so Loom's own diagnostics surface on the file, and the Loom language formats the whole file through it, while no other feature fires there. A `product` span carries the full set, verification and completion and semantics among them, so the author edits the resolved composition as if it were the source. `toCodeMapping` rewrites one of our `Mapping`s — a `.loom` source span paired with the generated span it projects to — as Volar's `CodeMapping`, choosing its features with `featuresOf`.
+Three small functions do the work. `stringSnapshot` presents a string as the minimal snapshot Volar reads. `featuresOf` chooses which editor features Volar forwards at a mapped span, and for every author-facing token it defers to `LoomSymbol`: it reads the span's symbol kind through `profileOf` and forwards exactly the features that kind allows — a heading navigates, an anchor navigates and verifies, prose only folds and outlines. The table is the one place those features live, so `featuresOf` repeats none of them. It answers only for the two kinds that carry the projection's structure rather than a token a cursor rests on. A `source` span — the whole-file identity mapping the root carries — takes verification and formatting, so Loom's own diagnostics surface on the file, and the Loom language formats the whole file through it. It takes Volar's semantic features too, but tells Volar to highlight nothing there, because Volar forwards an inlay hint only through a semantic span, and the root's colours come from the symbols' own spans. No other feature fires there. A `product` span carries the full set, verification and completion and semantics among them, so the author edits the resolved composition as if it were the source. `toCodeMapping` rewrites one of our `Mapping`s — a `.loom` source span paired with the generated span it projects to — as Volar's `CodeMapping`, choosing its features with `featuresOf`.
 
 =>
 
@@ -701,7 +715,11 @@ const productFeatures: CodeMapping['data'] = {
 
 const featuresOf = (kind: Mapping['kind']): CodeMapping['data'] =>
   Match.value(kind).pipe(
-    Match.when('source', () => ({ verification: true, format: true })),
+    Match.when('source', () => ({
+      verification: true,
+      format: true,
+      semantic: { shouldHighlight: () => false },
+    })),
     Match.when('product', () => productFeatures),
     Match.when(Match.defined, (symbol) => profileOf(symbol).features),
     Match.orElse(() => productFeatures),
@@ -760,7 +778,7 @@ export class DocumentSource extends Context.Service<DocumentSource>()('DocumentS
 
 ## What the compiler draws on
 
-From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; the projection functions `fromCode`, `fromProduct`, `fromProse`, `rootNamesAt`, `rootVirtualCode`, and `symbolMappings`; the corpus model — `LoomModule`, the `Book` that a judgement and a projection resolve names through, with `bookOf`, which builds it, the `corpusErrors` and `moduleDiagnostics` readers, `namesakesOf`, which finds the chapters of a part that share a title, the `reachable`, `transitiveDependents` and `dependentsOf` reaches over the anchor graph, and the `definitionAt`, `referencesAt`, `renameAt`, `renameRangeAt`, and `navigationRangeAt` navigation walks with the `CorpusLocation` they yield; the product pass's `crossFileFaults`, which judges an anchor that reaches beyond its loom against the corpus; the fault catalog's `faulty`, with the `DuplicateName` and `UnresolvedTocEntry` faults the compiler raises itself; the product model's `Part` and its `keyOf`, which names the section an anchor resolves to; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache with the `LoomDiskCache` behind it. The `WeaveBuilder` pass projects the whole corpus into the `WovenCorpus` the `weave` verb returns. The `TableOfContentsBuilder` pass reads the corpus's frontmatter into a table of contents, and `rewriteBook` splices that table back into the book — together what the `contents` verb returns. `profileOf` and `symbolsOf` from `LoomSymbol` give each mapped span its editor features and each of a file's tokens its colour, and `normaliseTitle` folds a heading title to the name an anchor resolves. From the language-service contract come `FrameLocation`, the editor-shaped range the navigation verbs return, and `FrameToken`, a range paired with the colour `semanticTokens` returns. `Diagnostic` carries an error's message and place. From the `WorkspaceSource` module comes the `WorkspaceSource` service, which `DocumentSource` stands in front of and whose `placeOf` method places a sink. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError` and `Ref` for the composition the compiler keeps, and Bun's `path` tells what lies under a folder.
+From Volar come the `VirtualCode` and `CodeMapping` types the adapter targets. From the pipeline come its collaborators: `LoomCorpusAstBuilder` with its `Source` seam and `ReadError`; the projection functions `fromCode`, `fromProduct`, `fromProse`, `rootNamesAt`, `rootVirtualCode`, and `symbolMappings`; the corpus model — `LoomModule`, the `Book` that a judgement and a projection resolve names through, with `bookOf`, which builds it, the `corpusErrors` and `moduleDiagnostics` readers, `namesakesOf`, which finds the chapters of a part that share a title, the `reachable`, `transitiveDependents` and `dependentsOf` reaches over the anchor graph, and the `definitionAt`, `referencesAt`, `renameAt`, `renameRangeAt`, and `navigationRangeAt` navigation walks with the `CorpusLocation` they yield, beside `hintsAt`, which finds the titles numbered references stand for; the product pass's `crossFileFaults`, which judges an anchor that reaches beyond its loom against the corpus; the fault catalog's `faulty`, with the `DuplicateName` and `UnresolvedTocEntry` faults the compiler raises itself; the product model's `Part` and its `keyOf`, which names the section an anchor resolves to; the virtual-code model, `LoomVirtualCode` and its `Mapping`; and the `LoomMemo` cache with the `LoomDiskCache` behind it. The `WeaveBuilder` pass projects the whole corpus into the `WovenCorpus` the `weave` verb returns. The `TableOfContentsBuilder` pass reads the corpus's frontmatter into a table of contents, and `rewriteBook` splices that table back into the book — together what the `contents` verb returns. `profileOf` and `symbolsOf` from `LoomSymbol` give each mapped span its editor features and each of a file's tokens its colour, and `normaliseTitle` folds a heading title to the name an anchor resolves. From the language-service contract come `FrameLocation`, the editor-shaped range the navigation verbs return, `FrameToken`, a range paired with the colour `semanticTokens` returns, and `FrameHint`, a position paired with the label `hints` returns. `Diagnostic` carries an error's message and place. From the `WorkspaceSource` module comes the `WorkspaceSource` service, which `DocumentSource` stands in front of and whose `placeOf` method places a sink. Effect supplies the composition primitives, `Data` among them for the tagged `TangleError` and `Ref` for the composition the compiler keeps, and Bun's `path` tells what lies under a folder.
 
 =>
 
@@ -776,6 +794,7 @@ import {
   corpusErrors,
   definitionAt,
   dependentsOf,
+  hintsAt,
   moduleDiagnostics,
   namesakesOf,
   reachable,
@@ -794,6 +813,7 @@ import { crossFileFaults } from '#ast/ProductBuilder'
 import { keyOf, type Part } from '@athrio/loom-ast/ProductAst'
 import {
   type ComposedFile,
+  type FrameHint,
   type FrameLocation,
   type FrameToken,
 } from '@athrio/loom-lang-services/LanguageService'
@@ -1836,6 +1856,26 @@ Chapters are siblings within their part. Two chapters of Part I that share the t
   )
 })
 
+## A path by number
+
+A path may name a part or a chapter by its number, the way a loom's identity line does. `Part I, Chapter 2, Saying hello` names the section of `Words` through the numbers alone, and `Saying things, Chapter 1` names the chapter `Greetings` by the part's name and the chapter's number. Each composes the code the titles would.
+
+=>
+
+describe('a path names parts and chapters by number', () => {
+  it.effect('composes through a part and a chapter given by number', () =>
+    Effect.gen(function* () {
+      const numbered = yield* tangled(
+        book(anchor('Part I, Chapter 2, Saying hello')),
+        '/corpus/hello.loom',
+      )
+      expect(numbered[0]!.content).toBe(program)
+      const mixed = yield* tangled(book(anchor('Saying things, Chapter 1')), '/corpus/hello.loom')
+      expect(mixed[0]!.content).toBe(program)
+    }),
+  )
+})
+
 ## The cross-file anchor test file {Tangle}[test/CrossFileAnchor.test.ts]
 
 =>
@@ -1847,6 +1887,8 @@ Chapters are siblings within their part. Two chapters of Part I that share the t
 ::[A name found through the book]
 
 ::[A name repeated among siblings]
+
+::[A path by number]
 
 ## Testing navigation within one loom
 
@@ -2160,6 +2202,86 @@ A rename moves one name of the path and leaves the rest of the anchor alone. Ren
   )
 })
 
+## Renumbering a chapter
+
+A chapter's number is a name of its own, and an anchor may use it in place of the title. In `numbered.loom`, line 4 names `Saying hello` through `Chapter 2` and line 5 through the title `Words`, each name starting at character 3. In `words.loom`, the frontmatter on line 1 declares `Chapter 2` at characters 8 to 17 and the title at 19 to 24.
+
+=>
+
+describe('LoomCompiler — renumbering a chapter', () => {
+  const words = lines(
+    '---',
+    'Part I, Chapter 2: Words',
+    '---',
+    '',
+    '# Words',
+    '',
+    'What the program says.',
+    '',
+    '## Saying hello',
+    '',
+    '=>',
+    '',
+    'const hi = "hi"',
+  )
+  const numbered = lines(
+    '# Numbered',
+    '',
+    '=>',
+    '',
+    anchor('Chapter 2, Saying hello'),
+    anchor('Words, Saying hello'),
+  )
+  const numberLayer = makeLayer({ '/words.loom': words, '/numbered.loom': numbered })
+  const spans = (locations: ReadonlyArray<{ readonly path: string; readonly range: unknown }>) =>
+    locations.map((location) => JSON.stringify(location)).sort()
+  const span = (path: string, line: number, from: number, to: number) => ({
+    path,
+    range: { start: { line, character: from }, end: { line, character: to } },
+  })
+
+~
+
+A rename that starts on the frontmatter's `Chapter 2` renumbers: it edits that number and the numbered name on line 4, and leaves the title on line 5 alone. A rename that starts on a numbered name does the same. A rename that starts on the title edits the title and line 5, and leaves the number alone.
+
+=>
+
+  it.effect('renumbering rewrites the numbered names, and retitling the titled ones', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const renumbered = [span('/numbered.loom', 4, 3, 12), span('/words.loom', 1, 8, 17)].map(
+        (location) => JSON.stringify(location),
+      )
+      expect(spans(yield* c.rename('/words.loom', words.indexOf('Chapter 2') + 2))).toEqual(
+        renumbered.sort(),
+      )
+      expect(spans(yield* c.rename('/numbered.loom', numbered.indexOf('Chapter 2') + 2))).toEqual(
+        renumbered.sort(),
+      )
+      expect(spans(yield* c.rename('/words.loom', words.indexOf('Words') + 1))).toEqual(
+        [span('/numbered.loom', 5, 3, 8), span('/words.loom', 1, 19, 24)]
+          .map((location) => JSON.stringify(location))
+          .sort(),
+      )
+    }).pipe(Effect.provide(numberLayer)),
+  )
+
+~
+
+The `hints` verb gives the title a number stands for, placed just after the number: `Words`, at character 12 of line 4. A name given by title needs no hint, so line 5 has none.
+
+=>
+
+  it.effect('hints show the title beside each number', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      expect(yield* c.hints('/numbered.loom')).toEqual([
+        { position: { line: 4, character: 12 }, label: 'Words' },
+      ])
+    }).pipe(Effect.provide(numberLayer)),
+  )
+})
+
 ## Navigating a value warp
 
 A value warp such as `{{ratio = 1.8}}`, written in a section's preamble, binds a name to a value. The section's code names the warp with `::[ratio]` anchors. Navigation ties each anchor to the warp within the section. The `warp` fixture defines `ratio` on line 6 and names it on lines 10 and 11. The `anchorOffset` offset rests inside the first anchor's name, and the `defOffset` offset inside the definition's name.
@@ -2244,6 +2366,8 @@ The `rename` verb rewrites three spans, the definition's name and each anchor's.
 ::[Navigating to a chapter in another loom]
 
 ::[Navigating a path through the book]
+
+::[Renumbering a chapter]
 
 ::[Navigating a value warp]
 

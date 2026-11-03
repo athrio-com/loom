@@ -2,6 +2,7 @@ import { Array, Effect, pipe } from 'effect'
 import type {
   CodeAction,
   Diagnostic as LspDiagnostic,
+  InlayHint,
   LanguageServicePlugin,
   LocationLink,
   SemanticToken,
@@ -166,6 +167,22 @@ const loomRename = (frame: FrameQueryApi): LanguageServicePlugin => ({
   }),
 })
 
+const loomHints = (frame: FrameQueryApi): LanguageServicePlugin => ({
+  name: 'loom-hints',
+  capabilities: { inlayHintProvider: {} },
+  create: (context) => ({
+    provideInlayHints: (document) => {
+      const decoded = context.decodeEmbeddedDocumentUri(URI.parse(document.uri))
+      if (!decoded || decoded[1] !== 'root') return undefined
+      return Array.map(frame.hints(frame.locationOf(decoded[0])), (hint): InlayHint => ({
+        position: hint.position,
+        label: hint.label,
+        paddingLeft: true,
+      }))
+    },
+  }),
+})
+
 const semanticLegend = {
   tokenTypes: [...SemanticTokenSchema.literals],
   tokenModifiers: [],
@@ -224,6 +241,7 @@ export const LoomLanguage = defineLanguageService({
         loomReferences(frame),
         loomRename(frame),
         loomSemanticTokens(frame),
+        loomHints(frame),
         loomFormatting(frame),
       ]
     }),

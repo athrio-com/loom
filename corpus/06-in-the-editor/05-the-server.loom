@@ -1129,7 +1129,7 @@ const workspaceAt = (root: string, service: string): string => {
 
 The cases start the server from source the way an editor does. The server runs as a process of its own and speaks the Language Server Protocol over its standard input and output. The client hands it the TypeScript this repository installs, as VS Code hands over its own. It leaves `LOOM_HOME` out of the server's environment, since that variable would point every workspace at one store.
 
-The client declares that it watches files for the server, as an editor does. It does not watch any itself. A case reports a file created, changed, or deleted through `changed`, the way an editor's watcher would, and a change is the default. The client answers every request the server makes of it with nothing, whether the server asks for the editor's settings or asks it to watch a file. `open` shows the server a loom, `edit` replaces the text the editor holds for it without saving, under a version that only grows, `shut` closes it without saving, `format` asks for the edits that format it, and `texts` reads the text out of those edits. `diagnostics` asks for the problems the server finds in a loom and returns their messages. `fixes` asks for the code actions the server offers on one line of a loom.
+The client declares that it watches files for the server, as an editor does. It does not watch any itself. A case reports a file created, changed, or deleted through `changed`, the way an editor's watcher would, and a change is the default. The client answers every request the server makes of it with nothing, whether the server asks for the editor's settings or asks it to watch a file. `open` shows the server a loom, `edit` replaces the text the editor holds for it without saving, under a version that only grows, `shut` closes it without saving, `format` asks for the edits that format it, and `texts` reads the text out of those edits. `diagnostics` asks for the problems the server finds in a loom and returns their messages. `fixes` asks for the code actions the server offers on one line of a loom, and `hints` asks for the inlay hints it shows across a whole loom.
 
 =>
 
@@ -1192,6 +1192,16 @@ const editorAt = async (folder: string) => {
       range: { start: { line, character: 0 }, end: { line: line + 1, character: 0 } },
       context: { diagnostics: [] },
     })) ?? []
+  const hints = async (
+    path: string,
+  ): Promise<ReadonlyArray<{ readonly position: unknown; readonly label: unknown }>> =>
+    Array.map(
+      (await connection.sendRequest<InlayHint[] | null>('textDocument/inlayHint', {
+        textDocument: { uri: pathToFileURL(path).href },
+        range: { start: { line: 0, character: 0 }, end: { line: 10_000, character: 0 } },
+      })) ?? [],
+      (hint) => ({ position: hint.position, label: hint.label }),
+    )
   const shut = (path: string): Promise<void> =>
     connection.sendNotification('textDocument/didClose', {
       textDocument: { uri: pathToFileURL(path).href },
@@ -1204,7 +1214,7 @@ const editorAt = async (folder: string) => {
     connection.dispose()
     child.kill()
   }
-  return { open, edit, shut, format, diagnostics, fixes, changed, close }
+  return { open, edit, shut, format, diagnostics, fixes, hints, changed, close }
 }
 
 const texts = (edits: ReadonlyArray<TextEdit>): ReadonlyArray<string> =>
@@ -1697,6 +1707,47 @@ describe('LoomServer — a fix for an ambiguous anchor', () => {
   }, 30_000)
 })
 
+## Testing the title beside a number
+
+The editor shows the title a numbered reference stands for. `Main` names the section `Saying hello` through `Chapter 2`, on line 8, its name starting at character 3. The server answers an inlay hint request with the title `Words`, just after the number, at character 12.
+
+=>
+
+describe('LoomServer — the title beside a number', () => {
+  it('shows the chapter title after a chapter named by number', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'loom-server-')))
+    configure(root, inactive)
+    chapterAt(
+      root,
+      'words.loom',
+      lines(
+        '---',
+        'Part I, Chapter 2: Words',
+        'Language: TypeScript',
+        '---',
+        '',
+        '# Words',
+        '',
+        '## Saying hello',
+        '',
+        '=>',
+        '',
+        'const hi = 1',
+      ),
+    )
+    const main = chapterAt(root, 'main.loom', chapter('Main', anchor('Chapter 2, Saying hello')))
+    const editor = await editorAt(root)
+    try {
+      await editor.open(main)
+      expect(await editor.hints(main)).toEqual([
+        { position: { line: 8, character: 12 }, label: 'Words' },
+      ])
+    } finally {
+      editor.close()
+    }
+  }, 30_000)
+})
+
 ## Testing the pass piece by piece
 
 Some of what the pass does leaves no trace an editor can see. Volar holds a script in a language service, or holds it nowhere, and no request reveals which. A request that waits on the `reprojecting` semaphore gets the same answer it would have got without waiting. A close that rereads nothing looks the same as one that rereads a file with the same text. So these cases drive the server's parts directly, over stand-ins for Volar's objects.
@@ -1875,7 +1926,7 @@ describe('LoomServer — the pass piece by piece', () => {
 
 ## What the cases draw on
 
-The cases draw on Bun's test runner, and on Node to make the workspaces, start the server, and turn paths into the `file:` addresses the protocol names documents by. Volar's language-server package carries the client half of the protocol too: `createMessageConnection` and the stream reader and writer it speaks through, the `TextEdit` a format answers with, the `CodeAction` a fix arrives as, and the `FileChangeType` a reported change carries. The language store gives `servicePackage` and `serviceVersion`, which name and version the stand-in. The host runtime gives `runtimeKey`, where the stand-in finds Effect. Effect's `Array` reads the text out of the edits a format returns. The cases that drive the server's parts directly import them from the server module, `projectOver` and `classicTypeScript` among them, and read what `classicTypeScript` loads with Effect's `Result`, and build the caches, the semaphore, and the set those parts take with Effect's `Cache`, `Semaphore`, and `Ref`, run by `Effect`. They take the types of a server, a project, and a service plugin from Volar, and `URI` names their looms. To run `rebuildUnder` they assemble the compiler the way the server does, from `LoomCompiler`, `DocumentSource`, `WorkspaceSettings`, and `LoomConfig`, with Effect's `Layer`. To run `closeOf` they add the `FileSystemSource` layer.
+The cases draw on Bun's test runner, and on Node to make the workspaces, start the server, and turn paths into the `file:` addresses the protocol names documents by. Volar's language-server package carries the client half of the protocol too: `createMessageConnection` and the stream reader and writer it speaks through, the `TextEdit` a format answers with, the `CodeAction` a fix arrives as, the `InlayHint` a title beside a number arrives as, and the `FileChangeType` a reported change carries. The language store gives `servicePackage` and `serviceVersion`, which name and version the stand-in. The host runtime gives `runtimeKey`, where the stand-in finds Effect. Effect's `Array` reads the text out of the edits a format returns. The cases that drive the server's parts directly import them from the server module, `projectOver` and `classicTypeScript` among them, and read what `classicTypeScript` loads with Effect's `Result`, and build the caches, the semaphore, and the set those parts take with Effect's `Cache`, `Semaphore`, and `Ref`, run by `Effect`. They take the types of a server, a project, and a service plugin from Volar, and `URI` names their looms. To run `rebuildUnder` they assemble the compiler the way the server does, from `LoomCompiler`, `DocumentSource`, `WorkspaceSettings`, and `LoomConfig`, with Effect's `Layer`. To run `closeOf` they add the `FileSystemSource` layer.
 
 =>
 
@@ -1885,6 +1936,7 @@ import {
   createMessageConnection,
   type Diagnostic,
   FileChangeType,
+  type InlayHint,
   StreamMessageReader,
   StreamMessageWriter,
   type TextEdit,
@@ -1933,5 +1985,7 @@ import { runtimeKey } from '@athrio/loom-lang-services/Runtime'
 ::[Testing where a TypeScript 6 comes from]
 
 ::[Testing a fix for an ambiguous anchor]
+
+::[Testing the title beside a number]
 
 ::[Testing the pass piece by piece]
