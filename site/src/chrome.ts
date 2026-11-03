@@ -26,6 +26,7 @@ import {
   docsCarpet,
   loomMark,
   moonIcon,
+  octocatIcon,
   sourceCarpet,
   sunIcon,
   systemIcon,
@@ -358,6 +359,7 @@ const pills: ReadonlyArray<Pill> = [
     href: page.href,
     mark: carpetMark(page.carpet, '17px'),
   })),
+  { label: 'GitHub', href: 'https://github.com/athrio-com/loom', mark: octocatIcon('17') },
 ]
 
 const pillRow = (focus: number, h: HtmlBuilder<Message>): Html =>
@@ -369,8 +371,9 @@ const pillRow = (focus: number, h: HtmlBuilder<Message>): Html =>
           h.Class(index === Math.min(focus, pills.length - 1) ? 'pill-link here' : 'pill-link'),
           h.Href(pill.href),
           h.Style({ animationDelay: `${40 + index * 34}ms` }),
+          ...(leavesSite(pill) ? [h.Target('_blank'), h.Rel('noopener noreferrer')] : []),
         ],
-        [pill.mark, pill.label],
+        [pill.mark, pill.label, ...(leavesSite(pill) ? [externalIcon()] : [])],
       ),
     ),
   )
@@ -545,7 +548,7 @@ export const palette = (model: Model, h: HtmlBuilder<Message>): Html => {
 
 type FooterLink = { readonly label: string; readonly href: string; readonly ink: string }
 
-const leavesSite = (link: FooterLink): boolean => /^https?:\/\//.test(link.href)
+const leavesSite = (link: { readonly href: string }): boolean => /^https?:\/\//.test(link.href)
 
 const footerLinks: ReadonlyArray<FooterLink> = [
   { label: 'Docs', href: '/docs', ink: '#6E9BFF' },

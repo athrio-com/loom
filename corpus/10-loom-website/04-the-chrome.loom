@@ -48,6 +48,7 @@ import {
   docsCarpet,
   loomMark,
   moonIcon,
+  octocatIcon,
   sourceCarpet,
   sunIcon,
   systemIcon,
@@ -455,7 +456,7 @@ const exactSwitch = (model: Model, h: HtmlBuilder<Message>): Html =>
 
 ## The pills, when nothing is typed
 
-With an empty query the palette offers the site itself rather than an empty list. One pill names each of the site's pages, behind its woven mark, and nothing else: the palette is for moving around Loom's own pages, so a link that leaves the site belongs in the footer instead. Each pill pops in a beat after the one before, so the row assembles in front of a reader instead of appearing whole.
+With an empty query the palette offers the site itself rather than an empty list. One pill names each of the site's pages, behind its woven mark. One more leads to Loom's repository on GitHub, behind the octocat, because the source this site describes lives there and a reader moving around Loom reaches for it as often as for any page. That pill leaves the site, so it behaves like a footer chip that does: it opens in a new tab and says so with an outward arrow after its label. Each pill pops in a beat after the one before, so the row assembles in front of a reader instead of appearing whole.
 
 =>
 
@@ -476,6 +477,7 @@ const pills: ReadonlyArray<Pill> = [
     href: page.href,
     mark: carpetMark(page.carpet, '17px'),
   })),
+  { label: 'GitHub', href: 'https://github.com/athrio-com/loom', mark: octocatIcon('17') },
 ]
 
 const pillRow = (focus: number, h: HtmlBuilder<Message>): Html =>
@@ -487,8 +489,9 @@ const pillRow = (focus: number, h: HtmlBuilder<Message>): Html =>
           h.Class(index === Math.min(focus, pills.length - 1) ? 'pill-link here' : 'pill-link'),
           h.Href(pill.href),
           h.Style({ animationDelay: `${40 + index * 34}ms` }),
+          ...(leavesSite(pill) ? [h.Target('_blank'), h.Rel('noopener noreferrer')] : []),
         ],
-        [pill.mark, pill.label],
+        [pill.mark, pill.label, ...(leavesSite(pill) ? [externalIcon()] : [])],
       ),
     ),
   )
@@ -713,7 +716,7 @@ The links are one flat list, and each is a chip rather than a line of a column. 
 
 type FooterLink = { readonly label: string; readonly href: string; readonly ink: string }
 
-const leavesSite = (link: FooterLink): boolean => /^https?:\/\//.test(link.href)
+const leavesSite = (link: { readonly href: string }): boolean => /^https?:\/\//.test(link.href)
 
 const footerLinks: ReadonlyArray<FooterLink> = [
   { label: 'Docs', href: '/docs', ink: '#6E9BFF' },

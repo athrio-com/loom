@@ -1034,13 +1034,13 @@ The exact switch wears the same small frame as the close button beside it, so th
 
 ~
 
-With nothing typed, the palette offers the site itself: a pill per page and a pill per place Loom lives elsewhere. Each pops in a beat after the one before it, so the row assembles rather than appearing.
+With nothing typed, the palette offers the site itself: a pill for each page, and one for Loom's repository on GitHub. Each pops in a beat after the one before it, so the row assembles rather than appearing.
 
 A pill stands thirty-four pixels tall, which is smaller than a finger. So each one carries an invisible box behind it, centred on the pill and at least forty-four pixels square, and that box is what a thumb actually hits. The box has to be positioned against the pill it belongs to — left to itself it would resolve against the palette card and every pill would claim the same patch of the middle.
 
 A pill measures itself the old way, as the mark does. Thirty-four pixels of content inside a one-pixel edge stands thirty-six tall, which is what the row is drawn to — under the stylesheet's `border-box` default the edge would eat into the height instead and the pill would come out two pixels short. The same holds for the key box beside the search label, so both say `content-box` for themselves.
 
-Being focused and being hovered are two different states, and they look different. The focused pill is the one the arrow keys are on: it lifts to a fourteen-percent wash behind a pale edge, and its label goes to full cream. A hovered pill lifts less — ten percent behind a dimmer edge — and does not touch the label at all. So a reader moving the mouse over the row can still see which pill the keyboard would open, because only one of the six wears the brighter state.
+Being focused and being hovered are two different states, and they look different. The focused pill is the one the arrow keys are on: it lifts to a fourteen-percent wash behind a pale edge, and its label goes to full cream. A hovered pill lifts less — ten percent behind a dimmer edge — and does not touch the label at all. So a reader moving the mouse over the row can still see which pill the keyboard would open, because only one pill in the row wears the brighter state.
 
 =>
 

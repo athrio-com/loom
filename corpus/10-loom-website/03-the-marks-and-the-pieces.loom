@@ -282,7 +282,7 @@ The icons are the small marks the chrome and its buttons wear — a copy glyph, 
 
 The two chevrons point opposite ways for the same reason. A bar that collapses points down, towards where it is going, and the handle it leaves behind points up, towards where it came from.
 
-The octocat comes in two drawings. The one below is traced on a sixteen-unit grid, and it is the copy every inline link wears. The palette's pill carries a different tracing on a twenty-four-unit grid, baked into a data URI with its fill fixed, because a background image cannot follow the text colour around it.
+The octocat is traced on a sixteen-unit grid and drawn in the current text colour. One drawing therefore serves every inline link and the palette's GitHub pill, and each wears the colour of the words beside it.
 
 =>
 
