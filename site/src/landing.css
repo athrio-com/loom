@@ -2411,6 +2411,11 @@ h2, .subhead {
   background: var(--fence);
   font-size: 0.92em;
   color: var(--ink);
+  white-space: nowrap;
+}
+
+@media (max-width: 639px) {
+  .docs-prose code { white-space: normal; }
 }
 
 .inline-copy {
