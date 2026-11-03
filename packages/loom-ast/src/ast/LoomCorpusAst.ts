@@ -64,10 +64,14 @@ export const titleIndexes = (modules: Modules): TitleIndexes =>
 export const anchorModule = (from: Location, anchor: WarpAnchorToken): Location =>
   anchor.target === undefined ? from : resolveRelative(from, anchor.target.value)
 
+type PartRef = {
+  readonly number: Option.Option<string>
+  readonly name: Option.Option<string>
+}
+
 type Chapter = {
   readonly title: string
-  readonly number: Option.Option<string>
-  readonly part: Option.Option<string>
+  readonly part: PartRef
   readonly module: LoomModule
 }
 
@@ -86,19 +90,31 @@ const partNamesIn = (modules: Modules): ReadonlyMap<string, string> =>
     ),
   )
 
-const partOf = (names: ReadonlyMap<string, string>, module: LoomModule): Option.Option<string> =>
-  pipe(
-    Option.fromNullishOr(module.doc.frontmatter),
-    Option.flatMap((fm) =>
-      Option.orElse(
-        Option.map(Option.fromNullishOr(fm.partName), (partName) => partName.value),
-        () =>
-          Option.flatMap(Option.fromNullishOr(fm.part), (part) =>
-            Option.fromNullishOr(names.get(part.value)),
-          ),
-      ),
-    ),
+const partOf = (names: ReadonlyMap<string, string>, module: LoomModule): PartRef => {
+  const frontmatter = Option.fromNullishOr(module.doc.frontmatter)
+  const number = pipe(
+    frontmatter,
+    Option.flatMapNullishOr((fm) => fm.part),
+    Option.map((part) => part.value),
   )
+  return {
+    number,
+    name: Option.orElse(
+      pipe(
+        frontmatter,
+        Option.flatMapNullishOr((fm) => fm.partName),
+        Option.map((partName) => partName.value),
+      ),
+      () => Option.flatMap(number, (n) => Option.fromNullishOr(names.get(n))),
+    ),
+  }
+}
+
+const samePart = (part: PartRef, other: PartRef): boolean =>
+  Option.match(Option.all([part.number, other.number]), {
+    onSome: ([number, otherNumber]) => number === otherNumber,
+    onNone: () => Option.exists(part.name, (name) => Option.contains(other.name, name)),
+  })
 
 const chaptersIn = (modules: Modules): ReadonlyArray<Chapter> => {
   const names = partNamesIn(modules)
@@ -106,10 +122,6 @@ const chaptersIn = (modules: Modules): ReadonlyArray<Chapter> => {
     Array.map(Array.fromIterable(modules.values()), (module) =>
       Option.map(chapterTitleToken(module), (title) => ({
         title: title.source,
-        number: Option.map(
-          Option.fromNullishOr(module.doc.frontmatter?.part),
-          (part) => part.value,
-        ),
         part: partOf(names, module),
         module,
       })),
@@ -155,7 +167,7 @@ const chaptersTitled = (
       chapter.title === title &&
       Option.match(part, {
         onNone: () => true,
-        onSome: (name) => Option.contains(chapter.part, name),
+        onSome: (name) => Option.contains(chapter.part.name, name),
       }),
   )
 
@@ -165,7 +177,7 @@ const sectionTitled = (book: Book, module: Location, title: string): Option.Opti
 const placesNamed = (book: Book, scope: Option.Option<Place>, name: string): ReadonlyArray<Place> =>
   Option.match(scope, {
     onNone: () => [
-      ...(Array.some(book.chapters, (chapter) => Option.contains(chapter.part, name))
+      ...(Array.some(book.chapters, (chapter) => Option.contains(chapter.part.name, name))
         ? [Place.Part({ name })]
         : []),
       ...Array.map(chaptersTitled(book, name, Option.none()), (chapter) =>
@@ -285,7 +297,7 @@ const throughPart = (
   names: ReadonlyArray<string>,
 ): ReadonlyArray<ReadonlyArray<string>> => [
   names,
-  ...Option.toArray(Option.map(chapter.part, (part) => [part, ...names])),
+  ...Option.toArray(Option.map(chapter.part.name, (part) => [part, ...names])),
 ]
 
 const namesFor = (book: Book, place: Place): ReadonlyArray<ReadonlyArray<string>> =>
@@ -556,9 +568,9 @@ const namesSection =
     place.ref.section === target.section
 
 const namesChapter =
-  (title: string) =>
+  (chapter: Chapter) =>
   (place: Place): boolean =>
-    place._tag === 'Chapter' && place.chapter.title === title
+    place._tag === 'Chapter' && place.chapter.module.path === chapter.module.path
 
 const sectionDefinitionAt = (
   corpus: LoomCorpusAst,
@@ -592,7 +604,7 @@ const placeNames = (
 ): ReadonlyArray<CorpusLocation> =>
   Match.value(place).pipe(
     Match.tag('Section', ({ ref }) => sectionNames(book, modules, ref, spanOf)),
-    Match.tag('Chapter', ({ chapter }) => chapterNames(book, modules, chapter.title, spanOf)),
+    Match.tag('Chapter', ({ chapter }) => chapterNames(book, modules, chapter, spanOf)),
     Match.tag('Part', (): ReadonlyArray<CorpusLocation> => []),
     Match.exhaustive,
   )
@@ -721,48 +733,68 @@ const chapterTitleToken = (
     firstHeadingTitleOf(module),
   )
 
-const chapterIndex = (modules: Modules): ReadonlyMap<string, CorpusLocation> =>
-  pipe(
-    Array.fromIterable(modules.values()),
-    Array.map((module) =>
-      Option.map(
-        chapterTitleToken(module),
-        (title) => [title.source, { path: module.path, position: title.position }] as const,
-      ),
-    ),
-    Array.getSomes,
-    Array.reduce(new Map<string, CorpusLocation>(), (index, [title, location]) =>
-      index.has(title) ? index : new Map(index).set(title, location),
-    ),
-  )
-
 const tocEntriesOf = (module: LoomModule): ReadonlyArray<TocWeft> =>
   Array.flatMap(module.doc.sections, (section) => section.entries ?? [])
 
-const tocEntryTitleAt = (modules: Modules, path: Location, offset: number): Option.Option<string> =>
-  pipe(
-    Option.fromNullishOr(modules.get(path)),
-    Option.flatMap((module) =>
-      Array.findFirst(
-        tocEntriesOf(module),
-        (entry) => entry.title !== undefined && covers(entry.title.position, offset),
-      ),
+type PlacedEntry = { readonly title: TocTitleToken; readonly part: Option.Option<PartRef> }
+
+const tocPartRef = (part: TocPartToken): PartRef =>
+  Option.match(Option.fromNullishOr(partNumberMarker.exec(part.value)), {
+    onNone: () => ({ number: Option.none(), name: Option.some(part.value.trim()) }),
+    onSome: (match) => ({
+      number: Option.fromNullishOr(match[1]),
+      name: Option.fromNullishOr(/[—–-]\s*(.+)$/.exec(part.value)?.[1]?.trim()),
+    }),
+  })
+
+const placedEntriesOf = (module: LoomModule): ReadonlyArray<PlacedEntry> =>
+  Array.flatMap(module.doc.sections, (section) =>
+    Array.getSomes(
+      Array.mapAccum(
+        section.entries ?? [],
+        Option.none<PartRef>(),
+        (part, entry): readonly [Option.Option<PartRef>, Option.Option<PlacedEntry>] =>
+          Option.match(Option.fromNullishOr(entry.part), {
+            onSome: (token) => [Option.some(tocPartRef(token)), Option.none()],
+            onNone: () => [
+              part,
+              Option.map(Option.fromNullishOr(entry.title), (title) => ({ title, part })),
+            ],
+          }),
+      )[1],
     ),
-    Option.flatMap((entry) => Option.fromNullishOr(entry.title)),
-    Option.map((title) => title.value),
   )
 
-const frontmatterTitleAt = (modules: Modules, path: Location, offset: number): Option.Option<string> =>
-  pipe(
-    Option.fromNullishOr(modules.get(path)),
-    Option.flatMap((module) => Option.fromNullishOr(module.doc.frontmatter?.title)),
-    Option.filter((title) => covers(title.position, offset)),
-    Option.map((title) => title.value),
+const entryChapter = (book: Book, placed: PlacedEntry): Option.Option<Chapter> =>
+  Array.findFirst(
+    book.chapters,
+    (chapter) =>
+      chapter.title === placed.title.value &&
+      Option.match(placed.part, {
+        onNone: () => true,
+        onSome: (part) => samePart(chapter.part, part),
+      }),
   )
 
-const chapterNameAt = (modules: Modules, path: Location, offset: number): Option.Option<string> =>
-  Option.orElse(tocEntryTitleAt(modules, path, offset), () =>
-    frontmatterTitleAt(modules, path, offset),
+const chapterAt = (
+  book: Book,
+  modules: Modules,
+  path: Location,
+  offset: number,
+): Option.Option<Chapter> =>
+  Option.flatMap(Option.fromNullishOr(modules.get(path)), (module) =>
+    Option.orElse(
+      Option.flatMap(
+        Array.findFirst(placedEntriesOf(module), (placed) => covers(placed.title.position, offset)),
+        (placed) => entryChapter(book, placed),
+      ),
+      () =>
+        pipe(
+          Option.fromNullishOr(module.doc.frontmatter?.title),
+          Option.filter((title) => covers(title.position, offset)),
+          Option.flatMap(() => chapterOf(book, path)),
+        ),
+    ),
   )
 
 const chapterDefinitionAt = (
@@ -770,49 +802,38 @@ const chapterDefinitionAt = (
   path: Location,
   offset: number,
 ): Option.Option<CorpusLocation> =>
-  Option.flatMap(chapterNameAt(corpus.modules, path, offset), (title) =>
-    Option.fromNullishOr(chapterIndex(corpus.modules).get(title)),
-  )
+  Option.flatMap(chapterAt(bookOf(corpus.modules), corpus.modules, path, offset), chapterLocation)
 
-const isChapterTitled = (module: LoomModule, title: string): boolean =>
-  Option.getOrElse(
-    Option.map(chapterTitleToken(module), (token) => token.source === title),
-    () => false,
-  )
-
-const titleDeclarationsOf = (module: LoomModule): ReadonlyArray<CorpusLocation> =>
-  Option.toArray(
-    Option.map(chapterTitleToken(module), (token) => ({
-      path: module.path,
-      position: token.position,
-    })),
-  )
-
-const tocMentionsOf = (module: LoomModule, title: string): ReadonlyArray<CorpusLocation> =>
-  Array.getSomes(
-    Array.map(tocEntriesOf(module), (entry) =>
-      pipe(
-        Option.fromNullishOr(entry.title),
-        Option.filter((token) => token.value === title),
-        Option.map((token) => ({ path: module.path, position: token.position })),
+const entriesNaming = (
+  book: Book,
+  modules: Modules,
+  chapter: Chapter,
+): ReadonlyArray<CorpusLocation> =>
+  Array.flatMap(Array.fromIterable(modules.values()), (module) =>
+    pipe(
+      placedEntriesOf(module),
+      Array.filter((placed) =>
+        Option.exists(
+          entryChapter(book, placed),
+          (found) => found.module.path === chapter.module.path,
+        ),
       ),
+      Array.map((placed): CorpusLocation => ({
+        path: module.path,
+        position: placed.title.position,
+      })),
     ),
   )
-
-const tocNameGroup = (modules: Modules, title: string): ReadonlyArray<CorpusLocation> =>
-  Array.flatMap(Array.fromIterable(modules.values()), (module) => [
-    ...(isChapterTitled(module, title) ? titleDeclarationsOf(module) : []),
-    ...tocMentionsOf(module, title),
-  ])
 
 const chapterNames = (
   book: Book,
   modules: Modules,
-  title: string,
+  chapter: Chapter,
   spanOf: SpanOf,
 ): ReadonlyArray<CorpusLocation> => [
-  ...tocNameGroup(modules, title),
-  ...anchorsNaming(book, modules, namesChapter(title), spanOf),
+  ...Option.toArray(chapterLocation(chapter)),
+  ...entriesNaming(book, modules, chapter),
+  ...anchorsNaming(book, modules, namesChapter(chapter), spanOf),
 ]
 
 const chapterNamesAt = (
@@ -820,24 +841,23 @@ const chapterNamesAt = (
   path: Location,
   offset: number,
   spanOf: SpanOf,
-): ReadonlyArray<CorpusLocation> =>
-  Option.match(chapterNameAt(corpus.modules, path, offset), {
+): ReadonlyArray<CorpusLocation> => {
+  const book = bookOf(corpus.modules)
+  return Option.match(chapterAt(book, corpus.modules, path, offset), {
     onNone: (): ReadonlyArray<CorpusLocation> => [],
-    onSome: (title) => chapterNames(bookOf(corpus.modules), corpus.modules, title, spanOf),
+    onSome: (chapter) => chapterNames(book, corpus.modules, chapter, spanOf),
   })
+}
 
 export const unresolvedTocEntriesIn = (
   corpus: LoomCorpusAst,
   module: LoomModule,
 ): ReadonlyArray<TocTitleToken> => {
-  const index = chapterIndex(corpus.modules)
-  return Array.getSomes(
-    Array.map(tocEntriesOf(module), (entry) =>
-      pipe(
-        Option.fromNullishOr(entry.title),
-        Option.filter((title) => !index.has(title.value)),
-      ),
-    ),
+  const book = bookOf(corpus.modules)
+  return pipe(
+    placedEntriesOf(module),
+    Array.filter((placed) => Option.isNone(entryChapter(book, placed))),
+    Array.map((placed) => placed.title),
   )
 }
 
@@ -1092,12 +1112,6 @@ export type Namesakes = {
   readonly looms: ReadonlyArray<Location>
 }
 
-const samePart = (chapter: Chapter, other: Chapter): boolean =>
-  Option.match(Option.all([chapter.number, other.number]), {
-    onSome: ([number, otherNumber]) => number === otherNumber,
-    onNone: () => Option.exists(chapter.part, (part) => Option.contains(other.part, part)),
-  })
-
 export const namesakesOf = (book: Book, module: LoomModule): Option.Option<Namesakes> =>
   pipe(
     Option.all({ chapter: chapterOf(book, module.path), title: chapterTitleToken(module) }),
@@ -1108,7 +1122,7 @@ export const namesakesOf = (book: Book, module: LoomModule): Option.Option<Names
           (other) =>
             other.module.path !== module.path &&
             other.title === chapter.title &&
-            samePart(chapter, other),
+            samePart(chapter.part, other.part),
         ),
         Array.map((other) => other.module.path),
         Option.liftPredicate(Array.isReadonlyArrayNonEmpty),

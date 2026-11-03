@@ -24,7 +24,7 @@ Every section of a loom is a sibling of every other, whatever level its heading 
 
 A duplicate among siblings is a `DuplicateName` fault at the name that repeats it, because no reference could ever tell the two apart.
 
-The chapter index needs the same scope. Today `chapterIndex` keys every chapter by its title alone, and when two chapters share a title, the first one it meets wins and the second disappears without a fault. Under this rule the index keys a chapter by its book, its part, and its title. Two "Setup" chapters in two parts then both stay in reach, and so do two in two books.
+The table of contents reads the same scope. An entry finds its chapter by the part it is listed under and by its title, so two "Setup" chapters in two parts each answer to their own entry. With books, the book a contents section belongs to joins the part and the title.
 
 ## Finding a name from where it stands
 
@@ -118,12 +118,11 @@ The graph serves the views that want the book as a whole: a drawing of which cha
 
 ## What this chapter grows into
 
-1. `DuplicateName` scoped to siblings, and `chapterIndex` keyed by part and title for the table of contents.
-2. Numbered paths, with renumbering in the editor rewriting them and each one showing its chapter's title.
-3. Missing names that wait, checked again when an edit declares them, and the fix that declares a section.
-4. Promises: marked in the editor and on the woven page, and refused by the tangler.
-5. The contract a promise collects, and stubs written from it into the promised chapter.
-6. The `(path.loom)` target retired, with the book's examples and tests rewritten to the new form.
-7. The graph as a projection of the produced corpus, with its first view.
+1. Numbered paths, with renumbering in the editor rewriting them and each one showing its chapter's title.
+2. Missing names that wait, checked again when an edit declares them, and the fix that declares a section.
+3. Promises: marked in the editor and on the woven page, and refused by the tangler.
+4. The contract a promise collects, and stubs written from it into the promised chapter.
+5. The `(path.loom)` target retired, with the book's examples and tests rewritten to the new form.
+6. The graph as a projection of the produced corpus, with its first view.
 
 When anchors resolve by their place in the book and the editor follows them, this chapter joins Part II, The shape of a loom, beside "The multi-file AST".

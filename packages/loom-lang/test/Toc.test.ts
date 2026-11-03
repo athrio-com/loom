@@ -168,6 +168,66 @@ describe('the table of contents in the editor', () => {
   )
 })
 
+const twoParts = lines(
+  '# Contents {TOC}',
+  '',
+  '#### Part I — Saying things',
+  '',
+  '1. Setup',
+  '',
+  '#### Part II — Doing things',
+  '',
+  '1. Setup',
+  '',
+  '#### Part III — Leaving',
+  '',
+  '1. Setup',
+)
+
+const setupIn = (part: string): string =>
+  lines('---', `Part ${part}, Chapter 1: Setup`, '---', '', '# Setup', '', '=>', '', 'const x = 1')
+
+const partsLayer = makeCompilerLayer({
+  '/book.loom': twoParts,
+  '/setup-one.loom': setupIn('I'),
+  '/setup-two.loom': setupIn('II'),
+})
+
+const entryUnder = (part: string): number =>
+  twoParts.indexOf('1. Setup', twoParts.indexOf(`Part ${part} —`)) + 4
+
+describe('the contents resolve an entry within its part', () => {
+  it.effect('an entry navigates to the chapter of its own part', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      expect((yield* c.definition('/book.loom', entryUnder('I')))?.path).toBe('/setup-one.loom')
+      expect((yield* c.definition('/book.loom', entryUnder('II')))?.path).toBe('/setup-two.loom')
+    }).pipe(Effect.provide(partsLayer)),
+  )
+
+  it.effect('a rename moves one chapter and its own entry', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const titleOffset = setupIn('I').indexOf('Setup')
+      const edits = yield* c.rename('/setup-one.loom', titleOffset)
+      expect(edits.map((e) => `${e.path}:${e.range.start.line}`).sort()).toEqual([
+        '/book.loom:4',
+        '/setup-one.loom:1',
+      ])
+    }).pipe(Effect.provide(partsLayer)),
+  )
+
+  it.effect('an entry under a part that holds no such chapter is unresolved', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const diagnostics = yield* c.diagnose('/book.loom')
+      expect(diagnostics.map((d) => [d.position.start.line, d.message])).toEqual([
+        [13, 'Unresolved contents entry: no chapter titled `Setup`.'],
+      ])
+    }).pipe(Effect.provide(partsLayer)),
+  )
+})
+
 const partBook = lines(
   '# Contents {TOC}',
   '',

@@ -2594,6 +2594,84 @@ From the entry, the `references` verb gathers the entry itself, on line 4 of the
   )
 })
 
+## Two chapters of one title in the contents
+
+A contents entry finds its chapter within the part it is listed under. The `twoParts` book lists a chapter called `Setup` under Part I and another under Part II, and a third `Setup` under Part III, which holds no such chapter. Each `Setup` chapter names itself in its frontmatter on line 1 counted from zero, with the part's number in front.
+
+=>
+
+const twoParts = lines(
+  '# Contents {TOC}',
+  '',
+  '#### Part I — Saying things',
+  '',
+  '1. Setup',
+  '',
+  '#### Part II — Doing things',
+  '',
+  '1. Setup',
+  '',
+  '#### Part III — Leaving',
+  '',
+  '1. Setup',
+)
+
+const setupIn = (part: string): string =>
+  lines('---', `Part ${part}, Chapter 1: Setup`, '---', '', '# Setup', '', '=>', '', 'const x = 1')
+
+const partsLayer = makeCompilerLayer({
+  '/book.loom': twoParts,
+  '/setup-one.loom': setupIn('I'),
+  '/setup-two.loom': setupIn('II'),
+})
+
+const entryUnder = (part: string): number =>
+  twoParts.indexOf('1. Setup', twoParts.indexOf(`Part ${part} —`)) + 4
+
+~
+
+From the entry under Part II, the `definition` verb lands in the Part II chapter, not in the first `Setup` it meets.
+
+=>
+
+describe('the contents resolve an entry within its part', () => {
+  it.effect('an entry navigates to the chapter of its own part', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      expect((yield* c.definition('/book.loom', entryUnder('I')))?.path).toBe('/setup-one.loom')
+      expect((yield* c.definition('/book.loom', entryUnder('II')))?.path).toBe('/setup-two.loom')
+    }).pipe(Effect.provide(partsLayer)),
+  )
+
+~
+
+A rename that starts from the Part I chapter's title reaches that title and the one entry that names it, on line 4 of the book counted from zero, and leaves the Part II chapter and its entry alone. The entry under Part III resolves to no chapter, so the `diagnose` verb reports it on line 13, counted from one as a diagnostic counts.
+
+=>
+
+  it.effect('a rename moves one chapter and its own entry', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const titleOffset = setupIn('I').indexOf('Setup')
+      const edits = yield* c.rename('/setup-one.loom', titleOffset)
+      expect(edits.map((e) => `${e.path}:${e.range.start.line}`).sort()).toEqual([
+        '/book.loom:4',
+        '/setup-one.loom:1',
+      ])
+    }).pipe(Effect.provide(partsLayer)),
+  )
+
+  it.effect('an entry under a part that holds no such chapter is unresolved', () =>
+    Effect.gen(function* () {
+      const c = yield* LoomCompiler
+      const diagnostics = yield* c.diagnose('/book.loom')
+      expect(diagnostics.map((d) => [d.position.start.line, d.message])).toEqual([
+        [13, 'Unresolved contents entry: no chapter titled `Setup`.'],
+      ])
+    }).pipe(Effect.provide(partsLayer)),
+  )
+})
+
 ## Where a part is announced
 
 A part's opening chapter announces the part once, in its frontmatter, as in `Part I: Using Loom`. Every other mention of the part refers to that announcement by the part's number, whether a part heading in the table or the `Part I` in a later chapter's frontmatter. Each mention resolves to the opening chapter.
@@ -2715,5 +2793,7 @@ The editor can navigate from a part but cannot rename it. The `navigationRange` 
 ::[Testing the table of contents as it parses]
 
 ::[A table of contents in the editor]
+
+::[Two chapters of one title in the contents]
 
 ::[Where a part is announced]
