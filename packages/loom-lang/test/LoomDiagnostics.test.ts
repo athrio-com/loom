@@ -62,7 +62,7 @@ const checkerFor = (fixture: string) => {
   })
   const runtime = ManagedRuntime.make(
     Layer.mergeAll(LoomCompiler.layer, LoomFormatter.layer, configMock).pipe(
-      Layer.provide(DocumentSource.layer),
+      Layer.provideMerge(DocumentSource.layer),
       Layer.provide(PackageConfig.layer),
       Layer.provide(configMock),
     ),

@@ -1,14 +1,12 @@
 import type { CodegenContext, LanguagePlugin, VirtualCode } from '@volar/language-core'
 import type { LanguageServicePlugin } from '@volar/language-service'
 import type {} from '@volar/typescript'
-import { Array, Effect, Layer, ManagedRuntime, Option } from 'effect'
-import { readFileSync } from 'node:fs'
+import { Array, Effect, Layer, ManagedRuntime } from 'effect'
 import type * as ts from 'typescript'
 import { URI } from 'vscode-uri'
-import { ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
-import { LoomCompiler, stringSnapshot } from './LoomCompiler'
+import { type Source } from '#ast/LoomCorpusAstBuilder'
+import { DocumentSource, LoomCompiler, stringSnapshot } from './LoomCompiler'
 import { LoomFormatter } from './LoomFormatter'
-import { loomsIn } from './LoomProject'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import {
   Composition,
@@ -23,16 +21,16 @@ import { ActiveLanguages, LanguageRegistry } from '@athrio/loom-lang-services/La
 import { loadActive } from '@athrio/loom-lang-services/LanguageLoader'
 import { installHostRuntime } from '@athrio/loom-lang-services/Runtime'
 
-const editorSource = (uri: URI, snapshot: ts.IScriptSnapshot): Source => ({
+const editorSource = (
+  documents: DocumentSource['Service'],
+  uri: URI,
+  snapshot: ts.IScriptSnapshot,
+): Source => ({
   read: (path) =>
-    Effect.try({
-      try: () =>
-        path === uri.fsPath
-          ? snapshot.getText(0, snapshot.getLength())
-          : readFileSync(path, 'utf8'),
-      catch: (cause) => new ReadError({ path, cause }),
-    }),
-  list: Option.some((dir, project) => Effect.sync(() => loomsIn(dir, project))),
+    path === uri.fsPath
+      ? Effect.succeed(snapshot.getText(0, snapshot.getLength()))
+      : documents.read(path),
+  list: documents.list,
 })
 
 const associate = (
@@ -49,34 +47,26 @@ const associate = (
   )
 
 const projectIsolated = (
-  compiler: LoomCompiler['Service'],
   uri: URI,
   snapshot: ts.IScriptSnapshot,
   ctx: CodegenContext<URI>,
-): Effect.Effect<VirtualCode> =>
-  compiler.compile(editorSource(uri, snapshot), uri.fsPath).pipe(
-    Effect.tap(() => associate(compiler, ctx, uri.fsPath)),
-    Effect.map((tree) => isolateRoots(tree)),
-  )
+): Effect.Effect<VirtualCode, never, LoomCompiler | DocumentSource> =>
+  Effect.gen(function* () {
+    const compiler = yield* LoomCompiler
+    const documents = yield* DocumentSource
+    const tree = yield* compiler.compile(editorSource(documents, uri, snapshot), uri.fsPath)
+    yield* associate(compiler, ctx, uri.fsPath)
+    return isolateRoots(tree)
+  })
 
 export const loomLanguagePlugin = (
-  runtime: ManagedRuntime.ManagedRuntime<LoomCompiler | LoomConfig, never>,
+  runtime: ManagedRuntime.ManagedRuntime<LoomCompiler | DocumentSource | LoomConfig, never>,
 ): LanguagePlugin<URI> => ({
   getLanguageId: (uri) => (uri.path.endsWith('.loom') ? 'loom' : undefined),
   createVirtualCode: (uri, languageId, snapshot, ctx) =>
-    languageId === 'loom'
-      ? runtime.runSync(
-          LoomCompiler.pipe(
-            Effect.flatMap((compiler) => projectIsolated(compiler, uri, snapshot, ctx)),
-          ),
-        )
-      : undefined,
+    languageId === 'loom' ? runtime.runSync(projectIsolated(uri, snapshot, ctx)) : undefined,
   updateVirtualCode: (uri, _previous, snapshot, ctx) =>
-    runtime.runSync(
-      LoomCompiler.pipe(
-        Effect.flatMap((compiler) => projectIsolated(compiler, uri, snapshot, ctx)),
-      ),
-    ),
+    runtime.runSync(projectIsolated(uri, snapshot, ctx)),
   disposeVirtualCode: (uri) =>
     runtime.runSync(
       LoomCompiler.pipe(

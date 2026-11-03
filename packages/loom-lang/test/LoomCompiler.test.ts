@@ -39,6 +39,7 @@ const TestDocs = Layer.succeed(DocumentSource, {
   read: (path: string) => Effect.succeed(files[path] ?? ''),
   list: Option.some(() => Effect.succeed(Object.keys(files))),
   hold: () => Effect.void,
+  forget: () => Effect.void,
 })
 
 const TestConfig = Layer.succeed(PackageConfig, {
@@ -127,6 +128,7 @@ const crossLayer = Layer.provide(
       read: (path: string) => Effect.succeed(crossImport[path] ?? ''),
       list: Option.some(() => Effect.succeed(Object.keys(crossImport))),
       hold: () => Effect.void,
+      forget: () => Effect.void,
     }),
     TestConfig,
   ),
@@ -196,6 +198,7 @@ const editableLayer = Layer.provide(
       read: (path: string) => Effect.succeed(editable[path] ?? ''),
       list: Option.some(() => Effect.succeed(Object.keys(editable))),
       hold: () => Effect.void,
+      forget: () => Effect.void,
     }),
     TestConfig,
   ),

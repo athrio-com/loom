@@ -82,9 +82,11 @@ describe('FileSystemSource — a workspace kept in a folder', () => {
     const read = (path: string) =>
       runtime.runPromise(DocumentSource.pipe(Effect.flatMap((d) => d.read(path))))
     const opened = await runtime.runPromise(WorkspaceSource.pipe(Effect.flatMap((s) => s.open(root))))
-    await runtime.runPromise(DocumentSource.pipe(Effect.flatMap((d) => d.hold(opened))))
+    await runtime.runPromise(DocumentSource.pipe(Effect.flatMap((d) => d.hold(opened.looms))))
     writeFileSync(book, '# Rewritten\n')
     expect(await read(book)).toBe('# Book\n')
     expect(await read(loose.loom)).toBe('# Loose\n')
+    await runtime.runPromise(DocumentSource.pipe(Effect.flatMap((d) => d.forget(book))))
+    expect(await read(book)).toBe('# Rewritten\n')
   })
 })

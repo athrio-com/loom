@@ -43,7 +43,6 @@ import { LoomMemo } from './LoomMemo'
 import { LoomDiskCache } from './LoomDiskCache'
 import { PackageConfig } from './PackageConfig'
 import { holds, loomsIn, projectIn, type LoomProject } from './LoomProject'
-import type { Workspace } from './WorkspaceSource'
 import { WeaveBuilder } from './weave/WeaveBuilder'
 import { type WovenCorpus } from './weave/WovenCorpus'
 import { TableOfContentsBuilder, rewriteBook } from './weave/TableOfContentsBuilder'
@@ -367,8 +366,10 @@ export class DocumentSource extends Context.Service<DocumentSource>()('DocumentS
             }),
           ),
         ),
-      hold: (workspace: Workspace): Effect.Effect<void> =>
-        Ref.update(held, (texts) => new Map([...texts, ...workspace.looms])),
+      hold: (looms: ReadonlyMap<Path, string>): Effect.Effect<void> =>
+        Ref.update(held, (texts) => new Map([...texts, ...looms])),
+      forget: (loom: Path): Effect.Effect<void> =>
+        Ref.update(held, (texts) => new Map(Array.filter([...texts], ([path]) => path !== loom))),
       list: Option.some(
         (dir: Path, project: Option.Option<LoomProject>): Effect.Effect<ReadonlyArray<Path>> =>
           Effect.sync(() => loomsIn(dir, project)),
@@ -399,6 +400,7 @@ export class LoomCompiler extends Context.Service<LoomCompiler>()('LoomCompiler'
               path,
               disk.through(
                 source,
+                documents,
                 path,
                 settings,
                 builder.build(

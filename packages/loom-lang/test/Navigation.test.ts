@@ -40,6 +40,7 @@ const TestDocs = Layer.succeed(DocumentSource, {
   read: (path: string) => Effect.succeed(files[path] ?? ''),
   list: Option.some(() => Effect.succeed(Object.keys(files))),
   hold: () => Effect.void,
+  forget: () => Effect.void,
 })
 
 const TestConfig = Layer.succeed(PackageConfig, {
@@ -68,6 +69,7 @@ const makeLayer = (docs: Record<string, string>) =>
         read: (path: string) => Effect.succeed(docs[path] ?? ''),
         list: Option.some(() => Effect.succeed(Object.keys(docs))),
         hold: () => Effect.void,
+        forget: () => Effect.void,
       }),
       TestConfig,
     ),

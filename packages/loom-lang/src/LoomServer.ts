@@ -31,13 +31,13 @@ import {
   type IScriptSnapshot,
   type LanguageService,
 } from '@volar/language-service'
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { URI } from 'vscode-uri'
 import { LoomCompiler, DocumentSource, stringSnapshot, within } from './LoomCompiler'
-import { ReadError, type Source } from '#ast/LoomCorpusAstBuilder'
+import { type Source } from '#ast/LoomCorpusAstBuilder'
 import { LoomFormatter } from './LoomFormatter'
 import { PackageConfig } from './PackageConfig'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
@@ -56,7 +56,7 @@ import {
   type TypescriptSdkApi,
 } from '@athrio/loom-lang-services/LanguageService'
 import { loomLanguagePlugin, loomServicePlugins } from './LoomLanguagePlugin'
-import { loomsIn } from './LoomProject'
+import { FileSystemSource, type Workspace, WorkspaceSource } from './WorkspaceSource'
 
 const EditorTsdkSchema = Schema.Struct({
   typescript: Schema.Struct({ tsdk: Schema.String }),
@@ -201,10 +201,24 @@ interface SavedLoom {
   readonly snapshot: IScriptSnapshot
 }
 
+const fetchSaved = (
+  path: string,
+): Effect.Effect<Option.Option<string>, never, WorkspaceSource | DocumentSource> =>
+  Effect.gen(function* () {
+    const source = yield* WorkspaceSource
+    const documents = yield* DocumentSource
+    const saved = yield* Effect.option(source.read(path))
+    yield* Option.match(saved, {
+      onNone: () => documents.forget(path),
+      onSome: (text) => documents.hold(new Map([[path, text]])),
+    })
+    return saved
+  })
+
 const savedLooms = (): ((uri: URI) => Option.Option<IScriptSnapshot>) => {
   const read = new Map<string, SavedLoom>()
   const readAgain = (path: string, modified: number): Option.Option<IScriptSnapshot> =>
-    Option.map(Option.liftThrowable(() => readFileSync(path, 'utf8'))(), (text) => {
+    Option.map(runtime.runSync(fetchSaved(path)), (text) => {
       const snapshot = stringSnapshot(text)
       read.set(path, { modified, snapshot })
       return snapshot
@@ -403,6 +417,15 @@ const rereadLoom = (
       ),
     )
 
+const fetchReported = (
+  changes: ReadonlyArray<FileEvent>,
+): Effect.Effect<void, never, WorkspaceSource | DocumentSource> =>
+  Effect.forEach(
+    Array.filter(Array.map(changes, (change) => URI.parse(change.uri)), isLoom),
+    (uri) => fetchSaved(uri.fsPath),
+    { discard: true },
+  )
+
 const rereadLooms = (
   changes: ReadonlyArray<FileEvent>,
 ): Effect.Effect<ReadonlyArray<FileEvent>, never, LoomCompiler> =>
@@ -513,14 +536,20 @@ const reproject = (
       )
 }
 
-export const closeOf = (uri: URI, text: string): ReadonlyArray<FileEvent> =>
-  Option.match(
-    Option.liftThrowable(() => readFileSync(uri.fsPath, 'utf8'))(),
-    {
-      onNone: () => [{ uri: uri.toString(), type: FileChangeType.Deleted }],
-      onSome: (saved) =>
-        saved === text ? [] : [{ uri: uri.toString(), type: FileChangeType.Changed }],
-    },
+export const closeOf = (
+  uri: URI,
+  text: string,
+): Effect.Effect<ReadonlyArray<FileEvent>, never, WorkspaceSource | DocumentSource> =>
+  fetchSaved(uri.fsPath).pipe(
+    Effect.map(
+      Option.match({
+        onNone: (): ReadonlyArray<FileEvent> => [
+          { uri: uri.toString(), type: FileChangeType.Deleted },
+        ],
+        onSome: (saved) =>
+          saved === text ? [] : [{ uri: uri.toString(), type: FileChangeType.Changed }],
+      }),
+    ),
   )
 
 const rereadOnDisk = (
@@ -552,25 +581,22 @@ const watchLooms = (
   server.documents.onDidChangeContent(({ document }) =>
     runtime.runSync(recordEdit(edited, URI.parse(document.uri))),
   )
-  server.fileWatcher.onDidChangeWatchedFiles(({ changes }) =>
-    rereadOnDisk(server, home, projects, reprojecting, closedLoomChanges(server, changes), []),
-  )
+  server.fileWatcher.onDidChangeWatchedFiles(({ changes }) => {
+    runtime.runSync(fetchReported(changes))
+    rereadOnDisk(server, home, projects, reprojecting, closedLoomChanges(server, changes), [])
+  })
   server.documents.onDidClose(({ document }) => {
     const uri = URI.parse(document.uri)
-    const changes = isLoom(uri) ? closeOf(uri, document.getText()) : []
+    const changes = isLoom(uri) ? runtime.runSync(closeOf(uri, document.getText())) : []
     rereadOnDisk(server, home, projects, reprojecting, changes, changes.length > 0 ? [uri] : [])
   })
 }
 
-const openSource = (server: LanguageServer): Source => ({
+const openSource = (server: LanguageServer, documents: DocumentSource['Service']): Source => ({
   read: (path) =>
     Option.match(Option.fromNullishOr(server.documents.get(URI.file(path))), {
       onSome: (document) => Effect.succeed(document.getText()),
-      onNone: () =>
-        Effect.try({
-          try: () => readFileSync(path, 'utf8'),
-          catch: (cause) => new ReadError({ path, cause }),
-        }),
+      onNone: () => documents.read(path),
     }),
   list: Option.none(),
 })
@@ -581,11 +607,11 @@ const recordEdit = (edited: Ref.Ref<ReadonlySet<string>>, uri: URI): Effect.Effe
 const rebuildEdited = (
   server: LanguageServer,
   edited: Ref.Ref<ReadonlySet<string>>,
-): Effect.Effect<ReadonlyArray<FileEvent>, never, LoomCompiler> =>
-  Effect.all([Ref.getAndSet(edited, new Set<string>()), LoomCompiler]).pipe(
-    Effect.flatMap(([paths, compiler]) =>
+): Effect.Effect<ReadonlyArray<FileEvent>, never, LoomCompiler | DocumentSource> =>
+  Effect.all([Ref.getAndSet(edited, new Set<string>()), LoomCompiler, DocumentSource]).pipe(
+    Effect.flatMap(([paths, compiler, documents]) =>
       Effect.forEach(paths, (path) =>
-        compiler.rebuild(openSource(server), path).pipe(
+        compiler.rebuild(openSource(server, documents), path).pipe(
           Effect.catchCause((cause) =>
             Effect.logError(`loom: rebuilding ${path} failed`, cause).pipe(Effect.as(true)),
           ),
@@ -608,33 +634,53 @@ const settleEdits = (
   home: string,
   projects: Cache.Cache<string, LanguageServerProject>,
   edited: Ref.Ref<ReadonlySet<string>>,
-): Effect.Effect<void, never, LoomCompiler> =>
+): Effect.Effect<void, never, LoomCompiler | DocumentSource> =>
   rebuildEdited(server, edited).pipe(
     Effect.provideService(Scheduler.PreventSchedulerYield, true),
     Effect.flatMap((changes) => reproject(server, home, projects, changes, [])),
   )
 
 const runtime = ManagedRuntime.make(
-  Layer.mergeAll(LoomCompiler.layer, LoomFormatter.layer, LoomConfig.layer).pipe(
-    Layer.provide(DocumentSource.layer),
-    Layer.provide(PackageConfig.layer),
-    Layer.provide(LoomConfig.layer),
+  Layer.mergeAll(LoomCompiler.layer, LoomFormatter.layer, FileSystemSource).pipe(
+    Layer.provideMerge(DocumentSource.layer),
+    Layer.provideMerge(PackageConfig.layer),
+    Layer.provideMerge(LoomConfig.layer),
   ),
 )
 
-const warmCorpus = (home: string): Effect.Effect<void, never, LoomCompiler | LoomConfig> =>
-  Effect.gen(function* () {
-    const config = yield* LoomConfig
-    const compiler = yield* LoomCompiler
-    const manifest = yield* config.manifest(home)
-    if (manifest === undefined) return
-    const corpus = join(home, manifest.corpus ?? 'corpus')
-    const project = Option.some({ root: home, ignore: manifest.ignore ?? [] })
-    yield* Option.match(Array.head(loomsIn(corpus, project)), {
+const openWorkspace = (
+  home: string,
+): Effect.Effect<Option.Option<Workspace>, never, LoomConfig | WorkspaceSource | DocumentSource> =>
+  LoomConfig.pipe(
+    Effect.flatMap((config) => config.manifest(home)),
+    Effect.flatMap((manifest) =>
+      Option.match(Option.fromNullishOr(manifest), {
+        onNone: () => Effect.succeed(Option.none<Workspace>()),
+        onSome: () =>
+          Effect.gen(function* () {
+            const source = yield* WorkspaceSource
+            const documents = yield* DocumentSource
+            const workspace = yield* source.open(home)
+            yield* documents.hold(workspace.looms)
+            return Option.some(workspace)
+          }),
+      }),
+    ),
+    Effect.catchCause((cause) =>
+      Effect.logWarning('loom: could not open the workspace', cause).pipe(
+        Effect.as(Option.none<Workspace>()),
+      ),
+    ),
+  )
+
+const warmCorpus = (workspace: Option.Option<Workspace>): Effect.Effect<void, never, LoomCompiler> =>
+  pipe(
+    Option.flatMap(workspace, (opened) => Array.head(Array.fromIterable(opened.looms.keys()))),
+    Option.match({
       onNone: () => Effect.void,
-      onSome: (entry) => Effect.asVoid(compiler.reach(entry)),
-    })
-  }).pipe(
+      onSome: (entry) =>
+        LoomCompiler.pipe(Effect.flatMap((compiler) => Effect.asVoid(compiler.reach(entry)))),
+    }),
     Effect.catchCause((cause) => Effect.logWarning('loom: could not warm the corpus', cause)),
   )
 
@@ -646,8 +692,9 @@ export const startLanguageServer = (): void => {
     const folder = params.workspaceFolders?.[0]?.uri
     const root = folder ? fileURLToPath(folder) : process.cwd()
     const home = workspaceRoot(root)
-    const { services, projects, plugins, reprojecting, edited } = await runtime.runPromise(
+    const { workspace, services, projects, plugins, reprojecting, edited } = await runtime.runPromise(
       Effect.gen(function* () {
+        const workspace = yield* openWorkspace(home)
         const sdk = yield* typescriptSdkFor(params.initializationOptions)
         const services = yield* Cache.make({
           capacity: Infinity,
@@ -663,10 +710,10 @@ export const startLanguageServer = (): void => {
         const plugins = yield* Cache.get(services, home)
         const reprojecting = yield* Semaphore.make(1)
         const edited = yield* Ref.make<ReadonlySet<string>>(new Set())
-        return { services, projects, plugins, reprojecting, edited }
+        return { workspace, services, projects, plugins, reprojecting, edited }
       }),
     )
-    setTimeout(() => runtime.runSync(warmCorpus(home)), 10)
+    setTimeout(() => runtime.runSync(warmCorpus(workspace)), 10)
     return server.initialize(
       params,
       workspaceProject(server, home, services, projects, reprojecting, edited),

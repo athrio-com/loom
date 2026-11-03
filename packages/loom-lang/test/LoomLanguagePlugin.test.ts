@@ -12,7 +12,7 @@ import { PackageConfig } from '../src/PackageConfig'
 
 const runtime = ManagedRuntime.make(
   Layer.mergeAll(LoomCompiler.layer, LoomConfig.layer).pipe(
-    Layer.provide(DocumentSource.layer),
+    Layer.provideMerge(DocumentSource.layer),
     Layer.provide(PackageConfig.layer),
     Layer.provide(LoomConfig.layer),
   ),

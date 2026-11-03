@@ -247,7 +247,7 @@ The cases build a workspace in a temporary folder: a `.loom/config.yaml` file, a
 
 Opening the workspace hands over its manifest and both looms with their text. A loom names its workspace, and the loose loom names its own folder. A sink of the book lands in the workspace's folder, which is the package root, and a sink of the loose loom lands beside it. A file URI crosses to its path and back, and a `memory:` URI keeps its scheme both ways.
 
-`DocumentSource` answers a held loom from memory. The last case holds the opened workspace and rewrites the book on the disk. A read of the book still returns the text that `DocumentSource` held, and a read of a loom it never held returns the text on the disk.
+`DocumentSource` answers a held loom from memory. The last case holds the opened workspace's looms and rewrites the book on the disk. A read of the book still returns the text that `DocumentSource` held, and a read of a loom it never held returns the text on the disk. Once `DocumentSource` forgets the book, a read of the book returns the rewritten text on the disk.
 
 =>
 
@@ -335,10 +335,12 @@ describe('FileSystemSource — a workspace kept in a folder', () => {
     const read = (path: string) =>
       runtime.runPromise(DocumentSource.pipe(Effect.flatMap((d) => d.read(path))))
     const opened = await runtime.runPromise(WorkspaceSource.pipe(Effect.flatMap((s) => s.open(root))))
-    await runtime.runPromise(DocumentSource.pipe(Effect.flatMap((d) => d.hold(opened))))
+    await runtime.runPromise(DocumentSource.pipe(Effect.flatMap((d) => d.hold(opened.looms))))
     writeFileSync(book, '# Rewritten\n')
     expect(await read(book)).toBe('# Book\n')
     expect(await read(loose.loom)).toBe('# Loose\n')
+    await runtime.runPromise(DocumentSource.pipe(Effect.flatMap((d) => d.forget(book))))
+    expect(await read(book)).toBe('# Rewritten\n')
   })
 })
 

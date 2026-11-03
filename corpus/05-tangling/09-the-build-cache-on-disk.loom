@@ -128,16 +128,14 @@ const recall = (file: string, key: string, path: Path, text: string): Option.Opt
 
 ## Keeping a module
 
-A module is kept only when it was built from the loom as it is saved. The editor builds a loom it has open from the text in its buffer, which may hold changes that were never saved. Keeping such a module would write a file on every keystroke, for a text no later process will ever read. So `keep` reads the loom from disk and writes only when the text the module was built from matches it.
+A module is kept only when it was built from the loom as it is saved. The editor builds a loom it has open from the text in its buffer, which may hold changes that were never saved. Keeping such a module would write a file on every keystroke, for a text no later process will ever read. So `keep` reads the loom through `saved`, the source that gives each loom's saved text, and writes only when the text the module was built from matches it. The compiler passes its `DocumentSource` service as `saved`, so the check reads the text the service holds, or the disk for a loom it does not hold.
 
-`keep` writes the kept file beside its final name and then renames it into place. A rename replaces the old file in one step, so a language server and a tangle working in the same workspace never read each other's half-written file. Keeping is a convenience, and a failure to write, such as a read-only checkout, is ignored: the module was built, and the next process simply builds it again.
+`write` writes the kept file beside its final name and then renames it into place. A rename replaces the old file in one step, so a language server and a tangle working in the same workspace never read each other's half-written file. Keeping is a convenience, and a failure to write, such as a read-only checkout, is ignored: the module was built, and the next process simply builds it again.
 
 =>
 
-const keep = (workspace: string, file: string, key: string, module: LoomModule): void => {
-  const saved = Option.liftThrowable(() => readFileSync(module.path, 'utf8'))()
-  if (!Option.contains(saved, module.text)) return
-  Option.liftThrowable(() => {
+const write = (workspace: string, file: string, key: string, module: LoomModule): void =>
+  void Option.liftThrowable(() => {
     const cacheDir = cacheDirOf(workspace)
     mkdirSync(dirname(file), { recursive: true })
     if (!existsSync(join(cacheDir, '.gitignore'))) writeFileSync(join(cacheDir, '.gitignore'), '*\n')
@@ -145,11 +143,26 @@ const keep = (workspace: string, file: string, key: string, module: LoomModule):
     writeFileSync(draft, JSON.stringify({ key, module } satisfies KeptModule))
     renameSync(draft, file)
   })()
-}
+
+const keep = (
+  saved: Source,
+  workspace: string,
+  file: string,
+  key: string,
+  module: LoomModule,
+): Effect.Effect<void> =>
+  saved.read(module.path).pipe(
+    Effect.option,
+    Effect.flatMap((text) =>
+      Option.contains(text, module.text)
+        ? Effect.sync(() => write(workspace, file, key, module))
+        : Effect.void,
+    ),
+  )
 
 ## The cache as a service
 
-`LoomDiskCache` is the cache as a service. It takes `fingerprint` once, when its layer is built, so a process reads the source folders a single time. Its one method, `through`, stands in front of a module's build. Given the loom's source, path and settings, and the `build` that would produce its module, it returns the kept module when one is valid, and otherwise runs `build` and keeps what it produced.
+`LoomDiskCache` is the cache as a service. It takes `fingerprint` once, when its layer is built, so a process reads the source folders a single time. Its one method, `through`, stands in front of a module's build. It takes the loom's source, the `saved` source that `keep` checks against, the loom's path and settings, and the `build` that would produce its module. It returns the kept module when one is valid, and otherwise runs `build` and keeps what it produced.
 
 A loom in no workspace has nowhere to keep a module, so `through` runs `build` directly. So does a loom whose source cannot be read, and the build then reports the error as it always did. `through` reads the loom through the same source the build reads, so the key is computed from exactly the text the module would be built from, the open buffer included.
 
@@ -161,6 +174,7 @@ export class LoomDiskCache extends Context.Service<LoomDiskCache>()('LoomDiskCac
     return {
       through: (
         source: Source,
+        saved: Source,
         path: Path,
         settings: BuildSettings,
         build: Effect.Effect<LoomModule>,
@@ -178,9 +192,7 @@ export class LoomDiskCache extends Context.Service<LoomDiskCache>()('LoomDiskCac
                       onSome: (module) => Effect.succeed(module),
                       onNone: () =>
                         build.pipe(
-                          Effect.tap((module) =>
-                            Effect.sync(() => keep(workspace, file, key, module)),
-                          ),
+                          Effect.tap((module) => keep(saved, workspace, file, key, module)),
                         ),
                     }),
                   ),
@@ -197,7 +209,7 @@ export class LoomDiskCache extends Context.Service<LoomDiskCache>()('LoomDiskCac
 
 ## What the module draws on
 
-Effect supplies the service, its layer, and `Array`, `Option` and `pipe` for the steps. Node's `crypto` hashes the keys and the file names, its `fs` reads, writes and renames the kept files and lists the source folders, and its `path` and `url` build the paths. The corpus model gives `LoomModule` and `Path`, the product model gives the `Code`, `Part` and `SectionId` that `revived` walks, `Source` is the seam the builder reads a loom through, and `BuildSettings` carries the settings a key covers. `serviceVersion` names the running Loom.
+Effect supplies the service, its layer, and `Array`, `Option` and `pipe` for the steps. Node's `crypto` hashes the keys and the file names, its `fs` reads, writes and renames the kept files and lists the source folders, and its `path` and `url` build the paths. The corpus model gives `LoomModule` and `Path`, the product model gives the `Code`, `Part` and `SectionId` that `revived` walks, `Source` is the seam the builder reads a loom through, and the seam `keep` reads a loom's saved text through, and `BuildSettings` carries the settings a key covers. `serviceVersion` names the running Loom.
 
 =>
 

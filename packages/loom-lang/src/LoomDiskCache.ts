@@ -107,10 +107,8 @@ const recall = (file: string, key: string, path: Path, text: string): Option.Opt
     Option.map((kept) => revived(kept.module)),
   )
 
-const keep = (workspace: string, file: string, key: string, module: LoomModule): void => {
-  const saved = Option.liftThrowable(() => readFileSync(module.path, 'utf8'))()
-  if (!Option.contains(saved, module.text)) return
-  Option.liftThrowable(() => {
+const write = (workspace: string, file: string, key: string, module: LoomModule): void =>
+  void Option.liftThrowable(() => {
     const cacheDir = cacheDirOf(workspace)
     mkdirSync(dirname(file), { recursive: true })
     if (!existsSync(join(cacheDir, '.gitignore'))) writeFileSync(join(cacheDir, '.gitignore'), '*\n')
@@ -118,7 +116,22 @@ const keep = (workspace: string, file: string, key: string, module: LoomModule):
     writeFileSync(draft, JSON.stringify({ key, module } satisfies KeptModule))
     renameSync(draft, file)
   })()
-}
+
+const keep = (
+  saved: Source,
+  workspace: string,
+  file: string,
+  key: string,
+  module: LoomModule,
+): Effect.Effect<void> =>
+  saved.read(module.path).pipe(
+    Effect.option,
+    Effect.flatMap((text) =>
+      Option.contains(text, module.text)
+        ? Effect.sync(() => write(workspace, file, key, module))
+        : Effect.void,
+    ),
+  )
 
 export class LoomDiskCache extends Context.Service<LoomDiskCache>()('LoomDiskCache', {
   make: Effect.gen(function* () {
@@ -126,6 +139,7 @@ export class LoomDiskCache extends Context.Service<LoomDiskCache>()('LoomDiskCac
     return {
       through: (
         source: Source,
+        saved: Source,
         path: Path,
         settings: BuildSettings,
         build: Effect.Effect<LoomModule>,
@@ -143,9 +157,7 @@ export class LoomDiskCache extends Context.Service<LoomDiskCache>()('LoomDiskCac
                       onSome: (module) => Effect.succeed(module),
                       onNone: () =>
                         build.pipe(
-                          Effect.tap((module) =>
-                            Effect.sync(() => keep(workspace, file, key, module)),
-                          ),
+                          Effect.tap((module) => keep(saved, workspace, file, key, module)),
                         ),
                     }),
                   ),

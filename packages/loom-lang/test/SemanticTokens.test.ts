@@ -38,6 +38,7 @@ const TestDocs = Layer.succeed(DocumentSource, {
   read: (path: string) => Effect.succeed(files[path] ?? ''),
   list: Option.some(() => Effect.succeed(Object.keys(files))),
   hold: () => Effect.void,
+  forget: () => Effect.void,
 })
 
 const TestConfig = Layer.succeed(PackageConfig, {

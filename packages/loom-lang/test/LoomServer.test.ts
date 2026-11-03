@@ -11,6 +11,7 @@ import { Array, Cache, Effect, Layer, Ref, Result, Semaphore } from 'effect'
 import { LoomConfig } from '@athrio/loom-config/LoomConfig'
 import { DocumentSource, LoomCompiler } from '../src/LoomCompiler'
 import { PackageConfig } from '../src/PackageConfig'
+import { FileSystemSource } from '../src/WorkspaceSource'
 import type { LanguageServer, LanguageServerProject, LanguageServicePlugin } from '@volar/language-server/node'
 import { URI } from 'vscode-uri'
 import {
@@ -594,11 +595,22 @@ describe('LoomServer — the pass piece by piece', () => {
     const saved = chapterAt(folder, 'saved.loom', chapter('Saved', 'const saved = 1'))
     const uri = URI.file(saved)
     const gone = URI.file(join(folder, 'corpus', 'gone.loom'))
-    expect(closeOf(uri, chapter('Saved', 'const saved = 1'))).toEqual([])
-    expect(closeOf(uri, chapter('Saved', 'const saved = 2'))).toEqual([
+    const closed = (loom: URI, text: string) =>
+      Effect.runSync(
+        closeOf(loom, text).pipe(
+          Effect.provide(
+            Layer.mergeAll(FileSystemSource, DocumentSource.layer).pipe(
+              Layer.provide(PackageConfig.layer),
+              Layer.provide(LoomConfig.layer),
+            ),
+          ),
+        ),
+      )
+    expect(closed(uri, chapter('Saved', 'const saved = 1'))).toEqual([])
+    expect(closed(uri, chapter('Saved', 'const saved = 2'))).toEqual([
       { uri: uri.toString(), type: FileChangeType.Changed },
     ])
-    expect(closeOf(gone, chapter('Gone', 'const gone = 1'))).toEqual([
+    expect(closed(gone, chapter('Gone', 'const gone = 1'))).toEqual([
       { uri: gone.toString(), type: FileChangeType.Deleted },
     ])
   })
