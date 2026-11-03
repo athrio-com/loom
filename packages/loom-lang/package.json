@@ -1,6 +1,6 @@
 {
   "name": "@athrio/loom-lang",
-  "version": "0.0.17",
+  "version": "0.0.18",
   "license": "MIT",
   "main": "./dist/loom-server.js",
   "bin": {
